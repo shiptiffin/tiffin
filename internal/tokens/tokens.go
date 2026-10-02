@@ -89,6 +89,12 @@ func (p *Principal) Has(s Scope) bool {
 	return false
 }
 
+// BoxAdmin reports whether p administers the whole box: every scope on
+// every project. Only box admins see all tokens and the audit log.
+func (p *Principal) BoxAdmin() bool {
+	return slices.Contains(p.Scopes, ScopeAll) && slices.Contains(p.Projects, "*")
+}
+
 // CanProject reports whether p may act on project.
 func (p *Principal) CanProject(project string) bool {
 	return slices.Contains(p.Projects, "*") || slices.Contains(p.Projects, project)
@@ -348,7 +354,7 @@ func (m *Manager) Revoke(ctx context.Context, by *Principal, id string) error {
 	if t.Kind == KindOwner {
 		return fmt.Errorf("%w: the owner token is rotated with `tiffin token rotate-owner`, not revoked", ErrForbidden)
 	}
-	if !by.Has(ScopeAll) && t.Sponsor != by.TokenID {
+	if !by.BoxAdmin() && t.Sponsor != by.TokenID {
 		return fmt.Errorf("%w: token %q was not minted by %q", ErrForbidden, t.Name, by.Name)
 	}
 	if t.RevokedAt != nil {

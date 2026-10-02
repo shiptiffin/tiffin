@@ -7,6 +7,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"slices"
 	"sort"
@@ -429,18 +430,26 @@ func (a *API) register() {
 		}))
 
 	huma.Register(api, op("tokens-list", http.MethodGet, "/v1/tokens", "tokens list", RiskRead, "List tokens",
-		"Active tokens (secrets are never shown).", "tokens"),
+		"Active tokens (secrets are never shown). Box admins see all; others see the tokens they minted.", "tokens"),
 		wrap(func(ctx context.Context, in *struct {
 			Revoked bool `query:"revoked" doc:"Include revoked tokens"`
 		}) (*struct{ Body []*tokens.Token }, error) {
-			if err := PrincipalFrom(ctx).Require(tokens.ScopeTokens, ""); err != nil {
+			p := PrincipalFrom(ctx)
+			if err := p.Require(tokens.ScopeTokens, ""); err != nil {
 				return nil, err
 			}
-			ts, err := a.deps.Tokens.List(ctx, in.Revoked)
-			if ts == nil {
-				ts = []*tokens.Token{}
+			all, err := a.deps.Tokens.List(ctx, in.Revoked)
+			if err != nil {
+				return nil, err
 			}
-			return &struct{ Body []*tokens.Token }{ts}, err
+			// Box admins see every token; everyone else only what they minted.
+			ts := []*tokens.Token{}
+			for _, t := range all {
+				if p.BoxAdmin() || t.Sponsor == p.TokenID {
+					ts = append(ts, t)
+				}
+			}
+			return &struct{ Body []*tokens.Token }{ts}, nil
 		}))
 
 	huma.Register(api, op("token-create", http.MethodPost, "/v1/tokens", "tokens create", RiskWrite, "Create a token",
@@ -469,12 +478,12 @@ func (a *API) register() {
 		}))
 
 	huma.Register(api, op("audit-list", http.MethodGet, "/v1/audit", "audit list", RiskRead, "List audit events",
-		"Security events that are not changes: tokens minted and revoked.", "system"),
+		"Security events that are not changes: tokens minted and revoked. Box admins only.", "system"),
 		wrap(func(ctx context.Context, in *struct {
 			Limit int `query:"limit" minimum:"1" maximum:"500" default:"50"`
 		}) (*struct{ Body []state.AuditEvent }, error) {
-			if err := PrincipalFrom(ctx).Require(tokens.ScopeTokens, ""); err != nil {
-				return nil, err
+			if p := PrincipalFrom(ctx); !p.BoxAdmin() {
+				return nil, fmt.Errorf("%w: the audit log needs a box-admin token (scope * on all projects)", tokens.ErrForbidden)
 			}
 			ev, err := a.deps.DB.AuditLog(ctx, in.Limit)
 			if ev == nil {

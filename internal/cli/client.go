@@ -60,12 +60,44 @@ func openBox(ctx context.Context, home string) (b *box, newOwner string, err err
 
 func (b *box) Close() error { return b.db.Close() }
 
+// readOwnerToken reads the owner token file. A process that lost the race to
+// bootstrap a fresh box may get here before the winner has written the file,
+// so it waits briefly for it to appear.
 func readOwnerToken(home string) string {
-	raw, err := os.ReadFile(filepath.Join(home, ownerTokenFile))
-	if err != nil {
-		return ""
+	for i := 0; i < 40; i++ {
+		raw, err := os.ReadFile(filepath.Join(home, ownerTokenFile))
+		if err == nil && len(strings.TrimSpace(string(raw))) > 0 {
+			return strings.TrimSpace(string(raw))
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	return strings.TrimSpace(string(raw))
+	return ""
+}
+
+const agentTokenFile = "agent-token"
+
+// agentToken returns the box's local agent token, minting (or re-minting
+// once expired or revoked) a 30-day token with the default agent scopes.
+func (b *box) agentToken(ctx context.Context) (string, error) {
+	path := filepath.Join(b.home, agentTokenFile)
+	if raw, err := os.ReadFile(path); err == nil {
+		s := strings.TrimSpace(string(raw))
+		if _, err := b.tokens.Authenticate(ctx, s); err == nil {
+			return s, nil
+		}
+	}
+	owner, err := b.tokens.Authenticate(ctx, readOwnerToken(b.home))
+	if err != nil {
+		return "", fmt.Errorf("cannot mint the local agent token: owner token unavailable (%v); set TIFFIN_TOKEN", err)
+	}
+	secret, _, err := b.tokens.Create(ctx, owner, tokens.CreateRequest{Name: "local-agent", Kind: tokens.KindAgent})
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(secret+"\n"), 0o600); err != nil {
+		return "", err
+	}
+	return secret, nil
 }
 
 // client talks to the API: in-process for a local box, over HTTP otherwise.

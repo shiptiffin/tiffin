@@ -56,7 +56,8 @@ func (a *app) loadManifest(target string) (json.RawMessage, string, error) {
 	}
 	env := map[string]string{}
 	for _, kv := range os.Environ() {
-		if k, v, ok := strings.Cut(kv, "="); ok {
+		// Tiffin's own settings (TIFFIN_TOKEN above all) never reach the config.
+		if k, v, ok := strings.Cut(kv, "="); ok && !strings.HasPrefix(k, "TIFFIN_") {
 			env[k] = v
 		}
 	}
@@ -228,8 +229,11 @@ func (a *app) serveCmd() *cobra.Command {
 			base := "http://" + ln.Addr().String()
 			fmt.Fprintf(a.io.Err, "tiffin %s serving %s (API %s/v1, MCP %s/mcp, data %s)\n", version.Version, base, base, base, a.home)
 			if fresh != "" {
-				fmt.Fprintf(a.io.Err, "\nOwner token (shown once, also saved to %s):\n  %s\n\nConnect Claude Code:\n  claude mcp add --transport http tiffin %s/mcp --header \"Authorization: Bearer <token>\"\n\n",
-					filepath.Join(a.home, ownerTokenFile), fresh, base)
+				fmt.Fprintf(a.io.Err, "\nOwner token (shown once, also saved to %s):\n  %s\n\n"+
+					"Give agents their own token, never this one. It can plan and make reversible changes only:\n"+
+					"  TIFFIN_TOKEN=<owner token> tiffin --url %s tokens create --name claude-code\n"+
+					"  claude mcp add --transport http tiffin %s/mcp --header \"Authorization: Bearer <agent token>\"\n\n",
+					filepath.Join(a.home, ownerTokenFile), fresh, base, base)
 			}
 			errc := make(chan error, 1)
 			go func() { errc <- hs.Serve(ln) }()
@@ -266,7 +270,8 @@ func (a *app) mcpCmd() *cobra.Command {
 		Short: "Run an MCP server on stdio",
 		Long: "Speaks MCP over stdin/stdout, for agents that launch tools as subprocesses:\n" +
 			"  claude mcp add tiffin -- tiffin mcp\n" +
-			"With TIFFIN_URL set it proxies to that box; otherwise it serves the local box in --home.",
+			"With TIFFIN_URL set it proxies to that box; otherwise it serves the local box in --home.\n" +
+			"Without TIFFIN_TOKEN it uses a local agent token (read, plan, apply:reversible), never the owner token.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
@@ -287,7 +292,13 @@ func (a *app) mcpCmd() *cobra.Command {
 				defer b.Close()
 				h = b.api.Handler()
 				if token == "" {
-					token = readOwnerToken(a.home)
+					// Agents never get the owner token implicitly: they get a
+					// local agent token that cannot apply irreversible plans.
+					t, err := b.agentToken(ctx)
+					if err != nil {
+						return err
+					}
+					token = t
 				}
 			}
 			if token == "" {

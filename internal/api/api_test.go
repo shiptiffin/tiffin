@@ -303,3 +303,31 @@ func TestEveryOperationIsAnnotated(t *testing.T) {
 		t.Fatalf("only %d operations", len(seen))
 	}
 }
+
+func TestTokenAdminRespectsProjectScope(t *testing.T) {
+	e := newEnv(t)
+	// A delegate that may mint tokens, but only for "blog".
+	code, out, _ := e.call(e.owner, "POST", "/v1/tokens", map[string]any{"name": "blog-lead", "scopes": []string{"*"}, "projects": []string{"blog"}})
+	if code != 200 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	lead := out["secret"].(string)
+	other := e.agent(nil, []string{"shop"}) // minted by the owner
+	_, who, _ := e.call(other, "GET", "/v1/whoami", nil)
+
+	_, _, list := e.call(lead, "GET", "/v1/tokens", nil)
+	if len(list) != 0 {
+		t.Fatalf("project-limited admin sees tokens it did not mint: %v", list)
+	}
+	if code, _, _ := e.call(lead, "GET", "/v1/audit", nil); code != 403 {
+		t.Fatalf("project-limited admin reads audit: %d", code)
+	}
+	if code, _, _ := e.call(lead, "DELETE", "/v1/tokens/"+who["tokenId"].(string), nil); code != 403 {
+		t.Fatalf("project-limited admin revokes a foreign token: %d", code)
+	}
+	// It does see and manage what it minted.
+	e.call(lead, "POST", "/v1/tokens", map[string]any{"name": "blog-bot"})
+	if _, _, list := e.call(lead, "GET", "/v1/tokens", nil); len(list) != 1 {
+		t.Fatalf("lead should see its own token: %v", list)
+	}
+}

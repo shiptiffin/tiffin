@@ -270,3 +270,47 @@ func TestOnlyConfirmableCommandsPromiseDryRun(t *testing.T) {
 		t.Errorf("changes undo help lost its dry-run note:\n%s", out)
 	}
 }
+
+func TestLocalAgentTokenIsNotOwner(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "box")
+	b, _, err := openBox(t.Context(), home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	s1, err := b.agentToken(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := b.tokens.Authenticate(t.Context(), s1)
+	if err != nil || p.Kind != "agent" || p.BoxAdmin() || p.Has("apply:irreversible") || p.ExpiresAt == nil {
+		t.Fatalf("local agent token too powerful: %+v %v", p, err)
+	}
+	if s1 == readOwnerToken(home) {
+		t.Fatal("agent token is the owner token")
+	}
+	if s2, _ := b.agentToken(t.Context()); s2 != s1 {
+		t.Fatal("agent token should be reused while valid")
+	}
+	if fi, _ := os.Stat(filepath.Join(home, agentTokenFile)); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("agent-token mode %o", fi.Mode().Perm())
+	}
+}
+
+func TestTiffinEnvNeverReachesConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfg := `export default { project: "leak", env: { T: process.env.TIFFIN_TOKEN ?? "none", H: process.env.HOME_MARKER ?? "none" } }`
+	if err := os.WriteFile(filepath.Join(dir, "tiffin.config.ts"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TIFFIN_TOKEN", "tfn_secret")
+	t.Setenv("HOME_MARKER", "visible")
+	a := &app{}
+	raw, _, err := a.loadManifest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "tfn_secret") || !strings.Contains(string(raw), "visible") {
+		t.Fatalf("env filtering wrong: %s", raw)
+	}
+}
