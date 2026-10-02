@@ -1,0 +1,10 @@
+{
+  "name": "tiffin-monorepo",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "devDependencies": {
+    "@types/bun": "latest",
+    "tiffin-sdk": "workspace:*",
+    "typescript": "^5.9.0"
+  }
+}

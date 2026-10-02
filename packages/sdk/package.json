@@ -1,0 +1,24 @@
+{
+  "name": "tiffin-sdk",
+  "version": "0.0.0",
+  "description": "Config types and helpers for Tiffin, the agent-first app-in-a-box platform.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "files": ["src"],
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./config": {
+      "types": "./src/config.ts",
+      "default": "./src/config.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "bun test"
+  }
+}
