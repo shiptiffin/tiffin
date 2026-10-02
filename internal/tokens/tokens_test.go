@@ -181,3 +181,35 @@ func TestExpiryAndRevokeCascade(t *testing.T) {
 		t.Errorf("list: active=%d all=%d", len(active), len(all))
 	}
 }
+
+// A delegating agent must not mint tokens that outlive it, and must not mint
+// "human" tokens (which never need to expire and are logged as humans).
+func TestMintedTokensCannotOutliveOrOutrankSponsor(t *testing.T) {
+	m, owner, _ := setup(t)
+	ctx := context.Background()
+	sec, lead, err := m.Create(ctx, owner, CreateRequest{Name: "lead", Scopes: []Scope{ScopeTokens, ScopeRead}, TTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	leadP, _ := m.Authenticate(ctx, sec)
+	if _, _, err := m.Create(ctx, leadP, CreateRequest{Name: "forever", Kind: KindHuman, Scopes: []Scope{ScopeRead}}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("agent minted a human token: %v", err)
+	}
+	_, child, err := m.Create(ctx, leadP, CreateRequest{Name: "child", Scopes: []Scope{ScopeRead}, TTL: 300 * 24 * time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.ExpiresAt == nil || child.ExpiresAt.After(*lead.ExpiresAt) {
+		t.Fatalf("child expires %v, after sponsor %v", child.ExpiresAt, lead.ExpiresAt)
+	}
+	// An expiring human token likewise cannot mint a never-expiring one.
+	hsec, h, _ := m.Create(ctx, owner, CreateRequest{Name: "temp-human", Kind: KindHuman, Scopes: []Scope{ScopeTokens, ScopeRead}, TTL: time.Hour})
+	hp, _ := m.Authenticate(ctx, hsec)
+	_, hc, err := m.Create(ctx, hp, CreateRequest{Name: "h-child", Kind: KindHuman, Scopes: []Scope{ScopeRead}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hc.ExpiresAt == nil || hc.ExpiresAt.After(*h.ExpiresAt) {
+		t.Fatalf("human child expires %v, after sponsor %v", hc.ExpiresAt, h.ExpiresAt)
+	}
+}

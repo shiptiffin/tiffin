@@ -66,7 +66,10 @@ type Principal struct {
 	Scopes   []Scope  `json:"scopes"`
 	Projects []string `json:"projects"` // ["*"] means all
 	Sponsor  string   `json:"sponsor,omitempty"`
-	Session  string   `json:"session,omitempty"` // agent session label, set per request
+	// ExpiresAt is when the token stops working; nil means never. Tokens it
+	// mints never outlive it.
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	Session   string     `json:"session,omitempty"` // agent session label, set per request
 }
 
 // Has reports whether p holds scope s, directly or via the ladder.
@@ -224,6 +227,11 @@ func (m *Manager) Create(ctx context.Context, by *Principal, req CreateRequest) 
 	if req.Kind != KindAgent && req.Kind != KindHuman {
 		return "", nil, fmt.Errorf("%w: kind must be %q or %q", ErrInvalid, KindAgent, KindHuman)
 	}
+	// An agent minting a "human" token would launder its changes as a
+	// human's in the change log and escape the agent expiry rule.
+	if by.Kind == KindAgent && req.Kind != KindAgent {
+		return "", nil, fmt.Errorf("%w: agent tokens can only mint agent tokens", ErrForbidden)
+	}
 	if len(req.Scopes) == 0 {
 		req.Scopes = []Scope{ScopeRead, ScopePlan, ScopeApplyReversible}
 	}
@@ -265,6 +273,12 @@ func (m *Manager) Create(ctx context.Context, by *Principal, req CreateRequest) 
 	}
 	if req.TTL > 0 {
 		exp := now.Add(req.TTL)
+		t.ExpiresAt = &exp
+	}
+	// A token never outlives its sponsor: expiry of the sponsor does not
+	// cascade like revocation does, so clamp instead.
+	if by.ExpiresAt != nil && (t.ExpiresAt == nil || t.ExpiresAt.After(*by.ExpiresAt)) {
+		exp := by.ExpiresAt.UTC()
 		t.ExpiresAt = &exp
 	}
 	secret := newSecret()
@@ -315,7 +329,7 @@ func (m *Manager) Authenticate(ctx context.Context, secret string) (*Principal, 
 	if t.LastUsedAt == nil || now.Sub(*t.LastUsedAt) > time.Minute {
 		_, _ = m.db.SQL().ExecContext(ctx, `UPDATE tokens SET last_used_at = ? WHERE id = ?`, ts(&now), t.ID)
 	}
-	return &Principal{TokenID: t.ID, Name: t.Name, Kind: t.Kind, Scopes: t.Scopes, Projects: t.Projects, Sponsor: t.Sponsor}, nil
+	return &Principal{TokenID: t.ID, Name: t.Name, Kind: t.Kind, Scopes: t.Scopes, Projects: t.Projects, Sponsor: t.Sponsor, ExpiresAt: t.ExpiresAt}, nil
 }
 
 // Revoke revokes token id. Owners can revoke any token; others only tokens
