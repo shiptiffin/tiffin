@@ -1,0 +1,109 @@
+{
+  "baseVersion": 0,
+  "hash": "6b4bc0a464126bd6e245158976ce76185b595e3115315f05ee4c8e50aa0b7e4d",
+  "ops": [
+    {
+      "action": "create",
+      "address": "project",
+      "after": {},
+      "reason": "new project; undo deletes it",
+      "risk": "reversible"
+    },
+    {
+      "action": "create",
+      "address": "service/postgres",
+      "after": {
+        "extensions": [
+          "vector"
+        ]
+      },
+      "reason": "new postgres service; undo deletes it",
+      "risk": "reversible"
+    },
+    {
+      "action": "create",
+      "address": "service/storage",
+      "after": {},
+      "reason": "new storage service; undo deletes it",
+      "risk": "reversible"
+    },
+    {
+      "action": "create",
+      "address": "service/valkey",
+      "after": {
+        "maxMemoryMB": 128
+      },
+      "reason": "new valkey service; undo deletes it",
+      "risk": "reversible"
+    },
+    {
+      "action": "create",
+      "address": "bucket/uploads",
+      "after": {
+        "public": true
+      },
+      "reason": "new bucket uploads; undo deletes it",
+      "risk": "reversible"
+    },
+    {
+      "action": "create",
+      "address": "env/LOG_LEVEL",
+      "after": "info",
+      "reason": "new env var LOG_LEVEL; undo deletes it",
+      "risk": "reversible"
+    },
+    {
+      "action": "create",
+      "address": "app/api",
+      "after": {
+        "env": {
+          "CORS_ORIGIN": "https://hello"
+        },
+        "framework": "hono",
+        "healthcheck": "/healthz",
+        "instances": 2,
+        "memoryMB": 512,
+        "path": "apps/api",
+        "role": "web",
+        "routes": [
+          "hello/api"
+        ]
+      },
+      "reason": "new app api; undo deletes it",
+      "risk": "reversible"
+    },
+    {
+      "action": "create",
+      "address": "app/web",
+      "after": {
+        "framework": "next",
+        "healthcheck": "/",
+        "instances": 1,
+        "memoryMB": 1024,
+        "path": "apps/web",
+        "role": "web",
+        "routes": [
+          "hello"
+        ]
+      },
+      "reason": "new app web; undo deletes it",
+      "risk": "reversible"
+    },
+    {
+      "action": "create",
+      "address": "app/worker",
+      "after": {
+        "framework": "bun",
+        "instances": 1,
+        "memoryMB": 256,
+        "path": "apps/worker",
+        "role": "worker"
+      },
+      "reason": "new app worker; undo deletes it",
+      "risk": "reversible"
+    }
+  ],
+  "project": "hello",
+  "risk": "reversible",
+  "summary": "9 to create, 0 to update, 0 to delete (reversible)"
+}

@@ -16,6 +16,9 @@ import (
 
 var update = flag.Bool("update", false, "rewrite golden files in testdata/")
 
+// updateGolden reports whether to rewrite goldens (-update or UPDATE_GOLDEN=1).
+func updateGolden() bool { return *update || os.Getenv("UPDATE_GOLDEN") != "" }
+
 // TestGolden evaluates every testdata/<case>/tiffin.config.ts and compares the
 // canonical JSON (want.json) or the error text (want.err). An optional
 // env.json provides process.env.
@@ -53,7 +56,7 @@ func testGoldenCase(t *testing.T, dir string) {
 	} else {
 		got, path, other = canon, wantJSON, wantErr
 	}
-	if *update {
+	if updateGolden() {
 		if werr := os.WriteFile(path, got, 0o644); werr != nil {
 			t.Fatal(werr)
 		}
@@ -80,7 +83,7 @@ func TestExamples(t *testing.T) {
 		t.Fatalf("examples/hello: %v", err)
 	}
 	golden := filepath.Join("testdata", "examples-hello.want.json")
-	if *update {
+	if updateGolden() {
 		if err := os.WriteFile(golden, canon, 0o644); err != nil {
 			t.Fatal(err)
 		}

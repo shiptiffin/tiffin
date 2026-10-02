@@ -47,7 +47,9 @@ func FromHeader(_ context.Context, req *sdk.CallToolRequest) string {
 
 // Static always uses token.
 func Static(token string) TokenFunc {
-	return func(context.Context, *sdk.CallToolRequest) string { return "Bearer " + strings.TrimPrefix(token, "Bearer ") }
+	return func(context.Context, *sdk.CallToolRequest) string {
+		return "Bearer " + strings.TrimPrefix(token, "Bearer ")
+	}
 }
 
 // Tool is a generated tool plus the routing needed to call the API.
@@ -59,10 +61,10 @@ type Tool struct {
 }
 
 // NewServer builds an MCP server exposing every API operation as a tool.
-func NewServer(a *api.API, version string, token TokenFunc) *sdk.Server {
+// Calls go to h: the API's own handler in-process, or a proxy to a remote box.
+func NewServer(a *api.API, h http.Handler, version string, token TokenFunc) *sdk.Server {
 	s := sdk.NewServer(&sdk.Implementation{Name: "tiffin", Title: "Tiffin", Version: version},
 		&sdk.ServerOptions{Instructions: Instructions})
-	h := a.Handler()
 	for _, t := range Tools(a) {
 		t := t
 		s.AddTool(t.Tool, func(ctx context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {

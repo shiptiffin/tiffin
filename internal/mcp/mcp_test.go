@@ -33,7 +33,7 @@ func connect(t *testing.T, scopes ...tokens.Scope) *sdk.ClientSession {
 		}
 	}
 	a := api.New(api.Deps{DB: db, Engine: change.NewEngine(db), Tokens: tm, Version: "test"})
-	srv := tmcp.NewServer(a, "test", tmcp.Static(secret))
+	srv := tmcp.NewServer(a, a.Handler(), "test", tmcp.Static(secret))
 	st, ct := sdk.NewInMemoryTransports()
 	if _, err := srv.Connect(ctx, st, nil); err != nil {
 		t.Fatal(err)

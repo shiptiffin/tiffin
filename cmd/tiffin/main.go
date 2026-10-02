@@ -1,18 +1,13 @@
-// Command tiffin is a placeholder entrypoint; the real CLI replaces it.
+// Command tiffin is the single Tiffin binary: CLI, box server and MCP server.
 package main
 
 import (
-	"fmt"
+	"context"
 	"os"
 
-	"github.com/btahir/tiffin/internal/version"
+	"github.com/btahir/tiffin/internal/cli"
 )
 
 func main() {
-	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "--version") {
-		fmt.Println(version.String())
-		return
-	}
-	fmt.Fprintln(os.Stderr, "tiffin: pre-alpha; try `tiffin version`")
-	os.Exit(1)
+	os.Exit(cli.Execute(context.Background(), os.Args[1:], cli.IO{Out: os.Stdout, Err: os.Stderr}))
 }
