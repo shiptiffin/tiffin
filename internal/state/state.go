@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/ncruces/go-sqlite3"
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
@@ -36,13 +37,16 @@ func Open(path string) (*DB, error) {
 		}
 		dsn = "file:" + (&url.URL{Path: path}).EscapedPath()
 	}
-	dsn += sep(dsn) + "_txlock=immediate&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=journal_mode(wal)&_pragma=synchronous(normal)"
+	dsn += sep(dsn) + "_txlock=immediate&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_pragma=synchronous(normal)"
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, err
 	}
 	if path == ":memory:" {
 		db.SetMaxOpenConns(1) // one connection keeps the in-memory db alive and shared
+	} else if err := enableWAL(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("state db: enable WAL: %w", err)
 	}
 	s := &DB{sql: db}
 	if err := s.migrate(context.Background()); err != nil {
@@ -53,6 +57,25 @@ func Open(path string) (*DB, error) {
 		_ = os.Chmod(path, 0o600)
 	}
 	return s, nil
+}
+
+// enableWAL switches the database to WAL mode (persistent in the file).
+// Switching needs an exclusive lock and SQLite does not run the busy handler
+// for it, so several processes opening a fresh box at once would fail with
+// "database is locked"; retry for up to the busy timeout instead.
+func enableWAL(db *sql.DB) error {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var mode string
+		err := db.QueryRow(`PRAGMA journal_mode=wal`).Scan(&mode)
+		if err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) || !errors.Is(err, sqlite3.BUSY) {
+			return err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func sep(dsn string) string {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -211,5 +213,36 @@ func TestMintedTokensCannotOutliveOrOutrankSponsor(t *testing.T) {
 	}
 	if hc.ExpiresAt == nil || hc.ExpiresAt.After(*h.ExpiresAt) {
 		t.Fatalf("human child expires %v, after sponsor %v", hc.ExpiresAt, h.ExpiresAt)
+	}
+}
+
+// Several processes opening a fresh box at once must create one owner token,
+// not several (all but one of which would be valid secrets nobody holds).
+func TestConcurrentBootstrapCreatesOneOwner(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	var wg sync.WaitGroup
+	var created atomic.Int32
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			db, err := state.Open(path)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			defer db.Close()
+			_, ok, err := NewManager(db).Bootstrap(context.Background())
+			if err != nil {
+				t.Error(err)
+			}
+			if ok {
+				created.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if n := created.Load(); n != 1 {
+		t.Fatalf("%d owner tokens created", n)
 	}
 }

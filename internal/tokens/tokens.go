@@ -194,17 +194,20 @@ func hash(secret string) []byte {
 // Bootstrap creates the owner token if the box has none. It returns the new
 // secret and true, or "" and false if an owner token already exists.
 func (m *Manager) Bootstrap(ctx context.Context) (string, bool, error) {
-	var n int
-	if err := m.db.SQL().QueryRowContext(ctx,
-		`SELECT count(*) FROM tokens WHERE kind = ? AND revoked_at IS NULL`, KindOwner).Scan(&n); err != nil {
-		return "", false, err
-	}
-	if n > 0 {
-		return "", false, nil
-	}
 	secret := newSecret()
 	t := &Token{ID: ids.New("tok"), Name: "owner", Kind: KindOwner, Scopes: []Scope{ScopeAll}, Projects: []string{"*"}, CreatedAt: m.now().UTC()}
-	if err := m.insert(ctx, t, secret); err != nil {
+	scopes, _ := json.Marshal(t.Scopes)
+	projects, _ := json.Marshal(t.Projects)
+	// One statement, so processes opening a fresh box at once cannot each
+	// see "no owner" and mint one.
+	res, err := m.db.SQL().ExecContext(ctx, `INSERT INTO tokens(id, name, kind, hash, scopes, projects, created_at)
+		SELECT ?, ?, ?, ?, ?, ?, ?
+		WHERE NOT EXISTS (SELECT 1 FROM tokens WHERE kind = ? AND revoked_at IS NULL)`,
+		t.ID, t.Name, t.Kind, hash(secret), string(scopes), string(projects), ts(&t.CreatedAt), KindOwner)
+	if err != nil {
+		return "", false, err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
 		return "", false, err
 	}
 	_ = m.db.Audit(ctx, "system", "token.bootstrap", t.ID, map[string]any{"name": t.Name})
