@@ -112,6 +112,7 @@ func TestExitCodes(t *testing.T) {
 		{"remote without token", map[string]string{"TIFFIN_URL": "http://127.0.0.1:1", "TIFFIN_TOKEN": ""}, []string{"whoami"}, ExitAuth},
 		{"remote unreachable", map[string]string{"TIFFIN_URL": "http://127.0.0.1:1", "TIFFIN_TOKEN": "tfn_x"}, []string{"whoami"}, ExitError},
 		{"wrong arg count", nil, []string{"undo"}, ExitInvalid},
+		{"boolean query flag without a value", nil, []string{"tokens", "list", "--revoked"}, ExitOK},
 		{"unusable home is an error, not invalid input", map[string]string{"TIFFIN_HOME": filepath.Join(bad, "tiffin.config.ts", "box")}, []string{"whoami"}, ExitError},
 		{"apply ok", nil, []string{"apply", "testdata", "--confirm", hash}, ExitOK},
 		{"stale confirm after apply", nil, []string{"apply", "testdata", "--confirm", hash}, ExitOK}, // empty plan: nothing to confirm

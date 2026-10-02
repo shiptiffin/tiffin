@@ -101,6 +101,9 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string) *cob
 			def = fmt.Sprint(p.Schema.Default)
 		}
 		cmd.Flags().StringVar(v, flagName(p.Name), "", describe(p.Description, def))
+		if p.Schema != nil && p.Schema.Type == "boolean" {
+			cmd.Flags().Lookup(flagName(p.Name)).NoOptDefVal = "true" // --revoked means --revoked=true
+		}
 	}
 	var flags []bodyFlag
 	values := map[string]any{}
