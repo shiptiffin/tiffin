@@ -1,0 +1,1 @@
+/apps/worker/routes: worker apps cannot have routes (got "jobs", "jobs.example.com/x"); remove "routes" or set role to "web"

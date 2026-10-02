@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "project": "blog",
+  "apps": {
+    "web": {
+      "path": ".",
+      "framework": "next",
+      "role": "web",
+      "routes": [
+        "web"
+      ],
+      "instances": 1,
+      "memoryMB": 512,
+      "healthcheck": "/"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "project": "plain",
+  "apps": {
+    "api": {
+      "path": ".",
+      "framework": "hono",
+      "role": "web",
+      "routes": [
+        "api"
+      ],
+      "instances": 1,
+      "memoryMB": 512,
+      "healthcheck": "/"
+    }
+  },
+  "services": {
+    "valkey": {
+      "maxMemoryMB": 128
+    }
+  }
+}

@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tiffin.dev/schema/manifest-v1.json",
+  "title": "Tiffin manifest v1",
+  "description": "The project manifest: the evaluated form of tiffin.config.ts. Everything except `project` is optional; omitted fields get the defaults described on each property.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["project"],
+  "properties": {
+    "version": {
+      "description": "Version of the manifest format. Always 1. Default 1.",
+      "const": 1
+    },
+    "project": {
+      "description": "Project slug: a lowercase letter followed by up to 39 lowercase letters, digits or dashes (1-40 chars).",
+      "$ref": "#/$defs/slug"
+    },
+    "apps": {
+      "description": "Apps keyed by name. App names follow the same slug rules as `project`. An app is one deployable unit.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/slug" },
+      "additionalProperties": { "$ref": "#/$defs/app" }
+    },
+    "services": {
+      "description": "Box-provided backends the project uses. A service that is absent is not provisioned.",
+      "$ref": "#/$defs/services"
+    },
+    "env": {
+      "description": "Plain, non-secret environment variables shared by all apps. Secrets never live in the manifest; set them with `tiffin secrets`.",
+      "$ref": "#/$defs/env"
+    }
+  },
+  "$defs": {
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,39}$",
+      "description": "Lowercase letter followed by up to 39 lowercase letters, digits or dashes."
+    },
+    "env": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Z_][A-Z0-9_]*$",
+        "description": "Environment variable names are UPPER_SNAKE_CASE: letters A-Z, digits and underscores, not starting with a digit."
+      },
+      "additionalProperties": {
+        "type": "string",
+        "description": "Environment variable value. Must be a string."
+      }
+    },
+    "app": {
+      "description": "One deployable unit: a web app or a worker.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "Path to the app's source, relative to the manifest. Default \".\".",
+          "type": "string",
+          "minLength": 1
+        },
+        "framework": {
+          "description": "How the app is built and run. \"next\" = Next.js, \"hono\" = Hono on Bun, \"bun\" = any Bun server listening on $PORT, \"static\" = static files served directly by the proxy. Default \"bun\".",
+          "enum": ["next", "hono", "bun", "static"]
+        },
+        "role": {
+          "description": "What an instance does. \"web\" serves HTTP on its routes; \"worker\" only receives queue and workflow pushes and must not have routes. Default \"web\".",
+          "enum": ["web", "worker"]
+        },
+        "routes": {
+          "description": "Hostnames (optionally with a path prefix) this app serves, e.g. \"shop\" (expands to shop.<box domain>), \"example.com\", \"example.com/api\". Default: the app name. Workers must not have routes. Routes must be unique across all apps.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*(/[A-Za-z0-9._~/-]*)?$",
+            "description": "A hostname with an optional path prefix, e.g. \"shop\", \"example.com\" or \"example.com/api\"."
+          }
+        },
+        "instances": {
+          "description": "Number of instances to run, 1-16. Default 1.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "memoryMB": {
+          "description": "Memory cap per instance in MiB, 64-8192. Default 512.",
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 8192
+        },
+        "healthcheck": {
+          "description": "HTTP path polled to decide whether an instance is healthy. Default \"/\". Ignored for workers and static apps.",
+          "type": "string",
+          "pattern": "^/"
+        },
+        "env": {
+          "description": "App-specific plain environment variables, merged over the top-level `env`.",
+          "$ref": "#/$defs/env"
+        }
+      }
+    },
+    "services": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "postgres": {
+          "description": "Gives the project its own Postgres database. Provides DATABASE_URL to every app.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "extensions": {
+              "description": "Postgres extensions to enable, e.g. \"vector\", \"pg_cron\". Sorted and de-duplicated on normalization.",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]*$",
+                "description": "Extension name, lowercase."
+              }
+            }
+          }
+        },
+        "valkey": {
+          "description": "Gives the project a Valkey (Redis-compatible) key-value/cache namespace. Provides REDIS_URL to every app.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxMemoryMB": {
+              "description": "Cap on this project's share of Valkey memory in MiB, 1-65536. Default 64.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65536
+            }
+          }
+        },
+        "storage": {
+          "description": "Gives the project S3-compatible object storage buckets.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "buckets": {
+              "description": "Buckets keyed by name. Bucket names follow the same slug rules as `project`.",
+              "type": "object",
+              "propertyNames": { "$ref": "#/$defs/slug" },
+              "additionalProperties": {
+                "description": "One S3 bucket.",
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "public": {
+                    "description": "Public buckets are readable without a signature. Default false.",
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

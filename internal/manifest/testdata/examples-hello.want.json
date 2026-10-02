@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "project": "hello",
+  "apps": {
+    "api": {
+      "path": "apps/api",
+      "framework": "hono",
+      "role": "web",
+      "routes": [
+        "hello/api"
+      ],
+      "instances": 2,
+      "memoryMB": 512,
+      "healthcheck": "/healthz",
+      "env": {
+        "CORS_ORIGIN": "https://hello"
+      }
+    },
+    "web": {
+      "path": "apps/web",
+      "framework": "next",
+      "role": "web",
+      "routes": [
+        "hello"
+      ],
+      "instances": 1,
+      "memoryMB": 1024,
+      "healthcheck": "/"
+    },
+    "worker": {
+      "path": "apps/worker",
+      "framework": "bun",
+      "role": "worker",
+      "instances": 1,
+      "memoryMB": 256
+    }
+  },
+  "services": {
+    "postgres": {
+      "extensions": [
+        "vector"
+      ]
+    },
+    "valkey": {
+      "maxMemoryMB": 128
+    },
+    "storage": {
+      "buckets": {
+        "uploads": {
+          "public": true
+        }
+      }
+    }
+  },
+  "env": {
+    "LOG_LEVEL": "info"
+  }
+}

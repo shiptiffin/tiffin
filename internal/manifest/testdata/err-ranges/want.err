@@ -1,0 +1,12 @@
+/apps/a/instances: must be at least 1 (got 0)
+/apps/a/memoryMB: must be at least 64 (got 32)
+/apps/b/instances: must be at most 16 (got 17)
+/apps/b/memoryMB: must be at most 8192 (got 9000)
+/apps/c/framework: value must be one of 'next', 'hono', 'bun', 'static'
+/apps/c/instances: expected integer, got number
+/apps/c/role: value must be one of 'web', 'worker'
+/apps/d/healthcheck: "health" must start with "/"
+/apps/d/path: must not be empty
+/apps/d/routes/0: "bad route" must be a hostname with an optional path prefix, such as "shop", "example.com" or "example.com/api"
+/services/postgres/extensions/0: "Vector" must be a lowercase extension name such as "vector" or "pg_cron"
+/services/valkey/maxMemoryMB: must be at least 1 (got 0)

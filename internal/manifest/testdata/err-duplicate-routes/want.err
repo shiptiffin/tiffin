@@ -1,0 +1,2 @@
+/apps/b/routes/0: route "shared.com" is already used by app "a"; routes must be unique across apps
+/apps/d/routes/0: route "c" is already used by app "c"; routes must be unique across apps

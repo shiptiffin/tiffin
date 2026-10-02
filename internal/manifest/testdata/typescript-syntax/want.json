@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "project": "typed",
+  "apps": {
+    "api": {
+      "path": ".",
+      "framework": "hono",
+      "role": "web",
+      "routes": [
+        "api"
+      ],
+      "instances": 1,
+      "memoryMB": 256,
+      "healthcheck": "/"
+    },
+    "web": {
+      "path": ".",
+      "framework": "next",
+      "role": "web",
+      "routes": [
+        "web"
+      ],
+      "instances": 1,
+      "memoryMB": 2048,
+      "healthcheck": "/"
+    }
+  },
+  "env": {
+    "REGION": "eu"
+  }
+}

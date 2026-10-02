@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "project": "bundled",
+  "apps": {
+    "admin": {
+      "path": ".",
+      "framework": "next",
+      "role": "web",
+      "routes": [
+        "admin.example.com"
+      ],
+      "instances": 2,
+      "memoryMB": 768,
+      "healthcheck": "/"
+    },
+    "web": {
+      "path": ".",
+      "framework": "next",
+      "role": "web",
+      "routes": [
+        "www.example.com"
+      ],
+      "instances": 1,
+      "memoryMB": 768,
+      "healthcheck": "/"
+    }
+  }
+}

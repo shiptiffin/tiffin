@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "project": "shop",
+  "apps": {
+    "api": {
+      "path": "apps/api",
+      "framework": "hono",
+      "role": "web",
+      "routes": [
+        "example.com/api"
+      ],
+      "instances": 1,
+      "memoryMB": 512,
+      "healthcheck": "/healthz"
+    },
+    "docs": {
+      "path": "apps/docs",
+      "framework": "static",
+      "role": "web",
+      "routes": [
+        "docs"
+      ],
+      "instances": 1,
+      "memoryMB": 512
+    },
+    "jobs": {
+      "path": "apps/jobs",
+      "framework": "bun",
+      "role": "worker",
+      "instances": 1,
+      "memoryMB": 256
+    },
+    "web": {
+      "path": "apps/web",
+      "framework": "next",
+      "role": "web",
+      "routes": [
+        "shop",
+        "example.com"
+      ],
+      "instances": 2,
+      "memoryMB": 1024,
+      "healthcheck": "/",
+      "env": {
+        "NEXT_TELEMETRY_DISABLED": "1"
+      }
+    }
+  },
+  "services": {
+    "postgres": {
+      "extensions": [
+        "pg_cron",
+        "vector"
+      ]
+    },
+    "valkey": {
+      "maxMemoryMB": 64
+    },
+    "storage": {
+      "buckets": {
+        "public": {
+          "public": true
+        },
+        "uploads": {
+          "public": false
+        }
+      }
+    }
+  },
+  "env": {
+    "LOG_LEVEL": "info",
+    "SITE_NAME": "Shop & <Co>"
+  }
+}

@@ -1,0 +1,1 @@
+tiffin.config.ts: no usable default export; use `export default defineConfig({ ... })` with a JSON-serializable object

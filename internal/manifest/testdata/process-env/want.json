@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "project": "envy-prod",
+  "apps": {
+    "web": {
+      "path": ".",
+      "framework": "bun",
+      "role": "web",
+      "routes": [
+        "web"
+      ],
+      "instances": 1,
+      "memoryMB": 512,
+      "healthcheck": "/"
+    }
+  },
+  "env": {
+    "GREETING": "hi there",
+    "STAGE": "prod"
+  }
+}
