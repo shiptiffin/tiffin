@@ -3,6 +3,7 @@ package api_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -230,14 +231,24 @@ func TestAgentScopesEnforced(t *testing.T) {
 	if code, _, _ := e.call(agent, "GET", "/v1/changes/"+blogChange, nil); code != 404 {
 		t.Fatalf("other project's change must look missing: %d", code)
 	}
-	if code, _, _ := e.call(agent, "POST", "/v1/changes/"+blogChange+"/undo", map[string]any{}); code != 403 {
-		t.Fatalf("undo other project's change: %d", code)
+	if code, prob, _ := e.call(agent, "POST", "/v1/changes/"+blogChange+"/undo", map[string]any{}); code != 404 || strings.Contains(fmt.Sprint(prob), "blog") {
+		t.Fatalf("undo other project's change must look missing too: %d %v", code, prob)
 	}
 	_, _, list := e.call(agent, "GET", "/v1/changes", nil)
 	for _, c := range list {
 		if c.(map[string]any)["project"] != "shop" {
 			t.Fatalf("agent sees foreign change %v", c)
 		}
+	}
+	// Busy foreign projects must not crowd a scoped token's own changes out
+	// of the limit.
+	for _, v := range []string{"1", "2", "3"} {
+		bm := map[string]any{"project": "blog", "env": map[string]any{"V": v}, "services": map[string]any{"postgres": map[string]any{}}}
+		_, plan, _ := e.call(e.owner, "POST", "/v1/plan", map[string]any{"manifest": bm})
+		e.call(e.owner, "POST", "/v1/apply", map[string]any{"manifest": bm, "confirm": plan["hash"]})
+	}
+	if _, _, list := e.call(agent, "GET", "/v1/changes?limit=2", nil); len(list) != 2 || list[0].(map[string]any)["project"] != "shop" {
+		t.Fatalf("scoped token's change list: %v", list)
 	}
 	// No token admin, no escalation.
 	if code, _, _ := e.call(agent, "GET", "/v1/tokens", nil); code != 403 {

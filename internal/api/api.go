@@ -350,15 +350,32 @@ func (a *API) register() {
 			if err := p.Require(tokens.ScopeRead, in.Project); err != nil {
 				return nil, err
 			}
-			cs, err := a.deps.DB.ListChanges(ctx, change.ListFilter{Project: in.Project, Limit: in.Limit})
-			if err != nil {
-				return nil, err
+			// A token scoped to some projects lists each of them, so busy
+			// projects it cannot see don't use up the limit.
+			projects := []string{in.Project}
+			if in.Project == "" && !p.CanProject("*") {
+				projects = p.Projects
 			}
 			out := []*change.Change{}
-			for _, c := range cs {
-				if p.CanProject(c.Project) {
-					out = append(out, c)
+			for _, proj := range projects {
+				cs, err := a.deps.DB.ListChanges(ctx, change.ListFilter{Project: proj, Limit: in.Limit})
+				if err != nil {
+					return nil, err
 				}
+				for _, c := range cs {
+					if p.CanProject(c.Project) {
+						out = append(out, c)
+					}
+				}
+			}
+			if len(projects) > 1 {
+				slices.SortStableFunc(out, func(x, y *change.Change) int {
+					if c := y.At.Compare(x.At); c != 0 {
+						return c
+					}
+					return strings.Compare(y.ID, x.ID)
+				})
+				out = out[:min(len(out), max(in.Limit, 1))]
 			}
 			return &struct{ Body []*change.Change }{out}, nil
 		}))
@@ -393,6 +410,9 @@ func (a *API) register() {
 			c, err := a.deps.DB.GetChange(ctx, in.ID)
 			if err != nil {
 				return nil, err
+			}
+			if !p.CanProject(c.Project) {
+				return nil, change.ErrNotFound // as change-get: don't reveal other projects' changes
 			}
 			if err := p.Require(tokens.ScopePlan, c.Project); err != nil {
 				return nil, err
