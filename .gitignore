@@ -1,0 +1,23 @@
+# build output
+bin/
+dist/
+node_modules/
+coverage/
+coverage.out
+*.coverprofile
+
+# local state and databases
+.tiffin/
+*.db
+*.db-shm
+*.db-wal
+
+# internal notes (briefs, plans, reviews stay out of git)
+notes/
+BRIEF.md
+PLAN.md
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
