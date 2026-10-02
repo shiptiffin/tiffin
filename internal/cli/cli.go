@@ -48,7 +48,8 @@ type app struct {
 	token   string
 	home    string
 	session string
-	code    int // exit code chosen by the last command
+	code    int  // exit code chosen by the last command
+	started bool // arguments and flags parsed; the command itself is running
 }
 
 // exitError carries a specific exit code out of a command.
@@ -81,8 +82,12 @@ func Execute(ctx context.Context, args []string, sio IO) int {
 			}
 			return ee.code
 		}
-		// cobra usage errors: unknown command, bad flags, wrong arg count.
 		a.fail(err.Error())
+		if a.started {
+			// The command ran and failed (state db, filesystem, listen...).
+			return ExitError
+		}
+		// cobra usage errors: unknown command, bad flags, wrong arg count.
 		return ExitInvalid
 	}
 	return a.code
@@ -100,6 +105,8 @@ func (a *app) root() *cobra.Command {
 			"  tiffin undo <change>   # put it back",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// Runs after cobra has parsed flags and checked arguments.
+		PersistentPreRun: func(*cobra.Command, []string) { a.started = true },
 	}
 	env := a.io.Env
 	pf := root.PersistentFlags()
