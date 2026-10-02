@@ -158,3 +158,40 @@ func TestErrorsAreToolErrors(t *testing.T) {
 		t.Fatalf("unknown argument accepted")
 	}
 }
+
+// MCP requires structuredContent to be a JSON object; clients such as Claude
+// Code reject a tool result whose structuredContent is an array.
+func TestStructuredContentIsAlwaysAnObject(t *testing.T) {
+	cs := connect(t)
+	for _, name := range []string{"projects_list", "changes_list", "tokens_list", "audit_list", "whoami"} {
+		res, err := cs.CallTool(t.Context(), &sdk.CallToolParams{Name: name, Arguments: map[string]any{}})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, ok := res.StructuredContent.(map[string]any); !ok {
+			t.Errorf("%s: structuredContent is %T, want an object", name, res.StructuredContent)
+		}
+	}
+	_, out := call(t, cs, "tokens_list", map[string]any{})
+	if items, ok := out["items"].([]any); !ok || len(items) != 1 {
+		t.Errorf("tokens_list items: %v", out)
+	}
+}
+
+// Only tools that take a confirm hash may promise that calling without one is
+// safe; token_revoke acts immediately.
+func TestOnlyConfirmableToolsClaimDryRun(t *testing.T) {
+	cs := connect(t)
+	res, err := cs.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tl := range res.Tools {
+		schema, _ := json.Marshal(tl.InputSchema)
+		takesConfirm := strings.Contains(string(schema), `"confirm"`)
+		claims := strings.Contains(tl.Description, "without a confirm hash is always safe")
+		if claims != takesConfirm {
+			t.Errorf("%s: claims dry-run=%v but takes confirm=%v: %s", tl.Name, claims, takesConfirm, tl.Description)
+		}
+	}
+}

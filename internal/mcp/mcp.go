@@ -135,7 +135,7 @@ func Tools(a *api.API) []*Tool {
 
 func description(o *huma.Operation) string {
 	d := o.Summary + ". " + o.Description
-	if api.RiskOf(o) == api.RiskDestructive {
+	if api.Confirmable(o) {
 		d += " Calling without a confirm hash is always safe: it only returns the plan."
 	}
 	return d
@@ -277,6 +277,10 @@ func toResult(status int, raw []byte) *sdk.CallToolResult {
 	} else {
 		v = map[string]any{"ok": true}
 		raw = []byte(`{"ok":true}`)
+	}
+	// structuredContent must be a JSON object; list endpoints return arrays.
+	if _, isObj := v.(map[string]any); !isObj && v != nil {
+		v = map[string]any{"items": v}
 	}
 	res := &sdk.CallToolResult{StructuredContent: v}
 	text := string(raw)

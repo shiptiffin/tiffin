@@ -254,3 +254,16 @@ func TestSlugify(t *testing.T) {
 		}
 	}
 }
+
+// "tokens revoke" acts immediately; its help must not promise a dry run.
+func TestOnlyConfirmableCommandsPromiseDryRun(t *testing.T) {
+	env := newEnv(t)
+	_, out, _ := run(t, env, "tokens", "revoke", "--help")
+	if strings.Contains(string(out), "Without --confirm nothing changes") {
+		t.Errorf("tokens revoke help claims a dry run:\n%s", out)
+	}
+	_, out, _ = run(t, env, "changes", "undo", "--help")
+	if !strings.Contains(string(out), "Without --confirm nothing changes") {
+		t.Errorf("changes undo help lost its dry-run note:\n%s", out)
+	}
+}

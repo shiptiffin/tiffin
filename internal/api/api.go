@@ -29,6 +29,9 @@ const (
 	ExtRisk = "x-tiffin-risk"
 	// ExtCLI is the CLI command path, e.g. "tokens create".
 	ExtCLI = "x-tiffin-cli"
+	// ExtConfirm marks plan-driven operations: without a confirm hash they
+	// only return the plan (status 428) and change nothing.
+	ExtConfirm = "x-tiffin-confirm"
 )
 
 // Risk classes for operations.
@@ -318,6 +321,7 @@ func (a *API) register() {
 			"Without `confirm` (or with a stale one) nothing changes: you get status 428 with the plan to review. "+
 			"Risk tiers: reversible needs apply:reversible; outbound needs apply:outbound; irreversible needs apply:irreversible.", "changes")
 	ap.Errors = append(ap.Errors, 409, 428)
+	ap.Extensions[ExtConfirm] = true
 	huma.Register(api, ap,
 		wrap(func(ctx context.Context, in *struct{ Body applyBody }) (*struct{ Body ApplyResult }, error) {
 			m, desired, err := parseManifest(in.Body.Manifest)
@@ -379,6 +383,7 @@ func (a *API) register() {
 		"Reverts a change by applying its inverse, if nothing it touched has changed since. "+
 			"Without `confirm` you get status 428 with the undo plan to review.", "changes")
 	un.Errors = append(un.Errors, 404, 409, 428)
+	un.Extensions[ExtConfirm] = true
 	huma.Register(api, un,
 		wrap(func(ctx context.Context, in *struct {
 			ID   string `path:"id" pattern:"^chg_[0-9A-Z]{26}$" doc:"Change ID"`
@@ -487,6 +492,13 @@ func RiskOf(o *huma.Operation) string {
 		return r
 	}
 	return RiskDestructive
+}
+
+// Confirmable reports whether an operation is plan-driven: called without a
+// confirm hash it changes nothing and returns the plan.
+func Confirmable(o *huma.Operation) bool {
+	v, _ := o.Extensions[ExtConfirm].(bool)
+	return v
 }
 
 // CLIPath returns an operation's CLI command words.

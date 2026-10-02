@@ -82,7 +82,7 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string) *cob
 		use += " <" + p + ">"
 	}
 	long := o.Summary + ".\n\n" + o.Description
-	if api.RiskOf(o) == api.RiskDestructive {
+	if api.Confirmable(o) {
 		long += "\n\nWithout --confirm nothing changes: the plan is printed and the exit code is 4."
 	}
 	cmd := &cobra.Command{
