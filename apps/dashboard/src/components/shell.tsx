@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, Outlet, useNavigate, useParams, useRouterState, useSearch } from "@tanstack/react-router";
+import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Dialog as D } from "radix-ui";
 import {
   Activity,
+  Rocket,
+  UserRound,
   BarChart3,
   Layers,
   Shield,
@@ -45,6 +47,7 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, 
 import { useFavicon } from "./favicon";
 import { relative } from "@/lib/time";
 import { useWaitingWorkflowApprovals } from "@/lib/wf";
+import { useCurrentProject } from "@/lib/project";
 
 export function Shell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -199,12 +202,6 @@ function WhoMenu() {
   );
 }
 
-/** The project in view: from /projects/$project or the activity filter. */
-export function useCurrentProject() {
-  const fromPath = useParams({ strict: false, select: (p: { project?: string }) => p.project });
-  const fromSearch = useSearch({ strict: false, select: (s: { project?: string }) => s.project });
-  return fromPath ?? fromSearch;
-}
 
 function Sidebar({ onSearch }: { onSearch: () => void }) {
   const project = useCurrentProject();
@@ -281,7 +278,17 @@ function ProjectNav({ project, onBox }: { project: string; onBox: boolean }) {
   const has = (a: string) => (p.data?.resources ?? []).some((r) => r.address === a);
   return (
     <NavSection title={project} mono>
-      <NavItem to="/projects/$project" params={{ project }} exact icon={<Boxes />} label="Overview" />
+      <NavItem
+        to="/projects/$project"
+        params={{ project }}
+        exact
+        icon={<Boxes />}
+        label="Overview"
+        trailing={<FailingResources project={project} />}
+      />
+      {onBox && (p.data?.resources ?? []).some((r) => r.address.startsWith("app/")) && (
+        <NavItem to="/projects/$project/apps" params={{ project }} icon={<Rocket />} label="Apps" />
+      )}
       {onBox && (has("service/postgres") || has("service/valkey")) && (
         <NavItem
           to={has("service/postgres") ? "/projects/$project/data" : "/projects/$project/data/kv"}
@@ -295,10 +302,22 @@ function ProjectNav({ project, onBox }: { project: string; onBox: boolean }) {
       {onBox && (p.data?.resources ?? []).some((r) => r.address.startsWith("app/") || r.address.startsWith("cron/")) && (
         <NavItem to="/projects/$project/queues" params={{ project }} icon={<Layers />} label="Queues" />
       )}
+      {onBox && has("service/auth") && <NavItem to="/projects/$project/users" params={{ project }} icon={<UserRound />} label="Users" />}
       {onBox && has("service/analytics") && <NavItem to="/projects/$project/analytics" params={{ project }} icon={<BarChart3 />} label="Analytics" />}
       {onBox && <NavItem to="/projects/$project/secrets" params={{ project }} icon={<Lock />} label="Secrets" />}
     </NavSection>
   );
+}
+
+function FailingResources({ project }: { project: string }) {
+  const p = useQuery(q.project(project));
+  const n = Object.values(p.data?.status ?? {}).filter((s) => s.state === "failed").length;
+  return n > 0 ? (
+    <span className="ml-auto flex items-center gap-1.5 text-xs font-medium text-irr" aria-label={`${n} failing`}>
+      <span className="size-1.5 rounded-full bg-irr" />
+      {n}
+    </span>
+  ) : null;
 }
 
 function AttackBadge() {

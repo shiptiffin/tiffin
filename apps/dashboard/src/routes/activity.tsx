@@ -312,6 +312,7 @@ function FirstRun() {
             d: "Paste the hash. If anything moved since, Tiffin refuses.",
             cmd: 'tiffin apply --confirm <hash> -m "Set up my app"',
           },
+          { n: "4", t: "Ship it", d: "Builds on the box and switches traffic once it's healthy. Prints your URL.", cmd: "tiffin deploy" },
         ].map((s, k) => (
           <li
             key={s.n}

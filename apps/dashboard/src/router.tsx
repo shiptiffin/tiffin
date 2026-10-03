@@ -59,6 +59,14 @@ const WorkflowsPage = lz<{ project: string; state?: string }>(() => import("@/ro
 const RunPage = lz<{ project: string; id: string }>(() => import("@/routes/queues"), "RunPage");
 const AnalyticsPage = lz<{ project: string; period?: string }>(() => import("@/routes/analytics"), "AnalyticsPage");
 const ProtectPage = lz(() => import("@/routes/protect"), "ProtectPage");
+const AppsPage = lz<{ project: string }>(() => import("@/routes/apps"), "AppsPage");
+const AppPage = lz<{ project: string; app: string }>(() => import("@/routes/apps"), "AppPage");
+const DeployPage = lz<{ project: string; app: string; id: string }>(() => import("@/routes/apps"), "DeployPage");
+const AppLogsPage = lz<{ project: string; app: string }>(() => import("@/routes/apps"), "AppLogsPage");
+const UsersPage = lz<{ project: string; search?: string; page?: number }>(() => import("@/routes/users"), "UsersPage");
+const UserPage = lz<{ project: string; id: string }>(() => import("@/routes/users"), "UserPage");
+const OrgsPage = lz<{ project: string; search?: string }>(() => import("@/routes/users"), "OrgsPage");
+const OrgPage = lz<{ project: string; id: string }>(() => import("@/routes/users"), "OrgPage");
 
 export type LogsSearch = { q?: string; project?: string; since?: string; live?: boolean };
 const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
@@ -301,6 +309,76 @@ const analytics = createRoute({
     return <AnalyticsPage key={p} project={p} period={analytics.useSearch().period} />;
   },
 });
+const appsRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/apps",
+  component: function Apps() {
+    const { project: p } = appsRoute.useParams();
+    return <AppsPage key={p} project={p} />;
+  },
+});
+const appRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/apps/$app",
+  component: function AppView() {
+    const { project: p, app: a } = appRoute.useParams();
+    return <AppPage key={p + a} project={p} app={a} />;
+  },
+});
+const deployRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/apps/$app/deploys/$id",
+  component: function DeployView() {
+    const { project: p, app: a, id } = deployRoute.useParams();
+    return <DeployPage key={id} project={p} app={a} id={id} />;
+  },
+});
+const appLogs = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/apps/$app/logs",
+  component: function AppLogs() {
+    const { project: p, app: a } = appLogs.useParams();
+    return <AppLogsPage key={p + a} project={p} app={a} />;
+  },
+});
+const users = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/users",
+  validateSearch: (s: Record<string, unknown>): { search?: string; page?: number } => ({
+    search: str(s.search),
+    page: Number(s.page) > 1 ? Number(s.page) : undefined,
+  }),
+  component: function Users() {
+    const { project: p } = users.useParams();
+    const { search, page } = users.useSearch();
+    return <UsersPage key={p} project={p} search={search} page={page} />;
+  },
+});
+const userRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/users/$id",
+  component: function UserView() {
+    const { project: p, id } = userRoute.useParams();
+    return <UserPage key={id} project={p} id={id} />;
+  },
+});
+const orgs = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/orgs",
+  validateSearch: (s: Record<string, unknown>): { search?: string } => ({ search: str(s.search) }),
+  component: function Orgs() {
+    const { project: p } = orgs.useParams();
+    return <OrgsPage key={p} project={p} search={orgs.useSearch().search} />;
+  },
+});
+const orgRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/orgs/$id",
+  component: function OrgView() {
+    const { project: p, id } = orgRoute.useParams();
+    return <OrgPage key={id} project={p} id={id} />;
+  },
+});
 const protect = createRoute({ getParentRoute: () => app, path: "/protect", component: ProtectPage });
 const people = createRoute({ getParentRoute: () => app, path: "/settings/people", component: PeoplePage });
 const passkeys = createRoute({ getParentRoute: () => app, path: "/settings/passkeys", component: PasskeysPage });
@@ -353,6 +431,14 @@ const tree = root.addChildren([
     runRoute,
     analytics,
     protect,
+    appsRoute,
+    appRoute,
+    deployRoute,
+    appLogs,
+    users,
+    userRoute,
+    orgs,
+    orgRoute,
     people,
     passkeys,
   ]),

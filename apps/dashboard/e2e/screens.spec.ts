@@ -15,6 +15,9 @@ const sizes = [
 async function shot(page: Page, name: string, full = true) {
   await page.waitForTimeout(700);
   await page.screenshot({ path: `${out}/${name}.png`, fullPage: full });
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth);
+  const vw = page.viewportSize()?.width ?? 0;
+  if (wide > vw + 1) console.log(`OVERFLOW ${name}: ${wide}px`);
 }
 
 for (const theme of ["dark", "light"] as const) {

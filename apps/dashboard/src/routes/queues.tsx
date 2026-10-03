@@ -144,7 +144,7 @@ export function QueuesPage({ project }: { project: string }) {
       />
       {stats.isError && <ProblemNote className="mt-6" error={stats.error} />}
 
-      <dl className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-4">
+      <dl className="mt-8 grid grid-cols-2 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2 gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-4">
         <Fact label="Done, last hour" value={num(done)} />
         <Fact label="Waiting" value={num(waiting)} sub={waiting ? "queued or retrying" : "nothing behind"} />
         <Fact label="Running" value={num(all.reduce((n, q) => n + q.running, 0))} />

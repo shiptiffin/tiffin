@@ -102,7 +102,7 @@ export function AnalyticsPage({ project, period = "7d" }: { project: string; per
       {d && (
         <>
           <section className="mt-6 overflow-hidden rounded-xl border border-rule bg-raised/60">
-            <dl className="grid grid-cols-2 border-b border-rule sm:grid-cols-5">
+            <dl className="grid grid-cols-2 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2 border-b border-rule sm:grid-cols-5">
               <Kpi
                 label="Visitors"
                 v={d.totals.visitors}

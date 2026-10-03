@@ -27,13 +27,41 @@ import { asTier } from "@/lib/changes";
 import { copyText } from "@/lib/clipboard";
 import { setTheme } from "@/lib/theme";
 import { RiskMark } from "./risk";
+import { useCurrentProject } from "@/lib/project";
 
 export function mcpCommand() {
   return `claude mcp add --transport http tiffin ${location.origin}/mcp --header "Authorization: Bearer <agent token>"`;
 }
 
+// Box-wide pages and each project's pages, so every area is a keystroke away.
+const box: Array<[string, string, string[]]> = [
+  ["Metrics", "/metrics", ["cpu", "memory", "disk", "charts"]],
+  ["Logs", "/logs", ["logsql", "search", "tail"]],
+  ["Errors", "/errors", ["issues", "exceptions", "sentry"]],
+  ["Alerts", "/alerts", ["rules", "notify"]],
+  ["Backups", "/backups", ["restore", "snapshot"]],
+  ["Protection", "/protect", ["under attack", "ban", "crowdsec", "firewall", "waf", "rate limit"]],
+];
+const projectPages: Array<[string, string, string[]]> = [
+  ["Overview", "/projects/$project", ["resources"]],
+  ["Apps and deploys", "/projects/$project/apps", ["deploy", "rollback", "preview", "restart"]],
+  ["Tables", "/projects/$project/data", ["postgres", "database"]],
+  ["Run SQL", "/projects/$project/data/sql", ["query", "postgres"]],
+  ["Database branches", "/projects/$project/data/branches", ["clone", "preview"]],
+  ["Key-value", "/projects/$project/data/kv", ["valkey", "redis", "cache"]],
+  ["Storage", "/projects/$project/storage", ["buckets", "files", "s3", "upload"]],
+  ["Email inbox", "/projects/$project/email", ["mail", "dev inbox", "relay"]],
+  ["Queues", "/projects/$project/queues", ["jobs", "dead letter", "cron"]],
+  ["Workflows", "/projects/$project/workflows", ["runs", "durable"]],
+  ["Users", "/projects/$project/users", ["auth", "sign in", "ban"]],
+  ["Organizations", "/projects/$project/orgs", ["teams", "members"]],
+  ["Analytics", "/projects/$project/analytics", ["visitors", "pageviews", "traffic"]],
+  ["Secrets", "/projects/$project/secrets", ["env", "api key"]],
+];
+
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const navigate = useNavigate();
+  const current = useCurrentProject();
   const { data: projects } = useQuery({ ...q.projects, enabled: open });
   const { data: changes } = useQuery({ ...q.changes(), enabled: open });
   const [toast, setToast] = useState<string | null>(null);
@@ -88,7 +116,21 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 <Item icon={<Fingerprint />} onSelect={run(() => navigate({ to: "/settings/passkeys" }))} keywords={["webauthn", "security"]}>
                   Passkeys
                 </Item>
+                {box.map(([label, to, kw]) => (
+                  <Item key={to} icon={<Gauge />} onSelect={run(() => navigate({ to: to as "/" }))} keywords={kw}>
+                    {label}
+                  </Item>
+                ))}
               </Command.Group>
+              {current && (
+                <Command.Group heading={`In ${current}`}>
+                  {projectPages.map(([label, to, kw]) => (
+                    <Item key={to} value={`${current} ${label}`} icon={<FolderClosed />} keywords={kw} onSelect={run(() => navigate({ to: to as "/", params: { project: current } as never }))}>
+                      {label}
+                    </Item>
+                  ))}
+                </Command.Group>
+              )}
               <Command.Group heading="Do">
                 <Item icon={<Plus />} onSelect={run(() => navigate({ to: "/tokens", search: { create: true } }))} keywords={["new", "agent", "key"]}>
                   Create a token

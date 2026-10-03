@@ -548,7 +548,7 @@ export function IssuePage({ id }: { id: string }) {
         </div>
       </header>
 
-      <dl className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-4">
+      <dl className="mt-8 grid grid-cols-2 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2 gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-4">
         {[
           ["Events", num(i.count)],
           ["First seen", relative(i.firstSeen)],

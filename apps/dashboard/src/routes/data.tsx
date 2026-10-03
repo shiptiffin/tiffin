@@ -110,7 +110,7 @@ export function DataPage({ project }: { project: string }) {
       />
 
       {info.isError && <ProblemNote className="mt-8" error={info.error} />}
-      <dl className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-4">
+      <dl className="mt-8 grid grid-cols-2 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2 gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-4">
         <Stat label="Size" value={pg ? bytes(pg.sizeBytes) : "…"} />
         <Stat label="Rows, about" value={tables.isSuccess ? num(totalRows) : "…"} sub={`${list.length} tables and views`} />
         <Stat label="Branches" value={pg ? num(pg.branches) : "…"} sub="copies made in milliseconds" />

@@ -93,10 +93,7 @@ const pages: Array<{ name: string; url: string; wait?: (p: Page) => Promise<unkn
     name: "job",
     url: "/projects/shop/queues/jobs?state=dead",
     act: async (p) => (
-      await p
-        .getByText(/410 Gone/)
-        .first()
-        .click(),
+      await p.locator("a[href*='/queues/jobs/job_']").first().click(),
       p.getByRole("heading", { name: "Attempts" }).waitFor()
     ),
   },
@@ -109,6 +106,14 @@ const pages: Array<{ name: string; url: string; wait?: (p: Page) => Promise<unkn
   { name: "analytics", url: "/projects/shop/analytics?period=24h", wait: (p) => p.getByText("Top pages").waitFor() },
   { name: "protect", url: "/protect", wait: (p) => p.getByText("Banned right now").waitFor() },
   { name: "approvals", url: "/approvals", wait: (p) => p.getByText(/Workflows waiting/).waitFor() },
+  { name: "apps", url: "/projects/shop/apps", wait: (p) => p.getByText(/live /).first().waitFor() },
+  { name: "app", url: "/projects/shop/apps/web", wait: (p) => p.getByRole("heading", { name: "Deploys" }).waitFor() },
+  { name: "deploy-failed", url: "/projects/shop/apps/web", act: async (p) => (await p.getByText("Failed").first().click(), p.getByText("Build log").waitFor()), full: false },
+  { name: "app-logs", url: "/projects/shop/apps/web/logs", wait: (p) => p.getByText(/GET \/shop/).first().waitFor(), full: false },
+  { name: "users", url: "/projects/shop/users", wait: (p) => p.getByText("Ada Lovelace").waitFor() },
+  { name: "user", url: "/projects/shop/users", act: async (p) => (await p.getByText("Ada Lovelace").click(), p.getByText("Signed in on").waitFor()) },
+  { name: "orgs", url: "/projects/shop/orgs", wait: (p) => p.getByText("Compiler Club").waitFor() },
+  { name: "org", url: "/projects/shop/orgs", act: async (p) => (await p.getByText("Analytical Engines").click(), p.getByRole("heading", { name: "Members" }).waitFor()) },
 ];
 
 for (const theme of ["dark", "light"] as const) {
@@ -129,6 +134,8 @@ for (const theme of ["dark", "light"] as const) {
         if (pg.wait) await pg.wait(page);
         if (pg.act) await pg.act(page);
         await shot(page, `m-${pg.name}-${theme}-${size.name}`, pg.full ?? true);
+        const wide = await page.evaluate(() => document.documentElement.scrollWidth);
+        if (wide > size.width + 1) console.log(`OVERFLOW ${pg.name} ${size.name}: ${wide}px`);
       }
     });
   }

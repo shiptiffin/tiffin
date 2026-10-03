@@ -59,7 +59,7 @@ export function StatusPage() {
         </h1>
       </header>
 
-      <dl className="mt-10 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-4">
+      <dl className="mt-10 grid grid-cols-2 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2 gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-4">
         <Stat label="Version" value={d.version} mono />
         <Stat label="Up for" value={uptime(d.uptime)} />
         <Stat label="Host" value={d.host.hostname} mono />

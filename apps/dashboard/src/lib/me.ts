@@ -34,3 +34,9 @@ export const roleCopy: Record<string, { label: string; blurb: string }> = {
   },
   viewer: { label: "Viewer", blurb: "Sees everything, changes nothing." },
 };
+
+/** Names for token IDs (deploys and changes record who by token). */
+export function useWho() {
+  const { data } = useQuery({ ...q.tokenNames, retry: false });
+  return (id?: string) => (id ? (data?.get(id)?.name ?? (id.startsWith("tok_") ? "a token" : id)) : "someone");
+}

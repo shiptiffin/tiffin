@@ -67,13 +67,13 @@ export function KvPage({ project, match, k }: { project: string; match?: string;
       />
       {stats.isError && <ProblemNote className="mt-8" error={stats.error} />}
       {s && (
-        <dl className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-4">
+        <dl className="mt-8 grid grid-cols-2 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2 gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-4">
           <div className="bg-raised px-4 py-4">
             <dt className="text-2xs font-medium tracking-wider text-ink-3 uppercase">Keys</dt>
             <dd className="display mt-1.5 text-2xl text-ink tnum">{num(s.keys)}</dd>
             {s.approximate && <dd className="text-xs text-ink-3">sampled</dd>}
           </div>
-          <div className="col-span-2 bg-raised px-4 py-4 sm:col-span-1">
+          <div className="bg-raised px-4 py-4">
             <dt className="text-2xs font-medium tracking-wider text-ink-3 uppercase">Memory</dt>
             <dd className="display mt-1.5 text-2xl text-ink tnum">{bytes(s.memoryBytes)}</dd>
             {cap > 0 && (

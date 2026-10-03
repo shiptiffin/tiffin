@@ -62,6 +62,15 @@ export type ProtectDecision = S["ProtectDecision"];
 export type ProtectAlert = S["ProtectAlert"];
 export type ProtectPatch = S["ProtectSettingsPatch"];
 export type Limit = S["ProtectLimit"];
+export type AppRuntime = S["RuntimeAppRuntime"];
+export type EnvStatus = S["RuntimeEnvStatus"];
+export type Deploy = S["RuntimeDeploy"];
+export type LogLine = S["RuntimeLogLine"];
+export type AuthOverview = S["AuthOverview"];
+export type AuthUser = S["AuthUser"];
+export type AuthUserDetail = S["AuthUserDetail"];
+export type AuthOrg = S["AuthOrg"];
+export type AuthOrgDetail = S["AuthOrgDetail"];
 
 const e = encodeURIComponent;
 const P = (project: string) => `/v1/projects/${e(project)}`;
@@ -209,6 +218,36 @@ export const mod2 = {
   protectAlerts: () => arr(request<ProtectAlert[] | null>("GET", "/v1/protect/alerts?limit=50")),
   ban: (ip: string, duration: string, reason: string) => request<unknown>("POST", "/v1/protect/bans", { ip, duration, reason }),
   unban: (ip: string) => request<S["Protect-unbanResponse"]>("POST", "/v1/protect/unban", { ip }),
+};
+
+export const mod3 = {
+  // runtime
+  runtime: (p: string, app: string) => request<AppRuntime>("GET", `${P(p)}/apps/${e(app)}/runtime`),
+  deploys: (p: string, app: string, preview?: string) =>
+    request<S["RuntimeDeployList"]>("GET", `${P(p)}/apps/${e(app)}/deploys${qs({ preview, limit: 50 })}`).then((r) => r.deploys ?? []),
+  deploy: (p: string, app: string, id: string) => request<Deploy>("GET", `${P(p)}/apps/${e(app)}/deploys/${e(id)}`),
+  buildLog: (p: string, app: string, id: string, offset = 0) =>
+    request<S["RuntimeBuildLog"]>("GET", `${P(p)}/apps/${e(app)}/deploys/${e(id)}/build-log${qs({ offset })}`),
+  buildLogStream: (p: string, app: string, id: string, offset: number) =>
+    `${P(p)}/apps/${e(app)}/deploys/${e(id)}/build-log${qs({ offset, follow: true })}`,
+  rollback: (p: string, app: string, id: string) => request<Deploy>("POST", `${P(p)}/apps/${e(app)}/deploys/${e(id)}/rollback`, {}),
+  restart: (p: string, app: string, preview?: string) => request<unknown>("POST", `${P(p)}/apps/${e(app)}/restart${qs({ preview })}`, {}),
+  previews: (p: string, app: string) => arr(request<EnvStatus[] | null>("GET", `${P(p)}/apps/${e(app)}/previews`)),
+  deletePreview: (p: string, app: string, name: string) => request<void>("DELETE", `${P(p)}/apps/${e(app)}/previews/${e(name)}`),
+  sleepPreview: (p: string, app: string, name: string) => request<unknown>("POST", `${P(p)}/apps/${e(app)}/previews/${e(name)}/sleep`, {}),
+  appLogs: (p: string, app: string, o: { since?: string; preview?: string; deploy?: string }) =>
+    request<S["RuntimeLogPage"]>("GET", `${P(p)}/apps/${e(app)}/logs${qs({ ...o, limit: 500 })}`),
+  appLogStream: (p: string, app: string, o: { preview?: string; since?: string }) => `${P(p)}/apps/${e(app)}/logs${qs({ ...o, follow: true })}`,
+  git: (p: string) => request<S["RuntimeGitInfo"]>("GET", `${P(p)}/git`),
+  // auth (the project's own end users)
+  auth: (p: string) => request<AuthOverview>("GET", `${P(p)}/auth`),
+  users: (p: string, search: string, offset: number) => request<S["AuthUserList"]>("GET", `${P(p)}/auth/users${qs({ search, offset, limit: 25 })}`),
+  user: (p: string, id: string) => request<AuthUserDetail>("GET", `${P(p)}/auth/users/${e(id)}`),
+  ban: (p: string, id: string, reason: string) => request<S["AuthBanResult"]>("POST", `${P(p)}/auth/users/${e(id)}/ban`, reason ? { reason } : {}),
+  unban: (p: string, id: string) => request<S["AuthBanResult"]>("POST", `${P(p)}/auth/users/${e(id)}/unban`, {}),
+  revokeSessions: (p: string, id: string) => request<S["AuthRevokeResult"]>("POST", `${P(p)}/auth/users/${e(id)}/sessions/revoke`, {}),
+  orgs: (p: string, search: string, offset: number) => request<S["AuthOrgList"]>("GET", `${P(p)}/auth/orgs${qs({ search, offset, limit: 25 })}`),
+  org: (p: string, id: string) => request<AuthOrgDetail>("GET", `${P(p)}/auth/orgs/${e(id)}`),
 };
 
 export const mq = {
