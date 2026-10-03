@@ -108,21 +108,21 @@ function Body<P, R>({
   return (
     <>
       <DialogHeader>
-        <DialogTitle className="flex items-center gap-2 text-irr">
+        <DialogTitle className="flex items-center gap-2 text-danger">
           <RiskMark tier="irreversible" className="size-4" />
           {title}
         </DialogTitle>
         <DialogDescription>Nothing has changed yet. Read what this overwrites, then confirm.</DialogDescription>
       </DialogHeader>
       <DialogBody>
-        {phase.k === "loading" && <div className="h-24 animate-pulse rounded-lg bg-hover" />}
+        {phase.k === "loading" && <div className="h-24 animate-pulse rounded-lg bg-paper-sunk" />}
         {phase.k === "error" && <ProblemNote error={phase.error} />}
         {(phase.k === "review" || phase.k === "running") && (
           <>
             {renderPreview(phase.preview)}
             <label className="mt-5 block">
               <span className="text-base text-ink">
-                Type <code className="rounded-xs bg-irr-wash px-1 font-mono text-irr">{word}</code> to confirm.
+                Type <code className="rounded-xs bg-danger-wash px-1 font-mono text-danger">{word}</code> to confirm.
               </span>
               <Input
                 className="mt-2 font-mono"

@@ -15,9 +15,9 @@ export function CopyButton({ value, label = "Copy", className }: { value: string
           setTimeout(() => setDone(false), 1400);
         }
       }}
-      className={cn("grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-hover hover:text-ink", className)}
+      className={cn("grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-paper-sunk hover:text-ink", className)}
     >
-      {done ? <Check className="size-3.5 animate-pop text-rev" /> : <Copy className="size-3.5" />}
+      {done ? <Check className="size-3.5 animate-pop text-ok" /> : <Copy className="size-3.5" />}
     </button>
   );
 }

@@ -1,6 +1,5 @@
 import type { Tier } from "@/api/client";
 import { cn } from "@/lib/cn";
-import { tierCopy } from "@/lib/changes";
 
 /**
  * The risk language. Shape carries the meaning as much as colour, so it
@@ -36,8 +35,8 @@ export function RiskMark({ tier, className }: { tier: Tier; className?: string }
       return (
         <svg {...common} fill="currentColor">
           <path d="M8 1.6 14.4 8 8 14.4 1.6 8Z" />
-          <path d="M8 5v3.6" stroke="var(--raised)" strokeWidth={1.6} strokeLinecap="round" />
-          <circle cx="8" cy="10.9" r="0.95" fill="var(--raised)" />
+          <path d="M8 5v3.6" stroke="var(--paper-raised)" strokeWidth={1.6} strokeLinecap="round" />
+          <circle cx="8" cy="10.9" r="0.95" fill="var(--paper-raised)" />
         </svg>
       );
   }
@@ -45,34 +44,7 @@ export function RiskMark({ tier, className }: { tier: Tier; className?: string }
 
 const toneText: Record<Tier, string> = {
   read: "text-ink-3",
-  reversible: "text-rev",
-  outbound: "text-out",
-  irreversible: "text-irr",
+  reversible: "text-ok",
+  outbound: "text-warn-ink",
+  irreversible: "text-danger",
 };
-
-const badgeTone: Record<Tier, string> = {
-  read: "text-ink-3",
-  reversible: "text-rev",
-  outbound: "text-out bg-out-wash",
-  irreversible: "text-irr bg-irr-wash ring-1 ring-inset ring-irr-rule",
-};
-
-/** Reversible stays quiet; outbound and irreversible are filled so they find you. */
-export function RiskBadge({ tier, className, size = "md" }: { tier: Tier; className?: string; size?: "sm" | "md" }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 rounded-full font-medium whitespace-nowrap",
-        size === "sm" ? "h-5 px-1.5 text-xs" : "h-6 px-2 text-sm",
-        tier === "reversible" || tier === "read" ? "px-0" : "",
-        badgeTone[tier],
-        className,
-      )}
-    >
-      <RiskMark tier={tier} className={size === "sm" ? "size-3" : "size-3.5"} />
-      {tierCopy[tier].short}
-    </span>
-  );
-}
-
-export const riskText = toneText;

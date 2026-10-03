@@ -9,15 +9,24 @@ import { starterLine, starterOrder, startersQuery, starterThumb } from "@/lib/st
  *
  *   {names.length === 0 ? <EmptyBoxStart /> : …}
  */
-export function EmptyBoxStart() {
+export function EmptyBoxStart({ headline = true }: { /** Show the "Your tiffin is packed" sentence (the Box page says it in its own header). */ headline?: boolean } = {}) {
   const starters = useQuery(startersQuery);
   const list = [...(starters.data ?? [])].sort((a, b) => starterOrder.indexOf(a.id) - starterOrder.indexOf(b.id));
   return (
     <div className="px-5 pt-7 pb-6 max-sm:px-3.5">
-      <p className="sentence text-[1.5rem] leading-8 text-ink max-sm:text-[1.3125rem] max-sm:leading-7">Your tiffin is packed. Nothing in it yet.</p>
-      <p className="mt-1.5 max-w-[36rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
-        Every part below passed its checks. Pick a starter and it’s live at its own address in under a minute.
-      </p>
+      {headline ? (
+        <>
+          <p className="sentence text-[1.5rem] leading-8 text-ink max-sm:text-[1.3125rem] max-sm:leading-7">Your tiffin is packed. Nothing in it yet.</p>
+          <p className="mt-1.5 max-w-[36rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
+            Every part below passed its checks. Pick a starter and it’s live at its own address in under a minute.
+          </p>
+        </>
+      ) : (
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[0.9375rem] font-[550] text-ink">Start a project</h2>
+          <p className="text-[0.8125rem] text-ink-3">Pick a starter. You see the plan before anything is made.</p>
+        </div>
+      )}
       <ul className="mt-5 grid grid-cols-2 gap-2.5 md:grid-cols-4">
         {(list.length ? list : starterOrder.map((id) => ({ id, name: "" }))).map((s) => (
           <li key={s.id}>

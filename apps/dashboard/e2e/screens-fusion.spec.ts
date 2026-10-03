@@ -19,7 +19,22 @@ async function shot(page: Page, name: string, fullPage = true) {
   if (wide > vw + 1) console.log(`OVERFLOW ${name}: ${wide}px`);
 }
 
-const pages: Array<{ name: string; url: string; wait: (p: Page) => Promise<unknown>; act?: (p: Page) => Promise<unknown>; full?: boolean }> = [
+// The empty box, without emptying the shared dev box: the API answers as a fresh box would.
+async function asEmptyBox(p: Page) {
+  await p.route("**/v1/projects", (r) => r.fulfill({ json: [] }));
+  await p.route("**/v1/changes?*", (r) => r.fulfill({ json: [] }));
+  await p.route("**/v1/approvals*", (r) => r.fulfill({ json: [] }));
+}
+
+const pages: Array<{
+  name: string;
+  url: string;
+  stub?: (p: Page) => Promise<unknown>;
+  wait: (p: Page) => Promise<unknown>;
+  act?: (p: Page) => Promise<unknown>;
+  full?: boolean;
+}> = [
+  { name: "box-empty", url: "/", stub: asEmptyBox, wait: (p) => p.getByRole("heading", { name: "Start a project" }).waitFor() },
   { name: "box", url: "/", wait: (p) => p.getByText("In use", { exact: true }).waitFor() },
   {
     name: "tray",
@@ -73,11 +88,13 @@ for (const theme of ["light", "dark"] as const) {
       await page.evaluate(() => sessionStorage.removeItem("tiffin.staged"));
       for (const pg of pages) {
         if (only && !only.includes(pg.name)) continue;
+        if (pg.stub) await pg.stub(page);
         await page.goto(pg.url);
         await pg.wait(page);
         if (pg.act) await pg.act(page);
         await shot(page, `${pg.name}-${theme}-${size.name}`, pg.full ?? true);
         await page.evaluate(() => sessionStorage.removeItem("tiffin.staged"));
+        if (pg.stub) await page.unrouteAll({ behavior: "ignoreErrors" });
       }
     });
   }

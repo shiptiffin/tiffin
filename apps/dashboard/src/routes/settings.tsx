@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { RenameSelf } from "@/components/name-ask";
 import { useState, type ReactNode } from "react";
 import { ApiError, api, notOnBox, type Invite, type Passkey, type Person, type Role } from "@/api/client";
 import { q } from "@/api/queries";
@@ -200,6 +201,7 @@ export function PeoplePage() {
                   <p className="truncate text-[0.8125rem] text-ink-3">
                     {p.email ? `${p.email} · ` : ""}joined {relative(p.createdAt)}
                   </p>
+                  {you && admin && <RenameSelf current={p.name} />}
                 </div>
                 {admin && p.role !== "owner" && !you ? (
                   <Menu>

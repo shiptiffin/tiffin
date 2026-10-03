@@ -5,8 +5,7 @@
 
 /* ---------------------------------------------------------------------------
    Tailwind theme: the Fusion tokens as utilities (bg-paper, text-ink-3,
-   border-rule, bg-enamel-indigo…). The block marked "legacy aliases" keeps
-   the pages written before the Fusion working; new code uses the new names.
+   border-rule, bg-enamel-indigo…).
 --------------------------------------------------------------------------- */
 @theme inline {
   --color-paper: var(--paper);
@@ -42,20 +41,6 @@
   --color-enamel-chilli: var(--enamel-chilli);
   --color-enamel-turmeric: var(--enamel-turmeric);
 
-  /* legacy aliases (pages not yet restyled) */
-  --color-raised: var(--paper-raised);
-  --color-hover: var(--paper-sunk);
-  --color-press: var(--paper-press);
-  --color-rule-strong: var(--rule-2);
-  --color-on-ink: var(--paper);
-  --color-rev: var(--ok);
-  --color-rev-wash: var(--ok-wash);
-  --color-out: var(--warn-ink);
-  --color-out-wash: var(--warn-wash);
-  --color-irr: var(--danger);
-  --color-irr-wash: var(--danger-wash);
-  --color-irr-rule: var(--danger-rule);
-
   --font-sans: var(--sans);
   --font-serif: var(--serif);
   --font-mono: var(--mono);
@@ -90,17 +75,12 @@
 
   --shadow-raised: var(--lift-raised);
   --shadow-overlay: var(--lift-overlay);
-  --shadow-pop: var(--lift-raised);
 
   --ease-out: var(--ease-out);
-  --ease-out-soft: var(--ease-out);
 
   --animate-rise: rise var(--dur-enter) var(--ease-out) both;
-  --animate-ink-in: rise var(--dur-enter) var(--ease-out) both;
   --animate-fade: fade var(--dur-exit) var(--ease-out) both;
   --animate-pop: pop var(--dur-enter) var(--ease-out) both;
-  --animate-stamp: fade var(--dur-enter) var(--ease-out) both;
-  --animate-lid: none;
 
   @keyframes rise {
     from {
@@ -265,26 +245,6 @@
     border-bottom-width: 1.5px;
     color: var(--ink-3);
   }
-}
-
-/* ---------------------------------------------------------------------------
-   Legacy shims for pages written before the Fusion. Unlayered on purpose, so
-   they win over size utilities. Delete each one once no page uses it:
-     .display         was Fraunces for page titles: titles are nouns → sans.
-     .display-italic  was Fraunces italic for section headings → sans 600 15/22.
---------------------------------------------------------------------------- */
-.display {
-  font-family: var(--sans);
-  font-weight: 500;
-  letter-spacing: -0.02em;
-}
-.display-italic {
-  font-family: var(--sans);
-  font-style: normal;
-  font-weight: 600;
-  font-size: 0.9375rem;
-  line-height: 1.375rem;
-  letter-spacing: -0.01em;
 }
 
 /* Reduced motion: no movement anywhere; the pilot light holds steady. */

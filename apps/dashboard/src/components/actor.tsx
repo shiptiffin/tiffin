@@ -16,7 +16,7 @@ export function ActorMark({ actor, className }: { actor: Pick<Actor, "kind" | "n
       aria-hidden
       className={cn(
         "grid size-5 shrink-0 place-items-center text-[0.625rem] leading-none font-semibold select-none",
-        agent ? "rounded-[5px] border border-rule-strong bg-paper-sunk font-mono text-ink-2" : "rounded-full bg-ink-2 text-on-ink",
+        agent ? "rounded-[5px] border border-rule-2 bg-paper-sunk font-mono text-ink-2" : "rounded-full bg-ink-2 text-paper",
         owner && "ring-1 ring-brass/80 ring-offset-1 ring-offset-paper",
         className,
       )}

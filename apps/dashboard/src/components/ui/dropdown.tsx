@@ -13,7 +13,7 @@ export function MenuContent({ className, sideOffset = 6, ...props }: ComponentPr
       <M.Content
         sideOffset={sideOffset}
         className={cn(
-          "z-50 min-w-48 overflow-hidden rounded-lg border border-rule bg-raised p-1 shadow-pop data-[state=open]:animate-pop",
+          "z-50 min-w-48 overflow-hidden rounded-lg border border-rule bg-paper-raised p-1 shadow-raised data-[state=open]:animate-pop",
           className,
         )}
         {...props}
@@ -23,7 +23,7 @@ export function MenuContent({ className, sideOffset = 6, ...props }: ComponentPr
 }
 
 const item =
-  "relative flex h-8 cursor-default select-none items-center gap-2 rounded-md px-2 text-base text-ink-2 outline-none data-[highlighted]:bg-hover data-[highlighted]:text-ink data-[disabled]:opacity-50 [&_svg]:size-4 [&_svg]:text-ink-3";
+  "relative flex h-8 cursor-default select-none items-center gap-2 rounded-md px-2 text-base text-ink-2 outline-none data-[highlighted]:bg-paper-sunk data-[highlighted]:text-ink data-[disabled]:opacity-50 [&_svg]:size-4 [&_svg]:text-ink-3";
 
 export function MenuItem({ className, ...props }: ComponentProps<typeof M.Item>) {
   return <M.Item className={cn(item, className)} {...props} />;

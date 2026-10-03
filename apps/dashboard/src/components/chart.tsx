@@ -59,7 +59,7 @@ export function AreaChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [points, H, max]);
 
-  const color = { ink: "var(--ink-2)", rev: "var(--rev)", out: "var(--out)", irr: "var(--irr)" }[tone];
+  const color = { ink: "var(--ink-2)", rev: "var(--ok)", out: "var(--warn-ink)", irr: "var(--danger)" }[tone];
   const h = hover !== null ? points[hover] : points[points.length - 1];
 
   if (points.length < 2)
@@ -110,7 +110,7 @@ export function AreaChart({
         <path d={path} fill="none" stroke={color} strokeWidth="1.75" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
         {hover !== null && (
           <>
-            <line x1={xs[hover]} x2={xs[hover]} y1="0" y2={H} stroke="var(--rule-strong)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+            <line x1={xs[hover]} x2={xs[hover]} y1="0" y2={H} stroke="var(--rule-2)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
           </>
         )}
       </svg>
@@ -154,7 +154,7 @@ export function Sparkline({ points, className, tone = "ink" }: { points: Point[]
     .join(" ");
   return (
     <svg viewBox="0 0 80 20" className={cn("inline-block h-5 w-20", className)} aria-hidden>
-      <path d={d} fill="none" stroke={tone === "irr" ? "var(--irr)" : "var(--ink-3)"} strokeWidth="1.25" vectorEffect="non-scaling-stroke" />
+      <path d={d} fill="none" stroke={tone === "irr" ? "var(--danger)" : "var(--ink-3)"} strokeWidth="1.25" vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }
@@ -170,7 +170,7 @@ export function Meter({ ratio, className, label }: { ratio: number; className?: 
   const r = Math.max(0, Math.min(1, ratio));
   return (
     <div
-      className={cn("h-1.5 w-full overflow-hidden rounded-full bg-hover", className)}
+      className={cn("h-1.5 w-full overflow-hidden rounded-full bg-paper-sunk", className)}
       role="meter"
       aria-valuenow={Math.round(r * 100)}
       aria-valuemin={0}
@@ -178,7 +178,7 @@ export function Meter({ ratio, className, label }: { ratio: number; className?: 
       aria-label={label}
     >
       <div
-        className={cn("h-full rounded-full transition-[width] duration-500 ease-out", r > 0.95 ? "bg-irr" : r > 0.8 ? "bg-out" : "bg-ink-2")}
+        className={cn("h-full rounded-full transition-[width] duration-500 ease-out", r > 0.95 ? "bg-danger" : r > 0.8 ? "bg-warn-ink" : "bg-ink-2")}
         style={{ width: `${Math.max(r * 100, r > 0 ? 1.5 : 0)}%` }}
       />
     </div>

@@ -27,7 +27,12 @@ import {
   useStorageStatus,
   useValkeyStatus,
 } from "@/components/tier-status";
+import { EmptyBoxStart } from "@/components/start-empty-box";
+import { NameAsk } from "@/components/name-ask";
 import { Button } from "@/components/ui/button";
+import heroClosed from "@/assets/illustrations/carrier-hero.webp";
+import { Command } from "@/components/copy";
+import { mcpCommand } from "@/lib/mcp";
 import { boxName, domainFrom, versionLabel, whereItRuns } from "@/lib/box";
 import { asTier, intentWords, opCounts, splitAddress, splitRequester } from "@/lib/changes";
 import { cn } from "@/lib/cn";
@@ -85,7 +90,12 @@ export function BoxPage() {
 
   return (
     <Page full>
-      <Header status={status.data} failing={failing.length + downServices.length} failingFirst={failing[0]} waiting={pending.data ?? []} workflows={wf.length} />
+      <NameAsk />
+      {projects.data && names.length === 0 ? (
+        <EmptyHeader />
+      ) : (
+        <Header status={status.data} failing={failing.length + downServices.length} failingFirst={failing[0]} waiting={pending.data ?? []} workflows={wf.length} />
+      )}
       <div className="mt-8 grid items-start gap-x-12 gap-y-8 xl:grid-cols-[minmax(0,1fr)_288px]">
         <div className="min-w-0">
           {(pending.data?.length ?? 0) + wf.length > 0 && (
@@ -105,11 +115,11 @@ export function BoxPage() {
               <Vitals res={res.data} mem={mem} unavailable={!!res.error} names={names} enamels={enamels} />
             </Lid>
             <Rim className="max-sm:hidden" />
-            <TierColumns />
+            {names.length > 0 && <TierColumns />}
             {projects.isPending ? (
               <div className="h-40" />
             ) : names.length === 0 ? (
-              <FirstRun />
+              <EmptyBoxStart headline={false} />
             ) : (
               states.map((s, i) =>
                 s.data ? (
@@ -134,6 +144,13 @@ export function BoxPage() {
             </div>
           )}
           <Latest changes={changes.data} approvals={approvals.data ?? []} enamels={enamels} />
+          {projects.data && names.length === 0 && (
+            <section aria-label="Hand it to your agent">
+              <h2 className="text-[0.9375rem] font-[550] text-ink">Or hand it to your agent</h2>
+              <p className="mt-1 mb-3 text-sm text-ink-2">It plans changes on its own; anything risky waits here for you.</p>
+              <Command cmd={mcpCommand()} />
+            </section>
+          )}
         </aside>
       </div>
     </Page>
@@ -188,10 +205,31 @@ function Header({
   );
 }
 
+/** The first visit: the box is up and empty. The carrier as a picture, one sentence, and where to start. */
+function EmptyHeader() {
+  const [now] = useState(() => new Date());
+  return (
+    <header className="grid items-center gap-x-10 gap-y-4 sm:grid-cols-[minmax(0,1fr)_200px] lg:grid-cols-[minmax(0,1fr)_240px]">
+      <div className="min-w-0">
+        <p className="label mb-2">
+          {dateFmt.format(now)} · {clock(now.toISOString())}
+        </p>
+        <h1 className="sentence text-ink max-sm:text-[1.5rem] max-sm:leading-[1.875rem]">Your tiffin is packed. Nothing in it yet.</h1>
+        <p className="mt-2 max-w-[38rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
+          Every part of the box below passed its checks. Start a project and it gets its own address, a database and sign-in if it wants them, live in
+          under a minute.
+        </p>
+      </div>
+      <img src={heroClosed} alt="" width={240} height={240} className="mx-auto -my-6 w-[200px] max-sm:hidden lg:w-[240px]" />
+    </header>
+  );
+}
+
 function BoxDomain({ projects }: { projects: string[] }) {
-  const first = projects[0];
-  const st = useQuery({ ...mq.storage(first ?? ""), enabled: !!first, retry: false, staleTime: 300_000 });
-  const d = domainFrom(st.data?.endpoint) ?? location.hostname.replace(/^dashboard\./, "");
+  // Any project's storage endpoint names the box's domain (s3.<domain>); on the box itself the dashboard's own host does too.
+  const st = useQueries({ queries: projects.map((p) => ({ ...mq.storage(p), retry: false, staleTime: 300_000 })) });
+  const endpoint = st.map((x) => x.data?.endpoint).find(Boolean);
+  const d = domainFrom(endpoint) ?? location.hostname.replace(/^dashboard\./, "");
   return <>{d}</>;
 }
 
@@ -749,18 +787,6 @@ function RoomLeft({ res, mem, states, empty }: { res?: BoxResources; mem?: Memor
         </div>
       </div>
     </>
-  );
-}
-
-function FirstRun() {
-  return (
-    <div className="px-5 py-10 text-center max-sm:px-4">
-      <p className="sentence text-[1.5rem] leading-8 text-ink">Your tiffin is packed. Nothing in it yet.</p>
-      <p className="mx-auto mt-2 max-w-[34rem] text-md text-ink-2">The platform below is running and every part passed its checks. Start a project to put your first app in the box.</p>
-      <Button asChild variant="primary" size="lg" className="mt-5">
-        <Link to="/new">Start a project</Link>
-      </Button>
-    </div>
   );
 }
 
