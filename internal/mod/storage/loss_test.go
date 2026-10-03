@@ -45,9 +45,18 @@ func TestEstimateLoss(t *testing.T) {
 			t.Fatalf("%s %s: %+v %v", op.Action, op.Address, l, err)
 		}
 	}
-	// With a usage scan, the scan's numbers are used (no walk).
+	// Counted now, not from a stale scan: a file uploaded since still counts.
 	m.tracker().refresh(context.Background(), p)
-	if l, _ := m.EstimateLoss(context.Background(), p, "shop", del); l == nil || l.Bytes != 4500 {
+	if err := os.WriteFile(filepath.Join(dir, "late.png"), make([]byte, 500), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if l, _ := m.EstimateLoss(context.Background(), p, "shop", del); l == nil || l.Bytes != 5000 || l.Counts[0].N != 3 {
+		t.Fatalf("after an upload: %+v", l)
+	}
+	// Out of time: the last scan stands in.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if l, _ := m.EstimateLoss(ctx, p, "shop", del); l == nil || l.Bytes != 4500 || l.Counts[0].N != 2 {
 		t.Fatalf("from the scan: %+v", l)
 	}
 }
