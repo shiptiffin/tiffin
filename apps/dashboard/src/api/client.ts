@@ -23,6 +23,13 @@ export type Person = S["Person"];
 export type Invite = S["Invite"];
 export type Role = Person["role"];
 export type Tier = "read" | "reversible" | "outbound" | "irreversible";
+export type Appearance = S["Appearance"];
+export type Manifest = S["Manifest"];
+export type ManifestApp = S["ManifestApp"];
+export type ProjectManifest = S["ProjectManifest"];
+export type BoxResources = S["BoxResources"];
+export type BoxService = S["BoxService"];
+export type BoxApp = S["BoxApp"];
 
 /** An RFC 9457 problem from the API, as a throwable error. */
 export class ApiError extends Error {
@@ -108,6 +115,16 @@ export const api = {
     request<Person>("PATCH", `/v1/people/${encodeURIComponent(id)}`, body),
   removePerson: (id: string) => request<void>("DELETE", `/v1/people/${encodeURIComponent(id)}`),
   personLink: (id: string) => request<Invite>("POST", `/v1/people/${encodeURIComponent(id)}/login-link`),
+  appearance: (project: string) => request<Appearance>("GET", `/v1/projects/${encodeURIComponent(project)}/appearance`),
+  setAppearance: (project: string, enamel: Appearance["enamel"]) =>
+    request<Appearance>("PUT", `/v1/projects/${encodeURIComponent(project)}/appearance`, { enamel }),
+  manifest: (project: string) => request<ProjectManifest>("GET", `/v1/projects/${encodeURIComponent(project)}/manifest`),
+  renderConfig: (manifest: Manifest) => request<{ config: string }>("POST", "/v1/manifest/render", { manifest }),
+  plan: (manifest: Manifest) => request<Plan>("POST", "/v1/plan", { manifest }),
+  /** Applies when `confirm` matches the plan hash; otherwise 428 with the plan (thrown as ApiError). */
+  apply: (manifest: Manifest, confirm: string, intent?: string) =>
+    request<ApplyResult>("POST", "/v1/apply", { manifest, confirm, ...(intent ? { intent } : {}) }),
+  boxResources: () => request<BoxResources>("GET", "/v1/box/resources"),
   login: (code: string) => request<Principal>("POST", "/v1/session", { code }),
   logout: () => request<void>("DELETE", "/v1/session"),
 };

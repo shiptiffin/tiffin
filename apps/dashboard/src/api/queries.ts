@@ -41,5 +41,13 @@ export const q = {
   approval: (id: string) => queryOptions({ queryKey: ["approval", id], queryFn: () => api.approval(id), refetchInterval: 10_000 }),
   people: queryOptions({ queryKey: ["people"], queryFn: async () => (await api.people()) ?? [] }),
   passkeys: queryOptions({ queryKey: ["passkeys"], queryFn: async () => (await api.passkeys()) ?? [] }),
+  manifest: (project: string) => queryOptions({ queryKey: ["manifest", project], queryFn: () => api.manifest(project), staleTime: 0 }),
+  /** What the machine has and what uses it; a laptop dev server answers 503, so don't retry. */
+  resources: queryOptions({
+    queryKey: ["box-resources"],
+    queryFn: api.boxResources,
+    refetchInterval: (qq) => (qq.state.error ? false : 5_000),
+    retry: false,
+  }),
   secrets: (project: string) => queryOptions({ queryKey: ["secrets", project], queryFn: async () => (await api.secrets(project)) ?? [] }),
 };
