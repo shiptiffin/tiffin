@@ -39,7 +39,7 @@ func (m *Module) audit(ctx context.Context, p *platform.Platform, project string
 		return nil, gwProblem(err)
 	}
 	rep := &AuditReport{Project: project, Problems: []AuditIssue{},
-		Backup: "no off-box mirror yet: the backup module will mirror " + dataDir(p.DataRoot) + " and verify it against this manifest"}
+		Backup: "every backup set copies " + storageDir(p.DataRoot) + " (tiffin backups list); an off-box mirror verified against this manifest comes with off-box backups"}
 	manifest := map[string]map[string]manifestEntry{}
 	names := make([]string, 0, len(buckets))
 	for n := range buckets {

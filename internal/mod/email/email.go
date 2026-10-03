@@ -33,12 +33,18 @@ import (
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/ids"
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/mod/backup"
 	"github.com/btahir/tiffin/internal/platform"
 )
 
 var mod = &Module{}
 
-func init() { platform.Register(mod) }
+func init() {
+	platform.Register(mod)
+	// Captured messages (raw .eml files); their metadata is in the state DB,
+	// which every backup set already copies.
+	backup.Include("email", "/var/lib/tiffin/email")
+}
 
 const (
 	// SMTPPort is the submission port of Tiffin's own SMTP server.

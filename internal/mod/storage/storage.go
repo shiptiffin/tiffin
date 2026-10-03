@@ -45,10 +45,17 @@ import (
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/mod/backup"
 	"github.com/btahir/tiffin/internal/platform"
 )
 
-func init() { platform.Register(&Module{}) }
+func init() {
+	platform.Register(&Module{})
+	// Every backup set copies the whole storage tree (objects, accounts, root
+	// key, audit manifests) with reflinks; the "files" restore target puts
+	// it back.
+	backup.Include("storage", storageDir(boxRoot))
+}
 
 // Pinned versitygw release.
 const (
@@ -653,8 +660,10 @@ type BackupSource struct {
 	Manifests string `json:"manifests"`
 }
 
-// BackupSources is the hook for the backup module (not built yet): the
-// object data to mirror, without in-flight multipart parts and lock files.
+// BackupSources describes the object data for an off-box mirror (Phase 2):
+// what to copy, what to skip (in-flight multipart parts, lock files) and the
+// checksum manifests to verify the copy against. Local backup sets already
+// include the whole storage tree (see init).
 func BackupSources(dataRoot string) []BackupSource {
 	return []BackupSource{{
 		Name:      "storage",
