@@ -40,7 +40,7 @@ The dashboard creates apps without any files on your machine; so can the CLI and
 ```bash
 tiffin templates list                                  # starters shipped inside tiffin
 tiffin deploys template shop api --template hono-postgres
-tiffin deploys git shop web --url https://github.com/owner/repo --ref main --path apps/web
+tiffin deploys git shop web --git-url https://github.com/owner/repo --ref main --path apps/web
 ```
 
 Four starters ship in the binary: `static-site`, `hono-postgres` (a notes API that

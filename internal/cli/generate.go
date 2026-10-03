@@ -31,7 +31,7 @@ func (a *app) generate(root *cobra.Command, spec *api.API) {
 		if find(parent, leaf) != nil {
 			continue
 		}
-		parent.AddCommand(a.opCommand(oapi, o, leaf))
+		parent.AddCommand(a.opCommand(oapi, o, leaf, func(n string) bool { return root.PersistentFlags().Lookup(n) != nil }))
 	}
 }
 
@@ -103,9 +103,10 @@ var groupShort = map[string]string{
 type bodyFlag struct {
 	name string
 	kind string // string | integer | boolean | array
+	flag string // the CLI flag (usually the kebab-case name)
 }
 
-func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string) *cobra.Command {
+func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGlobal func(flag string) bool) *cobra.Command {
 	var pathParams []string
 	var queryParams []*huma.Param
 	for _, p := range o.Parameters {
@@ -163,16 +164,23 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string) *cob
 				if ps.Ref != "" {
 					ps = oapi.Components.Schemas.SchemaFromRef(ps.Ref)
 				}
-				f := bodyFlag{name: n, kind: ps.Type}
+				// A body field named like a global flag (--url, --home...)
+				// gets the command's name in front (--git-url), so the global
+				// flag keeps working.
+				fn := flagName(n)
+				if isGlobal(fn) {
+					fn = leaf + "-" + fn
+				}
+				f := bodyFlag{name: n, kind: ps.Type, flag: fn}
 				switch ps.Type {
 				case "string":
-					values[n] = cmd.Flags().String(flagName(n), "", ps.Description)
+					values[n] = cmd.Flags().String(fn, "", ps.Description)
 				case "integer":
-					values[n] = cmd.Flags().Int(flagName(n), 0, ps.Description)
+					values[n] = cmd.Flags().Int(fn, 0, ps.Description)
 				case "boolean":
-					values[n] = cmd.Flags().Bool(flagName(n), false, ps.Description)
+					values[n] = cmd.Flags().Bool(fn, false, ps.Description)
 				case "array":
-					values[n] = cmd.Flags().StringSlice(flagName(n), nil, ps.Description+" (comma-separated)")
+					values[n] = cmd.Flags().StringSlice(fn, nil, ps.Description+" (comma-separated)")
 				default:
 					continue // objects come in through --body
 				}
@@ -200,7 +208,7 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string) *cob
 				return err
 			}
 			for _, f := range flags {
-				if !cmd.Flags().Changed(flagName(f.name)) {
+				if !cmd.Flags().Changed(f.flag) {
 					continue
 				}
 				switch v := values[f.name].(type) {

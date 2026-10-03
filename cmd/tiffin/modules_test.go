@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/btahir/tiffin/internal/api"
+	"github.com/btahir/tiffin/internal/cli"
 	"github.com/btahir/tiffin/internal/mcp"
 )
 
@@ -66,5 +69,18 @@ func TestCreateOperations(t *testing.T) {
 	}
 	if len(want) > 0 {
 		t.Errorf("missing operations: %v", want)
+	}
+}
+
+// A body field named like a global flag (deploys git's url) becomes
+// --<command>-<name>, so the global --url still points the CLI at a box.
+func TestBodyFlagNamedLikeGlobal(t *testing.T) {
+	var out, errb bytes.Buffer
+	no := false
+	cli.Execute(context.Background(), []string{"deploys", "git", "--help"}, cli.IO{Out: &out, Err: &errb, TTY: &no,
+		Env: func(string) string { return "" }})
+	help := out.String()
+	if !strings.Contains(help, "--git-url string") || !strings.Contains(help, "--url string       box API URL") {
+		t.Fatalf("deploys git --help:\n%s%s", help, errb.String())
 	}
 }

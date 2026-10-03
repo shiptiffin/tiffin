@@ -140,7 +140,7 @@ func TestCreate(t *testing.T) {
 			t.Fatalf("editing the fetched manifest must plan exactly the new app: %v", plan)
 		}
 		b.apply("edited", string(raw2))
-		d := b.ok("deploys", "git", "starter", "spoon", "--url", gitRepo)
+		d := b.ok("deploys", "git", "starter", "spoon", "--git-url", gitRepo)
 		id, _ := d["id"].(string)
 		if d["repo"] != gitRepo || d["source"] != "git" {
 			t.Fatalf("deploy git: %v", d)
