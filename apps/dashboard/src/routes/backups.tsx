@@ -193,7 +193,7 @@ export function BackupsPage() {
                     {b.kind === "full" ? "Full backup" : "Changes since the last one"}
                     <span className="text-[0.8125rem] text-ink-3">{b.trigger === "pre-restore" ? "safety copy before a restore" : b.trigger === "manual" ? "taken by hand" : "on schedule"}</span>
                   </span>
-                  <span className="mt-0.5 block truncate text-[0.8125rem] text-ink-3">
+                  <span className="mt-0.5 block text-[0.8125rem] text-ink-3 sm:truncate">
                     {b.status === "running" ? (
                       "Running…"
                     ) : b.status === "failed" ? (

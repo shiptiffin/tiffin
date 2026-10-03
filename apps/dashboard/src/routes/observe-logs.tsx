@@ -36,7 +36,7 @@ function levelOf(r: Row): string {
   const status = Number(r.status);
   if (status >= 500) return "error";
   if (/\b(PANIC|FATAL|ERROR):/.test(msg) || /^(error|fatal|panic)\b/i.test(msg)) return "error";
-  if (/\bWARNING:/.test(msg) || /^warn(ing)?\b/i.test(msg)) return "warn";
+  if (/\bWARNING:/.test(msg) || /^([a-z]+ )?warn(ing)?\b/i.test(msg)) return "warn";
   const l = String(r.level ?? "").toLowerCase();
   return l === "warning" ? "warn" : l === "info" || l === "debug" ? "" : l;
 }
