@@ -1,270 +1,343 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, ArrowRight, Check, Fingerprint, KeyRound, X } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { Check, Fingerprint, Link2, Printer } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { ApiError, api, notOnBox, type Approval, type Token } from "@/api/client";
+import { mod2, type WorkflowApproval } from "@/api/modules";
 import { q } from "@/api/queries";
-import { ActorMark } from "@/components/actor";
-import { CopyValue } from "@/components/copy";
+import emptyApprovals from "@/assets/illustrations/empty-approvals.webp";
 import { useTitle } from "@/components/favicon";
-import { NotOnBox } from "@/components/page";
-import { OpCounts, OpView } from "@/components/op";
+import {
+  ActorLine,
+  Leaf,
+  LedgerCrumbs,
+  RiskLine,
+  Sec,
+  Signature,
+  Steps,
+  UndoCant,
+  clockSeconds,
+  planShort,
+  reasonWords,
+  splitIntent,
+  tokenWho,
+  stamp,
+  useNow,
+  when,
+} from "@/components/ledger-parts";
+import { Logo } from "@/components/logo";
+import { NotOnBox, Page } from "@/components/page";
 import { ProblemNote, sentence } from "@/components/problem";
-import { RiskBadge, RiskMark } from "@/components/risk";
+import { SignedEntry } from "@/components/signed-entry";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { actorWords } from "@/lib/actors";
+import { asTier, intentWords, opCounts, splitRequester as split, tierRank } from "@/lib/changes";
+import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
-import { asTier, tierRank } from "@/lib/changes";
-import { full, relative } from "@/lib/time";
+import { countWords, duration, words } from "@/lib/format";
+import { useMe } from "@/lib/me";
+import { clock, relative } from "@/lib/time";
 import { getAssertion, passkeyError, webauthnSupported } from "@/lib/webauthn";
 import { useWaitingWorkflowApprovals } from "@/lib/wf";
-import { ApprovalCard } from "./queues";
-import { Page } from "@/components/page";
+import "./ledger-print.css";
 
-const words = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
-
-/** "claude-code (claude-code-4)" → name and session. */
-export function splitRequester(r: string) {
-  const m = r.match(/^(.*?)\s*\((.*)\)$/);
-  return m ? { name: m[1], session: m[2] } : { name: r, session: undefined };
-}
-
-/** Ticks once a second while mounted. */
-function useNow(ms = 1000) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), ms);
-    return () => clearInterval(t);
-  }, [ms]);
-  return now;
-}
-
+/** "23 h 14 min", "4:09": how long a request has left. */
 function left(iso: string, now: number) {
   const s = Math.max(0, Math.floor((new Date(iso).getTime() - now) / 1000));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return h > 0 ? `${h} h ${String(m).padStart(2, "0")} min` : `${m}:${String(sec).padStart(2, "0")}`;
+  if (s >= 3600) return duration(s);
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function who(id: string | undefined, names: Map<string, Token> | undefined) {
-  if (!id) return "someone";
-  const t = names?.get(id);
-  if (!t) return "someone";
-  if (t.name === "dashboard session") return `${t.sponsor ? (names?.get(t.sponsor)?.name ?? "the owner") : "the owner"}, in the dashboard`;
-  return t.name;
-}
+const agentOf = (a: Approval) => actorWords({ kind: "agent", name: split(a.requester).name });
 
-const statusCopy: Record<Approval["status"], { label: string; cls: string }> = {
-  pending: { label: "Waiting for you", cls: "text-brass-ink bg-brass-wash" },
-  approved: { label: "Approved, not applied yet", cls: "text-rev bg-rev-wash" },
-  used: { label: "Approved and applied", cls: "text-rev bg-rev-wash" },
-  rejected: { label: "Rejected", cls: "text-ink-2 bg-hover" },
-  expired: { label: "Expired", cls: "text-ink-3 bg-hover" },
-};
+// ───────────────────────── the list ─────────────────────────
 
 export function ApprovalsPage() {
   useTitle("Approvals");
   const all = useQuery(q.approvals);
-  const passkeys = useQuery(q.passkeys);
-  const names = useQuery(q.tokenNames);
+  const passkeys = useQuery({ ...q.passkeys, retry: false });
+  const names = useQuery({ ...q.tokenNames, retry: false });
   const now = useNow(30_000);
   const wf = useWaitingWorkflowApprovals();
+  const [showAll, setShowAll] = useState(false);
 
   if (all.isError && notOnBox(all.error)) return <NotOnBox what="Approvals" />;
   if (all.isPending)
     return (
       <Page>
-        <div className="h-10 w-96 max-w-full animate-pulse rounded-md bg-hover" />
+        <div className="h-3 w-32 rounded bg-paper-sunk" />
+        <div className="mt-4 h-8 w-96 max-w-full animate-pulse rounded-md bg-paper-sunk" />
       </Page>
     );
   if (all.isError)
     return (
       <Page>
-        <ProblemNote error={all.error} title="Couldn't load approvals" />
+        <ProblemNote error={all.error} title="Couldn’t load approvals" />
       </Page>
     );
 
-  const pending = all.data.filter((a) => a.status === "pending");
-  const decided = all.data.filter((a) => a.status !== "pending");
-  const askers = new Set(pending.map((a) => splitRequester(a.requester).name)).size;
+  const pending = all.data.filter((a) => a.status === "pending" && new Date(a.expiresAt).getTime() > now);
+  const decided = all.data.filter((a) => !pending.includes(a));
+  const agents = [...new Set(pending.map(agentOf))];
+  let headline: string;
+  if (pending.length === 0 && wf.length > 0) headline = wf.length === 1 ? "A workflow is waiting for a person." : `${words(wf.length, true)} workflows are waiting for a person.`;
+  else if (pending.length === 0) headline = "Nobody is waiting on you.";
+  else if (agents.length === 1) headline = pending.length === 1 ? `${agents[0]} is waiting on you.` : `${agents[0]} is waiting on you for ${words(pending.length)} changes.`;
+  else headline = `${words(agents.length, true)} agents are waiting on you.`;
+  const shownDecided = showAll ? decided : decided.slice(0, 30);
 
   return (
     <Page>
-      <header className="animate-rise">
-        <h1 className="display text-2xl text-ink sm:text-3xl">
-          {pending.length === 0 && wf.length > 0 ? (
-            `${words[wf.length] ?? wf.length} ${wf.length === 1 ? "workflow is" : "workflows are"} waiting on you.`
-          ) : pending.length === 0 ? (
-            "Nobody is waiting on you."
-          ) : (
-            <>
-              {words[askers] ?? askers} {askers === 1 ? "agent is" : "agents are"} waiting on you.
-            </>
-          )}
-        </h1>
-        <p className="mt-3 max-w-[38rem] text-md text-ink-2">
-          When a plan goes beyond an agent's token (anything irreversible, or anything that reaches outside the box), the agent asks here. You approve
-          with your passkey; it can then apply exactly that plan, once.
-        </p>
-      </header>
+      <LedgerCrumbs items={[{ label: "Ledger", to: "/ledger" }, { label: "Approvals" }]} />
+      <h1 className="sentence mt-3 text-ink max-sm:text-[1.5rem] max-sm:leading-[1.875rem]">{headline}</h1>
+      <p className="mt-2 max-w-[40rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
+        When a plan goes beyond an agent’s token (anything irreversible, or anything that reaches outside the box), the agent asks here. You sign with your
+        passkey; it can then apply exactly that plan, once.
+      </p>
 
       {passkeys.data && passkeys.data.length === 0 && (
-        <div className="mt-8 flex flex-col gap-3 rounded-xl border border-brass/40 bg-brass-wash px-5 py-4 sm:flex-row sm:items-center">
-          <Fingerprint className="size-5 shrink-0 text-brass-ink" />
-          <p className="flex-1 text-base text-ink">
-            <span className="font-medium">Add a passkey first.</span>{" "}
-            <span className="text-ink-2">Approving needs one, so a stolen session alone can't.</span>
+        <div className="mt-7 flex flex-col gap-3 border-y border-rule py-3 sm:flex-row sm:items-center">
+          <Fingerprint className="size-[18px] shrink-0 text-brass-ink" aria-hidden />
+          <p className="flex-1 text-[0.875rem] text-ink">
+            <span className="font-[550]">Add a passkey first.</span> <span className="text-ink-2">Signing needs one, so a stolen session alone can’t.</span>
           </p>
-          <Button asChild variant="secondary" size="sm">
+          <Button asChild variant="secondary" size="sm" className="self-start sm:self-auto">
             <Link to="/settings/passkeys">Add a passkey</Link>
           </Button>
         </div>
       )}
 
       {pending.length > 0 && (
-        <ul className="mt-10 flex flex-col gap-3">
-          {pending.map((a, k) => {
-            const tier = asTier(a.plan.risk);
-            const r = splitRequester(a.requester);
-            return (
-              <li key={a.id} className="animate-rise" style={{ animationDelay: `${k * 50}ms` }}>
-                <Link
-                  to="/approvals/$id"
-                  params={{ id: a.id }}
-                  className={cn(
-                    "group relative flex gap-4 overflow-hidden rounded-xl border bg-raised px-5 py-4 transition-[border-color,transform,box-shadow] hover:-translate-y-px hover:shadow-pop",
-                    tier === "irreversible" ? "border-irr-rule" : tier === "outbound" ? "border-out/40" : "border-rule",
-                  )}
-                >
-                  <span
-                    aria-hidden
-                    className={cn("absolute inset-y-0 left-0 w-1", tier === "irreversible" ? "bg-irr" : tier === "outbound" ? "bg-out" : "bg-rev")}
+        <section aria-labelledby="waiting" className="mt-9 overflow-hidden rounded-[10px] border border-rule-2 bg-paper-raised shadow-raised">
+          <h2 id="waiting" className="label px-4 pt-3 !text-brass-ink sm:px-5">
+            Waiting for you
+          </h2>
+          <div className="divide-y divide-rule px-4 sm:px-5">
+            {pending.map((a) => {
+              const r = split(a.requester);
+              return (
+                <div key={a.id} className="flex flex-col gap-x-6 sm:flex-row sm:items-center">
+                  <SignedEntry
+                    className="min-w-0 flex-1"
+                    time={clock(a.createdAt)}
+                    timeNote="asked"
+                    actor={{ kind: "agent", name: r.name, session: r.session }}
+                    intent={splitIntent(intentWords({ intent: a.intent, plan: a.plan })).head}
+                    to="/approvals/$id"
+                    params={{ id: a.id }}
+                    counts={opCounts(a.plan.ops)}
+                    tier={asTier(a.plan.risk)}
+                    extra={
+                      <span className="tnum">
+                        {a.project} · expires in {left(a.expiresAt, now)}
+                      </span>
+                    }
                   />
-                  <div className="min-w-0 flex-1">
-                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-3">
-                      <ActorMark actor={{ kind: "agent", name: r.name, id: a.requestedBy }} className="size-4 text-[0.55rem]" />
-                      <span className="font-medium text-ink-2">{r.name}</span>
-                      {r.session && <code className="font-mono text-xs text-ink-4">{r.session}</code>}
-                      <span>asks to change</span>
-                      <code className="font-mono text-xs text-ink-2">{a.project}</code>
-                    </p>
-                    <p className="mt-1.5 text-lg font-medium text-ink">{a.intent || <em className="text-ink-3">No intent given</em>}</p>
-                    <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-3">
-                      <RiskBadge tier={tier} size="sm" />
-                      <OpCounts ops={a.plan.ops} />
-                      <span>asked {relative(a.createdAt, now)}</span>
-                      <span className="tnum">expires in {left(a.expiresAt, now)}</span>
-                    </p>
-                  </div>
-                  <ArrowRight className="mt-1 size-4 shrink-0 self-center text-ink-4 transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+                  <Button asChild variant="primary" size="md" className="mb-3 self-start max-sm:ml-[56px] sm:mb-0 sm:self-center">
+                    <Link to="/approvals/$id" params={{ id: a.id }}>
+                      Review
+                    </Link>
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       {wf.length > 0 && (
-        <section className="mt-12" aria-labelledby="wf">
-          <h2 id="wf" className="display-italic mb-1 text-xl text-ink">
-            Workflows waiting for a person
+        <section id="workflows" aria-labelledby="wf" className="mt-10 scroll-mt-6">
+          <h2 id="wf" className="label">
+            Waiting for a person
           </h2>
-          <p className="mb-3 text-sm text-ink-3">
-            Steps in your apps' durable workflows that asked for a human decision. No passkey needed: they don't change the box itself.
+          <p className="mt-1 max-w-[40rem] text-[0.8125rem] text-ink-3">
+            Steps in your apps’ workflows that asked for a human decision. They don’t change the box, so no passkey is needed.
           </p>
-          <ul className="flex flex-col gap-2">
-            {wf.map((a) => (
-              <li key={a.project + a.id}>
-                <ApprovalCard project={a.project} a={a} />
-              </li>
+          <div className="mt-3 divide-y divide-rule border-y border-rule">
+            {wf.map((w) => (
+              <WorkflowRow key={w.project + w.id} w={w} />
             ))}
-          </ul>
+          </div>
         </section>
       )}
 
       {pending.length === 0 && wf.length === 0 && (
-        <div className="mt-10 rounded-xl border border-dashed border-rule-strong px-6 py-8 text-center">
-          <Check className="mx-auto size-6 text-rev" />
-          <p className="mt-3 text-md text-ink">All clear.</p>
-          <p className="mt-1 text-base text-ink-3">When an agent needs your OK, it'll show up here, and the agent will send you a link.</p>
+        <div className="mt-10 flex flex-col items-center gap-1 border-y border-rule py-10 text-center">
+          <img src={emptyApprovals} alt="" width={200} height={160} className="mb-2 h-auto w-[160px] sm:w-[200px]" />
+          <p className="text-[0.9375rem] text-ink">Nothing to sign.</p>
+          <p className="max-w-[28rem] text-[0.875rem] text-ink-3">
+            When an agent needs your signature, it shows up here and in the Ledger, and the agent sends you the link.
+          </p>
         </div>
       )}
 
       {decided.length > 0 && (
-        <section className="mt-14" aria-labelledby="decided">
-          <h2 id="decided" className="display-italic mb-3 text-xl text-ink">
+        <section aria-labelledby="decided" className="mt-12">
+          <h2 id="decided" className="label">
             Decided
           </h2>
-          <ul className="divide-y divide-rule border-y border-rule">
-            {decided.map((a) => {
-              const r = splitRequester(a.requester);
-              return (
-                <li key={a.id}>
-                  <Link to="/approvals/$id" params={{ id: a.id }} className="flex items-start gap-3 py-3 transition-colors hover:bg-hover/50 sm:px-2">
-                    <RiskMark tier={asTier(a.plan.risk)} className="mt-1" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-base text-ink">{a.intent}</span>
-                      <span className="mt-0.5 block text-sm text-ink-3">
-                        {r.name} · <code className="font-mono text-xs">{a.project}</code> ·{" "}
-                        {a.decidedAt ? `decided ${relative(a.decidedAt, now)} by ${who(a.decidedBy, names.data)}` : relative(a.createdAt, now)}
-                      </span>
-                      {a.status === "rejected" && a.reason && <span className="mt-1 block text-sm text-ink-2 italic">“{a.reason}”</span>}
-                    </span>
-                    <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-medium", statusCopy[a.status].cls)}>
-                      {statusCopy[a.status].label}
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="mt-2 divide-y divide-rule border-y border-rule">
+            {shownDecided.map((a) => (
+              <DecidedRow key={a.id} a={a} names={names.data} />
+            ))}
+          </div>
+          {decided.length > shownDecided.length && (
+            <Button variant="ghost" size="sm" className="mt-3" onClick={() => setShowAll(true)}>
+              Show {countWords(decided.length - shownDecided.length, "older one", "older ones")}
+            </Button>
+          )}
         </section>
       )}
     </Page>
   );
 }
 
+const statusNote: Partial<Record<Approval["status"], string>> = { approved: "signed", used: "signed" };
+
+function DecidedRow({ a, names }: { a: Approval; names?: Map<string, Token> }) {
+  const r = split(a.requester);
+  const by = tokenWho(a.decidedBy, names);
+  const at = a.decidedAt ?? a.expiresAt;
+  let signature: ReactNode;
+  if (a.status === "used") signature = `signed by ${by} · passkey · applied`;
+  else if (a.status === "approved") signature = `signed by ${by} · passkey · not applied yet`;
+  else if (a.status === "rejected") signature = `declined by ${by}`;
+  else signature = "expired, unsigned";
+  return (
+    <SignedEntry
+      time={clock(at)}
+      timeNote={statusNote[a.status]}
+      actor={{ kind: "agent", name: r.name, session: r.session }}
+      intent={splitIntent(intentWords({ intent: a.intent, plan: a.plan })).head}
+      to="/approvals/$id"
+      params={{ id: a.id }}
+      counts={opCounts(a.plan.ops)}
+      tier={asTier(a.plan.risk)}
+      signature={signature}
+      extra={
+        <>
+          {a.status === "rejected" && a.reason && <span className="text-ink-2">“{a.reason}”</span>}
+          <span>{a.project}</span>
+        </>
+      }
+    />
+  );
+}
+
+/** A workflow step waiting for a person, decided right here (a note goes back to the run). */
+function WorkflowRow({ w }: { w: WorkflowApproval & { project: string } }) {
+  const qc = useQueryClient();
+  const { can } = useMe();
+  const [note, setNote] = useState("");
+  const decide = useMutation({
+    mutationFn: (d: "approve" | "reject") => mod2.decide(w.project, w.id, d, note.trim() || undefined),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["wf-approvals", w.project] });
+      qc.invalidateQueries({ queryKey: ["runs", w.project] });
+      qc.invalidateQueries({ queryKey: ["run", w.project, w.runId] });
+    },
+  });
+  return (
+    <div className="grid grid-cols-[44px_minmax(0,1fr)] gap-x-3 py-3.5">
+      <div className="pt-px text-[0.78125rem] leading-5 text-ink-3 tnum">
+        {clock(w.createdAt)}
+        <div className="leading-4">asked</div>
+      </div>
+      <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:gap-6">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[0.78125rem] leading-[1.125rem] text-ink-2">
+            Workflow{" "}
+            <Link to="/projects/$project/workflows/$id" params={{ project: w.project, id: w.runId }} className="ident text-[0.71875rem] text-ink-2 hover:text-ink">
+              {w.workflow}
+            </Link>{" "}
+            in {w.project} · step “{w.step}”
+          </p>
+          <p className="entry mt-0.5 text-ink">{w.title || w.step}</p>
+          {w.description && <p className="mt-1 text-[0.8125rem] text-ink-2">{w.description}</p>}
+          <p className="mt-1.5 text-xs text-ink-3">
+            {w.timeoutAt ? `Times out ${relative(w.timeoutAt)}` : "Waits until someone decides"}
+            {w.humanOnly && " · people only"}
+          </p>
+        </div>
+        {can("apply:reversible") && (
+          <div className="flex shrink-0 flex-col gap-2 md:w-60">
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note for the run (optional)" className="h-8 text-[0.8125rem]" aria-label="Note for the run" />
+            <div className="flex gap-2">
+              <Button size="sm" variant="primary" className="flex-1" onClick={() => decide.mutate("approve")} disabled={decide.isPending}>
+                <Check />
+                Approve
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => decide.mutate("reject")} disabled={decide.isPending}>
+                Reject
+              </Button>
+            </div>
+          </div>
+        )}
+        {decide.isError && <ProblemNote className="mt-1" error={decide.error} />}
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────── the permit ─────────────────────────
+
 type Step = { k: "idle" } | { k: "signing" } | { k: "error"; message: ReactNode } | { k: "rejecting" };
 
 export function ApprovalPage({ id }: { id: string }) {
   const qc = useQueryClient();
   const a = useQuery(q.approval(id));
-  const names = useQuery(q.tokenNames);
+  const names = useQuery({ ...q.tokenNames, retry: false });
+  const used = useQuery({ ...q.change(a.data?.usedBy ?? ""), enabled: !!a.data?.usedBy });
+  const { name: myName, role } = useMe();
   const now = useNow(1000);
   const [step, setStep] = useState<Step>({ k: "idle" });
   const [typed, setTyped] = useState("");
-  const [rejectOpen, setRejectOpen] = useState(false);
+  const [declining, setDeclining] = useState(false);
   const [reason, setReason] = useState("");
   const [fresh, setFresh] = useState(false);
-  useTitle(a.data ? `Approve: ${a.data.intent}` : "Approval");
+  const [armedAt, setArmedAt] = useState<string | null>(null);
+  useTitle(a.data ? `Sign: ${splitIntent(intentWords({ intent: a.data.intent, plan: a.data.plan })).head}` : "Approval");
 
   if (a.isError && notOnBox(a.error)) return <NotOnBox what="Approvals" />;
   if (a.isPending)
     return (
       <Page>
-        <div className="h-10 w-2/3 animate-pulse rounded-md bg-hover" />
+        <div className="sm:pl-[92px]">
+          <div className="h-3 w-40 rounded bg-paper-sunk" />
+          <div className="mt-8 h-4 w-64 rounded bg-paper-sunk" />
+          <div className="mt-3 h-10 w-2/3 animate-pulse rounded-md bg-paper-sunk" />
+        </div>
       </Page>
     );
   if (a.isError || !a.data)
     return (
       <Page>
-        <BackToApprovals />
-        <ProblemNote
-          className="mt-6"
-          error={a.error}
-          title={a.error instanceof ApiError && a.error.status === 404 ? "There's no approval request with that ID" : "Couldn't load this approval"}
-        />
+        <Leaf>
+          <LedgerCrumbs items={[{ label: "Ledger", to: "/ledger" }, { label: "Approvals", to: "/approvals" }]} />
+          <ProblemNote
+            className="mt-6"
+            error={a.error}
+            title={a.error instanceof ApiError && a.error.status === 404 ? "There’s no approval request with that ID" : "Couldn’t load this approval"}
+          />
+        </Leaf>
       </Page>
     );
 
   const ap = a.data;
   const tier = asTier(ap.plan.risk);
-  const r = splitRequester(ap.requester);
-  const pending = ap.status === "pending" && new Date(ap.expiresAt).getTime() > now;
+  const r = split(ap.requester);
+  const agent = actorWords({ kind: "agent", name: r.name });
+  const expired = ap.status === "expired" || (ap.status === "pending" && new Date(ap.expiresAt).getTime() <= now);
+  const pending = ap.status === "pending" && !expired;
+  const signed = ap.status === "approved" || ap.status === "used";
   const serious = tier === "irreversible";
-  const typedOk = !serious || typed.trim() === ap.project;
+  const armed = !serious || typed.trim() === ap.project;
   const ops = (ap.plan.ops ?? []).slice().sort((x, y) => (tierRank[y.risk] ?? 4) - (tierRank[x.risk] ?? 4));
+  const outbound = ops.filter((o) => asTier(o.risk) === "outbound");
+  const intent = splitIntent(intentWords({ intent: ap.intent, plan: ap.plan }));
+  const signer = tokenWho(ap.decidedBy, names.data);
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["approval", id] });
@@ -282,13 +355,13 @@ export function ApprovalPage({ id }: { id: string }) {
       setStep({ k: "idle" });
       refresh();
     } catch (e) {
-      if (e instanceof ApiError && /passkey/i.test(e.problem.detail ?? "") && /no passkey/i.test(e.problem.detail ?? "")) {
+      if (e instanceof ApiError && /no passkey/i.test(e.problem.detail ?? "")) {
         setStep({
           k: "error",
           message: (
             <>
-              You haven't added a passkey yet.{" "}
-              <Link to="/settings/passkeys" className="font-medium text-ink underline underline-offset-4">
+              You haven’t added a passkey yet.{" "}
+              <Link to="/settings/passkeys" className="font-[550] text-ink underline underline-offset-4">
                 Add one
               </Link>
               , then come back to this page.
@@ -307,7 +380,7 @@ export function ApprovalPage({ id }: { id: string }) {
     try {
       const res = await api.reject(id, reason.trim());
       qc.setQueryData(q.approval(id).queryKey, res);
-      setRejectOpen(false);
+      setDeclining(false);
       setStep({ k: "idle" });
       refresh();
     } catch (e) {
@@ -315,204 +388,269 @@ export function ApprovalPage({ id }: { id: string }) {
     }
   };
 
+  const status = pending
+    ? { label: "Waiting for you", tone: "brass", tail: <span className="tnum">expires in {left(ap.expiresAt, now)}</span> }
+    : ap.status === "used"
+      ? { label: "Signed and applied", tone: "brass", tail: ap.decidedAt && when(ap.decidedAt) }
+      : ap.status === "approved"
+        ? { label: "Signed, not applied yet", tone: "brass", tail: ap.decidedAt && when(ap.decidedAt) }
+        : ap.status === "rejected"
+          ? { label: "Declined", tone: "", tail: ap.decidedAt && when(ap.decidedAt) }
+          : { label: "Expired", tone: "", tail: when(ap.expiresAt) };
+
+  const meLine = myName ? (role && myName.toLowerCase() === role ? `${myName} of this box` : `${myName}${role ? `, ${role} of this box` : ""}`) : "you";
+
   return (
     <Page>
-      <BackToApprovals />
-      <header className="relative mt-6 animate-rise">
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-base text-ink-2">
-          <ActorMark actor={{ kind: "agent", name: r.name, id: ap.requestedBy }} />
-          <span className="font-medium text-ink">{r.name}</span>
-          {r.session && (
-            <>
-              <span className="text-ink-3">in session</span>
-              <code className="font-mono text-sm">{r.session}</code>
-            </>
-          )}
-          <span className="text-ink-3">asks to change</span>
-          <code className="font-mono text-sm text-ink">{ap.project}</code>
-          <span className="text-ink-4">·</span>
-          <time dateTime={ap.createdAt} title={full(ap.createdAt)} className="text-ink-3">
-            {relative(ap.createdAt, now)}
-          </time>
-        </p>
-        <h1 className="display mt-3 text-2xl text-ink sm:text-[2.125rem] sm:leading-[2.6rem]">
-          {ap.intent || <em className="text-ink-3">No intent given</em>}
-        </h1>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <RiskBadge tier={tier} />
-          {pending ? (
-            <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-hover px-2.5 font-mono text-xs text-ink-2 tnum">
-              expires in {left(ap.expiresAt, now)}
-            </span>
-          ) : (
-            <span
-              className={cn(
-                "inline-flex h-6 items-center rounded-full px-2.5 text-sm font-medium",
-                statusCopy[ap.status === "pending" ? "expired" : ap.status].cls,
-              )}
-            >
-              {statusCopy[ap.status === "pending" ? "expired" : ap.status].label}
-            </span>
-          )}
+      <article data-receipt aria-label="Approval request" className="flex flex-col">
+        <div className="mb-8 hidden items-center gap-2 border-b border-ink pb-3 text-[0.8125rem] text-ink-2 print:flex">
+          <Logo className="size-5 text-ink" />
+          <b className="font-[550] text-ink">tiffin</b>
+          <span>Approval</span>
+          <span className="ml-auto">Printed {stamp(new Date(now).toISOString())}</span>
         </div>
-        {(ap.status === "approved" || ap.status === "used") && (
-          <div
-            aria-hidden
-            className={cn(
-              "pointer-events-none absolute -top-1 right-0 hidden rotate-[-6deg] rounded-md border-2 border-rev/70 px-3 py-1 font-mono text-sm font-medium tracking-[0.2em] text-rev uppercase sm:block",
-              fresh && "animate-stamp",
-            )}
-          >
-            Approved
-          </div>
-        )}
-      </header>
+        <Leaf className="print:hidden">
+          <LedgerCrumbs items={[{ label: "Ledger", to: "/ledger" }, { label: "Approvals", to: "/approvals" }, { label: pending ? "Waiting for you" : "Request" }]} />
+        </Leaf>
 
-      {pending && tier !== "reversible" && (
-        <div className={cn("mt-6 overflow-hidden rounded-xl border", serious ? "border-irr-rule bg-irr-wash" : "border-out/40 bg-out-wash")}>
-          {serious && <div aria-hidden className="h-1 bg-[repeating-linear-gradient(135deg,var(--irr)_0_8px,transparent_8px_14px)] opacity-70" />}
-          <div className="flex gap-3 px-4 py-3.5">
-            <RiskMark tier={tier} className="mt-0.5 size-4" />
-            <p className="text-base text-ink">
-              {serious ? (
-                <>
-                  <span className="font-medium">Approving lets {r.name} destroy data, once.</span>{" "}
-                  <span className="text-ink-2">Undo can bring back settings, not what's deleted. Read every step below.</span>
-                </>
-              ) : (
-                <>
-                  <span className="font-medium">Approving lets {r.name} make something visible outside the box, once.</span>{" "}
-                  <span className="text-ink-2">People or the internet will be able to see it.</span>
-                </>
-              )}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {ap.status === "rejected" && (
-        <div className="mt-6 rounded-xl border border-rule bg-raised px-5 py-4">
-          <p className="text-base text-ink">
-            Rejected {ap.decidedAt && relative(ap.decidedAt, now)} by {who(ap.decidedBy, names.data)}.
+        <Leaf className="mt-7" time={clock(ap.createdAt)} note="asked">
+          <p className="flex flex-wrap items-baseline gap-x-2.5 text-[0.8125rem] text-ink-2">
+            <span className={cn("label", status.tone === "brass" && "!text-brass-ink")}>{status.label}</span>
+            <span>{status.tail}</span>
           </p>
-          {ap.reason && <p className="display-italic mt-1.5 text-lg text-ink-2">“{ap.reason}”</p>}
-          <p className="mt-2 text-sm text-ink-3">{r.name} sees this reason.</p>
-        </div>
-      )}
-      {ap.status === "approved" && (
-        <p className="mt-6 text-base text-ink-2">
-          Approved {ap.decidedAt && relative(ap.decidedAt, now)} by {who(ap.decidedBy, names.data)}. {r.name} can now apply this exact plan once, with
-          approval <code className="font-mono text-sm text-ink">{ap.id}</code>.
-        </p>
-      )}
-      {ap.status === "used" && ap.usedBy && (
-        <p className="mt-6 text-base text-ink-2">
-          Approved by {who(ap.decidedBy, names.data)} and applied as{" "}
-          <Link to="/changes/$id" params={{ id: ap.usedBy }} className="font-mono text-sm text-brass-ink underline underline-offset-4 hover:text-ink">
-            {ap.usedBy}
-          </Link>
-          .
-        </p>
-      )}
-
-      <section className="mt-10" aria-labelledby="plan">
-        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 id="plan" className="display-italic text-xl text-ink">
-            What it will do
-          </h2>
-          <span className="flex items-center gap-2 text-sm text-ink-3">
-            plan <CopyValue value={ap.planHash} display={ap.planHash.slice(0, 12)} />
-          </span>
-        </div>
-        <div className="flex flex-col gap-3">
-          {ops.map((op, k) => (
-            <div key={op.address + k} className="animate-rise" style={{ animationDelay: `${60 + k * 40}ms` }}>
-              <OpView op={op} />
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {pending && (
-        <section
-          className="sticky bottom-0 z-10 -mx-4 mt-10 border-t border-rule bg-paper/95 px-4 pt-4 pb-5 backdrop-blur-md sm:mx-0 sm:rounded-xl sm:border sm:px-5"
-          aria-label="Decision"
-        >
-          {step.k === "error" && (
-            <p role="alert" className="mb-3 rounded-lg border border-irr-rule bg-irr-wash px-3 py-2 text-base text-ink">
-              {step.message}
+          <ActorLine
+            className="mt-4"
+            kind="agent"
+            name={r.name}
+            session={r.session}
+            verb={pending ? "asks to change" : "asked to change"}
+            project={ap.project}
+          />
+          <h1 className="intent mt-1.5 text-ink max-sm:text-[1.75rem] max-sm:leading-[2.0625rem]">{intent.head || <span className="text-ink-3">No intent given.</span>}</h1>
+          {intent.rest && (
+            <p className="mt-3.5 max-w-[37.5rem] text-[0.90625rem] leading-[1.375rem] text-graphite">
+              <span className="label mb-0.5 block">In its words</span>
+              {intent.rest}
             </p>
           )}
-          {rejectOpen ? (
-            <div className="flex flex-col gap-3">
-              <label className="text-sm font-medium text-ink" htmlFor="reason">
-                Tell {r.name} why <span className="font-normal text-ink-3">(it sees this)</span>
-              </label>
-              <textarea
-                id="reason"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                maxLength={500}
-                rows={2}
-                autoFocus
-                className="w-full resize-none rounded-md border border-rule bg-paper px-3 py-2 text-base text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]"
-                placeholder="Not yet: the site still reads drafts from Postgres."
-              />
-              <div className="flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => setRejectOpen(false)}>
-                  Back
-                </Button>
-                <Button variant="primary" onClick={reject} disabled={step.k === "rejecting"}>
-                  <X />
-                  {step.k === "rejecting" ? "Rejecting…" : "Reject"}
-                </Button>
+          <RiskLine tier={tier} ops={ops} hash={ap.planHash} />
+        </Leaf>
+
+        <Leaf className="mt-6">
+          <Sec label={pending ? "What it will do" : "What it asked to do"}>
+            <Steps ops={ops} project={ap.project} />
+          </Sec>
+          {outbound.length > 0 && (
+            <Sec label="What reaches outside the box">
+              <div className="max-w-[38rem] border-l-2 border-warn py-0.5 pl-4 text-[0.875rem] leading-[1.3125rem] text-ink">
+                {outbound.map((o, i) => (
+                  <p key={o.address + i}>{reasonWords(o).did}</p>
+                ))}
+                <p className="mt-1 text-[0.84375rem] text-ink-2">
+                  Signing lets {agent} make something visible outside the box, once. People or the internet will be able to see it.
+                </p>
               </div>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              {serious && (
-                <label className="flex-1">
-                  <span className="text-sm text-ink-2">
-                    Type <code className="rounded-xs bg-irr-wash px-1 font-mono text-irr">{ap.project}</code> to unlock approval
-                  </span>
-                  <Input
-                    className="mt-1.5 font-mono"
-                    value={typed}
-                    onChange={(e) => setTyped(e.target.value)}
-                    autoComplete="off"
-                    spellCheck={false}
-                    aria-label={`Type ${ap.project} to unlock approval`}
-                  />
-                </label>
-              )}
-              <div className={cn("flex gap-2", !serious && "sm:ml-auto")}>
-                <Button variant="ghost" size="lg" onClick={() => setRejectOpen(true)}>
-                  Reject…
-                </Button>
-                <Button
-                  variant={serious ? "danger" : "primary"}
-                  size="lg"
-                  onClick={approve}
-                  disabled={!typedOk || step.k === "signing" || !webauthnSupported()}
-                  title={webauthnSupported() ? undefined : "Passkeys need HTTPS or localhost"}
-                >
-                  <KeyRound />
-                  {step.k === "signing" ? "Waiting for your passkey…" : "Approve with passkey"}
-                </Button>
-              </div>
-            </div>
+            </Sec>
           )}
-        </section>
-      )}
+          <UndoCant ops={ops} project={ap.project} />
+        </Leaf>
+
+        {pending && (
+          <Leaf time={serious && armed && armedAt ? clock(armedAt) : undefined} note={serious && armed ? "armed" : undefined} className="print:hidden">
+            <section aria-label="Your decision" className="border-t border-rule pt-5">
+              {step.k === "error" && (
+                <p role="alert" className="mb-3 border-l-2 border-danger py-0.5 pl-3 text-[0.875rem] text-ink">
+                  {step.message}
+                </p>
+              )}
+              <div
+                className={cn(
+                  "rounded-[12px] border bg-paper-raised px-4 py-4 shadow-[var(--top-light)] transition-[border-color,box-shadow] duration-[var(--dur-state)] ease-[var(--ease-out)] sm:px-[18px]",
+                  serious && armed ? "border-danger shadow-[0_0_0_3px_var(--danger-wash)]" : "border-rule-2",
+                )}
+              >
+                {declining ? (
+                  <div className="flex flex-col gap-3">
+                    <label className="text-[0.84375rem] text-ink-2" htmlFor="reason">
+                      Tell {agent} why <span className="text-ink-3">(it sees this)</span>
+                    </label>
+                    <textarea
+                      id="reason"
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                      maxLength={500}
+                      rows={2}
+                      autoFocus
+                      className="w-full resize-none rounded-[8px] border border-rule-2 bg-paper px-3 py-2 text-[0.875rem] text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]"
+                      placeholder="Not yet: the reports page still reads these events."
+                    />
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button variant="ghost" onClick={() => setDeclining(false)}>
+                        Back
+                      </Button>
+                      <Button variant="secondary" onClick={reject} disabled={step.k === "rejecting"}>
+                        {step.k === "rejecting" ? "Declining…" : "Decline"}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {serious ? (
+                      <div className="flex items-center gap-3 text-[0.84375rem] text-ink-2">
+                        <span>
+                          Type <span className="ident text-ink">{ap.project}</span> to lift the guard.
+                        </span>
+                        <span className={cn("label ml-auto flex items-center gap-1.5", armed && "!text-danger")} aria-live="polite">
+                          {armed && <span aria-hidden className="size-1.5 rounded-full bg-danger" />}
+                          {armed ? "Armed" : "Locked"}
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="text-[0.84375rem] text-ink-2">
+                        {agent} can apply this exact plan once you sign. It expires in <span className="tnum">{left(ap.expiresAt, now)}</span>.
+                      </p>
+                    )}
+                    <div className="mt-3 flex flex-col gap-2.5 sm:flex-row sm:items-center">
+                      {serious && (
+                        <Input
+                          className="h-[38px] min-h-[38px] w-full font-mono sm:w-auto sm:flex-1"
+                          value={typed}
+                          onChange={(e) => {
+                            setTyped(e.target.value);
+                            setArmedAt(e.target.value.trim() === ap.project ? new Date().toISOString() : null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                              setTyped("");
+                              setArmedAt(null);
+                            }
+                            if (e.key === "Enter" && armed) void approve();
+                          }}
+                          placeholder={ap.project}
+                          autoComplete="off"
+                          spellCheck={false}
+                          aria-label={`Type ${ap.project} to arm`}
+                        />
+                      )}
+                      <Button
+                        variant={serious ? "danger" : "primary"}
+                        size="lg"
+                        className={cn("max-sm:w-full", serious && !armed && "!bg-paper-sunk !text-ink-2 border border-rule-2 !shadow-none")}
+                        onClick={approve}
+                        disabled={!armed || step.k === "signing" || !webauthnSupported()}
+                        title={webauthnSupported() ? undefined : "Passkeys need HTTPS or localhost"}
+                      >
+                        <Fingerprint />
+                        {step.k === "signing" ? "Waiting for your passkey…" : "Sign with passkey"}
+                      </Button>
+                    </div>
+                    <div className="mt-3.5 flex flex-wrap items-center gap-x-3 gap-y-2 text-[0.78125rem] text-ink-3">
+                      <span className="min-w-0 flex-1">Signing approves this plan once. Nothing else is approved.</span>
+                      <Button variant="secondary" onClick={() => setDeclining(true)}>
+                        Decline…
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="mt-7 max-w-[calc(100%-8rem)] border-b border-rule-3 pt-7 max-sm:max-w-full" aria-hidden />
+              <p className="mt-1.5 text-xs text-ink-3">Signature · {meLine}</p>
+            </section>
+          </Leaf>
+        )}
+
+        {signed && (
+          <>
+            <Leaf time={ap.decidedAt ? clock(ap.decidedAt) : undefined} note="signed" className="mt-2">
+              <div className="border-t border-rule pt-7">
+                <Signature
+                  name={signer}
+                  at={ap.decidedAt ?? ap.createdAt}
+                  hash={ap.planHash}
+                  fresh={fresh}
+                  how={
+                    <>
+                      Signed by {signer} · passkey · {ap.decidedAt ? clock(ap.decidedAt) : ""} · plan <span className="ident text-ink">{planShort(ap.planHash)}</span>
+                    </>
+                  }
+                />
+              </div>
+            </Leaf>
+            <Leaf time={used.data ? clock(used.data.at) : undefined} note={used.data ? "applied" : undefined} className="mt-5">
+              {ap.status === "used" && ap.usedBy ? (
+                <p className="text-[0.875rem] leading-[1.3125rem] text-ink">
+                  {used.data ? (
+                    <>
+                      Applied at {clockSeconds(used.data.at)}
+                      {ap.decidedAt && `, ${duration((new Date(used.data.at).getTime() - new Date(ap.decidedAt).getTime()) / 1000)} after you signed`}, as version{" "}
+                      {used.data.version} of {ap.project}.
+                    </>
+                  ) : (
+                    <>Applied.</>
+                  )}
+                  <span className="block text-[0.84375rem] text-ink-2">
+                    {agent} applied it with this approval, so the approval is spent.{" "}
+                    <Link to="/changes/$id" params={{ id: ap.usedBy }} className="text-brass-ink hover:underline hover:underline-offset-4">
+                      Open the Ledger entry
+                    </Link>
+                  </span>
+                </p>
+              ) : (
+                <p className="text-[0.875rem] leading-[1.3125rem] text-ink">
+                  {agent} can now apply this exact plan once, with approval <span className="ident">{ap.id}</span>.
+                  <span className="block text-[0.84375rem] text-ink-2">It hasn’t yet; this page updates when it does. If the project moves first, the plan won’t match and nothing happens.</span>
+                </p>
+              )}
+              <PermitActions />
+            </Leaf>
+          </>
+        )}
+
+        {ap.status === "rejected" && (
+          <Leaf time={ap.decidedAt ? clock(ap.decidedAt) : undefined} note="declined" className="mt-2">
+            <div className="border-t border-rule pt-5 text-[0.875rem] leading-[1.3125rem] text-ink">
+              <p>
+                Declined by {signer}
+                {ap.decidedAt ? ` ${when(ap.decidedAt)}` : ""}.
+              </p>
+              {ap.reason && <p className="mt-2 max-w-[38rem] border-l-2 border-rule-3 py-0.5 pl-4 text-ink-2">“{ap.reason}”</p>}
+              <p className="mt-2 text-[0.8125rem] text-ink-3">{agent} sees this reason. Nothing was changed.</p>
+            </div>
+          </Leaf>
+        )}
+
+        {expired && (
+          <Leaf time={clock(ap.expiresAt)} note="expired" className="mt-2">
+            <p className="border-t border-rule pt-5 text-[0.875rem] leading-[1.3125rem] text-ink">
+              Nobody signed this before it expired {relative(ap.expiresAt, now)}. Nothing was changed; {agent} has to ask again.
+            </p>
+          </Leaf>
+        )}
+      </article>
     </Page>
   );
 }
 
-function BackToApprovals() {
+function PermitActions() {
+  const [copied, setCopied] = useState(false);
   return (
-    <Link to="/approvals" className="inline-flex items-center gap-1.5 rounded-md text-sm text-ink-3 transition-colors hover:text-ink">
-      <ArrowLeft className="size-3.5" />
-      Approvals
-    </Link>
+    <div data-print-hide className="mt-5 flex flex-wrap items-center gap-2">
+      <Button variant="secondary" onClick={() => window.print()}>
+        <Printer />
+        Print receipt
+      </Button>
+      <Button
+        variant="ghost"
+        onClick={async () => {
+          if (await copyText(location.href)) {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1600);
+          }
+        }}
+      >
+        {copied ? <Check className="text-ok" /> : <Link2 />}
+        {copied ? "Link copied" : "Copy link"}
+      </Button>
+    </div>
   );
 }

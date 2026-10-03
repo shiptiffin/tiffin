@@ -110,6 +110,7 @@ const activity = createRoute({
   validateSearch: (s: Record<string, unknown>): ActivitySearch => ({
     project: typeof s.project === "string" && s.project ? s.project : undefined,
     risk: tiers.includes(s.risk as Tier) ? (s.risk as Tier) : undefined,
+    who: s.who === "people" || s.who === "agents" ? s.who : undefined,
   }),
   component: function Activity() {
     return <ActivityPage search={activity.useSearch()} />;

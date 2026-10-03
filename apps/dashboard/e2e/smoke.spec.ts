@@ -30,7 +30,7 @@ test("login → activity → change → undo → status → tokens → sign out"
   await page.getByRole("link", { name: /^Ledger/ }).first().click();
   await expect(page).toHaveURL(/\/ledger$/);
   await expect(page.getByRole("heading", { level: 1 })).toContainText("changes across two projects");
-  await expect(page).toHaveTitle(/Activity · Tiffin$/);
+  await expect(page).toHaveTitle(/Ledger · Tiffin$/);
   await expect(page.getByRole("heading", { name: /Today/ })).toBeVisible();
 
   // Filtering by risk.
@@ -41,16 +41,16 @@ test("login → activity → change → undo → status → tokens → sign out"
 
   // Change detail: intent, plan hash, op with reason and diff.
   await page.getByRole("link", { name: /Drop the uploads bucket/ }).click();
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Drop the uploads bucket; files moved to the notes project");
-  await expect(page.getByText("Plan hash")).toBeVisible();
-  await expect(page.getByText('Deletes bucket "uploads" and every file in it')).toBeVisible();
-  await expect(page.getByText("This change destroyed data.")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Drop the uploads bucket; files moved to the notes project.");
+  await expect(page.getByText("Times and numbers")).toBeVisible();
+  await expect(page.getByText(/Deletes bucket “uploads” and every file in it/).first()).toBeVisible();
+  await expect(page.getByText("What undo can’t restore")).toBeVisible();
 
   // Undo: review the plan first, then confirm it.
   await page.getByRole("button", { name: "Undo this change" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading", { name: "Review the undo" })).toBeVisible();
-  await expect(dialog.getByText("bucket/uploads")).toBeVisible();
+  await expect(dialog.getByText("Add the uploads bucket")).toBeVisible();
   await expect(dialog.getByText("The original change deleted data.")).toBeVisible();
   await dialog.getByRole("button", { name: "Confirm undo" }).click();
   await expect(dialog).toBeHidden();
@@ -140,18 +140,18 @@ test("passkey → approve and reject agent requests → project, secrets, people
   // Approve the outbound request with it.
   await page.goto("/approvals");
   await page.getByRole("link", { name: /Make thumbnails public/ }).click();
-  await expect(page.getByText(/Approving lets codex make something visible outside the box/)).toBeVisible();
-  await page.getByRole("button", { name: "Approve with passkey" }).click();
-  await expect(page.getByText("Approved, not applied yet")).toBeVisible();
-  await expect(page.getByText(/codex can now apply this exact plan once/)).toBeVisible();
+  await expect(page.getByText(/Signing lets Codex make something visible outside the box/)).toBeVisible();
+  await page.getByRole("button", { name: "Sign with passkey" }).click();
+  await expect(page.getByText("Signed, not applied yet").first()).toBeVisible();
+  await expect(page.getByText(/Codex can now apply this exact plan once/)).toBeVisible();
 
   // The irreversible one needs the project name typed first; reject it instead.
   await page.goto("/approvals");
   await page.getByRole("link", { name: /Drop the notes Postgres after/ }).click();
-  await expect(page.getByRole("button", { name: "Approve with passkey" })).toBeDisabled();
-  await page.getByRole("button", { name: "Reject…" }).click();
-  await page.getByLabel(/Tell claude-code why/).fill("Keep the database until backups are on.");
-  await page.getByRole("button", { name: "Reject", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Sign with passkey" })).toBeDisabled();
+  await page.getByRole("button", { name: "Decline…" }).click();
+  await page.getByLabel(/Tell Claude Code why/).fill("Keep the database until backups are on.");
+  await page.getByRole("button", { name: "Decline", exact: true }).click();
   await expect(page.getByText("“Keep the database until backups are on.”")).toBeVisible();
   await page.goto("/approvals");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Nobody is waiting on you.");

@@ -1,270 +1,516 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { CornerUpLeft, Undo2, X } from "lucide-react";
-import type { CSSProperties } from "react";
-import type { Change, Tier } from "@/api/client";
+import { ChevronDown } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { Approval, Change, Tier } from "@/api/client";
 import { q } from "@/api/queries";
-import { ActorMark } from "@/components/actor";
 import { Command } from "@/components/copy";
+import { EnamelSwatch } from "@/components/enamel-swatch";
 import { useTitle } from "@/components/favicon";
+import { dayWords, splitIntent, tokenWho, useApprovalsByChange } from "@/components/ledger-parts";
 import { TiffinMark } from "@/components/logo";
-import { OpCounts } from "@/components/op";
-import { mcpCommand } from "@/lib/mcp";
-import { ProblemNote } from "@/components/problem";
-import { RiskBadge, RiskMark } from "@/components/risk";
-import { cn } from "@/lib/cn";
 import { Page } from "@/components/page";
-import { asTier, runs, tierCopy, tierRank } from "@/lib/changes";
-import { clock, dayKey, dayLabel, full, longDay, relative } from "@/lib/time";
+import { ProblemNote } from "@/components/problem";
+import { RiskDots } from "@/components/risk-dots";
+import { SignedEntry } from "@/components/signed-entry";
+import { Button } from "@/components/ui/button";
+import { Menu, MenuContent, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from "@/components/ui/dropdown";
+import { asTier, intentWords, opCounts, splitRequester, tierCopy } from "@/lib/changes";
+import { cn } from "@/lib/cn";
+import { useEnamels } from "@/lib/enamel";
+import { countWords, words } from "@/lib/format";
+import { mcpCommand } from "@/lib/mcp";
+import { clock, dayKey, dayLabel, relative } from "@/lib/time";
+import { useWaitingWorkflowApprovals } from "@/lib/wf";
 
-export type ActivitySearch = { project?: string; risk?: Tier };
+export type ActivitySearch = { project?: string; risk?: Tier; who?: "people" | "agents" };
 
-const words = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"];
-const num = (n: number, cap = true) => {
-  const w = n < words.length ? words[n] : String(n);
-  return cap ? w : w.toLowerCase();
-};
-const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+/** How many entries to draw at a time; more arrive as you scroll. */
+const PAGE = 60;
+/** The API's ceiling for one request. */
+const MAX = 200;
+
+const isAgent = (c: Change) => c.actor.kind === "agent";
 
 export function ActivityPage({ search }: { search: ActivitySearch }) {
-  const { project, risk } = search;
-  useTitle(project ? `${project} · Activity` : "Activity");
+  const { project, risk, who } = search;
+  useTitle(project ? `${project} · Ledger` : "Ledger");
   const changes = useQuery(q.changes(project));
-  const navigate = useNavigate();
+  const pending = useQuery({ ...q.pending, retry: false });
+  const names = useQuery({ ...q.tokenNames, retry: false });
+  const projects = useQuery(q.projects);
+  const wf = useWaitingWorkflowApprovals();
+  const signedBy = useApprovalsByChange();
+  const projectNames = useMemo(() => (projects.data ?? []).map((p) => p.name), [projects.data]);
+  const enamels = useEnamels(projectNames);
 
   if (changes.isPending) return <Skeleton />;
   if (changes.isError)
     return (
       <Page>
-        <ProblemNote error={changes.error} title="Couldn't load the change log" />
+        <ProblemNote error={changes.error} title="Couldn’t load the Ledger" />
       </Page>
     );
 
   const all = changes.data;
-  if (all.length === 0) return project ? <NoChangesIn project={project} /> : <FirstRun />;
+  const waiting = (pending.data ?? []).filter((a) => !project || a.project === project);
+  const flows = wf.filter((w) => !project || w.project === project);
+  if (all.length === 0 && waiting.length === 0) return project ? <NoChangesIn project={project} /> : <FirstRun />;
 
-  const list = risk ? all.filter((c) => asTier(c.plan.risk) === risk) : all;
-  const byTier = (t: Tier) => all.filter((c) => asTier(c.plan.risk) === t).length;
-  const agents = all.filter((c) => c.actor.kind === "agent").length;
-  const projects = new Set(all.map((c) => c.project)).size;
-  const irr = byTier("irreversible");
-  const out = byTier("outbound");
+  const list = all.filter((c) => (!risk || asTier(c.plan.risk) === risk) && (!who || (who === "agents") === isAgent(c)));
+  const byId = new Map(all.map((c) => [c.id, c]));
 
-  const days: Array<{ key: string; label: string; first: string; items: Change[] }> = [];
-  for (const c of list) {
-    const k = dayKey(c.at);
-    const last = days[days.length - 1];
-    if (last && last.key === k) last.items.push(c);
-    else days.push({ key: k, label: dayLabel(c.at), first: c.at, items: [c] });
-  }
-
-  let i = 0;
   return (
     <Page>
-      <header className="animate-rise">
-        <h1 className="display text-2xl text-ink sm:text-3xl">
-          {num(all.length)} {plural(all.length, "change", "changes")}
-          {project ? (
-            <>
-              {" "}
-              to <span className="display-italic">{project}</span>.
-            </>
-          ) : (
-            <>
-              {" "}
-              across {num(projects, false)} {plural(projects, "project", "projects")}.
-            </>
-          )}
-        </h1>
-        <p className="display mt-1 text-xl text-ink-3 sm:text-2xl">
-          {agents === 0 ? "All by people." : agents === all.length ? "All by agents." : `Agents made ${num(agents, false)} of them.`}{" "}
-          {irr > 0
-            ? `${num(irr)} ${plural(irr, "was", "were")} irreversible.`
-            : out > 0
-              ? `${num(out)} reached outside the box.`
-              : "Every one can be undone."}
-        </p>
-
-        <div className="mt-8 flex flex-col-reverse gap-6 sm:flex-row sm:items-end sm:justify-between">
-          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter by risk">
-            {(["reversible", "outbound", "irreversible"] as const).map((t) => {
-              const n = byTier(t);
-              const on = risk === t;
-              return (
-                <button
-                  key={t}
-                  onClick={() => navigate({ to: "/", search: { project, risk: on ? undefined : t } })}
-                  aria-pressed={on}
-                  title={tierCopy[t].blurb}
-                  disabled={n === 0 && !on}
-                  className={cn(
-                    "group inline-flex h-8 items-center gap-2 rounded-full border px-3 text-sm transition-colors disabled:opacity-40",
-                    on ? "border-ink bg-ink text-on-ink" : "border-rule bg-raised/60 text-ink-2 hover:border-rule-strong hover:text-ink",
-                  )}
-                >
-                  <RiskMark tier={t} className={cn(on && "text-on-ink")} />
-                  {tierCopy[t].label}
-                  <span className={cn("font-mono text-xs tnum", on ? "text-on-ink/70" : "text-ink-4")}>{n}</span>
-                </button>
-              );
-            })}
-            {project && (
-              <Link
-                to="/"
-                search={{ risk }}
-                className="inline-flex h-8 items-center gap-1.5 rounded-full border border-dashed border-rule-strong px-3 text-sm text-ink-2 hover:text-ink"
-              >
-                <span className="font-mono">{project}</span>
-                <X className="size-3.5" aria-label="Show all projects" />
-              </Link>
-            )}
-          </div>
-          <Ledger changes={all} />
-        </div>
+      <header>
+        <p className="label mb-2">Ledger{project ? ` · ${project}` : ""}</p>
+        <Headline all={all} project={project} />
       </header>
 
-      {list.length === 0 && <p className="mt-12 text-base text-ink-3">No {risk} changes here. That's a good thing.</p>}
+      <Controls search={search} all={all} projects={projectNames} enamels={enamels} />
 
-      <div className="mt-12 flex flex-col gap-14">
-        {days.map((d) => (
-          <section key={d.key} aria-labelledby={`day-${d.key}`}>
-            <h2 id={`day-${d.key}`} className="mb-4 flex items-baseline gap-3 border-b border-rule pb-2.5">
-              <span className="display-italic text-[1.375rem] text-ink">{d.label}</span>
-              {d.label === "Today" || d.label === "Yesterday" ? <span className="text-sm text-ink-3">{longDay(d.first)}</span> : null}
-              <span className="ml-auto font-mono text-xs text-ink-4 tnum">
-                {d.items.length} {plural(d.items.length, "change", "changes")}
-              </span>
-            </h2>
-            <ol className="relative">
-              {runs(d.items).map((run, r, all) => {
-                const agentRun = run.changes[0].actor.kind === "agent" && run.changes.length > 1;
-                const lastRun = r === all.length - 1;
-                const rows = run.changes.map((c, k) => (
-                  <Row key={c.id} c={c} index={i++} inRun={agentRun} last={lastRun && k === run.changes.length - 1} />
-                ));
-                if (!agentRun) return rows;
-                const a = run.changes[0].actor;
-                return (
-                  <li key={run.changes[0].id} className="relative my-3 animate-rise rounded-xl border border-rule bg-paper-sunk sm:ml-[3.75rem]">
-                    {!lastRun && <span aria-hidden className="absolute top-full left-[calc(1.75rem-1.5px)] hidden h-[15px] w-px bg-rule sm:block" />}
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-rule/70 px-4 py-2.5 text-sm text-ink-3">
-                      <ActorMark actor={a} />
-                      <span className="font-medium text-ink">{a.name}</span>
-                      <span>worked in session</span>
-                      <code className="font-mono text-xs text-ink-2">{run.session ?? "(unnamed)"}</code>
-                      <span className="ml-auto font-mono text-xs text-ink-4 tnum">
-                        {span(run.changes[run.changes.length - 1].at, run.changes[0].at)}
-                      </span>
-                    </div>
-                    <ol className="py-1">{rows}</ol>
-                  </li>
-                );
-              })}
-            </ol>
-          </section>
-        ))}
-      </div>
-      <p className="mt-16 mb-4 flex items-center justify-center gap-2 text-sm text-ink-4">
-        <TiffinMark className="size-4" />
-        {list.length >= 200 ? "Showing the latest 200 changes." : "That's everything. The log starts here."}
-      </p>
+      {(waiting.length > 0 || flows.length > 0) && <Waiting approvals={waiting} workflows={flows} />}
+
+      {list.length === 0 ? (
+        <p className="mt-10 text-[0.9375rem] text-ink-2">
+          {risk ? `No ${tierCopy[risk].label.toLowerCase()} changes here.` : who === "agents" ? "No agent has changed anything here." : "Nobody has changed anything here."}{" "}
+          <Link to="/ledger" search={{ project }} className="text-brass-ink hover:underline hover:underline-offset-4">
+            Show every entry
+          </Link>
+        </p>
+      ) : (
+        <Entries
+          key={`${project}|${risk}|${who}`}
+          list={list}
+          capped={all.length >= MAX}
+          showProject={!project}
+          byId={byId}
+          signedBy={signedBy}
+          names={names.data}
+          enamels={enamels}
+        />
+      )}
     </Page>
   );
 }
 
-function Row({ c, index, inRun, last }: { c: Change; index: number; inRun: boolean; last: boolean }) {
-  const tier = asTier(c.plan.risk);
-  const undone = !!c.undoneBy;
-  const style = { animationDelay: `${Math.min(index, 14) * 28}ms` } as CSSProperties;
+// ───────────────────────── headline ─────────────────────────
+
+const weekday = new Intl.DateTimeFormat("en-GB", { weekday: "long" });
+const dayMonth = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" });
+
+/** One sentence for the period: how many, where, since when; then who and how risky. */
+function Headline({ all, project }: { all: Change[]; project?: string }) {
+  if (all.length === 0) return <h1 className="sentence text-ink max-sm:text-[1.5rem] max-sm:leading-[1.875rem]">Nothing is written down yet.</h1>;
+  const projects = new Set(all.map((c) => c.project)).size;
+  const agents = all.filter(isAgent).length;
+  const irr = all.filter((c) => asTier(c.plan.risk) === "irreversible").length;
+  const out = all.filter((c) => asTier(c.plan.risk) === "outbound").length;
+  const oldest = all[all.length - 1].at;
+  const now = new Date();
+  const ageDays = (now.getTime() - new Date(oldest).getTime()) / 86_400_000;
+  const since = dayKey(oldest) === dayKey(now.toISOString()) ? " today" : ageDays < 6 ? ` since ${weekday.format(new Date(oldest))}` : ` since ${dayMonth.format(new Date(oldest))}`;
+  const where = project ? (
+    <>
+      {" "}
+      to {project}
+    </>
+  ) : (
+    <> across {countWords(projects, "project")}</>
+  );
+  const whoWords = agents === 0 ? "All by people." : agents === all.length ? "All by agents." : `Agents made ${words(agents)} of them.`;
+  const risk = irr > 0 ? `${words(irr, true)} ${irr === 1 ? "was" : "were"} irreversible.` : out > 0 ? `${words(out, true)} reached outside the box.` : "Every one can be undone.";
   return (
-    <li className="group relative animate-rise" style={style}>
-      {!inRun && !last && <span aria-hidden className="absolute top-[38px] -bottom-[14px] left-[calc(5.5rem-0.5px)] hidden w-px bg-rule sm:block" />}
-      <Link
+    <h1 className="sentence max-w-[44rem] text-ink max-sm:text-[1.5rem] max-sm:leading-[1.875rem]">
+      {countWords(all.length, "change", "changes", true)}
+      {where}
+      {since}. <span className="text-ink-3">
+        {whoWords} {risk}
+      </span>
+    </h1>
+  );
+}
+
+// ───────────────────────── controls ─────────────────────────
+
+function Controls({ search, all, projects, enamels }: { search: ActivitySearch; all: Change[]; projects: string[]; enamels: ReturnType<typeof useEnamels> }) {
+  const navigate = useNavigate();
+  const set = (patch: Partial<ActivitySearch>) => navigate({ to: "/ledger", search: { ...search, ...patch }, replace: true });
+  const tierCount = (t: Tier) => all.filter((c) => asTier(c.plan.risk) === t).length;
+  const toggle = "inline-flex h-7 items-center gap-1.5 rounded-[6px] px-2 text-[0.8125rem] text-ink-3 transition-colors duration-[var(--dur-state)] hover:text-ink aria-pressed:bg-paper-sunk aria-pressed:text-ink disabled:pointer-events-none disabled:opacity-40";
+  return (
+    <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-rule py-1.5" role="toolbar" aria-label="Filter the Ledger">
+      <div className="flex items-center" role="group" aria-label="Who">
+        {(
+          [
+            [undefined, "Everyone"],
+            ["people", "People"],
+            ["agents", "Agents"],
+          ] as const
+        ).map(([v, label]) => (
+          <button key={label} type="button" className={toggle} aria-pressed={search.who === v} onClick={() => set({ who: v })}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <span aria-hidden className="h-4 w-px bg-rule-2 max-sm:hidden" />
+      <div className="flex items-center" role="group" aria-label="Risk">
+        {(["reversible", "outbound", "irreversible"] as const).map((t) => {
+          const n = tierCount(t);
+          const on = search.risk === t;
+          return (
+            <button
+              key={t}
+              type="button"
+              className={toggle}
+              aria-pressed={on}
+              disabled={n === 0 && !on}
+              title={tierCopy[t].blurb}
+              onClick={() => set({ risk: on ? undefined : t })}
+            >
+              <RiskDots tier={t} label={false} />
+              <span className={cn(t === "irreversible" && n > 0 && "text-danger")}>{tierCopy[t].label}</span>
+              <span className="text-xs text-ink-3 tnum">{n}</span>
+            </button>
+          );
+        })}
+      </div>
+      <span aria-hidden className="h-4 w-px bg-rule-2 max-sm:hidden" />
+      {projects.length > 1 || search.project ? (
+        <Menu>
+          <MenuTrigger asChild>
+            <button type="button" className={cn(toggle, "data-[state=open]:bg-paper-sunk")} aria-label={`Project: ${search.project ?? "all"}`}>
+              {search.project ? (
+                <>
+                  <EnamelSwatch enamel={enamels[search.project] ?? "indigo"} />
+                  <span className="text-ink">{search.project}</span>
+                </>
+              ) : (
+                "Every project"
+              )}
+              <ChevronDown className="size-3.5" />
+            </button>
+          </MenuTrigger>
+          <MenuContent align="start" className="min-w-44">
+            <MenuRadioGroup value={search.project ?? ""} onValueChange={(v) => set({ project: v || undefined })}>
+              <MenuRadioItem value="">Every project</MenuRadioItem>
+              <MenuSeparator />
+              {projects.map((p) => (
+                <MenuRadioItem key={p} value={p}>
+                  <EnamelSwatch enamel={enamels[p] ?? "indigo"} />
+                  {p}
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          </MenuContent>
+        </Menu>
+      ) : null}
+    </div>
+  );
+}
+
+// ───────────────────────── waiting ─────────────────────────
+
+function Waiting({ approvals, workflows }: { approvals: Approval[]; workflows: ReturnType<typeof useWaitingWorkflowApprovals> }) {
+  const n = approvals.length + workflows.length;
+  return (
+    <section aria-labelledby="waiting" className="mt-8 overflow-hidden rounded-[10px] border border-rule-2 bg-paper-raised shadow-raised">
+      <header className="flex items-baseline justify-between px-4 pt-3 sm:px-5">
+        <h2 id="waiting" className="label !text-brass-ink">
+          Waiting for you
+        </h2>
+        {n > 1 && <span className="text-xs text-ink-3 tnum">{n}</span>}
+      </header>
+      <div className="divide-y divide-rule px-4 sm:px-5">
+        {approvals.map((a) => {
+          const r = splitRequester(a.requester);
+          return (
+            <div key={a.id} className="flex flex-col gap-x-6 sm:flex-row sm:items-center">
+              <SignedEntry
+                className="min-w-0 flex-1"
+                time={clock(a.createdAt)}
+                timeNote="asked"
+                actor={{ kind: "agent", name: r.name, session: r.session }}
+                intent={splitIntent(intentWords({ intent: a.intent, plan: a.plan })).head}
+                to="/approvals/$id"
+                params={{ id: a.id }}
+                counts={opCounts(a.plan.ops)}
+                tier={asTier(a.plan.risk)}
+                extra={
+                  <span>
+                    {a.project} · expires {relative(a.expiresAt)}
+                  </span>
+                }
+              />
+              <Button asChild variant="primary" size="md" className="mb-3 self-start max-sm:ml-[56px] sm:mb-0 sm:self-center">
+                <Link to="/approvals/$id" params={{ id: a.id }}>
+                  Review
+                </Link>
+              </Button>
+            </div>
+          );
+        })}
+        {workflows.map((w) => (
+          <div key={w.project + w.id} className="flex flex-col gap-x-6 sm:flex-row sm:items-center">
+            <SignedEntry
+              className="min-w-0 flex-1"
+              time={clock(w.createdAt)}
+              timeNote="asked"
+              actor={{ kind: "system", name: `Workflow ${w.workflow}` }}
+              intent={w.title || w.step}
+              extra={
+                <span>
+                  {w.project} · step “{w.step}”{w.timeoutAt ? ` · times out ${relative(w.timeoutAt)}` : ""}
+                </span>
+              }
+            />
+            <Button asChild variant="secondary" size="md" className="mb-3 self-start max-sm:ml-[56px] sm:mb-0 sm:self-center">
+              <Link to="/approvals" hash="workflows">
+                Decide
+              </Link>
+            </Button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ───────────────────────── entries ─────────────────────────
+
+function Entries({
+  list,
+  capped,
+  showProject,
+  byId,
+  signedBy,
+  names,
+  enamels,
+}: {
+  list: Change[];
+  capped: boolean;
+  showProject: boolean;
+  byId: Map<string, Change>;
+  signedBy: Map<string, Approval>;
+  names: Parameters<typeof tokenWho>[1];
+  enamels: ReturnType<typeof useEnamels>;
+}) {
+  const [shown, setShown] = useState(PAGE);
+  const [sel, setSel] = useState(-1);
+  const root = useRef<HTMLDivElement>(null);
+  const more = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  const visible = list.slice(0, shown);
+
+  // More history as the end of the list comes near.
+  useEffect(() => {
+    const el = more.current;
+    if (!el || shown >= list.length) return;
+    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && setShown((s) => Math.min(list.length, s + PAGE)), { rootMargin: "800px 0px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [shown, list.length]);
+
+  // j / k move through the entries, ↵ opens one; typing elsewhere is left alone.
+  const move = useCallback(
+    (to: number) => {
+      const i = Math.max(0, Math.min(list.length - 1, to));
+      if (i >= shown) setShown(Math.min(list.length, i + PAGE));
+      setSel(i);
+      requestAnimationFrame(() => {
+        const row = root.current?.querySelector<HTMLElement>(`[data-entry="${i}"]`);
+        row?.querySelector<HTMLElement>("a")?.focus({ preventScroll: true });
+        row?.scrollIntoView({ block: "nearest" });
+      });
+    },
+    [list.length, shown],
+  );
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (document.querySelector("[role=dialog],[role=menu]")) return;
+      if (e.key === "j" || (e.key === "ArrowDown" && sel >= 0)) {
+        e.preventDefault();
+        move(sel + 1);
+      } else if (e.key === "k" || (e.key === "ArrowUp" && sel >= 0)) {
+        e.preventDefault();
+        move(sel < 0 ? 0 : sel - 1);
+      } else if (e.key === "Enter" && sel >= 0 && !(t && t.closest("a,button"))) {
+        e.preventDefault();
+        void navigate({ to: "/changes/$id", params: { id: list[sel].id } });
+      } else if (e.key === "Escape" && sel >= 0) {
+        setSel(-1);
+        (document.activeElement as HTMLElement | null)?.blur();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sel, move, navigate, list]);
+
+  const days: Array<{ key: string; label: string; sub: string; items: Array<{ c: Change; i: number }> }> = [];
+  visible.forEach((c, i) => {
+    const k = dayKey(c.at);
+    const last = days[days.length - 1];
+    if (last?.key === k) last.items.push({ c, i });
+    else days.push({ key: k, ...dayHeading(c.at), items: [{ c, i }] });
+  });
+  const oldest = list[list.length - 1];
+
+  return (
+    <div ref={root} className="mt-6">
+      {days.map((d, n) => (
+        <section key={d.key} aria-labelledby={`day-${d.key}`} className="pt-5">
+          <div className="flex items-baseline gap-2 pb-1">
+            <h2 id={`day-${d.key}`} className="flex items-baseline gap-2">
+              <span className="day text-ink">{d.label}</span>
+              <span className="text-xs text-ink-3">{d.sub}</span>
+            </h2>
+            {n === 0 && (
+              <p className="ml-auto hidden items-center gap-1.5 text-xs text-ink-3 lg:flex" aria-hidden>
+                <kbd className="kbd">j</kbd>
+                <kbd className="kbd">k</kbd>
+                to move
+                <kbd className="kbd ml-2">↵</kbd>
+                to open
+              </p>
+            )}
+          </div>
+          <div className="divide-y divide-rule border-y border-rule">
+            {d.items.map(({ c, i }) => (
+              <Entry
+                key={c.id}
+                c={c}
+                index={i}
+                selected={i === sel}
+                onPick={() => setSel(i)}
+                showProject={showProject}
+                undo={c.undoneBy ? byId.get(c.undoneBy) : undefined}
+                undid={c.undoOf ? byId.get(c.undoOf) : undefined}
+                approval={signedBy.get(c.id)}
+                names={names}
+                enamel={enamels[c.project]}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+      <div ref={more} className="mt-10 mb-2 flex flex-col items-center gap-3 text-center text-sm text-ink-3">
+        {shown < list.length ? (
+          <Button variant="ghost" size="sm" onClick={() => setShown((s) => Math.min(list.length, s + PAGE))}>
+            Show {countWords(Math.min(PAGE, list.length - shown), "earlier entry", "earlier entries")}
+          </Button>
+        ) : capped ? (
+          <p>These are the latest {MAX} entries. Pick a project above to read further back.</p>
+        ) : (
+          <p className="flex items-center gap-2">
+            <TiffinMark className="size-4 text-ink-4" />
+            That’s everything. The Ledger starts on {dayWords(oldest.at)}.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Entry({
+  c,
+  index,
+  selected,
+  onPick,
+  showProject,
+  undo,
+  undid,
+  approval,
+  names,
+  enamel,
+}: {
+  c: Change;
+  index: number;
+  selected: boolean;
+  onPick: () => void;
+  showProject: boolean;
+  undo?: Change;
+  undid?: Change;
+  approval?: Approval;
+  names: Parameters<typeof tokenWho>[1];
+  enamel?: ReturnType<typeof useEnamels>[string];
+}) {
+  const tier = asTier(c.plan.risk);
+  const agent = isAgent(c);
+  let signature: ReactNode;
+  if (approval) signature = `signed by ${tokenWho(approval.decidedBy, names)} · passkey${approval.decidedAt ? ` · ${clock(approval.decidedAt)}` : ""}`;
+  else if (agent) signature = "within its grant";
+  const extra: ReactNode[] = [];
+  if (c.undoneBy)
+    extra.push(
+      <Link key="u" to="/changes/$id" params={{ id: c.undoneBy }} className="text-ink-2 underline decoration-rule-3 underline-offset-[3px] hover:text-ink hover:decoration-ink-3">
+        undone{undo ? ` at ${clock(undo.at)}` : ""}
+      </Link>,
+    );
+  if (c.undoOf)
+    extra.push(
+      <Link key="o" to="/changes/$id" params={{ id: c.undoOf }} className="text-ink-3 underline decoration-rule-3 underline-offset-[3px] hover:text-ink">
+        {undid ? `undid the ${clock(undid.at)} entry` : "the entry it undid"}
+      </Link>,
+    );
+  if (showProject)
+    extra.push(
+      <span key="p" className="inline-flex items-center gap-1.5">
+        {enamel && <EnamelSwatch enamel={enamel} size={6} />}
+        {c.project}
+      </span>,
+    );
+  return (
+    <div
+      data-entry={index}
+      data-sel={selected ? "" : undefined}
+      onFocusCapture={onPick}
+      className="relative transition-colors duration-[var(--dur-state)] data-[sel]:bg-paper-sunk/70 before:absolute before:top-3.5 before:bottom-3.5 before:-left-3 before:w-[2px] before:rounded-full before:bg-transparent data-[sel]:before:bg-brass"
+    >
+      <SignedEntry
+        time={clock(c.at)}
+        actor={{ kind: c.actor.kind, name: c.actor.name || c.actor.id, session: c.actor.session }}
+        intent={splitIntent(intentWords(c)).head}
         to="/changes/$id"
         params={{ id: c.id }}
-        className={cn("flex rounded-lg py-3 pr-3 pl-1 transition-colors hover:bg-hover/70", inRun ? "sm:pl-3" : "sm:pl-0")}
-      >
-        {!inRun && (
-          <time
-            dateTime={c.at}
-            title={full(c.at)}
-            className="hidden w-[4.5rem] shrink-0 pt-[3px] pr-3 text-right font-mono text-xs whitespace-nowrap text-ink-3 sm:block"
-          >
-            {clock(c.at)}
-          </time>
-        )}
-        <span className="relative z-[1] flex w-6 shrink-0 justify-center pt-[2px] sm:w-8">
-          <span
-            className={cn(
-              "grid size-[22px] place-items-center rounded-full transition-colors",
-              inRun ? "bg-paper-sunk" : "bg-paper ring-4 ring-paper group-hover:bg-transparent group-hover:ring-transparent",
-              tier === "irreversible" && "bg-irr-wash ring-irr-wash",
-            )}
-          >
-            <RiskMark tier={tier} className="size-[15px]" />
-          </span>
-        </span>
-        <span className="min-w-0 flex-1 pl-2.5">
-          <span className={cn("block text-md font-medium text-ink", undone && "text-ink-3")}>
-            {c.undoOf && <CornerUpLeft className="mr-1.5 mb-0.5 inline size-3.5 text-ink-3" aria-label="Undo:" />}
-            <span className={cn(undone && "line-through decoration-ink-4/70")}>{c.intent || <em className="text-ink-3">No intent given</em>}</span>
-          </span>
-          <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-3">
-            {!inRun && (
-              <span className="inline-flex items-center gap-1.5">
-                <ActorMark actor={c.actor} className="size-4 text-[0.55rem]" />
-                <span className="text-ink-2">{c.actor.name || c.actor.id}</span>
-                {c.actor.session && <code className="font-mono text-xs text-ink-4">{c.actor.session}</code>}
-              </span>
-            )}
-            {!inRun && <Dot />}
-            <code className="font-mono text-xs text-ink-2">{c.project}</code>
-            <Dot />
-            <OpCounts ops={c.plan.ops} />
-            <Dot className={cn(!inRun && "sm:hidden")} />
-            <time dateTime={c.at} title={full(c.at)} className={cn(!inRun && "sm:hidden", inRun && "font-mono text-xs")}>
-              {inRun ? clock(c.at) : relative(c.at)}
-            </time>
-            {undone && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-hover px-1.5 py-px text-xs text-ink-2">
-                <Undo2 className="size-3" /> Undone
-              </span>
-            )}
-            {tier !== "reversible" && <RiskBadge tier={tier} size="sm" className="sm:hidden" />}
-          </span>
-        </span>
-        {tier !== "reversible" && (
-          <span className="hidden shrink-0 pt-px pl-4 sm:block">
-            <RiskBadge tier={tier} size="sm" />
-          </span>
-        )}
-      </Link>
-    </li>
+        counts={opCounts(c.plan.ops)}
+        tier={tier}
+        muted={!!c.undoneBy}
+        signature={signature}
+        extra={extra.length ? <>{extra}</> : undefined}
+        className="!py-2.5"
+      />
+    </div>
   );
 }
 
-function Dot({ className }: { className?: string }) {
-  return (
-    <span aria-hidden className={cn("text-ink-4", className)}>
-      ·
-    </span>
-  );
+const shortDay = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" });
+const yearDay = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" });
+/** "Today" · "Saturday 3 October"; "Thursday" · "1 October"; older years carry the year. */
+function dayHeading(iso: string): { label: string; sub: string } {
+  const l = dayLabel(iso);
+  const d = new Date(iso);
+  if (l === "Today" || l === "Yesterday") return { label: l, sub: dayWords(iso) };
+  return { label: weekday.format(d), sub: d.getFullYear() === new Date().getFullYear() ? shortDay.format(d) : yearDay.format(d) };
 }
 
-export { Page } from "@/components/page";
+// ───────────────────────── empty and loading ─────────────────────────
 
 function Skeleton() {
   return (
     <Page>
-      <div className="h-9 w-80 max-w-full animate-pulse rounded-md bg-hover" />
-      <div className="mt-3 h-7 w-64 max-w-full animate-pulse rounded-md bg-hover/70" />
-      <div className="mt-12 space-y-6">
-        {[0, 1, 2, 3].map((k) => (
-          <div key={k} className="flex gap-4">
-            <div className="h-4 w-12 rounded bg-hover/70" />
-            <div className="flex-1 space-y-2">
-              <div className="h-4 w-3/4 rounded bg-hover" />
-              <div className="h-3 w-1/3 rounded bg-hover/70" />
+      <div className="h-3 w-16 rounded bg-paper-sunk" />
+      <div className="mt-3 h-8 w-[28rem] max-w-full animate-pulse rounded-md bg-paper-sunk" />
+      <div className="mt-7 h-10 border-y border-rule" />
+      <div className="mt-8 space-y-5">
+        {[0, 1, 2, 3, 4].map((k) => (
+          <div key={k} className="grid grid-cols-[44px_1fr] gap-3">
+            <div className="h-3 w-9 rounded bg-paper-sunk" />
+            <div className="space-y-2">
+              <div className="h-3 w-24 rounded bg-paper-sunk" />
+              <div className="h-4 w-3/4 rounded bg-paper-sunk" />
             </div>
           </div>
         ))}
@@ -276,11 +522,12 @@ function Skeleton() {
 function NoChangesIn({ project }: { project: string }) {
   return (
     <Page>
-      <h1 className="display text-2xl text-ink">Nothing has changed in {project} yet.</h1>
-      <p className="mt-2 text-base text-ink-2">
-        Changes show up here the moment someone applies a plan.{" "}
-        <Link to="/" search={{}} className="text-brass-ink underline underline-offset-4 hover:text-ink">
-          See every project
+      <p className="label mb-2">Ledger · {project}</p>
+      <h1 className="sentence text-ink max-sm:text-[1.5rem] max-sm:leading-[1.875rem]">Nothing has changed in {project} yet.</h1>
+      <p className="mt-3 max-w-[36rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
+        Entries are written the moment someone applies a plan.{" "}
+        <Link to="/ledger" search={{}} className="text-brass-ink hover:underline hover:underline-offset-4">
+          Read every project’s
         </Link>
         .
       </p>
@@ -289,110 +536,46 @@ function NoChangesIn({ project }: { project: string }) {
 }
 
 function FirstRun() {
+  const steps = [
+    { t: "Describe your app", d: "Writes a starter tiffin.config.ts in this folder.", cmd: "tiffin init" },
+    { t: "See what would change", d: "A dry run. Nothing happens, and you get a plan hash.", cmd: "tiffin plan" },
+    { t: "Apply exactly that plan", d: "Paste the hash. If anything moved since, Tiffin refuses.", cmd: 'tiffin apply --confirm <hash> -m "Set up my app"' },
+    { t: "Ship it", d: "Builds on the box and switches traffic once it’s healthy. Prints your URL.", cmd: "tiffin deploy" },
+  ];
   return (
     <Page>
-      <div className="animate-rise">
-        <div className="mb-8 grid size-16 place-items-center rounded-2xl border border-rule bg-raised shadow-pop">
-          <TiffinMark className="size-9 text-brass" lid />
-        </div>
-        <h1 className="display text-3xl text-ink">Your tiffin is empty.</h1>
-        <p className="mt-3 max-w-[36rem] text-md text-ink-2">
-          Nothing has changed on this box yet. Every change, by you or an agent, is planned first, applied with the plan's hash and written down here,
-          so you can always see who did what and put it back.
-        </p>
-      </div>
-
-      <ol className="mt-10 grid gap-3">
-        {[
-          { n: "1", t: "Describe your app", d: "Writes a starter tiffin.config.ts in this folder.", cmd: "tiffin init" },
-          { n: "2", t: "See what would change", d: "A dry run. Nothing happens, and you get a plan hash.", cmd: "tiffin plan" },
-          {
-            n: "3",
-            t: "Apply exactly that plan",
-            d: "Paste the hash. If anything moved since, Tiffin refuses.",
-            cmd: 'tiffin apply --confirm <hash> -m "Set up my app"',
-          },
-          { n: "4", t: "Ship it", d: "Builds on the box and switches traffic once it's healthy. Prints your URL.", cmd: "tiffin deploy" },
-        ].map((s, k) => (
-          <li
-            key={s.n}
-            className="animate-rise rounded-xl border border-rule bg-raised/70 p-4 sm:p-5"
-            style={{ animationDelay: `${120 + k * 70}ms` }}
-          >
-            <div className="flex items-baseline gap-3">
-              <span className="display-italic text-xl text-brass">{s.n}</span>
-              <div className="min-w-0 flex-1">
-                <h2 className="text-md font-medium text-ink">{s.t}</h2>
-                <p className="mt-0.5 text-base text-ink-3">{s.d}</p>
-                <Command cmd={s.cmd} className="mt-3" />
-              </div>
+      <p className="label mb-2">Ledger</p>
+      <h1 className="sentence text-ink max-sm:text-[1.5rem] max-sm:leading-[1.875rem]">Nothing is written down yet.</h1>
+      <p className="mt-3 max-w-[38rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
+        Every change to this box, by you or an agent, is planned first, applied with its plan’s hash and written down here, signed and undoable. Make the first
+        one from your terminal:
+      </p>
+      <ol className="mt-8 divide-y divide-rule border-y border-rule">
+        {steps.map((s, k) => (
+          <li key={s.t} className="grid grid-cols-[44px_minmax(0,1fr)] gap-x-3 py-4">
+            <span className="day pt-px text-ink-3">{k + 1}</span>
+            <div className="min-w-0">
+              <h2 className="text-[0.9375rem] font-[550] text-ink">{s.t}</h2>
+              <p className="mt-0.5 text-sm text-ink-2">{s.d}</p>
+              <Command cmd={s.cmd} className="mt-2.5" />
             </div>
           </li>
         ))}
+        <li className="grid grid-cols-[44px_minmax(0,1fr)] gap-x-3 py-4">
+          <span className="day pt-px text-ink-3">or</span>
+          <div className="min-w-0">
+            <h2 className="text-[0.9375rem] font-[550] text-ink">Let an agent do it</h2>
+            <p className="mt-0.5 text-sm text-ink-2">
+              Give it its own token from{" "}
+              <Link to="/tokens" search={{ create: true }} className="text-brass-ink hover:underline hover:underline-offset-4">
+                Access
+              </Link>
+              ; its entries are written in graphite, with its model and session.
+            </p>
+            <Command cmd={mcpCommand()} className="mt-2.5" />
+          </div>
+        </li>
       </ol>
-
-      <div className="mt-10 animate-rise rounded-xl border border-dashed border-rule-strong p-5" style={{ animationDelay: "360ms" }}>
-        <h2 className="text-md font-medium text-ink">Or let an agent do it</h2>
-        <p className="mt-0.5 text-base text-ink-3">
-          Give it its own token from{" "}
-          <Link to="/tokens" search={{ create: true }} className="text-brass-ink underline underline-offset-4 hover:text-ink">
-            Tokens
-          </Link>
-          , then:
-        </p>
-        <Command cmd={mcpCommand()} className="mt-3" />
-      </div>
     </Page>
   );
-}
-
-/**
- * Thirty days as tally marks: one tick per change, coloured by risk, today on
- * the right. The box's handwriting at a glance.
- */
-function Ledger({ changes }: { changes: Change[] }) {
-  const days = 30;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const cols: Change[][] = Array.from({ length: days }, () => []);
-  for (const c of changes) {
-    const d = new Date(c.at);
-    d.setHours(0, 0, 0, 0);
-    const ago = Math.round((today.getTime() - d.getTime()) / 86_400_000);
-    if (ago >= 0 && ago < days) cols[days - 1 - ago].push(c);
-  }
-  const max = 7;
-  const total = cols.reduce((n, c) => n + c.length, 0);
-  const tone: Record<Tier, string> = { read: "bg-ink-4", reversible: "bg-rev/70", outbound: "bg-out", irreversible: "bg-irr" };
-  return (
-    <figure className="shrink-0 select-none" aria-label={`${total} changes in the last 30 days`}>
-      <div className="flex h-[48px] items-end gap-[3px]" aria-hidden>
-        {cols.map((col, k) => {
-          const sorted = [...col].sort((a, b) => (tierRank[a.plan.risk] ?? 4) - (tierRank[b.plan.risk] ?? 4));
-          return (
-            <div
-              key={k}
-              className="flex w-[6px] flex-col-reverse gap-px"
-              title={col.length ? `${col.length} ${col.length === 1 ? "change" : "changes"}` : undefined}
-            >
-              {col.length === 0 && <span className="h-[2px] w-full rounded-full bg-rule" />}
-              {sorted.slice(0, max).map((c) => (
-                <span key={c.id} className={cn("h-[5px] w-full rounded-[1.5px]", tone[asTier(c.plan.risk)], c.undoneBy && "opacity-40")} />
-              ))}
-            </div>
-          );
-        })}
-      </div>
-      <figcaption className="mt-1.5 flex justify-between font-mono text-[0.625rem] text-ink-4">
-        <span>30 days</span>
-        <span>today</span>
-      </figcaption>
-    </figure>
-  );
-}
-
-function span(from: string, to: string) {
-  const a = clock(from);
-  const b = clock(to);
-  return a === b ? a : `${a} – ${b}`;
 }

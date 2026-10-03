@@ -1,0 +1,63 @@
+/* A Ledger receipt on paper: no chrome, light ink on white, nothing that
+   only makes sense on a screen. Used by routes/change.tsx and approvals.tsx. */
+@media print {
+  @page {
+    margin: 16mm 18mm;
+  }
+  :root,
+  :root[data-theme="dark"],
+  [data-theme="dark"] {
+    color-scheme: light;
+    --paper: #fff;
+    --paper-sunk: oklch(0.975 0.004 85);
+    --paper-raised: #fff;
+    --ink: oklch(0.2 0.014 60);
+    --ink-2: oklch(0.38 0.014 62);
+    --ink-3: oklch(0.48 0.012 66);
+    --ink-4: oklch(0.6 0.011 70);
+    --graphite: oklch(0.42 0.03 250);
+    --rule: oklch(0.2 0.014 60 / 0.14);
+    --rule-2: oklch(0.2 0.014 60 / 0.22);
+    --rule-3: oklch(0.2 0.014 60 / 0.4);
+    --brass: oklch(0.6 0.115 76);
+    --brass-ink: oklch(0.45 0.098 70);
+    --brass-wash: oklch(0.66 0.115 76 / 0.12);
+    --danger: oklch(0.5 0.175 27);
+    --danger-wash: oklch(0.52 0.175 27 / 0.06);
+  }
+  html,
+  body {
+    background: #fff !important;
+  }
+  body:has([data-receipt]) * {
+    visibility: hidden;
+  }
+  body:has([data-receipt]) [data-receipt],
+  body:has([data-receipt]) [data-receipt] * {
+    visibility: visible;
+  }
+  [data-receipt] {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    max-width: 44rem;
+  }
+  [data-receipt] [data-print-hide],
+  [data-receipt] button {
+    display: none !important;
+  }
+  [data-receipt] a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+  [data-receipt] .seal {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  [data-receipt] pre,
+  [data-receipt] pre * {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
