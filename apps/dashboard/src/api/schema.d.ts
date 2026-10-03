@@ -248,6 +248,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/backups/drill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a restore drill of the newest backup
+         * @description Proves the newest successful backup can be restored. Restores the backup's Postgres part into a scratch directory on the data disk, starts a private temporary Postgres on it (unix socket only, WAL archiving off), counts the rows of every table in every database and checks that every database and table the box had when the backup was taken is there, then stops the temporary server and deletes the scratch copy. Nothing live changes: the live cluster, its WAL archive and the backup repository are only read. It runs in the background and returns the drill at once (status running, with its phase); poll GET /v1/backups/drills/{id} (`tiffin backups drills get <id>`) until status is passed or failed, or pass wait=true to wait up to 50 seconds. Refused with 409 when a drill is already running or the data disk has less free space than the backup's size plus 20%. Needs apply:reversible on all projects. To drill an older backup use POST /v1/backups/{id}/drill (`tiffin backups drills start <id>`).
+         */
+        post: operations["backup-drill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/backups/drills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List restore drills
+         * @description Restore drills, newest first (the last 30 are kept): which backup, status (running, passed, failed), phase, timings in seconds (restore, start, verify, total), sizes, per-database table and row counts compared with the live database, and the outcome in plain words.
+         */
+        get: operations["backups-drills"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/backups/drills/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a restore drill
+         * @description One restore drill: status and phase (poll this while it runs), timings, the restored size, every database's tables and rows next to the live database's, tables missing from the restored copy, problems, and the outcome in plain words.
+         */
+        get: operations["backups-drills-get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/backups/drills/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a running restore drill
+         * @description Stops a running restore drill: the temporary Postgres is stopped and the scratch copy deleted; the drill ends as failed (cancelled). Returns the drill. 409 when it is not running. Needs apply:reversible on all projects.
+         */
+        post: operations["backups-drills-cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/backups/schedule": {
         parameters: {
             query?: never;
@@ -258,10 +338,30 @@ export interface paths {
         get?: never;
         /**
          * Change the backup schedule
-         * @description How often full and incremental backups run and how many full backups are kept. Only the fields you send change. Box owner only.
+         * @description How often full and incremental backups run, how many full backups are kept, and whether and how often restore drills run. Only the fields you send change. Box owner only.
          */
         put: operations["backups-schedule-set"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/backups/{id}/drill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a restore drill of a backup
+         * @description Proves this backup can be restored. Restores the backup's Postgres part into a scratch directory on the data disk, starts a private temporary Postgres on it (unix socket only, WAL archiving off), counts the rows of every table in every database and checks that every database and table the box had when the backup was taken is there, then stops the temporary server and deletes the scratch copy. Nothing live changes: the live cluster, its WAL archive and the backup repository are only read. It runs in the background and returns the drill at once (status running, with its phase); poll GET /v1/backups/drills/{id} (`tiffin backups drills get <id>`) until status is passed or failed, or pass wait=true to wait up to 50 seconds. Refused with 409 when a drill is already running or the data disk has less free space than the backup's size plus 20%. Needs apply:reversible on all projects.
+         */
+        post: operations["backups-drills-start"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3441,11 +3541,136 @@ export interface components {
             /** @description What to restore: postgres, valkey, files (default postgres and valkey) */
             targets?: string[] | null;
         };
+        BackupDrill: {
+            /** @description The backup set restored */
+            backup: string;
+            /**
+             * Format: int64
+             * @description How old the backup was when the drill started
+             */
+            backupAgeSeconds: number;
+            /**
+             * Format: int64
+             * @description Size of the Postgres cluster in the backup
+             */
+            backupBytes: number;
+            /** @description Its pgBackRest label */
+            backupLabel: string;
+            /** Format: date-time */
+            backupTakenAt: string;
+            /**
+             * @description backup: the table list recorded when the backup was taken; live: the live cluster (older backups have no list)
+             * @enum {string}
+             */
+            comparedWith: "backup" | "live";
+            databases: components["schemas"]["BackupDrillDatabase"][] | null;
+            /** Format: date-time */
+            finishedAt?: string;
+            /** @description What to do next */
+            hint?: string;
+            /** @description Drill ID (dr_...) */
+            id: string;
+            /** @description The outcome in plain words */
+            message: string;
+            /**
+             * Format: int64
+             * @description Rough progress of the restore phase, 0-100
+             */
+            percent: number;
+            /** @description What it is doing now (while running) */
+            phase: string;
+            /**
+             * Format: int64
+             * @description Bytes restored into the scratch directory (grows while restoring)
+             */
+            restoredBytes: number;
+            /** @description Scratch directory (deleted when the drill ends) */
+            scratch: string;
+            seconds: components["schemas"]["BackupDrillSeconds"];
+            /** Format: date-time */
+            startedAt: string;
+            /** @enum {string} */
+            status: "running" | "passed" | "failed";
+            /** @enum {string} */
+            trigger: "manual" | "schedule";
+        };
+        BackupDrillDatabase: {
+            /** @description Per-table counts (at most 100 per database, largest first) */
+            counts?: components["schemas"]["BackupDrillTable"][] | null;
+            /**
+             * Format: int64
+             * @description Approximate rows in the live database now
+             */
+            liveRows: number;
+            /**
+             * Format: int64
+             * @description User tables in the live database now (0 when it no longer exists)
+             */
+            liveTables: number;
+            /** @description Tables the database had when the backup was taken that the restored copy lacks */
+            missing: string[] | null;
+            name: string;
+            ok: boolean;
+            /** @description Everything else that went wrong, in plain words */
+            problems?: string[] | null;
+            /**
+             * Format: int64
+             * @description Rows in the restored copy (sum over its tables)
+             */
+            rows: number;
+            /**
+             * Format: int64
+             * @description User tables in the restored copy
+             */
+            tables: number;
+        };
+        BackupDrillSeconds: {
+            /**
+             * Format: double
+             * @description pgBackRest restoring the backup into the scratch directory
+             */
+            restore: number;
+            /**
+             * Format: double
+             * @description The scratch Postgres replaying WAL to the backup's end and opening
+             */
+            start: number;
+            /**
+             * Format: double
+             * @description Whole drill, including waiting and clean-up
+             */
+            total: number;
+            /**
+             * Format: double
+             * @description Counting every table and comparing
+             */
+            verify: number;
+        };
+        BackupDrillTable: {
+            /** @description Why the restored table could not be read */
+            error?: string;
+            /** @description false when counting took too long and Rows is the planner's estimate */
+            exact: boolean;
+            /**
+             * Format: int64
+             * @description Rows in the live table now: exact for small tables, otherwise the planner's estimate (-1: unknown or not live)
+             */
+            liveRows: number;
+            /**
+             * Format: int64
+             * @description Rows in the restored copy (-1 when it could not be counted)
+             */
+            rows: number;
+            /** @description schema.table */
+            table: string;
+        };
         BackupOverview: {
             /** @description Newest first */
             backups: components["schemas"]["Backup"][] | null;
             /** @description Where backups are stored */
             destinations: string[] | null;
+            /** @description The newest restore drill (null when none ran); see GET /v1/backups/drills */
+            lastDrill: components["schemas"]["BackupDrill"];
             /**
              * Format: date-time
              * @description When the newest successful backup started
@@ -3486,6 +3711,13 @@ export interface components {
             targets: string[] | null;
         };
         BackupSchedule: {
+            /** @description Run restore drills automatically: restore the newest backup into a scratch copy and verify it (default on) */
+            drillEnabled: boolean;
+            /**
+             * Format: int64
+             * @description Days between scheduled restore drills (default 7)
+             */
+            drillEveryDays: number;
             /** @description Take backups automatically */
             enabled: boolean;
             /**
@@ -3505,6 +3737,13 @@ export interface components {
             retainFull: number;
         };
         "Backups-schedule-setRequest": {
+            /** @description Run restore drills automatically (default on) */
+            drillEnabled?: boolean;
+            /**
+             * Format: int64
+             * @description Days between scheduled restore drills (default 7)
+             */
+            drillEveryDays?: number;
             /** @description Take backups automatically */
             enabled?: boolean;
             /**
@@ -7213,6 +7452,311 @@ export interface operations {
             };
         };
     };
+    "backup-drill": {
+        parameters: {
+            query?: {
+                /** @description Wait up to 50 seconds for the drill to finish before answering */
+                wait?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupDrill"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "backups-drills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupDrill"][] | null;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "backups-drills-get": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Drill ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupDrill"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "backups-drills-cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Drill ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupDrill"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "backups-schedule-set": {
         parameters: {
             query?: never;
@@ -7255,6 +7799,95 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "backups-drills-start": {
+        parameters: {
+            query?: {
+                /** @description Wait up to 50 seconds for the drill to finish before answering */
+                wait?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Backup ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupDrill"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

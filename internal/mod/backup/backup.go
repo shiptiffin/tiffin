@@ -128,10 +128,13 @@ type BackupSchedule struct {
 	FullEveryHours        int  `json:"fullEveryHours" minimum:"1" maximum:"720" doc:"Hours between full backups (default 24)"`
 	IncrementalEveryHours int  `json:"incrementalEveryHours" minimum:"0" maximum:"168" doc:"Hours between incremental backups; 0 turns them off (default 1)"`
 	RetainFull            int  `json:"retainFull" minimum:"1" maximum:"60" doc:"Full backups to keep, with their incrementals (default 7)"`
+	DrillEnabled          bool `json:"drillEnabled" doc:"Run restore drills automatically: restore the newest backup into a scratch copy and verify it (default on)"`
+	DrillEveryDays        int  `json:"drillEveryDays" minimum:"1" maximum:"90" doc:"Days between scheduled restore drills (default 7)"`
 }
 
-// DefaultSchedule is daily full, hourly incremental, a week kept.
-var DefaultSchedule = BackupSchedule{Enabled: true, FullEveryHours: 24, IncrementalEveryHours: 1, RetainFull: 7}
+// DefaultSchedule is daily full, hourly incremental, a week kept, and a
+// weekly restore drill.
+var DefaultSchedule = BackupSchedule{Enabled: true, FullEveryHours: 24, IncrementalEveryHours: 1, RetainFull: 7, DrillEnabled: true, DrillEveryDays: 7}
 
 func getSchedule(ctx context.Context, p *platform.Platform) BackupSchedule {
 	s := DefaultSchedule
@@ -213,7 +216,7 @@ func get(ctx context.Context, p *platform.Platform, id string) (*Backup, error) 
 }
 
 // ErrBusy is returned when another backup or restore is running.
-var ErrBusy = errors.New("another backup or restore is running; try again when it finishes")
+var ErrBusy = errors.New("another backup, restore or restore drill is running; try again when it finishes")
 
 // Exclusive holds the lock backups and restores take, so none runs until
 // release is called (box exports and imports use it). It returns ErrBusy
@@ -286,6 +289,8 @@ func takeParts(ctx context.Context, p *platform.Platform, b *Backup) error {
 	} else {
 		b.Kind = "incremental"
 	}
+	// The table list a restore drill checks the restored copy against.
+	recordCatalog(ctx, b)
 
 	// 2. Valkey: a fresh RDB snapshot, copied with a reflink.
 	n, err := valkeySnapshot(ctx, filepath.Join(dir, "valkey.rdb"))
@@ -392,9 +397,20 @@ func asUser(ctx context.Context, username, name string, args ...string) (string,
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = "/"
 	cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=" + u.HomeDir, "USER=" + username}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}}
+	// Its own process group, so cancelling kills pgBackRest's worker
+	// processes too (they would otherwise linger, orphaned).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 5 * time.Second
 	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil && cmd.Process != nil {
+		// Make sure the whole group is gone before the caller cleans up.
+		pg := -cmd.Process.Pid
+		_ = syscall.Kill(pg, syscall.SIGKILL)
+		for i := 0; i < 50 && syscall.Kill(pg, 0) == nil; i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 	if err != nil {
 		s := strings.TrimSpace(string(out))
 		if len(s) > 1500 {
@@ -492,12 +508,27 @@ func due(s BackupSchedule, list []Backup, now time.Time) string {
 	return ""
 }
 
-// Start runs the schedule: it checks every minute what is due. A failed
-// scheduled backup is retried after 15 minutes.
+// since is when the box first ran the backup module.
+func since(ctx context.Context, p *platform.Platform) time.Time {
+	if raw, ok, _ := p.DB.KVGet(ctx, nsMeta, "since"); ok {
+		if t, err := time.Parse(time.RFC3339, string(raw)); err == nil {
+			return t
+		}
+	}
+	return time.Now()
+}
+
+// Start removes what an interrupted restore drill left behind and runs the
+// schedule: it checks every minute what is due. A failed scheduled backup
+// is retried after 15 minutes.
 func (*Module) Start(ctx context.Context, p *platform.Platform) error {
 	if _, ok, _ := p.DB.KVGet(ctx, nsMeta, "since"); !ok {
 		_ = p.DB.KVPut(ctx, nsMeta, "since", []byte(time.Now().UTC().Format(time.RFC3339)))
 	}
+	drillState.mu.Lock()
+	drillState.ctx = ctx
+	drillState.mu.Unlock()
+	cleanupScratch(ctx, p)
 	go func() {
 		var lastFail time.Time
 		timer := time.NewTimer(20 * time.Second)
@@ -516,20 +547,62 @@ func (*Module) Start(ctx context.Context, p *platform.Platform) error {
 			if err != nil {
 				continue
 			}
-			kind := due(getSchedule(ctx, p), list, time.Now())
-			if kind == "" {
+			sched := getSchedule(ctx, p)
+			if kind := due(sched, list, time.Now()); kind != "" {
+				if _, err := Take(ctx, p, kind, "schedule"); err != nil && !errors.Is(err, ErrBusy) {
+					lastFail = time.Now()
+				}
 				continue
 			}
-			if _, err := Take(ctx, p, kind, "schedule"); err != nil && !errors.Is(err, ErrBusy) {
-				lastFail = time.Now()
-			}
+			scheduledDrill(ctx, p, sched, list)
 		}
 	}()
 	return nil
 }
 
-// Checks reports the age of the newest good backup.
+// scheduledDrill starts a drill of the newest good backup when one is due.
+// A drill the box refuses (a full disk) is recorded as failed, so the
+// restore-drill check says why.
+func scheduledDrill(ctx context.Context, p *platform.Platform, sched BackupSchedule, list []Backup) {
+	b := lastOK(list, "")
+	if b == nil {
+		return
+	}
+	drills, err := ListDrills(ctx, p)
+	if err != nil {
+		return
+	}
+	var last *BackupDrill
+	if len(drills) > 0 {
+		last = &drills[0]
+	}
+	if !drillDue(sched, last, since(ctx, p), time.Now()) {
+		return
+	}
+	_, _, err = StartDrill(ctx, p, b, "schedule")
+	var de *DiskError
+	if errors.As(err, &de) {
+		now := time.Now().UTC()
+		d := &BackupDrill{ID: ids.New("dr"), Backup: b.ID, BackupLabel: b.Postgres.Label, BackupTakenAt: b.StartedAt,
+			BackupAgeSeconds: int64(now.Sub(b.StartedAt).Seconds()), Trigger: "schedule", Status: DrillFailed, StartedAt: now, FinishedAt: now,
+			BackupBytes: b.Postgres.SizeBytes, Databases: []BackupDrillDatabase{}, Message: "not started: " + err.Error(),
+			Hint: "free space on the data disk (`tiffin box` shows what uses it), then run `tiffin backups drill`"}
+		_ = saveDrill(ctx, p, d)
+	}
+}
+
+// Checks reports the age of the newest good backup and how the last
+// restore drill went.
 func (*Module) Checks(ctx context.Context, p *platform.Platform) []platform.Check {
+	out := backupChecks(ctx, p)
+	drills, err := ListDrills(ctx, p)
+	if err != nil {
+		return append(out, platform.Check{Name: "restore-drill", OK: false, Detail: err.Error()})
+	}
+	return append(out, drillCheck(drills, getSchedule(ctx, p), since(ctx, p), time.Now()))
+}
+
+func backupChecks(ctx context.Context, p *platform.Platform) []platform.Check {
 	list, err := List(ctx, p)
 	if err != nil {
 		return []platform.Check{{Name: "backups", OK: false, Detail: err.Error()}}

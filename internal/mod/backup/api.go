@@ -23,6 +23,7 @@ type BackupOverview struct {
 	LastOKAt     *time.Time     `json:"lastOkAt" doc:"When the newest successful backup started"`
 	RepoBytes    int64          `json:"repoBytes" doc:"Disk used by the local backup repository and sets"`
 	Destinations []string       `json:"destinations" doc:"Where backups are stored"`
+	LastDrill    *BackupDrill   `json:"lastDrill" doc:"The newest restore drill (null when none ran); see GET /v1/backups/drills"`
 }
 
 func onBox(p *platform.Platform) error {
@@ -62,6 +63,12 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if last := lastOK(list, ""); last != nil {
 			t := last.StartedAt
 			out.LastOKAt = &t
+		}
+		if drills, err := ListDrills(ctx, p); err == nil && len(drills) > 0 {
+			out.LastDrill = &drills[0]
+			if live := runningDrill(drills[0].ID); live != nil {
+				out.LastDrill = live
+			}
 		}
 		return &struct{ Body *BackupOverview }{out}, nil
 	}))
@@ -152,13 +159,16 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}))
 
 	ss := api.Op("backups-schedule-set", http.MethodPut, "/v1/backups/schedule", "backups schedule", api.RiskWrite,
-		"Change the backup schedule", "How often full and incremental backups run and how many full backups are kept. Only the fields you send change. Box owner only.", tag)
+		"Change the backup schedule", "How often full and incremental backups run, how many full backups are kept, and whether and how often "+
+			"restore drills run. Only the fields you send change. Box owner only.", tag)
 	huma.Register(a, ss, api.Wrap(func(ctx context.Context, in *struct {
 		Body struct {
 			Enabled               *bool `json:"enabled,omitempty" doc:"Take backups automatically"`
 			FullEveryHours        *int  `json:"fullEveryHours,omitempty" minimum:"1" maximum:"720" doc:"Hours between full backups (default 24)"`
 			IncrementalEveryHours *int  `json:"incrementalEveryHours,omitempty" minimum:"0" maximum:"168" doc:"Hours between incremental backups; 0 turns them off (default 1)"`
 			RetainFull            *int  `json:"retainFull,omitempty" minimum:"1" maximum:"60" doc:"Full backups to keep, with their incrementals (default 7)"`
+			DrillEnabled          *bool `json:"drillEnabled,omitempty" doc:"Run restore drills automatically (default on)"`
+			DrillEveryDays        *int  `json:"drillEveryDays,omitempty" minimum:"1" maximum:"90" doc:"Days between scheduled restore drills (default 7)"`
 		}
 	}) (*struct{ Body BackupSchedule }, error) {
 		pr := api.PrincipalFrom(ctx)
@@ -181,6 +191,12 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if v := in.Body.RetainFull; v != nil {
 			s.RetainFull = *v
 		}
+		if v := in.Body.DrillEnabled; v != nil {
+			s.DrillEnabled = *v
+		}
+		if v := in.Body.DrillEveryDays; v != nil {
+			s.DrillEveryDays = *v
+		}
 		raw, _ := json.Marshal(s)
 		if err := p.DB.KVPut(ctx, nsMeta, "schedule", raw); err != nil {
 			return nil, err
@@ -188,4 +204,6 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		_ = p.DB.Audit(ctx, pr.TokenID, "backup.schedule", "", s)
 		return &struct{ Body BackupSchedule }{s}, nil
 	}))
+
+	registerDrills(a, p, tag)
 }
