@@ -87,6 +87,9 @@ func (*Module) Provision(ctx context.Context, s *platform.System) error {
 		return err
 	}
 	dir := Dir(nil)
+	if err := os.MkdirAll(filepath.Join(dir, "engine"), 0o755); err != nil {
+		return err
+	}
 	bunDir := filepath.Join(dir, "bun-"+BunVersion)
 	bun := filepath.Join(bunDir, "bun")
 	if _, err := os.Stat(bun); err != nil {
@@ -99,6 +102,7 @@ func (*Module) Provision(ctx context.Context, s *platform.System) error {
 		if _, err := s.Run(ctx, "unzip", "-q", "-o", zip, "-d", tmp); err != nil {
 			return err
 		}
+		_ = os.RemoveAll(bunDir) // a partial earlier attempt
 		if err := os.MkdirAll(bunDir, 0o755); err != nil {
 			return err
 		}
