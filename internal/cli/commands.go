@@ -388,23 +388,9 @@ func (a *app) provisionCmd() *cobra.Command {
 			// One broken service must not block updating Tiffin itself (the
 			// update may be the fix): provision every module, record failures
 			// for /v1/status, and fail only with --strict.
-			report := platform.ProvisionReport{At: time.Now().UTC()}
-			for _, m := range platform.Modules() {
-				pv, ok := m.(platform.Provisioner)
-				if !ok {
-					continue
-				}
-				start := time.Now()
-				err := pv.Provision(cmd.Context(), sys)
-				r := platform.ProvisionResult{Module: m.Name(), Seconds: time.Since(start).Seconds()}
-				if err != nil {
-					r.Error = err.Error()
-					fmt.Fprintf(a.io.Err, "%s FAILED: %v\n", m.Name(), err)
-				} else {
-					fmt.Fprintf(a.io.Err, "%s ready (%s)\n", m.Name(), time.Since(start).Round(time.Millisecond))
-				}
-				report.Results = append(report.Results, r)
-			}
+			started := time.Now()
+			report := platform.ProvisionAll(cmd.Context(), sys, func(line string) { fmt.Fprintln(a.io.Err, line) })
+			fmt.Fprintf(a.io.Err, "provisioned in %s\n", time.Since(started).Round(time.Second))
 			if err := platform.SaveProvisionReport(report); err != nil {
 				fmt.Fprintln(a.io.Err, "could not save the provision report:", err)
 			}

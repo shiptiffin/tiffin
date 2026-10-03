@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,12 @@ import (
 type System struct {
 	Log      func(string) // progress lines for people
 	CacheDir string       // downloads, e.g. /var/lib/tiffin/cache
+
+	// Provisioners run concurrently; apt is one-at-a-time (dpkg has one
+	// lock) and the package index is refreshed once, only when needed.
+	aptMu       sync.Mutex
+	needsUpdate bool
+	updated     bool
 }
 
 // NewSystem returns a System that logs to log.
@@ -56,8 +63,10 @@ func (s *System) Installed(ctx context.Context, pkg string) bool {
 	return err == nil && strings.Contains(string(out), "install ok installed")
 }
 
-// Apt installs Debian packages that are missing (apt-get update once if needed).
+// Apt installs Debian packages that are missing.
 func (s *System) Apt(ctx context.Context, pkgs ...string) error {
+	s.aptMu.Lock()
+	defer s.aptMu.Unlock()
 	var missing []string
 	for _, p := range pkgs {
 		if !s.Installed(ctx, strings.SplitN(p, "=", 2)[0]) {
@@ -68,15 +77,32 @@ func (s *System) Apt(ctx context.Context, pkgs ...string) error {
 		return nil
 	}
 	s.Log("installing " + strings.Join(missing, ", "))
-	// A fresh box may have a stale index: on failure, update and retry once.
-	if _, err := s.Run(ctx, "apt-get", append([]string{"install", "-y", "--no-install-recommends", "-o", "Dpkg::Options::=--force-confold"}, missing...)...); err != nil {
-		if _, uerr := s.Run(ctx, "apt-get", "update", "-y"); uerr != nil {
+	install := append([]string{"-o", "DPkg::Lock::Timeout=600", "install", "-y", "--no-install-recommends", "-o", "Dpkg::Options::=--force-confold"}, missing...)
+	if s.needsUpdate {
+		if err := s.aptUpdate(ctx); err != nil {
+			return err
+		}
+	}
+	if _, err := s.Run(ctx, "apt-get", install...); err != nil {
+		if s.updated {
+			return err
+		}
+		// A fresh box may have a stale index: refresh once and retry.
+		if uerr := s.aptUpdate(ctx); uerr != nil {
 			return uerr
 		}
-		_, err = s.Run(ctx, "apt-get", append([]string{"install", "-y", "--no-install-recommends", "-o", "Dpkg::Options::=--force-confold"}, missing...)...)
+		_, err = s.Run(ctx, "apt-get", install...)
 		return err
 	}
 	return nil
+}
+
+func (s *System) aptUpdate(ctx context.Context) error {
+	_, err := s.Run(ctx, "apt-get", "-o", "DPkg::Lock::Timeout=600", "update", "-y")
+	if err == nil {
+		s.updated, s.needsUpdate = true, false
+	}
+	return err
 }
 
 // AptRepo adds a signed apt repository (key from keyURL, dearmored) once.
@@ -101,8 +127,10 @@ func (s *System) AptRepo(ctx context.Context, name, keyURL, line string) error {
 	if err := os.WriteFile(list, []byte(want), 0o644); err != nil {
 		return err
 	}
-	_, err := s.Run(ctx, "apt-get", "update", "-y")
-	return err
+	s.aptMu.Lock()
+	s.needsUpdate, s.updated = true, false // the next Apt refreshes the index once
+	s.aptMu.Unlock()
+	return nil
 }
 
 // Fetch downloads url to the cache, verifying sha256 (hex), and returns the

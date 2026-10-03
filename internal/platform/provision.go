@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -67,4 +68,68 @@ func provisionChecks(context.Context) []Check {
 		}
 	}
 	return []Check{{Name: "provision", OK: false, Detail: "failed to install " + strings.Join(failed, ", ") + " — " + strings.Join(details, "; ") + ". Run `tiffin up` again after fixing."}}
+}
+
+// Needer lets a provisioner wait for others (by module name) to finish
+// first, e.g. backup needs postgres installed. Every provisioner implicitly
+// needs "base".
+type Needer interface{ Needs() []string }
+
+// ProvisionAll runs every Provisioner concurrently, each starting once the
+// modules it needs are done. Failures are recorded, never fatal: one broken
+// service must not block the rest.
+func ProvisionAll(ctx context.Context, s *System, log func(string)) ProvisionReport {
+	type node struct {
+		m    Module
+		pv   Provisioner
+		done chan struct{}
+		err  error
+	}
+	nodes := map[string]*node{}
+	var order []string
+	for _, m := range Modules() {
+		if pv, ok := m.(Provisioner); ok {
+			nodes[m.Name()] = &node{m: m, pv: pv, done: make(chan struct{})}
+			order = append(order, m.Name())
+		}
+	}
+	results := make([]ProvisionResult, len(order))
+	var wg sync.WaitGroup
+	for i, name := range order {
+		n := nodes[name]
+		needs := []string{}
+		if name != "base" {
+			needs = append(needs, "base")
+		}
+		if nd, ok := n.m.(Needer); ok {
+			needs = append(needs, nd.Needs()...)
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer close(n.done)
+			for _, dep := range needs {
+				if d, ok := nodes[dep]; ok && d != n {
+					<-d.done
+					if d.err != nil && dep == "base" {
+						n.err = fmt.Errorf("skipped: base failed")
+						results[i] = ProvisionResult{Module: name, Error: n.err.Error()}
+						return
+					}
+				}
+			}
+			start := time.Now()
+			n.err = n.pv.Provision(ctx, s)
+			r := ProvisionResult{Module: name, Seconds: time.Since(start).Seconds()}
+			if n.err != nil {
+				r.Error = n.err.Error()
+				log(fmt.Sprintf("%s FAILED after %s: %v", name, time.Since(start).Round(time.Second), n.err))
+			} else {
+				log(fmt.Sprintf("%s ready (%s)", name, time.Since(start).Round(time.Millisecond)))
+			}
+			results[i] = r
+		}()
+	}
+	wg.Wait()
+	return ProvisionReport{At: time.Now().UTC(), Results: results}
 }
