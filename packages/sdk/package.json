@@ -55,6 +55,14 @@
       "types": "./src/workflow.ts",
       "default": "./src/workflow.ts"
     },
+    "./auth": {
+      "types": "./src/auth.ts",
+      "default": "./src/auth.ts"
+    },
+    "./react": {
+      "types": "./src/react.ts",
+      "default": "./src/react.ts"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -62,7 +70,8 @@
     "test": "bun test"
   },
   "dependencies": {
-    "nodemailer": "^10.0.13"
+    "nodemailer": "^10.0.13",
+    "@tiffin/react": "workspace:*"
   },
   "devDependencies": {
     "@react-email/render": "^2.1.0",
@@ -75,13 +84,17 @@
   },
   "peerDependencies": {
     "@react-email/render": ">=1",
-    "react": ">=18"
+    "react": ">=18",
+    "react-dom": ">=18"
   },
   "peerDependenciesMeta": {
     "@react-email/render": {
       "optional": true
     },
     "react": {
+      "optional": true
+    },
+    "react-dom": {
       "optional": true
     }
   }

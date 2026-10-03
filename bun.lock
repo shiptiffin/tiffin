@@ -78,16 +78,19 @@
         "@testing-library/user-event": "^14.6.7",
         "@types/react": "^19",
         "@types/react-dom": "^19",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0",
       },
       "peerDependencies": {
-        "react": "19",
-        "react-dom": "19",
+        "react": "^18.0.0 || ^19.0.0",
+        "react-dom": "^18.0.0 || ^19.0.0",
       },
     },
     "packages/sdk": {
       "name": "tiffin-sdk",
       "version": "0.0.0",
       "dependencies": {
+        "@tiffin/react": "workspace:*",
         "nodemailer": "^10.0.13",
       },
       "devDependencies": {
@@ -99,6 +102,16 @@
         "react-dom": "^19.3.0",
         "smtp-server": "^3.19.16",
       },
+      "peerDependencies": {
+        "@react-email/render": ">=1",
+        "react": ">=18",
+        "react-dom": ">=18",
+      },
+      "optionalPeers": [
+        "@react-email/render",
+        "react",
+        "react-dom",
+      ],
     },
     "packages/tracker": {
       "name": "tiffin-tracker",
