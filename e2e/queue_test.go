@@ -110,7 +110,7 @@ func TestQueue(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		burst = append(burst, send(fmt.Sprintf(`{"name":"work","key":"burst-%d","payload":{"ms":200}}`, i%4)))
 	}
-	b.inBox(`sudo systemctl kill -s KILL tiffin`)
+	b.inBox(`sudo kill -9 $(systemctl show -p MainPID --value tiffin)`)
 	time.Sleep(3 * time.Second)
 	j = waitJob(long, "completed", 3*time.Minute)
 	atts, _ = j["attempts"].([]any)
