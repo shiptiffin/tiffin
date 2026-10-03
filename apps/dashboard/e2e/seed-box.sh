@@ -89,10 +89,14 @@ KV="$(api GET /v1/projects/shop/kv/connection)"
 REDIS="$(jq -r .redisUrl <<<"$KV")"
 PREFIX="$(jq -r .prefix <<<"$KV")"
 {
-  for i in $(seq 1 24); do echo "SET ${PREFIX}session:s$i '{\"user\":$i,\"cart\":[\"BWL-01\"]}' EX $((600 + i * 60))"; done
+  # Sessions last two weeks from sign-in, so they run out at uneven times over the next days.
+  for i in $(seq 1 24); do echo "SET ${PREFIX}session:s$i '{\"user\":$i,\"cart\":[\"BWL-01\"]}' EX $((86400 + (i * 7919) % 1123200))"; done
   for i in 1 2 3 4 5 6; do echo "HSET ${PREFIX}cart:$i sku BWL-01 qty $i updated $(date +%s)"; done
   echo "SET ${PREFIX}feature:new-checkout on"
-  echo "SET ${PREFIX}rate:203.0.113.7 41 EX 60"
+  echo "SET ${PREFIX}rate:203.0.113.7 41 EX 3600"
+  echo "SET ${PREFIX}cache:product:BWL-01 '{\"sku\":\"BWL-01\",\"price_cents\":3200,\"stock\":48}' EX 21600"
+  echo "SET ${PREFIX}cache:product:TIF-03 '{\"sku\":\"TIF-03\",\"price_cents\":5400,\"stock\":15}' EX 14400"
+  echo "SET ${PREFIX}reset:grace@example.com 6f1c2a EX 1800"
   echo "LPUSH ${PREFIX}recent:orders 1042 1041 1040 1039 1038"
   echo "ZADD ${PREFIX}leaderboard:bowls 48 BWL-01 31 CUP-07 12 TIF-03"
   echo "SADD ${PREFIX}tags:kitchen BWL-01 MUG-02 KNF-06 BRD-08"

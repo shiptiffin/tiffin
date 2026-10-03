@@ -87,4 +87,7 @@ api POST /v1/projects/shop/queue/crons/nightly/trigger '{}' >/dev/null || true
 # Protection: two manual bans, so decisions and alerts have something to show.
 api POST /v1/protect/bans '{"ip":"203.0.113.77","duration":"24h","reason":"Hammering /login with password lists"}' >/dev/null || true
 api POST /v1/protect/bans '{"ip":"198.51.100.0/24","duration":"4h","reason":"Scraper farm ignoring robots.txt"}' >/dev/null || true
+# Real jobs and mail arrive over hours, not in one second.
+sleep 5
+TIFFIN_LIMA_INSTANCE="${TIFFIN_LIMA_INSTANCE:?set TIFFIN_LIMA_INSTANCE to the dev box Lima instance}" bash "$HERE/seed-box-spread.sh" shop
 echo "seeded apps: worker deployed, queues busy, workflows running"

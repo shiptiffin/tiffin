@@ -1,17 +1,23 @@
 import { mkdirSync } from "node:fs";
 import { expect, test } from "@playwright/test";
-import { ownerToken, signIn } from "./helpers";
+import { ownerToken, seedAgents, signIn } from "./helpers";
 
-// The whole signing loop on a dev box, with a virtual authenticator standing in
-// for Touch ID: an agent asks to make a bucket public (outbound), the owner
-// signs with a passkey, the agent applies with the approval, the receipt shows
-// the Seal, and the owner undoes it. It removes the passkey it added.
-// Passkeys are bound to the box's own origin, so point E2E_BASE_URL at the box;
-// LEDGER_VITE (optional) serves the dashboard's code from a Vite dev server
-// under that origin, to test unbuilt changes:
+// The whole signing loop, with a virtual authenticator standing in for Touch
+// ID: an agent asks to make a bucket public (outbound), the owner signs with a
+// passkey, the agent applies with the approval, the receipt shows the Seal,
+// and the owner undoes it. It removes the passkey it added.
+//
+// By default it runs on the throwaway box Playwright starts (e2e/serve.sh),
+// which is deleted afterwards, so repeated runs leave nothing behind:
+//   LEDGER_SIGN=1 bunx playwright test ledger-sign
+// It can also run on a dev box (passkeys are bound to the box's origin, so
+// point E2E_BASE_URL at the box). The Ledger is append-only, so each run there
+// adds the change and its undo for good; LEDGER_VITE (optional) serves the
+// dashboard's code from a Vite dev server under that origin:
 //   LEDGER_SIGN=1 E2E_BASE_URL=https://dashboard.tiffin.localhost:8470 LEDGER_VITE=http://localhost:5401 \
 //     E2E_OWNER_TOKEN=... E2E_AGENT_TOKEN=... bunx playwright test ledger-sign
-test.skip(!process.env.LEDGER_SIGN || !process.env.E2E_OWNER_TOKEN || !process.env.E2E_AGENT_TOKEN, "set LEDGER_SIGN=1, E2E_OWNER_TOKEN and E2E_AGENT_TOKEN");
+const external = !!process.env.E2E_BASE_URL;
+test.skip(!process.env.LEDGER_SIGN || (external && (!process.env.E2E_OWNER_TOKEN || !process.env.E2E_AGENT_TOKEN)), "set LEDGER_SIGN=1 (and on a dev box E2E_OWNER_TOKEN, E2E_AGENT_TOKEN)");
 
 const out = process.env.SHOTS_DIR ?? "screenshots/fusion";
 
@@ -24,8 +30,11 @@ test("an agent asks, a person signs with a passkey, the agent applies, the perso
   page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
 
   const owner = { Authorization: `Bearer ${ownerToken()}` };
-  const agent = { Authorization: `Bearer ${process.env.E2E_AGENT_TOKEN}`, "X-Tiffin-Session": "s-51c0d2" };
-  const project = process.env.LEDGER_PROJECT ?? "shop";
+  // On the throwaway box, codex (notes only, no apply:outbound) asks to share the private thumbnails bucket.
+  const agentToken = external ? process.env.E2E_AGENT_TOKEN : seedAgents().CODEX;
+  const agent = { Authorization: `Bearer ${agentToken}`, "X-Tiffin-Session": "s-51c0d2" };
+  const project = process.env.LEDGER_PROJECT ?? (external ? "shop" : "notes");
+  const bucket = process.env.LEDGER_BUCKET ?? (external ? "uploads" : "thumbnails");
 
   const vite = process.env.LEDGER_VITE;
   if (vite) {
@@ -49,9 +58,11 @@ test("an agent asks, a person signs with a passkey, the agent applies, the perso
 
   // The agent's request: make the uploads bucket public (outbound, needs a person).
   const m = (await (await page.request.get(`${baseURL}/v1/projects/${project}/manifest`, { headers: owner })).json()).manifest;
-  m.services.storage.buckets.uploads = { ...m.services.storage.buckets.uploads, public: true };
+  m.services.storage.buckets[bucket] = { ...m.services.storage.buckets[bucket], public: true };
   const plan = await (await page.request.post(`${baseURL}/v1/plan`, { headers: agent, data: { manifest: m } })).json();
-  const intent = "Make the uploads bucket public. Product photos load from it on the storefront, and private links expire after an hour.";
+  const intent = external
+    ? "Make the uploads bucket public. Product photos load from it on the storefront, and private links expire after an hour."
+    : "Make the thumbnails bucket public. Link previews load from it, and private links expire after an hour.";
   const ask = await page.request.post(`${baseURL}/v1/apply`, { headers: agent, data: { manifest: m, confirm: plan.hash, intent } });
   expect(ask.status()).toBe(403);
   const approvalId = (await ask.json()).approval.id as string;
@@ -68,7 +79,7 @@ test("an agent asks, a person signs with a passkey, the agent applies, the perso
 
     // Sign.
     await page.goto(`/approvals/${approvalId}`);
-    await expect(page.getByText(/Signing lets Claude Code make something visible outside the box/)).toBeVisible();
+    await expect(page.getByText(/Signing lets .+ make something visible outside the box/)).toBeVisible();
     await page.getByRole("button", { name: "Sign with passkey" }).click();
     await expect(page.getByText("Signed, not applied yet").first()).toBeVisible();
     await expect(page.getByRole("img", { name: /Seal: signed by/ })).toBeVisible();

@@ -20,6 +20,12 @@ export async function loginCode(request: APIRequestContext, baseURL: string): Pr
 
 const boxDir = join(tmpdir(), `tiffin-dash-e2e-${port}`);
 
+/** The seeded agents' tokens on the throwaway box (written by e2e/seed.sh): CLAUDE, CODEX. */
+export function seedAgents(): Record<string, string> {
+  const raw = readFileSync(join(boxDir, "box", "seed-agents.env"), "utf8");
+  return Object.fromEntries(raw.split("\n").filter(Boolean).map((l) => l.split(/=(.*)/s).slice(0, 2) as [string, string]));
+}
+
 /** Waits until e2e/serve.sh has finished the live seeding. */
 async function ready() {
   if (process.env.E2E_BASE_URL) return;
