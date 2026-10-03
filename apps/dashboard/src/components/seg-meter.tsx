@@ -43,7 +43,8 @@ export function SegMeter({
 }) {
   const per = max / segments;
   const lit = value > 0 ? Math.max(1, Math.round(value / per)) : 0;
-  const after = Math.max(0, Math.min(segments, Math.round((value + add) / per)));
+  // With nothing staged the lit count stands (a small non-zero value still lights one segment).
+  const after = add === 0 ? lit : Math.max(0, Math.min(segments, Math.round((value + add) / per)));
   const cells = Array.from({ length: segments }, (_, i) => {
     const share = (i + 1) / segments;
     const on = i < Math.min(lit, after);

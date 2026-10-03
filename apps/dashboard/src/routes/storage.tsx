@@ -1,21 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ArrowUpRight, ChevronRight, Eye, File, FileImage, FileText, Folder, Globe, KeyRound, Link2, Lock, Trash2, Upload, X } from "lucide-react";
+import { ArrowUpRight, ChevronRight, CornerLeftUp, Eye, File, FileImage, FileText, Folder, Link2, Search, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { ApiError, notOnBox } from "@/api/client";
 import { mod, mq, type StorageBucket, type StorageObject, type TrashEntry } from "@/api/modules";
-import { Meter } from "@/components/chart";
+import { Confirm } from "@/components/confirm";
 import { Command, CopyButton } from "@/components/copy";
+import { Reading, Readings, Rows, Section } from "@/components/data-parts";
 import { useTitle } from "@/components/favicon";
 import { Crumbs, Empty, Page, PageHeader, Skeleton, Untrusted, NotOnBox } from "@/components/page";
+import { PilotLight } from "@/components/pilot";
 import { ProblemNote } from "@/components/problem";
+import { SegMeter } from "@/components/seg-meter";
 import { Button } from "@/components/ui/button";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
-import { bytes, num } from "@/lib/format";
+import { bytes, bytesParts, count, int, pct, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
-import { expiry, full, relative } from "@/lib/time";
-import { Confirm } from "@/components/confirm";
+import { stage, stagedFor, useStaged, type BucketAccess } from "@/lib/staged";
+import { full, relative } from "@/lib/time";
+
+const shortDate = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" });
 
 // ------------------------------------------------------------------ overview
 
@@ -43,6 +48,9 @@ export function StoragePage({ project }: { project: string }) {
   const s = info.data;
   const buckets = s.buckets ?? [];
   const quota = s.quotaBytes;
+  const used = bytesParts(s.usedBytes);
+  const files = buckets.reduce((n, b) => n + b.objects, 0);
+  const share = quota > 0 ? s.usedBytes / quota : 0;
   return (
     <Page wide>
       <PageHeader
@@ -50,48 +58,72 @@ export function StoragePage({ project }: { project: string }) {
         title="Storage"
         lede={
           <>
-            S3-compatible buckets on the box's own disk. Your apps already have the keys: <code className="font-mono text-ink">Bun.s3</code> and any
+            S3-compatible buckets on the box's own disk. Your apps already have the keys, so <code className="ident text-ink">Bun.s3</code> and any
             AWS SDK just work.
           </>
         }
       />
 
-      <section className="mt-10 grid gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-[1.4fr_1fr_1fr]">
-        <div className="bg-raised p-5">
-          <p className="text-2xs font-medium tracking-wider text-ink-3 uppercase">Used</p>
-          <p className="mt-2 flex items-baseline gap-2">
-            <span className="display text-3xl text-ink tnum">{bytes(s.usedBytes)}</span>
-            <span className="text-base text-ink-3">of {quota > 0 ? bytes(quota, 0) : "unlimited"}</span>
+      <Readings className="grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr]">
+        <Reading
+          className="col-span-2 lg:col-span-1"
+          label="Used"
+          value={used.value}
+          unit={`${used.unit} of ${quota > 0 ? bytes(quota, 0) : "no limit"}`}
+        >
+          {quota > 0 && (
+            <SegMeter
+              className="mt-2.5"
+              label="Storage used of this project's limit"
+              value={share * 100}
+              scale
+              warnAt={0.8}
+              fullAt={0.95}
+              valueText={pct(share, share < 0.01 ? 2 : 0)}
+            />
+          )}
+          <p className="mt-2 text-xs text-ink-3">
+            {share < 0.001 ? "Under 0.1 %" : pct(share, share < 0.1 ? 1 : 0)} of{" "}
+            {s.quotaSource === "box-default" ? "the box's default limit" : "this project's limit"}, measured {relative(s.measuredAt)}.
           </p>
-          {quota > 0 && <Meter ratio={s.usedBytes / quota} className="mt-3" label="Storage used of quota" />}
-          <p className="mt-2 text-sm text-ink-3">
-            {s.quotaSource === "box-default" ? "The box's default limit" : "This project's own limit"} · measured {relative(s.measuredAt)}
-          </p>
-        </div>
-        <Fact label="Buckets" value={num(buckets.length)} sub={`${buckets.filter((b) => b.public).length} public`} />
-        <Fact label="Files" value={num(buckets.reduce((n, b) => n + b.objects, 0))} sub={`region ${s.region}`} />
-      </section>
+        </Reading>
+        <Reading
+          label="Buckets"
+          value={int(buckets.length)}
+          sub={buckets.length ? `${words(buckets.filter((b) => b.public).length, true)} public` : undefined}
+        />
+        <Reading label="Files" value={int(files)} sub={`region ${s.region}`} />
+      </Readings>
 
-      <section className="mt-12" aria-labelledby="buckets">
-        <h2 id="buckets" className="display-italic mb-3 text-xl text-ink">
-          Buckets
-        </h2>
+      <Section
+        className="mt-10"
+        id="buckets"
+        label="Buckets"
+        aside={buckets.length > 0 ? "public or private is a change to tiffin.config.ts" : undefined}
+      >
         {buckets.length === 0 ? (
-          <Empty icon={<Folder />} title="No buckets yet">
+          <Empty title="No buckets yet">
             Add one under <code className="font-mono text-ink">services.storage.buckets</code> in tiffin.config.ts, then plan and apply.
           </Empty>
         ) : (
-          <ul className="divide-y divide-rule overflow-hidden rounded-xl border border-rule bg-raised/60">
-            {buckets.map((b, k) => (
-              <BucketRow key={b.name} project={project} b={b} share={s.usedBytes ? b.bytes / s.usedBytes : 0} k={k} />
+          <Rows>
+            <li aria-hidden className="hidden grid-cols-[minmax(0,1fr)_10.5rem_5.5rem_5rem_1rem] gap-x-6 py-2 sm:grid">
+              <span className="label">Bucket</span>
+              <span className="label">Who can read</span>
+              <span className="label text-right">Size</span>
+              <span className="label text-right">Files</span>
+              <span />
+            </li>
+            {buckets.map((b) => (
+              <BucketRow key={b.name} project={project} b={b} canStage={can("apply:reversible")} />
             ))}
-          </ul>
+          </Rows>
         )}
-      </section>
+      </Section>
 
-      <div className="mt-12 grid gap-10 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-        <UseIt project={project} buckets={buckets} canReveal={can("apply:irreversible")} />
-        <TrashList project={project} entries={trash.data ?? []} canPurge={can("apply:irreversible")} />
+      <div className="mt-12 grid gap-x-12 gap-y-12 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+        <UseIt project={project} buckets={buckets} endpoint={s.endpoint} region={s.region} canReveal={can("apply:irreversible")} />
+        <TrashList project={project} entries={trash.data ?? []} canPurge={can("apply:irreversible")} canRestore={can("apply:reversible")} />
       </div>
     </Page>
   );
@@ -108,51 +140,121 @@ function StorageCrumbs({ project, bucket }: { project: string; bucket?: boolean 
   );
 }
 
-function Fact({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function BucketRow({ project, b, canStage }: { project: string; b: StorageBucket; canStage: boolean }) {
+  const edits = useStaged(project);
+  const staged = stagedFor(edits, `bucket:${b.name}`);
+  const live: BucketAccess = b.public ? "public" : "private";
+  const shown = staged?.kind === "bucket" ? staged.to : live;
   return (
-    <div className="bg-raised p-5">
-      <p className="text-2xs font-medium tracking-wider text-ink-3 uppercase">{label}</p>
-      <p className="display mt-2 text-3xl text-ink tnum">{value}</p>
-      {sub && <p className="mt-2 text-sm text-ink-3">{sub}</p>}
-    </div>
-  );
-}
-
-function BucketRow({ project, b, share, k }: { project: string; b: StorageBucket; share: number; k: number }) {
-  return (
-    <li className="group relative animate-rise" style={{ animationDelay: `${k * 40}ms` }}>
-      <Link
-        to="/projects/$project/storage/$bucket"
-        params={{ project, bucket: b.name }}
-        className="grid grid-cols-[2rem_1fr_auto] items-center gap-x-4 gap-y-1 px-4 py-4 transition-colors hover:bg-hover/50 sm:grid-cols-[2rem_minmax(0,1fr)_9rem_7rem_1.25rem] sm:px-5"
-      >
-        <span className={cn("grid size-8 place-items-center rounded-lg", b.public ? "bg-out-wash text-out" : "bg-hover text-ink-3")}>
-          {b.public ? <Globe className="size-4" /> : <Lock className="size-4" />}
-        </span>
+    <li>
+      <div className="group relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-2 py-3 transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk sm:-mx-3 sm:grid-cols-[minmax(0,1fr)_10.5rem_5.5rem_5rem_1rem] sm:px-3">
         <span className="min-w-0">
-          <span className="flex items-center gap-2">
-            <span className="text-md font-medium text-ink">{b.name}</span>
-            {b.state === "pending" && <span className="rounded-full bg-brass-wash px-2 py-px text-xs text-brass-ink">being created</span>}
+          <Link
+            to="/projects/$project/storage/$bucket"
+            params={{ project, bucket: b.name }}
+            className="font-mono text-[0.84375rem] text-ink after:absolute after:inset-0 after:content-['']"
+          >
+            {b.name}
+          </Link>
+          {b.state === "pending" && <span className="ml-2 text-sm text-brass-ink">being created</span>}
+          <span className="mt-0.5 block text-sm text-ink-3 sm:truncate">
+            {staged ? (
+              <span className="text-brass-ink">
+                {shown === "public" ? "Staged: anyone with the link will read files" : "Staged: only signed links will read files"}
+              </span>
+            ) : shown === "public" ? (
+              "Anyone with the link can read files"
+            ) : (
+              "Only signed links can read files"
+            )}
+            <span className="max-sm:hidden"> · {b.s3Name}</span>
           </span>
-          <span className="block truncate text-sm text-ink-3">
-            {b.public ? "Public: anyone with a link can read files" : "Private: signed requests only"} ·{" "}
-            <code className="font-mono text-xs">{b.s3Name}</code>
-          </span>
         </span>
-        <span className="hidden sm:block">
-          <span className="block text-right font-mono text-sm text-ink-2 tnum">{bytes(b.bytes)}</span>
-          <Meter ratio={share} className="mt-1.5 h-1" label={`${b.name}: share of project storage`} />
+        <span className="relative z-[1] row-span-2 self-center sm:row-span-1">
+          <AccessLever
+            name={b.name}
+            live={live}
+            staged={staged?.kind === "bucket" ? staged.to : undefined}
+            disabled={!canStage}
+            onPick={(to) => stage(project, { kind: "bucket", bucket: b.name, from: live, to })}
+          />
         </span>
-        <span className="text-right text-sm text-ink-3 tnum">
-          {num(b.objects)} {b.objects === 1 ? "file" : "files"}
+        <span className="col-start-1 text-sm text-ink-2 tnum sm:col-start-auto sm:text-right sm:text-base">
+          {bytes(b.bytes)}
+          <span className="text-ink-3 sm:hidden"> · {count(b.objects, "file")}</span>
         </span>
-        <ChevronRight className="hidden size-4 text-ink-4 transition-transform group-hover:translate-x-0.5 group-hover:text-ink sm:block" />
-      </Link>
+        <span className="hidden text-right text-sm text-ink-3 tnum sm:block">{int(b.objects)}</span>
+        <ChevronRight className="hidden size-4 text-ink-4 transition-transform group-hover:translate-x-0.5 group-hover:text-ink-2 sm:block" />
+      </div>
     </li>
   );
 }
 
-function UseIt({ project, buckets, canReveal }: { project: string; buckets: StorageBucket[]; canReveal: boolean }) {
+/**
+ * Private or public, as a two-position lever with printed labels. Moving it
+ * stages a change to tiffin.config.ts (drawn in brass, the live position
+ * dashed) that the plan tray applies; moving it back unstages it.
+ */
+function AccessLever({
+  name,
+  live,
+  staged,
+  disabled,
+  onPick,
+}: {
+  name: string;
+  live: BucketAccess;
+  staged?: BucketAccess;
+  disabled?: boolean;
+  onPick: (to: BucketAccess) => void;
+}) {
+  const shown = staged ?? live;
+  return (
+    <span
+      role="radiogroup"
+      aria-label={`${name}: who can read files${staged ? `, ${staged} staged` : ""}`}
+      className="inline-flex h-7 items-stretch rounded-[7px] border border-rule-2 bg-paper-sunk p-0.5"
+    >
+      {(["private", "public"] as const).map((v) => {
+        const on = shown === v;
+        const was = !!staged && live === v;
+        return (
+          <button
+            key={v}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            disabled={disabled}
+            onClick={() => !on && onPick(v)}
+            className={cn(
+              "rounded-[5px] border px-2.5 text-[0.71875rem] font-[550] tracking-[0.04em] uppercase transition-colors duration-[var(--dur-state)] disabled:cursor-default",
+              on && !staged && "border-rule-2 bg-paper-raised text-ink shadow-[var(--top-light),0_1px_1px_oklch(0.2_0.01_60/0.08)]",
+              on && staged && "border-brass bg-brass-wash text-brass-ink",
+              !on && !was && "border-transparent text-ink-3 enabled:hover:text-ink",
+              was && "border-dashed border-rule-3 text-ink-3",
+            )}
+          >
+            {v}
+          </button>
+        );
+      })}
+    </span>
+  );
+}
+
+function UseIt({
+  project,
+  buckets,
+  endpoint,
+  region,
+  canReveal,
+}: {
+  project: string;
+  buckets: StorageBucket[];
+  endpoint: string;
+  region: string;
+  canReveal: boolean;
+}) {
   const [creds, setCreds] = useState<Record<string, string> | null>(null);
   const [err, setErr] = useState<unknown>(null);
   const first = buckets.find((b) => !b.public) ?? buckets[0];
@@ -166,116 +268,125 @@ const file = s3.file("avatars/ada.png", { bucket });
 await file.write(photo, { type: "image/png" });
 const link = file.presign({ expiresIn: 600 }); // 10 min`;
   return (
-    <section aria-labelledby="use">
-      <h2 id="use" className="display-italic mb-3 text-xl text-ink">
-        Use it from your app
-      </h2>
-      <div className="overflow-hidden rounded-xl border border-rule bg-paper-sunk">
-        <div className="flex items-center justify-between border-b border-rule px-4 py-2">
-          <span className="font-mono text-xs text-ink-3">upload.ts</span>
+    <Section id="use" label="Use it from your app">
+      <div className="overflow-hidden rounded-[10px] border border-rule-2 bg-paper-sunk">
+        <div className="flex items-center justify-between border-b border-rule py-1 pr-1.5 pl-3.5">
+          <span className="ident text-ink-3">upload.ts</span>
           <CopyButton value={snippet} label="Copy code" />
         </div>
-        <pre className="overflow-x-auto px-4 py-3 font-mono text-[0.78rem] leading-5 text-ink-2">
+        <pre className="overflow-x-auto px-3.5 py-3 font-mono text-[0.75rem] leading-5 text-ink-2">
           <code>{snippet}</code>
         </pre>
       </div>
-      <div className="mt-4 rounded-xl border border-rule bg-raised/60 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-base text-ink">
-            <KeyRound className="mr-1.5 mb-0.5 inline size-4 text-ink-3" />
-            Credentials for local tools
-          </p>
-          {!creds && canReveal && (
-            <Button
-              size="sm"
-              onClick={async () => {
-                setErr(null);
-                try {
-                  setCreds(await mod.credentials(project));
-                } catch (e) {
-                  setErr(e);
-                }
-              }}
-            >
-              <Eye />
-              Show the S3 env
-            </Button>
-          )}
-        </div>
-        <p className="mt-1 text-sm text-ink-3">
+      <dl className="mt-4 grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+        <dt className="text-ink-3">Endpoint</dt>
+        <dd className="truncate font-mono text-[0.78125rem] text-ink-2">{endpoint.replace(/^https?:\/\//, "")}</dd>
+        <dt className="text-ink-3">Region</dt>
+        <dd className="font-mono text-[0.78125rem] text-ink-2">{region}</dd>
+      </dl>
+      <div className="mt-4 flex flex-col gap-3 border-t border-rule pt-4 sm:flex-row sm:items-start sm:justify-between">
+        <p className="text-sm text-ink-3">
+          <span className="text-ink-2">Keys for local tools.</span>{" "}
           {canReveal
-            ? "The key can read and delete every file in this project, so only reveal it on a screen you trust."
-            : "Revealing the key needs a token that may destroy data (apply:irreversible)."}
+            ? "They can read and delete every file in this project, so only reveal them on a screen you trust."
+            : "Revealing them needs a token that may destroy data (apply:irreversible)."}
         </p>
-        {err ? <ProblemNote className="mt-3" error={err} /> : null}
-        {creds && (
-          <Command
-            className="mt-3"
-            cmd={Object.entries(creds)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([k, v]) => `${k}=${v}`)
-              .join(" ")}
-          />
+        {!creds && canReveal && (
+          <Button
+            size="sm"
+            className="self-start"
+            onClick={async () => {
+              setErr(null);
+              try {
+                setCreds(await mod.credentials(project));
+              } catch (e) {
+                setErr(e);
+              }
+            }}
+          >
+            <Eye />
+            Show the S3 env
+          </Button>
         )}
       </div>
-    </section>
+      {err ? <ProblemNote className="mt-3" error={err} /> : null}
+      {creds && (
+        <Command
+          wrap
+          className="mt-3"
+          cmd={Object.entries(creds)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([k, v]) => `${k}=${v}`)
+            .join(" ")}
+        />
+      )}
+    </Section>
   );
 }
 
-function TrashList({ project, entries, canPurge }: { project: string; entries: TrashEntry[]; canPurge: boolean }) {
+function TrashList({ project, entries, canPurge, canRestore }: { project: string; entries: TrashEntry[]; canPurge: boolean; canRestore: boolean }) {
   const qc = useQueryClient();
+  const edits = useStaged(project);
   const [purging, setPurging] = useState<TrashEntry | null>(null);
   return (
-    <section aria-labelledby="trash">
-      <h2 id="trash" className="display-italic mb-3 text-xl text-ink">
-        Trash
-      </h2>
+    <Section id="trash" label="Trash" aside="deleted buckets wait 7 days, files and all">
       {entries.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-rule-strong px-4 py-5 text-base text-ink-3">
-          Empty. Deleted buckets wait here for 7 days, files and all.
-        </p>
+        <p className="border-y border-rule py-4 text-base text-ink-3">Empty. A bucket you remove lands here first.</p>
       ) : (
-        <ul className="divide-y divide-rule overflow-hidden rounded-xl border border-rule bg-raised/60">
-          {entries.map((t) => (
-            <li key={t.id} className="flex items-start gap-3 px-4 py-3">
-              <Trash2 className="mt-1 size-4 shrink-0 text-ink-3" />
-              <div className="min-w-0 flex-1">
-                <p className="text-base text-ink">
-                  <span className="font-medium">{t.bucket}</span>{" "}
-                  <span className="text-ink-3">
-                    · {num(t.objects)} {t.objects === 1 ? "file" : "files"} · {bytes(t.bytes)}
-                  </span>
-                </p>
-                <p className="text-sm text-ink-3">
-                  Deleted {relative(t.deletedAt)} · gone for good {expiry(t.expiresAt)}
-                </p>
-                <p className="mt-1 text-sm text-ink-2">
-                  To restore it, add it back to tiffin.config.ts or{" "}
-                  <Link to="/" search={{ project, risk: "irreversible" }} className="text-brass-ink underline underline-offset-4 hover:text-ink">
-                    undo the change
-                  </Link>{" "}
-                  that removed it.
-                </p>
-              </div>
-              {canPurge && (
-                <Button variant="danger-quiet" size="sm" onClick={() => setPurging(t)}>
-                  Purge
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
+        <Rows>
+          {entries.map((t) => {
+            const staged = stagedFor(edits, `bucket:${t.bucket}`);
+            return (
+              <li key={t.id} className="flex items-start gap-3 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-base text-ink">
+                    <span className="font-mono text-[0.84375rem]">{t.bucket}</span>
+                    <span className="text-ink-3 tnum">
+                      {" "}
+                      · {count(t.objects, "file")}, {bytes(t.bytes)}
+                    </span>
+                  </p>
+                  <p className="mt-0.5 text-sm text-ink-3">
+                    Deleted {relative(t.deletedAt)}, gone for good on{" "}
+                    <time dateTime={t.expiresAt} title={full(t.expiresAt)}>
+                      {shortDate.format(new Date(t.expiresAt))}
+                    </time>
+                    .
+                  </p>
+                  {staged && <p className="mt-1 text-sm text-brass-ink">Restore staged: it comes back private, with its files.</p>}
+                </div>
+                <span className="flex shrink-0 gap-1">
+                  {canRestore && !staged && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => stage(project, { kind: "bucket", bucket: t.bucket, from: "absent", to: "private" })}
+                      title="Stages adding the bucket back to tiffin.config.ts; applying it restores the files"
+                    >
+                      Restore
+                    </Button>
+                  )}
+                  {canPurge && (
+                    <Button variant="danger-quiet" size="sm" onClick={() => setPurging(t)}>
+                      Purge
+                    </Button>
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </Rows>
       )}
       <Confirm
         open={!!purging}
         onClose={() => setPurging(null)}
         title={`Purge ${purging?.bucket ?? "this bucket"} for good?`}
-        body={`Its ${purging ? num(purging.objects) : ""} files are deleted now instead of in 7 days. Nothing can bring them back after this.`}
+        body={`Its ${purging ? count(purging.objects, "file") : "files"} are deleted now instead of in 7 days. Nothing can bring them back after this.`}
         action="Purge now"
         run={() => mod.purge(purging!.id)}
         done={() => qc.invalidateQueries({ queryKey: ["trash"] })}
       />
-    </section>
+    </Section>
   );
 }
 
@@ -298,6 +409,18 @@ function FileIcon({ name, className }: { name: string; className?: string }) {
   const C = k === "image" ? FileImage : k === "text" || k === "pdf" ? FileText : File;
   return <C className={cn("size-4 shrink-0 text-ink-3", className)} />;
 }
+
+/** Pretty-prints JSON files; everything else stays exactly as stored. */
+function prettyText(key: string, text: string) {
+  if (!/\.json$/i.test(key)) return text;
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return text;
+  }
+}
+
+const browserCols = "sm:grid-cols-[minmax(0,1fr)_5.5rem_8.5rem_4rem]";
 
 export function BucketPage({ project, bucket, prefix = "", file }: { project: string; bucket: string; prefix?: string; file?: string }) {
   useTitle(`${bucket} · Storage`);
@@ -360,6 +483,7 @@ export function BucketPage({ project, bucket, prefix = "", file }: { project: st
   const shownObjects = objects.filter((o) => o.key.slice(prefix.length).toLowerCase().includes(f));
   const selected = file ? objects.find((o) => o.key === file) : undefined;
   const parts = prefix.split("/").filter(Boolean);
+  const up = parts.slice(0, -1).join("/") + (parts.length > 1 ? "/" : "");
 
   return (
     <div
@@ -384,30 +508,19 @@ export function BucketPage({ project, bucket, prefix = "", file }: { project: st
       <Page full>
         <PageHeader
           eyebrow={<StorageCrumbs project={project} bucket />}
-          title={
-            <span className="flex items-center gap-3">
-              {bucket}
-              {b && (
-                <span
-                  className={cn(
-                    "inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 font-sans text-sm",
-                    b.public ? "bg-out-wash text-out" : "bg-hover text-ink-2",
-                  )}
-                >
-                  {b.public ? <Globe className="size-3.5" /> : <Lock className="size-3.5" />}
-                  {b.public ? "Public" : "Private"}
-                </span>
-              )}
-            </span>
+          title={<span className="font-mono text-[1.375rem] tracking-[-0.02em]">{bucket}</span>}
+          lede={
+            b
+              ? `${b.public ? "Public: anyone with the link can read files." : "Private: only signed links can read files."} ${count(b.objects, "file")}, ${bytes(b.bytes)}. S3 name ${b.s3Name}.`
+              : undefined
           }
-          lede={b ? `${num(b.objects)} files · ${bytes(b.bytes)} · S3 name ${b.s3Name}` : undefined}
           actions={
             writer && (
               <>
                 <input ref={input} type="file" multiple className="hidden" onChange={(e) => uploadFiles([...(e.target.files ?? [])])} />
                 <Button variant="primary" onClick={() => input.current?.click()}>
                   <Upload />
-                  Upload
+                  Upload{prefix ? ` to ${parts[parts.length - 1]}` : ""}
                 </Button>
               </>
             )
@@ -415,55 +528,69 @@ export function BucketPage({ project, bucket, prefix = "", file }: { project: st
         />
 
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <nav aria-label="Folder" className="flex min-w-0 flex-1 flex-wrap items-center gap-1 font-mono text-sm">
-            <button onClick={() => go({})} className={cn("rounded px-1.5 py-0.5 hover:bg-hover", parts.length === 0 ? "text-ink" : "text-ink-3")}>
+          <nav aria-label="Folder" className="-ml-1.5 flex min-w-0 flex-1 flex-wrap items-center gap-0.5 font-mono text-[0.84375rem]">
+            <button
+              onClick={() => go({})}
+              className={cn(
+                "rounded-[5px] px-1.5 py-0.5 transition-colors hover:bg-paper-sunk",
+                parts.length === 0 ? "text-ink" : "text-ink-3 hover:text-ink",
+              )}
+              aria-current={parts.length === 0 ? "location" : undefined}
+            >
               {bucket}
             </button>
             {parts.map((p, i) => (
-              <span key={i} className="flex items-center gap-1">
+              <span key={i} className="flex items-center gap-0.5">
                 <span className="text-ink-4">/</span>
                 <button
                   onClick={() => go({ prefix: parts.slice(0, i + 1).join("/") + "/" })}
-                  className={cn("rounded px-1.5 py-0.5 hover:bg-hover", i === parts.length - 1 ? "text-ink" : "text-ink-3")}
+                  className={cn(
+                    "rounded-[5px] px-1.5 py-0.5 transition-colors hover:bg-paper-sunk",
+                    i === parts.length - 1 ? "text-ink" : "text-ink-3 hover:text-ink",
+                  )}
+                  aria-current={i === parts.length - 1 ? "location" : undefined}
                 >
                   {p}
                 </button>
               </span>
             ))}
           </nav>
-          <input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter this folder"
-            aria-label="Filter this folder"
-            className="h-8 w-full rounded-md border border-rule bg-paper px-2.5 text-sm text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass sm:w-56"
-          />
+          <label className="relative flex h-8 w-full items-center sm:w-60">
+            <Search aria-hidden className="pointer-events-none absolute left-2.5 size-3.5 text-ink-3" />
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter this folder"
+              aria-label="Filter this folder"
+              className="h-8 w-full rounded-[7px] border border-rule-2 bg-paper-raised pr-2.5 pl-8 text-sm text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass"
+            />
+          </label>
         </div>
 
-        <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="min-w-0 overflow-hidden rounded-xl border border-rule bg-raised/60">
-            <div className="hidden grid-cols-[minmax(0,1fr)_6rem_9rem_4.5rem] gap-4 border-b border-rule px-4 py-2 text-2xs font-medium tracking-wider text-ink-3 uppercase sm:grid">
-              <span>Name</span>
-              <span className="text-right">Size</span>
-              <span>Modified</span>
+        <div className="mt-4 grid gap-x-8 gap-y-6 lg:grid-cols-[minmax(0,1fr)_23rem]">
+          <div className="min-w-0">
+            <div className={cn("hidden gap-x-4 border-t border-rule py-2 sm:grid", browserCols)} aria-hidden>
+              <span className="label pl-7">Name</span>
+              <span className="label text-right">Size</span>
+              <span className="label">Modified</span>
               <span />
             </div>
             {list.isPending && (
-              <div className="space-y-2 p-4">
+              <div className="space-y-2 border-t border-rule py-3">
                 {[0, 1, 2, 3].map((i) => (
                   <Skeleton key={i} className="h-6" />
                 ))}
               </div>
             )}
-            {list.isError && <ProblemNote className="m-4" error={list.error} />}
-            <ul className="divide-y divide-rule/70">
+            {list.isError && <ProblemNote className="my-4" error={list.error} />}
+            <ul className="divide-y divide-rule border-y border-rule">
               {prefix && (
                 <li>
                   <button
-                    onClick={() => go({ prefix: parts.slice(0, -1).join("/") + (parts.length > 1 ? "/" : "") })}
-                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-base text-ink-3 hover:bg-hover/60"
+                    onClick={() => go({ prefix: up })}
+                    className="flex w-full items-center gap-3 py-2 text-left text-sm text-ink-3 transition-colors hover:bg-paper-sunk hover:text-ink sm:-mx-2 sm:w-[calc(100%+1rem)] sm:px-2"
                   >
-                    <Folder className="size-4" /> ..
+                    <CornerLeftUp className="size-4" /> Up to {parts.length > 1 ? parts[parts.length - 2] : bucket}
                   </button>
                 </li>
               )}
@@ -471,10 +598,13 @@ export function BucketPage({ project, bucket, prefix = "", file }: { project: st
                 <li key={p}>
                   <button
                     onClick={() => go({ prefix: p })}
-                    className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-2.5 text-left hover:bg-hover/60 sm:grid-cols-[minmax(0,1fr)_6rem_9rem_4.5rem]"
+                    className={cn(
+                      "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 py-2 text-left transition-colors hover:bg-paper-sunk sm:-mx-2 sm:w-[calc(100%+1rem)] sm:px-2",
+                      browserCols,
+                    )}
                   >
                     <span className="flex min-w-0 items-center gap-3">
-                      <Folder className="size-4 shrink-0 fill-brass-wash text-brass-ink" />
+                      <Folder className="size-4 shrink-0 text-ink-3" />
                       <span className="truncate font-mono text-[0.8125rem] text-ink">{p.slice(prefix.length)}</span>
                     </span>
                     <ChevronRight className="size-4 justify-self-end text-ink-4 sm:col-start-4" />
@@ -485,28 +615,33 @@ export function BucketPage({ project, bucket, prefix = "", file }: { project: st
                 const name = o.key.slice(prefix.length);
                 const active = o.key === file;
                 return (
-                  <li key={o.key} className={cn("group relative", active && "bg-hover")}>
+                  <li key={o.key} className={cn("group relative", active && "bg-paper-sunk")}>
+                    {active && <span aria-hidden className="absolute inset-y-1.5 -left-3 w-[2px] rounded-full bg-brass max-sm:hidden" />}
                     <button
                       onClick={() => go({ prefix, file: active ? undefined : o.key })}
-                      className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 px-4 py-2.5 text-left hover:bg-hover/60 sm:grid-cols-[minmax(0,1fr)_6rem_9rem_4.5rem]"
+                      className={cn(
+                        "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 py-2 text-left transition-colors hover:bg-paper-sunk sm:-mx-2 sm:w-[calc(100%+1rem)] sm:px-2",
+                        browserCols,
+                      )}
                       aria-pressed={active}
                     >
                       <span className="flex min-w-0 items-center gap-3">
                         <FileIcon name={name} />
                         <span className="truncate font-mono text-[0.8125rem] text-ink">{name}</span>
                       </span>
-                      <span className="text-right font-mono text-xs text-ink-2 tnum">{bytes(o.size)}</span>
+                      <span className="text-right text-sm text-ink-2 tnum">{bytes(o.size)}</span>
                       <span className="hidden text-sm text-ink-3 sm:block" title={full(o.lastModified)}>
                         {relative(o.lastModified)}
                       </span>
                     </button>
-                    <span className="absolute top-1/2 right-3 hidden -translate-y-1/2 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 sm:flex">
+                    <span className="absolute top-1/2 right-0 hidden -translate-y-1/2 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 sm:flex">
                       <LinkButton project={project} bucket={bucket} objKey={o.key} />
                       {writer && (
                         <button
                           onClick={() => setDeleting(o)}
                           aria-label={`Delete ${name}`}
-                          className="grid size-7 place-items-center rounded-md text-ink-3 hover:bg-irr-wash hover:text-irr"
+                          title="Delete"
+                          className="grid size-7 place-items-center rounded-[6px] text-ink-3 hover:bg-danger-wash hover:text-danger"
                         >
                           <Trash2 className="size-3.5" />
                         </button>
@@ -517,14 +652,13 @@ export function BucketPage({ project, bucket, prefix = "", file }: { project: st
               })}
             </ul>
             {list.isSuccess && shownFolders.length + shownObjects.length === 0 && (
-              <div className="px-6 py-14 text-center">
-                <Upload className="mx-auto size-6 text-ink-4" />
-                <p className="mt-3 text-md text-ink">{filter ? "Nothing matches that filter." : "This folder is empty."}</p>
+              <div className="border-b border-rule px-6 py-12 text-center">
+                <p className="text-md text-ink">{filter ? "Nothing matches that filter." : "This folder is empty."}</p>
                 {writer && !filter && <p className="mt-1 text-base text-ink-3">Drop files anywhere on this page to upload them here.</p>}
               </div>
             )}
             {next && (
-              <div className="border-t border-rule p-3 text-center">
+              <div className="py-3 text-center">
                 <Button
                   size="sm"
                   onClick={async () => {
@@ -536,9 +670,15 @@ export function BucketPage({ project, bucket, prefix = "", file }: { project: st
                 </Button>
               </div>
             )}
+            {list.isSuccess && (shownFolders.length > 0 || shownObjects.length > 0) && writer && (
+              <p className="mt-3 text-sm text-ink-3 max-sm:hidden">
+                Drop files anywhere on this page to upload them into <span className="font-mono text-ink-2">{prefix || "the top level"}</span>.
+                Deleting a file is immediate: single files skip the trash.
+              </p>
+            )}
           </div>
 
-          <aside className="min-w-0 lg:sticky lg:top-20 lg:self-start">
+          <aside className="min-w-0 max-lg:order-first lg:sticky lg:top-6 lg:self-start" aria-label="Preview">
             {selected ? (
               <Preview
                 key={selected.key}
@@ -550,10 +690,9 @@ export function BucketPage({ project, bucket, prefix = "", file }: { project: st
                 onDelete={writer ? () => setDeleting(selected) : undefined}
               />
             ) : (
-              <div className="hidden rounded-xl border border-dashed border-rule-strong px-5 py-10 text-center lg:block">
-                <Eye className="mx-auto size-5 text-ink-4" />
-                <p className="mt-3 text-base text-ink-2">Pick a file to preview it.</p>
-                <p className="mt-1 text-sm text-ink-3">Images and text show here; anything else opens with a signed link.</p>
+              <div className="hidden border-y border-dashed border-rule-3 px-5 py-10 text-center lg:block">
+                <p className="text-base text-ink-2">Pick a file to preview it.</p>
+                <p className="mt-1 text-sm text-ink-3">Images and text show here; PDFs and anything else open in a new tab with a signed link.</p>
               </div>
             )}
           </aside>
@@ -561,10 +700,10 @@ export function BucketPage({ project, bucket, prefix = "", file }: { project: st
       </Page>
 
       {dragging && (
-        <div className="pointer-events-none fixed inset-0 z-40 grid place-items-center bg-[oklch(0.15_0.01_60/0.35)] p-6 backdrop-blur-[2px] animate-fade">
-          <div className="grid place-items-center rounded-2xl border-2 border-dashed border-brass bg-raised/95 px-16 py-12 text-center shadow-pop animate-pop">
-            <Upload className="size-7 text-brass-ink" />
-            <p className="display mt-3 text-2xl text-ink">Drop to upload</p>
+        <div className="pointer-events-none fixed inset-0 z-40 grid place-items-center bg-[oklch(0.2_0.01_60/0.28)] p-6 animate-fade">
+          <div className="grid place-items-center rounded-[14px] border-2 border-dashed border-brass bg-paper-raised px-16 py-12 text-center shadow-overlay animate-pop">
+            <Upload className="size-6 text-brass-ink" />
+            <p className="mt-3 text-xl font-[550] text-ink">Drop to upload</p>
             <p className="mt-1 font-mono text-sm text-ink-3">
               into {bucket}/{prefix}
             </p>
@@ -574,24 +713,19 @@ export function BucketPage({ project, bucket, prefix = "", file }: { project: st
 
       {uploads.length > 0 && (
         <div
-          className="fixed right-4 bottom-4 z-40 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-rule bg-raised shadow-pop animate-pop"
+          className="fixed right-4 bottom-4 z-40 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-[10px] border border-rule-2 bg-paper-raised shadow-overlay animate-pop"
           role="status"
         >
-          <p className="border-b border-rule px-4 py-2 text-sm font-medium text-ink">Uploads</p>
-          <ul className="max-h-60 overflow-y-auto">
+          <p className="label border-b border-rule px-4 py-2.5">Uploads</p>
+          <ul className="max-h-60 divide-y divide-rule overflow-y-auto">
             {uploads.map((u) => (
               <li key={u.key} className="flex items-start gap-3 px-4 py-2 text-sm">
-                <span
-                  className={cn(
-                    "mt-1.5 size-1.5 shrink-0 rounded-full",
-                    u.state === "done" ? "bg-rev" : u.state === "failed" ? "bg-irr" : "animate-pulse bg-brass",
-                  )}
-                />
+                <PilotLight className="mt-1.5" state={u.state === "done" ? "on" : u.state === "failed" ? "fault" : "busy"} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-mono text-xs text-ink">{u.name}</span>
-                  {u.error && <span className="block text-xs text-irr">{u.error}</span>}
+                  {u.error && <span className="block text-xs text-danger">{u.error}</span>}
                 </span>
-                <span className="text-xs text-ink-3">{u.state === "uploading" ? "uploading…" : u.state}</span>
+                <span className="text-xs text-ink-3">{u.state === "uploading" ? "uploading…" : u.state === "done" ? "done" : "failed"}</span>
               </li>
             ))}
           </ul>
@@ -628,9 +762,9 @@ function LinkButton({ project, bucket, objKey }: { project: string; bucket: stri
           setTimeout(() => setDone(false), 1400);
         }
       }}
-      className="grid size-7 place-items-center rounded-md text-ink-3 hover:bg-hover hover:text-ink"
+      className="grid size-7 place-items-center rounded-[6px] text-ink-3 hover:bg-paper-press hover:text-ink"
     >
-      {done ? <span className="text-xs text-rev">✓</span> : <Link2 className="size-3.5" />}
+      {done ? <span className="text-xs text-ok">✓</span> : <Link2 className="size-3.5" />}
     </button>
   );
 }
@@ -659,89 +793,105 @@ function Preview({
     staleTime: Infinity,
   });
   const link = useMutation({ mutationFn: () => mod.presign(project, bucketName, o.key) });
+  const [copied, setCopied] = useState(false);
+  const [dims, setDims] = useState<string | null>(null);
   const name = o.key.split("/").pop() ?? o.key;
   const publicUrl = bucket?.public && bucket.publicUrl ? `${bucket.publicUrl}/${o.key.split("/").map(encodeURIComponent).join("/")}` : undefined;
+  const open = async () => {
+    const p = link.data ?? (await link.mutateAsync());
+    window.open(p.url, "_blank", "noopener,noreferrer");
+  };
 
   return (
-    <div className="overflow-hidden rounded-xl border border-rule bg-raised animate-pop">
-      <div className="flex items-center gap-2 border-b border-rule px-4 py-2.5">
+    <div className="overflow-hidden rounded-[10px] border border-rule-2 bg-paper-raised shadow-[var(--top-light)] animate-pop">
+      <div className="flex items-center gap-2 border-b border-rule py-1.5 pr-1.5 pl-3.5">
         <FileIcon name={name} />
-        <p className="min-w-0 flex-1 truncate font-mono text-sm text-ink">{name}</p>
+        <p className="min-w-0 flex-1 truncate font-mono text-[0.8125rem] text-ink">{name}</p>
         <button
           onClick={onClose}
           aria-label="Close preview"
-          className="grid size-7 place-items-center rounded-md text-ink-3 hover:bg-hover hover:text-ink"
+          className="grid size-7 place-items-center rounded-[6px] text-ink-3 hover:bg-paper-sunk hover:text-ink"
         >
           <X className="size-4" />
         </button>
       </div>
       <div className="bg-paper-sunk">
         {kind === "image" && content.data?.base64 && (
-          <div className="grid place-items-center bg-[repeating-conic-gradient(var(--hover)_0_25%,transparent_0_50%)] bg-[length:16px_16px] p-4">
+          <div className="grid min-h-48 place-items-center bg-[repeating-conic-gradient(var(--paper-press)_0_25%,transparent_0_50%)] bg-[length:14px_14px] p-5">
             <img
               src={`data:${content.data.contentType};base64,${content.data.base64}`}
               alt={name}
-              className="max-h-72 rounded-md object-contain shadow-pop"
+              onLoad={(e) => setDims(`${int(e.currentTarget.naturalWidth)} × ${int(e.currentTarget.naturalHeight)}`)}
+              className="max-h-72 object-contain"
             />
           </div>
         )}
         {kind === "text" && content.data && (
           <Untrusted className="rounded-none border-0" label="File contents, shown as plain text">
-            <pre className="max-h-72 overflow-auto px-4 py-3 font-mono text-[0.75rem] leading-5 whitespace-pre-wrap text-ink-2">
-              {content.data.text ?? "(binary)"}
+            <pre className="max-h-80 overflow-auto px-3.5 py-3 font-mono text-[0.75rem] leading-5 whitespace-pre-wrap text-ink-2">
+              {content.data.text != null ? prettyText(o.key, content.data.text) : "(binary)"}
             </pre>
           </Untrusted>
         )}
         {content.isPending && content.fetchStatus !== "idle" && <Skeleton className="m-4 h-40" />}
         {(kind === "pdf" || kind === "file" || !small) && (
           <div className="px-5 py-8 text-center">
-            <FileIcon name={name} className="mx-auto size-8" />
-            <p className="mt-3 text-sm text-ink-3">
+            <FileIcon name={name} className="mx-auto size-6" />
+            <p className="mt-3 text-sm text-ink-2">
               {kind === "pdf"
-                ? "PDFs open in a new tab with a signed link."
+                ? "PDFs open in a new tab, with a link that works for an hour."
                 : !small
                   ? "Too big to preview here."
                   : "No preview for this kind of file."}
             </p>
+            {kind === "pdf" && (
+              <Button size="sm" className="mt-3" onClick={open}>
+                <ArrowUpRight />
+                Open {name}
+              </Button>
+            )}
           </div>
         )}
         {content.isError && <ProblemNote className="m-4" error={content.error} />}
       </div>
-      <dl className="grid grid-cols-[5.5rem_1fr] gap-x-3 gap-y-1.5 border-t border-rule px-4 py-3 text-sm">
+      <dl className="grid grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 border-t border-rule px-3.5 py-3 text-sm">
         <dt className="text-ink-3">Size</dt>
-        <dd className="text-ink-2 tnum">{bytes(o.size)}</dd>
+        <dd className="text-ink-2 tnum">
+          {bytes(o.size)}
+          {o.size >= 1024 && <span className="text-ink-3"> ({int(o.size)} bytes)</span>}
+          {dims && <span className="text-ink-3"> · {dims} px</span>}
+        </dd>
         <dt className="text-ink-3">Modified</dt>
-        <dd className="text-ink-2">{full(o.lastModified)}</dd>
+        <dd className="text-ink-2" title={full(o.lastModified)}>
+          {relative(o.lastModified)}
+        </dd>
         <dt className="text-ink-3">Key</dt>
-        <dd className="min-w-0 truncate font-mono text-xs text-ink-2" title={o.key}>
+        <dd className="min-w-0 truncate font-mono text-xs leading-[1.1875rem] text-ink-2" title={o.key}>
           {o.key}
         </dd>
         <dt className="text-ink-3">ETag</dt>
-        <dd className="truncate font-mono text-xs text-ink-3">{o.etag.replace(/"/g, "")}</dd>
+        <dd className="truncate font-mono text-xs leading-[1.1875rem] text-ink-3">{o.etag.replace(/"/g, "")}</dd>
       </dl>
-      <div className="flex flex-wrap gap-2 border-t border-rule px-4 py-3">
-        <Button
-          size="sm"
-          variant="primary"
-          onClick={async () => {
-            const p = link.data ?? (await link.mutateAsync());
-            window.open(p.url, "_blank", "noopener,noreferrer");
-          }}
-        >
+      <div className="flex flex-wrap items-center gap-2 border-t border-rule px-3.5 py-3">
+        <Button size="sm" variant="secondary" onClick={open}>
           <ArrowUpRight />
           Open
         </Button>
         <Button
           size="sm"
+          variant="ghost"
           onClick={async () => {
             const p = link.data ?? (await link.mutateAsync());
-            await copyText(p.url);
+            if (await copyText(p.url)) {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1600);
+            }
           }}
         >
           <Link2 />
-          {link.data ? "Copied · 1 hour link" : "Copy link"}
+          {copied ? "Copied, works for an hour" : "Copy link"}
         </Button>
-        {publicUrl && <CopyButton value={publicUrl} label="Copy public URL" className="size-7 rounded-md border border-rule" />}
+        {publicUrl && <CopyButton value={publicUrl} label="Copy public URL" />}
         {onDelete && (
           <Button size="sm" variant="danger-quiet" className="ml-auto" onClick={onDelete}>
             <Trash2 />

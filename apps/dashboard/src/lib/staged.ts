@@ -20,7 +20,16 @@ import type { Manifest } from "@/api/client";
  */
 export type StagedEdit =
   | { kind: "instances"; app: string; from: number; to: number }
-  | { kind: "service"; service: string; from: "on" | "off"; to: "on" | "off" };
+  | { kind: "service"; service: string; from: "on" | "off"; to: "on" | "off" }
+  /** A bucket's access (public/private), or "absent": adding a trashed bucket back restores it with its files. */
+  | { kind: "bucket"; bucket: string; from: BucketAccess; to: BucketAccess }
+  /**
+   * Any other manifest edit (an app's memory, a new app, queue, schedule or env var): sets the value at
+   * `path` (removes it when `to` is undefined). `what` and `undo` are the words the tray shows.
+   */
+  | { kind: "set"; path: string[]; from?: unknown; to?: unknown; what: string; undo: string };
+
+export type BucketAccess = "public" | "private" | "absent";
 
 type Store = { edits: Record<string, StagedEdit[]>; tray: string | null };
 
@@ -48,7 +57,14 @@ function set(next: Store) {
   subs.forEach((f) => f());
 }
 
-export const editKey = (e: StagedEdit) => (e.kind === "instances" ? `instances:${e.app}` : `service:${e.service}`);
+export const editKey = (e: StagedEdit) =>
+  e.kind === "instances"
+    ? `instances:${e.app}`
+    : e.kind === "bucket"
+      ? `bucket:${e.bucket}`
+      : e.kind === "set"
+        ? `set:${e.path.join("/")}`
+        : `service:${e.service}`;
 
 /** Stages an edit, replacing an earlier one on the same lever. Moving a lever back to where it is unstages it. */
 export function stage(project: string, e: StagedEdit) {
@@ -120,6 +136,22 @@ export function applyEdits(m: Manifest, edits: StagedEdit[]): Manifest {
       if (e.to === "off") delete services[e.service];
       else if (!(e.service in services)) services[e.service] = {};
       next.services = services as Manifest["services"];
+    } else if (e.kind === "bucket") {
+      const services = (next.services ?? {}) as Record<string, { buckets?: Record<string, { public: boolean }> } | undefined>;
+      const storage = (services.storage ??= {});
+      const buckets = (storage.buckets ??= {});
+      if (e.to === "absent") delete buckets[e.bucket];
+      else buckets[e.bucket] = { ...buckets[e.bucket], public: e.to === "public" };
+      next.services = services as Manifest["services"];
+    } else if (e.kind === "set") {
+      let at = next as unknown as Record<string, unknown>;
+      for (const k of e.path.slice(0, -1)) {
+        if (typeof at[k] !== "object" || at[k] === null) at[k] = {};
+        at = at[k] as Record<string, unknown>;
+      }
+      const last = e.path[e.path.length - 1];
+      if (e.to === undefined) delete at[last];
+      else at[last] = structuredClone(e.to);
     }
   }
   return next;
@@ -138,6 +170,12 @@ export const serviceNames: Record<string, string> = {
 /** "Scale web from 2 to 3 instances", "Remove Analytics from shop". */
 export function describe(e: StagedEdit, project: string): string {
   if (e.kind === "instances") return `Scale ${e.app} from ${e.from} to ${e.to} ${e.to === 1 ? "instance" : "instances"}`;
+  if (e.kind === "set") return e.what;
+  if (e.kind === "bucket") {
+    if (e.to === "absent") return `Remove the ${e.bucket} bucket from ${project}`;
+    if (e.from === "absent") return `Restore the ${e.bucket} bucket from the trash`;
+    return `Make the ${e.bucket} bucket ${e.to}`;
+  }
   const name = serviceNames[e.service] ?? e.service;
   return e.to === "off" ? `Remove ${name} from ${project}` : `Add ${name} to ${project}`;
 }
@@ -145,6 +183,8 @@ export function describe(e: StagedEdit, project: string): string {
 /** What undo would do for this edit, in words. */
 export function undoWords(e: StagedEdit): string {
   if (e.kind === "instances") return `${e.app} goes back to ${e.from} ${e.from === 1 ? "instance" : "instances"}`;
+  if (e.kind === "set") return e.undo;
+  if (e.kind === "bucket") return e.from === "absent" ? `${e.bucket} goes back to the trash` : `${e.bucket} is ${e.from} again`;
   const name = serviceNames[e.service] ?? e.service;
   return e.to === "off" ? `${name} comes back with its settings` : `${name} is removed again`;
 }

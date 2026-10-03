@@ -1,30 +1,49 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Eye, KeyRound, Search, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Eye, Search, X } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
 import { mod, mq, type KVValue } from "@/api/modules";
-import { Meter } from "@/components/chart";
 import { Command } from "@/components/copy";
+import { Reading, Readings, Section, TypeWord } from "@/components/data-parts";
 import { useTitle } from "@/components/favicon";
 import { Page, Skeleton, Untrusted, NotOnBox } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
+import { SegMeter } from "@/components/seg-meter";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { bytes, num } from "@/lib/format";
+import { bytes, bytesParts, count, dec, duration, int, num } from "@/lib/format";
+import { relative } from "@/lib/time";
 import { DataHeader } from "./data";
 
-// Types are labels, not states: one neutral tone (colour means risk or status here).
-const typeTone: Record<string, string> = { string: "bg-hover text-ink-2" };
-
-function ttl(ms: number) {
-  if (ms < 0) return "no expiry";
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s} s left`;
-  if (s < 3600) return `${Math.round(s / 60)} min left`;
-  if (s < 86400) return `${Math.round(s / 3600)} h left`;
-  return `${Math.round(s / 86400)} d left`;
+/** "expires in 4 min", or nothing when the key lives until it's deleted. */
+function ttl(ms: number): string | null {
+  if (ms < 0) return null;
+  return `expires in ${duration(Math.max(1, Math.round(ms / 1000)))}`;
 }
+
+/** What Valkey does when the project's memory cap is reached, in words. */
+const policyWords: Record<string, string> = {
+  "volatile-lru": "Drops the least recently used keys that have an expiry",
+  "allkeys-lru": "Drops the least recently used keys",
+  "volatile-lfu": "Drops the least often used keys that have an expiry",
+  "allkeys-lfu": "Drops the least often used keys",
+  "volatile-ttl": "Drops the keys closest to expiring",
+  "volatile-random": "Drops random keys that have an expiry",
+  "allkeys-random": "Drops random keys",
+  noeviction: "Refuses new writes",
+};
+
+const lengthWord: Record<string, [string, string]> = {
+  string: ["byte", "bytes"],
+  hash: ["field", "fields"],
+  list: ["item", "items"],
+  set: ["member", "members"],
+  zset: ["member", "members"],
+  stream: ["entry", "entries"],
+};
+
+const byName = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
 
 export function KvPage({ project, match, k }: { project: string; match?: string; k?: string }) {
   useTitle(`${project} · Key-value`);
@@ -48,127 +67,151 @@ export function KvPage({ project, match, k }: { project: string; match?: string;
 
   if (stats.isError && notOnBox(stats.error)) return <NotOnBox what="Key-value stores" />;
   const s = stats.data;
-  const all = (keys.data?.pages ?? []).flatMap((p) => p.keys ?? []).sort((a, b) => a.key.localeCompare(b.key));
+  const all = (keys.data?.pages ?? []).flatMap((p) => p.keys ?? []).sort((a, b) => byName(a.key, b.key));
   const cap = (s?.maxMemoryMB ?? 0) * 1024 * 1024;
+  const mem = bytesParts(s?.memoryBytes ?? 0);
+  const share = cap > 0 && s ? s.memoryBytes / cap : 0;
 
   return (
     <Page full>
       <DataHeader
         project={project}
+        sub="Data"
         title="Key-value"
         lede={
           s ? (
             <>
-              Valkey {s.server.version} · every key of <code className="font-mono text-ink">{project}</code> lives under{" "}
-              <code className="font-mono text-ink">{s.prefix}</code>, and apps don't see the prefix.
+              Valkey {s.server.version}. Every key of {project} lives under <code className="ident text-ink">{s.prefix}</code>; apps don't see the
+              prefix.
             </>
           ) : undefined
         }
       />
       {stats.isError && <ProblemNote className="mt-8" error={stats.error} />}
       {s && (
-        <dl className="mt-8 grid grid-cols-2 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2 gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-4">
-          <div className="bg-raised px-4 py-4">
-            <dt className="text-2xs font-medium tracking-wider text-ink-3 uppercase">Keys</dt>
-            <dd className="display mt-1.5 text-2xl text-ink tnum">{num(s.keys)}</dd>
-            {s.approximate && <dd className="text-xs text-ink-3">sampled</dd>}
-          </div>
-          <div className="bg-raised px-4 py-4">
-            <dt className="text-2xs font-medium tracking-wider text-ink-3 uppercase">Memory</dt>
-            <dd className="display mt-1.5 text-2xl text-ink tnum">{bytes(s.memoryBytes)}</dd>
+        <Readings className="grid-cols-2 lg:grid-cols-[1.4fr_0.8fr_1.2fr_1fr]">
+          <Reading
+            className="col-span-2 lg:col-span-1"
+            label="Memory"
+            value={mem.value}
+            unit={cap > 0 ? `${mem.unit} of ${int(s.maxMemoryMB)} MB` : mem.unit}
+          >
             {cap > 0 && (
-              <dd className="mt-2">
-                <Meter ratio={s.memoryBytes / cap} label="Memory used of the project's cap" />
-                <span className="mt-1 block text-xs text-ink-3">
-                  of {s.maxMemoryMB} MB{s.overCap ? " · over the cap: oldest keys with an expiry go first" : ""}
-                </span>
-              </dd>
+              <SegMeter
+                className="mt-2.5"
+                label="Memory used of the project's cap"
+                value={s.memoryBytes}
+                max={cap}
+                warnAt={0.8}
+                fullAt={0.95}
+                scale={["0", `${int(s.maxMemoryMB / 2)} MB`, `${int(s.maxMemoryMB)} MB`]}
+                valueText={`${bytes(s.memoryBytes)} of ${int(s.maxMemoryMB)} MB`}
+              />
             )}
-          </div>
-          <div className="bg-raised px-4 py-4">
-            <dt className="text-2xs font-medium tracking-wider text-ink-3 uppercase">When full</dt>
-            <dd className="mt-2 font-mono text-sm text-ink">{s.server.policy}</dd>
-            <dd className="mt-0.5 text-xs text-ink-3">{s.server.aofEnabled ? "written to disk as it changes" : "snapshots only"}</dd>
-          </div>
-          <div className="bg-raised px-4 py-4">
-            <dt className="text-2xs font-medium tracking-wider text-ink-3 uppercase">Server</dt>
-            <dd className="mt-2 text-sm text-ink-2">
-              {num(s.server.totalKeys)} keys in all · {s.server.clients} {s.server.clients === 1 ? "client" : "clients"}
-            </dd>
-            <dd className="mt-0.5 text-xs text-ink-3">{bytes(s.server.usedBytes)} used box-wide</dd>
-          </div>
-        </dl>
+            {s.overCap ? (
+              <p className="mt-2 text-xs text-warn-ink">Over the cap: keys with an expiry are being dropped.</p>
+            ) : (
+              cap > 0 && (
+                <p className="mt-2 text-xs text-ink-3">
+                  {share < 0.001 ? "Under 0.1 %" : `${dec(share * 100, 1)} %`} of the cap, set in tiffin.config.ts.
+                </p>
+              )
+            )}
+          </Reading>
+          <Reading label="Keys" value={num(s.keys)} sub={s.approximate ? "sampled, so about" : undefined} />
+          <Reading
+            label="When full"
+            value={
+              <span className="block pt-1 text-[0.9375rem] leading-[1.375rem] tracking-normal">
+                {policyWords[s.server.policy] ?? "Follows its eviction policy"}
+              </span>
+            }
+            sub={<code className="ident">{s.server.policy}</code>}
+          />
+          <Reading
+            label="On disk"
+            value={
+              <span className="block pt-1 text-[0.9375rem] leading-[1.375rem] tracking-normal">
+                {s.server.aofEnabled ? "Every write, as it happens" : "Snapshots only"}
+              </span>
+            }
+            sub={s.server.lastSaveAt ? `last snapshot ${relative(s.server.lastSaveAt)}` : undefined}
+          />
+        </Readings>
       )}
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-        <section className="min-w-0 overflow-hidden rounded-xl border border-rule bg-raised/60" aria-label="Keys">
-          <div className="flex items-center gap-2 border-b border-rule px-3 py-2.5">
-            <Search className="size-4 text-ink-4" />
+      <div className="mt-8 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+        <Section id="keys" label="Keys" aside={keys.isSuccess ? `${count(all.length, "key")}${keys.hasNextPage ? " so far" : ""}` : undefined}>
+          <label className="flex h-9 items-center gap-2.5 border-t border-rule">
+            <Search className="size-4 shrink-0 text-ink-3" aria-hidden />
             <input
               value={glob}
               onChange={(e) => setGlob(e.target.value)}
-              placeholder="Filter with a glob, e.g. session:*"
+              placeholder="Filter with a pattern, like cart:*"
               aria-label="Filter keys"
-              className="h-7 min-w-0 flex-1 bg-transparent font-mono text-sm text-ink outline-none placeholder:font-sans placeholder:text-ink-4"
+              className="h-8 min-w-0 flex-1 bg-transparent font-mono text-sm text-ink outline-none placeholder:font-sans placeholder:text-ink-4"
             />
             {glob && (
               <button
                 onClick={() => setGlob("")}
                 aria-label="Clear filter"
-                className="grid size-6 place-items-center rounded text-ink-3 hover:bg-hover"
+                className="grid size-6 place-items-center rounded-[5px] text-ink-3 hover:bg-paper-sunk"
               >
                 <X className="size-3.5" />
               </button>
             )}
-          </div>
-          <ul className="max-h-[60vh] divide-y divide-rule/60 overflow-y-auto">
-            {keys.isPending && <Skeleton className="m-3 h-32" />}
+          </label>
+          <ul className="max-h-[60vh] divide-y divide-rule overflow-y-auto border-y border-rule">
+            {keys.isPending && (
+              <li className="py-3">
+                <Skeleton className="h-32" />
+              </li>
+            )}
             {all.map((x) => {
               const short = x.key.startsWith(prefix) ? x.key.slice(prefix.length) : x.key;
+              const active = k === short;
+              const t = ttl(x.ttlMs);
               return (
-                <li key={x.key}>
+                <li key={x.key} className="relative">
+                  {active && <span aria-hidden className="absolute inset-y-1.5 -left-3 w-[2px] rounded-full bg-brass max-sm:hidden" />}
                   <button
-                    onClick={() => go({ match, key: k === short ? undefined : short })}
-                    className={cn("flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-hover/60", k === short && "bg-hover")}
-                    aria-pressed={k === short}
+                    onClick={() => go({ match, key: active ? undefined : short })}
+                    className={cn(
+                      "grid w-full grid-cols-[minmax(0,1fr)_auto_3.25rem] items-baseline gap-x-4 py-2 text-left transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk sm:-mx-2 sm:w-[calc(100%+1rem)] sm:px-2",
+                      active && "bg-paper-sunk",
+                    )}
+                    aria-pressed={active}
                   >
-                    <span
-                      className={cn("w-12 shrink-0 rounded px-1.5 py-px text-center font-mono text-[0.6875rem]", typeTone[x.type] ?? typeTone.string)}
-                    >
-                      {x.type}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate font-mono text-[0.8125rem] text-ink">{short}</span>
-                    <span className={cn("shrink-0 text-xs tnum", x.ttlMs >= 0 ? "text-ink-3" : "text-ink-4")}>{ttl(x.ttlMs)}</span>
+                    <span className="min-w-0 truncate font-mono text-[0.8125rem] text-ink">{short}</span>
+                    <span className="text-xs text-ink-3 tnum">{t ?? ""}</span>
+                    <TypeWord className="text-right">{x.type}</TypeWord>
                   </button>
                 </li>
               );
             })}
           </ul>
           {keys.isSuccess && all.length === 0 && (
-            <p className="px-4 py-10 text-center text-base text-ink-3">{match ? "No keys match." : "No keys yet."}</p>
+            <p className="border-b border-rule py-8 text-center text-base text-ink-3">{match ? "No keys match that pattern." : "No keys yet."}</p>
           )}
           {keys.hasNextPage && (
-            <div className="border-t border-rule p-2 text-center">
+            <div className="pt-2 text-center">
               <Button size="sm" variant="ghost" onClick={() => keys.fetchNextPage()} disabled={keys.isFetchingNextPage}>
                 Load more
               </Button>
             </div>
           )}
-        </section>
-        <section className="min-w-0" aria-label="Value">
+        </Section>
+        <div className="min-w-0">
           {k ? (
             <KeyView project={project} k={k} />
           ) : (
-            <div className="grid h-full min-h-48 place-items-center rounded-xl border border-dashed border-rule-strong p-8 text-center">
-              <div>
-                <KeyRound className="mx-auto size-5 text-ink-4" />
-                <p className="mt-3 text-base text-ink-2">Pick a key to see its value.</p>
-              </div>
+            <div className="hidden h-full min-h-48 place-items-center border-y border-dashed border-rule-3 p-8 text-center lg:grid">
+              <p className="text-base text-ink-2">Pick a key to see its value.</p>
             </div>
           )}
-          <Connection project={project} />
-        </section>
+        </div>
       </div>
+      <Connection project={project} />
     </Page>
   );
 }
@@ -178,59 +221,124 @@ function KeyView({ project, k }: { project: string; k: string }) {
   if (v.isPending) return <Skeleton className="h-48" />;
   if (v.isError) return <ProblemNote error={v.error} />;
   const d = v.data;
+  const [one, many] = lengthWord[d.type] ?? ["item", "items"];
   return (
-    <div className="animate-pop">
-      <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 className="font-mono text-base text-ink">{k}</h2>
-        <span className="text-sm text-ink-3">
-          {d.type} · {num(d.length)} {d.type === "string" ? "bytes" : "items"} · {bytes(d.memoryBytes)} in memory · {ttl(d.ttlMs)}
+    <section className="animate-fade" aria-labelledby="kv-key">
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 id="kv-key" className="font-mono text-[0.9375rem] text-ink">
+          {k}
+        </h2>
+        <span className="text-sm text-ink-3 tnum">
+          {d.type}, {count(d.length, one, many)}, {bytes(d.memoryBytes)} in memory{ttl(d.ttlMs) ? `, ${ttl(d.ttlMs)}` : ", no expiry"}
         </span>
       </div>
       <Untrusted label="Written by your apps. Shown as plain text.">
         <Value d={d} />
-        {d.truncated && <p className="border-t border-rule px-4 py-1.5 text-xs text-ink-3">Long value: only the start is shown.</p>}
+        {d.truncated && <p className="border-t border-rule px-3.5 py-1.5 text-xs text-ink-3">Long value: only the start is shown.</p>}
       </Untrusted>
-    </div>
+    </section>
   );
+}
+
+/** A 10-digit number that reads as a Unix time this century gets a quiet date beside it. */
+function unixHint(s: string): string | null {
+  if (!/^\d{10}$/.test(s)) return null;
+  const t = Number(s) * 1000;
+  if (t < Date.UTC(2001, 0) || t > Date.UTC(2100, 0)) return null;
+  return new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(t));
+}
+
+function pretty(text: string): string {
+  try {
+    const j = JSON.parse(text);
+    return typeof j === "object" && j !== null ? JSON.stringify(j, null, 2) : text;
+  } catch {
+    return text;
+  }
 }
 
 function Value({ d }: { d: KVValue }) {
   const v = d.value;
   if (d.type === "string") {
-    let text = String(v ?? "");
-    try {
-      text = JSON.stringify(JSON.parse(text), null, 2);
-    } catch {
-      /* not JSON: show as is */
-    }
-    return <pre className="max-h-[50vh] overflow-auto px-4 py-3 font-mono text-[0.78rem] leading-5 whitespace-pre-wrap text-ink-2">{text}</pre>;
+    return (
+      <pre className="max-h-[50vh] overflow-auto px-3.5 py-3 font-mono text-[0.78125rem] leading-5 whitespace-pre-wrap text-ink">
+        {pretty(String(v ?? ""))}
+      </pre>
+    );
   }
-  const rows: Array<[string, string]> =
-    d.type === "hash" && v && typeof v === "object" && !Array.isArray(v)
-      ? Object.entries(v as Record<string, unknown>).map(([a, b]) => [a, String(b)])
-      : Array.isArray(v)
-        ? v.map((x, i) => (Array.isArray(x) ? [String(x[0]), String(x[1])] : [String(i), typeof x === "string" ? x : JSON.stringify(x)]))
-        : [["value", JSON.stringify(v)]];
-  // Sorted sets read top-down, highest score first, the way a leaderboard does.
-  if (d.type === "zset") rows.sort((x, y) => Number(y[1]) - Number(x[1]));
-  const head = d.type === "hash" ? ["field", "value"] : d.type === "zset" ? ["member", "score, highest first"] : ["#", "value"];
-  return (
-    <table className="w-full font-mono text-[0.78rem]">
-      <thead>
-        <tr className="text-left text-ink-3">
-          <th className="border-b border-rule px-4 py-1.5 font-normal">{head[0]}</th>
-          <th className="border-b border-rule px-4 py-1.5 font-normal">{head[1]}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map(([a, b], i) => (
+  let head: [string, string, string?] = ["#", "value"];
+  let rows: Array<[ReactNode, string]>;
+  if (d.type === "hash" && v && typeof v === "object" && !Array.isArray(v)) {
+    head = ["field", "value"];
+    rows = Object.entries(v as Record<string, unknown>)
+      .sort(([a], [b]) => byName(a, b))
+      .map(([a, b]) => [a, typeof b === "string" ? b : JSON.stringify(b)]);
+  } else if (d.type === "zset" && Array.isArray(v)) {
+    // Sorted sets read top-down, highest score first, the way a leaderboard does.
+    head = ["rank", "member", "score"];
+    const sorted = [...(v as Array<[unknown, unknown]>)].sort((x, y) => Number(y[1]) - Number(x[1]));
+    return (
+      <Grid head={head}>
+        {sorted.map(([m, sc], i) => (
           <tr key={i}>
-            <td className="w-1/3 border-b border-rule/60 px-4 py-1.5 text-ink">{a}</td>
-            <td className={cn("border-b border-rule/60 px-4 py-1.5 break-all text-ink-2", d.type === "zset" && "tnum")}>{b}</td>
+            <td className="w-14 border-b border-rule px-3.5 py-1.5 text-ink-3 tnum">{int(i + 1)}</td>
+            <td className="border-b border-rule px-3.5 py-1.5 break-all text-ink">{String(m)}</td>
+            <td className="border-b border-rule px-3.5 py-1.5 text-right text-ink tnum">{String(sc)}</td>
           </tr>
         ))}
-      </tbody>
-    </table>
+      </Grid>
+    );
+  } else if (Array.isArray(v)) {
+    head = [d.type === "set" ? "" : "#", d.type === "set" ? "member" : "value"];
+    const items = v.map((x) => (typeof x === "string" ? x : JSON.stringify(x)));
+    if (d.type === "set") items.sort(byName);
+    rows = items.map((x, i) => [d.type === "set" ? "" : int(i), x]);
+  } else {
+    rows = [["value", JSON.stringify(v)]];
+  }
+  const narrow = d.type !== "hash";
+  return (
+    <Grid head={head}>
+      {rows.map(([a, b], i) => {
+        const hint = unixHint(b);
+        return (
+          <tr key={i}>
+            <td className={cn("border-b border-rule px-3.5 py-1.5 align-top", narrow ? "w-14 text-ink-3 tnum" : "w-1/3 text-ink-2")}>{a}</td>
+            <td className="border-b border-rule px-3.5 py-1.5 break-all whitespace-pre-wrap text-ink">
+              {pretty(b)}
+              {hint && <span className="ml-2 font-sans text-xs text-ink-3">{hint}</span>}
+            </td>
+          </tr>
+        );
+      })}
+    </Grid>
+  );
+}
+
+function Grid({ head, children }: { head: [string, string, string?]; children: ReactNode }) {
+  return (
+    <div className="max-h-[50vh] overflow-auto">
+      <table className="w-full border-separate border-spacing-0 font-mono text-[0.78125rem] leading-[1.1875rem]">
+        <thead className="sticky top-0">
+          <tr className="text-left">
+            {head
+              .filter((h) => h !== undefined)
+              .map((h, i, a) => (
+                <th
+                  key={i}
+                  className={cn(
+                    "border-b border-rule-2 bg-paper-sunk px-3.5 py-1.5 font-sans text-xs font-normal text-ink-3",
+                    i === a.length - 1 && a.length === 3 && "text-right",
+                  )}
+                >
+                  {h}
+                </th>
+              ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
   );
 }
 
@@ -238,29 +346,31 @@ function Connection({ project }: { project: string }) {
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<unknown>(null);
   return (
-    <div className="mt-6 rounded-xl border border-rule bg-raised/60 p-4">
-      <p className="text-sm text-ink-2">
-        Apps get <code className="font-mono text-ink">REDIS_URL</code> already. For valkey-cli or redis-cli on the box:
-      </p>
-      {!url && (
-        <Button
-          size="sm"
-          className="mt-3"
-          onClick={async () => {
-            setErr(null);
-            try {
-              setUrl((await mod.kvConnection(project)).redisUrl);
-            } catch (e) {
-              setErr(e);
-            }
-          }}
-        >
-          <Eye />
-          Show the connection URL
-        </Button>
-      )}
+    <Section id="kv-connect" label="Connect from this computer" className="mt-12">
+      <div className="flex flex-col gap-3 border-t border-rule pt-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-base text-ink-2">
+          Apps get <code className="ident text-ink">REDIS_URL</code> already. For valkey-cli or redis-cli, reveal the URL; it carries the password.
+        </p>
+        {!url && (
+          <Button
+            size="sm"
+            className="self-start sm:self-auto"
+            onClick={async () => {
+              setErr(null);
+              try {
+                setUrl((await mod.kvConnection(project)).redisUrl);
+              } catch (e) {
+                setErr(e);
+              }
+            }}
+          >
+            <Eye />
+            Show the URL
+          </Button>
+        )}
+      </div>
       {err ? <ProblemNote className="mt-3" error={err} /> : null}
       {url && <Command className="mt-3" cmd={`valkey-cli -u "${url}"`} />}
-    </div>
+    </Section>
   );
 }
