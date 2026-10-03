@@ -1,0 +1,13 @@
+{
+  "name": "queues-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts",
+    "sync-sdk": "bun build ./sdk-entry.ts --target=bun --format=esm --outfile=tiffin-sdk.gen.js --banner=\"// Generated from tiffin-sdk/queue and tiffin-sdk/workflow by \\`bun run sync-sdk\\`; do not edit. Once tiffin-sdk is on npm, import from tiffin-sdk/queue and tiffin-sdk/workflow instead.\""
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2"
+  }
+}
