@@ -25,6 +25,7 @@ const at = (t: number) => clock(new Date(t * 1000).toISOString());
 export function TimeChart({
   points,
   max,
+  min = 0,
   format,
   label,
   markers = [],
@@ -36,6 +37,8 @@ export function TimeChart({
 }: {
   points: Point[];
   max?: number;
+  /** The scale's floor (default 0): a level that moves a little within a narrow band reads better zoomed in, with the floor printed. */
+  min?: number;
   format: (v: number) => string;
   label: string;
   markers?: Marker[];
@@ -57,7 +60,7 @@ export function TimeChart({
   const peak = points.reduce((m, p) => Math.max(m, p[1]), 0);
   const top = max ?? niceCeil(peak * 1.1);
   const x = (t: number) => ((t - t0) / span) * W;
-  const y = (v: number) => 2 + (1 - Math.min(v, top) / top) * (H - 4);
+  const y = (v: number) => 2 + (1 - (Math.max(min, Math.min(v, top)) - min) / Math.max(1e-9, top - min)) * (H - 4);
 
   const { line, area } = useMemo(() => {
     if (points.length < 2) return { line: "", area: "" };
@@ -69,7 +72,7 @@ export function TimeChart({
     const last = x(points[points.length - 1][0]).toFixed(1);
     return { line: d, area: `${d} L${last},${H} L${x(points[0][0]).toFixed(1)},${H} Z` };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [points, top, t0, span, H]);
+  }, [points, top, min, t0, span, H]);
 
   const color = tone === "danger" ? "var(--danger)" : tone === "warn" ? "var(--warn)" : "var(--ink-2)";
   const shown = markers.filter((m) => m.t >= t0 && m.t <= t1);
@@ -84,13 +87,14 @@ export function TimeChart({
     );
 
   const grid = [1, 0.5, 0];
+  const at_ = (f: number) => min + (top - min) * f;
   return (
-    <figure className="m-0" aria-label={`${label}: latest ${format(points[points.length - 1][1])}, scale 0 to ${format(top)}`}>
+    <figure className="m-0" aria-label={`${label}: latest ${format(points[points.length - 1][1])}, scale ${format(min)} to ${format(top)}`}>
       <div className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-x-2">
         <div className="relative" style={{ height }} aria-hidden>
           {grid.map((f) => (
-            <span key={f} className="absolute right-0 -translate-y-1/2 text-[0.6875rem] leading-none text-ink-3 tnum" style={{ top: y(top * f) }}>
-              {format(top * f)}
+            <span key={f} className="absolute right-0 -translate-y-1/2 text-[0.6875rem] leading-none text-ink-3 tnum" style={{ top: y(at_(f)) }}>
+              {format(at_(f))}
             </span>
           ))}
         </div>
@@ -119,8 +123,8 @@ export function TimeChart({
                 key={f}
                 x1="0"
                 x2={W}
-                y1={y(top * f)}
-                y2={y(top * f)}
+                y1={y(at_(f))}
+                y2={y(at_(f))}
                 stroke={f === 0 ? "var(--rule-2)" : "var(--rule)"}
                 strokeWidth="1"
                 vectorEffect="non-scaling-stroke"

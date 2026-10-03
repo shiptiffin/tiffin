@@ -12,6 +12,7 @@ import { ProblemNote, sentence } from "@/components/problem";
 import { Qty } from "@/components/qty";
 import { SegMeter } from "@/components/seg-meter";
 import { actorWords } from "@/lib/actors";
+import { boxUp } from "@/lib/box";
 import { cn } from "@/lib/cn";
 import { bytes, bytesParts, count, countWords, dec, duration, int, mb, ms, pct, withUnit } from "@/lib/format";
 import { useEnamels } from "@/lib/enamel";
@@ -73,6 +74,82 @@ export function MetricsPage() {
   const tx = toPoints(s.tx);
   const firing = d.firing ?? [];
   const used = n.memoryTotalBytes - n.memoryAvailableBytes;
+  // Memory and disk are levels: in percent of the whole they're nearly always a
+  // flat line. When one held steady all hour, say so (and where it goes); when
+  // it moved, draw it zoomed to its band with the floor printed.
+  const memPts = toPoints(s.memory);
+  const diskPts = toPoints(s.disk);
+  const memSteady = steady(memPts);
+  const diskSteady = steady(diskPts);
+  const top2 = [...(res.data?.services ?? [])].sort((a, b) => b.memoryBytes - a.memoryBytes).slice(0, 2);
+  const vitals: Array<{ moving: boolean; node: React.ReactNode }> = [
+    {
+      moving: true,
+      node: (
+        <Vital key="cpu" label="CPU" reading={<Qty className="reading" value={dec(n.cpuUsedRatio * 100, 0)} unit="%" />} note={`load ${dec(n.load1, 2)} · ${dec(n.load5, 2)} · ${dec(n.load15, 2)}`}>
+          <TimeChart label="CPU in use" points={cpu} max={100} format={percent} markers={markers} />
+        </Vital>
+      ),
+    },
+    {
+      moving: !memSteady,
+      node: (
+        <Vital
+          key="mem"
+          label="Memory"
+          reading={<Qty className="reading" value={dec(n.memoryUsedRatio * 100, 0)} unit="%" />}
+          note={`${bytes(used)} of ${bytes(n.memoryTotalBytes)}${n.swapTotalBytes ? ` · swap ${bytes(n.swapTotalBytes - n.swapFreeBytes)}` : ""}`}
+        >
+          {memSteady ? (
+            <Steady>
+              Steady all hour, between {bytes((memSteady.lo / 100) * n.memoryTotalBytes)} and {bytes((memSteady.hi / 100) * n.memoryTotalBytes)}.
+              {top2.length === 2 && (
+                <>
+                  {" "}
+                  {pretty(unitName(top2[0].unit))} ({mb(top2[0].memoryBytes)}&#8239;MB) and {pretty(unitName(top2[1].unit))} ({mb(top2[1].memoryBytes)}&#8239;MB) hold the most;{" "}
+                  <a href="#services" className="text-brass-ink hover:underline hover:underline-offset-4">every service</a> is below.
+                </>
+              )}
+            </Steady>
+          ) : (
+            <TimeChart label="Memory in use" points={memPts} {...band(memPts)} format={percent} markers={markers} />
+          )}
+        </Vital>
+      ),
+    },
+    {
+      moving: !diskSteady,
+      node: (
+        <Vital
+          key="disk"
+          label="Data disk"
+          reading={data ? <Qty className="reading" value={dec(data.usedRatio * 100, 0)} unit="%" /> : "–"}
+          note={data ? `${bytes(data.freeBytes)} free of ${bytes(data.totalBytes)}` : undefined}
+        >
+          {diskSteady && data ? (
+            <Steady>
+              Steady all hour at {bytes(data.totalBytes - data.freeBytes)} used
+              {(() => {
+                const grew = ((diskSteady.last - diskSteady.first) / 100) * data.totalBytes;
+                return Math.abs(grew) < 1048576 ? ", within a megabyte of where it started." : `, ${bytes(Math.abs(grew))} ${grew > 0 ? "more" : "less"} than an hour ago.`;
+              })()}{" "}
+              Databases, files, backups and apps live here; <a href="#disks" className="text-brass-ink hover:underline hover:underline-offset-4">both disks</a> are below.
+            </Steady>
+          ) : (
+            <TimeChart label="Data disk in use" points={diskPts} {...band(diskPts)} format={percent} markers={markers} />
+          )}
+        </Vital>
+      ),
+    },
+    {
+      moving: true,
+      node: (
+        <Vital key="net" label="Network in" reading={<Rate v={rx.at(-1)?.[1] ?? 0} />} note={`${rate(tx.at(-1)?.[1] ?? 0)} going out`}>
+          <TimeChart label="Network in" points={rx} max={niceBytes(rx)} format={(v) => (v === 0 ? "0" : rate(v))} markers={markers} />
+        </Vital>
+      ),
+    },
+  ];
 
   return (
     <Page wide>
@@ -91,7 +168,7 @@ export function MetricsPage() {
         }
         actions={
           <span className="text-[0.8125rem] text-ink-3">
-            Box up {duration(n.uptimeSeconds)} · {countWords(n.cpus, "CPU")}
+            Box {boxUp(n.uptimeSeconds)} · {countWords(n.cpus, "CPU")}
           </span>
         }
       />
@@ -107,26 +184,8 @@ export function MetricsPage() {
       )}
 
       <section aria-label="The last hour" className="mt-10 grid gap-x-12 gap-y-10 md:grid-cols-2">
-        <Vital label="CPU" reading={<Qty className="reading" value={dec(n.cpuUsedRatio * 100, 0)} unit="%" />} note={`load ${dec(n.load1, 2)} · ${dec(n.load5, 2)} · ${dec(n.load15, 2)}`}>
-          <TimeChart label="CPU in use" points={cpu} max={100} format={percent} markers={markers} />
-        </Vital>
-        <Vital
-          label="Memory"
-          reading={<Qty className="reading" value={dec(n.memoryUsedRatio * 100, 0)} unit="%" />}
-          note={`${bytes(used)} of ${bytes(n.memoryTotalBytes)}${n.swapTotalBytes ? ` · swap ${bytes(n.swapTotalBytes - n.swapFreeBytes)}` : ""}`}
-        >
-          <TimeChart label="Memory in use" points={toPoints(s.memory)} max={100} format={percent} markers={markers} />
-        </Vital>
-        <Vital
-          label="Data disk"
-          reading={data ? <Qty className="reading" value={dec(data.usedRatio * 100, 0)} unit="%" /> : "–"}
-          note={data ? `${bytes(data.freeBytes)} free of ${bytes(data.totalBytes)}` : undefined}
-        >
-          <TimeChart label="Data disk in use" points={toPoints(s.disk)} max={100} format={percent} markers={markers} />
-        </Vital>
-        <Vital label="Network in" reading={<Rate v={rx.at(-1)?.[1] ?? 0} />} note={`${rate(tx.at(-1)?.[1] ?? 0)} going out`}>
-          <TimeChart label="Network in" points={rx} max={niceBytes(rx)} format={(v) => (v === 0 ? "0" : rate(v))} markers={markers} />
-        </Vital>
+        {vitals.filter((v) => v.moving).map((v) => v.node)}
+        {vitals.filter((v) => !v.moving).map((v) => v.node)}
       </section>
 
       <Services res={res.data} unavailable={res.isError} />
@@ -134,6 +193,29 @@ export function MetricsPage() {
       <Disks res={res.data} stores={d.stores} />
     </Page>
   );
+}
+
+/** A level (in percent) that moved less than two points all hour; null if it moved or isn't drawn yet. */
+function steady(points: Array<[number, number]>) {
+  if (points.length < 10) return null;
+  const vals = points.map((p) => p[1]);
+  const lo = Math.min(...vals);
+  const hi = Math.max(...vals);
+  return hi - lo < 2 ? { lo, hi, first: vals[0], last: vals[vals.length - 1] } : null;
+}
+
+/** A scale zoomed to where a level moved, on round 5-point steps: 35–50 %, not 0–100 %. */
+function band(points: Array<[number, number]>) {
+  const vals = points.map((p) => p[1]);
+  const lo = Math.min(...vals);
+  const hi = Math.max(...vals);
+  const pad = Math.max(1, (hi - lo) * 0.2);
+  return { min: Math.max(0, Math.floor((lo - pad) / 5) * 5), max: Math.min(100, Math.ceil((hi + pad) / 5) * 5) };
+}
+
+/** What a steady level says instead of a flat line. */
+function Steady({ children }: { children: React.ReactNode }) {
+  return <p className="max-w-[46ch] border-l-2 border-rule-2 py-0.5 pl-3.5 text-[0.9375rem] leading-[1.4375rem] text-ink-2">{children}</p>;
 }
 
 function Rate({ v }: { v: number }) {
