@@ -15,12 +15,12 @@ import (
 
 // Paths on the box. Everything big lives on the XFS data disk.
 const (
-	DataDir       = "/var/lib/tiffin/runtime"      // deploy records' files: sources, build logs, static roots, git repos
-	LogDir        = "/var/lib/tiffin/logs/apps"    // per-app container logs (rotated JSON lines)
-	containerdDir = "/var/lib/tiffin/containerd"   // containerd root (images, snapshots)
-	buildkitDir   = "/var/lib/tiffin/buildkit"     // BuildKit state and build cache
-	nerdctlDir    = "/var/lib/tiffin/nerdctl"      // nerdctl container metadata
-	swapFile      = "/var/lib/tiffin/swapfile"     // lets `next build` survive a 4 GB box
+	DataDir       = "/var/lib/tiffin/runtime"    // deploy records' files: sources, build logs, static roots, git repos
+	LogDir        = "/var/lib/tiffin/logs/apps"  // per-app container logs (rotated JSON lines)
+	containerdDir = "/var/lib/tiffin/containerd" // containerd root (images, snapshots)
+	buildkitDir   = "/var/lib/tiffin/buildkit"   // BuildKit state and build cache
+	nerdctlDir    = "/var/lib/tiffin/nerdctl"    // nerdctl container metadata
+	swapFile      = "/var/lib/tiffin/swapfile"   // lets `next build` survive a 4 GB box
 	versionMarker = "/usr/local/lib/tiffin/nerdctl-full.version"
 	buildCgroup   = "tiffin-build" // cgroup (v2) every build container runs in, memory-capped
 	// Namespace is the containerd namespace for app images and containers.

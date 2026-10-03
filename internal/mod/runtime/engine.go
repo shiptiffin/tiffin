@@ -42,7 +42,7 @@ type Engine interface {
 	// Remove stops (SIGTERM, then SIGKILL after grace) and deletes a container.
 	Remove(ctx context.Context, name string, grace time.Duration) error
 	Inspect(ctx context.Context, name string) (*Container, error) // nil if missing
-	List(ctx context.Context) ([]Container, error)                 // tiffin app containers
+	List(ctx context.Context) ([]Container, error)                // tiffin app containers
 	ImageDigest(ctx context.Context, ref string) (string, error)
 	RemoveImage(ctx context.Context, ref string) error
 	// LoadImage imports a docker/OCI image tarball and tags it as ref.
@@ -84,7 +84,7 @@ func (n *nerdctl) run(ctx context.Context, args ...string) (string, error) {
 func (n *nerdctl) Run(ctx context.Context, s RunSpec) error {
 	args := []string{"run", "--detach", "--name", s.Name,
 		"--network", "host", // apps reach box services on localhost; the firewall keeps app ports local
-		"--init",            // tini as PID 1: signals reach the app, zombies are reaped
+		"--init", // tini as PID 1: signals reach the app, zombies are reaped
 		"--restart", "unless-stopped",
 		"--stop-timeout", "10",
 		"--log-driver", "json-file",

@@ -461,6 +461,7 @@ func (a *API) register() {
 		"Plans deleting every resource of a project (its apps, databases, buckets, auth users, everything) and applies it with confirm. "+
 			"Irreversible: databases keep a 7-day snapshot and buckets a 7-day trash, then they are gone. Without confirm you get the plan with status 428.", "projects")
 	de.Errors = append(de.Errors, 404, 409, 428)
+	de.Extensions[ExtConfirm] = true
 	huma.Register(api, de, wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Body    undoBody

@@ -70,7 +70,7 @@ type rt struct {
 	dispatch map[string][]dispatchEntry
 	// loadedRoutes is the hash of the routes the edge last loaded from us.
 	loadedRoutes string
-	hooks    *hookTokens
+	hooks        *hookTokens
 }
 
 // Start wires the runtime to the platform: it fails deploys a restart
