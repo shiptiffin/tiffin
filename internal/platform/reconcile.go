@@ -146,6 +146,16 @@ func (r *reconciler) converge(ctx context.Context, project string) {
 			_ = p.DB.SetResourceStatus(ctx, project, o.Address, StateReady, "")
 		}
 	}
+	if len(res) == 0 {
+		// The project is gone: let modules drop what they keep about it.
+		for _, m := range Modules() {
+			if c, ok := m.(ProjectCleaner); ok {
+				if err := c.ProjectDeleted(ctx, p, project); err != nil {
+					p.Log.Error("project cleanup", "module", m.Name(), "project", project, "err", err)
+				}
+			}
+		}
+	}
 	if err := p.RefreshRoutes(ctx); err != nil {
 		p.Log.Error("refresh routes", "err", err)
 	}

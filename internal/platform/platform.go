@@ -80,6 +80,12 @@ type Starter interface {
 	Start(ctx context.Context, p *Platform) error
 }
 
+// ProjectCleaner forgets data it keeps outside resources (logs, error
+// issues, analytics) once a project has been destroyed.
+type ProjectCleaner interface {
+	ProjectDeleted(ctx context.Context, p *Platform, project string) error
+}
+
 // Checker contributes health checks.
 type Checker interface {
 	Checks(ctx context.Context, p *Platform) []Check
