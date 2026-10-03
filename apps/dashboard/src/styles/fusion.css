@@ -499,36 +499,49 @@
     --cols: 52px 152px minmax(0, 1fr) 96px 58px;
     --rail: 1.5px;
     position: relative;
-    margin-top: 26px;
+    margin-top: 38px;
     border: var(--rail) solid var(--steel);
     border-bottom: 0;
     border-radius: var(--r-4) var(--r-4) 0 0;
   }
-  /* the carrying loop and its clamp */
-  .carrier::before {
-    content: "";
+  /* the carrying handle: a wire bail with a grip, clipped to the lid by two lugs */
+  .carrier-handle {
     position: absolute;
     left: 50%;
-    top: -22px;
-    width: 96px;
-    height: 22px;
-    margin-left: -48px;
-    border: var(--rail) solid var(--steel);
+    top: -32px;
+    width: 112px;
+    height: 32px;
+    margin-left: -56px;
+    border: 2.5px solid var(--steel);
     border-bottom: 0;
-    border-radius: 10px 10px 0 0;
+    border-radius: 56px 56px 0 0 / 32px 32px 0 0;
     pointer-events: none;
   }
-  .carrier::after {
+  .carrier-handle::after {
+    /* the grip sleeve at the top of the bail */
     content: "";
     position: absolute;
     left: 50%;
-    top: -4px;
-    width: 36px;
-    height: 6px;
-    margin-left: -18px;
+    top: -4.5px;
+    width: 34px;
+    height: 6.5px;
+    margin-left: -17px;
+    border-radius: 4px;
+    background: var(--steel);
+  }
+  .carrier-handle i {
+    position: absolute;
+    bottom: -6px;
+    width: 11px;
+    height: 10px;
     border-radius: 2px;
     background: var(--steel);
-    pointer-events: none;
+  }
+  .carrier-handle i:first-child {
+    left: -7px;
+  }
+  .carrier-handle i:last-child {
+    right: -7px;
   }
   .carrier-base {
     height: 6px;

@@ -2,7 +2,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
 import { notOnBox, type Approval, type BoxResources, type Change, type ProjectState, type StatusReport } from "@/api/client";
-import { mod3, mq } from "@/api/modules";
+import { mod, mod3, mq } from "@/api/modules";
 import { q } from "@/api/queries";
 import { Breaker, type BreakerState } from "@/components/breaker";
 import { EnamelSwatch } from "@/components/enamel-swatch";
@@ -32,7 +32,9 @@ import { boxName, domainFrom, versionLabel, whereItRuns } from "@/lib/box";
 import { asTier, intentWords, opCounts, splitAddress, splitRequester } from "@/lib/changes";
 import { cn } from "@/lib/cn";
 import { enamelVar, useEnamels, type Enamel } from "@/lib/enamel";
-import { bytesParts, count, countWords, dec, duration, int, mb, words } from "@/lib/format";
+import { actorWords } from "@/lib/actors";
+import { memoryModel, type MemoryModel } from "@/lib/memory";
+import { bytes, bytesParts, count, countWords, dec, duration, int, words } from "@/lib/format";
 import { stage, stagedFor, useAllStaged, type StagedEdit } from "@/lib/staged";
 import { clock, dayKey, dayLabel, relative } from "@/lib/time";
 import { useWaitingWorkflowApprovals } from "@/lib/wf";
@@ -55,6 +57,7 @@ export function BoxPage() {
   const resQ = useQuery(q.resources);
   // A laptop dev server answers 503, or zeros where it can't measure: treat both as "not measured".
   const res = { data: resQ.data && resQ.data.memory.totalBytes > 0 ? resQ.data : undefined, error: resQ.error ?? (resQ.data && resQ.data.memory.totalBytes === 0 ? new Error("not measured") : null) };
+  const mem = useMemo(() => (res.data ? memoryModel(res.data) : undefined), [res.data]);
   const projects = useQuery(q.projects);
   const names = useMemo(() => (projects.data ?? []).map((p) => p.name), [projects.data]);
   const states = useQueries({ queries: names.map((n) => q.project(n)) });
@@ -99,7 +102,7 @@ export function BoxPage() {
                 uptime={res.data ? `up ${duration(res.data.uptimeSeconds)}` : undefined}
                 domain={<BoxDomain projects={names} />}
               />
-              <Vitals res={res.data} unavailable={!!res.error} states={states.map((s) => s.data)} enamels={enamels} />
+              <Vitals res={res.data} mem={mem} unavailable={!!res.error} names={names} enamels={enamels} />
             </Lid>
             <Rim className="max-sm:hidden" />
             <TierColumns />
@@ -110,7 +113,7 @@ export function BoxPage() {
             ) : (
               states.map((s, i) =>
                 s.data ? (
-                  <ProjectTier key={names[i]} state={s.data} enamel={enamels[names[i]]} res={res.data} approvals={pending.data ?? []} />
+                  <ProjectTier key={names[i]} state={s.data} enamel={enamels[names[i]]} mem={mem} approvals={pending.data ?? []} />
                 ) : (
                   <div key={names[i]}>
                     <Rim enamel={enamels[names[i]]} />
@@ -120,8 +123,8 @@ export function BoxPage() {
               )
             )}
             <Rim />
-            <PlatformTier res={res.data} status={status.data} unavailable={!!res.error} />
-            <RoomLeft res={res.data} states={states.map((s) => s.data)} empty={names.length === 0} />
+            <PlatformTier res={res.data} mem={mem} status={status.data} unavailable={!!res.error} />
+            <RoomLeft res={res.data} mem={mem} states={states.map((s) => s.data)} empty={names.length === 0} />
           </Carrier>
         </div>
         <aside className="flex min-w-0 flex-col gap-9 xl:pt-0" aria-label="Waiting and latest">
@@ -161,7 +164,7 @@ function Header({
   else if (failing > 1) health = `${countWords(failing, "part", "parts", true)} of the box need a look.`;
   else if (failedChecks.length > 0) health = `${countWords(failedChecks.length, "check", "checks", true)} failing: ${failedChecks.map((c) => c.name).join(", ")}.`;
   else health = "Everything is running.";
-  const people = [...new Set(waiting.map((a) => splitRequester(a.requester).name))];
+  const people = [...new Set(waiting.map((a) => actorWords({ kind: "agent", name: splitRequester(a.requester).name })))];
   let wait = "";
   if (waiting.length === 1) wait = `${people[0]} is waiting for you on one change.`;
   else if (waiting.length > 1)
@@ -194,76 +197,64 @@ function BoxDomain({ projects }: { projects: string[] }) {
 
 // ───────────────────────── vitals ─────────────────────────
 
-const PLATFORM = new Set(["tiffin", "postgres", "valkey", "auth", "storage", "victoria-metrics", "victoria-logs", "crowdsec", "app-firewall", "firewall"]);
-
-/** Splits memory in use into each project's apps, the platform, and the rest of the system. Sums to what Linux reports. */
-function memoryParts(res: BoxResources, states: Array<ProjectState | undefined>) {
-  const used = res.memory.usedBytes;
-  const byProject = states
-    .filter((s): s is ProjectState => !!s)
-    .map((s) => ({ name: s.name, bytes: (res.apps ?? []).filter((a) => a.project === s.name).reduce((t, a) => t + a.memoryBytes, 0) }));
-  const projects = byProject.reduce((t, p) => t + p.bytes, 0);
-  const platformRaw = (res.services ?? []).filter((s) => PLATFORM.has(s.name)).reduce((t, s) => t + s.memoryBytes, 0);
-  const platform = Math.min(platformRaw, Math.max(0, used - projects));
-  const system = Math.max(0, used - projects - platform);
-  return { used, byProject, platform, system, free: res.memory.availableBytes, total: res.memory.totalBytes };
-}
-
 function Vitals({
   res,
+  mem,
   unavailable,
-  states,
+  names,
   enamels,
 }: {
   res?: BoxResources;
+  mem?: MemoryModel;
   unavailable: boolean;
-  states: Array<ProjectState | undefined>;
+  names: string[];
   enamels: Record<string, Enamel>;
 }) {
   if (unavailable) return <p className="mt-4 text-sm text-ink-3">Memory, CPU and disk are measured on a running box. This server runs without one.</p>;
-  if (!res) return <div className="mt-4 h-[88px]" />;
-  const parts = memoryParts(res, states);
-  const used = bytesParts(parts.used, 2);
-  const total = bytesParts(parts.total, 0);
+  if (!res || !mem) return <div className="mt-4 h-[88px]" />;
+  const used = bytesParts(mem.usedMB * MB, 2);
+  const total = bytesParts(mem.totalMB * MB, 1);
   const disk = res.disks.data;
   const dUsed = bytesParts(disk.usedBytes, 1);
   const dTotal = bytesParts(disk.totalBytes, 0);
-  const seg = (bytes: number) => `${Math.max(0, (bytes / parts.total) * 100)}%`;
+  const partsMB = mem.platformMB - mem.systemMB;
+  const seg = (v: number) => `${Math.max(0, (v / mem.totalMB) * 100)}%`;
+  const withApps = names.filter((n) => (mem.projects[n] ?? 0) > 0);
   return (
-    <div className="mt-4 grid grid-cols-2 gap-x-7 gap-y-5 sm:grid-cols-[1.9fr_1fr_1fr]">
+    <div className="mt-4 grid grid-cols-2 gap-x-7 gap-y-5 sm:grid-cols-[1.9fr_1fr_1fr] max-sm:gap-y-4">
       <div className="min-w-0 max-sm:col-span-full">
         <p className="label">Memory</p>
         <p className="reading mt-0.5">
           {used.value}
-          <span className="u text-[0.8125rem]">&#8239;{used.unit} of {total.value}&#8239;{total.unit}</span>
+          <span className="u text-[0.8125rem]">&#8239;{used.unit} in use of {total.value}&#8239;{total.unit}</span>
         </p>
-        <div className="mt-2.5 flex h-2.5 gap-0.5" role="img" aria-label={`Memory: ${mb(parts.used)} MB in use of ${mb(parts.total)} MB, ${mb(parts.free)} MB free`}>
-          {parts.byProject
-            .filter((p) => p.bytes > 0)
-            .map((p) => (
-              <span key={p.name} className="h-full min-w-[3px] rounded-[2px]" style={{ width: seg(p.bytes), background: enamelVar(enamels[p.name]) }} />
-            ))}
-          {parts.platform > 0 && <span className="h-full min-w-[3px] rounded-[2px] bg-[var(--part-3)]" style={{ width: seg(parts.platform) }} />}
-          {parts.system > 0 && <span className="h-full min-w-[3px] rounded-[2px] bg-[var(--part-4)]" style={{ width: seg(parts.system) }} />}
+        <div
+          className="mt-2.5 flex h-2.5 gap-0.5"
+          role="img"
+          aria-label={`Memory: ${int(mem.usedMB)} MB in use of ${int(mem.totalMB)} MB; ${int(mem.freeMB)} MB room left`}
+        >
+          {withApps.map((n) => (
+            <span key={n} className="h-full min-w-[3px] rounded-[2px]" style={{ width: seg(mem.projects[n]), background: enamelVar(enamels[n]) }} />
+          ))}
+          {partsMB > 0 && <span className="h-full min-w-[3px] rounded-[2px] bg-[var(--part-3)]" style={{ width: seg(partsMB) }} />}
+          {mem.systemMB > 0 && <span className="h-full min-w-[3px] rounded-[2px] bg-[var(--part-4)]" style={{ width: seg(mem.systemMB) }} />}
           <span className="h-full flex-1 rounded-[2px] border border-dashed border-rule-3" />
         </div>
         <p className="mt-2 flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-ink-3">
-          {parts.byProject.map((p) => (
-            <span key={p.name} className="inline-flex items-center gap-1.5">
-              <EnamelSwatch enamel={enamels[p.name]} size={7} />
-              {p.name}
+          {withApps.map((n) => (
+            <span key={n} className="inline-flex items-center gap-1.5">
+              <EnamelSwatch enamel={enamels[n]} size={7} />
+              {n}
             </span>
           ))}
           <span className="inline-flex items-center gap-1.5">
             <i className="inline-block size-[7px] rounded-[1.5px] bg-[var(--part-3)]" />
             platform
           </span>
-          {parts.system > 0 && (
-            <span className="inline-flex items-center gap-1.5">
-              <i className="inline-block size-[7px] rounded-[1.5px] bg-[var(--part-4)]" />
-              system and cache
-            </span>
-          )}
+          <span className="inline-flex items-center gap-1.5">
+            <i className="inline-block size-[7px] rounded-[1.5px] bg-[var(--part-4)]" />
+            Linux and builds
+          </span>
           <span className="inline-flex items-center gap-1.5">
             <i className="inline-block size-[7px] rounded-[1.5px] border border-dashed border-rule-3" />
             room left
@@ -304,16 +295,15 @@ const servicePages: Record<string, { label: string; sub: string; to: string }> =
 };
 const serviceOrder = ["postgres", "valkey", "storage", "email", "auth", "analytics"];
 
-function ProjectTier({ state, enamel, res, approvals }: { state: ProjectState; enamel: Enamel; res?: BoxResources; approvals: Approval[] }) {
+function ProjectTier({ state, enamel, mem, approvals }: { state: ProjectState; enamel: Enamel; mem?: MemoryModel; approvals: Approval[] }) {
   const p = state.name;
   const edits = useAllStaged()[p] ?? [];
   const { lifting, open } = useUnlatch();
   const resources = state.resources ?? [];
   const apps = resources.filter((r) => r.address.startsWith("app/")).map((r) => ({ name: r.address.slice(4), spec: (r.spec ?? {}) as AppSpec }));
   const services = serviceOrder.filter((s) => resources.some((r) => r.address === `service/${s}`));
-  const memOf = (app: string) => (res?.apps ?? []).filter((a) => a.project === p && a.app === app && !a.preview).reduce((t, a) => t + a.memoryBytes, 0);
-  const total = apps.reduce((t, a) => t + memOf(a.name), 0);
-  const free = res ? res.memory.availableBytes / MB - RESERVE_MB : undefined;
+  const total = mem?.projects[p] ?? 0;
+  const free = mem ? mem.freeMB - RESERVE_MB : undefined;
   const bound = new Set(approvals.filter((a) => a.project === p).flatMap((a) => (a.plan.ops ?? []).map((o) => o.address)));
   const host = useHost(p, apps[0]?.name);
   return (
@@ -336,15 +326,16 @@ function ProjectTier({ state, enamel, res, approvals }: { state: ProjectState; e
             )}
           </>
         }
-        total={res ? int(total / MB) : undefined}
+        total={mem ? apps.length > 0 ? int(total) : <span className="font-[400] text-ink-3" title="No apps, so nothing of its own in memory">–</span> : undefined}
       />
+      <ProjectNote project={p} apps={apps.length} services={services} />
       {apps.map((a) => (
         <AppRow
           key={a.name}
           project={p}
           app={a.name}
           spec={a.spec}
-          memory={res ? memOf(a.name) : undefined}
+          memory={mem ? mem.app(p, a.name) : undefined}
           free={free}
           staged={stagedFor(edits, `instances:${a.name}`)}
           fault={state.status?.[`app/${a.name}`]?.state === "failed" ? state.status[`app/${a.name}`].message : undefined}
@@ -367,6 +358,27 @@ function ProjectTier({ state, enamel, res, approvals }: { state: ProjectState; e
         />
       ))}
     </section>
+  );
+}
+
+/** What the project's MB column does and doesn't count, with what can honestly be attributed to it. */
+function ProjectNote({ project, apps, services }: { project: string; apps: number; services: string[] }) {
+  const pg = useQuery({ queryKey: ["pg", project], queryFn: () => mod.pg(project), enabled: services.includes("postgres"), retry: false, staleTime: 15_000 });
+  const st = useQuery({ ...mq.storage(project), enabled: services.includes("storage"), retry: false, staleTime: 15_000 });
+  const held = [
+    pg.data ? `its database (${bytes(pg.data.sizeBytes)} on disk)` : null,
+    st.data && st.data.usedBytes > 0 ? `its files (${bytes(st.data.usedBytes)})` : null,
+  ].filter(Boolean) as string[];
+  if (services.length === 0) return null;
+  const lead = apps > 0 ? "Memory is its apps’ own." : "No apps yet, so nothing of its own in memory.";
+  const rest = held.length > 0 ? ` ${held.join(" and ").replace(/^./, (c) => c.toUpperCase())} ${held.length > 1 ? "live" : "lives"} in the shared platform below.` : " Its services run in the shared platform below.";
+  return (
+    <div className="tier-grid -mt-1.5 pb-2 max-sm:block max-sm:px-3.5">
+      <p className="col-span-4 col-start-2 text-xs leading-4 text-ink-3">
+        {lead}
+        {rest}
+      </p>
+    </div>
   );
 }
 
@@ -417,7 +429,7 @@ function AppRow({
   const live = useAppStatus(project, app, spec.role, spec.framework);
   const maxFit = free === undefined ? undefined : applied + Math.max(0, Math.floor(free / per));
   const n = preview ?? shown;
-  const memMB = memory === undefined ? undefined : memory / MB;
+  const memMB = memory;
   const sub = `${frameworkName(spec.framework)} · ${count(shown, "instance")}`;
   const readout =
     preview !== null && preview !== applied ? (
@@ -456,7 +468,8 @@ function AppRow({
       sub={sub}
       status={readout ?? (fault ? <span className="text-danger">{fault}</span> : live.sentence)}
       share={
-        memMB !== undefined && (
+        memMB !== undefined &&
+        memMB >= 1 && (
           <SegMeter
             size="row"
             segments={16}
@@ -532,7 +545,7 @@ function ServiceRow({
         </span>
       }
       name={meta.label}
-      sub={sentence.sub ?? meta.sub}
+      sub={<span className="max-sm:hidden">{sentence.sub ?? meta.sub}</span>}
       status={
         st === "off" ? (
           <span className="text-brass-ink">Comes out of {project} when you apply. The plan says what that costs.</span>
@@ -579,8 +592,9 @@ const AnalyticsSentence = ({ project }: { project: string }) => <>{useAnalyticsS
 
 // ───────────────────────── platform ─────────────────────────
 
-const platformRows: Array<{ name: string; sub: string; units: string[]; check?: string[]; to?: string; say?: (s: StatusReport | undefined) => string }> = [
+const platformRows: Array<{ key: string; name: string; sub: string; units: string[]; check?: string[]; to?: string; say?: (s: StatusReport | undefined) => string }> = [
   {
+    key: "tiffin",
     name: "Tiffin",
     sub: "API, dashboard, edge",
     units: ["tiffin"],
@@ -589,6 +603,7 @@ const platformRows: Array<{ name: string; sub: string; units: string[]; check?: 
     say: (s) => `Serves the dashboard, the API and every app’s HTTPS. Running for ${uptimeWords(s?.uptime)}.`,
   },
   {
+    key: "postgres",
     name: "Postgres",
     sub: "Every project’s database",
     units: ["postgres"],
@@ -596,11 +611,12 @@ const platformRows: Array<{ name: string; sub: string; units: string[]; check?: 
     to: "/backups",
     say: (s) => checkWords(detail(s, "postgres").replace(/^Postgres [\d.]+(?: \([^)]*\))? up, /, "")),
   },
-  { name: "Valkey", sub: "Caches and key-value", units: ["valkey"], check: ["valkey"], say: (s) => checkWords(detail(s, "valkey").replace(/^Valkey [\d.]+ up, /, "").replace(/\.0 MB/g, " MB")) },
-  { name: "Sign-in engine", sub: "Users and sessions", units: ["auth"], check: ["auth"] },
-  { name: "Storage", sub: "S3-compatible buckets", units: ["storage"], check: ["storage"], say: (s) => checkWords(detail(s, "storage").replace(/^versitygw v[\d.]+ on [\d.:]+,\s*/i, "")) },
-  { name: "Metrics and logs", sub: "Kept on the box", units: ["victoria-metrics", "victoria-logs"], check: ["observe.metrics"], to: "/metrics", say: () => "Every app’s metrics and logs, stored here. Nothing leaves the box." },
+  { key: "valkey", name: "Valkey", sub: "Caches and key-value", units: ["valkey"], check: ["valkey"], say: (s) => checkWords(detail(s, "valkey").replace(/^Valkey [\d.]+ up, /, "").replace(/\.0 MB/g, " MB")) },
+  { key: "auth", name: "Sign-in engine", sub: "Users and sessions", units: ["auth"], check: ["auth"] },
+  { key: "storage", name: "Storage", sub: "S3-compatible buckets", units: ["storage"], check: ["storage"], say: (s) => checkWords(detail(s, "storage").replace(/^versitygw v[\d.]+ on [\d.:]+,\s*/i, "")) },
+  { key: "observe", name: "Metrics and logs", sub: "Kept on the box", units: ["victoria-metrics", "victoria-logs"], check: ["observe.metrics"], to: "/metrics", say: () => "Every app’s metrics and logs, stored here. Nothing leaves the box." },
   {
+    key: "protect",
     name: "Protection",
     sub: "CrowdSec, firewall",
     units: ["crowdsec", "firewall", "app-firewall"],
@@ -613,32 +629,39 @@ const platformRows: Array<{ name: string; sub: string; units: string[]; check?: 
       return `${mode.charAt(0).toUpperCase()}${mode.slice(1)} mode. ${bans === 0 ? "Nobody banned right now." : `${countWords(bans, "address", "addresses", true)} banned right now.`}`;
     },
   },
-  {
-    name: "Builds and containers",
-    sub: "BuildKit, containerd",
-    units: ["buildkit", "containerd"],
-    check: ["runtime"],
-    say: (s) => {
-      const d = s?.checks?.find((c) => c.name === "runtime")?.detail ?? "";
-      return `${checkWords(d).replace(/\.$/, "")}. Most of this memory is cache Linux hands back when apps need it.`;
-    },
-  },
 ];
 
-function PlatformTier({ res, status, unavailable }: { res?: BoxResources; status?: StatusReport; unavailable: boolean }) {
+function PlatformTier({ res, mem, status, unavailable }: { res?: BoxResources; mem?: MemoryModel; status?: StatusReport; unavailable: boolean }) {
   const { lifting, open } = useUnlatch();
+  const [shown, setShown] = useState(false); // phones: collapsed until asked
   const svc = (names: string[]) => (res?.services ?? []).filter((s) => names.includes(s.name));
   // A sample can come back without the service list (systemd busy); then show the parts without numbers.
-  const measured = (res?.services ?? []).length > 0;
+  const measured = !!mem && (res?.services ?? []).length > 0;
   const rows = platformRows.filter((r) => !measured || svc(r.units).length > 0);
+  const runtime = detail(status, "runtime");
+  const hide = shown ? undefined : "max-sm:hidden";
   return (
     <section aria-label="Platform">
-      <TierHead name="Platform" about="What keeps the box running, shared by every project." />
+      <TierHead
+        name="Platform"
+        about="What keeps the box running, shared by every project."
+        total={measured ? int(mem!.platformMB) : undefined}
+      />
       {unavailable && <p className="px-5 pb-4 text-sm text-ink-3 max-sm:px-3.5">Measured on a running box.</p>}
+      {!unavailable && (
+        <button
+          type="button"
+          onClick={() => setShown((x) => !x)}
+          aria-expanded={shown}
+          className="mx-3.5 mb-2 text-[0.8125rem] font-[550] text-brass-ink sm:hidden"
+        >
+          {shown ? "Hide its parts" : `Show its ${words(rows.length + 1)} parts`}
+        </button>
+      )}
       {!unavailable &&
         rows.map((r) => {
           const units = svc(r.units);
-          const bytes = units.reduce((t, s) => t + s.memoryBytes, 0);
+          const mbv = measured ? (mem!.parts[r.key] ?? 0) : undefined;
           const failed = units.find((s) => s.state === "failed");
           const check = status?.checks?.find((c) => r.check?.includes(c.name));
           const sentence = failed ? (
@@ -651,55 +674,81 @@ function PlatformTier({ res, status, unavailable }: { res?: BoxResources; status
             "Running."
           );
           return (
-            <TierRow
-              key={r.name}
-              lever={failed ? <PilotLight state="fault" label="Stopped" /> : undefined}
-              name={r.name}
-              sub={r.sub}
-              status={sentence}
-              share={
-                measured && (
-                  <SegMeter size="row" segments={16} max={512} value={Math.min(512, bytes / MB)} label={`${r.name} memory`} valueText={`${mb(bytes)} MB`} />
-                )
-              }
-              amount={measured ? int(bytes / MB) : undefined}
-              fault={!!failed}
-              unlatching={lifting === r.name}
-              onOpen={r.to ? () => open(r.name, r.to!) : undefined}
-            />
+            <div key={r.name} className={hide}>
+              <TierRow
+                lever={failed ? <PilotLight state="fault" label="Stopped" /> : undefined}
+                name={r.name}
+                sub={r.sub}
+                status={sentence}
+                share={mbv !== undefined && mbv >= 1 && <SegMeter size="row" segments={16} max={512} value={Math.min(512, mbv)} label={`${r.name} memory`} valueText={`${int(mbv)} MB`} />}
+                amount={mbv !== undefined ? int(mbv) : undefined}
+                fault={!!failed}
+                unlatching={lifting === r.name}
+                onOpen={r.to ? () => open(r.name, r.to!) : undefined}
+              />
+            </div>
           );
         })}
+      {!unavailable && (
+        <div className={hide}>
+          <TierRow
+            name="Linux and builds"
+            sub="Kernel, containers, BuildKit"
+            status={
+              <>
+                {runtime ? `${checkWords(runtime).replace(/\.$/, "")}. ` : ""}
+                {measured && mem!.cacheMB > 0 && <span className="text-ink-3">Not counted: about {int(mem!.cacheMB)}&#8239;MB of cache Linux hands back when apps need it.</span>}
+              </>
+            }
+            share={measured && mem!.systemMB >= 1 && <SegMeter size="row" segments={16} max={512} value={Math.min(512, mem!.systemMB)} label="Linux and builds memory" valueText={`${int(mem!.systemMB)} MB`} />}
+            amount={measured ? int(mem!.systemMB) : undefined}
+          />
+        </div>
+      )}
     </section>
   );
 }
 
 // ───────────────────────── room left ─────────────────────────
 
-function RoomLeft({ res, states, empty }: { res?: BoxResources; states: Array<ProjectState | undefined>; empty: boolean }) {
-  if (!res) return <div className="m-3 h-16" />;
-  const free = res.memory.availableBytes / MB;
-  // "The size of web": the most common app memory cap on this box, or 512 MB.
+function RoomLeft({ res, mem, states, empty }: { res?: BoxResources; mem?: MemoryModel; states: Array<ProjectState | undefined>; empty: boolean }) {
+  if (!res || !mem) return <div className="m-3 h-16" />;
+  const free = mem.freeMB;
+  // "The size of web": web's memory cap, or the first app's, or 512 MB.
   const caps = states.flatMap((s) => (s?.resources ?? []).filter((r) => r.address.startsWith("app/")).map((r) => ({ app: r.address.slice(4), mb: ((r.spec ?? {}) as AppSpec).memoryMB ?? 512 })));
   const like = caps.find((c) => c.app === "web") ?? caps[0];
   const per = like?.mb ?? 512;
   const fits = Math.max(0, Math.floor((free - RESERVE_MB) / per));
   const say = empty
     ? `Room for about ${words(fits)} apps of ${int(per)}\u202FMB each, keeping ${int(RESERVE_MB)}\u202FMB spare.`
-    : `Enough for about ${words(fits)} more ${fits === 1 ? "app" : "apps"} the size of ${like?.app ?? "an app"} (${int(per)}\u202FMB each), keeping ${int(RESERVE_MB)}\u202FMB spare.`;
+    : `Enough for about ${words(fits)} more ${fits === 1 ? "app" : "apps"} the size of ${like?.app ?? "an app"} (up to ${int(per)}\u202FMB each), keeping ${int(RESERVE_MB)}\u202FMB spare.`;
   const disk = bytesParts(res.disks.data.freeBytes, 0);
   return (
-    <div className="room tier-grid m-3 min-h-16 py-3.5 max-sm:mx-2 max-sm:flex max-sm:flex-col max-sm:items-start max-sm:gap-2 max-sm:px-3.5">
-      <div className="col-start-2 text-[0.875rem] font-[550]">Room left</div>
-      <p className="col-span-2 col-start-3 text-[0.84375rem] leading-5 text-ink-2">
-        {say} {disk.value}&#8239;{disk.unit} of disk free.{" "}
-        <Link to="/new" className="font-[550] whitespace-nowrap text-brass-ink hover:underline hover:underline-offset-4">
-          Start a project
-        </Link>
-      </p>
-      <div className="col-start-5 text-right max-sm:hidden">
-        <Qty value={int(free)} className="text-[0.9375rem] font-[550]" />
+    <>
+      <div className="rim mt-1" data-thin aria-hidden />
+      <div className="tier-grid min-h-[44px] max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:px-3.5">
+        <div className="col-start-2 text-[0.875rem] max-sm:col-start-1">In use</div>
+        <div className="col-span-2 col-start-3 text-xs text-ink-3 max-sm:hidden">
+          The projects’ apps and the platform, as Linux counts it, of {int(mem.totalMB)}&#8239;MB.
+        </div>
+        <div className="col-start-5 text-right text-[0.875rem] font-[550] tnum max-sm:col-start-2">{int(mem.usedMB)}</div>
       </div>
-    </div>
+      <div className="room tier-grid m-3 mt-1 min-h-16 py-3.5 max-sm:mx-2 max-sm:flex max-sm:flex-col max-sm:items-start max-sm:gap-1.5 max-sm:px-3.5">
+        <div className="col-start-2 flex w-full items-baseline justify-between text-[0.875rem] font-[550]">
+          Room left
+          <span className="tnum sm:hidden">{int(free)}&#8239;MB</span>
+        </div>
+        <p className="col-span-2 col-start-3 text-[0.84375rem] leading-5 text-ink-2">
+          {say} {disk.value}&#8239;{disk.unit} of disk free.{" "}
+          <Link to="/new" className="font-[550] whitespace-nowrap text-brass-ink hover:underline hover:underline-offset-4">
+            Start a project
+          </Link>
+        </p>
+        <div className="col-start-5 text-right max-sm:hidden">
+          <Qty value={int(free)} className="text-[0.9375rem] font-[550]" />
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -727,7 +776,7 @@ function Waiting({ approvals, workflows }: { approvals: Approval[]; workflows: R
           <article key={a.id} className="rounded-[10px] border border-rule bg-paper-raised px-4 pt-3.5 pb-4 shadow-raised">
             <p className="label text-brass-ink">Waiting for you</p>
             <p className="mt-2 text-[0.78125rem] text-ink-3">
-              <b className="font-[550] text-graphite">{splitRequester(a.requester).name}</b>
+              <b className="font-[550] text-graphite">{actorWords({ kind: "agent", name: splitRequester(a.requester).name })}</b>
               {splitRequester(a.requester).session && <span className="ident ml-1.5 text-[0.71875rem]">session {splitRequester(a.requester).session}</span>} asks
               to change <span className="text-ink-2">{a.project}</span>
             </p>
@@ -804,7 +853,7 @@ function Latest({ changes, approvals, enamels }: { changes?: Change[]; approvals
                   <SignedEntry
                     key={c.id}
                     time={clock(c.at)}
-                    actor={{ kind: c.actor.kind, name: actorName(c), session: c.actor.session }}
+                    actor={{ kind: c.actor.kind, name: c.actor.name || c.actor.id, session: c.actor.session }}
                     intent={intentWords(c)}
                     to="/changes/$id"
                     params={{ id: c.id }}
@@ -829,12 +878,6 @@ function Latest({ changes, approvals, enamels }: { changes?: Change[]; approvals
   );
 }
 
-
-/** People's names start with a capital; agents keep their token name ("claude-code"). */
-const actorName = (c: Change) => {
-  const n = c.actor.name || c.actor.id;
-  return c.actor.kind === "agent" ? n : n.charAt(0).toUpperCase() + n.slice(1);
-};
 
 const detail = (s: StatusReport | undefined, name: string) => s?.checks?.find((c) => c.name === name)?.detail ?? "";
 const uptimeWords = (go: string | undefined) => {

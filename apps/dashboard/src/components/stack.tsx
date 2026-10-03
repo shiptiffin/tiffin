@@ -24,7 +24,13 @@ import { enamelVar, type Enamel } from "@/lib/enamel";
 export function Carrier({ children, className, label = "The box" }: { children: ReactNode; className?: string; label?: string }) {
   return (
     <section aria-label={label} className={cn("relative", className)}>
-      <div className="carrier">{children}</div>
+      <div className="carrier">
+        <span className="carrier-handle" aria-hidden>
+          <i />
+          <i />
+        </span>
+        {children}
+      </div>
       <div className="carrier-base" aria-hidden />
     </section>
   );
@@ -127,7 +133,7 @@ export function TierRow({
   };
   return (
     <div
-      className="tier-row tier-grid py-1 max-sm:grid-cols-[50px_minmax(0,1fr)_auto] max-sm:py-2"
+      className="tier-row tier-grid py-1 max-sm:grid-cols-[50px_minmax(0,1fr)_auto] max-sm:min-h-10 max-sm:py-1.5"
       data-link={onOpen ? "" : undefined}
       data-staged={staged ? "" : undefined}
       data-fault={fault ? "" : undefined}

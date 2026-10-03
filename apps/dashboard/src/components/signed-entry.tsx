@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import type { Tier } from "@/api/client";
 import { cn } from "@/lib/cn";
+import { actorName } from "@/lib/actors";
 import { RiskDots } from "./risk-dots";
 
 export type EntryActor = {
@@ -57,6 +58,8 @@ export function SignedEntry({
   className?: string;
 }) {
   const agent = actor.kind === "agent";
+  const who = actorName(actor);
+  const tag = actor.model ?? who.tag;
   const sentence = (
     <span className={cn("entry block [overflow-wrap:anywhere]", agent ? "text-graphite" : "text-ink", muted && "text-ink-3 line-through decoration-ink-4/60")}>{intent}</span>
   );
@@ -68,8 +71,8 @@ export function SignedEntry({
       </div>
       <div className="min-w-0">
         <p className="truncate text-[0.78125rem] leading-[1.125rem] text-ink-2">
-          <b className={cn("font-[550]", agent ? "text-graphite" : "text-ink")}>{actor.name}</b>
-          {agent && actor.model && <span className="ident ml-1.5 text-[0.71875rem] text-ink-3">{actor.model}</span>}
+          <b className={cn("font-[550]", agent ? "text-graphite" : "text-ink")}>{who.name}</b>
+          {agent && tag && <span className="ident ml-1.5 text-[0.71875rem] text-ink-3">{tag}</span>}
           {agent && actor.session && (
             <span className="ml-1.5 text-ink-3">
               session <span className="ident text-[0.71875rem]">{actor.session.length > 10 ? actor.session.slice(0, 8) : actor.session}</span>

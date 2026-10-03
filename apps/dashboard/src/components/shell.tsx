@@ -7,7 +7,8 @@ import { mq } from "@/api/modules";
 import { q } from "@/api/queries";
 import { cn } from "@/lib/cn";
 import { useEnamels } from "@/lib/enamel";
-import { mb } from "@/lib/format";
+import { int } from "@/lib/format";
+import { memoryModel } from "@/lib/memory";
 import { useCurrentProject } from "@/lib/project";
 import { useAllStaged } from "@/lib/staged";
 import { setTheme, useTheme, type ThemePref } from "@/lib/theme";
@@ -230,7 +231,7 @@ function Projects() {
   const staged = useAllStaged();
   const names = (projects.data ?? []).map((p) => p.name);
   const enamels = useEnamels(names);
-  const used = (p: string) => (res.data?.apps ?? []).filter((a) => a.project === p).reduce((s, a) => s + a.memoryBytes, 0);
+  const mem = res.data && res.data.memory.totalBytes > 0 ? memoryModel(res.data) : undefined;
   return (
     <div className="flex flex-col gap-px">
       <p className="label px-2.5 pb-1.5">Projects</p>
@@ -245,8 +246,9 @@ function Projects() {
             aside={
               staged[p] ? (
                 <span className="font-[550] text-brass-ink">{staged[p].length} staged</span>
-              ) : res.data ? (
-                <span className="tnum">{mb(used(p))}&#8239;MB</span>
+              ) : mem?.projects[p] !== undefined ? (
+                // Only apps have memory of their own; a project without running apps shows nothing here.
+                <span className="tnum">{int(mem.projects[p])}&#8239;MB</span>
               ) : undefined
             }
           />

@@ -20,11 +20,11 @@ async function shot(page: Page, name: string, fullPage = true) {
 }
 
 const pages: Array<{ name: string; url: string; wait: (p: Page) => Promise<unknown>; act?: (p: Page) => Promise<unknown>; full?: boolean }> = [
-  { name: "box", url: "/", wait: (p) => p.getByText("Room left", { exact: true }).waitFor() },
+  { name: "box", url: "/", wait: (p) => p.getByText("In use", { exact: true }).waitFor() },
   {
     name: "tray",
     url: "/",
-    wait: (p) => p.getByText("Room left", { exact: true }).waitFor(),
+    wait: (p) => p.getByText("In use", { exact: true }).waitFor(),
     act: async (p) => {
       await p.getByRole("slider", { name: "web instances" }).focus();
       await p.keyboard.press("ArrowRight");
@@ -37,7 +37,7 @@ const pages: Array<{ name: string; url: string; wait: (p: Page) => Promise<unkno
   {
     name: "tray-irreversible",
     url: "/",
-    wait: (p) => p.getByText("Room left", { exact: true }).waitFor(),
+    wait: (p) => p.getByText("In use", { exact: true }).waitFor(),
     act: async (p) => {
       await p.getByRole("switch", { name: /^Analytics: on/ }).first().click();
       await p.getByRole("button", { name: "Review" }).click();

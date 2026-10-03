@@ -1,3 +1,4 @@
+import { actorWords } from "./actors";
 import type { Change, Op, Tier } from "@/api/client";
 
 export const tierRank: Record<string, number> = { read: 0, reversible: 1, outbound: 2, irreversible: 3 };
@@ -29,8 +30,9 @@ export function splitAddress(address: string) {
   return i < 0 ? { kind: address, name: "" } : { kind: address.slice(0, i), name: address.slice(i + 1) };
 }
 
+/** The actor as people read it ("Claude Code", "Owner"); see lib/actors.ts. */
 export function actorLabel(c: Change): string {
-  return c.actor.name || c.actor.id;
+  return actorWords(c.actor);
 }
 
 export function isAgent(c: Pick<Change, "actor">) {

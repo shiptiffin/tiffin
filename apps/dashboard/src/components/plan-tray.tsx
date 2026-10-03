@@ -10,6 +10,7 @@ import { asTier, splitAddress, tierRank } from "@/lib/changes";
 import { diffCounts, diffLines, hunks, stripNote } from "@/lib/diff";
 import { useEnamel } from "@/lib/enamel";
 import { int, mb, MINUS, signed, words } from "@/lib/format";
+import { memoryModel } from "@/lib/memory";
 import { useMe } from "@/lib/me";
 import {
   applyEdits,
@@ -137,7 +138,8 @@ function Tray({ project }: { project: string }) {
   const room: Room = useMemo(() => {
     const r = res.data;
     if (!r) return null;
-    const avail = r.memory.availableBytes / 1048576;
+    const m = memoryModel(r);
+    const avail = m.freeMB;
     let delta = 0;
     let per = 512;
     let perApp: string | undefined;
@@ -148,7 +150,7 @@ function Tray({ project }: { project: string }) {
       per = memMB;
       perApp = e.app;
     }
-    return { before: avail, after: avail - delta, delta, totalMB: r.memory.totalBytes / 1048576, usedMB: r.memory.usedBytes / 1048576, perMB: per, perApp };
+    return { before: avail, after: avail - delta, delta, totalMB: m.totalMB, usedMB: m.usedMB, perMB: per, perApp };
   }, [res.data, edits, apps]);
 
   const apply = useMutation({
