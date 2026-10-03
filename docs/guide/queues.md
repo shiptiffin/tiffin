@@ -28,13 +28,17 @@ Durable, checkpointed code in your app:
 
 ```ts
 import { workflow } from "tiffin-sdk/workflow";
-export const onboarding = workflow.define("onboarding", async (ctx, user) => {
-  await ctx.step("welcome", () => sendWelcome(user));
-  await ctx.sleep("3 days");
-  const ok = await ctx.waitForEvent("approved", { timeout: "7 days" }); // or a human approval
-  await ctx.all([ctx.step("a", a), ctx.step("b", b)]);
+export const onboard = workflow.define("onboard", async (ctx, input: { userId: string }) => {
+  const user = await ctx.step("load user", () => db.users.get(input.userId));
+  await ctx.step("send welcome", () => sendWelcome(user));
+  await ctx.sleep("wait a day", "1d");
+  const paid = await ctx.waitForEvent("payment", { event: `paid-${user.id}`, timeout: "7d" });
 });
+await workflow.start("onboard", { userId: "42" });
+await workflow.emit(`paid-42`, { amount: 900 });
 ```
+
+Everything with side effects (I/O, `Date.now()`, randomness) goes inside `ctx.step`.
 
 Runs survive app restarts, redeploys (a run finishes on the release it started on) and
 box restarts. The dashboard shows each run as a timeline.

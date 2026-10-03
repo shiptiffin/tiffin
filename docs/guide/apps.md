@@ -42,13 +42,10 @@ secrets restarts the app with the new values.
 
 ## Next.js
 
-Next runs as a long-lived Bun server, so route handlers and server actions run in the
-process; long work goes to queues. Add the Valkey cache handler so every instance
-shares one cache and `revalidateTag` works across them:
-
-```js
-// next.config.mjs
-export default { cacheHandler: require.resolve("tiffin-sdk/next/cache-handler"), cacheMaxMemorySize: 0 };
-```
+Next runs as a long-lived Bun server (`bun --bun next start`), so route handlers and
+server actions run in the process; long work goes to queues. With two or more
+instances, add Valkey and the `tiffin-sdk/next` cache handlers so every instance shares
+one cache and `revalidateTag` reaches all of them. Setup is in
+`packages/sdk/src/next/README.md`; `templates/hello-next` has it wired up.
 
 Templates: `templates/hello-hono`, `hello-next`, `static-site`, `queues-worker`.

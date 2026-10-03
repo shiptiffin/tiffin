@@ -19,9 +19,9 @@ and sessions live in the project's own Postgres (schema `auth`).
 
 ```ts
 import { getSession, requireRole, withOrg } from "tiffin-sdk/auth";
-const session = await getSession(request);           // null if signed out
-await requireRole(request, "admin");                  // throws 403 otherwise
-await withOrg(sql, session, tx => tx`select * from projects`); // RLS by org
+const session = await getSession(request);                 // null if signed out
+const admin = await requireRole(request, "admin");         // throws 401/403 otherwise
+const rows = await withOrg(sql, orgId, tx => tx`select * from projects`); // RLS by org
 ```
 
 ```tsx
