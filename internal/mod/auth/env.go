@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"sort"
 	"strconv"
 	"time"
 
@@ -55,7 +56,9 @@ func (*Module) Routes(ctx context.Context, p *platform.Platform) ([]edge.Route, 
 	if err != nil {
 		return nil, err
 	}
+	sort.Strings(projects)
 	var out []edge.Route
+	seen := map[string]string{} // host → project
 	for _, project := range projects {
 		_, res, err := p.DB.Load(ctx, project)
 		if err != nil {
@@ -64,7 +67,18 @@ func (*Module) Routes(ctx context.Context, p *platform.Platform) ([]edge.Route, 
 		if !hasAuth(res) {
 			continue
 		}
-		out = append(out, routesFor(p, res)...)
+		for _, r := range routesFor(p, res) {
+			// Two projects claiming one host would make the edge reject every
+			// route; the first project (by name) keeps it.
+			if other, dup := seen[r.Host]; dup {
+				if p.Log != nil {
+					p.Log.Warn("auth: host served by two projects; skipping", "host", r.Host, "kept", other, "skipped", project)
+				}
+				continue
+			}
+			seen[r.Host] = project
+			out = append(out, r)
+		}
 	}
 	return out, nil
 }

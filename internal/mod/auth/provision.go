@@ -139,8 +139,11 @@ func (*Module) Provision(ctx context.Context, s *platform.System) error {
 	if err := s.Unit(ctx, Unit, unitFile(bun, script, ConfigPath(nil))); err != nil {
 		return err
 	}
+	if _, err := os.Stat(AdminSocket); err != nil && !changed {
+		changed = true // running but its admin socket is gone: restart it
+	}
 	if changed {
-		s.Log("restarting the auth engine (new version)")
+		s.Log("restarting the auth engine")
 		if _, err := s.Run(ctx, "systemctl", "restart", Unit); err != nil {
 			return err
 		}

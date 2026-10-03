@@ -199,11 +199,13 @@ func buildEngineConfig(ctx context.Context, p *platform.Platform) (*EngineConfig
 	if err != nil {
 		return nil, nil, err
 	}
+	sort.Strings(projects)
 	out := &EngineConfig{Version: 1, Listen: []string{}, Projects: map[string]*ProjectConfig{}}
 	if ip := hostIP(ctx, p); ip != "127.0.0.1" {
 		out.Listen = append(out.Listen, net.JoinHostPort(ip, enginePort))
 	}
 	errs := map[string]error{}
+	claimed := map[string]string{} // host → project, first by name wins (as in Routes)
 	for _, project := range projects {
 		_, res, err := p.DB.Load(ctx, project)
 		if err != nil {
@@ -217,6 +219,19 @@ func buildEngineConfig(ctx context.Context, p *platform.Platform) (*EngineConfig
 			errs[project] = err
 			continue
 		}
+		var hosts, origins []string
+		for i, h := range c.Hosts {
+			if other, ok := claimed[h]; ok && other != project {
+				continue
+			}
+			claimed[h] = project
+			hosts, origins = append(hosts, h), append(origins, c.Origins[i])
+		}
+		if len(hosts) == 0 {
+			errs[project] = fmt.Errorf("every host of this project is already served by project %s; give its apps their own routes", claimed[c.Hosts[0]])
+			continue
+		}
+		c.Hosts, c.Origins, c.PrimaryURL = hosts, origins, origins[0]
 		out.Projects[project] = c
 	}
 	return out, errs, nil

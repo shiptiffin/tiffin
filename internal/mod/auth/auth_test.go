@@ -215,3 +215,21 @@ func TestEngineBundleEmbedded(t *testing.T) {
 		t.Fatalf("engine bundle looks empty: %d bytes", len(js))
 	}
 }
+
+func TestDuplicateHostsDontBreakTheEdge(t *testing.T) {
+	p := newPlatform(t)
+	ctx := t.Context()
+	apply(t, p, `{"project":"aaa","apps":{"web":{}},"services":{"postgres":{},"auth":{}}}`)
+	apply(t, p, `{"project":"bbb","apps":{"web":{}},"services":{"postgres":{},"auth":{}}}`)
+	routes, err := (&Module{}).Routes(ctx, p)
+	if err != nil || len(routes) != 1 || routes[0].Host != "web.tiffin.localhost" {
+		t.Fatalf("routes: %+v %v", routes, err)
+	}
+	c, errs, err := buildEngineConfig(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Projects["aaa"] == nil || c.Projects["bbb"] != nil || errs["bbb"] == nil {
+		t.Fatalf("aaa keeps the host, bbb reports it: %v %v", c.Projects, errs)
+	}
+}
