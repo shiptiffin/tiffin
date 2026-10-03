@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/api"
+	"github.com/btahir/tiffin/internal/dashboard"
 	"github.com/btahir/tiffin/internal/manifest"
 	tmcp "github.com/btahir/tiffin/internal/mcp"
 	"github.com/btahir/tiffin/internal/version"
@@ -259,6 +260,7 @@ func serveMux(b *box) http.Handler {
 	srv := tmcp.NewServer(b.api, b.api.Handler(), version.Version, tmcp.FromHeader)
 	mux := http.NewServeMux()
 	mux.Handle("/v1/", b.api.Handler())
+	mux.Handle("/", dashboard.Handler())
 	mux.Handle("/mcp", sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return srv },
 		&sdk.StreamableHTTPOptions{Stateless: true, JSONResponse: true}))
 	return mux
