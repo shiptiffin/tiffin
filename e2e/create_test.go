@@ -71,7 +71,8 @@ func TestCreate(t *testing.T) {
 		p = time.Now()
 		d := b.ok("deploys", "template", "starter", tp.App, "--template", tp.ID)
 		id, _ := d["id"].(string)
-		if d["status"] != "queued" || d["template"] != tp.ID || id == "" {
+		// A fast build (warm cache) may already be building when the call returns.
+		if (d["status"] != "queued" && d["status"] != "building") || d["template"] != tp.ID || id == "" {
 			t.Fatalf("deploy %s: %v", tp.ID, d)
 		}
 		live := waitDeploy(t, b, "starter", tp.App, id, 10*time.Minute)
