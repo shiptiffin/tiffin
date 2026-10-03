@@ -54,7 +54,7 @@ const pages: Array<{
     url: "/",
     wait: (p) => p.getByText("In use", { exact: true }).waitFor(),
     act: async (p) => {
-      await p.getByRole("switch", { name: /^Analytics: on/ }).first().click();
+      await p.getByRole("region", { name: "Project shop" }).getByRole("switch", { name: /^Analytics: on/ }).click();
       await p.getByRole("button", { name: "Review" }).click();
       await p.getByText("What will happen, in order").waitFor();
       await p.getByLabel(/Type shop to arm/).fill("shop");

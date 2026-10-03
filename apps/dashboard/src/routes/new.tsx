@@ -168,7 +168,7 @@ export function NewProjectPage() {
     <header className="min-w-0">
       {(firstRun || phase !== "compose") && <Hero open={open} small className="mb-1 -ml-3 lg:hidden" />}
           {firstRun && phase === "compose" ? <p className="label mb-2">{new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long" }).format(new Date())}</p> : crumbs}
-          <h1 className="sentence mt-2 text-ink max-sm:text-[1.625rem] max-sm:leading-8" aria-live="polite">
+          <h1 className="sentence mt-2 text-ink" aria-live="polite">
             {phase === "compose" ? (firstRun ? "Your tiffin is packed. Nothing in it yet." : "Start a project.") : phase === "live" ? `${L?.project} is live.` : phase === "failed" ? `${L?.project} didn’t start.` : `Packing ${L?.project}…`}
           </h1>
           <p className="mt-2 max-w-[38rem] text-md text-ink-2">

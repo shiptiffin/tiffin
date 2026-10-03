@@ -123,7 +123,7 @@ export function ChangePage({ id }: { id: string }) {
           <ActorLine className="mt-4" kind={c.actor.kind} name={c.actor.name || c.actor.id} session={c.actor.session} model={c.actor.model} verb="changed" project={c.project} />
           <h1
             className={cn(
-              "intent mt-1.5 max-sm:text-[1.75rem] max-sm:leading-[2.0625rem]",
+              "intent mt-1.5",
               agent && !approval ? "text-graphite" : "text-ink",
               undoneBy && "text-ink-2 line-through decoration-ink-4/50 decoration-1",
             )}

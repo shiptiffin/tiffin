@@ -32,6 +32,7 @@ export type KVConnection = S["ValkeyKVConnection"];
 export type BackupOverview = S["BackupOverview"];
 export type Backup = S["Backup"];
 export type BackupRestored = S["BackupRestored"];
+export type BackupDrill = S["BackupDrill"];
 export type Overview = S["ObserveOverview"];
 export type Issue = S["ObserveIssue"];
 export type IssueDetail = S["ObserveIssueDetail"];
@@ -160,6 +161,10 @@ export const mod = {
   restore: (id: string, targets: string[], confirm?: string) =>
     request<BackupRestored>("POST", `/v1/backups/${e(id)}/restore`, { targets, ...(confirm ? { confirm } : {}) }),
   setSchedule: (body: S["Backups-schedule-setRequest"]) => request<S["BackupSchedule"]>("PUT", "/v1/backups/schedule", body),
+  /** Starts a restore drill of the newest good backup, or of one backup; poll drillGet until it isn't running. */
+  drill: (backup?: string) => request<BackupDrill>("POST", backup ? `/v1/backups/${e(backup)}/drill` : "/v1/backups/drill", {}),
+  drillGet: (id: string) => request<BackupDrill>("GET", `/v1/backups/drills/${e(id)}`),
+  drillCancel: (id: string) => request<BackupDrill>("POST", `/v1/backups/drills/${e(id)}/cancel`, {}),
 
   // observe
   overview: () => request<Overview>("GET", "/v1/observe/overview"),

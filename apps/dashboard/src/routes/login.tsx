@@ -84,7 +84,7 @@ export function LoginPage({ reason }: { reason?: string }) {
           <img src={heroOpen} alt="" width={216} height={216} className={cn("absolute inset-0 size-full opacity-0 transition-opacity duration-[600ms] ease-[var(--ease-out)]", opening && "opacity-100")} />
         </div>
         <Wordmark className="mt-4" />
-        <h1 key={state} className="sentence mt-6 animate-rise text-ink max-sm:text-[1.625rem] max-sm:leading-8" aria-live="polite">
+        <h1 key={state} className="sentence mt-6 animate-rise text-ink" aria-live="polite">
           {headline[state]}
         </h1>
 

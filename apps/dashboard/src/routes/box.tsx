@@ -193,7 +193,7 @@ function Header({
         <p className="label mb-2">
           {dateFmt.format(now)} · {clock(now.toISOString())}
         </p>
-        <h1 className="sentence text-ink max-sm:text-[1.5rem] max-sm:leading-[1.875rem]">
+        <h1 className="sentence text-ink">
           {health}
           {wait && <> {wait}</>}
         </h1>
@@ -214,7 +214,7 @@ function EmptyHeader() {
         <p className="label mb-2">
           {dateFmt.format(now)} · {clock(now.toISOString())}
         </p>
-        <h1 className="sentence text-ink max-sm:text-[1.5rem] max-sm:leading-[1.875rem]">Your tiffin is packed. Nothing in it yet.</h1>
+        <h1 className="sentence text-ink">Your tiffin is packed. Nothing in it yet.</h1>
         <p className="mt-2 max-w-[38rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
           Every part of the box below passed its checks. Start a project and it gets its own address, a database and sign-in if it wants them, live in
           under a minute.

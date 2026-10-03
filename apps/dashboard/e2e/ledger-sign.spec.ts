@@ -61,7 +61,7 @@ test("an agent asks, a person signs with a passkey, the agent applies, the perso
     // A passkey to sign with.
     await page.goto("/settings/passkeys");
     await page.getByLabel("Passkey name").fill("MacBook Air");
-    await page.getByRole("button", { name: "Add passkey" }).click();
+    await page.getByRole("button", { name: "Add a passkey" }).click();
     await expect(page.getByText("MacBook Air").first()).toBeVisible();
     const keys = (await (await page.request.get(`${baseURL}/v1/passkeys`, { headers: owner })).json()) as Array<{ id: string; name: string }>;
     passkeyId = keys.find((k) => k.name === "MacBook Air")?.id;

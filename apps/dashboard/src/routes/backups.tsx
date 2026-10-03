@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
-import { mod, mq, type Backup, type BackupRestored } from "@/api/modules";
+import { mod, mq, type Backup, type BackupDrill, type BackupRestored } from "@/api/modules";
+import { Throttle } from "@/components/throttle";
+import { cn } from "@/lib/cn";
 import { q } from "@/api/queries";
 import { Breaker } from "@/components/breaker";
 import { useTitle } from "@/components/favicon";
@@ -15,7 +17,7 @@ import { SegMeter } from "@/components/seg-meter";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/choice";
-import { bytes, countWords, dec, ms, pct, words } from "@/lib/format";
+import { bytes, count, countWords, dec, duration, int, ms, pct, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { clock, dayLabel, full, relative } from "@/lib/time";
 
@@ -27,7 +29,7 @@ type Preview = {
   safety: string;
   downtime: string;
 };
-type Schedule = { enabled: boolean; fullEveryHours: number; incrementalEveryHours: number; retainFull: number };
+type Schedule = { enabled: boolean; fullEveryHours: number; incrementalEveryHours: number; retainFull: number; drillEnabled: boolean; drillEveryDays: number };
 
 const targetCopy: Record<string, string> = { postgres: "Postgres", valkey: "Valkey", files: "Files (storage and mail)" };
 const H = 3600_000;
@@ -36,6 +38,8 @@ function total(b: Backup) {
   return (b.postgres?.sizeBytes ?? 0) + (b.valkey?.sizeBytes ?? 0) + Object.values(b.files ?? {}).reduce((n, f) => n + f.sizeBytes, 0);
 }
 const every = (h: number) => (h === 1 ? "every hour" : h === 24 ? "every day" : h === 168 ? "every week" : h % 24 === 0 ? `every ${h / 24} days` : `every ${h} hours`);
+/** Seconds in words, to a tenth under ten: "0.3 s", "14 s", "2 min". */
+const secs = (n: number) => (n < 0.1 ? "under 0.1\u202Fs" : n < 10 ? `${dec(n, 1)}\u202Fs` : duration(n));
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s).replace(/\d{4}-\d\d-\d\dT[\d:.]+Z/g, (t) => full(t));
 
 /**
@@ -97,6 +101,14 @@ export function BackupsPage() {
   if (running) line = `Backing up now, started ${relative(running.startedAt, now)}.`;
   else if (!last) line = "Nothing has been backed up yet.";
   else line = `Backed up ${relative(last, now)}. ${sch.enabled ? nextWords : "Automatic backups are off."}`;
+  const ld = d.lastDrill as BackupDrill | null | undefined;
+  const drillLine = !ld
+    ? " No restore drill yet."
+    : ld.status === "running"
+      ? " A restore drill is running."
+      : ld.status === "passed"
+        ? ` Last restore drill passed ${relative(ld.finishedAt ?? ld.startedAt, now)}, restored in ${secs(ld.seconds.restore)}.`
+        : ` The last restore drill failed ${relative(ld.finishedAt ?? ld.startedAt, now)}.`;
 
   return (
     <Page wide>
@@ -112,7 +124,10 @@ export function BackupsPage() {
           )
         }
       />
-      <StateLine danger={stale && !running}>{line}</StateLine>
+      <StateLine danger={(stale && !running) || ld?.status === "failed"}>
+        {line}
+        {drillLine}
+      </StateLine>
       {local && (
         <p className="mt-2 max-w-[44rem] text-[0.875rem] text-ink-2">
           Kept on this box only, until off-site storage arrives. They undo mistakes, not the loss of the machine itself; for a copy that lives elsewhere,{" "}
@@ -157,21 +172,8 @@ export function BackupsPage() {
         </Rows>
       </Group>
 
-      <Group label="Restore" id="restore">
-        <Rows>
-          <li className="grid gap-x-4 gap-y-2 py-3 sm:grid-cols-[14rem_minmax(0,1fr)_auto] sm:items-center">
-            <p className="text-[0.875rem] text-ink">{restores.length ? `Last restored ${relative(restores[0].startedAt, now)}` : "Never restored"}</p>
-            <p className="text-[0.84375rem] text-ink-2">
-              A backup you’ve never restored is a hope. Preview a restore to see exactly what it would put back and overwrite; nothing changes until you type{" "}
-              <code className="ident text-ink">restore</code>, and the box keeps a safety copy first.
-            </p>
-            {owner && ok[0] && (
-              <Button size="md" onClick={() => setRestoring(ok[0])} className="justify-self-start">
-                Preview a restore
-              </Button>
-            )}
-          </li>
-        </Rows>
+      <Group label="Restore drill" id="drill" aside={restores.length ? `last real restore ${relative(restores[0].startedAt, now)}` : undefined}>
+        <DrillBlock last={ld} owner={owner} hasBackup={!!ok[0]} />
       </Group>
 
       <Group label="History" id="history" aside={list.length ? `keeps ${words(sch.retainFull)} full backups and what they need` : undefined}>
@@ -284,7 +286,13 @@ function ScheduleLevers({ sch, owner }: { sch: Schedule; owner: boolean }) {
               ? next.incrementalEveryHours
                 ? `The changes are saved ${every(next.incrementalEveryHours)}.`
                 : "No backups of changes between full ones."
-              : `Keeping the last ${words(next.retainFull ?? sch.retainFull)} full backups.`;
+              : next.drillEnabled !== undefined
+                ? next.drillEnabled
+                  ? `A restore drill runs ${everyDays(sch.drillEveryDays)} from now on.`
+                  : "No automatic restore drills. Run one by hand below."
+                : next.drillEveryDays !== undefined
+                  ? `A restore drill runs ${everyDays(next.drillEveryDays)} from now on.`
+                  : `Keeping the last ${words(next.retainFull ?? sch.retainFull)} full backups.`;
       toast({ title: what, action: { label: "Undo", run: () => mod.setSchedule(before).then(() => qc.invalidateQueries({ queryKey: ["backups"] })) } });
     },
   });
@@ -342,6 +350,31 @@ function ScheduleLevers({ sch, owner }: { sch: Schedule; owner: boolean }) {
             />
           }
         />
+        <Lever
+          lever={<Breaker label="Automatic restore drills" state={sch.drillEnabled ? "on" : "off"} disabled={dis} onFlip={(v) => set.mutate({ drillEnabled: v === "on" })} />}
+          name="Restore drills"
+          status={
+            sch.drillEnabled ? (
+              `Proves the newest backup restores, ${everyDays(sch.drillEveryDays)}, without touching anything live.`
+            ) : (
+              <span className="text-warn-ink">Off: backups are only checked when you run a drill.</span>
+            )
+          }
+          control={
+            <span className="flex items-center gap-2.5">
+              <Throttle
+                size="mini"
+                label="Restore drill every so many days"
+                unit="days"
+                stops={DRILL_STOPS}
+                value={sch.drillEveryDays}
+                applied={sch.drillEveryDays}
+                onCommit={(v) => !dis && sch.drillEnabled && set.mutate({ drillEveryDays: v })}
+              />
+              <span className="w-16 text-[0.8125rem] text-ink-2 tnum">{everyDays(sch.drillEveryDays).replace("every ", "")}</span>
+            </span>
+          }
+        />
       </Rows>
       {set.isError && <ProblemNote className="mt-3" error={set.error} />}
     </Group>
@@ -356,5 +389,143 @@ function Lever({ lever, name, status, control }: { lever?: ReactNode; name: stri
       <span className="col-start-2 text-[0.84375rem] text-ink-2 sm:col-start-auto">{status}</span>
       {control && <span className="col-start-2 sm:col-start-auto">{control}</span>}
     </li>
+  );
+}
+
+const DRILL_STOPS = [1, 3, 7, 14, 30];
+const everyDays = (n: number) => (n === 1 ? "every day" : n === 7 ? "every week" : `every ${n} days`);
+
+/**
+ * The restore drill: proves a backup restores, into a scratch copy, without
+ * touching anything live. Shows the phases while it runs, then a receipt:
+ * how long each step took and every database's tables and rows.
+ */
+function DrillBlock({ last, owner, hasBackup }: { last?: BackupDrill | null; owner: boolean; hasBackup: boolean }) {
+  const qc = useQueryClient();
+  const [id, setId] = useState<string | undefined>(undefined);
+  const watching = id ?? (last?.status === "running" ? last.id : undefined);
+  const live = useQuery({
+    queryKey: ["drill", watching ?? ""],
+    queryFn: () => mod.drillGet(watching!),
+    enabled: !!watching,
+    refetchInterval: (qq) => (qq.state.data?.status === "running" || !qq.state.data ? 1500 : false),
+    refetchIntervalInBackground: true,
+  });
+  const start = useMutation({
+    mutationFn: () => mod.drill(),
+    onSuccess: (d) => {
+      setId(d.id);
+      qc.setQueryData(["drill", d.id], d);
+    },
+  });
+  const cancel = useMutation({
+    mutationFn: (x: string) => mod.drillCancel(x),
+    onSuccess: (d) => qc.setQueryData(["drill", d.id], d),
+  });
+  const drill = (watching ? live.data : undefined) ?? last ?? undefined;
+  const runningNow = drill?.status === "running";
+  // When a drill we watched finishes, the overview's lastDrill and the page's sentence catch up.
+  const finished = !!id && !!live.data && live.data.status !== "running";
+  useEffect(() => {
+    if (finished) void qc.invalidateQueries({ queryKey: ["backups"] });
+  }, [finished, qc]);
+
+  return (
+    <div className="border-y border-rule py-3.5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-[44rem] text-[0.84375rem] text-ink-2">
+          A backup you’ve never restored is a hope. A drill restores the newest one into a scratch copy, starts a private Postgres on it, counts every table of
+          every database, then throws the copy away. Nothing live is touched.
+        </p>
+        {owner && hasBackup && !runningNow && (
+          <Button size="md" onClick={() => start.mutate()} disabled={start.isPending}>
+            {start.isPending ? "Starting…" : "Run a restore drill"}
+          </Button>
+        )}
+        {owner && runningNow && (
+          <Button size="md" variant="ghost" onClick={() => cancel.mutate(drill.id)} disabled={cancel.isPending}>
+            Cancel the drill
+          </Button>
+        )}
+      </div>
+      {start.isError && <ProblemNote className="mt-3" error={start.error} />}
+      {runningNow && drill && <DrillProgress d={drill} />}
+      {drill && !runningNow && <DrillReceipt d={drill} />}
+    </div>
+  );
+}
+
+const steps: Array<{ key: string; words: string; phases: string[] }> = [
+  { key: "restore", words: "Restore the backup into a scratch copy", phases: ["", "queued", "restore", "restoring"] },
+  { key: "start", words: "Start a private Postgres on it", phases: ["start", "starting"] },
+  { key: "verify", words: "Count every table of every database", phases: ["verify", "verifying", "counting"] },
+  { key: "cleanup", words: "Throw the copy away", phases: ["cleanup", "cleaning"] },
+];
+
+/** The drill's steps as a checklist: done ✓, the current one with the pilot light, the rest waiting. */
+function DrillProgress({ d }: { d: BackupDrill }) {
+  const at = Math.max(0, steps.findIndex((x) => x.phases.includes(d.phase)));
+  return (
+    <ol className="mt-4 max-w-[36rem]" role="status" aria-live="polite" aria-label="Restore drill progress">
+      {steps.map((x, i) => (
+        <li key={x.key} className={cn("grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-x-2 py-1.5 text-[0.875rem]", i > at ? "text-ink-3" : "text-ink")}>
+          <span className="grid place-items-center">{i < at ? <span className="text-ok">✓</span> : i === at ? <PilotLight state="busy" label="Running" /> : <span className="pilot" data-state="off" />}</span>
+          <span>{x.words}</span>
+          <span className="text-xs text-ink-3 tnum">
+            {i === 0 && i === at && d.backupBytes > 0 ? `${int(d.percent)} % · ${bytes(d.restoredBytes)} of ${bytes(d.backupBytes)}` : ""}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** The result as a receipt: an object, so it gets a box. */
+function DrillReceipt({ d }: { d: BackupDrill }) {
+  const passed = d.status === "passed";
+  const dbs = d.databases ?? [];
+  return (
+    <article className={cn("mt-4 max-w-[46rem] rounded-[10px] border bg-paper-raised px-4 py-3.5", passed ? "border-rule-2" : "border-danger")}>
+      <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <p className={cn("text-[0.9375rem] font-[550]", passed ? "text-ink" : "text-danger")}>
+          {passed ? "✓ The backup restores." : "× The drill failed."}{" "}
+          <span className="font-[400] text-ink-3">
+            {d.trigger === "schedule" ? "On schedule" : "Run by hand"}, {relative(d.finishedAt ?? d.startedAt)}
+          </span>
+        </p>
+        <span className="ident text-[0.71875rem] text-ink-3">{d.backupLabel || d.backup}</span>
+      </header>
+      {passed ? (
+        <p className="mt-1.5 text-[0.84375rem] text-ink-2">
+          Restored in <b className="font-[550] text-ink">{secs(d.seconds.restore)}</b> · started in <b className="font-[550] text-ink">{secs(d.seconds.start)}</b> ·
+          verified in <b className="font-[550] text-ink">{secs(d.seconds.verify)}</b>. The backup was taken {duration(d.backupAgeSeconds)} before the drill (
+          {bytes(d.backupBytes)}).
+        </p>
+      ) : (
+        <p className="mt-1.5 text-[0.84375rem] text-danger">
+          {cap(d.message)}
+          {d.hint && <span className="mt-1 block text-ink-2">{cap(d.hint)}</span>}
+        </p>
+      )}
+      {dbs.length > 0 && (
+        <ul className="mt-3 divide-y divide-rule border-t border-rule">
+          {dbs.map((db) => (
+            <li key={db.name} className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-baseline gap-x-2 py-2 text-[0.84375rem]">
+              <span className={db.ok ? "text-ok" : "text-danger"} aria-label={db.ok ? "complete" : "incomplete"}>
+                {db.ok ? "✓" : "×"}
+              </span>
+              <span className="min-w-0">
+                <span className="ident text-ink">{db.name.replace(/^p_/, "")}</span>
+                {(db.missing?.length ?? 0) > 0 && <span className="block text-danger">Missing: {db.missing!.join(", ")}</span>}
+                {(db.problems?.length ?? 0) > 0 && <span className="block text-danger">Couldn’t read: {db.problems!.join(", ")}</span>}
+              </span>
+              <span className="text-ink-2 tnum">
+                {count(db.tables, "table")}, {count(db.rows, "row")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </article>
   );
 }

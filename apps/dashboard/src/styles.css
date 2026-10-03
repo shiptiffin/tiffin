@@ -122,6 +122,10 @@
   line-height: 2.25rem;
   letter-spacing: -0.012em;
   text-wrap: balance;
+  @media (max-width: 640px) {
+    font-size: 1.5rem;
+    line-height: 1.875rem;
+  }
 }
 @utility intent {
   font-family: var(--serif);
@@ -132,6 +136,10 @@
   line-height: 2.625rem;
   letter-spacing: -0.015em;
   text-wrap: balance;
+  @media (max-width: 640px) {
+    font-size: 1.75rem;
+    line-height: 2.0625rem;
+  }
 }
 @utility entry {
   font-family: var(--serif);

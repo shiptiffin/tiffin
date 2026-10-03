@@ -91,7 +91,7 @@ export function ApprovalsPage() {
   return (
     <Page>
       <LedgerCrumbs items={[{ label: "Ledger", to: "/ledger" }, { label: "Approvals" }]} />
-      <h1 className="sentence mt-3 text-ink max-sm:text-[1.5rem] max-sm:leading-[1.875rem]">{headline}</h1>
+      <h1 className="sentence mt-3 text-ink">{headline}</h1>
       <p className="mt-2 max-w-[40rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
         When a plan goes beyond an agent’s token (anything irreversible, or anything that reaches outside the box), the agent asks here. You sign with your
         passkey; it can then apply exactly that plan, once.
@@ -372,7 +372,7 @@ export function ApprovalPage({ id }: { id: string }) {
             verb={pending ? "asks to change" : "asked to change"}
             project={ap.project}
           />
-          <h1 className="intent mt-1.5 text-ink max-sm:text-[1.75rem] max-sm:leading-[2.0625rem]">{intent.head || <span className="text-ink-3">No intent given.</span>}</h1>
+          <h1 className="intent mt-1.5 text-ink">{intent.head || <span className="text-ink-3">No intent given.</span>}</h1>
           {intent.rest && (
             <p className="mt-3.5 max-w-[37.5rem] text-[0.90625rem] leading-[1.375rem] text-graphite">
               <span className="label mb-0.5 block">In its words</span>

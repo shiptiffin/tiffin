@@ -136,7 +136,7 @@ export function ProjectPage({ project }: { project: string }) {
         }
         actions={<AddMenu project={project} manifest={man} routes={routes} />}
       />
-      <div className="sentence mt-3 text-ink max-sm:text-[1.5rem] max-sm:leading-[1.875rem]">
+      <div className="sentence mt-3 text-ink">
         {p.data ? <span className={cn(failed.length > 0 && "text-danger")}>{sentence}</span> : <Skeleton className="h-8 w-80" />}
       </div>
       <p className="mt-1.5 text-[0.9375rem] text-ink-2">

@@ -130,7 +130,7 @@ export function StatusPage() {
             {s.isError ? "lost contact, showing the last report" : ago < 3 ? "checked just now" : `checked ${ago} s ago`}
           </span>
         </p>
-        <h1 className={cn("sentence max-w-[44rem] max-sm:text-[1.5rem] max-sm:leading-[1.875rem]", failing.length || firing.length ? "text-danger" : "text-ink")}>
+        <h1 className={cn("sentence max-w-[44rem]", failing.length || firing.length ? "text-danger" : "text-ink")}>
           {head}
           {tail.length > 0 && <span className="text-ink-2"> {tail.join(" ")}</span>}
         </h1>

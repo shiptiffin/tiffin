@@ -150,7 +150,7 @@ const dayMonth = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long
 
 /** One sentence for the period: how many, where, since when; then who and how risky. */
 function Headline({ all, project }: { all: Change[]; project?: string }) {
-  if (all.length === 0) return <h1 className="sentence text-ink max-sm:text-[1.5rem] max-sm:leading-[1.875rem]">Nothing is written down yet.</h1>;
+  if (all.length === 0) return <h1 className="sentence text-ink">Nothing is written down yet.</h1>;
   const projects = new Set(all.map((c) => c.project)).size;
   const agents = all.filter(isAgent).length;
   const irr = all.filter((c) => asTier(c.plan.risk) === "irreversible").length;
@@ -170,7 +170,7 @@ function Headline({ all, project }: { all: Change[]; project?: string }) {
   const whoWords = agents === 0 ? "All by people." : agents === all.length ? "All by agents." : `Agents made ${words(agents)} of them.`;
   const risk = irr > 0 ? `${words(irr, true)} ${irr === 1 ? "was" : "were"} irreversible.` : out > 0 ? `${words(out, true)} reached outside the box.` : "Every one can be undone.";
   return (
-    <h1 className="sentence max-w-[44rem] text-ink max-sm:text-[1.5rem] max-sm:leading-[1.875rem]">
+    <h1 className="sentence max-w-[44rem] text-ink">
       {countWords(all.length, "change", "changes", true)}
       {where}
       {since}. <span className="text-ink-3">
@@ -553,7 +553,7 @@ function NoChangesIn({ project }: { project: string }) {
   return (
     <Page>
       <p className="label mb-2">Ledger · {project}</p>
-      <h1 className="sentence text-ink max-sm:text-[1.5rem] max-sm:leading-[1.875rem]">Nothing has changed in {project} yet.</h1>
+      <h1 className="sentence text-ink">Nothing has changed in {project} yet.</h1>
       <p className="mt-3 max-w-[36rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
         Entries are written the moment someone applies a plan.{" "}
         <Link to="/ledger" search={{}} className="text-brass-ink hover:underline hover:underline-offset-4">
@@ -575,7 +575,7 @@ function FirstRun() {
   return (
     <Page>
       <p className="label mb-2">Ledger</p>
-      <h1 className="sentence text-ink max-sm:text-[1.5rem] max-sm:leading-[1.875rem]">Nothing is written down yet.</h1>
+      <h1 className="sentence text-ink">Nothing is written down yet.</h1>
       <p className="mt-3 max-w-[38rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
         Every change to this box, by you or an agent, is planned first, applied with its plan’s hash and written down here, signed and undoable. Make the first
         one from your terminal:

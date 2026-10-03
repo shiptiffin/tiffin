@@ -17,7 +17,7 @@ themes, with the line of code that makes it and measured contrast.
 | Staged changes (`stage`, `useStaged`, `applyEdits`, `openTray`) | `src/lib/staged.ts` |
 | Page frame, title, crumbs, tabs, empty state | `src/components/page.tsx` |
 
-## Rules for restyling a page
+## Rules for every page
 
 1. **Frame.** Wrap the page in `<Page>` (`wide` for tables, `full` for the Box). Never centre or add your
    own max-width wrapper: every page starts at the same left edge.
@@ -46,9 +46,8 @@ themes, with the line of code that makes it and measured contrast.
    fine: no "Ready" on every row.
 9. **Motion** uses the tokens (`duration-[var(--dur-state)] ease-[var(--ease-out)]`); keyboard-driven
    things fade only; nothing animates on frequent actions.
-10. **Legacy shims** in `src/styles.css` (`.display`, `.display-italic`) and the legacy colour aliases
-    (`raised`, `hover`, `rev`, `out`, `irr`, `rule-strong`, `on-ink`) exist so old pages render; use the
-    new names, and delete a shim when the last page using it is restyled.
+10. **Names.** People and agents through `lib/actors.ts` (`actorName`, `actorWords`): "claude-code" reads
+    "Claude Code". Memory through `lib/memory.ts` (`memoryModel`): the one basis every number adds up on.
 
 Check every restyled page at 1440 and 390 px, light and dark (`e2e/screens-fusion.spec.ts` shows how),
 against `/_kit` and the anti-slop list in `research/2026-10-03-design/03-craft-and-brand.md` §10.
