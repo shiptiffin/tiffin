@@ -22,3 +22,8 @@ PLAN.md
 .idea/
 .vscode/
 .claude/
+
+# secrets
+.env
+.env.*
+!.env.example
