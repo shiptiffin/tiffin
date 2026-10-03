@@ -924,3 +924,25 @@ func TestPickLoaded(t *testing.T) {
 		t.Fatal("empty")
 	}
 }
+
+func TestGitHelpers(t *testing.T) {
+	for in, want := range map[string]string{"feature/Login-Fix": "feature-login-fix", "--x--": "x", "___": "branch",
+		strings.Repeat("a", 40): strings.Repeat("a", 30)} {
+		if got := branchPreview(in); got != want {
+			t.Errorf("branchPreview(%q) = %q, want %q", in, got, want)
+		}
+	}
+	h := newHookTokens()
+	n := h.issue("shop", "tok_1")
+	if g, ok := h.take(n); !ok || g.project != "shop" || g.token != "tok_1" {
+		t.Fatal("hook token")
+	}
+	if _, ok := h.take(n); ok {
+		t.Fatal("hook tokens are single-use")
+	}
+	req := httptest.NewRequest("GET", "/", nil)
+	req.SetBasicAuth("anything", "tfn_secret")
+	if gitToken(req) != "tfn_secret" {
+		t.Fatal("basic auth password is the token")
+	}
+}
