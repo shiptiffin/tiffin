@@ -215,6 +215,16 @@ func get(ctx context.Context, p *platform.Platform, id string) (*Backup, error) 
 // ErrBusy is returned when another backup or restore is running.
 var ErrBusy = errors.New("another backup or restore is running; try again when it finishes")
 
+// Exclusive holds the lock backups and restores take, so none runs until
+// release is called (box exports and imports use it). It returns ErrBusy
+// when one is running now.
+func Exclusive() (release func(), err error) {
+	if !run.TryLock() {
+		return nil, ErrBusy
+	}
+	return run.Unlock, nil
+}
+
 // Take runs a backup now. kind is "full" or "incremental" (pgBackRest takes
 // a full one anyway when none exists yet).
 func Take(ctx context.Context, p *platform.Platform, kind, trigger string) (*Backup, error) {

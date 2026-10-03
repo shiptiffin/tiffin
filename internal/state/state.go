@@ -208,6 +208,10 @@ var migrations = []string{
 	`ALTER TABLE passkeys ADD COLUMN person TEXT`,
 }
 
+// SchemaVersion is the state schema this build writes (box exports record
+// it so an older box can refuse a newer box's state).
+func SchemaVersion() int { return len(migrations) }
+
 func (s *DB) migrate(ctx context.Context) error {
 	tx, err := s.sql.BeginTx(ctx, nil)
 	if err != nil {
