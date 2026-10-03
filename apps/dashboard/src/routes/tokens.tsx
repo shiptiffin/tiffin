@@ -69,7 +69,7 @@ export function TokensPage({ create }: { create?: boolean }) {
   const all = tokens.data ?? [];
   const names = new Map(all.map((t) => [t.id, t.name]));
   // Dashboard logins are tokens too; they read better as "browsers signed in".
-  const isSession = (t: Token) => t.kind === "human" && t.name === "dashboard session";
+  const isSession = (t: Token) => !!t.person || (t.kind === "human" && t.name === "dashboard session");
   const list = all.filter((t) => !isSession(t));
   const sessions = all.filter(isSession);
 

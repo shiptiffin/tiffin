@@ -7,6 +7,9 @@ import { ChangePage } from "@/routes/change";
 import { LoginPage } from "@/routes/login";
 import { StatusPage } from "@/routes/status";
 import { TokensPage } from "@/routes/tokens";
+import { ApprovalPage, ApprovalsPage } from "@/routes/approvals";
+import { ProjectPage, SecretsPage } from "@/routes/project";
+import { PasskeysPage, PeoplePage } from "@/routes/settings";
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: Outlet,
@@ -58,6 +61,34 @@ const tokens = createRoute({
   },
 });
 
+const approvals = createRoute({ getParentRoute: () => app, path: "/approvals", component: ApprovalsPage });
+const approval = createRoute({
+  getParentRoute: () => app,
+  path: "/approvals/$id",
+  component: function Approval() {
+    const { id } = approval.useParams();
+    return <ApprovalPage key={id} id={id} />;
+  },
+});
+const project = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project",
+  component: function Project() {
+    const { project: p } = project.useParams();
+    return <ProjectPage key={p} project={p} />;
+  },
+});
+const secrets = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/secrets",
+  component: function Secrets() {
+    const { project: p } = secrets.useParams();
+    return <SecretsPage key={p} project={p} />;
+  },
+});
+const people = createRoute({ getParentRoute: () => app, path: "/settings/people", component: PeoplePage });
+const passkeys = createRoute({ getParentRoute: () => app, path: "/settings/passkeys", component: PasskeysPage });
+
 function NotFound() {
   return (
     <Page>
@@ -73,7 +104,7 @@ function NotFound() {
   );
 }
 
-const tree = root.addChildren([login, app.addChildren([activity, change, status, tokens])]);
+const tree = root.addChildren([login, app.addChildren([activity, change, status, tokens, approvals, approval, project, secrets, people, passkeys])]);
 
 export function makeRouter(queryClient: QueryClient) {
   return createRouter({ routeTree: tree, context: { queryClient }, defaultPreload: "intent", defaultPreloadStaleTime: 0, scrollRestoration: true });

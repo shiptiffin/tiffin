@@ -23,9 +23,18 @@ export function ProblemNote({ error, className, title }: { error: unknown; class
             ))}
           </ul>
         )}
-        {p?.hint && (
+        {p?.hint && !p.approvalUrl && (
           <p className="mt-1 text-ink-3">
             <Code text={sentence(p.hint)} />
+          </p>
+        )}
+        {p?.approvalUrl && (
+          <p className="mt-1 text-ink-2">
+            This needs a human's approval.{" "}
+            <a href={new URL(p.approvalUrl, location.origin).pathname} className="font-medium text-ink underline underline-offset-4">
+              Open the approval request
+            </a>
+            .
           </p>
         )}
       </div>

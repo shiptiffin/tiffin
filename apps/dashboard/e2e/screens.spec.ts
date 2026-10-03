@@ -66,6 +66,27 @@ for (const theme of ["dark", "light"] as const) {
       await shot(page, `token-create-${tag}`, false);
       await page.keyboard.press("Escape");
 
+      await page.goto("/approvals");
+      await page.getByRole("heading", { level: 1 }).waitFor();
+      await shot(page, `approvals-${tag}`);
+      await page.getByRole("link", { name: /Drop the notes Postgres after/ }).click();
+      await page.getByRole("heading", { name: "What it will do" }).waitFor();
+      await shot(page, `approval-${tag}`);
+
+      await page.goto("/projects/hello");
+      await page.getByRole("heading", { name: "Apps" }).waitFor();
+      await shot(page, `project-${tag}`);
+      await page.goto("/projects/hello/secrets");
+      await page.getByText("STRIPE_SECRET_KEY").waitFor();
+      await shot(page, `secrets-${tag}`);
+
+      await page.goto("/settings/people");
+      await page.getByText("Maya Okafor").waitFor();
+      await shot(page, `people-${tag}`);
+      await page.goto("/settings/passkeys");
+      await page.getByRole("heading", { name: "Your passkeys" }).waitFor();
+      await shot(page, `passkeys-${tag}`);
+
       await page.goto("/");
       await page.keyboard.press("ControlOrMeta+k");
       await page.getByRole("dialog").waitFor();

@@ -2,7 +2,24 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Command } from "cmdk";
 import { Dialog as D } from "radix-ui";
-import { CornerDownLeft, FolderClosed, Gauge, KeyRound, LogOut, Monitor, Moon, Plus, ScrollText, Search, Sun, Terminal } from "lucide-react";
+import {
+  Fingerprint,
+  Stamp,
+  UserPlus,
+  Users,
+  CornerDownLeft,
+  FolderClosed,
+  Gauge,
+  KeyRound,
+  LogOut,
+  Monitor,
+  Moon,
+  Plus,
+  ScrollText,
+  Search,
+  Sun,
+  Terminal,
+} from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { api } from "@/api/client";
 import { q } from "@/api/queries";
@@ -59,13 +76,25 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 <Item icon={<Gauge />} onSelect={run(() => navigate({ to: "/status" }))}>
                   Status
                 </Item>
+                <Item icon={<Stamp />} onSelect={run(() => navigate({ to: "/approvals" }))} keywords={["approve", "passkey", "waiting"]}>
+                  Approvals
+                </Item>
                 <Item icon={<KeyRound />} onSelect={run(() => navigate({ to: "/tokens", search: {} }))}>
                   Tokens
+                </Item>
+                <Item icon={<Users />} onSelect={run(() => navigate({ to: "/settings/people" }))} keywords={["team", "invite", "roles"]}>
+                  People
+                </Item>
+                <Item icon={<Fingerprint />} onSelect={run(() => navigate({ to: "/settings/passkeys" }))} keywords={["webauthn", "security"]}>
+                  Passkeys
                 </Item>
               </Command.Group>
               <Command.Group heading="Do">
                 <Item icon={<Plus />} onSelect={run(() => navigate({ to: "/tokens", search: { create: true } }))} keywords={["new", "agent", "key"]}>
                   Create a token
+                </Item>
+                <Item icon={<UserPlus />} onSelect={run(() => navigate({ to: "/settings/people" }))} keywords={["invite", "team", "person"]}>
+                  Invite someone
                 </Item>
                 <Item
                   icon={<Terminal />}
@@ -110,7 +139,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                       key={p.name}
                       value={`project ${p.name}`}
                       icon={<FolderClosed />}
-                      onSelect={run(() => navigate({ to: "/", search: { project: p.name } }))}
+                      onSelect={run(() => navigate({ to: "/projects/$project", params: { project: p.name } }))}
                     >
                       {p.name}
                       <span className="ml-2 font-mono text-xs text-ink-4">v{p.version}</span>

@@ -10,7 +10,7 @@ export function ActorMark({ actor, className }: { actor: Pick<Actor, "kind" | "n
       .slice(0, 1)
       .toUpperCase() || "?";
   const agent = actor.kind === "agent";
-  const owner = actor.kind === "owner" || (actor.kind === "human" && actor.name === "owner");
+  const owner = actor.kind === "owner" || (actor.kind === "human" && name.toLowerCase() === "owner");
   return (
     <span
       aria-hidden

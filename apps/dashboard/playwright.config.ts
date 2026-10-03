@@ -26,7 +26,7 @@ export default defineConfig({
     ? undefined
     : {
         command: `bash e2e/serve.sh ${port}`,
-        url: `http://127.0.0.1:${port}/v1/health`,
+        url: `http://127.0.0.1:${port}/v1/health`, // signIn() also waits for seed-live.sh to finish
         timeout: 180_000,
         reuseExistingServer: false,
         stdout: "pipe",

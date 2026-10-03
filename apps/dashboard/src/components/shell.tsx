@@ -1,9 +1,27 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, Outlet, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
+import { Link, Outlet, useNavigate, useParams, useRouterState, useSearch } from "@tanstack/react-router";
 import { Dialog as D } from "radix-ui";
-import { ChevronsUpDown, Gauge, KeyRound, LogOut, Menu as MenuIcon, Monitor, Moon, ScrollText, Search, Sun, Terminal } from "lucide-react";
+import {
+  Boxes,
+  ChevronsUpDown,
+  Fingerprint,
+  Gauge,
+  KeyRound,
+  Lock,
+  LogOut,
+  Menu as MenuIcon,
+  Monitor,
+  Moon,
+  ScrollText,
+  Search,
+  Stamp,
+  Sun,
+  Terminal,
+  Users,
+} from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { api } from "@/api/client";
+import { api, notOnBox } from "@/api/client";
+import { roleCopy, useMe } from "@/lib/me";
 import { q } from "@/api/queries";
 import { cn } from "@/lib/cn";
 import { copyText } from "@/lib/clipboard";
@@ -102,27 +120,29 @@ function TopBar({ onMenu, onSearch }: { onMenu: () => void; onSearch: () => void
 }
 
 function WhoMenu() {
-  const { data: me } = useQuery(q.whoami);
+  const { me, name, role, admin } = useMe();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   if (!me) return <div className="size-9" />;
-  const everything = (me.scopes ?? []).includes("*");
-  const session = me.name === "dashboard session";
-  const label = session ? "You" : me.name;
+  const label = name ?? "You";
   return (
     <Menu>
-      <MenuTrigger className="flex h-9 items-center gap-2 rounded-lg px-2 text-base text-ink-2 transition-colors hover:bg-hover hover:text-ink data-[state=open]:bg-hover">
-        <ActorMark actor={{ kind: everything ? "owner" : me.kind, name: label, id: me.tokenId }} />
+      <MenuTrigger
+        aria-label="Account"
+        className="flex h-9 items-center gap-2 rounded-lg px-2 text-base text-ink-2 transition-colors hover:bg-hover hover:text-ink data-[state=open]:bg-hover"
+      >
+        <ActorMark actor={{ kind: role === "owner" ? "owner" : "human", name: label, id: me.tokenId }} />
         <span className="hidden max-w-40 truncate sm:inline">{label}</span>
         <ChevronsUpDown className="hidden size-3.5 text-ink-4 sm:block" />
       </MenuTrigger>
       <MenuContent align="end" className="w-72">
         <div className="px-2 pt-2 pb-2.5">
-          <p className="text-base font-medium text-ink">{session ? "Dashboard session" : me.name}</p>
+          <p className="text-base font-medium text-ink">{label}</p>
           <p className="mt-0.5 text-sm text-ink-3">
-            {everything ? "Full owner access" : (me.scopes ?? []).join(", ")}
-            {me.expiresAt ? ` · ends ${relative(me.expiresAt)}` : ""}
+            {role ? roleCopy[role]?.label : me.kind}
+            {me.expiresAt ? ` · session ends ${relative(me.expiresAt)}` : ""}
           </p>
+          {role && <p className="mt-1 text-sm text-ink-3">{roleCopy[role]?.blurb}</p>}
         </div>
         <MenuSeparator />
         <MenuItem
@@ -137,9 +157,15 @@ function WhoMenu() {
           <Terminal />
           {copied ? "Copied" : "Copy MCP setup command"}
         </MenuItem>
-        <MenuItem onSelect={() => navigate({ to: "/tokens", search: { create: true } })}>
-          <KeyRound />
-          Create a token
+        {admin && (
+          <MenuItem onSelect={() => navigate({ to: "/tokens", search: { create: true } })}>
+            <KeyRound />
+            Create a token
+          </MenuItem>
+        )}
+        <MenuItem onSelect={() => navigate({ to: "/settings/passkeys" })}>
+          <Fingerprint />
+          Your passkeys
         </MenuItem>
         <MenuSeparator />
         <MenuItem
@@ -159,9 +185,21 @@ function WhoMenu() {
   );
 }
 
+/** The project in view: from /projects/$project or the activity filter. */
+export function useCurrentProject() {
+  const fromPath = useParams({ strict: false, select: (p: { project?: string }) => p.project });
+  const fromSearch = useSearch({ strict: false, select: (s: { project?: string }) => s.project });
+  return fromPath ?? fromSearch;
+}
+
 function Sidebar({ onSearch }: { onSearch: () => void }) {
+  const project = useCurrentProject();
+  const pending = useQuery(q.pending);
+  const onBox = !notOnBox(pending.error);
+  const n = pending.data?.length ?? 0;
+  const { admin, can } = useMe();
   return (
-    <nav className="flex h-full flex-col gap-6 px-3 pt-4 pb-3" aria-label="Main">
+    <nav className="flex h-full flex-col gap-5 overflow-y-auto px-3 pt-4 pb-3" aria-label="Main">
       <div className="flex items-center justify-between px-2">
         <Link to="/" search={{}} className="rounded-md" aria-label="Tiffin, activity">
           <Wordmark />
@@ -169,9 +207,24 @@ function Sidebar({ onSearch }: { onSearch: () => void }) {
       </div>
       <ProjectSwitcher />
       <div className="flex flex-col gap-0.5">
-        <NavItem to="/" icon={<ScrollText />} label="Activity" />
-        <NavItem to="/status" icon={<Gauge />} label="Status" status />
-        <NavItem to="/tokens" icon={<KeyRound />} label="Tokens" />
+        <NavItem to="/" search={project ? { project } : {}} exact icon={<ScrollText />} label="Activity" />
+        {onBox && (
+          <NavItem
+            to="/approvals"
+            icon={<Stamp />}
+            label="Approvals"
+            trailing={
+              n > 0 ? (
+                <span
+                  className="ml-auto grid h-5 min-w-5 place-items-center rounded-full bg-brass px-1.5 font-mono text-[0.6875rem] font-medium text-on-ink tnum"
+                  aria-label={`${n} waiting`}
+                >
+                  {n}
+                </span>
+              ) : undefined
+            }
+          />
+        )}
         <button
           onClick={onSearch}
           className="flex h-8 items-center gap-2.5 rounded-md px-2 text-base text-ink-3 transition-colors hover:bg-hover hover:text-ink lg:hidden"
@@ -180,7 +233,21 @@ function Sidebar({ onSearch }: { onSearch: () => void }) {
           Search
         </button>
       </div>
-      <div className="mt-auto flex flex-col gap-3">
+      {project && (
+        <NavSection title={project} mono>
+          <NavItem to="/projects/$project" params={{ project }} exact icon={<Boxes />} label="Overview" />
+          {onBox && <NavItem to="/projects/$project/secrets" params={{ project }} icon={<Lock />} label="Secrets" />}
+        </NavSection>
+      )}
+      <NavSection title="Box">
+        <NavItem to="/status" icon={<Gauge />} label="Status" status />
+      </NavSection>
+      <NavSection title="Access">
+        <NavItem to="/settings/people" icon={<Users />} label="People" />
+        {(admin || can("tokens")) && <NavItem to="/tokens" icon={<KeyRound />} label="Tokens" />}
+        {onBox && <NavItem to="/settings/passkeys" icon={<Fingerprint />} label="Passkeys" />}
+      </NavSection>
+      <div className="mt-auto flex flex-col gap-3 pt-2">
         <BoxCard />
         <ThemeSwitch />
       </div>
@@ -188,15 +255,50 @@ function Sidebar({ onSearch }: { onSearch: () => void }) {
   );
 }
 
-function NavItem({ to, icon, label, status }: { to: "/" | "/status" | "/tokens"; icon: ReactNode; label: string; status?: boolean }) {
+function NavSection({ title, mono, children }: { title: string; mono?: boolean; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <p
+        className={cn(
+          "mb-1 px-2 text-2xs font-medium tracking-wider text-ink-4 uppercase",
+          mono && "font-mono tracking-normal normal-case text-ink-3",
+        )}
+      >
+        {title}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+function NavItem({
+  to,
+  params,
+  search,
+  exact,
+  icon,
+  label,
+  status,
+  trailing,
+}: {
+  to: string;
+  params?: Record<string, string>;
+  search?: Record<string, string>;
+  exact?: boolean;
+  icon: ReactNode;
+  label: string;
+  status?: boolean;
+  trailing?: ReactNode;
+}) {
   const { data } = useQuery({ ...q.status(), enabled: !!status });
   const degraded = status && data && !data.ok;
-  const project = useSearch({ strict: false, select: (s: { project?: string }) => s.project });
   return (
     <Link
-      to={to}
-      search={to === "/" && project ? { project } : {}}
-      activeOptions={{ exact: to === "/", includeSearch: false }}
+      // Routes are typed elsewhere; the nav is a plain list of them.
+      to={to as "/"}
+      params={params as never}
+      search={(search ?? {}) as never}
+      activeOptions={{ exact: !!exact, includeSearch: false }}
       className="group relative flex h-8 items-center gap-2.5 rounded-md px-2 text-base text-ink-2 transition-colors hover:bg-hover hover:text-ink data-[status=active]:bg-hover data-[status=active]:font-medium data-[status=active]:text-ink [&_svg]:size-4 [&_svg]:text-ink-3 data-[status=active]:[&_svg]:text-ink"
     >
       <span
@@ -211,15 +313,23 @@ function NavItem({ to, icon, label, status }: { to: "/" | "/status" | "/tokens";
           Degraded
         </span>
       )}
+      {trailing}
     </Link>
   );
 }
 
 function ProjectSwitcher() {
   const { data: projects } = useQuery(q.projects);
-  const project = useSearch({ strict: false, select: (s: { project?: string }) => s.project });
+  const project = useCurrentProject();
   const navigate = useNavigate();
-  const current = projects?.find((p) => p.name === project);
+  const path = useRouterState({ select: (s) => s.location.pathname });
+  const onActivity = path === "/";
+  const pick = (v: string) => {
+    if (!v) navigate({ to: "/", search: {} });
+    else if (onActivity) navigate({ to: "/", search: { project: v } });
+    else if (path.endsWith("/secrets")) navigate({ to: "/projects/$project/secrets", params: { project: v } });
+    else navigate({ to: "/projects/$project", params: { project: v } });
+  };
   return (
     <Menu>
       <MenuTrigger className="flex h-11 items-center gap-2.5 rounded-lg border border-rule bg-raised/60 px-2.5 text-left transition-colors hover:border-rule-strong hover:bg-raised data-[state=open]:border-rule-strong">
@@ -233,8 +343,8 @@ function ProjectSwitcher() {
         <ChevronsUpDown className="size-3.5 text-ink-4" />
       </MenuTrigger>
       <MenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-56">
-        <MenuLabel>Show activity for</MenuLabel>
-        <MenuRadioGroup value={project ?? ""} onValueChange={(v) => navigate({ to: "/", search: v ? { project: v } : {} })}>
+        <MenuLabel>Projects on this box</MenuLabel>
+        <MenuRadioGroup value={project ?? ""} onValueChange={pick}>
           <MenuRadioItem value="">All projects</MenuRadioItem>
           {(projects ?? []).map((p) => (
             <MenuRadioItem key={p.name} value={p.name}>
@@ -243,15 +353,7 @@ function ProjectSwitcher() {
             </MenuRadioItem>
           ))}
         </MenuRadioGroup>
-        {projects && projects.length === 0 && <p className="px-2 py-1.5 text-sm text-ink-3">No projects yet.</p>}
-        {current && (
-          <>
-            <MenuSeparator />
-            <p className="px-2 py-1.5 text-sm text-ink-3">
-              {current.resources} resources · version {current.version}
-            </p>
-          </>
-        )}
+        {projects && projects.length === 0 && <p className="px-2 py-1.5 text-sm text-ink-3">No projects yet. `tiffin init` makes one.</p>}
       </MenuContent>
     </Menu>
   );

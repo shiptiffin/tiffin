@@ -72,6 +72,8 @@ apply "$WORK/notes" "Start a notes site with Postgres and an exports bucket"
 # Agents: tokens with their own names and scopes.
 CLAUDE="$("$BIN" tokens create --name claude-code --scopes read,plan,apply:reversible,apply:outbound --json | jq -r .secret)"
 CODEX="$("$BIN" tokens create --name codex --projects notes --scopes read,plan,apply:reversible --json | jq -r .secret)"
+# Kept for seed-live.sh, which plays the agents against a running box.
+printf 'CLAUDE=%s\nCODEX=%s\n' "$CLAUDE" "$CODEX" > "$TIFFIN_HOME/seed-agents.env"
 
 agent_apply() {
   local tok="$1" sess="$2" dir="$3" intent="$4" hash

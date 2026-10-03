@@ -28,5 +28,18 @@ export const q = {
   change: (id: string) => queryOptions({ queryKey: ["change", id], queryFn: () => api.change(id) }),
   status: (refetchInterval = 30_000) =>
     queryOptions({ queryKey: ["status"], queryFn: api.status, refetchInterval, refetchIntervalInBackground: false }),
-  tokens: queryOptions({ queryKey: ["tokens"], queryFn: api.tokens }),
+  tokens: queryOptions({ queryKey: ["tokens"], queryFn: () => api.tokens() }),
+  /** Every token including revoked ones, to put names to token IDs. */
+  tokenNames: queryOptions({
+    queryKey: ["tokens", "names"],
+    queryFn: async () => new Map((await api.tokens(true)).map((t) => [t.id, t] as const)),
+    staleTime: 60_000,
+  }),
+  project: (name: string) => queryOptions({ queryKey: ["project", name], queryFn: () => api.project(name), refetchInterval: 5_000 }),
+  pending: queryOptions({ queryKey: ["approvals", "pending"], queryFn: async () => (await api.approvals("pending")) ?? [], refetchInterval: 15_000 }),
+  approvals: queryOptions({ queryKey: ["approvals", "all"], queryFn: async () => (await api.approvals()) ?? [], refetchInterval: 15_000 }),
+  approval: (id: string) => queryOptions({ queryKey: ["approval", id], queryFn: () => api.approval(id), refetchInterval: 10_000 }),
+  people: queryOptions({ queryKey: ["people"], queryFn: async () => (await api.people()) ?? [] }),
+  passkeys: queryOptions({ queryKey: ["passkeys"], queryFn: async () => (await api.passkeys()) ?? [] }),
+  secrets: (project: string) => queryOptions({ queryKey: ["secrets", project], queryFn: async () => (await api.secrets(project)) ?? [] }),
 };

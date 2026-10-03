@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { asTier, opCounts, tierCopy, tierRank } from "@/lib/changes";
 import { full, relative } from "@/lib/time";
+import { useMe } from "@/lib/me";
 import { Page } from "./activity";
 
 export function ChangePage({ id }: { id: string }) {
@@ -23,6 +24,7 @@ export function ChangePage({ id }: { id: string }) {
   useTitle(c ? c.intent || "Change" : "Change");
   const [undoOpen, setUndoOpen] = useState(false);
   const [justUndone, setJustUndone] = useState<string | null>(null);
+  const { can } = useMe();
 
   if (isPending)
     return (
@@ -132,7 +134,7 @@ export function ChangePage({ id }: { id: string }) {
             </Meta>
           )}
         </dl>
-        {!undoneBy && (
+        {!undoneBy && can("apply:reversible") && (
           <div className="flex flex-col items-start gap-1.5 sm:items-end">
             <Button onClick={() => setUndoOpen(true)} size="lg" variant="secondary">
               <Undo2 />

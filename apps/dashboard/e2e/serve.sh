@@ -5,6 +5,7 @@
 #   bash e2e/serve.sh 7392        # used by playwright.config.ts
 #
 # E2E_BIN=/path/to/tiffin skips the dashboard and Go builds.
+# E2E_PUBLIC_URL=http://localhost:5391 when the browser uses the Vite dev server.
 set -euo pipefail
 PORT="${1:-7392}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -29,6 +30,11 @@ fi
 
 export TIFFIN_HOME="$DIR/box"
 SEED_SPREAD=1 bash "$HERE/seed.sh" "$BIN" >&2
-"$BIN" serve --addr "127.0.0.1:$PORT" &
+# --box turns on approvals, passkeys and secrets. The public URL must be the
+# origin the browser uses: passkeys are bound to it.
+"$BIN" serve --box --public-url "${E2E_PUBLIC_URL:-http://localhost:$PORT}" --addr "127.0.0.1:$PORT" &
 pid=$!
+for _ in $(seq 1 50); do curl -fsS "http://127.0.0.1:$PORT/v1/health" >/dev/null 2>&1 && break; sleep 0.2; done
+bash "$HERE/seed-live.sh" "$BIN" "http://127.0.0.1:$PORT" >&2
+touch "$DIR/ready"
 wait "$pid"

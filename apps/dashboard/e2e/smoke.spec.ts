@@ -25,7 +25,7 @@ test("login → activity → change → undo → status → tokens → sign out"
   // A real one signs in and lands on Activity.
   await signIn(page, baseURL!);
   await expect(page.getByRole("heading", { level: 1 })).toContainText("changes across two projects");
-  await expect(page).toHaveTitle("Activity · Tiffin");
+  await expect(page).toHaveTitle(/(^|Degraded · )Activity · Tiffin$/); // a box missing services is "degraded"
   await expect(page.getByRole("heading", { name: /Today/ })).toBeVisible();
 
   // Filtering by risk.
@@ -72,9 +72,9 @@ test("login → activity → change → undo → status → tokens → sign out"
 
   // Status.
   await page.getByRole("link", { name: "Status" }).first().click();
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("All good");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(/All good|failing/);
   await expect(page.getByText("platform state readable")).toBeVisible();
-  await expect(page).toHaveTitle("Status · Tiffin");
+  await expect(page).toHaveTitle(/Status · Tiffin$/);
 
   // Command palette navigates.
   await page.keyboard.press("ControlOrMeta+k");
@@ -95,12 +95,90 @@ test("login → activity → change → undo → status → tokens → sign out"
   await expect(page.getByRole("listitem").filter({ hasText: "smoke-agent" })).toHaveCount(0);
 
   // Sign out; afterwards any page sends you back to /login with a kind word.
-  await page.getByRole("button", { name: /You/ }).click();
+  await page.getByRole("button", { name: "Account" }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Signed out. See you soon.");
   await page.goto("/status");
   await expect(page).toHaveURL(/\/login\?reason=session/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your session has ended.");
+
+  expect(problems, problems.join("\n")).toEqual([]);
+});
+
+// The human side of agent approvals, with a virtual authenticator standing in
+// for Touch ID; then project state, secrets and people.
+test("passkey → approve and reject agent requests → project, secrets, people", async ({ page, baseURL }) => {
+  const problems: string[] = [];
+  page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
+  page.on("console", (m) => m.type() === "error" && !m.text().startsWith("Failed to load resource") && problems.push(m.text()));
+
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("WebAuthn.enable");
+  await cdp.send("WebAuthn.addVirtualAuthenticator", {
+    options: { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true },
+  });
+
+  await signIn(page, baseURL!);
+  await expect(page.getByRole("link", { name: /Approvals/ })).toContainText("2");
+
+  // Approving before there's a passkey explains what to do.
+  await page.getByRole("link", { name: /Approvals/ }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Two agents are waiting on you.");
+  await expect(page.getByText("Add a passkey first.")).toBeVisible();
+
+  // Add a passkey.
+  await page.getByRole("link", { name: "Add a passkey" }).click();
+  await page.getByLabel("Passkey name").fill("Test key");
+  await page.getByRole("button", { name: "Add passkey" }).click();
+  await expect(page.getByText("Test key")).toBeVisible();
+
+  // Approve the outbound request with it.
+  await page.goto("/approvals");
+  await page.getByRole("link", { name: /Make thumbnails public/ }).click();
+  await expect(page.getByText(/Approving lets codex make something visible outside the box/)).toBeVisible();
+  await page.getByRole("button", { name: "Approve with passkey" }).click();
+  await expect(page.getByText("Approved, not applied yet")).toBeVisible();
+  await expect(page.getByText(/codex can now apply this exact plan once/)).toBeVisible();
+
+  // The irreversible one needs the project name typed first; reject it instead.
+  await page.goto("/approvals");
+  await page.getByRole("link", { name: /Drop the notes Postgres after/ }).click();
+  await expect(page.getByRole("button", { name: "Approve with passkey" })).toBeDisabled();
+  await page.getByRole("button", { name: "Reject…" }).click();
+  await page.getByLabel(/Tell claude-code why/).fill("Keep the database until backups are on.");
+  await page.getByRole("button", { name: "Reject", exact: true }).click();
+  await expect(page.getByText("“Keep the database until backups are on.”")).toBeVisible();
+  await page.goto("/approvals");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Nobody is waiting on you.");
+
+  // Project overview shows live resource state.
+  await page.goto("/projects/hello");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("hello");
+  await expect(page.getByRole("heading", { name: "Apps" })).toBeVisible();
+  await expect(page.getByText("Ready").first()).toBeVisible();
+
+  // Secrets are write-only.
+  await page.getByRole("link", { name: "Secrets" }).first().click();
+  await expect(page.getByText("STRIPE_SECRET_KEY")).toBeVisible();
+  await page.getByLabel("Name").fill("smoke_token");
+  await expect(page.getByLabel("Name")).toHaveValue("SMOKE_TOKEN");
+  await page.getByRole("textbox", { name: "Value" }).fill("s3cret");
+  await page.getByRole("button", { name: "Save secret" }).click();
+  await expect(page.getByText("SMOKE_TOKEN", { exact: true })).toBeVisible();
+  await expect(page.getByText("s3cret")).toHaveCount(0);
+  await page.getByRole("button", { name: "Delete SMOKE_TOKEN" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete secret" }).click();
+  await expect(page.getByText("SMOKE_TOKEN", { exact: true })).toHaveCount(0);
+
+  // People: invite with a role, get a one-time link.
+  await page.goto("/settings/people");
+  await page.getByRole("button", { name: "Invite someone" }).click();
+  await page.getByLabel("Name").fill("Ada");
+  await page.getByRole("radio", { name: /Viewer/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Invite" }).click();
+  await expect(page.getByText(/\/login#tfl_/)).toBeVisible();
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByText("Ada")).toBeVisible();
 
   expect(problems, problems.join("\n")).toEqual([]);
 });
