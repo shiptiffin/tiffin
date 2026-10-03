@@ -22,8 +22,13 @@ import (
 
 // portBox is a box for the portable test. spec ("instance:disk:port", from
 // TIFFIN_E2E_BOX_A / _B) pins its names; otherwise they are fresh.
-func portBox(t *testing.T, label, dir, cli, spec string) *cliBox {
+func portBox(t *testing.T, label, root, cli, spec string) *cliBox {
 	t.Helper()
+	// Each box has its own directory: cliBox helpers find its CLI config in dir/config.
+	dir := filepath.Join(root, label)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	instance, disk, port := newName(), newDiskName(), 0
 	if f := strings.Split(spec, ":"); len(f) == 3 {
 		instance, disk = f[0], f[1]
@@ -34,7 +39,7 @@ func portBox(t *testing.T, label, dir, cli, spec string) *cliBox {
 	}
 	b := &cliBox{t: t, dir: dir, cli: cli, instance: instance, port: port, project: "shop"}
 	b.env = append(os.Environ(),
-		"TIFFIN_CONFIG_DIR="+filepath.Join(dir, label+"-config"),
+		"TIFFIN_CONFIG_DIR="+filepath.Join(dir, "config"),
 		"TIFFIN_LIMA_INSTANCE="+instance, "TIFFIN_LIMA_DISK="+disk, fmt.Sprintf("TIFFIN_LIMA_PORT=%d", port),
 		"TIFFIN_LIMA_MEMORY=3GiB", "TIFFIN_HOME=", "TIFFIN_URL=", "TIFFIN_TOKEN=")
 	t.Cleanup(func() {

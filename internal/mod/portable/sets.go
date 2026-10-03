@@ -100,7 +100,9 @@ func sets() []fileSet {
 		{Name: "runtime-git", Path: under("runtime/git"), Detail: "push-to-deploy git repositories"},
 		// History.
 		{Name: "logs", Path: under("logs"), Detail: "app and edge logs", History: true, Live: true,
-			Skip: func(rel string, _ fs.DirEntry, _ bool) bool { return strings.HasPrefix(rel, "pgbackrest") }},
+			// pgBackRest's own log directory belongs to this box's backups.
+			Skip: func(rel string, _ fs.DirEntry, _ bool) bool { return strings.HasPrefix(rel, "pgbackrest") },
+			Keep: func(bool) []string { return []string{"pgbackrest"} }},
 		{Name: "runtime-deploys", Path: under("runtime/deploys"), Detail: "build logs", History: true, Live: true},
 		{Name: "postgres-snapshots", Path: under("backups/snapshots"), Detail: "database snapshots taken before destructive changes", History: true, Live: true},
 	}

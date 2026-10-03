@@ -106,15 +106,12 @@ func (a *app) getJSON(ctx context.Context, c *client, path string, into any) err
 // progressLine redraws one status line on stderr for people; agents get
 // nothing until the JSON result.
 type progressLine struct {
-	a    *app
-	mu   sync.Mutex
-	text string
 	stop chan struct{}
 	done chan struct{}
 }
 
 func (a *app) startProgress(render func() string) *progressLine {
-	pl := &progressLine{a: a, stop: make(chan struct{}), done: make(chan struct{})}
+	pl := &progressLine{stop: make(chan struct{}), done: make(chan struct{})}
 	go func() {
 		defer close(pl.done)
 		if !a.tty() {
