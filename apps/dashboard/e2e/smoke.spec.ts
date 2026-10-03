@@ -29,7 +29,7 @@ test("login → activity → change → undo → status → tokens → sign out"
   await expect(page.getByRole("region", { name: "Project hello" })).toBeVisible();
   await page.getByRole("link", { name: /^Ledger/ }).first().click();
   await expect(page).toHaveURL(/\/ledger$/);
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("changes across two projects");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(/changes (today |since \S+ )?across two projects/);
   await expect(page).toHaveTitle(/Ledger · Tiffin$/);
   await expect(page.getByRole("heading", { name: /Today/ })).toBeVisible();
 

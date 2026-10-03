@@ -180,8 +180,8 @@ function Headline({ all, project, live }: { all: Change[]; project?: string; liv
   return (
     <h1 className="sentence max-w-[44rem] text-ink">
       {countWords(all.length, "change", "changes", true)}
-      {where}
-      {since}. <span className="text-ink-3">
+      {since}
+      {where}. <span className="text-ink-3">
         {whoWords} {risk}
       </span>
     </h1>
