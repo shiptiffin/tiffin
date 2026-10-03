@@ -406,24 +406,6 @@ func credsFor(ctx context.Context, p *platform.Platform, project string, create 
 	return c, true, nil
 }
 
-// projectForKey maps an access key back to its project ("" if unknown).
-func projectForKey(ctx context.Context, p *platform.Platform, access string) string {
-	if p.Secrets == nil || access == "" {
-		return ""
-	}
-	all, err := p.Secrets.All(ctx, secretsProject)
-	if err != nil {
-		return ""
-	}
-	for name, raw := range all {
-		var c Creds
-		if json.Unmarshal([]byte(raw), &c) == nil && c.AccessKey == access {
-			return strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(name, "KEY_"), "_", "-"))
-		}
-	}
-	return ""
-}
-
 // projectStorage reports whether the project wants storage, and its buckets.
 func projectStorage(ctx context.Context, p *platform.Platform, project string) (bool, map[string]manifest.Bucket, error) {
 	_, res, err := p.DB.Load(ctx, project)

@@ -174,16 +174,6 @@ func (r *rt) activate(w http.ResponseWriter, req *http.Request) {
 	r.serveApp(w, req, key)
 }
 
-func (r *rt) findPreview(ctx context.Context, app, preview string) *AppState {
-	states, _ := r.st.allStates(ctx)
-	for _, s := range states {
-		if s.App == app && s.Preview == preview && s.Live != "" && !s.Stopped {
-			return s
-		}
-	}
-	return nil
-}
-
 // wake returns a running instance's port for a preview, starting it first if
 // it sleeps.
 func (r *rt) wake(ctx context.Context, project, app, preview string) (int, error) {

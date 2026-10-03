@@ -144,7 +144,7 @@ func newApp(t testing.TB, e *Engine, project string) *app {
 		raw, _ := io.ReadAll(r.Body)
 		if !Verify(a.secret(), r.Header.Get(HeaderSignature), raw, time.Now(), 5*time.Minute) {
 			a.badSig.Add(1)
-			http.Error(w, "bad signature", 401)
+			http.Error(w, "bad signature", http.StatusUnauthorized)
 			return
 		}
 		var b deliveryBody

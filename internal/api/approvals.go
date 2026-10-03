@@ -31,10 +31,6 @@ func approvalErr(err error) error {
 	return err
 }
 
-type approvalPath struct {
-	ID string `path:"id" pattern:"^apr_[0-9A-Z]{26}$" doc:"Approval ID"`
-}
-
 func (a *API) registerApprovals() {
 	api := a.api
 	huma.Register(api, op("approvals-list", http.MethodGet, "/v1/approvals", "approvals list", RiskRead, "List approval requests",

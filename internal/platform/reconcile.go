@@ -27,11 +27,10 @@ type ResourceStatus struct {
 }
 
 type reconciler struct {
-	p      *Platform
-	mu     sync.Mutex
-	queue  map[string]bool // projects waiting
-	wake   chan struct{}
-	notify func(project string)
+	p     *Platform
+	mu    sync.Mutex
+	queue map[string]bool // projects waiting
+	wake  chan struct{}
 }
 
 func newReconciler(p *Platform) *reconciler {

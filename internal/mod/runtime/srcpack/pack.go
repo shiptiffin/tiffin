@@ -176,7 +176,7 @@ func Extract(r io.Reader, dir string, lim Limits) (Stats, error) {
 			if err := os.MkdirAll(dest, 0o755); err != nil {
 				return st, err
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg, '\x00': // '\x00' is the pre-POSIX regular-file flag
 			st.Files++
 			if st.Files > lim.MaxFiles {
 				return st, fmt.Errorf("%w: more than %d files", ErrUnsafe, lim.MaxFiles)

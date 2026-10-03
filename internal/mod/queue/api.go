@@ -13,8 +13,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
-const projectPattern = "^[a-z][a-z0-9-]{0,39}$"
-
 // toProblem turns engine errors into API problems with hints.
 func toProblem(err error) error {
 	var qe *Error

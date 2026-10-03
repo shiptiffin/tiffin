@@ -21,7 +21,6 @@ type fakeService struct {
 	mu   sync.Mutex
 	link string
 	srv  *http.Server
-	ln   net.Listener
 	addr string
 }
 
