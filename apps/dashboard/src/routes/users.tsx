@@ -1,56 +1,55 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import {
-  ArrowLeft,
-  BadgeCheck,
-  Building2,
-  ChevronLeft,
-  ChevronRight,
-  KeyRound,
-  LogOut,
-  Search,
-  ShieldCheck,
-  ShieldOff,
-  UserRound,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { notOnBox } from "@/api/client";
-import { mod3 } from "@/api/modules";
+import { ApiError, notOnBox } from "@/api/client";
+import { mod3, type AuthUser } from "@/api/modules";
 import { Confirm } from "@/components/confirm";
 import { useTitle } from "@/components/favicon";
-import { Empty, NotOnBox, Page, PageHeader, Skeleton, Tabs } from "@/components/page";
+import { StateSentence } from "@/components/jobs-words";
+import { Crumbs, NotOnBox, Page, PageHeader, Skeleton, Tabs } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
+import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
-import { num } from "@/lib/format";
+import { countWords, int, pct, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
-import { full, relative } from "@/lib/time";
+import { clock, dayKey, full, relative } from "@/lib/time";
 
-function Header({ project, title, lede }: { project: string; title: ReactNode; lede?: ReactNode }) {
+// ------------------------------------------------------------------ shared
+
+function Header({ project, title, lede, actions, crumbs, tabs = true }: { project: string; title: ReactNode; lede?: ReactNode; actions?: ReactNode; crumbs?: Array<{ label: ReactNode; to?: string; params?: Record<string, string> }>; tabs?: boolean }) {
   return (
-    <PageHeader
-      eyebrow={
-        <Link to="/projects/$project" params={{ project }} className="font-mono hover:text-ink">
-          {project}
-        </Link>
-      }
-      title={title}
-      lede={lede}
-    >
-      <Tabs
-        items={[
-          { to: "/projects/$project/users", params: { project }, label: "Users" },
-          { to: "/projects/$project/orgs", params: { project }, label: "Organizations" },
-        ]}
-      />
+    <PageHeader eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params: { project } }, ...(crumbs ?? [])]} />} title={title} lede={lede} actions={actions}>
+      {tabs && (
+        <Tabs
+          items={[
+            { to: "/projects/$project/users", params: { project }, label: "Users" },
+            { to: "/projects/$project/orgs", params: { project }, label: "Organizations" },
+          ]}
+        />
+      )}
     </PageHeader>
   );
 }
 
-function Avatar({ name, round = true, className }: { name: string; round?: boolean; className?: string }) {
+function Label({ children, id, action }: { children: ReactNode; id?: string; action?: ReactNode }) {
+  return (
+    <div className="mb-2.5 flex min-h-7 items-end justify-between gap-3">
+      <h2 id={id} className="label">
+        {children}
+      </h2>
+      {action}
+    </div>
+  );
+}
+
+/** Initials on a quiet disc: people round, organizations square. No colours: names aren't status. */
+function Avatar({ name, square, big }: { name: string; square?: boolean; big?: boolean }) {
   const initials = name
     .split(/\s+/)
+    .filter(Boolean)
     .slice(0, 2)
     .map((w) => w[0])
     .join("")
@@ -59,13 +58,29 @@ function Avatar({ name, round = true, className }: { name: string; round?: boole
     <span
       aria-hidden
       className={cn(
-        "grid size-8 shrink-0 place-items-center bg-hover text-xs font-medium text-ink-2",
-        round ? "rounded-full" : "rounded-lg",
-        className,
+        "grid shrink-0 place-items-center border border-rule bg-paper-sunk font-[550] tracking-[0.02em] text-ink-2",
+        big ? "size-9 text-[0.8125rem]" : "size-7 text-[0.6875rem]",
+        square ? (big ? "rounded-[8px]" : "rounded-[6px]") : "rounded-full",
       )}
     >
       {initials || "?"}
     </span>
+  );
+}
+
+function SearchBox({ value, onChange, label, placeholder }: { value: string; onChange: (v: string) => void; label: string; placeholder: string }) {
+  return (
+    <label className="flex h-9 w-full max-w-[24rem] items-center gap-2 rounded-[8px] border border-rule-2 bg-paper-raised px-3 transition-colors focus-within:border-brass">
+      <Search className="size-4 shrink-0 text-ink-3" aria-hidden />
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        aria-label={label}
+        type="search"
+        className="h-full min-w-0 flex-1 bg-transparent text-[0.875rem] text-ink outline-none placeholder:text-ink-3"
+      />
+    </label>
   );
 }
 
@@ -80,6 +95,28 @@ function useSearchBox(initial: string, onSearch: (q: string) => void) {
 }
 
 const PAGE = 25;
+const dateFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+const dateYearFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
+const longFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const longDate = (iso: string) => longFmt.format(new Date(iso)).replace(",", " at");
+const shortDate = (iso: string) => (new Date(iso).getFullYear() === new Date().getFullYear() ? dateFmt : dateYearFmt).format(new Date(iso));
+
+/** "today at 17:50", "yesterday at 09:12", "3 days ago", "12 Aug". People read last-seen as a time of day when it's recent. */
+function seen(iso: string) {
+  const d = new Date(iso);
+  const now = new Date();
+  const ageS = (now.getTime() - d.getTime()) / 1000;
+  if (ageS < 120) return "just now";
+  if (ageS < 3600) return relative(iso);
+  if (dayKey(iso) === dayKey(now.toISOString())) return `today at ${clock(iso)}`;
+  const y = new Date(now);
+  y.setDate(now.getDate() - 1);
+  if (dayKey(iso) === dayKey(y.toISOString())) return `yesterday at ${clock(iso)}`;
+  if (ageS < 86400 * 14) return relative(iso);
+  return shortDate(iso);
+}
+
+const err = (e: unknown) => (e instanceof ApiError ? (e.problem.detail ?? e.message) : String(e));
 
 // ------------------------------------------------------------------ users
 
@@ -93,16 +130,22 @@ export function UsersPage({ project, search = "", page = 1 }: { project: string;
     placeholderData: (d) => d,
   });
   const go = (o: { search?: string; page?: number }) =>
-    navigate({
-      to: "/projects/$project/users",
-      params: { project },
-      search: { search: o.search || undefined, page: o.page && o.page > 1 ? o.page : undefined },
-    });
+    navigate({ to: "/projects/$project/users", params: { project }, search: { search: o.search || undefined, page: o.page && o.page > 1 ? o.page : undefined } });
   const [q, setQ] = useSearchBox(search, (v) => go({ search: v }));
   if (overview.isError && notOnBox(overview.error)) return <NotOnBox what="Sign-in for your apps" />;
   const st = overview.data?.stats;
   const total = list.data?.total ?? 0;
   const users = list.data?.users ?? [];
+  const methods = (overview.data?.methods ?? []).map((m) => ({ email: "email and password", "magic-link": "a magic link", passkey: "a passkey" })[m] ?? m);
+
+  let said = "";
+  if (st) {
+    said =
+      st.users === 0
+        ? `Nobody has signed up to ${project} yet.`
+        : `${countWords(st.users, "person", "people", true)} can sign in to ${project}${st.signups7d ? `; ${words(st.signups7d)} joined this week` : ""}.`;
+    if (st.bannedUsers) said += ` ${countWords(st.bannedUsers, "account", "accounts", true)} ${st.bannedUsers === 1 ? "is" : "are"} suspended.`;
+  }
 
   return (
     <Page wide>
@@ -111,98 +154,102 @@ export function UsersPage({ project, search = "", page = 1 }: { project: string;
         title="Users"
         lede={
           <>
-            The people who sign in to <span className="font-mono text-ink">{project}</span>'s apps. Not to be confused with the box's own{" "}
-            <Link to="/settings/people" className="text-brass-ink underline underline-offset-4 hover:text-ink">
-              People
+            The people who sign in to {project}’s apps. The box’s own team is under{" "}
+            <Link to="/settings/people" className="text-brass-ink hover:underline hover:underline-offset-4">
+              Access
             </Link>
             .
           </>
         }
       />
-      {st && (
-        <dl className="mt-8 grid grid-cols-2 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2 gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-5">
-          <Stat label="Users" value={num(st.users)} />
-          <Stat label="Signed up, 7 days" value={num(st.signups7d)} />
-          <Stat label="Verified" value={st.users ? `${Math.round((st.verifiedUsers / st.users) * 100)}%` : "–"} />
-          <Stat label="Active sessions" value={num(st.activeSessions)} />
-          <Stat label="Suspended" value={num(st.bannedUsers)} />
-        </dl>
-      )}
-      {overview.data && (
-        <p className="mt-3 text-sm text-ink-3">
-          Sign in with {(overview.data.methods ?? []).join(", ")} · endpoint <code className="font-mono text-xs">{overview.data.endpoint}</code>
+      {said && <StateSentence className="mt-8">{said}</StateSentence>}
+      {st && overview.data && (
+        <p className="mt-2 max-w-[48rem] text-[0.84375rem] text-ink-3">
+          They sign in with {methods.length > 1 ? `${methods.slice(0, -1).join(", ")} or ${methods[methods.length - 1]}` : methods[0]} ·{" "}
+          {st.users ? `${pct(st.verifiedUsers / st.users)} have verified their email` : "no one to verify yet"} · {countWords(st.activeSessions, "session")} open
+          {overview.data.organizations && <> · {countWords(st.organizations, "organization")}</>}
         </p>
       )}
 
-      <div className="mt-8 flex items-center gap-2 rounded-lg border border-rule bg-paper px-3 focus-within:border-brass">
-        <Search className="size-4 text-ink-4" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search by name or email"
-          aria-label="Search users"
-          className="h-10 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-ink-4"
-        />
+      <div className="mt-8 flex items-center justify-between gap-4">
+        <SearchBox value={q} onChange={setQ} label="Search users" placeholder="Search by name or email" />
+        <span className="shrink-0 text-[0.8125rem] text-ink-3 tnum max-sm:hidden">{list.isSuccess && (search ? `${int(total)} found` : `${int(total)} in all`)}</span>
       </div>
-      <div className="mt-3 overflow-hidden rounded-xl border border-rule bg-raised/60">
-        {list.isPending && <Skeleton className="m-4 h-40" />}
-        {list.isError && <ProblemNote className="m-4" error={list.error} />}
-        <ul className="divide-y divide-rule/70">
-          {users.map((u) => (
-            <li key={u.id}>
-              <Link
-                to="/projects/$project/users/$id"
-                params={{ project, id: u.id }}
-                className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-3 hover:bg-hover/50 sm:grid-cols-[2rem_minmax(0,1fr)_9rem_8rem]"
-              >
-                <Avatar name={u.name} />
-                <span className="min-w-0">
-                  <span className="flex items-center gap-1.5">
-                    <span className="truncate text-base font-medium text-ink">{u.name}</span>
-                    {u.emailVerified && <BadgeCheck className="size-3.5 shrink-0 text-ink-3" aria-label="email verified" />}
-                    {u.banned && <span className="rounded-full bg-irr-wash px-1.5 py-px text-xs text-irr">suspended</span>}
-                  </span>
-                  <span className="block truncate text-sm text-ink-3">{u.email}</span>
-                </span>
-                <span className="hidden text-sm text-ink-3 sm:block">{u.lastSeenAt ? `seen ${relative(u.lastSeenAt)}` : "never signed in"}</span>
-                <span className="text-right text-sm text-ink-3" title={full(u.createdAt)}>
-                  joined {relative(u.createdAt)}
-                </span>
-              </Link>
+      {list.isError && <ProblemNote className="mt-4" error={list.error} />}
+      <div className="mt-4">
+        <div aria-hidden className="label hidden grid-cols-[1.75rem_minmax(0,1fr)_10rem_6.5rem] gap-x-4 pb-2 sm:grid">
+          <span />
+          <span>Person</span>
+          <span>Last seen</span>
+          <span className="text-right">Joined</span>
+        </div>
+        <ul className={cn("divide-y divide-rule border-y border-rule-2 transition-opacity", list.isPlaceholderData && "opacity-60")}>
+          {list.isPending && (
+            <li className="py-3">
+              <Skeleton className="h-40" />
             </li>
+          )}
+          {users.map((u) => (
+            <UserRow key={u.id} project={project} u={u} />
           ))}
+          {list.isSuccess && users.length === 0 && (
+            <li className="py-10 text-center">
+              <p className="text-md text-ink">{search ? "Nobody matches that." : "No users yet."}</p>
+              <p className="mt-1 text-[0.875rem] text-ink-3">
+                {search ? "Search looks at names and email addresses." : <>When people sign up in your app, they show up here.</>}
+              </p>
+            </li>
+          )}
         </ul>
-        {list.isSuccess && users.length === 0 && (
-          <Empty className="m-4 border-0" icon={<UserRound />} title={search ? "Nobody matches that" : "No users yet"}>
-            {!search && "When people sign up in your app, they show up here."}
-          </Empty>
-        )}
       </div>
       <Pager page={page} total={total} onPage={(p) => go({ search, page: p })} />
     </Page>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function UserRow({ project, u }: { project: string; u: AuthUser }) {
   return (
-    <div className="bg-raised px-4 py-3.5">
-      <dt className="text-2xs font-medium tracking-wider text-ink-3 uppercase">{label}</dt>
-      <dd className="display mt-1 text-2xl text-ink tnum">{value}</dd>
-    </div>
+    <li>
+      <Link
+        to="/projects/$project/users/$id"
+        params={{ project, id: u.id }}
+        className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-4 py-2.5 transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk/60 sm:grid-cols-[1.75rem_minmax(0,1fr)_10rem_6.5rem]"
+      >
+        <Avatar name={u.name} />
+        <span className="min-w-0">
+          <span className="flex items-baseline gap-2">
+            <span className="truncate text-[0.9375rem] text-ink">{u.name}</span>
+            {u.banned && <span className="shrink-0 text-[0.8125rem] font-[550] text-danger">suspended</span>}
+          </span>
+          <span className="block truncate text-[0.8125rem] text-ink-3">
+            {u.email}
+            {!u.emailVerified && <span className="text-ink-3"> · not verified</span>}
+          </span>
+        </span>
+        <span className={cn("text-right text-[0.8125rem] sm:text-left", u.lastSeenAt ? "text-ink-2" : "text-ink-3")}>
+          {u.lastSeenAt ? seen(u.lastSeenAt) : "never signed in"}
+        </span>
+        <time className="hidden text-right text-[0.8125rem] text-ink-3 tnum sm:block" dateTime={u.createdAt} title={full(u.createdAt)}>
+          {shortDate(u.createdAt)}
+        </time>
+      </Link>
+    </li>
   );
 }
 
 function Pager({ page, total, onPage }: { page: number; total: number; onPage: (p: number) => void }) {
   const pages = Math.max(1, Math.ceil(total / PAGE));
-  if (total <= PAGE) return <p className="mt-3 text-sm text-ink-3">{num(total)} in all</p>;
+  if (total <= PAGE) return null;
   return (
-    <div className="mt-3 flex items-center justify-between text-sm text-ink-3">
-      <span>{num(total)} in all</span>
+    <div className="mt-3 flex items-center justify-between text-[0.8125rem] text-ink-3">
+      <span className="tnum">
+        {int((page - 1) * PAGE + 1)}–{int(Math.min(total, page * PAGE))} of {int(total)}
+      </span>
       <span className="flex items-center gap-1">
         <Button size="icon-sm" variant="ghost" disabled={page <= 1} onClick={() => onPage(page - 1)} aria-label="Previous page">
           <ChevronLeft />
         </Button>
-        <span className="font-mono text-xs tnum">
+        <span className="px-1 tnum">
           {page} / {pages}
         </span>
         <Button size="icon-sm" variant="ghost" disabled={page >= pages} onClick={() => onPage(page + 1)} aria-label="Next page">
@@ -214,21 +261,13 @@ function Pager({ page, total, onPage }: { page: number; total: number; onPage: (
 }
 
 function device(ua: string | null) {
-  if (!ua) return "Unknown device";
-  const os = /iPhone/.test(ua)
-    ? "iPhone"
-    : /Android/.test(ua)
-      ? "Android"
-      : /Mac OS X/.test(ua)
-        ? "Mac"
-        : /Windows/.test(ua)
-          ? "Windows"
-          : /Linux/.test(ua)
-            ? "Linux"
-            : "Device";
-  const br = /Firefox/.test(ua) ? "Firefox" : /Chrome/.test(ua) ? "Chrome" : /Safari/.test(ua) ? "Safari" : "browser";
+  if (!ua) return "An unknown device";
+  const os = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android" : /Mac OS X/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows" : /Linux/.test(ua) ? "Linux" : "a device";
+  const br = /Edg\//.test(ua) ? "Edge" : /Firefox/.test(ua) ? "Firefox" : /Chrome/.test(ua) ? "Chrome" : /Safari/.test(ua) ? "Safari" : /curl|bun|node/i.test(ua) ? "A script" : "A browser";
   return `${br} on ${os}`;
 }
+
+// ------------------------------------------------------------------ one user
 
 export function UserPage({ project, id }: { project: string; id: string }) {
   const qc = useQueryClient();
@@ -239,12 +278,35 @@ export function UserPage({ project, id }: { project: string; id: string }) {
   const [reason, setReason] = useState("");
   const [revoking, setRevoking] = useState(false);
   const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["auth-user", project, id] });
-    qc.invalidateQueries({ queryKey: ["auth-users", project] });
-    qc.invalidateQueries({ queryKey: ["auth", project] });
+    void qc.invalidateQueries({ queryKey: ["auth-user", project, id] });
+    void qc.invalidateQueries({ queryKey: ["auth-users", project] });
+    void qc.invalidateQueries({ queryKey: ["auth", project] });
   };
-  const ban = useMutation({ mutationFn: () => mod3.ban(project, id, reason.trim()), onSuccess: () => (setBanning(false), refresh()) });
-  const unban = useMutation({ mutationFn: () => mod3.unban(project, id), onSuccess: refresh });
+  const unbanNow = async () => {
+    await mod3.unban(project, id);
+    refresh();
+  };
+  const ban = useMutation({
+    mutationFn: () => mod3.ban(project, id, reason.trim()),
+    onSuccess: (r) => {
+      setBanning(false);
+      setReason("");
+      refresh();
+      toast({
+        title: `Suspended ${d.data?.user.name ?? "them"}.`,
+        detail: r.sessionsRevoked ? `${countWords(r.sessionsRevoked, "session")} ended. Undo lets them sign in again.` : "Undo lets them sign in again.",
+        action: { label: "Undo", run: unbanNow },
+      });
+    },
+  });
+  const unban = useMutation({
+    mutationFn: () => mod3.unban(project, id),
+    onSuccess: () => {
+      refresh();
+      toast({ title: `${d.data?.user.name ?? "They"} can sign in again.` });
+    },
+    onError: (e) => toast({ title: "Couldn’t lift the suspension.", detail: err(e), tone: "danger" }),
+  });
   if (d.isPending)
     return (
       <Page wide>
@@ -254,170 +316,185 @@ export function UserPage({ project, id }: { project: string; id: string }) {
   if (d.isError)
     return (
       <Page wide>
-        <ProblemNote error={d.error} />
+        <ProblemNote error={d.error} title={d.error instanceof ApiError && d.error.status === 404 ? "There’s no user with that ID" : undefined} />
       </Page>
     );
   const { user: u, sessions, accounts, memberships, apiKeys, passkeys } = d.data;
   const writer = can("apply:reversible");
+  const live = [...(sessions ?? [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const latest = live[0];
+  let said: ReactNode;
+  if (u.banned)
+    said = (
+      <>
+        Suspended{u.banReason ? `: “${u.banReason}”` : ""}. {u.banExpires ? `Until ${full(u.banExpires)}.` : "They can’t sign in until you lift it."}
+      </>
+    );
+  else
+    said = latest ? (
+      <>
+        Joined {relative(u.createdAt)}; last seen {seen(latest.updatedAt)}, in {device(latest.userAgent).replace(/^A /, "a ")}.
+      </>
+    ) : (
+      <>Joined {relative(u.createdAt)}. Not signed in anywhere right now.</>
+    );
+  const ways: Array<[string, ReactNode]> = [
+    ...(accounts ?? []).map((a): [string, ReactNode] => [
+      a.providerId + a.accountId,
+      a.providerId === "credential" ? "Email and password" : a.providerId.charAt(0).toUpperCase() + a.providerId.slice(1),
+    ]),
+    ...(passkeys > 0 ? ([["passkeys", countWords(passkeys, "passkey")]] as Array<[string, ReactNode]>) : []),
+    ...(u.twoFactorEnabled ? ([["2fa", "Two-factor codes, as a second step"]] as Array<[string, ReactNode]>) : []),
+    ...((apiKeys ?? []).length ? ([["keys", `${countWords((apiKeys ?? []).length, "API key")} for scripts`]] as Array<[string, ReactNode]>) : []),
+  ];
+
   return (
     <Page wide>
-      <Link to="/projects/$project/users" params={{ project }} className="inline-flex items-center gap-1.5 text-sm text-ink-3 hover:text-ink">
-        <ArrowLeft className="size-3.5" /> Users
-      </Link>
-      <header className="mt-5 flex flex-col gap-5 sm:flex-row sm:items-center">
-        <Avatar name={u.name} className="size-14 text-lg" />
-        <div className="min-w-0 flex-1">
-          <h1 className="display text-3xl text-ink">{u.name}</h1>
-          <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-ink-3">
+      <Header
+        project={project}
+        tabs={false}
+        crumbs={[{ label: "Users", to: "/projects/$project/users", params: { project } }]}
+        title={
+          <span className="flex items-center gap-3">
+            <Avatar name={u.name} big />
+            {u.name}
+          </span>
+        }
+        lede={
+          <>
             {u.email}
-            {u.emailVerified ? (
-              <span className="inline-flex items-center gap-1 text-ink-2">
-                <BadgeCheck className="size-3.5" /> verified
-              </span>
-            ) : (
-              <span>not verified</span>
-            )}
-            {u.twoFactorEnabled && (
-              <span className="inline-flex items-center gap-1 text-ink-2">
-                <ShieldCheck className="size-3.5" /> two-factor
-              </span>
-            )}
-            <span>· joined {relative(u.createdAt)}</span>
-          </p>
-        </div>
-        {writer && (
-          <div className="flex flex-wrap gap-2">
-            {(sessions ?? []).length > 0 && (
-              <Button variant="ghost" onClick={() => setRevoking(true)}>
-                <LogOut />
-                Sign out everywhere
-              </Button>
-            )}
-            {u.banned ? (
-              <Button onClick={() => unban.mutate()} disabled={unban.isPending}>
-                <ShieldCheck />
-                Lift suspension
-              </Button>
-            ) : (
-              <Button variant="danger-quiet" onClick={() => setBanning(true)}>
-                <ShieldOff />
-                Suspend…
-              </Button>
-            )}
-          </div>
-        )}
-      </header>
-      {u.banned && (
-        <div className="mt-6 rounded-xl border border-irr-rule bg-irr-wash px-5 py-3.5 text-base text-ink">
-          <span className="font-medium">Suspended.</span> {u.banReason ? `“${u.banReason}”` : "No reason given."}
-          {u.banExpires ? ` Until ${full(u.banExpires)}.` : " Until lifted."} They can't sign in, and their sessions were ended.
-        </div>
-      )}
+            <span className="text-ink-3">{u.emailVerified ? " · verified" : " · not verified yet"}</span>
+          </>
+        }
+        actions={
+          writer ? (
+            <>
+              {live.length > 0 && (
+                <Button variant="secondary" onClick={() => setRevoking(true)}>
+                  Sign out everywhere…
+                </Button>
+              )}
+              {u.banned ? (
+                <Button variant="secondary" onClick={() => unban.mutate()} disabled={unban.isPending}>
+                  Lift the suspension
+                </Button>
+              ) : (
+                !banning && (
+                  <Button variant="danger-quiet" onClick={() => setBanning(true)}>
+                    Suspend…
+                  </Button>
+                )
+              )}
+            </>
+          ) : undefined
+        }
+      />
+      <StateSentence className="mt-6">{said}</StateSentence>
       {banning && (
         <form
-          className="mt-6 flex animate-pop flex-col gap-2 rounded-xl border border-irr-rule bg-raised p-4 sm:flex-row"
+          className="mt-5 max-w-[40rem] animate-pop rounded-[10px] border border-danger-rule bg-paper-raised px-4 py-3.5 shadow-raised"
           onSubmit={(e) => {
             e.preventDefault();
             ban.mutate();
           }}
         >
-          <Input
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Why (only you and your team see this)"
-            autoFocus
-            aria-label="Reason"
-          />
-          <Button type="submit" variant="danger" disabled={ban.isPending}>
-            Suspend and sign out
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => setBanning(false)}>
-            Cancel
-          </Button>
+          <p className="text-[0.9375rem] text-ink">Suspend {u.name}?</p>
+          <p className="mt-0.5 text-[0.84375rem] text-ink-2">
+            They’re signed out of {countWords(live.length, "session")} now and can’t sign in until you lift it. Nothing they made is deleted.
+          </p>
+          <Input className="mt-3" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why (only you and your team see this)" autoFocus aria-label="Reason" />
+          <div className="mt-3 flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setBanning(false)}>
+              Keep them
+            </Button>
+            <Button type="submit" variant="danger" disabled={ban.isPending}>
+              Suspend and sign out
+            </Button>
+          </div>
+          {ban.isError && <ProblemNote className="mt-3" error={ban.error} />}
         </form>
       )}
-      {(ban.isError || unban.isError) && <ProblemNote className="mt-4" error={ban.error ?? unban.error} />}
 
-      <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+      <div className="mt-10 grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         <section aria-labelledby="sess">
-          <h2 id="sess" className="display-italic mb-3 text-xl text-ink">
-            Signed in on
-          </h2>
-          {(sessions ?? []).length === 0 ? (
-            <p className="text-base text-ink-3">No active sessions.</p>
+          <Label id="sess">Signed in on</Label>
+          {live.length === 0 ? (
+            <p className="border-y border-rule py-4 text-[0.875rem] text-ink-3">Nowhere right now.</p>
           ) : (
-            <ul className="divide-y divide-rule overflow-hidden rounded-xl border border-rule bg-raised/60">
-              {(sessions ?? []).map((s) => (
-                <li key={s.id} className="flex items-center gap-3 px-4 py-3">
-                  <span className="size-2 rounded-full bg-rev" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-base text-ink">{device(s.userAgent)}</span>
-                    <span className="block text-xs text-ink-3">
-                      {s.ipAddress ?? "unknown IP"} · signed in {relative(s.createdAt)} · active {relative(s.updatedAt)}
+            <ul className="divide-y divide-rule border-y border-rule">
+              {live.map((s, i) => (
+                <li key={s.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 py-2.5">
+                  <span className="min-w-0">
+                    <span className="block text-[0.9375rem] text-ink">
+                      {device(s.userAgent)}
+                      {i === 0 && <span className="ml-2 text-[0.8125rem] text-ink-3">most recent</span>}
+                    </span>
+                    <span className="block truncate text-[0.8125rem] text-ink-3">
+                      <span className="font-mono text-[0.75rem]">{s.ipAddress ?? "no address"}</span> · signed in {seen(s.createdAt)} · active {seen(s.updatedAt)}
                     </span>
                   </span>
-                  <span className="text-xs text-ink-3">ends {relative(s.expiresAt)}</span>
+                  <span className="text-[0.8125rem] text-ink-3" title={full(s.expiresAt)}>
+                    ends {relative(s.expiresAt)}
+                  </span>
                 </li>
               ))}
             </ul>
           )}
         </section>
-        <div className="flex flex-col gap-8">
+        <div className="flex flex-col gap-10">
           <section aria-labelledby="how">
-            <h2 id="how" className="display-italic mb-3 text-xl text-ink">
-              Signs in with
-            </h2>
-            <ul className="flex flex-wrap gap-2">
-              {(accounts ?? []).map((a) => (
-                <li key={a.providerId + a.accountId} className="rounded-lg border border-rule bg-raised/60 px-3 py-1.5 text-sm text-ink">
-                  {a.providerId === "credential" ? "Email and password" : a.providerId}
+            <Label id="how">Signs in with</Label>
+            <ul className="divide-y divide-rule border-y border-rule">
+              {ways.map(([k, v]) => (
+                <li key={k} className="py-2.5 text-[0.9375rem] text-ink">
+                  {v}
                 </li>
               ))}
-              {passkeys > 0 && (
-                <li className="inline-flex items-center gap-1.5 rounded-lg border border-rule bg-raised/60 px-3 py-1.5 text-sm text-ink">
-                  <KeyRound className="size-3.5" /> {passkeys} passkey{passkeys === 1 ? "" : "s"}
-                </li>
-              )}
-              {(apiKeys ?? []).length > 0 && (
-                <li className="rounded-lg border border-rule bg-raised/60 px-3 py-1.5 text-sm text-ink">{(apiKeys ?? []).length} API keys</li>
-              )}
+              {ways.length === 0 && <li className="py-2.5 text-[0.875rem] text-ink-3">No sign-in method on record.</li>}
             </ul>
           </section>
           <section aria-labelledby="orgs">
-            <h2 id="orgs" className="display-italic mb-3 text-xl text-ink">
-              Organizations
-            </h2>
+            <Label id="orgs">Organizations</Label>
             {(memberships ?? []).length === 0 ? (
-              <p className="text-base text-ink-3">None.</p>
+              <p className="border-y border-rule py-4 text-[0.875rem] text-ink-3">Not in any.</p>
             ) : (
-              <ul className="flex flex-col gap-2">
+              <ul className="divide-y divide-rule border-y border-rule">
                 {(memberships ?? []).map((m) => (
                   <li key={m.organizationId}>
                     <Link
                       to="/projects/$project/orgs/$id"
                       params={{ project, id: m.organizationId }}
-                      className="flex items-center gap-3 rounded-lg border border-rule bg-raised/60 px-3 py-2 hover:border-rule-strong"
+                      className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 py-2.5 transition-colors hover:bg-paper-sunk/60"
                     >
-                      <Avatar name={m.name} round={false} className="size-7" />
-                      <span className="flex-1 text-base text-ink">{m.name}</span>
-                      <span className="text-sm text-ink-3">{m.role}</span>
+                      <Avatar name={m.name} square />
+                      <span className="truncate text-[0.9375rem] text-ink">{m.name}</span>
+                      <span className={cn("text-[0.8125rem]", m.role === "owner" ? "text-ink" : "text-ink-3")}>{m.role}</span>
                     </Link>
                   </li>
                 ))}
               </ul>
             )}
           </section>
+          <dl className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 gap-y-1 text-[0.8125rem]">
+            <dt className="text-ink-3">User ID</dt>
+            <dd className="font-mono text-[0.75rem] text-ink-2">{u.id}</dd>
+            <dt className="text-ink-3">Joined</dt>
+            <dd className="text-ink-2">{longDate(u.createdAt)}</dd>
+          </dl>
         </div>
       </div>
       <Confirm
         open={revoking}
         onClose={() => setRevoking(false)}
         title={`Sign ${u.name} out everywhere?`}
-        body="Every session ends now. They can sign in again unless suspended."
+        body={`${countWords(live.length, "session")} end${live.length === 1 ? "s" : ""} now. They can sign in again straight away unless you suspend them.`}
         action="Sign out everywhere"
         tone="normal"
         run={() => mod3.revokeSessions(project, id)}
-        done={refresh}
+        done={() => {
+          refresh();
+          toast({ title: `Signed ${u.name} out everywhere.` });
+        }}
       />
     </Page>
   );
@@ -435,46 +512,56 @@ export function OrgsPage({ project, search = "" }: { project: string; search?: s
   return (
     <Page wide>
       <Header project={project} title="Organizations" lede="Teams your users create in your app, with their members, roles and open invitations." />
-      <div className="mt-8 flex items-center gap-2 rounded-lg border border-rule bg-paper px-3 focus-within:border-brass">
-        <Search className="size-4 text-ink-4" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search by name or slug"
-          aria-label="Search organizations"
-          className="h-10 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-ink-4"
-        />
+      <div className="mt-8 flex items-center justify-between gap-4">
+        <SearchBox value={q} onChange={setQ} label="Search organizations" placeholder="Search by name or slug" />
+        <span className="shrink-0 text-[0.8125rem] text-ink-3 tnum max-sm:hidden">{list.isSuccess && `${int(list.data?.total ?? orgs.length)} in all`}</span>
       </div>
       {list.isError && <ProblemNote className="mt-4" error={list.error} />}
-      <ul className="mt-3 grid gap-3 sm:grid-cols-2">
-        {orgs.map((o) => (
-          <li key={o.id}>
-            <Link
-              to="/projects/$project/orgs/$id"
-              params={{ project, id: o.id }}
-              className="flex items-center gap-3 rounded-xl border border-rule bg-raised/60 px-4 py-3.5 transition-colors hover:border-rule-strong hover:bg-raised"
-            >
-              <Avatar name={o.name} round={false} className="size-10" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-md font-medium text-ink">{o.name}</span>
-                <span className="block truncate text-sm text-ink-3">
-                  <span className="font-mono text-xs">{o.slug}</span> · {num(o.memberCount ?? 0)} members
-                  {o.pendingInvitations ? ` · ${o.pendingInvitations} invited` : ""}
+      <div className="mt-4">
+        <div aria-hidden className="label hidden grid-cols-[1.75rem_minmax(0,1fr)_7rem_7rem_6.5rem] gap-x-4 pb-2 sm:grid">
+          <span />
+          <span>Organization</span>
+          <span className="text-right">Members</span>
+          <span className="text-right">Invited</span>
+          <span className="text-right">Created</span>
+        </div>
+        <ul className="divide-y divide-rule border-y border-rule-2">
+          {orgs.map((o) => (
+            <li key={o.id}>
+              <Link
+                to="/projects/$project/orgs/$id"
+                params={{ project, id: o.id }}
+                className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-4 py-2.5 transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk/60 sm:grid-cols-[1.75rem_minmax(0,1fr)_7rem_7rem_6.5rem]"
+              >
+                <Avatar name={o.name} square />
+                <span className="min-w-0">
+                  <span className="block truncate text-[0.9375rem] text-ink">{o.name}</span>
+                  <span className="block truncate font-mono text-[0.75rem] text-ink-3">{o.slug}</span>
                 </span>
-              </span>
-              <ChevronRight className="size-4 text-ink-4" />
-            </Link>
-          </li>
-        ))}
-      </ul>
-      {list.isSuccess && orgs.length === 0 && (
-        <Empty className="mt-3" icon={<Building2 />} title={search ? "Nothing matches that" : "No organizations yet"}>
-          {!search && "When users create a team in your app, it shows up here."}
-        </Empty>
-      )}
+                <span className="text-right text-[0.875rem] text-ink tnum">
+                  {int(o.memberCount ?? 0)}
+                  <span className="text-[0.8125rem] text-ink-3 sm:hidden"> {(o.memberCount ?? 0) === 1 ? "member" : "members"}</span>
+                </span>
+                <span className={cn("hidden text-right text-[0.875rem] tnum sm:block", o.pendingInvitations ? "text-ink" : "text-ink-4")}>{int(o.pendingInvitations ?? 0)}</span>
+                <time className="hidden text-right text-[0.8125rem] text-ink-3 tnum sm:block" title={full(o.createdAt)}>
+                  {shortDate(o.createdAt)}
+                </time>
+              </Link>
+            </li>
+          ))}
+          {list.isSuccess && orgs.length === 0 && (
+            <li className="py-10 text-center">
+              <p className="text-md text-ink">{search ? "Nothing matches that." : "No organizations yet."}</p>
+              {!search && <p className="mt-1 text-[0.875rem] text-ink-3">When users create a team in your app, it shows up here.</p>}
+            </li>
+          )}
+        </ul>
+      </div>
     </Page>
   );
 }
+
+const roleOrder = ["owner", "admin", "member", "viewer"];
 
 export function OrgPage({ project, id }: { project: string; id: string }) {
   const d = useQuery({ queryKey: ["auth-org", project, id], queryFn: () => mod3.org(project, id) });
@@ -492,69 +579,79 @@ export function OrgPage({ project, id }: { project: string; id: string }) {
       </Page>
     );
   const { organization: o, members, invitations, inviteLinks } = d.data;
-  const roleOrder = ["owner", "admin", "member", "viewer"];
-  const sorted = [...(members ?? [])].sort((a, b) => roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role));
+  const sorted = [...(members ?? [])].sort((a, b) => roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role) || a.createdAt.localeCompare(b.createdAt));
+  const pending = (invitations ?? []).filter((i) => i.status === "pending");
+  const links = (inviteLinks ?? []).filter((l) => !l.revokedAt);
+  const owners = sorted.filter((m) => m.role === "owner").map((m) => m.name);
   return (
     <Page wide>
-      <Link to="/projects/$project/orgs" params={{ project }} className="inline-flex items-center gap-1.5 text-sm text-ink-3 hover:text-ink">
-        <ArrowLeft className="size-3.5" /> Organizations
-      </Link>
-      <header className="mt-5 flex items-center gap-4">
-        <Avatar name={o.name} round={false} className="size-14 text-lg" />
-        <div>
-          <h1 className="display text-3xl text-ink">{o.name}</h1>
-          <p className="mt-1 text-sm text-ink-3">
-            <span className="font-mono">{o.slug}</span> · created {relative(o.createdAt)}
-          </p>
-        </div>
-      </header>
+      <Header
+        project={project}
+        tabs={false}
+        crumbs={[{ label: "Organizations", to: "/projects/$project/orgs", params: { project } }]}
+        title={
+          <span className="flex items-center gap-3">
+            <Avatar name={o.name} square big />
+            {o.name}
+          </span>
+        }
+        lede={
+          <>
+            <span className="font-mono text-[0.8125rem]">{o.slug}</span>
+            <span className="text-ink-3"> · created {shortDate(o.createdAt)}</span>
+          </>
+        }
+      />
+      <StateSentence className="mt-6">
+        {countWords(sorted.length, "member", "members", true)}
+        {owners.length ? `, owned by ${owners.join(" and ")}` : ""}
+        {pending.length ? `; ${countWords(pending.length, "invitation")} waiting for an answer.` : "."}
+      </StateSentence>
       <section className="mt-10" aria-labelledby="mem">
-        <h2 id="mem" className="display-italic mb-3 text-xl text-ink">
-          Members
-        </h2>
-        <ul className="divide-y divide-rule overflow-hidden rounded-xl border border-rule bg-raised/60">
+        <Label id="mem">Members</Label>
+        <ul className="divide-y divide-rule border-y border-rule-2">
           {sorted.map((m) => (
             <li key={m.id}>
               <Link
                 to="/projects/$project/users/$id"
                 params={{ project, id: m.userId }}
-                className="flex items-center gap-3 px-4 py-3 hover:bg-hover/50"
+                className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-4 py-2.5 transition-colors hover:bg-paper-sunk/60 sm:grid-cols-[1.75rem_minmax(0,1fr)_6rem_8rem]"
               >
                 <Avatar name={m.name} />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-base text-ink">{m.name}</span>
-                  <span className="block truncate text-sm text-ink-3">{m.email}</span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[0.9375rem] text-ink">{m.name}</span>
+                  <span className="block truncate text-[0.8125rem] text-ink-3">{m.email}</span>
                 </span>
-                <span
-                  className={cn("rounded-full px-2.5 py-0.5 text-xs", m.role === "owner" ? "bg-brass-wash text-brass-ink" : "bg-hover text-ink-2")}
-                >
-                  {m.role}
-                </span>
-                <span className="hidden w-28 text-right text-xs text-ink-3 sm:block">since {relative(m.createdAt)}</span>
+                <span className={cn("text-right text-[0.8125rem] sm:text-left", m.role === "owner" ? "font-[550] text-ink" : "text-ink-2")}>{m.role}</span>
+                <span className="hidden text-right text-[0.8125rem] text-ink-3 sm:block">since {shortDate(m.createdAt)}</span>
               </Link>
             </li>
           ))}
         </ul>
       </section>
-      {((invitations ?? []).length > 0 || (inviteLinks ?? []).length > 0) && (
+      {((invitations ?? []).length > 0 || links.length > 0) && (
         <section className="mt-10" aria-labelledby="inv">
-          <h2 id="inv" className="display-italic mb-3 text-xl text-ink">
-            Invited
-          </h2>
-          <ul className="divide-y divide-rule overflow-hidden rounded-xl border border-rule bg-raised/60">
+          <Label id="inv">Invited</Label>
+          <ul className="divide-y divide-rule border-y border-rule">
             {(invitations ?? []).map((i) => (
-              <li key={i.id} className="flex items-center gap-3 px-4 py-3">
-                <span className="min-w-0 flex-1">
-                  <span className="block text-base text-ink">{i.email}</span>
-                  <span className="block text-xs text-ink-3">
-                    as {i.role} · {i.status} · sent {relative(i.createdAt)} · expires {relative(i.expiresAt)}
+              <li key={i.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 py-2.5">
+                <span className="min-w-0">
+                  <span className="block truncate text-[0.9375rem] text-ink">{i.email}</span>
+                  <span className="block text-[0.8125rem] text-ink-3">
+                    as {i.role} · sent {seen(i.createdAt)}
                   </span>
+                </span>
+                <span className={cn("text-[0.8125rem]", i.status === "pending" ? "text-ink-2" : "text-ink-3")} title={full(i.expiresAt)}>
+                  {i.status === "pending" ? `expires ${relative(i.expiresAt)}` : i.status}
                 </span>
               </li>
             ))}
-            {(inviteLinks ?? []).map((l) => (
-              <li key={l.id} className="flex items-center gap-3 px-4 py-3 text-sm text-ink-2">
-                Invite link for {l.role}s · used {l.uses} of {l.maxUses || "∞"} · {l.revokedAt ? "revoked" : `expires ${relative(l.expiresAt)}`}
+            {links.map((l) => (
+              <li key={l.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 py-2.5">
+                <span className="text-[0.9375rem] text-ink">
+                  An invite link for {l.role}s <span className="text-[0.8125rem] text-ink-3">· used {int(l.uses)} of {l.maxUses ? int(l.maxUses) : "unlimited"}</span>
+                </span>
+                <span className="text-[0.8125rem] text-ink-2">expires {relative(l.expiresAt)}</span>
               </li>
             ))}
           </ul>

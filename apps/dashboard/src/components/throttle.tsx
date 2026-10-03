@@ -29,6 +29,7 @@ export function Throttle({
   size = "full",
   unit = "instances",
   readout,
+  format = int,
   className,
 }: {
   label: string;
@@ -45,6 +46,8 @@ export function Throttle({
   unit?: string;
   /** Shown under a full throttle; update it from onChange. */
   readout?: ReactNode;
+  /** How a stop is printed and read aloud (default: the number). E.g. a 0 stop that means "no limit". */
+  format?: (n: number) => string;
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -139,7 +142,7 @@ export function Throttle({
             aria-hidden
           >
             <i />
-            <b>{int(s)}</b>
+            <b>{format(s)}</b>
           </span>
         ))}
         {staged && <span className="th-was" style={{ left: pos(indexOf(applied!)) }} aria-hidden />}
@@ -150,7 +153,7 @@ export function Throttle({
           aria-valuemin={stops[0]}
           aria-valuemax={stops[lastFit]}
           aria-valuenow={stops[idx]}
-          aria-valuetext={`${stops[idx]} ${unit}${staged ? `, staged (now ${applied})` : ""}`}
+          aria-valuetext={`${format(stops[idx])} ${unit}${staged ? `, staged (now ${format(applied!)})` : ""}`}
           className={cn("th-knob")}
           data-staged={staged ? "" : undefined}
           style={{ left: pos(idx) }}

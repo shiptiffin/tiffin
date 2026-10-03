@@ -1,29 +1,33 @@
-import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { ArrowDownRight, ArrowUpRight, BarChart3 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
+import { useMemo, useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
-import { mod2, type AnalyticsCount, type AnalyticsEvent, type Period } from "@/api/modules";
-import { AreaChart, type Point } from "@/components/chart";
+import { mod2, mod3, type AnalyticsCount, type AnalyticsEvent, type AnalyticsOverview, type Period } from "@/api/modules";
+import { q as api } from "@/api/queries";
+import { VisitsChart, type Bucket, type Marker } from "@/components/analytics-chart";
 import { CopyButton } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
-import { Empty, Page, PageHeader, Skeleton, NotOnBox } from "@/components/page";
+import { StateSentence } from "@/components/jobs-words";
+import { Crumbs, NotOnBox, Page, PageHeader, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { cn } from "@/lib/cn";
-import { num } from "@/lib/format";
+import { dec, int, MINUS, NNBSP, pct } from "@/lib/format";
 
-const periods: Array<{ v: Period; label: string }> = [
-  { v: "today", label: "Today" },
-  { v: "24h", label: "24 hours" },
-  { v: "7d", label: "7 days" },
-  { v: "30d", label: "30 days" },
-  { v: "90d", label: "90 days" },
-  { v: "12mo", label: "12 months" },
+const periods: Array<{ v: Period; label: string; short: string; words: string; before: string }> = [
+  { v: "today", label: "Today", short: "Today", words: "today so far", before: "yesterday" },
+  { v: "24h", label: "24 hours", short: "24 h", words: "in the last 24 hours", before: "the 24 hours before" },
+  { v: "7d", label: "7 days", short: "7 d", words: "in the last 7 days", before: "the 7 days before" },
+  { v: "30d", label: "30 days", short: "30 d", words: "in the last 30 days", before: "the 30 days before" },
+  { v: "90d", label: "90 days", short: "90 d", words: "in the last 90 days", before: "the 90 days before" },
+  { v: "12mo", label: "12 months", short: "12 mo", words: "in the last 12 months", before: "the year before" },
 ];
 
 type Metric = "visitors" | "pageviews";
 
-const regions = typeof Intl.DisplayNames === "function" ? new Intl.DisplayNames(undefined, { type: "region" }) : null;
+/** Below this many visitors in the period before, a percentage change is noise, not news. */
+const MIN_BASELINE = 20;
+
+const regions = typeof Intl.DisplayNames === "function" ? new Intl.DisplayNames(["en-GB"], { type: "region" }) : null;
 const country = (code: string) => {
   try {
     return (code && regions?.of(code)) || code || "Unknown";
@@ -31,197 +35,168 @@ const country = (code: string) => {
     return code;
   }
 };
+const dayFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
 
-function secs(s: number) {
-  if (!s) return "0 s";
+/** 61.8 → "1 min 2 s", 9 → "9 s", 754 → "13 min". */
+function visitLength(s: number) {
+  if (!s) return `0${NNBSP}s`;
+  if (s < 60) return `${int(s)}${NNBSP}s`;
   const m = Math.floor(s / 60);
-  if (m >= 10) return `${Math.round(s / 60)} min`;
-  return m ? `${m} min ${Math.round(s % 60)} s` : `${Math.round(s)} s`;
+  const rest = Math.round(s % 60);
+  if (m >= 10 || rest === 0) return `${int(s / 60)}${NNBSP}min`;
+  return `${m}${NNBSP}min ${rest}${NNBSP}s`;
 }
 
-/** Below this many visitors before, a percentage change is noise, not news. */
-const MIN_BASELINE = 20;
+/** A change against a real baseline, or nothing at all. */
+function change(v: number, prev: number, base: number, points?: boolean): string | null {
+  if (base < MIN_BASELINE) return null;
+  if (points) {
+    const d = Math.round((v - prev) * 100);
+    return d === 0 ? "same as before" : `${d > 0 ? "+" : MINUS}${Math.abs(d)} pts`;
+  }
+  if (!prev) return null;
+  const r = (v - prev) / prev;
+  if (Math.abs(r) < 0.005) return "same as before";
+  if (r >= 2) return `${dec(v / prev, 1)}×`;
+  return `${r > 0 ? "+" : MINUS}${pct(Math.abs(r))}`;
+}
 
 export function AnalyticsPage({ project, period = "7d" }: { project: string; period?: string }) {
   useTitle(`${project} · Analytics`);
   const navigate = useNavigate();
-  const p = (periods.some((x) => x.v === period) ? period : "7d") as Period;
+  const per = periods.find((x) => x.v === period) ?? periods[2];
+  const p = per.v;
   const [metric, setMetric] = useState<Metric>("visitors");
-  const o = useQuery({
-    queryKey: ["analytics", project, p],
-    queryFn: () => mod2.analytics(project, p),
-    refetchInterval: 60_000,
-    placeholderData: (d) => d,
-  });
+  const o = useQuery({ queryKey: ["analytics", project, p], queryFn: () => mod2.analytics(project, p), refetchInterval: 60_000, placeholderData: (d) => d });
   const rt = useQuery({ queryKey: ["analytics-rt", project], queryFn: () => mod2.realtime(project), refetchInterval: 15_000 });
   const ev = useQuery({ queryKey: ["analytics-ev", project, p], queryFn: () => mod2.events(project, p) });
   const setup = useQuery({ queryKey: ["analytics-setup", project], queryFn: () => mod2.analyticsSetup(project), staleTime: Infinity });
+  const markers = useDeployMarkers(project);
 
   if (o.isError && notOnBox(o.error)) return <NotOnBox what="Analytics" />;
   const d = o.data;
   const now = rt.data?.visitorsNow ?? 0;
 
   return (
-    <Page full>
+    <Page wide>
       <PageHeader
-        eyebrow={
-          <Link to="/projects/$project" params={{ project }} className="font-mono hover:text-ink">
-            {project}
-          </Link>
-        }
+        eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params: { project } }]} />}
         title="Analytics"
-        lede="Counted at the box's own edge: no cookies, nothing sent anywhere else, and ad blockers can't hide a page view."
-        actions={
-          <span
-            className={cn(
-              "inline-flex h-9 items-center gap-2 rounded-full border px-3.5 text-sm",
-              now ? "border-rev/40 bg-rev-wash text-ink" : "border-rule text-ink-3",
-            )}
-          >
-            <span className={cn("size-2 rounded-full", now ? "animate-pulse bg-rev" : "bg-ink-4")} />
-            {num(now)} {now === 1 ? "visitor" : "visitors"} now
-          </span>
-        }
+        lede="Counted at the box’s own edge: no cookies, nothing sent anywhere else, and ad blockers can’t hide a page view."
       />
 
-      <div className="mt-8 flex flex-wrap gap-1 rounded-lg border border-rule bg-paper-sunk p-1 sm:inline-flex" role="radiogroup" aria-label="Period">
-        {periods.map((x) => (
-          <button
-            key={x.v}
-            role="radio"
-            aria-checked={p === x.v}
-            onClick={() => navigate({ to: "/projects/$project/analytics", params: { project }, search: x.v === "7d" ? {} : { period: x.v } })}
-            className={cn(
-              "h-8 rounded-md px-3 text-sm text-ink-3 transition-colors hover:text-ink",
-              p === x.v && "bg-raised text-ink shadow-[0_1px_2px_oklch(0_0_0/0.12)] ring-1 ring-rule",
-            )}
-          >
-            {x.label}
-          </button>
-        ))}
+      <div className="mt-8">{d ? <StateSentence>{sentenceFor(d, per)}</StateSentence> : <Skeleton className="h-8 w-[28rem] max-w-full" />}</div>
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <div role="radiogroup" aria-label="Period" className="inline-flex shrink-0 rounded-[8px] border border-rule-2 bg-paper-sunk p-0.5">
+          {periods.map((x) => (
+            <button
+              key={x.v}
+              role="radio"
+              aria-checked={p === x.v}
+              aria-label={x.label}
+              onClick={() => navigate({ to: "/projects/$project/analytics", params: { project }, search: x.v === "7d" ? {} : { period: x.v } })}
+              className={cn(
+                "h-7 rounded-[6px] px-2.5 text-[0.8125rem] whitespace-nowrap text-ink-3 transition-colors duration-[var(--dur-state)] hover:text-ink sm:px-3",
+                p === x.v && "bg-paper-raised font-[550] text-ink shadow-[0_1px_2px_oklch(0.3_0.02_60/0.12)] ring-1 ring-rule-2",
+              )}
+            >
+              <span className="sm:hidden">{x.short}</span>
+              <span className="max-sm:hidden">{x.label}</span>
+            </button>
+          ))}
+        </div>
+        <span className="inline-flex items-center gap-2 text-[0.84375rem] text-ink-2" aria-live="polite">
+          <span className={cn("relative size-2 rounded-full", now ? "bg-ok" : "bg-ink-4")}>
+            {now > 0 && <span aria-hidden className="absolute inset-0 animate-ping rounded-full bg-ok/50 motion-reduce:hidden" />}
+          </span>
+          {now ? `${int(now)} ${now === 1 ? "person" : "people"} on the site now` : "No one on the site right now"}
+        </span>
       </div>
 
-      {d && d.previous.visitors < MIN_BASELINE && d.totals.visitors > 0 && (
-        <p className="mt-3 text-sm text-ink-3 sm:mt-0 sm:ml-4 sm:inline-block">
-          {d.previous.visitors === 0 ? "Nothing earlier to compare with yet." : `Only ${num(d.previous.visitors)} visitors the period before: too few to compare.`}
-        </p>
-      )}
       {o.isError && <ProblemNote className="mt-6" error={o.error} />}
-      {o.isPending && <Skeleton className="mt-6 h-72" />}
+      {o.isPending && <Skeleton className="mt-8 h-80" />}
       {d && (
-        <>
-          <section className="mt-6 overflow-hidden rounded-xl border border-rule bg-raised/60">
-            <dl className="grid grid-cols-2 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2 border-b border-rule sm:grid-cols-5">
-              <Kpi
-                label="Visitors"
-                v={d.totals.visitors}
-                prev={d.previous.visitors}
-                base={d.previous.visitors}
-                fmt={num}
-                on={metric === "visitors"}
-                onClick={() => setMetric("visitors")}
-              />
-              <Kpi
-                label="Page views"
-                v={d.totals.pageviews}
-                prev={d.previous.pageviews}
-                base={d.previous.visitors}
-                fmt={num}
-                on={metric === "pageviews"}
-                onClick={() => setMetric("pageviews")}
-              />
-              <Kpi label="Views per visit" v={d.totals.viewsPerVisit} prev={d.previous.viewsPerVisit} base={d.previous.visitors} fmt={(v) => v.toFixed(1)} />
-              <Kpi
-                label="Bounce rate"
-                v={d.totals.bounceRate}
-                prev={d.previous.bounceRate}
-                base={d.previous.visitors}
-                fmt={(v) => `${Math.round(v * 100)}%`}
-                points
-                lowerIsBetter
-              />
-              <Kpi label="Visit duration" v={d.totals.avgSessionSeconds} prev={d.previous.avgSessionSeconds} base={d.previous.visitors} fmt={secs} />
-            </dl>
-            <div className="p-5">
-              {d.totals.pageviews === 0 ? (
-                <Empty icon={<BarChart3 />} title="No visits in this period" className="border-0">
-                  Page views show up here as soon as people open your apps.
-                </Empty>
-              ) : (
-                <AreaChart
-                  label={metric === "visitors" ? "Visitors" : "Page views"}
-                  points={(d.timeseries.points ?? []).map((x) => [new Date(x.t).getTime() / 1000, x[metric]] as Point)}
-                  format={(v) => num(Math.round(v))}
-                  height={220}
-                  tone="ink"
-                />
+        <div className={cn("transition-opacity", o.isPlaceholderData && "opacity-60")}>
+          <dl className="mt-6 grid grid-cols-2 border-y border-rule-2 sm:grid-cols-3 lg:grid-cols-5">
+            <Reading label="Visitors" value={int(d.totals.visitors)} delta={change(d.totals.visitors, d.previous.visitors, d.previous.visitors)} on={metric === "visitors"} onClick={() => setMetric("visitors")} />
+            <Reading label="Page views" value={int(d.totals.pageviews)} delta={change(d.totals.pageviews, d.previous.pageviews, d.previous.visitors)} on={metric === "pageviews"} onClick={() => setMetric("pageviews")} />
+            <Reading label="Views per visit" value={d.totals.visitors ? dec(d.totals.viewsPerVisit, 1) : "–"} delta={change(d.totals.viewsPerVisit, d.previous.viewsPerVisit, d.previous.visitors)} />
+            <Reading label="Bounce rate" value={d.totals.visitors ? pct(d.totals.bounceRate) : "–"} delta={change(d.totals.bounceRate, d.previous.bounceRate, d.previous.visitors, true)} />
+            <Reading label="Visit length" value={d.totals.visitors ? visitLength(d.totals.avgSessionSeconds) : "–"} delta={change(d.totals.avgSessionSeconds, d.previous.avgSessionSeconds, d.previous.visitors)} />
+          </dl>
+
+          <section className="mt-8" aria-label={metric === "visitors" ? "Visitors over time" : "Page views over time"}>
+            <div className="mb-5 flex items-baseline justify-between gap-3">
+              <h2 className="label">{metric === "visitors" ? "Visitors" : "Page views"} per {d.timeseries.granularity === "hour" ? "hour" : "day"}</h2>
+              {markers.length > 0 && (
+                <span className="flex items-center gap-1.5 text-[0.75rem] text-ink-3">
+                  <span aria-hidden className="h-3 w-px bg-ink-3/60" /> a deploy
+                </span>
               )}
             </div>
+            {d.totals.pageviews === 0 ? (
+              <p className="border-y border-rule py-10 text-center text-[0.875rem] text-ink-3">No visits {per.words}. Page views show up here as soon as people open your apps.</p>
+            ) : (
+              <VisitsChart buckets={bucketsOf(d)} step={d.timeseries.granularity === "hour" ? 3_600_000 : 86_400_000} metric={metric} markers={markers} now={rt.data ? new Date(rt.data.at).getTime() : undefined} />
+            )}
           </section>
 
-          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <div className="mt-14 grid gap-x-12 gap-y-12 lg:grid-cols-2">
             <Breakdown
               title="Pages"
+              total={d.totals.visitors}
               tabs={[
                 ["Top pages", d.pages],
-                ["Entry pages", d.entryPages],
+                ["Where visits start", d.entryPages],
               ]}
               mono
             />
             <Breakdown
               title="Sources"
+              total={d.totals.visitors}
               tabs={[
                 ["Referrers", d.sources],
                 ["UTM source", d.utmSources],
                 ["UTM campaign", d.utmCampaigns],
               ]}
-              empty="Direct visits, or none yet"
+              empty="Nothing yet: visits came directly, or from sites that don’t say where from."
+              fallback="Direct"
             />
-            <Breakdown title="Countries" tabs={[["Countries", (d.countries ?? []).map((c) => ({ ...c, value: country(c.value) }))]]} />
+            <Breakdown title="Countries" total={d.totals.visitors} tabs={[["Countries", (d.countries ?? []).map((c) => ({ ...c, value: country(c.value) }))]]} />
             <Breakdown
               title="Devices"
+              total={d.totals.visitors}
               tabs={[
-                ["Devices", d.devices],
+                ["Devices", (d.devices ?? []).map((c) => ({ ...c, value: c.value.charAt(0).toUpperCase() + c.value.slice(1) }))],
                 ["Browsers", d.browsers],
-                ["Systems", d.os],
+                ["Systems", (d.os ?? []).map((c) => ({ ...c, value: c.value === "Mac OS X" ? "macOS" : c.value }))],
               ]}
             />
           </div>
 
-          <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+          <div className="mt-14 grid gap-x-12 gap-y-12 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
             <Events data={ev.data?.events ?? []} visitors={d.totals.visitors} />
             <Realtime project={project} />
           </div>
-        </>
+        </div>
       )}
 
       {setup.data && (
-        <section className="mt-10 grid gap-6 lg:grid-cols-2" aria-labelledby="setup">
-          <div>
-            <h2 id="setup" className="display-italic mb-1 text-xl text-ink">
-              For single-page apps and custom events
+        <section className="mt-16 grid gap-x-12 gap-y-8 border-t border-rule pt-10 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]" aria-labelledby="setup">
+          <div className="min-w-0">
+            <h2 id="setup" className="label">
+              Single-page apps and custom events
             </h2>
-            <p className="mb-3 text-sm text-ink-3">
-              Page views need nothing. Add the 1.3 KB script for client-side navigation, outbound links and events.
-            </p>
+            <p className="mt-2 mb-4 text-[0.875rem] text-ink-2">Page views need nothing. Add the 1.3 KB script for client-side navigation, outbound links and events.</p>
             <CodeBox code={setup.data.snippet} name="index.html" />
-            <CodeBox
-              className="mt-3"
-              code={`// in the browser\n${setup.data.browser}\n\n// on the server\n${setup.data.track.replace("; ", ";\n")}`}
-              name="track.ts"
-            />
+            <CodeBox className="mt-3" code={`// in the browser\n${setup.data.browser}\n\n// on the server\n${setup.data.track.replace("; ", ";\n")}`} name="track.ts" />
           </div>
-          <div className="rounded-xl border border-rule bg-raised/60 p-5">
-            <h3 className="text-base font-medium text-ink">What's stored, and what isn't</h3>
-            <p className="mt-2 text-sm text-ink-2">{setup.data.privacy}</p>
-            <p className="mt-4 text-sm text-ink-3">
+          <div>
+            <h3 className="label">What’s stored, and what isn’t</h3>
+            <p className="mt-2 text-[0.875rem] text-ink-2">{setup.data.privacy}</p>
+            <p className="mt-4 text-[0.8125rem] text-ink-3">
               Countries come from{" "}
-              <a
-                href="https://db-ip.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-brass-ink underline underline-offset-4 hover:text-ink"
-              >
+              <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer" className="text-brass-ink hover:underline hover:underline-offset-4">
                 IP Geolocation by DB-IP
               </a>{" "}
               (CC BY 4.0). Days are UTC.
@@ -230,7 +205,7 @@ export function AnalyticsPage({ project, period = "7d" }: { project: string; per
         </section>
       )}
       {!setup.data && (
-        <p className="mt-8 text-xs text-ink-3">
+        <p className="mt-10 text-xs text-ink-3">
           <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer" className="hover:text-ink">
             IP Geolocation by DB-IP
           </a>
@@ -240,57 +215,72 @@ export function AnalyticsPage({ project, period = "7d" }: { project: string; per
   );
 }
 
-function Kpi({
-  label,
-  v,
-  prev,
-  base,
-  fmt,
-  on,
-  onClick,
-  lowerIsBetter,
-  points,
-}: {
-  label: string;
-  v: number;
-  prev: number;
-  /** Visitors in the previous period: too few and there's nothing honest to compare. */
-  base: number;
-  fmt: (v: number) => string;
-  on?: boolean;
-  onClick?: () => void;
-  lowerIsBetter?: boolean;
-  /** Compare a rate in percentage points rather than as a percent of a percent. */
-  points?: boolean;
-}) {
-  const change = points ? v - prev : prev ? (v - prev) / prev : 0;
-  const better = lowerIsBetter ? change < 0 : change > 0;
+/** The period's state in one sentence, honest about the baseline. */
+function sentenceFor(d: AnalyticsOverview, per: (typeof periods)[number]): string {
+  const v = d.totals.visitors;
+  if (!v) return `No visits ${per.words}.`;
+  let s = `${int(v)} ${v === 1 ? "visitor" : "visitors"} ${per.words}`;
+  const pts = d.timeseries.points ?? [];
+  const first = pts.findIndex((x) => x.pageviews > 0);
+  if (d.previous.visitors === 0 && first > 0 && d.timeseries.granularity === "day") s += `, all since ${dayFmt.format(new Date(pts[first].t))}`;
+  if (d.previous.visitors >= MIN_BASELINE) {
+    const r = (v - d.previous.visitors) / d.previous.visitors;
+    if (Math.abs(r) < 0.01) s += `, about the same as ${per.before}`;
+    else if (r >= 2) s += `, ${dec(v / d.previous.visitors, 1)} times ${per.before}`;
+    else s += `, ${pct(Math.abs(r))} ${r > 0 ? "more" : "fewer"} than ${per.before}`;
+    return `${s}.`;
+  }
+  return d.previous.visitors === 0 ? `${s}. Nothing to compare with yet.` : `${s}. Only ${int(d.previous.visitors)} ${per.before}: too few to compare.`;
+}
+
+/** Every bucket from the period's start to its end, filled from the series (missing ones are zero). */
+function bucketsOf(d: AnalyticsOverview): Bucket[] {
+  const step = d.timeseries.granularity === "hour" ? 3_600_000 : 86_400_000;
+  const pts = d.timeseries.points ?? [];
+  const byT = new Map(pts.map((x) => [new Date(x.t).getTime(), x]));
+  const start = pts.length ? Math.min(new Date(d.from).getTime(), new Date(pts[0].t).getTime()) : new Date(d.from).getTime();
+  const alignedStart = pts.length ? new Date(pts[0].t).getTime() - Math.ceil((new Date(pts[0].t).getTime() - start) / step) * step : start;
+  const end = new Date(d.to).getTime();
+  const out: Bucket[] = [];
+  for (let t = alignedStart; t < end && out.length < 400; t += step) {
+    const x = byT.get(t);
+    out.push({ t, visitors: x?.visitors ?? 0, pageviews: x?.pageviews ?? 0 });
+  }
+  return out;
+}
+
+/** When each app went live, for the chart's markers. */
+function useDeployMarkers(project: string): Marker[] {
+  const m = useQuery({ ...api.manifest(project), retry: false, staleTime: 60_000 });
+  const apps = Object.keys(m.data?.manifest.apps ?? {});
+  const res = useQueries({ queries: apps.map((a) => ({ queryKey: ["deploys", project, a], queryFn: () => mod3.deploys(project, a), staleTime: 60_000, retry: false })) });
+  const all = res.flatMap((r) => r.data ?? []);
+  const key = all.map((x) => x.id).join(",");
+  return useMemo(
+    () =>
+      all
+        .filter((x) => !x.preview && (x.liveAt || (x.status === "live" && x.finishedAt)))
+        .map((x) => ({ t: new Date(x.liveAt ?? x.finishedAt!).getTime(), label: `${x.app} deployed` })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [key],
+  );
+}
+
+function Reading({ label, value, delta, on, onClick }: { label: string; value: string; delta: string | null; on?: boolean; onClick?: () => void }) {
   const Tag = onClick ? "button" : "div";
-  const big = !points && Math.abs(change) >= 2;
   return (
     <Tag
       onClick={onClick}
       aria-pressed={onClick ? on : undefined}
-      className={cn("relative px-5 py-4 text-left", onClick && "transition-colors hover:bg-hover/50", on && "bg-hover/60")}
+      className={cn(
+        "relative px-0 py-4 text-left sm:pr-6 [&:not(:first-child)]:max-sm:pl-0",
+        onClick && "transition-colors duration-[var(--dur-state)] hover:[&_dd]:text-ink",
+      )}
     >
-      {on && <span aria-hidden className="absolute inset-x-5 bottom-0 h-0.5 rounded-full bg-ink" />}
-      <dt className="text-2xs font-medium tracking-wider text-ink-3 uppercase">{label}</dt>
-      <dd className="display mt-1.5 text-2xl text-ink tnum">{fmt(v)}</dd>
-      <dd className="mt-0.5 flex items-center gap-1 text-xs text-ink-3 tnum">
-        {base < MIN_BASELINE ? (
-          <span aria-hidden>&nbsp;</span>
-        ) : Math.abs(change) < (points ? 0.005 : 0.005) ? (
-          "same as before"
-        ) : (
-          <>
-            {change >= 0 ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
-            <span className={cn(Math.abs(change) >= 0.05 && (better ? "text-ink" : "text-ink-2"))}>
-              {points ? `${Math.abs(Math.round(change * 100))} pts` : big ? `${(v / prev).toFixed(1)}×` : `${Math.abs(Math.round(change * 100))}%`}
-            </span>{" "}
-            vs before
-          </>
-        )}
-      </dd>
+      {on && <span aria-hidden className="absolute inset-x-0 -top-px h-[2px] bg-ink sm:right-6" />}
+      <dt className={on ? "label text-ink!" : "label"}>{label}</dt>
+      <dd className={cn("reading mt-1.5", on || !onClick ? "text-ink" : "text-ink-2")}>{value}</dd>
+      <dd className="mt-0.5 h-4 text-[0.75rem] text-ink-3 tnum">{delta ? `${delta}${/before/.test(delta) ? "" : " vs before"}` : ""}</dd>
     </Tag>
   );
 }
@@ -298,46 +288,65 @@ function Kpi({
 function Breakdown({
   title,
   tabs,
+  total,
   mono,
-  empty = "Nothing yet",
+  empty = "Nothing yet.",
+  fallback = "(none)",
 }: {
   title: string;
   tabs: Array<[string, AnalyticsCount[] | null]>;
+  total: number;
   mono?: boolean;
   empty?: string;
+  fallback?: string;
 }) {
   const [i, setI] = useState(0);
   const rows = tabs[i][1] ?? [];
-  const max = Math.max(1, ...rows.map((r) => r.visitors));
+  const id = `bd-${title.toLowerCase()}`;
   return (
-    <section className="overflow-hidden rounded-xl border border-rule bg-raised/60" aria-label={title}>
-      <div className="flex items-center gap-1 overflow-x-auto border-b border-rule px-3 pt-2 whitespace-nowrap [scrollbar-width:none]">
-        {tabs.map(([label], k) => (
-          <button
-            key={label}
-            onClick={() => setI(k)}
-            aria-pressed={i === k}
-            className={cn(
-              "relative h-9 px-2 text-sm text-ink-3 hover:text-ink",
-              i === k && "font-medium text-ink after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-ink",
-            )}
-          >
-            {label}
-          </button>
-        ))}
-        <span className="ml-auto pr-1 text-2xs tracking-wider text-ink-4 uppercase">Visitors</span>
+    <section aria-labelledby={id} className="min-w-0">
+      <div className="mb-2 flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
+        {tabs.length === 1 ? (
+          <h2 id={id} className="label">
+            {title}
+          </h2>
+        ) : (
+          <div role="tablist" aria-label={title} className="flex flex-wrap gap-x-3">
+            <h2 id={id} className="sr-only">
+              {title}
+            </h2>
+            {tabs.map(([label], k) => (
+              <button
+                key={label}
+                role="tab"
+                aria-selected={i === k}
+                onClick={() => setI(k)}
+                className={cn("label transition-colors hover:text-ink!", i === k && "text-ink!")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        <span className="text-[0.71875rem] text-ink-3">Visitors</span>
       </div>
-      <ul className="p-2">
-        {rows.length === 0 && <li className="px-3 py-6 text-center text-sm text-ink-3">{empty}</li>}
-        {rows.map((r) => (
-          <li key={r.value} className="relative flex items-center gap-3 rounded-md px-3 py-1.5 text-sm">
-            <span aria-hidden className="absolute inset-y-0.5 left-0 rounded-md bg-ink/[0.07]" style={{ width: `${(r.visitors / max) * 100}%` }} />
-            <span className={cn("relative min-w-0 flex-1 truncate text-ink", mono && "font-mono text-[0.8125rem]")} title={r.value}>
-              {r.value || (title === "Sources" ? "Direct" : "(none)")}
-            </span>
-            <span className="relative font-mono text-xs text-ink-2 tnum">{num(r.visitors)}</span>
-          </li>
-        ))}
+      <ul className="divide-y divide-rule border-y border-rule-2">
+        {rows.length === 0 && <li className="py-6 text-[0.84375rem] text-ink-3">{empty}</li>}
+        {rows.map((r) => {
+          const share = total ? r.visitors / total : 0;
+          return (
+            <li key={r.value} className="grid grid-cols-[minmax(0,1fr)_minmax(3rem,7rem)_3.25rem_2.75rem] items-center gap-x-3 py-2">
+              <span className={cn("min-w-0 truncate text-[0.875rem] text-ink", mono && "font-mono text-[0.78rem]")} title={r.value}>
+                {r.value || fallback}
+              </span>
+              <span aria-hidden className="h-1.5 overflow-hidden rounded-full bg-paper-sunk">
+                <span className="block h-full rounded-full bg-ink-2/70" style={{ width: `${Math.max(2, share * 100)}%` }} />
+              </span>
+              <span className="text-right text-[0.84375rem] text-ink tnum">{int(r.visitors)}</span>
+              <span className="text-right text-[0.75rem] text-ink-3 tnum">{pct(share)}</span>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
@@ -345,48 +354,45 @@ function Breakdown({
 
 function Events({ data, visitors }: { data: AnalyticsEvent[]; visitors: number }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-rule bg-raised/60" aria-labelledby="events">
-      <h2 id="events" className="border-b border-rule px-5 py-3 text-sm font-medium text-ink">
-        Custom events
-      </h2>
+    <section aria-labelledby="events" className="min-w-0">
+      <div className="mb-2 flex items-end justify-between gap-3">
+        <h2 id="events" className="label">
+          Custom events
+        </h2>
+        {data.length > 0 && (
+          <span className="grid grid-cols-[3.25rem_3.25rem_4.5rem] gap-x-3 text-right text-[0.71875rem] text-ink-3">
+            <span>Visitors</span>
+            <span>Count</span>
+            <span>Of visitors</span>
+          </span>
+        )}
+      </div>
       {data.length === 0 ? (
-        <p className="px-5 py-8 text-center text-sm text-ink-3">
-          None yet. <code className="font-mono text-ink-2">track("Signup")</code> from your app and they show up here.
+        <p className="border-y border-rule-2 py-6 text-[0.84375rem] text-ink-3">
+          None yet. Call <code className="ident text-ink-2">track("Signup")</code> from your app and they show up here.
         </p>
       ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-2xs tracking-wider text-ink-4 uppercase">
-              <th className="px-5 py-2 font-medium">Event</th>
-              <th className="px-3 py-2 text-right font-medium">Visitors</th>
-              <th className="px-3 py-2 text-right font-medium">Count</th>
-              <th className="px-5 py-2 text-right font-medium">Conversion</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((e) => (
-              <tr key={e.name} className="border-t border-rule/60 align-top">
-                <td className="px-5 py-2.5">
-                  <span className="text-ink">{e.name}</span>
-                  {Object.entries(e.props ?? {}).map(([k, vs]) => (
-                    <span key={k} className="mt-1 block text-xs text-ink-3">
-                      {k}:{" "}
-                      {(vs ?? [])
-                        .slice(0, 4)
-                        .map((v) => `${v.value} (${v.count})`)
-                        .join(", ")}
-                    </span>
-                  ))}
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono text-xs text-ink-2 tnum">{num(e.visitors)}</td>
-                <td className="px-3 py-2.5 text-right font-mono text-xs text-ink-2 tnum">{num(e.count)}</td>
-                <td className="px-5 py-2.5 text-right font-mono text-xs text-ink tnum">
-                  {visitors ? `${((e.visitors / visitors) * 100).toFixed(1)}%` : "–"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <ul className="divide-y divide-rule border-y border-rule-2">
+          {data.map((e) => (
+            <li key={e.name} className="grid grid-cols-[minmax(0,1fr)_3.25rem_3.25rem_4.5rem] items-baseline gap-x-3 py-2.5">
+              <span className="min-w-0">
+                <span className="block text-[0.875rem] text-ink">{e.name}</span>
+                {Object.entries(e.props ?? {}).map(([k, vs]) => (
+                  <span key={k} className="mt-0.5 block truncate text-[0.75rem] text-ink-3">
+                    <span className="font-mono">{k}</span>:{" "}
+                    {(vs ?? [])
+                      .slice(0, 4)
+                      .map((v) => `${v.value} ${int(v.count)}`)
+                      .join(" · ")}
+                  </span>
+                ))}
+              </span>
+              <span className="text-right text-[0.84375rem] text-ink-2 tnum">{int(e.visitors)}</span>
+              <span className="text-right text-[0.84375rem] text-ink-2 tnum">{int(e.count)}</span>
+              <span className="text-right text-[0.84375rem] text-ink tnum">{visitors ? pct(e.visitors / visitors, 1) : "–"}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </section>
   );
@@ -397,46 +403,57 @@ function Realtime({ project }: { project: string }) {
   const d = rt.data;
   const per = d?.perMinute ?? [];
   const max = Math.max(1, ...per.map((x) => x.pageviews));
+  const any = per.some((x) => x.pageviews > 0);
   return (
-    <section className="overflow-hidden rounded-xl border border-rule bg-raised/60 p-5" aria-labelledby="rt">
-      <div className="flex items-baseline justify-between">
-        <h2 id="rt" className="text-sm font-medium text-ink">
+    <section aria-labelledby="rt" className="min-w-0">
+      <div className="mb-2 flex items-end justify-between gap-3">
+        <h2 id="rt" className="label">
           Last 30 minutes
         </h2>
-        <span className="text-xs text-ink-3 tnum">
-          {d ? `${num(d.visitors30m)} ${d.visitors30m === 1 ? "visitor" : "visitors"} · ${num(d.pageviews30m)} ${d.pageviews30m === 1 ? "view" : "views"}` : ""}
-        </span>
+        {d && (
+          <span className="text-[0.75rem] text-ink-3 tnum">
+            {int(d.visitors30m)} {d.visitors30m === 1 ? "visitor" : "visitors"} · {int(d.pageviews30m)} {d.pageviews30m === 1 ? "view" : "views"}
+          </span>
+        )}
       </div>
-      <div className="mt-4 flex h-20 items-end gap-[3px]" aria-hidden>
-        {per.map((x) => (
-          <span
-            key={x.t}
-            className="flex-1 rounded-t-[2px] bg-ink-2/70"
-            style={{ height: `${Math.max(2, (x.pageviews / max) * 100)}%` }}
-            title={`${x.pageviews} views`}
-          />
-        ))}
-        {per.length === 0 && <span className="w-full self-center text-center text-sm text-ink-3">Quiet right now.</span>}
+      <div className="border-y border-rule-2 py-4">
+        {!d ? (
+          <Skeleton className="h-16" />
+        ) : !any ? (
+          <p className="text-[0.84375rem] text-ink-3">Quiet for the last half hour. Refreshes every 15 seconds.</p>
+        ) : (
+          <>
+            <div className="flex h-16 items-end gap-[2px]" aria-label={`Page views per minute, at most ${int(max)}`} role="img">
+              {per.map((x) => (
+                <span key={x.t} className="flex-1 rounded-t-[2px] bg-ink-2/70" style={{ height: x.pageviews ? `${Math.max(4, (x.pageviews / max) * 100)}%` : "1px" }} title={`${int(x.pageviews)} views`} />
+              ))}
+            </div>
+            <p className="mt-1.5 flex justify-between text-[0.6875rem] text-ink-3">
+              <span>30 min ago</span>
+              <span>now</span>
+            </p>
+            {(d.topPages ?? []).length > 0 && (
+              <ul className="mt-3 divide-y divide-rule border-t border-rule">
+                {(d.topPages ?? []).slice(0, 4).map((x) => (
+                  <li key={x.value} className="flex justify-between gap-3 py-1.5">
+                    <span className="truncate font-mono text-[0.75rem] text-ink-2">{x.value}</span>
+                    <span className="text-[0.8125rem] text-ink-3 tnum">{int(x.pageviews)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
       </div>
-      {(d?.topPages ?? []).length > 0 && (
-        <ul className="mt-4 flex flex-col gap-1 border-t border-rule pt-3">
-          {(d?.topPages ?? []).slice(0, 4).map((x) => (
-            <li key={x.value} className="flex justify-between gap-3 text-sm">
-              <span className="truncate font-mono text-xs text-ink-2">{x.value}</span>
-              <span className="font-mono text-xs text-ink-3 tnum">{x.pageviews}</span>
-            </li>
-          ))}
-        </ul>
-      )}
     </section>
   );
 }
 
 function CodeBox({ code, name, className }: { code: string; name: string; className?: string }): ReactNode {
   return (
-    <div className={cn("overflow-hidden rounded-xl border border-rule bg-paper-sunk", className)}>
-      <div className="flex items-center justify-between border-b border-rule px-4 py-1.5">
-        <span className="font-mono text-xs text-ink-3">{name}</span>
+    <div className={cn("overflow-hidden rounded-[10px] border border-rule-2 bg-paper-sunk", className)}>
+      <div className="flex items-center justify-between border-b border-rule px-4 py-1">
+        <span className="font-mono text-[0.75rem] text-ink-3">{name}</span>
         <CopyButton value={code} label={`Copy ${name}`} />
       </div>
       <pre className="overflow-x-auto px-4 py-3 font-mono text-[0.78rem] leading-5 text-ink-2">
@@ -445,3 +462,4 @@ function CodeBox({ code, name, className }: { code: string; name: string; classN
     </div>
   );
 }
+
