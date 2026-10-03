@@ -38,7 +38,8 @@ export function splitIntent(raw: string): { head: string; rest?: string } {
   const m = s.match(/^(.{12,}?[.!?])\s+(?=[A-Z0-9“"])(.+)$/s);
   const cap = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
   const stop = (x: string) => (/[.!?”"]$/.test(x) ? x : `${x}.`);
-  if (!m) return { head: s ? stop(cap(s)) : s };
+  // Never split inside a quotation (“Undid “Make it public. Photos load…””).
+  if (!m || (m[1].split("“").length !== m[1].split("”").length)) return { head: s ? stop(cap(s)) : s };
   return { head: cap(m[1]), rest: stop(m[2]) };
 }
 
@@ -112,6 +113,7 @@ export function ActorLine({
   kind,
   name,
   session,
+  model,
   verb,
   project,
   className,
@@ -119,18 +121,21 @@ export function ActorLine({
   kind: string;
   name: string;
   session?: string;
+  /** The model the agent said it runs ("claude-opus-5-5"), if it did. */
+  model?: string;
   verb: string;
   project?: string;
   className?: string;
 }) {
   const agent = kind === "agent";
   const who = actorName({ kind, name });
+  const tag = model || who.tag;
   return (
     <p className={cn("text-[0.875rem] leading-5 text-ink-2", className)}>
       <b className={cn("font-[550]", agent ? "text-graphite" : "text-ink")}>{who.name}</b>
-      {agent && (who.tag || session) && (
+      {agent && (tag || session) && (
         <span className="ident ml-1.5 text-[0.75rem] text-ink-3">
-          {[who.tag, session && `session ${session}`].filter(Boolean).join(" · ")}
+          {[tag, session && `session ${session}`].filter(Boolean).join(" · ")}
         </span>
       )}{" "}
       {verb}

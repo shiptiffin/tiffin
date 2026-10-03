@@ -120,7 +120,7 @@ export function ChangePage({ id }: { id: string }) {
             </span>
             <span>{when(c.at)}</span>
           </p>
-          <ActorLine className="mt-4" kind={c.actor.kind} name={c.actor.name || c.actor.id} session={c.actor.session} verb="changed" project={c.project} />
+          <ActorLine className="mt-4" kind={c.actor.kind} name={c.actor.name || c.actor.id} session={c.actor.session} model={c.actor.model} verb="changed" project={c.project} />
           <h1
             className={cn(
               "intent mt-1.5 max-sm:text-[1.75rem] max-sm:leading-[2.0625rem]",
@@ -216,7 +216,7 @@ export function ChangePage({ id }: { id: string }) {
                   </>
                 ) : agent ? (
                   <>
-                    Applied by {who} within its grant{c.actor.session ? <> · session <span className="ident">{c.actor.session}</span></> : null} · {clock(c.at)} · plan{" "}
+                    Applied by {who}{c.actor.model ? <> (<span className="ident">{c.actor.model}</span>)</> : null} within its grant{c.actor.session ? <> · session <span className="ident">{c.actor.session}</span></> : null} · {clock(c.at)} · plan{" "}
                     <span className="ident text-ink">{planShort(c.plan.hash)}</span>
                   </>
                 ) : (

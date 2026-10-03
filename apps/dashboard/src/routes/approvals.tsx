@@ -1,9 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Check, Fingerprint, Link2, Printer } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { ApiError, api, notOnBox, type Approval, type Token } from "@/api/client";
-import { mod2, type WorkflowApproval } from "@/api/modules";
 import { q } from "@/api/queries";
 import emptyApprovals from "@/assets/illustrations/empty-approvals.webp";
 import { useTitle } from "@/components/favicon";
@@ -25,6 +24,7 @@ import {
   useNow,
   when,
 } from "@/components/ledger-parts";
+import { WorkflowRow } from "@/components/ledger-workflow";
 import { Logo } from "@/components/logo";
 import { NotOnBox, Page } from "@/components/page";
 import { ProblemNote, sentence } from "@/components/problem";
@@ -226,61 +226,6 @@ function DecidedRow({ a, names }: { a: Approval; names?: Map<string, Token> }) {
   );
 }
 
-/** A workflow step waiting for a person, decided right here (a note goes back to the run). */
-function WorkflowRow({ w }: { w: WorkflowApproval & { project: string } }) {
-  const qc = useQueryClient();
-  const { can } = useMe();
-  const [note, setNote] = useState("");
-  const decide = useMutation({
-    mutationFn: (d: "approve" | "reject") => mod2.decide(w.project, w.id, d, note.trim() || undefined),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["wf-approvals", w.project] });
-      qc.invalidateQueries({ queryKey: ["runs", w.project] });
-      qc.invalidateQueries({ queryKey: ["run", w.project, w.runId] });
-    },
-  });
-  return (
-    <div className="grid grid-cols-[44px_minmax(0,1fr)] gap-x-3 py-3.5">
-      <div className="pt-px text-[0.78125rem] leading-5 text-ink-3 tnum">
-        {clock(w.createdAt)}
-        <div className="leading-4">asked</div>
-      </div>
-      <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:gap-6">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[0.78125rem] leading-[1.125rem] text-ink-2">
-            Workflow{" "}
-            <Link to="/projects/$project/workflows/$id" params={{ project: w.project, id: w.runId }} className="ident text-[0.71875rem] text-ink-2 hover:text-ink">
-              {w.workflow}
-            </Link>{" "}
-            in {w.project} · step “{w.step}”
-          </p>
-          <p className="entry mt-0.5 text-ink">{w.title || w.step}</p>
-          {w.description && <p className="mt-1 text-[0.8125rem] text-ink-2">{w.description}</p>}
-          <p className="mt-1.5 text-xs text-ink-3">
-            {w.timeoutAt ? `Times out ${relative(w.timeoutAt)}` : "Waits until someone decides"}
-            {w.humanOnly && " · people only"}
-          </p>
-        </div>
-        {can("apply:reversible") && (
-          <div className="flex shrink-0 flex-col gap-2 md:w-60">
-            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note for the run (optional)" className="h-8 text-[0.8125rem]" aria-label="Note for the run" />
-            <div className="flex gap-2">
-              <Button size="sm" variant="primary" className="flex-1" onClick={() => decide.mutate("approve")} disabled={decide.isPending}>
-                <Check />
-                Approve
-              </Button>
-              <Button size="sm" variant="secondary" onClick={() => decide.mutate("reject")} disabled={decide.isPending}>
-                Reject
-              </Button>
-            </div>
-          </div>
-        )}
-        {decide.isError && <ProblemNote className="mt-1" error={decide.error} />}
-      </div>
-    </div>
-  );
-}
-
 // ───────────────────────── the permit ─────────────────────────
 
 type Step = { k: "idle" } | { k: "signing" } | { k: "error"; message: ReactNode } | { k: "rejecting" };
@@ -423,6 +368,7 @@ export function ApprovalPage({ id }: { id: string }) {
             kind="agent"
             name={r.name}
             session={r.session}
+            model={used.data?.actor.model}
             verb={pending ? "asks to change" : "asked to change"}
             project={ap.project}
           />

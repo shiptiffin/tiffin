@@ -59,6 +59,37 @@ for (const theme of ["light", "dark"] as const) {
           await expect(page.locator("[data-entry][data-sel]")).toHaveCount(1);
           await shot(page, `ledger-keys-${tag}`, false);
         }
+        if (size.name === "1440" && theme === "light") {
+          // Paging and the model tag, from stubbed answers: page one is 100
+          // entries (agents say their model), page two (before=<last id>) is 5.
+          const real = changes;
+          const fake = (n: number, from: number) =>
+            Array.from({ length: n }, (_, k) => {
+              const c = structuredClone(real[(from + k) % real.length]) as Chg & { at: string; actor: { kind: string; model?: string } };
+              (c as { id: string }).id = `chg_01M41Z${String(from + k).padStart(20, "0")}`;
+              c.undoneBy = undefined;
+              c.at = new Date(Date.now() - (from + k) * 3 * 3600_000).toISOString();
+              if (c.actor.kind === "agent") c.actor.model = "claude-opus-5-5";
+              return c;
+            });
+          let second = "";
+          await page.route(/\/v1\/changes\?/, (r) => {
+            const u = new URL(r.request().url());
+            if (u.searchParams.get("before")) {
+              second = u.searchParams.get("before")!;
+              return r.fulfill({ json: fake(5, 100) });
+            }
+            return r.fulfill({ json: fake(100, 0) });
+          });
+          await page.goto("/ledger");
+          await page.getByRole("heading", { level: 1 }).waitFor();
+          await shot(page, `ledger-model-${tag}`, false);
+          await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+          await expect(page.getByText(/That’s everything/)).toBeVisible();
+          await expect(page.locator("[data-entry]")).toHaveCount(105);
+          expect(second).toMatch(/^chg_01M41Z0+99$/);
+          await page.unroute(/\/v1\/changes\?/);
+        }
         await page.goto("/ledger?who=agents");
         await page.getByRole("heading", { level: 1 }).waitFor();
         await shot(page, `ledger-agents-${tag}`, false);

@@ -1,13 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Approval, Change, Tier } from "@/api/client";
+import { ApiError, request, type Approval, type Change, type Tier } from "@/api/client";
 import { q } from "@/api/queries";
 import { Command } from "@/components/copy";
 import { EnamelSwatch } from "@/components/enamel-swatch";
 import { useTitle } from "@/components/favicon";
 import { dayWords, splitIntent, tokenWho, useApprovalsByChange } from "@/components/ledger-parts";
+import { WorkflowRow } from "@/components/ledger-workflow";
 import { TiffinMark } from "@/components/logo";
 import { Page } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
@@ -25,17 +26,64 @@ import { useWaitingWorkflowApprovals } from "@/lib/wf";
 
 export type ActivitySearch = { project?: string; risk?: Tier; who?: "people" | "agents" };
 
-/** How many entries to draw at a time; more arrive as you scroll. */
-const PAGE = 60;
-/** The API's ceiling for one request. */
-const MAX = 200;
+/** Entries per request; earlier ones arrive as you scroll (GET /v1/changes?before=<id>). */
+const LIMIT = 100;
+
+type LedgerPage = { items: Change[]; end: boolean; legacy?: boolean };
+
+/**
+ * The change log, a page at a time, newest first. A box from before the
+ * cursor existed answers 422 to `before` (or ignores it and repeats the first
+ * page): then the history simply ends where the first page does.
+ */
+function useLedger(project?: string) {
+  return useInfiniteQuery({
+    queryKey: ["changes", project ?? "", "ledger"],
+    initialPageParam: "",
+    queryFn: async ({ pageParam }): Promise<LedgerPage> => {
+      const qs = new URLSearchParams({ limit: String(LIMIT) });
+      if (project) qs.set("project", project);
+      if (pageParam) qs.set("before", pageParam);
+      try {
+        const items = (await request<Change[] | null>("GET", `/v1/changes?${qs}`)) ?? [];
+        return { items, end: items.length < LIMIT };
+      } catch (e) {
+        if (pageParam && e instanceof ApiError && (e.status === 422 || e.status === 400)) return { items: [], end: true, legacy: true };
+        throw e;
+      }
+    },
+    getNextPageParam: (last, pages) => {
+      if (last.end || last.items.length === 0) return undefined;
+      // An old box ignores `before` and sends the first page again.
+      if (pages.length > 1 && pages[0].items[0]?.id === last.items[0]?.id) return undefined;
+      return last.items[last.items.length - 1].id;
+    },
+  });
+}
+
+/** Every loaded entry once, in order. */
+function flatten(pages: LedgerPage[]): { all: Change[]; legacy: boolean } {
+  const seen = new Set<string>();
+  const all: Change[] = [];
+  let legacy = false;
+  pages.forEach((p, n) => {
+    if (p.legacy) legacy = true;
+    if (n > 0 && p.items[0] && p.items[0].id === pages[0].items[0]?.id) legacy = true;
+    for (const c of p.items) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      all.push(c);
+    }
+  });
+  return { all, legacy };
+}
 
 const isAgent = (c: Change) => c.actor.kind === "agent";
 
 export function ActivityPage({ search }: { search: ActivitySearch }) {
   const { project, risk, who } = search;
   useTitle(project ? `${project} · Ledger` : "Ledger");
-  const changes = useQuery(q.changes(project));
+  const changes = useLedger(project);
   const pending = useQuery({ ...q.pending, retry: false });
   const names = useQuery({ ...q.tokenNames, retry: false });
   const projects = useQuery(q.projects);
@@ -52,7 +100,8 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
       </Page>
     );
 
-  const all = changes.data;
+  const { all, legacy } = flatten(changes.data.pages);
+  const first = changes.data.pages[0]?.items ?? [];
   const waiting = (pending.data ?? []).filter((a) => !project || a.project === project);
   const flows = wf.filter((w) => !project || w.project === project);
   if (all.length === 0 && waiting.length === 0) return project ? <NoChangesIn project={project} /> : <FirstRun />;
@@ -64,14 +113,14 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
     <Page>
       <header>
         <p className="label mb-2">Ledger{project ? ` · ${project}` : ""}</p>
-        <Headline all={all} project={project} />
+        <Headline all={first} project={project} />
       </header>
 
       <Controls search={search} all={all} projects={projectNames} enamels={enamels} />
 
       {(waiting.length > 0 || flows.length > 0) && <Waiting approvals={waiting} workflows={flows} />}
 
-      {list.length === 0 ? (
+      {list.length === 0 && !changes.hasNextPage ? (
         <p className="mt-10 text-[0.9375rem] text-ink-2">
           {risk ? `No ${tierCopy[risk].label.toLowerCase()} changes here.` : who === "agents" ? "No agent has changed anything here." : "Nobody has changed anything here."}{" "}
           <Link to="/ledger" search={{ project }} className="text-brass-ink hover:underline hover:underline-offset-4">
@@ -82,7 +131,7 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
         <Entries
           key={`${project}|${risk}|${who}`}
           list={list}
-          capped={all.length >= MAX}
+          more={{ next: !!changes.hasNextPage, busy: changes.isFetchingNextPage, fetch: () => void changes.fetchNextPage(), legacy, error: changes.isFetchNextPageError }}
           showProject={!project}
           byId={byId}
           signedBy={signedBy}
@@ -251,25 +300,7 @@ function Waiting({ approvals, workflows }: { approvals: Approval[]; workflows: R
           );
         })}
         {workflows.map((w) => (
-          <div key={w.project + w.id} className="flex flex-col gap-x-6 sm:flex-row sm:items-center">
-            <SignedEntry
-              className="min-w-0 flex-1"
-              time={clock(w.createdAt)}
-              timeNote="asked"
-              actor={{ kind: "system", name: `Workflow ${w.workflow}` }}
-              intent={w.title || w.step}
-              extra={
-                <span>
-                  {w.project} · step “{w.step}”{w.timeoutAt ? ` · times out ${relative(w.timeoutAt)}` : ""}
-                </span>
-              }
-            />
-            <Button asChild variant="secondary" size="md" className="mb-3 self-start max-sm:ml-[56px] sm:mb-0 sm:self-center">
-              <Link to="/approvals" hash="workflows">
-                Decide
-              </Link>
-            </Button>
-          </div>
+          <WorkflowRow key={w.project + w.id} w={w} compact />
         ))}
       </div>
     </section>
@@ -280,7 +311,7 @@ function Waiting({ approvals, workflows }: { approvals: Approval[]; workflows: R
 
 function Entries({
   list,
-  capped,
+  more,
   showProject,
   byId,
   signedBy,
@@ -288,34 +319,33 @@ function Entries({
   enamels,
 }: {
   list: Change[];
-  capped: boolean;
+  more: { next: boolean; busy: boolean; fetch: () => void; legacy: boolean; error: boolean };
   showProject: boolean;
   byId: Map<string, Change>;
   signedBy: Map<string, Approval>;
   names: Parameters<typeof tokenWho>[1];
   enamels: ReturnType<typeof useEnamels>;
 }) {
-  const [shown, setShown] = useState(PAGE);
   const [sel, setSel] = useState(-1);
   const root = useRef<HTMLDivElement>(null);
-  const more = useRef<HTMLDivElement>(null);
+  const tail = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
-  const visible = list.slice(0, shown);
+  const { next, busy, fetch } = more;
 
-  // More history as the end of the list comes near.
+  // Earlier history as the end of the list comes near (also when a filter leaves too few rows to scroll).
   useEffect(() => {
-    const el = more.current;
-    if (!el || shown >= list.length) return;
-    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && setShown((s) => Math.min(list.length, s + PAGE)), { rootMargin: "800px 0px" });
+    const el = tail.current;
+    if (!el || !next || busy || more.error) return;
+    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && fetch(), { rootMargin: "900px 0px" });
     io.observe(el);
     return () => io.disconnect();
-  }, [shown, list.length]);
+  }, [next, busy, fetch, more.error]);
 
   // j / k move through the entries, ↵ opens one; typing elsewhere is left alone.
   const move = useCallback(
     (to: number) => {
       const i = Math.max(0, Math.min(list.length - 1, to));
-      if (i >= shown) setShown(Math.min(list.length, i + PAGE));
+      if (i >= list.length - 5 && next && !busy) fetch();
       setSel(i);
       requestAnimationFrame(() => {
         const row = root.current?.querySelector<HTMLElement>(`[data-entry="${i}"]`);
@@ -323,7 +353,7 @@ function Entries({
         row?.scrollIntoView({ block: "nearest" });
       });
     },
-    [list.length, shown],
+    [list.length, next, busy, fetch],
   );
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -350,13 +380,13 @@ function Entries({
   }, [sel, move, navigate, list]);
 
   const days: Array<{ key: string; label: string; sub: string; items: Array<{ c: Change; i: number }> }> = [];
-  visible.forEach((c, i) => {
+  list.forEach((c, i) => {
     const k = dayKey(c.at);
     const last = days[days.length - 1];
     if (last?.key === k) last.items.push({ c, i });
     else days.push({ key: k, ...dayHeading(c.at), items: [{ c, i }] });
   });
-  const oldest = list[list.length - 1];
+  const oldest = list[list.length - 1] as Change | undefined;
 
   return (
     <div ref={root} className="mt-6">
@@ -396,19 +426,19 @@ function Entries({
           </div>
         </section>
       ))}
-      <div ref={more} className="mt-10 mb-2 flex flex-col items-center gap-3 text-center text-sm text-ink-3">
-        {shown < list.length ? (
-          <Button variant="ghost" size="sm" onClick={() => setShown((s) => Math.min(list.length, s + PAGE))}>
-            Show {countWords(Math.min(PAGE, list.length - shown), "earlier entry", "earlier entries")}
+      <div ref={tail} className="mt-10 mb-2 flex min-h-8 flex-col items-center gap-3 text-center text-sm text-ink-3">
+        {next ? (
+          <Button variant="ghost" size="sm" onClick={fetch} disabled={busy}>
+            {busy ? "Reading earlier entries…" : more.error ? "Couldn’t read earlier entries. Try again" : "Show earlier entries"}
           </Button>
-        ) : capped ? (
-          <p>These are the latest {MAX} entries. Pick a project above to read further back.</p>
-        ) : (
+        ) : more.legacy ? (
+          <p>These are the latest {countWords(list.length, "entry", "entries")}. This box can’t page further back yet; pick a project above to see more of one.</p>
+        ) : oldest ? (
           <p className="flex items-center gap-2">
             <TiffinMark className="size-4 text-ink-4" />
             That’s everything. The Ledger starts on {dayWords(oldest.at)}.
           </p>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -471,7 +501,7 @@ function Entry({
     >
       <SignedEntry
         time={clock(c.at)}
-        actor={{ kind: c.actor.kind, name: c.actor.name || c.actor.id, session: c.actor.session }}
+        actor={{ kind: c.actor.kind, name: c.actor.name || c.actor.id, session: c.actor.session, model: c.actor.model || undefined }}
         intent={splitIntent(intentWords(c)).head}
         to="/changes/$id"
         params={{ id: c.id }}
@@ -480,7 +510,7 @@ function Entry({
         muted={!!c.undoneBy}
         signature={signature}
         extra={extra.length ? <>{extra}</> : undefined}
-        className="!py-2.5"
+        className="!py-2"
       />
     </div>
   );
