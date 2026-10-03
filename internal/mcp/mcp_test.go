@@ -96,8 +96,8 @@ func TestToolsMirrorTheAPI(t *testing.T) {
 				t.Errorf("%s: destructive op must say so", tl.Name)
 			}
 		}
-		if a.OpenWorldHint == nil || *a.OpenWorldHint {
-			t.Errorf("%s: tools act only on this box (openWorld=false)", tl.Name)
+		if a.OpenWorldHint == nil || *a.OpenWorldHint != api.IsOutbound(o) {
+			t.Errorf("%s: openWorld must be true exactly for outbound ops (fetching from the internet)", tl.Name)
 		}
 	}
 	// The apply tool carries the real manifest schema, with $defs resolvable.

@@ -146,12 +146,18 @@ func description(o *huma.Operation) string {
 	if api.Confirmable(o) {
 		d += " Calling without a confirm hash is always safe: it only returns the plan."
 	}
+	if api.IsOutbound(o) {
+		d += " The box fetches from the internet for this call."
+	}
 	return d
 }
 
 func annotations(o *huma.Operation) *sdk.ToolAnnotations {
 	f, t := false, true
 	a := &sdk.ToolAnnotations{Title: o.Summary, OpenWorldHint: &f}
+	if api.IsOutbound(o) {
+		a.OpenWorldHint = &t // it fetches from the internet
+	}
 	switch api.RiskOf(o) {
 	case api.RiskRead:
 		a.ReadOnlyHint, a.IdempotentHint = true, true

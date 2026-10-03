@@ -47,6 +47,9 @@ const (
 	// ExtConfirm marks plan-driven operations: without a confirm hash they
 	// only return the plan (status 428) and change nothing.
 	ExtConfirm = "x-tiffin-confirm"
+	// ExtOutbound marks operations that reach outside the box (fetching a
+	// public git repository, say). MCP sets openWorldHint on them.
+	ExtOutbound = "x-tiffin-outbound"
 )
 
 // Risk classes for operations.
@@ -122,6 +125,10 @@ func schemaNamer(t reflect.Type, hint string) string {
 	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Map {
 		t = t.Elem()
 	}
+	if strings.HasSuffix(t.PkgPath(), "/internal/manifest") && !strings.HasPrefix(name, "Manifest") {
+		// Manifest types (App, Queue, Auth...) would collide with module types.
+		return "Manifest" + name
+	}
 	if pkg := t.PkgPath(); strings.Contains(pkg, "/internal/mod/") {
 		mod := pkg[strings.LastIndex(pkg, "/")+1:]
 		if mod != "" && !strings.HasPrefix(strings.ToLower(name), mod) {
@@ -193,6 +200,15 @@ func Untrusted(o huma.Operation) huma.Operation {
 
 // IsUntrusted reports whether an operation's output is untrusted data.
 func IsUntrusted(o *huma.Operation) bool { v, _ := o.Extensions[ExtUntrusted].(bool); return v }
+
+// Outbound marks an operation that reaches outside the box (see ExtOutbound).
+func Outbound(o huma.Operation) huma.Operation {
+	o.Extensions[ExtOutbound] = true
+	return o
+}
+
+// IsOutbound reports whether an operation reaches outside the box.
+func IsOutbound(o *huma.Operation) bool { v, _ := o.Extensions[ExtOutbound].(bool); return v }
 
 // Wrap converts domain errors returned by a module handler into Problems.
 func Wrap[I, O any](h func(context.Context, *I) (*O, error)) func(context.Context, *I) (*O, error) {
@@ -295,6 +311,15 @@ type ProjectState struct {
 	Resources []change.Resource `json:"resources"`
 	// Status is each resource's live state on the machine (pending, ready, failed).
 	Status map[string]state.ResourceStatus `json:"status,omitempty"`
+}
+
+// ProjectManifest is a project's current manifest, rebuilt from its stored
+// resources.
+type ProjectManifest struct {
+	Project  string             `json:"project"`
+	Version  int64              `json:"version" doc:"The project version this manifest describes. A plan of this manifest is empty until the project changes."`
+	Manifest *manifest.Manifest `json:"manifest" doc:"The canonical, fully defaulted manifest. Edit it (add an app, switch a service on or off, change env) and send it to plan, then apply with the plan's hash."`
+	Config   string             `json:"config" doc:"The same manifest as a readable tiffin.config.ts with defaults left out: what tiffin pull writes."`
 }
 
 // Health is the unauthenticated liveness report.
@@ -416,6 +441,36 @@ func (a *API) register() {
 			}
 			return &struct{ Body ProjectState }{out}, nil
 		}))
+
+	pm := op("project-manifest", http.MethodGet, "/v1/projects/{project}/manifest", "projects manifest", RiskRead, "Get a project's manifest",
+		"The project's current desired state as a manifest, rebuilt from its resources (works for every project, however it was created), "+
+			"plus the same thing as a readable tiffin.config.ts. To change the project without a config file: edit `manifest` "+
+			"(add an app, add services.postgres, change env...), send it to plan, review the ops and risk, then apply it with the plan's hash. "+
+			"The plan is exactly what the same edit to tiffin.config.ts would give.", "projects")
+	pm.Errors = append(pm.Errors, 404)
+	huma.Register(api, pm, wrap(func(ctx context.Context, in *struct {
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+	}) (*struct{ Body ProjectManifest }, error) {
+		if err := PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
+			return nil, err
+		}
+		v, res, err := a.deps.DB.Load(ctx, in.Project)
+		if err != nil {
+			return nil, err
+		}
+		if v == 0 {
+			return nil, problem(404, "not_found", "project "+in.Project+" does not exist")
+		}
+		m, err := change.ManifestFromResources(in.Project, res)
+		if err != nil {
+			return nil, err
+		}
+		note := fmt.Sprintf("Project %s at version %d, pulled from the box. After an edit:\n"+
+			"tiffin plan                    # what would change, and how risky it is\n"+
+			"tiffin apply --confirm <hash>", in.Project, v)
+		return &struct{ Body ProjectManifest }{ProjectManifest{Project: in.Project, Version: v, Manifest: m,
+			Config: string(manifest.RenderConfig(m, note))}}, nil
+	}))
 
 	huma.Register(api, op("plan", http.MethodPost, "/v1/plan", "plan", RiskRead, "Plan a manifest",
 		"Dry run: what applying this manifest would change, the risk of each step and the plan hash. Never writes.", "changes"),
