@@ -1005,13 +1005,13 @@ export interface paths {
         };
         /**
          * List passkeys
-         * @description Passkeys that can approve plans.
+         * @description Your passkeys. They sign you in to the dashboard; owners and admins also approve plans with them.
          */
         get: operations["passkeys-list"];
         put?: never;
         /**
          * Finish adding a passkey
-         * @description Stores the passkey from navigator.credentials.create(). Humans only.
+         * @description Stores the passkey from navigator.credentials.create(). It signs this person in from then on (and approves plans if they are an owner or admin).
          */
         post: operations["passkey-register-finish"];
         delete?: never;
@@ -1031,7 +1031,7 @@ export interface paths {
         put?: never;
         /**
          * Start adding a passkey
-         * @description Returns WebAuthn creation options. Humans only (the dashboard calls this).
+         * @description Returns WebAuthn creation options for a discoverable passkey (resident key and user verification required), so it can sign you in without a username. Any person's dashboard session; never agents (the dashboard calls this).
          */
         post: operations["passkey-register-begin"];
         delete?: never;
@@ -1052,7 +1052,7 @@ export interface paths {
         post?: never;
         /**
          * Remove a passkey
-         * @description Removes a passkey immediately. Humans only.
+         * @description Removes one of your passkeys immediately: it no longer signs you in or approves plans.
          */
         delete: operations["passkey-delete"];
         options?: never;
@@ -2875,6 +2875,46 @@ export interface paths {
          * @description Revokes the current session token and clears the cookie.
          */
         delete: operations["session-delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/session/passkey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in with a passkey
+         * @description Verifies the passkey assertion from navigator.credentials.get() against the passkeys people registered, then starts the same dashboard session a login link gives (that person's role, 12 hours) and sets the session cookie. Removed people cannot sign in. Used by the dashboard's login page.
+         */
+        post: operations["session-passkey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/session/passkey/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start signing in with a passkey
+         * @description Returns WebAuthn assertion options for a discoverable passkey (no username; user verification required) for navigator.credentials.get(). The challenge is single use and expires after 2 minutes. Used by the dashboard's login page.
+         */
+        post: operations["session-passkey-options"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -4752,6 +4792,22 @@ export interface components {
             credential: unknown;
             name?: string;
         };
+        PasskeySignIn: {
+            /**
+             * Format: date-time
+             * @description When the session ends (12 hours, like a login link's)
+             */
+            expiresAt: string;
+            /** @description The person's name; the session is named after them */
+            name: string;
+            /** @description The person's ID (usr_...) */
+            person: string;
+            /**
+             * @description Their role; the session has exactly its power
+             * @enum {string}
+             */
+            role: "owner" | "admin" | "member" | "viewer";
+        };
         Person: {
             /** Format: date-time */
             createdAt: string;
@@ -6099,6 +6155,10 @@ export interface components {
         };
         "Session-createRequest": {
             code: string;
+        };
+        "Session-passkeyRequest": {
+            /** @description The PublicKeyCredential from navigator.credentials.get(), with byte fields base64url-encoded */
+            credential: unknown;
         };
         SettingsPatchChallengeStruct: {
             /** Format: int64 */
@@ -19118,6 +19178,177 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "session-passkey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Session-passkeyRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeySignIn"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "session-passkey-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -114,6 +114,7 @@ func New(d Deps) *API {
 	a.registerBox()
 	a.registerSecrets()
 	a.registerApprovals()
+	a.registerPasskeySignIn()
 	a.registerPeople()
 	a.registerAppearance()
 	// Modules add their own operations; they become CLI commands and MCP tools too.

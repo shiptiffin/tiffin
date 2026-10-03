@@ -23,7 +23,7 @@ func approvalErr(err error) error {
 		return NewProblem(404, "not_found", err.Error())
 	case errors.Is(err, approvals.ErrNotPending), errors.Is(err, approvals.ErrInvalid):
 		return NewProblem(409, "precondition", err.Error())
-	case errors.Is(err, approvals.ErrHumanOnly):
+	case errors.Is(err, approvals.ErrHumanOnly), errors.Is(err, approvals.ErrNoPerson), errors.Is(err, approvals.ErrCloned):
 		return NewProblem(403, "forbidden", err.Error())
 	case errors.Is(err, approvals.ErrNoPasskey):
 		return NewProblem(409, "precondition", err.Error())
@@ -130,21 +130,18 @@ func (a *API) registerApprovals() {
 		}))
 
 	huma.Register(api, op("passkeys-list", http.MethodGet, "/v1/passkeys", "passkeys list", RiskRead, "List passkeys",
-		"Passkeys that can approve plans.", "approvals"),
+		"Your passkeys. They sign you in to the dashboard; owners and admins also approve plans with them.", "approvals"),
 		wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body []approvals.Passkey }, error) {
 			m, err := a.approvalsMgr()
 			if err != nil {
 				return nil, err
 			}
-			if !PrincipalFrom(ctx).BoxAdmin() {
-				return nil, NewProblem(403, "forbidden", "box admins only")
-			}
 			l, err := m.Passkeys(ctx, PrincipalFrom(ctx))
-			return &struct{ Body []approvals.Passkey }{l}, err
+			return &struct{ Body []approvals.Passkey }{l}, approvalErr(err)
 		}))
 
 	huma.Register(api, op("passkey-register-begin", http.MethodPost, "/v1/passkeys/register", "passkeys register-begin", RiskWrite, "Start adding a passkey",
-		"Returns WebAuthn creation options. Humans only (the dashboard calls this).", "approvals"),
+		"Returns WebAuthn creation options for a discoverable passkey (resident key and user verification required), so it can sign you in without a username. Any person's dashboard session; never agents (the dashboard calls this).", "approvals"),
 		wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body any }, error) {
 			m, err := a.approvalsMgr()
 			if err != nil {
@@ -158,7 +155,7 @@ func (a *API) registerApprovals() {
 		}))
 
 	huma.Register(api, op("passkey-register-finish", http.MethodPost, "/v1/passkeys", "passkeys register-finish", RiskWrite, "Finish adding a passkey",
-		"Stores the passkey from navigator.credentials.create(). Humans only.", "approvals"),
+		"Stores the passkey from navigator.credentials.create(). It signs this person in from then on (and approves plans if they are an owner or admin).", "approvals"),
 		wrap(func(ctx context.Context, in *struct {
 			Body struct {
 				Name       string          `json:"name,omitempty" maxLength:"64"`
@@ -177,7 +174,7 @@ func (a *API) registerApprovals() {
 		}))
 
 	del := op("passkey-delete", http.MethodDelete, "/v1/passkeys/{id}", "passkeys delete", RiskDestructive, "Remove a passkey",
-		"Removes a passkey immediately. Humans only.", "approvals")
+		"Removes one of your passkeys immediately: it no longer signs you in or approves plans.", "approvals")
 	huma.Register(api, del, wrap(func(ctx context.Context, in *struct {
 		ID string `path:"id" maxLength:"256"`
 	}) (*struct{}, error) {

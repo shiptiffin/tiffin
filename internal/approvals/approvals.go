@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
@@ -43,6 +44,8 @@ var (
 	ErrNoPasskey  = errors.New("no passkey registered: add one in the dashboard (Settings → Passkeys) first")
 	ErrInvalid    = errors.New("approval does not match this plan or caller")
 	ErrHumanOnly  = errors.New("only a human with a dashboard session can approve")
+	ErrNoPerson   = errors.New("passkeys belong to a person: sign in to the dashboard to add or list them")
+	ErrCloned     = errors.New("this passkey's signature counter went backwards, which suggests it was copied, so it was refused; remove it and add a new one")
 )
 
 // Approval is one request.
@@ -68,6 +71,10 @@ type Manager struct {
 	db  *state.DB
 	wa  *webauthn.WebAuthn
 	now func() time.Time
+
+	// logins holds passkey sign-in challenges in memory (see BeginLogin).
+	loginMu sync.Mutex
+	logins  map[string]loginCeremony
 }
 
 // New returns a manager. rpID is the dashboard host (e.g.
@@ -78,14 +85,19 @@ func New(db *state.DB, rpID, origin string) (*Manager, error) {
 		RPDisplayName: "Tiffin",
 		RPOrigins:     []string{origin},
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
-			ResidentKey:      protocol.ResidentKeyRequirementPreferred,
-			UserVerification: protocol.VerificationRequired,
+			// Discoverable (resident) credentials, so a passkey can sign in
+			// without a username. Passkeys added before this was required
+			// may not be discoverable: they still approve plans, and adding
+			// them again makes them sign in too.
+			ResidentKey:        protocol.ResidentKeyRequirementRequired,
+			RequireResidentKey: protocol.ResidentKeyRequired(),
+			UserVerification:   protocol.VerificationRequired,
 		},
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{db: db, wa: wa, now: time.Now}, nil
+	return &Manager{db: db, wa: wa, now: time.Now, logins: map[string]loginCeremony{}}, nil
 }
 
 // Request records (or returns the existing pending) approval for plan by p.

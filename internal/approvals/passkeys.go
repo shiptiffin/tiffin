@@ -33,6 +33,17 @@ func personOf(p *tokens.Principal) string {
 	return tokens.OwnerPerson
 }
 
+// passkeyHolder: a passkey belongs to a person. Any person's dashboard
+// session manages its own passkeys (they sign that person in); a box-admin
+// token with no person (the owner's CLI token) manages the owner's. Agents
+// never hold passkeys. Approving plans additionally needs humanOnly.
+func passkeyHolder(p *tokens.Principal) error {
+	if p == nil || p.Kind == tokens.KindAgent || (p.Person == "" && !p.BoxAdmin()) {
+		return ErrNoPerson
+	}
+	return nil
+}
+
 // Passkey is a registered passkey's metadata.
 type Passkey struct {
 	ID        string     `json:"id"`
@@ -63,6 +74,9 @@ func (m *Manager) owner(ctx context.Context, person string) (*owner, error) {
 
 // Passkeys lists the caller's registered passkeys.
 func (m *Manager) Passkeys(ctx context.Context, by *tokens.Principal) ([]Passkey, error) {
+	if err := passkeyHolder(by); err != nil {
+		return nil, err
+	}
 	rows, err := m.db.SQL().QueryContext(ctx, `SELECT id, name, created_at, last_used FROM passkeys WHERE coalesce(person, ?) = ? ORDER BY created_at`, tokens.OwnerPerson, personOf(by))
 	if err != nil {
 		return nil, err
@@ -90,7 +104,7 @@ func (m *Manager) Passkeys(ctx context.Context, by *tokens.Principal) ([]Passkey
 
 // DeletePasskey removes one passkey.
 func (m *Manager) DeletePasskey(ctx context.Context, by *tokens.Principal, id string) error {
-	if err := humanOnly(by); err != nil {
+	if err := passkeyHolder(by); err != nil {
 		return err
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(id)
@@ -132,7 +146,7 @@ func (m *Manager) takeSession(ctx context.Context, key string) (*webauthn.Sessio
 
 // BeginRegistration starts adding a passkey (human only).
 func (m *Manager) BeginRegistration(ctx context.Context, by *tokens.Principal) (*protocol.CredentialCreation, error) {
-	if err := humanOnly(by); err != nil {
+	if err := passkeyHolder(by); err != nil {
 		return nil, err
 	}
 	o, err := m.owner(ctx, personOf(by))
@@ -152,7 +166,7 @@ func (m *Manager) BeginRegistration(ctx context.Context, by *tokens.Principal) (
 
 // FinishRegistration stores the new passkey.
 func (m *Manager) FinishRegistration(ctx context.Context, by *tokens.Principal, name string, response json.RawMessage) (*Passkey, error) {
-	if err := humanOnly(by); err != nil {
+	if err := passkeyHolder(by); err != nil {
 		return nil, err
 	}
 	s, err := m.takeSession(ctx, "register:"+by.TokenID)
@@ -232,6 +246,10 @@ func (m *Manager) FinishApproval(ctx context.Context, by *tokens.Principal, id s
 	cred, err := m.wa.ValidateLogin(o, *s, parsed)
 	if err != nil {
 		return nil, fmt.Errorf("passkey check failed: %w", err)
+	}
+	if cred.Authenticator.CloneWarning {
+		_ = m.db.Audit(ctx, by.TokenID, "passkey.clone_warning", base64.RawURLEncoding.EncodeToString(cred.ID), map[string]any{"approval": id})
+		return nil, ErrCloned
 	}
 	now := m.now().UTC()
 	raw, _ := json.Marshal(cred)
