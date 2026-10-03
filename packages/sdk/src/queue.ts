@@ -142,7 +142,7 @@ export async function boxCall<T>(method: string, path: string, body?: unknown): 
   const res = await s.fetch(s.url + path, {
     method,
     headers: { "content-type": "application/json", authorization: `Bearer ${s.key}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? null : JSON.stringify(body),
   });
   const text = await res.text();
   let data: any = undefined;

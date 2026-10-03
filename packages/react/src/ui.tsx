@@ -17,9 +17,9 @@ const useIsoLayout = typeof window === "undefined" ? useEffect : useLayoutEffect
 
 export type Theme = "light" | "dark" | "system";
 export type Common = {
-  className?: string;
+  className?: string | undefined;
   /** Force light or dark; default follows the system (or a .dark class on <html>). */
-  theme?: Theme;
+  theme?: Theme | undefined;
 };
 
 /** Every component renders inside one of these: styles, theme, font. */
@@ -145,7 +145,7 @@ export function initials(name?: string | null, email?: string | null): string {
   return (email ?? "?").slice(0, 1).toUpperCase();
 }
 
-export function Avatar({ name, email, image, size = 32, square }: { name?: string | null; email?: string | null; image?: string | null; size?: number; square?: boolean }) {
+export function Avatar({ name, email, image, size = 32, square }: { name?: string | null | undefined; email?: string | null | undefined; image?: string | null | undefined; size?: number | undefined; square?: boolean | undefined }) {
   const [broken, setBroken] = useState(false);
   return (
     <span className="tf-avatar" data-shape={square ? "square" : undefined} style={{ ["--tf-size" as string]: `${size}px` }} aria-hidden>

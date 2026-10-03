@@ -213,7 +213,7 @@ export type AcceptInviteProps = Common & {
   logo?: ReactNode;
 };
 
-type Preview = { organization: { id: string; name: string; logo?: string | null } | null; role: string | null; inviter?: string | null; email?: string | null; error?: string | null };
+type Preview = { organization: { id: string; name: string; logo?: string | null } | null; role: string | null; inviter?: string | null | undefined; email?: string | null | undefined; error?: string | null | undefined };
 
 /** The page invitation emails and invite links point at: shows the org, signs in if needed, joins. */
 export function AcceptInvite(props: AcceptInviteProps) {
