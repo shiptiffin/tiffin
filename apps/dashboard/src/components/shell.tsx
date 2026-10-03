@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Dialog as D } from "radix-ui";
+import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import {
   Activity,
   Rocket,
@@ -15,12 +14,10 @@ import {
   Database,
   FolderOpen,
   Mail,
-  ChevronsUpDown,
   Fingerprint,
   Gauge,
   KeyRound,
   Lock,
-  LogOut,
   Logs,
   Menu as MenuIcon,
   Monitor,
@@ -29,23 +26,25 @@ import {
   Search,
   Stamp,
   Sun,
-  Terminal,
   Users,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
-import { api, notOnBox } from "@/api/client";
-import { roleCopy, useMe } from "@/lib/me";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+
+// Menus, the phone nav sheet and the command palette bring Radix and cmdk with
+// them. They load right after the first paint, so the shell itself stays small.
+const LazyWhoMenu = lazy(() => import("./shell-menus").then((m) => ({ default: m.WhoMenu })));
+const LazyProjectSwitcher = lazy(() => import("./shell-menus").then((m) => ({ default: m.ProjectSwitcher })));
+const LazyNavSheet = lazy(() => import("./shell-menus").then((m) => ({ default: m.NavSheet })));
+const LazyPalette = lazy(() => import("./palette").then((m) => ({ default: m.CommandPalette })));
+import { notOnBox } from "@/api/client";
+import { useMe } from "@/lib/me";
 import { q } from "@/api/queries";
 import { mq } from "@/api/modules";
 import { cn } from "@/lib/cn";
-import { copyText } from "@/lib/clipboard";
 import { setTheme, useTheme, type ThemePref } from "@/lib/theme";
-import { ActorMark } from "./actor";
 import { Wordmark } from "./logo";
-import { CommandPalette, mcpCommand } from "./palette";
-import { Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from "./ui/dropdown";
+import { ProjectTrigger, rememberClick, WhoTrigger } from "./shell-triggers";
 import { useFavicon } from "./favicon";
-import { relative } from "@/lib/time";
 import { useWaitingWorkflowApprovals } from "@/lib/wf";
 import { useCurrentProject } from "@/lib/project";
 
@@ -56,7 +55,18 @@ export function Shell() {
   const [navPath, setNavPath] = useState<string | null>(null);
   const navOpen = navPath === path;
   const setNavOpen = (o: boolean) => setNavPath(o ? path : null);
+  // Mounted on first use, then kept so closing can animate.
+  const [paletteSeen, setPaletteSeen] = useState(false);
+  const [navSeen, setNavSeen] = useState(false);
+  if (paletteOpen && !paletteSeen) setPaletteSeen(true);
+  if (navOpen && !navSeen) setNavSeen(true);
   useFavicon();
+
+  // Warm the palette while the person reads, so ⌘K opens instantly.
+  useEffect(() => {
+    const t = setTimeout(() => void import("./palette"), 1500);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -80,21 +90,18 @@ export function Shell() {
         </div>
       </aside>
 
-      <D.Root open={navOpen} onOpenChange={setNavOpen}>
-        <D.Portal>
-          <D.Overlay className="fixed inset-0 z-40 bg-[oklch(0.15_0.01_60/0.45)] data-[state=open]:animate-fade lg:hidden" />
-          <D.Content className="fixed inset-y-0 left-0 z-50 w-[min(84vw,300px)] border-r border-rule bg-paper-sunk shadow-pop outline-none data-[state=open]:animate-[rise_300ms_var(--ease-out-soft)] lg:hidden">
-            <D.Title className="sr-only">Navigation</D.Title>
-            <D.Description className="sr-only">Pages and projects</D.Description>
+      {navSeen && (
+        <Suspense fallback={null}>
+          <LazyNavSheet open={navOpen} onOpenChange={setNavOpen}>
             <Sidebar
               onSearch={() => {
                 setNavOpen(false);
                 setPaletteOpen(true);
               }}
             />
-          </D.Content>
-        </D.Portal>
-      </D.Root>
+          </LazyNavSheet>
+        </Suspense>
+      )}
 
       <div className="flex min-w-0 flex-col">
         <AttackBanner />
@@ -103,7 +110,11 @@ export function Shell() {
           <Outlet />
         </main>
       </div>
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      {paletteSeen && (
+        <Suspense fallback={null}>
+          <LazyPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -130,78 +141,13 @@ function TopBar({ onMenu, onSearch }: { onMenu: () => void; onSearch: () => void
         </span>
       </button>
       <div className="lg:ml-auto">
-        <WhoMenu />
+        <Suspense fallback={<WhoTrigger onClick={rememberClick("who")} />}>
+          <LazyWhoMenu />
+        </Suspense>
       </div>
     </header>
   );
 }
-
-function WhoMenu() {
-  const { me, name, role, admin } = useMe();
-  const navigate = useNavigate();
-  const [copied, setCopied] = useState(false);
-  if (!me) return <div className="size-9" />;
-  const label = name ?? "You";
-  return (
-    <Menu>
-      <MenuTrigger
-        aria-label="Account"
-        className="flex h-9 items-center gap-2 rounded-lg px-2 text-base text-ink-2 transition-colors hover:bg-hover hover:text-ink data-[state=open]:bg-hover"
-      >
-        <ActorMark actor={{ kind: role === "owner" ? "owner" : "human", name: label, id: me.tokenId }} />
-        <span className="hidden max-w-40 truncate sm:inline">{label}</span>
-        <ChevronsUpDown className="hidden size-3.5 text-ink-4 sm:block" />
-      </MenuTrigger>
-      <MenuContent align="end" className="w-72">
-        <div className="px-2 pt-2 pb-2.5">
-          <p className="text-base font-medium text-ink">{label}</p>
-          <p className="mt-0.5 text-sm text-ink-3">
-            {role ? roleCopy[role]?.label : me.kind}
-            {me.expiresAt ? ` · session ends ${relative(me.expiresAt)}` : ""}
-          </p>
-          {role && <p className="mt-1 text-sm text-ink-3">{roleCopy[role]?.blurb}</p>}
-        </div>
-        <MenuSeparator />
-        <MenuItem
-          onSelect={async (e) => {
-            e.preventDefault();
-            if (await copyText(mcpCommand())) {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1400);
-            }
-          }}
-        >
-          <Terminal />
-          {copied ? "Copied" : "Copy MCP setup command"}
-        </MenuItem>
-        {admin && (
-          <MenuItem onSelect={() => navigate({ to: "/tokens", search: { create: true } })}>
-            <KeyRound />
-            Create a token
-          </MenuItem>
-        )}
-        <MenuItem onSelect={() => navigate({ to: "/settings/passkeys" })}>
-          <Fingerprint />
-          Your passkeys
-        </MenuItem>
-        <MenuSeparator />
-        <MenuItem
-          onSelect={async () => {
-            try {
-              await api.logout();
-            } finally {
-              location.assign("/login?reason=signed-out");
-            }
-          }}
-        >
-          <LogOut />
-          Sign out
-        </MenuItem>
-      </MenuContent>
-    </Menu>
-  );
-}
-
 
 function Sidebar({ onSearch }: { onSearch: () => void }) {
   const project = useCurrentProject();
@@ -217,7 +163,9 @@ function Sidebar({ onSearch }: { onSearch: () => void }) {
           <Wordmark />
         </Link>
       </div>
-      <ProjectSwitcher />
+      <Suspense fallback={<ProjectTrigger onClick={rememberClick("project")} />}>
+        <LazyProjectSwitcher />
+      </Suspense>
       <div className="flex flex-col gap-0.5">
         <NavItem to="/" search={project ? { project } : {}} exact icon={<ScrollText />} label="Activity" />
         {onBox && (
@@ -426,47 +374,6 @@ function NavItem({
       )}
       {trailing}
     </Link>
-  );
-}
-
-function ProjectSwitcher() {
-  const { data: projects } = useQuery(q.projects);
-  const project = useCurrentProject();
-  const navigate = useNavigate();
-  const path = useRouterState({ select: (s) => s.location.pathname });
-  const onActivity = path === "/";
-  const pick = (v: string) => {
-    if (!v) navigate({ to: "/", search: {} });
-    else if (onActivity) navigate({ to: "/", search: { project: v } });
-    else if (path.endsWith("/secrets")) navigate({ to: "/projects/$project/secrets", params: { project: v } });
-    else navigate({ to: "/projects/$project", params: { project: v } });
-  };
-  return (
-    <Menu>
-      <MenuTrigger className="flex h-11 items-center gap-2.5 rounded-lg border border-rule bg-raised/60 px-2.5 text-left transition-colors hover:border-rule-strong hover:bg-raised data-[state=open]:border-rule-strong">
-        <span className="grid size-6 place-items-center rounded-md bg-paper font-mono text-xs text-ink-2 ring-1 ring-rule">
-          {project ? project.slice(0, 1).toUpperCase() : "*"}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-2xs font-medium tracking-wider text-ink-3 uppercase">Project</span>
-          <span className="block truncate text-base text-ink">{project ?? "All projects"}</span>
-        </span>
-        <ChevronsUpDown className="size-3.5 text-ink-4" />
-      </MenuTrigger>
-      <MenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-56">
-        <MenuLabel>Projects on this box</MenuLabel>
-        <MenuRadioGroup value={project ?? ""} onValueChange={pick}>
-          <MenuRadioItem value="">All projects</MenuRadioItem>
-          {(projects ?? []).map((p) => (
-            <MenuRadioItem key={p.name} value={p.name}>
-              <span className="flex-1 truncate">{p.name}</span>
-              <span className="font-mono text-xs text-ink-4">v{p.version}</span>
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
-        {projects && projects.length === 0 && <p className="px-2 py-1.5 text-sm text-ink-3">No projects yet. `tiffin init` makes one.</p>}
-      </MenuContent>
-    </Menu>
   );
 }
 

@@ -77,8 +77,8 @@
   --rule-strong: oklch(0.82 0.012 76);
   --ink: oklch(0.235 0.012 62);
   --ink-2: oklch(0.43 0.014 66);
-  --ink-3: oklch(0.575 0.014 70);
-  --ink-4: oklch(0.7 0.012 72);
+  --ink-3: oklch(0.53 0.014 70); /* 4.7:1 on sunk paper (AA) */
+  --ink-4: oklch(0.62 0.012 72); /* 3.3:1: incidental text only */
   --brass: oklch(0.6 0.105 78);
   --brass-ink: oklch(0.47 0.09 74);
   --brass-wash: oklch(0.6 0.105 78 / 0.12);
@@ -86,7 +86,7 @@
 
   --rev: oklch(0.53 0.085 158);
   --rev-wash: oklch(0.53 0.085 158 / 0.1);
-  --out: oklch(0.6 0.155 52);
+  --out: oklch(0.55 0.15 52);
   --out-wash: oklch(0.6 0.155 52 / 0.11);
   --irr: oklch(0.545 0.195 27);
   --irr-wash: oklch(0.545 0.195 27 / 0.09);
@@ -107,8 +107,8 @@
   --rule-strong: oklch(0.34 0.011 70);
   --ink: oklch(0.935 0.01 82);
   --ink-2: oklch(0.775 0.014 78);
-  --ink-3: oklch(0.6 0.014 74);
-  --ink-4: oklch(0.45 0.012 72);
+  --ink-3: oklch(0.64 0.014 74); /* 5.3:1 on raised (AA) */
+  --ink-4: oklch(0.52 0.012 72); /* 3.3:1: incidental text only */
   --brass: oklch(0.8 0.1 82);
   --brass-ink: oklch(0.84 0.09 84);
   --brass-wash: oklch(0.8 0.1 82 / 0.1);
@@ -137,7 +137,8 @@
     --rule: oklch(0.265 0.009 68);
     --ink: oklch(0.935 0.01 82);
     --ink-2: oklch(0.775 0.014 78);
-    --ink-3: oklch(0.6 0.014 74);
+    --ink-3: oklch(0.64 0.014 74);
+    --ink-4: oklch(0.52 0.012 72);
   }
 }
 

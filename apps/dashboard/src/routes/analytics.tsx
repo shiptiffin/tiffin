@@ -35,8 +35,12 @@ const country = (code: string) => {
 function secs(s: number) {
   if (!s) return "0 s";
   const m = Math.floor(s / 60);
+  if (m >= 10) return `${Math.round(s / 60)} min`;
   return m ? `${m} min ${Math.round(s % 60)} s` : `${Math.round(s)} s`;
 }
+
+/** Below this many visitors before, a percentage change is noise, not news. */
+const MIN_BASELINE = 20;
 
 export function AnalyticsPage({ project, period = "7d" }: { project: string; period?: string }) {
   useTitle(`${project} · Analytics`);
@@ -97,6 +101,11 @@ export function AnalyticsPage({ project, period = "7d" }: { project: string; per
         ))}
       </div>
 
+      {d && d.previous.visitors < MIN_BASELINE && d.totals.visitors > 0 && (
+        <p className="mt-3 text-sm text-ink-3 sm:mt-0 sm:ml-4 sm:inline-block">
+          {d.previous.visitors === 0 ? "Nothing earlier to compare with yet." : `Only ${num(d.previous.visitors)} visitors the period before: too few to compare.`}
+        </p>
+      )}
       {o.isError && <ProblemNote className="mt-6" error={o.error} />}
       {o.isPending && <Skeleton className="mt-6 h-72" />}
       {d && (
@@ -107,6 +116,7 @@ export function AnalyticsPage({ project, period = "7d" }: { project: string; per
                 label="Visitors"
                 v={d.totals.visitors}
                 prev={d.previous.visitors}
+                base={d.previous.visitors}
                 fmt={num}
                 on={metric === "visitors"}
                 onClick={() => setMetric("visitors")}
@@ -115,13 +125,22 @@ export function AnalyticsPage({ project, period = "7d" }: { project: string; per
                 label="Page views"
                 v={d.totals.pageviews}
                 prev={d.previous.pageviews}
+                base={d.previous.visitors}
                 fmt={num}
                 on={metric === "pageviews"}
                 onClick={() => setMetric("pageviews")}
               />
-              <Kpi label="Views per visit" v={d.totals.viewsPerVisit} prev={d.previous.viewsPerVisit} fmt={(v) => v.toFixed(1)} />
-              <Kpi label="Bounce rate" v={d.totals.bounceRate} prev={d.previous.bounceRate} fmt={(v) => `${Math.round(v * 100)}%`} lowerIsBetter />
-              <Kpi label="Visit duration" v={d.totals.avgSessionSeconds} prev={d.previous.avgSessionSeconds} fmt={secs} />
+              <Kpi label="Views per visit" v={d.totals.viewsPerVisit} prev={d.previous.viewsPerVisit} base={d.previous.visitors} fmt={(v) => v.toFixed(1)} />
+              <Kpi
+                label="Bounce rate"
+                v={d.totals.bounceRate}
+                prev={d.previous.bounceRate}
+                base={d.previous.visitors}
+                fmt={(v) => `${Math.round(v * 100)}%`}
+                points
+                lowerIsBetter
+              />
+              <Kpi label="Visit duration" v={d.totals.avgSessionSeconds} prev={d.previous.avgSessionSeconds} base={d.previous.visitors} fmt={secs} />
             </dl>
             <div className="p-5">
               {d.totals.pageviews === 0 ? (
@@ -210,11 +229,13 @@ export function AnalyticsPage({ project, period = "7d" }: { project: string; per
           </div>
         </section>
       )}
-      <p className="mt-8 text-xs text-ink-4">
-        <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer" className="hover:text-ink">
-          IP Geolocation by DB-IP
-        </a>
-      </p>
+      {!setup.data && (
+        <p className="mt-8 text-xs text-ink-3">
+          <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer" className="hover:text-ink">
+            IP Geolocation by DB-IP
+          </a>
+        </p>
+      )}
     </Page>
   );
 }
@@ -223,22 +244,29 @@ function Kpi({
   label,
   v,
   prev,
+  base,
   fmt,
   on,
   onClick,
   lowerIsBetter,
+  points,
 }: {
   label: string;
   v: number;
   prev: number;
+  /** Visitors in the previous period: too few and there's nothing honest to compare. */
+  base: number;
   fmt: (v: number) => string;
   on?: boolean;
   onClick?: () => void;
   lowerIsBetter?: boolean;
+  /** Compare a rate in percentage points rather than as a percent of a percent. */
+  points?: boolean;
 }) {
-  const change = prev ? (v - prev) / prev : v ? 1 : 0;
+  const change = points ? v - prev : prev ? (v - prev) / prev : 0;
   const better = lowerIsBetter ? change < 0 : change > 0;
   const Tag = onClick ? "button" : "div";
+  const big = !points && Math.abs(change) >= 2;
   return (
     <Tag
       onClick={onClick}
@@ -249,15 +277,17 @@ function Kpi({
       <dt className="text-2xs font-medium tracking-wider text-ink-3 uppercase">{label}</dt>
       <dd className="display mt-1.5 text-2xl text-ink tnum">{fmt(v)}</dd>
       <dd className="mt-0.5 flex items-center gap-1 text-xs text-ink-3 tnum">
-        {prev === 0 && v === 0 ? (
-          "–"
-        ) : prev === 0 ? (
-          "new this period"
+        {base < MIN_BASELINE ? (
+          <span aria-hidden>&nbsp;</span>
+        ) : Math.abs(change) < (points ? 0.005 : 0.005) ? (
+          "same as before"
         ) : (
           <>
             {change >= 0 ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
-            <span className={cn(Math.abs(change) >= 0.05 && (better ? "text-ink" : "text-ink-2"))}>{Math.abs(Math.round(change * 100))}%</span> vs
-            before
+            <span className={cn(Math.abs(change) >= 0.05 && (better ? "text-ink" : "text-ink-2"))}>
+              {points ? `${Math.abs(Math.round(change * 100))} pts` : big ? `${(v / prev).toFixed(1)}×` : `${Math.abs(Math.round(change * 100))}%`}
+            </span>{" "}
+            vs before
           </>
         )}
       </dd>
@@ -281,7 +311,7 @@ function Breakdown({
   const max = Math.max(1, ...rows.map((r) => r.visitors));
   return (
     <section className="overflow-hidden rounded-xl border border-rule bg-raised/60" aria-label={title}>
-      <div className="flex items-center gap-1 border-b border-rule px-3 pt-2">
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-rule px-3 pt-2 whitespace-nowrap [scrollbar-width:none]">
         {tabs.map(([label], k) => (
           <button
             key={label}
@@ -373,7 +403,9 @@ function Realtime({ project }: { project: string }) {
         <h2 id="rt" className="text-sm font-medium text-ink">
           Last 30 minutes
         </h2>
-        <span className="text-xs text-ink-3">{d ? `${num(d.visitors30m)} visitors · ${num(d.pageviews30m)} views` : ""}</span>
+        <span className="text-xs text-ink-3 tnum">
+          {d ? `${num(d.visitors30m)} ${d.visitors30m === 1 ? "visitor" : "visitors"} · ${num(d.pageviews30m)} ${d.pageviews30m === 1 ? "view" : "views"}` : ""}
+        </span>
       </div>
       <div className="mt-4 flex h-20 items-end gap-[3px]" aria-hidden>
         {per.map((x) => (

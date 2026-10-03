@@ -29,7 +29,7 @@ export function Button({ variant = "secondary", size = "md", asChild, className,
   return (
     <Comp
       className={cn(
-        "inline-flex shrink-0 select-none items-center font-medium whitespace-nowrap transition-[background-color,border-color,color,transform,opacity] duration-150 ease-out active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45 [&_svg]:size-4 [&_svg]:shrink-0",
+        "inline-flex shrink-0 select-none items-center justify-center font-medium whitespace-nowrap transition-[background-color,border-color,color,transform,opacity] duration-150 ease-out active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45 [&_svg]:size-4 [&_svg]:shrink-0",
         variants[variant],
         sizes[size],
         className,

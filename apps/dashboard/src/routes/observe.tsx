@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { bytes, duration, num, pct } from "@/lib/format";
 import { useMe } from "@/lib/me";
-import { full, relative } from "@/lib/time";
+import { full, relative, windowLabel } from "@/lib/time";
 import type { LogsSearch } from "@/router";
 
 // ------------------------------------------------------------------ metrics
@@ -52,7 +52,7 @@ export function MetricsPage() {
         lede={`The box's vital signs, a point a minute. Kept for ${settings.data?.metricsRetention ?? "30d"}; the last hour shows here.`}
         actions={
           <span className="flex items-center gap-2 text-sm text-ink-3">
-            <span className="size-1.5 rounded-full bg-rev" /> up {duration(n.uptimeSeconds)} · {n.cpus} CPUs
+            <span className="size-1.5 rounded-full bg-rev" /> box up {duration(n.uptimeSeconds)} · {n.cpus} CPUs
           </span>
         }
       />
@@ -80,12 +80,12 @@ export function MetricsPage() {
           now={data ? pct(data.usedRatio) : "–"}
           sub={data ? `${bytes(data.freeBytes)} free of ${bytes(data.totalBytes)}` : undefined}
         >
-          <AreaChart label="Data disk used" points={toPoints(s.disk)} format={(v) => `${v.toFixed(1)}%`} />
+          <AreaChart label="Data disk used" points={toPoints(s.disk)} format={(v) => `${v.toFixed(0)}%`} max={100} />
         </ChartCard>
         <ChartCard
-          label="Network"
+          label="Network in"
           now={rate(Number((toPoints(s.rx).at(-1) ?? [0, 0])[1]))}
-          sub={`in · ${rate(Number((toPoints(s.tx).at(-1) ?? [0, 0])[1]))} out`}
+          sub={`${rate(Number((toPoints(s.tx).at(-1) ?? [0, 0])[1]))} going out`}
         >
           <AreaChart label="Network in" points={toPoints(s.rx)} format={rate} />
         </ChartCard>
@@ -286,7 +286,7 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
         >
           {sinceOptions.map((s) => (
             <option key={s} value={s}>
-              last {s}
+              {windowLabel(s)}
             </option>
           ))}
         </select>
@@ -319,7 +319,7 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
         ))}
         <span className="ml-auto flex items-center gap-2 text-sm text-ink-3">
           {live && <span className="size-1.5 animate-pulse rounded-full bg-rev" />}
-          {res.data ? `${num(res.data.count)} lines${res.data.truncated ? " (newest 300)" : ""}` : ""}
+          {res.data ? (res.data.truncated ? `Newest ${num(res.data.count)} lines; narrow the search for older ones` : `${num(res.data.count)} lines`) : ""}
           {res.isFetching && !live && " · searching…"}
         </span>
       </div>
@@ -337,7 +337,8 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
             <ol className="max-h-[68vh] overflow-y-auto font-mono text-[0.75rem] leading-5">
               {rows.map((r, i) => {
                 const k = String(r._time) + String(r._msg);
-                const lvl = String(r.level ?? "");
+                // Apps that print plain text get a level from how the line starts.
+                const lvl = String(r.level ?? "") || (/^(error|fatal|panic)\b/i.test(String(r._msg ?? "")) ? "error" : "");
                 const src = String(r.app ?? r.unit ?? r.source ?? "").replace(/\.service$/, "");
                 return (
                   <li key={k + i} className={cn("border-b border-rule/50", fresh.has(k) && "animate-rise bg-brass-wash")}>
@@ -346,7 +347,7 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
                       className="grid w-full grid-cols-[5.5rem_3.25rem_minmax(0,9rem)_minmax(0,1fr)] items-baseline gap-3 px-3 py-1 text-left hover:bg-hover/60"
                       aria-expanded={open === i}
                     >
-                      <time className="text-ink-4 tnum" title={full(String(r._time))}>
+                      <time className="text-ink-3 tnum" title={full(String(r._time))}>
                         {new Date(String(r._time)).toLocaleTimeString(undefined, { hour12: false })}
                       </time>
                       <span
@@ -354,7 +355,7 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
                           lvl === "error" || lvl === "fatal" ? "text-irr" : lvl === "warning" || lvl === "warn" ? "text-out" : "text-ink-4",
                         )}
                       >
-                        {(lvl === "warning" ? "warn" : lvl).slice(0, 5) || "–"}
+                        {(lvl === "warning" ? "warn" : lvl).slice(0, 5)}
                       </span>
                       <span className="truncate text-ink-3">{src}</span>
                       <span className={cn("min-w-0 text-ink-2", open === i ? "break-all whitespace-pre-wrap" : "truncate")}>
@@ -448,13 +449,13 @@ export function ErrorsPage({ project, status = "unresolved" }: { project?: strin
             {st === "unresolved" && "When an app throws, the error lands here, grouped with others like it."}
           </Empty>
         )}
-        <ul className="flex flex-col gap-2">
+        <ul className="divide-y divide-rule overflow-hidden rounded-xl border border-rule bg-raised/60 empty:hidden">
           {issues.map((i, k) => (
             <li key={i.id} className="animate-rise" style={{ animationDelay: `${k * 35}ms` }}>
               <Link
                 to="/errors/$id"
                 params={{ id: i.id }}
-                className="group grid grid-cols-[0.5rem_minmax(0,1fr)_auto] items-start gap-x-4 rounded-xl border border-rule bg-raised/60 px-4 py-3.5 transition-colors hover:border-rule-strong hover:bg-raised sm:px-5"
+                className="group grid grid-cols-[0.5rem_minmax(0,1fr)_auto] items-start gap-x-4 px-4 py-3.5 transition-colors hover:bg-hover/50 sm:px-5"
               >
                 <span className={cn("mt-2 size-2 rounded-full", levelTone[i.level] ?? "bg-ink-3")} aria-label={i.level} />
                 <span className="min-w-0">
@@ -469,7 +470,7 @@ export function ErrorsPage({ project, status = "unresolved" }: { project?: strin
                 </span>
                 <span className="text-right">
                   <span className="display block text-xl text-ink tnum">{num(i.count)}</span>
-                  <span className="block text-xs text-ink-3">last {relative(i.lastSeen)}</span>
+                  <span className="block text-xs text-ink-3">latest {relative(i.lastSeen)}</span>
                 </span>
               </Link>
             </li>
@@ -763,7 +764,7 @@ export function AlertsPage() {
                   )}
                 />
                 <p className="text-base text-ink">
-                  {h.summary} <span className="text-sm text-ink-3">· {h.state}</span>
+                  {h.summary} {h.state !== "test" && <span className="text-sm text-ink-3">· {h.state}</span>}
                 </p>
                 <p className="text-sm text-ink-3" title={full(h.at)}>
                   {relative(h.at)} · <code className="font-mono text-xs">{h.rule}</code> · {h.delivery}
@@ -774,16 +775,18 @@ export function AlertsPage() {
         )}
       </section>
       <p className="mt-6 flex items-center gap-2 text-sm text-ink-3">
-        <Bug className="size-3.5" />
-        Error spikes come from{" "}
-        <Link to="/errors" search={{}} className="text-brass-ink underline underline-offset-4">
-          Errors
-        </Link>
-        ; disk and memory from{" "}
-        <Link to="/metrics" className="text-brass-ink underline underline-offset-4">
-          Metrics
-        </Link>
-        .
+        <Bug className="size-3.5 shrink-0" />
+        <span>
+          Error spikes come from{" "}
+          <Link to="/errors" search={{}} className="text-brass-ink underline underline-offset-4">
+            Errors
+          </Link>
+          ; disk and memory from{" "}
+          <Link to="/metrics" className="text-brass-ink underline underline-offset-4">
+            Metrics
+          </Link>
+          .
+        </span>
       </p>
     </Page>
   );

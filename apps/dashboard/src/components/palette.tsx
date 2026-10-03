@@ -28,10 +28,8 @@ import { copyText } from "@/lib/clipboard";
 import { setTheme } from "@/lib/theme";
 import { RiskMark } from "./risk";
 import { useCurrentProject } from "@/lib/project";
+import { mcpCommand } from "@/lib/mcp";
 
-export function mcpCommand() {
-  return `claude mcp add --transport http tiffin ${location.origin}/mcp --header "Authorization: Bearer <agent token>"`;
-}
 
 // Box-wide pages and each project's pages, so every area is a keystroke away.
 const box: Array<[string, string, string[]]> = [

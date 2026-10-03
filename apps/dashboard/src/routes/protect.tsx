@@ -10,7 +10,7 @@ import { ProblemNote, sentence } from "@/components/problem";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
-import { num } from "@/lib/format";
+import { num, plainWords } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { relative } from "@/lib/time";
 
@@ -54,10 +54,14 @@ export function ProtectPage() {
           ok={s.crowdsec.running && s.crowdsec.enforced}
           badge={s.crowdsec.enforced ? "enforcing" : s.crowdsec.detecting ? "watching only" : "off"}
         >
-          <p className="text-base text-ink-2">{sentence(s.crowdsec.detail)}</p>
-          <p className="mt-2 text-sm text-ink-3">
-            Reads the edge's access log, spots brute force and scanning, and bans the source at the edge. {num(s.crowdsec.decisions)} active.
+          <p className="text-base text-ink-2">
+            {s.crowdsec.running
+              ? s.crowdsec.decisions
+                ? `Running, with ${num(s.crowdsec.decisions)} ${s.crowdsec.decisions === 1 ? "ban" : "bans"} in place.`
+                : "Running. Nobody is banned."
+              : sentence(plainWords(s.crowdsec.detail))}
           </p>
+          <p className="mt-2 text-sm text-ink-3">Reads the edge's access log, spots brute force and scanning, and bans the source at the edge.</p>
         </Layer>
         <Layer
           icon={<BrickWall />}
@@ -133,7 +137,11 @@ function AttackSwitch({ s, admin, onDone }: { s: ProtectStatus; admin: boolean; 
         </span>
         <div>
           <p className="display text-2xl text-ink">All calm.</p>
-          <p className="mt-1 text-base text-ink-2">{sentence(s.summary)}</p>
+          <p className="mt-1 text-base text-ink-2">
+            Rate limits{s.firewall.active ? " and the firewall" : ""} are on
+            {s.crowdsec.running ? (s.crowdsec.decisions ? `; ${s.crowdsec.decisions} ${s.crowdsec.decisions === 1 ? "address is" : "addresses are"} banned` : "; nobody is banned") : ""}.
+            The challenge is off until you need it.
+          </p>
         </div>
       </div>
       <div className="bg-raised p-6">
@@ -158,7 +166,7 @@ function AttackSwitch({ s, admin, onDone }: { s: ProtectStatus; admin: boolean; 
                 </option>
               ))}
             </select>
-            <Button size="sm" variant="danger" onClick={() => on.mutate()} disabled={on.isPending}>
+            <Button size="sm" variant="danger-quiet" className="border border-irr-rule" onClick={() => on.mutate()} disabled={on.isPending}>
               <ShieldAlert />
               Turn on under-attack mode
             </Button>
@@ -402,7 +410,7 @@ function Alerts() {
                 <span className="min-w-0">
                   <span className="block truncate text-ink">{a.message}</span>
                   <span className="block font-mono text-xs text-ink-3">
-                    {a.source} · {a.events} events · {a.decisions} {a.decisions === 1 ? "ban" : "bans"}
+                    {a.source} · {a.events} {a.events === 1 ? "event" : "events"} · {a.decisions} {a.decisions === 1 ? "ban" : "bans"}
                   </span>
                 </span>
                 <span className="text-xs text-ink-3">{relative(a.at)}</span>

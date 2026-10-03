@@ -156,42 +156,75 @@ export function TokensPage({ create }: { create?: boolean }) {
       </div>
       <p className="mt-4 text-sm text-ink-3">Secrets are never stored, only a hash. If one is lost, revoke it and make another.</p>
 
-      {sessions.length > 0 && (
-        <section className="mt-14" aria-labelledby="sessions">
-          <h2 id="sessions" className="display-italic text-xl text-ink">
-            Signed-in browsers
-          </h2>
-          <p className="mt-1 text-base text-ink-3">Each login link starts one. They end on their own after 12 hours.</p>
-          <ul className="mt-4 divide-y divide-rule border-y border-rule">
-            {sessions.map((t) => {
-              const mine = me?.tokenId === t.id;
-              return (
-                <li key={t.id} className="flex items-center gap-3 py-3">
-                  <Monitor className="size-4 shrink-0 text-ink-3" />
-                  <div className="min-w-0 flex-1 text-base">
-                    <span className="text-ink">{mine ? "This browser" : "Another browser"}</span>
-                    <span className="text-ink-3">
-                      {" "}
-                      · signed in {relative(t.createdAt)} · ends {relative(t.expiresAt ?? t.createdAt)}
-                    </span>
-                  </div>
-                  {mine ? (
-                    <span className="rounded-full bg-rev-wash px-2 py-0.5 text-xs font-medium text-rev">You're here</span>
-                  ) : (
-                    <Button variant="ghost" size="sm" onClick={() => setRevoke(t)} className="hover:text-irr">
-                      Sign out
-                    </Button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
+      {sessions.length > 0 && <Browsers sessions={sessions} myId={me?.tokenId} onRevoke={setRevoke} />}
 
       <CreateDialog open={!!create} onOpenChange={setCreate} />
       <RevokeDialog token={revoke} onClose={() => setRevoke(null)} />
     </Page>
+  );
+}
+
+/** This browser first, then the most recent few; the rest fold away behind one line. */
+function Browsers({ sessions, myId, onRevoke }: { sessions: Token[]; myId?: string; onRevoke: (t: Token) => void }) {
+  const qc = useQueryClient();
+  const [all, setAll] = useState(false);
+  const sorted = [...sessions].sort(
+    (a, b) => Number(b.id === myId) - Number(a.id === myId) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+  const others = sorted.filter((t) => t.id !== myId);
+  const shown = all ? sorted : sorted.slice(0, 4);
+  const out = useMutation({
+    mutationFn: async () => {
+      for (const t of others) await api.revokeToken(t.id);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["tokens"] }),
+  });
+  return (
+    <section className="mt-14" aria-labelledby="sessions">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+        <h2 id="sessions" className="display-italic text-xl text-ink">
+          Signed-in browsers
+        </h2>
+        {others.length > 1 && (
+          <Button variant="ghost" size="sm" onClick={() => out.mutate()} disabled={out.isPending} className="hover:text-irr">
+            {out.isPending ? "Signing out…" : `Sign out the other ${others.length}`}
+          </Button>
+        )}
+      </div>
+      <p className="mt-1 text-base text-ink-3">Each login link starts one. They end on their own after 12 hours.</p>
+      {out.isError && <ProblemNote className="mt-3" error={out.error} />}
+      <ul className="mt-4 divide-y divide-rule border-y border-rule">
+        {shown.map((t) => {
+          const mine = myId === t.id;
+          return (
+            <li key={t.id} className="flex items-center gap-3 py-3">
+              <Monitor className="size-4 shrink-0 text-ink-3" />
+              <div className="min-w-0 flex-1 text-base">
+                <span className="text-ink">{mine ? "This browser" : "Another browser"}</span>
+                <span className="text-ink-3">
+                  {" "}
+                  · signed in {relative(t.createdAt)}
+                  {t.lastUsedAt && !mine ? ` · last used ${relative(t.lastUsedAt)}` : ""}
+                  <span className="hidden sm:inline"> · ends {relative(t.expiresAt ?? t.createdAt)}</span>
+                </span>
+              </div>
+              {mine ? (
+                <span className="rounded-full bg-rev-wash px-2 py-0.5 text-xs font-medium text-rev">You're here</span>
+              ) : (
+                <Button variant="ghost" size="sm" onClick={() => onRevoke(t)} className="hover:text-irr">
+                  Sign out
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {sorted.length > shown.length && (
+        <button onClick={() => setAll(true)} className="mt-3 text-sm text-ink-3 hover:text-ink">
+          Show {sorted.length - shown.length} more
+        </button>
+      )}
+    </section>
   );
 }
 

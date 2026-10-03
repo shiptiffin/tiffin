@@ -17,7 +17,7 @@ import { Input, Label } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { bytes, ms, num } from "@/lib/format";
 import { useMe } from "@/lib/me";
-import { expiry, full, relative } from "@/lib/time";
+import { expiry, full, relative, within } from "@/lib/time";
 
 // ------------------------------------------------------------------ shared
 
@@ -85,7 +85,10 @@ export function DataPage({ project }: { project: string }) {
 
   const pg = info.data;
   const list = tables.data ?? [];
-  const totalRows = list.reduce((n, t) => n + (t.rowEstimate ?? 0), 0);
+  // The app's own tables first; the auth service's tables are managed for it.
+  const mine = list.filter((t) => t.schema !== "auth");
+  const managed = list.filter((t) => t.schema === "auth");
+  const totalRows = mine.reduce((n, t) => n + (t.rowEstimate ?? 0), 0);
   return (
     <Page wide>
       <DataHeader
@@ -112,7 +115,7 @@ export function DataPage({ project }: { project: string }) {
       {info.isError && <ProblemNote className="mt-8" error={info.error} />}
       <dl className="mt-8 grid grid-cols-2 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2 gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-4">
         <Stat label="Size" value={pg ? bytes(pg.sizeBytes) : "…"} />
-        <Stat label="Rows, about" value={tables.isSuccess ? num(totalRows) : "…"} sub={`${list.length} tables and views`} />
+        <Stat label="Rows, about" value={tables.isSuccess ? num(totalRows) : "…"} sub={`in ${mine.length} of your tables and views`} />
         <Stat label="Branches" value={pg ? num(pg.branches) : "…"} sub="copies made in milliseconds" />
         <Stat label="Snapshots" value={pg ? num(pg.snapshots) : "…"} sub="kept for 7 days" />
       </dl>
@@ -128,33 +131,32 @@ export function DataPage({ project }: { project: string }) {
             Your app's migrations create them. Or try <code className="font-mono text-ink">CREATE TABLE</code> in the SQL console with writes on.
           </Empty>
         )}
-        {list.length > 0 && (
-          <ul className="divide-y divide-rule overflow-hidden rounded-xl border border-rule bg-raised/60">
-            {list.map((t, k) => (
-              <li key={t.schema + t.name} className="animate-rise" style={{ animationDelay: `${k * 30}ms` }}>
-                <Link
-                  to="/projects/$project/data/tables/$table"
-                  params={{ project, table: tableSlug(t) }}
-                  className="group grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-3 transition-colors hover:bg-hover/50 sm:grid-cols-[1.5rem_minmax(0,1fr)_7rem_6rem_1rem] sm:px-5"
-                >
-                  <Table2 className={cn("size-4", t.kind === "table" ? "text-ink-3" : "text-ink-4")} />
-                  <span className="min-w-0">
-                    <span className="flex items-center gap-2">
-                      <span className="truncate font-mono text-[0.875rem] text-ink">{tableSlug(t)}</span>
-                      {t.kind !== "table" && (
-                        <span className="rounded-full bg-hover px-1.5 py-px text-xs text-ink-3">{t.kind.replace("-", " ")}</span>
-                      )}
-                      {t.rls && <span className="rounded-full bg-rev-wash px-1.5 py-px text-xs text-rev">row security</span>}
-                    </span>
-                    <span className="mt-0.5 block truncate font-mono text-xs text-ink-4">{(t.columns ?? []).map((c) => c.name).join(" · ")}</span>
-                  </span>
-                  <span className="text-right font-mono text-sm text-ink-2 tnum">{t.rowEstimate === null ? "–" : `~${num(t.rowEstimate)}`}</span>
-                  <span className="hidden text-right font-mono text-xs text-ink-3 tnum sm:block">{t.sizeBytes ? bytes(t.sizeBytes) : ""}</span>
-                  <ChevronRight className="hidden size-4 text-ink-4 transition-transform group-hover:translate-x-0.5 sm:block" />
-                </Link>
-              </li>
-            ))}
-          </ul>
+        {mine.length > 0 && <TableList project={project} list={mine} />}
+        {list.length > 0 && mine.length === 0 && (
+          <p className="rounded-xl border border-dashed border-rule-strong px-4 py-5 text-base text-ink-3">
+            None of your own yet. Your app's migrations create them; sign-in's tables are below.
+          </p>
+        )}
+        {managed.length > 0 && (
+          <details className="group/managed mt-4 overflow-hidden rounded-xl border border-rule">
+            <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 text-base text-ink-2 transition-colors hover:bg-hover/50 sm:px-5 [&::-webkit-details-marker]:hidden">
+              <ChevronRight className="size-4 text-ink-3 transition-transform group-open/managed:rotate-90" />
+              <span className="min-w-0 flex-1">
+                Sign-in tables{" "}
+                <span className="hidden text-ink-3 sm:inline">
+                  · managed by Tiffin's auth, in the <code className="font-mono">auth</code> schema
+                </span>
+              </span>
+              <span className="shrink-0 font-mono text-xs text-ink-3 tnum">
+                {managed.length} tables
+                <span className="hidden sm:inline"> · ~{num(managed.reduce((n, t) => n + (t.rowEstimate ?? 0), 0))} rows</span>
+              </span>
+            </summary>
+            <p className="border-t border-rule px-4 py-2.5 text-sm text-ink-3 sm:px-5">
+              Users, sessions and organizations live here. Read them freely; change them through the Users page or the auth API, not by hand.
+            </p>
+            <TableList project={project} list={managed} flush />
+          </details>
         )}
       </section>
 
@@ -163,6 +165,37 @@ export function DataPage({ project }: { project: string }) {
         <Snapshots project={project} list={snaps.data ?? []} />
       </div>
     </Page>
+  );
+}
+
+function TableList({ project, list, flush }: { project: string; list: PgTable[]; flush?: boolean }) {
+  return (
+    <ul className={cn("divide-y divide-rule overflow-hidden", flush ? "border-t border-rule" : "rounded-xl border border-rule bg-raised/60")}>
+      {list.map((t, k) => (
+        <li key={t.schema + t.name} className="animate-rise" style={{ animationDelay: `${Math.min(k, 8) * 30}ms` }}>
+          <Link
+            to="/projects/$project/data/tables/$table"
+            params={{ project, table: tableSlug(t) }}
+            className="group grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-3 transition-colors hover:bg-hover/50 sm:grid-cols-[1.5rem_minmax(0,1fr)_7rem_6rem_1rem] sm:px-5"
+          >
+            <Table2 className={cn("size-4", t.kind === "table" ? "text-ink-3" : "text-ink-4")} />
+            <span className="min-w-0">
+              <span className="flex items-center gap-2">
+                <span className="truncate font-mono text-[0.875rem] text-ink">{tableSlug(t)}</span>
+                {t.kind !== "table" && <span className="rounded-full bg-hover px-1.5 py-px text-xs text-ink-3">{t.kind.replace("-", " ")}</span>}
+                {t.rls && <span className="rounded-full bg-rev-wash px-1.5 py-px text-xs text-rev">row security</span>}
+              </span>
+              <span className="mt-0.5 block truncate font-mono text-xs text-ink-3">{(t.columns ?? []).map((c) => c.name).join(" · ")}</span>
+            </span>
+            <span className="text-right font-mono text-sm text-ink-2 tnum">
+              {t.rowEstimate === null || t.kind !== "table" ? "" : t.rowEstimate === 0 ? <span className="text-ink-3">empty</span> : `~${num(t.rowEstimate)}`}
+            </span>
+            <span className="hidden text-right font-mono text-xs text-ink-3 tnum sm:block">{t.sizeBytes ? bytes(t.sizeBytes) : ""}</span>
+            <ChevronRight className="hidden size-4 text-ink-4 transition-transform group-hover:translate-x-0.5 sm:block" />
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -235,7 +268,8 @@ function Snapshots({ project, list }: { project: string; list: PgSnapshot[] }) {
                 <span className="block text-base text-ink">{s.reason.charAt(0).toUpperCase() + s.reason.slice(1)}</span>
                 <span className="block text-xs text-ink-3" title={full(s.at)}>
                   {relative(s.at)} · {bytes(s.sizeBytes)}
-                  {s.branch ? ` · branch ${s.branch}` : ""} · kept until {expiry(s.expiresAt).replace(/^in /, "")} from now
+                  {s.branch ? ` · branch ${s.branch}` : ""}
+                  {within(s.expiresAt, 86_400_000) ? ` · goes ${expiry(s.expiresAt)}` : ""}
                 </span>
               </span>
               {can("apply:irreversible") && (
@@ -359,6 +393,8 @@ export function TablePage({ project, table, page = 1 }: { project: string; table
   );
 }
 
+const NUMERIC = /^(int|numeric|float|real|double|decimal|bigint|smallint|serial|money)/;
+
 /** Rows as a grid. Every value is text: nothing a row contains is ever rendered as HTML. */
 export function ResultGrid({ r, columnsTypes }: { r: PgStatement; columnsTypes?: Record<string, string> }) {
   const cols = r.columns ?? [];
@@ -378,7 +414,13 @@ export function ResultGrid({ r, columnsTypes }: { r: PgStatement; columnsTypes?:
             <tr>
               <th className="w-10 border-b border-rule px-3 py-2 text-right font-normal text-ink-4">#</th>
               {cols.map((c) => (
-                <th key={c.name} className="border-b border-rule px-3 py-2 text-left font-normal whitespace-nowrap">
+                <th
+                  key={c.name}
+                  className={cn(
+                    "border-b border-rule px-3 py-2 text-left font-normal whitespace-nowrap",
+                    NUMERIC.test(columnsTypes?.[c.name] ?? c.type ?? "") && "text-right",
+                  )}
+                >
                   <span className="text-ink">{c.name}</span> <span className="text-ink-4">{columnsTypes?.[c.name] ?? c.type}</span>
                 </th>
               ))}
@@ -393,9 +435,7 @@ export function ResultGrid({ r, columnsTypes }: { r: PgStatement; columnsTypes?:
                   const numeric =
                     typeof v === "number" ||
                     (typeof v === "string" &&
-                      /^(int|numeric|float|real|double|decimal|bigint|smallint|serial|money)/.test(
-                        columnsTypes?.[cols[j]?.name] ?? cols[j]?.type ?? "",
-                      ));
+                      NUMERIC.test(columnsTypes?.[cols[j]?.name] ?? cols[j]?.type ?? ""));
                   const text = cell(v);
                   const long = text.length > 60;
                   return (

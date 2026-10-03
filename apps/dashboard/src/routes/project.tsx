@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ArrowRight, Lock, Plus, Trash2 } from "lucide-react";
+import { ArrowRight, ChevronRight, Lock, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ApiError, api, notOnBox, type Change, type ResourceStatus, type SecretInfo } from "@/api/client";
 import { q } from "@/api/queries";
@@ -12,6 +12,7 @@ import { Input, Label } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { asTier, splitAddress } from "@/lib/changes";
 import { useMe } from "@/lib/me";
+import { cronWords } from "@/lib/format";
 import { relative } from "@/lib/time";
 import { Page, NotOnBox } from "@/components/page";
 import { Confirm } from "./settings";
@@ -41,7 +42,7 @@ function facts(kind: string, spec: unknown): string {
   take("routes", (v) => (Array.isArray(v) ? v.join(", ") : String(v)));
   take("extensions", (v) => (Array.isArray(v) && v.length ? `extensions: ${v.join(", ")}` : "no extensions"));
   take("public", (v) => (v ? "public" : "private"));
-  take("schedule", (v) => `runs ${String(v)}`);
+  take("schedule", (v) => `runs ${cronWords(String(v))}`);
   take("methods", (v) => `sign in with ${(v as string[]).join(", ")}`);
   take("organizations", (v) => (v ? "teams on" : "no teams"));
   take("from", (v) => `sends as ${String(v)}`);
@@ -73,24 +74,23 @@ function pageFor(kind: string, name: string): { to: "/"; params: Record<string, 
   );
 }
 
+/** Status speaks up only when something isn't fine; ready rows stay quiet. */
 function StatePill({ st }: { st?: ResourceStatus }) {
-  if (!st) return <span className="text-sm text-ink-4">not tracked</span>;
+  if (!st) return <span className="text-sm text-ink-3">not tracked</span>;
   const state = st.state;
+  if (state === "ready") return <span className="sr-only">Ready</span>;
   return (
     <span
-      className={cn(
-        "inline-flex items-center gap-1.5 text-sm",
-        state === "ready" ? "text-ink-2" : state === "failed" ? "font-medium text-irr" : "text-brass-ink",
-      )}
+      className={cn("inline-flex items-center gap-1.5 text-sm", state === "failed" ? "font-medium text-irr" : "text-brass-ink")}
       title={`${state} · updated ${relative(st.updatedAt)}`}
     >
       <span
         className={cn(
           "size-1.5 rounded-full",
-          state === "ready" ? "bg-rev" : state === "failed" ? "bg-irr" : "animate-pulse bg-brass", // pending is live, so it moves
+          state === "failed" ? "bg-irr" : "animate-pulse bg-brass", // pending is live, so it moves
         )}
       />
-      {state === "ready" ? "Ready" : state === "failed" ? "Failed" : state === "pending" ? "Starting" : state}
+      {state === "failed" ? "Failed" : state === "pending" ? "Starting" : state}
     </span>
   );
 }
@@ -124,6 +124,7 @@ export function ProjectPage({ project }: { project: string }) {
   const groups = new Map<string, typeof res>();
   for (const r of res) {
     const k = splitAddress(r.address).kind;
+    if (k === "project") continue; // the project itself: its state is the headline
     groups.set(k, [...(groups.get(k) ?? []), r]);
   }
   const rank = (k: string) => (kindOrder.includes(k) ? kindOrder.indexOf(k) : 99);
@@ -133,7 +134,7 @@ export function ProjectPage({ project }: { project: string }) {
     <Page wide>
       <header className="animate-rise">
         <p className="text-sm text-ink-3">
-          Project · version {p.data.version} · {res.length} resources
+          Project · version {p.data.version} · {res.length} {res.length === 1 ? "resource" : "resources"}
         </p>
         <h1 className="display mt-1 text-3xl text-ink">{project}</h1>
         <p className="display mt-1 text-xl text-ink-3">
@@ -161,7 +162,7 @@ export function ProjectPage({ project }: { project: string }) {
                   const st = status[r.address];
                   const { name } = splitAddress(r.address);
                   return (
-                    <li key={r.address} className="relative px-4 py-3 has-[a]:hover:bg-hover/40">
+                    <li key={r.address} className="group/row relative px-4 py-3 has-[a]:hover:bg-hover/40">
                       <div className="flex items-center gap-3">
                         {pageFor(k, name) ? (
                           <Link
@@ -178,6 +179,9 @@ export function ProjectPage({ project }: { project: string }) {
                           {k === "env" ? <code className="font-mono text-xs text-ink-2">{JSON.stringify(r.spec)}</code> : facts(k, r.spec)}
                         </span>
                         <StatePill st={st} />
+                        {pageFor(k, name) && (
+                          <ChevronRight aria-hidden className="size-4 shrink-0 text-ink-4 transition-transform group-hover/row:translate-x-0.5" />
+                        )}
                       </div>
                       {st?.message && <p className={cn("mt-1.5 text-sm", st.state === "failed" ? "text-irr" : "text-ink-3")}>{st.message}</p>}
                     </li>

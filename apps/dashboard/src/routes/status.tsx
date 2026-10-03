@@ -4,6 +4,7 @@ import { q } from "@/api/queries";
 import { useTitle } from "@/components/favicon";
 import { Code, ProblemNote } from "@/components/problem";
 import { cn } from "@/lib/cn";
+import { plainWords } from "@/lib/format";
 import { uptime } from "@/lib/time";
 import { Page } from "@/components/page";
 
@@ -61,7 +62,7 @@ export function StatusPage() {
 
       <dl className="mt-10 grid grid-cols-2 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2 gap-px overflow-hidden rounded-xl border border-rule bg-rule sm:grid-cols-4">
         <Stat label="Version" value={d.version} mono />
-        <Stat label="Up for" value={uptime(d.uptime)} />
+        <Stat label="Tiffin up for" value={uptime(d.uptime)} />
         <Stat label="Host" value={d.host.hostname} mono />
         <Stat label="Platform" value={`${d.host.os}/${d.host.arch}`} mono />
       </dl>
@@ -81,7 +82,7 @@ export function StatusPage() {
               <CheckMark ok={c.ok} />
               <span className="font-mono text-base text-ink">{c.name}</span>
               <span className={cn("col-start-2 text-base sm:col-start-auto", c.ok ? "text-ink-2" : "text-irr")}>
-                {c.detail ? <Code text={c.detail} /> : c.ok ? "OK" : "Failing"}
+                {c.detail ? <Code text={plainWords(c.detail)} /> : c.ok ? "OK" : "Failing"}
               </span>
             </li>
           ))}

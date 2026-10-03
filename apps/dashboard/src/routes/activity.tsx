@@ -9,7 +9,7 @@ import { Command } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
 import { TiffinMark } from "@/components/logo";
 import { OpCounts } from "@/components/op";
-import { mcpCommand } from "@/components/palette";
+import { mcpCommand } from "@/lib/mcp";
 import { ProblemNote } from "@/components/problem";
 import { RiskBadge, RiskMark } from "@/components/risk";
 import { cn } from "@/lib/cn";

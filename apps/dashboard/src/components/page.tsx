@@ -2,11 +2,39 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
+/**
+ * One frame for every page, so the title never jumps sideways between pages:
+ * the frame is centred, and narrower pages stay left-aligned inside it.
+ */
 export function Page({ children, className, wide, full }: { children: ReactNode; className?: string; wide?: boolean; full?: boolean }) {
   return (
-    <div className={cn("mx-auto w-full px-4 pt-10 pb-16 sm:px-8 sm:pt-14", full ? "max-w-[88rem]" : wide ? "max-w-5xl" : "max-w-[52rem]", className)}>
-      {children}
+    <div className="mx-auto w-full max-w-[80rem] px-4 pt-10 pb-16 sm:px-8 sm:pt-14 lg:px-10">
+      <div className={cn("w-full", full ? "" : wide ? "max-w-5xl" : "max-w-[52rem]", className)}>{children}</div>
     </div>
+  );
+}
+
+/** "shop › Storage": where a page sits. The last part is the page itself, so it isn't repeated. */
+export function Crumbs({ items }: { items: Array<{ label: ReactNode; to?: string; params?: Record<string, string>; mono?: boolean }> }) {
+  return (
+    <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5">
+      {items.map((c, i) => (
+        <span key={i} className="flex min-w-0 items-center gap-1.5">
+          {i > 0 && (
+            <span aria-hidden className="text-ink-4">
+              ›
+            </span>
+          )}
+          {c.to ? (
+            <Link to={c.to as "/"} params={c.params as never} className={cn("truncate hover:text-ink", c.mono && "font-mono")}>
+              {c.label}
+            </Link>
+          ) : (
+            <span className={cn("truncate", c.mono && "font-mono")}>{c.label}</span>
+          )}
+        </span>
+      ))}
+    </nav>
   );
 }
 

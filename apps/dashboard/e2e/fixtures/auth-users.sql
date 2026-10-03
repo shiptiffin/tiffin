@@ -9,8 +9,10 @@ ON CONFLICT DO NOTHING;
 INSERT INTO auth.account (id, "accountId", "providerId", "userId", "createdAt", "updatedAt")
 SELECT 'acc_demo_' || i, 'usr_demo_' || i, CASE WHEN i % 3 = 0 THEN 'github' ELSE 'credential' END, 'usr_demo_' || i, now(), now()
 FROM generate_series(1, 22) i ON CONFLICT DO NOTHING;
+-- Sessions start and were last used at different times, the way real ones are.
 INSERT INTO auth.session (id, "expiresAt", token, "createdAt", "updatedAt", "ipAddress", "userAgent", "userId")
-SELECT 'ses_demo_' || i || '_' || k, now() + interval '7 days', md5('demo' || i || k), now() - (k * 3 || ' hours')::interval, now() - (k || ' hours')::interval,
+SELECT 'ses_demo_' || i || '_' || k, now() + interval '7 days', md5('demo' || i || k),
+       now() - ((k * 3 + (i * 2) % 4) || ' hours')::interval, now() - (((i * 53) % 170) * k + 4 || ' minutes')::interval,
        (ARRAY['81.2.69.160','89.160.20.112','216.160.83.56'])[1 + k % 3],
        (ARRAY['Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15','Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36'])[1 + (i + k) % 3],
        'usr_demo_' || i

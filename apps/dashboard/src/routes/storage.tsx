@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowUpRight, ChevronRight, Eye, File, FileImage, FileText, Folder, Globe, KeyRound, Link2, Lock, Trash2, Upload, X } from "lucide-react";
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ApiError, notOnBox } from "@/api/client";
 import { mod, mq, type StorageBucket, type StorageObject, type TrashEntry } from "@/api/modules";
 import { Meter } from "@/components/chart";
 import { Command, CopyButton } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
-import { Empty, Page, PageHeader, Skeleton, Untrusted, NotOnBox } from "@/components/page";
+import { Crumbs, Empty, Page, PageHeader, Skeleton, Untrusted, NotOnBox } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
 import { copyText } from "@/lib/clipboard";
@@ -46,7 +46,7 @@ export function StoragePage({ project }: { project: string }) {
   return (
     <Page wide>
       <PageHeader
-        eyebrow={<Crumbs project={project} />}
+        eyebrow={<StorageCrumbs project={project} />}
         title="Storage"
         lede={
           <>
@@ -97,18 +97,14 @@ export function StoragePage({ project }: { project: string }) {
   );
 }
 
-function Crumbs({ project, children }: { project: string; children?: ReactNode }) {
+function StorageCrumbs({ project, bucket }: { project: string; bucket?: boolean }) {
   return (
-    <span className="flex flex-wrap items-center gap-1">
-      <Link to="/projects/$project" params={{ project }} className="font-mono hover:text-ink">
-        {project}
-      </Link>
-      <ChevronRight className="size-3.5 text-ink-4" />
-      <Link to="/projects/$project/storage" params={{ project }} className="hover:text-ink">
-        storage
-      </Link>
-      {children}
-    </span>
+    <Crumbs
+      items={[
+        { label: project, to: "/projects/$project", params: { project }, mono: true },
+        ...(bucket ? [{ label: "Storage", to: "/projects/$project/storage", params: { project } }] : []),
+      ]}
+    />
   );
 }
 
@@ -387,7 +383,7 @@ export function BucketPage({ project, bucket, prefix = "", file }: { project: st
     >
       <Page full>
         <PageHeader
-          eyebrow={<Crumbs project={project} />}
+          eyebrow={<StorageCrumbs project={project} bucket />}
           title={
             <span className="flex items-center gap-3">
               {bucket}

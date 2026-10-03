@@ -35,13 +35,20 @@ export function CopyValue({ value, display, className }: { value: string; displa
 }
 
 /** A terminal line with a prompt and copy button. */
-export function Command({ cmd, className }: { cmd: string; className?: string }) {
+export function Command({ cmd, className, wrap }: { cmd: string; className?: string; wrap?: boolean }) {
   return (
-    <div className={cn("flex items-center gap-2 rounded-lg border border-rule bg-paper-sunk py-1.5 pr-1.5 pl-3", className)}>
-      <span aria-hidden className="font-mono text-sm text-ink-4 select-none">
+    <div className={cn("flex gap-2 rounded-lg border border-rule bg-paper-sunk py-1.5 pr-1.5 pl-3", wrap ? "items-start" : "items-center", className)}>
+      <span aria-hidden className={cn("font-mono text-sm text-ink-4 select-none", wrap && "pt-0.5")}>
         $
       </span>
-      <code className="min-w-0 flex-1 overflow-x-auto font-mono text-sm whitespace-nowrap text-ink [scrollbar-width:none]">{cmd}</code>
+      <code
+        className={cn(
+          "min-w-0 flex-1 font-mono text-sm text-ink",
+          wrap ? "pt-0.5 break-all whitespace-pre-wrap" : "overflow-x-auto whitespace-nowrap [scrollbar-width:none]",
+        )}
+      >
+        {cmd}
+      </code>
       <CopyButton value={cmd} label={`Copy: ${cmd}`} />
     </div>
   );

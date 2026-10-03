@@ -58,36 +58,36 @@ const backfill = defineHandler(async () => {
     "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36",
   ];
   const pick = <T>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+  const post = (body: unknown) =>
+    fetch(url, { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  // Visitors arrive through the day (quiet at night, busier in the evening), each
+  // from their own address, and are sent oldest first so visits stay visits.
   const now = Date.now();
+  const busy = (t: number) => {
+    const h = new Date(t).getUTCHours();
+    return 0.25 + 0.75 * Math.pow(Math.sin((Math.PI * (h - 4)) / 24), 2);
+  };
+  const starts: number[] = [];
+  while (starts.length < 300) {
+    const t = now - Math.random() * 23.5 * 3600_000;
+    if (Math.random() < busy(t)) starts.push(t);
+  }
+  starts.sort((a, b) => a - b);
   let sent = 0;
-  for (let v = 0; v < 260; v++) {
-    // More visitors in the afternoon and evening; some come back for more pages.
-    const hoursAgo = Math.pow(Math.random(), 0.8) * 23.5;
-    let at = now - hoursAgo * 3600_000;
-    const ip = pick(ips).replace(/\.1$/, `.${1 + (v % 200)}`);
+  for (const [v, start] of starts.entries()) {
+    let at = start;
+    const ip = pick(ips).replace(/\.\d+$/, `.${1 + ((v * 37) % 250)}`);
     const ua = pick(uas);
     const referrer = pick(refs);
-    const views = 1 + Math.floor(Math.pow(Math.random(), 2) * 6);
+    // Most visits are one or two pages; a few people browse.
+    const views = 1 + Math.floor(Math.pow(Math.random(), 2.2) * 5);
     for (let i = 0; i < views; i++) {
-      const body = { name: "pageview", url: i === 0 ? pick(pages) : pick(pages.slice(3)), referrer: i === 0 ? referrer : "", ip, ua, at: new Date(at).toISOString() };
-      await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      await post({ name: "pageview", url: i === 0 ? pick(pages) : pick(pages.slice(3)), referrer: i === 0 ? referrer : "", ip, ua, at: new Date(at).toISOString() });
       sent++;
-      at += jitter(40_000);
+      at += 15_000 + Math.round(Math.random() * 75_000);
     }
-    if (Math.random() < 0.12) {
-      await fetch(url, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "Signup", props: { plan: pick(["free", "free", "pro"]) }, ip, ua, at: new Date(at).toISOString() }),
-      });
-    }
-    if (Math.random() < 0.08) {
-      await fetch(url, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "Checkout", props: { items: String(1 + Math.floor(Math.random() * 3)) }, ip, ua, at: new Date(at).toISOString() }),
-      });
-    }
+    if (Math.random() < 0.06) await post({ name: "Signup", props: { plan: pick(["free", "free", "free", "pro"]) }, ip, ua, at: new Date(at).toISOString() });
+    if (Math.random() < 0.04) await post({ name: "Checkout", props: { items: String(1 + Math.floor(Math.random() * 3)) }, ip, ua, at: new Date(at).toISOString() });
   }
   return { sent };
 });
@@ -97,7 +97,7 @@ workflow.define("fulfil-order", async (ctx, input: { order: number; total: numbe
   const charge = await ctx.step("charge card", async () => (await sleep(jitter(300)), { charged: input.total, ref: `ch_${input.order}` }));
   await ctx.step("reserve stock", async () => (await sleep(jitter(150)), { reserved: true }));
   const ok = await ctx.approval("ship it", {
-    title: `Ship order #${input.order} ($${(input.total / 100).toFixed(2)})?`,
+    title: `Ship order #${input.order} (${(input.total / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })})?`,
     description: "Big orders get a human look before they leave the warehouse.",
     timeout: "2d",
   });

@@ -65,3 +65,17 @@ export function uptime(go: string): string {
 export function longDay(iso: string): string {
   return dayFmt.format(new Date(iso));
 }
+
+/** True when `iso` is less than `ms` away (or already past). */
+export function within(iso: string, ms: number): boolean {
+  return new Date(iso).getTime() - Date.now() < ms;
+}
+
+/** "15m" → "Last 15 min", "1h" → "Last hour", "7d" → "Last 7 days". */
+export function windowLabel(w: string): string {
+  const m = w.match(/^(\d+)([mhd])$/);
+  if (!m) return w;
+  const n = Number(m[1]);
+  const unit = { m: "min", h: n === 1 ? "hour" : "hours", d: n === 1 ? "day" : "days" }[m[2] as "m" | "h" | "d"];
+  return n === 1 && m[2] !== "m" ? `Last ${unit}` : `Last ${n} ${unit}`;
+}

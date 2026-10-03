@@ -37,7 +37,7 @@ export default defineConfig({
   project: "shop",
   env: { LOG_LEVEL: "info" },
   apps: { worker: { path: "worker", role: "worker" } },
-  crons: { nightly: { schedule: "*/10 * * * *", app: "worker", path: "/cron/nightly" } },
+  crons: { nightly: { schedule: "0 2 * * *", app: "worker", path: "/cron/nightly" } },
   services: {
     postgres: { extensions: ["pg_trgm"] },
     valkey: { maxMemoryMB: 64 },

@@ -48,7 +48,7 @@ export default defineConfig({
     docs: { framework: "static", path: "docs" },
     worker: { path: "worker", role: "worker" },
   },
-  crons: { nightly: { schedule: "*/10 * * * *", app: "worker", path: "/cron/nightly" } },
+  crons: { nightly: { schedule: "0 2 * * *", app: "worker", path: "/cron/nightly" } },
   services: {
     postgres: { extensions: ["pg_trgm"] },
     valkey: { maxMemoryMB: 64 },
@@ -73,16 +73,26 @@ cp "$WORK/good.ts" "$S/web/index.ts"
 sed -i '' 's/Small things for slow lunches, now with tea/Try the new checkout/' "$S/web/index.ts"
 deploy --app web --preview new-checkout
 
-# Traffic: page views at the edge, API calls and a few errors for the logs.
+# Traffic: a few people browsing right now (page views at the edge), API calls
+# and a bad checkout request, so logs and the realtime panel have something.
 WEB="$(api GET /v1/projects/shop/apps/web/runtime | jq -r '.production.url // empty')"
+UAS=(
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15'
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36'
+  'Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0'
+)
 if [ -n "$WEB" ]; then
-  for i in $(seq 1 40); do
-    for p in / /shop /shop/bowls /shop/tiffins /about; do
-      curl -s --cacert "$CA" -o /dev/null -H 'Sec-Fetch-Dest: document' -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15' "$WEB$p" || true
+  i=0
+  for ua in "${UAS[@]}"; do
+    i=$((i + 1))
+    for p in / /shop /shop/bowls /shop/tiffins /shop/tea /about; do
+      [ $(((RANDOM + i) % 3)) = 0 ] && continue
+      curl -s --cacert "$CA" -o /dev/null -H 'Sec-Fetch-Dest: document' -H "User-Agent: $ua" "$WEB$p" || true
     done
-    curl -s --cacert "$CA" -o /dev/null "$WEB/api/products" || true
-    [ $((i % 7)) = 0 ] && curl -s --cacert "$CA" -o /dev/null -X POST -H 'Content-Type: application/json' -d '{}' "$WEB/api/checkout" || true
+    curl -s --cacert "$CA" -o /dev/null -H "User-Agent: $ua" "$WEB/api/products" || true
   done
+  curl -s --cacert "$CA" -o /dev/null -X POST -H 'Content-Type: application/json' -d '{}' "$WEB/api/checkout" || true
 fi
 
 # The app's own users and teams. Sign-up is protected by a proof-of-work

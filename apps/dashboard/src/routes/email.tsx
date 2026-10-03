@@ -6,7 +6,7 @@ import { notOnBox } from "@/api/client";
 import { mod, mq, type EmailDetail, type EmailSummary, type Suppression } from "@/api/modules";
 import { Command, CopyButton } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
-import { Empty, Page, PageHeader, Skeleton, Untrusted, NotOnBox } from "@/components/page";
+import { Crumbs, Empty, Page, PageHeader, Skeleton, Untrusted, NotOnBox } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/choice";
@@ -136,7 +136,7 @@ export function InboxPage({ project, q = "", m }: { project: string; q?: string;
   return (
     <Page full>
       <PageHeader
-        eyebrow={<Crumbs project={project} />}
+        eyebrow={<ProjectCrumb project={project} />}
         title="Email"
         actions={
           <Button asChild variant="secondary">
@@ -236,7 +236,7 @@ export function InboxPage({ project, q = "", m }: { project: string; q?: string;
   );
 }
 
-function Crumbs({ project }: { project: string }) {
+function ProjectCrumb({ project }: { project: string }) {
   return (
     <Link to="/projects/$project" params={{ project }} className="font-mono hover:text-ink">
       {project}
@@ -466,12 +466,12 @@ export function EmailSettingsPage({ project }: { project: string }) {
     <Page wide>
       <PageHeader
         eyebrow={
-          <span>
-            <Crumbs project={project} /> /{" "}
-            <Link to="/projects/$project/email" params={{ project }} className="hover:text-ink">
-              email
-            </Link>
-          </span>
+          <Crumbs
+            items={[
+              { label: project, to: "/projects/$project", params: { project }, mono: true },
+              { label: "Email", to: "/projects/$project/email", params: { project } },
+            ]}
+          />
         }
         title="Email settings"
         lede="How mail leaves the box, the credentials your apps use, and the addresses this project won't write to."
@@ -531,7 +531,7 @@ function RelayCard({ admin }: { admin: boolean }) {
         )}
         {admin ? (
           <form
-            className="mt-5 grid gap-3 sm:grid-cols-[1fr_6rem]"
+            className="mt-5 grid gap-3 sm:grid-cols-[1fr_7.5rem]"
             onSubmit={(e) => {
               e.preventDefault();
               if (host.trim()) save.mutate();

@@ -84,7 +84,7 @@ const pages: Array<{ name: string; url: string; wait?: (p: Page) => Promise<unkn
     },
     full: false,
   },
-  { name: "queues", url: "/projects/shop/queues", wait: (p) => p.getByText("thumbnails").first().waitFor() },
+  { name: "queues", url: "/projects/shop/queues", wait: (p) => p.getByText("thumbnails").filter({ visible: true }).first().waitFor() },
   {
     name: "jobs",
     url: "/projects/shop/queues/jobs?queue=webhooks",

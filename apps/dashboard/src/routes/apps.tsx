@@ -22,13 +22,13 @@ import { mod3, type Deploy, type EnvStatus, type LogLine } from "@/api/modules";
 import { Confirm } from "@/components/confirm";
 import { Command } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
-import { mcpCommand } from "@/components/palette";
+import { mcpCommand } from "@/lib/mcp";
 import { NotOnBox, Page, PageHeader, Skeleton, Untrusted } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { useMe, useWho } from "@/lib/me";
-import { clock, full, relative } from "@/lib/time";
+import { clock, full, relative, windowLabel } from "@/lib/time";
 
 // ------------------------------------------------------------------ shared
 
@@ -93,7 +93,7 @@ export function AppsPage({ project }: { project: string }) {
       />
       {p.isPending && <Skeleton className="mt-8 h-40" />}
       {p.isSuccess && apps.length === 0 && <HowToDeploy project={project} />}
-      <ul className="mt-8 flex flex-col gap-3">
+      <ul className="mt-8 divide-y divide-rule overflow-hidden rounded-xl border border-rule bg-raised/60 empty:hidden">
         {apps.map((a, k) => {
           const rt = rts[k]?.data;
           const prod = rt?.production;
@@ -104,9 +104,9 @@ export function AppsPage({ project }: { project: string }) {
               <Link
                 to="/projects/$project/apps/$app"
                 params={{ project, app: a }}
-                className="group grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 rounded-xl border border-rule bg-raised/60 px-4 py-4 transition-[border-color,background-color] hover:border-rule-strong hover:bg-raised sm:px-5"
+                className="group grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-3.5 transition-colors hover:bg-hover/50 sm:px-5"
               >
-                <span className="grid size-10 place-items-center rounded-xl bg-hover text-ink-2">
+                <span className="grid size-8 place-items-center rounded-lg bg-hover text-ink-2">
                   {rt?.role === "worker" ? <Rocket className="size-4" /> : <Box className="size-4" />}
                 </span>
                 <span className="min-w-0">
@@ -160,32 +160,35 @@ function HowToDeploy({ project, compact }: { project: string; compact?: boolean 
       <p className="mb-4 text-sm text-ink-3">
         Three ways in. Each builds on the box and switches traffic only when the new version answers its health check.
       </p>
-      <div className="grid gap-3 lg:grid-cols-3">
+      <ul className="divide-y divide-rule overflow-hidden rounded-xl border border-rule bg-raised/60">
         <Way icon={<Terminal />} title="From this folder">
           <Command cmd="tiffin deploy" />
         </Way>
-        <Way icon={<GitBranch />} title="With git">
+        <Way icon={<GitBranch />} title="With git" hint="adds a remote called tiffin">
           <Command cmd="tiffin git-remote --add" />
           <Command className="mt-2" cmd="git push tiffin main" />
-          {git.data && <p className="mt-2 truncate font-mono text-xs text-ink-4">{git.data.url}</p>}
+          {git.data?.url && <p className="mt-2 font-mono text-xs break-all text-ink-3">{git.data.url}</p>}
         </Way>
-        <Way icon={<Radio />} title="Let an agent do it">
-          <Command cmd={mcpCommand()} />
+        <Way icon={<Radio />} title="Let an agent do it" hint="then ask it to deploy">
+          <Command cmd={mcpCommand()} wrap />
         </Way>
-      </div>
+      </ul>
     </section>
   );
 }
 
-function Way({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
+function Way({ icon, title, hint, children }: { icon: ReactNode; title: string; hint?: string; children: ReactNode }) {
   return (
-    <div className="min-w-0 rounded-xl border border-rule bg-raised/60 p-4">
-      <p className="mb-3 flex items-center gap-2 text-sm font-medium text-ink [&_svg]:size-4 [&_svg]:text-ink-3">
-        {icon}
-        {title}
-      </p>
-      {children}
-    </div>
+    <li className="grid gap-x-6 gap-y-2 px-4 py-4 sm:grid-cols-[12rem_minmax(0,1fr)] sm:px-5">
+      <div className="min-w-0">
+        <p className="flex items-center gap-2 text-sm font-medium text-ink [&_svg]:size-4 [&_svg]:text-ink-3">
+          {icon}
+          {title}
+        </p>
+        {hint && <p className="mt-1 text-xs break-all text-ink-3 sm:pl-6">{hint}</p>}
+      </div>
+      <div className="min-w-0">{children}</div>
+    </li>
   );
 }
 
@@ -544,7 +547,13 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
       {dep?.status === "failed" && (
         <div className="mt-6 rounded-xl border border-irr-rule bg-irr-wash px-5 py-4">
           <p className="text-base font-medium text-ink">{dep.hint ?? "The deploy failed. The previous version is still serving."}</p>
-          <p className="mt-1 text-sm text-ink-2">Production kept the last good version; nothing changed for visitors.</p>
+          {firstError(dep.error ?? "") ?? firstError(log) ? (
+            <p className="mt-2 font-mono text-[0.8125rem] break-words text-ink">
+              <span className="font-sans text-sm text-ink-3">The app said: </span>
+              {firstError(dep.error ?? "") ?? firstError(log)}
+            </p>
+          ) : null}
+          <p className="mt-2 text-sm text-ink-2">Production kept the last good version; nothing changed for visitors.</p>
         </div>
       )}
       {dep?.url && dep.status === "live" && (
@@ -591,6 +600,17 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
       </section>
     </Page>
   );
+}
+
+/** The first line in build or start output that reads like the actual cause, not the runner's echo of it. */
+function firstError(text: string): string | null {
+  for (const raw of text.split("\n")) {
+    const l = raw.trim();
+    if (!/^(error|Error|[A-Z][a-zA-Z]+Error|fatal|panic|ERR!?)\b[:\s]/.test(l)) continue;
+    if (/script ".*" (exited|was terminated)|exited with code|Polite quit/.test(l)) continue;
+    return l.length > 220 ? `${l.slice(0, 220)}…` : l;
+  }
+  return null;
 }
 
 // ------------------------------------------------------------------ logs
@@ -653,7 +673,7 @@ export function AppLogsPage({ project, app }: { project: string; app: string }) 
         >
           {["15m", "1h", "6h", "24h"].map((s) => (
             <option key={s} value={s}>
-              last {s}
+              {windowLabel(s)}
             </option>
           ))}
         </select>

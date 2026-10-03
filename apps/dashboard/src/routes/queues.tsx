@@ -18,17 +18,16 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { ApiError, notOnBox } from "@/api/client";
 import { mod2, mq, type QueueJob, type QueueStats, type WorkflowApproval, type WorkflowRun, type WorkflowStep } from "@/api/modules";
-import { Sparkline, type Point } from "@/components/chart";
 import { useTitle } from "@/components/favicon";
 import { Empty, Page, PageHeader, Skeleton, Tabs, Untrusted, NotOnBox } from "@/components/page";
 import { ProblemNote, sentence } from "@/components/problem";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
-import { ms, num, pct } from "@/lib/format";
+import { cronWords, ms, num, pct } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { clock, full, relative } from "@/lib/time";
 
@@ -81,41 +80,31 @@ function StateDot({ state, className }: { state: string; className?: string }) {
   return <span className={cn("inline-block size-2 shrink-0 rounded-full", c, className)} aria-label={state} />;
 }
 
-/** "*\/10 * * * *" → "every 10 minutes"; anything unusual stays as written. */
-function cronWords(s: string) {
-  const f = s.trim().split(/\s+/);
-  if (f.length !== 5) return s;
-  const [m, h, dom, mon, dow] = f;
-  const rest = dom === "*" && mon === "*" && dow === "*";
-  if (rest && h === "*" && m === "*") return "every minute";
-  if (rest && h === "*" && /^\*\/\d+$/.test(m)) return `every ${m.slice(2)} minutes`;
-  if (rest && h === "*" && /^\d+$/.test(m)) return `hourly at :${m.padStart(2, "0")}`;
-  if (rest && /^\d+$/.test(h) && /^\d+$/.test(m)) return `daily at ${h.padStart(2, "0")}:${m.padStart(2, "0")} UTC`;
-  return s;
+/** "HTTP 489: …" is the SDK's "don't retry" answer: show the app's message, not the protocol. */
+function jobError(e?: string): { text: string; gaveUp: boolean } | null {
+  if (!e) return null;
+  const m = e.match(/^HTTP 489:\s*(.*)$/s);
+  return m ? { text: m[1], gaveUp: true } : { text: e, gaveUp: false };
+}
+
+function ErrorText({ e, className }: { e?: string; className?: string }) {
+  const x = jobError(e);
+  if (!x) return null;
+  return (
+    <span className={className}>
+      {x.text}
+      {x.gaveUp && <span className="text-ink-3"> · no retry</span>}
+    </span>
+  );
 }
 
 // ------------------------------------------------------------------ queues
-
-type Hist = Record<string, Point[]>;
 
 export function QueuesPage({ project }: { project: string }) {
   useTitle(`${project} · Queues`);
   const qc = useQueryClient();
   const { can } = useMe();
-  // Completions per minute, sampled while the page is open, for the sparklines.
-  const hist = useRef<Hist>({});
-  const stats = useQuery({
-    queryKey: ["queue-stats", project],
-    queryFn: async () => {
-      const list = await mod2.queueStats(project);
-      const now = Date.now() / 1000;
-      const h: Hist = { ...hist.current };
-      for (const q of list) h[q.name] = [...(h[q.name] ?? []), [now, q.completedLastMinute] as Point].slice(-40);
-      hist.current = h;
-      return { list, hist: h };
-    },
-    refetchInterval: 4000,
-  });
+  const stats = useQuery({ queryKey: ["queue-stats", project], queryFn: () => mod2.queueStats(project), refetchInterval: 4000 });
   const crons = useQuery(mq.crons(project));
   const topics = useQuery(mq.topics(project));
   const toggle = useMutation({
@@ -128,7 +117,7 @@ export function QueuesPage({ project }: { project: string }) {
   });
 
   if (stats.isError && notOnBox(stats.error)) return <NotOnBox what="Queues" />;
-  const all = stats.data?.list ?? [];
+  const all = stats.data ?? [];
   const visible = all.filter((q) => !q.name.startsWith("_"));
   const system = all.filter((q) => q.name.startsWith("_"));
   const dead = all.reduce((n, q) => n + q.dead, 0);
@@ -151,12 +140,38 @@ export function QueuesPage({ project }: { project: string }) {
         <Fact label="Dead letters" value={num(dead)} tone={dead ? "irr" : undefined} sub={dead ? "gave up; replay below" : "none"} />
       </dl>
 
-      <section className="mt-8 overflow-x-auto rounded-xl border border-rule bg-raised/60" aria-label="Queues">
-        <table className="w-full min-w-[56rem] text-sm">
+      <section className="mt-8 overflow-hidden rounded-xl border border-rule bg-raised/60" aria-label="Queues">
+        {/* Phones get one stacked row per queue instead of a table that scrolls sideways. */}
+        <ul className="divide-y divide-rule/60 sm:hidden">
+          {stats.isPending && <Skeleton className="m-4 h-24" />}
+          {visible.map((q) => (
+            <li key={q.name}>
+              <Link to="/projects/$project/queues/jobs" params={{ project }} search={{ queue: q.name }} className="block px-4 py-3 active:bg-hover/50">
+                <span className="flex items-center gap-2">
+                  {q.topic && <Radio className="size-3.5 text-ink-3" aria-label="topic" />}
+                  <span className="font-mono text-[0.8125rem] text-ink">{q.name}</span>
+                  {q.paused && <span className="rounded-full bg-out-wash px-1.5 py-px text-xs text-out">paused</span>}
+                  <span className="ml-auto font-mono text-xs text-ink-2 tnum">{num(q.completedLastHour)} / h</span>
+                </span>
+                <span className="mt-1 flex flex-wrap gap-x-3 text-xs text-ink-3 tnum">
+                  {q.queued + q.running + q.retrying === 0 && q.dead === 0 && <span>Nothing waiting</span>}
+                  {q.queued > 0 && <span className="text-ink-2">{num(q.queued)} queued</span>}
+                  {q.running > 0 && <span className="text-brass-ink">{num(q.running)} running</span>}
+                  {q.retrying > 0 && <span className="text-out">{num(q.retrying)} retrying</span>}
+                  {q.dead > 0 && <span className="font-medium text-irr">{num(q.dead)} dead</span>}
+                  {q.p95Ms ? <span>p95 {ms(q.p95Ms)}</span> : null}
+                  {q.failureRate > 0 && <span>{pct(q.failureRate)} failing</span>}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden overflow-x-auto sm:block">
+        <table className="w-full min-w-[46rem] text-sm">
           <thead>
             <tr className="text-left text-2xs font-medium tracking-wider text-ink-3 uppercase">
-              {["Queue", "Last 40 polls", "Queued", "Running", "Retrying", "Dead", "Done / h", "p50", "p95", "Oldest", ""].map((h, i) => (
-                <th key={i} className={cn("border-b border-rule px-4 py-2.5 font-medium", i > 1 && i < 10 && "text-right")}>
+              {["Queue", "Queued", "Running", "Retrying", "Dead", "Done / h", "p50", "p95", "Oldest", ""].map((h, i) => (
+                <th key={i} className={cn("border-b border-rule px-4 py-2.5 font-medium", i > 0 && i < 9 && "text-right")}>
                   {h}
                 </th>
               ))}
@@ -165,7 +180,7 @@ export function QueuesPage({ project }: { project: string }) {
           <tbody>
             {stats.isPending && (
               <tr>
-                <td colSpan={11} className="p-4">
+                <td colSpan={10} className="p-4">
                   <Skeleton className="h-24" />
                 </td>
               </tr>
@@ -187,9 +202,6 @@ export function QueuesPage({ project }: { project: string }) {
                     {q.topic ? "topic" : q.app ? `→ ${q.app}${q.path ?? ""}` : "not configured"}
                     {q.failureRate > 0 && ` · ${pct(q.failureRate)} failing`}
                   </span>
-                </td>
-                <td className="border-b border-rule/60 px-4 py-3">
-                  <Sparkline points={stats.data?.hist[q.name] ?? []} tone={q.dead > 0 ? "irr" : "ink"} />
                 </td>
                 <Num v={q.queued} />
                 <Num v={q.running} tone={q.running ? "brass" : undefined} />
@@ -223,6 +235,7 @@ export function QueuesPage({ project }: { project: string }) {
             ))}
           </tbody>
         </table>
+        </div>
         {stats.isSuccess && visible.length === 0 && (
           <p className="px-5 py-8 text-center text-base text-ink-3">No queues yet. They appear the first time an app sends a job.</p>
         )}
@@ -400,7 +413,7 @@ function DeadLetters({ project, dead }: { project: string; dead: number }) {
                     · {j.attempt} of {j.maxAttempts} attempts · {relative(j.finishedAt ?? j.enqueuedAt)}
                   </span>
                 </span>
-                <span className="mt-1 block truncate pl-4 font-mono text-xs text-irr">{j.lastError}</span>
+                <ErrorText e={j.lastError} className="mt-1 block truncate pl-4 font-mono text-xs text-irr" />
               </Link>
             </li>
           ))}
@@ -470,12 +483,18 @@ export function JobsPage({ project, queue, state }: { project: string; queue?: s
               <Link
                 to="/projects/$project/queues/jobs/$id"
                 params={{ project, id: j.id }}
-                className="grid grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2.5 hover:bg-hover/50 sm:grid-cols-[1rem_9rem_minmax(0,1fr)_7rem_6rem]"
+                className="grid grid-cols-[1rem_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2.5 hover:bg-hover/50 sm:grid-cols-[1rem_minmax(0,16rem)_minmax(0,1fr)_7rem_7rem]"
               >
                 <StateDot state={j.state} />
-                <code className="font-mono text-xs text-ink">{j.queue}</code>
+                <code className="font-mono text-xs text-ink">{queue ? j.id : j.queue}</code>
                 <span className={cn("hidden min-w-0 truncate font-mono text-xs sm:block", j.state === "dead" ? "text-irr" : "text-ink-3")}>
-                  {j.lastError ?? (j.payload !== undefined ? JSON.stringify(j.payload) : "")}
+                  {j.lastError ? (
+                    <ErrorText e={j.lastError} />
+                  ) : (
+                    [queue ? "" : j.id, j.key && `key ${j.key}`, j.startedAt && j.finishedAt && `ran ${ms(new Date(j.finishedAt).getTime() - new Date(j.startedAt).getTime())}`]
+                      .filter(Boolean)
+                      .join(" · ")
+                  )}
                 </span>
                 <span className={cn("text-right text-xs", jobTone[j.state])}>
                   {j.state}
@@ -576,7 +595,7 @@ export function JobPage({ project, id }: { project: string; id: string }) {
       </header>
       {act.isError && <ProblemNote className="mt-4" error={act.error} />}
       {d.lastError && (
-        <p className="mt-6 rounded-lg border border-irr-rule bg-irr-wash px-4 py-3 font-mono text-sm break-words text-ink">{d.lastError}</p>
+        <p className="mt-6 rounded-lg border border-irr-rule bg-irr-wash px-4 py-3 font-mono text-sm break-words text-ink"><ErrorText e={d.lastError} /></p>
       )}
       <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <section>
@@ -605,7 +624,7 @@ export function JobPage({ project, id }: { project: string; id: string }) {
                     {clock(a.startedAt)} · {relative(a.startedAt)}
                     {a.release && <> · {a.release.slice(0, 14)}…</>}
                   </p>
-                  {a.error && <p className="mt-1 font-mono text-xs break-words text-irr">{a.error}</p>}
+                  {a.error && <p className="mt-1 font-mono text-xs break-words text-irr"><ErrorText e={a.error} /></p>}
                 </li>
               ))}
             </ol>
@@ -684,7 +703,7 @@ export function WorkflowsPage({ project, state }: { project: string; state?: str
                   {r.state === "waiting"
                     ? `Waiting for ${r.waitingFor}`
                     : r.state === "failed"
-                      ? r.error
+                      ? jobError(r.error)?.text
                       : r.state === "completed"
                         ? `Finished ${relative(r.finishedAt ?? r.updatedAt)} in ${r.turns} turns`
                         : r.state}
@@ -875,7 +894,7 @@ export function RunPage({ project, id }: { project: string; id: string }) {
       </header>
       {act.isError && <ProblemNote className="mt-4" error={act.error} />}
       {run.state === "failed" && run.error && (
-        <p className="mt-6 rounded-lg border border-irr-rule bg-irr-wash px-4 py-3 font-mono text-sm text-ink">{run.error}</p>
+        <p className="mt-6 rounded-lg border border-irr-rule bg-irr-wash px-4 py-3 font-mono text-sm text-ink"><ErrorText e={run.error} /></p>
       )}
       {waitingApproval && (
         <div className="mt-6">
@@ -954,7 +973,7 @@ export function RunPage({ project, id }: { project: string; id: string }) {
                     </p>
                   )}
                   {s.kind === "event" && <p className="mt-1.5 font-mono text-xs text-ink-3">event {s.event}</p>}
-                  {s.error && <p className="mt-1.5 font-mono text-xs break-words text-irr">{s.error}</p>}
+                  {s.error && <p className="mt-1.5 font-mono text-xs break-words text-irr"><ErrorText e={s.error} /></p>}
                   {s.output !== undefined && s.kind === "step" && (
                     <pre className="mt-1.5 truncate font-mono text-xs text-ink-3" title={JSON.stringify(s.output)}>
                       → {JSON.stringify(s.output)}

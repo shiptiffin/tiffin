@@ -2,3 +2,5 @@ node_modules/
 screenshots/
 test-results/
 playwright-report/
+# internal design review notes
+CRITIQUE.md

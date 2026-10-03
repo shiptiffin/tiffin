@@ -211,11 +211,13 @@ function Value({ d }: { d: KVValue }) {
       : Array.isArray(v)
         ? v.map((x, i) => (Array.isArray(x) ? [String(x[0]), String(x[1])] : [String(i), typeof x === "string" ? x : JSON.stringify(x)]))
         : [["value", JSON.stringify(v)]];
-  const head = d.type === "hash" ? ["field", "value"] : d.type === "zset" ? ["member", "score"] : ["#", "value"];
+  // Sorted sets read top-down, highest score first, the way a leaderboard does.
+  if (d.type === "zset") rows.sort((x, y) => Number(y[1]) - Number(x[1]));
+  const head = d.type === "hash" ? ["field", "value"] : d.type === "zset" ? ["member", "score, highest first"] : ["#", "value"];
   return (
     <table className="w-full font-mono text-[0.78rem]">
       <thead>
-        <tr className="text-left text-ink-4">
+        <tr className="text-left text-ink-3">
           <th className="border-b border-rule px-4 py-1.5 font-normal">{head[0]}</th>
           <th className="border-b border-rule px-4 py-1.5 font-normal">{head[1]}</th>
         </tr>

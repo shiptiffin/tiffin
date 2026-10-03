@@ -93,7 +93,7 @@ export function AreaChart({
             <stop offset="1" stopColor={color} stopOpacity="0" />
           </linearGradient>
         </defs>
-        {[0.25, 0.5, 0.75].map((f) => (
+        {[0, 0.5].map((f) => (
           <line
             key={f}
             x1="0"
@@ -114,6 +114,17 @@ export function AreaChart({
           </>
         )}
       </svg>
+      {/* The scale, written on the gridlines: the top line and the halfway line. */}
+      {[0, 0.5].map((f) => (
+        <span
+          key={f}
+          aria-hidden
+          className="pointer-events-none absolute left-0 -translate-y-[130%] font-mono text-[0.6875rem] leading-none text-ink-3 tnum"
+          style={{ top: pad.t + f * (H - pad.t - pad.b) }}
+        >
+          {format(top * (1 - f))}
+        </span>
+      ))}
       {hover !== null && (
         <span
           aria-hidden
@@ -121,14 +132,12 @@ export function AreaChart({
           style={{ left: `${(xs[hover] / W) * 100}%`, top: ys[hover], background: color }}
         />
       )}
-      <figcaption className="mt-1.5 flex items-center justify-between font-mono text-[0.6875rem] text-ink-4 tnum">
+      <figcaption className="mt-1.5 flex items-center justify-between font-mono text-[0.6875rem] text-ink-3 tnum">
         <span>{timeFmt.format(new Date(points[0][0] * 1000))}</span>
-        <span className={cn("transition-opacity", hover === null && "opacity-0")}>
+        <span className={cn("text-ink transition-opacity", hover === null && "opacity-0")}>
           {h && `${timeFmt.format(new Date(h[0] * 1000))} · ${format(h[1])}`}
         </span>
-        <span>
-          {hover === null ? "now" : ""} <span className="text-ink-4/70">max {format(top)}</span>
-        </span>
+        <span>now</span>
       </figcaption>
     </figure>
   );

@@ -5,7 +5,8 @@ export const TooltipProvider = T.Provider;
 
 export function Tip({ label, children, side = "top" }: { label: ReactNode; children: ReactNode; side?: "top" | "bottom" | "left" | "right" }) {
   return (
-    <T.Root>
+    <T.Provider delayDuration={300}>
+      <T.Root>
       <T.Trigger asChild>{children}</T.Trigger>
       <T.Portal>
         <T.Content
@@ -16,6 +17,7 @@ export function Tip({ label, children, side = "top" }: { label: ReactNode; child
           {label}
         </T.Content>
       </T.Portal>
-    </T.Root>
+      </T.Root>
+    </T.Provider>
   );
 }
