@@ -21,9 +21,11 @@ import (
 	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/manifest"
 	tmcp "github.com/btahir/tiffin/internal/mcp"
+	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/version"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
+	"log/slog"
 )
 
 func (a *app) versionCmd() *cobra.Command {
@@ -208,7 +210,7 @@ func slugify(s string) string {
 
 func (a *app) serveCmd() *cobra.Command {
 	var addr, domain, publicURL string
-	var withEdge bool
+	var withEdge, onBox bool
 	var httpsPort, httpPort int
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -222,14 +224,30 @@ func (a *app) serveCmd() *cobra.Command {
 			defer stop()
 			started := time.Now()
 			var ed *edge.Edge
+			var plat *platform.Platform
+			var openErr error
 			b, fresh, err := openBox(ctx, a.home, func(d *api.Deps) {
 				d.PublicURL = publicURL
 				d.Checks = func(ctx context.Context) []api.Check { return boxChecks(a.home, ed, started) }
+				if onBox {
+					sec, err := platform.OpenSecrets(d.DB, a.home)
+					if err != nil {
+						openErr = err
+						return
+					}
+					plat = &platform.Platform{DB: d.DB, Engine: d.Engine, Tokens: d.Tokens, Secrets: sec, Home: a.home,
+						DataRoot: filepath.Dir(a.home), Domain: domain, PublicURL: publicURL, Version: version.Version,
+						Log: slog.New(slog.NewJSONHandler(a.io.Err, nil))}
+					d.Platform = plat
+				}
 			})
 			if err != nil {
 				return err
 			}
 			defer b.Close()
+			if openErr != nil {
+				return openErr
+			}
 			ln, err := net.Listen("tcp", addr)
 			if err != nil {
 				return err
@@ -253,8 +271,20 @@ func (a *app) serveCmd() *cobra.Command {
 				if err := os.WriteFile(filepath.Join(a.home, "ca.crt"), pem, 0o644); err != nil {
 					return err
 				}
+				if plat != nil {
+					plat.Edge = &edgeControl{ed: ed, base: edge.Config{Domain: domain, Upstream: ln.Addr().String(), DataDir: filepath.Join(a.home, "edge"),
+						HTTPPort: httpPort, HTTPSPort: httpsPort, Internal: true}}
+				}
 				if publicURL != "" {
 					base = publicURL
+				}
+			}
+			if plat != nil {
+				if err := plat.Start(ctx); err != nil {
+					return fmt.Errorf("start platform: %w", err)
+				}
+				if err := plat.RefreshRoutes(ctx); err != nil {
+					plat.Log.Error("routes", "err", err)
 				}
 			}
 			fmt.Fprintf(a.io.Err, "tiffin %s serving %s (API %s/v1, MCP %s/mcp, data %s)\n", version.Version, base, base, base, a.home)
@@ -280,11 +310,52 @@ func (a *app) serveCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:7070", "API listen address (the edge proxies to it)")
 	cmd.Flags().BoolVar(&withEdge, "edge", false, "also run the HTTPS edge (embedded Caddy, internal CA)")
+	cmd.Flags().BoolVar(&onBox, "box", false, "run as a box: start platform modules (services, apps, reconcilers)")
 	cmd.Flags().StringVar(&domain, "domain", "tiffin.localhost", "edge domain; the dashboard is dashboard.<domain>")
 	cmd.Flags().IntVar(&httpsPort, "https-port", 443, "edge HTTPS port")
 	cmd.Flags().IntVar(&httpPort, "http-port", 80, "edge HTTP port (redirects to HTTPS)")
 	cmd.Flags().StringVar(&publicURL, "public-url", "", "the dashboard URL people use, for login links")
 	return cmd
+}
+
+// edgeControl lets modules replace the edge's routes.
+type edgeControl struct {
+	ed   *edge.Edge
+	base edge.Config
+}
+
+func (e *edgeControl) SetRoutes(routes []edge.Route) error {
+	cfg := e.base
+	cfg.Routes = routes
+	return e.ed.Reload(cfg)
+}
+
+func (a *app) provisionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "provision",
+		Short:  "Install and update the box's system services (root, idempotent)",
+		Long:   "Runs every module's provisioner: system packages, pinned downloads and systemd units. `tiffin up` runs it for you.",
+		Args:   cobra.NoArgs,
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if os.Geteuid() != 0 {
+				return &exitError{ExitAuth, "provision must run as root on the box"}
+			}
+			sys := platform.NewSystem(func(s string) { fmt.Fprintln(a.io.Err, s) })
+			for _, m := range platform.Modules() {
+				pv, ok := m.(platform.Provisioner)
+				if !ok {
+					continue
+				}
+				start := time.Now()
+				if err := pv.Provision(cmd.Context(), sys); err != nil {
+					return &exitError{ExitError, m.Name() + ": " + err.Error()}
+				}
+				fmt.Fprintf(a.io.Err, "%s ready (%s)\n", m.Name(), time.Since(start).Round(time.Millisecond))
+			}
+			return nil
+		},
+	}
 }
 
 // serveMux routes the box's HTTP surface: the API under /v1 and MCP at /mcp.

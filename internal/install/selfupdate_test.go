@@ -150,7 +150,7 @@ func TestUnitAndURL(t *testing.T) {
 		t.Fatal("443 must be implicit")
 	}
 	unit := Unit(o)
-	for _, want := range []string{"User=tiffin", "--edge", "--https-port 8443", "ProtectSystem=strict", "ReadWritePaths=/var/lib/tiffin", "NoNewPrivileges=yes"} {
+	for _, want := range []string{"User=root", "--box", "--edge", "--https-port 8443", "NoNewPrivileges=yes", "ProtectHome=yes"} {
 		if !strings.Contains(unit, want) {
 			t.Errorf("unit lacks %q", want)
 		}

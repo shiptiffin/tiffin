@@ -147,6 +147,28 @@ var migrations = []string{
 		expires_at TEXT NOT NULL,
 		used_at    TEXT
 	) STRICT, WITHOUT ROWID`,
+	`CREATE TABLE resource_status (
+		project    TEXT NOT NULL,
+		address    TEXT NOT NULL,
+		state      TEXT NOT NULL,
+		message    TEXT NOT NULL,
+		updated_at TEXT NOT NULL,
+		PRIMARY KEY (project, address)
+	) STRICT, WITHOUT ROWID`,
+	`CREATE TABLE secrets (
+		project    TEXT NOT NULL,
+		name       TEXT NOT NULL,
+		ciphertext BLOB NOT NULL,
+		updated_at TEXT NOT NULL,
+		updated_by TEXT NOT NULL,
+		PRIMARY KEY (project, name)
+	) STRICT, WITHOUT ROWID`,
+	`CREATE TABLE kv (
+		ns    TEXT NOT NULL,
+		key   TEXT NOT NULL,
+		value BLOB NOT NULL,
+		PRIMARY KEY (ns, key)
+	) STRICT, WITHOUT ROWID`,
 }
 
 func (s *DB) migrate(ctx context.Context) error {
@@ -403,6 +425,90 @@ func (s *DB) AuditLog(ctx context.Context, limit int) ([]AuditEvent, error) {
 		e.At, _ = time.Parse(time.RFC3339Nano, at)
 		e.Detail = json.RawMessage(detail)
 		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// ResourceStatus is the live state of one resource.
+type ResourceStatus struct {
+	Address   string    `json:"address"`
+	State     string    `json:"state"`
+	Message   string    `json:"message,omitempty"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// SetResourceStatus records a resource's live state.
+func (s *DB) SetResourceStatus(ctx context.Context, project, address, st, msg string) error {
+	_, err := s.sql.ExecContext(ctx, `INSERT INTO resource_status(project, address, state, message, updated_at) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(project, address) DO UPDATE SET state = excluded.state, message = excluded.message, updated_at = excluded.updated_at`,
+		project, address, st, msg, time.Now().UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+// DeleteResourceStatus forgets a resource the machine no longer has.
+func (s *DB) DeleteResourceStatus(ctx context.Context, project, address string) error {
+	_, err := s.sql.ExecContext(ctx, `DELETE FROM resource_status WHERE project = ? AND address = ?`, project, address)
+	return err
+}
+
+// ResourceStatuses returns a project's live resource states by address.
+func (s *DB) ResourceStatuses(ctx context.Context, project string) (map[string]ResourceStatus, error) {
+	rows, err := s.sql.QueryContext(ctx, `SELECT address, state, message, updated_at FROM resource_status WHERE project = ?`, project)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]ResourceStatus{}
+	for rows.Next() {
+		var r ResourceStatus
+		var at string
+		if err := rows.Scan(&r.Address, &r.State, &r.Message, &at); err != nil {
+			return nil, err
+		}
+		r.UpdatedAt, _ = time.Parse(time.RFC3339Nano, at)
+		out[r.Address] = r
+	}
+	return out, rows.Err()
+}
+
+// KVGet reads a small platform value (module bookkeeping: ports, ids).
+func (s *DB) KVGet(ctx context.Context, ns, key string) ([]byte, bool, error) {
+	var v []byte
+	err := s.sql.QueryRowContext(ctx, `SELECT value FROM kv WHERE ns = ? AND key = ?`, ns, key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	return v, err == nil, err
+}
+
+// KVPut writes a small platform value.
+func (s *DB) KVPut(ctx context.Context, ns, key string, value []byte) error {
+	_, err := s.sql.ExecContext(ctx, `INSERT INTO kv(ns, key, value) VALUES (?, ?, ?)
+		ON CONFLICT(ns, key) DO UPDATE SET value = excluded.value`, ns, key, value)
+	return err
+}
+
+// KVDelete removes a platform value.
+func (s *DB) KVDelete(ctx context.Context, ns, key string) error {
+	_, err := s.sql.ExecContext(ctx, `DELETE FROM kv WHERE ns = ? AND key = ?`, ns, key)
+	return err
+}
+
+// KVList returns every key/value in a namespace.
+func (s *DB) KVList(ctx context.Context, ns string) (map[string][]byte, error) {
+	rows, err := s.sql.QueryContext(ctx, `SELECT key, value FROM kv WHERE ns = ? ORDER BY key`, ns)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]byte{}
+	for rows.Next() {
+		var k string
+		var v []byte
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		out[k] = v
 	}
 	return out, rows.Err()
 }

@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/btahir/tiffin/internal/platform"
 	"io"
 	"net/http"
 	"os"
@@ -64,6 +65,8 @@ type Deps struct {
 	Checks func(ctx context.Context) []Check
 	// PublicURL is where the dashboard is reached, for login links.
 	PublicURL string
+	// Platform is the box runtime (nil off-box and when only the spec is built).
+	Platform *platform.Platform
 }
 
 // API is the HTTP API.
@@ -90,6 +93,13 @@ func New(d Deps) *API {
 	a.api.UseMiddleware(a.authenticate)
 	a.register()
 	a.registerBox()
+	a.registerSecrets()
+	// Modules add their own operations; they become CLI commands and MCP tools too.
+	for _, m := range platform.Modules() {
+		if r, ok := m.(platform.APIRegistrar); ok {
+			r.RegisterAPI(a.api, d.Platform)
+		}
+	}
 	return a
 }
 
@@ -140,6 +150,20 @@ func (a *API) authenticate(ctx huma.Context, next func(huma.Context)) {
 }
 
 var bearer = []map[string][]string{{"bearer": {}}}
+
+// Op declares an operation for modules: id, method, path, CLI words, risk
+// class (RiskRead/RiskWrite/RiskDestructive), summary, description, tags.
+func Op(id, method, path, cli, risk, summary, desc string, tags ...string) huma.Operation {
+	return op(id, method, path, cli, risk, summary, desc, tags...)
+}
+
+// Wrap converts domain errors returned by a module handler into Problems.
+func Wrap[I, O any](h func(context.Context, *I) (*O, error)) func(context.Context, *I) (*O, error) {
+	return wrap(h)
+}
+
+// NewProblem builds an API problem with a stable code (see Problem.Code).
+func NewProblem(status int, code, detail string) *Problem { return problem(status, code, detail) }
 
 // op declares one operation with its risk class and CLI path.
 func op(id, method, path, cli, risk, summary, desc string, tags ...string) huma.Operation {
@@ -230,6 +254,8 @@ type ProjectState struct {
 	Name      string            `json:"name"`
 	Version   int64             `json:"version"`
 	Resources []change.Resource `json:"resources"`
+	// Status is each resource's live state on the machine (pending, ready, failed).
+	Status map[string]state.ResourceStatus `json:"status,omitempty"`
 }
 
 // Health is the unauthenticated liveness report.
@@ -346,6 +372,9 @@ func (a *API) register() {
 				out.Resources = append(out.Resources, r)
 			}
 			sort.Slice(out.Resources, func(i, j int) bool { return out.Resources[i].Address < out.Resources[j].Address })
+			if st, err := a.deps.DB.ResourceStatuses(ctx, in.Project); err == nil && len(st) > 0 {
+				out.Status = st
+			}
 			return &struct{ Body ProjectState }{out}, nil
 		}))
 
@@ -618,11 +647,7 @@ type LoginLink struct {
 }
 
 // Check is one health check.
-type Check struct {
-	Name   string `json:"name"`
-	OK     bool   `json:"ok"`
-	Detail string `json:"detail,omitempty"`
-}
+type Check = platform.Check
 
 // StatusReport is the box's health.
 type StatusReport struct {
@@ -648,6 +673,9 @@ func (a *API) Status(ctx context.Context, started time.Time) StatusReport {
 	} else {
 		r.Checks = append(r.Checks, Check{Name: "state", OK: true, Detail: "platform state readable"})
 	}
+	if a.deps.Platform != nil {
+		r.Checks = append(r.Checks, a.deps.Platform.Checks(ctx)...)
+	}
 	if a.deps.Checks != nil {
 		r.Checks = append(r.Checks, a.deps.Checks(ctx)...)
 	}
@@ -663,6 +691,9 @@ func (a *API) apply(ctx context.Context, p *tokens.Principal, plan *change.Plan,
 	})
 	if err != nil {
 		return nil, err
+	}
+	if c != nil && a.deps.Platform != nil {
+		a.deps.Platform.AfterApply(c)
 	}
 	return &struct{ Body ApplyResult }{ApplyResult{Applied: c != nil, Change: c, Plan: plan}}, nil
 }

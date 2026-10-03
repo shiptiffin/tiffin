@@ -67,20 +67,19 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=%[1]s
-Group=%[1]s
-ExecStart=%[2]s serve --home %[3]s --addr %[4]s --edge --domain %[5]s --https-port %[6]d --http-port %[7]d --public-url %[8]s
+# Root: the box's services (containers, Postgres, Valkey, ...) are managed
+# through system tools. The box itself is the isolation boundary; apps run
+# in containers.
+User=root
+ExecStart=%[2]s serve --box --home %[3]s --addr %[4]s --edge --domain %[5]s --https-port %[6]d --http-port %[7]d --public-url %[8]s
 Environment=XDG_DATA_HOME=/var/lib/tiffin/platform/xdg XDG_CONFIG_HOME=/var/lib/tiffin/platform/xdg
 Restart=always
 RestartSec=2
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=yes
-ProtectSystem=strict
 ProtectHome=yes
-PrivateTmp=yes
-ReadWritePaths=/var/lib/tiffin
-LimitNOFILE=65536
+LimitNOFILE=1048576
+TimeoutStopSec=30
+KillMode=mixed
 
 [Install]
 WantedBy=multi-user.target
@@ -107,7 +106,7 @@ func Install(ctx context.Context, m provider.Machine, bin string, o Options, pro
 	progress("installing the service")
 	setup := fmt.Sprintf(`set -euo pipefail
 id %[1]s >/dev/null 2>&1 || sudo useradd --system --home-dir /var/lib/tiffin --no-create-home --shell /usr/sbin/nologin %[1]s
-sudo install -d -o %[1]s -g %[1]s -m 0700 %[2]s
+sudo install -d -m 0700 %[2]s
 sudo install -d -m 0755 %[3]s
 sudo tee %[4]s >/dev/null <<'UNIT'
 %[5]sUNIT
@@ -121,6 +120,10 @@ chmod 0755 /tmp/tiffin.new
 	progress("starting tiffin (rolls back automatically if unhealthy)")
 	// The installed build (trusted, known to work) performs the update; only
 	// the very first install runs the new binary itself.
+	progress("provisioning system services (first run installs packages; later runs are quick)")
+	if out, stderr, err := m.Exec(ctx, "sudo /tmp/tiffin.new provision"); err != nil {
+		return nil, fmt.Errorf("provision: %w\n%s\n%s", err, tail(out, 3000), tail(stderr, 3000))
+	}
 	script := `set -o pipefail
 if [ -x ` + BinLink + ` ]; then sudo ` + BinLink + ` self-update /tmp/tiffin.new; else sudo /tmp/tiffin.new self-update /tmp/tiffin.new; fi
 rc=$?; rm -f /tmp/tiffin.new; exit $rc`
@@ -156,4 +159,11 @@ func FileSHA(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func tail(s string, n int) string {
+	if len(s) > n {
+		return "…" + s[len(s)-n:]
+	}
+	return s
 }

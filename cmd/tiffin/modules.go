@@ -1,0 +1,17 @@
+package main
+
+// Every box module, registered by import. Add new modules here.
+import (
+	_ "github.com/btahir/tiffin/internal/mod/analytics"
+	_ "github.com/btahir/tiffin/internal/mod/approvals"
+	_ "github.com/btahir/tiffin/internal/mod/auth"
+	_ "github.com/btahir/tiffin/internal/mod/base"
+	_ "github.com/btahir/tiffin/internal/mod/email"
+	_ "github.com/btahir/tiffin/internal/mod/observe"
+	_ "github.com/btahir/tiffin/internal/mod/postgres"
+	_ "github.com/btahir/tiffin/internal/mod/protect"
+	_ "github.com/btahir/tiffin/internal/mod/queue"
+	_ "github.com/btahir/tiffin/internal/mod/runtime"
+	_ "github.com/btahir/tiffin/internal/mod/storage"
+	_ "github.com/btahir/tiffin/internal/mod/valkey"
+)

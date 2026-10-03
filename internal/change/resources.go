@@ -118,6 +118,10 @@ func Diff(current, desired map[string]Resource) []Op {
 // order of kinds when creating; deletes run in reverse.
 var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindApp: 4}
 
+// SortOps orders ops: creates (containers first), updates, then deletes
+// (contents first).
+func SortOps(ops []Op) { sortOps(ops) }
+
 func sortOps(ops []Op) {
 	actionOrder := map[Action]int{Create: 0, Update: 1, Delete: 2}
 	sort.SliceStable(ops, func(i, j int) bool {
