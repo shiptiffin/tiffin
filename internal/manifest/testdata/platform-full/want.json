@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "project": "platform",
+  "apps": {
+    "jobs": {
+      "path": "apps/jobs",
+      "framework": "bun",
+      "role": "worker",
+      "instances": 1,
+      "memoryMB": 512
+    },
+    "web": {
+      "path": "apps/web",
+      "framework": "next",
+      "role": "web",
+      "routes": [
+        "web"
+      ],
+      "instances": 1,
+      "memoryMB": 512,
+      "healthcheck": "/"
+    }
+  },
+  "services": {
+    "auth": {
+      "methods": [
+        "email",
+        "github",
+        "google",
+        "magic-link",
+        "otp",
+        "passkey"
+      ],
+      "organizations": false
+    },
+    "email": {
+      "from": "hello@example.com"
+    },
+    "analytics": {
+      "retentionDays": 90
+    }
+  },
+  "crons": {
+    "digest": {
+      "schedule": "@weekly",
+      "app": "web",
+      "path": "/cron/digest"
+    },
+    "nightly-report": {
+      "schedule": "0 3 * * *",
+      "app": "jobs",
+      "path": "/jobs/report"
+    },
+    "sweep": {
+      "schedule": "*/15 * * * mon-fri",
+      "app": "jobs",
+      "path": "/cron/sweep"
+    }
+  }
+}

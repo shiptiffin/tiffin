@@ -19,7 +19,17 @@ func Classify(op Op) (Tier, string) {
 	case Delete:
 		switch kind {
 		case KindService:
+			switch name {
+			case "auth":
+				return TierIrreversible, "deletes every user account, session and organization of the project"
+			case "analytics":
+				return TierIrreversible, "deletes all collected analytics events"
+			case "email":
+				return TierReversible, "removes the email service; undo restores it"
+			}
 			return TierIrreversible, fmt.Sprintf("deletes the %s service and all its data", name)
+		case KindCron:
+			return TierReversible, fmt.Sprintf("removes cron %q; undo restores it", name)
 		case KindBucket:
 			return TierIrreversible, fmt.Sprintf("deletes bucket %q and every file in it", name)
 		case KindProject:
@@ -36,6 +46,9 @@ func Classify(op Op) (Tier, string) {
 				if dropped := droppedExtensions(op.Before, op.After); len(dropped) > 0 {
 					return TierIrreversible, "drops Postgres extension(s) " + strings.Join(dropped, ", ") + " and every column, index or job that uses them"
 				}
+			}
+			if name == "analytics" && shortenedRetention(op.Before, op.After) {
+				return TierIrreversible, "shortens analytics retention and deletes events older than the new limit"
 			}
 		case KindBucket:
 			if becamePublic(op.Before, op.After) {
@@ -81,4 +94,13 @@ func becamePublic(before, after json.RawMessage) bool {
 	_ = json.Unmarshal(before, &a)
 	_ = json.Unmarshal(after, &b)
 	return !a.Public && b.Public
+}
+
+func shortenedRetention(before, after json.RawMessage) bool {
+	var a, b struct {
+		RetentionDays int `json:"retentionDays"`
+	}
+	_ = json.Unmarshal(before, &a)
+	_ = json.Unmarshal(after, &b)
+	return b.RetentionDays < a.RetentionDays
 }

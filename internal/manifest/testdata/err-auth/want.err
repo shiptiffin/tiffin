@@ -1,0 +1,4 @@
+/services/auth: unknown field(s): sso; check the spelling against the schema
+/services/auth/methods/1: value must be one of 'email', 'magic-link', 'otp', 'passkey', 'google', 'github'
+/services/auth/methods/2: value must be one of 'email', 'magic-link', 'otp', 'passkey', 'google', 'github'
+/services/auth/organizations: expected boolean, got string

@@ -205,9 +205,14 @@ func testUndoDrift(t *testing.T, s change.Store) {
 func testRisk(t *testing.T, s change.Store) {
 	ctx := context.Background()
 	e := change.NewEngine(s)
-	Converge(t, e, M("shop", func(m *manifest.Manifest) {
+	base := func(m *manifest.Manifest) {
 		m.Services.Storage = &manifest.Storage{Buckets: map[string]manifest.Bucket{"media": {}}}
-	}))
+		m.Services.Auth = &manifest.Auth{Methods: []string{"email", "magic-link"}, Organizations: true}
+		m.Services.Email = &manifest.Email{}
+		m.Services.Analytics = &manifest.Analytics{RetentionDays: 365}
+		m.Crons = map[string]manifest.Cron{"tick": {Schedule: "@hourly", App: "web", Path: "/cron/tick"}}
+	}
+	Converge(t, e, M("shop", base))
 	cases := []struct {
 		name string
 		edit func(m *manifest.Manifest)
@@ -220,12 +225,23 @@ func testRisk(t *testing.T, s change.Store) {
 		{"drop extension", func(m *manifest.Manifest) { m.Services.Postgres.Extensions = nil }, change.TierIrreversible},
 		{"drop postgres", func(m *manifest.Manifest) { m.Services.Postgres = nil }, change.TierIrreversible},
 		{"drop bucket", func(m *manifest.Manifest) { m.Services.Storage.Buckets = nil }, change.TierIrreversible},
-		{"drop app", func(m *manifest.Manifest) { m.Apps = nil }, change.TierReversible},
+		{"drop app", func(m *manifest.Manifest) { m.Apps = nil; m.Crons = nil }, change.TierReversible},
+		{"drop auth", func(m *manifest.Manifest) { m.Services.Auth = nil }, change.TierIrreversible},
+		{"drop analytics", func(m *manifest.Manifest) { m.Services.Analytics = nil }, change.TierIrreversible},
+		{"shorten retention", func(m *manifest.Manifest) { m.Services.Analytics.RetentionDays = 30 }, change.TierIrreversible},
+		{"lengthen retention", func(m *manifest.Manifest) { m.Services.Analytics.RetentionDays = 730 }, change.TierReversible},
+		{"drop email", func(m *manifest.Manifest) { m.Services.Email = nil }, change.TierReversible},
+		{"update auth methods", func(m *manifest.Manifest) { m.Services.Auth.Methods = []string{"email", "passkey"} }, change.TierReversible},
+		{"add cron", func(m *manifest.Manifest) {
+			m.Crons["nightly"] = manifest.Cron{Schedule: "0 3 * * *", App: "web", Path: "/cron/nightly"}
+		}, change.TierReversible},
+		{"update cron", func(m *manifest.Manifest) {
+			m.Crons["tick"] = manifest.Cron{Schedule: "@daily", App: "web", Path: "/cron/tick"}
+		}, change.TierReversible},
+		{"drop cron", func(m *manifest.Manifest) { m.Crons = nil }, change.TierReversible},
 	}
 	for _, tc := range cases {
-		m := M("shop", func(m *manifest.Manifest) {
-			m.Services.Storage = &manifest.Storage{Buckets: map[string]manifest.Bucket{"media": {}}}
-		})
+		m := M("shop", base)
 		tc.edit(m)
 		p, err := e.Plan(ctx, "shop", desired(t, m))
 		if err != nil {

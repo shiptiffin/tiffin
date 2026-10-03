@@ -75,6 +75,71 @@ export interface StorageConfig {
 }
 
 /**
+ * Methods users can sign in with.
+ *
+ * - `"email"`: email + password
+ * - `"magic-link"`: one-time sign-in link sent by email
+ * - `"otp"`: one-time code sent by email
+ * - `"passkey"`: WebAuthn passkeys
+ * - `"google"`: Sign in with Google
+ * - `"github"`: Sign in with GitHub
+ */
+export type AuthMethod = "email" | "magic-link" | "otp" | "passkey" | "google" | "github";
+
+/**
+ * Auth gives the project user accounts and sessions. The box serves the auth
+ * endpoint at "/api/auth" on each app's own routes and exposes its base URL to
+ * every app as `TIFFIN_AUTH_URL`.
+ */
+export interface AuthConfig {
+  /**
+   * Methods users can sign in with: "email" (email + password),
+   * "magic-link", "otp" (one-time code), "passkey", "google" or "github".
+   * Default ["email", "magic-link"]. Sorted and de-duplicated.
+   */
+  methods?: AuthMethod[];
+  /**
+   * Enables teams (organizations) with the roles owner, admin, member and
+   * viewer. Default true.
+   */
+  organizations?: boolean;
+}
+
+/**
+ * Email lets the project send transactional email. Until an SMTP relay is
+ * configured on the box, mail goes to the box's dev inbox instead of the
+ * recipient.
+ */
+export interface EmailConfig {
+  /**
+   * Sender address, e.g. "hello@example.com". Default
+   * "<project>@<box domain>", resolved by the box: leave it out to take the
+   * default.
+   */
+  from?: string;
+}
+
+/** Analytics gives the project cookieless, first-party web analytics. */
+export interface AnalyticsConfig {
+  /** How long raw events are kept, in days, 1-3650. Default 365. */
+  retentionDays?: number;
+}
+
+/** One scheduled call into an app. */
+export interface CronConfig {
+  /**
+   * A 5-field cron expression ("minute hour day-of-month month day-of-week",
+   * fields separated by single spaces, e.g. "0 3 * * *") or one of
+   * "@hourly", "@daily", "@weekly", "@monthly".
+   */
+  schedule: string;
+  /** Name of the app to call. Must be an app defined in `apps`. */
+  app: string;
+  /** Request path on the app. Must start with "/". Default "/cron/<cron name>". */
+  path?: string;
+}
+
+/**
  * Services are the box-provided backends. Leave a service out and it is not
  * provisioned.
  */
@@ -82,6 +147,9 @@ export interface ServicesConfig {
   postgres?: PostgresConfig;
   valkey?: ValkeyConfig;
   storage?: StorageConfig;
+  auth?: AuthConfig;
+  email?: EmailConfig;
+  analytics?: AnalyticsConfig;
 }
 
 /** The shape of the default export of tiffin.config.ts. */
@@ -94,6 +162,13 @@ export interface TiffinConfig {
   apps?: Record<Slug, AppConfig>;
   /** Services the project uses. Absent means "not provisioned". */
   services?: ServicesConfig;
+  /**
+   * Scheduled calls into apps, keyed by name (same slug rules as `project`).
+   * Each cron sends an HTTP request to its app's path on the schedule. The
+   * call is pushed to the app internally, so a worker app (which has no
+   * routes) is a valid target.
+   */
+  crons?: Record<Slug, CronConfig>;
   /**
    * Plain, non-secret environment variables shared by all apps.
    * Secrets never live in the manifest.

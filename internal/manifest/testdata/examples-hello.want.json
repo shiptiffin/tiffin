@@ -50,6 +50,27 @@
           "public": true
         }
       }
+    },
+    "auth": {
+      "methods": [
+        "email",
+        "google",
+        "magic-link"
+      ],
+      "organizations": true
+    },
+    "email": {
+      "from": "hello@example.com"
+    },
+    "analytics": {
+      "retentionDays": 90
+    }
+  },
+  "crons": {
+    "nightly-report": {
+      "schedule": "0 3 * * *",
+      "app": "worker",
+      "path": "/cron/report"
     }
   },
   "env": {

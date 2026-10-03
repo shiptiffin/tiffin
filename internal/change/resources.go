@@ -16,6 +16,7 @@ const (
 	KindService = "service"
 	KindBucket  = "bucket"
 	KindEnv     = "env"
+	KindCron    = "cron"
 )
 
 // Kind returns the kind part of an address ("app/web" → "app").
@@ -76,6 +77,26 @@ func Resources(m *manifest.Manifest) (map[string]Resource, error) {
 			}
 		}
 	}
+	if s.Auth != nil {
+		if err := add(KindService+"/auth", s.Auth); err != nil {
+			return nil, err
+		}
+	}
+	if s.Email != nil {
+		if err := add(KindService+"/email", s.Email); err != nil {
+			return nil, err
+		}
+	}
+	if s.Analytics != nil {
+		if err := add(KindService+"/analytics", s.Analytics); err != nil {
+			return nil, err
+		}
+	}
+	for name, c := range m.Crons {
+		if err := add(KindCron+"/"+name, c); err != nil {
+			return nil, err
+		}
+	}
 	return out, nil
 }
 
@@ -115,8 +136,9 @@ func Diff(current, desired map[string]Resource) []Op {
 	return ops
 }
 
-// order of kinds when creating; deletes run in reverse.
-var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindApp: 4}
+// order of kinds when creating; deletes run in reverse. Crons come after
+// apps because they call into them.
+var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindApp: 4, KindCron: 5}
 
 // SortOps orders ops: creates (containers first), updates, then deletes
 // (contents first).

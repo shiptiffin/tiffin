@@ -1,7 +1,8 @@
 import { defineConfig } from "tiffin-sdk";
 
 // A realistic Tiffin project: a Next.js storefront, a Hono API, a background
-// worker, Postgres with pgvector, Valkey and one public bucket.
+// worker, Postgres with pgvector, Valkey, one public bucket, accounts with
+// teams, email, analytics and a nightly cron.
 export default defineConfig({
   project: "hello",
   env: {
@@ -37,5 +38,12 @@ export default defineConfig({
         uploads: { public: true },
       },
     },
+    auth: { methods: ["email", "magic-link", "google"], organizations: true },
+    email: { from: "hello@example.com" },
+    analytics: { retentionDays: 90 },
+  },
+  crons: {
+    // Crons push to the app internally, so a worker (no routes) is a valid target.
+    "nightly-report": { schedule: "0 3 * * *", app: "worker", path: "/cron/report" },
   },
 });

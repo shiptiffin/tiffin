@@ -15,6 +15,13 @@ const sample = {
     postgres: { extensions: ["vector"] },
     valkey: {},
     storage: { buckets: { uploads: { public: true } } },
+    auth: { methods: ["email", "google"], organizations: true },
+    email: { from: "hello@example.com" },
+    analytics: { retentionDays: 90 },
+  },
+  crons: {
+    nightly: { schedule: "0 3 * * *", app: "jobs", path: "/jobs/nightly" },
+    tick: { schedule: "@hourly", app: "jobs" },
   },
 } satisfies TiffinConfig;
 
@@ -29,6 +36,15 @@ describe("tiffin-sdk", () => {
     expect(defineConfig(minimal)).toEqual({ project: "hello" });
   });
 
+  test("auth, email, analytics and crons are optional with all-optional fields", () => {
+    const cfg: TiffinConfig = {
+      project: "x",
+      services: { auth: {}, email: {}, analytics: {} },
+      crons: { tick: { schedule: "@daily", app: "web" } },
+    };
+    expect(defineConfig(cfg)).toBe(cfg);
+  });
+
   test("bad configs are type errors", () => {
     // These are checked by tsc; at runtime defineConfig does not validate.
     // @ts-expect-error project is required
@@ -41,5 +57,13 @@ describe("tiffin-sdk", () => {
     defineConfig({ project: "x", replicas: 3 });
     // @ts-expect-error env values are strings
     defineConfig({ project: "x", env: { PORT: 3000 } });
+    // @ts-expect-error unknown auth method
+    defineConfig({ project: "x", services: { auth: { methods: ["sms"] } } });
+    // @ts-expect-error retentionDays is a number
+    defineConfig({ project: "x", services: { analytics: { retentionDays: "90" } } });
+    // @ts-expect-error a cron needs a schedule and an app
+    defineConfig({ project: "x", crons: { tick: {} } });
+    // @ts-expect-error unknown cron field
+    defineConfig({ project: "x", crons: { tick: { schedule: "@daily", app: "web", timezone: "UTC" } } });
   });
 });

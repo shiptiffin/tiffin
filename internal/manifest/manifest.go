@@ -5,6 +5,11 @@
 // TypeScript types in tiffin-sdk and the change engine all derive from them.
 package manifest
 
+import (
+	"bytes"
+	"encoding/json"
+)
+
 // Version is the manifest format version this build understands.
 const Version = 1
 
@@ -18,6 +23,9 @@ type Manifest struct {
 	Apps map[string]App `json:"apps,omitempty"`
 	// Services the project uses. Absent means "not provisioned".
 	Services Services `json:"services,omitzero"`
+	// Crons are scheduled HTTP calls into apps, keyed by name (same slug
+	// rules as Project). Each one pushes a request to its app on a schedule.
+	Crons map[string]Cron `json:"crons,omitempty"`
 	// Env holds plain, non-secret environment variables shared by all apps.
 	// Secrets never live in the manifest.
 	Env map[string]string `json:"env,omitempty"`
@@ -65,9 +73,12 @@ type App struct {
 
 // Services are the box-provided backends. A nil pointer means "off".
 type Services struct {
-	Postgres *Postgres `json:"postgres,omitempty"`
-	Valkey   *Valkey   `json:"valkey,omitempty"`
-	Storage  *Storage  `json:"storage,omitempty"`
+	Postgres  *Postgres  `json:"postgres,omitempty"`
+	Valkey    *Valkey    `json:"valkey,omitempty"`
+	Storage   *Storage   `json:"storage,omitempty"`
+	Auth      *Auth      `json:"auth,omitempty"`
+	Email     *Email     `json:"email,omitempty"`
+	Analytics *Analytics `json:"analytics,omitempty"`
 }
 
 // Postgres gives the project its own database.
@@ -92,4 +103,75 @@ type Storage struct {
 type Bucket struct {
 	// Public buckets are readable without a signature.
 	Public bool `json:"public"`
+}
+
+// Auth Method values.
+const (
+	AuthEmail     = "email"      // email + password
+	AuthMagicLink = "magic-link" // one-time sign-in link sent by email
+	AuthOTP       = "otp"        // one-time code sent by email
+	AuthPasskey   = "passkey"    // WebAuthn passkeys
+	AuthGoogle    = "google"     // Sign in with Google
+	AuthGitHub    = "github"     // Sign in with GitHub
+)
+
+// AuthMethods lists every valid Auth.Methods value, in sorted order.
+var AuthMethods = []string{AuthEmail, AuthGitHub, AuthGoogle, AuthMagicLink, AuthOTP, AuthPasskey}
+
+// Auth gives the project user accounts and sessions. The box serves the auth
+// endpoint at "/api/auth" on each app's own routes and exposes its base URL to
+// every app as TIFFIN_AUTH_URL.
+type Auth struct {
+	// Methods users can sign in with: "email" (email + password),
+	// "magic-link", "otp" (one-time code), "passkey", "google" or "github".
+	// Default ["email", "magic-link"]. Sorted and de-duplicated.
+	Methods []string `json:"methods"`
+	// Organizations enables teams (organizations) with the roles owner, admin,
+	// member and viewer. Default true.
+	Organizations bool `json:"organizations"`
+}
+
+// UnmarshalJSON decodes an Auth, defaulting Organizations to true when the
+// field is absent (a plain bool cannot tell "absent" from "false").
+func (a *Auth) UnmarshalJSON(b []byte) error {
+	type plain Auth
+	p := plain{Organizations: true}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p); err != nil {
+		return err
+	}
+	*a = Auth(p)
+	return nil
+}
+
+// Email lets the project send transactional email. Until an SMTP relay is
+// configured on the box, mail goes to the box's dev inbox instead of the
+// recipient.
+type Email struct {
+	// From is the sender address, e.g. "hello@example.com". Default
+	// "<project>@<box domain>", resolved by the box: leave it unset to take
+	// the default.
+	From string `json:"from,omitempty"`
+}
+
+// Analytics gives the project cookieless, first-party web analytics.
+type Analytics struct {
+	// RetentionDays is how long raw events are kept, 1-3650. Default 365.
+	RetentionDays int `json:"retentionDays"`
+}
+
+// Cron is one scheduled call into an app. The box sends an HTTP request to the
+// app's Path on every tick. The call is pushed to the app internally, so a
+// worker app (which has no routes) is a valid target.
+type Cron struct {
+	// Schedule is a 5-field cron expression ("minute hour day-of-month month
+	// day-of-week", fields separated by single spaces, e.g. "0 3 * * *") or
+	// one of @hourly, @daily, @weekly, @monthly.
+	Schedule string `json:"schedule"`
+	// App is the name of the app to call. It must be an app in this manifest.
+	App string `json:"app"`
+	// Path is the request path on the app. Must start with "/".
+	// Default "/cron/<cron name>".
+	Path string `json:"path"`
 }

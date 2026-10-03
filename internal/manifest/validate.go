@@ -49,7 +49,7 @@ func newValidationError(errs []FieldError) *ValidationError {
 
 // Validate checks a manifest against the JSON Schema and the semantic rules
 // the schema cannot express (workers have no routes, routes are unique
-// across apps). It expects a normalized manifest: zero values of defaulted
+// across apps, the email sender is an address, crons target real apps). It expects a normalized manifest: zero values of defaulted
 // fields (instances 0, memoryMB 0) are reported as errors. It returns nil or
 // a *ValidationError.
 func Validate(m *Manifest) error {
@@ -103,11 +103,33 @@ func semanticErrors(m *Manifest) []FieldError {
 			owners[key] = name
 		}
 	}
+	if e := m.Services.Email; e != nil && e.From != "" {
+		if !emailRe.MatchString(e.From) {
+			errs = append(errs, FieldError{
+				Path:    "/services/email/from",
+				Message: fmt.Sprintf("%q is not a valid email address; use a bare address such as \"hello@example.com\", or remove \"from\" to use \"<project>@<box domain>\"", e.From),
+			})
+		}
+	}
+	for _, name := range sortedKeys(m.Crons) {
+		c := m.Crons[name]
+		if _, ok := m.Apps[c.App]; !ok && c.App != "" {
+			msg := fmt.Sprintf("cron %q targets app %q, which is not defined in \"apps\"", name, c.App)
+			if len(m.Apps) > 0 {
+				msg += "; defined apps: " + quoteList(sortedKeys(m.Apps))
+			} else {
+				msg += "; add the app to \"apps\" first"
+			}
+			errs = append(errs, FieldError{Path: "/crons/" + escapePointer(name) + "/app", Message: msg})
+		}
+	}
 	return errs
 }
 
 var (
-	slugRe   = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
+	slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
+	// emailRe accepts a bare address: a local part, "@", and a dotted hostname.
+	emailRe  = regexp.MustCompile(`^[A-Za-z0-9.!#$%&'*+/=?^_` + "`" + `{|}~-]+@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$`)
 	envKeyRe = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 )
 
@@ -137,6 +159,7 @@ func keyErrors(doc any) []FieldError {
 	for name, app := range apps {
 		env("/apps/"+escapePointer(name)+"/env", asMap(app)["env"])
 	}
+	slug("/crons", root["crons"])
 	slug("/services/storage/buckets", asMap(asMap(asMap(root["services"])["storage"])["buckets"]))
 	return errs
 }

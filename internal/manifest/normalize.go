@@ -14,7 +14,13 @@ const (
 	DefaultMemoryMB    = 512
 	DefaultHealthcheck = "/"
 	DefaultValkeyMemMB = 64
+
+	DefaultAnalyticsRetentionDays = 365
+	DefaultCronPathPrefix         = "/cron/"
 )
+
+// DefaultAuthMethods is the Auth.Methods default.
+var DefaultAuthMethods = []string{AuthEmail, AuthMagicLink}
 
 // Normalize fills in defaults and canonicalizes values in place, returning m
 // for chaining. It is idempotent. It does not validate: call Validate after.
@@ -25,6 +31,11 @@ const (
 //   - web, non-static apps get healthcheck "/"
 //   - valkey maxMemoryMB 64
 //   - postgres extensions are sorted and de-duplicated
+//   - auth methods default to ["email", "magic-link"], sorted and de-duplicated
+//     (auth organizations default to true when decoded from JSON)
+//   - analytics retentionDays 365
+//   - email from is left empty: the box resolves "<project>@<box domain>"
+//   - cron path "/cron/<name>"
 //   - route hostnames are lowercased and path prefixes lose trailing slashes
 func Normalize(m *Manifest) *Manifest {
 	if m.Version == 0 {
@@ -76,6 +87,24 @@ func Normalize(m *Manifest) *Manifest {
 			exts = nil
 		}
 		pg.Extensions = exts
+	}
+	if a := m.Services.Auth; a != nil {
+		methods := slices.Clone(a.Methods)
+		slices.Sort(methods)
+		methods = slices.Compact(methods)
+		if len(methods) == 0 {
+			methods = slices.Clone(DefaultAuthMethods)
+		}
+		a.Methods = methods
+	}
+	if a := m.Services.Analytics; a != nil && a.RetentionDays == 0 {
+		a.RetentionDays = DefaultAnalyticsRetentionDays
+	}
+	for name, c := range m.Crons {
+		if c.Path == "" {
+			c.Path = DefaultCronPathPrefix + name
+		}
+		m.Crons[name] = c
 	}
 	return m
 }

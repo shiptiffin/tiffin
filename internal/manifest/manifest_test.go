@@ -216,6 +216,35 @@ func TestNormalizeDefaults(t *testing.T) {
 	}
 }
 
+func TestNormalizePlatformDefaults(t *testing.T) {
+	m, err := Parse([]byte(`{
+		"project":"p",
+		"apps":{"w":{"role":"worker"}},
+		"services":{"auth":{"methods":["otp","email","otp"]},"email":{},"analytics":{}},
+		"crons":{"tick":{"schedule":"@daily","app":"w"}}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Auth{Methods: []string{"email", "otp"}, Organizations: true}); !reflect.DeepEqual(*m.Services.Auth, want) {
+		t.Errorf("auth = %+v, want %+v", *m.Services.Auth, want)
+	}
+	if got := *m.Services.Email; got != (Email{}) {
+		t.Errorf("email = %+v", got)
+	}
+	if m.Services.Analytics.RetentionDays != 365 {
+		t.Errorf("analytics = %+v", m.Services.Analytics)
+	}
+	if want := (Cron{Schedule: "@daily", App: "w", Path: "/cron/tick"}); m.Crons["tick"] != want {
+		t.Errorf("cron = %+v, want %+v", m.Crons["tick"], want)
+	}
+	// Explicit organizations:false survives; absent means true.
+	m, err = Parse([]byte(`{"project":"p","services":{"auth":{"organizations":false}}}`))
+	if err != nil || m.Services.Auth.Organizations || !reflect.DeepEqual(m.Services.Auth.Methods, DefaultAuthMethods) {
+		t.Errorf("auth organizations:false: %+v, %v", m.Services.Auth, err)
+	}
+}
+
 func TestNormalizeIdempotent(t *testing.T) {
 	m, err := Parse([]byte(`{"project":"p","apps":{"a":{"routes":["Foo.com/x/"]}}}`))
 	if err != nil {
@@ -267,6 +296,10 @@ func TestSchemaMatchesTypes(t *testing.T) {
 		{reflect.TypeOf(Valkey{}), get(defs, "services", "properties", "valkey")},
 		{reflect.TypeOf(Storage{}), storage},
 		{reflect.TypeOf(Bucket{}), get(storage, "properties", "buckets", "additionalProperties")},
+		{reflect.TypeOf(Auth{}), get(defs, "services", "properties", "auth")},
+		{reflect.TypeOf(Email{}), get(defs, "services", "properties", "email")},
+		{reflect.TypeOf(Analytics{}), get(defs, "services", "properties", "analytics")},
+		{reflect.TypeOf(Cron{}), defs["cron"].(map[string]any)},
 	}
 	for _, c := range checks {
 		props := c.schema["properties"].(map[string]any)
@@ -412,6 +445,32 @@ func randomManifest(r *rand.Rand) *Manifest {
 		m.Services.Storage = &Storage{}
 		if r.IntN(2) == 0 {
 			m.Services.Storage.Buckets = map[string]Bucket{"up": {}, "pub": {Public: true}}
+		}
+	}
+	if r.IntN(2) == 0 {
+		m.Services.Auth = &Auth{Organizations: r.IntN(2) == 0}
+		for range r.IntN(4) {
+			m.Services.Auth.Methods = append(m.Services.Auth.Methods, pick(AuthMethods...))
+		}
+	}
+	if r.IntN(2) == 0 {
+		m.Services.Email = &Email{From: pick("", "hi@example.com", "a.b+c@mail.example.org")}
+	}
+	if r.IntN(2) == 0 {
+		m.Services.Analytics = &Analytics{}
+		if r.IntN(2) == 0 {
+			m.Services.Analytics.RetentionDays = 1 + r.IntN(3650)
+		}
+	}
+	if len(m.Apps) > 0 && r.IntN(2) == 0 {
+		m.Crons = map[string]Cron{}
+		apps := sortedKeys(m.Apps)
+		for range 1 + r.IntN(3) {
+			c := Cron{Schedule: pick("@hourly", "@daily", "*/5 * * * *", "0 3 * * mon"), App: apps[r.IntN(len(apps))]}
+			if r.IntN(2) == 0 {
+				c.Path = pick("/tick", "/a/b")
+			}
+			m.Crons[pick("tick", "nightly", "c-1")] = c
 		}
 	}
 	return m

@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "project": "defaults",
+  "apps": {
+    "jobs": {
+      "path": ".",
+      "framework": "bun",
+      "role": "worker",
+      "instances": 1,
+      "memoryMB": 512
+    }
+  },
+  "services": {
+    "auth": {
+      "methods": [
+        "email",
+        "magic-link"
+      ],
+      "organizations": true
+    },
+    "email": {},
+    "analytics": {
+      "retentionDays": 365
+    }
+  },
+  "crons": {
+    "tick": {
+      "schedule": "@hourly",
+      "app": "jobs",
+      "path": "/cron/tick"
+    }
+  }
+}

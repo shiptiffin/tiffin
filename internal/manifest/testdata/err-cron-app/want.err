@@ -1,0 +1,1 @@
+/crons/ghost/app: cron "ghost" targets app "missing", which is not defined in "apps"; defined apps: "jobs", "web"

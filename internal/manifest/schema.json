@@ -25,6 +25,12 @@
       "description": "Box-provided backends the project uses. A service that is absent is not provisioned.",
       "$ref": "#/$defs/services"
     },
+    "crons": {
+      "description": "Scheduled calls into apps, keyed by name. Cron names follow the same slug rules as `project`. Each cron sends an HTTP request to its app's path on the schedule; the call is pushed to the app internally, so worker apps (which have no routes) are valid targets.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/slug" },
+      "additionalProperties": { "$ref": "#/$defs/cron" }
+    },
     "env": {
       "description": "Plain, non-secret environment variables shared by all apps. Secrets never live in the manifest; set them with `tiffin secrets`.",
       "$ref": "#/$defs/env"
@@ -97,6 +103,29 @@
         }
       }
     },
+    "cron": {
+      "description": "One scheduled call into an app.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schedule", "app"],
+      "properties": {
+        "schedule": {
+          "description": "A 5-field cron expression (minute hour day-of-month month day-of-week, fields separated by single spaces, e.g. \"0 3 * * *\") or one of @hourly, @daily, @weekly, @monthly.",
+          "type": "string",
+          "pattern": "^(@(hourly|daily|weekly|monthly)|[A-Za-z0-9*,/?-]+( [A-Za-z0-9*,/?-]+){4})$"
+        },
+        "app": {
+          "description": "Name of the app to call. Must be an app defined in `apps`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "description": "Request path on the app. Must start with \"/\". Default \"/cron/<cron name>\".",
+          "type": "string",
+          "pattern": "^/"
+        }
+      }
+    },
     "services": {
       "type": "object",
       "additionalProperties": false,
@@ -150,6 +179,50 @@
                   }
                 }
               }
+            }
+          }
+        },
+        "auth": {
+          "description": "Gives the project user accounts and sessions. The box serves the auth endpoint at \"/api/auth\" on each app's own routes and exposes its base URL to every app as TIFFIN_AUTH_URL.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "methods": {
+              "description": "Methods users can sign in with: \"email\" (email + password), \"magic-link\", \"otp\" (one-time code), \"passkey\", \"google\" or \"github\". Sorted and de-duplicated on normalization. Default [\"email\", \"magic-link\"].",
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "enum": ["email", "magic-link", "otp", "passkey", "google", "github"]
+              }
+            },
+            "organizations": {
+              "description": "Enables teams (organizations) with the roles owner, admin, member and viewer. Default true.",
+              "type": "boolean"
+            }
+          }
+        },
+        "email": {
+          "description": "Lets the project send transactional email. Until an SMTP relay is configured on the box, mail goes to the box's dev inbox instead of the recipient.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "description": "Sender address, e.g. \"hello@example.com\". Must be a bare email address. Default \"<project>@<box domain>\", resolved by the box: leave it out to take the default.",
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "analytics": {
+          "description": "Gives the project cookieless, first-party web analytics.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "retentionDays": {
+              "description": "How long raw events are kept, in days, 1-3650. Default 365.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3650
             }
           }
         }

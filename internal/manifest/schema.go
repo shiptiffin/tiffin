@@ -107,8 +107,11 @@ var patternHints = map[string]string{
 	"^[A-Z_][A-Z0-9_]*$":     "must be UPPER_SNAKE_CASE: letters A-Z, digits and underscores, not starting with a digit",
 	"^/":                     "must start with \"/\"",
 	"^[a-z][a-z0-9_-]*$":     "must be a lowercase extension name such as \"vector\" or \"pg_cron\"",
+	cronPattern:              "must be 5 space-separated cron fields (minute hour day-of-month month day-of-week, using digits and * , - / ? or month/day names) such as \"*/15 * * * *\", or one of @hourly, @daily, @weekly, @monthly",
 	routePattern:             "must be a hostname with an optional path prefix, such as \"shop\", \"example.com\" or \"example.com/api\"",
 }
+
+const cronPattern = `^(@(hourly|daily|weekly|monthly)|[A-Za-z0-9*,/?-]+( [A-Za-z0-9*,/?-]+){4})$`
 
 const routePattern = `^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*(/[A-Za-z0-9._~/-]*)?$`
 

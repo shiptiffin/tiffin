@@ -1,0 +1,1 @@
+/services/email/from: "Hello <hello@example.com>" is not a valid email address; use a bare address such as "hello@example.com", or remove "from" to use "<project>@<box domain>"
