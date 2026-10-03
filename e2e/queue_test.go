@@ -94,7 +94,7 @@ func TestQueue(t *testing.T) {
 	id := send(`{"name":"work","payload":{"ms":15000}}`)
 	waitJob(id, "running", time.Minute)
 	time.Sleep(2 * time.Second)
-	b.inBox(`sudo pkill -9 -f 'bun.*index.ts' || sudo pkill -9 -x bun`)
+	b.inBox(`sudo pkill -9 -f '[b]un.*index.ts'`)
 	j := waitJob(id, "completed", 3*time.Minute)
 	atts, _ := j["attempts"].([]any)
 	if len(atts) < 2 {

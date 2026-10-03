@@ -51,6 +51,11 @@ containerd:
 portForwards:
 - guestPort: 8443
   hostIP: 127.0.0.1
+# Everything else stays inside the box, whether it binds 127.0.0.1 or 0.0.0.0.
+- guestIP: 127.0.0.1
+  guestPortRange: [1, 65535]
+  proto: any
+  ignore: true
 - guestIP: 0.0.0.0
   proto: any
   ignore: true

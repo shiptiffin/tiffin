@@ -44,7 +44,16 @@ containerd:
   system: false
   user: false
 
-# Port forwarding is left at Lima's defaults.
+# Nothing inside the test box is forwarded to the Mac (tests run checks inside
+# the VM), so test boxes never collide with each other or the owner's box.
+portForwards:
+- guestIP: 127.0.0.1
+  guestPortRange: [1, 65535]
+  proto: any
+  ignore: true
+- guestIP: 0.0.0.0
+  proto: any
+  ignore: true
 
 # Lima mounts an additional disk at /mnt/lima-<disk> and has no per-disk
 # mountPoint setting (checked on Lima 2.2). We mount the same filesystem at
