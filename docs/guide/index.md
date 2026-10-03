@@ -26,4 +26,10 @@ Honesty matters more than a big claim:
 - **Local first.** Today a box runs as a VM on your Mac. Servers (Hetzner) and
   Cloudflare come next.
 
-Start with the [quickstart](quickstart.md).
+Start with the [quickstart](quickstart.md), then [concepts](concepts.md) and
+[working with agents](agents.md).
+
+Services: [apps and deploys](apps.md) · [Postgres, Valkey and backups](data.md) ·
+[storage](storage.md) · [email](email.md) · [sign-in](auth.md) ·
+[queues and workflows](queues.md) · [observability](observe.md) ·
+[analytics](analytics.md) · [protection](protection.md) · [security model](security.md)
