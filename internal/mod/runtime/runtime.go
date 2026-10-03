@@ -71,6 +71,8 @@ type rt struct {
 	// loadedRoutes is the hash of the routes the edge last loaded from us.
 	loadedRoutes string
 	hooks        *hookTokens
+	// gitResolve resolves hosts of git URLs to deploy from (nil: DNS).
+	gitResolve resolver
 }
 
 // Start wires the runtime to the platform: it fails deploys a restart

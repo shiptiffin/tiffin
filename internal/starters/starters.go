@@ -1,0 +1,212 @@
+// Package starters holds the starter apps embedded in the binary. The
+// dashboard lists them (GET /v1/templates) and deploys one to an app with
+// POST /v1/projects/{project}/apps/{app}/deploys/template: the same deploy
+// pipeline as tiffin deploy, from source shipped inside tiffin itself.
+//
+// Each starter is a real, small app in files/<id>/ with its own
+// tiffin.config.ts (so it also works on its own: copy the folder and run
+// tiffin deploy). Its Fragment is the part of a manifest it needs, which the
+// dashboard merges into the project's manifest before plan → apply.
+package starters
+
+import (
+	"embed"
+	"encoding/json"
+	"fmt"
+	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+	"sync"
+
+	"github.com/btahir/tiffin/internal/manifest"
+)
+
+//go:embed all:files
+var files embed.FS
+
+// Starter describes one starter app.
+type Starter struct {
+	ID          string `json:"id" example:"guestbook" doc:"Pass as template to deploys template"`
+	Name        string `json:"name" example:"Guestbook"`
+	Description string `json:"description" doc:"One line on what it is"`
+	Framework   string `json:"framework" enum:"bun,hono,next,static" doc:"The app's framework; the target app must use the same one"`
+	// App is the app name the fragment uses. Any name works: rename the key
+	// in apps when merging the fragment.
+	App      string   `json:"app" example:"guestbook" doc:"The app name the fragment uses (rename it freely when merging)"`
+	Services []string `json:"services" doc:"Services the app needs on, e.g. postgres, valkey, analytics"`
+	// Fragment is the manifest part to merge into the project's manifest.
+	Fragment ManifestFragment `json:"fragment" doc:"Merge into the project's manifest (apps, services, env), plan and apply, then deploy the template to the app"`
+	Files    int              `json:"files" doc:"Source files shipped"`
+	Bytes    int64            `json:"bytes" doc:"Source size"`
+}
+
+// ManifestFragment is a partial manifest: only apps and services (and env, if any).
+type ManifestFragment struct {
+	Apps     map[string]map[string]any `json:"apps"`
+	Services map[string]map[string]any `json:"services,omitempty"`
+	Env      map[string]string         `json:"env,omitempty"`
+}
+
+var meta = []struct{ id, name, desc string }{
+	{"static-site", "Static site", "Plain HTML and CSS served by the box's edge over HTTPS; no container runs."},
+	{"hono-postgres", "Notes API", "A Hono JSON API on Bun with a Postgres table it creates on boot: list, create, update and delete notes."},
+	{"guestbook", "Guestbook", "A full-stack Hono app: a page, a JSON API, Postgres for entries, Valkey for a visit counter and cookieless analytics."},
+	{"next-postgres", "Next.js + Postgres", "A minimal Next.js App Router app on Bun: a server component reads notes from Postgres and a server action adds them."},
+}
+
+// List returns every starter, in display order. Evaluating the embedded
+// configs happens once per process.
+func List() ([]Starter, error) {
+	all, err := loadAll()
+	return slices.Clone(all), err
+}
+
+var loadAll = sync.OnceValues(func() ([]Starter, error) {
+	out := make([]Starter, 0, len(meta))
+	for _, m := range meta {
+		s, err := load(m.id, m.name, m.desc)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, nil
+})
+
+// Get returns one starter, or false.
+func Get(id string) (Starter, bool) {
+	all, err := loadAll()
+	if err != nil {
+		return Starter{}, false
+	}
+	for _, s := range all {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return Starter{}, false
+}
+
+// IDs lists the starter IDs.
+func IDs() []string {
+	ids := make([]string, len(meta))
+	for i, m := range meta {
+		ids[i] = m.id
+	}
+	return ids
+}
+
+func load(id, name, desc string) (Starter, error) {
+	root := path.Join("files", id)
+	raw, err := fs.ReadFile(files, path.Join(root, "tiffin.config.ts"))
+	if err != nil {
+		return Starter{}, err
+	}
+	m, err := evalConfig(raw)
+	if err != nil {
+		return Starter{}, fmt.Errorf("starter %s: %w", id, err)
+	}
+	if len(m.Apps) != 1 {
+		return Starter{}, fmt.Errorf("starter %s: tiffin.config.ts must declare exactly one app", id)
+	}
+	s := Starter{ID: id, Name: name, Description: desc, Services: []string{}}
+	// The fragment is the starter's own config, minus the project name and
+	// with defaults left out (what a person would write).
+	frag, err := fragment(m)
+	if err != nil {
+		return Starter{}, err
+	}
+	s.Fragment = frag
+	for app, spec := range m.Apps {
+		s.App, s.Framework = app, string(spec.Framework)
+	}
+	for svc := range frag.Services {
+		s.Services = append(s.Services, svc)
+	}
+	sort.Strings(s.Services)
+	err = fs.WalkDir(files, root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		s.Files++
+		s.Bytes += info.Size()
+		return nil
+	})
+	return s, err
+}
+
+// evalConfig evaluates an embedded tiffin.config.ts. The evaluator reads
+// files, so the source goes through a temp file.
+func evalConfig(src []byte) (*manifest.Manifest, error) {
+	dir, err := os.MkdirTemp("", "tiffin-starter-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	p := filepath.Join(dir, "tiffin.config.ts")
+	if err := os.WriteFile(p, src, 0o644); err != nil {
+		return nil, err
+	}
+	m, _, err := manifest.Load(p, nil)
+	return m, err
+}
+
+// fragment renders m's apps, services and env as minimal JSON objects, using
+// the same default-dropping rules as tiffin pull.
+func fragment(m *manifest.Manifest) (ManifestFragment, error) {
+	// RenderConfig knows which fields are defaults; evaluate its output as
+	// plain JS objects by reading the evaluated, un-normalized JSON back.
+	src := manifest.RenderConfig(m, "")
+	dir, err := os.MkdirTemp("", "tiffin-starter-")
+	if err != nil {
+		return ManifestFragment{}, err
+	}
+	defer os.RemoveAll(dir)
+	p := filepath.Join(dir, "tiffin.config.ts")
+	if err := os.WriteFile(p, src, 0o644); err != nil {
+		return ManifestFragment{}, err
+	}
+	raw, err := manifest.EvaluateJSON(p, nil)
+	if err != nil {
+		return ManifestFragment{}, err
+	}
+	var f ManifestFragment
+	if err := json.Unmarshal(raw, &f); err != nil {
+		return ManifestFragment{}, err
+	}
+	if f.Services == nil {
+		f.Services = map[string]map[string]any{}
+	}
+	return f, nil
+}
+
+// WriteTo copies a starter's files into dir.
+func WriteTo(id, dir string) error {
+	root := path.Join("files", id)
+	if _, err := fs.Stat(files, root); err != nil {
+		return fmt.Errorf("no starter %q", id)
+	}
+	return fs.WalkDir(files, root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel := strings.TrimPrefix(strings.TrimPrefix(p, root), "/")
+		dest := filepath.Join(dir, filepath.FromSlash(rel))
+		if d.IsDir() {
+			return os.MkdirAll(dest, 0o755)
+		}
+		b, err := fs.ReadFile(files, p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dest, b, 0o644)
+	})
+}

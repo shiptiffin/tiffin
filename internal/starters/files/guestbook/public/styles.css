@@ -1,0 +1,21 @@
+:root { --bg: oklch(0.985 0.006 85); --ink: oklch(0.27 0.015 70); --muted: oklch(0.55 0.015 70); --line: oklch(0.9 0.01 80); --brass: oklch(0.62 0.12 70); --card: oklch(1 0 0); }
+@media (prefers-color-scheme: dark) { :root { --bg: oklch(0.2 0.008 70); --ink: oklch(0.93 0.01 80); --muted: oklch(0.68 0.012 75); --line: oklch(0.32 0.01 70); --card: oklch(0.24 0.008 70); } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 38rem; margin: 0 auto; padding: 4rem 1.25rem 3rem; }
+.eyebrow { color: var(--brass); font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; margin: 0; }
+h1 { font: 600 2.6rem/1.1 ui-serif, Georgia, serif; margin: .3rem 0 .6rem; letter-spacing: -0.01em; }
+.lede { color: var(--muted); margin: 0 0 2rem; }
+form { display: grid; gap: .9rem; padding: 1.25rem; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+label { display: grid; gap: .35rem; font-size: .9rem; color: var(--muted); }
+input, textarea { font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: .6rem .7rem; }
+input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+button { justify-self: start; font: 600 .95rem/1 inherit; color: var(--bg); background: var(--ink); border: 0; border-radius: 8px; padding: .75rem 1.1rem; cursor: pointer; }
+.status { margin: 0; min-height: 1.4em; color: var(--muted); font-size: .9rem; }
+.entries { list-style: none; padding: 0; margin: 2.5rem 0; display: grid; gap: 1.6rem; }
+.entries li { border-left: 2px solid var(--line); padding-left: 1rem; }
+.entries strong { font-weight: 600; margin-right: .6rem; }
+.entries time { color: var(--muted); font-size: .85rem; }
+.entries p { margin: .25rem 0 0; }
+.entries .empty { color: var(--muted); border: 0; padding: 0; }
+footer { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--line); padding-top: 1rem; }

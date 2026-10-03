@@ -28,7 +28,8 @@ const (
 	SourceUpload   = "upload"   // a gzipped tar of the source (tiffin deploy)
 	SourceFiles    = "files"    // inline files in the request (agents)
 	SourcePrebuilt = "prebuilt" // an image tarball built elsewhere
-	SourceGit      = "git"      // git push to the box
+	SourceGit      = "git"      // git push to the box, or a clone of a public git URL (Repo set)
+	SourceTemplate = "template" // a starter template embedded in tiffin
 )
 
 // Deploy is one build-and-release of an app (or of one of its previews).
@@ -38,9 +39,12 @@ type Deploy struct {
 	App         string     `json:"app"`
 	Preview     string     `json:"preview,omitempty" doc:"Preview name, empty for production"`
 	Status      string     `json:"status" enum:"queued,building,starting,live,failed,superseded,rolled_back,stopped" doc:"queued → building → starting → live; failed keeps the previous deploy serving; superseded and rolled_back deploys can be rolled back to"`
-	Source      string     `json:"source" enum:"upload,files,prebuilt,git"`
+	Source      string     `json:"source" enum:"upload,files,prebuilt,git,template"`
 	Framework   string     `json:"framework,omitempty"`
-	Commit      string     `json:"commit,omitempty" doc:"Git commit, for git pushes"`
+	Commit      string     `json:"commit,omitempty" doc:"Git commit, for git pushes and deploys from a git URL"`
+	Repo        string     `json:"repo,omitempty" doc:"Repository URL, for deploys from a git URL"`
+	Ref         string     `json:"ref,omitempty" doc:"Branch, tag or commit asked for, for deploys from a git URL"`
+	Template    string     `json:"template,omitempty" doc:"Starter template, for template deploys"`
 	Image       string     `json:"image,omitempty" doc:"Image reference in the box's containerd store"`
 	Digest      string     `json:"digest,omitempty" doc:"Image manifest digest"`
 	URL         string     `json:"url,omitempty" doc:"Where the deploy is served (web apps)"`

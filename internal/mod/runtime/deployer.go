@@ -75,6 +75,13 @@ func previewHost(preview, app, domain string) string { return preview + "--" + a
 
 // start runs a queued deploy's pipeline in the background.
 func (r *rt) start(d *Deploy, src string, kind string) {
+	r.startFrom(d, kind, func(context.Context, io.Writer) (string, error) { return src, nil })
+}
+
+// startFrom runs a queued deploy in the background: fetch gets its source
+// (a git clone, say) and returns the source archive, then the pipeline runs.
+// Both write to the deploy's build log; a failure in either fails the deploy.
+func (r *rt) startFrom(d *Deploy, kind string, fetch func(ctx context.Context, log io.Writer) (string, error)) {
 	go func() {
 		ctx := r.ctx
 		log, err := os.OpenFile(r.buildLogPath(d), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
@@ -83,7 +90,12 @@ func (r *rt) start(d *Deploy, src string, kind string) {
 			return
 		}
 		defer log.Close()
-		if err := r.pipeline(ctx, d, src, kind, log); err != nil {
+		fmt.Fprintf(log, "==> deploy %s of %s/%s%s, queued %s\n", d.ID, d.Project, d.App, previewSuffix(d.Preview), d.CreatedAt.Format(time.RFC3339))
+		src, err := fetch(ctx, log)
+		if err == nil {
+			err = r.pipeline(ctx, d, src, kind, log)
+		}
+		if err != nil {
 			hint := ""
 			var be *BuildError
 			if errors.As(err, &be) {
@@ -99,7 +111,6 @@ func (r *rt) start(d *Deploy, src string, kind string) {
 }
 
 func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.Writer) error {
-	fmt.Fprintf(log, "==> deploy %s of %s/%s%s, queued %s\n", d.ID, d.Project, d.App, previewSuffix(d.Preview), d.CreatedAt.Format(time.RFC3339))
 	// One build at a time keeps a small box responsive.
 	select {
 	case r.build <- struct{}{}:

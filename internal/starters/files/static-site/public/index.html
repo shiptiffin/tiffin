@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A new site</title>
+  <meta name="description" content="A static site served by a Tiffin box.">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Static site</p>
+    <h1>It's live.</h1>
+    <p class="lede">These are plain files. No server process runs for them: the box's edge serves
+      <code>public/</code> over HTTPS, with compression and caching.</p>
+
+    <ol class="steps">
+      <li>
+        <h2>Make it yours</h2>
+        <p>Edit <code>public/index.html</code> and <code>public/styles.css</code>. Add pages, images, anything.</p>
+      </li>
+      <li>
+        <h2>Ship it</h2>
+        <p>Run <code>tiffin deploy</code> in this folder. Every deploy is kept, so
+          <code>tiffin rollback site</code> brings the last one back in a second.</p>
+      </li>
+      <li>
+        <h2>Grow it</h2>
+        <p>Need a build step? Add a <code>package.json</code> with a <code>build</code> script: the box runs
+          <code>bun run build</code> and serves <code>dist/</code>.</p>
+      </li>
+    </ol>
+
+    <footer>Served by one box. <span id="year"></span></footer>
+  </main>
+  <script>document.getElementById("year").textContent = "© " + new Date().getFullYear();</script>
+</body>
+</html>
