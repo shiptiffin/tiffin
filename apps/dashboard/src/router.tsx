@@ -2,14 +2,66 @@ import { createRootRouteWithContext, createRoute, createRouter, Link, Outlet } f
 import type { QueryClient } from "@tanstack/react-query";
 import type { Tier } from "@/api/client";
 import { Shell } from "@/components/shell";
-import { ActivityPage, Page, type ActivitySearch } from "@/routes/activity";
-import { ChangePage } from "@/routes/change";
+import { ActivityPage, type ActivitySearch } from "@/routes/activity";
+import { Page } from "@/components/page";
 import { LoginPage } from "@/routes/login";
-import { StatusPage } from "@/routes/status";
-import { TokensPage } from "@/routes/tokens";
-import { ApprovalPage, ApprovalsPage } from "@/routes/approvals";
-import { ProjectPage, SecretsPage } from "@/routes/project";
-import { PasskeysPage, PeoplePage } from "@/routes/settings";
+import { lazy, Suspense, type ComponentType, type ReactElement } from "react";
+import { Skeleton } from "@/components/page";
+
+// Every page but Activity and Login loads on demand, so the first paint
+// ships only the shell (the module pages bring their own code).
+function lz<P extends object = Record<string, never>>(load: () => Promise<Record<string, unknown>>, name: string): (props: P) => ReactElement {
+  const L = lazy(() => load().then((m) => ({ default: m[name] as ComponentType<P> })));
+  return function Lazy(props: P) {
+    return (
+      <Suspense fallback={<Loading />}>
+        <L {...props} />
+      </Suspense>
+    );
+  };
+}
+function Loading() {
+  return (
+    <Page>
+      <Skeleton className="h-10 w-72 max-w-full" />
+      <Skeleton className="mt-4 h-5 w-96 max-w-full opacity-60" />
+    </Page>
+  );
+}
+const ChangePage = lz<{ id: string }>(() => import("@/routes/change"), "ChangePage");
+const StatusPage = lz(() => import("@/routes/status"), "StatusPage");
+const TokensPage = lz<{ create?: boolean }>(() => import("@/routes/tokens"), "TokensPage");
+const ApprovalsPage = lz(() => import("@/routes/approvals"), "ApprovalsPage");
+const ApprovalPage = lz<{ id: string }>(() => import("@/routes/approvals"), "ApprovalPage");
+const ProjectPage = lz<{ project: string }>(() => import("@/routes/project"), "ProjectPage");
+const SecretsPage = lz<{ project: string }>(() => import("@/routes/project"), "SecretsPage");
+const PeoplePage = lz(() => import("@/routes/settings"), "PeoplePage");
+const PasskeysPage = lz(() => import("@/routes/settings"), "PasskeysPage");
+const StoragePage = lz<{ project: string }>(() => import("@/routes/storage"), "StoragePage");
+const BucketPage = lz<{ project: string; bucket: string; prefix?: string; file?: string }>(() => import("@/routes/storage"), "BucketPage");
+const InboxPage = lz<{ project: string; q?: string; m?: string }>(() => import("@/routes/email"), "InboxPage");
+const EmailSettingsPage = lz<{ project: string }>(() => import("@/routes/email"), "EmailSettingsPage");
+const DataPage = lz<{ project: string }>(() => import("@/routes/data"), "DataPage");
+const TablePage = lz<{ project: string; table: string; page?: number }>(() => import("@/routes/data"), "TablePage");
+const SqlPage = lz<{ project: string }>(() => import("@/routes/data"), "SqlPage");
+const BranchesPage = lz<{ project: string }>(() => import("@/routes/data"), "BranchesPage");
+const KvPage = lz<{ project: string; match?: string; k?: string }>(() => import("@/routes/kv"), "KvPage");
+const MetricsPage = lz(() => import("@/routes/observe"), "MetricsPage");
+const LogsPage = lz<LogsSearch>(() => import("@/routes/observe"), "LogsPage");
+const ErrorsPage = lz<{ project?: string; status?: string }>(() => import("@/routes/observe"), "ErrorsPage");
+const IssuePage = lz<{ id: string }>(() => import("@/routes/observe"), "IssuePage");
+const AlertsPage = lz(() => import("@/routes/observe"), "AlertsPage");
+const BackupsPage = lz(() => import("@/routes/backups"), "BackupsPage");
+const QueuesPage = lz<{ project: string }>(() => import("@/routes/queues"), "QueuesPage");
+const JobsPage = lz<{ project: string; queue?: string; state?: string }>(() => import("@/routes/queues"), "JobsPage");
+const JobPage = lz<{ project: string; id: string }>(() => import("@/routes/queues"), "JobPage");
+const WorkflowsPage = lz<{ project: string; state?: string }>(() => import("@/routes/queues"), "WorkflowsPage");
+const RunPage = lz<{ project: string; id: string }>(() => import("@/routes/queues"), "RunPage");
+const AnalyticsPage = lz<{ project: string; period?: string }>(() => import("@/routes/analytics"), "AnalyticsPage");
+const ProtectPage = lz(() => import("@/routes/protect"), "ProtectPage");
+
+export type LogsSearch = { q?: string; project?: string; since?: string; live?: boolean };
+const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: Outlet,
@@ -86,6 +138,170 @@ const secrets = createRoute({
     return <SecretsPage key={p} project={p} />;
   },
 });
+const storage = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/storage",
+  component: function Storage() {
+    const { project: p } = storage.useParams();
+    return <StoragePage key={p} project={p} />;
+  },
+});
+const bucket = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/storage/$bucket",
+  validateSearch: (s: Record<string, unknown>): { prefix?: string; file?: string } => ({ prefix: str(s.prefix), file: str(s.file) }),
+  component: function Bucket() {
+    const { project: p, bucket: b } = bucket.useParams();
+    const { prefix, file } = bucket.useSearch();
+    return <BucketPage key={p + b} project={p} bucket={b} prefix={prefix} file={file} />;
+  },
+});
+const inbox = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/email",
+  validateSearch: (s: Record<string, unknown>): { q?: string; m?: string } => ({ q: str(s.q), m: str(s.m) }),
+  component: function Inbox() {
+    const { project: p } = inbox.useParams();
+    const { q, m } = inbox.useSearch();
+    return <InboxPage key={p} project={p} q={q} m={m} />;
+  },
+});
+const emailSettings = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/email/settings",
+  component: function EmailSettings() {
+    const { project: p } = emailSettings.useParams();
+    return <EmailSettingsPage key={p} project={p} />;
+  },
+});
+const data = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/data",
+  component: function Data() {
+    const { project: p } = data.useParams();
+    return <DataPage key={p} project={p} />;
+  },
+});
+const table = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/data/tables/$table",
+  validateSearch: (s: Record<string, unknown>): { page?: number } => (Number(s.page) > 1 ? { page: Number(s.page) } : {}),
+  component: function Table() {
+    const { project: p, table: t } = table.useParams();
+    return <TablePage key={p + t} project={p} table={t} page={table.useSearch().page} />;
+  },
+});
+const sqlRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/data/sql",
+  component: function Sql() {
+    const { project: p } = sqlRoute.useParams();
+    return <SqlPage key={p} project={p} />;
+  },
+});
+const branches = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/data/branches",
+  component: function Branches() {
+    const { project: p } = branches.useParams();
+    return <BranchesPage key={p} project={p} />;
+  },
+});
+const kv = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/data/kv",
+  validateSearch: (s: Record<string, unknown>): { match?: string; key?: string } => ({ match: str(s.match), key: str(s.key) }),
+  component: function Kv() {
+    const { project: p } = kv.useParams();
+    const { match, key } = kv.useSearch();
+    return <KvPage key={p} project={p} match={match} k={key} />;
+  },
+});
+const metrics = createRoute({ getParentRoute: () => app, path: "/metrics", component: MetricsPage });
+const logs = createRoute({
+  getParentRoute: () => app,
+  path: "/logs",
+  validateSearch: (s: Record<string, unknown>): LogsSearch => ({
+    q: str(s.q),
+    project: str(s.project),
+    since: str(s.since),
+    live: s.live === true || s.live === "true" ? true : undefined,
+  }),
+  component: function Logs() {
+    return <LogsPage {...logs.useSearch()} />;
+  },
+});
+const errors = createRoute({
+  getParentRoute: () => app,
+  path: "/errors",
+  validateSearch: (s: Record<string, unknown>): { project?: string; status?: string } => ({ project: str(s.project), status: str(s.status) }),
+  component: function Errors() {
+    return <ErrorsPage {...errors.useSearch()} />;
+  },
+});
+const issue = createRoute({
+  getParentRoute: () => app,
+  path: "/errors/$id",
+  component: function Issue() {
+    const { id } = issue.useParams();
+    return <IssuePage key={id} id={id} />;
+  },
+});
+const alerts = createRoute({ getParentRoute: () => app, path: "/alerts", component: AlertsPage });
+const backups = createRoute({ getParentRoute: () => app, path: "/backups", component: BackupsPage });
+const queues = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/queues",
+  component: function Queues() {
+    const { project: p } = queues.useParams();
+    return <QueuesPage key={p} project={p} />;
+  },
+});
+const jobs = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/queues/jobs",
+  validateSearch: (s: Record<string, unknown>): { queue?: string; state?: string } => ({ queue: str(s.queue), state: str(s.state) }),
+  component: function Jobs() {
+    const { project: p } = jobs.useParams();
+    const { queue, state } = jobs.useSearch();
+    return <JobsPage key={p} project={p} queue={queue} state={state} />;
+  },
+});
+const job = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/queues/jobs/$id",
+  component: function Job() {
+    const { project: p, id } = job.useParams();
+    return <JobPage key={id} project={p} id={id} />;
+  },
+});
+const workflows = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/workflows",
+  validateSearch: (s: Record<string, unknown>): { state?: string } => ({ state: str(s.state) }),
+  component: function Workflows() {
+    const { project: p } = workflows.useParams();
+    return <WorkflowsPage key={p} project={p} state={workflows.useSearch().state} />;
+  },
+});
+const runRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/workflows/$id",
+  component: function Run() {
+    const { project: p, id } = runRoute.useParams();
+    return <RunPage key={id} project={p} id={id} />;
+  },
+});
+const analytics = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/analytics",
+  validateSearch: (s: Record<string, unknown>): { period?: string } => ({ period: str(s.period) }),
+  component: function Analytics() {
+    const { project: p } = analytics.useParams();
+    return <AnalyticsPage key={p} project={p} period={analytics.useSearch().period} />;
+  },
+});
+const protect = createRoute({ getParentRoute: () => app, path: "/protect", component: ProtectPage });
 const people = createRoute({ getParentRoute: () => app, path: "/settings/people", component: PeoplePage });
 const passkeys = createRoute({ getParentRoute: () => app, path: "/settings/passkeys", component: PasskeysPage });
 
@@ -104,7 +320,43 @@ function NotFound() {
   );
 }
 
-const tree = root.addChildren([login, app.addChildren([activity, change, status, tokens, approvals, approval, project, secrets, people, passkeys])]);
+const tree = root.addChildren([
+  login,
+  app.addChildren([
+    activity,
+    change,
+    status,
+    tokens,
+    approvals,
+    approval,
+    project,
+    secrets,
+    storage,
+    bucket,
+    inbox,
+    emailSettings,
+    data,
+    table,
+    sqlRoute,
+    branches,
+    kv,
+    metrics,
+    logs,
+    errors,
+    issue,
+    alerts,
+    backups,
+    queues,
+    jobs,
+    job,
+    workflows,
+    runRoute,
+    analytics,
+    protect,
+    people,
+    passkeys,
+  ]),
+]);
 
 export function makeRouter(queryClient: QueryClient) {
   return createRouter({ routeTree: tree, context: { queryClient }, defaultPreload: "intent", defaultPreloadStaleTime: 0, scrollRestoration: true });

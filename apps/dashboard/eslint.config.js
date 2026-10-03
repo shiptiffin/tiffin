@@ -4,7 +4,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["node_modules", "src/api/schema.d.ts", "test-results", "playwright-report", "screenshots", "public"] },
+  { ignores: ["node_modules", "src/api/schema.d.ts", "test-results", "playwright-report", "screenshots", "public", "e2e/fixtures"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx,js}"],

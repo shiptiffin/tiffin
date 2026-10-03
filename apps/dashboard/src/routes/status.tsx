@@ -5,7 +5,7 @@ import { useTitle } from "@/components/favicon";
 import { Code, ProblemNote } from "@/components/problem";
 import { cn } from "@/lib/cn";
 import { uptime } from "@/lib/time";
-import { Page } from "./activity";
+import { Page } from "@/components/page";
 
 export function StatusPage() {
   useTitle("Status");

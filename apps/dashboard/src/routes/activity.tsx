@@ -13,6 +13,7 @@ import { mcpCommand } from "@/components/palette";
 import { ProblemNote } from "@/components/problem";
 import { RiskBadge, RiskMark } from "@/components/risk";
 import { cn } from "@/lib/cn";
+import { Page } from "@/components/page";
 import { asTier, runs, tierCopy, tierRank } from "@/lib/changes";
 import { clock, dayKey, dayLabel, full, longDay, relative } from "@/lib/time";
 
@@ -250,9 +251,7 @@ function Dot({ className }: { className?: string }) {
   );
 }
 
-export function Page({ children, className, wide }: { children: React.ReactNode; className?: string; wide?: boolean }) {
-  return <div className={cn("mx-auto w-full px-4 pt-10 pb-16 sm:px-8 sm:pt-14", wide ? "max-w-5xl" : "max-w-[52rem]", className)}>{children}</div>;
-}
+export { Page } from "@/components/page";
 
 function Skeleton() {
   return (

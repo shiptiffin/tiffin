@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fingerprint, Link2, Plus, Trash2, UserPlus } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { ApiError, api, notOnBox, type Invite, type Passkey, type Person, type Role } from "@/api/client";
 import { q } from "@/api/queries";
 import { ActorMark } from "@/components/actor";
+import { Confirm } from "@/components/confirm";
 import { Command } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
 import { ProblemNote, sentence } from "@/components/problem";
@@ -16,8 +17,7 @@ import { cn } from "@/lib/cn";
 import { roleCopy, useMe } from "@/lib/me";
 import { expiry, relative } from "@/lib/time";
 import { createCredential, passkeyError, webauthnSupported } from "@/lib/webauthn";
-import { Page } from "./activity";
-import { NotOnBox } from "./approvals";
+import { Page, NotOnBox } from "@/components/page";
 
 // ---------------------------------------------------------------- passkeys
 
@@ -412,75 +412,4 @@ function LinkView({ invite, onDone }: { invite: Invite; onDone: () => void }) {
   );
 }
 
-/** A small confirm dialog for destructive one-liners. */
-export function Confirm({
-  open,
-  onClose,
-  title,
-  body,
-  action,
-  run,
-  done,
-}: {
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  body: ReactNode;
-  action: string;
-  run: () => Promise<unknown>;
-  done: () => void;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
-        {open && <ConfirmBody title={title} body={body} action={action} run={run} done={done} onClose={onClose} />}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function ConfirmBody({
-  title,
-  body,
-  action,
-  run,
-  done,
-  onClose,
-}: {
-  title: string;
-  body: ReactNode;
-  action: string;
-  run: () => Promise<unknown>;
-  done: () => void;
-  onClose: () => void;
-}) {
-  const m = useMutation({
-    mutationFn: run,
-    onSuccess: () => {
-      done();
-      onClose();
-    },
-  });
-  return (
-    <>
-      <DialogHeader>
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{body}</DialogDescription>
-      </DialogHeader>
-      {m.isError && (
-        <DialogBody>
-          <ProblemNote error={m.error} />
-        </DialogBody>
-      )}
-      <DialogFooter>
-        <Button variant="ghost" onClick={onClose} autoFocus>
-          Keep it
-        </Button>
-        <Button variant="danger" disabled={m.isPending} onClick={() => m.mutate()}>
-          <Trash2 />
-          {m.isPending ? "Working…" : action}
-        </Button>
-      </DialogFooter>
-    </>
-  );
-}
+export { Confirm };

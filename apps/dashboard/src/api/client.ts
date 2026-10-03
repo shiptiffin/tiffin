@@ -27,8 +27,8 @@ export type Tier = "read" | "reversible" | "outbound" | "irreversible";
 /** An RFC 9457 problem from the API, as a throwable error. */
 export class ApiError extends Error {
   readonly status: number;
-  readonly problem: Problem;
-  constructor(problem: Problem) {
+  readonly problem: Problem & { confirm?: string; preview?: unknown };
+  constructor(problem: Problem & { confirm?: string; preview?: unknown }) {
     super(problem.detail || problem.title);
     this.name = "ApiError";
     this.status = problem.status;
@@ -38,7 +38,7 @@ export class ApiError extends Error {
 
 type Path = keyof paths;
 
-async function request<T>(method: string, path: Path | string, body?: unknown): Promise<T> {
+export async function request<T>(method: string, path: Path | string, body?: unknown): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, {
@@ -68,17 +68,8 @@ async function request<T>(method: string, path: Path | string, body?: unknown): 
   }
   if (!res.ok) {
     const p = (data && typeof data === "object" ? data : {}) as Partial<Problem>;
-    throw new ApiError({
-      status: res.status,
-      code: p.code ?? "internal",
-      title: p.title ?? res.statusText,
-      detail: p.detail,
-      hint: p.hint,
-      errors: p.errors,
-      plan: p.plan,
-      approval: p.approval,
-      approvalUrl: p.approvalUrl,
-    });
+    // Keep every field: some problems carry extras (confirm, preview).
+    throw new ApiError({ ...p, status: res.status, code: p.code ?? "internal", title: p.title ?? res.statusText });
   }
   return data as T;
 }

@@ -2,13 +2,24 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate, useParams, useRouterState, useSearch } from "@tanstack/react-router";
 import { Dialog as D } from "radix-ui";
 import {
+  Activity,
+  BarChart3,
+  Layers,
+  Shield,
+  Archive,
+  Bell,
   Boxes,
+  Bug,
+  Database,
+  FolderOpen,
+  Mail,
   ChevronsUpDown,
   Fingerprint,
   Gauge,
   KeyRound,
   Lock,
   LogOut,
+  Logs,
   Menu as MenuIcon,
   Monitor,
   Moon,
@@ -23,6 +34,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { api, notOnBox } from "@/api/client";
 import { roleCopy, useMe } from "@/lib/me";
 import { q } from "@/api/queries";
+import { mq } from "@/api/modules";
 import { cn } from "@/lib/cn";
 import { copyText } from "@/lib/clipboard";
 import { setTheme, useTheme, type ThemePref } from "@/lib/theme";
@@ -32,6 +44,7 @@ import { CommandPalette, mcpCommand } from "./palette";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from "./ui/dropdown";
 import { useFavicon } from "./favicon";
 import { relative } from "@/lib/time";
+import { useWaitingWorkflowApprovals } from "@/lib/wf";
 
 export function Shell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -81,6 +94,7 @@ export function Shell() {
       </D.Root>
 
       <div className="flex min-w-0 flex-col">
+        <AttackBanner />
         <TopBar onMenu={() => setNavOpen(true)} onSearch={() => setPaletteOpen(true)} />
         <main id="main" className="grain min-w-0 flex-1">
           <Outlet />
@@ -196,7 +210,8 @@ function Sidebar({ onSearch }: { onSearch: () => void }) {
   const project = useCurrentProject();
   const pending = useQuery(q.pending);
   const onBox = !notOnBox(pending.error);
-  const n = pending.data?.length ?? 0;
+  const wf = useWaitingWorkflowApprovals(onBox);
+  const n = (pending.data?.length ?? 0) + wf.length;
   const { admin, can } = useMe();
   return (
     <nav className="flex h-full flex-col gap-5 overflow-y-auto px-3 pt-4 pb-3" aria-label="Main">
@@ -233,14 +248,19 @@ function Sidebar({ onSearch }: { onSearch: () => void }) {
           Search
         </button>
       </div>
-      {project && (
-        <NavSection title={project} mono>
-          <NavItem to="/projects/$project" params={{ project }} exact icon={<Boxes />} label="Overview" />
-          {onBox && <NavItem to="/projects/$project/secrets" params={{ project }} icon={<Lock />} label="Secrets" />}
-        </NavSection>
-      )}
+      {project && <ProjectNav project={project} onBox={onBox} />}
       <NavSection title="Box">
         <NavItem to="/status" icon={<Gauge />} label="Status" status />
+        {onBox && (
+          <>
+            <NavItem to="/metrics" icon={<Activity />} label="Metrics" />
+            <NavItem to="/logs" icon={<Logs />} label="Logs" />
+            <NavItem to="/errors" icon={<Bug />} label="Errors" trailing={<OpenIssues />} />
+            <NavItem to="/alerts" icon={<Bell />} label="Alerts" trailing={<Firing />} />
+            <NavItem to="/backups" icon={<Archive />} label="Backups" />
+            <NavItem to="/protect" icon={<Shield />} label="Protection" trailing={<AttackBadge />} />
+          </>
+        )}
       </NavSection>
       <NavSection title="Access">
         <NavItem to="/settings/people" icon={<Users />} label="People" />
@@ -253,6 +273,78 @@ function Sidebar({ onSearch }: { onSearch: () => void }) {
       </div>
     </nav>
   );
+}
+
+/** A project's pages, only for the services it actually has. */
+function ProjectNav({ project, onBox }: { project: string; onBox: boolean }) {
+  const p = useQuery(q.project(project));
+  const has = (a: string) => (p.data?.resources ?? []).some((r) => r.address === a);
+  return (
+    <NavSection title={project} mono>
+      <NavItem to="/projects/$project" params={{ project }} exact icon={<Boxes />} label="Overview" />
+      {onBox && (has("service/postgres") || has("service/valkey")) && (
+        <NavItem
+          to={has("service/postgres") ? "/projects/$project/data" : "/projects/$project/data/kv"}
+          params={{ project }}
+          icon={<Database />}
+          label="Data"
+        />
+      )}
+      {onBox && has("service/storage") && <NavItem to="/projects/$project/storage" params={{ project }} icon={<FolderOpen />} label="Storage" />}
+      {onBox && has("service/email") && <NavItem to="/projects/$project/email" params={{ project }} icon={<Mail />} label="Email" />}
+      {onBox && (p.data?.resources ?? []).some((r) => r.address.startsWith("app/") || r.address.startsWith("cron/")) && (
+        <NavItem to="/projects/$project/queues" params={{ project }} icon={<Layers />} label="Queues" />
+      )}
+      {onBox && has("service/analytics") && <NavItem to="/projects/$project/analytics" params={{ project }} icon={<BarChart3 />} label="Analytics" />}
+      {onBox && <NavItem to="/projects/$project/secrets" params={{ project }} icon={<Lock />} label="Secrets" />}
+    </NavSection>
+  );
+}
+
+function AttackBadge() {
+  const on = useQuery(mq.protect).data?.underAttack.on;
+  return on ? (
+    <span className="ml-auto flex items-center gap-1.5 text-xs font-medium text-irr">
+      <span className="size-1.5 animate-pulse rounded-full bg-irr" />
+      under attack
+    </span>
+  ) : null;
+}
+
+/** The alarm state: while under-attack mode is on, every page says so. */
+function AttackBanner() {
+  const a = useQuery(mq.protect).data?.underAttack;
+  if (!a?.on) return null;
+  return (
+    <div role="status" className="relative z-20 overflow-hidden border-b border-irr-rule bg-irr-wash">
+      <div aria-hidden className="h-1 bg-[repeating-linear-gradient(135deg,var(--irr)_0_10px,transparent_10px_18px)] opacity-80" />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm sm:px-6">
+        <span className="size-2 animate-pulse rounded-full bg-irr" />
+        <span className="font-medium text-ink">Under-attack mode is on.</span>
+        <span className="text-ink-2">Visitors solve a challenge first and limits are tight. Ends by itself in {a.minutesLeft} min.</span>
+        <Link to="/protect" className="ml-auto font-medium text-irr underline underline-offset-4">
+          Protection
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function OpenIssues() {
+  const { data } = useQuery(mq.issues(undefined, "unresolved"));
+  const n = data?.length ?? 0;
+  return n > 0 ? <span className="ml-auto font-mono text-xs text-ink-3 tnum">{n}</span> : null;
+}
+
+function Firing() {
+  const { data } = useQuery(mq.alerts);
+  const n = data?.firing?.length ?? 0;
+  return n > 0 ? (
+    <span className="ml-auto flex items-center gap-1.5 text-xs font-medium text-irr">
+      <span className="size-1.5 rounded-full bg-irr" />
+      {n} firing
+    </span>
+  ) : null;
 }
 
 function NavSection({ title, mono, children }: { title: string; mono?: boolean; children: ReactNode }) {

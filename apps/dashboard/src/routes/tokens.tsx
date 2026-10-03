@@ -15,7 +15,7 @@ import { Checkbox, Radio, RadioGroup, Select } from "@/components/ui/choice";
 import { Input, Label } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { expiry, relative } from "@/lib/time";
-import { Page } from "./activity";
+import { Page } from "@/components/page";
 
 const ladder = [
   { scope: "read", title: "Look", body: "See projects, changes and status. Can't change anything.", tier: "read" as Tier },

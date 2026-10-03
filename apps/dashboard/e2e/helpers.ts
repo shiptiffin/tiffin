@@ -7,6 +7,7 @@ export const port = Number(process.env.E2E_PORT ?? 7392);
 
 /** The owner token of the box under test (written by e2e/serve.sh, or given). */
 export function ownerToken(): string {
+  if (process.env.E2E_OWNER_TOKEN) return process.env.E2E_OWNER_TOKEN;
   const file = process.env.E2E_OWNER_TOKEN_FILE ?? join(boxDir, "box", "owner-token");
   return readFileSync(file, "utf8").trim();
 }

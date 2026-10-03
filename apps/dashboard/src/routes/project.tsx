@@ -13,8 +13,7 @@ import { cn } from "@/lib/cn";
 import { asTier, splitAddress } from "@/lib/changes";
 import { useMe } from "@/lib/me";
 import { relative } from "@/lib/time";
-import { Page } from "./activity";
-import { NotOnBox } from "./approvals";
+import { Page, NotOnBox } from "@/components/page";
 import { Confirm } from "./settings";
 
 const kindOrder = ["project", "app", "service", "bucket", "env", "cron"];

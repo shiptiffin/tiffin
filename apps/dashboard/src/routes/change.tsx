@@ -17,7 +17,7 @@ import { cn } from "@/lib/cn";
 import { asTier, opCounts, tierCopy, tierRank } from "@/lib/changes";
 import { full, relative } from "@/lib/time";
 import { useMe } from "@/lib/me";
-import { Page } from "./activity";
+import { Page } from "@/components/page";
 
 export function ChangePage({ id }: { id: string }) {
   const { data: c, isPending, error } = useQuery(q.change(id));

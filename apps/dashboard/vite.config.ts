@@ -20,9 +20,10 @@ export default defineConfig({
   server: {
     port: 5391,
     strictPort: true,
+    // TIFFIN_URL may be a dev box behind its own CA (https://dashboard.tiffin.localhost:18448).
     proxy: {
-      "/v1": { target: process.env.TIFFIN_URL ?? "http://127.0.0.1:7391", changeOrigin: false },
-      "/mcp": { target: process.env.TIFFIN_URL ?? "http://127.0.0.1:7391", changeOrigin: false },
+      "/v1": { target: process.env.TIFFIN_URL ?? "http://127.0.0.1:7391", changeOrigin: true, secure: false },
+      "/mcp": { target: process.env.TIFFIN_URL ?? "http://127.0.0.1:7391", changeOrigin: true, secure: false },
     },
   },
 });

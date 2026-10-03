@@ -7,6 +7,7 @@ import { q } from "@/api/queries";
 import { ActorMark } from "@/components/actor";
 import { CopyValue } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
+import { NotOnBox } from "@/components/page";
 import { OpCounts, OpView } from "@/components/op";
 import { ProblemNote, sentence } from "@/components/problem";
 import { RiskBadge, RiskMark } from "@/components/risk";
@@ -16,7 +17,9 @@ import { cn } from "@/lib/cn";
 import { asTier, tierRank } from "@/lib/changes";
 import { full, relative } from "@/lib/time";
 import { getAssertion, passkeyError, webauthnSupported } from "@/lib/webauthn";
-import { Page } from "./activity";
+import { useWaitingWorkflowApprovals } from "@/lib/wf";
+import { ApprovalCard } from "./queues";
+import { Page } from "@/components/page";
 
 const words = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
 
@@ -44,18 +47,6 @@ function left(iso: string, now: number) {
   return h > 0 ? `${h} h ${String(m).padStart(2, "0")} min` : `${m}:${String(sec).padStart(2, "0")}`;
 }
 
-export function NotOnBox({ what }: { what: string }) {
-  return (
-    <Page>
-      <h1 className="display text-3xl text-ink">{what} live on a running box.</h1>
-      <p className="mt-3 max-w-[34rem] text-md text-ink-2">
-        This dashboard is talking to a local development server. Start the box with <code className="font-mono text-ink">tiffin serve --box</code> (or{" "}
-        <code className="font-mono text-ink">tiffin up</code>) to use them.
-      </p>
-    </Page>
-  );
-}
-
 function who(id: string | undefined, names: Map<string, Token> | undefined) {
   if (!id) return "someone";
   const t = names?.get(id);
@@ -78,6 +69,7 @@ export function ApprovalsPage() {
   const passkeys = useQuery(q.passkeys);
   const names = useQuery(q.tokenNames);
   const now = useNow(30_000);
+  const wf = useWaitingWorkflowApprovals();
 
   if (all.isError && notOnBox(all.error)) return <NotOnBox what="Approvals" />;
   if (all.isPending)
@@ -101,7 +93,9 @@ export function ApprovalsPage() {
     <Page>
       <header className="animate-rise">
         <h1 className="display text-2xl text-ink sm:text-3xl">
-          {pending.length === 0 ? (
+          {pending.length === 0 && wf.length > 0 ? (
+            `${words[wf.length] ?? wf.length} ${wf.length === 1 ? "workflow is" : "workflows are"} waiting on you.`
+          ) : pending.length === 0 ? (
             "Nobody is waiting on you."
           ) : (
             <>
@@ -171,7 +165,25 @@ export function ApprovalsPage() {
         </ul>
       )}
 
-      {pending.length === 0 && (
+      {wf.length > 0 && (
+        <section className="mt-12" aria-labelledby="wf">
+          <h2 id="wf" className="display-italic mb-1 text-xl text-ink">
+            Workflows waiting for a person
+          </h2>
+          <p className="mb-3 text-sm text-ink-3">
+            Steps in your apps' durable workflows that asked for a human decision. No passkey needed: they don't change the box itself.
+          </p>
+          <ul className="flex flex-col gap-2">
+            {wf.map((a) => (
+              <li key={a.project + a.id}>
+                <ApprovalCard project={a.project} a={a} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {pending.length === 0 && wf.length === 0 && (
         <div className="mt-10 rounded-xl border border-dashed border-rule-strong px-6 py-8 text-center">
           <Check className="mx-auto size-6 text-rev" />
           <p className="mt-3 text-md text-ink">All clear.</p>
