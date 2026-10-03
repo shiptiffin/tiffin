@@ -12,7 +12,6 @@ import (
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/boxfile"
 	"github.com/btahir/tiffin/internal/ids"
-	"github.com/btahir/tiffin/internal/mod/backup"
 	"github.com/btahir/tiffin/internal/mod/datakit"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/tokens"
@@ -390,10 +389,13 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if err := datakit.RequireConfirm(in.Body.Confirm, pv.Key(), pv); err != nil {
 			return nil, err
 		}
-		if release, err := backup.Exclusive(); err != nil {
-			return nil, busyProblem(err)
-		} else {
-			release()
+		if all, err := list[Import](p, "imports"); err == nil {
+			for _, o := range all {
+				switch o.Status {
+				case ImportApplying, ImportRestarting, ImportConverging:
+					return nil, busyProblem(fmt.Errorf("import %s is %s", o.ID, o.Status))
+				}
+			}
 		}
 		rec.AppliedBy = pr.TokenID
 		_ = p.DB.Audit(ctx, pr.TokenID, "box.import.apply", rec.ID, map[string]any{"session": pr.Session, "replace": in.Body.Replace,

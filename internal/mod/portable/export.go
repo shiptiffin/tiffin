@@ -78,14 +78,14 @@ func keyInfo(p *platform.Platform, included bool) KeyInfo {
 
 // runExport writes the archive to out. The caller owns rec's status.
 func (m *Module) runExport(ctx context.Context, p *platform.Platform, rec *Export, out io.Writer) (err error) {
-	release, err := backup.Exclusive()
+	x := &exportRun{m: m, p: p, rec: rec}
+	start := time.Now()
+	x.set(func(e *Export) { e.Status, e.StartedAt, e.Error, e.Hint = ExportRunning, now(), "", "" }, true)
+	release, err := exclusive(ctx, 10*time.Minute, func() { x.phase("waiting for a running backup to finish") })
 	if err != nil {
 		return fmt.Errorf("%w (exports, imports, backups and restores run one at a time)", err)
 	}
 	defer release()
-	x := &exportRun{m: m, p: p, rec: rec}
-	start := time.Now()
-	x.set(func(e *Export) { e.Status, e.StartedAt, e.Error, e.Hint = ExportRunning, now(), "", "" }, true)
 
 	// ---- what is on the box ----
 	x.phase("looking at what is on the box")

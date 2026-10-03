@@ -282,13 +282,25 @@ func (m *Module) runImport(ctx context.Context, r *importRun, o applyOptions) er
 	}
 	if o.replace {
 		r.phase("taking a safety backup of this box")
-		b, err := backup.Take(ctx, p, "full", "pre-restore")
+		var b *backup.Backup
+		var err error
+		for deadline := time.Now().Add(10 * time.Minute); ; {
+			b, err = backup.Take(ctx, p, "full", "pre-restore")
+			if !errors.Is(err, backup.ErrBusy) || time.Now().After(deadline) {
+				break
+			}
+			select { // a scheduled backup is running: wait for it
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(2 * time.Second):
+			}
+		}
 		if err != nil {
 			return fmt.Errorf("safety backup failed, nothing was changed: %w", err)
 		}
 		r.set(func(im *Import) { im.SafetyBackup = b.ID }, true)
 	}
-	unlock, err := backup.Exclusive()
+	unlock, err := exclusive(ctx, 10*time.Minute, func() { r.phase("waiting for a running backup to finish") })
 	if err != nil {
 		return fmt.Errorf("%w (exports, imports, backups and restores run one at a time)", err)
 	}

@@ -218,6 +218,10 @@ func (a *app) boxExportCmd() *cobra.Command {
 				_ = os.Remove(path)
 				return &exitError{ExitError, fmt.Sprintf("the download does not match what the box wrote (%d bytes, sha256 %s; the box says %d, %s); try again", n, sum, ex.SizeBytes, ex.SHA256)}
 			}
+			if store {
+				// It is on this computer now: free the box's disk.
+				_, _, _ = c.do(ctx, http.MethodDelete, "/v1/box/exports/"+ex.ID, nil, nil)
+			}
 			keyFile := ""
 			if keyOut != "" {
 				if keyFile, err = a.saveBoxKey(ctx, keyOut); err != nil {
@@ -285,7 +289,7 @@ func describeParts(parts map[string]boxfile.Stats) string {
 		out = append(out, fmt.Sprintf("%d app image(s)", s.Items))
 	}
 	if s, ok := parts["runtime-static"]; ok && s.Files > 0 {
-		out = append(out, fmt.Sprintf("static sites (%d files)", s.Files))
+		out = append(out, "static sites")
 	}
 	for _, n := range []string{"email", "analytics", "edge"} {
 		if s, ok := parts[n]; ok && s.Files > 0 {
@@ -298,9 +302,8 @@ func describeParts(parts map[string]boxfile.Stats) string {
 // keyHint is how to copy the box key off the box.
 func (a *app) keyHint(archive string) string {
 	keyFile := strings.TrimSuffix(filepath.Base(archive), boxfile.FileExt) + ".key"
-	if name, bx := a.currentBox(); bx != nil && bx.Provider == "local" && a.url == "" {
-		_ = name
-		return "tiffin box export --key-out " + keyFile + "  (or: limactl shell " + lima.New().Instance + " sudo cat " + boxKeyPath + " > " + keyFile + ")"
+	if _, bx := a.currentBox(); bx != nil && bx.Provider == "local" && a.url == "" {
+		return "limactl shell " + lima.New().Instance + " sudo cat " + boxKeyPath + " > " + keyFile + "  (or pass --key-out next time)"
 	}
 	return "ssh root@<box> cat " + boxKeyPath + " > " + keyFile
 }
