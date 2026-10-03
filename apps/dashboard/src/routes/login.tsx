@@ -8,7 +8,10 @@ import heroOpen from "@/assets/illustrations/carrier-hero-open.webp";
 import heroClosed from "@/assets/illustrations/carrier-hero.webp";
 import { Wordmark } from "@/components/logo";
 import { Button } from "@/components/ui/button";
+import { ProblemNote } from "@/components/problem";
 import { cn } from "@/lib/cn";
+import { getAssertion, webauthnSupported } from "@/lib/webauthn";
+import { KeyRound } from "lucide-react";
 
 type State = "checking" | "signing-in" | "success" | "no-code" | "bad-link" | "already" | "offline";
 
@@ -23,7 +26,7 @@ function readCode() {
   return code;
 }
 
-export function LoginPage({ reason }: { reason?: string }) {
+export function LoginPage({ reason, next }: { reason?: string; next?: string }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [code] = useState(readCode);
@@ -46,7 +49,7 @@ export function LoginPage({ reason }: { reason?: string }) {
         .then(() => {
           qc.clear();
           setState("success");
-          setTimeout(() => navigate({ to: "/", search: {} }), 650);
+          setTimeout(() => navigate({ href: next ?? "/" }), 650);
         })
         .catch((e) => setState(e instanceof ApiError && e.status !== 0 ? "bad-link" : "offline"));
       return;
@@ -56,7 +59,28 @@ export function LoginPage({ reason }: { reason?: string }) {
       .whoami()
       .then(() => setState(reason ? "no-code" : "already"))
       .catch(() => setState("no-code"));
-  }, [code, navigate, qc, reason]);
+  }, [code, navigate, qc, reason, next]);
+
+  // Passkey sign-in: options from the box → the OS prompt → the box checks it and sets the session.
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [passkeyErr, setPasskeyErr] = useState<unknown>(null);
+  const canPasskey = webauthnSupported();
+  const passkey = async () => {
+    setPasskeyErr(null);
+    setPasskeyBusy(true);
+    try {
+      const credential = await getAssertion(await api.passkeyOptions());
+      await api.passkeyLogin(credential);
+      qc.clear();
+      setState("success");
+      setTimeout(() => navigate({ href: next ?? "/" }), 650);
+    } catch (e) {
+      // Closing the prompt is a choice, not an error.
+      if (!(e instanceof DOMException && (e.name === "NotAllowedError" || e.name === "AbortError"))) setPasskeyErr(e);
+    } finally {
+      setPasskeyBusy(false);
+    }
+  };
 
   const headline: Record<State, string> = {
     checking: "One moment…",
@@ -67,7 +91,9 @@ export function LoginPage({ reason }: { reason?: string }) {
         ? "Your session has ended."
         : reason === "signed-out"
           ? "Signed out. See you soon."
-          : "Sign in with a link from your terminal.",
+          : canPasskey
+            ? "Sign in to your box."
+            : "Sign in with a link from your terminal.",
     "bad-link": "That link has been used, or it expired.",
     already: "You're already signed in.",
     offline: "Can't reach the box.",
@@ -90,12 +116,25 @@ export function LoginPage({ reason }: { reason?: string }) {
 
         {showCommand && (
           <div className="animate-rise" style={{ animationDelay: "60ms" }}>
-            <p className="mt-2.5 text-md text-ink-2">
+            {canPasskey && (
+              <>
+                <p className="mt-2.5 text-md text-ink-2">
+                  {state === "bad-link" ? "Sign in with your passkey instead, or get a fresh link." : "With the passkey you added in Settings, or a one-time link from your terminal."}
+                </p>
+                <Button variant="primary" size="lg" className="mt-5" onClick={passkey} disabled={passkeyBusy}>
+                  <KeyRound />
+                  {passkeyBusy ? "Waiting for your passkey…" : "Sign in with a passkey"}
+                </Button>
+                {!!passkeyErr && <ProblemNote className="mt-4" error={passkeyErr} />}
+                <p className="mt-8 text-[0.8125rem] font-[550] text-ink-2">Or with a link from your terminal</p>
+              </>
+            )}
+            <p className={cn("text-md text-ink-2", canPasskey ? "mt-1 text-[0.875rem]" : "mt-2.5")}>
               {state === "bad-link"
                 ? "Sign-in links work once, for ten minutes. Get a fresh one where Tiffin is installed:"
                 : "Run this where Tiffin is installed. It prints a link that signs you in once, within ten minutes."}
             </p>
-            <Command cmd="tiffin login" className="mt-5" />
+            <Command cmd="tiffin login" className={canPasskey ? "mt-3" : "mt-5"} />
             <p className="mt-4 text-sm text-ink-3">
               Signing in to a box on another machine? Set <code className="ident text-ink-2">TIFFIN_URL</code> and an owner{" "}
               <code className="ident text-ink-2">TIFFIN_TOKEN</code> first, or ask its owner to invite you.

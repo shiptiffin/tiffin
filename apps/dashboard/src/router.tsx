@@ -84,10 +84,14 @@ const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({
 const login = createRoute({
   getParentRoute: () => root,
   path: "/login",
-  validateSearch: (s: Record<string, unknown>): { reason?: string } => (typeof s.reason === "string" ? { reason: s.reason } : {}),
+  validateSearch: (s: Record<string, unknown>): { reason?: string; next?: string } => ({
+    ...(typeof s.reason === "string" ? { reason: s.reason } : {}),
+    // Only a path on this dashboard: never an absolute URL somewhere else.
+    ...(typeof s.next === "string" && s.next.startsWith("/") && !s.next.startsWith("//") ? { next: s.next } : {}),
+  }),
   component: function Login() {
-    const { reason } = login.useSearch();
-    return <LoginPage reason={reason} />;
+    const { reason, next } = login.useSearch();
+    return <LoginPage reason={reason} next={next} />;
   },
 });
 

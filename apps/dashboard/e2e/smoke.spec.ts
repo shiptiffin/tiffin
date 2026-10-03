@@ -14,7 +14,7 @@ test("login → activity → change → undo → status → tokens → sign out"
 
   // Login without a code explains how to get one.
   await page.goto("/login");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sign in with a link from your terminal.");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^Sign in (to your box|with a link from your terminal)\.$/);
   await expect(page.getByText("tiffin login")).toBeVisible();
 
   // A used or made-up code is refused kindly.
@@ -184,6 +184,14 @@ test("passkey → approve and reject agent requests → project, secrets, people
   await expect(page.getByText(/\/login#tfl_/)).toBeVisible();
   await page.getByRole("button", { name: "Done" }).click();
   await expect(page.getByText("Ada")).toBeVisible();
+
+  // The passkey added above also signs in: sign out, sign back in with it, land where you were going.
+  await page.request.delete("/v1/session");
+  await page.goto("/settings/passkeys");
+  await expect(page).toHaveURL(/\/login\?reason=session&next=%2Fsettings%2Fpasskeys/);
+  await page.getByRole("button", { name: "Sign in with a passkey" }).click();
+  await expect(page).toHaveURL(/\/settings\/passkeys$/);
+  await expect(page.getByText("Test key")).toBeVisible();
 
   expect(problems, problems.join("\n")).toEqual([]);
 });

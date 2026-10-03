@@ -57,14 +57,14 @@ export function PasskeysPage() {
       <PageHeader
         eyebrow={accessCrumbs}
         title="Passkeys"
-        lede="When an agent asks for a risky change, your passkey signs the exact plan with your fingerprint, face or security key. A stolen session alone can’t approve anything."
+        lede="Your passkey does two things: it signs you in to this dashboard, and it signs the exact plan when an agent asks for a risky change. A stolen session alone can’t approve anything. Everyone manages their own passkeys here."
       />
 
       <Group label={me ? `Your passkeys, ${me}` : "Your passkeys"} id="keys" aside={list.length ? countWords(list.length, "passkey") : undefined}>
         {keys.isError && <ProblemNote error={keys.error} />}
         {keys.isPending && <Skeleton className="h-20" />}
         {list.length === 0 && keys.isSuccess && (
-          <p className="border-y border-rule py-4 text-[0.875rem] text-warn-ink">None yet. Until you add one, agents’ requests for risky changes wait for a passkey you don’t have.</p>
+          <p className="border-y border-rule py-4 text-[0.875rem] text-warn-ink">None yet. Add one to sign in without a link from the terminal, and to approve agents’ risky changes, which wait until you can.</p>
         )}
         {list.length > 0 && (
           <Rows>

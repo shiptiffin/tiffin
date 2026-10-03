@@ -125,6 +125,10 @@ export const api = {
   apply: (manifest: Manifest, confirm: string, intent?: string) =>
     request<ApplyResult>("POST", "/v1/apply", { manifest, confirm, ...(intent ? { intent } : {}) }),
   boxResources: () => request<BoxResources>("GET", "/v1/box/resources"),
+  /** WebAuthn options for signing in with any passkey registered on this box. */
+  passkeyOptions: () => request<unknown>("POST", "/v1/session/passkey/options"),
+  /** Signs in with a passkey assertion; sets the session cookie like a login link. */
+  passkeyLogin: (credential: unknown) => request<Principal>("POST", "/v1/session/passkey", { credential }),
   login: (code: string) => request<Principal>("POST", "/v1/session", { code }),
   logout: () => request<void>("DELETE", "/v1/session"),
 };

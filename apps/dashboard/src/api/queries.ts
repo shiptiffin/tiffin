@@ -5,7 +5,8 @@ import { ApiError, api } from "./client";
 function on401(e: unknown) {
   if (e instanceof ApiError && e.status === 401 && !location.pathname.startsWith("/login")) {
     queryClient.clear();
-    location.assign("/login?reason=session");
+    const here = location.pathname + location.search;
+    location.assign(`/login?reason=session${here !== "/" ? `&next=${encodeURIComponent(here)}` : ""}`);
   }
 }
 
