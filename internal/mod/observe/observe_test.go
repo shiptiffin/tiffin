@@ -110,7 +110,11 @@ func newHarness(t *testing.T, vic *Victoria) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &platform.Platform{DB: db, Tokens: tm, Engine: change.NewEngine(db), Home: filepath.Join(root, "platform"), DataRoot: root,
+	sec, err := platform.OpenSecrets(db, filepath.Join(root, "platform"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &platform.Platform{DB: db, Tokens: tm, Engine: change.NewEngine(db), Secrets: sec, Home: filepath.Join(root, "platform"), DataRoot: root,
 		Domain: "box.test", PublicURL: "https://dashboard.box.test:8443", Log: slog.Default()}
 	var m *Module // the registered instance: the API's handlers belong to it
 	for _, x := range platform.Modules() {
@@ -263,7 +267,18 @@ func TestAlertsFireAndDeliver(t *testing.T) {
 		mu.Unlock()
 	}))
 	defer hook.Close()
-	if code, out, _ := h.call(h.owner, "PUT", "/v1/observe/settings", map[string]any{"webhook": hook.URL}); code != 200 || out["webhook"] != hook.URL {
+	if code, _, _ := h.call(h.owner, "PUT", "/v1/observe/settings", map[string]any{"emailProject": "ops"}); code != 422 {
+		t.Fatalf("email project without email service: %d", code)
+	}
+	applyManifest(t, h.db, `{"project":"ops","services":{"email":{}}}`)
+	for _, x := range platform.Modules() { // converge the email service as the box would after apply
+		if rc, ok := x.(platform.Reconciler); ok && x.Name() == "email" {
+			if err := rc.Reconcile(ctx, h.m.p, "ops", "service/email", json.RawMessage(`{}`)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if code, out, _ := h.call(h.owner, "PUT", "/v1/observe/settings", map[string]any{"webhook": hook.URL, "emailProject": "ops"}); code != 200 || out["webhook"] != hook.URL || out["emailProject"] != "ops" {
 		t.Fatalf("settings: %d %v", code, out)
 	}
 	agent := h.agent("shop")
@@ -286,8 +301,11 @@ func TestAlertsFireAndDeliver(t *testing.T) {
 		t.Fatalf("firing: %v", view)
 	}
 	hist := view["history"].([]any)
-	if len(hist) == 0 || hist[0].(map[string]any)["delivery"] != "webhook ok" {
+	if len(hist) == 0 || !strings.HasPrefix(hist[0].(map[string]any)["delivery"].(string), "webhook ok; email to alerts@box.test captured in project ops's dev inbox") {
 		t.Fatalf("history: %v", hist)
+	}
+	if code, out, arr := h.call(h.owner, "GET", "/v1/projects/ops/email/messages", nil); code != 200 || !strings.Contains(fmt.Sprint(out, arr), "[FIRING] disk-full") {
+		t.Fatalf("dev inbox: %d %v %v", code, out, arr)
 	}
 	mu.Lock()
 	if len(got) == 0 || got[0].Rule != "disk-full" || got[0].State != "firing" || !strings.Contains(got[0].Text, "[FIRING] disk-full") {
@@ -379,9 +397,10 @@ func TestVictoriaRoundTrip(t *testing.T) {
 		t.Fatalf("stats: %v", out)
 	}
 	// A union pipe cannot reach another tenant.
-	if _, out, _ := h.call(other, "POST", "/v1/observe/logs/query", map[string]any{"project": "other", "query": "* | union (*)", "limit": 50}); out["count"].(float64) != 2 {
-		t.Fatalf("other sees only its own lines (twice through union): %v", out)
-	}
+	eventually("other's logs (twice through union, never shop's)", func() bool {
+		_, out, _ := h.call(other, "POST", "/v1/observe/logs/query", map[string]any{"project": "other", "query": "* | union (*)", "limit": 50})
+		return out["count"].(float64) == 2
+	})
 	if code, _, _ := h.call(other, "POST", "/v1/observe/logs/query", map[string]any{"project": "shop", "query": "*"}); code != 403 {
 		t.Fatalf("cross-project logs: %d", code)
 	}

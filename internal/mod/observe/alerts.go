@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btahir/tiffin/internal/mod/email"
 	"github.com/btahir/tiffin/internal/platform"
 )
 
@@ -260,6 +261,9 @@ type restartSample struct {
 const (
 	SettingWebhook = "alerts.webhook"
 	SettingEmail   = "alerts.email"
+	// SettingEmailProject names the project whose email service sends box
+	// alerts (mail lands in its dev inbox until an SMTP relay is set up).
+	SettingEmailProject = "alerts.emailProject"
 )
 
 // Evaluate runs every enabled rule once and records transitions.
@@ -594,19 +598,27 @@ type Notification struct {
 	Text        string    `json:"text" doc:"One line for chat webhooks (Slack, Discord and others read this field)"`
 }
 
-// Mailer is implemented by the email module when it can send system mail
-// (to the dev inbox until an SMTP relay is configured).
-type Mailer interface {
-	SendSystemEmail(ctx context.Context, p *platform.Platform, to, subject, text string) error
-}
-
-func findMailer() Mailer {
-	for _, m := range platform.Modules() {
-		if ml, ok := m.(Mailer); ok {
-			return ml
+// emailProject picks the project whose email service carries an alert: the
+// alert's own project when it has email, else the configured one.
+func (a *Alerter) emailProject(ctx context.Context, alertProject string) string {
+	has := func(project string) bool {
+		if project == "" || a.Platform == nil {
+			return false
 		}
+		_, res, err := a.Platform.DB.Load(ctx, project)
+		if err != nil {
+			return false
+		}
+		_, ok := res["service/email"]
+		return ok
 	}
-	return nil
+	if has(alertProject) {
+		return alertProject
+	}
+	if p := a.Store.Setting(ctx, SettingEmailProject); has(p) {
+		return p
+	}
+	return ""
 }
 
 func (a *Alerter) notify(ctx context.Context, r Rule, f finding, state string) {
@@ -638,20 +650,22 @@ func (a *Alerter) deliver(ctx context.Context, n Notification) string {
 		}
 	}
 	to := a.Store.Setting(ctx, SettingEmail)
-	if ml := findMailer(); ml != nil {
-		if to == "" {
-			to = "alerts@" + a.Box
-		}
-		if err := ml.SendSystemEmail(ctx, a.Platform, to, n.Text, notificationText(n)); err != nil {
+	if to == "" {
+		to = "alerts@" + a.Box
+	}
+	if project := a.emailProject(ctx, n.Project); project != "" {
+		res, err := email.Send(ctx, a.Platform, project, email.Message{To: []string{to}, Subject: n.Text, Text: notificationText(n)})
+		switch {
+		case err != nil:
 			parts = append(parts, "email failed: "+err.Error())
-		} else {
-			parts = append(parts, "email to "+to)
+		case res.Delivery == "inbox":
+			parts = append(parts, "email to "+to+" captured in project "+project+"'s dev inbox ("+res.ID+")")
+		default:
+			parts = append(parts, "email to "+to+" via "+project+" ("+res.Status+")")
 		}
-	} else if to != "" {
-		parts = append(parts, "email not sent: the email module cannot send system mail on this box")
 	}
 	if len(parts) == 0 {
-		return "not delivered: no webhook or email configured (tiffin observe settings set --webhook ...)"
+		return "not delivered: set a webhook or an email project (tiffin observe settings set --webhook URL or --email-project NAME)"
 	}
 	return strings.Join(parts, "; ")
 }
