@@ -103,63 +103,80 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
   const opening = state === "signing-in" || state === "success";
 
   return (
-    <div className="flex min-h-dvh flex-col bg-paper px-5">
-      <main className="mx-auto flex w-full max-w-[25rem] flex-1 flex-col justify-center py-12">
-        <div className="relative -ml-4 size-[184px] sm:size-[216px]" aria-hidden>
-          <img src={heroClosed} alt="" width={216} height={216} className={cn("absolute inset-0 size-full transition-opacity duration-[600ms] ease-[var(--ease-out)]", opening && "opacity-0")} />
-          <img src={heroOpen} alt="" width={216} height={216} className={cn("absolute inset-0 size-full opacity-0 transition-opacity duration-[600ms] ease-[var(--ease-out)]", opening && "opacity-100")} />
-        </div>
-        <Wordmark className="mt-4" />
-        <h1 key={state} className="sentence mt-6 animate-rise text-ink" aria-live="polite">
-          {headline[state]}
-        </h1>
-
-        {showCommand && (
-          <div className="animate-rise" style={{ animationDelay: "60ms" }}>
-            {canPasskey && (
-              <>
-                <p className="mt-2.5 text-md text-ink-2">
-                  {state === "bad-link"
-                    ? "Sign in with your passkey instead, or get a fresh link."
-                    : reason === "session" || reason === "signed-out"
-                      ? "Sign in again with the passkey you added in Settings, or a one-time link from your terminal."
-                      : "With the passkey you added in Settings, or a one-time link from your terminal."}
-                </p>
-                <Button variant="primary" size="lg" className="mt-5" onClick={passkey} disabled={passkeyBusy}>
-                  <KeyRound />
-                  {passkeyBusy ? "Waiting for your passkey…" : "Sign in with a passkey"}
-                </Button>
-                {!!passkeyErr && <ProblemNote className="mt-4" error={passkeyErr} />}
-                <p className="mt-8 text-[0.8125rem] font-[550] text-ink-2">Or with a link from your terminal</p>
-              </>
-            )}
-            <p className={cn("text-md text-ink-2", canPasskey ? "mt-1 text-[0.875rem]" : "mt-2.5")}>
-              {state === "bad-link"
-                ? "Sign-in links work once, for ten minutes. Get a fresh one where Tiffin is installed:"
-                : "Run this where Tiffin is installed. It prints a link that signs you in once, within ten minutes."}
-            </p>
-            <Command cmd="tiffin login" className={canPasskey ? "mt-3" : "mt-5"} />
-            <p className="mt-4 text-sm text-ink-3">
-              Signing in to a box on another machine? Set <code className="ident text-ink-2">TIFFIN_URL</code> and an owner{" "}
-              <code className="ident text-ink-2">TIFFIN_TOKEN</code> first, or ask its owner to invite you.
-            </p>
+    <div className="grid min-h-dvh bg-paper md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+      {/* The object on its own plate, the form on the page: the line mark leads the form, the drawing never sits beside it. */}
+      <aside
+        aria-hidden
+        className="relative flex items-center justify-center overflow-hidden border-rule bg-paper-sunk max-md:h-[13.5rem] max-md:border-b md:border-r"
+      >
+        <figure className="m-0 flex flex-col items-center md:-mt-6">
+          <div className="relative size-[184px] md:size-[min(30rem,40vw)]">
+            <img src={heroClosed} alt="" width={480} height={480} className={cn("absolute inset-0 size-full transition-opacity duration-[600ms] ease-[var(--ease-out)]", opening && "opacity-0")} />
+            <img src={heroOpen} alt="" width={480} height={480} className={cn("absolute inset-0 size-full opacity-0 transition-opacity duration-[600ms] ease-[var(--ease-out)]", opening && "opacity-100")} />
           </div>
-        )}
-        {state === "already" && (
-          <Button asChild variant="primary" size="lg" className="mt-6 self-start">
-            <Link to="/" search={{}}>
-              Open the Box <ArrowRight />
-            </Link>
-          </Button>
-        )}
-        {state === "offline" && (
-          <p className="mt-2.5 text-md text-ink-2">
-            Check that <code className="ident text-ink">tiffin serve</code> is running, then reload this page.
-          </p>
-        )}
-        {state === "signing-in" && <p className="mt-2.5 text-md text-ink-3">Checking the link with the box.</p>}
-      </main>
-      <footer className="mx-auto w-full max-w-[25rem] pb-8 text-sm text-ink-3">Your whole app in one box. Your box, your data.</footer>
+          <figcaption className="-mt-2 text-center text-[0.8125rem] leading-5 text-ink-3 max-md:hidden">
+            Apps, Postgres, files, mail, jobs and sign-in,
+            <br />
+            stacked in one machine you own.
+          </figcaption>
+        </figure>
+      </aside>
+      <div className="flex min-w-0 flex-col px-5 sm:px-12 lg:px-16">
+        <header className="pt-6 md:pt-10">
+          <Wordmark />
+        </header>
+        <main className="flex w-full max-w-[25rem] flex-1 flex-col justify-start pt-8 pb-10 md:justify-center md:py-12">
+          <h1 key={state} className="sentence animate-rise text-ink" aria-live="polite">
+            {headline[state]}
+          </h1>
+
+          {showCommand && (
+            <div className="animate-rise" style={{ animationDelay: "60ms" }}>
+              {canPasskey && (
+                <>
+                  <p className="mt-2.5 text-md text-ink-2">
+                    {state === "bad-link"
+                      ? "Sign in with your passkey instead, or get a fresh link."
+                      : reason === "session" || reason === "signed-out"
+                        ? "Sign in again with the passkey you added in Settings, or a one-time link from your terminal."
+                        : "With the passkey you added in Settings, or a one-time link from your terminal."}
+                  </p>
+                  <Button variant="primary" size="lg" className="mt-5" onClick={passkey} disabled={passkeyBusy}>
+                    <KeyRound />
+                    {passkeyBusy ? "Waiting for your passkey…" : "Sign in with a passkey"}
+                  </Button>
+                  {!!passkeyErr && <ProblemNote className="mt-4" error={passkeyErr} />}
+                  <p className="mt-8 text-[0.8125rem] font-[550] text-ink-2">Or with a link from your terminal</p>
+                </>
+              )}
+              <p className={cn("text-md text-ink-2", canPasskey ? "mt-1 text-[0.875rem]" : "mt-2.5")}>
+                {state === "bad-link"
+                  ? "Sign-in links work once, for ten minutes. Get a fresh one where Tiffin is installed:"
+                  : "Run this where Tiffin is installed. It prints a link that signs you in once, within ten minutes."}
+              </p>
+              <Command cmd="tiffin login" className={canPasskey ? "mt-3" : "mt-5"} />
+              <p className="mt-4 text-sm text-ink-3">
+                Signing in to a box on another machine? Set <code className="ident text-ink-2">TIFFIN_URL</code> and an owner{" "}
+                <code className="ident text-ink-2">TIFFIN_TOKEN</code> first, or ask its owner to invite you.
+              </p>
+            </div>
+          )}
+          {state === "already" && (
+            <Button asChild variant="primary" size="lg" className="mt-6 self-start">
+              <Link to="/" search={{}}>
+                Open the Box <ArrowRight />
+              </Link>
+            </Button>
+          )}
+          {state === "offline" && (
+            <p className="mt-2.5 text-md text-ink-2">
+              Check that <code className="ident text-ink">tiffin serve</code> is running, then reload this page.
+            </p>
+          )}
+          {state === "signing-in" && <p className="mt-2.5 text-md text-ink-3">Checking the link with the box.</p>}
+        </main>
+        <footer className="max-w-[25rem] pb-8 text-sm text-ink-3">Your whole app in one box. Your box, your data.</footer>
+      </div>
     </div>
   );
 }
