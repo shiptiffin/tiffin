@@ -53,11 +53,15 @@ func TestRuntime(t *testing.T) {
 
 	// ---- redeploy + rollback under load: zero failed requests ----
 	p = time.Now()
+	// The edge's per-IP rate limit (protect module, 300 requests/10s) would
+	// answer this single-IP flood with 429s; measure the runtime, not the
+	// limiter: lift the app limit for the load phase, then restore it.
+	b.ok("protect", "set", "--body", `{"limits":{"app":{"requests":0,"windowSeconds":10}}}`)
 	b.inBox(`sudo apt-get install -y -qq hey >/dev/null 2>&1 || true; command -v hey >/dev/null`)
 	b.inBox(`sudo cp /var/lib/tiffin/platform/ca.crt /tmp/ca.crt && sudo chmod 644 /tmp/ca.crt
 rm -f /tmp/hey.out /tmp/curl.out
 nohup hey -z 50s -c 8 -host api.tiffin.localhost https://api.tiffin.localhost:8443/ > /tmp/hey.out 2>&1 &
-nohup bash -c 'end=$((SECONDS+50)); while [ $SECONDS -lt $end ]; do curl -s -o /dev/null -w "%{http_code}\n" --max-time 10 --cacert /tmp/ca.crt https://api.tiffin.localhost:8443/; done > /tmp/curl.out' >/dev/null 2>&1 &
+nohup bash -c 'end=$((SECONDS+50)); while [ $SECONDS -lt $end ]; do curl -s -o /dev/null -w "%{http_code} %{errormsg}\n" --max-time 10 --cacert /tmp/ca.crt https://api.tiffin.localhost:8443/ | sed "s/^/$(date +%T.%N) /"; done > /tmp/curl.out' >/dev/null 2>&1 &
 echo started`)
 	time.Sleep(3 * time.Second)
 	idx := filepath.Join(app, "index.ts")
@@ -89,16 +93,19 @@ echo started`)
 	}
 	time.Sleep(2 * time.Second)
 	hey := b.inBox("cat /tmp/hey.out")
-	curls := b.inBox("sort /tmp/curl.out | uniq -c")
+	curls := b.inBox("cut -d' ' -f2- /tmp/curl.out | sort | uniq -c")
 	t.Logf("hey:\n%s\ncurl loop (new connection per request):\n%s", section(hey, "Summary:", "Response time histogram:")+section(hey, "Status code distribution:", ""), curls)
 	if strings.Contains(hey, "Error distribution") || !regexp.MustCompile(`\[200\]\s+\d+ responses`).MatchString(hey) || regexp.MustCompile(`\[[13-9]\d\d\]`).MatchString(section(hey, "Status code distribution:", "")) {
 		t.Fatalf("hey saw failures during deploy/rollback:\n%s", hey)
 	}
 	for _, line := range strings.Split(curls, "\n") {
-		if f := strings.Fields(line); len(f) == 2 && f[1] != "200" {
-			t.Fatalf("curl loop saw failures:\n%s", curls)
+		if f := strings.Fields(line); len(f) >= 2 && f[1] != "200" {
+			t.Fatalf("curl loop saw failures:\n%s\nfailed requests:\n%s\nedge log:\n%s", curls,
+				b.inBox(`grep -v " 200 $" /tmp/curl.out | head -20`),
+				b.inBox(`sudo journalctl -u tiffin --since "-3 min" --no-pager | grep -iE "edge|caddy|route|tls|error" | tail -30`))
 		}
 	}
+	b.ok("protect", "set", "--body", `{"limits":{"app":{"requests":300,"windowSeconds":10}}}`)
 	phase("deploy+rollback under load", p)
 
 	// ---- logs show requests ----
@@ -169,6 +176,65 @@ echo started`)
 	}
 	phase("git push", p)
 
+	// ---- a workflow sleeping across a redeploy finishes on its release ----
+	p = time.Now()
+	worker := filepath.Join(b.dir, "worker")
+	if out, err := exec.Command("rsync", "-a", "--exclude", "node_modules", filepath.Join(RepoRoot(), "templates", "queues-worker")+"/", worker+"/").CombinedOutput(); err != nil {
+		t.Fatalf("copy queues-worker: %v %s", err, out)
+	}
+	b.apply("jobs", `{"project":"jobs","apps":{"worker":{"role":"worker"}}}`)
+	b.project = "jobs"
+	b.waitReady("app/worker")
+	b.project = "hello"
+	w1 := deployArgs(t, b, worker, "--app", "worker")
+	run := b.ok("workflows", "start", "jobs", "--workflow", "nap", "--app", "worker", "--body", `{"input":{"sleep":"40s"}}`)
+	runID, _ := run["id"].(string)
+	if run["release"] != w1.ID {
+		t.Fatalf("run not pinned to the current release %s: %v", w1.ID, run)
+	}
+	waitRun := func(state string, d time.Duration) map[string]any {
+		t.Helper()
+		deadline := time.Now().Add(d)
+		for {
+			r := b.ok("workflows", "runs", "get", "jobs", runID)
+			if r["state"] == state {
+				return r
+			}
+			if r["state"] == "failed" || time.Now().After(deadline) {
+				t.Fatalf("run %s: wanted %s, got %v (%v)", runID, state, r["state"], r["error"])
+			}
+			time.Sleep(time.Second)
+		}
+	}
+	waitRun("waiting", 2*time.Minute)
+	w2 := deployArgs(t, b, worker, "--app", "worker")
+	rt := b.ok("apps", "status", "jobs", "worker")
+	prod, _ := rt["production"].(map[string]any)
+	if dr, _ := prod["draining"].([]any); len(dr) != 1 {
+		t.Fatalf("release %s must keep running for its pinned run: %v", w1.ID, prod)
+	}
+	r := waitRun("completed", 3*time.Minute)
+	out, _ := r["output"].(map[string]any)
+	before, _ := out["before"].(map[string]any)
+	after, _ := out["after"].(map[string]any)
+	if before["deploy"] != w1.ID || after["deploy"] != w1.ID {
+		t.Fatalf("run must finish on release %s; before %v after %v (redeployed as %s)", w1.ID, before, after, w2.ID)
+	}
+	t.Logf("workflow slept across the deploy of %s and finished on its release %s", w2.ID, w1.ID)
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		rt := b.ok("apps", "status", "jobs", "worker")
+		prod, _ := rt["production"].(map[string]any)
+		if dr, _ := prod["draining"].([]any); len(dr) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("old release still running after its run finished: %v", prod)
+		}
+		time.Sleep(2 * time.Second)
+	}
+	phase("pinned workflow", p)
+
 	// ---- deleting the app stops it ----
 	p = time.Now()
 	cfg := filepath.Join(app, "tiffin.config.ts")
@@ -178,9 +244,9 @@ export default defineConfig({ project: "hello" });
 		t.Fatal(err)
 	}
 	applyDir("e2e: delete the app")
-	deadline := time.Now().Add(time.Minute)
+	deadline = time.Now().Add(time.Minute)
 	for {
-		n := b.inBox(`sudo nerdctl -n tiffin ps -q | wc -l`)
+		n := b.inBox(`sudo nerdctl -n tiffin ps -q --filter label=tiffin.project=hello | wc -l`)
 		code, _, _ := b.get(c, "GET", b.url("api")+"/", nil)
 		if n == "0" && code == 404 {
 			break

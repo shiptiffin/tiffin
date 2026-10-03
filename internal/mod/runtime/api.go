@@ -75,6 +75,7 @@ type EnvStatus struct {
 	Instances []InstanceStatus `json:"instances"`
 	Stopped   bool             `json:"stopped,omitempty" doc:"The app was deleted; undo the change to bring it back"`
 	Sleeping  bool             `json:"sleeping,omitempty" doc:"A preview with no recent requests; the next request wakes it"`
+	Draining  []DrainSet       `json:"draining,omitempty" doc:"Earlier releases still running, without traffic, for workflow runs pinned to them"`
 	UpdatedAt time.Time        `json:"updatedAt"`
 }
 
@@ -784,7 +785,7 @@ func (r *rt) appRuntime(ctx context.Context, project, app string) (*AppRuntime, 
 		return nil, err
 	}
 	for _, s := range states {
-		es := EnvStatus{Preview: s.Preview, Stopped: s.Stopped, Sleeping: s.Sleeping, UpdatedAt: s.UpdatedAt, Instances: []InstanceStatus{}}
+		es := EnvStatus{Preview: s.Preview, Stopped: s.Stopped, Sleeping: s.Sleeping, Draining: s.Draining, UpdatedAt: s.UpdatedAt, Instances: []InstanceStatus{}}
 		if s.Live != "" {
 			if d, err := r.st.getDeploy(ctx, project, app, s.Live); err == nil {
 				es.Live, es.URL = d, d.URL

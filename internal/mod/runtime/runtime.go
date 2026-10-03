@@ -134,6 +134,11 @@ func (r *rt) recover(ctx context.Context) error {
 		for _, in := range s.Instances {
 			r.ports[in.Port] = in.Name
 		}
+		for _, ds := range s.Draining {
+			for _, in := range ds.Instances {
+				r.ports[in.Port] = in.Name
+			}
+		}
 	}
 	projects, err := r.p.DB.ListProjects(ctx)
 	if err != nil {
@@ -176,6 +181,7 @@ func (r *rt) loop(ctx context.Context) {
 			return
 		case <-t.C:
 			r.sleepIdlePreviews(ctx)
+			r.reapDrained(ctx)
 		}
 	}
 }

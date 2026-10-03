@@ -251,10 +251,19 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 	}
 	_ = r.st.putDeploy(ctx, d)
 	if len(prev.Instances) > 0 {
+		old := prev.Instances
+		// Workflow runs pinned to the old release keep its instances running
+		// (no public traffic) until the queue says they are done.
+		if prev.Live != "" && prev.Live != d.ID && d.Preview == "" && r.pinned(ctx, d.Project, d.App, prev.Live) {
+			st.Draining = append(st.Draining, DrainSet{Release: prev.Live, Instances: old, Since: now})
+			if err := r.st.putState(ctx, st); err == nil {
+				fmt.Fprintf(log, "==> switched traffic; release %s has workflow runs pinned to it, so its %d instance(s) keep running without traffic until they finish\n", prev.Live, len(old))
+				return nil
+			}
+		}
 		if mode != modeWake && log != io.Discard {
 			fmt.Fprintf(log, "==> switched traffic; draining %d old instance(s)\n", len(prev.Instances))
 		}
-		old := prev.Instances
 		go func() {
 			// The edge finishes in-flight requests on the old upstreams; give
 			// them a moment, then stop the old containers (SIGTERM first).
@@ -553,11 +562,14 @@ func (r *rt) stopEnv(ctx context.Context, st *AppState) error {
 	if err != nil {
 		return err
 	}
-	if st.Stopped && len(st.Instances) == 0 {
+	if st.Stopped && len(st.Instances) == 0 && len(st.Draining) == 0 {
 		return nil
 	}
 	ins := st.Instances
-	st.Instances, st.Stopped = nil, true
+	for _, ds := range st.Draining {
+		ins = append(ins, ds.Instances...)
+	}
+	st.Instances, st.Draining, st.Stopped = nil, nil, true
 	if err := r.st.putState(ctx, st); err != nil {
 		return err
 	}

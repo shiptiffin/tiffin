@@ -92,9 +92,19 @@ type AppState struct {
 	Stopped bool `json:"stopped,omitempty"`
 	// Sleeping: a preview scaled to zero; the activator wakes it on a request.
 	Sleeping bool `json:"sleeping,omitempty"`
+	// Draining: earlier releases kept running (without routes) because
+	// workflow runs are pinned to them; stopped once the queue lets go.
+	Draining []DrainSet `json:"draining,omitempty"`
 	// Serial makes container names unique across restarts.
 	Serial    int       `json:"serial"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// DrainSet is an old release's instances kept for pinned workflow runs.
+type DrainSet struct {
+	Release   string     `json:"release"`
+	Instances []Instance `json:"instances"`
+	Since     time.Time  `json:"since"`
 }
 
 // envKey names an app environment: "project/app" or "project/app@preview".

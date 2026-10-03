@@ -946,3 +946,77 @@ func TestGitHelpers(t *testing.T) {
 		t.Fatal("basic auth password is the token")
 	}
 }
+
+// pinTest stands in for the queue module's PinnedReleases.
+type pinTest struct {
+	mu   sync.Mutex
+	rels []string
+}
+
+func (*pinTest) Name() string { return "zz-pin-test" }
+func (p *pinTest) PinnedReleases(ctx context.Context, _ *platform.Platform, project, app string) ([]string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.rels...), nil
+}
+func (p *pinTest) set(r ...string) { p.mu.Lock(); p.rels = r; p.mu.Unlock() }
+
+var pins = &pinTest{}
+
+func init() { platform.Register(pins) }
+
+func TestPinnedReleasesDrainBeforeStop(t *testing.T) {
+	h := newHarness(t)
+	defer pins.set()
+	ctx := context.Background()
+	v1 := h.deploy("api", "", map[string]string{"index.ts": "v1"})
+	if rel, _ := h.m.CurrentRelease(ctx, h.p, "shop", "api"); rel != v1.ID {
+		t.Fatalf("current %q", rel)
+	}
+	pins.set(v1.ID) // a workflow run started on v1
+	v2 := h.deploy("api", "", map[string]string{"index.ts": "v2"})
+	time.Sleep(300 * time.Millisecond)
+	st := h.state("api", "")
+	if len(st.Draining) != 1 || st.Draining[0].Release != v1.ID || len(st.Draining[0].Instances) != 2 {
+		t.Fatalf("v1 must keep running for its pinned run: %+v", st)
+	}
+	if n := len(h.eng.running()); n != 4 {
+		t.Fatalf("%d containers, want 4 (2 live + 2 draining)", n)
+	}
+	// Public traffic goes to v2 only; the queue still reaches v1.
+	if _, body := h.get("shop.tiffin.localhost", "/api/"); !strings.Contains(body, strings.ToLower(v2.ID)) {
+		t.Fatalf("public: %s", body)
+	}
+	u, err := h.m.AppEndpoint(ctx, h.p, "shop", "api", v1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.Get(u + "/turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if !strings.Contains(string(b), strings.ToLower(v1.ID)) {
+		t.Fatalf("pinned endpoint served %s", b)
+	}
+	if u, _ := h.m.AppEndpoint(ctx, h.p, "shop", "api", ""); u == "" {
+		t.Fatal("current endpoint")
+	}
+	if _, err := h.m.AppEndpoint(ctx, h.p, "shop", "api", "dep_GONE"); err == nil || !strings.Contains(err.Error(), "release gone") {
+		t.Fatalf("unknown release: %v", err)
+	}
+	// Still pinned: the reaper keeps it. Unpinned: it stops.
+	h.r.reapDrained(ctx)
+	if len(h.state("api", "").Draining) != 1 {
+		t.Fatal("reaped while pinned")
+	}
+	pins.set()
+	h.r.reapDrained(ctx)
+	if st := h.state("api", ""); len(st.Draining) != 0 || len(h.eng.running()) != 2 {
+		t.Fatalf("not drained: %+v, %d running", st, len(h.eng.running()))
+	}
+	if _, err := h.m.AppEndpoint(ctx, h.p, "shop", "api", v1.ID); err == nil || !strings.Contains(err.Error(), "release gone") {
+		t.Fatalf("drained release: %v", err)
+	}
+}
