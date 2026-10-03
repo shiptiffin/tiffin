@@ -33,9 +33,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -132,18 +134,14 @@ func (*Module) Provision(ctx context.Context, s *platform.System) error {
 	if err := s.User(ctx, serviceUser, storageDir(boxRoot)); err != nil {
 		return err
 	}
-	for _, d := range []string{dataDir(boxRoot), iamDir(boxRoot)} {
-		if err := os.MkdirAll(d, 0o750); err != nil {
-			return err
-		}
-		if _, err := s.Run(ctx, "chown", serviceUser+":"+serviceUser, d); err != nil {
-			return err
-		}
+	u, err := user.Lookup(serviceUser)
+	if err != nil {
+		return fmt.Errorf("storage: look up %s: %w", serviceUser, err)
 	}
-	for _, d := range []string{auditDir(boxRoot), trashDir(boxRoot)} {
-		if err := os.MkdirAll(d, 0o700); err != nil {
-			return err
-		}
+	uid, _ := strconv.Atoi(u.Uid)
+	gid, _ := strconv.Atoi(u.Gid)
+	if err := fixLayout(boxRoot, 0, 0, uid, gid); err != nil {
+		return err
 	}
 	if _, err := os.Stat(rootEnv(boxRoot)); errors.Is(err, os.ErrNotExist) {
 		c := newCreds("TFNROOT")
@@ -152,10 +150,75 @@ func (*Module) Provision(ctx context.Context, s *platform.System) error {
 			return err
 		}
 	}
-	if err := s.Unit(ctx, unitName, unitFile()); err != nil {
+	if err := os.Chown(rootEnv(boxRoot), 0, 0); err != nil {
 		return err
 	}
-	return s.WaitTCP(ctx, GatewayAddr, 30*time.Second)
+	if err := s.Unit(ctx, unitName, unitFile()); err != nil {
+		return unitError(ctx, s, err)
+	}
+	if err := s.WaitTCP(ctx, GatewayAddr, 30*time.Second); err != nil {
+		return unitError(ctx, s, err)
+	}
+	return nil
+}
+
+// unitError names the unit and carries its last journal lines.
+func unitError(ctx context.Context, s *platform.System, err error) error {
+	out, _ := s.Run(ctx, "journalctl", "-u", unitName, "-n", "20", "--no-pager", "-o", "cat")
+	return fmt.Errorf("%s did not start: %w\nlast log lines (journalctl -u %s):\n%s", unitName, err, unitName, strings.TrimSpace(out))
+}
+
+// layoutDir is one directory of the storage layout with its owner and mode.
+type layoutDir struct {
+	path    string
+	service bool // owned by the service user (else root)
+	group   bool // group is the service user's (traversable by it)
+	mode    os.FileMode
+}
+
+func layout(root string) []layoutDir {
+	return []layoutDir{
+		{storageDir(root), false, true, 0o750}, // root:tiffin-storage, the service user can traverse
+		{dataDir(root), true, true, 0o750},     // the gateway's posix root
+		{iamDir(root), true, true, 0o750},      // the gateway's accounts
+		{auditDir(root), false, false, 0o700},  // tiffin only
+		{filepath.Join(root, "trash"), false, false, 0o700},
+		{trashDir(root), false, false, 0o700},
+	}
+}
+
+// fixLayout creates the storage directories and resets their owners and
+// modes on every provision, so a box with an older or hand-edited tree
+// recovers. Bucket contents are left alone; IAM files go to the service user.
+func fixLayout(root string, rootUID, rootGID, uid, gid int) error {
+	for _, d := range layout(root) {
+		if err := os.MkdirAll(d.path, d.mode); err != nil {
+			return err
+		}
+		ou, og := rootUID, rootGID
+		if d.service {
+			ou = uid
+		}
+		if d.group {
+			og = gid
+		}
+		if err := os.Chown(d.path, ou, og); err != nil {
+			return fmt.Errorf("storage: chown %s: %w", d.path, err)
+		}
+		if err := os.Chmod(d.path, d.mode); err != nil {
+			return err
+		}
+	}
+	entries, err := os.ReadDir(iamDir(root))
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if err := os.Lchown(filepath.Join(iamDir(root), e.Name()), uid, gid); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func unitFile() string {
