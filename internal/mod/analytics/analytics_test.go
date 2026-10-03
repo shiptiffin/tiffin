@@ -56,7 +56,7 @@ func access(host, uri, ua string, status int, hdr map[string]string) []byte {
 		method = hdr["X-Method"]
 	}
 	b, _ := json.Marshal(map[string]any{"level": "info", "ts": float64(time.Now().UnixNano()) / 1e9, "logger": "http.log.access.access",
-		"request": map[string]any{"client_ip": "8.8.8.8", "method": method, "host": host + ":8443", "uri": uri, "headers": h},
+		"request":  map[string]any{"client_ip": "8.8.8.8", "method": method, "host": host + ":8443", "uri": uri, "headers": h},
 		"duration": 0.01, "size": 100, "status": status})
 	return b
 }
