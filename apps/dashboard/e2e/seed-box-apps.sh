@@ -67,7 +67,7 @@ for i in $(seq 1040 1046); do send "$(jq -nc --argjson o "$i" '{name:"order.plac
 send '{"name":"emails","delaySeconds":7200,"payload":{"to":"ada@example.com","template":"abandoned-cart"}}'
 
 start() { api POST /v1/projects/shop/workflows/runs "$1" >/dev/null; }
-start '{"workflow":"fulfil-order","app":"worker","id":"order-1042","input":{"order":1042,"total":64000}}'
+start '{"workflow":"fulfil-order","app":"worker","id":"order-1042","input":{"order":1042,"total":6400}}'
 start '{"workflow":"fulfil-order","app":"worker","id":"order-1043","input":{"order":1043,"total":182500}}'
 start '{"workflow":"onboard","app":"worker","id":"onboard-ada","input":{"email":"ada@example.com"}}'
 start '{"workflow":"onboard","app":"worker","id":"onboard-grace","input":{"email":"grace@example.com"}}'
