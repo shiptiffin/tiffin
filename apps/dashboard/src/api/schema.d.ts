@@ -2951,6 +2951,7 @@ export interface components {
         Actor: {
             id: string;
             kind: string;
+            model?: string;
             name?: string;
             session?: string;
         };
@@ -4864,6 +4865,7 @@ export interface components {
             /** Format: date-time */
             expiresAt?: string;
             kind: string;
+            model?: string;
             name: string;
             person?: string;
             personName?: string;
@@ -8270,6 +8272,8 @@ export interface operations {
                 project?: string;
                 /** @description Maximum changes to return */
                 limit?: number;
+                /** @description Only changes older than this change ID (for paging: pass the last ID you got) */
+                before?: string;
             };
             header?: never;
             path?: never;
