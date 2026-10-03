@@ -19,7 +19,10 @@ var trackerJS []byte
 
 // CollectorAddr serves the tracker script, browser beacons and server-side
 // track() calls. The edge publishes it as t.<domain>.
-const CollectorAddr = "127.0.0.1:7091"
+const (
+	CollectorPort = "7091"
+	CollectorAddr = "127.0.0.1:" + CollectorPort
+)
 
 const maxBeacon = 8 << 10
 

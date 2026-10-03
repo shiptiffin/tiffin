@@ -28,6 +28,7 @@ import (
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/mod/analytics/enrich"
+	"github.com/btahir/tiffin/internal/mod/observe"
 	"github.com/btahir/tiffin/internal/mod/observe/edgelog"
 	"github.com/btahir/tiffin/internal/mod/observe/logtail"
 	"github.com/btahir/tiffin/internal/platform"
@@ -107,11 +108,13 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 		p.Log.Error("analytics restore", "err", err)
 	}
 	m.listErr.Store("")
-	ln, err := net.Listen("tcp", CollectorAddr)
-	if err != nil {
-		m.listErr.Store(err.Error())
-		p.Log.Error("analytics collector listen", "addr", CollectorAddr, "err", err)
-	} else {
+	for _, addr := range observe.ListenAddrs(ctx, p, CollectorPort) {
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			m.listErr.Store(err.Error())
+			p.Log.Error("analytics collector listen", "addr", addr, "err", err)
+			continue
+		}
 		srv := &http.Server{Handler: m.collectorHandler(), ReadHeaderTimeout: 10 * time.Second}
 		go func() { _ = srv.Serve(ln) }()
 		go func() { <-ctx.Done(); _ = srv.Close() }()
@@ -234,7 +237,7 @@ func (m *Module) Env(ctx context.Context, p *platform.Platform, project, app str
 		return nil, err
 	}
 	return map[string]string{
-		"TIFFIN_ANALYTICS_URL":    "http://" + CollectorAddr,
+		"TIFFIN_ANALYTICS_URL":    "http://" + net.JoinHostPort(observe.AppHost(ctx, p), CollectorPort),
 		"TIFFIN_ANALYTICS_KEY":    key,
 		"TIFFIN_ANALYTICS_SCRIPT": ScriptURL(p),
 	}, nil

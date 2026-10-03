@@ -20,7 +20,10 @@ import (
 
 // IngestAddr is where apps send errors (Sentry protocol), metrics and logs
 // (OTLP/HTTP). The edge publishes it as errors.<domain> and otel.<domain>.
-const IngestAddr = "127.0.0.1:4318"
+const (
+	IngestPort = "4318"
+	IngestAddr = "127.0.0.1:" + IngestPort
+)
 
 const maxIngestBody = 10 << 20
 

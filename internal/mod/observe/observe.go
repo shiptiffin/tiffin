@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -59,11 +60,13 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 	if err := m.setup(ctx, p, root, &Victoria{VM: "http://" + VMAddr, VL: "http://" + VLAddr}); err != nil {
 		return err
 	}
-	ln, err := net.Listen("tcp", IngestAddr)
-	if err != nil {
-		m.ingestErr.Store(err.Error())
-		p.Log.Error("observe ingest listen", "addr", IngestAddr, "err", err)
-	} else {
+	for _, addr := range ListenAddrs(ctx, p, IngestPort) {
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			m.ingestErr.Store(err.Error())
+			p.Log.Error("observe ingest listen", "addr", addr, "err", err)
+			continue
+		}
 		srv := &http.Server{Handler: m.ingestHandler(), ReadHeaderTimeout: 10 * time.Second}
 		go func() { _ = srv.Serve(ln) }()
 		go func() { <-ctx.Done(); _ = srv.Close() }()
@@ -174,10 +177,11 @@ func (m *Module) Env(ctx context.Context, p *platform.Platform, project, app str
 		return nil, err
 	}
 	id := strconv.FormatInt(k.ID, 10)
+	internal := net.JoinHostPort(AppHost(ctx, p), IngestPort)
 	public := p.URL(errorsHost(p))
 	pubHost := public[len("https://"):]
 	return map[string]string{
-		"SENTRY_DSN":                  "http://" + k.Key + "@" + IngestAddr + "/" + id,
+		"SENTRY_DSN":                  "http://" + k.Key + "@" + internal + "/" + id,
 		"TIFFIN_PUBLIC_SENTRY_DSN":    "https://" + k.Key + "@" + pubHost + "/" + id,
 		"SENTRY_ENVIRONMENT":          "production",
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://" + IngestAddr,
@@ -213,6 +217,29 @@ func (m *Module) Checks(ctx context.Context, p *platform.Platform) []platform.Ch
 	}
 	if e := errString(m.journalErr.Load()); e != nil {
 		add("observe.journal", fmt.Errorf("following the journal: %w", e), "")
+	}
+	return out
+}
+
+// AppHost is the address app containers reach box services on: the
+// runtime publishes it in KV runtime/host-ip when apps are not on the host
+// network; otherwise loopback.
+func AppHost(ctx context.Context, p *platform.Platform) string {
+	if p != nil && p.DB != nil {
+		if raw, ok, _ := p.DB.KVGet(ctx, "runtime", "host-ip"); ok {
+			if ip := strings.TrimSpace(string(raw)); net.ParseIP(ip) != nil {
+				return ip
+			}
+		}
+	}
+	return "127.0.0.1"
+}
+
+// ListenAddrs are loopback plus the app host address when it differs.
+func ListenAddrs(ctx context.Context, p *platform.Platform, port string) []string {
+	out := []string{net.JoinHostPort("127.0.0.1", port)}
+	if h := AppHost(ctx, p); h != "127.0.0.1" {
+		out = append(out, net.JoinHostPort(h, port))
 	}
 	return out
 }

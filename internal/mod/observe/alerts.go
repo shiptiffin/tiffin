@@ -247,6 +247,7 @@ type Alerter struct {
 	BackupDir string
 	Box       string // box name for notifications (its domain)
 
+	evalMu   sync.Mutex // one evaluation at a time, so a transition is notified once
 	mu       sync.Mutex
 	pending  map[string]time.Time // rule\x00subject -> when the condition started
 	restarts map[string][]restartSample
@@ -268,6 +269,8 @@ const (
 
 // Evaluate runs every enabled rule once and records transitions.
 func (a *Alerter) Evaluate(ctx context.Context) error {
+	a.evalMu.Lock()
+	defer a.evalMu.Unlock()
 	rules, err := a.Store.Rules(ctx)
 	if err != nil {
 		return err
