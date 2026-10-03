@@ -251,6 +251,12 @@ func (a *app) serveCmd() *cobra.Command {
 			var ed *edge.Edge
 			var plat *platform.Platform
 			var openErr error
+			if onBox {
+				// A box import swaps in its state while nothing holds it open.
+				if _, err := platform.ApplyPendingImport(filepath.Dir(a.home), func(s string) { fmt.Fprintln(a.io.Err, s) }); err != nil {
+					fmt.Fprintln(a.io.Err, "box import:", err)
+				}
+			}
 			b, fresh, err := openBox(ctx, a.home, func(d *api.Deps) {
 				d.PublicURL = publicURL
 				d.Checks = func(ctx context.Context) []api.Check { return boxChecks(a.home, ed, started) }

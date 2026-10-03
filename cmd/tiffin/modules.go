@@ -9,6 +9,7 @@ import (
 	_ "github.com/btahir/tiffin/internal/mod/base"
 	_ "github.com/btahir/tiffin/internal/mod/email"
 	_ "github.com/btahir/tiffin/internal/mod/observe"
+	_ "github.com/btahir/tiffin/internal/mod/portable"
 	_ "github.com/btahir/tiffin/internal/mod/postgres"
 	_ "github.com/btahir/tiffin/internal/mod/protect"
 	_ "github.com/btahir/tiffin/internal/mod/queue"
