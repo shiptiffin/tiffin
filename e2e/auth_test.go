@@ -48,6 +48,13 @@ func TestAuth(t *testing.T) {
 	configDir := os.Getenv("TIFFIN_CONFIG_DIR")
 	port := os.Getenv("TIFFIN_LIMA_PORT")
 	if reuse := os.Getenv("TIFFIN_E2E_REUSE_CLI"); reuse != "" {
+		// Never fall through to the owner's box (~/.tiffin): reuse needs an
+		// explicit dev-box config dir and Lima instance.
+		home, _ := os.UserHomeDir()
+		if configDir == "" || port == "" || os.Getenv("TIFFIN_LIMA_INSTANCE") == "" || os.Getenv("TIFFIN_LIMA_INSTANCE") == "tiffin" ||
+			filepath.Clean(configDir) == filepath.Join(home, ".tiffin") {
+			t.Fatal("TIFFIN_E2E_REUSE_CLI needs TIFFIN_CONFIG_DIR, TIFFIN_LIMA_INSTANCE and TIFFIN_LIMA_PORT for a dev box (never the owner's box)")
+		}
 		cli = reuse
 	} else {
 		cli = buildTiffin(t, dir, "", "")
@@ -134,7 +141,7 @@ export default defineConfig({ project: "` + project + `", apps: { web: { framewo
 				return
 			}
 			if time.Now().After(deadline) {
-				t.Fatalf("%s not ready: %+v", addr, s)
+				t.Fatalf("%s not ready: %+v\n%s", addr, s, out)
 			}
 			time.Sleep(time.Second)
 		}
