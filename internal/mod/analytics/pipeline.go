@@ -377,9 +377,9 @@ type RealtimeView struct {
 	Pageviews30m int64         `json:"pageviews30m"`
 	Events30m    int64         `json:"events30m" doc:"Custom events in the last 30 minutes"`
 	PerMinute    []MinutePoint `json:"perMinute" doc:"The last 30 minutes, oldest first"`
-	TopPages     []Count       `json:"topPages"`
-	TopSources   []Count       `json:"topSources"`
-	TopCountries []Count       `json:"topCountries"`
+	TopPages     []RTCount     `json:"topPages"`
+	TopSources   []RTCount     `json:"topSources"`
+	TopCountries []RTCount     `json:"topCountries"`
 }
 
 // MinutePoint is one minute of realtime.
@@ -439,10 +439,16 @@ func (r *Realtime) View(project, app string, now time.Time) RealtimeView {
 	return v
 }
 
-func topN(m map[string]int64, n int) []Count {
-	out := make([]Count, 0, len(m))
+// RTCount is one realtime breakdown row.
+type RTCount struct {
+	Value     string `json:"value"`
+	Pageviews int64  `json:"pageviews"`
+}
+
+func topN(m map[string]int64, n int) []RTCount {
+	out := make([]RTCount, 0, len(m))
 	for k, v := range m {
-		out = append(out, Count{Value: k, Pageviews: v})
+		out = append(out, RTCount{Value: k, Pageviews: v})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Pageviews != out[j].Pageviews {

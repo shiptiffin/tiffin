@@ -430,7 +430,7 @@ func Culprit(e *Event) string {
 			if f.Lineno > 0 {
 				loc += ":" + strconv.Itoa(f.Lineno)
 			}
-			if f.Function != "" {
+			if f.Function != "" && f.Function != "?" && f.Function != "<anonymous>" {
 				loc = f.Function + " (" + loc + ")"
 			}
 			return clip(loc, 200)
