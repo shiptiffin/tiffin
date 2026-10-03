@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"reflect"
 	"runtime"
 	"slices"
 	"sort"
@@ -89,6 +90,9 @@ type API struct {
 func New(d Deps) *API {
 	mux := http.NewServeMux()
 	cfg := huma.DefaultConfig("Tiffin", orDefault(d.Version, "dev"))
+	// Modules define their own types; namespace them so two modules can both
+	// have an "Alert" without colliding in the OpenAPI document.
+	cfg.Components.Schemas = huma.NewMapRegistry("#/components/schemas/", schemaNamer)
 	cfg.Info.Description = "Your app in a box. Every mutation is a Change: plan it, review the risk, then apply it with the plan's hash."
 	cfg.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
 		"bearer": {Type: "http", Scheme: "bearer", Description: "A Tiffin token (tfn_...). Set TIFFIN_TOKEN for the CLI."},
@@ -111,6 +115,20 @@ func New(d Deps) *API {
 		}
 	}
 	return a
+}
+
+func schemaNamer(t reflect.Type, hint string) string {
+	name := huma.DefaultSchemaNamer(t, hint)
+	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Map {
+		t = t.Elem()
+	}
+	if pkg := t.PkgPath(); strings.Contains(pkg, "/internal/mod/") {
+		mod := pkg[strings.LastIndex(pkg, "/")+1:]
+		if mod != "" && !strings.HasPrefix(strings.ToLower(name), mod) {
+			name = strings.ToUpper(mod[:1]) + mod[1:] + name
+		}
+	}
+	return name
 }
 
 func orDefault(s, d string) string {

@@ -373,7 +373,8 @@ func (e *edgeControl) SetRoutes(routes []edge.Route) error {
 }
 
 func (a *app) provisionCmd() *cobra.Command {
-	return &cobra.Command{
+	var strict bool
+	cmd := &cobra.Command{
 		Use:    "provision",
 		Short:  "Install and update the box's system services (root, idempotent)",
 		Long:   "Runs every module's provisioner: system packages, pinned downloads and systemd units. `tiffin up` runs it for you.",
@@ -384,20 +385,37 @@ func (a *app) provisionCmd() *cobra.Command {
 				return &exitError{ExitAuth, "provision must run as root on the box"}
 			}
 			sys := platform.NewSystem(func(s string) { fmt.Fprintln(a.io.Err, s) })
+			// One broken service must not block updating Tiffin itself (the
+			// update may be the fix): provision every module, record failures
+			// for /v1/status, and fail only with --strict.
+			report := platform.ProvisionReport{At: time.Now().UTC()}
 			for _, m := range platform.Modules() {
 				pv, ok := m.(platform.Provisioner)
 				if !ok {
 					continue
 				}
 				start := time.Now()
-				if err := pv.Provision(cmd.Context(), sys); err != nil {
-					return &exitError{ExitError, m.Name() + ": " + err.Error()}
+				err := pv.Provision(cmd.Context(), sys)
+				r := platform.ProvisionResult{Module: m.Name(), Seconds: time.Since(start).Seconds()}
+				if err != nil {
+					r.Error = err.Error()
+					fmt.Fprintf(a.io.Err, "%s FAILED: %v\n", m.Name(), err)
+				} else {
+					fmt.Fprintf(a.io.Err, "%s ready (%s)\n", m.Name(), time.Since(start).Round(time.Millisecond))
 				}
-				fmt.Fprintf(a.io.Err, "%s ready (%s)\n", m.Name(), time.Since(start).Round(time.Millisecond))
+				report.Results = append(report.Results, r)
+			}
+			if err := platform.SaveProvisionReport(report); err != nil {
+				fmt.Fprintln(a.io.Err, "could not save the provision report:", err)
+			}
+			if failed := report.Failed(); len(failed) > 0 && strict {
+				return &exitError{ExitError, "provisioning failed for: " + strings.Join(failed, ", ")}
 			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&strict, "strict", false, "fail if any module fails to provision")
+	return cmd
 }
 
 // serveMux routes the box's HTTP surface: the API under /v1 and MCP at /mcp.

@@ -91,6 +91,7 @@ type Result struct {
 	OwnerToken string
 	CAPEM      []byte
 	Build      string
+	Warnings   []string // modules that failed to provision (the box still updated)
 }
 
 // Install (or update) Tiffin on m from the local linux binary bin.
@@ -124,6 +125,23 @@ chmod 0755 /tmp/tiffin.new
 	if out, stderr, err := m.Exec(ctx, "sudo /tmp/tiffin.new provision"); err != nil {
 		return nil, fmt.Errorf("provision: %w\n%s\n%s", err, tail(out, 3000), tail(stderr, 3000))
 	}
+	var warnings []string
+	if raw, _, err := m.Exec(ctx, "sudo cat "+Home+"/provision.json"); err == nil {
+		var rep struct {
+			Results []struct {
+				Module string `json:"module"`
+				Error  string `json:"error"`
+			} `json:"results"`
+		}
+		if json.Unmarshal([]byte(raw), &rep) == nil {
+			for _, r := range rep.Results {
+				if r.Error != "" {
+					warnings = append(warnings, r.Module+": "+tail(r.Error, 400))
+					progress("warning: " + r.Module + " did not install: " + tail(r.Error, 200))
+				}
+			}
+		}
+	}
 	script := `set -o pipefail
 if [ -x ` + BinLink + ` ]; then sudo ` + BinLink + ` self-update /tmp/tiffin.new; else sudo /tmp/tiffin.new self-update /tmp/tiffin.new; fi
 rc=$?; rm -f /tmp/tiffin.new; exit $rc`
@@ -144,7 +162,7 @@ rc=$?; rm -f /tmp/tiffin.new; exit $rc`
 	if err != nil {
 		return nil, fmt.Errorf("read the box's CA certificate: %w\n%s", err, stderr)
 	}
-	return &Result{OwnerToken: strings.TrimSpace(tok), CAPEM: []byte(ca), Build: sum}, nil
+	return &Result{OwnerToken: strings.TrimSpace(tok), CAPEM: []byte(ca), Build: sum, Warnings: warnings}, nil
 }
 
 // FileSHA returns the hex SHA-256 of a file.

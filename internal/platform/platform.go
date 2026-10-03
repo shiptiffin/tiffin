@@ -182,7 +182,7 @@ func (p *Platform) RefreshRoutes(ctx context.Context) error {
 
 // Checks runs every Checker.
 func (p *Platform) Checks(ctx context.Context) []Check {
-	var out []Check
+	out := provisionChecks(ctx)
 	for _, m := range Modules() {
 		if c, ok := m.(Checker); ok {
 			out = append(out, c.Checks(ctx, p)...)

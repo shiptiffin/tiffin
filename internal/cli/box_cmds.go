@@ -112,6 +112,9 @@ func (a *app) upCmd() *cobra.Command {
 				"box": "local", "url": bx.URL, "build": res.Build[:12], "login": login, "ca": caFile,
 				"mcp": "claude mcp add tiffin -- tiffin mcp", "seconds": int(time.Since(start).Seconds()),
 			}
+			if len(res.Warnings) > 0 {
+				out["warnings"] = res.Warnings
+			}
 			if !a.tty() {
 				writeJSON(a.io.Out, out)
 				return nil
@@ -123,6 +126,9 @@ func (a *app) upCmd() *cobra.Command {
 				fmt.Fprintf(w, "  %-10s %s %s\n", "Sign in", login, a.paint("(one-time, 10 min)", dim))
 			}
 			fmt.Fprintf(w, "  %-10s %s\n", "Agents", "claude mcp add tiffin -- tiffin mcp")
+			for _, wn := range res.Warnings {
+				fmt.Fprintf(w, "  %s %s\n", a.paint("!", amber), wn)
+			}
 			fmt.Fprintf(w, "\n%s Browsers will warn about the certificate until you trust the box once: %s\n", a.paint("→", amber), a.paint("tiffin trust", bold))
 			return nil
 		},
