@@ -41,7 +41,7 @@ release:
 test:
 	go test ./...
 	@if [ -f packages/package.json ] || ls packages/*/package.json >/dev/null 2>&1; then \
-		cd packages && bun test; \
+		for d in packages/*/; do if [ -n "$$(find $$d -name '*.test.*' -not -path '*/node_modules/*' | head -1)" ]; then (cd $$d && bun test) || exit 1; fi; done; \
 	else echo "packages: no JS packages yet, skipping bun test"; fi
 
 lint:
