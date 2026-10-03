@@ -89,6 +89,41 @@ func TestUpDown(t *testing.T) {
 	}
 	phase("https+doctor", p)
 
+	// ---- reboot: state, CA and services survive ----
+	p = time.Now()
+	m := filepath.Join(dir, "reboot", "tiffin.config.ts")
+	_ = os.MkdirAll(filepath.Dir(m), 0o755)
+	_ = os.WriteFile(m, []byte(`export default { project: "keepme", env: { A: "1" } }`), 0o644)
+	_, plan, _ := run("plan", m)
+	if code, _, raw := run("apply", m, "--confirm", fmt.Sprint(plan["hash"])); code != 0 {
+		t.Fatalf("apply before reboot: %s", raw)
+	}
+	caBefore, _ := os.ReadFile(filepath.Join(dir, "config", "boxes", "local", "ca.crt"))
+	for _, args := range [][]string{{"stop", instance}, {"start", instance, "--tty=false"}} {
+		if out, err := exec.Command("limactl", args...).CombinedOutput(); err != nil {
+			t.Fatalf("limactl %v: %v\n%s", args, err, out)
+		}
+	}
+	var healthy bool
+	for i := 0; i < 60 && !healthy; i++ {
+		if code, h, _ := run("health"); code == 0 && h["status"] == "ok" {
+			healthy = true
+		} else {
+			time.Sleep(2 * time.Second)
+		}
+	}
+	if !healthy {
+		t.Fatal("box not healthy after reboot")
+	}
+	if code, _, raw := run("projects", "get", "keepme"); code != 0 {
+		t.Fatalf("project lost across reboot: %s", raw)
+	}
+	caAfter, _ := exec.Command("limactl", "shell", instance, "--", "sudo", "cat", "/var/lib/tiffin/platform/ca.crt").Output()
+	if string(caAfter) != string(caBefore) {
+		t.Fatal("box CA changed across reboot (data disk not mounted at boot?)")
+	}
+	phase("reboot", p)
+
 	// ---- self-update round trip ----
 	p = time.Now()
 	if code, _, raw := run("up", "--binary", next); code != 0 {
