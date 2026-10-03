@@ -1,0 +1,293 @@
+{
+  "admin": {
+    "config": {
+      "persist": false
+    },
+    "disabled": true
+  },
+  "apps": {
+    "http": {
+      "http_port": 8080,
+      "https_port": 8443,
+      "servers": {
+        "http": {
+          "automatic_https": {
+            "disable": true
+          },
+          "listen": [
+            ":8080"
+          ],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "close": true,
+                  "handler": "static_response",
+                  "headers": {
+                    "Connection": [
+                      "close"
+                    ],
+                    "Location": [
+                      "https://{http.request.host}:8443{http.request.uri}"
+                    ]
+                  },
+                  "status_code": 308
+                }
+              ]
+            }
+          ]
+        },
+        "https": {
+          "automatic_https": {
+            "disable_redirects": true
+          },
+          "listen": [
+            ":8443"
+          ],
+          "protocols": [
+            "h1",
+            "h2"
+          ],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "headers",
+                  "response": {
+                    "deferred": true,
+                    "delete": [
+                      "Server"
+                    ],
+                    "set": {
+                      "Referrer-Policy": [
+                        "strict-origin-when-cross-origin"
+                      ],
+                      "Strict-Transport-Security": [
+                        "max-age=300"
+                      ],
+                      "X-Content-Type-Options": [
+                        "nosniff"
+                      ],
+                      "X-Frame-Options": [
+                        "DENY"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "handler": "headers",
+                  "response": {
+                    "require": {
+                      "headers": {
+                        "Content-Security-Policy": null
+                      }
+                    },
+                    "set": {
+                      "Content-Security-Policy": [
+                        "frame-ancestors 'none'"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "handle": [
+                {
+                  "flush_interval": -1,
+                  "handler": "reverse_proxy",
+                  "headers": {
+                    "request": {
+                      "set": {
+                        "X-Forwarded-Host": [
+                          "{http.request.hostport}"
+                        ],
+                        "X-Forwarded-Port": [
+                          "{http.request.port}"
+                        ],
+                        "X-Forwarded-Proto": [
+                          "{http.request.scheme}"
+                        ]
+                      }
+                    }
+                  },
+                  "upstreams": [
+                    {
+                      "dial": "127.0.0.1:7070"
+                    }
+                  ]
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "dashboard.tiffin.localhost"
+                  ]
+                }
+              ],
+              "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "flush_interval": -1,
+                  "handler": "reverse_proxy",
+                  "headers": {
+                    "request": {
+                      "set": {
+                        "X-Forwarded-Host": [
+                          "{http.request.hostport}"
+                        ],
+                        "X-Forwarded-Port": [
+                          "{http.request.port}"
+                        ],
+                        "X-Forwarded-Proto": [
+                          "{http.request.scheme}"
+                        ]
+                      }
+                    }
+                  },
+                  "upstreams": [
+                    {
+                      "dial": "127.0.0.1:9002"
+                    }
+                  ]
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "custom.example.test"
+                  ]
+                }
+              ],
+              "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "flush_interval": -1,
+                  "handler": "reverse_proxy",
+                  "headers": {
+                    "request": {
+                      "set": {
+                        "X-Forwarded-Host": [
+                          "{http.request.hostport}"
+                        ],
+                        "X-Forwarded-Port": [
+                          "{http.request.port}"
+                        ],
+                        "X-Forwarded-Proto": [
+                          "{http.request.scheme}"
+                        ]
+                      }
+                    }
+                  },
+                  "upstreams": [
+                    {
+                      "dial": "127.0.0.1:9001"
+                    }
+                  ]
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "shop.tiffin.localhost"
+                  ]
+                }
+              ],
+              "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "body": "\u003c!doctype html\u003e\u003chtml lang=\"en\"\u003e\u003chead\u003e\u003cmeta charset=\"utf-8\"\u003e\u003ctitle\u003eNot found\u003c/title\u003e\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\"\u003e\u003c/head\u003e\u003cbody style=\"font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem\"\u003e\u003ch1\u003eNothing here\u003c/h1\u003e\u003cp\u003eThis address is not served by this Tiffin box.\u003c/p\u003e\u003cp\u003eOpen the \u003ca href=\"https://dashboard.tiffin.localhost:8443/\"\u003edashboard\u003c/a\u003e to see what is running.\u003c/p\u003e\u003c/body\u003e\u003c/html\u003e",
+                  "handler": "static_response",
+                  "headers": {
+                    "Content-Type": [
+                      "text/html; charset=utf-8"
+                    ]
+                  },
+                  "status_code": 404
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "*.tiffin.localhost"
+                  ]
+                }
+              ],
+              "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "body": "\u003c!doctype html\u003e\u003chtml lang=\"en\"\u003e\u003chead\u003e\u003cmeta charset=\"utf-8\"\u003e\u003ctitle\u003eNot found\u003c/title\u003e\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\"\u003e\u003c/head\u003e\u003cbody style=\"font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem\"\u003e\u003ch1\u003eNothing here\u003c/h1\u003e\u003cp\u003eThis address is not served by this Tiffin box.\u003c/p\u003e\u003cp\u003eOpen the \u003ca href=\"https://dashboard.tiffin.localhost:8443/\"\u003edashboard\u003c/a\u003e to see what is running.\u003c/p\u003e\u003c/body\u003e\u003c/html\u003e",
+                  "handler": "static_response",
+                  "headers": {
+                    "Content-Type": [
+                      "text/html; charset=utf-8"
+                    ]
+                  },
+                  "status_code": 404
+                }
+              ]
+            }
+          ],
+          "tls_connection_policies": [
+            {}
+          ]
+        }
+      }
+    },
+    "pki": {
+      "certificate_authorities": {
+        "tiffin": {
+          "install_trust": false,
+          "intermediate_common_name": "Tiffin Local CA Intermediate",
+          "name": "Tiffin Local CA",
+          "root_common_name": "Tiffin Local CA"
+        }
+      }
+    },
+    "tls": {
+      "automation": {
+        "policies": [
+          {
+            "issuers": [
+              {
+                "ca": "tiffin",
+                "module": "internal"
+              }
+            ],
+            "subjects": [
+              "*.tiffin.localhost",
+              "dashboard.tiffin.localhost",
+              "custom.example.test",
+              "shop.tiffin.localhost"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "logging": {
+    "logs": {
+      "default": {
+        "encoder": {
+          "format": "json"
+        },
+        "level": "ERROR",
+        "writer": {
+          "output": "stderr"
+        }
+      }
+    }
+  },
+  "storage": {
+    "module": "file_system",
+    "root": "/var/lib/tiffin/platform/caddy"
+  }
+}
