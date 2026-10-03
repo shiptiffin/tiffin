@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -312,5 +313,19 @@ func TestTiffinEnvNeverReachesConfig(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "tfn_secret") || !strings.Contains(string(raw), "visible") {
 		t.Fatalf("env filtering wrong: %s", raw)
+	}
+}
+
+// The edge routes by Host, so the MCP proxy must send the box's host, not
+// whatever the in-process request carried.
+func TestProxySendsTargetHost(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { got = r.Host }))
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+	req := httptest.NewRequest("GET", "http://example.com/v1/health", nil)
+	proxyTo(u, nil).ServeHTTP(httptest.NewRecorder(), req)
+	if got != u.Host {
+		t.Fatalf("proxy sent Host %q, want %q", got, u.Host)
 	}
 }

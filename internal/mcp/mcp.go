@@ -263,7 +263,11 @@ func (t *Tool) call(ctx context.Context, h http.Handler, token string, req *sdk.
 		hr.Header.Set("Authorization", token)
 	}
 	if req.Session != nil {
-		hr.Header.Set(api.SessionHeader, "mcp:"+req.Session.ID())
+		id := req.Session.ID()
+		if id == "" {
+			id = "stdio" // stdio has no session ID; one process is one session
+		}
+		hr.Header.Set(api.SessionHeader, "mcp:"+id)
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, hr)

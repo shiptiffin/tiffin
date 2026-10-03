@@ -319,7 +319,7 @@ func (a *app) mcpCmd() *cobra.Command {
 				if err != nil {
 					return &exitError{ExitInvalid, "--url: " + err.Error()}
 				}
-				h = httputil.NewSingleHostReverseProxy(u)
+				h = proxyTo(u, nil)
 			case bx != nil && !a.homeExplicit:
 				// The box from `tiffin up`: proxy over HTTPS, as its agent token.
 				u, err := url.Parse(bx.URL)
@@ -330,9 +330,7 @@ func (a *app) mcpCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				rp := httputil.NewSingleHostReverseProxy(u)
-				rp.Transport = tr
-				h = rp
+				h = proxyTo(u, tr)
 				if token == "" {
 					token = bx.AgentToken
 				}
@@ -359,6 +357,18 @@ func (a *app) mcpCmd() *cobra.Command {
 			srv := tmcp.NewServer(spec, h, version.Version, tmcp.Static(token))
 			return srv.Run(ctx, &sdk.StdioTransport{})
 		},
+	}
+}
+
+// proxyTo forwards requests to u, with u's Host header (the edge routes by
+// host, so the incoming request's Host must not leak through).
+func proxyTo(u *url.URL, tr http.RoundTripper) http.Handler {
+	return &httputil.ReverseProxy{
+		Rewrite: func(r *httputil.ProxyRequest) {
+			r.SetURL(u)
+			r.Out.Host = u.Host
+		},
+		Transport: tr,
 	}
 }
 
