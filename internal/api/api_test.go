@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/btahir/tiffin/internal/api"
+	"github.com/btahir/tiffin/internal/approvals"
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/state"
 	"github.com/btahir/tiffin/internal/tokens"
@@ -329,5 +330,73 @@ func TestTokenAdminRespectsProjectScope(t *testing.T) {
 	e.call(lead, "POST", "/v1/tokens", map[string]any{"name": "blog-bot"})
 	if _, _, list := e.call(lead, "GET", "/v1/tokens", nil); len(list) != 1 {
 		t.Fatalf("lead should see its own token: %v", list)
+	}
+}
+
+func TestAgentApprovalFlow(t *testing.T) {
+	db, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	tm := tokens.NewManager(db)
+	owner, _, _ := tm.Bootstrap(t.Context())
+	am, err := approvals.New(db, "dashboard.tiffin.localhost", "https://dashboard.tiffin.localhost:8443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := api.New(api.Deps{DB: db, Engine: change.NewEngine(db), Tokens: tm, Approvals: am, PublicURL: "https://dashboard.tiffin.localhost:8443"})
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	e := &env{t: t, srv: srv, owner: owner, tm: tm}
+
+	m := map[string]any{"project": "shop", "services": map[string]any{"postgres": map[string]any{}}}
+	_, plan, _ := e.call(owner, "POST", "/v1/plan", map[string]any{"manifest": m})
+	e.call(owner, "POST", "/v1/apply", map[string]any{"manifest": m, "confirm": plan["hash"]})
+
+	agent := e.agent(nil, []string{"shop"})
+	drop := map[string]any{"project": "shop"}
+	_, plan, _ = e.call(agent, "POST", "/v1/plan", map[string]any{"manifest": drop})
+	hash := plan["hash"].(string)
+	code, prob, _ := e.call(agent, "POST", "/v1/apply", map[string]any{"manifest": drop, "confirm": hash, "intent": "drop db"})
+	if code != 403 || prob["code"] != "approval_required" || !strings.Contains(prob["approvalUrl"].(string), "/approvals/apr_") {
+		t.Fatalf("want approval_required: %d %v", code, prob)
+	}
+	id := prob["approval"].(map[string]any)["id"].(string)
+	// Asking again returns the same pending request.
+	_, prob2, _ := e.call(agent, "POST", "/v1/apply", map[string]any{"manifest": drop, "confirm": hash})
+	if prob2["approval"].(map[string]any)["id"] != id {
+		t.Fatal("duplicate approval request")
+	}
+	// Pending approvals cannot be spent; agents cannot approve.
+	if code, _, _ := e.call(agent, "POST", "/v1/apply", map[string]any{"manifest": drop, "confirm": hash, "approval": id}); code != 403 {
+		t.Fatalf("spent a pending approval: %d", code)
+	}
+	if code, _, _ := e.call(agent, "POST", "/v1/approvals/"+id+"/begin", nil); code != 403 {
+		t.Fatalf("agent began approving: %d", code)
+	}
+	// The owner has no passkey yet: approving must say so.
+	if code, p, _ := e.call(owner, "POST", "/v1/approvals/"+id+"/begin", nil); code != 409 || !strings.Contains(p["detail"].(string), "passkey") {
+		t.Fatalf("no-passkey approve: %d %v", code, p)
+	}
+	// Simulate a successful passkey ceremony (covered by go-webauthn and the dashboard e2e).
+	if _, err := db.SQL().Exec(`UPDATE approvals SET status = 'approved', decided_by = 'test' WHERE id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
+	// Another agent can't use it.
+	other := e.agent(nil, []string{"shop"})
+	if code, _, _ := e.call(other, "POST", "/v1/apply", map[string]any{"manifest": drop, "confirm": hash, "approval": id}); code != 403 {
+		t.Fatalf("other agent spent approval: %d", code)
+	}
+	code, res, _ := e.call(agent, "POST", "/v1/apply", map[string]any{"manifest": drop, "confirm": hash, "approval": id, "intent": "drop db"})
+	if code != 200 || res["applied"] != true {
+		t.Fatalf("approved apply: %d %v", code, res)
+	}
+	if code, _, _ := e.call(agent, "POST", "/v1/apply", map[string]any{"manifest": drop, "confirm": hash, "approval": id}); code == 200 {
+		t.Fatal("approval reused")
+	}
+	_, got, _ := e.call(agent, "GET", "/v1/approvals/"+id, nil)
+	if got["status"] != "used" || got["usedBy"] == "" {
+		t.Fatalf("approval after use: %v", got)
 	}
 }

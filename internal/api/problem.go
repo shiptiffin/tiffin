@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"fmt"
+	"github.com/btahir/tiffin/internal/approvals"
 	"log/slog"
 	"net/http"
 
@@ -19,11 +20,14 @@ type Problem struct {
 	Type   string       `json:"type,omitempty" doc:"URI identifying the problem type"`
 	Title  string       `json:"title" doc:"Short summary"`
 	Status int          `json:"status" doc:"HTTP status code"`
-	Code   string       `json:"code" doc:"Stable machine-readable code" enum:"bad_request,validation,unauthenticated,forbidden,denied,not_found,conflict,precondition,confirm_required,plan_mismatch,internal"`
+	Code   string       `json:"code" doc:"Stable machine-readable code" enum:"bad_request,validation,unauthenticated,forbidden,denied,approval_required,not_found,conflict,precondition,confirm_required,plan_mismatch,internal"`
 	Detail string       `json:"detail,omitempty" doc:"What went wrong"`
 	Hint   string       `json:"hint,omitempty" doc:"What to do next"`
 	Errors []FieldError `json:"errors,omitempty" doc:"Per-field problems"`
 	Plan   *change.Plan `json:"plan,omitempty" doc:"The plan to review and confirm (confirm_required, plan_mismatch, denied)"`
+	// Approval is the request a human must approve (approval_required).
+	Approval    *approvals.Approval `json:"approval,omitempty"`
+	ApprovalURL string              `json:"approvalUrl,omitempty" doc:"Where a human approves it"`
 }
 
 // FieldError points at one bad input field.

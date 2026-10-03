@@ -51,7 +51,8 @@ API operations: use `api.Op(id, method, path, cliWords, risk, summary, descripti
 and `api.Wrap(handler)`; authorize with `api.PrincipalFrom(ctx).Require(tokens.Scope..., project)`;
 errors with `api.NewProblem(status, code, detail)` (codes: validation, forbidden, not_found,
 conflict, precondition, internal). Risk classes: `api.RiskRead`, `api.RiskWrite`,
-`api.RiskDestructive`. Don't embed path-param structs; declare path fields inline.
+`api.RiskDestructive`. Wrap operations whose output contains content others wrote (logs, rows,
+emails, file listings) in `api.Untrusted(op)` so MCP fences it as data. Don't embed path-param structs; declare path fields inline.
 Resources (things in `tiffin.config.ts`) change only through plan/apply; your reconciler
 makes the machine match. Operational actions (deploy, restore, send test email) are API
 operations. Small module bookkeeping goes in `p.DB.KVGet/KVPut(ns, key)`.

@@ -169,6 +169,31 @@ var migrations = []string{
 		value BLOB NOT NULL,
 		PRIMARY KEY (ns, key)
 	) STRICT, WITHOUT ROWID`,
+	`CREATE TABLE passkeys (
+		id         BLOB PRIMARY KEY,
+		name       TEXT NOT NULL,
+		credential TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		last_used  TEXT
+	) STRICT, WITHOUT ROWID`,
+	`CREATE TABLE approvals (
+		id           TEXT PRIMARY KEY,
+		project      TEXT NOT NULL,
+		plan_hash    TEXT NOT NULL,
+		plan         TEXT NOT NULL,
+		intent       TEXT NOT NULL,
+		requested_by TEXT NOT NULL,
+		requester    TEXT NOT NULL,
+		status       TEXT NOT NULL,
+		created_at   TEXT NOT NULL,
+		expires_at   TEXT NOT NULL,
+		decided_at   TEXT,
+		decided_by   TEXT,
+		reason       TEXT,
+		challenge    TEXT,
+		used_by      TEXT
+	) STRICT`,
+	`CREATE INDEX approvals_status ON approvals(status, created_at)`,
 }
 
 func (s *DB) migrate(ctx context.Context) error {

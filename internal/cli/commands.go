@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/api"
+	"github.com/btahir/tiffin/internal/approvals"
 	"github.com/btahir/tiffin/internal/dashboard"
 	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/manifest"
@@ -140,6 +142,12 @@ func (a *app) undoCmd() *cobra.Command {
 	return cmd
 }
 
+//go:embed scaffold/AGENTS.md
+var scaffoldAgents []byte
+
+//go:embed scaffold/SKILL.md
+var scaffoldSkill []byte
+
 const configTemplate = `import { defineConfig } from "tiffin-sdk";
 
 // Your app in a box. Run "tiffin plan" to see what this would set up.
@@ -176,8 +184,24 @@ func (a *app) initCmd() *cobra.Command {
 			if err := os.WriteFile(path, fmt.Appendf(nil, configTemplate, project), 0o644); err != nil {
 				return err
 			}
+			// Teach the agents that will work here how to work here.
+			extra := map[string][]byte{
+				filepath.Join(dir, "AGENTS.md"):                               scaffoldAgents,
+				filepath.Join(dir, ".claude", "skills", "tiffin", "SKILL.md"): scaffoldSkill,
+			}
+			for p, b := range extra {
+				if _, err := os.Stat(p); err == nil {
+					continue // never overwrite the project's own files
+				}
+				if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+					return err
+				}
+				if err := os.WriteFile(p, b, 0o644); err != nil {
+					return err
+				}
+			}
 			if a.tty() {
-				fmt.Fprintf(a.io.Out, "Wrote %s for project %q. Next: tiffin plan\n", path, project)
+				fmt.Fprintf(a.io.Out, "Wrote %s, AGENTS.md and the Tiffin agent skill for project %q. Next: tiffin plan\n", path, project)
 			} else {
 				writeJSON(a.io.Out, map[string]string{"path": path, "project": project})
 			}
@@ -239,6 +263,14 @@ func (a *app) serveCmd() *cobra.Command {
 						DataRoot: filepath.Dir(a.home), Domain: domain, PublicURL: publicURL, Version: version.Version,
 						Log: slog.New(slog.NewJSONHandler(a.io.Err, nil))}
 					d.Platform = plat
+					if u, err := url.Parse(publicURL); err == nil && u.Hostname() != "" {
+						am, err := approvals.New(d.DB, u.Hostname(), strings.TrimRight(publicURL, "/"))
+						if err != nil {
+							openErr = err
+							return
+						}
+						d.Approvals = am
+					}
 				}
 			})
 			if err != nil {

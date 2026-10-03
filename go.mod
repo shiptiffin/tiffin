@@ -3,14 +3,17 @@ module github.com/btahir/tiffin
 go 1.27.1
 
 require (
+	filippo.io/age v1.3.2
 	github.com/caddyserver/caddy/v2 v2.11.6
 	github.com/danielgtaylor/huma/v2 v2.39.1
 	github.com/dop251/goja v0.0.0-20261002135814-104bc28c3abd
 	github.com/evanw/esbuild v0.28.2
+	github.com/go-webauthn/webauthn v0.18.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/ncruces/go-sqlite3 v0.35.6
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/sys v0.48.0
 	golang.org/x/text v0.42.0
 )
 
@@ -21,7 +24,6 @@ require (
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.1 // indirect
 	dario.cat/mergo v1.0.2 // indirect
-	filippo.io/age v1.3.2 // indirect
 	filippo.io/bigmod v0.1.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	filippo.io/hpke v0.4.0 // indirect
@@ -33,6 +35,7 @@ require (
 	github.com/Masterminds/sprig/v3 v3.3.0 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/aryann/difflib v0.0.0-20210328193216-ff5ff6dc229b // indirect
+	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.25.0 // indirect
 	github.com/caddyserver/certmagic v0.25.6 // indirect
@@ -52,21 +55,30 @@ require (
 	github.com/dlclark/regexp2/v2 v2.8.1 // indirect
 	github.com/dunglas/go-urlpattern v1.0.0 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
+	github.com/emersion/go-message v0.18.2 // indirect
+	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
+	github.com/emersion/go-smtp v0.25.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.4 // indirect
 	github.com/go-jose/go-jose/v3 v3.0.5 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.5 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/go-sql-driver/mysql v1.10.1 // indirect
+	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
+	github.com/go-webauthn/x v0.3.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
+	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/pprof v0.0.0-20230207041349-798e818bf904 // indirect
 	github.com/google/s2a-go v0.1.10 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.22 // indirect
 	github.com/googleapis/gax-go/v2 v2.25.0 // indirect
+	github.com/gorilla/css v1.0.1 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/huandu/xstrings v1.6.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
@@ -82,6 +94,7 @@ require (
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
 	github.com/mholt/acmez/v3 v3.1.7 // indirect
+	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/miekg/dns v1.1.73 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/go-ps v1.0.0 // indirect
@@ -91,6 +104,7 @@ require (
 	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/nlnwa/whatwg-url v0.6.2 // indirect
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
+	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pires/go-proxyproto v0.15.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.24.1 // indirect
@@ -118,7 +132,9 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/tailscale/go-winio v0.0.0-20231025203758-c4f33415bf55 // indirect
 	github.com/tailscale/tscert v0.0.0-20251216020129-aea342f6d747 // indirect
+	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/urfave/cli v1.22.17 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	go.etcd.io/bbolt v1.5.0 // indirect
@@ -157,7 +173,6 @@ require (
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/term v0.46.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 	google.golang.org/api v0.298.0 // indirect

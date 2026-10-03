@@ -9,7 +9,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/btahir/tiffin/internal/approvals"
 	"github.com/btahir/tiffin/internal/platform"
 	"io"
 	"net/http"
@@ -37,6 +39,10 @@ const (
 	ExtRisk = "x-tiffin-risk"
 	// ExtCLI is the CLI command path, e.g. "tokens create".
 	ExtCLI = "x-tiffin-cli"
+	// ExtUntrusted marks operations whose output carries content written by
+	// others (logs, rows, emails, files). MCP wraps it so agents treat it as
+	// data, never as instructions.
+	ExtUntrusted = "x-tiffin-untrusted"
 	// ExtConfirm marks plan-driven operations: without a confirm hash they
 	// only return the plan (status 428) and change nothing.
 	ExtConfirm = "x-tiffin-confirm"
@@ -67,6 +73,8 @@ type Deps struct {
 	PublicURL string
 	// Platform is the box runtime (nil off-box and when only the spec is built).
 	Platform *platform.Platform
+	// Approvals lets agents ask humans to approve plans (nil off-box).
+	Approvals *approvals.Manager
 }
 
 // API is the HTTP API.
@@ -94,6 +102,7 @@ func New(d Deps) *API {
 	a.register()
 	a.registerBox()
 	a.registerSecrets()
+	a.registerApprovals()
 	// Modules add their own operations; they become CLI commands and MCP tools too.
 	for _, m := range platform.Modules() {
 		if r, ok := m.(platform.APIRegistrar); ok {
@@ -156,6 +165,15 @@ var bearer = []map[string][]string{{"bearer": {}}}
 func Op(id, method, path, cli, risk, summary, desc string, tags ...string) huma.Operation {
 	return op(id, method, path, cli, risk, summary, desc, tags...)
 }
+
+// Untrusted marks an operation's output as untrusted data (see ExtUntrusted).
+func Untrusted(o huma.Operation) huma.Operation {
+	o.Extensions[ExtUntrusted] = true
+	return o
+}
+
+// IsUntrusted reports whether an operation's output is untrusted data.
+func IsUntrusted(o *huma.Operation) bool { v, _ := o.Extensions[ExtUntrusted].(bool); return v }
 
 // Wrap converts domain errors returned by a module handler into Problems.
 func Wrap[I, O any](h func(context.Context, *I) (*O, error)) func(context.Context, *I) (*O, error) {
@@ -228,11 +246,13 @@ type applyBody struct {
 	Manifest ManifestJSON `json:"manifest" required:"true"`
 	Confirm  string       `json:"confirm,omitempty" doc:"The plan hash (or its first 8+ characters) you reviewed. Without it nothing is applied and the plan comes back with status 428."`
 	Intent   string       `json:"intent,omitempty" maxLength:"500" doc:"Why you are making this change, in one sentence. Shown in the activity timeline."`
+	Approval string       `json:"approval,omitempty" pattern:"^apr_[0-9A-Z]{26}$" doc:"An approval ID a human granted for exactly this plan (see approval_required). Single use."`
 }
 
 type undoBody struct {
-	Confirm string `json:"confirm,omitempty" doc:"The undo plan's hash (or its first 8+ characters). Without it the undo plan comes back with status 428."`
-	Intent  string `json:"intent,omitempty" maxLength:"500" doc:"Why you are undoing, in one sentence."`
+	Confirm  string `json:"confirm,omitempty" doc:"The undo plan's hash (or its first 8+ characters). Without it the undo plan comes back with status 428."`
+	Intent   string `json:"intent,omitempty" maxLength:"500" doc:"Why you are undoing, in one sentence."`
+	Approval string `json:"approval,omitempty" pattern:"^apr_[0-9A-Z]{26}$" doc:"An approval ID a human granted for exactly this plan (see approval_required). Single use."`
 }
 
 // ApplyResult is the outcome of a confirmed apply or undo.
@@ -415,15 +435,15 @@ func (a *API) register() {
 			if err != nil {
 				return nil, err
 			}
-			return a.apply(ctx, p, plan, in.Body.Confirm, in.Body.Intent)
+			return a.apply(ctx, p, plan, in.Body.Confirm, in.Body.Intent, in.Body.Approval)
 		}))
 
 	type changesQuery struct {
 		Project string `query:"project" doc:"Only this project"`
 		Limit   int    `query:"limit" minimum:"1" maximum:"200" default:"50" doc:"Maximum changes to return"`
 	}
-	huma.Register(api, op("changes-list", http.MethodGet, "/v1/changes", "changes list", RiskRead, "List changes",
-		"The change log, newest first: who changed what, why, the risk and whether it was undone.", "changes"),
+	huma.Register(api, Untrusted(op("changes-list", http.MethodGet, "/v1/changes", "changes list", RiskRead, "List changes",
+		"The change log, newest first: who changed what, why, the risk and whether it was undone.", "changes")),
 		wrap(func(ctx context.Context, in *changesQuery) (*struct{ Body []*change.Change }, error) {
 			p := PrincipalFrom(ctx)
 			if err := p.Require(tokens.ScopeRead, in.Project); err != nil {
@@ -462,8 +482,8 @@ func (a *API) register() {
 	type changePath struct {
 		ID string `path:"id" pattern:"^chg_[0-9A-Z]{26}$" doc:"Change ID"`
 	}
-	huma.Register(api, op("change-get", http.MethodGet, "/v1/changes/{id}", "changes get", RiskRead, "Get a change",
-		"One change with its full plan and inverse.", "changes"),
+	huma.Register(api, Untrusted(op("change-get", http.MethodGet, "/v1/changes/{id}", "changes get", RiskRead, "Get a change",
+		"One change with its full plan and inverse.", "changes")),
 		wrap(func(ctx context.Context, in *changePath) (*struct{ Body *change.Change }, error) {
 			c, err := a.deps.DB.GetChange(ctx, in.ID)
 			if err != nil {
@@ -504,7 +524,7 @@ func (a *API) register() {
 			if intent == "" {
 				intent = "undo " + in.ID + ": " + c.Intent
 			}
-			return a.apply(ctx, p, plan, in.Body.Confirm, intent)
+			return a.apply(ctx, p, plan, in.Body.Confirm, intent, in.Body.Approval)
 		}))
 
 	huma.Register(api, op("tokens-list", http.MethodGet, "/v1/tokens", "tokens list", RiskRead, "List tokens",
@@ -685,12 +705,44 @@ func (a *API) Status(ctx context.Context, started time.Time) StatusReport {
 	return r
 }
 
-func (a *API) apply(ctx context.Context, p *tokens.Principal, plan *change.Plan, confirm, intent string) (*struct{ Body ApplyResult }, error) {
+func (a *API) apply(ctx context.Context, p *tokens.Principal, plan *change.Plan, confirm, intent, approval string) (*struct{ Body ApplyResult }, error) {
+	authorize := p.Authorizer()
+	if approval != "" {
+		// A human approved exactly this plan for this caller: their passkey
+		// stands in for the scope the caller lacks.
+		if a.deps.Approvals == nil {
+			return nil, problem(501, "internal", "approvals need a box")
+		}
+		if !change.MatchHash(plan.Hash, confirm) {
+			return nil, &change.ConfirmRequiredError{Plan: plan, Mismatch: confirm != ""}
+		}
+		if err := a.deps.Approvals.Spend(ctx, approval, p, plan); err != nil {
+			return nil, problem(403, "denied", err.Error())
+		}
+		authorize = nil
+	}
 	c, err := a.deps.Engine.Apply(ctx, change.ApplyRequest{
-		Plan: plan, Confirm: confirm, Actor: p.Actor(), Intent: intent, Authorize: p.Authorizer(),
+		Plan: plan, Confirm: confirm, Actor: p.Actor(), Intent: intent, Authorize: authorize,
 	})
+	var denied *change.DeniedError
+	if errors.As(err, &denied) && p.Kind == tokens.KindAgent && a.deps.Approvals != nil {
+		ap, aerr := a.deps.Approvals.Request(ctx, p, plan, intent)
+		if aerr != nil {
+			return nil, aerr
+		}
+		out := problem(403, "approval_required", denied.Reason)
+		out.Plan = plan
+		out.Approval = ap
+		out.ApprovalURL = strings.TrimRight(a.deps.PublicURL, "/") + "/approvals/" + ap.ID
+		out.Hint = "a human must approve this plan with their passkey at " + out.ApprovalURL +
+			"; then call again with confirm=" + plan.Hash[:12] + " and approval=" + ap.ID
+		return nil, out
+	}
 	if err != nil {
 		return nil, err
+	}
+	if approval != "" {
+		a.deps.Approvals.MarkUsedBy(ctx, approval, c.ID)
 	}
 	if c != nil && a.deps.Platform != nil {
 		a.deps.Platform.AfterApply(c)
