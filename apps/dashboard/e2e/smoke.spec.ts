@@ -206,11 +206,12 @@ test("box → throttle stages → plan tray → apply → undo", async ({ page, 
 
   const notes = page.getByRole("region", { name: "Project notes" });
   await expect(notes).toBeVisible();
-  const site = notes.getByRole("slider", { name: "site instances" });
-  await expect(site).toHaveAttribute("aria-valuenow", "1");
-  await site.focus();
+  // The search worker: a static site has no instances to scale.
+  const search = notes.getByRole("slider", { name: "search instances" });
+  await expect(search).toHaveAttribute("aria-valuenow", "1");
+  await search.focus();
   await page.keyboard.press("ArrowRight");
-  await expect(site).toHaveAttribute("aria-valuenow", "2");
+  await expect(search).toHaveAttribute("aria-valuenow", "2");
 
   // Staged, not applied: the bar offers a review.
   const bar = page.getByRole("region", { name: "Staged changes" });
@@ -218,7 +219,7 @@ test("box → throttle stages → plan tray → apply → undo", async ({ page, 
   await bar.getByRole("button", { name: "Review" }).click();
 
   const tray = page.getByRole("dialog", { name: /staged on notes/ });
-  await expect(tray.getByRole("heading", { name: "Scale site from 1 to 2 instances" })).toBeVisible();
+  await expect(tray.getByRole("heading", { name: "Scale search from 1 to 2 instances" })).toBeVisible();
   await expect(tray.getByText("If you undo")).toBeVisible();
   await expect(tray.locator(".diff .ln[data-k=add]")).toContainText("instances: 2");
 
@@ -229,12 +230,12 @@ test("box → throttle stages → plan tray → apply → undo", async ({ page, 
   await bar.getByRole("button", { name: "Review" }).click();
   await tray.getByRole("button", { name: "Apply 1 change to notes" }).click();
 
-  const toast = page.getByRole("status").filter({ hasText: "Scaled site to 2 instances in notes." });
+  const toast = page.getByRole("status").filter({ hasText: "Scaled search to 2 instances in notes." });
   await expect(toast).toBeVisible();
-  await expect(site).toHaveAttribute("aria-valuenow", "2");
+  await expect(search).toHaveAttribute("aria-valuenow", "2");
   await toast.getByRole("button", { name: "Undo" }).click();
   await expect(page.getByText("Undone. Everything is back as it was.")).toBeVisible();
-  await expect(site).toHaveAttribute("aria-valuenow", "1");
+  await expect(search).toHaveAttribute("aria-valuenow", "1");
 
   expect(problems, problems.join("\n")).toEqual([]);
 });

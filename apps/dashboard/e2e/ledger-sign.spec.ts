@@ -59,10 +59,13 @@ test("an agent asks, a person signs with a passkey, the agent applies, the perso
   // The agent's request: make the uploads bucket public (outbound, needs a person).
   const m = (await (await page.request.get(`${baseURL}/v1/projects/${project}/manifest`, { headers: owner })).json()).manifest;
   m.services.storage.buckets[bucket] = { ...m.services.storage.buckets[bucket], public: true };
+  // The seeded box already has codex asking for exactly that; a pending ask for the same plan is the same
+  // approval, so this one also tells the site where previews live (its own plan, its own approval).
+  if (!external) m.env = { ...(m.env ?? {}), PREVIEW_BUCKET: bucket };
   const plan = await (await page.request.post(`${baseURL}/v1/plan`, { headers: agent, data: { manifest: m } })).json();
   const intent = external
     ? "Make the uploads bucket public. Product photos load from it on the storefront, and private links expire after an hour."
-    : "Make the thumbnails bucket public. Link previews load from it, and private links expire after an hour.";
+    : "Make the thumbnails bucket public and point the site at it. Link previews load from it, and private links expire after an hour.";
   const ask = await page.request.post(`${baseURL}/v1/apply`, { headers: agent, data: { manifest: m, confirm: plan.hash, intent } });
   expect(ask.status()).toBe(403);
   const approvalId = (await ask.json()).approval.id as string;
