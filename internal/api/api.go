@@ -103,6 +103,7 @@ func New(d Deps) *API {
 	a.registerBox()
 	a.registerSecrets()
 	a.registerApprovals()
+	a.registerPeople()
 	// Modules add their own operations; they become CLI commands and MCP tools too.
 	for _, m := range platform.Modules() {
 		if r, ok := m.(platform.APIRegistrar); ok {
@@ -649,7 +650,7 @@ func (a *API) registerBox() {
 			SetCookie http.Cookie `header:"Set-Cookie"`
 		}, error) {
 			p := PrincipalFrom(ctx)
-			if p.Kind == tokens.KindHuman && p.Name == "dashboard session" {
+			if p.Kind == tokens.KindHuman && p.Person != "" {
 				owner := &tokens.Principal{TokenID: p.TokenID, Name: p.Name, Scopes: []tokens.Scope{tokens.ScopeAll}, Projects: []string{"*"}}
 				_ = a.deps.Tokens.Revoke(ctx, owner, p.TokenID)
 			}

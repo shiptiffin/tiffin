@@ -15,13 +15,23 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 )
 
-// The box has one human identity for now: its owner. Passkeys belong to it.
-type owner struct{ creds []webauthn.Credential }
+// owner is the person whose passkeys are in play (each person has their own).
+type owner struct {
+	id    string
+	creds []webauthn.Credential
+}
 
-func (o *owner) WebAuthnID() []byte                         { return []byte("tiffin-box-owner") }
-func (o *owner) WebAuthnName() string                       { return "owner" }
-func (o *owner) WebAuthnDisplayName() string                { return "Box owner" }
+func (o *owner) WebAuthnID() []byte                         { return []byte(o.id) }
+func (o *owner) WebAuthnName() string                       { return o.id }
+func (o *owner) WebAuthnDisplayName() string                { return o.id }
 func (o *owner) WebAuthnCredentials() []webauthn.Credential { return o.creds }
+
+func personOf(p *tokens.Principal) string {
+	if p.Person != "" {
+		return p.Person
+	}
+	return tokens.OwnerPerson
+}
 
 // Passkey is a registered passkey's metadata.
 type Passkey struct {
@@ -31,13 +41,13 @@ type Passkey struct {
 	LastUsed  *time.Time `json:"lastUsed,omitempty"`
 }
 
-func (m *Manager) owner(ctx context.Context) (*owner, error) {
-	rows, err := m.db.SQL().QueryContext(ctx, `SELECT credential FROM passkeys`)
+func (m *Manager) owner(ctx context.Context, person string) (*owner, error) {
+	rows, err := m.db.SQL().QueryContext(ctx, `SELECT credential FROM passkeys WHERE coalesce(person, ?) = ?`, tokens.OwnerPerson, person)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	o := &owner{}
+	o := &owner{id: person}
 	for rows.Next() {
 		var raw string
 		if err := rows.Scan(&raw); err != nil {
@@ -51,9 +61,9 @@ func (m *Manager) owner(ctx context.Context) (*owner, error) {
 	return o, rows.Err()
 }
 
-// Passkeys lists registered passkeys.
-func (m *Manager) Passkeys(ctx context.Context) ([]Passkey, error) {
-	rows, err := m.db.SQL().QueryContext(ctx, `SELECT id, name, created_at, last_used FROM passkeys ORDER BY created_at`)
+// Passkeys lists the caller's registered passkeys.
+func (m *Manager) Passkeys(ctx context.Context, by *tokens.Principal) ([]Passkey, error) {
+	rows, err := m.db.SQL().QueryContext(ctx, `SELECT id, name, created_at, last_used FROM passkeys WHERE coalesce(person, ?) = ? ORDER BY created_at`, tokens.OwnerPerson, personOf(by))
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +97,7 @@ func (m *Manager) DeletePasskey(ctx context.Context, by *tokens.Principal, id st
 	if err != nil {
 		return ErrNotFound
 	}
-	res, err := m.db.SQL().ExecContext(ctx, `DELETE FROM passkeys WHERE id = ?`, raw)
+	res, err := m.db.SQL().ExecContext(ctx, `DELETE FROM passkeys WHERE id = ? AND coalesce(person, ?) = ?`, raw, tokens.OwnerPerson, personOf(by))
 	if err != nil {
 		return err
 	}
@@ -125,7 +135,7 @@ func (m *Manager) BeginRegistration(ctx context.Context, by *tokens.Principal) (
 	if err := humanOnly(by); err != nil {
 		return nil, err
 	}
-	o, err := m.owner(ctx)
+	o, err := m.owner(ctx, personOf(by))
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +163,7 @@ func (m *Manager) FinishRegistration(ctx context.Context, by *tokens.Principal, 
 	if err != nil {
 		return nil, fmt.Errorf("passkey response: %w", err)
 	}
-	o, err := m.owner(ctx)
+	o, err := m.owner(ctx, personOf(by))
 	if err != nil {
 		return nil, err
 	}
@@ -167,8 +177,8 @@ func (m *Manager) FinishRegistration(ctx context.Context, by *tokens.Principal, 
 		name = "Passkey"
 	}
 	now := m.now().UTC()
-	if _, err := m.db.SQL().ExecContext(ctx, `INSERT INTO passkeys(id, name, credential, created_at) VALUES (?, ?, ?, ?)`,
-		cred.ID, name, string(raw), ts(now)); err != nil {
+	if _, err := m.db.SQL().ExecContext(ctx, `INSERT INTO passkeys(id, name, credential, created_at, person) VALUES (?, ?, ?, ?, ?)`,
+		cred.ID, name, string(raw), ts(now), personOf(by)); err != nil {
 		return nil, err
 	}
 	_ = m.db.Audit(ctx, by.TokenID, "passkey.add", name, nil)
@@ -188,7 +198,7 @@ func (m *Manager) BeginApproval(ctx context.Context, by *tokens.Principal, id st
 	if a.Status != Pending {
 		return nil, ErrNotPending
 	}
-	o, err := m.owner(ctx)
+	o, err := m.owner(ctx, personOf(by))
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +225,7 @@ func (m *Manager) FinishApproval(ctx context.Context, by *tokens.Principal, id s
 	if err != nil {
 		return nil, fmt.Errorf("passkey response: %w", err)
 	}
-	o, err := m.owner(ctx)
+	o, err := m.owner(ctx, personOf(by))
 	if err != nil {
 		return nil, err
 	}

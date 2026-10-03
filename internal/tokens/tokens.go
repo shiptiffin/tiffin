@@ -70,6 +70,11 @@ type Principal struct {
 	// mints never outlive it.
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 	Session   string     `json:"session,omitempty"` // agent session label, set per request
+	// Person is the human behind a human token (dashboard sessions), if any.
+	Person string `json:"person,omitempty"`
+	// PersonName and Role describe that person.
+	PersonName string `json:"personName,omitempty"`
+	Role       string `json:"role,omitempty" enum:"owner,admin,member,viewer,"`
 }
 
 // Has reports whether p holds scope s, directly or via the ladder.
@@ -156,10 +161,12 @@ type Token struct {
 	ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
 	RevokedAt  *time.Time `json:"revokedAt,omitempty"`
 	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+	Person     string     `json:"person,omitempty"`
 }
 
 // CreateRequest describes a new token.
 type CreateRequest struct {
+	Person   string        `json:"person,omitempty"` // the human this token acts for (dashboard sessions)
 	Name     string        `json:"name"`
 	Kind     string        `json:"kind"`     // "agent" (default) or "human"
 	Scopes   []Scope       `json:"scopes"`   // default: read, plan, apply:reversible
@@ -217,6 +224,9 @@ func (m *Manager) Bootstrap(ctx context.Context) (string, bool, error) {
 		return "", false, err
 	}
 	_ = m.db.Audit(ctx, "system", "token.bootstrap", t.ID, map[string]any{"name": t.Name})
+	if err := m.ensureOwnerPerson(ctx); err != nil {
+		return "", false, err
+	}
 	return secret, true, nil
 }
 
@@ -278,7 +288,7 @@ func (m *Manager) Create(ctx context.Context, by *Principal, req CreateRequest) 
 	t := &Token{
 		ID: ids.New("tok"), Name: req.Name, Kind: req.Kind,
 		Scopes: dedupe(req.Scopes), Projects: dedupe(req.Projects),
-		Sponsor: by.TokenID, CreatedAt: now,
+		Sponsor: by.TokenID, CreatedAt: now, Person: req.Person,
 	}
 	if req.TTL > 0 {
 		exp := now.Add(req.TTL)
@@ -311,10 +321,10 @@ func dedupe[T comparable](in []T) []T {
 func (m *Manager) insert(ctx context.Context, t *Token, secret string) error {
 	scopes, _ := json.Marshal(t.Scopes)
 	projects, _ := json.Marshal(t.Projects)
-	_, err := m.db.SQL().ExecContext(ctx, `INSERT INTO tokens(id, name, kind, hash, scopes, projects, sponsor, created_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err := m.db.SQL().ExecContext(ctx, `INSERT INTO tokens(id, name, kind, hash, scopes, projects, sponsor, created_at, expires_at, person)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.Name, t.Kind, hash(secret), string(scopes), string(projects), nullStr(t.Sponsor),
-		ts(&t.CreatedAt), ts(t.ExpiresAt))
+		ts(&t.CreatedAt), ts(t.ExpiresAt), nullStr(t.Person))
 	return err
 }
 
@@ -338,7 +348,20 @@ func (m *Manager) Authenticate(ctx context.Context, secret string) (*Principal, 
 	if t.LastUsedAt == nil || now.Sub(*t.LastUsedAt) > time.Minute {
 		_, _ = m.db.SQL().ExecContext(ctx, `UPDATE tokens SET last_used_at = ? WHERE id = ?`, ts(&now), t.ID)
 	}
-	return &Principal{TokenID: t.ID, Name: t.Name, Kind: t.Kind, Scopes: t.Scopes, Projects: t.Projects, Sponsor: t.Sponsor, ExpiresAt: t.ExpiresAt}, nil
+	person := t.Person
+	if t.Kind == KindOwner {
+		person = OwnerPerson
+	}
+	pr := &Principal{TokenID: t.ID, Name: t.Name, Kind: t.Kind, Scopes: t.Scopes, Projects: t.Projects, Sponsor: t.Sponsor, ExpiresAt: t.ExpiresAt, Person: person}
+	if person != "" {
+		if pp, err := m.GetPerson(ctx, person); err == nil {
+			if pp.DisabledAt != nil {
+				return nil, ErrUnauthenticated
+			}
+			pr.PersonName, pr.Role = pp.Name, pp.Role
+		}
+	}
+	return pr, nil
 }
 
 // Revoke revokes token id. Owners can revoke any token; others only tokens
@@ -429,20 +452,21 @@ func (m *Manager) List(ctx context.Context, includeRevoked bool) ([]*Token, erro
 	return out, rows.Err()
 }
 
-const tokenCols = `SELECT id, name, kind, scopes, projects, sponsor, created_at, expires_at, revoked_at, last_used_at`
+const tokenCols = `SELECT id, name, kind, scopes, projects, sponsor, created_at, expires_at, revoked_at, last_used_at, person`
 
 type scanner interface{ Scan(dest ...any) error }
 
 func scanToken(r scanner) (*Token, error) {
 	var t Token
 	var scopes, projects, created string
-	var sponsor, expires, revoked, used sql.NullString
-	if err := r.Scan(&t.ID, &t.Name, &t.Kind, &scopes, &projects, &sponsor, &created, &expires, &revoked, &used); err != nil {
+	var sponsor, expires, revoked, used, person sql.NullString
+	if err := r.Scan(&t.ID, &t.Name, &t.Kind, &scopes, &projects, &sponsor, &created, &expires, &revoked, &used, &person); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(scopes), &t.Scopes)
 	_ = json.Unmarshal([]byte(projects), &t.Projects)
 	t.Sponsor = sponsor.String
+	t.Person = person.String
 	t.CreatedAt = parseTS(created)
 	t.ExpiresAt = parseNullTS(expires)
 	t.RevokedAt = parseNullTS(revoked)

@@ -2,7 +2,7 @@ package tokens
 
 import (
 	"context"
-	"crypto/rand"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -23,17 +23,11 @@ func (m *Manager) CreateLoginLink(ctx context.Context, by *Principal) (string, t
 	if !by.BoxAdmin() {
 		return "", time.Time{}, fmt.Errorf("%w: only a box admin can create dashboard login links", ErrForbidden)
 	}
-	var b [20]byte
-	_, _ = rand.Read(b[:])
-	code := loginPrefix + strings.ToLower(b32.EncodeToString(b[:]))
-	now := m.now().UTC()
-	exp := now.Add(LoginLinkTTL)
-	if _, err := m.db.SQL().ExecContext(ctx, `INSERT INTO login_links(hash, created_by, created_at, expires_at) VALUES (?, ?, ?, ?)`,
-		hash(code), by.TokenID, ts(&now), ts(&exp)); err != nil {
-		return "", time.Time{}, err
+	person := by.Person
+	if person == "" {
+		person = OwnerPerson // a box-admin CLI token signs in as the owner
 	}
-	_ = m.db.Audit(ctx, by.TokenID, "login_link.create", "dashboard", map[string]any{"expiresAt": exp})
-	return code, exp, nil
+	return m.LoginLinkFor(ctx, &Principal{TokenID: by.TokenID, Name: by.Name, Kind: KindOwner, Scopes: []Scope{ScopeAll}, Projects: []string{"*"}, Person: person}, person)
 }
 
 // RedeemLoginLink spends a login code (once) and mints a dashboard session:
@@ -45,10 +39,11 @@ func (m *Manager) RedeemLoginLink(ctx context.Context, code string) (string, *To
 	}
 	now := m.now().UTC()
 	var createdBy string
+	var personID sql.NullString
 	// Mark used in the same statement that checks it, so a code works once.
 	err := m.db.SQL().QueryRowContext(ctx, `UPDATE login_links SET used_at = ?
-		WHERE hash = ? AND used_at IS NULL AND expires_at > ? RETURNING created_by`,
-		ts(&now), hash(code), ts(&now)).Scan(&createdBy)
+		WHERE hash = ? AND used_at IS NULL AND expires_at > ? RETURNING created_by, person`,
+		ts(&now), hash(code), ts(&now)).Scan(&createdBy, &personID)
 	if err != nil {
 		return "", nil, ErrUnauthenticated
 	}
@@ -56,6 +51,15 @@ func (m *Manager) RedeemLoginLink(ctx context.Context, code string) (string, *To
 	if err != nil || creator.RevokedAt != nil || (creator.ExpiresAt != nil && !now.Before(*creator.ExpiresAt)) {
 		return "", nil, ErrUnauthenticated
 	}
+	pid := personID.String
+	if pid == "" {
+		pid = OwnerPerson
+	}
+	person, err := m.GetPerson(ctx, pid)
+	if err != nil || person.DisabledAt != nil {
+		return "", nil, ErrUnauthenticated
+	}
 	by := &Principal{TokenID: creator.ID, Name: creator.Name, Kind: creator.Kind, Scopes: creator.Scopes, Projects: creator.Projects, ExpiresAt: creator.ExpiresAt}
-	return m.Create(ctx, by, CreateRequest{Name: "dashboard session", Kind: KindHuman, Scopes: creator.Scopes, Projects: creator.Projects, TTL: SessionTTL})
+	// The session gets the person's role, never more than whoever sent the link.
+	return m.Create(ctx, by, CreateRequest{Person: person.ID, Name: person.Name, Kind: KindHuman, Scopes: ScopesFor(person.Role), Projects: []string{"*"}, TTL: SessionTTL})
 }

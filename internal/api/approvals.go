@@ -143,7 +143,7 @@ func (a *API) registerApprovals() {
 			if !PrincipalFrom(ctx).BoxAdmin() {
 				return nil, NewProblem(403, "forbidden", "box admins only")
 			}
-			l, err := m.Passkeys(ctx)
+			l, err := m.Passkeys(ctx, PrincipalFrom(ctx))
 			return &struct{ Body []approvals.Passkey }{l}, err
 		}))
 

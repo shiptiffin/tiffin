@@ -400,3 +400,67 @@ func TestAgentApprovalFlow(t *testing.T) {
 		t.Fatalf("approval after use: %v", got)
 	}
 }
+
+func TestPeopleRolesAndInvites(t *testing.T) {
+	e := newEnv(t)
+	code, inv, _ := e.call(e.owner, "POST", "/v1/people", map[string]any{"name": "Sam", "email": "sam@example.com", "role": "member"})
+	if code != 200 || !strings.Contains(inv["url"].(string), "/login#tfl_") {
+		t.Fatalf("invite: %d %v", code, inv)
+	}
+	person := inv["person"].(map[string]any)["id"].(string)
+	codeStr := strings.SplitN(inv["url"].(string), "#", 2)[1]
+	// Redeem the invite like the dashboard does.
+	req, _ := http.NewRequest("POST", e.srv.URL+"/v1/session", strings.NewReader(`{"code":"`+codeStr+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("redeem: %v %d", err, res.StatusCode)
+	}
+	var session string
+	for _, c := range res.Cookies() {
+		if c.Name == api.SessionCookie {
+			session = c.Value
+		}
+	}
+	res.Body.Close()
+	_, who, _ := e.call(session, "GET", "/v1/whoami", nil)
+	if who["role"] != "member" || who["personName"] != "Sam" || who["name"] != "Sam" {
+		t.Fatalf("member session: %v", who)
+	}
+	// The same link does not work twice.
+	res2, _ := http.Post(e.srv.URL+"/v1/session", "application/json", strings.NewReader(`{"code":"`+codeStr+`"}`))
+	if res2.StatusCode != 401 {
+		t.Fatalf("reused invite: %d", res2.StatusCode)
+	}
+	// Members can plan and apply reversible changes, not irreversible ones, and can't manage people.
+	m := map[string]any{"project": "shop", "services": map[string]any{"postgres": map[string]any{}}}
+	_, plan, _ := e.call(session, "POST", "/v1/plan", map[string]any{"manifest": m})
+	if code, out, _ := e.call(session, "POST", "/v1/apply", map[string]any{"manifest": m, "confirm": plan["hash"], "intent": "by Sam"}); code != 200 || out["change"].(map[string]any)["actor"].(map[string]any)["name"] != "Sam" {
+		t.Fatalf("member apply: %d %v", code, out)
+	}
+	drop := map[string]any{"project": "shop"}
+	_, plan, _ = e.call(session, "POST", "/v1/plan", map[string]any{"manifest": drop})
+	if code, _, _ := e.call(session, "POST", "/v1/apply", map[string]any{"manifest": drop, "confirm": plan["hash"]}); code != 403 {
+		t.Fatalf("member irreversible: %d", code)
+	}
+	if code, _, _ := e.call(session, "POST", "/v1/people", map[string]any{"name": "X", "role": "admin"}); code != 403 {
+		t.Fatalf("member invited someone: %d", code)
+	}
+	// Demote to viewer: the session ends at once.
+	if code, _, _ := e.call(e.owner, "PATCH", "/v1/people/"+person, map[string]any{"role": "viewer"}); code != 200 {
+		t.Fatalf("demote: %d", code)
+	}
+	if code, _, _ := e.call(session, "GET", "/v1/whoami", nil); code != 401 {
+		t.Fatalf("session survived a role change: %d", code)
+	}
+	if code, _, _ := e.call(e.owner, "DELETE", "/v1/people/"+person, nil); code != 204 && code != 200 {
+		t.Fatalf("remove: %d", code)
+	}
+	if code, _, _ := e.call(e.owner, "DELETE", "/v1/people/usr_owner", nil); code != 403 {
+		t.Fatalf("owner removable: %d", code)
+	}
+	_, _, people := e.call(e.owner, "GET", "/v1/people", nil)
+	if len(people) != 2 || people[0].(map[string]any)["role"] != "owner" {
+		t.Fatalf("people: %v", people)
+	}
+}

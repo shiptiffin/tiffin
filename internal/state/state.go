@@ -194,6 +194,18 @@ var migrations = []string{
 		used_by      TEXT
 	) STRICT`,
 	`CREATE INDEX approvals_status ON approvals(status, created_at)`,
+	`CREATE TABLE people (
+		id          TEXT PRIMARY KEY,
+		name        TEXT NOT NULL,
+		email       TEXT NOT NULL,
+		role        TEXT NOT NULL,
+		created_at  TEXT NOT NULL,
+		created_by  TEXT NOT NULL,
+		disabled_at TEXT
+	) STRICT`,
+	`ALTER TABLE tokens ADD COLUMN person TEXT`,
+	`ALTER TABLE login_links ADD COLUMN person TEXT`,
+	`ALTER TABLE passkeys ADD COLUMN person TEXT`,
 }
 
 func (s *DB) migrate(ctx context.Context) error {
