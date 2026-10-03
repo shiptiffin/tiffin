@@ -575,6 +575,7 @@ function ServiceRow({
     <TierRow
       lever={
         <Breaker
+          printed="beside"
           label={meta.label}
           state={state}
           staged={st}
