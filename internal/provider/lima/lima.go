@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,13 +31,28 @@ type Provider struct {
 	Instance string
 	Disk     string // at most 7 characters: XFS labels "lima-<disk>" max 12
 	DiskSize string // default "20GiB"
+	Port     int    // host port forwarded to the box's HTTPS port; default 8443
 }
 
-// New returns the default local box provider.
-func New() *Provider { return &Provider{Instance: "tiffin", Disk: "tiffin", DiskSize: "20GiB"} }
+// New returns the local box provider. TIFFIN_LIMA_INSTANCE, TIFFIN_LIMA_DISK
+// and TIFFIN_LIMA_PORT override the defaults (tests use them to run a second
+// box beside yours).
+func New() *Provider {
+	p := &Provider{Instance: "tiffin", Disk: "tiffin", DiskSize: "20GiB", Port: HTTPSPort}
+	if v := os.Getenv("TIFFIN_LIMA_INSTANCE"); v != "" {
+		p.Instance = v
+	}
+	if v := os.Getenv("TIFFIN_LIMA_DISK"); v != "" {
+		p.Disk = v
+	}
+	if v, err := strconv.Atoi(os.Getenv("TIFFIN_LIMA_PORT")); err == nil && v > 0 {
+		p.Port = v
+	}
+	return p
+}
 
 func (p *Provider) Name() string  { return "local" }
-func (p *Provider) HostPort() int { return HTTPSPort }
+func (p *Provider) HostPort() int { return p.Port }
 
 // Available reports whether limactl is installed.
 func Available() error {
@@ -93,7 +109,7 @@ func (p *Provider) Up(ctx context.Context, progress func(string)) (provider.Mach
 		if err := os.WriteFile(tmpl, template, 0o600); err != nil {
 			return nil, err
 		}
-		set := fmt.Sprintf(`.additionalDisks = [{"name": %q, "format": true, "fsType": "xfs"}]`, p.Disk)
+		set := fmt.Sprintf(`.additionalDisks = [{"name": %q, "format": true, "fsType": "xfs"}] | .portForwards[0].hostPort = %d`, p.Disk, p.Port)
 		if runtime.GOOS != "darwin" {
 			set += ` | .vmType = "qemu"`
 		}

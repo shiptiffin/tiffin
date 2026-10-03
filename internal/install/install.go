@@ -16,6 +16,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -38,15 +39,22 @@ const (
 // Options describe how the box serves.
 type Options struct {
 	Domain    string // e.g. "tiffin.localhost"
-	HTTPSPort int    // e.g. 8443 locally, 443 on a server
+	HTTPSPort int    // the box's HTTPS port, e.g. 8443 locally, 443 on a server
 	HTTPPort  int    // e.g. 8080 locally, 80 on a server
+	// PublicPort is the port people reach HTTPS on, when it differs from
+	// HTTPSPort (a forwarded local VM). 0 means HTTPSPort.
+	PublicPort int
 }
 
 // PublicURL is the dashboard URL for these options.
 func (o Options) PublicURL() string {
 	u := "https://dashboard." + o.Domain
-	if o.HTTPSPort != 443 {
-		u += fmt.Sprintf(":%d", o.HTTPSPort)
+	port := o.HTTPSPort
+	if o.PublicPort != 0 {
+		port = o.PublicPort
+	}
+	if port != 443 {
+		u += fmt.Sprintf(":%d", port)
 	}
 	return u
 }
@@ -111,10 +119,19 @@ chmod 0755 /tmp/tiffin.new
 		return nil, fmt.Errorf("set up the service: %w\n%s", err, stderr)
 	}
 	progress("starting tiffin (rolls back automatically if unhealthy)")
-	// The new binary installs itself; on later updates the same command
-	// switches builds atomically and rolls back on failure.
-	if out, stderr, err := m.Exec(ctx, "sudo /tmp/tiffin.new self-update /tmp/tiffin.new && rm -f /tmp/tiffin.new"); err != nil {
-		return nil, fmt.Errorf("start tiffin: %w\n%s%s", err, out, stderr)
+	// The installed build (trusted, known to work) performs the update; only
+	// the very first install runs the new binary itself.
+	script := `set -o pipefail
+if [ -x ` + BinLink + ` ]; then sudo ` + BinLink + ` self-update /tmp/tiffin.new; else sudo /tmp/tiffin.new self-update /tmp/tiffin.new; fi
+rc=$?; rm -f /tmp/tiffin.new; exit $rc`
+	if out, stderr, err := m.Exec(ctx, script); err != nil {
+		var p struct {
+			Detail string `json:"detail"`
+		}
+		if json.Unmarshal([]byte(out), &p) == nil && p.Detail != "" {
+			out = p.Detail
+		}
+		return nil, fmt.Errorf("%s\n%s", strings.TrimSpace(out), strings.TrimSpace(stderr))
 	}
 	tok, stderr, err := m.Exec(ctx, "sudo cat "+Home+"/owner-token")
 	if err != nil {

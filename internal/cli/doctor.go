@@ -30,7 +30,10 @@ func (a *app) doctorCmd() *cobra.Command {
 			var checks []check
 			add := func(name string, ok bool, detail string) { checks = append(checks, check{name, ok, detail}) }
 
-			if a.url == "" {
+			_, bx := a.currentBox()
+			if bx != nil && a.url == "" && !a.homeExplicit {
+				add("box", true, "local box at "+bx.URL)
+			} else if a.url == "" {
 				fi, err := os.Stat(a.home)
 				switch {
 				case os.IsNotExist(err):

@@ -54,7 +54,7 @@ func (a *app) upCmd() *cobra.Command {
 			if err != nil {
 				return &exitError{ExitError, err.Error()}
 			}
-			opts := install.Options{Domain: localDomain, HTTPSPort: p.HostPort(), HTTPPort: 8080}
+			opts := install.Options{Domain: localDomain, HTTPSPort: lima.HTTPSPort, HTTPPort: 8080, PublicPort: p.HostPort()}
 			res, err := install.Install(ctx, m, bin, opts, a.progress)
 			if err != nil {
 				return &exitError{ExitError, err.Error()}
