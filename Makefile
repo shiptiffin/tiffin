@@ -16,7 +16,12 @@ HEAVY ?= $(abspath $(CURDIR)/../research/heavy.sh)
 
 RELEASE_TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64 windows/arm64
 
-.PHONY: build release test lint golden-update e2e ci clean
+.PHONY: build release test lint golden-update e2e ci clean dashboard
+
+# The web dashboard, built into internal/dashboard/dist and embedded in the
+# binary. The build output is committed so `go build` works without Bun.
+dashboard:
+	cd apps/dashboard && bun install && bun run build
 
 build:
 	@mkdir -p bin
