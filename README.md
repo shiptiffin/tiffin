@@ -2,43 +2,71 @@
 
 **Your app in a box.**
 
-Tiffin gives your whole app stack one small Linux box to live in: the web app, the database, background jobs, file storage, email and the dashboard that watches over them. The box is run by agents. You say what you want, they plan the change, show you the diff, and apply it when you approve.
+Tiffin runs your whole app on one Linux machine: your apps, Postgres, Valkey, file
+storage, email, sign-in, background jobs and workflows, logs, metrics, errors and
+analytics. You and your AI agents operate it through one CLI, one MCP server and a calm
+dashboard, all generated from one API.
 
-It ships as one Go binary, `tiffin`, with a CLI, an MCP server and a typed SDK that all come from the same API spec.
+```bash
+tiffin up                                   # a box on your Mac, about a minute
+tiffin init && tiffin plan                  # describe the project, see the plan
+tiffin apply --confirm <hash>               # apply exactly that plan
+tiffin deploy                               # https://web.tiffin.localhost:8443
+claude mcp add tiffin -- tiffin mcp         # let your agent help, safely
+```
 
-> **Status: pre-alpha (M0).** The foundations are being laid and nothing here is ready to run your app yet. Expect breaking changes every day.
+> **Status: pre-1.0, local first.** Everything below runs today on a Lima VM on your Mac.
+> Servers (Hetzner), Cloudflare and off-site backups come next. Interfaces may change.
 
-## Is this for you?
+## What's in the box
 
-Tiffin is for hobby projects and experiments: the side project you want running tonight, the thing you are trying out with an agent, the weekend app. It is not hardened for production traffic, it has had no security audit, and it comes with no promises about your data. Keep backups of anything you care about.
+| | |
+|---|---|
+| **Apps** | Bun apps, Hono, Next.js (with a Valkey cache handler) and static sites. Zero-downtime deploys, rollbacks, preview URLs that sleep when idle, `git push tiffin main`, live logs. |
+| **Data** | Postgres 18 per project (pgvector, pg_cron), preview branches cloned in milliseconds, a SQL console, Valkey per project, typed JSONB documents in the SDK. |
+| **Files** | S3-compatible buckets (`Bun.s3` works unchanged), presigned links, public files, quotas, a 7-day trash. |
+| **Email** | SMTP to any relay; until you set one, every message lands in the dev inbox. Suppressions, bounces, React Email. |
+| **Sign-in** | Better Auth for your users: email, magic links, codes, passkeys, Google, GitHub, 2FA, organizations with roles, invites, API keys. Drop-in React components. |
+| **Jobs** | Push queues with retries, dead letters, per-key limits and FIFO groups; crons; durable workflows with sleeps, events and human approvals. |
+| **Insight** | Metrics, logs, Sentry-compatible error tracking, alerts, and cookieless first-party analytics. |
+| **Safety** | Backups and restore drills, rate limits, a proof-of-work bot challenge, an under-attack switch, CrowdSec, a firewall and an opt-in WAF. |
 
-## How it works (the short version)
+## Built for agents, safe for you
 
-- One command creates a Linux box (a local VM on your Mac to start with) and installs everything over SSH.
-- Every change is a plan first. Dry-run is the default, and `--confirm <hash>` applies it.
-- The CLI prints JSON when it is not on a terminal, never prompts, and uses clear exit codes, so agents can drive it.
-- Your project lives in one file, `tiffin.config.ts`.
+- **Plan, then apply.** Every change shows each step, its risk (reversible, outbound,
+  irreversible) and why, and applies only with that plan's hash.
+- **Approvals.** Agents get their own expiring tokens. When a plan would delete data or
+  make it public, the agent sends you an approval link and you approve with your passkey.
+- **Everything is logged and undoable.** Who changed what, which agent session, and why.
+- **Untrusted data is fenced.** Logs, rows and emails reach agents marked as data, never
+  as instructions.
+
+## Honest limits
+
+It is one machine: if it's down, your app is down. It is made for side projects,
+experiments and small apps, not banks. Backups stay on the box until off-site storage
+lands. Read [docs/guide/security.md](docs/guide/security.md) before you put anything
+important on it.
+
+## Docs
+
+Start with [the quickstart](docs/guide/quickstart.md), then
+[concepts](docs/guide/concepts.md) and [working with agents](docs/guide/agents.md).
+Per-service guides: [storage](docs/guide/storage.md), [email](docs/guide/email.md),
+[observability](docs/guide/observe.md), [analytics](docs/guide/analytics.md).
+Building a module: [docs/MODULES.md](docs/MODULES.md).
 
 ## Developing
 
-You need Go 1.27+, [Bun](https://bun.sh) and, for the end-to-end tests, [Lima](https://lima-vm.io) on macOS.
+Go 1.27+, [Bun](https://bun.sh) and [Lima](https://lima-vm.io) (`brew install lima`).
 
-```sh
-make test      # go test ./... (and bun test for the JS packages)
-make build     # host binary at bin/tiffin
-make e2e       # boots a throwaway Lima VM and checks the box (slow, first run downloads Ubuntu)
+```bash
+make build      # bin/tiffin
+make test       # Go and Bun unit tests
+make lint       # gofmt, go vet, staticcheck
+make dashboard  # rebuild the embedded dashboard
+make e2e        # every acceptance test, each on a fresh VM (slow)
+make release    # macOS, Linux and Windows binaries for arm64 and amd64
 ```
 
-More targets:
-
-```sh
-make lint      # gofmt, go vet, staticcheck
-make release   # cross-compile six binaries into dist/ with sha256 checksums
-make ci        # lint + test + release dry run (same as scripts/ci.sh)
-```
-
-The e2e tests clean up after themselves. If one is interrupted, the next run removes leftover `tiffin-e2e-*` VMs older than two hours. Set `TIFFIN_E2E_KEEP=1` to keep a VM around for poking at.
-
-## License
-
-Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache-2.0. See [NOTICE](NOTICE) for third-party components.
