@@ -16,8 +16,9 @@ func TestProjectAppearance(t *testing.T) {
 	if code != 200 || got["enamel"] != api.DefaultEnamel("shop") || got["chosen"] != false {
 		t.Fatalf("default: %d %v", code, got)
 	}
-	if api.DefaultEnamel("shop") != api.DefaultEnamel("shop") {
-		t.Fatal("default colour is not stable")
+	// Stable and spread out: the dashboard computes the same default (lib/enamel.ts).
+	if got := api.DefaultEnamel("shop"); got != "turmeric" {
+		t.Fatalf("default for shop: %s", got)
 	}
 
 	code, got, _ = e.call(e.owner, "PUT", "/v1/projects/shop/appearance", map[string]any{"enamel": "kokum"})
