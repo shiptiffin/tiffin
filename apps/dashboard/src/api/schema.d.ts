@@ -3540,6 +3540,11 @@ export interface components {
         };
         BoxApp: {
             app: string;
+            /**
+             * Format: int64
+             * @description Of memoryBytes, file cache the kernel hands back under pressure (cgroup memory.stat file)
+             */
+            cacheBytes: number;
             container: string;
             /**
              * Format: double
@@ -3642,6 +3647,11 @@ export interface components {
             windowSeconds: number;
         };
         BoxService: {
+            /**
+             * Format: int64
+             * @description Of memoryBytes, file cache the kernel hands back under pressure (cgroup memory.stat file)
+             */
+            cacheBytes: number;
             /**
              * Format: double
              * @description CPU use over the window; 100 = one full core
