@@ -80,6 +80,12 @@ type rt struct {
 func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 	opt := defaultOptions()
 	opt.Engine = newNerdctl()
+	// A box keeps its data under /var/lib/tiffin; a laptop running
+	// `tiffin serve --box` (the dashboard e2e) keeps it under its home.
+	if p != nil && p.DataRoot != "" && filepath.Clean(p.DataRoot) != filepath.Dir(DataDir) {
+		opt.DataDir = filepath.Join(p.DataRoot, "runtime")
+		opt.LogDir = filepath.Join(p.DataRoot, "logs", "apps")
+	}
 	return m.start(ctx, p, opt)
 }
 
