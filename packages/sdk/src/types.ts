@@ -140,6 +140,57 @@ export interface CronConfig {
 }
 
 /**
+ * One named job queue. The box POSTs each job sent to the queue to `path` on
+ * `app` as a signed HTTP request and retries failures with backoff. The call is
+ * pushed internally, so a worker app (which has no routes) is a valid target.
+ * Zero limits mean "no limit".
+ */
+export interface QueueConfig {
+  /** Name of the app that receives the jobs. Must be an app defined in `apps`. */
+  app: string;
+  /** Request path jobs are POSTed to. Must start with "/". Default "/queues/<queue name>". */
+  path?: string;
+  /** Most jobs of this queue running at once, 0-1000. Default 0: no limit. */
+  concurrency?: number;
+  /**
+   * Most jobs running at once for the same job key (the `key` option of a
+   * send), 0-1000. Default 0: no limit.
+   */
+  keyConcurrency?: number;
+  /**
+   * Most jobs started per `ratePeriodSeconds` for the same job key, 0-10000.
+   * Default 0: no limit.
+   */
+  rateLimit?: number;
+  /**
+   * Window `rateLimit` counts in, in seconds, 1-86400. Default 60 when
+   * `rateLimit` is set.
+   */
+  ratePeriodSeconds?: number;
+  /** How many times a job is tried before it goes to the dead-letter queue, 1-100. Default 8. */
+  maxAttempts?: number;
+  /**
+   * How long one attempt may run without a response or heartbeat before it
+   * counts as failed, 5-3600. Default 60. Long jobs extend their lease with
+   * heartbeats.
+   */
+  leaseSeconds?: number;
+}
+
+/**
+ * A fan-out name: every message sent to the topic becomes one job for each
+ * subscriber queue, delivered and retried independently.
+ */
+export interface TopicConfig {
+  /**
+   * Names of queues defined in `queues`. Each message sent to the topic is
+   * POSTed to every subscriber queue's app and path. Sorted and
+   * de-duplicated. Default: none (messages sent to the topic are dropped).
+   */
+  subscribers?: string[];
+}
+
+/**
  * Services are the box-provided backends. Leave a service out and it is not
  * provisioned.
  */
@@ -169,6 +220,19 @@ export interface TiffinConfig {
    * routes) is a valid target.
    */
   crons?: Record<Slug, CronConfig>;
+  /**
+   * Named job queues, keyed by name (same slug rules as `project`). Declaring
+   * a queue sets its target app and path, limits and retry policy; a queue
+   * you do not declare still works with defaults once an app sends to it.
+   * Settings declared here are re-applied on every `tiffin apply`.
+   */
+  queues?: Record<Slug, QueueConfig>;
+  /**
+   * Topics fan messages out to subscribed queues, keyed by name: a lowercase
+   * letter followed by up to 63 lowercase letters, digits, dots or dashes,
+   * e.g. "order.created". A topic name must not also be a queue name.
+   */
+  topics?: Record<string, TopicConfig>;
   /**
    * Plain, non-secret environment variables shared by all apps.
    * Secrets never live in the manifest.

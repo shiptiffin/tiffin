@@ -5,11 +5,13 @@ export type {
   BucketConfig,
   Framework,
   PostgresConfig,
+  QueueConfig,
   Role,
   ServicesConfig,
   Slug,
   StorageConfig,
   TiffinConfig,
+  TopicConfig,
   ValkeyConfig,
 } from "./types";
 

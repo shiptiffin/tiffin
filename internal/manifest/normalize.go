@@ -17,6 +17,11 @@ const (
 
 	DefaultAnalyticsRetentionDays = 365
 	DefaultCronPathPrefix         = "/cron/"
+
+	DefaultQueuePathPrefix = "/queues/"
+	DefaultRatePeriodSecs  = 60
+	DefaultMaxAttempts     = 8
+	DefaultLeaseSeconds    = 60
 )
 
 // DefaultAuthMethods is the Auth.Methods default.
@@ -36,6 +41,9 @@ var DefaultAuthMethods = []string{AuthEmail, AuthMagicLink}
 //   - analytics retentionDays 365
 //   - email from is left empty: the box resolves "<project>@<box domain>"
 //   - cron path "/cron/<name>"
+//   - queue path "/queues/<name>", ratePeriodSeconds 60 when rateLimit is
+//     set, maxAttempts 8, leaseSeconds 60
+//   - topic subscribers are sorted and de-duplicated
 //   - route hostnames are lowercased and path prefixes lose trailing slashes
 func Normalize(m *Manifest) *Manifest {
 	if m.Version == 0 {
@@ -105,6 +113,31 @@ func Normalize(m *Manifest) *Manifest {
 			c.Path = DefaultCronPathPrefix + name
 		}
 		m.Crons[name] = c
+	}
+	for name, q := range m.Queues {
+		if q.Path == "" {
+			q.Path = DefaultQueuePathPrefix + name
+		}
+		if q.RateLimit > 0 && q.RatePeriodSeconds == 0 {
+			q.RatePeriodSeconds = DefaultRatePeriodSecs
+		}
+		if q.MaxAttempts == 0 {
+			q.MaxAttempts = DefaultMaxAttempts
+		}
+		if q.LeaseSeconds == 0 {
+			q.LeaseSeconds = DefaultLeaseSeconds
+		}
+		m.Queues[name] = q
+	}
+	for name, t := range m.Topics {
+		subs := slices.Clone(t.Subscribers)
+		slices.Sort(subs)
+		subs = slices.Compact(subs)
+		if len(subs) == 0 {
+			subs = nil
+		}
+		t.Subscribers = subs
+		m.Topics[name] = t
 	}
 	return m
 }

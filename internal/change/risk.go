@@ -33,6 +33,10 @@ func Classify(op Op) (Tier, string) {
 			return TierIrreversible, fmt.Sprintf("deletes the %s service and all its data", name)
 		case KindCron:
 			return TierReversible, fmt.Sprintf("removes cron %q; undo restores it", name)
+		case KindQueue:
+			return TierIrreversible, fmt.Sprintf("deletes queue %q and any jobs still waiting or dead in it", name)
+		case KindTopic:
+			return TierReversible, fmt.Sprintf("removes topic %q and its subscribers; undo restores them", name)
 		case KindBucket:
 			return TierIrreversible, fmt.Sprintf("deletes bucket %q and every file in it (kept in the trash for 7 days, then gone for good)", name)
 		case KindProject:

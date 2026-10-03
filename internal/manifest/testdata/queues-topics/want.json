@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "project": "shop",
+  "apps": {
+    "jobs": {
+      "path": "apps/jobs",
+      "framework": "bun",
+      "role": "worker",
+      "instances": 1,
+      "memoryMB": 512
+    },
+    "web": {
+      "path": "apps/web",
+      "framework": "next",
+      "role": "web",
+      "routes": [
+        "web"
+      ],
+      "instances": 1,
+      "memoryMB": 512,
+      "healthcheck": "/"
+    }
+  },
+  "queues": {
+    "audit": {
+      "app": "web",
+      "path": "/queues/audit",
+      "concurrency": 0,
+      "keyConcurrency": 0,
+      "rateLimit": 5,
+      "ratePeriodSeconds": 10,
+      "maxAttempts": 8,
+      "leaseSeconds": 60
+    },
+    "emails": {
+      "app": "jobs",
+      "path": "/queues/emails",
+      "concurrency": 0,
+      "keyConcurrency": 0,
+      "rateLimit": 0,
+      "ratePeriodSeconds": 0,
+      "maxAttempts": 8,
+      "leaseSeconds": 60
+    },
+    "image-resize": {
+      "app": "jobs",
+      "path": "/jobs/resize",
+      "concurrency": 4,
+      "keyConcurrency": 1,
+      "rateLimit": 30,
+      "ratePeriodSeconds": 60,
+      "maxAttempts": 3,
+      "leaseSeconds": 600
+    }
+  },
+  "topics": {
+    "order.created": {
+      "subscribers": [
+        "audit",
+        "emails"
+      ]
+    },
+    "order.shipped": {
+      "subscribers": [
+        "emails"
+      ]
+    },
+    "user.deleted": {}
+  }
+}

@@ -44,8 +44,10 @@ type Module struct {
 func (*Module) Name() string { return "queue" }
 func (*Module) Order() int   { return 30 }
 
-// Kinds: the manifest's crons.
-func (*Module) Kinds() []string { return []string{change.KindCron} }
+// Kinds: the manifest's queues, topics and crons.
+func (*Module) Kinds() []string {
+	return []string{change.KindQueue, change.KindTopic, change.KindCron}
+}
 
 func (m *Module) engine() *Engine {
 	m.mu.RLock()
@@ -102,7 +104,7 @@ func (m *Module) connect(ctx context.Context, p *platform.Platform) {
 					case <-ctx.Done():
 						return
 					}
-					// Crons that failed to reconcile before we connected.
+					// Queues, topics and crons that failed to reconcile before we connected.
 					if projects, err := p.DB.ListProjects(ctx); err == nil {
 						for _, pr := range projects {
 							p.ReconcileProject(pr)
@@ -190,16 +192,25 @@ func projectDatabases(ctx context.Context, p *platform.Platform) (map[string]str
 	return out, nil
 }
 
-// Reconcile stores crons; the engine fires them.
+// Reconcile stores the manifest's queues, topics and crons; the engine runs
+// them. While the engine is down it fails, so the platform marks the resource
+// failed and converges again when the queue connects (see connect).
 func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, address string, spec json.RawMessage) error {
 	e := m.engine()
 	if e == nil {
 		m.mu.RLock()
 		st := m.status
 		m.mu.RUnlock()
-		return fmt.Errorf("the queue is not running yet (%s); crons are stored as soon as it is", st)
+		return fmt.Errorf("the queue is not running yet (%s); queues, topics and crons are stored as soon as it is", st)
 	}
-	return e.ReconcileCron(ctx, project, change.Name(address), spec)
+	name := change.Name(address)
+	switch change.Kind(address) {
+	case change.KindQueue:
+		return e.ReconcileQueue(ctx, project, name, spec)
+	case change.KindTopic:
+		return e.ReconcileTopic(ctx, project, name, spec)
+	}
+	return e.ReconcileCron(ctx, project, name, spec)
 }
 
 // Env gives apps what tiffin-sdk needs to send jobs and verify deliveries.

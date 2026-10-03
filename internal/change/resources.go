@@ -16,6 +16,8 @@ const (
 	KindService = "service"
 	KindBucket  = "bucket"
 	KindEnv     = "env"
+	KindQueue   = "queue"
+	KindTopic   = "topic"
 	KindCron    = "cron"
 )
 
@@ -92,6 +94,16 @@ func Resources(m *manifest.Manifest) (map[string]Resource, error) {
 			return nil, err
 		}
 	}
+	for name, q := range m.Queues {
+		if err := add(KindQueue+"/"+name, q); err != nil {
+			return nil, err
+		}
+	}
+	for name, t := range m.Topics {
+		if err := add(KindTopic+"/"+name, t); err != nil {
+			return nil, err
+		}
+	}
 	for name, c := range m.Crons {
 		if err := add(KindCron+"/"+name, c); err != nil {
 			return nil, err
@@ -136,9 +148,10 @@ func Diff(current, desired map[string]Resource) []Op {
 	return ops
 }
 
-// order of kinds when creating; deletes run in reverse. Crons come after
-// apps because they call into them.
-var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindApp: 4, KindCron: 5}
+// order of kinds when creating; deletes run in reverse. Queues come after
+// apps (they push jobs into them), topics after the queues they fan out to,
+// and crons last.
+var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindApp: 4, KindQueue: 5, KindTopic: 6, KindCron: 7}
 
 // SortOps orders ops: creates (containers first), updates, then deletes
 // (contents first).

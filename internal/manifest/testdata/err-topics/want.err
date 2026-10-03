@@ -1,0 +1,4 @@
+/topics/.dots: name ".dots" must be a topic name: a lowercase letter followed by up to 63 lowercase letters, digits, dots or dashes, such as "order.created"
+/topics/Order.Created: name "Order.Created" must be a topic name: a lowercase letter followed by up to 63 lowercase letters, digits, dots or dashes, such as "order.created"
+/topics/extra: unknown field(s): filter; check the spelling against the schema
+/topics/wrong-type/subscribers: expected array, got string

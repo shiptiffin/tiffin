@@ -73,6 +73,36 @@
       "path": "/cron/report"
     }
   },
+  "queues": {
+    "audit": {
+      "app": "worker",
+      "path": "/events/audit",
+      "concurrency": 0,
+      "keyConcurrency": 0,
+      "rateLimit": 0,
+      "ratePeriodSeconds": 0,
+      "maxAttempts": 8,
+      "leaseSeconds": 60
+    },
+    "emails": {
+      "app": "worker",
+      "path": "/queues/emails",
+      "concurrency": 4,
+      "keyConcurrency": 0,
+      "rateLimit": 0,
+      "ratePeriodSeconds": 0,
+      "maxAttempts": 5,
+      "leaseSeconds": 60
+    }
+  },
+  "topics": {
+    "order.created": {
+      "subscribers": [
+        "audit",
+        "emails"
+      ]
+    }
+  },
   "env": {
     "LOG_LEVEL": "info"
   }

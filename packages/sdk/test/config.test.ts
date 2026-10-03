@@ -23,6 +23,14 @@ const sample = {
     nightly: { schedule: "0 3 * * *", app: "jobs", path: "/jobs/nightly" },
     tick: { schedule: "@hourly", app: "jobs" },
   },
+  queues: {
+    emails: { app: "jobs" },
+    resize: { app: "jobs", path: "/jobs/resize", concurrency: 4, keyConcurrency: 1, rateLimit: 30, ratePeriodSeconds: 60, maxAttempts: 3, leaseSeconds: 600 },
+  },
+  topics: {
+    "order.created": { subscribers: ["emails", "resize"] },
+    "user.deleted": {},
+  },
 } satisfies TiffinConfig;
 
 describe("tiffin-sdk", () => {
@@ -45,6 +53,17 @@ describe("tiffin-sdk", () => {
     expect(defineConfig(cfg)).toBe(cfg);
   });
 
+  test("queues and topics are optional; a queue needs an app", () => {
+    const cfg: TiffinConfig = {
+      project: "x",
+      apps: { w: { role: "worker" } },
+      queues: { work: { app: "w" } },
+      topics: { "a.b": { subscribers: ["work"] }, c: {} },
+    };
+    expect(defineConfig(cfg)).toBe(cfg);
+    expect(sample.queues.resize.maxAttempts).toBe(3);
+  });
+
   test("bad configs are type errors", () => {
     // These are checked by tsc; at runtime defineConfig does not validate.
     // @ts-expect-error project is required
@@ -65,5 +84,15 @@ describe("tiffin-sdk", () => {
     defineConfig({ project: "x", crons: { tick: {} } });
     // @ts-expect-error unknown cron field
     defineConfig({ project: "x", crons: { tick: { schedule: "@daily", app: "web", timezone: "UTC" } } });
+    // @ts-expect-error a queue needs an app
+    defineConfig({ project: "x", queues: { work: {} } });
+    // @ts-expect-error unknown queue field
+    defineConfig({ project: "x", queues: { work: { app: "w", paused: true } } });
+    // @ts-expect-error limits are numbers
+    defineConfig({ project: "x", queues: { work: { app: "w", concurrency: "4" } } });
+    // @ts-expect-error subscribers are queue names
+    defineConfig({ project: "x", topics: { "a.b": { subscribers: "work" } } });
+    // @ts-expect-error unknown topic field
+    defineConfig({ project: "x", topics: { "a.b": { filter: "x" } } });
   });
 });

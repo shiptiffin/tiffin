@@ -49,7 +49,7 @@ func newValidationError(errs []FieldError) *ValidationError {
 
 // Validate checks a manifest against the JSON Schema and the semantic rules
 // the schema cannot express (workers have no routes, routes are unique
-// across apps, the email sender is an address, crons target real apps). It expects a normalized manifest: zero values of defaulted
+// across apps, the email sender is an address, crons and queues target real apps, topics subscribe real queues). It expects a normalized manifest: zero values of defaulted
 // fields (instances 0, memoryMB 0) are reported as errors. It returns nil or
 // a *ValidationError.
 func Validate(m *Manifest) error {
@@ -123,11 +123,58 @@ func semanticErrors(m *Manifest) []FieldError {
 			errs = append(errs, FieldError{Path: "/crons/" + escapePointer(name) + "/app", Message: msg})
 		}
 	}
+	errs = append(errs, queueErrors(m)...)
+	return errs
+}
+
+// queueErrors checks queues and topics against the rest of the manifest:
+// queues target real apps, topics subscribe real queues, and no name is both
+// a queue and a topic (a name with subscribers fans out, so the two would
+// be ambiguous when an app sends to it).
+func queueErrors(m *Manifest) []FieldError {
+	var errs []FieldError
+	for _, name := range sortedKeys(m.Queues) {
+		q := m.Queues[name]
+		base := "/queues/" + escapePointer(name)
+		if _, ok := m.Apps[q.App]; !ok && q.App != "" {
+			msg := fmt.Sprintf("queue %q targets app %q, which is not defined in \"apps\"", name, q.App)
+			if len(m.Apps) > 0 {
+				msg += "; defined apps: " + quoteList(sortedKeys(m.Apps))
+			} else {
+				msg += "; add the app to \"apps\" first"
+			}
+			errs = append(errs, FieldError{Path: base + "/app", Message: msg})
+		}
+		if q.RateLimit > 0 && q.RatePeriodSeconds == 0 {
+			errs = append(errs, FieldError{Path: base + "/ratePeriodSeconds",
+				Message: fmt.Sprintf("queue %q sets rateLimit %d without ratePeriodSeconds; add the window in seconds, e.g. 60 for \"%d per minute\"", name, q.RateLimit, q.RateLimit)})
+		}
+		if _, clash := m.Topics[name]; clash {
+			errs = append(errs, FieldError{Path: base,
+				Message: fmt.Sprintf("%q is both a queue and a topic; a name with subscribers fans out, so pick different names", name)})
+		}
+	}
+	for _, name := range sortedKeys(m.Topics) {
+		for i, sub := range m.Topics[name].Subscribers {
+			if _, ok := m.Queues[sub]; ok {
+				continue
+			}
+			msg := fmt.Sprintf("topic %q subscribes queue %q, which is not defined in \"queues\"", name, sub)
+			if len(m.Queues) > 0 {
+				msg += "; defined queues: " + quoteList(sortedKeys(m.Queues))
+			} else {
+				msg += "; declare the queue in \"queues\" first"
+			}
+			errs = append(errs, FieldError{Path: fmt.Sprintf("/topics/%s/subscribers/%d", escapePointer(name), i), Message: msg})
+		}
+	}
 	return errs
 }
 
 var (
 	slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
+	// topicRe is a topic name: like a slug but dots are allowed ("order.created").
+	topicRe = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,63}$`)
 	// emailRe accepts a bare address: a local part, "@", and a dotted hostname.
 	emailRe  = regexp.MustCompile(`^[A-Za-z0-9.!#$%&'*+/=?^_` + "`" + `{|}~-]+@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$`)
 	envKeyRe = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
@@ -160,6 +207,12 @@ func keyErrors(doc any) []FieldError {
 		env("/apps/"+escapePointer(name)+"/env", asMap(app)["env"])
 	}
 	slug("/crons", root["crons"])
+	slug("/queues", root["queues"])
+	for key := range asMap(root["topics"]) {
+		if !topicRe.MatchString(key) {
+			errs = append(errs, FieldError{Path: "/topics/" + escapePointer(key), Message: fmt.Sprintf("name %q %s", key, patternHints[topicRe.String()])})
+		}
+	}
 	slug("/services/storage/buckets", asMap(asMap(asMap(root["services"])["storage"])["buckets"]))
 	return errs
 }

@@ -211,6 +211,8 @@ func testRisk(t *testing.T, s change.Store) {
 		m.Services.Email = &manifest.Email{}
 		m.Services.Analytics = &manifest.Analytics{RetentionDays: 365}
 		m.Crons = map[string]manifest.Cron{"tick": {Schedule: "@hourly", App: "web", Path: "/cron/tick"}}
+		m.Queues = map[string]manifest.Queue{"emails": {App: "web", Path: "/queues/emails", MaxAttempts: 8, LeaseSeconds: 60}}
+		m.Topics = map[string]manifest.Topic{"order.created": {Subscribers: []string{"emails"}}}
 	}
 	Converge(t, e, M("shop", base))
 	cases := []struct {
@@ -225,7 +227,7 @@ func testRisk(t *testing.T, s change.Store) {
 		{"drop extension", func(m *manifest.Manifest) { m.Services.Postgres.Extensions = nil }, change.TierIrreversible},
 		{"drop postgres", func(m *manifest.Manifest) { m.Services.Postgres = nil }, change.TierIrreversible},
 		{"drop bucket", func(m *manifest.Manifest) { m.Services.Storage.Buckets = nil }, change.TierIrreversible},
-		{"drop app", func(m *manifest.Manifest) { m.Apps = nil; m.Crons = nil }, change.TierReversible},
+		{"drop app", func(m *manifest.Manifest) { m.Apps = nil; m.Crons = nil; m.Queues = nil; m.Topics = nil }, change.TierIrreversible},
 		{"drop auth", func(m *manifest.Manifest) { m.Services.Auth = nil }, change.TierIrreversible},
 		{"drop analytics", func(m *manifest.Manifest) { m.Services.Analytics = nil }, change.TierIrreversible},
 		{"shorten retention", func(m *manifest.Manifest) { m.Services.Analytics.RetentionDays = 30 }, change.TierIrreversible},
@@ -239,6 +241,20 @@ func testRisk(t *testing.T, s change.Store) {
 			m.Crons["tick"] = manifest.Cron{Schedule: "@daily", App: "web", Path: "/cron/tick"}
 		}, change.TierReversible},
 		{"drop cron", func(m *manifest.Manifest) { m.Crons = nil }, change.TierReversible},
+		{"add queue", func(m *manifest.Manifest) {
+			m.Queues["images"] = manifest.Queue{App: "web", Path: "/queues/images", MaxAttempts: 8, LeaseSeconds: 60}
+		}, change.TierReversible},
+		{"update queue", func(m *manifest.Manifest) {
+			q := m.Queues["emails"]
+			q.Concurrency = 5
+			m.Queues["emails"] = q
+		}, change.TierReversible},
+		{"drop queue", func(m *manifest.Manifest) { m.Queues = nil; m.Topics = nil }, change.TierIrreversible},
+		{"add topic", func(m *manifest.Manifest) {
+			m.Topics["user.deleted"] = manifest.Topic{Subscribers: []string{"emails"}}
+		}, change.TierReversible},
+		{"update topic", func(m *manifest.Manifest) { m.Topics["order.created"] = manifest.Topic{} }, change.TierReversible},
+		{"drop topic", func(m *manifest.Manifest) { m.Topics = nil }, change.TierReversible},
 	}
 	for _, tc := range cases {
 		m := M("shop", base)

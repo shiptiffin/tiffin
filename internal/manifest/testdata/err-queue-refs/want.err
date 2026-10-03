@@ -1,0 +1,3 @@
+/queues/emails: "emails" is both a queue and a topic; a name with subscribers fans out, so pick different names
+/queues/ghost/app: queue "ghost" targets app "missing", which is not defined in "apps"; defined apps: "jobs"
+/topics/order.created/subscribers/1: topic "order.created" subscribes queue "nope", which is not defined in "queues"; defined queues: "emails", "ghost", "limited", "orders"

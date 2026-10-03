@@ -103,12 +103,13 @@ func collectAt(ve *jsonschema.ValidationError, at string, out *[]FieldError) {
 
 // patternHints explains the patterns in schema.json in plain language.
 var patternHints = map[string]string{
-	"^[a-z][a-z0-9-]{0,39}$": "must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or dashes",
-	"^[A-Z_][A-Z0-9_]*$":     "must be UPPER_SNAKE_CASE: letters A-Z, digits and underscores, not starting with a digit",
-	"^/":                     "must start with \"/\"",
-	"^[a-z][a-z0-9_-]*$":     "must be a lowercase extension name such as \"vector\" or \"pg_cron\"",
-	cronPattern:              "must be 5 space-separated cron fields (minute hour day-of-month month day-of-week, using digits and * , - / ? or month/day names) such as \"*/15 * * * *\", or one of @hourly, @daily, @weekly, @monthly",
-	routePattern:             "must be a hostname with an optional path prefix, such as \"shop\", \"example.com\" or \"example.com/api\"",
+	"^[a-z][a-z0-9-]{0,39}$":  "must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or dashes",
+	"^[a-z][a-z0-9.-]{0,63}$": "must be a topic name: a lowercase letter followed by up to 63 lowercase letters, digits, dots or dashes, such as \"order.created\"",
+	"^[A-Z_][A-Z0-9_]*$":      "must be UPPER_SNAKE_CASE: letters A-Z, digits and underscores, not starting with a digit",
+	"^/":                      "must start with \"/\"",
+	"^[a-z][a-z0-9_-]*$":      "must be a lowercase extension name such as \"vector\" or \"pg_cron\"",
+	cronPattern:               "must be 5 space-separated cron fields (minute hour day-of-month month day-of-week, using digits and * , - / ? or month/day names) such as \"*/15 * * * *\", or one of @hourly, @daily, @weekly, @monthly",
+	routePattern:              "must be a hostname with an optional path prefix, such as \"shop\", \"example.com\" or \"example.com/api\"",
 }
 
 const cronPattern = `^(@(hourly|daily|weekly|monthly)|[A-Za-z0-9*,/?-]+( [A-Za-z0-9*,/?-]+){4})$`

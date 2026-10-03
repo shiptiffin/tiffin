@@ -16,6 +16,50 @@ await queue.send("emails", { to: "sam@example.com" }, { delay: "10m", key: "user
   so a job exists if and only if your write committed.
 - **Long jobs** extend their lease with heartbeats; nothing has a time limit.
 
+## Declare queues and topics
+
+A queue works as soon as an app sends to it, but declaring it in `tiffin.config.ts`
+pins its target, limits and retry policy in your repo, where `tiffin plan` shows changes:
+
+```ts
+export default defineConfig({
+  project: "shop",
+  apps: { web: { framework: "next" }, worker: { role: "worker" } },
+  queues: {
+    // Jobs are POSTed to /queues/emails on the worker (the default path).
+    emails: { app: "worker", concurrency: 4, maxAttempts: 5 },
+    // Per-key limits: 2 at a time and 30 a minute for each `key` you send with.
+    resize: { app: "worker", path: "/jobs/resize", keyConcurrency: 2, rateLimit: 30, leaseSeconds: 600 },
+  },
+  topics: {
+    // Sending to "order.created" delivers one job to each subscribed queue's app and path.
+    "order.created": { subscribers: ["emails", "resize"] },
+  },
+});
+```
+
+| Queue field | Default | Meaning |
+|---|---|---|
+| `app` | required | App that receives the jobs (a worker is fine) |
+| `path` | `/queues/<name>` | Route the job is POSTed to |
+| `concurrency` | 0 (no limit), max 1000 | Jobs of this queue running at once |
+| `keyConcurrency` | 0 (no limit), max 1000 | Jobs running at once per `key` |
+| `rateLimit` | 0 (no limit), max 10000 | Jobs started per period, per `key` |
+| `ratePeriodSeconds` | 60 when `rateLimit` is set | The rate window, 1-86400 |
+| `maxAttempts` | 8 (1-100) | Tries before a job goes to the dead-letter queue |
+| `leaseSeconds` | 60 (5-3600) | How long an attempt may run without a response or heartbeat |
+
+Queue names are slugs (lowercase letters, digits, dashes, at most 40). Topic names may also
+contain dots (`order.created`); a name cannot be both a queue and a topic. A topic lists
+`subscribers`: queues in the same file. Messages to a topic are retried with the topic's
+own default retry settings, not the subscriber queue's limits.
+
+The config is the source of truth for a declared queue: the next `tiffin apply` (and a box
+restart) resets what `tiffin queue configure` changed, except pause. A paused queue stays
+paused. Removing a queue from the config deletes it **and any jobs still waiting or dead in
+it** (`tiffin plan` flags this as irreversible); removing a topic only unsubscribes its
+queues.
+
 ## Crons
 
 ```ts

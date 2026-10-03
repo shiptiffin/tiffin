@@ -26,6 +26,15 @@ type Manifest struct {
 	// Crons are scheduled HTTP calls into apps, keyed by name (same slug
 	// rules as Project). Each one pushes a request to its app on a schedule.
 	Crons map[string]Cron `json:"crons,omitempty"`
+	// Queues are named job queues that push their jobs to an app, keyed by
+	// name (same slug rules as Project). Declaring a queue sets its target
+	// app, path, limits and retry policy; a queue you do not declare still
+	// works with defaults once an app sends to it.
+	Queues map[string]Queue `json:"queues,omitempty"`
+	// Topics fan messages out to subscribed queues, keyed by name: 1-64
+	// lowercase letters, digits, dots or dashes, starting with a letter
+	// (e.g. "order.created"). A topic name must not also be a queue name.
+	Topics map[string]Topic `json:"topics,omitempty"`
 	// Env holds plain, non-secret environment variables shared by all apps.
 	// Secrets never live in the manifest.
 	Env map[string]string `json:"env,omitempty"`
@@ -174,4 +183,44 @@ type Cron struct {
 	// Path is the request path on the app. Must start with "/".
 	// Default "/cron/<cron name>".
 	Path string `json:"path"`
+}
+
+// Queue is a named job queue. The box pushes each job sent to the queue to
+// Path on App as a signed HTTP request, retrying failures with backoff. The
+// call is pushed internally, so a worker app (which has no routes) is a valid
+// target. Zero limits mean "no limit".
+type Queue struct {
+	// App is the name of the app that receives the jobs. It must be an app in
+	// this manifest.
+	App string `json:"app"`
+	// Path is the request path jobs are POSTed to. Must start with "/".
+	// Default "/queues/<queue name>".
+	Path string `json:"path"`
+	// Concurrency is the most jobs of this queue running at once, 0-1000.
+	// Default 0: no limit.
+	Concurrency int `json:"concurrency"`
+	// KeyConcurrency is the most jobs running at once for the same job key (the
+	// "key" option of a send), 0-1000. Default 0: no limit.
+	KeyConcurrency int `json:"keyConcurrency"`
+	// RateLimit is the most jobs started per RatePeriodSeconds for the same
+	// job key, 0-10000. Default 0: no limit.
+	RateLimit int `json:"rateLimit"`
+	// RatePeriodSeconds is the window RateLimit counts in, 1-86400. Default 60
+	// when RateLimit is set; 0 when it is not.
+	RatePeriodSeconds int `json:"ratePeriodSeconds"`
+	// MaxAttempts is how many times a job is tried before it goes to the
+	// dead-letter queue, 1-100. Default 8.
+	MaxAttempts int `json:"maxAttempts"`
+	// LeaseSeconds is how long one attempt may run without a response or
+	// heartbeat before it counts as failed, 5-3600. Default 60.
+	LeaseSeconds int `json:"leaseSeconds"`
+}
+
+// Topic is a fan-out name: every message sent to the topic becomes one job
+// for each subscriber, delivered and retried independently.
+type Topic struct {
+	// Subscribers are the names of queues in this manifest. Each message sent
+	// to the topic is POSTed to every subscriber queue's app and path. Sorted
+	// and de-duplicated. Default: none (messages sent to the topic are dropped).
+	Subscribers []string `json:"subscribers,omitempty"`
 }

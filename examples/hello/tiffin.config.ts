@@ -2,7 +2,7 @@ import { defineConfig } from "tiffin-sdk";
 
 // A realistic Tiffin project: a Next.js storefront, a Hono API, a background
 // worker, Postgres with pgvector, Valkey, one public bucket, accounts with
-// teams, email, analytics and a nightly cron.
+// teams, email, analytics, a background queue with a topic and a nightly cron.
 export default defineConfig({
   project: "hello",
   env: {
@@ -41,6 +41,16 @@ export default defineConfig({
     auth: { methods: ["email", "magic-link", "google"], organizations: true },
     email: { from: "hello@example.com" },
     analytics: { retentionDays: 90 },
+  },
+  queues: {
+    // Jobs are pushed to the worker (no routes needed), 4 at a time, and
+    // retried up to 5 times before they land in the dead-letter queue.
+    emails: { app: "worker", concurrency: 4, maxAttempts: 5 },
+    audit: { app: "worker", path: "/events/audit" },
+  },
+  topics: {
+    // Sending to "order.created" delivers one job to each subscribed queue.
+    "order.created": { subscribers: ["emails", "audit"] },
   },
   crons: {
     // Crons push to the app internally, so a worker (no routes) is a valid target.

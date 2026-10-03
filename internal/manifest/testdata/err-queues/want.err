@@ -1,0 +1,11 @@
+/queues/Bad_Name: name "Bad_Name" must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or dashes
+/queues/noapp: missing required field(s): app
+/queues/ranges/concurrency: must be at least 0 (got -1)
+/queues/ranges/keyConcurrency: must be at most 1000 (got 1001)
+/queues/ranges/leaseSeconds: must be at least 5 (got 4)
+/queues/ranges/maxAttempts: must be at most 100 (got 101)
+/queues/ranges/path: "no-slash" must start with "/"
+/queues/ranges/rateLimit: must be at most 10000 (got 10001)
+/queues/ranges/ratePeriodSeconds: must be at most 86400 (got 86401)
+/queues/zero/leaseSeconds: must be at most 3600 (got 3601)
+/queues/zero/maxAttempts: must be at least 1 (got -1)

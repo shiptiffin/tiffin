@@ -31,6 +31,18 @@
       "propertyNames": { "$ref": "#/$defs/slug" },
       "additionalProperties": { "$ref": "#/$defs/cron" }
     },
+    "queues": {
+      "description": "Named job queues, keyed by name. Queue names follow the same slug rules as `project`. The box pushes each job sent to a queue to its app's path as a signed HTTP request (worker apps, which have no routes, are valid targets) and retries failures with backoff. A queue you do not declare still works with defaults once an app sends to it; declaring it sets its target, limits and retry policy.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/slug" },
+      "additionalProperties": { "$ref": "#/$defs/queue" }
+    },
+    "topics": {
+      "description": "Topics fan messages out to subscribed queues, keyed by name: a lowercase letter followed by up to 63 lowercase letters, digits, dots or dashes, e.g. \"order.created\". A topic name must not also be a queue name.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/topicName" },
+      "additionalProperties": { "$ref": "#/$defs/topic" }
+    },
     "env": {
       "description": "Plain, non-secret environment variables shared by all apps. Secrets never live in the manifest; set them with `tiffin secrets`.",
       "$ref": "#/$defs/env"
@@ -41,6 +53,11 @@
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]{0,39}$",
       "description": "Lowercase letter followed by up to 39 lowercase letters, digits or dashes."
+    },
+    "topicName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9.-]{0,63}$",
+      "description": "Lowercase letter followed by up to 63 lowercase letters, digits, dots or dashes, e.g. \"order.created\"."
     },
     "env": {
       "type": "object",
@@ -123,6 +140,76 @@
           "description": "Request path on the app. Must start with \"/\". Default \"/cron/<cron name>\".",
           "type": "string",
           "pattern": "^/"
+        }
+      }
+    },
+    "queue": {
+      "description": "One named job queue. Jobs sent to it are POSTed to `path` on `app`.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["app"],
+      "properties": {
+        "app": {
+          "description": "Name of the app that receives the jobs. Must be an app defined in `apps`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "description": "Request path jobs are POSTed to. Must start with \"/\". Default \"/queues/<queue name>\".",
+          "type": "string",
+          "pattern": "^/"
+        },
+        "concurrency": {
+          "description": "Most jobs of this queue running at once, 0-1000. Default 0: no limit.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "keyConcurrency": {
+          "description": "Most jobs running at once for the same job key (the `key` option of a send), 0-1000. Default 0: no limit.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "rateLimit": {
+          "description": "Most jobs started per `ratePeriodSeconds` for the same job key, 0-10000. Default 0: no limit.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "ratePeriodSeconds": {
+          "description": "Window `rateLimit` counts in, in seconds, 1-86400. Default 60 when `rateLimit` is set; 0 when it is not.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "maxAttempts": {
+          "description": "How many times a job is tried before it goes to the dead-letter queue, 1-100. Default 8.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "leaseSeconds": {
+          "description": "How long one attempt may run without a response or heartbeat before it counts as failed, 5-3600. Default 60. Long jobs extend their lease with heartbeats.",
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 3600
+        }
+      }
+    },
+    "topic": {
+      "description": "A fan-out name: every message sent to the topic becomes one job for each subscriber queue, delivered and retried independently.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "subscribers": {
+          "description": "Names of queues in this manifest. Each message sent to the topic is POSTed to every subscriber queue's app and path. Sorted and de-duplicated on normalization. Default: none (messages sent to the topic are dropped).",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A queue name defined in `queues`."
+          }
         }
       }
     },

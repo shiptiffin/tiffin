@@ -245,6 +245,36 @@ func TestNormalizePlatformDefaults(t *testing.T) {
 	}
 }
 
+func TestNormalizeQueuesTopics(t *testing.T) {
+	m, err := Parse([]byte(`{
+		"project":"p",
+		"apps":{"w":{"role":"worker"}},
+		"queues":{
+			"plain":{"app":"w"},
+			"rated":{"app":"w","path":"/x","rateLimit":10,"concurrency":2},
+			"slow":{"app":"w","rateLimit":1,"ratePeriodSeconds":3600,"maxAttempts":2,"leaseSeconds":5}
+		},
+		"topics":{"a.b":{"subscribers":["slow","plain","slow"]},"empty":{"subscribers":[]}}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]Queue{
+		"plain": {App: "w", Path: "/queues/plain", MaxAttempts: 8, LeaseSeconds: 60},
+		"rated": {App: "w", Path: "/x", Concurrency: 2, RateLimit: 10, RatePeriodSeconds: 60, MaxAttempts: 8, LeaseSeconds: 60},
+		"slow":  {App: "w", Path: "/queues/slow", RateLimit: 1, RatePeriodSeconds: 3600, MaxAttempts: 2, LeaseSeconds: 5},
+	}
+	if !reflect.DeepEqual(m.Queues, want) {
+		t.Errorf("queues = %+v\nwant    %+v", m.Queues, want)
+	}
+	if got := m.Topics["a.b"].Subscribers; !reflect.DeepEqual(got, []string{"plain", "slow"}) {
+		t.Errorf("subscribers = %v", got)
+	}
+	if got := m.Topics["empty"]; got.Subscribers != nil {
+		t.Errorf("empty topic = %+v", got)
+	}
+}
+
 func TestNormalizeIdempotent(t *testing.T) {
 	m, err := Parse([]byte(`{"project":"p","apps":{"a":{"routes":["Foo.com/x/"]}}}`))
 	if err != nil {
@@ -300,6 +330,8 @@ func TestSchemaMatchesTypes(t *testing.T) {
 		{reflect.TypeOf(Email{}), get(defs, "services", "properties", "email")},
 		{reflect.TypeOf(Analytics{}), get(defs, "services", "properties", "analytics")},
 		{reflect.TypeOf(Cron{}), defs["cron"].(map[string]any)},
+		{reflect.TypeOf(Queue{}), defs["queue"].(map[string]any)},
+		{reflect.TypeOf(Topic{}), defs["topic"].(map[string]any)},
 	}
 	for _, c := range checks {
 		props := c.schema["properties"].(map[string]any)
@@ -471,6 +503,43 @@ func randomManifest(r *rand.Rand) *Manifest {
 				c.Path = pick("/tick", "/a/b")
 			}
 			m.Crons[pick("tick", "nightly", "c-1")] = c
+		}
+	}
+	if len(m.Apps) > 0 && r.IntN(2) == 0 {
+		m.Queues = map[string]Queue{}
+		apps := sortedKeys(m.Apps)
+		for _, n := range []string{"emails", "orders", "q-1"}[:1+r.IntN(3)] {
+			q := Queue{App: apps[r.IntN(len(apps))]}
+			if r.IntN(2) == 0 {
+				q.Path = pick("/jobs/x", "/a/b")
+			}
+			if r.IntN(2) == 0 {
+				q.Concurrency, q.KeyConcurrency = r.IntN(1001), r.IntN(1001)
+			}
+			if r.IntN(2) == 0 {
+				q.RateLimit = 1 + r.IntN(10000)
+				if r.IntN(2) == 0 {
+					q.RatePeriodSeconds = 1 + r.IntN(86400)
+				}
+			}
+			if r.IntN(2) == 0 {
+				q.MaxAttempts = 1 + r.IntN(100)
+			}
+			if r.IntN(2) == 0 {
+				q.LeaseSeconds = 5 + r.IntN(3596)
+			}
+			m.Queues[n] = q
+		}
+		if r.IntN(2) == 0 {
+			m.Topics = map[string]Topic{}
+			qs := sortedKeys(m.Queues)
+			for _, n := range []string{"order.created", "user", "a-b.c"}[:1+r.IntN(3)] {
+				t := Topic{}
+				for range r.IntN(4) {
+					t.Subscribers = append(t.Subscribers, qs[r.IntN(len(qs))])
+				}
+				m.Topics[n] = t
+			}
 		}
 	}
 	return m
