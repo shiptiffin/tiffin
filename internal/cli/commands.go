@@ -258,7 +258,7 @@ func (a *app) serveCmd() *cobra.Command {
 			base := "http://" + ln.Addr().String()
 			if withEdge {
 				ed, err = edge.Start(ctx, edge.Config{Domain: domain, Upstream: ln.Addr().String(), DataDir: filepath.Join(a.home, "edge"),
-					HTTPPort: httpPort, HTTPSPort: httpsPort, Internal: true})
+					HTTPPort: httpPort, HTTPSPort: httpsPort, Internal: true, AccessLog: accessLog(onBox)})
 				if err != nil {
 					return fmt.Errorf("start the HTTPS edge: %w", err)
 				}
@@ -273,7 +273,7 @@ func (a *app) serveCmd() *cobra.Command {
 				}
 				if plat != nil {
 					plat.Edge = &edgeControl{ed: ed, base: edge.Config{Domain: domain, Upstream: ln.Addr().String(), DataDir: filepath.Join(a.home, "edge"),
-						HTTPPort: httpPort, HTTPSPort: httpsPort, Internal: true}}
+						HTTPPort: httpPort, HTTPSPort: httpsPort, Internal: true, AccessLog: accessLog(onBox)}}
 				}
 				if publicURL != "" {
 					base = publicURL
@@ -316,6 +316,16 @@ func (a *app) serveCmd() *cobra.Command {
 	cmd.Flags().IntVar(&httpPort, "http-port", 80, "edge HTTP port (redirects to HTTPS)")
 	cmd.Flags().StringVar(&publicURL, "public-url", "", "the dashboard URL people use, for login links")
 	return cmd
+}
+
+// AccessLogPath is where the box's edge writes JSON access logs (analytics reads them).
+const AccessLogPath = "/var/lib/tiffin/logs/access.log"
+
+func accessLog(onBox bool) string {
+	if onBox {
+		return AccessLogPath
+	}
+	return ""
 }
 
 // edgeControl lets modules replace the edge's routes.

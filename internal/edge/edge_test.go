@@ -160,9 +160,9 @@ func TestConfigValidation(t *testing.T) {
 		"bad upstream":  func(c *Config) { c.Upstream = "nope" },
 		"no datadir":    func(c *Config) { c.DataDir = "" },
 		"same ports":    func(c *Config) { c.HTTPPort, c.HTTPSPort = 9000, 9000 },
-		"dup route":     func(c *Config) { c.Routes = []Route{{"a.x", "h:1"}, {"A.x", "h:2"}} },
-		"dashboard dup": func(c *Config) { c.Routes = []Route{{"dashboard.tiffin.localhost", "h:1"}} },
-		"wildcard host": func(c *Config) { c.Routes = []Route{{"*.x", "h:1"}} },
+		"dup route":     func(c *Config) { c.Routes = []Route{{Host: "a.x", Upstream: "h:1"}, {Host: "A.x", Upstream: "h:2"}} },
+		"dashboard dup": func(c *Config) { c.Routes = []Route{{Host: "dashboard.tiffin.localhost", Upstream: "h:1"}} },
+		"wildcard host": func(c *Config) { c.Routes = []Route{{Host: "*.x", Upstream: "h:1"}} },
 	} {
 		c := ok
 		mut(&c)

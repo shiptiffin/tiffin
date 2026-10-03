@@ -20,12 +20,30 @@ type Config struct {
 	HTTPSPort int     // default 443
 	Internal  bool    // true: Caddy internal CA (local/dev); false: public ACME (not implemented yet)
 	Routes    []Route // extra host -> upstream routes
+	AccessLog string  // file for JSON access logs (rolled); empty disables them
 }
 
-// Route sends requests for Host to Upstream.
+// Route sends requests for Host (and optionally a path prefix) somewhere:
+// one upstream, several (load-balanced, least connections) or a directory
+// of static files.
 type Route struct {
-	Host     string
-	Upstream string
+	Host       string
+	PathPrefix string   // e.g. "/api"; empty matches every path. Longer prefixes win.
+	Upstream   string   // host:port
+	Upstreams  []string // several host:ports; overrides Upstream
+	FileRoot   string   // serve static files from this directory instead of proxying
+	SPA        bool     // with FileRoot: unknown paths serve index.html
+	Immutable  bool     // with FileRoot: long-lived cache headers
+}
+
+func (r Route) upstreams() []string {
+	if len(r.Upstreams) > 0 {
+		return r.Upstreams
+	}
+	if r.Upstream != "" {
+		return []string{r.Upstream}
+	}
+	return nil
 }
 
 // ErrPublicACMEUnsupported is returned when Internal is false: public ACME
@@ -86,16 +104,34 @@ func (c Config) normalized() (Config, error) {
 		if strings.Contains(r.Host, "*") {
 			return c, fmt.Errorf("edge: route host %q: wildcards are not allowed", r.Host)
 		}
-		if _, _, err := net.SplitHostPort(r.Upstream); err != nil {
-			return c, fmt.Errorf("edge: route %q: invalid upstream %q: want host:port", r.Host, r.Upstream)
+		if r.PathPrefix != "" && (!strings.HasPrefix(r.PathPrefix, "/") || strings.HasSuffix(r.PathPrefix, "/")) {
+			return c, fmt.Errorf("edge: route %q: path prefix %q must start with / and not end with /", r.Host, r.PathPrefix)
 		}
-		if seen[r.Host] {
-			return c, fmt.Errorf("edge: duplicate route host %q", r.Host)
+		if r.FileRoot == "" {
+			ups := r.upstreams()
+			if len(ups) == 0 {
+				return c, fmt.Errorf("edge: route %q: needs an upstream or a file root", r.Host)
+			}
+			for _, u := range ups {
+				if _, _, err := net.SplitHostPort(u); err != nil {
+					return c, fmt.Errorf("edge: route %q: invalid upstream %q: want host:port", r.Host, u)
+				}
+			}
 		}
-		seen[r.Host] = true
+		key := r.Host + r.PathPrefix
+		if seen[key] {
+			return c, fmt.Errorf("edge: duplicate route %q", key)
+		}
+		seen[key] = true
 		routes = append(routes, r)
 	}
-	sort.Slice(routes, func(i, j int) bool { return routes[i].Host < routes[j].Host })
+	// Same host: longer path prefixes first, so /api wins over the catch-all.
+	sort.SliceStable(routes, func(i, j int) bool {
+		if routes[i].Host != routes[j].Host {
+			return routes[i].Host < routes[j].Host
+		}
+		return len(routes[i].PathPrefix) > len(routes[j].PathPrefix)
+	})
 	c.Routes = routes
 	return c, nil
 }
@@ -121,8 +157,15 @@ func validHost(h string) error {
 // (Do not use tls.certificates.automate: it also creates that default CA.)
 func (c Config) managedHosts() []string {
 	subjects := []string{"*." + c.Domain, c.DashboardHost()}
+	have := map[string]bool{}
+	for _, x := range subjects {
+		have[x] = true
+	}
 	for _, r := range c.Routes {
-		subjects = append(subjects, r.Host)
+		if !have[r.Host] {
+			have[r.Host] = true
+			subjects = append(subjects, r.Host)
+		}
 	}
 	return subjects
 }
@@ -138,10 +181,16 @@ func ConfigJSON(cfg Config) ([]byte, error) {
 	return json.MarshalIndent(buildConfig(c), "", "  ")
 }
 
-func proxy(upstream string) obj {
-	return obj{
+func proxy(upstream string) obj { return proxyMany([]string{upstream}) }
+
+func proxyMany(upstreams []string) obj {
+	ups := make([]obj, len(upstreams))
+	for i, u := range upstreams {
+		ups[i] = obj{"dial": u}
+	}
+	h := obj{
 		"handler":        "reverse_proxy",
-		"upstreams":      []obj{{"dial": upstream}},
+		"upstreams":      ups,
 		"flush_interval": -1, // stream SSE and chunked responses straight through
 		"headers": obj{"request": obj{"set": obj{
 			"X-Forwarded-Proto": []string{"{http.request.scheme}"},
@@ -149,6 +198,33 @@ func proxy(upstream string) obj {
 			"X-Forwarded-Port":  []string{"{http.request.port}"},
 		}}},
 	}
+	if len(upstreams) > 1 {
+		h["load_balancing"] = obj{"selection_policy": obj{"policy": "least_conn"}, "retries": 2}
+		h["health_checks"] = obj{"passive": obj{"fail_duration": "10s", "max_fails": 2}}
+	}
+	return h
+}
+
+func routeFor(r Route) obj {
+	m := obj{"host": []string{r.Host}}
+	if r.PathPrefix != "" {
+		m["path"] = []string{r.PathPrefix, r.PathPrefix + "/*"}
+	}
+	var handle []obj
+	switch {
+	case r.FileRoot != "":
+		if r.Immutable {
+			handle = append(handle, obj{"handler": "headers", "response": obj{"set": obj{"Cache-Control": []string{"public, max-age=31536000, immutable"}}}})
+		}
+		if r.SPA {
+			handle = append(handle, obj{"handler": "rewrite", "uri": "{http.matchers.file.relative}"})
+			m["file"] = obj{"root": r.FileRoot, "try_files": []string{"{http.request.uri.path}", "{http.request.uri.path}/index.html", "/index.html"}}
+		}
+		handle = append(handle, obj{"handler": "file_server", "root": r.FileRoot})
+	default:
+		handle = []obj{proxyMany(r.upstreams())}
+	}
+	return obj{"match": []obj{m}, "handle": handle, "terminal": true}
 }
 
 func notFound(domain, portSuffix string) obj {
@@ -203,7 +279,7 @@ func buildConfig(c Config) obj {
 		hostRoute(c.DashboardHost(), c.Upstream),
 	}
 	for _, r := range c.Routes {
-		routes = append(routes, hostRoute(r.Host, r.Upstream))
+		routes = append(routes, routeFor(r))
 	}
 	// The wildcard route is what makes Caddy manage the wildcard certificate.
 	routes = append(routes, obj{
@@ -235,13 +311,24 @@ func buildConfig(c Config) obj {
 		"tls_connection_policies": []obj{{}},
 	}
 
-	return obj{
-		"admin": obj{"disabled": true, "config": obj{"persist": false}},
-		"logging": obj{"logs": obj{"default": obj{
-			"level":   "ERROR",
-			"writer":  obj{"output": "stderr"},
+	logs := obj{"default": obj{
+		"level":   "ERROR",
+		"writer":  obj{"output": "stderr"},
+		"encoder": obj{"format": "json"},
+		"exclude": []string{"http.log.access"},
+	}}
+	if c.AccessLog != "" {
+		httpsServer["logs"] = obj{"default_logger_name": "access"}
+		logs["access"] = obj{
+			"level":   "INFO",
+			"writer":  obj{"output": "file", "filename": c.AccessLog, "roll_size_mb": 50, "roll_keep": 5},
 			"encoder": obj{"format": "json"},
-		}}},
+			"include": []string{"http.log.access.access"},
+		}
+	}
+	return obj{
+		"admin":   obj{"disabled": true, "config": obj{"persist": false}},
+		"logging": obj{"logs": logs},
 		"storage": obj{"module": "file_system", "root": c.DataDir},
 		"apps": obj{
 			"http": obj{

@@ -279,6 +279,9 @@
         "encoder": {
           "format": "json"
         },
+        "exclude": [
+          "http.log.access"
+        ],
         "level": "ERROR",
         "writer": {
           "output": "stderr"

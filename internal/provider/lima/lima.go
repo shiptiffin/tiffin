@@ -110,6 +110,12 @@ func (p *Provider) Up(ctx context.Context, progress func(string)) (provider.Mach
 			return nil, err
 		}
 		set := fmt.Sprintf(`.additionalDisks = [{"name": %q, "format": true, "fsType": "xfs"}] | .portForwards[0].hostPort = %d`, p.Disk, p.Port)
+		if v := os.Getenv("TIFFIN_LIMA_MEMORY"); v != "" { // e.g. "2GiB" for small dev boxes
+			set += fmt.Sprintf(` | .memory = %q`, v)
+		}
+		if v := os.Getenv("TIFFIN_LIMA_CPUS"); v != "" {
+			set += " | .cpus = " + v
+		}
 		if runtime.GOOS != "darwin" {
 			set += ` | .vmType = "qemu"`
 		}
