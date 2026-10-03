@@ -95,7 +95,7 @@ export function LoginPage({ reason }: { reason?: string }) {
                 ? "Login links work once, for ten minutes. Get a fresh one:"
                 : "Run this where Tiffin is installed. It prints a link that works once, for ten minutes."}
             </p>
-            <Command cmd="tiffin login-link" className="mt-5" />
+            <Command cmd="tiffin login" className="mt-5" />
             <p className="mt-4 text-sm text-ink-3">
               Pointing at a remote box? Set <code className="font-mono text-ink-2">TIFFIN_URL</code> and an owner{" "}
               <code className="font-mono text-ink-2">TIFFIN_TOKEN</code> first.

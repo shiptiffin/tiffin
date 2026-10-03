@@ -15,7 +15,7 @@ test("login → activity → change → undo → status → tokens → sign out"
   // Login without a code explains how to get one.
   await page.goto("/login");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sign in with a link from your terminal.");
-  await expect(page.getByText("tiffin login-link")).toBeVisible();
+  await expect(page.getByText("tiffin login")).toBeVisible();
 
   // A used or made-up code is refused kindly.
   await page.goto("/login#tfl_not-a-real-code");
