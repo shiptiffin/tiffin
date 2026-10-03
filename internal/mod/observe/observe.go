@@ -19,12 +19,18 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/edge"
+	"github.com/btahir/tiffin/internal/mod/backup"
 	"github.com/btahir/tiffin/internal/mod/observe/edgelog"
 	"github.com/btahir/tiffin/internal/mod/observe/logtail"
 	"github.com/btahir/tiffin/internal/platform"
 )
 
-func init() { platform.Register(&Module{}) }
+func init() {
+	platform.Register(&Module{})
+	// Issues, alert history and settings go into every backup set. The
+	// metric and log stores are not backed up: they are rebuilt from now on.
+	backup.Include("observe", DataDir+"/observe.db")
+}
 
 // Module implements the observe module.
 type Module struct {

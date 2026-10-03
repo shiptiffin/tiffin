@@ -28,13 +28,17 @@ import (
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/mod/analytics/enrich"
+	"github.com/btahir/tiffin/internal/mod/backup"
 	"github.com/btahir/tiffin/internal/mod/observe"
 	"github.com/btahir/tiffin/internal/mod/observe/edgelog"
 	"github.com/btahir/tiffin/internal/mod/observe/logtail"
 	"github.com/btahir/tiffin/internal/platform"
 )
 
-func init() { platform.Register(&Module{}) }
+func init() {
+	platform.Register(&Module{})
+	backup.Include("analytics", dataDir)
+}
 
 // Module implements the analytics module.
 type Module struct {

@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btahir/tiffin/internal/mod/backup"
 	"github.com/btahir/tiffin/internal/mod/email"
 	"github.com/btahir/tiffin/internal/platform"
 )
@@ -367,7 +368,7 @@ func (a *Alerter) eval(ctx context.Context, r Rule, snap *Snapshot) ([]finding, 
 	case KindCertExpiry:
 		return a.certs(r)
 	case KindBackupAge:
-		return a.backups(r)
+		return a.backups(ctx, r)
 	case KindErrorSpike:
 		counts, err := a.Store.ErrorCount(ctx, 5*time.Minute)
 		if err != nil {
@@ -499,29 +500,49 @@ func (a *Alerter) certs(r Rule) ([]finding, error) {
 	return out, nil
 }
 
-func (a *Alerter) backups(r Rule) ([]finding, error) {
+// backups judges the newest successful backup (the backup module's record;
+// files in the backup directory when the module has none).
+func (a *Alerter) backups(ctx context.Context, r Rule) ([]finding, error) {
 	var newest time.Time
-	_ = filepath.WalkDir(a.BackupDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
+	lastFailed := ""
+	if a.Platform != nil && a.Platform.DB != nil {
+		if bs, err := backup.List(ctx, a.Platform); err == nil {
+			for i, b := range bs { // newest first
+				if i == 0 && b.Status == "failed" {
+					lastFailed = b.Error
+				}
+				if b.Status == "ok" && b.FinishedAt.After(newest) {
+					newest = b.FinishedAt
+				}
+			}
 		}
-		if d.IsDir() {
-			if strings.Count(strings.TrimPrefix(path, a.BackupDir), "/") > 4 {
-				return filepath.SkipDir
+	}
+	if newest.IsZero() {
+		_ = filepath.WalkDir(a.BackupDir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if strings.Count(strings.TrimPrefix(path, a.BackupDir), "/") > 4 {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if fi, err := d.Info(); err == nil && fi.ModTime().After(newest) {
+				newest = fi.ModTime()
 			}
 			return nil
-		}
-		if fi, err := d.Info(); err == nil && fi.ModTime().After(newest) {
-			newest = fi.ModTime()
-		}
-		return nil
-	})
+		})
+	}
 	if newest.IsZero() {
 		return nil, nil // no backups yet: nothing to judge
 	}
 	h := math.Round(time.Since(newest).Hours()*10) / 10
-	return []finding{{Subject: "backups", Value: h, Bad: h > r.Threshold,
-		Summary: fmt.Sprintf("the newest backup is %.1f hours old", h)}}, nil
+	sum := fmt.Sprintf("the newest backup is %.1f hours old", h)
+	if lastFailed != "" {
+		sum += "; the latest attempt failed: " + lastFailed
+	}
+	return []finding{{Subject: "backups", Value: h, Bad: h > r.Threshold, Summary: sum}}, nil
 }
 
 func (a *Alerter) transition(ctx context.Context, r Rule, f finding) {
