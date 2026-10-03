@@ -57,6 +57,8 @@ func newFake(t *testing.T) (*sampler, *fakeBox, *time.Time, *int) {
 	f.write("usr/lib/systemd/system/crowdsec.service", "[Unit]\n")
 	f.write("sys/fs/cgroup/system.slice/nerdctl-"+idWeb+".scope/memory.current", "52428800\n")
 	f.write("sys/fs/cgroup/system.slice/nerdctl-"+idWeb+".scope/memory.max", "536870912\n")
+	f.write("sys/fs/cgroup/system.slice/nerdctl-"+idWeb+".scope/memory.stat", "anon 41943040\nfile 10485760\nkernel 0\n")
+	f.write("sys/fs/cgroup/system.slice/tiffin-postgres.service/memory.stat", "anon 20971520\nfile 83886080\n")
 	f.write("sys/fs/cgroup/system.slice/nerdctl-"+idOther+".scope/memory.current", "1000\n")
 	f.write("sys/fs/cgroup/system.slice/nerdctl-"+idOther+".scope/memory.max", "max\n")
 	f.tick("1000", "9000", "2000000")
@@ -110,11 +112,11 @@ func TestSample(t *testing.T) {
 		t.Fatalf("services (crowdsec is not installed, so it is left out): %+v", r.Services)
 	}
 	tf, pg := r.Services[0], r.Services[1]
-	if tf.Name != "tiffin" || tf.Restarts != 1 || tf.MemoryBytes != 200<<20 || tf.Description == "" {
+	if tf.Name != "tiffin" || tf.Restarts != 1 || tf.MemoryBytes != 200<<20 || tf.CacheBytes != 0 || tf.Description == "" {
 		t.Fatalf("tiffin: %+v", tf)
 	}
 	// Postgres used 2 CPU-seconds in the 2 seconds since the last sample.
-	if pg.Name != "postgres" || pg.Unit != "tiffin-postgres.service" || pg.MemoryBytes != 100<<20 || pg.CPUPercent != 100 || pg.State != "active" {
+	if pg.Name != "postgres" || pg.Unit != "tiffin-postgres.service" || pg.MemoryBytes != 100<<20 || pg.CacheBytes != 80<<20 || pg.CPUPercent != 100 || pg.State != "active" {
 		t.Fatalf("postgres: %+v", pg)
 	}
 	if fw := r.Services[2]; fw.Name != "firewall" || fw.SubState != "exited" || fw.MemoryBytes != 0 {
@@ -124,7 +126,7 @@ func TestSample(t *testing.T) {
 		t.Fatalf("apps: %+v", r.Apps)
 	}
 	web, api := r.Apps[0], r.Apps[1]
-	if web.Project != "shop" || web.App != "web" || web.Deploy != "dep_1" || web.State != "running" || web.MemoryBytes != 50<<20 ||
+	if web.Project != "shop" || web.App != "web" || web.Deploy != "dep_1" || web.State != "running" || web.MemoryBytes != 50<<20 || web.CacheBytes != 10<<20 ||
 		web.MemoryLimitBytes != 512<<20 || web.CPUSeconds != 3 || web.CPUPercent != 50 || web.Container != "tf.shop.web.prod.3" {
 		t.Fatalf("web: %+v", web)
 	}

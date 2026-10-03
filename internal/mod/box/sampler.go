@@ -73,6 +73,7 @@ type Service struct {
 	State       string  `json:"state" example:"active" doc:"systemd ActiveState: active, inactive, failed, activating, deactivating"`
 	SubState    string  `json:"subState" example:"running" doc:"systemd SubState: running, exited (one-shot units), dead..."`
 	MemoryBytes uint64  `json:"memoryBytes"`
+	CacheBytes  uint64  `json:"cacheBytes" doc:"Of memoryBytes, file cache the kernel hands back under pressure (cgroup memory.stat file)"`
 	CPUSeconds  float64 `json:"cpuSeconds" doc:"CPU time used since the service started"`
 	CPUPercent  float64 `json:"cpuPercent" doc:"CPU use over the window; 100 = one full core"`
 	Restarts    int     `json:"restarts"`
@@ -87,6 +88,7 @@ type App struct {
 	Container        string  `json:"container"`
 	State            string  `json:"state" example:"running" doc:"running, exited, created, paused, restarting"`
 	MemoryBytes      uint64  `json:"memoryBytes"`
+	CacheBytes       uint64  `json:"cacheBytes" doc:"Of memoryBytes, file cache the kernel hands back under pressure (cgroup memory.stat file)"`
 	MemoryLimitBytes uint64  `json:"memoryLimitBytes,omitempty" doc:"The memoryMB cap from the manifest (0: none)"`
 	CPUSeconds       float64 `json:"cpuSeconds"`
 	CPUPercent       float64 `json:"cpuPercent" doc:"CPU use over the window; 100 = one full core"`
@@ -372,6 +374,7 @@ func (s *sampler) services(ctx context.Context, r *Resources, now time.Time, see
 		} else {
 			sv.Name = strings.TrimSuffix(strings.TrimPrefix(sv.Unit, "tiffin-"), ".service")
 		}
+		sv.CacheBytes = min(fileCache(s.path(filepath.Join("/sys/fs/cgroup/system.slice", sv.Unit))), sv.MemoryBytes)
 		sv.CPUPercent = s.rate("unit:"+sv.Unit, sv.CPUSeconds, now, seen)
 		r.Services = append(r.Services, sv)
 	}
@@ -386,8 +389,23 @@ func (s *sampler) services(ctx context.Context, r *Resources, now time.Time, see
 var containerDir = regexp.MustCompile(`^(?:cri-containerd-|nerdctl-|docker-)?([0-9a-f]{64})(?:\.scope)?$`)
 
 type cgroupStats struct {
-	mem, limit uint64
-	cpu        float64
+	mem, cache, limit uint64
+	cpu               float64
+}
+
+// fileCache reads the reclaimable file cache from a cgroup's memory.stat.
+func fileCache(dir string) uint64 {
+	b, err := os.ReadFile(filepath.Join(dir, "memory.stat"))
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(line, "file "); ok {
+			n, _ := strconv.ParseUint(strings.TrimSpace(v), 10, 64)
+			return n
+		}
+	}
+	return 0
 }
 
 // cgroups finds container cgroups (named by their 64-hex ID, as containerd
@@ -418,6 +436,7 @@ func (s *sampler) cgroups() map[string]cgroupStats {
 			if b, err := os.ReadFile(filepath.Join(p, "memory.current")); err == nil {
 				st.mem, _ = strconv.ParseUint(strings.TrimSpace(string(b)), 10, 64)
 			}
+			st.cache = fileCache(p)
 			if b, err := os.ReadFile(filepath.Join(p, "memory.max")); err == nil {
 				st.limit, _ = strconv.ParseUint(strings.TrimSpace(string(b)), 10, 64) // "max" stays 0
 			}
@@ -476,7 +495,7 @@ func (s *sampler) apps(ctx context.Context, r *Resources, now time.Time, seen ma
 		a := App{Project: c.Labels["tiffin.project"], App: c.Labels["tiffin.app"], Preview: c.Labels["tiffin.preview"],
 			Deploy: c.Labels["tiffin.deploy"], Container: c.Name, State: c.State}
 		if st, ok := cg[id]; ok {
-			a.MemoryBytes, a.MemoryLimitBytes, a.CPUSeconds = st.mem, st.limit, round(st.cpu, 2)
+			a.MemoryBytes, a.CacheBytes, a.MemoryLimitBytes, a.CPUSeconds = st.mem, min(st.cache, st.mem), st.limit, round(st.cpu, 2)
 			a.CPUPercent = s.rate("ctr:"+id, st.cpu, now, seen)
 			if a.State == "" || a.State == "unknown" {
 				a.State = "running"
