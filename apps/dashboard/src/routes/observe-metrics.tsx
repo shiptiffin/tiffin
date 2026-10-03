@@ -170,7 +170,7 @@ function Services({ res, unavailable }: { res?: BoxResources; unavailable: boole
         <span className="label text-right">CPU</span>
         <span className="label flex justify-between">
           <span>Memory</span>
-          <span className="tracking-normal normal-case">0–512</span>
+          <span className="tracking-normal normal-case">of {res ? bytes(res.memory.totalBytes, 1) : "the box"}</span>
         </span>
         <span className="label text-right">MB</span>
       </div>
@@ -195,10 +195,10 @@ function Services({ res, unavailable }: { res?: BoxResources; unavailable: boole
                 className="hidden sm:block"
                 size="row"
                 segments={16}
-                max={512}
-                value={Math.min(512, sv.memoryBytes / MB)}
-                label={`${sv.name} memory`}
-                valueText={`${mb(sv.memoryBytes)} MB`}
+                max={(res?.memory.totalBytes ?? 1) / MB}
+                value={sv.memoryBytes / MB}
+                label={`${sv.name}: share of the box's memory`}
+                valueText={`${mb(sv.memoryBytes)} MB of ${mb(res?.memory.totalBytes)} MB`}
               />
               <span className="text-right text-[0.875rem] text-ink tnum">{mb(sv.memoryBytes)}</span>
             </li>
@@ -253,7 +253,16 @@ function Apps({ res }: { res?: BoxResources }) {
   const rows = [...groups.values()].sort((a, b) => a.project.localeCompare(b.project) || b.mem - a.mem);
   if (!res || rows.length === 0) return null;
   return (
-    <Group label="Apps" id="apps" aside="Memory against each app's limit; traffic in the last hour">
+    <Group label="Apps" id="apps" aside="Traffic in the last hour">
+      <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_9rem_4.5rem] gap-x-5 pb-1.5 sm:grid" aria-hidden>
+        <span />
+        <span />
+        <span className="label flex justify-between">
+          <span>Memory</span>
+          <span className="tracking-normal normal-case">of its cap</span>
+        </span>
+        <span className="label text-right">MB / cap</span>
+      </div>
       <Rows>
         {rows.map((g) => {
           const t = byKey.get(`${g.project}/${g.app}`);

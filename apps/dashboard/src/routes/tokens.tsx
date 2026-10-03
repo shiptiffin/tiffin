@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { api, type Change, type CreatedToken, type Tier, type Token } from "@/api/client";
 import { q } from "@/api/queries";
 import { ActorMark } from "@/components/actor";
+import { Confirm } from "@/components/confirm";
 import { Command, CopyButton } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
 import { accessCrumbs, Group, Rows } from "@/components/health-kit";
@@ -225,48 +226,35 @@ function AgentRow({ t, sponsor, entries, onRevoke }: { t: Token; sponsor?: strin
   );
 }
 
-/** This browser first, then the most recent few; the rest fold away behind one line. */
+/**
+ * This browser and the three most recent others; everything older is one
+ * line with one guarded action. Sign-ins pile up (every login link is one),
+ * and a list of identical rows says nothing (critique #9).
+ */
 function Browsers({ sessions, myId, onRevoke }: { sessions: Token[]; myId?: string; onRevoke: (t: Token) => void }) {
   const qc = useQueryClient();
-  const [all, setAll] = useState(false);
-  const sorted = [...sessions].sort((a, b) => Number(b.id === myId) - Number(a.id === myId) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  const others = sorted.filter((t) => t.id !== myId);
-  const shown = all ? sorted : sorted.slice(0, 4);
-  const out = useMutation({
-    mutationFn: async () => {
-      for (const t of others) await api.revokeToken(t.id);
-    },
-    onSuccess: () => toast({ title: `Signed out ${countWords(others.length, "other browser", "other browsers")}.` }),
-    onSettled: () => qc.invalidateQueries({ queryKey: ["tokens"] }),
-  });
+  const [asking, setAsking] = useState(false);
+  const mine = sessions.find((t) => t.id === myId);
+  const others = sessions.filter((t) => t.id !== myId).sort((a, b) => new Date(b.lastUsedAt ?? b.createdAt).getTime() - new Date(a.lastUsedAt ?? a.createdAt).getTime());
+  const shown = [...(mine ? [mine] : []), ...others.slice(0, 3)];
+  const rest = others.length - Math.min(3, others.length);
   return (
-    <Group
-      label="Signed-in browsers"
-      id="sessions"
-      aside={
-        others.length > 1 ? (
-          <Button variant="ghost" size="sm" onClick={() => out.mutate()} disabled={out.isPending} className="-my-1 hover:text-danger">
-            {out.isPending ? "Signing out…" : `Sign out the other ${int(others.length)}`}
-          </Button>
-        ) : undefined
-      }
-    >
-      {out.isError && <ProblemNote className="mb-3" error={out.error} />}
+    <Group label="Signed-in browsers" id="sessions" aside={others.length ? countWords(sessions.length, "browser") : undefined}>
       <Rows>
         {shown.map((t) => {
-          const mine = myId === t.id;
+          const me = myId === t.id;
           return (
             <li key={t.id} className="flex items-center gap-3 py-2.5">
               <div className="min-w-0 flex-1 text-[0.875rem]">
-                <span className="text-ink">{mine ? "This browser" : "Another browser"}</span>
+                <span className="text-ink">{me ? "This browser" : "Another browser"}</span>
                 <span className="text-ink-3">
                   {" "}
                   · signed in {relative(t.createdAt)}
-                  {t.lastUsedAt && !mine ? ` · last used ${relative(t.lastUsedAt)}` : ""}
+                  {t.lastUsedAt && !me ? ` · last used ${relative(t.lastUsedAt)}` : ""}
                   <span className="hidden sm:inline"> · ends {relative(t.expiresAt ?? t.createdAt)}</span>
                 </span>
               </div>
-              {mine ? (
+              {me ? (
                 <span className="text-[0.8125rem] text-ink-3">you’re here</span>
               ) : (
                 <Button variant="ghost" size="sm" onClick={() => onRevoke(t)} className="hover:text-danger">
@@ -276,15 +264,32 @@ function Browsers({ sessions, myId, onRevoke }: { sessions: Token[]; myId?: stri
             </li>
           );
         })}
-      </Rows>
-      <p className="mt-2 flex flex-wrap items-baseline justify-between gap-2 text-[0.8125rem] text-ink-3">
-        <span>Each sign-in link starts one. They end by themselves after 12 hours.</span>
-        {sorted.length > shown.length && (
-          <button type="button" onClick={() => setAll(true)} className="text-ink-2 hover:text-ink">
-            Show {int(sorted.length - shown.length)} more
-          </button>
+        {others.length > 1 && (
+          <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 text-[0.875rem]">
+            <span className="min-w-0 flex-1 text-ink-3">
+              {rest > 0 ? `and ${int(rest)} more, signed in earlier` : "That’s every other browser."}
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => setAsking(true)} className="hover:text-danger">
+              Sign out all other browsers
+            </Button>
+          </li>
         )}
-      </p>
+      </Rows>
+      <p className="mt-2 text-[0.8125rem] text-ink-3">Each sign-in link starts one. They end by themselves after 12 hours.</p>
+      <Confirm
+        open={asking}
+        onClose={() => setAsking(false)}
+        title={`Sign out ${countWords(others.length, "other browser", "other browsers")}?`}
+        body={`Everyone using them is signed out at once and needs a new sign-in link. This browser stays signed in; tokens for agents and scripts are not touched.`}
+        action={`Sign out ${int(others.length)}`}
+        run={async () => {
+          for (const t of others) await api.revokeToken(t.id);
+        }}
+        done={() => {
+          qc.invalidateQueries({ queryKey: ["tokens"] });
+          toast({ title: `Signed out ${countWords(others.length, "other browser", "other browsers")}.` });
+        }}
+      />
     </Group>
   );
 }

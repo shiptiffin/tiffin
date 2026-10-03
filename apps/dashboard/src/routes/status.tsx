@@ -233,13 +233,8 @@ export function StatusPage() {
         aside={failing.length ? <span className="text-danger">{failing.length} failing</span> : `${words(checks.length, true)} checks, all passing`}
       >
         <Rows>
-          {[...failing, ...checks.filter((c) => c.ok)].map((c) => (
-            <li key={c.name} className="grid gap-x-6 py-2.5 sm:grid-cols-[11rem_minmax(0,1fr)]">
-              <span className={cn("text-[0.875rem]", c.ok ? "text-ink" : "font-[550] text-danger")}>{checkName(c)}</span>
-              <span className={cn("text-[0.84375rem]", c.ok ? "text-ink-3" : "text-ink-2")}>
-                {c.detail ? <Code text={checkWords(c.detail)} /> : c.ok ? "" : "Failing, with no detail."}
-              </span>
-            </li>
+          {partsOf(checks).map((g) => (
+            <CheckGroup key={g.name} name={g.name} about={g.about} checks={g.checks} />
           ))}
         </Rows>
         <p className="mt-3 text-[0.8125rem] text-ink-3">
@@ -260,6 +255,66 @@ export function StatusPage() {
         />
       </Group>
     </Page>
+  );
+}
+
+/** The parts of the box the checks belong to, in the order a request meets them. */
+const parts: Array<{ name: string; about: string; checks: string[] }> = [
+  { name: "Edge", about: "HTTPS, protection and the firewall", checks: ["edge", "protection", "crowdsec", "firewall"] },
+  { name: "Apps", about: "Containers and sign-in", checks: ["runtime", "auth"] },
+  { name: "Data", about: "Databases, files and backups", checks: ["postgres", "valkey", "storage", "backups", "disk"] },
+  { name: "Mail", about: "Sending and catching email", checks: ["email"] },
+  { name: "Jobs", about: "Queues, workflows and schedules", checks: ["queue"] },
+  { name: "Watching", about: "Metrics, logs, errors and analytics", checks: ["observe.metrics", "observe.logs", "observe.ingest", "analytics.collector", "analytics.geoip"] },
+  { name: "Platform", about: "Tiffin itself and the machine", checks: ["state", "provision", "memory"] },
+];
+
+function partsOf(checks: Check[]) {
+  const known = new Set(parts.flatMap((p) => p.checks));
+  const groups = parts.map((p) => ({ ...p, checks: p.checks.map((n) => checks.find((c) => c.name === n)).filter((c): c is Check => !!c) }));
+  const other = checks.filter((c) => !known.has(c.name));
+  groups[groups.length - 1].checks.push(...other);
+  // A part with trouble comes first.
+  return groups.filter((g) => g.checks.length > 0).sort((a, b) => Number(a.checks.every((c) => c.ok)) - Number(b.checks.every((c) => c.ok)));
+}
+
+/** One part of the box: one quiet line while every check is fine; open (and red) the moment one fails. */
+function CheckGroup({ name, about, checks }: { name: string; about: string; checks: Check[] }) {
+  const bad = checks.filter((c) => !c.ok);
+  const [open, setOpen] = useState(false);
+  const shown = bad.length > 0 || open;
+  return (
+    <li>
+      <button
+        type="button"
+        aria-expanded={shown}
+        disabled={bad.length > 0}
+        onClick={() => setOpen(!open)}
+        className="group -mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-6 rounded-[6px] px-2 py-2.5 text-left transition-colors duration-[var(--dur-state)] enabled:hover:bg-paper-sunk sm:grid-cols-[11rem_minmax(0,1fr)_auto]"
+      >
+        <span className={cn("text-[0.875rem]", bad.length ? "font-[550] text-danger" : "text-ink")}>{name}</span>
+        <span className={cn("col-span-2 row-start-2 text-[0.84375rem] sm:col-span-1 sm:row-start-auto", bad.length ? "text-danger" : "text-ink-3")}>
+          {bad.length
+            ? `${bad.map(checkName).join(", ")} ${bad.length === 1 ? "is" : "are"} failing.`
+            : `${countWords(checks.length, "check", "checks", true)} fine. ${about}.`}
+        </span>
+        <span aria-hidden className={cn("col-start-2 row-start-1 text-[0.8125rem] text-ink-4 transition-colors group-hover:text-ink sm:col-start-auto sm:row-start-auto", bad.length > 0 && "invisible")}>
+          {shown ? "Hide" : "Show"}
+        </span>
+      </button>
+      {shown && (
+        <ul className="mb-2 ml-2 border-l border-rule pl-4 sm:ml-[11rem] sm:pl-4">
+          {[...bad, ...checks.filter((c) => c.ok)].map((c) => (
+            <li key={c.name} className="grid gap-x-4 py-1.5 sm:grid-cols-[9rem_minmax(0,1fr)]">
+              <span className={cn("text-[0.84375rem]", c.ok ? "text-ink-2" : "font-[550] text-danger")}>{checkName(c)}</span>
+              <span className={cn("text-[0.8125rem]", c.ok ? "text-ink-3" : "text-ink-2")}>
+                {c.detail ? <Code text={checkWords(c.detail)} /> : c.ok ? "" : "Failing, with no detail."}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
   );
 }
 
