@@ -23,6 +23,7 @@ type BackupOverview struct {
 	LastOKAt     *time.Time     `json:"lastOkAt" doc:"When the newest successful backup started"`
 	RepoBytes    int64          `json:"repoBytes" doc:"Disk used by the local backup repository and sets"`
 	Destinations []string       `json:"destinations" doc:"Where backups are stored"`
+	LastDrill    *BackupDrill   `json:"lastDrill" doc:"The newest restore drill (null when none ran); see GET /v1/backups/drills"`
 }
 
 func onBox(p *platform.Platform) error {
@@ -62,6 +63,12 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if last := lastOK(list, ""); last != nil {
 			t := last.StartedAt
 			out.LastOKAt = &t
+		}
+		if drills, err := ListDrills(ctx, p); err == nil && len(drills) > 0 {
+			out.LastDrill = &drills[0]
+			if live := runningDrill(drills[0].ID); live != nil {
+				out.LastDrill = live
+			}
 		}
 		return &struct{ Body *BackupOverview }{out}, nil
 	}))
@@ -152,7 +159,8 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}))
 
 	ss := api.Op("backups-schedule-set", http.MethodPut, "/v1/backups/schedule", "backups schedule", api.RiskWrite,
-		"Change the backup schedule", "How often full and incremental backups run and how many full backups are kept. Only the fields you send change. Box owner only.", tag)
+		"Change the backup schedule", "How often full and incremental backups run, how many full backups are kept, and whether and how often "+
+			"restore drills run. Only the fields you send change. Box owner only.", tag)
 	huma.Register(a, ss, api.Wrap(func(ctx context.Context, in *struct {
 		Body struct {
 			Enabled               *bool `json:"enabled,omitempty" doc:"Take backups automatically"`
@@ -188,4 +196,6 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		_ = p.DB.Audit(ctx, pr.TokenID, "backup.schedule", "", s)
 		return &struct{ Body BackupSchedule }{s}, nil
 	}))
+
+	registerDrills(a, p, tag)
 }
