@@ -77,7 +77,7 @@ func (s *System) Apt(ctx context.Context, pkgs ...string) error {
 		return nil
 	}
 	s.Log("installing " + strings.Join(missing, ", "))
-	install := append([]string{"-o", "DPkg::Lock::Timeout=600", "install", "-y", "--no-install-recommends", "-o", "Dpkg::Options::=--force-confold"}, missing...)
+	install := append([]string{"-o", "DPkg::Lock::Timeout=600", "-o", "Acquire::Retries=5", "install", "-y", "--no-install-recommends", "-o", "Dpkg::Options::=--force-confold"}, missing...)
 	if s.needsUpdate {
 		if err := s.aptUpdate(ctx); err != nil {
 			return err
@@ -98,7 +98,7 @@ func (s *System) Apt(ctx context.Context, pkgs ...string) error {
 }
 
 func (s *System) aptUpdate(ctx context.Context) error {
-	_, err := s.Run(ctx, "apt-get", "-o", "DPkg::Lock::Timeout=600", "update", "-y")
+	_, err := s.Run(ctx, "apt-get", "-o", "DPkg::Lock::Timeout=600", "-o", "Acquire::Retries=5", "update", "-y")
 	if err == nil {
 		s.updated, s.needsUpdate = true, false
 	}
@@ -163,13 +163,42 @@ func (s *System) Fetch(ctx context.Context, url, sum string) (string, error) {
 }
 
 func (s *System) download(ctx context.Context, url, dest string) error {
+	// Boxes fetch many things at once on first provision; a slow mirror or a
+	// TLS handshake timeout should not fail the whole install.
+	var err error
+	for attempt := 1; attempt <= 4; attempt++ {
+		if err = s.downloadOnce(ctx, url, dest); err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return err
+		}
+		s.Log(fmt.Sprintf("retrying %s (%v)", filepath.Base(url), err))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt*attempt) * time.Second):
+		}
+	}
+	return err
+}
+
+var dlClient = &http.Client{Transport: &http.Transport{
+	Proxy:                 http.ProxyFromEnvironment,
+	DialContext:           (&net.Dialer{Timeout: 20 * time.Second}).DialContext,
+	TLSHandshakeTimeout:   30 * time.Second,
+	ResponseHeaderTimeout: 60 * time.Second,
+	ForceAttemptHTTP2:     true,
+}}
+
+func (s *System) downloadOnce(ctx context.Context, url, dest string) error {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
-	res, err := http.DefaultClient.Do(req)
+	res, err := dlClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("download %s: %w", url, err)
 	}
@@ -183,7 +212,7 @@ func (s *System) download(ctx context.Context, url, dest string) error {
 	}
 	if _, err := io.Copy(f, res.Body); err != nil {
 		f.Close()
-		return err
+		return fmt.Errorf("download %s: %w", url, err)
 	}
 	return f.Close()
 }

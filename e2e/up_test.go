@@ -30,7 +30,9 @@ func TestUpDown(t *testing.T) {
 	good := buildTiffin(t, dir, "linux", "0.0.1-a") // what `up` installs
 	next := buildTiffin(t, dir, "linux", "0.0.2-b") // the update
 	broken := filepath.Join(dir, "broken")
-	if err := os.WriteFile(broken, []byte("#!/bin/sh\necho broken >&2\nexit 1\n"), 0o755); err != nil {
+	// A build that installs fine (provision succeeds) but cannot serve: the
+	// installed build switches to it, sees it unhealthy and rolls back.
+	if err := os.WriteFile(broken, []byte("#!/bin/sh\n[ \"$1\" = provision ] && exit 0\necho broken >&2\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 

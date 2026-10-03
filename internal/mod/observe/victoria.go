@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/btahir/tiffin/internal/platform"
@@ -162,6 +164,34 @@ func (m *Module) Provision(ctx context.Context, s *platform.System) error {
 
 var httpc = &http.Client{Timeout: 30 * time.Second}
 
+// doRetry sends req, retrying for a few seconds while the store refuses
+// connections (it restarts when its retention settings change).
+func doRetry(req *http.Request) (*http.Response, error) {
+	var err error
+	for attempt := 0; attempt < 16; attempt++ {
+		if attempt > 0 {
+			if req.GetBody != nil {
+				body, berr := req.GetBody()
+				if berr != nil {
+					return nil, berr
+				}
+				req.Body = body
+			}
+			select {
+			case <-req.Context().Done():
+				return nil, req.Context().Err()
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+		var res *http.Response
+		res, err = httpc.Do(req)
+		if err == nil || !errors.Is(err, syscall.ECONNREFUSED) {
+			return res, err
+		}
+	}
+	return nil, err
+}
+
 // Victoria talks to the local stores.
 type Victoria struct {
 	VM, VL string // base URLs, e.g. http://127.0.0.1:8428
@@ -174,7 +204,7 @@ func (v *Victoria) PushPrometheus(ctx context.Context, body []byte) error {
 }
 
 func do(req *http.Request) error {
-	res, err := httpc.Do(req)
+	res, err := doRetry(req)
 	if err != nil {
 		return err
 	}
@@ -217,7 +247,7 @@ func (v *Victoria) QueryLogs(ctx context.Context, t Tenant, query string, start,
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("AccountID", strconv.FormatUint(uint64(t), 10))
 	req.Header.Set("ProjectID", "0")
-	res, err := httpc.Do(req)
+	res, err := doRetry(req)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +302,7 @@ func (v *Victoria) QueryMetrics(ctx context.Context, query string, start, end ti
 	q.Set("timeout", "10s")
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, v.VM+path, strings.NewReader(q.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	res, err := httpc.Do(req)
+	res, err := doRetry(req)
 	if err != nil {
 		return nil, err
 	}
