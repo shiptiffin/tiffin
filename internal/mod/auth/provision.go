@@ -150,3 +150,7 @@ func (*Module) Provision(ctx context.Context, s *platform.System) error {
 	}
 	return s.WaitTCP(ctx, EngineAddr, 30*time.Second)
 }
+
+// Needs: base installs unzip; the engine unit starts after Postgres, and the
+// email module's SMTP server should be up before auth sends mail.
+func (*Module) Needs() []string { return []string{"base", "postgres", "email"} }
