@@ -1,0 +1,7 @@
+{
+  "name": "demo-api",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "bun index.ts" },
+  "dependencies": { "hono": "^4.7.0" }
+}

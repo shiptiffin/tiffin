@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guestbook · a Tiffin demo</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script defer src="https://t.tiffin.localhost:8443/script.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">A Tiffin demo</p>
+      <h1>Guestbook</h1>
+      <p class="lede" id="greeting">Leave a note. It goes into Postgres on this box.</p>
+    </header>
+    <form id="form" autocomplete="off">
+      <label>Name <input name="name" maxlength="60" required placeholder="Ada"></label>
+      <label>Note <textarea name="message" maxlength="280" required rows="3" placeholder="Hello from my laptop"></textarea></label>
+      <button type="submit">Sign the book</button>
+      <p class="status" id="status" role="status"></p>
+    </form>
+    <ol id="entries" class="entries" aria-live="polite"></ol>
+    <footer><span id="visits"></span> · served by one box: static site, Hono API, Postgres, Valkey</footer>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>
