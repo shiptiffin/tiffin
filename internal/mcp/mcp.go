@@ -65,12 +65,14 @@ type Tool struct {
 func NewServer(a *api.API, h http.Handler, version string, token TokenFunc) *sdk.Server {
 	s := sdk.NewServer(&sdk.Implementation{Name: "tiffin", Title: "Tiffin", Version: version},
 		&sdk.ServerOptions{Instructions: Instructions})
-	for _, t := range Tools(a) {
+	tools := Tools(a)
+	for _, t := range tools {
 		t := t
 		s.AddTool(t.Tool, func(ctx context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 			return t.call(ctx, h, token(ctx, req), req)
 		})
 	}
+	addRunTool(s, tools, h, token)
 	return s
 }
 

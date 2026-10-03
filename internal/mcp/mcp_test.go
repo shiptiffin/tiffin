@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/danielgtaylor/huma/v2"
 	"path/filepath"
 	"strings"
@@ -72,7 +73,7 @@ func TestToolsMirrorTheAPI(t *testing.T) {
 		}
 		ops = append(ops, o)
 	}
-	if len(res.Tools) != len(ops) {
+	if len(res.Tools) != len(ops)+1 { // +1: the code-mode "run" tool
 		t.Fatalf("%d tools for %d operations", len(res.Tools), len(ops))
 	}
 	byName := map[string]*sdk.Tool{}
@@ -200,5 +201,34 @@ func TestOnlyConfirmableToolsClaimDryRun(t *testing.T) {
 		if claims != takesConfirm {
 			t.Errorf("%s: claims dry-run=%v but takes confirm=%v: %s", tl.Name, claims, takesConfirm, tl.Description)
 		}
+	}
+}
+
+func TestRunToolChainsCalls(t *testing.T) {
+	cs := connect(t, tokens.ScopeRead, tokens.ScopePlan)
+	res, out := call(t, cs, "run", map[string]any{"code": `
+		const who = tiffin.call("whoami", {});
+		const plan = tiffin.call("plan", {manifest: {project: "shop", services: {postgres: {}}}});
+		console.log("planned", plan.ops.length, "ops");
+		return {kind: who.kind, risk: plan.risk, hash: plan.hash.length};`})
+	if res.IsError {
+		t.Fatalf("run: %+v", out)
+	}
+	r := out["result"].(map[string]any)
+	if r["kind"] != "agent" || r["risk"] != "reversible" || r["hash"].(float64) != 64 || out["calls"].(float64) != 2 {
+		t.Fatalf("run result: %+v", out)
+	}
+	// Its powers are the caller's: a read/plan token cannot apply through run.
+	res, out = call(t, cs, "run", map[string]any{"code": `
+		const m = {project: "shop", services: {postgres: {}}};
+		const p = tiffin.call("plan", {manifest: m});
+		return tiffin.call("apply", {manifest: m, confirm: p.hash});`})
+	if !res.IsError || !strings.Contains(fmt.Sprint(out["error"]), "forbidden") {
+		t.Fatalf("run must not escalate: %+v", out)
+	}
+	// Runaway programs stop.
+	res, out = call(t, cs, "run", map[string]any{"code": `for (let i = 0; i < 100; i++) tiffin.call("whoami", {});`})
+	if !res.IsError || !strings.Contains(fmt.Sprint(out["error"]), "more than") {
+		t.Fatalf("call cap: %+v", out)
 	}
 }
