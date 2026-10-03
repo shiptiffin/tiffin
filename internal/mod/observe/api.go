@@ -86,7 +86,7 @@ func parseDur(s string) (time.Duration, error) {
 
 type logsQueryBody struct {
 	Project string `json:"project,omitempty" doc:"Project whose logs to search (its apps, its edge traffic and its reported errors). Leave empty for the box's own logs (tiffin, the stores, the system journal): box admins only."`
-	Query   string `json:"query" minLength:"1" maxLength:"4000" doc:"LogsQL, e.g. 'error', 'app:web level:error', '_msg:~\"timeout\" | stats count() by (app)'. Fields: _msg, _time, level, app, deploy, stream, source (edge, errors, otlp), host, path, status, duration_ms. Box logs add unit."`
+	Query   string `json:"query" minLength:"1" maxLength:"4000" doc:"LogsQL, e.g. 'error', 'app:web level:error', '_msg:~\"timeout\" | stats count() by (app)'. Fields: _msg, _time, level, app, source (app = stdout/stderr, edge = requests, errors = reported errors, otlp), deploy, env (prod or pr-<preview>), instance, stream; edge rows add host, method, path, status, duration_ms, user_agent; error rows add issue, culprit, release. Box logs (no project) have unit and level."`
 	Since   string `json:"since,omitempty" doc:"How far back to look, e.g. 15m, 6h, 7d. Default 1h. Ignored when start is set."`
 	Start   string `json:"start,omitempty" doc:"Range start, RFC 3339"`
 	End     string `json:"end,omitempty" doc:"Range end, RFC 3339 (default now)"`
@@ -194,7 +194,7 @@ var slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
 func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 	huma.Register(a, api.Untrusted(api.Op("logs-query", http.MethodPost, "/v1/observe/logs/query", "logs query", api.RiskRead,
 		"Search logs",
-		"Searches a project's logs with LogsQL: its apps' output, its edge requests (source:edge), errors its apps reported (source:errors) and OTLP logs. "+
+		"Searches a project's logs with LogsQL: its apps' output (source:app), its edge requests (source:edge), errors its apps reported (source:errors) and OTLP logs (source:otlp). "+
 			"Leave project empty for the box's own logs (box admins). Newest first."+untrusted, "observe")),
 		api.Wrap(func(ctx context.Context, in *struct{ Body logsQueryBody }) (*struct{ Body LogsResult }, error) {
 			if err := m.ready(); err != nil {

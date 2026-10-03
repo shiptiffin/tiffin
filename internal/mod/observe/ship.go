@@ -148,31 +148,45 @@ func sleepCtx(ctx context.Context, d time.Duration) {
 	}
 }
 
-// ---- app logs: /var/lib/tiffin/logs/apps/<project>/<app>/<deploy>.log ----
+// ---- app logs: /var/lib/tiffin/logs/apps/<project>/<app>/<env>/<deploy>.<instance>.log ----
 
-// appLogLabels derives labels from a log file path under the apps dir:
-// <project>/<app>/<deploy>.log or <project>/<app>.log.
-func appLogLabels(root, path string) (project, app, deploy string, ok bool) {
+// AppLog are the labels of one app log file, from its path under the apps
+// dir. The runtime writes <project>/<app>/<env>/<deploy>.<instance>.log (env
+// is prod or pr-<preview>); shallower layouts (<project>/<app>.log,
+// <project>/<app>/<deploy>.log) work too.
+type AppLog struct {
+	Project, App, Env, Deploy, Instance string
+}
+
+func appLogLabels(root, path string) (AppLog, bool) {
 	rel, err := filepath.Rel(root, path)
 	if err != nil || !strings.HasSuffix(rel, ".log") {
-		return "", "", "", false
+		return AppLog{}, false
 	}
 	parts := strings.Split(strings.TrimSuffix(rel, ".log"), string(filepath.Separator))
 	switch len(parts) {
 	case 2:
-		return parts[0], parts[1], "", true
+		return AppLog{Project: parts[0], App: parts[1]}, true
 	case 3:
-		return parts[0], parts[1], parts[2], true
+		return AppLog{Project: parts[0], App: parts[1], Deploy: parts[2]}, true
+	case 4:
+		l := AppLog{Project: parts[0], App: parts[1], Env: parts[2], Deploy: parts[3]}
+		if d, n, ok := strings.Cut(parts[3], "."); ok {
+			l.Deploy, l.Instance = d, n
+		}
+		return l, true
 	}
-	return "", "", "", false
+	return AppLog{}, false
 }
 
 // appLogRecord turns one app log line into a record. JSON lines keep their
 // fields (msg/message/level lifted); anything else is the message.
-func appLogRecord(line []byte, app, deploy string) map[string]any {
-	rec := map[string]any{"app": app}
-	if deploy != "" {
-		rec["deploy"] = deploy
+func appLogRecord(line []byte, l AppLog) map[string]any {
+	rec := map[string]any{"app": l.App, "source": "app"}
+	for k, v := range map[string]string{"deploy": l.Deploy, "env": l.Env, "instance": l.Instance} {
+		if v != "" {
+			rec[k] = v
+		}
 	}
 	trim := bytes.TrimSpace(line)
 	// Container json-file logs wrap each line: {"log":"...\n","stream":"stdout","time":"..."}.
@@ -183,7 +197,7 @@ func appLogRecord(line []byte, app, deploy string) map[string]any {
 			Time   string  `json:"time"`
 		}
 		if json.Unmarshal(trim, &d) == nil && d.Log != nil {
-			inner := appLogRecord([]byte(strings.TrimRight(*d.Log, "\r\n")), app, deploy)
+			inner := appLogRecord([]byte(strings.TrimRight(*d.Log, "\r\n")), l)
 			if d.Stream != "" {
 				inner["stream"] = d.Stream
 			}
@@ -210,7 +224,7 @@ func appLogRecord(line []byte, app, deploy string) map[string]any {
 							rec["_time"] = t.UTC().Format(time.RFC3339Nano)
 						}
 					}
-				case "app", "deploy", "project", "_msg", "_stream":
+				case "app", "deploy", "env", "instance", "project", "source", "_msg", "_stream":
 					// labels come from the path, never from the app
 				default:
 					if len(rec) < 50 {
@@ -242,11 +256,14 @@ func (m *Module) runAppLogs(ctx context.Context, root string) {
 		}
 	}()
 	for ctx.Err() == nil {
-		a, _ := filepath.Glob(filepath.Join(root, "*", "*.log"))
-		b, _ := filepath.Glob(filepath.Join(root, "*", "*", "*.log"))
+		var paths []string
+		for _, pat := range []string{"*/*.log", "*/*/*.log", "*/*/*/*.log"} {
+			got, _ := filepath.Glob(filepath.Join(root, pat))
+			paths = append(paths, got...)
+		}
 		want := map[string]bool{}
-		for _, path := range append(a, b...) {
-			project, app, deploy, ok := appLogLabels(root, path)
+		for _, path := range paths {
+			l, ok := appLogLabels(root, path)
 			if !ok {
 				continue
 			}
@@ -261,11 +278,11 @@ func (m *Module) runAppLogs(ctx context.Context, root string) {
 				Load: func() (logtail.Position, bool) { return m.store.loadPos(path) },
 				Save: func(p logtail.Position) { m.store.savePos(path, p) },
 				Line: func(line []byte) {
-					t, err := m.store.TenantFor(ctx, project)
+					t, err := m.store.TenantFor(ctx, l.Project)
 					if err != nil {
 						return
 					}
-					m.batch.Add(t, "app,deploy", appLogRecord(line, app, deploy))
+					m.batch.Add(t, "source,app,env", appLogRecord(line, l))
 				}}
 			go tl.Run(tctx)
 		}
