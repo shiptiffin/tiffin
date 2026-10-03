@@ -80,7 +80,14 @@ func (m *Module) decisionCount(ctx context.Context) (int, error) {
 	if time.Since(countAt) < 10*time.Second {
 		return countValue, countErr
 	}
-	ds, err := m.crowdsec().Decisions(ctx)
+	// Detached from the caller: a dashboard poll that is cancelled mid-way
+	// must not leave a cached "unreadable" for everyone else.
+	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+	defer cancel()
+	ds, err := m.crowdsec().Decisions(dctx)
+	if err != nil && ctx.Err() != nil {
+		return 0, err // the caller went away; don't cache that
+	}
 	countAt, countValue, countErr = time.Now(), len(ds), err
 	return countValue, countErr
 }
