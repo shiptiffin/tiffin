@@ -1,0 +1,11 @@
+{
+  "name": "tiffin-tracker",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tiffin's cookieless analytics script (served by the box at https://t.<domain>/script.js).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/tracker.js --minify --target=browser --outfile=../../internal/mod/analytics/script.js && wc -c ../../internal/mod/analytics/script.js && gzip -9c ../../internal/mod/analytics/script.js | wc -c"
+  }
+}

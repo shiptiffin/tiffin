@@ -23,6 +23,10 @@
       "types": "./src/kv.ts",
       "default": "./src/kv.ts"
     },
+    "./analytics": {
+      "types": "./src/analytics.ts",
+      "default": "./src/analytics.ts"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
