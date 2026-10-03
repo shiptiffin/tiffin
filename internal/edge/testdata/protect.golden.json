@@ -1,0 +1,490 @@
+{
+  "admin": {
+    "config": {
+      "persist": false
+    },
+    "disabled": true
+  },
+  "apps": {
+    "crowdsec": {
+      "api_key": "k",
+      "api_url": "http://127.0.0.1:7422/",
+      "enable_caddy_error": true,
+      "enable_hard_fails": false,
+      "enable_streaming": true,
+      "ticker_interval": "5s"
+    },
+    "http": {
+      "http_port": 8080,
+      "https_port": 8443,
+      "servers": {
+        "http": {
+          "automatic_https": {
+            "disable": true
+          },
+          "listen": [
+            ":8080"
+          ],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "close": true,
+                  "handler": "static_response",
+                  "headers": {
+                    "Connection": [
+                      "close"
+                    ],
+                    "Location": [
+                      "https://{http.request.host}:8443{http.request.uri}"
+                    ]
+                  },
+                  "status_code": 308
+                }
+              ]
+            }
+          ]
+        },
+        "https": {
+          "automatic_https": {
+            "disable_redirects": true
+          },
+          "errors": {
+            "routes": [
+              {
+                "handle": [
+                  {
+                    "body": "\u003c!doctype html\u003e\u003chtml lang=\"en\"\u003e\u003chead\u003e\u003cmeta charset=\"utf-8\"\u003e\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\"\u003e\u003cmeta name=\"robots\" content=\"noindex\"\u003e\u003ctitle\u003eToo many requests\u003c/title\u003e\u003cstyle\u003e\n:root{--bg:#f5f1ea;--ink:#2a2620;--muted:#6d6457;--line:#ddd3c4;--brass:#a8761e;--brass-soft:#ecdcbc;color-scheme:light dark}\n@media (prefers-color-scheme:dark){:root{--bg:#1b1916;--ink:#ede6da;--muted:#a59a8a;--line:#3a352e;--brass:#d6a64e;--brass-soft:#3b3122}}\n*{box-sizing:border-box}\nhtml,body{margin:0;background:var(--bg);color:var(--ink)}\nbody{font:16px/1.55 system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;min-height:100vh;display:grid;place-items:center;padding:24px 16px}\nmain{width:100%;max-width:30rem}\nh1{font-family:ui-rounded,\"SF Pro Rounded\",\"Nunito\",\"Varela Round\",system-ui,sans-serif;font-weight:650;font-size:1.65rem;line-height:1.2;letter-spacing:-.01em;margin:20px 0 10px}\np{margin:0 0 12px;color:var(--muted)}\np.lead{color:var(--ink)}\n.mark{display:block;width:44px;height:52px;color:var(--brass)}\n.fine{font-size:.85rem;margin-top:22px;padding-top:14px;border-top:1px solid var(--line)}\na{color:var(--brass)}\n\u003c/style\u003e\u003c/head\u003e\u003cbody\u003e\u003cmain\u003e\u003csvg class=\"mark\" viewBox=\"0 0 44 52\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"\u003e\u003cpath d=\"M15 9V5.5a2.5 2.5 0 0 1 2.5-2.5h9A2.5 2.5 0 0 1 29 5.5V9\"/\u003e\u003cg class=\"t t1\"\u003e\u003crect x=\"7\" y=\"9\" width=\"30\" height=\"11\" rx=\"3\"/\u003e\u003c/g\u003e\u003cg class=\"t t2\"\u003e\u003crect x=\"7\" y=\"22\" width=\"30\" height=\"11\" rx=\"3\"/\u003e\u003c/g\u003e\u003cg class=\"t t3\"\u003e\u003crect x=\"7\" y=\"35\" width=\"30\" height=\"13\" rx=\"3\"/\u003e\u003c/g\u003e\u003cpath d=\"M4 14v28M40 14v28\"/\u003e\u003c/svg\u003e\u003ch1\u003eEasy there, one moment\u003c/h1\u003e\u003cp class=\"lead\"\u003eYou've sent a lot of requests in a short time, so this site is pausing yours for a few seconds.\u003c/p\u003e\u003cp class=\"fine\"\u003eWait a moment, then reload. If you were signing in, give it a minute before trying again.\u003c/p\u003e\u003c/main\u003e\u003c/body\u003e\u003c/html\u003e",
+                    "handler": "static_response",
+                    "headers": {
+                      "Cache-Control": [
+                        "no-store"
+                      ],
+                      "Content-Security-Policy": [
+                        "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+                      ],
+                      "Content-Type": [
+                        "text/html; charset=utf-8"
+                      ],
+                      "X-Content-Type-Options": [
+                        "nosniff"
+                      ]
+                    },
+                    "status_code": 429
+                  }
+                ],
+                "match": [
+                  {
+                    "expression": "{http.error.status_code} == 429"
+                  }
+                ],
+                "terminal": true
+              },
+              {
+                "handle": [
+                  {
+                    "body": "\u003c!doctype html\u003e\u003chtml lang=\"en\"\u003e\u003chead\u003e\u003cmeta charset=\"utf-8\"\u003e\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\"\u003e\u003cmeta name=\"robots\" content=\"noindex\"\u003e\u003ctitle\u003eBlocked for now\u003c/title\u003e\u003cstyle\u003e\n:root{--bg:#f5f1ea;--ink:#2a2620;--muted:#6d6457;--line:#ddd3c4;--brass:#a8761e;--brass-soft:#ecdcbc;color-scheme:light dark}\n@media (prefers-color-scheme:dark){:root{--bg:#1b1916;--ink:#ede6da;--muted:#a59a8a;--line:#3a352e;--brass:#d6a64e;--brass-soft:#3b3122}}\n*{box-sizing:border-box}\nhtml,body{margin:0;background:var(--bg);color:var(--ink)}\nbody{font:16px/1.55 system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;min-height:100vh;display:grid;place-items:center;padding:24px 16px}\nmain{width:100%;max-width:30rem}\nh1{font-family:ui-rounded,\"SF Pro Rounded\",\"Nunito\",\"Varela Round\",system-ui,sans-serif;font-weight:650;font-size:1.65rem;line-height:1.2;letter-spacing:-.01em;margin:20px 0 10px}\np{margin:0 0 12px;color:var(--muted)}\np.lead{color:var(--ink)}\n.mark{display:block;width:44px;height:52px;color:var(--brass)}\n.fine{font-size:.85rem;margin-top:22px;padding-top:14px;border-top:1px solid var(--line)}\na{color:var(--brass)}\n\u003c/style\u003e\u003c/head\u003e\u003cbody\u003e\u003cmain\u003e\u003csvg class=\"mark\" viewBox=\"0 0 44 52\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"\u003e\u003cpath d=\"M15 9V5.5a2.5 2.5 0 0 1 2.5-2.5h9A2.5 2.5 0 0 1 29 5.5V9\"/\u003e\u003cg class=\"t t1\"\u003e\u003crect x=\"7\" y=\"9\" width=\"30\" height=\"11\" rx=\"3\"/\u003e\u003c/g\u003e\u003cg class=\"t t2\"\u003e\u003crect x=\"7\" y=\"22\" width=\"30\" height=\"11\" rx=\"3\"/\u003e\u003c/g\u003e\u003cg class=\"t t3\"\u003e\u003crect x=\"7\" y=\"35\" width=\"30\" height=\"13\" rx=\"3\"/\u003e\u003c/g\u003e\u003cpath d=\"M4 14v28M40 14v28\"/\u003e\u003c/svg\u003e\u003ch1\u003eThis connection is blocked for now\u003c/h1\u003e\u003cp class=\"lead\"\u003eToo many suspicious requests came from your network, so this site has stopped answering it for a while.\u003c/p\u003e\u003cp class=\"fine\"\u003eBlocks lift on their own. If you think this is a mistake, tell the site's owner; they can lift it sooner.\u003c/p\u003e\u003c/main\u003e\u003c/body\u003e\u003c/html\u003e",
+                    "handler": "static_response",
+                    "headers": {
+                      "Cache-Control": [
+                        "no-store"
+                      ],
+                      "Content-Security-Policy": [
+                        "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+                      ],
+                      "Content-Type": [
+                        "text/html; charset=utf-8"
+                      ],
+                      "X-Content-Type-Options": [
+                        "nosniff"
+                      ]
+                    },
+                    "status_code": 403
+                  }
+                ],
+                "match": [
+                  {
+                    "expression": "{http.error.status_code} == 403 \u0026\u0026 {http.error.message} == 'banned by crowdsec'"
+                  }
+                ],
+                "terminal": true
+              },
+              {
+                "handle": [
+                  {
+                    "body": "\u003c!doctype html\u003e\u003chtml lang=\"en\"\u003e\u003chead\u003e\u003cmeta charset=\"utf-8\"\u003e\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\"\u003e\u003cmeta name=\"robots\" content=\"noindex\"\u003e\u003ctitle\u003eRequest blocked\u003c/title\u003e\u003cstyle\u003e\n:root{--bg:#f5f1ea;--ink:#2a2620;--muted:#6d6457;--line:#ddd3c4;--brass:#a8761e;--brass-soft:#ecdcbc;color-scheme:light dark}\n@media (prefers-color-scheme:dark){:root{--bg:#1b1916;--ink:#ede6da;--muted:#a59a8a;--line:#3a352e;--brass:#d6a64e;--brass-soft:#3b3122}}\n*{box-sizing:border-box}\nhtml,body{margin:0;background:var(--bg);color:var(--ink)}\nbody{font:16px/1.55 system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;min-height:100vh;display:grid;place-items:center;padding:24px 16px}\nmain{width:100%;max-width:30rem}\nh1{font-family:ui-rounded,\"SF Pro Rounded\",\"Nunito\",\"Varela Round\",system-ui,sans-serif;font-weight:650;font-size:1.65rem;line-height:1.2;letter-spacing:-.01em;margin:20px 0 10px}\np{margin:0 0 12px;color:var(--muted)}\np.lead{color:var(--ink)}\n.mark{display:block;width:44px;height:52px;color:var(--brass)}\n.fine{font-size:.85rem;margin-top:22px;padding-top:14px;border-top:1px solid var(--line)}\na{color:var(--brass)}\n\u003c/style\u003e\u003c/head\u003e\u003cbody\u003e\u003cmain\u003e\u003csvg class=\"mark\" viewBox=\"0 0 44 52\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"\u003e\u003cpath d=\"M15 9V5.5a2.5 2.5 0 0 1 2.5-2.5h9A2.5 2.5 0 0 1 29 5.5V9\"/\u003e\u003cg class=\"t t1\"\u003e\u003crect x=\"7\" y=\"9\" width=\"30\" height=\"11\" rx=\"3\"/\u003e\u003c/g\u003e\u003cg class=\"t t2\"\u003e\u003crect x=\"7\" y=\"22\" width=\"30\" height=\"11\" rx=\"3\"/\u003e\u003c/g\u003e\u003cg class=\"t t3\"\u003e\u003crect x=\"7\" y=\"35\" width=\"30\" height=\"13\" rx=\"3\"/\u003e\u003c/g\u003e\u003cpath d=\"M4 14v28M40 14v28\"/\u003e\u003c/svg\u003e\u003ch1\u003eThis request was blocked\u003c/h1\u003e\u003cp class=\"lead\"\u003eSomething in it looked like an attack, so the site's firewall stopped it before it reached the app.\u003c/p\u003e\u003cp class=\"fine\"\u003eIf you were doing something ordinary, tell the site's owner what you were trying to do.\u003c/p\u003e\u003c/main\u003e\u003c/body\u003e\u003c/html\u003e",
+                    "handler": "static_response",
+                    "headers": {
+                      "Cache-Control": [
+                        "no-store"
+                      ],
+                      "Content-Security-Policy": [
+                        "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+                      ],
+                      "Content-Type": [
+                        "text/html; charset=utf-8"
+                      ],
+                      "X-Content-Type-Options": [
+                        "nosniff"
+                      ]
+                    },
+                    "status_code": 403
+                  }
+                ],
+                "match": [
+                  {
+                    "expression": "{http.error.status_code} == 403 \u0026\u0026 {http.error.message} == 'interruption triggered'"
+                  }
+                ],
+                "terminal": true
+              }
+            ]
+          },
+          "listen": [
+            ":8443"
+          ],
+          "protocols": [
+            "h1",
+            "h2"
+          ],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "headers",
+                  "response": {
+                    "deferred": true,
+                    "delete": [
+                      "Server"
+                    ],
+                    "set": {
+                      "Referrer-Policy": [
+                        "strict-origin-when-cross-origin"
+                      ],
+                      "Strict-Transport-Security": [
+                        "max-age=300"
+                      ],
+                      "X-Content-Type-Options": [
+                        "nosniff"
+                      ],
+                      "X-Frame-Options": [
+                        "DENY"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "handler": "headers",
+                  "response": {
+                    "require": {
+                      "headers": {
+                        "Content-Security-Policy": null
+                      }
+                    },
+                    "set": {
+                      "Content-Security-Policy": [
+                        "frame-ancestors 'none'"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "handle": [
+                {
+                  "handler": "crowdsec"
+                }
+              ]
+            },
+            {
+              "handle": [
+                {
+                  "handler": "rate_limit",
+                  "rate_limits": {
+                    "tiffin_app_300_10s": {
+                      "ipv6_prefix": 64,
+                      "key": "{http.vars.client_ip}",
+                      "match": [
+                        {
+                          "not": [
+                            {
+                              "host": [
+                                "dashboard.tiffin.localhost"
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "max_events": 300,
+                      "window": "10s"
+                    },
+                    "tiffin_auth_10_1m0s": {
+                      "ipv6_prefix": 64,
+                      "key": "{http.vars.client_ip}",
+                      "match": [
+                        {
+                          "method": [
+                            "POST",
+                            "PUT",
+                            "PATCH"
+                          ],
+                          "not": [
+                            {
+                              "host": [
+                                "dashboard.tiffin.localhost"
+                              ]
+                            }
+                          ],
+                          "path": [
+                            "/api/auth/*",
+                            "/auth/*",
+                            "/login",
+                            "/login/*",
+                            "/signin",
+                            "/signin/*",
+                            "/sign-in",
+                            "/sign-in/*",
+                            "/signup",
+                            "/sign-up",
+                            "/register",
+                            "/password/*",
+                            "/forgot-password",
+                            "/reset-password",
+                            "/password-reset",
+                            "/password-reset/*",
+                            "/users/sign_in",
+                            "/users/password",
+                            "/accounts/login/",
+                            "/wp-login.php",
+                            "/xmlrpc.php"
+                          ]
+                        }
+                      ],
+                      "max_events": 10,
+                      "window": "1m0s"
+                    },
+                    "tiffin_dashboard_1000_10s": {
+                      "ipv6_prefix": 64,
+                      "key": "{http.vars.client_ip}",
+                      "match": [
+                        {
+                          "host": [
+                            "dashboard.tiffin.localhost"
+                          ]
+                        }
+                      ],
+                      "max_events": 1000,
+                      "window": "10s"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "handle": [
+                {
+                  "difficulty": 16,
+                  "handler": "tiffin_challenge",
+                  "secret": "0707070707070707070707070707070707070707070707070707070707070707",
+                  "ttl": "24h0m0s"
+                }
+              ],
+              "match": [
+                {
+                  "not": [
+                    {
+                      "host": [
+                        "dashboard.tiffin.localhost"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "handle": [
+                {
+                  "directives": "Include @coraza.conf-recommended\nInclude @crs-setup.conf.example\nInclude @owasp_crs/*.conf\nSecRuleEngine On\nSecResponseBodyAccess Off\nSecRequestBodyLimit 13107200\nSecRequestBodyNoFilesLimit 1048576",
+                  "handler": "waf",
+                  "load_owasp_crs": true
+                }
+              ],
+              "match": [
+                {
+                  "not": [
+                    {
+                      "host": [
+                        "dashboard.tiffin.localhost"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "handle": [
+                {
+                  "flush_interval": -1,
+                  "handler": "reverse_proxy",
+                  "headers": {
+                    "request": {
+                      "set": {
+                        "X-Forwarded-Host": [
+                          "{http.request.hostport}"
+                        ],
+                        "X-Forwarded-Port": [
+                          "{http.request.port}"
+                        ],
+                        "X-Forwarded-Proto": [
+                          "{http.request.scheme}"
+                        ]
+                      }
+                    }
+                  },
+                  "upstreams": [
+                    {
+                      "dial": "127.0.0.1:7070"
+                    }
+                  ]
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "dashboard.tiffin.localhost"
+                  ]
+                }
+              ],
+              "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "flush_interval": -1,
+                  "handler": "reverse_proxy",
+                  "headers": {
+                    "request": {
+                      "set": {
+                        "X-Forwarded-Host": [
+                          "{http.request.hostport}"
+                        ],
+                        "X-Forwarded-Port": [
+                          "{http.request.port}"
+                        ],
+                        "X-Forwarded-Proto": [
+                          "{http.request.scheme}"
+                        ]
+                      }
+                    }
+                  },
+                  "upstreams": [
+                    {
+                      "dial": "127.0.0.1:9001"
+                    }
+                  ]
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "shop.tiffin.localhost"
+                  ]
+                }
+              ],
+              "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "body": "\u003c!doctype html\u003e\u003chtml lang=\"en\"\u003e\u003chead\u003e\u003cmeta charset=\"utf-8\"\u003e\u003ctitle\u003eNot found\u003c/title\u003e\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\"\u003e\u003c/head\u003e\u003cbody style=\"font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem\"\u003e\u003ch1\u003eNothing here\u003c/h1\u003e\u003cp\u003eThis address is not served by this Tiffin box.\u003c/p\u003e\u003cp\u003eOpen the \u003ca href=\"https://dashboard.tiffin.localhost:8443/\"\u003edashboard\u003c/a\u003e to see what is running.\u003c/p\u003e\u003c/body\u003e\u003c/html\u003e",
+                  "handler": "static_response",
+                  "headers": {
+                    "Content-Type": [
+                      "text/html; charset=utf-8"
+                    ]
+                  },
+                  "status_code": 404
+                }
+              ],
+              "match": [
+                {
+                  "host": [
+                    "*.tiffin.localhost"
+                  ]
+                }
+              ],
+              "terminal": true
+            },
+            {
+              "handle": [
+                {
+                  "body": "\u003c!doctype html\u003e\u003chtml lang=\"en\"\u003e\u003chead\u003e\u003cmeta charset=\"utf-8\"\u003e\u003ctitle\u003eNot found\u003c/title\u003e\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\"\u003e\u003c/head\u003e\u003cbody style=\"font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem\"\u003e\u003ch1\u003eNothing here\u003c/h1\u003e\u003cp\u003eThis address is not served by this Tiffin box.\u003c/p\u003e\u003cp\u003eOpen the \u003ca href=\"https://dashboard.tiffin.localhost:8443/\"\u003edashboard\u003c/a\u003e to see what is running.\u003c/p\u003e\u003c/body\u003e\u003c/html\u003e",
+                  "handler": "static_response",
+                  "headers": {
+                    "Content-Type": [
+                      "text/html; charset=utf-8"
+                    ]
+                  },
+                  "status_code": 404
+                }
+              ]
+            }
+          ],
+          "tls_connection_policies": [
+            {}
+          ]
+        }
+      }
+    },
+    "pki": {
+      "certificate_authorities": {
+        "tiffin": {
+          "install_trust": false,
+          "intermediate_common_name": "Tiffin Local CA Intermediate",
+          "name": "Tiffin Local CA",
+          "root_common_name": "Tiffin Local CA"
+        }
+      }
+    },
+    "tls": {
+      "automation": {
+        "policies": [
+          {
+            "issuers": [
+              {
+                "ca": "tiffin",
+                "module": "internal"
+              }
+            ],
+            "subjects": [
+              "*.tiffin.localhost",
+              "dashboard.tiffin.localhost",
+              "shop.tiffin.localhost"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "logging": {
+    "logs": {
+      "default": {
+        "encoder": {
+          "format": "json"
+        },
+        "exclude": [
+          "http.log.access"
+        ],
+        "level": "ERROR",
+        "writer": {
+          "output": "stderr"
+        }
+      }
+    }
+  },
+  "storage": {
+    "module": "file_system",
+    "root": "/var/lib/tiffin/platform/caddy"
+  }
+}

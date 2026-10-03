@@ -21,6 +21,9 @@ type Config struct {
 	Internal  bool    // true: Caddy internal CA (local/dev); false: public ACME (not implemented yet)
 	Routes    []Route // extra host -> upstream routes
 	AccessLog string  // file for JSON access logs (rolled); empty disables them
+	// Protect is the protection layer (rate limits, challenge, CrowdSec,
+	// WAF). Nil: the one registered with SetProtectionSource, if any.
+	Protect *Protection
 }
 
 // Route sends requests for Host (and optionally a path prefix) somewhere:
@@ -93,6 +96,11 @@ func (c Config) normalized() (Config, error) {
 	}
 	if !c.Internal {
 		return c, ErrPublicACMEUnsupported
+	}
+	if c.Protect != nil {
+		if err := c.Protect.validate(); err != nil {
+			return c, err
+		}
 	}
 	seen := map[string]bool{c.DashboardHost(): true}
 	routes := make([]Route, 0, len(c.Routes))
@@ -276,8 +284,11 @@ func buildConfig(c Config) obj {
 				},
 			},
 		}},
-		hostRoute(c.DashboardHost(), c.Upstream),
 	}
+	if c.Protect != nil {
+		routes = append(routes, c.Protect.protectRoutes(c)...)
+	}
+	routes = append(routes, hostRoute(c.DashboardHost(), c.Upstream))
 	for _, r := range c.Routes {
 		routes = append(routes, routeFor(r))
 	}
@@ -310,6 +321,9 @@ func buildConfig(c Config) obj {
 		},
 		"tls_connection_policies": []obj{{}},
 	}
+	if c.Protect != nil {
+		httpsServer["errors"] = obj{"routes": c.Protect.errorRoutes()}
+	}
 
 	logs := obj{"default": obj{
 		"level":   "ERROR",
@@ -326,7 +340,7 @@ func buildConfig(c Config) obj {
 			"include": []string{"http.log.access.access"},
 		}
 	}
-	return obj{
+	out := obj{
 		"admin":   obj{"disabled": true, "config": obj{"persist": false}},
 		"logging": obj{"logs": logs},
 		"storage": obj{"module": "file_system", "root": c.DataDir},
@@ -350,4 +364,10 @@ func buildConfig(c Config) obj {
 			},
 		},
 	}
+	if c.Protect != nil {
+		for k, v := range c.Protect.apps() {
+			out["apps"].(obj)[k] = v
+		}
+	}
+	return out
 }

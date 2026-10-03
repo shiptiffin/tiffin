@@ -55,7 +55,7 @@ func Start(ctx context.Context, cfg Config) (*Edge, error) {
 	if err := os.MkdirAll(c.DataDir, 0o700); err != nil {
 		return nil, fmt.Errorf("edge: create data dir: %w", err)
 	}
-	if err := load(c); err != nil {
+	if err := loadProtected(c); err != nil {
 		_ = caddy.Stop()
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (e *Edge) Reload(cfg Config) error {
 	if c.DataDir != e.cfg.DataDir {
 		return errors.New("edge: DataDir cannot change on reload")
 	}
-	if err := load(c); err != nil {
+	if err := loadProtected(c); err != nil {
 		return err
 	}
 	e.cfg = c
