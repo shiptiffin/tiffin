@@ -20,7 +20,7 @@ type Problem struct {
 	Type   string       `json:"type,omitempty" doc:"URI identifying the problem type"`
 	Title  string       `json:"title" doc:"Short summary"`
 	Status int          `json:"status" doc:"HTTP status code"`
-	Code   string       `json:"code" doc:"Stable machine-readable code" enum:"bad_request,validation,unauthenticated,forbidden,denied,approval_required,not_found,conflict,precondition,confirm_required,plan_mismatch,internal"`
+	Code   string       `json:"code" doc:"Stable machine-readable code" enum:"bad_request,validation,unauthenticated,forbidden,denied,approval_required,rate_limited,not_found,conflict,precondition,confirm_required,plan_mismatch,internal"`
 	Detail string       `json:"detail,omitempty" doc:"What went wrong"`
 	Hint   string       `json:"hint,omitempty" doc:"What to do next"`
 	Errors []FieldError `json:"errors,omitempty" doc:"Per-field problems"`
@@ -67,6 +67,8 @@ func init() {
 			code = "forbidden"
 		case http.StatusNotFound:
 			code = "not_found"
+		case http.StatusTooManyRequests:
+			code = "rate_limited"
 		case http.StatusInternalServerError:
 			code = "internal"
 		}

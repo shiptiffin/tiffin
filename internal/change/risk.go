@@ -27,11 +27,14 @@ func Classify(op Op) (Tier, string) {
 			case "email":
 				return TierReversible, "removes the email service; undo restores it"
 			}
+			if name == "postgres" {
+				return TierIrreversible, "deletes the database and all its data (a snapshot is kept for 7 days, then gone for good)"
+			}
 			return TierIrreversible, fmt.Sprintf("deletes the %s service and all its data", name)
 		case KindCron:
 			return TierReversible, fmt.Sprintf("removes cron %q; undo restores it", name)
 		case KindBucket:
-			return TierIrreversible, fmt.Sprintf("deletes bucket %q and every file in it", name)
+			return TierIrreversible, fmt.Sprintf("deletes bucket %q and every file in it (kept in the trash for 7 days, then gone for good)", name)
 		case KindProject:
 			return TierIrreversible, "deletes the project"
 		case KindApp:
