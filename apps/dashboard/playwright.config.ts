@@ -21,6 +21,8 @@ export default defineConfig({
     browserName: "chromium",
     launchOptions: { executablePath: process.env.CHROMIUM_PATH ?? (existsSync(chrome) ? chrome : undefined) },
     trace: "retain-on-failure",
+    // A dev box serves the dashboard over HTTPS with its own CA.
+    ignoreHTTPSErrors: baseURL.startsWith("https://"),
   },
   webServer: external
     ? undefined

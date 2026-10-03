@@ -15,6 +15,12 @@ async function shot(page: Page, name: string, fullPage = true) {
 }
 
 const pages: Array<{ name: string; url: string; wait?: (p: Page) => Promise<unknown>; act?: (p: Page) => Promise<unknown>; full?: boolean }> = [
+  { name: "activity", url: "/", wait: (p) => p.getByText(/changes across/).waitFor() },
+  { name: "change", url: "/", act: async (p) => (await p.locator("a[href^='/changes/']").first().click(), p.getByRole("heading", { name: "What changed" }).waitFor()) },
+  { name: "overview", url: "/projects/shop", wait: (p) => p.getByRole("heading", { name: "Apps" }).waitFor() },
+  { name: "status", url: "/status", wait: (p) => p.getByRole("heading", { name: "Checks" }).waitFor() },
+  { name: "tokens", url: "/tokens", wait: (p) => p.getByText("claude-code").first().waitFor() },
+  { name: "people", url: "/settings/people", wait: (p) => p.getByRole("heading", { name: "People" }).waitFor() },
   { name: "storage", url: "/projects/shop/storage", wait: (p) => p.getByRole("heading", { name: "Buckets" }).waitFor() },
   {
     name: "bucket-image",
@@ -127,6 +133,8 @@ for (const theme of ["dark", "light"] as const) {
       await page.setViewportSize({ width: size.width, height: size.height });
       await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
       page.setDefaultTimeout(20_000);
+      page.on("console", (m) => m.type() === "error" && !m.text().startsWith("Failed to load resource") && console.log(`CONSOLE ${m.text()}`));
+      page.on("pageerror", (e) => console.log(`PAGEERROR ${e.message}`));
       await signIn(page, baseURL!);
       for (const pg of pages) {
         if (only && !only.includes(pg.name)) continue;

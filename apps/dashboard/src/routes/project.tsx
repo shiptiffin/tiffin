@@ -41,13 +41,36 @@ function facts(kind: string, spec: unknown): string {
   take("routes", (v) => (Array.isArray(v) ? v.join(", ") : String(v)));
   take("extensions", (v) => (Array.isArray(v) && v.length ? `extensions: ${v.join(", ")}` : "no extensions"));
   take("public", (v) => (v ? "public" : "private"));
-  take("schedule", String);
+  take("schedule", (v) => `runs ${String(v)}`);
+  take("methods", (v) => `sign in with ${(v as string[]).join(", ")}`);
+  take("organizations", (v) => (v ? "teams on" : "no teams"));
+  take("from", (v) => `sends as ${String(v)}`);
+  take("retentionDays", (v) => `raw events kept ${String(v)} days`);
   if (kind === "app" && s.env && typeof s.env === "object") out.push(`${Object.keys(s.env as object).length} env`);
   if (out.length === 0) {
     const keys = Object.keys(s);
     return keys.length ? keys.slice(0, 4).join(", ") : "defaults";
   }
   return out.join(" · ");
+}
+
+/** Where each resource is managed, when it has a page. */
+function pageFor(kind: string, name: string): { to: "/"; params: Record<string, string>; search?: Record<string, string> } | null {
+  const to = (path: string, params: Record<string, string> = {}) => ({ to: path as "/", params });
+  if (kind === "app") return to("/projects/$project/apps/$app", { app: name });
+  if (kind === "bucket") return to("/projects/$project/storage/$bucket", { bucket: name });
+  if (kind === "cron") return to("/projects/$project/queues");
+  if (kind !== "service") return null;
+  return (
+    {
+      postgres: to("/projects/$project/data"),
+      valkey: to("/projects/$project/data/kv"),
+      storage: to("/projects/$project/storage"),
+      email: to("/projects/$project/email"),
+      auth: to("/projects/$project/users"),
+      analytics: to("/projects/$project/analytics"),
+    }[name] ?? null
+  );
 }
 
 function StatePill({ st }: { st?: ResourceStatus }) {
@@ -138,9 +161,19 @@ export function ProjectPage({ project }: { project: string }) {
                   const st = status[r.address];
                   const { name } = splitAddress(r.address);
                   return (
-                    <li key={r.address} className="px-4 py-3">
+                    <li key={r.address} className="relative px-4 py-3 has-[a]:hover:bg-hover/40">
                       <div className="flex items-center gap-3">
-                        <code className="min-w-0 shrink-0 font-mono text-[0.8125rem] text-ink">{name || k}</code>
+                        {pageFor(k, name) ? (
+                          <Link
+                            {...pageFor(k, name)!}
+                            params={{ ...pageFor(k, name)!.params, project } as never}
+                            className="min-w-0 shrink-0 font-mono text-[0.8125rem] text-ink after:absolute after:inset-0 hover:underline"
+                          >
+                            {name || k}
+                          </Link>
+                        ) : (
+                          <code className="min-w-0 shrink-0 font-mono text-[0.8125rem] text-ink">{name || k}</code>
+                        )}
                         <span className="min-w-0 flex-1 truncate text-sm text-ink-3">
                           {k === "env" ? <code className="font-mono text-xs text-ink-2">{JSON.stringify(r.spec)}</code> : facts(k, r.spec)}
                         </span>
