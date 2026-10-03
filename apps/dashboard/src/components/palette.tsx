@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Command } from "cmdk";
 import { Dialog as D } from "radix-ui";
@@ -29,6 +29,10 @@ import { setTheme } from "@/lib/theme";
 import { RiskMark } from "./risk";
 import { useCurrentProject } from "@/lib/project";
 import { mcpCommand } from "@/lib/mcp";
+import { useEnamels } from "@/lib/enamel";
+import { openTray, stage } from "@/lib/staged";
+import { EnamelSwatch } from "./enamel-swatch";
+import { INSTANCE_STOPS } from "./throttle";
 
 
 // Box-wide pages and each project's pages, so every area is a keystroke away.
@@ -64,6 +68,22 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const { data: changes } = useQuery({ ...q.changes(), enabled: open });
   const [toast, setToast] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const enamels = useEnamels((projects ?? []).map((p) => p.name));
+  // Levers have ⌘K twins: "scale web to 4" (or "scale web in shop to 4") stages the same change the throttle would.
+  const states = useQueries({ queries: (projects ?? []).map((p) => ({ ...q.project(p.name), enabled: open, refetchInterval: false as const })) });
+  const scale = search.trim().toLowerCase().match(/^scale\s+([a-z0-9-]+)(?:\s+in\s+([a-z0-9-]+))?\s+to\s+(\d+)$/);
+  const scaleHits = scale
+    ? states.flatMap((st) => {
+        const proj = st.data;
+        if (!proj || (scale[2] && proj.name !== scale[2])) return [];
+        const r = (proj.resources ?? []).find((x) => x.address === `app/${scale[1]}`);
+        if (!r) return [];
+        const from = Number((r.spec as { instances?: number })?.instances ?? 1);
+        const to = Number(scale[3]);
+        if (!INSTANCE_STOPS.includes(to) || to === from) return [];
+        return [{ project: proj.name, app: scale[1], from, to }];
+      })
+    : [];
 
   const run = (fn: () => void) => () => {
     onOpenChange(false);
@@ -74,10 +94,10 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-50 bg-[oklch(0.15_0.01_60/0.4)] backdrop-blur-[2px] data-[state=open]:animate-fade" />
+        <D.Overlay className="fixed inset-0 z-50 bg-[var(--scrim)] data-[state=open]:animate-[fade_80ms_linear_both]" />
         <D.Content
           aria-describedby={undefined}
-          className="fixed top-[12vh] left-1/2 z-50 w-[calc(100vw-2rem)] max-w-[600px] -translate-x-1/2 overflow-hidden rounded-xl border border-rule bg-raised shadow-pop outline-none data-[state=open]:animate-pop"
+          className="fixed top-[12vh] left-1/2 z-50 w-[calc(100vw-2rem)] max-w-[600px] -translate-x-1/2 overflow-hidden rounded-[12px] border border-rule-2 bg-paper-raised shadow-raised outline-none data-[state=open]:animate-[fade_80ms_linear_both]"
         >
           <D.Title className="sr-only">Command palette</D.Title>
           <Command label="Command palette" loop className="flex max-h-[min(70vh,520px)] flex-col">
@@ -87,7 +107,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 value={search}
                 onValueChange={setSearch}
                 placeholder="Jump to a page, project or change…"
-                className="h-13 w-full bg-transparent text-md text-ink outline-none placeholder:text-ink-4"
+                className="h-13 w-full bg-transparent text-md text-ink outline-none placeholder:text-ink-3"
               />
               <kbd className="kbd">esc</kbd>
             </div>
@@ -95,12 +115,36 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               <Command.Empty className="px-3 py-8 text-center text-base text-ink-3">
                 Nothing matches. Try a project name or part of an intent.
               </Command.Empty>
+              {scaleHits.length > 0 && (
+                <Command.Group heading="Stage">
+                  {scaleHits.map((h) => (
+                    <Item
+                      key={h.project + h.app}
+                      value={search}
+                      icon={<Gauge />}
+                      onSelect={run(() => {
+                        stage(h.project, { kind: "instances", app: h.app, from: h.from, to: h.to });
+                        openTray(h.project);
+                      })}
+                    >
+                      Scale {h.app} in {h.project} from {h.from} to {h.to} instances
+                      <span className="ml-2 text-xs text-ink-3">opens the plan</span>
+                    </Item>
+                  ))}
+                </Command.Group>
+              )}
               <Command.Group heading="Go to">
-                <Item icon={<ScrollText />} onSelect={run(() => navigate({ to: "/", search: {} }))}>
-                  Activity
+                <Item icon={<ScrollText />} onSelect={run(() => navigate({ to: "/" }))} keywords={["home", "stack", "memory", "room"]}>
+                  Box
                 </Item>
-                <Item icon={<Gauge />} onSelect={run(() => navigate({ to: "/status" }))}>
-                  Status
+                <Item icon={<ScrollText />} onSelect={run(() => navigate({ to: "/ledger", search: {} }))} keywords={["activity", "changes", "history"]}>
+                  Ledger
+                </Item>
+                <Item icon={<Gauge />} onSelect={run(() => navigate({ to: "/status" }))} keywords={["status", "checks"]}>
+                  Health
+                </Item>
+                <Item icon={<Gauge />} onSelect={run(() => navigate({ to: "/settings" }))} keywords={["box", "export", "import", "domain"]}>
+                  Settings
                 </Item>
                 <Item icon={<Stamp />} onSelect={run(() => navigate({ to: "/approvals" }))} keywords={["approve", "passkey", "waiting"]}>
                   Approvals
@@ -120,7 +164,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   </Item>
                 ))}
               </Command.Group>
-              {current && (
+              {current && !scale && (
                 <Command.Group heading={`In ${current}`}>
                   {projectPages.map(([label, to, kw]) => (
                     <Item key={to} value={`${current} ${label}`} icon={<FolderClosed />} keywords={kw} onSelect={run(() => navigate({ to: to as "/", params: { project: current } as never }))}>
@@ -178,11 +222,11 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                     <Item
                       key={p.name}
                       value={`project ${p.name}`}
-                      icon={<FolderClosed />}
+                      icon={<span className="grid size-4 place-items-center"><EnamelSwatch enamel={enamels[p.name]} /></span>}
                       onSelect={run(() => navigate({ to: "/projects/$project", params: { project: p.name } }))}
                     >
                       {p.name}
-                      <span className="ml-2 font-mono text-xs text-ink-4">v{p.version}</span>
+                      <span className="ml-2 text-xs text-ink-3">version {p.version}</span>
                     </Item>
                   ))}
                 </Command.Group>
@@ -201,7 +245,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                       onSelect={run(() => navigate({ to: "/changes/$id", params: { id: c.id } }))}
                     >
                       <span className="truncate">{c.intent || "(no intent)"}</span>
-                      <span className="ml-2 shrink-0 font-mono text-xs text-ink-4">{c.project}</span>
+                      <span className="ml-2 shrink-0 text-xs text-ink-3">{c.project}</span>
                     </Item>
                   ))}
                 </Command.Group>
@@ -244,7 +288,7 @@ function Item({
       value={value}
       keywords={keywords}
       onSelect={onSelect}
-      className="flex h-10 cursor-default items-center gap-3 rounded-lg px-2.5 text-base text-ink-2 select-none data-[selected=true]:bg-hover data-[selected=true]:text-ink [&_svg]:size-4 [&>svg]:text-ink-3"
+      className="flex h-10 cursor-default items-center gap-3 rounded-[7px] px-2.5 text-base text-ink-2 select-none data-[selected=true]:bg-paper-sunk data-[selected=true]:text-ink [&_svg]:size-4 [&>svg]:text-ink-3"
     >
       {icon}
       <span className="flex min-w-0 flex-1 items-center">{children}</span>

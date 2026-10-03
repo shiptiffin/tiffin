@@ -1,17 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Fingerprint, KeyRound, LogOut, Terminal } from "lucide-react";
 import { Dialog as D } from "radix-ui";
 import { useState, type ReactNode } from "react";
 import { api } from "@/api/client";
-import { q } from "@/api/queries";
 import { copyText } from "@/lib/clipboard";
 import { mcpCommand } from "@/lib/mcp";
 import { roleCopy, useMe } from "@/lib/me";
-import { useCurrentProject } from "@/lib/project";
 import { relative } from "@/lib/time";
-import { clickedEarly, ProjectTrigger, WhoTrigger } from "./shell-triggers";
-import { Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from "./ui/dropdown";
+import { clickedEarly, WhoTrigger } from "./shell-triggers";
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "./ui/dropdown";
 
 // The shell's menus and the phone nav sheet: loaded just after the first paint
 // (see shell.tsx), so Radix stays out of the initial bundle.
@@ -20,8 +17,8 @@ export function NavSheet({ open, onOpenChange, children }: { open: boolean; onOp
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-40 bg-[oklch(0.15_0.01_60/0.45)] data-[state=open]:animate-fade lg:hidden" />
-        <D.Content className="fixed inset-y-0 left-0 z-50 w-[min(84vw,300px)] border-r border-rule bg-paper-sunk shadow-pop outline-none data-[state=open]:animate-[rise_300ms_var(--ease-out-soft)] lg:hidden">
+        <D.Overlay className="fixed inset-0 z-40 bg-[var(--scrim)] data-[state=open]:animate-fade lg:hidden" />
+        <D.Content className="fixed inset-y-0 left-0 z-50 w-[min(84vw,300px)] border-r border-rule-2 bg-paper shadow-overlay outline-none data-[state=open]:animate-[sheet-in_var(--dur-tray)_var(--ease-tray)_both] lg:hidden">
           <D.Title className="sr-only">Navigation</D.Title>
           <D.Description className="sr-only">Pages and projects</D.Description>
           {children}
@@ -43,7 +40,7 @@ export function WhoMenu() {
       <MenuTrigger asChild>
         <WhoTrigger />
       </MenuTrigger>
-      <MenuContent align="end" className="w-72">
+      <MenuContent align="start" side="top" className="w-72">
         <div className="px-2 pt-2 pb-2.5">
           <p className="text-base font-medium text-ink">{label}</p>
           <p className="mt-0.5 text-sm text-ink-3">
@@ -88,41 +85,6 @@ export function WhoMenu() {
           <LogOut />
           Sign out
         </MenuItem>
-      </MenuContent>
-    </Menu>
-  );
-}
-
-export function ProjectSwitcher() {
-  const { data: projects } = useQuery(q.projects);
-  const project = useCurrentProject();
-  const navigate = useNavigate();
-  const path = useRouterState({ select: (s) => s.location.pathname });
-  const onActivity = path === "/";
-  const [early] = useState(() => clickedEarly("project"));
-  const pick = (v: string) => {
-    if (!v) navigate({ to: "/", search: {} });
-    else if (onActivity) navigate({ to: "/", search: { project: v } });
-    else if (path.endsWith("/secrets")) navigate({ to: "/projects/$project/secrets", params: { project: v } });
-    else navigate({ to: "/projects/$project", params: { project: v } });
-  };
-  return (
-    <Menu defaultOpen={early}>
-      <MenuTrigger asChild>
-        <ProjectTrigger />
-      </MenuTrigger>
-      <MenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-56">
-        <MenuLabel>Projects on this box</MenuLabel>
-        <MenuRadioGroup value={project ?? ""} onValueChange={pick}>
-          <MenuRadioItem value="">All projects</MenuRadioItem>
-          {(projects ?? []).map((p) => (
-            <MenuRadioItem key={p.name} value={p.name}>
-              <span className="flex-1 truncate">{p.name}</span>
-              <span className="font-mono text-xs text-ink-4">v{p.version}</span>
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
-        {projects && projects.length === 0 && <p className="px-2 py-1.5 text-sm text-ink-3">No projects yet. `tiffin init` makes one.</p>}
       </MenuContent>
     </Menu>
   );

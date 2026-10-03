@@ -1,15 +1,16 @@
-import { createRootRouteWithContext, createRoute, createRouter, Link, Outlet } from "@tanstack/react-router";
+import { createRootRouteWithContext, createRoute, createRouter, Link, Outlet, redirect } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Tier } from "@/api/client";
 import { Shell } from "@/components/shell";
-import { ActivityPage, type ActivitySearch } from "@/routes/activity";
+import type { ActivitySearch } from "@/routes/activity";
+import { BoxPage } from "@/routes/box";
 import { Page } from "@/components/page";
 import { LoginPage } from "@/routes/login";
 import { lazy, Suspense, type ComponentType, type ReactElement } from "react";
 import { Skeleton } from "@/components/page";
 
-// Every page but Activity and Login loads on demand, so the first paint
-// ships only the shell (the module pages bring their own code).
+// Every page but the Box and Login loads on demand, so the first paint
+// ships only the shell and the landing page (the others bring their own code).
 function lz<P extends object = Record<string, never>>(load: () => Promise<Record<string, unknown>>, name: string): (props: P) => ReactElement {
   const L = lazy(() => load().then((m) => ({ default: m[name] as ComponentType<P> })));
   return function Lazy(props: P) {
@@ -28,6 +29,10 @@ function Loading() {
     </Page>
   );
 }
+const ActivityPage = lz<{ search: ActivitySearch }>(() => import("@/routes/activity"), "ActivityPage");
+const SettingsPage = lz(() => import("@/routes/box-settings"), "SettingsPage");
+const NewProjectPage = lz(() => import("@/routes/new"), "NewProjectPage");
+const KitPage = lz(() => import("@/routes/kit"), "KitPage");
 const ChangePage = lz<{ id: string }>(() => import("@/routes/change"), "ChangePage");
 const StatusPage = lz(() => import("@/routes/status"), "StatusPage");
 const TokensPage = lz<{ create?: boolean }>(() => import("@/routes/tokens"), "TokensPage");
@@ -89,9 +94,19 @@ const login = createRoute({
 const app = createRoute({ getParentRoute: () => root, id: "app", component: Shell });
 
 const tiers: Tier[] = ["reversible", "outbound", "irreversible"];
-const activity = createRoute({
+const box = createRoute({
   getParentRoute: () => app,
   path: "/",
+  // The old landing page was the change log at /?project=…&risk=…: send those links to the Ledger.
+  beforeLoad: ({ search }) => {
+    const s = search as Record<string, unknown>;
+    if (typeof s.project === "string" || typeof s.risk === "string") throw redirect({ to: "/ledger", search: s as ActivitySearch });
+  },
+  component: BoxPage,
+});
+const activity = createRoute({
+  getParentRoute: () => app,
+  path: "/ledger",
   validateSearch: (s: Record<string, unknown>): ActivitySearch => ({
     project: typeof s.project === "string" && s.project ? s.project : undefined,
     risk: tiers.includes(s.risk as Tier) ? (s.risk as Tier) : undefined,
@@ -111,6 +126,9 @@ const change = createRoute({
 });
 
 const status = createRoute({ getParentRoute: () => app, path: "/status", component: StatusPage });
+const settings = createRoute({ getParentRoute: () => app, path: "/settings", component: SettingsPage });
+const newProject = createRoute({ getParentRoute: () => app, path: "/new", component: NewProjectPage });
+const kit = createRoute({ getParentRoute: () => app, path: "/_kit", component: KitPage });
 
 const tokens = createRoute({
   getParentRoute: () => app,
@@ -386,11 +404,11 @@ const passkeys = createRoute({ getParentRoute: () => app, path: "/settings/passk
 function NotFound() {
   return (
     <Page>
-      <h1 className="display text-3xl text-ink">Nothing in this tin.</h1>
+      <h1 className="sentence text-ink">There’s no page here.</h1>
       <p className="mt-2 text-md text-ink-2">
-        That page doesn't exist.{" "}
-        <Link to="/" search={{}} className="text-brass-ink underline underline-offset-4">
-          Back to activity
+        The link may be old, or the thing it pointed at was removed.{" "}
+        <Link to="/" className="font-[550] text-brass-ink underline underline-offset-4">
+          Back to the Box
         </Link>
         .
       </p>
@@ -401,7 +419,11 @@ function NotFound() {
 const tree = root.addChildren([
   login,
   app.addChildren([
+    box,
     activity,
+    settings,
+    newProject,
+    kit,
     change,
     status,
     tokens,
