@@ -518,7 +518,7 @@ export function ResultGrid({
                         expanded ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "truncate whitespace-nowrap",
                         long && "cursor-pointer",
                       )}
-                      title={long && !expanded ? "Click to see all of it" : undefined}
+                      title={long && !expanded ? "Click to see all of it" : typeof v === "string" && TS.test(v) ? v : undefined}
                       onClick={() => long && setOpen(expanded ? null : id)}
                     >
                       {text}
@@ -535,9 +535,17 @@ export function ResultGrid({
   );
 }
 
+const TS = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(\.\d+)?([+-]\d{2}(?::?\d{2})?|Z)$/;
+const tsFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
 function cell(v: unknown, expanded = false): string {
   if (v === null || v === undefined) return "null";
   if (typeof v === "object") return expanded ? JSON.stringify(v, null, 2) : jsonLine(v);
+  // A timestamptz reads in the viewer's clock, to the second; expanding shows Postgres's own text.
+  if (!expanded && typeof v === "string" && TS.test(v)) {
+    const m = v.match(TS)!;
+    const d = new Date(`${m[1]}T${m[2]}${m[3] ?? ""}${m[4] === "Z" ? "Z" : m[4].length === 3 ? `${m[4]}:00` : m[4].replace(/^([+-]\d{2})(\d{2})$/, "$1:$2")}`);
+    if (!Number.isNaN(d.getTime())) return tsFmt.format(d);
+  }
   return String(v);
 }
 

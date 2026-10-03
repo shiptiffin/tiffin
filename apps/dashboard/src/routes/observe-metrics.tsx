@@ -187,7 +187,7 @@ function Services({ res, unavailable }: { res?: BoxResources; unavailable: boole
                   {sv.restarts > 0 && <span className="ml-2 text-[0.8125rem] text-warn-ink">{count(sv.restarts, "restart")}</span>}
                 </p>
                 <p className={cn("truncate text-xs", failed || down ? "text-danger" : "text-ink-3")}>
-                  {failed ? "Stopped after a failure." : down ? `Not running (${sv.state}).` : sv.description}
+                  {failed ? "Stopped after a failure." : down ? `Not running (${sv.state}).` : aboutWords(pretty(unitName(sv.unit)), sv.description)}
                 </p>
               </div>
               <span className="hidden text-right text-[0.84375rem] text-ink-2 tnum sm:block">{sv.cpuPercent >= 0.5 ? percent(sv.cpuPercent) : "idle"}</span>
@@ -273,7 +273,7 @@ function Apps({ res }: { res?: BoxResources }) {
                 <p className="flex items-center gap-2 text-[0.875rem] text-ink">
                   <EnamelSwatch enamel={enamels[g.project]} size={7} />
                   <span className="truncate">
-                    <span className="text-ink-3">{g.project} ›</span> {g.app}
+                    {g.app === g.project ? g.app : <><span className="text-ink-3">{g.project} ›</span> {g.app}</>}
                   </span>
                 </p>
                 <p className="truncate pl-[15px] text-xs text-ink-3">
@@ -293,7 +293,7 @@ function Apps({ res }: { res?: BoxResources }) {
                     )}
                   </>
                 ) : (
-                  <span className="text-ink-3">No traffic in the last hour.</span>
+                  <span className="text-ink-4" title="No traffic in the last hour">–</span>
                 )}
               </p>
               <SegMeter
@@ -359,4 +359,13 @@ function Disks({ res, stores }: { res?: BoxResources; stores?: Record<string, st
       </Rows>
     </Group>
   );
+}
+
+/** "PostgreSQL: every project's database" under "Postgres" → "Every project's database": don't say the name twice. */
+function aboutWords(name: string, d: string) {
+  const m = d.match(/^([^:]{2,24}):\s*(.+)$/);
+  if (!m) return d;
+  const head = m[1].toLowerCase().replace(/\s+/g, "");
+  const n = name.toLowerCase().replace(/\s+/g, "");
+  return head.startsWith(n) || n.startsWith(head) ? m[2].charAt(0).toUpperCase() + m[2].slice(1) : d;
 }

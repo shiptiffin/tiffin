@@ -44,7 +44,10 @@ export function Command({ cmd, className, wrap }: { cmd: string; className?: str
       <code
         className={cn(
           "min-w-0 flex-1 font-mono text-sm text-ink",
-          wrap ? "pt-0.5 break-all whitespace-pre-wrap" : "overflow-x-auto whitespace-nowrap [scrollbar-width:none]",
+          // Wrapped commands break at spaces first; one-line ones scroll under a fade instead of being cut.
+          wrap
+            ? "pt-0.5 whitespace-pre-wrap [overflow-wrap:anywhere]"
+            : "overflow-x-auto whitespace-nowrap [mask-image:linear-gradient(to_right,black_calc(100%-20px),transparent)] [scrollbar-width:none]",
         )}
       >
         {cmd}

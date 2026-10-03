@@ -249,7 +249,8 @@ export function Steps({ ops, project, past }: { ops: Op[]; project: string; past
                 <h3 className="text-[0.9375rem] leading-5 font-[550] tracking-[-0.01em] text-ink">{opTitle(op, project, past)}</h3>
                 <RiskDots tier={tier} label={tier === "reversible" ? "Low" : undefined} className="text-xs" />
               </div>
-              {tier !== "reversible" && r.did && <p className="mt-1 max-w-[60ch] text-sm text-ink-2">{r.did}</p>}
+              {/* An irreversible step's loss is said once, under "What undo can't restore". */}
+              {tier === "outbound" && r.did && <p className="mt-1 max-w-[60ch] text-sm text-ink-2">{r.did}</p>}
               <FieldDiff op={op} />
             </div>
           </li>

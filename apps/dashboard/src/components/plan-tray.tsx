@@ -287,8 +287,17 @@ function Tray({ project }: { project: string }) {
                 </ol>
               </section>
               <aside className="px-5 pb-6 sm:px-7 md:px-6" aria-label="Impact">
-                <h3 className="label pt-5 pb-1">Room left in the box</h3>
-                <RoomBlock room={room} unavailable={!!res.error} />
+                <Stake ops={ops} />
+                {room && room.delta === 0 && ops.some((o) => asTier(o.risk) !== "reversible" && asTier(o.risk) !== "read") ? (
+                  <p className="border-t border-rule py-3.5 text-sm text-ink-2">
+                    <b className="font-[550] text-ink">Room left in the box:</b> {mb(room.before * 1048576)}&#8239;MB, unchanged.
+                  </p>
+                ) : (
+                  <>
+                    <h3 className="label pt-5 pb-1">Room left in the box</h3>
+                    <RoomBlock room={room} unavailable={!!res.error} />
+                  </>
+                )}
                 <Impact edits={edits} ops={ops} project={project} apps={apps} />
               </aside>
             </div>
@@ -511,6 +520,9 @@ function opTitle(op: Op, project: string, apps: Record<string, ManifestApp>, edi
 
   if (kind === "bucket") {
     const a = (op.after ?? {}) as BucketLike;
+    const restoring = edits.some((e) => e.kind === "bucket" && e.bucket === name && e.from === "absent");
+    if (op.action === "create" && restoring)
+      return { title: `Restore the ${name} bucket from the trash`, detail: `It comes back ${a.public ? "public" : "private"}, with its files. Undo puts it back in the trash.`, facts: [] };
     if (op.action === "create") return { title: `Add the ${name} bucket (${a.public ? "public" : "private"})`, detail: reason, facts: [] };
     if (op.action === "delete") return { title: `Remove the ${name} bucket`, detail: reason, facts: [] };
     return { title: `Make the ${name} bucket ${a.public ? "public" : "private"}`, detail: reason, facts: [] };
@@ -548,7 +560,7 @@ function Step({ n, op, project, apps, edits }: { n: number; op: Op; project: str
       <span className="ident pt-0.5 text-[0.6875rem] leading-[1.375rem] text-ink-3">{String(n).padStart(2, "0")}</span>
       <h4 className="text-[0.9375rem] leading-[1.375rem] font-[550] tracking-[-0.01em] text-ink">{t.title}</h4>
       <RiskDots tier={tier} label={tier === "irreversible" ? "Irreversible" : tier === "outbound" ? "Outbound" : "Low"} className="self-center" />
-      {t.detail && <p className="col-start-2 col-end-4 max-w-[60ch] text-sm text-ink-2">{t.detail}</p>}
+      {t.detail && tier !== "irreversible" && <p className="col-start-2 col-end-4 max-w-[60ch] text-sm text-ink-2">{t.detail}</p>}
       {t.facts.length > 0 && <div className="col-start-2 col-end-4 mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-3">{t.facts}</div>}
     </li>
   );
@@ -589,6 +601,24 @@ function RoomBlock({ room, unavailable }: { room: Room; unavailable: boolean }) 
   );
 }
 
+/** What's at stake, first: what can't come back, or who will be able to see something. Memory comes after. */
+function Stake({ ops }: { ops: Op[] }) {
+  const lost = ops.filter((o) => asTier(o.risk) === "irreversible");
+  const out = ops.filter((o) => asTier(o.risk) === "outbound");
+  if (lost.length === 0 && out.length === 0) return null;
+  const cap = (x?: string) => (x ? x.charAt(0).toUpperCase() + x.slice(1).replace(/\.$/, "") + "." : "");
+  return (
+    <section className="pt-5 pb-4">
+      <h3 className={cn("label pb-1.5", lost.length > 0 && "!text-danger")}>{lost.length > 0 ? "What can’t come back" : "Who will see it"}</h3>
+      <div className={cn("border-l-2 py-0.5 pl-3.5 text-[0.9375rem] leading-[1.375rem] text-ink", lost.length > 0 ? "border-danger" : "border-warn")}>
+        {(lost.length > 0 ? lost : out).map((o, i) => (
+          <p key={o.address + i}>{cap(o.reason) || o.address}</p>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function Impact({ edits, ops, project, apps }: { edits: StagedEdit[]; ops: Op[]; project: string; apps: Record<string, ManifestApp> }) {
   const onlyScale = edits.every((e) => e.kind === "instances");
   const lost = ops.filter((o) => asTier(o.risk) === "irreversible");
@@ -605,8 +635,8 @@ function Impact({ edits, ops, project, apps }: { edits: StagedEdit[]; ops: Op[];
         <b className="font-[550] text-ink">If you undo</b>, {edits.map((e) => undoWords(e)).join("; ")}.
       </p>
       {lost.length > 0 && (
-        <p className="!border-t-danger-rule text-danger">
-          <b className="font-[550]">What undo can’t restore:</b> {lost.map((o) => o.reason).join("; ")}. Undo brings the settings back to {project}, not the data.
+        <p>
+          Undo puts {project}’s settings back; {lost.length === 1 ? "what it held stays" : "what they held stays"} gone.
         </p>
       )}
       <p>You’ll get a signed entry in the Ledger{lost.length === 0 ? " with an Undo button" : ""}.</p>

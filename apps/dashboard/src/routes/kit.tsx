@@ -156,10 +156,10 @@ export function KitPage() {
               ["pilot", "1 Hz steps", "The only blink: something is building."],
               ["keyboard", "0–100 ms · fade only", "⌘K, arrow keys."],
             ].map(([a, b, c]) => (
-              <tr key={a}>
-                <td className="ident w-40 py-2 text-ink">{a}</td>
-                <td className="ident w-56 py-2 text-ink-3">{b}</td>
-                <td className="py-2 text-ink-2">{c}</td>
+              <tr key={a} className="max-sm:grid max-sm:grid-cols-2 max-sm:gap-x-3 max-sm:py-2">
+                <td className="ident py-2 text-ink max-sm:py-0 sm:w-40">{a}</td>
+                <td className="ident py-2 text-ink-3 max-sm:py-0 sm:w-56">{b}</td>
+                <td className="py-2 text-ink-2 max-sm:col-span-2 max-sm:py-0">{c}</td>
               </tr>
             ))}
           </tbody>
@@ -497,10 +497,12 @@ function StackDemo() {
         />
         <TierRow lever={<Breaker label="Valkey" state="tripped" />} name="Valkey" sub="Cache" status={<span className="text-danger">Tripped: out of memory.</span>} fault />
         <Rim />
-        <div className="room tier-grid m-3 min-h-14 py-3">
+        <div className="room tier-grid m-3 min-h-14 py-3 max-sm:mx-2 max-sm:flex max-sm:flex-col max-sm:items-start max-sm:gap-1.5 max-sm:px-3.5">
           <div className="col-start-2 text-sm font-[550]">Room left</div>
           <p className="col-span-2 col-start-3 text-sm text-ink-2">Enough for about four more apps the size of web.</p>
-          <div className="col-start-5 text-right font-[550] tnum">2,407</div>
+          <div className="col-start-5 text-right font-[550] tnum">
+            2,407<span className="u">&#8239;MB</span>
+          </div>
         </div>
       </Carrier>
     </div>

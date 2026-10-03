@@ -69,20 +69,21 @@ export function WorkflowRow({ w, compact }: { w: WorkflowApproval & { project: s
                 autoFocus={compact}
               />
             )}
-            <div className="flex gap-2">
-              {/* In the Ledger's waiting card the agent's Review is the one brass button; this one stays quiet there. */}
-              <Button size={compact ? "md" : "sm"} variant={compact ? "secondary" : "primary"} className="flex-1" onClick={() => decide.mutate("approve")} disabled={decide.isPending}>
-                <Check />
-                Approve
-              </Button>
-              <Button size={compact ? "md" : "sm"} variant="secondary" onClick={() => decide.mutate("reject")} disabled={decide.isPending}>
-                Reject
-              </Button>
+            {/* The same order as every workflow approval (Workflows, a run): the note, Reject, then Approve last. */}
+            <div className="flex justify-end gap-2">
               {!noting && (
                 <Button size="md" variant="ghost" onClick={() => setNoting(true)}>
                   Note…
                 </Button>
               )}
+              <Button size={compact ? "md" : "sm"} variant="ghost" onClick={() => decide.mutate("reject")} disabled={decide.isPending}>
+                Reject
+              </Button>
+              {/* In the Ledger's waiting card the agent's Review is the one brass button; this one stays quiet there. */}
+              <Button size={compact ? "md" : "sm"} variant={compact ? "secondary" : "primary"} onClick={() => decide.mutate("approve")} disabled={decide.isPending}>
+                <Check />
+                Approve
+              </Button>
             </div>
           </div>
         )}

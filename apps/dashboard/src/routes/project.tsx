@@ -37,6 +37,7 @@ import { stage, stagedFor, useStaged, type StagedEdit } from "@/lib/staged";
 import { frameworkName } from "@/lib/starters";
 import { clock, dayLabel, relative } from "@/lib/time";
 import { actorShown } from "@/lib/who";
+import { splitIntent } from "@/components/ledger-parts";
 
 
 const MB = 1048576;
@@ -663,7 +664,10 @@ function SecretsLink({ project }: { project: string }) {
 function Lately({ project }: { project: string }) {
   const names = useQuery({ ...q.tokenNames, retry: false });
   const changes = useQuery(q.changes(project));
-  const list = (changes.data ?? []).slice(0, 5);
+  // What stuck: a change and the undo that cancelled it leave the rail together (the Ledger keeps both).
+  const all = changes.data ?? [];
+  const ids = new Set(all.map((c) => c.id));
+  const list = all.filter((c) => !((c.undoneBy && ids.has(c.undoneBy)) || (c.undoOf && ids.has(c.undoOf)))).slice(0, 5);
   return (
     <section aria-label={`Latest in ${project}`}>
       <div className="flex items-baseline justify-between">
@@ -674,7 +678,7 @@ function Lately({ project }: { project: string }) {
       </div>
       {changes.isPending ? (
         <Skeleton className="mt-3 h-32" />
-      ) : list.length === 0 ? (
+      ) : all.length === 0 ? (
         <p className="mt-2 text-sm text-ink-3">Nothing has changed in {project} yet.</p>
       ) : (
         <div className="mt-1 divide-y divide-rule">
@@ -685,7 +689,7 @@ function Lately({ project }: { project: string }) {
                 key={c.id}
                 time={day === "Today" ? clock(c.at) : day.split(",")[0].slice(0, 3)}
                 actor={{ kind: c.actor.kind, name: actorShown(c.actor, names.data), session: c.actor.session }}
-                intent={intentWords(c)}
+                intent={splitIntent(intentWords(c)).head}
                 to="/changes/$id"
                 params={{ id: c.id }}
                 counts={opCounts(c.plan.ops)}

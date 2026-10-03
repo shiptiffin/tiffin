@@ -22,8 +22,11 @@ themes, with the line of code that makes it and measured contrast.
 1. **Frame.** Wrap the page in `<Page>` (`wide` for tables, `full` for the Box). Never centre or add your
    own max-width wrapper: every page starts at the same left edge.
 2. **Head.** `PageHeader` with `eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params }, …]} />}`
-   and a noun `title` ("Storage"). A page may open with one serif sentence (`className="sentence"`)
-   that says the state of things, like the Box does. Never more than two serif lines in a viewport.
+   and a noun `title` ("Storage"), in sans even when it names an identifier (a table, a bucket, a workflow).
+   A section with tabs keeps one title ("Data", "Users") and lets the tabs say which part; never title a page
+   with its own active tab. A page may open with one serif sentence (`className="sentence"`)
+   that says the state of things, like the Box does, and it must agree with the page below it. Never more
+   than two serif lines in a viewport; rails and lists show an intent's first sentence only.
 3. **Lists are rows on the page**: `divide-y divide-rule` between rows, `border-y border-rule` around the
    group, a `label` above it. No bordered card per item. Boxes (`rounded-[10px] border border-rule-2
    bg-paper-raised`) only for objects: a receipt, a code block, a waiting card, the plan tray.
@@ -38,16 +41,24 @@ themes, with the line of code that makes it and measured contrast.
    operational actions (restart, retry) apply directly and confirm with `toast({ title, action: Undo })`.
    Irreversible ones keep the existing `HazardDialog` (type the name) and, where there's no passkey,
    `<HoldToCommit>`.
-7. **Levers**: services → `<Breaker>`, counts and sizes → `<Throttle>` (with `maxFit` from
-   `/v1/box/resources`), budgets and vitals → `<SegMeter>`, something building → `<PilotLight state="busy">`
-   (the only blink), risk → `<RiskDots>`. History rows → `<SignedEntry>`.
+7. **Levers**: services → `<Breaker>` (it prints its position, ON / OFF / TRIP, like a panel legend),
+   counts and sizes → `<Throttle>` (with `maxFit` from `/v1/box/resources`), budgets and vitals →
+   `<SegMeter>` (pass the raw value: a trace under half a segment lights nothing, a value past the scale
+   gets a notch), something building → `<PilotLight state="busy">` (the only blink; no `animate-ping`
+   anywhere), risk → `<RiskDots>`. History rows → `<SignedEntry>`. A guard asks you to type the name of
+   the thing that can't come back, in an empty field.
 8. **Copy.** Sentences a person would say, verbs with object and number on buttons ("Apply 3 changes
    to shop"), errors with their fix (`<ProblemNote>` shows the API's hint). Status only when it isn't
    fine: no "Ready" on every row.
 9. **Motion** uses the tokens (`duration-[var(--dur-state)] ease-[var(--ease-out)]`); keyboard-driven
    things fade only; nothing animates on frequent actions.
 10. **Names.** People and agents through `lib/actors.ts` (`actorName`, `actorWords`): "claude-code" reads
-    "Claude Code". Memory through `lib/memory.ts` (`memoryModel`): the one basis every number adds up on.
+    "Claude Code". Token IDs (a change's actor, an approval's signer, a deploy's author) go through
+    `lib/who.ts` (`q.tokenNames` → `.who`, `actorShown`, `tokenWho`): the owner token and every session
+    resolve to the person's current name, so nothing prints "Owner" or `tok_…`. Memory through
+    `lib/memory.ts` (`memoryModel`): the one basis every number adds up on.
+11. **Rails show what stuck.** The Box and project rails drop a change together with the undo that
+    cancelled it and say how many in one quiet line; the Ledger keeps both.
 
 Check every restyled page at 1440 and 390 px, light and dark (`e2e/screens-fusion.spec.ts` shows how),
 against `/_kit` and the anti-slop list in `research/2026-10-03-design/03-craft-and-brand.md` §10.
