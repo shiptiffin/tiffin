@@ -35,7 +35,7 @@ type Options struct {
 	DataDir       string        // sources, build logs, static files, git repos
 	LogDir        string        // app container logs
 	HealthTimeout time.Duration // how long new instances get to pass health checks
-	Drain         time.Duration // how long old instances keep serving after the switch
+	Drain         time.Duration // longest old instances may take to finish in-flight requests after a switch
 	StopGrace     time.Duration // SIGTERM → SIGKILL
 	PreviewIdle   time.Duration // previews sleep after this long without requests
 	KeepImages    int           // rollback targets kept per app environment
@@ -48,7 +48,7 @@ func defaultOptions() Options {
 	if v, err := time.ParseDuration(os.Getenv("TIFFIN_PREVIEW_IDLE")); err == nil && v > 0 {
 		idle = v
 	}
-	return Options{DataDir: DataDir, LogDir: LogDir, HealthTimeout: 120 * time.Second, Drain: 3 * time.Second,
+	return Options{DataDir: DataDir, LogDir: LogDir, HealthTimeout: 120 * time.Second, Drain: 30 * time.Second,
 		StopGrace: 10 * time.Second, PreviewIdle: idle, KeepImages: 5}
 }
 
@@ -66,7 +66,10 @@ type rt struct {
 	locks    map[string]*sync.Mutex // per app environment
 	ports    map[int]string         // allocated port → container
 	lastSeen map[string]time.Time   // preview env key → last request
-	actAddr  string                 // activator listener (previews, git hooks)
+	actAddr  string                 // switchboard listener (app traffic, previews, git hooks)
+	dispatch map[string][]dispatchEntry
+	// loadedRoutes is the hash of the routes the edge last loaded from us.
+	loadedRoutes string
 	hooks    *hookTokens
 }
 
@@ -82,7 +85,7 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	if opt.Builder == nil {
 		opt.Builder = &boxBuilder{eng: opt.Engine, staticDir: filepath.Join(opt.DataDir, "static"), memoryMB: buildMemoryMB(memTotalMB())}
 	}
-	r := &rt{p: p, opt: opt, st: store{p.DB}, eng: opt.Engine, bld: opt.Builder, ctx: ctx,
+	r := &rt{p: p, opt: opt, st: store{db: p.DB, cache: newStateCache()}, eng: opt.Engine, bld: opt.Builder, ctx: ctx,
 		build: make(chan struct{}, 1), locks: map[string]*sync.Mutex{}, ports: map[int]string{},
 		lastSeen: map[string]time.Time{}, hooks: newHookTokens()}
 	for _, d := range []string{opt.DataDir, opt.LogDir} {
@@ -131,6 +134,7 @@ func (r *rt) recover(ctx context.Context) error {
 		return err
 	}
 	for _, s := range states {
+		r.st.cache.put(s)
 		for _, in := range s.Instances {
 			r.ports[in.Port] = in.Name
 		}

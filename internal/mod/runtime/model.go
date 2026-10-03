@@ -123,7 +123,10 @@ const (
 func nsDeploys(project, app string) string { return "runtime/deploys/" + project + "/" + app }
 
 // store keeps deploy records and app states in the platform KV table.
-type store struct{ db *state.DB }
+type store struct {
+	db    *state.DB
+	cache *stateCache
+}
 
 var errNotFound = errors.New("not found")
 
@@ -191,10 +194,19 @@ func (s store) putState(ctx context.Context, st *AppState) error {
 	if err != nil {
 		return err
 	}
-	return s.db.KVPut(ctx, nsState, envKey(st.Project, st.App, st.Preview), b)
+	if err := s.db.KVPut(ctx, nsState, envKey(st.Project, st.App, st.Preview), b); err != nil {
+		return err
+	}
+	if s.cache != nil {
+		s.cache.put(st)
+	}
+	return nil
 }
 
 func (s store) deleteState(ctx context.Context, st *AppState) error {
+	if s.cache != nil {
+		s.cache.del(envKey(st.Project, st.App, st.Preview))
+	}
 	return s.db.KVDelete(ctx, nsState, envKey(st.Project, st.App, st.Preview))
 }
 

@@ -7,8 +7,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -28,6 +26,9 @@ func (m *Module) Routes(ctx context.Context, p *platform.Platform) ([]edge.Route
 		return nil, nil
 	}
 	routes, _ := r.routes(ctx)
+	r.mu.Lock()
+	r.loadedRoutes = routesHash(routes)
+	r.mu.Unlock()
 	return routes, nil
 }
 
@@ -60,7 +61,8 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 	var out []edge.Route
 	var conflicts []routeConflict
 	owner := map[string]string{}
-	add := func(rt edge.Route, who string) {
+	table := map[string][]dispatchEntry{}
+	add := func(rt edge.Route, who, env string) {
 		key := rt.Host + rt.PathPrefix
 		if w, taken := owner[key]; taken {
 			conflicts = append(conflicts, routeConflict{Key: key, Winner: w, Loser: who})
@@ -68,6 +70,9 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 		}
 		owner[key] = who
 		out = append(out, rt)
+		if rt.FileRoot == "" {
+			table[rt.Host] = append(table[rt.Host], dispatchEntry{prefix: rt.PathPrefix, env: env})
+		}
 	}
 	for _, st := range states {
 		if st.Live == "" || st.Stopped {
@@ -82,22 +87,18 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 			continue
 		}
 		who := st.Project + "/" + st.App
+		env := envKey(st.Project, st.App, st.Preview)
+		static := d.StaticRoot != ""
+		spa := strings.HasSuffix(d.Framework, "+spa")
 		if st.Preview != "" {
 			who += "@" + st.Preview
 			rt := edge.Route{Host: previewHost(st.Preview, st.App, r.p.Domain)}
-			if d.StaticRoot != "" {
-				rt.FileRoot, rt.SPA = d.StaticRoot, strings.HasSuffix(d.Framework, "+spa")
+			if static {
+				rt.FileRoot, rt.SPA = r.staticLink(st.Project, st.App, st.Preview), spa
 			} else {
-				rt.Upstream = r.actAddr // wakes the preview if it sleeps
+				rt.Upstream = r.actAddr // the switchboard wakes the preview if it sleeps
 			}
-			add(rt, who)
-			continue
-		}
-		var ups []string
-		for _, in := range st.Instances {
-			ups = append(ups, fmt.Sprintf("127.0.0.1:%d", in.Port))
-		}
-		if d.StaticRoot == "" && len(ups) == 0 {
+			add(rt, who, env)
 			continue
 		}
 		routes := spec.Routes
@@ -107,15 +108,16 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 		for _, rs := range routes {
 			host, prefix := r.splitRoute(rs)
 			rt := edge.Route{Host: host, PathPrefix: prefix}
-			if d.StaticRoot != "" {
-				rt.FileRoot, rt.SPA = d.StaticRoot, strings.HasSuffix(d.Framework, "+spa")
+			if static {
+				rt.FileRoot, rt.SPA = r.staticLink(st.Project, st.App, ""), spa
 			} else {
-				rt.Upstreams = ups
+				rt.Upstream = r.actAddr // instances are switched behind the switchboard
 			}
-			add(rt, who)
+			add(rt, who, env)
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Host+out[i].PathPrefix < out[j].Host+out[j].PathPrefix })
+	r.setDispatch(table)
 	for _, c := range conflicts {
 		r.p.Log.Warn("route conflict", "route", c.Key, "served_by", c.Winner, "ignored", c.Loser)
 	}
@@ -136,57 +138,40 @@ func (r *rt) serveInternal(ctx context.Context, ln net.Listener) {
 	_ = srv.Serve(ln)
 }
 
-// activate proxies a preview request, starting the preview first if it is
-// asleep. The edge keeps the original Host header.
+// activate is the switchboard's front door: it finds the app environment a
+// request belongs to (by host and path, as the edge routed it), wakes a
+// sleeping preview, and proxies to the least busy instance.
 func (r *rt) activate(w http.ResponseWriter, req *http.Request) {
 	host := strings.ToLower(req.Host)
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	label := strings.TrimSuffix(host, "."+r.p.Domain)
-	preview, app, ok := strings.Cut(label, "--")
-	if !ok || label == host {
-		http.Error(w, "not a preview host", http.StatusNotFound)
-		return
+	key, ok := r.lookup(host, req.URL.Path)
+	if !ok {
+		r.routes(req.Context()) // rebuild the table (first request after a start)
+		if key, ok = r.lookup(host, req.URL.Path); !ok {
+			http.Error(w, "no app is served here", http.StatusNotFound)
+			return
+		}
 	}
-	ctx := req.Context()
-	st := r.findPreview(ctx, app, preview)
-	if st == nil {
-		http.Error(w, "no such preview", http.StatusNotFound)
-		return
-	}
-	key := envKey(st.Project, st.App, st.Preview)
-	r.mu.Lock()
-	r.lastSeen[key] = time.Now()
-	r.mu.Unlock()
-	port, err := r.wake(ctx, st.Project, st.App, st.Preview)
-	if err != nil {
-		w.Header().Set("Retry-After", "5")
-		http.Error(w, "the preview could not start: "+err.Error(), http.StatusServiceUnavailable)
-		return
-	}
-	target, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
-	rp := &httputil.ReverseProxy{
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.SetURL(target)
-			pr.Out.Host = req.Host
-			pr.SetXForwarded()
-			if v := req.Header.Get("X-Forwarded-Proto"); v != "" {
-				pr.Out.Header.Set("X-Forwarded-Proto", v)
+	if st := r.st.cache.get(key); st != nil && st.Preview != "" {
+		r.mu.Lock()
+		r.lastSeen[key] = time.Now()
+		r.mu.Unlock()
+		defer func() {
+			r.mu.Lock()
+			r.lastSeen[key] = time.Now()
+			r.mu.Unlock()
+		}()
+		if st.Sleeping || len(st.Instances) == 0 {
+			if _, err := r.wake(req.Context(), st.Project, st.App, st.Preview); err != nil {
+				w.Header().Set("Retry-After", "5")
+				http.Error(w, "the preview could not start: "+err.Error(), http.StatusServiceUnavailable)
+				return
 			}
-			if v := req.Header.Get("X-Forwarded-Host"); v != "" {
-				pr.Out.Header.Set("X-Forwarded-Host", v)
-			}
-		},
-		FlushInterval: -1,
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
-			http.Error(w, "preview unavailable: "+err.Error(), http.StatusBadGateway)
-		},
+		}
 	}
-	rp.ServeHTTP(w, req)
-	r.mu.Lock()
-	r.lastSeen[key] = time.Now()
-	r.mu.Unlock()
+	r.serveApp(w, req, key)
 }
 
 func (r *rt) findPreview(ctx context.Context, app, preview string) *AppState {

@@ -17,7 +17,7 @@ import (
 // TestRuntime is the M2 acceptance test on a fresh box, through the CLI:
 //
 //	deploy hello-hono → HTTPS 200 → redeploy a change and roll back while
-//	hey and a curl loop hammer the app (zero failed requests) → logs show
+//	hey (keep-alive) and a curl loop (a new HTTP/1.1 or HTTP/2 connection per request) hammer the app (zero failed requests) → logs show
 //	the requests → a secret restarts the app with the new env → a preview
 //	sleeps and wakes → git push deploys → deleting the app stops it.
 func TestRuntime(t *testing.T) {
@@ -61,7 +61,7 @@ func TestRuntime(t *testing.T) {
 	b.inBox(`sudo cp /var/lib/tiffin/platform/ca.crt /tmp/ca.crt && sudo chmod 644 /tmp/ca.crt
 rm -f /tmp/hey.out /tmp/curl.out
 nohup hey -z 50s -c 8 -host api.tiffin.localhost https://api.tiffin.localhost:8443/ > /tmp/hey.out 2>&1 &
-nohup bash -c 'end=$((SECONDS+50)); while [ $SECONDS -lt $end ]; do curl -s -o /dev/null -w "%{http_code} %{errormsg}\n" --max-time 10 --cacert /tmp/ca.crt https://api.tiffin.localhost:8443/ | sed "s/^/$(date +%T.%N) /"; done > /tmp/curl.out' >/dev/null 2>&1 &
+nohup bash -c 'end=$((SECONDS+50)); while [ $SECONDS -lt $end ]; do for v in --http1.1 --http2; do curl $v -s -o /dev/null -w "%{http_code} %{errormsg}\n" --max-time 10 --cacert /tmp/ca.crt https://api.tiffin.localhost:8443/ | sed "s/^/$(date +%T.%N) /"; done; done > /tmp/curl.out' >/dev/null 2>&1 &
 echo started`)
 	time.Sleep(3 * time.Second)
 	idx := filepath.Join(app, "index.ts")
@@ -187,7 +187,20 @@ echo started`)
 	b.waitReady("app/worker")
 	b.project = "hello"
 	w1 := deployArgs(t, b, worker, "--app", "worker")
-	run := b.ok("workflows", "start", "jobs", "--workflow", "nap", "--app", "worker", "--body", `{"input":{"sleep":"40s"}}`)
+	// The queue needs the platform Postgres; give it time on a busy small box.
+	var run map[string]any
+	for start := time.Now(); ; {
+		code, out := b.run("workflows", "start", "jobs", "--workflow", "nap", "--app", "worker", "--body", `{"input":{"sleep":"40s"}}`)
+		if code == 0 {
+			_ = json.Unmarshal([]byte(out), &run)
+			break
+		}
+		if time.Since(start) > 3*time.Minute {
+			t.Fatalf("workflows start: exit %d\n%s\npostgres:\n%s", code, out,
+				b.inBox(`systemctl --no-pager status 'tiffin-postgres*' 2>&1 | tail -20; free -m`))
+		}
+		time.Sleep(3 * time.Second)
+	}
 	runID, _ := run["id"].(string)
 	if run["release"] != w1.ID {
 		t.Fatalf("run not pinned to the current release %s: %v", w1.ID, run)
@@ -287,7 +300,7 @@ func deployArgs(t *testing.T, b *cliBox, dir string, extra ...string) e2eDeploy 
 		t.Fatalf("deploy %v: exit %d\n%s", extra, code, out)
 	}
 	d := res.Deploys[0]
-	if res.Checks[d.ID] != "HTTP 200" {
+	if d.URL != "" && res.Checks[d.ID] != "HTTP 200" {
 		t.Fatalf("deploy check: %v", res.Checks)
 	}
 	return d

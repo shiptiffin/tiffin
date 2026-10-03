@@ -850,7 +850,7 @@ func (r *rt) deletePreview(ctx context.Context, project, app, name string) error
 	if err := r.st.deleteState(ctx, st); err != nil {
 		return err
 	}
-	_ = r.p.RefreshRoutes(ctx)
+	_ = r.refreshIfNeeded(ctx)
 	r.removeInstances(ctx, st.Instances)
 	if d, err := r.st.getDeploy(ctx, project, app, st.Live); err == nil {
 		d.Status = StatusStopped

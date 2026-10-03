@@ -222,13 +222,21 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 			return err
 		}
 	}
+	if d.StaticRoot != "" {
+		// The edge serves a stable path; point it at this deploy's files.
+		if err := swapSymlink(r.staticLink(d.Project, d.App, d.Preview), d.StaticRoot); err != nil {
+			return err
+		}
+	}
+	// The switch: from here on new requests go to the new instances.
 	st.Live, st.Instances, st.Hash, st.Stopped, st.Sleeping = d.ID, started, hash, false, false
 	if err := r.st.putState(ctx, st); err != nil {
 		r.removeInstances(ctx, started)
 		return err
 	}
-	if err := r.p.RefreshRoutes(ctx); err != nil {
-		// Put the old routes back before anything else.
+	// The edge only reloads when hosts, paths or file roots change (a first
+	// deploy, a new route); instance switches stay inside the switchboard.
+	if err := r.refreshIfNeeded(ctx); err != nil {
 		_ = r.st.putState(ctx, &prev)
 		_ = r.p.RefreshRoutes(ctx)
 		r.removeInstances(ctx, started)
@@ -264,12 +272,8 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 		if mode != modeWake && log != io.Discard {
 			fmt.Fprintf(log, "==> switched traffic; draining %d old instance(s)\n", len(prev.Instances))
 		}
-		go func() {
-			// The edge finishes in-flight requests on the old upstreams; give
-			// them a moment, then stop the old containers (SIGTERM first).
-			time.Sleep(r.opt.Drain)
-			r.removeInstances(r.ctx, old)
-		}()
+		// Old instances stop once their in-flight requests are done.
+		go r.drainThenRemove(old)
 	}
 	return nil
 }
@@ -332,6 +336,7 @@ func (r *rt) removeInstances(ctx context.Context, ins []Instance) {
 				r.p.Log.Error("remove container", "name", in.Name, "err", err)
 			}
 			r.freePort(in.Port)
+			r.st.cache.forget([]Instance{in})
 		}()
 	}
 	wg.Wait()
@@ -573,7 +578,7 @@ func (r *rt) stopEnv(ctx context.Context, st *AppState) error {
 	if err := r.st.putState(ctx, st); err != nil {
 		return err
 	}
-	_ = r.p.RefreshRoutes(ctx)
+	_ = r.refreshIfNeeded(ctx)
 	r.removeInstances(ctx, ins)
 	if d, err := r.st.getDeploy(ctx, st.Project, st.App, st.Live); err == nil && d.Status == StatusLive {
 		d.Status = StatusStopped

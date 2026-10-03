@@ -291,7 +291,7 @@ func newHarness(t *testing.T) *harness {
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	eng := newFakeEngine()
 	opt := Options{DataDir: filepath.Join(dir, "runtime"), LogDir: filepath.Join(dir, "logs"), HealthTimeout: 3 * time.Second,
-		Drain: 150 * time.Millisecond, StopGrace: time.Second, PreviewIdle: time.Hour, KeepImages: 2, Engine: eng}
+		Drain: 2 * time.Second, StopGrace: time.Second, PreviewIdle: time.Hour, KeepImages: 2, Engine: eng}
 	bld := &fakeBuilder{eng: eng, static: &boxBuilder{eng: eng, staticDir: filepath.Join(opt.DataDir, "static")}}
 	opt.Builder = bld
 	ctx, cancel := context.WithCancel(context.Background())
@@ -486,6 +486,9 @@ func TestZeroDowntimeRedeployAndRollback(t *testing.T) {
 		}()
 	}
 	time.Sleep(100 * time.Millisecond)
+	h.edge.mu.Lock()
+	loads := h.edge.loads
+	h.edge.mu.Unlock()
 	v2 := h.deploy("api", "", map[string]string{"index.ts": "v2"})
 	time.Sleep(400 * time.Millisecond) // past the drain: old instances are gone
 	if v2.Status != StatusLive {
@@ -512,6 +515,11 @@ func TestZeroDowntimeRedeployAndRollback(t *testing.T) {
 	if cur, _ := h.r.st.getDeploy(context.Background(), "shop", "api", v2.ID); cur.Status != StatusRolledBack {
 		t.Fatalf("v2 is %s, want rolled_back", cur.Status)
 	}
+	h.edge.mu.Lock()
+	if h.edge.loads != loads {
+		t.Errorf("the edge reloaded %d times for a redeploy and a rollback; instance switches must not reload it", h.edge.loads-loads)
+	}
+	h.edge.mu.Unlock()
 	if failed.Load() != 0 || ok.Load() < 50 {
 		t.Fatalf("requests under load: %d ok, %d failed", ok.Load(), failed.Load())
 	}
