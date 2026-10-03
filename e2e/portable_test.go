@@ -110,8 +110,8 @@ func TestPortable(t *testing.T) {
 	person := a.ok("people", "add", "--name", "Ada Lovelace", "--email", "ada@example.com", "--role", "member")
 	agent := a.ok("tokens", "create", "--name", "e2e-agent")
 	agentSecret, _ := agent["secret"].(string)
-	if agentSecret == "" || person["id"] == nil {
-		t.Fatalf("person %v / token %v", person, agent)
+	if agentSecret == "" || person["person"] == nil {
+		t.Fatalf("person %v / token created: %v", person, agentSecret != "")
 	}
 	phase("A data", p)
 
