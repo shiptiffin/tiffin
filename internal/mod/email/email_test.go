@@ -228,7 +228,7 @@ func TestInboxAPIAndSMTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Subject != "Verify your email" || d.From != "<shop@tiffin.localhost>" && !strings.Contains(d.From, "shop@tiffin.localhost") ||
+	if d.Subject != "Verify your email" || d.From != "shop@tiffin.localhost" ||
 		strings.Contains(d.HTML, "script") || strings.Contains(d.HTML, "onerror") || !strings.Contains(d.HTML, "<b>Ada</b>") ||
 		len(d.Links) != 2 || d.Links[0] != "https://shop.tiffin.localhost/verify?t=abc&x=1" || !strings.Contains(d.Text, "verify?t=abc") {
 		b, _ := json.MarshalIndent(d, "", " ")

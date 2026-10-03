@@ -259,7 +259,10 @@ func parse(raw []byte) (*Parsed, error) {
 	p := &Parsed{To: []string{}, Attachments: []AttachmentInfo{}}
 	h := r.Header
 	if l, err := h.AddressList("From"); err == nil && len(l) > 0 {
-		p.From = l[0].String()
+		p.From = l[0].Address
+		if l[0].Name != "" {
+			p.From = l[0].String()
+		}
 	} else {
 		p.From = h.Get("From")
 	}
