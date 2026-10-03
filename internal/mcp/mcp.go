@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 
@@ -282,6 +283,9 @@ func (t *Tool) call(ctx context.Context, h http.Handler, token string, req *sdk.
 			id = "stdio" // stdio has no session ID; one process is one session
 		}
 		hr.Header.Set(api.SessionHeader, "mcp:"+id)
+	}
+	if m := os.Getenv("TIFFIN_MODEL"); m != "" {
+		hr.Header.Set(api.ModelHeader, m)
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, hr)

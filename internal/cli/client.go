@@ -111,6 +111,7 @@ type client struct {
 	transport http.RoundTripper
 	token     string
 	session   string
+	model     string
 	close     func() error
 }
 
@@ -123,7 +124,7 @@ func (a *app) client(ctx context.Context) (*client, error) {
 		if a.token == "" {
 			return nil, &exitError{ExitAuth, "TIFFIN_TOKEN is not set (needed with TIFFIN_URL)"}
 		}
-		return &client{base: strings.TrimRight(a.url, "/"), token: a.token, session: a.session, close: func() error { return nil }}, nil
+		return &client{base: strings.TrimRight(a.url, "/"), token: a.token, session: a.session, model: a.model, close: func() error { return nil }}, nil
 	}
 	// A box set up with `tiffin up` is the default target, unless a local
 	// home was asked for explicitly.
@@ -134,7 +135,7 @@ func (a *app) client(ctx context.Context) (*client, error) {
 				return nil, err
 			}
 			tok := orDefault(a.token, bx.Token)
-			return &client{base: strings.TrimRight(bx.URL, "/"), token: tok, session: a.session, transport: tr, close: func() error { return nil }}, nil
+			return &client{base: strings.TrimRight(bx.URL, "/"), token: tok, session: a.session, model: a.model, transport: tr, close: func() error { return nil }}, nil
 		}
 	}
 	b, fresh, err := openBox(ctx, a.home)
@@ -148,7 +149,7 @@ func (a *app) client(ctx context.Context) (*client, error) {
 	if tok == "" {
 		tok = readOwnerToken(a.home)
 	}
-	return &client{handler: b.api.Handler(), token: tok, session: a.session, close: b.Close}, nil
+	return &client{handler: b.api.Handler(), token: tok, session: a.session, model: a.model, close: b.Close}, nil
 }
 
 // do performs one API call and returns the status and raw body.
@@ -201,6 +202,9 @@ func (c *client) headers(h http.Header, hasBody bool) {
 	}
 	if c.session != "" {
 		h.Set(api.SessionHeader, c.session)
+	}
+	if c.model != "" {
+		h.Set(api.ModelHeader, c.model)
 	}
 }
 

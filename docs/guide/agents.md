@@ -16,7 +16,7 @@ the plan.
 ## CLI conventions
 - JSON on stdout whenever stdout is not a terminal (`--json` forces it).
 - Exit codes: `0` ok, `1` error, `2` auth, `3` invalid input, `4` confirmation needed.
-- Never prompts. Auth from `TIFFIN_TOKEN`; agent session label from `TIFFIN_SESSION`.
+- Never prompts. Auth from `TIFFIN_TOKEN`; agent session label from `TIFFIN_SESSION`; the model it runs (optional, shown beside its name in the Ledger) from `TIFFIN_MODEL`, e.g. `claude mcp add tiffin -e TIFFIN_MODEL=claude-opus-5-5 -- tiffin mcp`.
 - Errors are RFC 9457 problems with a stable `code`, field `errors`, and a `hint` that
   says what to do next.
 

@@ -373,6 +373,16 @@ func decodeChange(body string, undoneBy sql.NullString) (*change.Change, error) 
 	return &c, nil
 }
 
+// ChangeSeq returns a change's sequence number, for paging the change log.
+func (s *DB) ChangeSeq(ctx context.Context, id string) (int64, error) {
+	var seq int64
+	err := s.sql.QueryRowContext(ctx, `SELECT seq FROM changes WHERE id = ?`, id).Scan(&seq)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, change.ErrNotFound
+	}
+	return seq, err
+}
+
 // ListChanges implements change.Store. Before is a change sequence number.
 func (s *DB) ListChanges(ctx context.Context, f change.ListFilter) ([]*change.Change, error) {
 	limit := f.Limit

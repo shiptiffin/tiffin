@@ -57,6 +57,7 @@ func (e *env) call(token, method, path string, body any) (int, map[string]any, [
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(api.SessionHeader, "sess-1")
+	req.Header.Set(api.ModelHeader, "claude-opus-5-5")
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		e.t.Fatal(err)
@@ -485,5 +486,41 @@ func TestProjectDestroy(t *testing.T) {
 	}
 	if code, _, _ := e.call(e.owner, "POST", "/v1/projects/nope/destroy", map[string]any{}); code != 404 {
 		t.Fatalf("destroy missing: %d", code)
+	}
+}
+
+func TestChangesPagingAndAgentModel(t *testing.T) {
+	e := newEnv(t)
+	apply := func(token string, env map[string]any) map[string]any {
+		t.Helper()
+		m := map[string]any{"project": "shop", "env": env}
+		_, plan, _ := e.call(token, "POST", "/v1/plan", map[string]any{"manifest": m})
+		code, res, _ := e.call(token, "POST", "/v1/apply", map[string]any{"manifest": m, "confirm": plan["hash"]})
+		if code != 200 {
+			t.Fatalf("apply: %d %v", code, res)
+		}
+		return res["change"].(map[string]any)
+	}
+	first := apply(e.owner, map[string]any{"A": "1"})
+	if _, ok := first["actor"].(map[string]any)["model"]; ok {
+		t.Fatalf("a person's change carries no model: %v", first["actor"])
+	}
+	agent := e.agent([]string{"read", "plan", "apply:reversible"}, []string{"shop"})
+	apply(agent, map[string]any{"A": "2"})
+	third := apply(agent, map[string]any{"A": "3"})
+	if third["actor"].(map[string]any)["model"] != "claude-opus-5-5" {
+		t.Fatalf("agent model: %v", third["actor"])
+	}
+	_, _, page := e.call(e.owner, "GET", "/v1/changes?limit=2", nil)
+	if len(page) != 2 || page[0].(map[string]any)["id"] != third["id"] {
+		t.Fatalf("first page: %v", page)
+	}
+	last := page[1].(map[string]any)["id"].(string)
+	_, _, page = e.call(e.owner, "GET", "/v1/changes?limit=2&before="+last, nil)
+	if len(page) != 1 || page[0].(map[string]any)["id"] != first["id"] {
+		t.Fatalf("second page: %v", page)
+	}
+	if code, _, _ := e.call(e.owner, "GET", "/v1/changes?before=chg_00000000000000000000000000", nil); code != 404 {
+		t.Fatalf("unknown cursor: %d", code)
 	}
 }

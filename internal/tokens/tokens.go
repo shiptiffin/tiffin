@@ -70,6 +70,7 @@ type Principal struct {
 	// mints never outlive it.
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 	Session   string     `json:"session,omitempty"` // agent session label, set per request
+	Model     string     `json:"model,omitempty"`   // model an agent says it runs, set per request (self-reported)
 	// Person is the human behind a human token (dashboard sessions), if any.
 	Person string `json:"person,omitempty"`
 	// PersonName and Role describe that person.
@@ -146,7 +147,7 @@ func (p *Principal) Actor() change.Actor {
 	if kind == KindOwner {
 		kind = KindHuman
 	}
-	return change.Actor{Kind: kind, ID: p.TokenID, Name: p.Name, Session: p.Session}
+	return change.Actor{Kind: kind, ID: p.TokenID, Name: p.Name, Session: p.Session, Model: p.Model}
 }
 
 // Token is a stored token's public metadata. The secret is never stored.

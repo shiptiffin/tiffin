@@ -48,6 +48,7 @@ type app struct {
 	token   string
 	home    string
 	session string
+	model   string
 	code    int  // exit code chosen by the last command
 	started bool // arguments and flags parsed; the command itself is running
 	// homeExplicit is set when --home or TIFFIN_HOME picks a local box,
@@ -117,6 +118,7 @@ func (a *app) root() *cobra.Command {
 	pf.StringVar(&a.url, "url", env("TIFFIN_URL"), "box API URL (env TIFFIN_URL); empty means the local box in --home")
 	pf.StringVar(&a.home, "home", orDefault(env("TIFFIN_HOME"), defaultHome(env)), "local box data directory (env TIFFIN_HOME)")
 	pf.StringVar(&a.session, "session", env("TIFFIN_SESSION"), "agent session label recorded on changes (env TIFFIN_SESSION)")
+	pf.StringVar(&a.model, "model", env("TIFFIN_MODEL"), "the model an agent runs, shown beside its name in the change log (env TIFFIN_MODEL)")
 	a.token = env("TIFFIN_TOKEN")
 	root.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
 		a.started = true

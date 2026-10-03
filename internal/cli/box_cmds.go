@@ -143,7 +143,7 @@ func (a *app) boxClient(bx *boxConfig, token string) (*client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &client{base: strings.TrimRight(bx.URL, "/"), token: token, session: a.session, transport: tr, close: func() error { return nil }}, nil
+	return &client{base: strings.TrimRight(bx.URL, "/"), token: token, session: a.session, model: a.model, transport: tr, close: func() error { return nil }}, nil
 }
 
 func tokenWorks(ctx context.Context, a *app, bx *boxConfig, tok string) bool {

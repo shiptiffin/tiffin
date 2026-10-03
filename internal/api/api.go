@@ -65,6 +65,10 @@ const SessionCookie = "tiffin_session"
 // SessionHeader carries an agent's session label into the change log.
 const SessionHeader = "X-Tiffin-Session"
 
+// ModelHeader carries the model an agent says it runs (self-reported, shown
+// beside its name in the change log).
+const ModelHeader = "X-Tiffin-Model"
+
 // Deps are the services the API serves.
 type Deps struct {
 	DB      *state.DB
@@ -181,6 +185,9 @@ func (a *API) authenticate(ctx huma.Context, next func(huma.Context)) {
 	}
 	if s := strings.TrimSpace(ctx.Header(SessionHeader)); s != "" && len(s) <= 128 {
 		p.Session = s
+	}
+	if m := strings.TrimSpace(ctx.Header(ModelHeader)); m != "" && len(m) <= 64 && p.Kind == "agent" {
+		p.Model = m
 	}
 	next(huma.WithValue(ctx, ctxKey{}, p))
 }
@@ -547,6 +554,7 @@ func (a *API) register() {
 	type changesQuery struct {
 		Project string `query:"project" doc:"Only this project"`
 		Limit   int    `query:"limit" minimum:"1" maximum:"200" default:"50" doc:"Maximum changes to return"`
+		Before  string `query:"before" pattern:"^(chg_[0-9A-Z]{26})?$" doc:"Only changes older than this change ID (for paging: pass the last ID you got)"`
 	}
 	huma.Register(api, Untrusted(op("changes-list", http.MethodGet, "/v1/changes", "changes list", RiskRead, "List changes",
 		"The change log, newest first: who changed what, why, the risk and whether it was undone.", "changes")),
@@ -561,9 +569,17 @@ func (a *API) register() {
 			if in.Project == "" && !p.CanProject("*") {
 				projects = p.Projects
 			}
+			var before int64
+			if in.Before != "" {
+				seq, err := a.deps.DB.ChangeSeq(ctx, in.Before)
+				if err != nil {
+					return nil, err
+				}
+				before = seq
+			}
 			out := []*change.Change{}
 			for _, proj := range projects {
-				cs, err := a.deps.DB.ListChanges(ctx, change.ListFilter{Project: proj, Limit: in.Limit})
+				cs, err := a.deps.DB.ListChanges(ctx, change.ListFilter{Project: proj, Limit: in.Limit, Before: before})
 				if err != nil {
 					return nil, err
 				}

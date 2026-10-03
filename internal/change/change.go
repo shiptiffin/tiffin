@@ -83,6 +83,7 @@ type Actor struct {
 	ID      string `json:"id"`   // token ID, user ID or "system"
 	Name    string `json:"name,omitempty"`
 	Session string `json:"session,omitempty"` // agent session, for the activity timeline
+	Model   string `json:"model,omitempty"`   // the model an agent says it runs, self-reported
 }
 
 // Plan is a proposed, not-yet-applied set of ops against a known version.
