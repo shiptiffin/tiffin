@@ -114,7 +114,7 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
     <Page>
       <header>
         <p className="label mb-2">Ledger{project ? ` · ${project}` : ""}</p>
-        <Headline all={first} project={project} />
+        <Headline all={first} project={project} live={projects.data?.map((p) => p.name)} />
       </header>
 
       <Controls search={search} all={all} projects={projectNames} enamels={enamels} />
@@ -150,9 +150,12 @@ const weekday = new Intl.DateTimeFormat("en-GB", { weekday: "long" });
 const dayMonth = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" });
 
 /** One sentence for the period: how many, where, since when; then who and how risky. */
-function Headline({ all, project }: { all: Change[]; project?: string }) {
+function Headline({ all, project, live }: { all: Change[]; project?: string; live?: string[] }) {
   if (all.length === 0) return <h1 className="sentence text-ink">Nothing is written down yet.</h1>;
-  const projects = new Set(all.map((c) => c.project)).size;
+  const touched = new Set(all.map((c) => c.project));
+  const projects = touched.size;
+  // Projects started and removed again still count; say so, or "six projects" reads wrong beside three.
+  const gone = live ? [...touched].filter((p) => !live.includes(p)).length : 0;
   const agents = all.filter(isAgent).length;
   const irr = all.filter((c) => asTier(c.plan.risk) === "irreversible").length;
   const out = all.filter((c) => asTier(c.plan.risk) === "outbound").length;
@@ -166,7 +169,11 @@ function Headline({ all, project }: { all: Change[]; project?: string }) {
       to {project}
     </>
   ) : (
-    <> across {countWords(projects, "project")}</>
+    <>
+      {" "}
+      across {countWords(projects, "project")}
+      {gone > 0 && ` (${words(gone)} since removed)`}
+    </>
   );
   const whoWords = agents === 0 ? "All by people." : agents === all.length ? "All by agents." : `Agents made ${words(agents)} of them.`;
   const risk = irr > 0 ? `${words(irr, true)} ${irr === 1 ? "was" : "were"} irreversible.` : out > 0 ? `${words(out, true)} reached outside the box.` : "Every one can be undone.";
