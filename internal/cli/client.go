@@ -34,7 +34,7 @@ const ownerTokenFile = "owner-token"
 
 // openBox opens the box in home, bootstrapping the owner token on first use
 // (written to home/owner-token, mode 0600). newOwner is the fresh secret, if any.
-func openBox(ctx context.Context, home string) (b *box, newOwner string, err error) {
+func openBox(ctx context.Context, home string, extra ...func(*api.Deps)) (b *box, newOwner string, err error) {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return nil, "", err
 	}
@@ -54,7 +54,11 @@ func openBox(ctx context.Context, home string) (b *box, newOwner string, err err
 			return nil, "", err
 		}
 	}
-	a := api.New(api.Deps{DB: db, Engine: change.NewEngine(db), Tokens: tm, Version: version.Version})
+	deps := api.Deps{DB: db, Engine: change.NewEngine(db), Tokens: tm, Version: version.Version}
+	for _, f := range extra {
+		f(&deps)
+	}
+	a := api.New(deps)
 	return &box{db: db, tokens: tm, api: a, home: home}, secret, nil
 }
 
@@ -102,11 +106,12 @@ func (b *box) agentToken(ctx context.Context) (string, error) {
 
 // client talks to the API: in-process for a local box, over HTTP otherwise.
 type client struct {
-	handler http.Handler // local
-	base    string       // remote
-	token   string
-	session string
-	close   func() error
+	handler   http.Handler // local
+	base      string       // remote
+	transport http.RoundTripper
+	token     string
+	session   string
+	close     func() error
 }
 
 func (a *app) client(ctx context.Context) (*client, error) {
@@ -119,6 +124,18 @@ func (a *app) client(ctx context.Context) (*client, error) {
 			return nil, &exitError{ExitAuth, "TIFFIN_TOKEN is not set (needed with TIFFIN_URL)"}
 		}
 		return &client{base: strings.TrimRight(a.url, "/"), token: a.token, session: a.session, close: func() error { return nil }}, nil
+	}
+	// A box set up with `tiffin up` is the default target, unless a local
+	// home was asked for explicitly.
+	if !a.homeExplicit {
+		if _, bx := a.currentBox(); bx != nil {
+			tr, err := boxTransport(bx.CAFile)
+			if err != nil {
+				return nil, err
+			}
+			tok := orDefault(a.token, bx.Token)
+			return &client{base: strings.TrimRight(bx.URL, "/"), token: tok, session: a.session, transport: tr, close: func() error { return nil }}, nil
+		}
 	}
 	b, fresh, err := openBox(ctx, a.home)
 	if err != nil {
@@ -159,7 +176,7 @@ func (c *client) do(ctx context.Context, method, path string, q url.Values, body
 		return 0, nil, err
 	}
 	c.headers(req.Header, body != nil)
-	hc := &http.Client{Timeout: 60 * time.Second}
+	hc := &http.Client{Timeout: 60 * time.Second, Transport: c.transport}
 	res, err := hc.Do(req)
 	if err != nil {
 		var ue *url.Error

@@ -1,0 +1,142 @@
+// Package install puts Tiffin on a machine and keeps it updated.
+//
+// Layout on the box:
+//
+//	/usr/local/lib/tiffin/versions/<sha12>/tiffin   every installed build
+//	/usr/local/bin/tiffin -> versions/<sha12>/tiffin the current one (atomic symlink)
+//	/etc/systemd/system/tiffin.service             runs `tiffin serve` as user tiffin
+//	/var/lib/tiffin/platform/                      platform state (XFS data disk)
+//
+// Installing and updating are the same operation: copy the new binary over,
+// then run `sudo <binary> self-update <binary>`, which switches the symlink,
+// restarts the service and rolls back if the new build is not healthy.
+package install
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+
+	"github.com/btahir/tiffin/internal/provider"
+)
+
+// Box paths and settings.
+const (
+	VersionsDir = "/usr/local/lib/tiffin/versions"
+	BinLink     = "/usr/local/bin/tiffin"
+	UnitPath    = "/etc/systemd/system/tiffin.service"
+	Home        = "/var/lib/tiffin/platform"
+	APIAddr     = "127.0.0.1:7070"
+	User        = "tiffin"
+	KeepBuilds  = 3
+)
+
+// Options describe how the box serves.
+type Options struct {
+	Domain    string // e.g. "tiffin.localhost"
+	HTTPSPort int    // e.g. 8443 locally, 443 on a server
+	HTTPPort  int    // e.g. 8080 locally, 80 on a server
+}
+
+// PublicURL is the dashboard URL for these options.
+func (o Options) PublicURL() string {
+	u := "https://dashboard." + o.Domain
+	if o.HTTPSPort != 443 {
+		u += fmt.Sprintf(":%d", o.HTTPSPort)
+	}
+	return u
+}
+
+// Unit renders the systemd unit.
+func Unit(o Options) string {
+	return fmt.Sprintf(`[Unit]
+Description=Tiffin box
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=%[1]s
+Group=%[1]s
+ExecStart=%[2]s serve --home %[3]s --addr %[4]s --edge --domain %[5]s --https-port %[6]d --http-port %[7]d --public-url %[8]s
+Environment=XDG_DATA_HOME=/var/lib/tiffin/platform/xdg XDG_CONFIG_HOME=/var/lib/tiffin/platform/xdg
+Restart=always
+RestartSec=2
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/tiffin
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+`, User, BinLink, Home, APIAddr, o.Domain, o.HTTPSPort, o.HTTPPort, o.PublicURL())
+}
+
+// Result is what the installer learned from the box.
+type Result struct {
+	OwnerToken string
+	CAPEM      []byte
+	Build      string
+}
+
+// Install (or update) Tiffin on m from the local linux binary bin.
+func Install(ctx context.Context, m provider.Machine, bin string, o Options, progress func(string)) (*Result, error) {
+	sum, err := FileSHA(bin)
+	if err != nil {
+		return nil, err
+	}
+	progress("copying tiffin " + sum[:12] + " to the box")
+	if err := m.Copy(ctx, bin, "/tmp/tiffin.new"); err != nil {
+		return nil, err
+	}
+	progress("installing the service")
+	setup := fmt.Sprintf(`set -euo pipefail
+id %[1]s >/dev/null 2>&1 || sudo useradd --system --home-dir /var/lib/tiffin --no-create-home --shell /usr/sbin/nologin %[1]s
+sudo install -d -o %[1]s -g %[1]s -m 0700 %[2]s
+sudo install -d -m 0755 %[3]s
+sudo tee %[4]s >/dev/null <<'UNIT'
+%[5]sUNIT
+sudo systemctl daemon-reload
+sudo systemctl enable tiffin >/dev/null 2>&1
+chmod 0755 /tmp/tiffin.new
+`, User, Home, VersionsDir, UnitPath, Unit(o))
+	if _, stderr, err := m.Exec(ctx, setup); err != nil {
+		return nil, fmt.Errorf("set up the service: %w\n%s", err, stderr)
+	}
+	progress("starting tiffin (rolls back automatically if unhealthy)")
+	// The new binary installs itself; on later updates the same command
+	// switches builds atomically and rolls back on failure.
+	if out, stderr, err := m.Exec(ctx, "sudo /tmp/tiffin.new self-update /tmp/tiffin.new && rm -f /tmp/tiffin.new"); err != nil {
+		return nil, fmt.Errorf("start tiffin: %w\n%s%s", err, out, stderr)
+	}
+	tok, stderr, err := m.Exec(ctx, "sudo cat "+Home+"/owner-token")
+	if err != nil {
+		return nil, fmt.Errorf("read owner token: %w\n%s", err, stderr)
+	}
+	ca, stderr, err := m.Exec(ctx, "sudo cat "+Home+"/ca.crt")
+	if err != nil {
+		return nil, fmt.Errorf("read the box's CA certificate: %w\n%s", err, stderr)
+	}
+	return &Result{OwnerToken: strings.TrimSpace(tok), CAPEM: []byte(ca), Build: sum}, nil
+}
+
+// FileSHA returns the hex SHA-256 of a file.
+func FileSHA(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}

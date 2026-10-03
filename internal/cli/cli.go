@@ -50,6 +50,9 @@ type app struct {
 	session string
 	code    int  // exit code chosen by the last command
 	started bool // arguments and flags parsed; the command itself is running
+	// homeExplicit is set when --home or TIFFIN_HOME picks a local box,
+	// which then wins over a box created with `tiffin up`.
+	homeExplicit bool
 }
 
 // exitError carries a specific exit code out of a command.
@@ -115,10 +118,15 @@ func (a *app) root() *cobra.Command {
 	pf.StringVar(&a.home, "home", orDefault(env("TIFFIN_HOME"), defaultHome(env)), "local box data directory (env TIFFIN_HOME)")
 	pf.StringVar(&a.session, "session", env("TIFFIN_SESSION"), "agent session label recorded on changes (env TIFFIN_SESSION)")
 	a.token = env("TIFFIN_TOKEN")
+	root.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
+		a.started = true
+		a.homeExplicit = env("TIFFIN_HOME") != "" || cmd.Flags().Changed("home")
+	}
 	root.CompletionOptions.HiddenDefaultCmd = true
 
 	root.AddCommand(a.versionCmd(), a.planCmd(), a.applyCmd(), a.undoCmd(), a.initCmd(),
-		a.serveCmd(), a.mcpCmd(), a.doctorCmd(), a.ownerCmd())
+		a.serveCmd(), a.mcpCmd(), a.doctorCmd(), a.ownerCmd(),
+		a.upCmd(), a.downCmd(), a.loginCmd(), a.trustCmd(), a.selfUpdateCmd())
 	a.generate(root, api.New(api.Deps{}))
 	return root
 }

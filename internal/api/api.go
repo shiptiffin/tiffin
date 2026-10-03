@@ -6,14 +6,18 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"runtime"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
@@ -232,6 +236,32 @@ type ProjectState struct {
 type Health struct {
 	Status  string `json:"status" example:"ok"`
 	Version string `json:"version"`
+	Build   string `json:"build,omitempty" doc:"SHA-256 of the running binary; self-update uses it to know the new build is the one answering"`
+}
+
+var (
+	buildOnce sync.Once
+	buildSum  string
+)
+
+// selfBuild hashes the running executable once, on first use.
+func selfBuild() string {
+	buildOnce.Do(func() {
+		exe, err := os.Executable()
+		if err != nil {
+			return
+		}
+		f, err := os.Open(exe)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		h := sha256.New()
+		if _, err := io.Copy(h, f); err == nil {
+			buildSum = hex.EncodeToString(h.Sum(nil))
+		}
+	})
+	return buildSum
 }
 
 // CreatedToken carries the secret exactly once.
@@ -254,7 +284,7 @@ func (a *API) register() {
 	h := op("health", http.MethodGet, "/v1/health", "health", RiskRead, "Check the box is up", "Unauthenticated liveness check.", "system")
 	h.Security = nil
 	huma.Register(api, h, func(ctx context.Context, _ *struct{}) (*struct{ Body Health }, error) {
-		return &struct{ Body Health }{Health{Status: "ok", Version: orDefault(a.deps.Version, "dev")}}, nil
+		return &struct{ Body Health }{Health{Status: "ok", Version: orDefault(a.deps.Version, "dev"), Build: selfBuild()}}, nil
 	})
 
 	s := op("schema-manifest", http.MethodGet, "/v1/schema/manifest", "schema manifest", RiskRead, "Get the manifest JSON Schema",

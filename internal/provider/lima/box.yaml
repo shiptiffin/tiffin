@@ -1,0 +1,71 @@
+# Lima template for a local Tiffin box: Ubuntu 24.04 LTS, 2 vCPU / 4 GiB,
+# 20 GiB root (ext4) plus an XFS data disk at /var/lib/tiffin.
+# (Kept in step with e2e/lima/tiffin-box.yaml.)
+#
+# Images: the rolling noble `release/` build is listed first (no digest, it
+# moves; Lima verifies it over HTTPS). It is far faster to download than the
+# dated release-YYYYMMDD directories, which Ubuntu's mirror serves at ~1 KB/s
+# when cold. Lima's own template:_images/ubuntu-24.04 follows as the fallback;
+# it carries sha256 digests for the dated builds (arm64 + amd64).
+#
+# The additional disk name below is a placeholder: `tiffin up` creates the
+# disk and overrides this entry with `limactl create --set`.
+minimumLimaVersion: 2.0.0
+
+images:
+- location: https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-arm64.img
+  arch: aarch64
+  variant: server
+- location: https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img
+  arch: x86_64
+  variant: server
+
+base:
+- template:_images/ubuntu-24.04
+
+# vz is the Apple Virtualization backend (macOS). The harness overrides this
+# on other hosts.
+vmType: vz
+
+cpus: 2
+memory: 4GiB
+disk: 20GiB
+
+# No host mounts at all (_default/mounts is intentionally not inherited).
+mounts: []
+
+additionalDisks:
+- name: tiffin-e2e-data
+  format: true
+  fsType: xfs
+
+# No containerd: Tiffin installs its own runtime.
+containerd:
+  system: false
+  user: false
+
+# Only the box's HTTPS port reaches the Mac, and only on 127.0.0.1. macOS
+# lets unprivileged processes bind ports below 1024 only on 0.0.0.0, which
+# would expose the box to the LAN, so the box serves HTTPS on 8443 instead.
+# Everything else the box runs (Postgres, Valkey, ...) stays inside it.
+portForwards:
+- guestPort: 8443
+  hostIP: 127.0.0.1
+- guestIP: 0.0.0.0
+  proto: any
+  ignore: true
+
+# Lima mounts an additional disk at /mnt/lima-<disk> and has no per-disk
+# mountPoint setting (checked on Lima 2.2), so bind-mount that XFS filesystem
+# at /var/lib/tiffin. The box has exactly one additional disk, hence the glob.
+provision:
+- mode: system
+  script: |
+    #!/bin/bash
+    set -eux -o pipefail
+    command -v mkfs.xfs >/dev/null || { apt-get update -y && apt-get install -y xfsprogs; }
+    src="$(findmnt -rno TARGET -t xfs | grep '^/mnt/lima-' | head -n1)"
+    [ -n "$src" ] || { echo "no XFS data disk mounted under /mnt/lima-*" >&2; exit 1; }
+    mkdir -p /var/lib/tiffin
+    mountpoint -q /var/lib/tiffin || mount --bind "$src" /var/lib/tiffin
+    grep -q ' /var/lib/tiffin ' /etc/fstab || echo "$src /var/lib/tiffin none bind 0 0" >> /etc/fstab

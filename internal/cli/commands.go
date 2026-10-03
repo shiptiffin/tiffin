@@ -18,6 +18,7 @@ import (
 
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/dashboard"
+	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/manifest"
 	tmcp "github.com/btahir/tiffin/internal/mcp"
 	"github.com/btahir/tiffin/internal/version"
@@ -206,28 +207,56 @@ func slugify(s string) string {
 }
 
 func (a *app) serveCmd() *cobra.Command {
-	var addr string
+	var addr, domain, publicURL string
+	var withEdge bool
+	var httpsPort, httpPort int
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the box API and MCP endpoint",
-		Long: "Serves the Tiffin API at /v1 and MCP (streamable HTTP, stateless) at /mcp. " +
+		Long: "Serves the Tiffin API at /v1, MCP (streamable HTTP, stateless) at /mcp and the dashboard at /. " +
+			"With --edge it also runs the embedded HTTPS edge for dashboard.<domain>. " +
 			"On first start it creates the owner token and prints it once.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			b, fresh, err := openBox(ctx, a.home)
+			started := time.Now()
+			var ed *edge.Edge
+			b, fresh, err := openBox(ctx, a.home, func(d *api.Deps) {
+				d.PublicURL = publicURL
+				d.Checks = func(ctx context.Context) []api.Check { return boxChecks(a.home, ed, started) }
+			})
 			if err != nil {
 				return err
 			}
 			defer b.Close()
-			mux := serveMux(b)
 			ln, err := net.Listen("tcp", addr)
 			if err != nil {
 				return err
 			}
-			hs := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+			hs := &http.Server{Handler: serveMux(b), ReadHeaderTimeout: 10 * time.Second}
+			errc := make(chan error, 1)
+			go func() { errc <- hs.Serve(ln) }()
 			base := "http://" + ln.Addr().String()
+			if withEdge {
+				ed, err = edge.Start(ctx, edge.Config{Domain: domain, Upstream: ln.Addr().String(), DataDir: filepath.Join(a.home, "edge"),
+					HTTPPort: httpPort, HTTPSPort: httpsPort, Internal: true})
+				if err != nil {
+					return fmt.Errorf("start the HTTPS edge: %w", err)
+				}
+				defer ed.Stop()
+				pem, err := ed.RootCAPEM()
+				if err != nil {
+					return err
+				}
+				// Public: clients fetch it to trust the box's HTTPS.
+				if err := os.WriteFile(filepath.Join(a.home, "ca.crt"), pem, 0o644); err != nil {
+					return err
+				}
+				if publicURL != "" {
+					base = publicURL
+				}
+			}
 			fmt.Fprintf(a.io.Err, "tiffin %s serving %s (API %s/v1, MCP %s/mcp, data %s)\n", version.Version, base, base, base, a.home)
 			if fresh != "" {
 				fmt.Fprintf(a.io.Err, "\nOwner token (shown once, also saved to %s):\n  %s\n\n"+
@@ -236,8 +265,6 @@ func (a *app) serveCmd() *cobra.Command {
 					"  claude mcp add --transport http tiffin %s/mcp --header \"Authorization: Bearer <agent token>\"\n\n",
 					filepath.Join(a.home, ownerTokenFile), fresh, base, base)
 			}
-			errc := make(chan error, 1)
-			go func() { errc <- hs.Serve(ln) }()
 			select {
 			case <-ctx.Done():
 				sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -251,7 +278,12 @@ func (a *app) serveCmd() *cobra.Command {
 			}
 		},
 	}
-	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:7070", "listen address")
+	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:7070", "API listen address (the edge proxies to it)")
+	cmd.Flags().BoolVar(&withEdge, "edge", false, "also run the HTTPS edge (embedded Caddy, internal CA)")
+	cmd.Flags().StringVar(&domain, "domain", "tiffin.localhost", "edge domain; the dashboard is dashboard.<domain>")
+	cmd.Flags().IntVar(&httpsPort, "https-port", 443, "edge HTTPS port")
+	cmd.Flags().IntVar(&httpPort, "http-port", 80, "edge HTTP port (redirects to HTTPS)")
+	cmd.Flags().StringVar(&publicURL, "public-url", "", "the dashboard URL people use, for login links")
 	return cmd
 }
 
@@ -280,13 +312,31 @@ func (a *app) mcpCmd() *cobra.Command {
 			spec := api.New(api.Deps{Version: version.Version})
 			var h http.Handler
 			token := a.token
-			if a.url != "" {
+			_, bx := a.currentBox()
+			switch {
+			case a.url != "":
 				u, err := url.Parse(a.url)
 				if err != nil {
 					return &exitError{ExitInvalid, "--url: " + err.Error()}
 				}
 				h = httputil.NewSingleHostReverseProxy(u)
-			} else {
+			case bx != nil && !a.homeExplicit:
+				// The box from `tiffin up`: proxy over HTTPS, as its agent token.
+				u, err := url.Parse(bx.URL)
+				if err != nil {
+					return &exitError{ExitInvalid, "box url: " + err.Error()}
+				}
+				tr, err := boxTransport(bx.CAFile)
+				if err != nil {
+					return err
+				}
+				rp := httputil.NewSingleHostReverseProxy(u)
+				rp.Transport = tr
+				h = rp
+				if token == "" {
+					token = bx.AgentToken
+				}
+			default:
 				b, _, err := openBox(ctx, a.home)
 				if err != nil {
 					return err
