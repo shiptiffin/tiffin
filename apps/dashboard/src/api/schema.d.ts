@@ -288,6 +288,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/box/resources": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Show the box's resources
+     * @description What the machine has and what uses it, sampled now (cached for 3 seconds): CPU count, load and use; memory total, used and available; data disk and system disk size and use; uptime; and for every service Tiffin runs (postgres, valkey, storage, auth, the tiffin service itself, victoria-metrics, victoria-logs, containerd, buildkit, crowdsec...) and every app container: state, memory, CPU seconds and CPU percent (100 = one core) over the last window. Box only: a laptop running tiffin serve without --box answers 503.
+     */
+    get: operations["box-resources"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/changes": {
     parameters: {
       query?: never;
@@ -936,6 +956,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/projects/{project}/apps/{app}/deploys/git": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Deploy from a git URL
+     * @description Deploys an app from a public git repository: the box shallow-clones one commit (https only, no credentials, public hosts only, no submodules, size and time limits), then builds and releases it through the regular pipeline (build log, health check, zero-downtime switch, rollback). The clone shows in the build log. The app must already exist: add it to the manifest and apply first. Returns at once with the queued deploy; poll deploys get until status is live or failed. For private code, push to the box instead (git info).
+     */
+    post: operations["deploy-git"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/projects/{project}/apps/{app}/deploys/template": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Deploy a starter template
+     * @description Deploys a starter template's source (see templates list) to an app, through the regular pipeline: build on the box, health check, zero-downtime switch, rollback later. The app must already exist with the template's framework, and the services the template uses must be on: merge the template's fragment into the manifest and apply it first. Returns at once with the queued deploy; poll deploys get until status is live or failed.
+     */
+    post: operations["deploy-template"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/projects/{project}/apps/{app}/deploys/{id}": {
     parameters: {
       query?: never;
@@ -1320,6 +1380,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/projects/{project}/destroy": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Destroy a project
+     * @description Plans deleting every resource of a project (its apps, databases, buckets, auth users, everything) and applies it with confirm. Irreversible: databases keep a 7-day snapshot and buckets a 7-day trash, then they are gone. Without confirm you get the plan with status 428.
+     */
+    post: operations["project-destroy"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/projects/{project}/email/messages": {
     parameters: {
       query?: never;
@@ -1564,6 +1644,26 @@ export interface paths {
      * @description Keys and memory under the project's prefix, against its maxMemoryMB, plus server-wide numbers.
      */
     get: operations["kv-stats"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/v1/projects/{project}/manifest": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get a project's manifest
+     * @description The project's current desired state as a manifest, rebuilt from its resources (works for every project, however it was created), plus the same thing as a readable tiffin.config.ts. To change the project without a config file: edit `manifest` (add an app, add services.postgres, change env...), send it to plan, review the ops and risk, then apply it with the plan's hash. The plan is exactly what the same edit to tiffin.config.ts would give.
+     */
+    get: operations["project-manifest"];
     put?: never;
     post?: never;
     delete?: never;
@@ -2580,6 +2680,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/templates": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List starter templates
+     * @description Small, working starter apps shipped inside tiffin: id, name, description, framework, the services they need and the manifest fragment to merge into a project (apps + services). To start a project from one: merge the fragment into the project's manifest (projects manifest), plan and apply it, then deploys template with the template id.
+     */
+    get: operations["templates-list"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/tokens": {
     parameters: {
       query?: never;
@@ -3205,6 +3325,140 @@ export interface components {
        */
       retainFull?: number;
     };
+    BoxApp: {
+      app: string;
+      container: string;
+      /**
+       * Format: double
+       * @description CPU use over the window; 100 = one full core
+       */
+      cpuPercent: number;
+      /** Format: double */
+      cpuSeconds: number;
+      deploy?: string;
+      /** Format: int64 */
+      memoryBytes: number;
+      /**
+       * Format: int64
+       * @description The memoryMB cap from the manifest (0: none)
+       */
+      memoryLimitBytes?: number;
+      preview?: string;
+      project: string;
+      /**
+       * @description running, exited, created, paused, restarting
+       * @example running
+       */
+      state: string;
+    };
+    BoxCPU: {
+      /** Format: int64 */
+      count: number;
+      /** Format: double */
+      load1: number;
+      /** Format: double */
+      load15: number;
+      /** Format: double */
+      load5: number;
+      /**
+       * Format: double
+       * @description Share of all cores busy over the window, 0-100
+       */
+      usedPercent: number;
+    };
+    BoxDisk: {
+      /**
+       * Format: int64
+       * @description Available to Tiffin (excludes blocks reserved for root)
+       */
+      freeBytes: number;
+      mount: string;
+      /** Format: int64 */
+      totalBytes: number;
+      /** Format: int64 */
+      usedBytes: number;
+      /**
+       * Format: double
+       * @description As df reports it: used / (used + free)
+       */
+      usedPercent: number;
+    };
+    BoxDisks: {
+      /** @description The data disk (/var/lib/tiffin): databases, buckets, builds, images, backups */
+      data: components["schemas"]["BoxDisk"];
+      /** @description The system disk (/): the OS and packages */
+      system: components["schemas"]["BoxDisk"];
+    };
+    BoxMemory: {
+      /**
+       * Format: int64
+       * @description What new work can use without swapping (includes reclaimable cache)
+       */
+      availableBytes: number;
+      /** Format: int64 */
+      swapTotalBytes: number;
+      /** Format: int64 */
+      swapUsedBytes: number;
+      /** Format: int64 */
+      totalBytes: number;
+      /**
+       * Format: int64
+       * @description Total minus available
+       */
+      usedBytes: number;
+      /** Format: double */
+      usedPercent: number;
+    };
+    BoxResources: {
+      /** @description Every app container (production and previews), biggest memory first */
+      apps: components["schemas"]["BoxApp"][] | null;
+      cpu: components["schemas"]["BoxCPU"];
+      disks: components["schemas"]["BoxDisks"];
+      hostname: string;
+      memory: components["schemas"]["BoxMemory"];
+      /** Format: date-time */
+      sampledAt: string;
+      /** @description Every systemd service the box runs, biggest memory first */
+      services: components["schemas"]["BoxService"][] | null;
+      /** Format: double */
+      uptimeSeconds: number;
+      /**
+       * Format: double
+       * @description CPU percentages are averages over this many seconds before sampledAt
+       */
+      windowSeconds: number;
+    };
+    BoxService: {
+      /**
+       * Format: double
+       * @description CPU use over the window; 100 = one full core
+       */
+      cpuPercent: number;
+      /**
+       * Format: double
+       * @description CPU time used since the service started
+       */
+      cpuSeconds: number;
+      description: string;
+      /** Format: int64 */
+      memoryBytes: number;
+      /** @example postgres */
+      name: string;
+      /** Format: int64 */
+      restarts: number;
+      /**
+       * @description systemd ActiveState: active, inactive, failed, activating, deactivating
+       * @example active
+       */
+      state: string;
+      /**
+       * @description systemd SubState: running, exited (one-shot units), dead...
+       * @example running
+       */
+      subState: string;
+      /** @example tiffin-postgres.service */
+      unit: string;
+    };
     "Branch-createRequest": {
       /** @description Clone this branch instead of main */
       from?: string;
@@ -3557,6 +3811,114 @@ export interface components {
       expiresAt: string;
       /** @description Open this in a browser */
       url: string;
+    };
+    Manifest: {
+      apps?: {
+        [key: string]: components["schemas"]["ManifestApp"];
+      };
+      crons?: {
+        [key: string]: components["schemas"]["ManifestCron"];
+      };
+      env?: {
+        [key: string]: string;
+      };
+      project: string;
+      queues?: {
+        [key: string]: components["schemas"]["ManifestQueue"];
+      };
+      services?: components["schemas"]["ManifestServices"];
+      topics?: {
+        [key: string]: components["schemas"]["ManifestTopic"];
+      };
+      /** Format: int64 */
+      version: number;
+    };
+    ManifestAnalytics: {
+      /** Format: int64 */
+      retentionDays: number;
+    };
+    ManifestApp: {
+      env?: {
+        [key: string]: string;
+      };
+      framework: string;
+      healthcheck?: string;
+      /** Format: int64 */
+      instances: number;
+      /** Format: int64 */
+      memoryMB: number;
+      path: string;
+      role: string;
+      routes?: string[] | null;
+    };
+    ManifestAuth: {
+      methods: string[] | null;
+      organizations: boolean;
+    };
+    ManifestBucket: {
+      public: boolean;
+    };
+    ManifestCron: {
+      app: string;
+      path: string;
+      schedule: string;
+    };
+    ManifestEmail: {
+      from?: string;
+    };
+    ManifestFragment: {
+      apps: {
+        [key: string]: {
+          [key: string]: unknown;
+        };
+      };
+      env?: {
+        [key: string]: string;
+      };
+      services?: {
+        [key: string]: {
+          [key: string]: unknown;
+        };
+      };
+    };
+    ManifestPostgres: {
+      extensions?: string[] | null;
+    };
+    ManifestQueue: {
+      app: string;
+      /** Format: int64 */
+      concurrency: number;
+      /** Format: int64 */
+      keyConcurrency: number;
+      /** Format: int64 */
+      leaseSeconds: number;
+      /** Format: int64 */
+      maxAttempts: number;
+      path: string;
+      /** Format: int64 */
+      rateLimit: number;
+      /** Format: int64 */
+      ratePeriodSeconds: number;
+    };
+    ManifestServices: {
+      analytics?: components["schemas"]["ManifestAnalytics"];
+      auth?: components["schemas"]["ManifestAuth"];
+      email?: components["schemas"]["ManifestEmail"];
+      postgres?: components["schemas"]["ManifestPostgres"];
+      storage?: components["schemas"]["ManifestStorage"];
+      valkey?: components["schemas"]["ManifestValkey"];
+    };
+    ManifestStorage: {
+      buckets?: {
+        [key: string]: components["schemas"]["ManifestBucket"];
+      };
+    };
+    ManifestTopic: {
+      subscribers?: string[] | null;
+    };
+    ManifestValkey: {
+      /** Format: int64 */
+      maxMemoryMB: number;
     };
     ObserveAlert: {
       /** @description The project, for project alerts (error_spike) */
@@ -4196,6 +4558,18 @@ export interface components {
       title: string;
       /** @description URI identifying the problem type */
       type?: string;
+    };
+    ProjectManifest: {
+      /** @description The same manifest as a readable tiffin.config.ts with defaults left out: what tiffin pull writes. */
+      config: string;
+      /** @description The canonical, fully defaulted manifest. Edit it (add an app, switch a service on or off, change env) and send it to plan, then apply with the plan's hash. */
+      manifest: components["schemas"]["Manifest"];
+      project: string;
+      /**
+       * Format: int64
+       * @description The project version this manifest describes. A plan of this manifest is empty until the project changes.
+       */
+      version: number;
     };
     ProjectState: {
       name: string;
@@ -4940,7 +5314,7 @@ export interface components {
       buildSeconds?: number;
       /** Format: date-time */
       builtAt?: string;
-      /** @description Git commit, for git pushes */
+      /** @description Git commit, for git pushes and deploys from a git URL */
       commit?: string;
       /** Format: date-time */
       createdAt: string;
@@ -4978,8 +5352,12 @@ export interface components {
       /** @description Preview name, empty for production */
       preview?: string;
       project: string;
+      /** @description Branch, tag or commit asked for, for deploys from a git URL */
+      ref?: string;
+      /** @description Repository URL, for deploys from a git URL */
+      repo?: string;
       /** @enum {string} */
-      source: "upload" | "files" | "prebuilt" | "git";
+      source: "upload" | "files" | "prebuilt" | "git" | "template";
       /** Format: int64 */
       sourceBytes?: number;
       staticRoot?: string;
@@ -4988,6 +5366,8 @@ export interface components {
        * @enum {string}
        */
       status: "queued" | "building" | "starting" | "live" | "failed" | "superseded" | "rolled_back" | "stopped";
+      /** @description Starter template, for template deploys */
+      template?: string;
       /** @description Where the deploy is served (web apps) */
       url?: string;
     };
@@ -5020,6 +5400,17 @@ export interface components {
       /** Format: date-time */
       updatedAt: string;
       url?: string;
+    };
+    RuntimeGitDeployBody: {
+      /** @description The app's directory inside the repository, e.g. apps/web. Default: the top. */
+      path?: string;
+      /** @description Branch, tag or full commit SHA. Default: the repository's default branch. */
+      ref?: string;
+      /**
+       * @description https URL of a public git repository. No credentials, no other schemes; the host must be public.
+       * @example https://github.com/owner/repo
+       */
+      url: string;
     };
     RuntimeGitInfo: {
       instructions: string;
@@ -5063,6 +5454,16 @@ export interface components {
       lines: components["schemas"]["RuntimeLogLine"][] | null;
       /** @description Pass as since to get only newer lines */
       next?: string;
+    };
+    RuntimeTemplateBody: {
+      /**
+       * @description Starter ID from templates list
+       * @enum {string}
+       */
+      template: "static-site" | "hono-postgres" | "guestbook" | "next-postgres";
+    };
+    RuntimeTemplateList: {
+      templates: components["schemas"]["Starter"][] | null;
     };
     "Secret-setRequest": {
       /** @description The secret value */
@@ -5131,6 +5532,41 @@ export interface components {
     "Snapshot-restoreRequest": {
       /** @description The confirm value from the preview (status 428) */
       confirm?: string;
+    };
+    Starter: {
+      /**
+       * @description The app name the fragment uses (rename it freely when merging)
+       * @example guestbook
+       */
+      app: string;
+      /**
+       * Format: int64
+       * @description Source size
+       */
+      bytes: number;
+      /** @description One line on what it is */
+      description: string;
+      /**
+       * Format: int64
+       * @description Source files shipped
+       */
+      files: number;
+      /** @description Merge into the project's manifest (apps, services, env), plan and apply, then deploy the template to the app */
+      fragment: components["schemas"]["ManifestFragment"];
+      /**
+       * @description The app's framework; the target app must use the same one
+       * @enum {string}
+       */
+      framework: "bun" | "hono" | "next" | "static";
+      /**
+       * @description Pass as template to deploys template
+       * @example guestbook
+       */
+      id: string;
+      /** @example Guestbook */
+      name: string;
+      /** @description Services the app needs on, e.g. postgres, valkey, analytics */
+      services: string[] | null;
     };
     StatusReport: {
       checks: components["schemas"]["Check"][] | null;
@@ -6576,6 +7012,80 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+    };
+  };
+  "box-resources": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BoxResources"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
         headers: {
           [name: string]: unknown;
         };
@@ -9252,6 +9762,187 @@ export interface operations {
       };
     };
   };
+  "deploy-git": {
+    parameters: {
+      query?: {
+        /** @description Deploy as a preview with this name instead of production */
+        preview?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Project slug */
+        project: string;
+        /** @description App name */
+        app: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RuntimeGitDeployBody"];
+      };
+    };
+    responses: {
+      /** @description Accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RuntimeDeploy"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+    };
+  };
+  "deploy-template": {
+    parameters: {
+      query?: {
+        /** @description Deploy as a preview with this name instead of production */
+        preview?: string;
+      };
+      header?: never;
+      path: {
+        /** @description Project slug */
+        project: string;
+        /** @description App name */
+        app: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["RuntimeTemplateBody"];
+      };
+    };
+    responses: {
+      /** @description Accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RuntimeDeploy"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+    };
+  };
   "deploy-get": {
     parameters: {
       query?: never;
@@ -10937,6 +11628,105 @@ export interface operations {
       };
     };
   };
+  "project-destroy": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Project slug */
+        project: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UndoBody"];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ApplyResult"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Precondition Required */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+    };
+  };
   "email-messages-list": {
     parameters: {
       query?: {
@@ -12054,6 +12844,83 @@ export interface operations {
       };
       /** @description Conflict */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+    };
+  };
+  "project-manifest": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Project slug */
+        project: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectManifest"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Not Found */
+      404: {
         headers: {
           [name: string]: unknown;
         };
@@ -16478,6 +17345,71 @@ export interface operations {
       };
       /** @description Not Found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+    };
+  };
+  "templates-list": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RuntimeTemplateList"];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/problem+json": components["schemas"]["Problem"];
+        };
+      };
+      /** @description Forbidden */
+      403: {
         headers: {
           [name: string]: unknown;
         };
