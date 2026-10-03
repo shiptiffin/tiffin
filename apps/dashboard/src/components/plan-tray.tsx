@@ -619,7 +619,7 @@ function Stake({ ops }: { ops: Op[] }) {
   );
 }
 
-function Impact({ edits, ops, project, apps }: { edits: StagedEdit[]; ops: Op[]; project: string; apps: Record<string, ManifestApp> }) {
+function Impact({ edits, ops, apps }: { edits: StagedEdit[]; ops: Op[]; project: string; apps: Record<string, ManifestApp> }) {
   const onlyScale = edits.every((e) => e.kind === "instances");
   const lost = ops.filter((o) => asTier(o.risk) === "irreversible");
   const scaled = edits.filter((e): e is Extract<StagedEdit, { kind: "instances" }> => e.kind === "instances");
@@ -632,13 +632,9 @@ function Impact({ edits, ops, project, apps }: { edits: StagedEdit[]; ops: Op[];
         </p>
       )}
       <p>
-        <b className="font-[550] text-ink">If you undo</b>, {edits.map((e) => undoWords(e)).join("; ")}.
+        <b className="font-[550] text-ink">If you undo</b>, {edits.map((e) => undoWords(e)).join("; ")}
+        {lost.length > 0 ? ", empty: what it held doesn’t come back." : "."}
       </p>
-      {lost.length > 0 && (
-        <p>
-          Undo puts {project}’s settings back; {lost.length === 1 ? "what it held stays" : "what they held stays"} gone.
-        </p>
-      )}
       <p>You’ll get a signed entry in the Ledger{lost.length === 0 ? " with an Undo button" : ""}.</p>
     </div>
   );
