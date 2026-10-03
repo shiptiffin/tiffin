@@ -6013,7 +6013,7 @@ export interface components {
             image?: string;
             /**
              * Format: date-time
-             * @description When it (last) went live
+             * @description When it went live: deployed, or rolled back to. Restarts and rescales don't move it.
              */
             liveAt?: string;
             /** @description Preview name, empty for production */

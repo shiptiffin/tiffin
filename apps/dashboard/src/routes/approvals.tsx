@@ -401,7 +401,7 @@ export function ApprovalPage({ id }: { id: string }) {
               </div>
             </Sec>
           )}
-          <UndoCant ops={ops} project={ap.project} />
+          <UndoCant ops={ops} project={ap.project} counted={`Counted by the box when ${agent} asked, at ${clock(ap.createdAt)}.`} />
         </Leaf>
 
         {pending && (

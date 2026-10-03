@@ -13,6 +13,7 @@ import { asTier, diffOp, formatValue, splitAddress } from "@/lib/changes";
 import { MINUS, words } from "@/lib/format";
 import { serviceNames } from "@/lib/staged";
 import { clock, dayLabel } from "@/lib/time";
+import { LossLine } from "./loss";
 import { RiskDots } from "./risk-dots";
 import { Seal } from "./seal";
 
@@ -294,18 +295,22 @@ function FieldDiff({ op }: { op: Op }) {
 }
 
 /** "What undo can't restore": the danger rule, only when a step destroys something. */
-export function UndoCant({ ops, project, done }: { ops: Op[]; project: string; done?: boolean }) {
+export function UndoCant({ ops, project, done, counted }: { ops: Op[]; project: string; done?: boolean; counted?: string }) {
   const lost = ops.filter((o) => asTier(o.risk) === "irreversible");
   if (lost.length === 0) return null;
+  const measured = lost.some((o) => o.loss);
   return (
     <Sec label="What undo can’t restore" tone="danger">
       <div className="max-w-[38rem] border-l-2 border-danger py-0.5 pl-4">
-        {lost.map((o, i) => (
-          <p key={o.address + i} className="text-[0.875rem] leading-[1.3125rem] text-ink">
-            {reasonWords(o).did ?? opTitle(o, project)}
-          </p>
-        ))}
-        <p className="mt-1 text-[0.84375rem] leading-5 text-ink-2">
+        <div className="flex flex-col gap-2.5">
+          {lost.map((o, i) => (
+            <LossLine key={o.address + i} op={o} reason={reasonWords(o).did ?? opTitle(o, project)} />
+          ))}
+        </div>
+        {measured && (
+          <p className="mt-1.5 text-xs text-ink-3">{counted ?? (done ? "Counted by the box just before it went." : "Counted by the box when the plan was made.")}</p>
+        )}
+        <p className="mt-2.5 text-[0.84375rem] leading-5 text-ink-2">
           Undo {done ? "can put" : "would put"} the settings of {project} back, but not the data. To get the data, restore a backup by hand from Health.
         </p>
       </div>

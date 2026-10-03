@@ -28,6 +28,7 @@ import {
 } from "@/lib/staged";
 import { EnamelSwatch } from "./enamel-swatch";
 import { HoldToCommit } from "./hold-to-commit";
+import { LossLine } from "./loss";
 import { MorphLabel } from "./morph-label";
 import { ProblemNote } from "./problem";
 import { Qty } from "./qty";
@@ -610,11 +611,19 @@ function Stake({ ops }: { ops: Op[] }) {
   return (
     <section className="pt-5 pb-4">
       <h3 className={cn("label pb-1.5", lost.length > 0 && "!text-danger")}>{lost.length > 0 ? "What can’t come back" : "Who will see it"}</h3>
-      <div className={cn("border-l-2 py-0.5 pl-3.5 text-[0.9375rem] leading-[1.375rem] text-ink", lost.length > 0 ? "border-danger" : "border-warn")}>
-        {(lost.length > 0 ? lost : out).map((o, i) => (
-          <p key={o.address + i}>{cap(o.reason) || o.address}</p>
-        ))}
-      </div>
+      {lost.length > 0 ? (
+        <div className="flex flex-col gap-2.5 border-l-2 border-danger py-0.5 pl-3.5">
+          {lost.map((o, i) => (
+            <LossLine key={o.address + i} op={o} reason={cap(o.reason) || o.address} />
+          ))}
+        </div>
+      ) : (
+        <div className="border-l-2 border-warn py-0.5 pl-3.5 text-[0.9375rem] leading-[1.375rem] text-ink">
+          {out.map((o, i) => (
+            <p key={o.address + i}>{cap(o.reason) || o.address}</p>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

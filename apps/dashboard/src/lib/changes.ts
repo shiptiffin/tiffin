@@ -30,7 +30,7 @@ export function splitAddress(address: string) {
   return i < 0 ? { kind: address, name: "" } : { kind: address.slice(0, i), name: address.slice(i + 1) };
 }
 
-/** The actor as people read it ("Claude Code", "Owner"); see lib/actors.ts. */
+/** The actor as people read it ("Claude Code"); for a person prefer lib/who.ts actorShown, which knows their name. */
 export function actorLabel(c: Change): string {
   return actorWords(c.actor);
 }

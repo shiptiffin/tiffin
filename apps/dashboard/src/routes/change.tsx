@@ -87,7 +87,8 @@ export function ChangePage({ id }: { id: string }) {
   const agent = c.actor.kind === "agent";
   const approval = approvals.get(c.id);
   const intent = splitIntent(intentWords(c));
-  const who = actorWords(c.actor);
+  // People by their current name (the owner token reads "Bilal", not "Owner"); agents by theirs.
+  const who = agent ? actorWords(c.actor) : actorShown(c.actor, names.data);
   const signer = approval ? tokenWho(approval.decidedBy, names.data) : who;
   const undoneAt = undo.data?.at;
 
@@ -143,7 +144,7 @@ export function ChangePage({ id }: { id: string }) {
         {undoneBy && (
           <Leaf className="mt-5" time={undoneAt ? clock(undoneAt) : undefined} note="undone">
             <p className="max-w-[38rem] border-l-2 border-rule-3 py-0.5 pl-4 text-[0.875rem] leading-[1.3125rem] text-ink">
-              Undone by {undo.data ? actorWords(undo.data.actor) : "someone"}
+              Undone by {undo.data ? (undo.data.actor.kind === "agent" ? actorWords(undo.data.actor) : actorShown(undo.data.actor, names.data)) : "someone"}
               {undoneAt ? ` ${when(undoneAt)}` : ""}.{" "}
               <Link to="/changes/$id" params={{ id: undoneBy }} className="text-brass-ink hover:underline hover:underline-offset-4 print:text-ink">
                 Read the undo
