@@ -561,8 +561,16 @@ func TestFailedDeploysKeepTheOldVersion(t *testing.T) {
 
 func TestEnvChangeRestartsAndDeleteStops(t *testing.T) {
 	h := newHarness(t)
-	h.deploy("api", "", map[string]string{"index.ts": "v1"})
+	d := h.deploy("api", "", map[string]string{"index.ts": "v1"})
 	before := h.state("api", "")
+	wentLive := func() time.Time {
+		got, err := h.r.st.getDeploy(context.Background(), "shop", "api", d.ID)
+		if err != nil || got.LiveAt == nil {
+			t.Fatalf("deploy %v: %+v", err, got)
+		}
+		return *got.LiveAt
+	}
+	liveAt := wentLive()
 	// Reconcile with nothing changed is a no-op.
 	h.apply()
 	if st := h.state("api", ""); st.Instances[0].Name != before.Instances[0].Name {
@@ -579,6 +587,10 @@ func TestEnvChangeRestartsAndDeleteStops(t *testing.T) {
 	}
 	if _, body := h.get("shop.tiffin.localhost", "/api/"); !strings.Contains(body, "greeting=bonjour") {
 		t.Fatalf("new env not served: %s", body)
+	}
+	// A restart is not a new go-live: the version keeps the time it went live.
+	if !wentLive().Equal(liveAt) {
+		t.Fatalf("restart moved liveAt from %v to %v", liveAt, wentLive())
 	}
 	// Instance count change.
 	a := h.mf.Apps["api"]

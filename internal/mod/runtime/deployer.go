@@ -263,7 +263,12 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 			_ = r.st.putDeploy(ctx, old)
 		}
 	}
-	d.Status, d.LiveAt, d.Error, d.Hint = StatusLive, &now, "", ""
+	d.Status, d.Error, d.Hint = StatusLive, "", ""
+	// Went live: when this version took over (a deploy or a rollback to it).
+	// Restarts, rescales and wakes keep the time, so every page quotes one.
+	if d.LiveAt == nil || mode == modeDeploy || mode == modeRollback {
+		d.LiveAt = &now
+	}
 	if d.FinishedAt == nil || mode == modeDeploy {
 		d.FinishedAt = &now
 		d.TotalSecs = round1(now.Sub(d.CreatedAt).Seconds())

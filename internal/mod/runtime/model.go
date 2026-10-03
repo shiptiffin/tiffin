@@ -54,7 +54,7 @@ type Deploy struct {
 	CreatedAt   time.Time  `json:"createdAt"`
 	CreatedBy   string     `json:"createdBy,omitempty" doc:"Token that started the deploy"`
 	BuiltAt     *time.Time `json:"builtAt,omitempty"`
-	LiveAt      *time.Time `json:"liveAt,omitempty" doc:"When it (last) went live"`
+	LiveAt      *time.Time `json:"liveAt,omitempty" doc:"When it went live: deployed, or rolled back to. Restarts and rescales don't move it."`
 	FinishedAt  *time.Time `json:"finishedAt,omitempty" doc:"When it went live or failed"`
 	BuildSecs   float64    `json:"buildSeconds,omitempty" doc:"Time spent building"`
 	TotalSecs   float64    `json:"durationSeconds,omitempty" doc:"Queued to live (or failed)"`
