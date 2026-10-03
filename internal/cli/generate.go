@@ -96,6 +96,8 @@ var groupShort = map[string]string{
 	"issues":    "Errors your apps reported, grouped into issues",
 	"observe":   "Observability settings and overview",
 	"previews":  "Preview deploys: list, sleep and delete",
+	"exports":   "List, inspect and delete box exports",
+	"imports":   "List, inspect, apply and discard uploaded box exports",
 }
 
 type bodyFlag struct {
