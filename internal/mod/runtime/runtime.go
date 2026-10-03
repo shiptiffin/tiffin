@@ -1,12 +1,282 @@
-// Package runtime is the Tiffin runtime module. App runtime: builds (Railpack + BuildKit), containers (containerd), deploys, routes, logs (M2/M3).
+// Package runtime is the Tiffin app runtime: builds (Railpack + BuildKit),
+// containers (containerd via nerdctl), zero-downtime deploys, rollbacks,
+// previews with scale-to-zero, logs and a git push endpoint (M2/M3).
 package runtime
 
-import "github.com/btahir/tiffin/internal/platform"
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/platform"
+)
 
 func init() { platform.Register(&Module{}) }
 
 // Module implements the runtime module. See internal/platform for the optional interfaces.
-type Module struct{}
+type Module struct {
+	mu sync.Mutex
+	r  *rt // set by Start; nil until the box serves
+}
 
 func (*Module) Name() string { return "runtime" }
 func (*Module) Order() int   { return 40 }
+
+// Options tune the runtime (tests shorten the timings).
+type Options struct {
+	DataDir       string        // sources, build logs, static files, git repos
+	LogDir        string        // app container logs
+	HealthTimeout time.Duration // how long new instances get to pass health checks
+	Drain         time.Duration // how long old instances keep serving after the switch
+	StopGrace     time.Duration // SIGTERM → SIGKILL
+	PreviewIdle   time.Duration // previews sleep after this long without requests
+	KeepImages    int           // rollback targets kept per app environment
+	Engine        Engine
+	Builder       Builder
+}
+
+func defaultOptions() Options {
+	idle := 15 * time.Minute
+	if v, err := time.ParseDuration(os.Getenv("TIFFIN_PREVIEW_IDLE")); err == nil && v > 0 {
+		idle = v
+	}
+	return Options{DataDir: DataDir, LogDir: LogDir, HealthTimeout: 120 * time.Second, Drain: 3 * time.Second,
+		StopGrace: 10 * time.Second, PreviewIdle: idle, KeepImages: 5}
+}
+
+// rt is the running runtime.
+type rt struct {
+	p     *platform.Platform
+	opt   Options
+	st    store
+	eng   Engine
+	bld   Builder
+	ctx   context.Context // box lifetime
+	build chan struct{}   // one build at a time
+
+	mu       sync.Mutex
+	locks    map[string]*sync.Mutex // per app environment
+	ports    map[int]string         // allocated port → container
+	lastSeen map[string]time.Time   // preview env key → last request
+	actAddr  string                 // activator listener (previews, git hooks)
+	hooks    *hookTokens
+}
+
+// Start wires the runtime to the platform: it fails deploys a restart
+// interrupted, restores port bookkeeping and starts the preview activator.
+func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
+	opt := defaultOptions()
+	opt.Engine = newNerdctl()
+	return m.start(ctx, p, opt)
+}
+
+func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) error {
+	if opt.Builder == nil {
+		opt.Builder = &boxBuilder{eng: opt.Engine, staticDir: filepath.Join(opt.DataDir, "static"), memoryMB: buildMemoryMB(memTotalMB())}
+	}
+	r := &rt{p: p, opt: opt, st: store{p.DB}, eng: opt.Engine, bld: opt.Builder, ctx: ctx,
+		build: make(chan struct{}, 1), locks: map[string]*sync.Mutex{}, ports: map[int]string{},
+		lastSeen: map[string]time.Time{}, hooks: newHookTokens()}
+	for _, d := range []string{opt.DataDir, opt.LogDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return err
+		}
+	}
+	if err := r.recover(ctx); err != nil {
+		return err
+	}
+	// App containers use host networking, so box services listening on
+	// 127.0.0.1 are reachable from apps. Published for modules that bind
+	// per-app listeners (storage, email).
+	if err := p.DB.KVPut(ctx, "runtime", "host-ip", []byte("127.0.0.1")); err != nil {
+		return err
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	r.actAddr = ln.Addr().String()
+	go r.serveInternal(ctx, ln)
+	go r.loop(ctx)
+	m.mu.Lock()
+	m.r = r
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *Module) rt() (*rt, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.r == nil {
+		return nil, errNotReady
+	}
+	return m.r, nil
+}
+
+var errNotReady = errors.New("the app runtime is not running on this box yet")
+
+// recover marks deploys a restart interrupted as failed and rebuilds the
+// port table from what is running.
+func (r *rt) recover(ctx context.Context) error {
+	states, err := r.st.allStates(ctx)
+	if err != nil {
+		return err
+	}
+	for _, s := range states {
+		for _, in := range s.Instances {
+			r.ports[in.Port] = in.Name
+		}
+	}
+	projects, err := r.p.DB.ListProjects(ctx)
+	if err != nil {
+		return err
+	}
+	for _, pr := range projects {
+		_, res, err := r.p.DB.Load(ctx, pr)
+		if err != nil {
+			return err
+		}
+		for addr := range res {
+			if change.Kind(addr) != change.KindApp {
+				continue
+			}
+			ds, err := r.st.listDeploys(ctx, pr, change.Name(addr), "*")
+			if err != nil {
+				return err
+			}
+			for _, d := range ds {
+				if !d.Terminal() {
+					d.Status, d.Error = StatusFailed, "interrupted: the box restarted during the deploy"
+					d.Hint = "Deploy again."
+					now := time.Now().UTC()
+					d.FinishedAt = &now
+					_ = r.st.putDeploy(ctx, d)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// loop runs housekeeping: sleeping idle previews.
+func (r *rt) loop(ctx context.Context) {
+	t := time.NewTicker(15 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			r.sleepIdlePreviews(ctx)
+		}
+	}
+}
+
+func (r *rt) lock(key string) func() {
+	r.mu.Lock()
+	l, ok := r.locks[key]
+	if !ok {
+		l = &sync.Mutex{}
+		r.locks[key] = l
+	}
+	r.mu.Unlock()
+	l.Lock()
+	return l.Unlock
+}
+
+// allocPort reserves a free localhost port for a container.
+func (r *rt) allocPort(name string) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for p := PortMin; p <= PortMax; p++ {
+		if _, used := r.ports[p]; used {
+			continue
+		}
+		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
+		if err != nil {
+			continue // something else has it
+		}
+		ln.Close()
+		r.ports[p] = name
+		return p, nil
+	}
+	return 0, errors.New("no free app ports left")
+}
+
+func (r *rt) freePort(p int) {
+	r.mu.Lock()
+	delete(r.ports, p)
+	r.mu.Unlock()
+}
+
+// appSpec loads an app's spec from the project's applied resources.
+func (r *rt) appSpec(ctx context.Context, project, app string) (*manifest.App, error) {
+	_, res, err := r.p.DB.Load(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	rs, ok := res[change.KindApp+"/"+app]
+	if !ok {
+		return nil, errNotFound
+	}
+	var a manifest.App
+	if err := json.Unmarshal(rs.Spec, &a); err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// Kinds: the runtime converges app resources.
+func (*Module) Kinds() []string { return []string{change.KindApp} }
+
+// Reconcile makes running instances match the app spec and the project's
+// env and secrets: a changed env hash, instance count or memory cap
+// restarts the app with zero downtime; a deleted app is stopped (its images
+// and deploys are kept so an undo brings it back).
+func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, address string, spec json.RawMessage) error {
+	r, err := m.rt()
+	if err != nil {
+		return nil // not serving (spec build, CLI): nothing to converge
+	}
+	app := change.Name(address)
+	states, err := r.st.statesOf(ctx, project, app)
+	if err != nil {
+		return err
+	}
+	if spec == nil {
+		for _, s := range states {
+			if err := r.stopEnv(ctx, s); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	var a manifest.App
+	if err := json.Unmarshal(spec, &a); err != nil {
+		return err
+	}
+	var errs []error
+	for _, s := range states {
+		if err := r.converge(ctx, s.Project, s.App, s.Preview, &a); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// Checks reports the container runtime and app health.
+func (m *Module) Checks(ctx context.Context, p *platform.Platform) []platform.Check {
+	r, err := m.rt()
+	if err != nil {
+		return nil
+	}
+	return r.checks(ctx)
+}

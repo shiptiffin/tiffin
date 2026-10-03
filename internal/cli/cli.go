@@ -127,6 +127,7 @@ func (a *app) root() *cobra.Command {
 	root.AddCommand(a.versionCmd(), a.planCmd(), a.applyCmd(), a.undoCmd(), a.initCmd(),
 		a.serveCmd(), a.mcpCmd(), a.doctorCmd(), a.ownerCmd(),
 		a.upCmd(), a.downCmd(), a.loginCmd(), a.trustCmd(), a.selfUpdateCmd(), a.provisionCmd())
+	root.AddCommand(a.runtimeCmds()...) // deploy, logs, rollback, git-remote (internal/cli/deploy.go)
 	a.generate(root, api.New(api.Deps{}))
 	return root
 }

@@ -1,0 +1,15 @@
+{
+  "name": "hello-hono",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts"
+  },
+  "dependencies": {
+    "hono": "4.13.12"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "hello-next",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "bun --bun next start",
+    "sync-cache-handler": "bun build ../../packages/sdk/src/next/cache-handler.ts --target=node --format=esm --outfile=cache-handler.mjs --banner=\"// Generated from tiffin-sdk/next/cache-handler by \\`bun run sync-cache-handler\\`; do not edit. Once tiffin-sdk is on npm: export { default } from \\\"tiffin-sdk/next/cache-handler\\\";\""
+  },
+  "dependencies": {
+    "next": "16.3.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.0",
+    "@types/react": "19.3.0",
+    "typescript": "5.9.3"
+  }
+}

@@ -35,6 +35,18 @@
       "types": "./src/email.ts",
       "default": "./src/email.ts"
     },
+    "./next": {
+      "types": "./src/next/index.ts",
+      "default": "./src/next/index.ts"
+    },
+    "./next/cache-handler": {
+      "types": "./src/next/cache-handler.ts",
+      "default": "./src/next/cache-handler.ts"
+    },
+    "./next/use-cache": {
+      "types": "./src/next/use-cache.ts",
+      "default": "./src/next/use-cache.ts"
+    },
     "./queue": {
       "types": "./src/queue.ts",
       "default": "./src/queue.ts"
