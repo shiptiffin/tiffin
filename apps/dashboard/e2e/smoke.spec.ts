@@ -160,7 +160,7 @@ test("passkey → approve and reject agent requests → project, secrets, people
   await page.goto("/projects/hello");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("hello");
   await expect(page.getByRole("heading", { name: "Apps" })).toBeVisible();
-  await expect(page.getByText("Ready").first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "Services" })).toBeVisible();
 
   // Secrets are write-only.
   await page.getByRole("link", { name: "Secrets" }).first().click();
@@ -168,11 +168,11 @@ test("passkey → approve and reject agent requests → project, secrets, people
   await page.getByLabel("Name").fill("smoke_token");
   await expect(page.getByLabel("Name")).toHaveValue("SMOKE_TOKEN");
   await page.getByRole("textbox", { name: "Value" }).fill("s3cret");
-  await page.getByRole("button", { name: "Save secret" }).click();
+  await page.getByRole("button", { name: "Save SMOKE_TOKEN" }).click();
   await expect(page.getByText("SMOKE_TOKEN", { exact: true })).toBeVisible();
   await expect(page.getByText("s3cret")).toHaveCount(0);
   await page.getByRole("button", { name: "Delete SMOKE_TOKEN" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Delete secret" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete SMOKE_TOKEN" }).click();
   await expect(page.getByText("SMOKE_TOKEN", { exact: true })).toHaveCount(0);
 
   // People: invite with a role, get a one-time link.

@@ -1,0 +1,198 @@
+import { queryOptions } from "@tanstack/react-query";
+import type { Manifest } from "@/api/client";
+import { request } from "@/api/client";
+import type { components } from "@/api/schema";
+import thumbApi from "@/assets/illustrations/starter-api.webp";
+import thumbGuestbook from "@/assets/illustrations/starter-guestbook.webp";
+import thumbNext from "@/assets/illustrations/starter-next.webp";
+import thumbStatic from "@/assets/illustrations/starter-static.webp";
+
+/**
+ * Starters: the templates that ship inside the box (GET /v1/templates), and
+ * what the dashboard needs to start a project or an app from one without a
+ * terminal: a thumbnail, a manifest built from the starter's fragment, and
+ * the rules a project name has to follow.
+ */
+export type Starter = components["schemas"]["Starter"];
+export type StarterId = components["schemas"]["RuntimeTemplateBody"]["template"];
+
+export const startersQuery = queryOptions({
+  queryKey: ["templates"],
+  queryFn: async () => (await request<{ templates: Starter[] | null }>("GET", "/v1/templates")).templates ?? [],
+  staleTime: Infinity,
+  retry: false,
+});
+
+/** Thumbnails by starter id (the art's rim colours are decoration, not a project's enamel). */
+export const starterThumb: Record<string, string> = {
+  "static-site": thumbStatic,
+  "hono-postgres": thumbApi,
+  guestbook: thumbGuestbook,
+  "next-postgres": thumbNext,
+};
+
+/** The order people meet them in: simplest first, the demo third. */
+export const starterOrder = ["static-site", "hono-postgres", "guestbook", "next-postgres"];
+
+/** Plain names for what the box gives each starter. */
+export const serviceWords: Record<string, string> = {
+  postgres: "Postgres",
+  valkey: "Valkey",
+  analytics: "Analytics",
+  storage: "Storage",
+  email: "Email",
+  auth: "Sign-in",
+};
+
+export const frameworkNames: Record<string, string> = {
+  next: "Next.js",
+  hono: "Hono",
+  bun: "Bun",
+  static: "Static site",
+  node: "Node",
+};
+export const frameworkName = (f?: string) => (f ? (frameworkNames[f] ?? f) : "App");
+
+/** Short, honest lines for the picker (the API's descriptions are a sentence longer). */
+export const starterLine: Record<string, string> = {
+  "static-site": "HTML and CSS, served by the edge. No container.",
+  "hono-postgres": "A JSON API on Bun with a notes table in Postgres.",
+  guestbook: "A page, an API, Postgres, Valkey and analytics in one app.",
+  "next-postgres": "App Router on Bun, reading and writing Postgres.",
+};
+
+/** Hostnames the box keeps for itself. */
+const RESERVED = new Set(["dashboard", "s3", "www", "api", "t", "mail", "auth", "git"]);
+
+export type NameCheck = { ok: true } | { ok: false; why: string };
+
+/** A project (and its route) name: a lowercase slug the box can use as a hostname. */
+export function checkName(name: string, taken: { projects: string[]; routes: string[] }): NameCheck {
+  if (!name) return { ok: false, why: "Give it a name." };
+  if (!/^[a-z]/.test(name)) return { ok: false, why: "Start with a letter." };
+  if (/[^a-z0-9-]/.test(name)) return { ok: false, why: "Lowercase letters, digits and dashes only." };
+  if (name.length > 40) return { ok: false, why: "Keep it to 40 characters." };
+  if (name.endsWith("-")) return { ok: false, why: "End with a letter or a digit." };
+  if (taken.projects.includes(name)) return { ok: false, why: `There’s already a project called ${name}.` };
+  if (RESERVED.has(name)) return { ok: false, why: `The box keeps ${name}.… for itself. Pick another name.` };
+  if (taken.routes.includes(name)) return { ok: false, why: `An app already answers at ${name}.…` };
+  return { ok: true };
+}
+
+/** What people type, made into a slug as they type it: "My Shop!" → "my-shop". */
+export function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[\s_.]+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-{2,}/g, "-")
+    .replace(/^[-0-9]+/, "")
+    .slice(0, 40);
+}
+
+/** A first name to suggest for a starter, free on this box. */
+export function suggestName(starter: Starter | undefined, taken: { projects: string[]; routes: string[] }): string {
+  const base = starter ? ({ "static-site": "site", "hono-postgres": "notes", guestbook: "guestbook", "next-postgres": "web" }[starter.id] ?? starter.app) : "project";
+  const ok = (n: string) => checkName(n, taken).ok;
+  if (ok(base)) return base;
+  for (const extra of ["app", "box", "live", "one", "two"]) if (ok(`${base}-${extra}`)) return `${base}-${extra}`;
+  for (let i = 2; i < 50; i++) if (ok(`${base}-${i}`)) return `${base}-${i}`;
+  return "";
+}
+
+export type Source = { kind: "starter"; starter: Starter } | { kind: "empty" } | { kind: "git"; url: string; ref: string; path: string; framework: string; postgres: boolean };
+
+/** The app a source puts in the project (none for an empty project). */
+export function appFor(source: Source): { name: string; framework: string } | null {
+  if (source.kind === "starter") return { name: source.starter.app, framework: source.starter.framework };
+  if (source.kind === "git") return { name: "web", framework: source.framework };
+  return null;
+}
+
+/**
+ * The whole manifest for a new project: the starter's fragment, with its app
+ * answering at the project's own name (so guestbook lives at guestbook.<domain>,
+ * never on another project's hostname).
+ */
+export function newProjectManifest(project: string, source: Source): Manifest {
+  const m: Manifest = { project, version: 1 };
+  if (source.kind === "starter") {
+    const f = source.starter.fragment;
+    const apps: Record<string, Record<string, unknown>> = {};
+    for (const [name, spec] of Object.entries(f.apps)) {
+      apps[name] = { ...spec, routes: [project] };
+    }
+    m.apps = apps as unknown as Manifest["apps"];
+    if (f.services && Object.keys(f.services).length) m.services = structuredClone(f.services) as Manifest["services"];
+    if (f.env && Object.keys(f.env).length) m.env = { ...f.env };
+  } else if (source.kind === "git") {
+    m.apps = { web: { framework: source.framework, routes: [project] } } as unknown as Manifest["apps"];
+    if (source.postgres) m.services = { postgres: {} };
+  }
+  return m;
+}
+
+/** A git URL the box will accept: https, a host, a path. */
+export function checkGitUrl(url: string): NameCheck {
+  if (!url.trim()) return { ok: false, why: "Paste the repository’s https address." };
+  try {
+    const u = new URL(url.trim());
+    if (u.protocol !== "https:") return { ok: false, why: "Only https addresses: the box clones public repositories without credentials." };
+    if (u.username || u.password) return { ok: false, why: "Leave credentials out; the box only clones public repositories." };
+    if (u.pathname.split("/").filter(Boolean).length < 2) return { ok: false, why: "That looks like a host, not a repository (owner/name)." };
+    return { ok: true };
+  } catch {
+    return { ok: false, why: "That isn’t a web address." };
+  }
+}
+
+/** The repository's name, as a project name: https://github.com/acme/shop-web → shop-web. */
+export function nameFromGit(url: string): string {
+  try {
+    const parts = new URL(url.trim()).pathname.split("/").filter(Boolean);
+    return slugify((parts[1] ?? "").replace(/\.git$/, ""));
+  } catch {
+    return "";
+  }
+}
+
+type Deploy = components["schemas"]["RuntimeDeploy"];
+const appPath = (p: string, app: string) => `/v1/projects/${encodeURIComponent(p)}/apps/${encodeURIComponent(app)}`;
+
+/** Deploys a starter's source to an app that already exists with the starter's framework. */
+export const deployTemplate = (project: string, app: string, template: string) =>
+  request<Deploy>("POST", `${appPath(project, app)}/deploys/template`, { template });
+
+/** Deploys one commit of a public https repository to an app that already exists. */
+export const deployGit = (project: string, app: string, body: { url: string; ref?: string; path?: string }) =>
+  request<Deploy>("POST", `${appPath(project, app)}/deploys/git`, {
+    url: body.url.trim(),
+    ...(body.ref?.trim() ? { ref: body.ref.trim() } : {}),
+    ...(body.path?.trim() ? { path: body.path.trim().replace(/^\/+|\/+$/g, "") } : {}),
+  });
+
+/**
+ * An app added from a starter or a git URL through the plan tray has nothing
+ * deployed yet; this remembers (for this tab) what it should be built from,
+ * so its page can offer that deploy as the next step.
+ */
+export type NextDeploy = { template: string } | { git: { url: string; ref?: string; path?: string } };
+const NEXT_KEY = "tiffin.next-deploy";
+function nextAll(): Record<string, NextDeploy> {
+  try {
+    return JSON.parse(sessionStorage.getItem(NEXT_KEY) ?? "{}") as Record<string, NextDeploy>;
+  } catch {
+    return {};
+  }
+}
+export function rememberNextDeploy(project: string, app: string, d: NextDeploy | null) {
+  const all = nextAll();
+  if (d) all[`${project}/${app}`] = d;
+  else delete all[`${project}/${app}`];
+  try {
+    sessionStorage.setItem(NEXT_KEY, JSON.stringify(all));
+  } catch {
+    /* storage blocked: the app page just won't suggest it */
+  }
+}
+export const nextDeployFor = (project: string, app: string): NextDeploy | undefined => nextAll()[`${project}/${app}`];
