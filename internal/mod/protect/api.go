@@ -60,6 +60,7 @@ type EdgeState struct {
 type CrowdSecState struct {
 	Installed bool   `json:"installed"`
 	Running   bool   `json:"running"`
+	Detecting bool   `json:"detecting" doc:"Its parsers for the edge's access log are in place."`
 	Enforced  bool   `json:"enforced" doc:"The edge has a bouncer key and blocks banned IPs."`
 	Decisions int    `json:"decisions" doc:"Active bans."`
 	Detail    string `json:"detail"`
@@ -113,11 +114,15 @@ func (m *Module) status(ctx context.Context, p *platform.Platform) Status {
 		st.CrowdSec.Enforced = st.Effective.CrowdSec && st.Edge.Applied
 		n, err := m.decisionCount(ctx)
 		st.CrowdSec.Decisions = n
+		perr := cs.Pipeline()
+		st.CrowdSec.Detecting = st.CrowdSec.Running && perr == nil
 		switch {
 		case !st.CrowdSec.Running:
 			st.CrowdSec.Detail = "CrowdSec is not running; banned IPs from before stay blocked, new attacks are not detected. Try `sudo systemctl restart crowdsec`."
 		case err != nil:
 			st.CrowdSec.Detail = "running, but its decisions could not be read: " + err.Error()
+		case perr != nil:
+			st.CrowdSec.Detail = "running, but it cannot read the edge's log: " + perr.Error()
 		case !st.CrowdSec.Enforced:
 			st.CrowdSec.Detail = fmt.Sprintf("running with %d active ban(s), but the edge is not enforcing them (no bouncer key; run `tiffin provision`)", n)
 		default:

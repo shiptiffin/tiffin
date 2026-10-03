@@ -132,6 +132,7 @@ type fakeCS struct {
 
 func (f *fakeCS) Installed() bool                              { return true }
 func (f *fakeCS) Running(context.Context) bool                 { return true }
+func (f *fakeCS) Pipeline() error                              { return nil }
 func (f *fakeCS) Alerts(context.Context, int) ([]Alert, error) { return []Alert{}, nil }
 func (f *fakeCS) Decisions(context.Context) ([]Decision, error) {
 	f.mu.Lock()

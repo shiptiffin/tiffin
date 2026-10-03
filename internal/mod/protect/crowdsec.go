@@ -36,8 +36,30 @@ const (
 	crowdsecVersion = "1.8.1"
 )
 
-// Collections installed from the CrowdSec hub.
-var collections = []string{"crowdsecurity/caddy", "crowdsecurity/base-http-scenarios", "crowdsecurity/http-cve"}
+// Hub items installed from the CrowdSec hub: the base pipeline (linux:
+// raw/date/geoip parsers), Caddy's JSON access log, the generic HTTP and
+// CVE scenarios, and the private-range whitelist that keeps the owner of a
+// local box (whose traffic is all loopback) from ever being banned.
+var hubItems = map[string][]string{
+	"collections": {"crowdsecurity/linux", "crowdsecurity/caddy", "crowdsecurity/base-http-scenarios", "crowdsecurity/http-cve"},
+	"parsers":     {"crowdsecurity/whitelists"},
+}
+
+// retry runs fn up to three times (the hub is downloaded over the network).
+func retry(ctx context.Context, fn func() error) error {
+	var err error
+	for i := range 3 {
+		if err = fn(); err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(time.Duration(i+1) * 3 * time.Second):
+		}
+	}
+	return err
+}
 
 // crowdsecLocal overrides config.yaml: loopback LAPI on lapiAddr, no
 // central API (no signals sent, no community blocklist pulled).
@@ -150,22 +172,30 @@ func provisionCrowdSec(ctx context.Context, s *platform.System) error {
 	if err := s.Apt(ctx, "crowdsec="+crowdsecVersion); err != nil {
 		return err
 	}
-	out, err := s.Run(ctx, cscli, "collections", "list", "-o", "json")
-	if err != nil {
-		return err
-	}
-	var missing []string
-	for _, c := range collections {
-		if !strings.Contains(out, `"`+c+`"`) {
-			missing = append(missing, c)
-		}
-	}
-	if len(missing) > 0 {
-		s.Log("installing CrowdSec collections " + strings.Join(missing, ", "))
-		if _, err := s.Run(ctx, cscli, "hub", "update"); err != nil {
+	// Install what detection needs explicitly: the package's own service
+	// detection is best effort and skipped when the hub is slow to answer.
+	for _, kind := range []string{"collections", "parsers"} {
+		out, err := s.Run(ctx, cscli, kind, "list", "-o", "json")
+		if err != nil {
 			return err
 		}
-		if _, err := s.Run(ctx, cscli, append([]string{"collections", "install"}, missing...)...); err != nil {
+		var missing []string
+		for _, c := range hubItems[kind] {
+			if !strings.Contains(out, `"`+c+`"`) {
+				missing = append(missing, c)
+			}
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		s.Log("installing CrowdSec " + kind + " " + strings.Join(missing, ", "))
+		if err := retry(ctx, func() error {
+			if _, err := s.Run(ctx, cscli, "hub", "update"); err != nil {
+				return err
+			}
+			_, err := s.Run(ctx, cscli, append([]string{kind, "install"}, missing...)...)
+			return err
+		}); err != nil {
 			return err
 		}
 		changed = true
@@ -242,6 +272,7 @@ type Alert struct {
 
 type crowdsec interface {
 	Installed() bool
+	Pipeline() error // nil when the parsers detection needs are in place
 	Running(ctx context.Context) bool
 	Decisions(ctx context.Context) ([]Decision, error)
 	Alerts(ctx context.Context, limit int) ([]Alert, error)
@@ -255,6 +286,28 @@ var ErrNotInstalled = errors.New("CrowdSec is not installed on this machine")
 type cscliCrowdSec struct{}
 
 func (cscliCrowdSec) Installed() bool { _, err := os.Stat(cscli); return err == nil }
+
+// pipelineFiles are the hub files detection on the edge's log depends on.
+var pipelineFiles = []string{
+	"/etc/crowdsec/parsers/s00-raw/syslog-logs.yaml",
+	"/etc/crowdsec/parsers/s01-parse/caddy-logs.yaml",
+	"/etc/crowdsec/parsers/s02-enrich/http-logs.yaml",
+	"/etc/crowdsec/parsers/s02-enrich/whitelists.yaml",
+	"/etc/crowdsec/acquis.d/tiffin.yaml",
+}
+
+func (cscliCrowdSec) Pipeline() error {
+	var missing []string
+	for _, f := range pipelineFiles {
+		if _, err := os.Stat(f); err != nil {
+			missing = append(missing, filepath.Base(f))
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing %s; run `sudo tiffin provision`", strings.Join(missing, ", "))
+	}
+	return nil
+}
 
 func (cscliCrowdSec) Running(ctx context.Context) bool {
 	return exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", "crowdsec").Run() == nil

@@ -146,10 +146,27 @@ func TestProtect(t *testing.T) {
 		if r, _ := fetch("GET", hostURL("dashboard")+"/", nil, ""); r.StatusCode != 200 {
 			t.Errorf("%s: dashboard from the Mac: %d", when, r.StatusCode)
 		}
-		var st map[string]any
+		// Other modules' health is not this test's business; ours is.
+		var st struct {
+			Checks []struct {
+				Name   string
+				OK     bool
+				Detail string
+			}
+		}
 		runJSON(&st, "status")
-		if st["ok"] != true {
-			t.Errorf("%s: status not ok: %v", when, st)
+		seen := 0
+		for _, c := range st.Checks {
+			switch c.Name {
+			case "protection", "crowdsec", "firewall":
+				seen++
+				if !c.OK {
+					t.Errorf("%s: status check %s: %s", when, c.Name, c.Detail)
+				}
+			}
+		}
+		if seen != 3 {
+			t.Errorf("%s: status lacks the protection checks: %+v", when, st.Checks)
 		}
 	}
 
@@ -157,14 +174,14 @@ func TestProtect(t *testing.T) {
 	p := time.Now()
 	var st struct {
 		Edge     struct{ Applied bool }
-		CrowdSec struct{ Installed, Running, Enforced bool }
+		CrowdSec struct{ Installed, Running, Detecting, Enforced bool }
 		Firewall struct {
 			Active    bool
 			OpenPorts []int
 		}
 	}
 	runJSON(&st, "protect", "status")
-	if !st.Edge.Applied || !st.CrowdSec.Running || !st.CrowdSec.Enforced || !st.Firewall.Active {
+	if !st.Edge.Applied || !st.CrowdSec.Running || !st.CrowdSec.Detecting || !st.CrowdSec.Enforced || !st.Firewall.Active {
 		t.Fatalf("protection not fully up: %+v", st)
 	}
 	legit("start")

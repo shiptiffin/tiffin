@@ -338,7 +338,7 @@ func (m *Module) Checks(ctx context.Context, p *platform.Platform) []platform.Ch
 	st := m.status(ctx, p)
 	out := []platform.Check{{Name: "protection", OK: st.Edge.Applied || p.Edge == nil, Detail: st.Summary}}
 	if st.CrowdSec.Installed {
-		out = append(out, platform.Check{Name: "crowdsec", OK: st.CrowdSec.Running && st.CrowdSec.Enforced, Detail: st.CrowdSec.Detail})
+		out = append(out, platform.Check{Name: "crowdsec", OK: st.CrowdSec.Detecting && st.CrowdSec.Enforced, Detail: st.CrowdSec.Detail})
 	}
 	if st.Firewall.Installed {
 		out = append(out, platform.Check{Name: "firewall", OK: st.Firewall.Active || st.Firewall.Off, Detail: st.Firewall.Detail})
