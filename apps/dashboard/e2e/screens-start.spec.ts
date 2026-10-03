@@ -36,7 +36,12 @@ const pages: Shot[] = [
     name: "new-first",
     url: "/new",
     before: (p) => p.route("**/v1/projects", (r) => r.fulfill({ json: [] })),
-    wait: (p) => p.getByText(/will be created/).waitFor(),
+    wait: (p) => p.getByText("Your tiffin is packed. Nothing in it yet.").waitFor(),
+    // The box isn't really empty: pick a starter whose name is free.
+    act: async (p) => {
+      await p.getByRole("radio", { name: /^Static site/ }).click();
+      await p.getByText(/Three things will be created|Two things will be created/).waitFor();
+    },
   },
   {
     name: "new-git",

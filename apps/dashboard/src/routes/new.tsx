@@ -157,7 +157,8 @@ export function NewProjectPage() {
 
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
-    if (settled && plan.data?.project === name && !create.isPending && phase === "compose") create.mutate();
+    const ops = plan.data?.ops ?? [];
+    if (settled && plan.data?.project === name && ops.length > 0 && ops.every((o) => o.action === "create") && !create.isPending && phase === "compose") create.mutate();
   };
 
   const open = phase !== "compose";
@@ -165,6 +166,7 @@ export function NewProjectPage() {
 
   const header = (
     <header className="min-w-0">
+      {(firstRun || phase !== "compose") && <Hero open={open} small className="mb-1 -ml-3 lg:hidden" />}
           {firstRun && phase === "compose" ? <p className="label mb-2">{new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long" }).format(new Date())}</p> : crumbs}
           <h1 className="sentence mt-2 text-ink max-sm:text-[1.625rem] max-sm:leading-8" aria-live="polite">
             {phase === "compose" ? (firstRun ? "Your tiffin is packed. Nothing in it yet." : "Start a project.") : phase === "live" ? `${L?.project} is live.` : phase === "failed" ? `${L?.project} didn’t start.` : `Packing ${L?.project}…`}
@@ -295,9 +297,9 @@ export function NewProjectPage() {
 // ───────────────────────── pieces ─────────────────────────
 
 /** The carrier, closed; it opens (cross-fade, the same registration) once a project starts. */
-function Hero({ open, className }: { open: boolean; className?: string }) {
+function Hero({ open, small, className }: { open: boolean; small?: boolean; className?: string }) {
   return (
-    <div className={cn("relative size-[220px] shrink-0 -my-6 lg:size-[248px]", className)} aria-hidden>
+    <div className={cn("relative shrink-0", small ? "size-[132px]" : "-my-6 size-[248px]", className)} aria-hidden>
       <img src={heroClosed} alt="" width={248} height={248} className={cn("absolute inset-0 size-full transition-opacity duration-[600ms] ease-[var(--ease-out)]", open && "opacity-0")} />
       <img src={heroOpen} alt="" width={248} height={248} className={cn("absolute inset-0 size-full opacity-0 transition-opacity duration-[600ms] ease-[var(--ease-out)]", open && "opacity-100")} />
     </div>
@@ -460,6 +462,7 @@ function PlanPanel({
   source: Source | null;
 }) {
   const ops = plan?.ops ?? [];
+  const clash = !!plan && (ops.length === 0 || ops.some((o) => o.action !== "create"));
   const appMB = ops.reduce((t, o) => {
     const a = (o.after ?? {}) as { framework?: string; instances?: number; memoryMB?: number };
     return splitAddress(o.address).kind === "app" && o.action === "create" && a.framework !== "static" ? t + (a.instances ?? 1) * (a.memoryMB ?? 512) : t;
@@ -479,7 +482,9 @@ function PlanPanel({
         <p className="mt-2 text-[0.9375rem] leading-[1.375rem] font-[550] tracking-[-0.01em] text-ink">
           {blocked
             ? "Pick a starter and a free name to see the plan."
-            : planError
+            : clash
+              ? `There’s already a project called ${name}. Pick another name.`
+              : planError
               ? "The box can’t plan this yet."
               : !plan
               ? "Planning…"
@@ -530,7 +535,7 @@ function PlanPanel({
       </div>
       <div className="border-t border-rule bg-paper-raised px-5 py-4">
         {!!createError && <ProblemNote error={createError} className="mb-3" />}
-        <Button type="submit" variant="primary" size="lg" className="w-full" disabled={!ready || creating || blocked}>
+        <Button type="submit" variant="primary" size="lg" className="w-full" disabled={!ready || creating || blocked || clash}>
           <MorphLabel text={label} />
           <span className="kbd border-current text-current opacity-55" aria-hidden>
             ↵

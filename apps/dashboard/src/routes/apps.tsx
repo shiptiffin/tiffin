@@ -981,7 +981,7 @@ export function AppLogsPage({ project, app }: { project: string; app: string }) 
               <span className="truncate text-ink-4 max-sm:hidden" title={l.instance}>
                 #{l.instance.split(".").pop()}
               </span>
-              <span className={cn("break-all whitespace-pre-wrap", l.level === "error" ? "text-danger" : l.level === "warn" ? "text-warn-ink" : "text-ink-2")}>
+              <span className={cn("whitespace-pre-wrap [overflow-wrap:anywhere]", l.level === "error" ? "text-danger" : l.level === "warn" ? "text-warn-ink" : "text-ink-2")}>
                 <Highlight text={l.text} needle={needle} />
               </span>
             </li>
