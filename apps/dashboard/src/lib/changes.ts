@@ -112,7 +112,8 @@ export function runs(changes: Change[]): Run[] {
 export function intentWords(c: Pick<Change, "intent" | "plan">): string {
   const raw = (c.intent || c.plan.summary || "").trim();
   const undo = raw.match(/^undo chg_[0-9A-Z]+:\s*(.*)$/i);
-  if (undo) return `Undid “${undo[1].replace(/[.]$/, "")}”.`;
+  // Quote only the undone entry's first sentence: "Undid “Make the uploads bucket public”."
+  if (undo) return `Undid “${undo[1].trim().replace(/^(.{12,}?)[.!?]\s+(?=[A-Z0-9“"]).*$/s, "$1").replace(/[.]$/, "")}”.`;
   if (!raw) return raw;
   return raw.charAt(0).toUpperCase() + raw.slice(1) + (/[.!?”]$/.test(raw) ? "" : ".");
 }

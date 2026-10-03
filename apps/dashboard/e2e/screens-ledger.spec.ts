@@ -119,8 +119,8 @@ for (const theme of ["light", "dark"] as const) {
         await page.goto(`/approvals/${pending.id}`);
         await page.getByRole("heading", { level: 1 }).waitFor();
         await shot(page, `approval-${tag}`);
-        const project = await page.getByLabel(/^Type .* to arm$/).getAttribute("placeholder");
-        await page.getByLabel(/^Type .* to arm$/).fill(project ?? "");
+        const guard = await page.getByLabel(/^Type .* to arm$/).getAttribute("data-guard");
+        await page.getByLabel(/^Type .* to arm$/).fill(guard ?? "");
         await expect(page.getByRole("button", { name: "Sign with passkey" })).toBeEnabled();
         await shot(page, `approval-armed-${tag}`);
         await page.getByRole("button", { name: "Decline…" }).click();

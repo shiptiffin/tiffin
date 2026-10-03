@@ -43,6 +43,7 @@ import { duration } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { clock } from "@/lib/time";
 import "./ledger-print.css";
+import { actorShown } from "@/lib/who";
 
 export function ChangePage({ id }: { id: string }) {
   const { data: c, isPending, error } = useQuery(q.change(id));
@@ -94,7 +95,7 @@ export function ChangePage({ id }: { id: string }) {
     <Page>
       <article data-receipt aria-label="Ledger entry" className="flex flex-col">
         <PrintHead />
-        <Leaf className="print:hidden">
+        <div className="print:hidden">
           <LedgerCrumbs
             items={[
               { label: "Ledger", to: "/ledger" },
@@ -111,7 +112,7 @@ export function ChangePage({ id }: { id: string }) {
               { label: `Entry · version ${c.version}` },
             ]}
           />
-        </Leaf>
+        </div>
 
         <Leaf className="mt-7" time={clock(c.at)} note="applied">
           <p className="flex flex-wrap items-baseline gap-x-2.5 text-[0.8125rem] text-ink-2">
@@ -120,7 +121,7 @@ export function ChangePage({ id }: { id: string }) {
             </span>
             <span>{when(c.at)}</span>
           </p>
-          <ActorLine className="mt-4" kind={c.actor.kind} name={c.actor.name || c.actor.id} session={c.actor.session} model={c.actor.model} verb="changed" project={c.project} />
+          <ActorLine className="mt-4" kind={c.actor.kind} name={actorShown(c.actor, names.data)} session={c.actor.session} model={c.actor.model} verb="changed" project={c.project} />
           <h1
             className={cn(
               "intent mt-1.5",

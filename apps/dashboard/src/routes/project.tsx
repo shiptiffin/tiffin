@@ -36,6 +36,7 @@ import { useMe } from "@/lib/me";
 import { stage, stagedFor, useStaged, type StagedEdit } from "@/lib/staged";
 import { frameworkName } from "@/lib/starters";
 import { clock, dayLabel, relative } from "@/lib/time";
+import { actorShown } from "@/lib/who";
 
 
 const MB = 1048576;
@@ -660,6 +661,7 @@ function SecretsLink({ project }: { project: string }) {
 }
 
 function Lately({ project }: { project: string }) {
+  const names = useQuery({ ...q.tokenNames, retry: false });
   const changes = useQuery(q.changes(project));
   const list = (changes.data ?? []).slice(0, 5);
   return (
@@ -682,7 +684,7 @@ function Lately({ project }: { project: string }) {
               <SignedEntry
                 key={c.id}
                 time={day === "Today" ? clock(c.at) : day.split(",")[0].slice(0, 3)}
-                actor={{ kind: c.actor.kind, name: c.actor.name || c.actor.id, session: c.actor.session }}
+                actor={{ kind: c.actor.kind, name: actorShown(c.actor, names.data), session: c.actor.session }}
                 intent={intentWords(c)}
                 to="/changes/$id"
                 params={{ id: c.id }}

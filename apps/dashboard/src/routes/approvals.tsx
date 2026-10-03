@@ -2,7 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Check, Fingerprint, Link2, Printer } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { ApiError, api, notOnBox, type Approval, type Token } from "@/api/client";
+import { ApiError, api, notOnBox, type Approval } from "@/api/client";
+import type { Names } from "@/lib/who";
 import { q } from "@/api/queries";
 import emptyApprovals from "@/assets/illustrations/empty-approvals.webp";
 import { useTitle } from "@/components/favicon";
@@ -32,7 +33,7 @@ import { SignedEntry } from "@/components/signed-entry";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { actorWords } from "@/lib/actors";
-import { asTier, intentWords, opCounts, splitRequester as split, tierRank } from "@/lib/changes";
+import { splitAddress, asTier, intentWords, opCounts, splitRequester as split, tierRank } from "@/lib/changes";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
 import { countWords, duration, words } from "@/lib/format";
@@ -196,7 +197,7 @@ export function ApprovalsPage() {
 
 const statusNote: Partial<Record<Approval["status"], string>> = { approved: "signed", used: "signed" };
 
-function DecidedRow({ a, names }: { a: Approval; names?: Map<string, Token> }) {
+function DecidedRow({ a, names }: { a: Approval; names?: Names }) {
   const r = split(a.requester);
   const by = tokenWho(a.decidedBy, names);
   const at = a.decidedAt ?? a.expiresAt;
@@ -278,8 +279,10 @@ export function ApprovalPage({ id }: { id: string }) {
   const pending = ap.status === "pending" && !expired;
   const signed = ap.status === "approved" || ap.status === "used";
   const serious = tier === "irreversible";
-  const armed = !serious || typed.trim() === ap.project;
   const ops = (ap.plan.ops ?? []).slice().sort((x, y) => (tierRank[y.risk] ?? 4) - (tierRank[x.risk] ?? 4));
+  // The guard word is the thing that can't come back ("analytics", "imports"), not the project around it.
+  const guard = splitAddress(ops.find((o) => asTier(o.risk) === "irreversible")?.address ?? "").name || ap.project;
+  const armed = !serious || typed.trim() === guard;
   const outbound = ops.filter((o) => asTier(o.risk) === "outbound");
   const intent = splitIntent(intentWords({ intent: ap.intent, plan: ap.plan }));
   const signer = tokenWho(ap.decidedBy, names.data);
@@ -354,9 +357,9 @@ export function ApprovalPage({ id }: { id: string }) {
           <span>Approval</span>
           <span className="ml-auto">Printed {stamp(new Date(now).toISOString())}</span>
         </div>
-        <Leaf className="print:hidden">
+        <div className="print:hidden">
           <LedgerCrumbs items={[{ label: "Ledger", to: "/ledger" }, { label: "Approvals", to: "/approvals" }, { label: pending ? "Waiting for you" : "Request" }]} />
-        </Leaf>
+        </div>
 
         <Leaf className="mt-7" time={clock(ap.createdAt)} note="asked">
           <p className="flex flex-wrap items-baseline gap-x-2.5 text-[0.8125rem] text-ink-2">
@@ -402,7 +405,7 @@ export function ApprovalPage({ id }: { id: string }) {
         </Leaf>
 
         {pending && (
-          <Leaf time={serious && armed && armedAt ? clock(armedAt) : undefined} note={serious && armed ? "armed" : undefined} className="print:hidden">
+          <Leaf time={serious && armed && armedAt && !declining ? clock(armedAt) : undefined} note={declining ? "declining" : serious && armed ? "armed" : undefined} className="print:hidden">
             <section aria-label="Your decision" className="border-t border-rule pt-5">
               {step.k === "error" && (
                 <p role="alert" className="mb-3 border-l-2 border-danger py-0.5 pl-3 text-[0.875rem] text-ink">
@@ -412,7 +415,7 @@ export function ApprovalPage({ id }: { id: string }) {
               <div
                 className={cn(
                   "rounded-[12px] border bg-paper-raised px-4 py-4 shadow-[var(--top-light)] transition-[border-color,box-shadow] duration-[var(--dur-state)] ease-[var(--ease-out)] sm:px-[18px]",
-                  serious && armed ? "border-danger shadow-[0_0_0_3px_var(--danger-wash)]" : "border-rule-2",
+                  serious && armed && !declining ? "border-danger shadow-[0_0_0_3px_var(--danger-wash)]" : "border-rule-2",
                 )}
               >
                 {declining ? (
@@ -444,7 +447,7 @@ export function ApprovalPage({ id }: { id: string }) {
                     {serious ? (
                       <div className="flex items-center gap-3 text-[0.84375rem] text-ink-2">
                         <span>
-                          Type <span className="ident text-ink">{ap.project}</span> to lift the guard.
+                          Type <span className="ident text-ink">{guard}</span> to lift the guard.
                         </span>
                         <span className={cn("label ml-auto flex items-center gap-1.5", armed && "!text-danger")} aria-live="polite">
                           {armed && <span aria-hidden className="size-1.5 rounded-full bg-danger" />}
@@ -463,7 +466,7 @@ export function ApprovalPage({ id }: { id: string }) {
                           value={typed}
                           onChange={(e) => {
                             setTyped(e.target.value);
-                            setArmedAt(e.target.value.trim() === ap.project ? new Date().toISOString() : null);
+                            setArmedAt(e.target.value.trim() === guard ? new Date().toISOString() : null);
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Escape") {
@@ -472,10 +475,10 @@ export function ApprovalPage({ id }: { id: string }) {
                             }
                             if (e.key === "Enter" && armed) void approve();
                           }}
-                          placeholder={ap.project}
+                          data-guard={guard}
                           autoComplete="off"
                           spellCheck={false}
-                          aria-label={`Type ${ap.project} to arm`}
+                          aria-label={`Type ${guard} to arm`}
                         />
                       )}
                       <Button
@@ -543,7 +546,7 @@ export function ApprovalPage({ id }: { id: string }) {
                 </p>
               ) : (
                 <p className="text-[0.875rem] leading-[1.3125rem] text-ink">
-                  {agent} can now apply this exact plan once, with approval <span className="ident">{ap.id}</span>.
+                  {agent} can now apply this exact plan once.
                   <span className="block text-[0.84375rem] text-ink-2">It hasn’t yet; this page updates when it does. If the project moves first, the plan won’t match and nothing happens.</span>
                 </p>
               )}

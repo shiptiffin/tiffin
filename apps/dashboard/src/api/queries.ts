@@ -1,5 +1,6 @@
 import { MutationCache, QueryCache, QueryClient, queryOptions } from "@tanstack/react-query";
 import { ApiError, api } from "./client";
+import { whoMap } from "@/lib/who";
 
 /** Any 401 anywhere (except the login exchange itself) sends you to /login with a kind word. */
 function on401(e: unknown) {
@@ -33,7 +34,10 @@ export const q = {
   /** Every token including revoked ones, to put names to token IDs. */
   tokenNames: queryOptions({
     queryKey: ["tokens", "names"],
-    queryFn: async () => new Map((await api.tokens(true)).map((t) => [t.id, t] as const)),
+    queryFn: async () => {
+      const [tokens, people] = await Promise.all([api.tokens(true), api.people().catch(() => null)]);
+      return whoMap(tokens, people ?? []);
+    },
     staleTime: 60_000,
   }),
   project: (name: string) => queryOptions({ queryKey: ["project", name], queryFn: () => api.project(name), refetchInterval: 5_000 }),

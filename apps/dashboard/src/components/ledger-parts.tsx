@@ -4,7 +4,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
-import type { Approval, Op, Tier, Token } from "@/api/client";
+import type { Approval, Op, Tier } from "@/api/client";
+import type { Names } from "@/lib/who";
 import { q } from "@/api/queries";
 import { cn } from "@/lib/cn";
 import { actorName } from "@/lib/actors";
@@ -43,13 +44,10 @@ export function splitIntent(raw: string): { head: string; rest?: string } {
   return { head: cap(m[1]), rest: stop(m[2]) };
 }
 
-/** "Owner", "Bilal", "Claude Code": who a token ID belongs to. */
-export function tokenWho(id: string | undefined, names: Map<string, Token> | undefined): string {
+/** "Bilal", "Claude Code": who a token ID belongs to (the person behind an owner or session token). */
+export function tokenWho(id: string | undefined, names: Names | undefined): string {
   if (!id) return "someone";
-  const t = names?.get(id);
-  if (!t) return "someone";
-  if (t.name === "dashboard session" && t.sponsor) return tokenWho(t.sponsor, names);
-  return actorName({ kind: t.kind, name: t.name }).name;
+  return names?.get(id)?.who ?? "someone";
 }
 
 /** The approval a change spent, if any (it was signed with a passkey). Quiet when the box has no approvals. */

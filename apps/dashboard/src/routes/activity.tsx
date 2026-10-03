@@ -23,6 +23,7 @@ import { countWords, words } from "@/lib/format";
 import { mcpCommand } from "@/lib/mcp";
 import { clock, dayKey, dayLabel, relative } from "@/lib/time";
 import { useWaitingWorkflowApprovals } from "@/lib/wf";
+import { actorShown } from "@/lib/who";
 
 export type ActivitySearch = { project?: string; risk?: Tier; who?: "people" | "agents" };
 
@@ -501,7 +502,7 @@ function Entry({
     >
       <SignedEntry
         time={clock(c.at)}
-        actor={{ kind: c.actor.kind, name: c.actor.name || c.actor.id, session: c.actor.session, model: c.actor.model || undefined }}
+        actor={{ kind: c.actor.kind, name: actorShown(c.actor, names), session: c.actor.session, model: c.actor.model || undefined }}
         intent={splitIntent(intentWords(c)).head}
         to="/changes/$id"
         params={{ id: c.id }}
