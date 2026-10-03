@@ -272,11 +272,11 @@ type Setup struct {
 
 // RegisterAPI adds the analytics operations.
 func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
-	huma.Register(a, api.Op("analytics-overview", http.MethodGet, "/v1/analytics/overview", "analytics overview", api.RiskRead,
+	huma.Register(a, api.Untrusted(api.Op("analytics-overview", http.MethodGet, "/v1/analytics/overview", "analytics overview", api.RiskRead,
 		"Show web analytics",
 		"Visitors, pageviews, sessions, bounce rate, visit duration and custom events for a project or one app over a period, "+
 			"with the previous period for comparison, a timeseries and top pages, entry pages, sources, countries, browsers, OS, devices and UTM tags. "+
-			"Bots are excluded. Cookieless: visitors are unique per day."+untrusted, "analytics"),
+			"Bots are excluded. Cookieless: visitors are unique per day."+untrusted, "analytics")),
 		api.Wrap(func(ctx context.Context, in *rangeQuery) (*struct{ Body *Overview }, error) {
 			if err := m.ready(ctx, in.Project); err != nil {
 				return nil, err
@@ -291,9 +291,9 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 			return &struct{ Body *Overview }{o}, nil
 		}))
 
-	huma.Register(a, api.Op("analytics-realtime", http.MethodGet, "/v1/analytics/realtime", "analytics realtime", api.RiskRead,
+	huma.Register(a, api.Untrusted(api.Op("analytics-realtime", http.MethodGet, "/v1/analytics/realtime", "analytics realtime", api.RiskRead,
 		"Show who is on the site now",
-		"Visitors in the last 5 and 30 minutes, pageviews per minute and the top pages, sources and countries right now."+untrusted, "analytics"),
+		"Visitors in the last 5 and 30 minutes, pageviews per minute and the top pages, sources and countries right now."+untrusted, "analytics")),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `query:"project" required:"true" doc:"Project"`
 			App     string `query:"app" doc:"One app (default: every app)"`
@@ -307,9 +307,9 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 			return &struct{ Body RealtimeView }{m.rt.View(in.Project, in.App, time.Now())}, nil
 		}))
 
-	huma.Register(a, api.Op("analytics-events", http.MethodGet, "/v1/analytics/events", "analytics events", api.RiskRead,
+	huma.Register(a, api.Untrusted(api.Op("analytics-events", http.MethodGet, "/v1/analytics/events", "analytics events", api.RiskRead,
 		"List custom events",
-		"Custom events (track() calls, outbound clicks, downloads) with counts, unique visitors and top property values."+untrusted, "analytics"),
+		"Custom events (track() calls, outbound clicks, downloads) with counts, unique visitors and top property values."+untrusted, "analytics")),
 		api.Wrap(func(ctx context.Context, in *rangeQuery) (*struct{ Body EventsView }, error) {
 			if err := m.ready(ctx, in.Project); err != nil {
 				return nil, err

@@ -192,10 +192,10 @@ var slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
 
 // RegisterAPI adds the observe operations.
 func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
-	huma.Register(a, api.Op("logs-query", http.MethodPost, "/v1/observe/logs/query", "logs query", api.RiskRead,
+	huma.Register(a, api.Untrusted(api.Op("logs-query", http.MethodPost, "/v1/observe/logs/query", "logs query", api.RiskRead,
 		"Search logs",
 		"Searches a project's logs with LogsQL: its apps' output, its edge requests (source:edge), errors its apps reported (source:errors) and OTLP logs. "+
-			"Leave project empty for the box's own logs (box admins). Newest first."+untrusted, "observe"),
+			"Leave project empty for the box's own logs (box admins). Newest first."+untrusted, "observe")),
 		api.Wrap(func(ctx context.Context, in *struct{ Body logsQueryBody }) (*struct{ Body LogsResult }, error) {
 			if err := m.ready(); err != nil {
 				return nil, err
@@ -243,11 +243,11 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 			return &struct{ Body LogsResult }{out}, nil
 		}))
 
-	huma.Register(a, api.Op("metrics-query", http.MethodPost, "/v1/observe/metrics/query", "metrics query", api.RiskRead,
+	huma.Register(a, api.Untrusted(api.Op("metrics-query", http.MethodPost, "/v1/observe/metrics/query", "metrics query", api.RiskRead,
 		"Query metrics",
 		"Runs PromQL against the box's metrics store. Instant query by default; pass since or start for a range. "+
 			"Non-admin tokens must pass project, and every series is then restricted to it. "+
-			"For common questions prefer observe_apps (per-app traffic, errors, latency) and observe_overview (box health).", "observe"),
+			"For common questions prefer observe_apps (per-app traffic, errors, latency) and observe_overview (box health).", "observe")),
 		api.Wrap(func(ctx context.Context, in *struct{ Body metricsQueryBody }) (*struct{ Body MetricsResult }, error) {
 			if err := m.ready(); err != nil {
 				return nil, err
@@ -362,9 +362,9 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 			return &struct{ Body []AppMetrics }{out}, nil
 		}))
 
-	huma.Register(a, api.Op("issues-list", http.MethodGet, "/v1/observe/issues", "issues list", api.RiskRead,
+	huma.Register(a, api.Untrusted(api.Op("issues-list", http.MethodGet, "/v1/observe/issues", "issues list", api.RiskRead,
 		"List error issues",
-		"Errors your apps reported (Sentry SDKs or SENTRY_DSN), grouped into issues by fingerprint, most recently seen first."+untrusted, "observe"),
+		"Errors your apps reported (Sentry SDKs or SENTRY_DSN), grouped into issues by fingerprint, most recently seen first."+untrusted, "observe")),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `query:"project" doc:"Only this project"`
 			App     string `query:"app" doc:"Only this app"`
@@ -394,7 +394,7 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 	g := api.Op("issue-get", http.MethodGet, "/v1/observe/issues/{id}", "issues get", api.RiskRead,
 		"Get an error issue", "One issue with its latest events: exception chain, stack frames, tags, release and URL."+untrusted, "observe")
 	g.Errors = append(g.Errors, 404)
-	huma.Register(a, g, api.Wrap(func(ctx context.Context, in *issuePath) (*struct{ Body *IssueDetail }, error) {
+	huma.Register(a, api.Untrusted(g), api.Wrap(func(ctx context.Context, in *issuePath) (*struct{ Body *IssueDetail }, error) {
 		if err := m.ready(); err != nil {
 			return nil, err
 		}
