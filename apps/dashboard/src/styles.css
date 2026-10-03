@@ -1,0 +1,364 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Fonts. All self-hosted (the box serves the dashboard under default-src
+   'self'). Geist for the interface, Fraunces for headings and the warm
+   moments, Commit Mono for IDs, hashes and code. All three are OFL.
+--------------------------------------------------------------------------- */
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../node_modules/@fontsource-variable/geist/files/geist-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Fraunces";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../node_modules/@fontsource-variable/fraunces/files/fraunces-latin-full-normal.woff2") format("woff2-variations");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Fraunces";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../node_modules/@fontsource-variable/fraunces/files/fraunces-latin-full-italic.woff2") format("woff2-variations");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Commit Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("../node_modules/@fontsource/commit-mono/files/commit-mono-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Commit Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500 700;
+  src: url("../node_modules/@fontsource/commit-mono/files/commit-mono-latin-500-normal.woff2") format("woff2");
+}
+
+/* ---------------------------------------------------------------------------
+   Tokens. OKLCH, warm grays at hue ~70 (yellow-brown, never blue).
+   Light is the base; dark is authored separately below.
+   70 / 30 / 10: paper and ink, then the gray steps, then brass.
+   Risk colours mean risk and nothing else.
+--------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+  --paper: oklch(0.982 0.005 84);
+  --paper-sunk: oklch(0.962 0.007 80);
+  --raised: oklch(0.995 0.003 85);
+  --hover: oklch(0.945 0.008 80);
+  --press: oklch(0.925 0.009 78);
+  --rule: oklch(0.892 0.009 78);
+  --rule-strong: oklch(0.82 0.012 76);
+  --ink: oklch(0.235 0.012 62);
+  --ink-2: oklch(0.43 0.014 66);
+  --ink-3: oklch(0.575 0.014 70);
+  --ink-4: oklch(0.7 0.012 72);
+  --brass: oklch(0.6 0.105 78);
+  --brass-ink: oklch(0.47 0.09 74);
+  --brass-wash: oklch(0.6 0.105 78 / 0.12);
+  --on-ink: oklch(0.982 0.005 84);
+
+  --rev: oklch(0.53 0.085 158);
+  --rev-wash: oklch(0.53 0.085 158 / 0.1);
+  --out: oklch(0.6 0.155 52);
+  --out-wash: oklch(0.6 0.155 52 / 0.11);
+  --irr: oklch(0.545 0.195 27);
+  --irr-wash: oklch(0.545 0.195 27 / 0.09);
+  --irr-rule: oklch(0.545 0.195 27 / 0.35);
+
+  --shadow-pop: 0 1px 0 oklch(1 0 0 / 0.6) inset, 0 12px 32px -12px oklch(0.3 0.03 60 / 0.22), 0 2px 6px -2px oklch(0.3 0.03 60 / 0.12);
+  --grain-opacity: 0.035;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: oklch(0.172 0.007 68);
+  --paper-sunk: oklch(0.148 0.006 66);
+  --raised: oklch(0.205 0.008 68);
+  --hover: oklch(0.225 0.009 68);
+  --press: oklch(0.25 0.01 68);
+  --rule: oklch(0.265 0.009 68);
+  --rule-strong: oklch(0.34 0.011 70);
+  --ink: oklch(0.935 0.01 82);
+  --ink-2: oklch(0.775 0.014 78);
+  --ink-3: oklch(0.6 0.014 74);
+  --ink-4: oklch(0.45 0.012 72);
+  --brass: oklch(0.8 0.1 82);
+  --brass-ink: oklch(0.84 0.09 84);
+  --brass-wash: oklch(0.8 0.1 82 / 0.1);
+  --on-ink: oklch(0.172 0.007 68);
+
+  --rev: oklch(0.77 0.075 158);
+  --rev-wash: oklch(0.77 0.075 158 / 0.09);
+  --out: oklch(0.79 0.135 62);
+  --out-wash: oklch(0.79 0.135 62 / 0.1);
+  --irr: oklch(0.7 0.17 25);
+  --irr-wash: oklch(0.7 0.17 25 / 0.1);
+  --irr-rule: oklch(0.7 0.17 25 / 0.4);
+
+  --shadow-pop: 0 1px 0 oklch(1 0 0 / 0.05) inset, 0 16px 40px -12px oklch(0 0 0 / 0.6), 0 2px 8px -2px oklch(0 0 0 / 0.4);
+  --grain-opacity: 0.05;
+}
+
+/* No-JS fallback: follow the system. theme.js normally sets data-theme. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --paper: oklch(0.172 0.007 68);
+    --paper-sunk: oklch(0.148 0.006 66);
+    --raised: oklch(0.205 0.008 68);
+    --hover: oklch(0.225 0.009 68);
+    --rule: oklch(0.265 0.009 68);
+    --ink: oklch(0.935 0.01 82);
+    --ink-2: oklch(0.775 0.014 78);
+    --ink-3: oklch(0.6 0.014 74);
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-sunk: var(--paper-sunk);
+  --color-raised: var(--raised);
+  --color-hover: var(--hover);
+  --color-press: var(--press);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --color-brass: var(--brass);
+  --color-brass-ink: var(--brass-ink);
+  --color-brass-wash: var(--brass-wash);
+  --color-on-ink: var(--on-ink);
+  --color-rev: var(--rev);
+  --color-rev-wash: var(--rev-wash);
+  --color-out: var(--out);
+  --color-out-wash: var(--out-wash);
+  --color-irr: var(--irr);
+  --color-irr-wash: var(--irr-wash);
+  --color-irr-rule: var(--irr-rule);
+
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font-mono: "Commit Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* type scale: 12 / 13 / 14 / 15 / 17 / 22 / 30 / 40 */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.375rem;
+  --text-md: 0.9375rem;
+  --text-md--line-height: 1.5rem;
+  --text-lg: 1.0625rem;
+  --text-lg--line-height: 1.625rem;
+  --text-xl: 1.375rem;
+  --text-xl--line-height: 1.875rem;
+  --text-2xl: 1.875rem;
+  --text-2xl--line-height: 2.25rem;
+  --text-3xl: 2.5rem;
+  --text-3xl--line-height: 2.875rem;
+
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  --shadow-pop: var(--shadow-pop);
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.36, 0.64, 1);
+
+  --animate-rise: rise 420ms var(--ease-out-soft) both;
+  --animate-fade: fade 180ms ease-out both;
+  --animate-pop: pop 220ms var(--ease-spring) both;
+  --animate-stamp: stamp 520ms var(--ease-spring) both;
+  --animate-lid: lid 900ms var(--ease-spring) both;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: translateY(4px) scale(0.975);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes stamp {
+    0% {
+      opacity: 0;
+      transform: scale(1.6) rotate(-14deg);
+    }
+    60% {
+      opacity: 1;
+      transform: scale(0.96) rotate(-6deg);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1) rotate(-6deg);
+    }
+  }
+  @keyframes lid {
+    0% {
+      transform: translateY(0);
+    }
+    35% {
+      transform: translateY(-3px) rotate(-8deg);
+    }
+    100% {
+      transform: translateY(0);
+    }
+  }
+}
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    font-size: 16px;
+    background: var(--paper);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "ss01", "cv11";
+  }
+  body {
+    background: var(--paper);
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
+    min-height: 100dvh;
+  }
+  ::selection {
+    background: var(--brass-wash);
+    color: var(--ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--brass);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+  .tnum,
+  time {
+    font-variant-numeric: tabular-nums;
+  }
+  code,
+  kbd,
+  .font-mono {
+    font-variant-ligatures: none;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+}
+
+@layer components {
+  /* Fraunces with soft corners and optical sizing: warm, not twee. */
+  .display {
+    font-family: var(--font-display);
+    font-optical-sizing: auto;
+    font-variation-settings:
+      "SOFT" 60,
+      "WONK" 0;
+    letter-spacing: -0.012em;
+  }
+  .display-italic {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-optical-sizing: auto;
+    font-variation-settings:
+      "SOFT" 100,
+      "WONK" 1;
+  }
+  /* A whisper of paper grain on the canvas. Data URI so CSP allows it. */
+  .grain {
+    position: relative;
+    isolation: isolate;
+  }
+  .grain::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: var(--grain-opacity);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.5  0 0 0 0 0.4  0 0 0 0 0.3  0 0 0 1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  .kbd {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1;
+    padding: 3px 5px;
+    border-radius: var(--radius-xs);
+    border: 1px solid var(--rule);
+    border-bottom-width: 2px;
+    color: var(--ink-3);
+    background: var(--raised);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
+}
