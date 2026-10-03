@@ -5,6 +5,7 @@ import (
 	_ "github.com/btahir/tiffin/internal/mod/analytics"
 	_ "github.com/btahir/tiffin/internal/mod/approvals"
 	_ "github.com/btahir/tiffin/internal/mod/auth"
+	_ "github.com/btahir/tiffin/internal/mod/backup"
 	_ "github.com/btahir/tiffin/internal/mod/base"
 	_ "github.com/btahir/tiffin/internal/mod/email"
 	_ "github.com/btahir/tiffin/internal/mod/observe"
