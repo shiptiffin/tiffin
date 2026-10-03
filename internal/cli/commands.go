@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -320,7 +321,10 @@ func (a *app) serveCmd() *cobra.Command {
 				}
 			}
 			fmt.Fprintf(a.io.Err, "tiffin %s serving %s (API %s/v1, MCP %s/mcp, data %s)\n", version.Version, base, base, base, a.home)
-			if fresh != "" {
+			if fresh != "" && !isTerminal(a.io.Err) {
+				// Never write a secret into a service log (journald keeps it).
+				fmt.Fprintf(a.io.Err, "owner token created and saved to %s\n", filepath.Join(a.home, ownerTokenFile))
+			} else if fresh != "" {
 				fmt.Fprintf(a.io.Err, "\nOwner token (shown once, also saved to %s):\n  %s\n\n"+
 					"Give agents their own token, never this one. It can plan and make reversible changes only:\n"+
 					"  TIFFIN_TOKEN=<owner token> tiffin --url %s tokens create --name claude-code\n"+
@@ -358,6 +362,15 @@ func accessLog(onBox bool) string {
 		return AccessLogPath
 	}
 	return ""
+}
+
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
 // edgeControl lets modules replace the edge's routes.
