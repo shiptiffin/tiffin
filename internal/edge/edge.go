@@ -20,8 +20,10 @@ import (
 
 	// Only the Caddy modules the generated config uses.
 	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/fileserver"
 	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/headers"
 	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy"
+	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/rewrite"
 	_ "github.com/caddyserver/caddy/v2/modules/caddypki"
 	_ "github.com/caddyserver/caddy/v2/modules/caddytls"
 	_ "github.com/caddyserver/caddy/v2/modules/filestorage"
