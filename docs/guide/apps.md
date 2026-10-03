@@ -33,6 +33,27 @@ failed build or health check leaves the old version serving.
   to the dev inbox.
 - **Prebuilt images:** `tiffin deploy --prebuilt image.tar`.
 
+## Without a checkout: templates and git URLs
+
+The dashboard creates apps without any files on your machine; so can the CLI and agents.
+
+```bash
+tiffin templates list                                  # starters shipped inside tiffin
+tiffin deploys template shop api --template hono-postgres
+tiffin deploys git shop web --url https://github.com/owner/repo --ref main --path apps/web
+```
+
+Four starters ship in the binary: `static-site`, `hono-postgres` (a notes API that
+creates its table on boot), `guestbook` (page + API + Postgres + Valkey + analytics in
+one Hono app) and `next-postgres` (App Router, reads and writes Postgres). Each lists
+the manifest fragment it needs: add that to the project (see
+[Concepts](concepts.md#changes)), apply, then deploy the template.
+
+A git URL deploy shallow-clones one commit of a **public https** repository on the box
+(no credentials, public hosts only, no submodules, 512 MB and 3 minutes at most) and
+builds it like `tiffin deploy`; the clone shows in the build log. For private code, push
+to the box instead.
+
 ## What your app gets
 
 `PORT`, `NODE_ENV`, `TIFFIN_URL` (its public URL), plus each service's variables:
