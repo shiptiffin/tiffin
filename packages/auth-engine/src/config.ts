@@ -44,6 +44,8 @@ export type ProjectConfig = z.infer<typeof projectSchema>;
 
 export const configSchema = z.object({
   version: z.literal(1),
+  /** Extra addresses to serve on besides --listen (the runtime's bridge IP, so app containers reach the engine). */
+  listen: z.array(z.string()).default([]),
   projects: z.record(z.string().regex(/^[a-z][a-z0-9-]{0,39}$/), projectSchema),
 });
 
@@ -63,7 +65,7 @@ export function readConfig(path: string): { config: EngineConfig; mtimeMs: numbe
   try {
     mtimeMs = statSync(path).mtimeMs;
   } catch {
-    return { config: { version: 1, projects: {} }, mtimeMs: 0 };
+    return { config: { version: 1, listen: [], projects: {} }, mtimeMs: 0 };
   }
   return { config: parseConfig(JSON.parse(readFileSync(path, "utf8"))), mtimeMs };
 }

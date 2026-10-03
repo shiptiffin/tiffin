@@ -7,7 +7,9 @@ import { createInstance, createPool, type Instance } from "./auth";
 import { fingerprint, readConfig, type EngineConfig, type ProjectConfig } from "./config";
 
 export class Registry {
-  private config: EngineConfig = { version: 1, projects: {} };
+  private config: EngineConfig = { version: 1, listen: [], projects: {} };
+  /** Called after every config change (main.ts rebinds extra listeners). */
+  onChange: ((c: EngineConfig) => void) | null = null;
   private mtimeMs = 0;
   private instances = new Map<string, { fp: string; inst: Instance }>();
   private pools = new Map<string, { url: string; pool: pg.Pool }>();
@@ -32,6 +34,7 @@ export class Registry {
   /** Replaces the config (tests, and reload). */
   set(config: EngineConfig) {
     this.config = config;
+    this.onChange?.(config);
     this.byHost.clear();
     for (const [name, p] of Object.entries(config.projects)) for (const h of p.hosts) this.byHost.set(h.toLowerCase(), name);
     for (const [name, e] of this.instances) {
@@ -59,6 +62,10 @@ export class Registry {
     } catch (err) {
       console.error(JSON.stringify({ level: "error", msg: "auth config reload failed", err: String(err) }));
     }
+  }
+
+  listen(): string[] {
+    return this.config.listen;
   }
 
   projects(): string[] {

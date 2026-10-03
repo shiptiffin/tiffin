@@ -20,7 +20,7 @@ const adminCall = async (method: string, path: string, body?: unknown) => {
 
 beforeAll(async () => {
   dbUrl = await freshDatabase("engine_test");
-  reg = new Registry(null, { version: 1, projects: { shop: projectConfig(dbUrl) } });
+  reg = new Registry(null, { version: 1, listen: [], projects: { shop: projectConfig(dbUrl) } });
   handle = publicHandler(reg);
   admin = adminHandler(reg);
   const r = await adminCall("POST", "/projects/shop/migrate");
@@ -360,7 +360,7 @@ describe("delete", () => {
     expect(no.status).toBe(428);
     // keep the main DB for other tests: drop a second project's schema
     const url2 = await freshDatabase("engine_drop");
-    reg.set({ version: 1, projects: { shop: reg.projectConfig("shop")!, other: projectConfig(url2, { hosts: ["other.tiffin.localhost"] }) } });
+    reg.set({ version: 1, listen: [], projects: { shop: reg.projectConfig("shop")!, other: projectConfig(url2, { hosts: ["other.tiffin.localhost"] }) } });
     await adminCall("POST", "/projects/other/migrate");
     const ok = await adminCall("POST", "/projects/other/drop?confirm=other");
     expect(ok.body.dropped).toBe(true);

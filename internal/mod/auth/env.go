@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"net"
 	"os"
 	"strconv"
 	"time"
@@ -41,7 +42,7 @@ func (*Module) Env(ctx context.Context, p *platform.Platform, project, app strin
 	base := p.URL(host) + PathPrefix
 	return map[string]string{
 		"TIFFIN_AUTH_URL":          base,
-		"TIFFIN_AUTH_INTERNAL_URL": "http://" + EngineAddr + PathPrefix,
+		"TIFFIN_AUTH_INTERNAL_URL": "http://" + net.JoinHostPort(hostIP(ctx, p), enginePort) + PathPrefix,
 		"TIFFIN_AUTH_HOST":         host,
 		"TIFFIN_AUTH_JWKS_URL":     base + "/jwks",
 	}, nil

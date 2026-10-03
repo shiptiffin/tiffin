@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -47,11 +48,21 @@ type ProjectConfig struct {
 // EngineConfig is the whole engine config file.
 type EngineConfig struct {
 	Version  int                       `json:"version"`
+	Listen   []string                  `json:"listen"`
 	Projects map[string]*ProjectConfig `json:"projects"`
 }
 
 // ErrNeedsPostgres is returned for projects with auth but no postgres.
 var ErrNeedsPostgres = errors.New("services.auth keeps users in the project's own Postgres database: add `postgres: {}` to services in tiffin.config.ts")
+
+// hostIP is the address app containers reach box services on (published by
+// the runtime module as KV runtime/host-ip; 127.0.0.1 until then).
+func hostIP(ctx context.Context, p *platform.Platform) string {
+	if raw, ok, _ := p.DB.KVGet(ctx, "runtime", "host-ip"); ok && strings.TrimSpace(string(raw)) != "" {
+		return strings.TrimSpace(string(raw))
+	}
+	return "127.0.0.1"
+}
 
 // moduleEnv asks another module (by name) for its env, without importing it.
 func moduleEnv(ctx context.Context, p *platform.Platform, name, project string) (map[string]string, error) {
@@ -188,7 +199,10 @@ func buildEngineConfig(ctx context.Context, p *platform.Platform) (*EngineConfig
 	if err != nil {
 		return nil, nil, err
 	}
-	out := &EngineConfig{Version: 1, Projects: map[string]*ProjectConfig{}}
+	out := &EngineConfig{Version: 1, Listen: []string{}, Projects: map[string]*ProjectConfig{}}
+	if ip := hostIP(ctx, p); ip != "127.0.0.1" {
+		out.Listen = append(out.Listen, net.JoinHostPort(ip, enginePort))
+	}
 	errs := map[string]error{}
 	for _, project := range projects {
 		_, res, err := p.DB.Load(ctx, project)

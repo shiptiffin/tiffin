@@ -32,7 +32,8 @@ func (*Module) Order() int   { return 30 }
 // Engine locations on the box.
 const (
 	// EngineAddr is where the engine listens for the edge and for apps on the box.
-	EngineAddr = "127.0.0.1:7393"
+	EngineAddr = "127.0.0.1:" + enginePort
+	enginePort = "7393"
 	// AdminSocket is the engine's admin API (root only).
 	AdminSocket = "/run/tiffin-auth/admin.sock"
 	// Unit is the engine's systemd unit.

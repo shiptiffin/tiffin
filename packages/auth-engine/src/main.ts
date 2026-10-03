@@ -42,7 +42,29 @@ async function main(argv: string[]) {
       const socket = flag(args, "--admin-socket", "TIFFIN_AUTH_ADMIN_SOCKET", "/run/tiffin-auth/admin.sock");
       const [hostname, port] = [listen.slice(0, listen.lastIndexOf(":")), Number(listen.slice(listen.lastIndexOf(":") + 1))];
       const reg = new Registry(configPath);
-      const pub = Bun.serve({ hostname, port, fetch: publicHandler(reg), idleTimeout: 30 });
+      const handler = publicHandler(reg);
+      const pub = Bun.serve({ hostname, port, fetch: handler, idleTimeout: 30 });
+      // Extra addresses from the config (the runtime's bridge IP), rebound on reload.
+      const extra = new Map<string, ReturnType<typeof Bun.serve>>();
+      const syncListeners = (want: string[]) => {
+        for (const [addr, srv] of extra) {
+          if (!want.includes(addr)) {
+            srv.stop();
+            extra.delete(addr);
+          }
+        }
+        for (const addr of want) {
+          if (extra.has(addr) || addr === listen) continue;
+          const i = addr.lastIndexOf(":");
+          try {
+            extra.set(addr, Bun.serve({ hostname: addr.slice(0, i).replace(/^\[|\]$/g, ""), port: Number(addr.slice(i + 1)), fetch: handler, idleTimeout: 30 }));
+          } catch (err) {
+            console.error(JSON.stringify({ level: "error", msg: "can't listen", addr, err: String(err) }));
+          }
+        }
+      };
+      reg.onChange = (c) => syncListeners(c.listen);
+      syncListeners(reg.listen());
       mkdirSync(dirname(socket), { recursive: true, mode: 0o700 });
       if (existsSync(socket)) unlinkSync(socket);
       const admin = Bun.serve({ unix: socket, fetch: adminHandler(reg) });
@@ -51,6 +73,7 @@ async function main(argv: string[]) {
       const stop = async () => {
         pub.stop();
         admin.stop();
+        for (const srv of extra.values()) srv.stop();
         await reg.closeAll();
         closeTransports();
         process.exit(0);
