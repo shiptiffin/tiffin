@@ -111,6 +111,7 @@ func New(d Deps) *API {
 	a.registerSecrets()
 	a.registerApprovals()
 	a.registerPeople()
+	a.registerAppearance()
 	// Modules add their own operations; they become CLI commands and MCP tools too.
 	for _, m := range platform.Modules() {
 		if r, ok := m.(platform.APIRegistrar); ok {
