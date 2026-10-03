@@ -397,9 +397,20 @@ func asUser(ctx context.Context, username, name string, args ...string) (string,
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = "/"
 	cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=" + u.HomeDir, "USER=" + username}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}}
+	// Its own process group, so cancelling kills pgBackRest's worker
+	// processes too (they would otherwise linger, orphaned).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 5 * time.Second
 	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil && cmd.Process != nil {
+		// Make sure the whole group is gone before the caller cleans up.
+		pg := -cmd.Process.Pid
+		_ = syscall.Kill(pg, syscall.SIGKILL)
+		for i := 0; i < 50 && syscall.Kill(pg, 0) == nil; i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 	if err != nil {
 		s := strings.TrimSpace(string(out))
 		if len(s) > 1500 {

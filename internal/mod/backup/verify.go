@@ -136,15 +136,17 @@ func scanDB(ctx context.Context, connect connectFunc, name string, mode int, dea
 		case countAll:
 			exact = time.Now().Before(deadline)
 		case countSmall:
-			exact, timeout = r.size < liveExactBelow, liveCountTimeout
+			// Small tables, and tables never analysed (no estimate), are
+			// counted; a count slower than the timeout keeps the estimate.
+			exact, timeout = r.size < liveExactBelow || r.est < 0, liveCountTimeout
 		}
 		if exact {
 			n, err := countRows(ctx, c, r.schema, r.name, timeout)
 			switch {
 			case err == nil:
 				t.Rows, t.Exact = n, true
-			case isTimeout(err):
-				// Too slow: keep the estimate.
+			case isTimeout(err) || (mode == countSmall && ctx.Err() == nil):
+				// Too slow (or, on the live cluster, not readable now): keep the estimate.
 			case ctx.Err() != nil:
 				t.Err = ctx.Err().Error()
 			default:
