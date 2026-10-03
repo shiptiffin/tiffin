@@ -44,6 +44,15 @@ func (*Module) Reconcile(ctx context.Context, p *platform.Platform, project, add
 	if e := errs[project]; e != nil {
 		return e
 	}
+	// The platform reconciles services by address, so auth can run before
+	// postgres has created the project's database. Wait for it: converge the
+	// project again once this pass (which sets the database up) is done.
+	if st, err := p.DB.ResourceStatuses(ctx, project); err == nil {
+		if s, ok := st[change.KindService+"/postgres"]; !ok || s.State == platform.StatePending {
+			p.ReconcileProject(project)
+			return fmt.Errorf("waiting for the project's Postgres database; auth sets up right after it")
+		}
+	}
 	r, err := eng.migrate(ctx, project)
 	if err != nil {
 		return fmt.Errorf("set up the auth schema: %w", err)

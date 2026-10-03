@@ -131,6 +131,13 @@ func TestEngineContract(t *testing.T) {
 
 	plan := apply(t, p, shop)
 	m := &Module{}
+	// Auth waits for the database first.
+	if err := m.Reconcile(ctx, p, "shop", "service/auth", json.RawMessage(`{"methods":["email"],"organizations":true}`)); err == nil || !strings.Contains(err.Error(), "waiting for the project's Postgres") {
+		t.Fatalf("before postgres is ready: %v", err)
+	}
+	if err := p.DB.SetResourceStatus(ctx, "shop", "service/postgres", "ready", ""); err != nil {
+		t.Fatal(err)
+	}
 	for _, op := range plan.Ops {
 		if op.Address == "service/auth" {
 			if err := m.Reconcile(ctx, p, "shop", op.Address, op.After); err != nil {

@@ -41,6 +41,8 @@ func EngineBundle() ([]byte, error) {
 	return io.ReadAll(zr)
 }
 
+// --no-install: never let Bun fetch packages at runtime (Better Auth imports
+// @opentelemetry/api optionally; without it, Bun would try to install it).
 func unitFile(bun, script, config string) string {
 	return `[Unit]
 Description=Tiffin auth engine (Better Auth for every project's apps)
@@ -51,7 +53,7 @@ Wants=network-online.target
 Type=simple
 User=` + EngineUser + `
 Group=` + EngineUser + `
-ExecStart=` + bun + ` --smol ` + script + ` serve --config ` + config + ` --listen ` + EngineAddr + ` --admin-socket ` + AdminSocket + `
+ExecStart=` + bun + ` --smol --no-install ` + script + ` serve --config ` + config + ` --listen ` + EngineAddr + ` --admin-socket ` + AdminSocket + `
 Environment=NODE_ENV=production
 Environment=BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 RuntimeDirectory=tiffin-auth
