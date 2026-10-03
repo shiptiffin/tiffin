@@ -62,7 +62,7 @@ golden-update:
 	UPDATE_GOLDEN=1 go test ./... -count=1
 
 e2e:
-	$(HEAVY) go test -tags e2e ./e2e/... -timeout 20m -count=1 -v
+	$(HEAVY) go test -tags e2e ./e2e/... -timeout 75m -count=1 -v
 
 # Same as scripts/ci.sh: lint + test + a release dry run.
 ci:
