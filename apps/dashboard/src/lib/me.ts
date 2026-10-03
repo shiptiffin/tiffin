@@ -26,7 +26,7 @@ export function useMe() {
 }
 
 export const roleCopy: Record<string, { label: string; blurb: string }> = {
-  owner: { label: "Owner", blurb: "Everything, including the box itself. There's one." },
+  owner: { label: "Owner", blurb: "Everything, including the box itself. A box has exactly one owner." },
   admin: { label: "Admin", blurb: "Everything except changing the owner: people, tokens, any change." },
   member: {
     label: "Member",

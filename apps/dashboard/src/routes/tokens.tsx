@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { api, type Change, type CreatedToken, type Tier, type Token } from "@/api/client";
 import { q } from "@/api/queries";
+import { splitIntent } from "@/components/ledger-parts";
 import { ActorMark } from "@/components/actor";
 import { Confirm } from "@/components/confirm";
 import { Command, CopyButton } from "@/components/copy";
@@ -74,7 +75,9 @@ export function TokensPage({ create }: { create?: boolean }) {
   const setCreate = (o: boolean) => navigate({ to: "/tokens", search: o ? { create: true } : {}, replace: true });
 
   const all = tokens.data ?? [];
-  const names = new Map(all.map((t) => [t.id, t.name]));
+  // Who made a token, by their current name (the owner token reads as its person, not "Owner").
+  const who = useQuery({ ...q.tokenNames, retry: false }).data;
+  const names = new Map(all.map((t) => [t.id, who?.get(t.id)?.who ?? t.name]));
   // Dashboard logins are tokens too; they read better as "browsers signed in".
   const isSession = (t: Token) => !!t.person || (t.kind === "human" && t.name === "dashboard session");
   const agents = all.filter((t) => !isSession(t) && t.kind === "agent");
@@ -209,7 +212,8 @@ function AgentRow({ t, sponsor, entries, onRevoke }: { t: Token; sponsor?: strin
                 time={clock(c.at)}
                 timeNote={dayLabel(c.at) === "Today" ? undefined : dayLabel(c.at).replace(/,.*$/, "").slice(0, 3)}
                 actor={{ kind: "agent", name: c.actor.name ?? t.name, session: c.actor.session }}
-                intent={sentence(c.intent)}
+                intent={splitIntent(sentence(c.intent)).head}
+                signature={c.undoneBy ? "undone" : undefined}
                 counts={opCounts(c.plan.ops)}
                 tier={asTier(c.plan.risk)}
                 muted={!!c.undoneBy}

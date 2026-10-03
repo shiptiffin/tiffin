@@ -141,7 +141,7 @@ export function ErrorsPage({ project, status = "unresolved" }: { project?: strin
                     </span>
                     <span className="text-right">
                       <span className="block text-[1.0625rem] leading-6 text-ink tnum">{num(i.count)}</span>
-                      <span className="block text-xs text-ink-3">{st === "resolved" && i.resolvedAt ? `resolved ${relative(i.resolvedAt)}` : `last ${relative(i.lastSeen)}`}</span>
+                      <span className="block text-xs text-ink-3">{st === "resolved" && i.resolvedAt ? `resolved ${relative(i.resolvedAt)}` : `last seen ${relative(i.lastSeen)}`}</span>
                     </span>
                   </Link>
                 </li>

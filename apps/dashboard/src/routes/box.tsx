@@ -474,7 +474,8 @@ function AppRow({
   const maxFit = free === undefined ? undefined : applied + Math.max(0, Math.floor(free / per));
   const n = preview ?? shown;
   const memMB = memory;
-  const sub = `${frameworkName(spec.framework)} · ${count(shown, "instance")}`;
+  // The same words the project page uses: "Hono · 2 × 512 MB", "Bun worker · 1 × 512 MB", "Static site".
+  const sub = spec.framework === "static" ? "Static site" : `${frameworkName(spec.framework)}${spec.role === "worker" ? " worker" : ""} · ${int(shown)} × ${int(per)}\u202FMB`;
   const readout =
     preview !== null && preview !== applied ? (
       <span>
