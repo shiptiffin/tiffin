@@ -1,0 +1,217 @@
+package auth
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+
+	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/platform"
+	"github.com/btahir/tiffin/internal/state"
+)
+
+// Fake postgres and email modules: the auth module asks them for env by name.
+type fakeModule struct {
+	name string
+	env  func(project string) map[string]string
+}
+
+func (f *fakeModule) Name() string { return f.name }
+func (f *fakeModule) Env(_ context.Context, _ *platform.Platform, project, _ string) (map[string]string, error) {
+	return f.env(project), nil
+}
+
+var fakeDB = map[string]string{} // project → DATABASE_URL
+
+func init() {
+	platform.Register(&fakeModule{name: "postgres", env: func(project string) map[string]string {
+		if u, ok := fakeDB[project]; ok {
+			return map[string]string{"DATABASE_URL": u}
+		}
+		return map[string]string{"DATABASE_URL": "postgresql://" + project + ":pw@127.0.0.1:5432/" + project}
+	}})
+	platform.Register(&fakeModule{name: "email", env: func(project string) map[string]string {
+		return map[string]string{"SMTP_URL": "smtp://127.0.0.1:2525", "EMAIL_FROM": "hello@" + project + ".test"}
+	}})
+}
+
+func newPlatform(t *testing.T) *platform.Platform {
+	t.Helper()
+	db, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	sec, err := platform.OpenSecrets(db, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &platform.Platform{DB: db, Engine: change.NewEngine(db), Secrets: sec, DataRoot: t.TempDir(), Domain: "tiffin.localhost",
+		PublicURL: "https://dashboard.tiffin.localhost:8443", Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+}
+
+// apply commits a manifest the way the API does (no reconcile).
+func apply(t *testing.T, p *platform.Platform, raw string) *change.Plan {
+	t.Helper()
+	mf, err := manifest.Parse([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired, err := change.Resources(mf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := p.Engine.Plan(t.Context(), mf.Project, desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Engine.Apply(t.Context(), change.ApplyRequest{Plan: plan, Confirm: plan.Hash, Authorize: func(*change.Plan) error { return nil }}); err != nil {
+		t.Fatal(err)
+	}
+	return plan
+}
+
+func TestParseRoute(t *testing.T) {
+	p := &platform.Platform{Domain: "tiffin.localhost"}
+	for _, c := range []struct{ in, host, prefix string }{
+		{"shop", "shop.tiffin.localhost", ""},
+		{"Shop", "shop.tiffin.localhost", ""},
+		{"example.com", "example.com", ""},
+		{"example.com/api/", "example.com", "/api"},
+		{"admin/x", "admin.tiffin.localhost", "/x"},
+	} {
+		h, pre := ParseRoute(p, c.in)
+		if h != c.host || pre != c.prefix {
+			t.Errorf("ParseRoute(%q) = %q %q, want %q %q", c.in, h, pre, c.host, c.prefix)
+		}
+	}
+}
+
+func TestAppName(t *testing.T) {
+	if got := AppName("my-shop"); got != "My shop" {
+		t.Fatalf("AppName = %q", got)
+	}
+}
+
+const shop = `{"project":"shop","apps":{
+  "web":{"routes":["shop","shop.example.com/app"]},
+  "admin":{},
+  "jobs":{"role":"worker"}
+ },"services":{"postgres":{},"email":{},"auth":{"methods":["email","google","otp"]}}}`
+
+func TestEngineConfig(t *testing.T) {
+	p := newPlatform(t)
+	ctx := t.Context()
+	apply(t, p, shop)
+	apply(t, p, `{"project":"blog","apps":{"web":{}},"services":{"auth":{}}}`) // no postgres
+	if err := p.Secrets.Set(ctx, "shop", "GOOGLE_CLIENT_ID", "gid", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Secrets.Set(ctx, "shop", "GOOGLE_CLIENT_SECRET", "gsecret", "test"); err != nil {
+		t.Fatal(err)
+	}
+	c, errs, err := buildEngineConfig(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs["blog"] == nil || errs["blog"].Error() != ErrNeedsPostgres.Error() {
+		t.Fatalf("blog should need postgres, got %v", errs["blog"])
+	}
+	s := c.Projects["shop"]
+	if s == nil {
+		t.Fatalf("shop missing: %v", errs)
+	}
+	wantHosts := []string{"shop.tiffin.localhost", "shop.example.com", "admin.tiffin.localhost"}
+	if !slices.Equal(s.Hosts, wantHosts) {
+		t.Fatalf("hosts = %v, want %v (web first, workers excluded)", s.Hosts, wantHosts)
+	}
+	if s.PrimaryURL != "https://shop.tiffin.localhost:8443" || s.Origins[1] != "https://shop.example.com:8443" {
+		t.Fatalf("urls: %s %v", s.PrimaryURL, s.Origins)
+	}
+	if s.DatabaseURL != "postgresql://shop:pw@127.0.0.1:5432/shop" || s.SMTPURL != "smtp://127.0.0.1:2525" || s.EmailFrom != "hello@shop.test" {
+		t.Fatalf("wiring: %+v", s)
+	}
+	if !slices.Equal(s.Methods, []string{"email", "google", "otp"}) || !s.Organizations || !s.Captcha {
+		t.Fatalf("settings: %+v", s)
+	}
+	if s.Social["google"] == nil || s.Social["google"].ClientSecret != "gsecret" || s.Social["github"] != nil {
+		t.Fatalf("social: %+v", s.Social)
+	}
+	if s.AppName != "Shop" || len(s.Secret) < 32 {
+		t.Fatalf("name/secret: %q %d", s.AppName, len(s.Secret))
+	}
+	// The secret is stable across rebuilds.
+	c2, _, _ := buildEngineConfig(ctx, p)
+	if c2.Projects["shop"].Secret != s.Secret {
+		t.Fatal("secret changed between builds")
+	}
+	// Written 0600, and only rewritten when something changed.
+	changed, err := writeEngineConfig(p, c)
+	if err != nil || !changed {
+		t.Fatalf("write: %v %v", changed, err)
+	}
+	fi, _ := os.Stat(ConfigPath(p))
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v", fi.Mode().Perm())
+	}
+	if changed, _ := writeEngineConfig(p, c2); changed {
+		t.Fatal("rewrote an unchanged config")
+	}
+	var back EngineConfig
+	raw, _ := os.ReadFile(ConfigPath(p))
+	if err := json.Unmarshal(raw, &back); err != nil || back.Version != 1 {
+		t.Fatalf("config file: %v", err)
+	}
+}
+
+func TestEnvAndRoutes(t *testing.T) {
+	p := newPlatform(t)
+	ctx := t.Context()
+	apply(t, p, shop)
+	apply(t, p, `{"project":"plain","apps":{"web":{}}}`)
+	env, err := (&Module{}).Env(ctx, p, "shop", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["TIFFIN_AUTH_URL"] != "https://admin.tiffin.localhost:8443/api/auth" {
+		t.Fatalf("admin app gets its own host: %v", env)
+	}
+	if env["TIFFIN_AUTH_INTERNAL_URL"] != "http://127.0.0.1:7393/api/auth" || env["TIFFIN_AUTH_HOST"] != "admin.tiffin.localhost" {
+		t.Fatalf("internal: %v", env)
+	}
+	jobs, _ := (&Module{}).Env(ctx, p, "shop", "jobs")
+	if jobs["TIFFIN_AUTH_URL"] != "https://shop.tiffin.localhost:8443/api/auth" {
+		t.Fatalf("workers get the primary host: %v", jobs)
+	}
+	if env, _ := (&Module{}).Env(ctx, p, "plain", "web"); env != nil {
+		t.Fatalf("no auth, no env: %v", env)
+	}
+	routes, err := (&Module{}).Routes(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(routes) != 3 {
+		t.Fatalf("routes: %+v", routes)
+	}
+	for _, r := range routes {
+		if r.PathPrefix != "/api/auth" || r.Upstream != EngineAddr {
+			t.Fatalf("route: %+v", r)
+		}
+	}
+}
+
+func TestEngineBundleEmbedded(t *testing.T) {
+	js, err := EngineBundle()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(js) < 100_000 {
+		t.Fatalf("engine bundle looks empty: %d bytes", len(js))
+	}
+}

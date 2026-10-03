@@ -16,7 +16,7 @@ HEAVY ?= $(abspath $(CURDIR)/../research/heavy.sh)
 
 RELEASE_TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64 windows/arm64
 
-.PHONY: build release test lint golden-update e2e ci clean dashboard
+.PHONY: build release test lint golden-update e2e ci clean auth-engine dashboard
 
 # The web dashboard, built into internal/dashboard/dist and embedded in the
 # binary. The build output is committed so `go build` works without Bun.
@@ -49,6 +49,13 @@ lint:
 		if [ -n "$$out" ]; then echo "gofmt needed on:"; echo "$$out"; exit 1; fi
 	go vet -tags e2e ./...
 	go run honnef.co/go/tools/cmd/staticcheck@latest -tags e2e ./...
+
+# Bundle the auth engine (packages/auth-engine) for go:embed. The bundle is
+# committed, like the dashboard build, so plain `go build` works without Bun.
+auth-engine:
+	bun build packages/auth-engine/src/main.ts --target=bun --minify --outfile dist/tiffin-auth.js
+	gzip -9n -c dist/tiffin-auth.js > internal/mod/auth/engine/tiffin-auth.js.gz
+	@ls -l internal/mod/auth/engine/tiffin-auth.js.gz
 
 # Regenerate golden files. Test packages read the UPDATE_GOLDEN env var.
 golden-update:
