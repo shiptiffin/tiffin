@@ -1,6 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { useEnamel } from "@/lib/enamel";
+import { EnamelSwatch } from "./enamel-swatch";
 
 /**
  * One frame for every page, so nothing jumps sideways between pages: every
@@ -31,7 +33,7 @@ export function Crumbs({ items }: { items: Array<{ label: ReactNode; to?: string
           )}
           {c.to ? (
             <Link to={c.to as "/"} params={c.params as never} className="truncate transition-colors hover:text-ink">
-              {c.label}
+              {c.to === "/projects/$project" && typeof c.label === "string" && c.params?.project ? <ProjectLabel project={c.params.project} /> : c.label}
             </Link>
           ) : (
             <span className="truncate">{c.label}</span>
@@ -39,6 +41,17 @@ export function Crumbs({ items }: { items: Array<{ label: ReactNode; to?: string
         </span>
       ))}
     </nav>
+  );
+}
+
+/** A project in the breadcrumb wears its enamel, as in the sidebar. */
+function ProjectLabel({ project }: { project: string }) {
+  const enamel = useEnamel(project);
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <EnamelSwatch enamel={enamel} size={7} />
+      {project}
+    </span>
   );
 }
 

@@ -105,7 +105,8 @@
 
 /* ---------------------------------------------------------------------------
    Type roles. Use these, not ad-hoc sizes, for anything with a job:
-     sentence  page sentence (Newsreader 30/36, −1.2 %)       one per page
+     sentence  page sentence (Newsreader 30/36, −1.2 %)       a section's landing: the h1 itself
+     state-sentence  the state under a noun title (Newsreader 22/30)
      intent    a permit's intent (Newsreader italic 36/42)     approvals, receipts
      entry     a ledger entry's intent (Newsreader 16.5/22)
      day       the Ledger's day heading (Newsreader italic 17/22)
@@ -125,6 +126,20 @@
   @media (max-width: 640px) {
     font-size: 1.5rem;
     line-height: 1.875rem;
+  }
+}
+/* A page's state in one sentence, under a noun title ("Storage" → "17.6 KB in ten files."). */
+@utility state-sentence {
+  font-family: var(--serif);
+  font-optical-sizing: auto;
+  font-weight: 400;
+  font-size: 1.375rem;
+  line-height: 1.875rem;
+  letter-spacing: -0.008em;
+  text-wrap: pretty;
+  @media (max-width: 640px) {
+    font-size: 1.1875rem;
+    line-height: 1.625rem;
   }
 }
 @utility intent {

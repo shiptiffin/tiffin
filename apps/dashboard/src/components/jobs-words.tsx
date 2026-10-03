@@ -259,5 +259,5 @@ export function EmptyJobs({ title, children, className }: { title: ReactNode; ch
 
 /** The page's state in one sentence: Newsreader, a step below the Box's. */
 export function StateSentence({ children, className }: { children: ReactNode; className?: string }) {
-  return <p className={cn("sentence text-[1.375rem] leading-[1.875rem] text-ink max-sm:text-[1.25rem] max-sm:leading-[1.75rem]", className)}>{children}</p>;
+  return <p className={cn("state-sentence text-ink", className)}>{children}</p>;
 }

@@ -16,7 +16,7 @@ export function EmptyBoxStart({ headline = true }: { /** Show the "Your tiffin i
     <div className="px-5 pt-7 pb-6 max-sm:px-3.5">
       {headline ? (
         <>
-          <p className="sentence text-[1.5rem] leading-8 text-ink max-sm:text-[1.3125rem] max-sm:leading-7">Your tiffin is packed. Nothing in it yet.</p>
+          <p className="state-sentence text-ink">Your tiffin is packed. Nothing in it yet.</p>
           <p className="mt-1.5 max-w-[36rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
             Every part below passed its checks. Pick a starter and it’s live at its own address in under a minute.
           </p>

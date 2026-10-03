@@ -318,7 +318,7 @@ export function AppPage({ project, app }: { project: string; app: string }) {
           </>
         }
       />
-      <div className="sentence mt-3 text-ink">{sentence ?? <Skeleton className="h-8 w-72" />}</div>
+      <div className="state-sentence mt-3 max-w-[46rem] text-ink">{sentence ?? <Skeleton className="h-8 w-72" />}</div>
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.875rem] text-ink-3">
         {prod?.url && (
           <span className="inline-flex items-center gap-1">
@@ -715,7 +715,7 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
           )
         }
       />
-      <div className="sentence mt-3 text-ink">{sentence ?? <Skeleton className="h-8 w-72" />}</div>
+      <div className="state-sentence mt-3 max-w-[46rem] text-ink">{sentence ?? <Skeleton className="h-8 w-72" />}</div>
       {dep && (
         <p className="mt-1.5 text-[0.875rem] text-ink-3">
           Started {relative(dep.createdAt)}

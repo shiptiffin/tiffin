@@ -19,7 +19,7 @@ export const accessCrumbs = <Crumbs items={[{ label: "Access", to: "/settings/pe
  */
 export function StateLine({ children, danger, className }: { children: ReactNode; danger?: boolean; className?: string }) {
   return (
-    <p className={cn("sentence mt-3 max-w-[46rem] text-[1.375rem] leading-[1.875rem] max-sm:text-[1.1875rem] max-sm:leading-[1.625rem]", danger ? "text-danger" : "text-ink", className)}>
+    <p className={cn("state-sentence mt-3 max-w-[46rem]", danger ? "text-danger" : "text-ink", className)}>
       {children}
     </p>
   );
