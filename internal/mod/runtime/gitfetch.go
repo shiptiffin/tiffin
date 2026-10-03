@@ -126,6 +126,9 @@ func checkGitSource(ctx context.Context, rawURL, ref, sub string, resolve resolv
 	}
 	for _, ip := range ips {
 		if !publicIP(ip) && !gitAllowPrivate {
+			if ip.String() == host {
+				return nil, bad(host + " is not a public address")
+			}
 			return nil, bad(fmt.Sprintf("%s resolves to %s, which is not a public address", host, ip))
 		}
 	}
