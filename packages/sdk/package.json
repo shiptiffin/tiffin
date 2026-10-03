@@ -35,6 +35,14 @@
       "types": "./src/email.ts",
       "default": "./src/email.ts"
     },
+    "./queue": {
+      "types": "./src/queue.ts",
+      "default": "./src/queue.ts"
+    },
+    "./workflow": {
+      "types": "./src/workflow.ts",
+      "default": "./src/workflow.ts"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
