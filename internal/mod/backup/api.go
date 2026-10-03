@@ -167,6 +167,8 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			FullEveryHours        *int  `json:"fullEveryHours,omitempty" minimum:"1" maximum:"720" doc:"Hours between full backups (default 24)"`
 			IncrementalEveryHours *int  `json:"incrementalEveryHours,omitempty" minimum:"0" maximum:"168" doc:"Hours between incremental backups; 0 turns them off (default 1)"`
 			RetainFull            *int  `json:"retainFull,omitempty" minimum:"1" maximum:"60" doc:"Full backups to keep, with their incrementals (default 7)"`
+			DrillEnabled          *bool `json:"drillEnabled,omitempty" doc:"Run restore drills automatically (default on)"`
+			DrillEveryDays        *int  `json:"drillEveryDays,omitempty" minimum:"1" maximum:"90" doc:"Days between scheduled restore drills (default 7)"`
 		}
 	}) (*struct{ Body BackupSchedule }, error) {
 		pr := api.PrincipalFrom(ctx)
@@ -188,6 +190,12 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		}
 		if v := in.Body.RetainFull; v != nil {
 			s.RetainFull = *v
+		}
+		if v := in.Body.DrillEnabled; v != nil {
+			s.DrillEnabled = *v
+		}
+		if v := in.Body.DrillEveryDays; v != nil {
+			s.DrillEveryDays = *v
 		}
 		raw, _ := json.Marshal(s)
 		if err := p.DB.KVPut(ctx, nsMeta, "schedule", raw); err != nil {

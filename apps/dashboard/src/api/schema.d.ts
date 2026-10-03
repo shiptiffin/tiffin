@@ -3737,6 +3737,13 @@ export interface components {
             retainFull: number;
         };
         "Backups-schedule-setRequest": {
+            /** @description Run restore drills automatically (default on) */
+            drillEnabled?: boolean;
+            /**
+             * Format: int64
+             * @description Days between scheduled restore drills (default 7)
+             */
+            drillEveryDays?: number;
             /** @description Take backups automatically */
             enabled?: boolean;
             /**
