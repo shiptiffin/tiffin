@@ -1,1 +1,0 @@
-function e(){return`claude mcp add --transport http tiffin ${location.origin}/mcp --header "Authorization: Bearer <agent token>"`}export{e as t};
