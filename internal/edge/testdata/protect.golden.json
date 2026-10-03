@@ -237,8 +237,14 @@
                             }
                           ],
                           "path": [
-                            "/api/auth/*",
-                            "/auth/*",
+                            "/api/auth/sign-in/*",
+                            "/api/auth/sign-up/*",
+                            "/api/auth/request-password-reset",
+                            "/api/auth/reset-password",
+                            "/api/auth/email-otp/*",
+                            "/api/auth/magic-link/*",
+                            "/api/auth/two-factor/verify-*",
+                            "/api/auth/forget-password",
                             "/login",
                             "/login/*",
                             "/signin",

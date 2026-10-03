@@ -464,3 +464,23 @@ func TestPeopleRolesAndInvites(t *testing.T) {
 		t.Fatalf("people: %v", people)
 	}
 }
+
+func TestProjectDestroy(t *testing.T) {
+	e := newEnv(t)
+	_, plan, _ := e.call(e.owner, "POST", "/v1/plan", map[string]any{"manifest": shop})
+	e.call(e.owner, "POST", "/v1/apply", map[string]any{"manifest": shop, "confirm": plan["hash"]})
+	code, prob, _ := e.call(e.owner, "POST", "/v1/projects/shop/destroy", map[string]any{})
+	p, _ := prob["plan"].(map[string]any)
+	if code != 428 || p["risk"] != "irreversible" || len(p["ops"].([]any)) != 3 {
+		t.Fatalf("destroy plan: %d %v", code, prob)
+	}
+	if code, out, _ := e.call(e.owner, "POST", "/v1/projects/shop/destroy", map[string]any{"confirm": p["hash"]}); code != 200 || out["applied"] != true {
+		t.Fatalf("destroy: %d %v", code, out)
+	}
+	if _, _, list := e.call(e.owner, "GET", "/v1/projects", nil); len(list) != 0 {
+		t.Fatalf("projects after destroy: %v", list)
+	}
+	if code, _, _ := e.call(e.owner, "POST", "/v1/projects/nope/destroy", map[string]any{}); code != 404 {
+		t.Fatalf("destroy missing: %d", code)
+	}
+}

@@ -457,6 +457,36 @@ func (a *API) register() {
 			return a.apply(ctx, p, plan, in.Body.Confirm, in.Body.Intent, in.Body.Approval)
 		}))
 
+	de := op("project-destroy", http.MethodPost, "/v1/projects/{project}/destroy", "projects destroy", RiskDestructive, "Destroy a project",
+		"Plans deleting every resource of a project (its apps, databases, buckets, auth users, everything) and applies it with confirm. "+
+			"Irreversible: databases keep a 7-day snapshot and buckets a 7-day trash, then they are gone. Without confirm you get the plan with status 428.", "projects")
+	de.Errors = append(de.Errors, 404, 409, 428)
+	huma.Register(api, de, wrap(func(ctx context.Context, in *struct {
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		Body    undoBody
+	}) (*struct{ Body ApplyResult }, error) {
+		p := PrincipalFrom(ctx)
+		if err := p.Require(tokens.ScopePlan, in.Project); err != nil {
+			return nil, err
+		}
+		v, _, err := a.deps.DB.Load(ctx, in.Project)
+		if err != nil {
+			return nil, err
+		}
+		if v == 0 {
+			return nil, problem(404, "not_found", "project "+in.Project+" does not exist")
+		}
+		plan, err := a.deps.Engine.Plan(ctx, in.Project, map[string]change.Resource{})
+		if err != nil {
+			return nil, err
+		}
+		intent := in.Body.Intent
+		if intent == "" {
+			intent = "destroy project " + in.Project
+		}
+		return a.apply(ctx, p, plan, in.Body.Confirm, intent, in.Body.Approval)
+	}))
+
 	type changesQuery struct {
 		Project string `query:"project" doc:"Only this project"`
 		Limit   int    `query:"limit" minimum:"1" maximum:"200" default:"50" doc:"Maximum changes to return"`

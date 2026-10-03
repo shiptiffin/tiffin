@@ -76,7 +76,11 @@ type CrowdSec struct {
 // DefaultAuthPaths are the sign-in, sign-up and password-reset endpoints
 // common web stacks use (Better Auth, NextAuth, Rails, Django, Laravel...).
 var DefaultAuthPaths = []string{
-	"/api/auth/*", "/auth/*",
+	// Better Auth (Tiffin's engine): only the credential endpoints, never
+	// session or organization calls, which normal app use makes often.
+	"/api/auth/sign-in/*", "/api/auth/sign-up/*", "/api/auth/request-password-reset",
+	"/api/auth/reset-password", "/api/auth/email-otp/*", "/api/auth/magic-link/*",
+	"/api/auth/two-factor/verify-*", "/api/auth/forget-password",
 	"/login", "/login/*", "/signin", "/signin/*", "/sign-in", "/sign-in/*",
 	"/signup", "/sign-up", "/register",
 	"/password/*", "/forgot-password", "/reset-password", "/password-reset", "/password-reset/*",

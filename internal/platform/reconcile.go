@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -106,6 +107,19 @@ func (r *reconciler) converge(ctx context.Context, project string) {
 		}
 	}
 	change.SortOps(ops)
+	// Within a kind, follow module order: postgres (10) before auth (30),
+	// so a service is converged after the services it needs; deletes reverse.
+	sort.SliceStable(ops, func(i, j int) bool {
+		a, b := ops[i], ops[j]
+		if a.Action != b.Action || change.Kind(a.Address) != change.Kind(b.Address) {
+			return false
+		}
+		oa, ob := moduleOrder(a.Address), moduleOrder(b.Address)
+		if a.Action == change.Delete {
+			return oa > ob
+		}
+		return oa < ob
+	})
 	for _, o := range ops {
 		rc := reconcilerFor(o.Address)
 		if rc == nil {
@@ -182,4 +196,13 @@ func reconcilerFor(address string) Reconciler {
 		}
 	}
 	return byKind
+}
+
+func moduleOrder(address string) int {
+	if rc := reconcilerFor(address); rc != nil {
+		if m, ok := rc.(Module); ok {
+			return orderOf(m)
+		}
+	}
+	return 50
 }
