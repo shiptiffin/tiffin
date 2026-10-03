@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/btahir/tiffin/internal/api"
@@ -33,5 +34,37 @@ func TestAllModulesRegister(t *testing.T) {
 	if tools := mcp.Tools(a); len(tools) != len(a.Operations())-hidden {
 		t.Fatalf("%d tools for %d operations", len(tools), len(a.Operations()))
 	}
-	t.Logf("%d operations", len(a.Operations()))
+	// Adding or removing an operation is a deliberate API change: update this.
+	const wantOps = 154
+	if n := len(a.Operations()); n != wantOps {
+		t.Errorf("%d operations, want %d", n, wantOps)
+	}
+}
+
+// The operations behind creating projects and apps from the dashboard.
+func TestCreateOperations(t *testing.T) {
+	a := api.New(api.Deps{})
+	want := map[string]struct {
+		method, path, cli, risk string
+		outbound                bool
+	}{
+		"project-manifest": {"GET", "/v1/projects/{project}/manifest", "projects manifest", api.RiskRead, false},
+		"templates-list":   {"GET", "/v1/templates", "templates list", api.RiskRead, false},
+		"deploy-template":  {"POST", "/v1/projects/{project}/apps/{app}/deploys/template", "deploys template", api.RiskWrite, false},
+		"deploy-git":       {"POST", "/v1/projects/{project}/apps/{app}/deploys/git", "deploys git", api.RiskWrite, true},
+		"box-resources":    {"GET", "/v1/box/resources", "box resources", api.RiskRead, false},
+	}
+	for _, o := range a.Operations() {
+		w, ok := want[o.OperationID]
+		if !ok {
+			continue
+		}
+		delete(want, o.OperationID)
+		if o.Method != w.method || o.Path != w.path || strings.Join(api.CLIPath(o), " ") != w.cli || api.RiskOf(o) != w.risk || api.IsOutbound(o) != w.outbound {
+			t.Errorf("%s: %s %s cli=%v risk=%s outbound=%v", o.OperationID, o.Method, o.Path, api.CLIPath(o), api.RiskOf(o), api.IsOutbound(o))
+		}
+	}
+	if len(want) > 0 {
+		t.Errorf("missing operations: %v", want)
+	}
 }
