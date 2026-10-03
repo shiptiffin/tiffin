@@ -67,7 +67,7 @@ export function OpView({ op, compact }: { op: Op; compact?: boolean }) {
       </header>
       <p className={cn("px-4 pt-1 pl-12 text-base", tier === "irreversible" ? "text-irr" : "text-ink-2")}>{capital(op.reason)}</p>
       {rows.length > 0 && <DiffTable rows={rows} action={op.action} compact={compact} />}
-      {rows.length === 0 && <div className="h-3" />}
+      {rows.length === 0 && <p className="px-4 pt-1 pb-3 pl-12 text-sm text-ink-4">Default settings, nothing else to show.</p>}
     </article>
   );
 }

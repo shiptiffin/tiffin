@@ -66,6 +66,12 @@ for (const theme of ["dark", "light"] as const) {
       await shot(page, `token-create-${tag}`, false);
       await page.keyboard.press("Escape");
 
+      if (size.width < 768) {
+        await page.getByRole("button", { name: "Open navigation" }).click();
+        await shot(page, `nav-${tag}`, false);
+        await page.keyboard.press("Escape");
+      }
+
       await page.goto("/approvals");
       await page.getByRole("heading", { level: 1 }).waitFor();
       await shot(page, `approvals-${tag}`);

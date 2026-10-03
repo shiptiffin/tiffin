@@ -127,8 +127,8 @@ export function ProjectPage({ project }: { project: string }) {
         </p>
       </header>
 
-      <div className="mt-10 grid gap-10 lg:grid-cols-[1fr_18rem]">
-        <div className="flex flex-col gap-8">
+      <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="flex min-w-0 flex-col gap-8">
           {kinds.map((k) => (
             <section key={k} aria-labelledby={`k-${k}`}>
               <h2 id={`k-${k}`} className="display-italic mb-2 text-lg text-ink">
@@ -156,7 +156,7 @@ export function ProjectPage({ project }: { project: string }) {
           ))}
         </div>
 
-        <aside className="flex flex-col gap-8">
+        <aside className="flex min-w-0 flex-col gap-8">
           <section>
             <h2 className="display-italic mb-2 text-lg text-ink">Lately</h2>
             <ul className="flex flex-col gap-3">

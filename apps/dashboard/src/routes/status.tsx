@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { q } from "@/api/queries";
 import { useTitle } from "@/components/favicon";
-import { ProblemNote } from "@/components/problem";
+import { Code, ProblemNote } from "@/components/problem";
 import { cn } from "@/lib/cn";
 import { uptime } from "@/lib/time";
 import { Page } from "./activity";
@@ -81,7 +81,7 @@ export function StatusPage() {
               <CheckMark ok={c.ok} />
               <span className="font-mono text-base text-ink">{c.name}</span>
               <span className={cn("col-start-2 text-base sm:col-start-auto", c.ok ? "text-ink-2" : "text-irr")}>
-                {c.detail || (c.ok ? "OK" : "Failing")}
+                {c.detail ? <Code text={c.detail} /> : c.ok ? "OK" : "Failing"}
               </span>
             </li>
           ))}
