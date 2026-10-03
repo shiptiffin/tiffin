@@ -75,7 +75,7 @@ func TestCreate(t *testing.T) {
 			t.Fatalf("deploy %s: %v", tp.ID, d)
 		}
 		live := waitDeploy(t, b, "starter", tp.App, id, 10*time.Minute)
-		t.Logf("template %-14s → app %-9s build %5.1fs, total %5.1fs, %s", tp.ID, tp.App, live["buildSeconds"], live["durationSeconds"], live["url"])
+		t.Logf("template %-14s → app %-9s build %vs, total %vs, %s", tp.ID, tp.App, orZero(live["buildSeconds"]), orZero(live["durationSeconds"]), live["url"])
 		phase("deploy "+tp.ID, p)
 	}
 	checks := []struct{ app, method, path, body, want string }{
@@ -220,6 +220,14 @@ func waitDeploy(t *testing.T, b *cliBox, project, app, id string, d time.Duratio
 		}
 		time.Sleep(2 * time.Second)
 	}
+}
+
+// orZero shows an omitted (zero) number as 0 in logs.
+func orZero(v any) any {
+	if v == nil {
+		return 0
+	}
+	return v
 }
 
 func writeJSON(t *testing.T, dir, name string, raw []byte) string {
