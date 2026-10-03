@@ -9,7 +9,7 @@ import { cn } from "@/lib/cn";
 import { asTier, splitAddress, tierRank } from "@/lib/changes";
 import { diffCounts, diffLines, hunks, stripNote } from "@/lib/diff";
 import { useEnamel } from "@/lib/enamel";
-import { int, mb, MINUS, signed, words } from "@/lib/format";
+import { count, cronWords, int, mb, MINUS, signed, words } from "@/lib/format";
 import { memoryModel } from "@/lib/memory";
 import { useMe } from "@/lib/me";
 import {
@@ -140,18 +140,26 @@ function Tray({ project }: { project: string }) {
     if (!r) return null;
     const m = memoryModel(r);
     const avail = m.freeMB;
+    // Room counts every app's reservation (instances × memory per instance), so scaling,
+    // more memory, a new app or a removed one all move it the same way.
+    const now = (manifest.data?.manifest.apps ?? {}) as Record<string, AppLike>;
+    const next = ((desired?.apps ?? {}) as Record<string, AppLike>) ?? {};
+    const reserve = (x?: AppLike) => (x ? (x.instances ?? 1) * (x.memoryMB ?? 512) : 0);
     let delta = 0;
     let per = 512;
     let perApp: string | undefined;
-    for (const e of edits) {
-      if (e.kind !== "instances") continue;
-      const memMB = apps[e.app]?.memoryMB ?? 512;
-      delta += (e.to - e.from) * memMB;
-      per = memMB;
-      perApp = e.app;
+    let biggest = 0;
+    for (const name of new Set([...Object.keys(now), ...Object.keys(next)])) {
+      const d = reserve(next[name]) - reserve(now[name]);
+      delta += d;
+      if (d !== 0 && Math.abs(d) >= biggest) {
+        biggest = Math.abs(d);
+        per = next[name]?.memoryMB ?? now[name]?.memoryMB ?? 512;
+        perApp = name;
+      }
     }
     return { before: avail, after: avail - delta, delta, totalMB: m.totalMB, usedMB: m.usedMB, perMB: per, perApp };
-  }, [res.data, edits, apps]);
+  }, [res.data, manifest.data, desired]);
 
   const apply = useMutation({
     mutationFn: () => api.apply(desired!, p!.hash, intent.trim() || intentFor(edits, project)),
@@ -274,7 +282,7 @@ function Tray({ project }: { project: string }) {
                 <h3 className="label pt-5 pb-1">What will happen, in order</h3>
                 <ol>
                   {ops.map((op, i) => (
-                    <Step key={op.address + i} n={i + 1} op={op} project={project} apps={apps} />
+                    <Step key={op.address + i} n={i + 1} op={op} project={project} apps={apps} edits={edits} />
                   ))}
                 </ol>
               </section>
@@ -379,44 +387,161 @@ export async function undoChange(id: string, qc: ReturnType<typeof useQueryClien
   void qc.invalidateQueries({ predicate: (qq) => ["project", "manifest"].includes(String(qq.queryKey[0])) });
 }
 
-function opTitle(op: Op, project: string, apps: Record<string, ManifestApp>): { title: string; detail?: string; facts: ReactNode[] } {
+type AppLike = { instances?: number; memoryMB?: number; role?: string; framework?: string };
+type QueueLike = { app?: string; concurrency?: number; keyConcurrency?: number; rateLimit?: number; ratePeriodSeconds?: number; maxAttempts?: number; leaseSeconds?: number };
+type CronLike = { schedule?: string; app?: string; path?: string };
+type BucketLike = { public?: boolean };
+
+const fieldWords: Record<string, string> = {
+  memoryMB: "memory",
+  maxMemoryMB: "memory cap",
+  instances: "instances",
+  retentionDays: "how long events are kept",
+  healthcheck: "health check",
+  routes: "addresses",
+  framework: "framework",
+  path: "source folder",
+  extensions: "extensions",
+  methods: "sign-in methods",
+  organizations: "organizations",
+  from: "sender",
+  concurrency: "how many run at once",
+  keyConcurrency: "how many run at once per key",
+  maxAttempts: "retries",
+  leaseSeconds: "how long a job may run",
+  rateLimit: "rate limit",
+  schedule: "schedule",
+  public: "access",
+};
+const fieldsWords = (f: string[]) => f.map((x) => fieldWords[x] ?? x.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase()).join(", ");
+const runAtOnce = (n?: number) => (!n ? "no limit on how many run at once" : `${words(n)} at once`);
+const mbw = (n: number) => (n >= 1024 && n % 1024 === 0 ? `${n / 1024}\u202FGB` : `${int(n)}\u202FMB`);
+
+/** A plan step in words a person would say. Falls back to the staged edit's own words, then to the server's reason. */
+function opTitle(op: Op, project: string, apps: Record<string, ManifestApp>, edits: StagedEdit[]): { title: string; detail?: string; facts: ReactNode[] } {
   const { kind, name } = splitAddress(op.address);
-  const before = (op.before ?? {}) as { instances?: number; memoryMB?: number; role?: string };
-  const after = (op.after ?? {}) as { instances?: number; memoryMB?: number; role?: string };
-  if (kind === "app" && op.action === "update" && op.fields?.length === 1 && op.fields[0] === "instances") {
-    const from = before.instances ?? 1;
-    const to = after.instances ?? 1;
-    const per = after.memoryMB ?? apps[name]?.memoryMB ?? 512;
-    const up = to > from;
-    const worker = after.role === "worker";
-    const more = to - from;
-    return {
-      title: `Scale ${name} from ${from} to ${to} ${to === 1 ? "instance" : "instances"}`,
-      detail: worker
-        ? up
-          ? `Starts ${words(more)} more ${more === 1 ? "instance" : "instances"} of ${name}; ${more === 1 ? "it takes" : "they take"} jobs from the same queues. Jobs already running finish where they are.`
-          : `Stops ${words(from - to)} ${from - to === 1 ? "instance" : "instances"} of ${name} once ${from - to === 1 ? "its jobs finish" : "their jobs finish"}.`
-        : up
-        ? `Starts ${words(to - from)} more ${to - from === 1 ? "instance" : "instances"} of ${name}, waits for ${to - from === 1 ? "its" : "their"} health check, then adds ${to - from === 1 ? "it" : "them"} to the edge. The running ${from === 1 ? "instance keeps" : "instances keep"} serving.`
-        : `Stops ${words(from - to)} ${from - to === 1 ? "instance" : "instances"} of ${name} once ${from - to === 1 ? "it finishes its" : "they finish their"} requests.`,
-      facts: [
-        <span key="m">
-          Memory <b className="font-[550] text-ink-2">{signed((to - from) * per)}&#8239;MB</b> at most
-        </span>,
-        <span key="d">Downtime none</span>,
-      ],
-    };
-  }
-  const service = kind === "service" ? (serviceNames[name] ?? name) : undefined;
   const reason = op.reason ? op.reason.charAt(0).toUpperCase() + op.reason.slice(1) + "." : undefined;
-  if (service && op.action === "delete") return { title: `Remove ${service} from ${project}`, detail: reason, facts: [] };
-  if (service && op.action === "create") return { title: `Add ${service} to ${project}`, detail: reason, facts: [] };
-  const verb = op.action === "create" ? "Add" : op.action === "delete" ? "Remove" : "Change";
-  return { title: `${verb} ${name ? `${kind} ${name}` : kind}`, detail: reason, facts: op.fields?.length ? [<span key="f">Changes {op.fields.join(", ")}</span>] : [] };
+  const fields = op.fields ?? [];
+  const staged = edits.find((e) => e.kind === "set" && `${e.path[0] === "apps" ? "app" : e.path[0] === "queues" ? "queue" : e.path[0] === "crons" ? "cron" : e.path[0]}/${e.path[1]}` === op.address);
+  const fallback = staged?.kind === "set" ? staged.what : undefined;
+
+  if (kind === "app") {
+    const b = (op.before ?? {}) as AppLike;
+    const a = (op.after ?? {}) as AppLike;
+    if (op.action === "create") {
+      const per = a.memoryMB ?? 512;
+      const n = a.instances ?? 1;
+      return {
+        title: fallback ?? `Add the ${name} app to ${project}`,
+        detail: `It is built on the box; its page offers the first deploy. Until then it uses no memory.`,
+        facts: [
+          <span key="m">
+            Memory up to <b className="font-[550] text-ink-2">{mbw(per * n)}</b> once it runs
+          </span>,
+        ],
+      };
+    }
+    if (op.action === "delete") return { title: `Remove the ${name} app from ${project}`, detail: reason, facts: [] };
+    const fromN = b.instances ?? 1;
+    const toN = a.instances ?? 1;
+    const fromM = b.memoryMB ?? 512;
+    const toM = a.memoryMB ?? apps[name]?.memoryMB ?? 512;
+    const delta = toN * toM - fromN * fromM;
+    const memFact = (
+      <span key="m">
+        Memory <b className="font-[550] text-ink-2">{signed(delta)}&#8239;MB</b> at most
+      </span>
+    );
+    const onlyMem = fields.length === 1 && fields[0] === "memoryMB";
+    const onlyInst = fields.length === 1 && fields[0] === "instances";
+    const both = fields.length === 2 && fields.includes("memoryMB") && fields.includes("instances");
+    if (onlyMem) {
+      return {
+        title: `Give ${name} ${mbw(toM)} of memory, ${toM > fromM ? "up" : "down"} from ${mbw(fromM)}`,
+        detail: `Per instance. ${name} restarts one instance at a time with the new limit${fromN > 1 ? ", so the others keep serving" : "; it is away for a moment while it restarts"}.`,
+        facts: [memFact, <span key="d">{fromN > 1 ? "Downtime none" : "Downtime a few seconds"}</span>],
+      };
+    }
+    if (onlyInst || both) {
+      const up = toN > fromN;
+      const worker = a.role === "worker";
+      const more = toN - fromN;
+      const title = both
+        ? `Run ${name} as ${count(toN, "instance")} of ${mbw(toM)} (now ${fromN} × ${mbw(fromM)})`
+        : `Scale ${name} from ${fromN} to ${count(toN, "instance")}`;
+      return {
+        title,
+        detail: worker
+          ? up
+            ? `Starts ${words(more)} more ${more === 1 ? "instance" : "instances"} of ${name}; ${more === 1 ? "it takes" : "they take"} jobs from the same queues. Jobs already running finish where they are.`
+            : `Stops ${words(-more)} ${-more === 1 ? "instance" : "instances"} of ${name} once ${-more === 1 ? "its jobs finish" : "their jobs finish"}.`
+          : up
+            ? `Starts ${words(more)} more ${more === 1 ? "instance" : "instances"} of ${name}, waits for ${more === 1 ? "its" : "their"} health check, then adds ${more === 1 ? "it" : "them"} to the edge. The running ${fromN === 1 ? "instance keeps" : "instances keep"} serving.`
+            : more < 0
+              ? `Stops ${words(-more)} ${-more === 1 ? "instance" : "instances"} of ${name} once ${-more === 1 ? "it finishes its" : "they finish their"} requests.`
+              : `Restarts ${name}'s instances one at a time with the new memory limit.`,
+        facts: [memFact, <span key="d">Downtime none</span>],
+      };
+    }
+    return { title: fallback ?? `Change ${name}’s ${fieldsWords(fields)}`, detail: reason, facts: [] };
+  }
+
+  if (kind === "queue") {
+    const a = (op.after ?? {}) as QueueLike;
+    const b = (op.before ?? {}) as QueueLike;
+    if (op.action === "create") {
+      const bits = [runAtOnce(a.concurrency), a.maxAttempts ? `up to ${count(a.maxAttempts, "try", "tries")}` : null, a.rateLimit ? `${int(a.rateLimit)} per ${a.ratePeriodSeconds ?? 1}\u202Fs per key` : null].filter(Boolean);
+      return {
+        title: `Declare the ${name} queue: ${bits.join(", ")}`,
+        detail: a.app ? `Jobs go to ${a.app}. Declared in tiffin.config.ts, its settings survive a redeploy.` : reason,
+        facts: [],
+      };
+    }
+    if (op.action === "delete") return { title: `Remove the ${name} queue`, detail: reason, facts: [] };
+    if (fields.length === 1 && fields[0] === "concurrency") return { title: `Let ${name} run ${runAtOnce(a.concurrency)} (now ${runAtOnce(b.concurrency).replace(" at once", "")})`, detail: reason, facts: [] };
+    return { title: fallback ?? `Change the ${name} queue’s ${fieldsWords(fields)}`, detail: reason, facts: [] };
+  }
+
+  if (kind === "cron") {
+    const a = (op.after ?? {}) as CronLike;
+    if (op.action === "create") return { title: `Add the ${name} schedule: ${cronWords(a.schedule ?? "")}${a.app ? ` on ${a.app}` : ""}`, detail: reason, facts: [] };
+    if (op.action === "delete") return { title: `Remove the ${name} schedule`, detail: reason, facts: [] };
+    return { title: fallback ?? `Change the ${name} schedule${a.schedule ? ` to ${cronWords(a.schedule)}` : ""}`, detail: reason, facts: [] };
+  }
+
+  if (kind === "bucket") {
+    const a = (op.after ?? {}) as BucketLike;
+    if (op.action === "create") return { title: `Add the ${name} bucket (${a.public ? "public" : "private"})`, detail: reason, facts: [] };
+    if (op.action === "delete") return { title: `Remove the ${name} bucket`, detail: reason, facts: [] };
+    return { title: `Make the ${name} bucket ${a.public ? "public" : "private"}`, detail: reason, facts: [] };
+  }
+
+  if (kind === "env") {
+    const v = typeof op.after === "string" ? op.after : JSON.stringify(op.after);
+    if (op.action === "create") return { title: `Set ${name} to “${v}”`, detail: "Apps restart with it.", facts: [] };
+    if (op.action === "delete") return { title: `Remove ${name}`, detail: "Apps restart without it.", facts: [] };
+    return { title: `Change ${name} to “${v}”`, detail: "Apps restart with it.", facts: [] };
+  }
+
+  if (kind === "topic") {
+    if (op.action === "create") return { title: `Add the ${name} topic`, detail: reason, facts: [] };
+    if (op.action === "delete") return { title: `Remove the ${name} topic`, detail: reason, facts: [] };
+    return { title: `Change the ${name} topic’s ${fieldsWords(fields)}`, detail: reason, facts: [] };
+  }
+
+  if (kind === "service") {
+    const service = serviceNames[name] ?? name;
+    if (op.action === "delete") return { title: `Remove ${service} from ${project}`, detail: reason, facts: [] };
+    if (op.action === "create") return { title: `Add ${service} to ${project}`, detail: reason, facts: [] };
+    return { title: fallback ?? `Change ${service}’s ${fieldsWords(fields)}`, detail: reason, facts: [] };
+  }
+
+  if (kind === "project") return { title: op.action === "create" ? `Start the ${project} project` : op.action === "delete" ? `Remove the ${project} project` : `Change ${project}`, detail: reason, facts: [] };
+  return { title: fallback ?? reason ?? op.address, facts: [] };
 }
 
-function Step({ n, op, project, apps }: { n: number; op: Op; project: string; apps: Record<string, ManifestApp> }) {
-  const t = opTitle(op, project, apps);
+function Step({ n, op, project, apps, edits }: { n: number; op: Op; project: string; apps: Record<string, ManifestApp>; edits: StagedEdit[] }) {
+  const t = opTitle(op, project, apps, edits);
   const tier = asTier(op.risk);
   return (
     <li className="grid grid-cols-[26px_minmax(0,1fr)_auto] gap-x-3 gap-y-1 border-t border-rule py-3.5 first:border-t-0">

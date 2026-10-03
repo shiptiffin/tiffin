@@ -8,11 +8,12 @@ import type { BoxResources } from "@/api/client";
  *   Σ projects (their apps' containers) + platform (its parts + "Linux and builds") = in use
  *   in use + room left = total
  *
- * Per-service readings from cgroups include page cache the kernel hands back
- * on demand, so they can exceed what Linux counts as used. The platform's
- * parts are scaled into what is left after the apps (only if they don't fit),
- * the remainder is "Linux and builds" (the kernel, the container runtime,
- * BuildKit), and the excess shows quietly as cache.
+ * Each service's and app's cgroup reading includes file cache the kernel
+ * hands back on demand; /v1/box/resources reports that part as cacheBytes,
+ * so every part here counts only what it really holds (memory − cache). The
+ * remainder of "in use" is "Linux and builds" (the kernel, the container
+ * runtime, BuildKit, the VM agent), and the cache shows quietly beside it.
+ * (Older boxes without cacheBytes fall back to scaling the parts to fit.)
  */
 
 const MB = 1048576;
@@ -43,7 +44,7 @@ export type MemoryModel = {
   systemMB: number;
   /** The platform tier's total: Σ parts + system. */
   platformMB: number;
-  /** Cache the cgroups report beyond what Linux counts as used (handed back on demand). */
+  /** File cache the services and apps hold, which the kernel hands back on demand (not counted as in use). */
   cacheMB: number;
 };
 
@@ -52,13 +53,14 @@ export function memoryModel(r: BoxResources): MemoryModel {
   const usedMB = Math.round((r.memory.totalBytes - r.memory.availableBytes) / MB);
   const freeMB = totalMB - usedMB;
   const apps = r.apps ?? [];
-  const rawApps = apps.reduce((t, a) => t + a.memoryBytes / MB, 0);
+  const held = (x: { memoryBytes: number; cacheBytes?: number }) => Math.max(0, x.memoryBytes - (x.cacheBytes ?? 0)) / MB;
+  const rawApps = apps.reduce((t, a) => t + held(a), 0);
   const appScale = rawApps > usedMB && rawApps > 0 ? usedMB / rawApps : 1;
   // Per app, rounded once; a project's total is the sum of its rows, so the column adds up.
   const perApp: Record<string, Record<string, number>> = {};
   for (const a of apps) {
     const p = (perApp[a.project] ??= {});
-    p[a.app] = (p[a.app] ?? 0) + (a.memoryBytes / MB) * appScale;
+    p[a.app] = (p[a.app] ?? 0) + held(a) * appScale;
   }
   for (const p of Object.values(perApp)) for (const k of Object.keys(p)) p[k] = Math.round(p[k]);
   const rounded: Record<string, number> = Object.fromEntries(Object.entries(perApp).map(([p, v]) => [p, Object.values(v).reduce((t, x) => t + x, 0)]));
@@ -67,7 +69,7 @@ export function memoryModel(r: BoxResources): MemoryModel {
   const platformMB = Math.max(0, usedMB - appsRounded);
 
   const services = r.services ?? [];
-  const reading = (units: string[]) => services.filter((s) => units.includes(s.name)).reduce((t, s) => t + s.memoryBytes / MB, 0);
+  const reading = (units: string[]) => services.filter((s) => units.includes(s.name)).reduce((t, s) => t + held(s), 0);
   const raw = Object.fromEntries(PLATFORM_PARTS.map((p) => [p.key, reading(p.units)]));
   const rawSum = Object.values(raw).reduce((t, v) => t + v, 0);
   const scale = rawSum > platformMB && rawSum > 0 ? platformMB / rawSum : 1;
@@ -80,8 +82,10 @@ export function memoryModel(r: BoxResources): MemoryModel {
     partsSum = platformMB;
   }
   const systemMB = Math.max(0, platformMB - partsSum);
-  const allReadings = services.reduce((t, s) => t + s.memoryBytes / MB, 0) + appsMB;
-  const cacheMB = Math.max(0, Math.round(allReadings - usedMB));
+  const reported = [...services, ...apps].some((x) => x.cacheBytes !== undefined);
+  const cacheMB = reported
+    ? Math.round([...services, ...apps].reduce((t, x) => t + (x.cacheBytes ?? 0), 0) / MB)
+    : Math.max(0, Math.round(services.reduce((t, s) => t + s.memoryBytes / MB, 0) + appsMB - usedMB));
 
   return {
     totalMB,
