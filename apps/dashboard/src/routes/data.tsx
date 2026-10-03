@@ -614,8 +614,7 @@ export function SqlPage({ project }: { project: string }) {
     <Page full>
       <DataHeader
         project={project}
-        sub="Data"
-        title="SQL"
+        title="Data"
         lede="Read-only unless you turn writes on. Results are rows your apps wrote, shown as plain text."
       />
       <div className="mt-8 grid gap-x-10 gap-y-8 xl:grid-cols-[minmax(0,1fr)_17rem]">
@@ -824,8 +823,7 @@ export function BranchesPage({ project }: { project: string }) {
     <Page wide>
       <DataHeader
         project={project}
-        sub="Data"
-        title="Branches and snapshots"
+        title="Data"
         lede="A branch is a full, writable copy of the database that takes milliseconds to make: the data disk clones its files (a reflink) instead of copying them."
       />
 

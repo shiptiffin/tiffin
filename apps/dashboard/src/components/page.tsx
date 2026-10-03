@@ -94,7 +94,7 @@ export function Tabs({ items }: { items: Array<{ to: string; params?: Record<str
           to={t.to as "/"}
           params={t.params as never}
           activeOptions={{ exact: !!t.exact, includeSearch: false }}
-          className="relative flex h-10 shrink-0 items-center gap-2 px-3 text-[0.875rem] text-ink-3 transition-colors hover:text-ink data-[status=active]:font-[550] data-[status=active]:text-ink after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full after:bg-transparent data-[status=active]:after:bg-ink"
+          className="relative flex h-10 shrink-0 items-center gap-2 px-3 text-[0.875rem] text-ink-3 transition-colors first:pl-0 first:after:left-0 hover:text-ink data-[status=active]:font-[550] data-[status=active]:text-ink after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full after:bg-transparent data-[status=active]:after:bg-ink"
         >
           {t.label}
           {t.count !== undefined && <span className="text-xs text-ink-3 tnum">{t.count}</span>}

@@ -20,6 +20,7 @@ import { createCredential, passkeyError, webauthnSupported } from "@/lib/webauth
 import { NotOnBox, Page, PageHeader, Skeleton } from "@/components/page";
 import { accessCrumbs, Facts, Group, Rows } from "@/components/health-kit";
 import { countWords } from "@/lib/format";
+import { StateSentence } from "@/components/jobs-words";
 
 // ---------------------------------------------------------------- passkeys
 
@@ -27,6 +28,7 @@ export function PasskeysPage() {
   useTitle("Passkeys");
   const qc = useQueryClient();
   const keys = useQuery(q.passkeys);
+  const pending = useQuery({ ...q.pending, retry: false });
   const { name: me } = useMe();
   const [label, setLabel] = useState("");
   const [adding, setAdding] = useState(false);
@@ -52,6 +54,7 @@ export function PasskeysPage() {
   };
 
   const list = keys.data ?? [];
+  const waiting = pending.data?.length ?? 0;
   return (
     <Page>
       <PageHeader
@@ -59,12 +62,23 @@ export function PasskeysPage() {
         title="Passkeys"
         lede="Your passkey does two things: it signs you in to this dashboard, and it signs the exact plan when an agent asks for a risky change. A stolen session alone can’t approve anything. Everyone manages their own passkeys here."
       />
+      {keys.isSuccess && (
+        <StateSentence className="mt-6">
+          {list.length === 0 ? (
+            <span className="text-warn-ink">
+              You have no passkey yet{waiting > 0 ? `, so ${countWords(waiting, "change")} from agents ${waiting === 1 ? "waits" : "wait"} on you` : ", so agents’ risky changes will wait until you add one"}.
+            </span>
+          ) : (
+            `${countWords(list.length, "passkey", "passkeys", true)} can sign for you${list.some((k) => k.lastUsed) ? `; the last signature was ${relative(list.map((k) => k.lastUsed ?? "").sort().pop()!)}` : ""}.`
+          )}
+        </StateSentence>
+      )}
 
       <Group label={me ? `Your passkeys, ${me}` : "Your passkeys"} id="keys" aside={list.length ? countWords(list.length, "passkey") : undefined}>
         {keys.isError && <ProblemNote error={keys.error} />}
         {keys.isPending && <Skeleton className="h-20" />}
         {list.length === 0 && keys.isSuccess && (
-          <p className="border-y border-rule py-4 text-[0.875rem] text-warn-ink">None yet. Add one to sign in without a link from the terminal, and to approve agents’ risky changes, which wait until you can.</p>
+          <p className="border-y border-rule py-4 text-[0.875rem] text-ink-2">None yet. Add one below to sign in without a link from the terminal and to approve agents’ risky changes.</p>
         )}
         {list.length > 0 && (
           <Rows>

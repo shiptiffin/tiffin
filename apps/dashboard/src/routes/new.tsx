@@ -21,7 +21,7 @@ import { BuildLogView, firstError, useBuildLog } from "@/components/start-build-
 import { Button } from "@/components/ui/button";
 import { asTier, splitAddress } from "@/lib/changes";
 import { cn } from "@/lib/cn";
-import { defaultEnamel, enamelNames, type Enamel } from "@/lib/enamel";
+import { defaultEnamel, ENAMELS, enamelNames, useEnamels, type Enamel } from "@/lib/enamel";
 import { countWords, dec, int, NNBSP } from "@/lib/format";
 import {
   appFor,
@@ -64,6 +64,7 @@ export function NewProjectPage() {
   const search = useRouterState({ select: (s) => s.location.search as Record<string, unknown> });
   const projects = useQuery(q.projects);
   const names = useMemo(() => (projects.data ?? []).map((p) => p.name), [projects.data]);
+  const usedEnamels = useEnamels(names);
   const manifests = useQueries({ queries: names.map((n) => ({ ...q.manifest(n), staleTime: 60_000 })) });
   const routes = useMemo(
     () =>
@@ -95,7 +96,10 @@ export function NewProjectPage() {
   const name = typed ?? suggested;
   const check = checkName(name, taken);
   const gitCheck = choice === "git" ? checkGitUrl(git.url) : ({ ok: true } as const);
-  const enamel = enamelPick ?? defaultEnamel(name || "project");
+  // The name's own enamel, unless another project already wears it: then the first one nobody uses.
+  const inUse = new Set(Object.values(usedEnamels));
+  const hashed = defaultEnamel(name || "project");
+  const enamel = enamelPick ?? (inUse.has(hashed) ? (ENAMELS.find((e) => !inUse.has(e)) ?? hashed) : hashed);
 
   const [stage, setPhase] = useState<Phase>("compose");
   const [L, setL] = useState<Launched | null>(null);
@@ -309,8 +313,7 @@ function Hero({ open, small, className }: { open: boolean; small?: boolean; clas
 function Step({ n, label, children }: { n: number; label: string; children: ReactNode }) {
   return (
     <section className="mb-10 last:mb-0" aria-label={label}>
-      <h2 className="label mb-3 flex items-baseline gap-3">
-        <span className="ident text-[0.6875rem] tracking-normal text-ink-4">{String(n).padStart(2, "0")}</span>
+      <h2 className="label mb-3" data-step={n}>
         {label}
       </h2>
       {children}

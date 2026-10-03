@@ -25,7 +25,7 @@ function Header({ project, title, lede, actions, crumbs, tabs = true }: { projec
       {tabs && (
         <Tabs
           items={[
-            { to: "/projects/$project/users", params: { project }, label: "Users" },
+            { to: "/projects/$project/users", params: { project }, label: "Accounts" },
             { to: "/projects/$project/orgs", params: { project }, label: "Organizations" },
           ]}
         />
@@ -511,7 +511,7 @@ export function OrgsPage({ project, search = "" }: { project: string; search?: s
   const orgs = list.data?.organizations ?? [];
   return (
     <Page wide>
-      <Header project={project} title="Organizations" lede="Teams your users create in your app, with their members, roles and open invitations." />
+      <Header project={project} title="Users" lede="Teams your users create in your app, with their members, roles and open invitations." />
       <div className="mt-8 flex items-center justify-between gap-4">
         <SearchBox value={q} onChange={setQ} label="Search organizations" placeholder="Search by name or slug" />
         <span className="shrink-0 text-[0.8125rem] text-ink-3 tnum max-sm:hidden">{list.isSuccess && `${int(list.data?.total ?? orgs.length)} in all`}</span>

@@ -4,7 +4,7 @@ import { ArrowUpRight } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { ApiError, notOnBox } from "@/api/client";
 import { mod2, mq, type QueueCron, type QueueJob, type QueueStats, type QueueTopic, type WorkflowApproval, type WorkflowRun, type WorkflowStep } from "@/api/modules";
-import { q as api } from "@/api/queries";
+import { q as api, queryClient } from "@/api/queries";
 import { Confirm } from "@/components/confirm";
 import { useTitle } from "@/components/favicon";
 import { HazardDialog } from "@/components/hazard";
@@ -72,14 +72,37 @@ function Label({ children, id, action }: { children: ReactNode; id?: string; act
 const secFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
 const clockSec = (iso: string) => secFmt.format(new Date(iso));
 
-/** "owner (owner)" → "Owner", "claude-code (agent)" → "Claude Code", "workflow" → "a workflow". */
+/** The owner's own name, for actors the API records as "owner (owner)": loads the people list (pages call it so they re-render once it's here). */
+function useOwnerName() {
+  return useQuery({ ...api.people, retry: false, staleTime: 300_000 }).data?.find((p) => p.role === "owner")?.name;
+}
+const cachedOwner = () => queryClient.getQueryData(api.people.queryKey)?.find((p) => p.role === "owner")?.name;
+
+/** "owner (owner)" → "Bilal", "claude-code (agent)" → "Claude Code", "workflow" → "a workflow". */
 function whoWords(s?: string) {
   if (!s) return undefined;
   const m = s.match(/^(.*) \((\w+)\)$/);
+  if (m && (m[2] === "owner" || (m[2] === "human" && m[1].toLowerCase() === "owner")) && cachedOwner()) return cachedOwner();
   if (m) return actorWords({ kind: m[2], name: m[1] });
   if (s === "workflow") return "a workflow turn";
   if (s === "cron") return "a schedule";
   return s;
+}
+
+/** A workflow's history line in words: local clock times, real plurals, a result as "status shipped, by Bilal". */
+function timelineWords(m: string) {
+  return m
+    .replace(/\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\b/g, (iso) => clockSec(iso))
+    .replace(/\b(\d+) turn\(s\)/g, (_, n) => (n === "1" ? "one turn" : `${words(Number(n))} turns`))
+    .replace(/→\s*(\{.*\})\s*$/, (whole, json) => {
+      try {
+        const o = JSON.parse(json) as Record<string, unknown>;
+        const parts = Object.entries(o).map(([k, v]) => (k === "by" ? `by ${whoWords(String(v)) ?? v}` : `${k} ${typeof v === "object" ? JSON.stringify(v) : String(v)}`));
+        return `→ ${parts.join(", ")}`;
+      } catch {
+        return whole;
+      }
+    });
 }
 
 const elapsed = (a?: string, b?: string) => (a && b ? new Date(b).getTime() - new Date(a).getTime() : undefined);
@@ -664,6 +687,7 @@ function Topics({ list }: { list?: QueueTopic[] }) {
 // ------------------------------------------------------------------ jobs
 
 export function JobsPage({ project, queue, state }: { project: string; queue?: string; state?: string }) {
+  useOwnerName();
   useTitle(`${project} · Jobs`);
   const navigate = useNavigate();
   const st = jobFilters.some((f) => f.state === state) ? (state as QueueJob["state"]) : undefined;
@@ -778,6 +802,7 @@ export function JobsPage({ project, queue, state }: { project: string; queue?: s
 // ------------------------------------------------------------------ one job
 
 export function JobPage({ project, id }: { project: string; id: string }) {
+  useOwnerName();
   useTitle(`${id} · Jobs`);
   const qc = useQueryClient();
   const { can } = useMe();
@@ -1173,6 +1198,7 @@ const weekdayClock = (iso: string) => wdFmt.format(new Date(iso));
 const offset = (n: number) => `+${ms(Math.max(0, n))}`;
 
 export function RunPage({ project, id }: { project: string; id: string }) {
+  useOwnerName();
   const qc = useQueryClient();
   const r = useQuery(mq.run(project, id));
   const approvals = useQuery(mq.wfApprovals(project));
@@ -1364,7 +1390,7 @@ export function RunPage({ project, id }: { project: string; id: string }) {
                   {clockSec(t.at)}
                 </time>
                 <span className="text-ink-2">
-                  {sentence(t.message.replace(/ on release dep_\w+/, "").replace(/^HTTP 489:\s*/, ""))}
+                  {sentence(timelineWords(t.message.replace(/ on release dep_\w+/, "").replace(/^HTTP 489:\s*/, "")))}
                   {t.actor && <span className="text-ink-3"> · {whoWords(t.actor)}</span>}
                 </span>
               </li>

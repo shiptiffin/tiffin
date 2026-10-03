@@ -76,8 +76,7 @@ export function KvPage({ project, match, k }: { project: string; match?: string;
     <Page full>
       <DataHeader
         project={project}
-        sub="Data"
-        title="Key-value"
+        title="Data"
         lede={
           s ? (
             <>
