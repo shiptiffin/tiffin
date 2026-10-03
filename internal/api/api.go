@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -42,6 +44,9 @@ const (
 	RiskDestructive = "destructive"
 )
 
+// SessionCookie holds a dashboard session token.
+const SessionCookie = "tiffin_session"
+
 // SessionHeader carries an agent's session label into the change log.
 const SessionHeader = "X-Tiffin-Session"
 
@@ -51,6 +56,10 @@ type Deps struct {
 	Engine  *change.Engine
 	Tokens  *tokens.Manager
 	Version string
+	// Checks adds box-level health checks (disk, edge, services) to /v1/status.
+	Checks func(ctx context.Context) []Check
+	// PublicURL is where the dashboard is reached, for login links.
+	PublicURL string
 }
 
 // API is the HTTP API.
@@ -76,6 +85,7 @@ func New(d Deps) *API {
 	a := &API{api: humago.New(mux, cfg), mux: mux, deps: d}
 	a.api.UseMiddleware(a.authenticate)
 	a.register()
+	a.registerBox()
 	return a
 }
 
@@ -105,7 +115,16 @@ func (a *API) authenticate(ctx huma.Context, next func(huma.Context)) {
 		next(ctx)
 		return
 	}
-	p, err := a.deps.Tokens.Authenticate(ctx.Context(), ctx.Header("Authorization"))
+	cred := ctx.Header("Authorization")
+	if cred == "" {
+		// The dashboard authenticates with an HttpOnly, SameSite=Strict cookie.
+		// Mutations still need a JSON body or a non-simple method, which
+		// cross-site forms cannot send.
+		if c, err := huma.ReadCookie(ctx, SessionCookie); err == nil {
+			cred = c.Value
+		}
+	}
+	p, err := a.deps.Tokens.Authenticate(ctx.Context(), cred)
 	if err != nil {
 		_ = huma.WriteErr(a.api, ctx, http.StatusUnauthorized, "")
 		return
@@ -491,6 +510,121 @@ func (a *API) register() {
 			}
 			return &struct{ Body []state.AuditEvent }{ev}, err
 		}))
+}
+
+func (a *API) registerBox() {
+	api := a.api
+	started := time.Now()
+
+	huma.Register(api, op("status", http.MethodGet, "/v1/status", "status", RiskRead, "Show box status",
+		"Box health: version, uptime, host and every health check (state, disk, edge, services). Works even when app services are down.", "system"),
+		wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body StatusReport }, error) {
+			if err := PrincipalFrom(ctx).Require(tokens.ScopeRead, ""); err != nil {
+				return nil, err
+			}
+			return &struct{ Body StatusReport }{a.Status(ctx, started)}, nil
+		}))
+
+	huma.Register(api, op("login-link-create", http.MethodPost, "/v1/login-links", "login-link", RiskWrite, "Create a dashboard login link",
+		"A one-time link (valid 10 minutes) that signs a browser into the dashboard with your power. Box admins only.", "system"),
+		wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body LoginLink }, error) {
+			code, exp, err := a.deps.Tokens.CreateLoginLink(ctx, PrincipalFrom(ctx))
+			if err != nil {
+				return nil, err
+			}
+			base := strings.TrimRight(orDefault(a.deps.PublicURL, ""), "/")
+			return &struct{ Body LoginLink }{LoginLink{URL: base + "/login#" + code, Code: code, ExpiresAt: exp}}, nil
+		}))
+
+	sc := op("session-create", http.MethodPost, "/v1/session", "session create", RiskWrite, "Start a dashboard session",
+		"Exchanges a one-time login code for a session cookie. Used by the dashboard's login page.", "system")
+	sc.Security = nil
+	huma.Register(api, sc, wrap(func(ctx context.Context, in *struct {
+		Body struct {
+			Code string `json:"code" minLength:"8" maxLength:"128"`
+		}
+	}) (*struct {
+		SetCookie http.Cookie `header:"Set-Cookie"`
+		Body      *tokens.Principal
+	}, error) {
+		secret, t, err := a.deps.Tokens.RedeemLoginLink(ctx, in.Body.Code)
+		if err != nil {
+			return nil, problem(401, "unauthenticated", "this login link is invalid, used or expired; run `tiffin login` for a new one")
+		}
+		p, err := a.deps.Tokens.Authenticate(ctx, secret)
+		if err != nil {
+			return nil, err
+		}
+		out := &struct {
+			SetCookie http.Cookie `header:"Set-Cookie"`
+			Body      *tokens.Principal
+		}{Body: p}
+		out.SetCookie = http.Cookie{Name: SessionCookie, Value: secret, Path: "/", HttpOnly: true, Secure: true,
+			SameSite: http.SameSiteStrictMode, Expires: *t.ExpiresAt}
+		return out, nil
+	}))
+
+	huma.Register(api, op("session-delete", http.MethodDelete, "/v1/session", "session delete", RiskWrite, "End the dashboard session",
+		"Revokes the current session token and clears the cookie.", "system"),
+		wrap(func(ctx context.Context, _ *struct{}) (*struct {
+			SetCookie http.Cookie `header:"Set-Cookie"`
+		}, error) {
+			p := PrincipalFrom(ctx)
+			if p.Kind == tokens.KindHuman && p.Name == "dashboard session" {
+				owner := &tokens.Principal{TokenID: p.TokenID, Name: p.Name, Scopes: []tokens.Scope{tokens.ScopeAll}, Projects: []string{"*"}}
+				_ = a.deps.Tokens.Revoke(ctx, owner, p.TokenID)
+			}
+			return &struct {
+				SetCookie http.Cookie `header:"Set-Cookie"`
+			}{http.Cookie{Name: SessionCookie, Value: "", Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, MaxAge: -1}}, nil
+		}))
+}
+
+// LoginLink is a one-time dashboard login.
+type LoginLink struct {
+	URL       string    `json:"url" doc:"Open this in a browser"`
+	Code      string    `json:"code"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// Check is one health check.
+type Check struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// StatusReport is the box's health.
+type StatusReport struct {
+	OK      bool      `json:"ok"`
+	Version string    `json:"version"`
+	Started time.Time `json:"started"`
+	Uptime  string    `json:"uptime"`
+	Host    struct {
+		Hostname string `json:"hostname"`
+		OS       string `json:"os"`
+		Arch     string `json:"arch"`
+	} `json:"host"`
+	Checks []Check `json:"checks"`
+}
+
+// Status computes the status report. The public /status page uses it too.
+func (a *API) Status(ctx context.Context, started time.Time) StatusReport {
+	r := StatusReport{OK: true, Version: orDefault(a.deps.Version, "dev"), Started: started.UTC(), Uptime: time.Since(started).Round(time.Second).String()}
+	r.Host.Hostname, _ = os.Hostname()
+	r.Host.OS, r.Host.Arch = runtime.GOOS, runtime.GOARCH
+	if _, err := a.deps.DB.ListProjects(ctx); err != nil {
+		r.Checks = append(r.Checks, Check{Name: "state", OK: false, Detail: err.Error()})
+	} else {
+		r.Checks = append(r.Checks, Check{Name: "state", OK: true, Detail: "platform state readable"})
+	}
+	if a.deps.Checks != nil {
+		r.Checks = append(r.Checks, a.deps.Checks(ctx)...)
+	}
+	for _, c := range r.Checks {
+		r.OK = r.OK && c.OK
+	}
+	return r
 }
 
 func (a *API) apply(ctx context.Context, p *tokens.Principal, plan *change.Plan, confirm, intent string) (*struct{ Body ApplyResult }, error) {

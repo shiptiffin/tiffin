@@ -140,6 +140,13 @@ var migrations = []string{
 		target TEXT NOT NULL,
 		detail TEXT NOT NULL
 	) STRICT`,
+	`CREATE TABLE login_links (
+		hash       BLOB PRIMARY KEY,
+		created_by TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		expires_at TEXT NOT NULL,
+		used_at    TEXT
+	) STRICT, WITHOUT ROWID`,
 }
 
 func (s *DB) migrate(ctx context.Context) error {
