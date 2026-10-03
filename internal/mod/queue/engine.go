@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
@@ -80,6 +81,11 @@ func Open(ctx context.Context, cfg Config) (*Engine, error) {
 	}
 	if pcfg.MaxConns < 20 {
 		pcfg.MaxConns = 20
+	}
+	pcfg.AfterConnect = func(_ context.Context, c *pgx.Conn) error {
+		// Times come back in UTC, whatever the box's time zone.
+		c.TypeMap().RegisterType(&pgtype.Type{Name: "timestamptz", OID: pgtype.TimestamptzOID, Codec: &pgtype.TimestamptzCodec{ScanLocation: time.UTC}})
+		return nil
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, pcfg)
 	if err != nil {

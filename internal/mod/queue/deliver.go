@@ -293,6 +293,12 @@ func (e *Engine) insertRiver(ctx context.Context, tx pgx.Tx, jobID int64, seq, p
 func (e *Engine) deliver(ctx context.Context, j *jobRow, d *delivery) outcome {
 	oc := outcome{started: e.now(), release: j.Release}
 	defer func() { oc.finished = e.now() }()
+	target, release, err := e.target(ctx, j)
+	if err != nil {
+		oc.kind, oc.err = outcomeRetry, err.Error()
+		return oc
+	}
+	oc.release = release
 	body, err := e.buildBody(ctx, j)
 	if errors.Is(err, errRunFinished) {
 		oc.kind = outcomeOK // nothing to do: the run finished or was cancelled
@@ -302,12 +308,6 @@ func (e *Engine) deliver(ctx context.Context, j *jobRow, d *delivery) outcome {
 		oc.kind, oc.err = outcomeRetry, "could not build the delivery: "+err.Error()
 		return oc
 	}
-	target, release, err := e.target(ctx, j)
-	if err != nil {
-		oc.kind, oc.err = outcomeRetry, err.Error()
-		return oc
-	}
-	oc.release = release
 	_, secret, err := e.cfg.Keys.Get(ctx, j.Project)
 	if err != nil {
 		oc.kind, oc.err = outcomeRetry, "signing key: "+err.Error()
