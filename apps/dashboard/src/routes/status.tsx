@@ -105,7 +105,7 @@ export function StatusPage() {
   if (failing.length === 1) head = `${checkName(failing[0])} is failing.`;
   else if (failing.length > 1) head = `${countWords(failing.length, "check", "checks", true)} are failing: ${failing.map(checkName).join(", ")}.`;
   else if (firing.length > 0) head = firing.length === 1 ? `An alert is firing: ${firing[0].summary.replace(/\.$/, "")}.` : `${words(firing.length, true)} alerts are firing.`;
-  else head = "Nothing is wrong.";
+  else head = "";
   const tail: string[] = [];
   if (attack?.on) tail.push(`Under-attack mode is on for ${duration(attack.minutesLeft * 60)} more.`);
   if (staleBackup) tail.push(last ? `The last backup was ${relative(last, now)}.` : "Nothing has been backed up yet.");
@@ -118,6 +118,8 @@ export function StatusPage() {
         : `${countWords(open.length, "open error", "open errors", true)} across ${words(where.size)} apps.`,
     );
   }
+  // Every check passing isn't "nothing is wrong" when an app has open errors: say the box is fine and name the rest.
+  if (!head) head = tail.length > 0 ? "The box itself is fine." : "Nothing is wrong.";
   const rulesOn = (rules.data ?? []).filter((r) => r.enabled).length;
 
   return (

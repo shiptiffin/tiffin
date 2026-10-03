@@ -52,7 +52,7 @@ const pages: Array<{ name: string; url: string; wait: (p: Page) => Promise<unkno
     name: "protect-armed",
     url: "/protect",
     wait: (p) => p.getByRole("heading", { name: "Banned right now", exact: true }).waitFor(),
-    act: (p) => p.getByRole("button", { name: "Lift the guard" }).click(),
+    act: (p) => p.getByRole("button", { name: "Turn on…" }).click(),
     full: false,
   },
   { name: "errors-empty", url: "/errors?project=notes", wait: (p) => p.getByText("No open errors in notes.").waitFor(), full: false },

@@ -455,7 +455,15 @@ export function AppPage({ project, app }: { project: string; app: string }) {
         </aside>
       </div>
 
-      <DeployTray project={project} app={app} framework={r?.framework ?? spec?.framework} open={tray} onOpenChange={setTray} suggest={next} />
+      <DeployTray
+        project={project}
+        app={app}
+        framework={r?.framework ?? spec?.framework}
+        open={tray}
+        onOpenChange={setTray}
+        suggest={next}
+        hasVersions={list.some((d) => !d.preview)}
+      />
       <Confirm
         open={!!deletePreview}
         onClose={() => setDeletePreview(null)}
@@ -504,7 +512,7 @@ function VersionRow({
             {who ? ` by ${who}` : ""} · {source}
           </span>
         </Link>
-        <p className={cn("mt-0.5 truncate pl-0 text-xs", reason ? "text-ink-2" : "text-ink-3")}>
+        <p className={cn("mt-0.5 pl-0 text-xs", reason ? "text-ink-2" : "truncate text-ink-3")}>
           {reason ?? (d.buildSeconds !== undefined ? `Built in ${secs(d.buildSeconds)}${d.durationSeconds !== undefined ? `, live ${secs(d.durationSeconds)} after it was queued` : ""}.` : inFlight(d.status) ? "Following the build…" : "")}
         </p>
       </div>
@@ -983,6 +991,7 @@ export function AppLogsPage({ project, app }: { project: string; app: string }) 
               </span>
               <span className={cn("whitespace-pre-wrap [overflow-wrap:anywhere]", l.level === "error" ? "text-danger" : l.level === "warn" ? "text-warn-ink" : "text-ink-2")}>
                 <Highlight text={l.text} needle={needle} />
+                {/Polite quit request|signal SIGTERM/.test(l.text) && <span className="ml-2 font-sans text-xs text-ink-3">· a normal stop when a new version takes over, not an error</span>}
               </span>
             </li>
           ))}

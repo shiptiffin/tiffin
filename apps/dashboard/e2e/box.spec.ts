@@ -61,7 +61,7 @@ test("modules: storage, data, email, queues, workflows, users, analytics, protec
 
   // Protection: the alarm state reaches every page, then goes away.
   await page.goto("/protect");
-  await page.getByRole("button", { name: "Lift the guard" }).click();
+  await page.getByRole("button", { name: "Turn on…" }).click();
   await page.getByRole("button", { name: "Turn on for an hour" }).click();
   await expect(page.getByText("Under-attack mode is on.")).toBeVisible();
   await page.goto("/");

@@ -150,7 +150,7 @@ function Sidebar({ onSearch }: { onSearch: () => void }) {
   const inLedger = under(ledgerPaths);
 
   return (
-    <nav className="flex h-full flex-col gap-5 overflow-y-auto pt-[18px] pr-3.5 pb-4 pl-[18px]" aria-label="Main">
+    <nav className="flex h-full flex-col gap-5 overflow-y-auto pt-[18px] pr-3.5 pb-4 pl-[18px] [&>*]:shrink-0" aria-label="Main">
       <Link to="/" className="flex items-center gap-2.5 rounded-[8px] px-1 py-0.5" aria-label={`${boxName(status.data)}, the Box`}>
         <Logo className="size-[24px] text-ink" />
         <span className="min-w-0">
@@ -227,7 +227,10 @@ function Sidebar({ onSearch }: { onSearch: () => void }) {
 function Projects() {
   const projects = useQuery(q.projects);
   const res = useQuery(q.resources);
-  const current = useCurrentProject();
+  // A project is "where you are" only on its own pages; a Health or Ledger page filtered to it keeps one active rail.
+  const inProject = useRouterState({ select: (s) => s.location.pathname.startsWith("/projects/") });
+  const picked = useCurrentProject();
+  const current = inProject ? picked : undefined;
   const staged = useAllStaged();
   const names = (projects.data ?? []).map((p) => p.name);
   const enamels = useEnamels(names);

@@ -155,7 +155,7 @@ function Layer({
   );
 }
 
-/** Lift the guard (arm), then throw the switch. Turning it off is a plain button: that's the safe direction. */
+/** Arm ("Turn on…", which says what it will do to every visitor), then throw the switch. Turning it off is a plain button: that's the safe direction. */
 function AttackLever({ s, admin, onDone }: { s: ProtectStatus; admin: boolean; onDone: () => void }) {
   const [minutes, setMinutes] = useState(60);
   const [armed, setArmed] = useState(false);
@@ -208,7 +208,7 @@ function AttackLever({ s, admin, onDone }: { s: ProtectStatus; admin: boolean; o
       aria-label="Under-attack mode"
       className={cn(
         "mt-8 rounded-[10px] border bg-paper-raised px-5 py-4 transition-[border-color] duration-[var(--dur-state)] ease-[var(--ease-out)]",
-        armed ? "border-danger" : "border-rule-2",
+        armed ? "border-warn" : "border-rule-2",
       )}
     >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
@@ -238,13 +238,13 @@ function AttackLever({ s, admin, onDone }: { s: ProtectStatus; admin: boolean; o
                 <Button size="lg" variant="ghost" onClick={() => setArmed(false)}>
                   Cancel
                 </Button>
-                <Button size="lg" variant="danger" onClick={() => on.mutate()} disabled={on.isPending} autoFocus>
+                <Button size="lg" variant="primary" onClick={() => on.mutate()} disabled={on.isPending} autoFocus>
                   {on.isPending ? "Turning on…" : `Turn on for ${forWords(minutes)}`}
                 </Button>
               </>
             ) : (
               <Button size="lg" onClick={() => setArmed(true)} aria-describedby="ua-guard">
-                Lift the guard
+                Turn on…
               </Button>
             )}
           </div>

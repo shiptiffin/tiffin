@@ -65,13 +65,13 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
   const res0 = useQuery(core.resources);
   const settings = useQuery({ queryKey: ["observe-settings"], queryFn: mod.observeSettings, staleTime: 300_000 });
   const { admin } = useMe();
-  const [text, setText] = useState(q);
+  const [text, setText] = useState(q === "*" ? "" : q); // "everything" shows as an empty box with its placeholder, not a bare *
   const [app, setApp] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [prevQ, setPrevQ] = useState(q);
   if (q !== prevQ) {
     setPrevQ(q);
-    setText(q);
+    setText(q === "*" ? "" : q);
   }
   const scope = project ?? (admin ? "" : (projects.data?.[0]?.name ?? ""));
   const sent = app ? (q === "*" ? `app:${app}` : `(${q}) AND app:${app}`) : q || "*";
@@ -186,7 +186,7 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
             onChange={(e) => setText(e.target.value)}
             aria-label="Search logs (LogsQL)"
             className="ident h-full min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-ink-4"
-            placeholder='error AND app:web, or _msg:~"timeout"'
+            placeholder='Everything. Try: error AND app:web'
             spellCheck={false}
           />
         </label>
@@ -226,7 +226,7 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
           <button
             key={p.label}
             type="button"
-            onClick={() => (setText(p.q), set({ q: p.q }))}
+            onClick={() => (setText(p.q === "*" ? "" : p.q), set({ q: p.q }))}
             aria-pressed={q === p.q}
             className={cn("text-ink-3 transition-colors hover:text-ink", q === p.q && "font-[550] text-ink underline decoration-brass decoration-2 underline-offset-[6px]")}
           >
@@ -302,7 +302,7 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
                         )}
                       >
                         <span className="text-ink-3 sm:hidden">{l.source} </span>
-                        {l.msg.trim() || <span className="text-ink-4">(empty line)</span>}
+                        {/^missing _msg field\b/.test(l.msg) ? <span className="text-ink-4">(a line with no message)</span> : l.msg.trim() || <span className="text-ink-4">(empty line)</span>}
                       </span>
                     </button>
                     {isOpen && (

@@ -737,11 +737,12 @@ export function JobsPage({ project, queue, state }: { project: string; queue?: s
                       {ran !== undefined && ` · ran ${ms(ran)}`}
                     </span>
                   </span>
-                  <span className={cn("hidden min-w-0 truncate text-[0.8125rem] sm:block", err ? "font-mono text-[0.75rem] text-danger" : "text-ink-3")}>
+                  <span className={cn("hidden min-w-0 truncate text-[0.8125rem] sm:block", err ? "text-danger" : "text-ink-3")}>
                     <span className="ident mr-2 text-[0.75rem] text-ink-3">{j.id}</span>
                     {detail}
                   </span>
-                  <span className={cn("text-right text-[0.8125rem]", toneClass[s.tone])}>{s.word}</span>
+                  {/* Status only when it isn't fine: a finished job's row says nothing here. */}
+                  <span className={cn("text-right text-[0.8125rem]", toneClass[s.tone])}>{j.state === "completed" ? <span className="sr-only">{s.word}</span> : s.word}</span>
                   <span className="hidden text-right text-[0.8125rem] text-ink-3 tnum sm:block">{ran !== undefined ? ms(ran) : ""}</span>
                 </Link>
               </li>
@@ -889,7 +890,7 @@ export function JobPage({ project, id }: { project: string; id: string }) {
             ]}
           />
         }
-        title={<span className="font-mono text-[1.375rem] tracking-[-0.01em]">{d.id}</span>}
+        title={<>A job on {d.queue}<span className="ident ml-2.5 align-middle text-[0.8125rem] font-normal tracking-normal text-ink-3">{d.id}</span></>}
         actions={
           can("apply:reversible") ? (
             <>
@@ -1241,7 +1242,7 @@ export function RunPage({ project, id }: { project: string; id: string }) {
             ]}
           />
         }
-        title={<span className="font-mono text-[1.375rem] tracking-[-0.01em]">{run.workflow}</span>}
+        title={run.workflow}
         lede={
           <span className="font-mono text-[0.75rem] text-ink-3">
             {run.idempotencyKey ? `${run.idempotencyKey} · ` : ""}

@@ -49,7 +49,7 @@ function visitLength(s: number) {
 
 /** A change against a real baseline, or nothing at all. */
 function change(v: number, prev: number, base: number, points?: boolean): string | null {
-  if (base < MIN_BASELINE) return null;
+  if (base < MIN_BASELINE || Number.isNaN(base)) return null;
   if (points) {
     const d = Math.round((v - prev) * 100);
     return d === 0 ? "same as before" : `${d > 0 ? "+" : MINUS}${Math.abs(d)} pts`;
@@ -72,6 +72,9 @@ export function AnalyticsPage({ project, period = "7d" }: { project: string; per
   const ev = useQuery({ queryKey: ["analytics-ev", project, p], queryFn: () => mod2.events(project, p) });
   const setup = useQuery({ queryKey: ["analytics-setup", project], queryFn: () => mod2.analyticsSetup(project), staleTime: Infinity });
   const markers = useDeployMarkers(project);
+  const since = useFirstVisit(project, p);
+  // The previous window only counts as a baseline if visits were being counted for all of it.
+  const partial = since !== undefined && since > prevStart(p);
 
   if (o.isError && notOnBox(o.error)) return <NotOnBox what="Analytics" />;
   const d = o.data;
@@ -85,7 +88,7 @@ export function AnalyticsPage({ project, period = "7d" }: { project: string; per
         lede="Counted at the box’s own edge: no cookies, nothing sent anywhere else, and ad blockers can’t hide a page view."
       />
 
-      <div className="mt-8">{d ? <StateSentence>{sentenceFor(d, per)}</StateSentence> : <Skeleton className="h-8 w-[28rem] max-w-full" />}</div>
+      <div className="mt-8">{d ? <StateSentence>{sentenceFor(d, per, partial ? since : undefined)}</StateSentence> : <Skeleton className="h-8 w-[28rem] max-w-full" />}</div>
       <div className="mt-5 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <div role="radiogroup" aria-label="Period" className="inline-flex shrink-0 rounded-[8px] border border-rule-2 bg-paper-sunk p-0.5">
           {periods.map((x) => (
@@ -107,7 +110,6 @@ export function AnalyticsPage({ project, period = "7d" }: { project: string; per
         </div>
         <span className="inline-flex items-center gap-2 text-[0.84375rem] text-ink-2" aria-live="polite">
           <span className={cn("relative size-2 rounded-full", now ? "bg-ok" : "bg-ink-4")}>
-            {now > 0 && <span aria-hidden className="absolute inset-0 animate-ping rounded-full bg-ok/50 motion-reduce:hidden" />}
           </span>
           {now ? `${int(now)} ${now === 1 ? "person" : "people"} on the site now` : "No one on the site right now"}
         </span>
@@ -118,11 +120,11 @@ export function AnalyticsPage({ project, period = "7d" }: { project: string; per
       {d && (
         <div className={cn("transition-opacity", o.isPlaceholderData && "opacity-60")}>
           <dl className="mt-6 grid grid-cols-2 border-y border-rule-2 sm:grid-cols-3 lg:grid-cols-5">
-            <Reading label="Visitors" value={int(d.totals.visitors)} delta={change(d.totals.visitors, d.previous.visitors, d.previous.visitors)} on={metric === "visitors"} onClick={() => setMetric("visitors")} />
-            <Reading label="Page views" value={int(d.totals.pageviews)} delta={change(d.totals.pageviews, d.previous.pageviews, d.previous.visitors)} on={metric === "pageviews"} onClick={() => setMetric("pageviews")} />
-            <Reading label="Views per visit" value={d.totals.visitors ? dec(d.totals.viewsPerVisit, 1) : "–"} delta={change(d.totals.viewsPerVisit, d.previous.viewsPerVisit, d.previous.visitors)} />
-            <Reading label="Bounce rate" value={d.totals.visitors ? pct(d.totals.bounceRate) : "–"} delta={change(d.totals.bounceRate, d.previous.bounceRate, d.previous.visitors, true)} />
-            <Reading label="Visit length" value={d.totals.visitors ? visitLength(d.totals.avgSessionSeconds) : "–"} delta={change(d.totals.avgSessionSeconds, d.previous.avgSessionSeconds, d.previous.visitors)} />
+            <Reading label="Visitors" value={int(d.totals.visitors)} delta={change(d.totals.visitors, d.previous.visitors, partial ? NaN : d.previous.visitors)} on={metric === "visitors"} onClick={() => setMetric("visitors")} />
+            <Reading label="Page views" value={int(d.totals.pageviews)} delta={change(d.totals.pageviews, d.previous.pageviews, partial ? NaN : d.previous.visitors)} on={metric === "pageviews"} onClick={() => setMetric("pageviews")} />
+            <Reading label="Views per visit" value={d.totals.visitors ? dec(d.totals.viewsPerVisit, 1) : "–"} delta={change(d.totals.viewsPerVisit, d.previous.viewsPerVisit, partial ? NaN : d.previous.visitors)} />
+            <Reading label="Bounce rate" value={d.totals.visitors ? pct(d.totals.bounceRate) : "–"} delta={change(d.totals.bounceRate, d.previous.bounceRate, partial ? NaN : d.previous.visitors, true)} />
+            <Reading label="Visit length" value={d.totals.visitors ? visitLength(d.totals.avgSessionSeconds) : "–"} delta={change(d.totals.avgSessionSeconds, d.previous.avgSessionSeconds, partial ? NaN : d.previous.visitors)} />
           </dl>
 
           <section className="mt-8" aria-label={metric === "visitors" ? "Visitors over time" : "Page views over time"}>
@@ -216,10 +218,11 @@ export function AnalyticsPage({ project, period = "7d" }: { project: string; per
 }
 
 /** The period's state in one sentence, honest about the baseline. */
-function sentenceFor(d: AnalyticsOverview, per: (typeof periods)[number]): string {
+function sentenceFor(d: AnalyticsOverview, per: (typeof periods)[number], partialSince?: number): string {
   const v = d.totals.visitors;
   if (!v) return `No visits ${per.words}.`;
   let s = `${int(v)} ${v === 1 ? "visitor" : "visitors"} ${per.words}`;
+  if (partialSince !== undefined && d.previous.visitors > 0) return `${s}. Counting started ${dayFmt.format(new Date(partialSince))}, so there’s no full ${per.before.replace(/^the /, "")} to compare with yet.`;
   const pts = d.timeseries.points ?? [];
   const first = pts.findIndex((x) => x.pageviews > 0);
   if (d.previous.visitors === 0 && first > 0 && d.timeseries.granularity === "day") s += `, all since ${dayFmt.format(new Date(pts[first].t))}`;
@@ -463,3 +466,24 @@ function CodeBox({ code, name, className }: { code: string; name: string; classN
   );
 }
 
+
+const DAY = 86_400_000;
+/** Where the period before the shown one starts. */
+function prevStart(p: Period): number {
+  const now = Date.now();
+  if (p === "today") {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d.getTime() - DAY;
+  }
+  const len: Record<string, number> = { yesterday: DAY, "24h": DAY, "7d": 7 * DAY, "30d": 30 * DAY, "90d": 90 * DAY, "12mo": 365 * DAY };
+  return now - 2 * (len[p] ?? DAY);
+}
+
+/** When this project's first visit was counted, from a longer daily series (cached; one cheap read). */
+function useFirstVisit(project: string, p: Period): number | undefined {
+  const longer: Period = p === "90d" || p === "12mo" ? "12mo" : "90d";
+  const q = useQuery({ queryKey: ["analytics", project, longer], queryFn: () => mod2.analytics(project, longer), staleTime: 600_000, retry: false });
+  const first = (q.data?.timeseries.points ?? []).find((x) => x.pageviews > 0);
+  return first ? new Date(first.t).getTime() : undefined;
+}

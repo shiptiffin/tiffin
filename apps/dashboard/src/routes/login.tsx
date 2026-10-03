@@ -119,7 +119,11 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
             {canPasskey && (
               <>
                 <p className="mt-2.5 text-md text-ink-2">
-                  {state === "bad-link" ? "Sign in with your passkey instead, or get a fresh link." : "With the passkey you added in Settings, or a one-time link from your terminal."}
+                  {state === "bad-link"
+                    ? "Sign in with your passkey instead, or get a fresh link."
+                    : reason === "session" || reason === "signed-out"
+                      ? "Sign in again with the passkey you added in Settings, or a one-time link from your terminal."
+                      : "With the passkey you added in Settings, or a one-time link from your terminal."}
                 </p>
                 <Button variant="primary" size="lg" className="mt-5" onClick={passkey} disabled={passkeyBusy}>
                   <KeyRound />

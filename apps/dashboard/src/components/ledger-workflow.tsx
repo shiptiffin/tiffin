@@ -70,7 +70,8 @@ export function WorkflowRow({ w, compact }: { w: WorkflowApproval & { project: s
               />
             )}
             <div className="flex gap-2">
-              <Button size={compact ? "md" : "sm"} variant="primary" className="flex-1" onClick={() => decide.mutate("approve")} disabled={decide.isPending}>
+              {/* In the Ledger's waiting card the agent's Review is the one brass button; this one stays quiet there. */}
+              <Button size={compact ? "md" : "sm"} variant={compact ? "secondary" : "primary"} className="flex-1" onClick={() => decide.mutate("approve")} disabled={decide.isPending}>
                 <Check />
                 Approve
               </Button>

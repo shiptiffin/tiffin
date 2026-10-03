@@ -357,7 +357,7 @@ export function TablePage({ project, table, page = 1 }: { project: string; table
       <DataHeader
         project={project}
         sub="Data"
-        title={<span className="font-mono text-[1.375rem] tracking-[-0.02em]">{table}</span>}
+        title={table}
         lede={
           t
             ? `${t.kind === "table" ? "Table" : kindWord(t.kind).replace(/^./, (c) => c.toUpperCase())}${
@@ -630,7 +630,7 @@ export function SqlPage({ project }: { project: string }) {
               <div
                 ref={gutter}
                 aria-hidden
-                className="w-10 shrink-0 overflow-hidden border-r border-rule bg-paper-sunk/60 py-3 pr-2.5 text-right font-mono text-[0.75rem] leading-6 text-ink-4 select-none tnum"
+                className="w-10 shrink-0 overflow-hidden border-r border-rule bg-paper-sunk/60 py-3 pr-2.5 text-right font-mono text-[0.75rem] leading-6 text-ink-4 select-none tnum max-sm:hidden"
               >
                 {Array.from({ length: lines }, (_, i) => (
                   <div key={i}>{i + 1}</div>
@@ -653,7 +653,8 @@ export function SqlPage({ project }: { project: string }) {
                 aria-label="SQL"
                 rows={7}
                 wrap="off"
-                className="block min-w-0 flex-1 resize-none bg-transparent px-3.5 py-3 font-mono text-[0.8125rem] leading-6 text-ink outline-none"
+                // On a phone the statement wraps (no line numbers) so a DELETE is never scrolled out of sight.
+                className="block min-w-0 flex-1 resize-none bg-transparent px-3.5 py-3 font-mono text-[0.8125rem] leading-6 text-ink outline-none max-sm:!whitespace-pre-wrap max-sm:[overflow-wrap:anywhere]"
               />
             </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-rule bg-paper-sunk/60 px-3 py-2">

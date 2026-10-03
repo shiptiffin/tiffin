@@ -26,6 +26,7 @@ export function DeployTray({
   open,
   onOpenChange,
   suggest,
+  hasVersions = false,
 }: {
   project: string;
   app: string;
@@ -33,6 +34,8 @@ export function DeployTray({
   open: boolean;
   onOpenChange: (o: boolean) => void;
   suggest?: NextDeploy;
+  /** The app already has versions: a starter would replace its code, so nothing is preselected. */
+  hasVersions?: boolean;
 }) {
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
@@ -42,21 +45,36 @@ export function DeployTray({
           aria-describedby={undefined}
           className="tray fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full max-w-[760px] flex-col overflow-hidden rounded-t-[16px] border border-rule-2 bg-paper-raised shadow-overlay outline-none sm:bottom-5 sm:w-[calc(100%-2.5rem)] sm:rounded-[16px] lg:left-[232px] lg:w-[calc(100%-232px-5rem)]"
         >
-          {open && <Body project={project} app={app} framework={framework} suggest={suggest} close={() => onOpenChange(false)} />}
+          {open && <Body project={project} app={app} framework={framework} suggest={suggest} hasVersions={hasVersions} close={() => onOpenChange(false)} />}
         </D.Content>
       </D.Portal>
     </D.Root>
   );
 }
 
-function Body({ project, app, framework, suggest, close }: { project: string; app: string; framework?: string; suggest?: NextDeploy; close: () => void }) {
+function Body({
+  project,
+  app,
+  framework,
+  suggest,
+  hasVersions,
+  close,
+}: {
+  project: string;
+  app: string;
+  framework?: string;
+  suggest?: NextDeploy;
+  hasVersions: boolean;
+  close: () => void;
+}) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const starters = useQuery(startersQuery);
   const fits = [...(starters.data ?? [])].filter((s) => !framework || s.framework === framework).sort((a, b) => starterOrder.indexOf(a.id) - starterOrder.indexOf(b.id));
   const [mode, setMode] = useState<"starter" | "git">(suggest && "git" in suggest ? "git" : "starter");
   const [pick, setPick] = useState<string | undefined>(suggest && "template" in suggest ? suggest.template : undefined);
-  const chosen = fits.find((s) => s.id === pick) ?? fits[0];
+  // An empty app may start from the first starter; one with versions never gets a sample preselected over its code.
+  const chosen = fits.find((s) => s.id === pick) ?? (hasVersions ? undefined : fits[0]);
   const [git, setGit] = useState(suggest && "git" in suggest ? { url: suggest.git.url, ref: suggest.git.ref ?? "", path: suggest.git.path ?? "" } : { url: "", ref: "", path: "" });
   const gitCheck = checkGitUrl(git.url);
   const gitInfo = useQuery({ queryKey: ["git", project], queryFn: () => mod3.git(project), staleTime: Infinity, retry: false });
@@ -72,7 +90,15 @@ function Body({ project, app, framework, suggest, close }: { project: string; ap
     },
   });
   const ok = mode === "git" ? gitCheck.ok : !!chosen;
-  const label = go.isPending ? "Starting the build…" : mode === "git" ? `Deploy ${shortRepo(git.url) || "the repository"} to ${app}` : chosen ? `Deploy the ${chosen.name} starter to ${app}` : `Deploy ${app}`;
+  const label = go.isPending
+    ? "Starting the build…"
+    : mode === "git"
+      ? `Deploy ${shortRepo(git.url) || "the repository"} to ${app}`
+      : chosen
+        ? hasVersions
+          ? `Replace ${app} with the ${chosen.name} starter`
+          : `Deploy the ${chosen.name} starter to ${app}`
+        : "Pick a starter";
 
   return (
     <form
@@ -107,6 +133,11 @@ function Body({ project, app, framework, suggest, close }: { project: string; ap
           </Tab>
         </div>
 
+        {mode === "starter" && hasVersions && fits.length > 0 && (
+          <p className="mb-3 max-w-[36rem] text-[0.8125rem] text-ink-2">
+            A starter replaces {app}’s code with a sample. To ship your own code, deploy from its folder or with git push (below).
+          </p>
+        )}
         {mode === "starter" ? (
           fits.length === 0 ? (
             <p className="text-sm text-ink-2">
@@ -166,7 +197,7 @@ function Body({ project, app, framework, suggest, close }: { project: string; ap
 
         {go.isError && <ProblemNote className="mt-4" error={go.error} />}
 
-        <details className="group mt-6 border-t border-rule pt-3">
+        <details className="group mt-6 border-t border-rule pt-3" open={hasVersions}>
           <summary className="cursor-pointer list-none text-[0.8125rem] text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
             <span className="inline-block transition-transform group-open:rotate-90">›</span> Or from your terminal, or an agent
           </summary>

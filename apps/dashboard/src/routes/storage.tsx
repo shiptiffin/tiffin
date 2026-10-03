@@ -508,7 +508,7 @@ export function BucketPage({ project, bucket, prefix = "", file }: { project: st
       <Page full>
         <PageHeader
           eyebrow={<StorageCrumbs project={project} bucket />}
-          title={<span className="font-mono text-[1.375rem] tracking-[-0.02em]">{bucket}</span>}
+          title={bucket}
           lede={
             b
               ? `${b.public ? "Public: anyone with the link can read files." : "Private: only signed links can read files."} ${count(b.objects, "file")}, ${bytes(b.bytes)}. S3 name ${b.s3Name}.`

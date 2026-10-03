@@ -77,7 +77,7 @@ test("login → activity → change → undo → status → tokens → sign out"
 
   // Health.
   await page.getByRole("link", { name: "Health" }).first().click();
-  await expect(page.getByRole("heading", { level: 1 })).toContainText(/Nothing is wrong|failing|firing/);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(/Nothing is wrong|is fine|failing|firing/);
   await expect(page.getByText("Platform state readable.")).toBeVisible();
   await expect(page).toHaveTitle(/Health · Tiffin$/);
 

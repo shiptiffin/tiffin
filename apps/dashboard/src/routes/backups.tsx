@@ -37,6 +37,10 @@ const H = 3600_000;
 function total(b: Backup) {
   return (b.postgres?.sizeBytes ?? 0) + (b.valkey?.sizeBytes ?? 0) + Object.values(b.files ?? {}).reduce((n, f) => n + f.sizeBytes, 0);
 }
+/** What a backup added to the repository: Postgres's compressed delta plus the copied files. */
+function stored(b: Backup) {
+  return (b.postgres?.repoBytes ?? 0) + (b.valkey?.sizeBytes ?? 0) + Object.values(b.files ?? {}).reduce((n, f) => n + f.sizeBytes, 0);
+}
 const every = (h: number) => (h === 1 ? "every hour" : h === 24 ? "every day" : h === 168 ? "every week" : h % 24 === 0 ? `every ${h / 24} days` : `every ${h} hours`);
 /** Seconds in words, to a tenth under ten: "0.3 s", "14 s", "2 min". */
 const secs = (n: number) => (n < 0.1 ? "under 0.1\u202Fs" : n < 10 ? `${dec(n, 1)}\u202Fs` : duration(n));
@@ -151,14 +155,15 @@ export function BackupsPage() {
         <Rows>
           <li className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 py-3 sm:grid-cols-[14rem_minmax(0,1fr)_9rem]">
             <div>
-              <p className="text-[0.875rem] text-ink">On the data disk</p>
+              <p className="text-[0.875rem] text-ink">Data disk</p>
               <p className="ident text-[0.71875rem] text-ink-3">{(d.destinations ?? [])[0]?.replace(/^local: /, "")}</p>
             </div>
             {disk ? (
               <div className="col-span-2 row-start-2 max-w-[26rem] sm:col-span-1 sm:row-start-auto">
                 <SegMeter value={disk.usedPercent} warnAt={0.8} fullAt={0.95} scale label="Data disk in use" valueText={`${dec(disk.usedPercent, 0)} percent`} />
                 <p className="mt-1.5 text-[0.8125rem] text-ink-3">
-                  Backups are {pct(d.repoBytes / disk.totalBytes, d.repoBytes / disk.totalBytes < 0.01 ? 1 : 0)} of the disk, which is {dec(disk.usedPercent, 0)}&#8239;% full with {bytes(disk.freeBytes)} free.
+                  The disk is {dec(disk.usedPercent, 0)}&#8239;% full with {bytes(disk.freeBytes)} free; backups are {pct(d.repoBytes / disk.totalBytes, d.repoBytes / disk.totalBytes < 0.01 ? 1 : 0)} of
+                  it, with the log Postgres needs to replay between them.
                 </p>
               </div>
             ) : (
@@ -202,7 +207,17 @@ export function BackupsPage() {
                       <span className="text-danger">Failed: {b.error}</span>
                     ) : (
                       <>
-                        {bytes(total(b))} · Postgres {bytes(b.postgres?.sizeBytes)} · Valkey {bytes(b.valkey?.sizeBytes)} · files {bytes(Object.values(b.files ?? {}).reduce((n, f) => n + f.sizeBytes, 0))} · took {ms(b.durationMs)}
+                        {/* What this backup stored (pgBackRest's compressed delta), and what it restores to. */}
+                        {b.postgres?.repoBytes !== undefined ? (
+                          <>
+                            Stored {bytes(stored(b))}
+                            {b.kind !== "full" ? " of changes" : ""}, restores {bytes(total(b))} · took {ms(b.durationMs)}
+                          </>
+                        ) : (
+                          <>
+                            {bytes(total(b))} · took {ms(b.durationMs)}
+                          </>
+                        )}
                       </>
                     )}
                   </span>
