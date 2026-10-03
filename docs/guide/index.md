@@ -32,4 +32,5 @@ Start with the [quickstart](quickstart.md), then [concepts](concepts.md) and
 Services: [apps and deploys](apps.md) · [Postgres, Valkey and backups](data.md) ·
 [storage](storage.md) · [email](email.md) · [sign-in](auth.md) ·
 [queues and workflows](queues.md) · [observability](observe.md) ·
-[analytics](analytics.md) · [protection](protection.md) · [security model](security.md)
+[analytics](analytics.md) · [protection](protection.md) · [security model](security.md) ·
+[moving a box](moving.md)

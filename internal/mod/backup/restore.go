@@ -190,14 +190,20 @@ func restorePostgres(ctx context.Context, b *Backup) error {
 	return rerr
 }
 
-// restoreValkey replaces the dataset with the backup's RDB. With AOF on,
-// Valkey loads only the AOF at startup, so the RDB is loaded by a
-// temporary server with AOF off, which then rewrites a fresh AOF from it.
+// restoreValkey replaces the dataset with the backup's RDB.
 func restoreValkey(ctx context.Context, b *Backup) error {
 	src := filepath.Join(b.dir(), "valkey.rdb")
 	if _, err := os.Stat(src); err != nil {
 		return fmt.Errorf("this backup has no Valkey snapshot: %w", err)
 	}
+	return RestoreValkeyRDB(ctx, src)
+}
+
+// RestoreValkeyRDB replaces Valkey's whole dataset with the RDB snapshot at
+// src (box imports use it too). With AOF on, Valkey loads only the AOF at
+// startup, so the RDB is loaded by a temporary server with AOF off, which
+// then rewrites a fresh AOF from it. Valkey is down meanwhile.
+func RestoreValkeyRDB(ctx context.Context, src string) error {
 	if err := systemctl(ctx, "stop", valkey.UnitName); err != nil {
 		return err
 	}

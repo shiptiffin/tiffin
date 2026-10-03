@@ -98,6 +98,8 @@ var groupShort = map[string]string{
 	"previews":  "Preview deploys: list, sleep and delete",
 	"templates": "Starter apps to create a project from",
 	"box":       "This machine: CPU, memory, disks and what each service and app uses",
+	"exports":   "List, inspect and delete box exports",
+	"imports":   "List, inspect, apply and discard uploaded box exports",
 }
 
 type bodyFlag struct {
