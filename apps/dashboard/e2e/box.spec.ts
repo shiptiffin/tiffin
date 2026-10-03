@@ -45,7 +45,7 @@ test("modules: storage, data, email, queues, workflows, users, analytics, protec
 
   // Queues and a workflow run.
   await page.goto("/projects/shop/queues");
-  await expect(page.getByRole("cell", { name: /^emails / })).toBeVisible();
+  await expect(page.getByRole("link", { name: "emails: its jobs" })).toBeVisible();
   await page.goto("/projects/shop/workflows?state=completed");
   await page.getByText("fulfil-order").first().click();
   await expect(page.getByRole("heading", { name: "Steps" })).toBeVisible();
@@ -61,15 +61,15 @@ test("modules: storage, data, email, queues, workflows, users, analytics, protec
 
   // Protection: the alarm state reaches every page, then goes away.
   await page.goto("/protect");
-  await page.getByRole("button", { name: "Turn on under-attack mode" }).click();
+  await page.getByRole("button", { name: "Lift the guard" }).click();
+  await page.getByRole("button", { name: "Turn on for an hour" }).click();
   await expect(page.getByText("Under-attack mode is on.")).toBeVisible();
   await page.goto("/");
   await expect(page.getByText("Under-attack mode is on.")).toBeVisible();
   await expect(page).toHaveTitle(/^Under attack · /);
   await page.goto("/protect");
-  await page.getByRole("button", { name: "Turn it off" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Turn it off" }).click();
-  await expect(page.getByText("All calm.")).toBeVisible();
+  await page.getByRole("button", { name: "Turn it off now" }).click();
+  await expect(page.getByText(/^Normal\./)).toBeVisible();
 
   expect(problems, problems.join("\n")).toEqual([]);
 });

@@ -77,9 +77,9 @@ test("login → activity → change → undo → status → tokens → sign out"
 
   // Health.
   await page.getByRole("link", { name: "Health" }).first().click();
-  await expect(page.getByRole("heading", { level: 1 })).toContainText(/All good|failing/);
-  await expect(page.getByText("platform state readable")).toBeVisible();
-  await expect(page).toHaveTitle(/Status · Tiffin$/);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(/Nothing is wrong|failing|firing/);
+  await expect(page.getByText("Platform state readable.")).toBeVisible();
+  await expect(page).toHaveTitle(/Health · Tiffin$/);
 
   // Command palette navigates.
   await page.keyboard.press("ControlOrMeta+k");
@@ -88,16 +88,16 @@ test("login → activity → change → undo → status → tokens → sign out"
   await expect(page).toHaveURL(/\/tokens$/);
 
   // Tokens: create shows the secret once; revoke asks first.
-  await page.getByRole("button", { name: "Create token" }).click();
+  await page.getByRole("button", { name: "Create a token" }).click();
   await page.getByLabel("Name").fill("smoke-agent");
-  await page.getByRole("dialog").getByRole("button", { name: "Create token" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Create smoke-agent" }).click();
   await expect(page.getByTestId("token-secret")).toHaveText(/^tfn_/);
   await page.getByRole("button", { name: "I've stored it" }).click();
-  const row = page.getByRole("listitem").filter({ hasText: "smoke-agent" });
+  const row = page.getByRole("listitem").filter({ hasText: "Smoke Agent" });
   await expect(row).toBeVisible();
   await row.getByRole("button", { name: "Revoke smoke-agent" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Revoke token" }).click();
-  await expect(page.getByRole("listitem").filter({ hasText: "smoke-agent" })).toHaveCount(0);
+  await page.getByRole("dialog").getByRole("button", { name: "Revoke Smoke Agent" }).click();
+  await expect(page.getByRole("listitem").filter({ hasText: "Smoke Agent" })).toHaveCount(0);
 
   // Sign out; afterwards any page sends you back to /login with a kind word.
   await page.getByRole("button", { name: "Account" }).click();
@@ -134,7 +134,7 @@ test("passkey → approve and reject agent requests → project, secrets, people
   // Add a passkey.
   await page.getByRole("link", { name: "Add a passkey" }).click();
   await page.getByLabel("Passkey name").fill("Test key");
-  await page.getByRole("button", { name: "Add passkey" }).click();
+  await page.getByRole("button", { name: "Add a passkey" }).click();
   await expect(page.getByText("Test key")).toBeVisible();
 
   // Approve the outbound request with it.
@@ -180,7 +180,7 @@ test("passkey → approve and reject agent requests → project, secrets, people
   await page.getByRole("button", { name: "Invite someone" }).click();
   await page.getByLabel("Name").fill("Ada");
   await page.getByRole("radio", { name: /Viewer/ }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Invite" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Invite Ada" }).click();
   await expect(page.getByText(/\/login#tfl_/)).toBeVisible();
   await page.getByRole("button", { name: "Done" }).click();
   await expect(page.getByText("Ada")).toBeVisible();

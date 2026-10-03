@@ -115,7 +115,7 @@ export function Untrusted({
   return (
     <div className={cn("overflow-hidden rounded-[10px] border border-rule-2 bg-paper-sunk", className)}>
       <p className="flex items-center gap-2 border-b border-rule px-3 py-1.5 text-xs text-ink-3">
-        <span aria-hidden className="font-mono text-ink-3">
+        <span aria-hidden className="shrink-0 font-mono whitespace-nowrap text-ink-3">
           {"{ }"}
         </span>
         {label}

@@ -1,21 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { KeyRound, Monitor, Plus, ShieldAlert, Trash2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { api, type CreatedToken, type Tier, type Token } from "@/api/client";
+import { api, type Change, type CreatedToken, type Tier, type Token } from "@/api/client";
 import { q } from "@/api/queries";
 import { ActorMark } from "@/components/actor";
 import { Command, CopyButton } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
-import { ProblemNote } from "@/components/problem";
-import { RiskMark } from "@/components/risk";
+import { accessCrumbs, Group, Rows } from "@/components/health-kit";
+import { Page, PageHeader, Skeleton } from "@/components/page";
+import { ProblemNote, sentence } from "@/components/problem";
+import { RiskDots } from "@/components/risk-dots";
+import { SignedEntry } from "@/components/signed-entry";
+import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox, Radio, RadioGroup, Select } from "@/components/ui/choice";
 import { Input, Label } from "@/components/ui/input";
+import { actorName } from "@/lib/actors";
+import { asTier, opCounts } from "@/lib/changes";
 import { cn } from "@/lib/cn";
-import { expiry, relative } from "@/lib/time";
-import { Page } from "@/components/page";
+import { countWords, int } from "@/lib/format";
+import { clock, dayLabel, expiry, relative, within } from "@/lib/time";
 
 const ladder = [
   { scope: "read", title: "Look", body: "See projects, changes and status. Can't change anything.", tier: "read" as Tier },
@@ -59,8 +64,9 @@ function power(t: Pick<Token, "scopes">): { label: string; tier: Tier; tokens: b
 }
 
 export function TokensPage({ create }: { create?: boolean }) {
-  useTitle("Tokens");
+  useTitle("Agents and tokens");
   const tokens = useQuery(q.tokens);
+  const changes = useQuery(q.changes());
   const { data: me } = useQuery(q.whoami);
   const navigate = useNavigate();
   const [revoke, setRevoke] = useState<Token | null>(null);
@@ -70,97 +76,152 @@ export function TokensPage({ create }: { create?: boolean }) {
   const names = new Map(all.map((t) => [t.id, t.name]));
   // Dashboard logins are tokens too; they read better as "browsers signed in".
   const isSession = (t: Token) => !!t.person || (t.kind === "human" && t.name === "dashboard session");
-  const list = all.filter((t) => !isSession(t));
+  const agents = all.filter((t) => !isSession(t) && t.kind === "agent");
+  const people = all.filter((t) => !isSession(t) && t.kind !== "agent");
   const sessions = all.filter(isSession);
+  const byToken = new Map<string, Change[]>();
+  for (const c of changes.data ?? []) {
+    const l = byToken.get(c.actor.id) ?? [];
+    l.push(c);
+    byToken.set(c.actor.id, l);
+  }
 
   return (
     <Page wide>
-      <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-        <div className="animate-rise">
-          <h1 className="display text-3xl text-ink">Tokens</h1>
-          <p className="mt-2 max-w-[34rem] text-md text-ink-2">
-            Give every agent its own token, with only the power it needs. Its name shows up on every change it makes, and you can cut it off at any
-            time.
-          </p>
-        </div>
-        <Button variant="primary" size="lg" onClick={() => setCreate(true)} className="self-start sm:self-auto">
-          <Plus />
-          Create token
-        </Button>
-      </header>
-
+      <PageHeader
+        eyebrow={accessCrumbs}
+        title="Agents and tokens"
+        lede="Give every agent its own token with only the power it needs. Its name signs every change it makes, and you can cut it off at any time."
+        actions={
+          <Button variant="primary" size="lg" onClick={() => setCreate(true)}>
+            Create a token
+          </Button>
+        }
+      />
       {tokens.isError && <ProblemNote className="mt-8" error={tokens.error} title="Couldn't load tokens" />}
 
-      <div className="mt-10 overflow-hidden rounded-xl border border-rule bg-raised/60">
-        <div className="hidden grid-cols-[minmax(12rem,1.3fr)_1.5fr_1fr_0.8fr_2.5rem] gap-4 border-b border-rule px-5 py-2.5 text-2xs font-medium tracking-wider text-ink-3 uppercase md:grid">
-          <span>Name</span>
-          <span>Can</span>
-          <span>Projects</span>
-          <span>Expires</span>
-          <span />
-        </div>
-        {tokens.isPending && <div className="h-40 animate-pulse bg-hover/40" />}
-        <ul className="divide-y divide-rule">
-          {list.map((t, k) => {
-            const p = power(t);
-            const undeletable = t.kind === "owner" || me?.tokenId === t.id;
-            const projects = (t.projects ?? []).includes("*") ? "All projects" : (t.projects ?? []).join(", ");
-            return (
-              <li
-                key={t.id}
-                className="grid animate-rise grid-cols-[1fr_auto] items-center gap-x-4 gap-y-2.5 px-4 py-4 sm:px-5 md:grid-cols-[minmax(12rem,1.3fr)_1.5fr_1fr_0.8fr_2.5rem]"
-                style={{ animationDelay: `${k * 30}ms` }}
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <ActorMark actor={{ kind: t.kind, name: t.name, id: t.id }} className="size-7 text-xs" />
-                  <div className="min-w-0">
-                    <p className="truncate text-md font-medium text-ink">{t.name}</p>
-                    <p className="truncate text-sm text-ink-3">
-                      {t.kind}
-                      {t.sponsor && names.get(t.sponsor) ? ` · by ${names.get(t.sponsor)}` : ""}
-                      {" · "}
-                      {t.lastUsedAt ? `used ${relative(t.lastUsedAt)}` : "never used"}
-                    </p>
-                  </div>
-                </div>
-                <div className="col-span-2 flex flex-wrap items-center gap-x-2 gap-y-1 pl-10 text-base text-ink-2 md:col-span-1 md:pl-0">
-                  <RiskMark tier={p.tier} />
-                  <span>{p.label}</span>
-                  {p.tokens && t.kind !== "owner" && <span className="rounded-full bg-hover px-2 py-px text-xs text-ink-2">+ tokens</span>}
-                  <span className="text-sm text-ink-3 md:hidden">
-                    · {projects} · {t.expiresAt ? `expires ${expiry(t.expiresAt)}` : "never expires"}
+      <Group label="Agents" id="agents" aside={tokens.data ? (agents.length ? countWords(agents.length, "agent") : undefined) : undefined}>
+        {tokens.isPending && <Skeleton className="h-32" />}
+        {tokens.isSuccess && agents.length === 0 && (
+          <div className="border-y border-rule py-5 text-[0.875rem] text-ink-2">
+            No agents yet. Create a token for Claude Code, Codex or any MCP client; it shows up here with everything it has done.
+          </div>
+        )}
+        {agents.length > 0 && (
+          <Rows>
+            {agents.map((t) => (
+              <AgentRow key={t.id} t={t} sponsor={t.sponsor ? names.get(t.sponsor) : undefined} entries={byToken.get(t.id) ?? []} onRevoke={() => setRevoke(t)} />
+            ))}
+          </Rows>
+        )}
+      </Group>
+
+      {people.length > 0 && (
+        <Group label="People’s tokens" id="people-tokens" aside="for the CLI and scripts">
+          <Rows>
+            {people.map((t) => {
+              const p = power(t);
+              const owner = t.kind === "owner";
+              const mine = me?.tokenId === t.id;
+              return (
+                <li key={t.id} className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 py-3 sm:grid-cols-[1.75rem_13rem_minmax(0,1fr)_auto] sm:gap-x-4">
+                  <ActorMark actor={{ kind: owner ? "owner" : "human", name: t.name, id: t.id }} className="size-6 text-[0.6875rem]" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[0.875rem] text-ink">{owner ? "The owner’s key" : actorName(t).name}</span>
+                    <span className="block truncate text-xs text-ink-3">{owner ? "made with the box; can do anything" : t.sponsor && names.get(t.sponsor) ? `made by ${actorName({ name: names.get(t.sponsor) }).name}` : "a person’s token"}</span>
                   </span>
-                </div>
-                <div className={cn("hidden truncate text-sm md:block", projects === "All projects" ? "text-ink-3" : "font-mono text-ink-2")}>
-                  {projects}
-                </div>
-                <div className={cn("hidden text-sm md:block", t.expiresAt ? "text-ink-2" : "text-ink-3")}>{expiry(t.expiresAt)}</div>
-                <div className="col-start-2 row-start-1 justify-self-end md:col-auto md:row-auto">
-                  {!undeletable && (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Revoke ${t.name}`}
-                      title="Revoke"
-                      onClick={() => setRevoke(t)}
-                      className="hover:text-irr"
-                    >
-                      <Trash2 />
-                    </Button>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-      <p className="mt-4 text-sm text-ink-3">Secrets are never stored, only a hash. If one is lost, revoke it and make another.</p>
+                  <span className="col-span-2 col-start-2 row-start-2 mt-1 text-[0.84375rem] text-ink-2 sm:col-span-1 sm:col-start-auto sm:row-start-auto sm:mt-0">
+                    <RiskDots tier={p.tier} label={false} className="mr-2 inline-flex align-[1px]" />
+                    {p.label}
+                    <span className="text-ink-3">
+                      {" "}
+                      · {t.lastUsedAt ? `used ${relative(t.lastUsedAt)}` : "never used"} · {t.expiresAt ? `expires ${expiry(t.expiresAt)}` : "never expires"}
+                      {mine ? " · this is you" : ""}
+                    </span>
+                  </span>
+                  <span className="col-start-3 row-start-1 sm:col-start-auto sm:row-start-auto">
+                    {!owner && !mine && (
+                      <Button variant="ghost" size="sm" onClick={() => setRevoke(t)} className="hover:text-danger">
+                        Revoke…
+                      </Button>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </Rows>
+        </Group>
+      )}
+
+      <p className="mt-4 text-[0.8125rem] text-ink-3">The box keeps only a hash of each secret. If one is lost, revoke it and make another.</p>
 
       {sessions.length > 0 && <Browsers sessions={sessions} myId={me?.tokenId} onRevoke={setRevoke} />}
 
       <CreateDialog open={!!create} onOpenChange={setCreate} />
-      <RevokeDialog token={revoke} onClose={() => setRevoke(null)} />
+      <RevokeDialog token={revoke} entries={revoke ? (byToken.get(revoke.id)?.length ?? 0) : 0} onClose={() => setRevoke(null)} />
     </Page>
+  );
+}
+
+/** An agent as a named member: what it may do, where, until when, when it was last seen, and what it signed lately. */
+function AgentRow({ t, sponsor, entries, onRevoke }: { t: Token; sponsor?: string; entries: Change[]; onRevoke: () => void }) {
+  const p = power(t);
+  const who = actorName(t);
+  const projects = (t.projects ?? []).includes("*") ? "every project" : (t.projects ?? []).join(", ");
+  const soon = t.expiresAt && within(t.expiresAt, 3 * 86400_000);
+  return (
+    <li className="py-4">
+      <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-start gap-x-3 sm:gap-x-4">
+        <ActorMark actor={{ kind: "agent", name: t.name, id: t.id }} className="mt-0.5 size-6 text-[0.6875rem]" />
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-baseline gap-x-2">
+            <span className="text-[0.9375rem] font-[550] text-graphite">{who.name}</span>
+            {who.tag && <span className="ident text-[0.71875rem] text-ink-3">{who.tag}</span>}
+            {t.name.toLowerCase() !== who.name.toLowerCase().replace(/ /g, "-") && !who.tag && <span className="ident text-[0.71875rem] text-ink-3">{t.name}</span>}
+          </p>
+          <p className="mt-1 text-[0.84375rem] text-ink-2">
+            <RiskDots tier={p.tier} label={false} className="mr-2 inline-flex align-[1px]" />
+            <span>
+              {p.label} in {projects}
+              {p.tokens ? ", and can make tokens no stronger than its own" : ""}.
+            </span>
+          </p>
+          <p className="mt-0.5 text-[0.8125rem] text-ink-3">
+            {t.lastUsedAt ? `Last used ${relative(t.lastUsedAt)}` : "Never used"} ·{" "}
+            <span className={soon ? "text-warn-ink" : undefined}>{t.expiresAt ? `expires ${expiry(t.expiresAt)}` : "never expires"}</span>
+            {sponsor ? ` · made by ${actorName({ name: sponsor }).name}` : ""}
+          </p>
+        </div>
+        <Button variant="ghost" size="sm" onClick={onRevoke} className="hover:text-danger" aria-label={`Revoke ${t.name}`}>
+          Revoke…
+        </Button>
+      </div>
+      <div className="mt-2 ml-[2.5rem] sm:ml-[2.75rem]">
+        {entries.length === 0 ? (
+          <p className="text-[0.8125rem] text-ink-3">Nothing signed yet. Its first change will show here and in the Ledger.</p>
+        ) : (
+          <div className="divide-y divide-rule border-l border-rule pl-3">
+            {entries.slice(0, 2).map((c) => (
+              <SignedEntry
+                key={c.id}
+                className="py-2"
+                time={clock(c.at)}
+                timeNote={dayLabel(c.at) === "Today" ? undefined : dayLabel(c.at).replace(/,.*$/, "").slice(0, 3)}
+                actor={{ kind: "agent", name: c.actor.name ?? t.name, session: c.actor.session }}
+                intent={sentence(c.intent)}
+                counts={opCounts(c.plan.ops)}
+                tier={asTier(c.plan.risk)}
+                muted={!!c.undoneBy}
+                extra={<span>{c.project}</span>}
+                to="/changes/$id"
+                params={{ id: c.id }}
+              />
+            ))}
+            {entries.length > 2 && <p className="py-2 text-[0.8125rem] text-ink-3">and {countWords(entries.length - 2, "earlier change", "earlier changes")} in the Ledger.</p>}
+          </div>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -168,38 +229,35 @@ export function TokensPage({ create }: { create?: boolean }) {
 function Browsers({ sessions, myId, onRevoke }: { sessions: Token[]; myId?: string; onRevoke: (t: Token) => void }) {
   const qc = useQueryClient();
   const [all, setAll] = useState(false);
-  const sorted = [...sessions].sort(
-    (a, b) => Number(b.id === myId) - Number(a.id === myId) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-  );
+  const sorted = [...sessions].sort((a, b) => Number(b.id === myId) - Number(a.id === myId) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const others = sorted.filter((t) => t.id !== myId);
   const shown = all ? sorted : sorted.slice(0, 4);
   const out = useMutation({
     mutationFn: async () => {
       for (const t of others) await api.revokeToken(t.id);
     },
+    onSuccess: () => toast({ title: `Signed out ${countWords(others.length, "other browser", "other browsers")}.` }),
     onSettled: () => qc.invalidateQueries({ queryKey: ["tokens"] }),
   });
   return (
-    <section className="mt-14" aria-labelledby="sessions">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
-        <h2 id="sessions" className="display-italic text-xl text-ink">
-          Signed-in browsers
-        </h2>
-        {others.length > 1 && (
-          <Button variant="ghost" size="sm" onClick={() => out.mutate()} disabled={out.isPending} className="hover:text-irr">
-            {out.isPending ? "Signing out…" : `Sign out the other ${others.length}`}
+    <Group
+      label="Signed-in browsers"
+      id="sessions"
+      aside={
+        others.length > 1 ? (
+          <Button variant="ghost" size="sm" onClick={() => out.mutate()} disabled={out.isPending} className="-my-1 hover:text-danger">
+            {out.isPending ? "Signing out…" : `Sign out the other ${int(others.length)}`}
           </Button>
-        )}
-      </div>
-      <p className="mt-1 text-base text-ink-3">Each login link starts one. They end on their own after 12 hours.</p>
-      {out.isError && <ProblemNote className="mt-3" error={out.error} />}
-      <ul className="mt-4 divide-y divide-rule border-y border-rule">
+        ) : undefined
+      }
+    >
+      {out.isError && <ProblemNote className="mb-3" error={out.error} />}
+      <Rows>
         {shown.map((t) => {
           const mine = myId === t.id;
           return (
-            <li key={t.id} className="flex items-center gap-3 py-3">
-              <Monitor className="size-4 shrink-0 text-ink-3" />
-              <div className="min-w-0 flex-1 text-base">
+            <li key={t.id} className="flex items-center gap-3 py-2.5">
+              <div className="min-w-0 flex-1 text-[0.875rem]">
                 <span className="text-ink">{mine ? "This browser" : "Another browser"}</span>
                 <span className="text-ink-3">
                   {" "}
@@ -209,22 +267,25 @@ function Browsers({ sessions, myId, onRevoke }: { sessions: Token[]; myId?: stri
                 </span>
               </div>
               {mine ? (
-                <span className="rounded-full bg-rev-wash px-2 py-0.5 text-xs font-medium text-rev">You're here</span>
+                <span className="text-[0.8125rem] text-ink-3">you’re here</span>
               ) : (
-                <Button variant="ghost" size="sm" onClick={() => onRevoke(t)} className="hover:text-irr">
+                <Button variant="ghost" size="sm" onClick={() => onRevoke(t)} className="hover:text-danger">
                   Sign out
                 </Button>
               )}
             </li>
           );
         })}
-      </ul>
-      {sorted.length > shown.length && (
-        <button onClick={() => setAll(true)} className="mt-3 text-sm text-ink-3 hover:text-ink">
-          Show {sorted.length - shown.length} more
-        </button>
-      )}
-    </section>
+      </Rows>
+      <p className="mt-2 flex flex-wrap items-baseline justify-between gap-2 text-[0.8125rem] text-ink-3">
+        <span>Each sign-in link starts one. They end by themselves after 12 hours.</span>
+        {sorted.length > shown.length && (
+          <button type="button" onClick={() => setAll(true)} className="text-ink-2 hover:text-ink">
+            Show {int(sorted.length - shown.length)} more
+          </button>
+        )}
+      </p>
+    </Group>
   );
 }
 
@@ -280,7 +341,7 @@ function CreateForm({ onClose }: { onClose: () => void }) {
     >
       <DialogHeader>
         <DialogTitle>New token</DialogTitle>
-        <DialogDescription>Name it after whoever will hold it. You'll see the secret once.</DialogDescription>
+        <DialogDescription>Name it after whoever will hold it: the name signs everything it does. You’ll see the secret once.</DialogDescription>
       </DialogHeader>
       <DialogBody className="flex flex-col gap-6">
         <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
@@ -298,7 +359,7 @@ function CreateForm({ onClose }: { onClose: () => void }) {
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-ink" id="tok-kind">
+            <span className="text-sm font-[550] text-ink" id="tok-kind">
               For
             </span>
             <Segmented
@@ -317,38 +378,38 @@ function CreateForm({ onClose }: { onClose: () => void }) {
         </div>
 
         <fieldset>
-          <legend className="text-sm font-medium text-ink">What can it do?</legend>
-          <div className="mt-2 overflow-hidden rounded-lg border border-rule" role="radiogroup">
+          <legend className="text-sm font-[550] text-ink">What can it do?</legend>
+          <div className="mt-2 divide-y divide-rule border-y border-rule" role="radiogroup">
             {ladder.map((l, i) => (
               <label
                 key={l.scope}
                 className={cn(
-                  "flex cursor-pointer gap-3 border-b border-rule px-3.5 py-2.5 transition-colors last:border-b-0 hover:bg-hover/60 has-[:focus-visible]:bg-hover",
-                  level === i && "bg-hover",
+                  "flex cursor-pointer gap-3 px-2 py-2.5 transition-colors hover:bg-paper-sunk has-[:focus-visible]:bg-paper-sunk",
+                  level === i && "bg-paper-sunk",
                 )}
               >
                 <input type="radio" name="level" className="sr-only" checked={level === i} onChange={() => setLevel(i)} />
                 {/* A ladder: each level includes the ones above it in the list. */}
                 <span aria-hidden className="relative flex w-4 shrink-0 justify-center">
-                  {i > 0 && <span className={cn("absolute -top-2.5 h-[calc(0.625rem+9px)] w-px", i <= level ? "bg-ink-2" : "bg-rule-strong")} />}
-                  {i < ladder.length - 1 && <span className={cn("absolute top-[9px] -bottom-2.5 w-px", i < level ? "bg-ink-2" : "bg-rule-strong")} />}
+                  {i > 0 && <span className={cn("absolute -top-2.5 h-[calc(0.625rem+9px)] w-px", i <= level ? "bg-ink-2" : "bg-rule-2")} />}
+                  {i < ladder.length - 1 && <span className={cn("absolute top-[9px] -bottom-2.5 w-px", i < level ? "bg-ink-2" : "bg-rule-2")} />}
                   <span
                     className={cn(
                       "relative mt-[3px] grid place-items-center rounded-full transition-all duration-200",
                       level === i
-                        ? "size-3.5 bg-ink ring-4 ring-hover"
+                        ? "size-3.5 bg-ink ring-4 ring-brass-wash"
                         : i < level
                           ? "mt-[5px] size-2.5 bg-ink-2"
-                          : "mt-[5px] size-2.5 border border-rule-strong bg-raised",
+                          : "mt-[5px] size-2.5 border border-rule-3 bg-paper-raised",
                     )}
                   >
-                    {level === i && <span className="size-1 rounded-full bg-on-ink" />}
+                    {level === i && <span className="size-1 rounded-full bg-paper" />}
                   </span>
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2 text-base font-medium text-ink">
+                  <span className="flex items-center gap-2.5 text-base font-[550] text-ink">
                     {l.title}
-                    {i >= 2 && <RiskMark tier={l.tier} />}
+                    {i >= 2 && <RiskDots tier={l.tier} label={false} />}
                     {i === 2 && <span className="text-xs font-normal text-ink-3">default</span>}
                   </span>
                   <span className="block text-sm text-ink-3">{l.body}</span>
@@ -363,16 +424,13 @@ function CreateForm({ onClose }: { onClose: () => void }) {
             </span>
           </label>
           {level === 4 && (
-            <p className="mt-3 flex animate-pop gap-2 rounded-lg bg-irr-wash px-3 py-2 text-sm text-ink">
-              <ShieldAlert className="mt-0.5 size-4 shrink-0 text-irr" />
-              This token can delete data that undo can't bring back. Most agents never need it.
-            </p>
+            <p className="mt-3 border-l-2 border-danger pl-3 text-sm text-danger">This token can delete data that undo can’t bring back. Most agents never need it.</p>
           )}
         </fieldset>
 
         <div className="grid gap-6 sm:grid-cols-2">
           <fieldset>
-            <legend className="text-sm font-medium text-ink">Projects</legend>
+            <legend className="text-sm font-[550] text-ink">Projects</legend>
             <RadioGroup value={allProjects ? "all" : "some"} onValueChange={(v) => setAllProjects(v === "all")} className="mt-2 flex flex-col gap-2">
               <label className="flex cursor-pointer items-center gap-2.5 text-base text-ink-2">
                 <Radio value="all" />
@@ -416,8 +474,7 @@ function CreateForm({ onClose }: { onClose: () => void }) {
           Cancel
         </Button>
         <Button type="submit" variant="primary" disabled={invalid || m.isPending}>
-          <KeyRound />
-          {m.isPending ? "Creating…" : "Create token"}
+          {m.isPending ? "Creating…" : name.trim() ? `Create ${name.trim().slice(0, 24)}` : "Create token"}
         </Button>
       </DialogFooter>
     </form>
@@ -430,13 +487,13 @@ function SecretOnce({ created, onDone }: { created: CreatedToken; onDone: () => 
     <>
       <DialogHeader>
         <DialogTitle>
-          <span className="display-italic">{created.token.name}</span> is ready
+          {actorName(created.token).name} is ready
         </DialogTitle>
         <DialogDescription>Copy the secret now. This is the only time Tiffin will show it.</DialogDescription>
       </DialogHeader>
       <DialogBody className="flex flex-col gap-5">
-        <div className="animate-pop rounded-lg border border-brass/50 bg-brass-wash p-1">
-          <div className="flex items-center gap-2 rounded-md bg-raised px-3 py-2.5">
+        <div className="animate-pop rounded-[10px] border border-brass bg-brass-wash p-1">
+          <div className="flex items-center gap-2 rounded-[7px] bg-paper-raised px-3 py-2.5">
             <code data-testid="token-secret" className="min-w-0 flex-1 font-mono text-sm break-all text-ink select-all">
               {created.secret}
             </code>
@@ -467,35 +524,40 @@ function SecretOnce({ created, onDone }: { created: CreatedToken; onDone: () => 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
-      <p className="mb-2 text-sm font-medium text-ink-2">{title}</p>
+      <p className="label mb-2">{title}</p>
       {children}
     </div>
   );
 }
 
-function RevokeDialog({ token, onClose }: { token: Token | null; onClose: () => void }) {
+function RevokeDialog({ token, entries, onClose }: { token: Token | null; entries: number; onClose: () => void }) {
   return (
     <Dialog open={!!token} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">{token && <RevokeBody token={token} onClose={onClose} />}</DialogContent>
+      <DialogContent className="max-w-md">{token && <RevokeBody token={token} entries={entries} onClose={onClose} />}</DialogContent>
     </Dialog>
   );
 }
 
-function RevokeBody({ token, onClose }: { token: Token; onClose: () => void }) {
+function RevokeBody({ token, entries, onClose }: { token: Token; entries: number; onClose: () => void }) {
   const qc = useQueryClient();
+  const session = !!token.person;
+  const who = session ? "this browser session" : actorName(token).name;
   const m = useMutation({
     mutationFn: (id: string) => api.revokeToken(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tokens"] });
+      toast({ title: session ? "Signed that browser out." : `Revoked ${who}. Its secret no longer works.` });
       onClose();
     },
   });
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Revoke {token.name}?</DialogTitle>
+        <DialogTitle>{session ? "Sign this browser out?" : `Revoke ${who}?`}</DialogTitle>
         <DialogDescription>
-          Anything using this token stops working right away. Tokens it created are revoked too. Its changes stay in the log.
+          {session
+            ? "Whoever is using it is signed out at once."
+            : `Anything using this token stops working at once, and tokens it made are revoked too. ${entries ? `Its ${countWords(entries, "signed change")} stay in the Ledger, signed.` : "Nothing it signed is touched."} This can’t be undone; make a new token instead.`}
         </DialogDescription>
       </DialogHeader>
       {m.isError && (
@@ -508,8 +570,7 @@ function RevokeBody({ token, onClose }: { token: Token; onClose: () => void }) {
           Keep it
         </Button>
         <Button variant="danger" disabled={m.isPending} onClick={() => m.mutate(token.id)}>
-          <Trash2 />
-          {m.isPending ? "Revoking…" : "Revoke token"}
+          {m.isPending ? "Revoking…" : session ? "Sign out" : `Revoke ${who}`}
         </Button>
       </DialogFooter>
     </>
@@ -528,7 +589,7 @@ function Segmented<T extends string>({
   labelledBy: string;
 }) {
   return (
-    <div role="radiogroup" aria-labelledby={labelledBy} className="flex h-9 rounded-md border border-rule bg-paper p-0.5">
+    <div role="radiogroup" aria-labelledby={labelledBy} className="flex h-9 rounded-[8px] border border-rule-2 bg-paper p-0.5">
       {options.map((o) => (
         <button
           type="button"
@@ -537,8 +598,8 @@ function Segmented<T extends string>({
           aria-checked={value === o.v}
           onClick={() => onChange(o.v)}
           className={cn(
-            "rounded-[5px] px-3 text-base whitespace-nowrap text-ink-3 transition-colors hover:text-ink",
-            value === o.v && "bg-raised text-ink shadow-[0_1px_2px_oklch(0_0_0/0.1)] ring-1 ring-rule",
+            "rounded-[6px] px-3 text-base whitespace-nowrap text-ink-3 transition-colors hover:text-ink",
+            value === o.v && "bg-paper-sunk font-[550] text-ink",
           )}
         >
           {o.label}
