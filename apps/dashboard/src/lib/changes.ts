@@ -105,3 +105,18 @@ export function runs(changes: Change[]): Run[] {
   }
   return out;
 }
+
+/** A change's intent as a sentence: capitalised, with a full stop; "undo chg_…: X" becomes "Undid “X”." */
+export function intentWords(c: Pick<Change, "intent" | "plan">): string {
+  const raw = (c.intent || c.plan.summary || "").trim();
+  const undo = raw.match(/^undo chg_[0-9A-Z]+:\s*(.*)$/i);
+  if (undo) return `Undid “${undo[1].replace(/[.]$/, "")}”.`;
+  if (!raw) return raw;
+  return raw.charAt(0).toUpperCase() + raw.slice(1) + (/[.!?”]$/.test(raw) ? "" : ".");
+}
+
+/** "claude-code (s-7f3a90)" → { name: "claude-code", session: "s-7f3a90" }. */
+export function splitRequester(r: string): { name: string; session?: string } {
+  const m = r.match(/^(.*?)\s*\(([^)]+)\)$/);
+  return m ? { name: m[1], session: m[2] } : { name: r };
+}

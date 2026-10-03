@@ -215,7 +215,10 @@
   }
 }
 
-/* Contrast, measured with WCAG 2 relative luminance (scripts in /_kit):
-     light  ink 14.6 · ink-2 8.6 · ink-3 5.3 (4.9 on sunk) · ink-4 3.9 · graphite 6.9 · brass-ink 5.6 · danger 5.6
-     dark   ink 15.1 · ink-2 9.6 · ink-3 6.6 (on raised 5.8) · ink-4 4.2 · graphite 8.6 · brass-ink 9.1 · danger 5.9
-   Exact numbers live in src/lib/contrast.ts and the /_kit Contrast table. */
+/* Contrast, measured (WCAG 2 relative luminance; /_kit recomputes it live from these tokens).
+   Text needs 4.5:1, incidental text and UI parts 3:1.
+     light  ink 15.5 · ink-2 7.6 · ink-3 5.3 (4.9 on sunk, 5.5 on raised) · ink-4 3.7 (3.4 on sunk)
+            graphite 6.3 · brass-ink 6.1 · danger 5.6 · warn-ink 5.8 · ok 4.9 · on-brass 5.7 · focus 3.8
+     dark   ink 15.4 · ink-2 9.2 · ink-3 6.1 (5.7 on raised) · ink-4 3.8 (3.6 on raised)
+            graphite 8.7 · brass-ink 9.9 · danger 6.3 · warn-ink 9.8 · ok 8.5 · on-brass 8.7 · focus 8.9
+   Brass itself (2.9:1 on light paper) is a fill, never text; the focus ring uses --focus. */

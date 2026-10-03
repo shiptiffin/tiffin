@@ -22,10 +22,15 @@ test("login → activity → change → undo → status → tokens → sign out"
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("That link has been used, or it expired.");
   await expect(page).toHaveURL(/\/login$/); // the code never stays in the address bar
 
-  // A real one signs in and lands on Activity.
+  // A real one signs in and lands on the Box; the change log is the Ledger.
   await signIn(page, baseURL!);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(/waiting for you/);
+  await expect(page).toHaveTitle(/Box · Tiffin$/);
+  await expect(page.getByRole("region", { name: "Project hello" })).toBeVisible();
+  await page.getByRole("link", { name: /^Ledger/ }).first().click();
+  await expect(page).toHaveURL(/\/ledger$/);
   await expect(page.getByRole("heading", { level: 1 })).toContainText("changes across two projects");
-  await expect(page).toHaveTitle(/(^|Degraded · )Activity · Tiffin$/); // a box missing services is "degraded"
+  await expect(page).toHaveTitle(/Activity · Tiffin$/);
   await expect(page.getByRole("heading", { name: /Today/ })).toBeVisible();
 
   // Filtering by risk.
@@ -53,14 +58,14 @@ test("login → activity → change → undo → status → tokens → sign out"
   await expect(page.getByRole("button", { name: "Undo this change" })).toHaveCount(0);
 
   // Undoing something newer work depends on is refused with a reason (409).
-  await page.goto("/");
+  await page.goto("/ledger");
   await page.getByRole("link", { name: /Set up the hello project/ }).click();
   await page.getByRole("button", { name: "Undo this change" }).click();
   await expect(page.getByRole("dialog").getByText("Something changed since, so undo would overwrite newer work")).toBeVisible();
   await page.getByRole("button", { name: "Close", exact: true }).first().click();
 
   // An undo that destroys data asks you to type the project name.
-  await page.goto("/");
+  await page.goto("/ledger");
   await page.getByRole("link", { name: /Add a thumbnails bucket/ }).click();
   await page.getByRole("button", { name: "Undo this change" }).click();
   await expect(page.getByRole("heading", { name: "This undo destroys data" })).toBeVisible();
@@ -70,15 +75,15 @@ test("login → activity → change → undo → status → tokens → sign out"
   await expect(destroy).toBeEnabled();
   await page.keyboard.press("Escape");
 
-  // Status.
-  await page.getByRole("link", { name: "Status" }).first().click();
+  // Health.
+  await page.getByRole("link", { name: "Health" }).first().click();
   await expect(page.getByRole("heading", { level: 1 })).toContainText(/All good|failing/);
   await expect(page.getByText("platform state readable")).toBeVisible();
   await expect(page).toHaveTitle(/Status · Tiffin$/);
 
   // Command palette navigates.
   await page.keyboard.press("ControlOrMeta+k");
-  await page.keyboard.type("tokens");
+  await page.getByRole("combobox", { name: "Command palette" }).fill("tokens");
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/tokens$/);
 
@@ -119,10 +124,10 @@ test("passkey → approve and reject agent requests → project, secrets, people
   });
 
   await signIn(page, baseURL!);
-  await expect(page.getByRole("link", { name: /Approvals/ })).toContainText("2");
+  await expect(page.getByRole("link", { name: /^Ledger/ }).first()).toContainText("2 waiting");
 
   // Approving before there's a passkey explains what to do.
-  await page.getByRole("link", { name: /Approvals/ }).click();
+  await page.goto("/approvals");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Two agents are waiting on you.");
   await expect(page.getByText("Add a passkey first.")).toBeVisible();
 
@@ -179,6 +184,49 @@ test("passkey → approve and reject agent requests → project, secrets, people
   await expect(page.getByText(/\/login#tfl_/)).toBeVisible();
   await page.getByRole("button", { name: "Done" }).click();
   await expect(page.getByText("Ada")).toBeVisible();
+
+  expect(problems, problems.join("\n")).toEqual([]);
+});
+
+// The Box: a lever stages a change, the plan tray shows the real plan, apply
+// signs it into the Ledger, and the toast's Undo puts it back.
+test("box → throttle stages → plan tray → apply → undo", async ({ page, baseURL }) => {
+  const problems: string[] = [];
+  page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
+  page.on("console", (m) => m.type() === "error" && !m.text().startsWith("Failed to load resource") && problems.push(m.text()));
+  await signIn(page, baseURL!);
+
+  const notes = page.getByRole("region", { name: "Project notes" });
+  await expect(notes).toBeVisible();
+  const site = notes.getByRole("slider", { name: "site instances" });
+  await expect(site).toHaveAttribute("aria-valuenow", "1");
+  await site.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(site).toHaveAttribute("aria-valuenow", "2");
+
+  // Staged, not applied: the bar offers a review.
+  const bar = page.getByRole("region", { name: "Staged changes" });
+  await expect(bar).toContainText("1 change staged on notes");
+  await bar.getByRole("button", { name: "Review" }).click();
+
+  const tray = page.getByRole("dialog", { name: /staged on notes/ });
+  await expect(tray.getByRole("heading", { name: "Scale site from 1 to 2 instances" })).toBeVisible();
+  await expect(tray.getByText("If you undo")).toBeVisible();
+  await expect(tray.locator(".diff .ln[data-k=add]")).toContainText("instances: 2");
+
+  // Esc keeps it staged.
+  await page.keyboard.press("Escape");
+  await expect(tray).toBeHidden();
+  await expect(bar).toBeVisible();
+  await bar.getByRole("button", { name: "Review" }).click();
+  await tray.getByRole("button", { name: "Apply 1 change to notes" }).click();
+
+  const toast = page.getByRole("status").filter({ hasText: "Scaled site to 2 instances in notes." });
+  await expect(toast).toBeVisible();
+  await expect(site).toHaveAttribute("aria-valuenow", "2");
+  await toast.getByRole("button", { name: "Undo" }).click();
+  await expect(page.getByText("Undone. Everything is back as it was.")).toBeVisible();
+  await expect(site).toHaveAttribute("aria-valuenow", "1");
 
   expect(problems, problems.join("\n")).toEqual([]);
 });

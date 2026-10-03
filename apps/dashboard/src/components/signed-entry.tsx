@@ -58,7 +58,7 @@ export function SignedEntry({
 }) {
   const agent = actor.kind === "agent";
   const sentence = (
-    <span className={cn("entry block", agent ? "text-graphite" : "text-ink", muted && "text-ink-3 line-through decoration-ink-4/60")}>{intent}</span>
+    <span className={cn("entry block [overflow-wrap:anywhere]", agent ? "text-graphite" : "text-ink", muted && "text-ink-3 line-through decoration-ink-4/60")}>{intent}</span>
   );
   return (
     <article className={cn("grid grid-cols-[44px_minmax(0,1fr)] gap-x-3 py-3", className)}>
@@ -72,7 +72,7 @@ export function SignedEntry({
           {agent && actor.model && <span className="ident ml-1.5 text-[0.71875rem] text-ink-3">{actor.model}</span>}
           {agent && actor.session && (
             <span className="ml-1.5 text-ink-3">
-              session <span className="ident text-[0.71875rem]">{actor.session.slice(0, 4)}</span>
+              session <span className="ident text-[0.71875rem]">{actor.session.length > 10 ? actor.session.slice(0, 8) : actor.session}</span>
             </span>
           )}
         </p>

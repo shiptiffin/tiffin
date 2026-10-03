@@ -178,8 +178,8 @@ function Tray({ project }: { project: string }) {
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key !== "Enter" || ev.metaKey || ev.ctrlKey || ev.repeat) return;
-      const t = ev.target as HTMLElement;
-      if (t.closest("input, textarea, button, a, [role=slider]")) return;
+      const t = ev.target;
+      if (t instanceof Element && t.closest("input, textarea, button, a, [role=slider]")) return;
       if (p && !empty && !irreversible && allowed && !apply.isPending) {
         ev.preventDefault();
         apply.mutate();
@@ -279,7 +279,7 @@ function Tray({ project }: { project: string }) {
               <aside className="px-5 pb-6 sm:px-7 md:px-6" aria-label="Impact">
                 <h3 className="label pt-5 pb-1">Room left in the box</h3>
                 <RoomBlock room={room} unavailable={!!res.error} />
-                <Impact edits={edits} ops={ops} project={project} />
+                <Impact edits={edits} ops={ops} project={project} apps={apps} />
               </aside>
             </div>
             <ConfigDiff project={project} before={manifest.data?.config} after={rendered.data?.config} error={rendered.error} />
@@ -379,16 +379,22 @@ export async function undoChange(id: string, qc: ReturnType<typeof useQueryClien
 
 function opTitle(op: Op, project: string, apps: Record<string, ManifestApp>): { title: string; detail?: string; facts: ReactNode[] } {
   const { kind, name } = splitAddress(op.address);
-  const before = (op.before ?? {}) as { instances?: number; memoryMB?: number };
-  const after = (op.after ?? {}) as { instances?: number; memoryMB?: number };
+  const before = (op.before ?? {}) as { instances?: number; memoryMB?: number; role?: string };
+  const after = (op.after ?? {}) as { instances?: number; memoryMB?: number; role?: string };
   if (kind === "app" && op.action === "update" && op.fields?.length === 1 && op.fields[0] === "instances") {
     const from = before.instances ?? 1;
     const to = after.instances ?? 1;
     const per = after.memoryMB ?? apps[name]?.memoryMB ?? 512;
     const up = to > from;
+    const worker = after.role === "worker";
+    const more = to - from;
     return {
       title: `Scale ${name} from ${from} to ${to} ${to === 1 ? "instance" : "instances"}`,
-      detail: up
+      detail: worker
+        ? up
+          ? `Starts ${words(more)} more ${more === 1 ? "instance" : "instances"} of ${name}; ${more === 1 ? "it takes" : "they take"} jobs from the same queues. Jobs already running finish where they are.`
+          : `Stops ${words(from - to)} ${from - to === 1 ? "instance" : "instances"} of ${name} once ${from - to === 1 ? "its jobs finish" : "their jobs finish"}.`
+        : up
         ? `Starts ${words(to - from)} more ${to - from === 1 ? "instance" : "instances"} of ${name}, waits for ${to - from === 1 ? "its" : "their"} health check, then adds ${to - from === 1 ? "it" : "them"} to the edge. The running ${from === 1 ? "instance keeps" : "instances keep"} serving.`
         : `Stops ${words(from - to)} ${from - to === 1 ? "instance" : "instances"} of ${name} once ${from - to === 1 ? "it finishes its" : "they finish their"} requests.`,
       facts: [
@@ -456,7 +462,7 @@ function RoomBlock({ room, unavailable }: { room: Room; unavailable: boolean }) 
   );
 }
 
-function Impact({ edits, ops, project }: { edits: StagedEdit[]; ops: Op[]; project: string }) {
+function Impact({ edits, ops, project, apps }: { edits: StagedEdit[]; ops: Op[]; project: string; apps: Record<string, ManifestApp> }) {
   const onlyScale = edits.every((e) => e.kind === "instances");
   const lost = ops.filter((o) => asTier(o.risk) === "irreversible");
   const scaled = edits.filter((e): e is Extract<StagedEdit, { kind: "instances" }> => e.kind === "instances");
@@ -465,7 +471,7 @@ function Impact({ edits, ops, project }: { edits: StagedEdit[]; ops: Op[]; proje
       {onlyScale && (
         <p>
           <b className="font-[550] text-ink">Downtime: none.</b>{" "}
-          {scaled.map((e) => `${e.app} keeps serving from ${e.from} ${e.from === 1 ? "instance" : "instances"} while the change rolls out.`).join(" ")}
+          {scaled.map((e) => `${e.app} keeps ${apps[e.app]?.role === "worker" ? "working" : "serving"} from ${e.from} ${e.from === 1 ? "instance" : "instances"} while the change rolls out.`).join(" ")}
         </p>
       )}
       <p>

@@ -34,6 +34,19 @@ const pages: Array<{ name: string; url: string; wait: (p: Page) => Promise<unkno
     },
     full: false,
   },
+  {
+    name: "tray-irreversible",
+    url: "/",
+    wait: (p) => p.getByText("Room left", { exact: true }).waitFor(),
+    act: async (p) => {
+      await p.getByRole("switch", { name: /^Analytics: on/ }).first().click();
+      await p.getByRole("button", { name: "Review" }).click();
+      await p.getByText("What will happen, in order").waitFor();
+      await p.getByLabel(/Type shop to arm/).fill("shop");
+      await p.locator(".diff .ln").first().waitFor();
+    },
+    full: false,
+  },
   { name: "kit", url: "/_kit", wait: (p) => p.getByText("Light, the hero").first().waitFor() },
   { name: "ledger", url: "/ledger", wait: (p) => p.getByRole("heading", { level: 1 }).waitFor() },
   { name: "status", url: "/status", wait: (p) => p.getByRole("heading", { name: "Checks" }).waitFor() },

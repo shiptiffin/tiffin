@@ -18,6 +18,7 @@ test("modules: storage, data, email, queues, workflows, users, analytics, protec
   });
 
   await signIn(page, baseURL!);
+  await page.goto("/ledger");
   await expect(page.getByRole("heading", { level: 1 })).toContainText("changes across");
 
   // Storage: upload into a folder, preview it, delete it.

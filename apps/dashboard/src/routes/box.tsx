@@ -29,7 +29,7 @@ import {
 } from "@/components/tier-status";
 import { Button } from "@/components/ui/button";
 import { boxName, domainFrom, versionLabel, whereItRuns } from "@/lib/box";
-import { asTier, opCounts, splitAddress } from "@/lib/changes";
+import { asTier, intentWords, opCounts, splitAddress, splitRequester } from "@/lib/changes";
 import { cn } from "@/lib/cn";
 import { enamelVar, useEnamels, type Enamel } from "@/lib/enamel";
 import { bytesParts, count, countWords, dec, duration, int, mb, words } from "@/lib/format";
@@ -52,7 +52,9 @@ type AppSpec = { framework?: string; role?: string; instances?: number; memoryMB
 export function BoxPage() {
   useTitle("Box");
   const status = useQuery(q.status());
-  const res = useQuery(q.resources);
+  const resQ = useQuery(q.resources);
+  // A laptop dev server answers 503, or zeros where it can't measure: treat both as "not measured".
+  const res = { data: resQ.data && resQ.data.memory.totalBytes > 0 ? resQ.data : undefined, error: resQ.error ?? (resQ.data && resQ.data.memory.totalBytes === 0 ? new Error("not measured") : null) };
   const projects = useQuery(q.projects);
   const names = useMemo(() => (projects.data ?? []).map((p) => p.name), [projects.data]);
   const states = useQueries({ queries: names.map((n) => q.project(n)) });
@@ -159,7 +161,7 @@ function Header({
   else if (failing > 1) health = `${countWords(failing, "part", "parts", true)} of the box need a look.`;
   else if (failedChecks.length > 0) health = `${countWords(failedChecks.length, "check", "checks", true)} failing: ${failedChecks.map((c) => c.name).join(", ")}.`;
   else health = "Everything is running.";
-  const people = [...new Set(waiting.map((a) => a.requester))];
+  const people = [...new Set(waiting.map((a) => splitRequester(a.requester).name))];
   let wait = "";
   if (waiting.length === 1) wait = `${people[0]} is waiting for you on one change.`;
   else if (waiting.length > 1)
@@ -725,9 +727,11 @@ function Waiting({ approvals, workflows }: { approvals: Approval[]; workflows: R
           <article key={a.id} className="rounded-[10px] border border-rule bg-paper-raised px-4 pt-3.5 pb-4 shadow-raised">
             <p className="label text-brass-ink">Waiting for you</p>
             <p className="mt-2 text-[0.78125rem] text-ink-3">
-              <b className="font-[550] text-graphite">{a.requester}</b> asks to change <span className="text-ink-2">{a.project}</span>
+              <b className="font-[550] text-graphite">{splitRequester(a.requester).name}</b>
+              {splitRequester(a.requester).session && <span className="ident ml-1.5 text-[0.71875rem]">session {splitRequester(a.requester).session}</span>} asks
+              to change <span className="text-ink-2">{a.project}</span>
             </p>
-            <p className="entry mt-1 text-graphite">{a.intent || a.plan.summary}</p>
+            <p className="entry mt-1 text-graphite">{intentWords({ intent: a.intent, plan: a.plan })}</p>
             <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
               <RiskDots tier={tier} />
               <span>expires {relative(a.expiresAt)}</span>
@@ -801,7 +805,7 @@ function Latest({ changes, approvals, enamels }: { changes?: Change[]; approvals
                     key={c.id}
                     time={clock(c.at)}
                     actor={{ kind: c.actor.kind, name: actorName(c), session: c.actor.session }}
-                    intent={sentenceOf(c.intent || c.plan.summary)}
+                    intent={intentWords(c)}
                     to="/changes/$id"
                     params={{ id: c.id }}
                     counts={opCounts(c.plan.ops)}
@@ -825,10 +829,6 @@ function Latest({ changes, approvals, enamels }: { changes?: Change[]; approvals
   );
 }
 
-const sentenceOf = (s: string) => {
-  const t = s.trim();
-  return t ? t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? "" : ".") : t;
-};
 
 /** People's names start with a capital; agents keep their token name ("claude-code"). */
 const actorName = (c: Change) => {
