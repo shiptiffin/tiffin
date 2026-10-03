@@ -92,6 +92,25 @@
   .breaker .was[data-at="off"] {
     top: calc(var(--h) - var(--p) - 4px);
   }
+  /* the printed position beside a breaker, like the legend on a panel */
+  .breaker-print {
+    font-size: 0.625rem;
+    line-height: 1;
+    font-weight: 550;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    min-width: 2.2em;
+  }
+  .breaker-print[data-pos="off"] {
+    color: var(--ink-4);
+  }
+  .breaker-print[data-pos="tripped"] {
+    color: var(--danger);
+  }
+  .breaker-print[data-staged] {
+    color: var(--brass-ink);
+  }
   .breaker:disabled {
     cursor: not-allowed;
     opacity: 0.55;
@@ -274,6 +293,24 @@
   }
   .seg i[data-on] {
     background: var(--seg-on);
+  }
+  .seg i[data-trace] {
+    background: linear-gradient(to right, var(--seg-on) 0 2px, var(--seg-off) 2px);
+  }
+  /* past the end of its scale: the last segment carries a notch */
+  .seg[data-over] {
+    position: relative;
+    padding-right: 6px;
+  }
+  .seg[data-over]::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: -2px;
+    bottom: -2px;
+    width: 3px;
+    border-radius: 1px;
+    background: var(--ink-2);
   }
   .seg i[data-warn] {
     background: var(--warn);
@@ -495,46 +532,71 @@
   }
 
   /* ── The Stack (components/stack.tsx): the box drawn as a tiffin carrier ── */
+  /* The frame of a real carrier: two side posts from the base plate up past the lid, a bail across their
+     tops with a grip in the middle, and a clamp where each post holds the lid. The tiers sit inside,
+     their enamel lips overhanging toward the posts. Line art, flat, steel. */
   .carrier {
     --cols: 52px 152px minmax(0, 1fr) 96px 58px;
     --rail: 1.5px;
+    --post: 3px;
+    --post-gap: 13px; /* from the tiers' wall to the post's centre */
+    --bail: 34px;
     position: relative;
-    margin-top: 38px;
+    margin-top: calc(var(--bail) + 48px);
     border: var(--rail) solid var(--steel);
     border-bottom: 0;
     border-radius: var(--r-4) var(--r-4) 0 0;
   }
-  /* the carrying handle: a wire bail with a grip, clipped to the lid by two lugs */
+  /* the posts, down both sides to the base plate */
+  .carrier::before,
+  .carrier::after {
+    content: "";
+    position: absolute;
+    top: calc(-1 * var(--bail) + 8px - 2px);
+    bottom: -7px;
+    width: var(--post);
+    border-radius: 2px;
+    background: var(--steel);
+    pointer-events: none;
+  }
+  .carrier::before {
+    left: calc(-1 * var(--post-gap) - var(--post) / 2);
+  }
+  .carrier::after {
+    right: calc(-1 * var(--post-gap) - var(--post) / 2);
+  }
+  /* the bail: one wire arching from post to post, a grip at its crown */
   .carrier-handle {
     position: absolute;
-    left: 50%;
-    top: -32px;
-    width: 112px;
-    height: 32px;
-    margin-left: -56px;
-    border: 2.5px solid var(--steel);
+    left: calc(-1 * var(--post-gap) - var(--post) / 2);
+    right: calc(-1 * var(--post-gap) - var(--post) / 2);
+    top: calc(-1 * var(--bail) - 40px);
+    height: 48px;
+    border: var(--post) solid var(--steel);
     border-bottom: 0;
-    border-radius: 56px 56px 0 0 / 32px 32px 0 0;
+    border-radius: 50% 50% 0 0 / 100% 100% 0 0;
     pointer-events: none;
   }
   .carrier-handle::after {
-    /* the grip sleeve at the top of the bail */
+    /* the grip sleeve, where a hand goes */
     content: "";
     position: absolute;
     left: 50%;
-    top: -4.5px;
-    width: 34px;
-    height: 6.5px;
-    margin-left: -17px;
-    border-radius: 4px;
+    top: -6.5px;
+    width: 72px;
+    height: 10px;
+    margin-left: -36px;
+    border-radius: 5px;
     background: var(--steel);
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.2);
   }
+  /* the clamps where each post holds the lid */
   .carrier-handle i {
     position: absolute;
-    bottom: -6px;
+    top: calc(var(--bail) + 40px);
     width: 11px;
-    height: 10px;
-    border-radius: 2px;
+    height: 16px;
+    border-radius: 3px;
     background: var(--steel);
   }
   .carrier-handle i:first-child {
@@ -545,14 +607,14 @@
   }
   .carrier-base {
     height: 6px;
-    margin: 0 -9px;
+    margin: 0 -19px; /* under both posts (post gap 13 px + 6) */
     border-radius: 2px;
     background: var(--steel);
   }
   /* a rim: the lip of a tier, overhanging the rails; enamel for projects, steel for the box */
   .rim {
     position: relative;
-    height: 5px;
+    height: 6px;
     margin: 0 -8px;
     border-radius: 2px;
     background: var(--rim, var(--steel));
@@ -640,8 +702,12 @@
       left: 76px;
       right: 14px;
     }
+    .carrier {
+      --post-gap: 10px;
+      --post: 2.5px;
+    }
     .carrier-base {
-      margin: 0 -7px;
+      margin: 0 -15px;
     }
     .rim {
       margin: 0 -6px;

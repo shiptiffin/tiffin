@@ -297,9 +297,9 @@ function Levers() {
         <div className="flex flex-wrap gap-8">
           {(
             [
-              ["On", <Breaker key="a" size="md" label="Postgres" state="on" />],
-              ["Off", <Breaker key="b" size="md" label="Email" state="off" />],
-              ["Tripped", <Breaker key="c" size="md" label="Valkey" state="tripped" />],
+              ["On", <Breaker key="a" printed={false} size="md" label="Postgres" state="on" />],
+              ["Off", <Breaker key="b" printed={false} size="md" label="Email" state="off" />],
+              ["Tripped", <Breaker key="c" printed={false} size="md" label="Valkey" state="tripped" />],
               ["Staged (click)", <Breaker key="d" size="md" label="Queues" state="on" staged={svc} onFlip={(x) => setSvc(x === "on" ? undefined : x)} />],
             ] as Array<[string, ReactNode]>
           ).map(([l, b]) => (

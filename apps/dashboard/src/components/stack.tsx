@@ -52,9 +52,8 @@ export function TierColumns() {
       <span className="label">Lever</span>
       <span className="label">Part</span>
       <span className="label">Status</span>
-      <span className="label flex justify-between">
-        <span>Share</span>
-        <span className="tracking-normal normal-case">0–512</span>
+      <span className="label">
+        Share <span className="tracking-normal normal-case">of 512&#8239;MB</span>
       </span>
       <span className="label text-right">MB</span>
     </div>
@@ -146,10 +145,16 @@ export function TierRow({
         <div className="truncate text-[0.875rem] leading-[1.125rem] text-ink">{nameLink ?? name}</div>
         {sub && <div className="truncate text-xs leading-[0.9375rem] text-ink-3">{sub}</div>}
       </div>
-      <div className="min-w-0 py-2 text-[0.84375rem] leading-[1.1875rem] text-ink-2 max-sm:col-span-2 max-sm:col-start-2 max-sm:row-start-2 max-sm:py-0 max-sm:text-[0.8125rem]">
+      <div
+        className={cn(
+          "min-w-0 py-2 text-[0.84375rem] leading-[1.1875rem] text-ink-2 max-sm:col-span-2 max-sm:col-start-2 max-sm:row-start-2 max-sm:py-0 max-sm:text-[0.8125rem]",
+          // No meter on this row: the sentence takes its column instead of wrapping early.
+          !share && "sm:col-span-2",
+        )}
+      >
         {status}
       </div>
-      <div className="max-sm:hidden">{share}</div>
+      {share && <div className="max-sm:hidden">{share}</div>}
       <div className="text-right text-[0.875rem] tnum max-sm:col-start-3 max-sm:row-start-1">{amount}</div>
     </div>
   );

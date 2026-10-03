@@ -42,8 +42,11 @@ export function SegMeter({
   className?: string;
 }) {
   const per = max / segments;
-  const lit = value > 0 ? Math.max(1, Math.round(value / per)) : 0;
-  // With nothing staged the lit count stands (a small non-zero value still lights one segment).
+  // A value under half a segment lights nothing; the first segment shows a trace instead, so 17 KB of 10 GB
+  // doesn't read as 5 %. A value past the scale says so with a notch at the end.
+  const lit = Math.min(segments, Math.round(value / per));
+  const trace = value > 0 && lit === 0;
+  const over = value > max * 1.001;
   const after = add === 0 ? lit : Math.max(0, Math.min(segments, Math.round((value + add) / per)));
   const cells = Array.from({ length: segments }, (_, i) => {
     const share = (i + 1) / segments;
@@ -56,6 +59,7 @@ export function SegMeter({
       else if (warnAt !== undefined && share > warnAt) flag["data-warn"] = "";
       else flag["data-on"] = "";
     }
+    if (trace && i === 0 && !isAdd) flag["data-trace"] = "";
     if (isAdd) flag["data-add"] = "";
     if (isSub) flag["data-sub"] = "";
     return <i key={i} {...flag} />;
@@ -66,6 +70,7 @@ export function SegMeter({
       <div
         className="seg"
         data-size={size}
+        data-over={over ? "" : undefined}
         role="meter"
         aria-label={label}
         aria-valuemin={0}

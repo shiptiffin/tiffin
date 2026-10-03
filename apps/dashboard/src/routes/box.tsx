@@ -38,6 +38,8 @@ import { asTier, intentWords, opCounts, splitAddress, splitRequester } from "@/l
 import { cn } from "@/lib/cn";
 import { enamelVar, useEnamels, type Enamel } from "@/lib/enamel";
 import { actorWords } from "@/lib/actors";
+import { actorShown } from "@/lib/who";
+import { splitIntent, tokenWho } from "@/components/ledger-parts";
 import { memoryModel, type MemoryModel } from "@/lib/memory";
 import { bytes, bytesParts, count, countWords, dec, duration, int, words } from "@/lib/format";
 import { stage, stagedFor, useAllStaged, type StagedEdit } from "@/lib/staged";
@@ -94,7 +96,14 @@ export function BoxPage() {
       {projects.data && names.length === 0 ? (
         <EmptyHeader />
       ) : (
-        <Header status={status.data} failing={failing.length + downServices.length} failingFirst={failing[0]} waiting={pending.data ?? []} workflows={wf.length} />
+        <Header
+          status={status.data}
+          failing={failing.length + downServices.length}
+          failingFirst={failing[0]}
+          waiting={pending.data ?? []}
+          workflows={wf.length}
+          apps={states.flatMap((s) => (s.data?.resources ?? []).filter((r) => r.address.startsWith("app/")).map((r) => ({ project: s.data!.name, app: r.address.slice(4) })))}
+        />
       )}
       <div className="mt-8 grid items-start gap-x-12 gap-y-8 xl:grid-cols-[minmax(0,1fr)_288px]">
         <div className="min-w-0">
@@ -167,19 +176,28 @@ function Header({
   failingFirst,
   waiting,
   workflows,
+  apps,
 }: {
   status?: StatusReport;
   failing: number;
   failingFirst?: { project: string; address: string };
   waiting: Approval[];
   workflows: number;
+  apps: Array<{ project: string; app: string }>;
 }) {
   const [now] = useState(() => new Date());
+  // The same deploy lists the rows read (shared cache): a failed last deploy is news even while the old version serves.
+  const deploys = useQueries({
+    queries: apps.map((a) => ({ queryKey: ["deploys", a.project, a.app, ""], queryFn: () => mod3.deploys(a.project, a.app), retry: false, refetchInterval: 10_000 })),
+  });
+  const failedDeploys = apps.filter((_, i) => (deploys[i].data ?? []).filter((d) => !d.preview)[0]?.status === "failed");
   const failedChecks = (status?.checks ?? []).filter((c) => !c.ok);
   let health: string;
   if (failing === 1 && failingFirst) health = `${splitAddress(failingFirst.address).name || failingFirst.address} in ${failingFirst.project} is down.`;
   else if (failing > 1) health = `${countWords(failing, "part", "parts", true)} of the box need a look.`;
   else if (failedChecks.length > 0) health = `${countWords(failedChecks.length, "check", "checks", true)} failing: ${failedChecks.map((c) => c.name).join(", ")}.`;
+  else if (failedDeploys.length === 1) health = `${failedDeploys[0].app}’s last deploy failed; the version before it is serving.`;
+  else if (failedDeploys.length > 1) health = `${countWords(failedDeploys.length, "deploy", "deploys", true)} failed; the versions before them are serving.`;
   else health = "Everything is running.";
   const people = [...new Set(waiting.map((a) => actorWords({ kind: "agent", name: splitRequester(a.requester).name })))];
   let wait = "";
@@ -362,11 +380,11 @@ function ProjectTier({ state, enamel, mem, approvals }: { state: ProjectState; e
                 · <span className="ident text-[0.75rem] text-ink-2">{host}</span>
               </>
             )}
+            <Held project={p} services={services} />
           </>
         }
         total={mem ? apps.length > 0 ? int(total) : <span className="font-[400] text-ink-3" title="No apps, so nothing of its own in memory">–</span> : undefined}
       />
-      <ProjectNote project={p} apps={apps.length} services={services} />
       {apps.map((a) => (
         <AppRow
           key={a.name}
@@ -399,25 +417,13 @@ function ProjectTier({ state, enamel, mem, approvals }: { state: ProjectState; e
   );
 }
 
-/** What the project's MB column does and doesn't count, with what can honestly be attributed to it. */
-function ProjectNote({ project, apps, services }: { project: string; apps: number; services: string[] }) {
+/** What the project keeps on disk in the shared platform: " · database 8.8 MB, files 17.6 KB". */
+function Held({ project, services }: { project: string; services: string[] }) {
   const pg = useQuery({ queryKey: ["pg", project], queryFn: () => mod.pg(project), enabled: services.includes("postgres"), retry: false, staleTime: 15_000 });
   const st = useQuery({ ...mq.storage(project), enabled: services.includes("storage"), retry: false, staleTime: 15_000 });
-  const held = [
-    pg.data ? `its database (${bytes(pg.data.sizeBytes)} on disk)` : null,
-    st.data && st.data.usedBytes > 0 ? `its files (${bytes(st.data.usedBytes)})` : null,
-  ].filter(Boolean) as string[];
-  if (services.length === 0) return null;
-  const lead = apps > 0 ? "Memory is its apps’ own." : "No apps yet, so nothing of its own in memory.";
-  const rest = held.length > 0 ? ` ${held.join(" and ").replace(/^./, (c) => c.toUpperCase())} ${held.length > 1 ? "live" : "lives"} in the shared platform below.` : " Its services run in the shared platform below.";
-  return (
-    <div className="tier-grid -mt-1.5 pb-2 max-sm:block max-sm:px-3.5">
-      <p className="col-span-4 col-start-2 text-xs leading-4 text-ink-3">
-        {lead}
-        {rest}
-      </p>
-    </div>
-  );
+  const held = [pg.data ? `database ${bytes(pg.data.sizeBytes)}` : null, st.data && st.data.usedBytes > 0 ? `files ${bytes(st.data.usedBytes)}` : null].filter(Boolean);
+  if (held.length === 0) return null;
+  return <> · {held.join(", ")} on disk</>;
 }
 
 function useHost(project: string, app?: string) {
@@ -499,7 +505,7 @@ function AppRow({
             {app}
           </Link>
           {live.pilot && <PilotLight state={live.pilot} label={live.pilot === "busy" ? "Building" : "Deploy failed"} />}
-          {staged && <span className="label text-brass-ink">staged</span>}
+          {staged ? <span className="label text-brass-ink">staged</span> : bound && <span className="label text-graphite" title="A change waiting for your approval touches this">waiting</span>}
         </span>
       }
       name={app}
@@ -512,7 +518,7 @@ function AppRow({
             size="row"
             segments={16}
             max={512}
-            value={Math.min(512, memMB)}
+            value={memMB}
             add={staged?.kind === "instances" ? (memMB / Math.max(1, applied)) * (staged.to - applied) : 0}
             label={`${app} memory`}
             valueText={`${int(memMB)} MB of a 512 MB scale`}
@@ -579,7 +585,7 @@ function ServiceRow({
           <Link to={meta.to as "/"} params={{ project } as never} className="hover:underline hover:decoration-rule-3 hover:underline-offset-4">
             {meta.label}
           </Link>
-          {staged && <span className="label text-brass-ink">staged</span>}
+          {staged ? <span className="label text-brass-ink">staged</span> : bound && <span className="label text-graphite" title="A change waiting for your approval touches this">waiting</span>}
         </span>
       }
       name={meta.label}
@@ -682,7 +688,7 @@ function PlatformTier({ res, mem, status, unavailable }: { res?: BoxResources; m
     <section aria-label="Platform">
       <TierHead
         name="Platform"
-        about="What keeps the box running, shared by every project."
+        about="Runs the box, and holds every project’s database and files."
         total={measured ? int(mem!.platformMB) : undefined}
       />
       {unavailable && <p className="px-5 pb-4 text-sm text-ink-3 max-sm:px-3.5">Measured on a running box.</p>}
@@ -718,7 +724,7 @@ function PlatformTier({ res, mem, status, unavailable }: { res?: BoxResources; m
                 name={r.name}
                 sub={r.sub}
                 status={sentence}
-                share={mbv !== undefined && mbv >= 1 && <SegMeter size="row" segments={16} max={512} value={Math.min(512, mbv)} label={`${r.name} memory`} valueText={`${int(mbv)} MB`} />}
+                share={mbv !== undefined && mbv >= 1 && <SegMeter size="row" segments={16} max={512} value={mbv} label={`${r.name} memory`} valueText={`${int(mbv)} MB`} />}
                 amount={mbv !== undefined ? int(mbv) : undefined}
                 fault={!!failed}
                 unlatching={lifting === r.name}
@@ -738,7 +744,7 @@ function PlatformTier({ res, mem, status, unavailable }: { res?: BoxResources; m
                 {measured && mem!.cacheMB > 0 && <span className="text-ink-3">Not counted: about {int(mem!.cacheMB)}&#8239;MB of cache Linux hands back when apps need it.</span>}
               </>
             }
-            share={measured && mem!.systemMB >= 1 && <SegMeter size="row" segments={16} max={512} value={Math.min(512, mem!.systemMB)} label="Linux and builds memory" valueText={`${int(mem!.systemMB)} MB`} />}
+            share={measured && mem!.systemMB >= 1 && <SegMeter size="row" segments={16} max={512} value={mem!.systemMB} label="Linux and builds memory" valueText={`${int(mem!.systemMB)} MB`} />}
             amount={measured ? int(mem!.systemMB) : undefined}
           />
         </div>
@@ -769,7 +775,10 @@ function RoomLeft({ res, mem, states, empty }: { res?: BoxResources; mem?: Memor
         <div className="col-span-2 col-start-3 text-xs text-ink-3 max-sm:hidden">
           The projects’ apps and the platform, as Linux counts it, of {int(mem.totalMB)}&#8239;MB.
         </div>
-        <div className="col-start-5 text-right text-[0.875rem] font-[550] tnum max-sm:col-start-2">{int(mem.usedMB)}</div>
+        <div className="col-start-5 text-right text-[0.875rem] font-[550] whitespace-nowrap tnum max-sm:col-start-2">
+          {int(mem.usedMB)}
+          <span className="u">&#8239;MB</span>
+        </div>
       </div>
       <div className="room tier-grid m-3 mt-1 min-h-16 py-3.5 max-sm:mx-2 max-sm:flex max-sm:flex-col max-sm:items-start max-sm:gap-1.5 max-sm:px-3.5">
         <div className="col-start-2 flex w-full items-baseline justify-between text-[0.875rem] font-[550]">
@@ -783,7 +792,7 @@ function RoomLeft({ res, mem, states, empty }: { res?: BoxResources; mem?: Memor
           </Link>
         </p>
         <div className="col-start-5 text-right max-sm:hidden">
-          <Qty value={int(free)} className="text-[0.9375rem] font-[550]" />
+          <Qty value={int(free)} unit="MB" className="text-[0.9375rem] font-[550]" />
         </div>
       </div>
     </>
@@ -806,7 +815,10 @@ function Waiting({ approvals, workflows }: { approvals: Approval[]; workflows: R
               {splitRequester(a.requester).session && <span className="ident ml-1.5 text-[0.71875rem]">session {splitRequester(a.requester).session}</span>} asks
               to change <span className="text-ink-2">{a.project}</span>
             </p>
-            <p className="entry mt-1 text-graphite">{intentWords({ intent: a.intent, plan: a.plan })}</p>
+            <p className="entry mt-1 text-graphite">{splitIntent(intentWords({ intent: a.intent, plan: a.plan })).head}</p>
+            {splitIntent(intentWords({ intent: a.intent, plan: a.plan })).rest && (
+              <p className="mt-1 line-clamp-2 text-[0.8125rem] leading-[1.1875rem] text-ink-3">{splitIntent(intentWords({ intent: a.intent, plan: a.plan })).rest}</p>
+            )}
             <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
               <RiskDots tier={tier} />
               <span>expires {relative(a.expiresAt)}</span>
@@ -844,7 +856,13 @@ function Waiting({ approvals, workflows }: { approvals: Approval[]; workflows: R
 }
 
 function Latest({ changes, approvals, enamels }: { changes?: Change[]; approvals: Approval[]; enamels: Record<string, Enamel> }) {
-  const list = (changes ?? []).slice(0, 6);
+  const names = useQuery({ ...q.tokenNames, retry: false }).data;
+  // The rail shows what stuck. A change and the undo that cancelled it leave together; the Ledger keeps both.
+  const all = changes ?? [];
+  const ids = new Set(all.map((c) => c.id));
+  const cancelled = (c: Change) => (!!c.undoneBy && ids.has(c.undoneBy)) || (!!c.undoOf && ids.has(c.undoOf));
+  const list = all.filter((c) => !cancelled(c)).slice(0, 5);
+  const pairs = all.filter((c) => c.undoneBy && ids.has(c.undoneBy) && dayKey(c.at) === dayKey(new Date().toISOString())).length;
   const byChange = new Map(approvals.filter((a) => a.usedBy).map((a) => [a.usedBy!, a]));
   const days: Array<{ key: string; label: string; first: string; items: Change[] }> = [];
   for (const c of list) {
@@ -863,7 +881,7 @@ function Latest({ changes, approvals, enamels }: { changes?: Change[]; approvals
       </div>
       {!changes ? (
         <div className="mt-4 h-40" />
-      ) : list.length === 0 ? (
+      ) : all.length === 0 ? (
         <p className="mt-3 text-sm text-ink-3">Nothing has changed yet. Every change to the box will be written down here, signed and undoable.</p>
       ) : (
         days.map((d) => (
@@ -879,14 +897,14 @@ function Latest({ changes, approvals, enamels }: { changes?: Change[]; approvals
                   <SignedEntry
                     key={c.id}
                     time={clock(c.at)}
-                    actor={{ kind: c.actor.kind, name: c.actor.name || c.actor.id, session: c.actor.session }}
-                    intent={intentWords(c)}
+                    actor={{ kind: c.actor.kind, name: actorShown(c.actor, names), session: c.actor.session }}
+                    intent={splitIntent(intentWords(c)).head}
                     to="/changes/$id"
                     params={{ id: c.id }}
                     counts={opCounts(c.plan.ops)}
                     tier={asTier(c.plan.risk)}
                     muted={!!c.undoneBy}
-                    signature={ap ? `approved by ${ap.decidedBy ?? "a person"} · passkey` : c.actor.kind === "agent" ? "within its grant" : c.undoneBy ? "undone" : undefined}
+                    signature={ap ? `signed by ${tokenWho(ap.decidedBy, names)} · passkey` : c.actor.kind === "agent" ? "within its grant" : c.undoneBy ? "undone" : undefined}
                     extra={
                       <span className="inline-flex items-center gap-1.5">
                         <EnamelSwatch enamel={enamels[c.project] ?? "indigo"} size={6} />
@@ -899,6 +917,14 @@ function Latest({ changes, approvals, enamels }: { changes?: Change[]; approvals
             </div>
           </div>
         ))
+      )}
+      {pairs > 0 && (
+        <p className="mt-3 text-xs text-ink-3">
+          Also {countWords(pairs, "change")} made and undone today.{" "}
+          <Link to="/ledger" search={{}} className="text-ink-2 underline decoration-rule-3 underline-offset-[3px] hover:text-ink">
+            See them in the Ledger
+          </Link>
+        </p>
       )}
     </section>
   );

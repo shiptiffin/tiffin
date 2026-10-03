@@ -19,6 +19,7 @@ export function Breaker({
   staged,
   onFlip,
   size = "sm",
+  printed = true,
   className,
   ...rest
 }: {
@@ -31,6 +32,8 @@ export function Breaker({
   /** Called with the position the person asked for. */
   onFlip?: (next: "on" | "off") => void;
   size?: "sm" | "md";
+  /** Print the position beside the switch in small caps (ON / OFF / TRIPPED), as on a panel. */
+  printed?: boolean;
 } & Omit<ComponentProps<"button">, "onClick" | "children">) {
   const shown = staged ?? state;
   const next: "on" | "off" = shown === "on" ? "off" : "on";
@@ -39,7 +42,7 @@ export function Breaker({
     : state === "tripped"
       ? `${label}: tripped. Reset to on`
       : `${label}: ${state}`;
-  return (
+  const button = (
     <button
       type="button"
       role="switch"
@@ -58,5 +61,14 @@ export function Breaker({
     >
       {staged && staged !== state && state !== "tripped" && <span className="was" data-at={state} aria-hidden />}
     </button>
+  );
+  if (!printed) return button;
+  return (
+    <span className="inline-flex items-center gap-2">
+      {button}
+      <span aria-hidden className="breaker-print" data-pos={shown} data-staged={staged && staged !== state ? "" : undefined}>
+        {shown === "tripped" ? "trip" : shown}
+      </span>
+    </span>
   );
 }
