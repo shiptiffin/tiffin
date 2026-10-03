@@ -1,4 +1,23 @@
 import type { StatusReport } from "@/api/client";
+import { duration } from "./format";
+import { relative } from "./time";
+
+/**
+ * Uptime has one meaning in the dashboard: how long the machine has been up
+ * (from /v1/box/resources or the metrics overview, both the kernel's count).
+ * "up 3 h 14 min". Tiffin's own process is a different fact, said as an event
+ * with tiffinStarted, so the two never read as rival uptimes.
+ */
+export function boxUp(seconds: number | undefined): string | undefined {
+  return seconds === undefined ? undefined : `up ${duration(seconds)}`;
+}
+
+/** When Tiffin's process last started, from the status report's Go duration: "57 minutes ago". */
+export function tiffinStarted(goUptime: string, now = Date.now()): string {
+  const m = goUptime.match(/^(?:(\d+)h)?(?:(\d+)m(?!s))?(?:([\d.]+)s)?$/);
+  const secs = m ? Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0) : 0;
+  return relative(new Date(now - secs * 1000).toISOString(), now);
+}
 
 /** The box's name for the nameplate: its hostname, without Lima's prefix. */
 export function boxName(s: StatusReport | undefined): string {

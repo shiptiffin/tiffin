@@ -26,7 +26,7 @@ import { mcpCommand } from "@/lib/mcp";
 import { useMe, useWho } from "@/lib/me";
 import { serviceNames, stage, stagedFor, useStaged, type StagedEdit } from "@/lib/staged";
 import { deployGit, deployTemplate, frameworkName, nextDeployFor, startersQuery } from "@/lib/starters";
-import { clock, full, relative, windowLabel } from "@/lib/time";
+import { clock, full, liveSince, relative, windowLabel } from "@/lib/time";
 import { MEMORY_STOPS } from "./project";
 
 // ------------------------------------------------------------------ shared
@@ -333,7 +333,7 @@ export function AppPage({ project, app }: { project: string; app: string }) {
           <span>
             {frameworkName(r.framework)}
             {r.role === "worker" ? " worker, no public address" : ""}
-            {current && ` · live ${relative(current.liveAt ?? current.createdAt)}`}
+            {current && ` · live ${relative(liveSince(current))}`}
           </span>
         )}
       </div>
@@ -507,8 +507,8 @@ function VersionRow({
         <Link to="/projects/$project/apps/$app/deploys/$id" params={{ project, app, id: d.id }} className="flex min-w-0 items-center gap-2 after:absolute after:inset-0">
           {st && <PilotLight state={st} />}
           <span className={cn("text-[0.84375rem]", d.status === "failed" ? "text-danger" : d.status === "live" || inFlight(d.status) ? "text-ink" : "text-ink-3")}>{statusWord[d.status]}</span>
-          <span className="truncate text-[0.8125rem] text-ink-3" title={full(d.createdAt)}>
-            · {relative(d.createdAt)}
+          <span className="truncate text-[0.8125rem] text-ink-3" title={d.status === "live" ? `Live since ${full(liveSince(d))}; deployed ${full(d.createdAt)}` : full(d.createdAt)}>
+            · {relative(d.status === "live" ? liveSince(d) : d.createdAt)}
             {who ? ` by ${who}` : ""} · {source}
           </span>
         </Link>
@@ -678,7 +678,7 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
   if (dep) {
     const from = sourceWords(dep, starters.data);
     if (running) sentence = `${dep.status === "starting" ? "Checking its health" : dep.status === "queued" ? "Waiting to build" : "Building"} from ${from}, ${secs(elapsed)} so far.`;
-    else if (dep.status === "live") sentence = `Live since ${clock(dep.liveAt ?? dep.createdAt)}, ${secs(dep.durationSeconds)} after it was queued.`;
+    else if (dep.status === "live") sentence = `Live since ${clock(liveSince(dep))}, ${secs(dep.durationSeconds)} after it was queued.`;
     else if (dep.status === "failed") sentence = <span className="text-danger">{dep.buildSeconds !== undefined ? "It built, but didn’t start." : "It didn’t build."}</span>;
     else if (dep.status === "superseded") sentence = `Replaced by a newer version. It can be made current again.`;
     else if (dep.status === "rolled_back") sentence = "Rolled back. It can be made current again.";

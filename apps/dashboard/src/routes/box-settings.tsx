@@ -11,12 +11,10 @@ import { Page, PageHeader } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { ExportBox, ImportBox } from "@/components/settings-move";
 import { toast } from "@/components/toast";
-import { boxName, versionLabel, whereItRuns } from "@/lib/box";
+import { boxName, boxUp, tiffinStarted, versionLabel, whereItRuns } from "@/lib/box";
 import { ENAMELS, enamelNames, useEnamels, type Enamel } from "@/lib/enamel";
-import { duration } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { setTheme, useTheme, type ThemePref } from "@/lib/theme";
-import { uptime } from "@/lib/time";
 
 const SOUNDS = "tiffin.sounds";
 function readSounds(): boolean {
@@ -46,7 +44,6 @@ export function SettingsPage() {
   const domain = s3 ?? location.hostname.replace(/^dashboard\./, "");
   const { can, admin, role } = useMe();
   const name = boxName(status.data);
-  const up = res.data ? duration(res.data.uptimeSeconds) : status.data ? uptime(status.data.uptime) : undefined;
   const build = health.data?.build;
 
   return (
@@ -55,7 +52,7 @@ export function SettingsPage() {
 
       <Section title="This box">
         <div className="border-y border-rule py-3">
-          <Nameplate name={name} where={whereItRuns(status.data)} version={versionLabel(status.data)} uptime={up ? `up ${up}` : undefined} domain={domain} />
+          <Nameplate name={name} where={whereItRuns(status.data)} version={versionLabel(status.data)} uptime={boxUp(res.data?.uptimeSeconds)} domain={domain} />
         </div>
         <dl className="mt-1 grid grid-cols-[8rem_minmax(0,1fr)] text-[0.875rem]">
           {(
@@ -64,7 +61,7 @@ export function SettingsPage() {
               ["System", status.data ? `${status.data.host.os === "linux" ? "Linux" : status.data.host.os}, ${status.data.host.arch}` : "…"],
               res.data && ["Machine", `${res.data.cpu.count} CPUs, ${Math.round(res.data.memory.totalBytes / 1073741824)} GB memory, ${Math.round(res.data.disks.data.totalBytes / 1073741824)} GB data disk`],
               ["Dashboard", <span className="ident">{location.host}</span>],
-              status.data && ["Tiffin up for", uptime(status.data.uptime)],
+              status.data && ["Tiffin started", tiffinStarted(status.data.uptime)],
             ].filter(Boolean) as Array<[string, ReactNode]>
           ).map(([k, v]) => (
             <div key={k} className="col-span-2 grid grid-cols-subgrid border-b border-rule py-2.5">

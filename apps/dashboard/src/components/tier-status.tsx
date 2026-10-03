@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { mod, mod2, mod3, mq } from "@/api/modules";
 import { bytes, count, int, plainWords } from "@/lib/format";
-import { relative } from "@/lib/time";
+import { liveSince, relative } from "@/lib/time";
 import type { PilotState } from "./pilot";
 
 // One status sentence per part of the box, from real data only. While the
@@ -54,7 +54,7 @@ export function useAppStatus(project: string, app: string, role: string | undefi
     };
   }
   if (!live) return { sentence: <span className="text-ink-3">Not deployed yet. `tiffin deploy` ships it.</span> };
-  const went = `Went live ${relative(live.liveAt ?? live.createdAt)}.`;
+  const went = `Went live ${relative(liveSince(live))}.`;
   if (framework === "static") return { sentence: `Served by the edge. ${went}` };
   if (role === "worker") return { sentence: `Runs jobs in the background. ${went}` };
   if (m && m.requests > 0) {

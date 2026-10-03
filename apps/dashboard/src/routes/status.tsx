@@ -8,10 +8,10 @@ import { useTitle } from "@/components/favicon";
 import { Alarm, Facts, Group, Rows } from "@/components/health-kit";
 import { Page, Skeleton } from "@/components/page";
 import { Code, ProblemNote, sentence } from "@/components/problem";
-import { boxName, versionLabel, whereItRuns } from "@/lib/box";
+import { boxName, tiffinStarted, versionLabel, whereItRuns } from "@/lib/box";
 import { cn } from "@/lib/cn";
 import { countWords, dec, duration, int, plainWords, withUnit, words } from "@/lib/format";
-import { relative, uptime } from "@/lib/time";
+import { relative } from "@/lib/time";
 
 /** What each check is, in the words the rest of the dashboard uses. */
 const checkNames: Record<string, string> = {
@@ -251,8 +251,8 @@ export function StatusPage() {
             ["Name", boxName(d)],
             ["Runs on", <>{whereItRuns(d)} <span className="ident ml-1.5 text-ink-3">{d.host.hostname}</span></>],
             ["Version", versionLabel(d)],
-            ["Tiffin up for", uptime(d.uptime)],
-            res.data && ["Machine up for", duration(res.data.uptimeSeconds)],
+            res.data && ["Up for", duration(res.data.uptimeSeconds)],
+            ["Tiffin started", tiffinStarted(d.uptime)],
           ]}
         />
       </Group>

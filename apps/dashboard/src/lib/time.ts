@@ -48,19 +48,6 @@ export function expiry(iso?: string): string {
   return t < Date.now() ? `expired ${relative(iso)}` : relative(iso);
 }
 
-/** Go durations like "1h2m3.5s" → "1 h 2 min". */
-export function uptime(go: string): string {
-  const m = go.match(/(?:(\d+)h)?(?:(\d+)m(?!s))?(?:([\d.]+)s)?/);
-  if (!m) return go;
-  const h = Number(m[1] ?? 0);
-  const min = Number(m[2] ?? 0);
-  const s = Math.floor(Number(m[3] ?? 0));
-  if (h >= 48) return `${Math.floor(h / 24)} days`;
-  if (h > 0) return `${h} h ${min} min`;
-  if (min > 0) return `${min} min ${s} s`;
-  return `${s} s`;
-}
-
 /** "Thursday, 2 October". */
 export function longDay(iso: string): string {
   return dayFmt.format(new Date(iso));
@@ -78,4 +65,13 @@ export function windowLabel(w: string): string {
   const n = Number(m[1]);
   const unit = { m: "min", h: n === 1 ? "hour" : "hours", d: n === 1 ? "day" : "days" }[m[2] as "m" | "h" | "d"];
   return n === 1 && m[2] !== "m" ? `Last ${unit}` : `Last ${n} ${unit}`;
+}
+
+/**
+ * When a version went live: the one time every page quotes for "live …" (the
+ * app header, its version row, the project and Box rows). A version that went
+ * live again (a rollback to it) counts from then.
+ */
+export function liveSince(d: { liveAt?: string | null; finishedAt?: string | null; createdAt: string }): string {
+  return d.liveAt ?? d.finishedAt ?? d.createdAt;
 }
