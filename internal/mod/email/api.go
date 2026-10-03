@@ -1,0 +1,597 @@
+package email
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/btahir/tiffin/internal/api"
+	"github.com/btahir/tiffin/internal/platform"
+	"github.com/btahir/tiffin/internal/tokens"
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/sse"
+	"github.com/emersion/go-message/mail"
+)
+
+// Detail is one message, ready to show.
+type Detail struct {
+	Summary
+	Envelope struct {
+		From string   `json:"from"`
+		To   []string `json:"to"`
+	} `json:"envelope" doc:"SMTP envelope: who it is actually delivered to (includes Bcc)"`
+	Headers    []Header         `json:"headers"`
+	Text       string           `json:"text"`
+	HTML       string           `json:"html" doc:"The HTML body, sanitised (no scripts, forms, iframes or event handlers). Show it in a sandboxed iframe"`
+	Links      []string         `json:"links" doc:"http(s) links in the message, e.g. sign-in or verification links"`
+	AttachList []AttachmentInfo `json:"attachmentList"`
+	RawURL     string           `json:"rawUrl" doc:"Download the raw .eml (API path)"`
+}
+
+// Status is the box's email setup.
+type Status struct {
+	Mode      string   `json:"mode" enum:"inbox,relay" doc:"inbox: every message is captured in the dev inbox; relay: production mail is sent through the relay"`
+	Relay     *Relay   `json:"relay,omitempty"`
+	SMTP      []string `json:"smtp" doc:"Addresses of Tiffin's SMTP submission server"`
+	Queued    int      `json:"queued" doc:"Messages waiting for a relay attempt"`
+	FailedDay int      `json:"failedLastDay" doc:"Deliveries that failed for good in the last 24 hours"`
+}
+
+type projectIn struct {
+	Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+}
+
+type messageIn struct {
+	Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+	ID      string `path:"id" pattern:"^msg_[0-9A-Z]{26}$" doc:"Message ID"`
+}
+
+func boxOnly(p *platform.Platform) error {
+	if p == nil {
+		return api.NewProblem(501, "internal", "email is only available on a box")
+	}
+	return ensureSchema(context.Background(), p.DB.SQL())
+}
+
+// toProblem maps module errors to API problems.
+func toProblem(err error) error {
+	var ve *ValidationError
+	var rl *RateLimitError
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, &ve):
+		return api.NewProblem(422, "validation", ve.Msg)
+	case errors.As(err, &rl):
+		pr := api.NewProblem(429, "precondition", rl.Error())
+		pr.Hint = fmt.Sprintf("wait %s, or ask the box owner to raise the limit (tiffin email rate-limit set)", rl.RetryAfter.Round(time.Second))
+		return pr
+	case errors.Is(err, errNoProject):
+		pr := api.NewProblem(404, "not_found", err.Error())
+		pr.Hint = "add services.email to tiffin.config.ts, then plan and apply"
+		return pr
+	case errors.Is(err, errNotFound):
+		return api.NewProblem(404, "not_found", err.Error())
+	}
+	return err
+}
+
+// RegisterAPI adds the email operations.
+func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
+	tag := "email"
+	base := "/v1/projects/{project}/email"
+
+	send := api.Op("email-send", http.MethodPost, base+"/send", "email send", api.RiskWrite, "Send an email",
+		"Sends a message from the project. Until the box has an SMTP relay (and always for previews) it is captured in the dev inbox instead: "+
+			"the reply says where it went. Suppressed recipients are skipped. Sending for real needs apply:outbound; capturing needs apply:reversible.", tag)
+	send.MaxBodyBytes = MaxMessageBytes * 4 / 3
+	send.Errors = append(send.Errors, 404, 429)
+	huma.Register(a, send, api.Wrap(func(ctx context.Context, in *struct {
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		Body    Message
+	}) (*struct{ Body Result }, error) {
+		if err := boxOnly(p); err != nil {
+			return nil, err
+		}
+		pr := api.PrincipalFrom(ctx)
+		if err := pr.Require(tokens.ScopeRead, in.Project); err != nil {
+			return nil, err
+		}
+		outbound, err := m.willSend(ctx, p, in.Project)
+		if err != nil {
+			return nil, err
+		}
+		scope := tokens.ScopeApplyReversible
+		if outbound {
+			scope = tokens.ScopeApplyOutbound
+		}
+		if err := pr.Require(scope, in.Project); err != nil {
+			return nil, err
+		}
+		res, err := m.send(ctx, p, in.Project, "api", in.Body)
+		if err != nil {
+			return nil, toProblem(err)
+		}
+		_ = p.DB.Audit(ctx, pr.TokenID, "email.send", in.Project+"/"+res.ID, map[string]any{"delivery": res.Delivery, "to": len(res.Recipients), "session": pr.Session})
+		return &struct{ Body Result }{*res}, nil
+	}))
+
+	huma.Register(a, api.Op("email-messages-list", http.MethodGet, base+"/messages", "email messages list", api.RiskRead, "List the dev inbox",
+		"Messages captured in the project's dev inbox, newest first. With all=true: every message, including ones sent through the relay or suppressed, with delivery status.", tag),
+		api.Wrap(func(ctx context.Context, in *struct {
+			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+			Q       string `query:"q" maxLength:"200" doc:"Search subject, from, to and text"`
+			All     bool   `query:"all" doc:"Include relayed and suppressed messages"`
+			Before  string `query:"before" pattern:"^msg_[0-9A-Z]{26}$" doc:"Page: messages older than this ID"`
+			Limit   int    `query:"limit" minimum:"1" maximum:"200" default:"50"`
+		}) (*struct{ Body []Summary }, error) {
+			if err := boxOnly(p); err != nil {
+				return nil, err
+			}
+			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
+				return nil, err
+			}
+			recs, err := listRecords(ctx, p.DB.SQL(), ListFilter{Project: in.Project, All: in.All, Query: in.Q, Before: in.Before, Limit: in.Limit})
+			if err != nil {
+				return nil, err
+			}
+			out := make([]Summary, 0, len(recs))
+			for _, r := range recs {
+				out = append(out, r.Summary)
+			}
+			return &struct{ Body []Summary }{out}, nil
+		}))
+
+	get := api.Op("email-message-get", http.MethodGet, base+"/messages/{id}", "email messages get", api.RiskRead, "Read a message",
+		"One message: headers, text, sanitised HTML, attachments, the links in it (handy for sign-in and verification links) and its delivery status.", tag)
+	get.Errors = append(get.Errors, 404)
+	huma.Register(a, get, api.Wrap(func(ctx context.Context, in *messageIn) (*struct{ Body Detail }, error) {
+		if err := boxOnly(p); err != nil {
+			return nil, err
+		}
+		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
+			return nil, err
+		}
+		d, err := m.detail(ctx, p, in.Project, in.ID)
+		if err != nil {
+			return nil, toProblem(err)
+		}
+		return &struct{ Body Detail }{*d}, nil
+	}))
+
+	raw := api.Op("email-message-raw", http.MethodGet, base+"/messages/{id}/raw", "email messages raw", api.RiskRead, "Download a message (.eml)",
+		"The raw RFC 5322 message as received.", tag)
+	raw.Hidden = true
+	huma.Register(a, raw, api.Wrap(func(ctx context.Context, in *messageIn) (*struct {
+		ContentType        string `header:"Content-Type"`
+		ContentDisposition string `header:"Content-Disposition"`
+		Body               []byte
+	}, error) {
+		if err := boxOnly(p); err != nil {
+			return nil, err
+		}
+		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
+			return nil, err
+		}
+		if _, err := getRecord(ctx, p.DB.SQL(), in.Project, in.ID); err != nil {
+			return nil, toProblem(err)
+		}
+		b, err := readRaw(p.DataRoot, in.Project, in.ID)
+		if err != nil {
+			return nil, api.NewProblem(404, "not_found", "the raw message is no longer kept")
+		}
+		return &struct {
+			ContentType        string `header:"Content-Type"`
+			ContentDisposition string `header:"Content-Disposition"`
+			Body               []byte
+		}{"message/rfc822", `attachment; filename="` + in.ID + `.eml"`, b}, nil
+	}))
+
+	att := api.Op("email-attachment-get", http.MethodGet, base+"/messages/{id}/attachments/{index}", "email attachments get", api.RiskRead,
+		"Download an attachment", "One attachment's bytes, by index from the message's attachmentList.", tag)
+	att.Hidden = true
+	huma.Register(a, att, api.Wrap(func(ctx context.Context, in *struct {
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$"`
+		ID      string `path:"id" pattern:"^msg_[0-9A-Z]{26}$"`
+		Index   int    `path:"index" minimum:"0"`
+	}) (*struct {
+		ContentType        string `header:"Content-Type"`
+		ContentDisposition string `header:"Content-Disposition"`
+		Body               []byte
+	}, error) {
+		if err := boxOnly(p); err != nil {
+			return nil, err
+		}
+		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
+			return nil, err
+		}
+		if _, err := getRecord(ctx, p.DB.SQL(), in.Project, in.ID); err != nil {
+			return nil, toProblem(err)
+		}
+		b, err := readRaw(p.DataRoot, in.Project, in.ID)
+		if err != nil {
+			return nil, api.NewProblem(404, "not_found", "the raw message is no longer kept")
+		}
+		parsed, err := parse(b)
+		if err != nil || in.Index >= len(parsed.parts) {
+			return nil, api.NewProblem(404, "not_found", "no such attachment")
+		}
+		info := parsed.Attachments[in.Index]
+		name := strings.NewReplacer(`"`, "", "\r", "", "\n", "").Replace(info.Filename)
+		if name == "" {
+			name = "attachment-" + strconv.Itoa(in.Index)
+		}
+		return &struct {
+			ContentType        string `header:"Content-Type"`
+			ContentDisposition string `header:"Content-Disposition"`
+			Body               []byte
+		}{info.ContentType, `attachment; filename="` + name + `"`, parsed.parts[in.Index]}, nil
+	}))
+
+	del := api.Op("email-message-delete", http.MethodDelete, base+"/messages/{id}", "email messages delete", api.RiskWrite,
+		"Delete a message from the dev inbox", "Removes one captured message. Only dev-inbox messages can be deleted.", tag)
+	del.Errors = append(del.Errors, 404)
+	huma.Register(a, del, api.Wrap(func(ctx context.Context, in *messageIn) (*struct{}, error) {
+		if err := boxOnly(p); err != nil {
+			return nil, err
+		}
+		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeApplyReversible, in.Project); err != nil {
+			return nil, err
+		}
+		n, err := deleteMessages(ctx, p, in.Project, in.ID)
+		if err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			return nil, api.NewProblem(404, "not_found", "no message "+in.ID+" in the dev inbox of "+in.Project)
+		}
+		return &struct{}{}, nil
+	}))
+
+	huma.Register(a, api.Op("email-messages-clear", http.MethodDelete, base+"/messages", "email messages clear", api.RiskWrite,
+		"Empty the dev inbox", "Removes every captured message of the project. Relayed-mail history is kept.", tag),
+		api.Wrap(func(ctx context.Context, in *projectIn) (*struct {
+			Body struct {
+				Deleted int `json:"deleted"`
+			}
+		}, error) {
+			if err := boxOnly(p); err != nil {
+				return nil, err
+			}
+			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeApplyReversible, in.Project); err != nil {
+				return nil, err
+			}
+			n, err := deleteMessages(ctx, p, in.Project, "")
+			if err != nil {
+				return nil, err
+			}
+			out := &struct {
+				Body struct {
+					Deleted int `json:"deleted"`
+				}
+			}{}
+			out.Body.Deleted = n
+			return out, nil
+		}))
+
+	// Live updates for the dashboard (server-sent events). Hidden from the
+	// CLI and MCP: they poll email-messages-list.
+	stream := api.Op("email-stream", http.MethodGet, base+"/stream", "email stream", api.RiskRead, "Stream new mail",
+		"Server-sent events: a \"message\" event (a message summary) whenever mail is captured or its delivery status changes.", tag)
+	stream.Hidden = true
+	sse.Register(a, stream, map[string]any{"message": Summary{}, "error": api.Problem{}}, func(ctx context.Context, in *projectIn, send sse.Sender) {
+		if p == nil {
+			return
+		}
+		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
+			_ = send(sse.Message{Data: api.NewProblem(403, "forbidden", err.Error())})
+			return
+		}
+		_, h := m.state()
+		ch, cancel := h.subscribe(in.Project)
+		defer cancel()
+		_ = send.Comment("connected")
+		ping := time.NewTicker(25 * time.Second)
+		defer ping.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case s := <-ch:
+				if send.Data(s) != nil {
+					return
+				}
+			case <-ping.C:
+				if send.Comment("ping") != nil {
+					return
+				}
+			}
+		}
+	})
+
+	huma.Register(a, api.Op("email-suppressions-list", http.MethodGet, base+"/suppressions", "email suppressions list", api.RiskRead,
+		"List suppressed addresses", "Addresses the project will not send to: hard bounces (added automatically), complaints, unsubscribes and manual entries.", tag),
+		api.Wrap(func(ctx context.Context, in *projectIn) (*struct{ Body []Suppression }, error) {
+			if err := boxOnly(p); err != nil {
+				return nil, err
+			}
+			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
+				return nil, err
+			}
+			l, err := listSuppressions(ctx, p.DB.SQL(), in.Project)
+			return &struct{ Body []Suppression }{l}, err
+		}))
+
+	huma.Register(a, api.Op("email-suppression-add", http.MethodPost, base+"/suppressions", "email suppressions add", api.RiskWrite,
+		"Suppress an address", "Stops all mail from the project to this address, e.g. after an unsubscribe or a spam complaint.", tag),
+		api.Wrap(func(ctx context.Context, in *struct {
+			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+			Body    struct {
+				Address string `json:"address" minLength:"3" maxLength:"320" doc:"Email address"`
+				Reason  string `json:"reason,omitempty" enum:"bounce,complaint,unsubscribe,manual" doc:"Default manual"`
+				Detail  string `json:"detail,omitempty" maxLength:"500"`
+			}
+		}) (*struct{ Body Suppression }, error) {
+			if err := boxOnly(p); err != nil {
+				return nil, err
+			}
+			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeApplyReversible, in.Project); err != nil {
+				return nil, err
+			}
+			a, err := mail.ParseAddress(in.Body.Address)
+			if err != nil {
+				return nil, api.NewProblem(422, "validation", "address: not an email address")
+			}
+			s := Suppression{Address: normAddr(a.Address), Reason: in.Body.Reason, Detail: in.Body.Detail, CreatedAt: time.Now().UTC()}
+			if s.Reason == "" {
+				s.Reason = "manual"
+			}
+			if err := addSuppression(ctx, p.DB.SQL(), in.Project, s); err != nil {
+				return nil, err
+			}
+			return &struct{ Body Suppression }{s}, nil
+		}))
+
+	sd := api.Op("email-suppression-delete", http.MethodDelete, base+"/suppressions/{address}", "email suppressions delete", api.RiskWrite,
+		"Unsuppress an address", "Lets the project send to this address again. Only do this when the person asked for mail again.", tag)
+	sd.Errors = append(sd.Errors, 404)
+	huma.Register(a, sd, api.Wrap(func(ctx context.Context, in *struct {
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		Address string `path:"address" maxLength:"320" doc:"Email address"`
+	}) (*struct{}, error) {
+		if err := boxOnly(p); err != nil {
+			return nil, err
+		}
+		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeApplyReversible, in.Project); err != nil {
+			return nil, err
+		}
+		ok, err := deleteSuppression(ctx, p.DB.SQL(), in.Project, in.Address)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, api.NewProblem(404, "not_found", in.Address+" is not suppressed in "+in.Project)
+		}
+		return &struct{}{}, nil
+	}))
+
+	huma.Register(a, api.Op("email-smtp", http.MethodGet, base+"/smtp", "email smtp", api.RiskRead, "Show a project's SMTP credentials",
+		"The SMTP env vars the project's apps get (SMTP_URL, EMAIL_FROM, ...), including the password, for tools and local development. "+
+			"Needs apply:outbound because the credentials can send real mail once a relay is configured.", tag),
+		api.Wrap(func(ctx context.Context, in *projectIn) (*struct{ Body map[string]string }, error) {
+			if err := boxOnly(p); err != nil {
+				return nil, err
+			}
+			pr := api.PrincipalFrom(ctx)
+			if err := pr.Require(tokens.ScopeApplyOutbound, in.Project); err != nil {
+				return nil, err
+			}
+			env, err := m.Env(ctx, p, in.Project, "")
+			if err != nil {
+				return nil, err
+			}
+			if env == nil {
+				return nil, toProblem(errNoProject)
+			}
+			_ = p.DB.Audit(ctx, pr.TokenID, "email.smtp.read", in.Project, map[string]any{"session": pr.Session})
+			return &struct{ Body map[string]string }{env}, nil
+		}))
+
+	huma.Register(a, api.Op("email-rate-limit-set", http.MethodPut, base+"/rate-limit", "email rate-limit set", api.RiskWrite,
+		"Set a project's send rate limit", fmt.Sprintf("Messages per hour (bursts up to 60 at once). Default %d; 0 means unlimited. Box admins only.", DefaultRatePerHour), tag),
+		api.Wrap(func(ctx context.Context, in *struct {
+			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+			Body    struct {
+				PerHour int `json:"perHour" minimum:"0" maximum:"1000000" doc:"Messages per hour; 0 means unlimited"`
+			}
+		}) (*struct {
+			Body struct {
+				PerHour int `json:"perHour"`
+			}
+		}, error) {
+			if err := boxOnly(p); err != nil {
+				return nil, err
+			}
+			pr := api.PrincipalFrom(ctx)
+			if !pr.BoxAdmin() {
+				return nil, fmt.Errorf("%w: rate limits are set by the box owner", tokens.ErrForbidden)
+			}
+			if err := p.DB.KVPut(ctx, kvNS, "rate/"+in.Project, []byte(strconv.Itoa(in.Body.PerHour))); err != nil {
+				return nil, err
+			}
+			out := &struct {
+				Body struct {
+					PerHour int `json:"perHour"`
+				}
+			}{}
+			out.Body.PerHour = in.Body.PerHour
+			return out, nil
+		}))
+
+	huma.Register(a, api.Op("email-status", http.MethodGet, "/v1/email", "email status", api.RiskRead, "Show how the box sends mail",
+		"Whether mail is captured in the dev inbox or sent through a relay, the relay settings (never the password), the SMTP submission addresses and the queue.", tag),
+		api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body Status }, error) {
+			if err := boxOnly(p); err != nil {
+				return nil, err
+			}
+			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, ""); err != nil {
+				return nil, err
+			}
+			st, err := m.status(ctx, p)
+			if err != nil {
+				return nil, err
+			}
+			return &struct{ Body Status }{*st}, nil
+		}))
+
+	huma.Register(a, api.Op("email-relay-set", http.MethodPut, "/v1/email/relay", "email relay set", api.RiskWrite, "Configure the SMTP relay",
+		"Sends production mail through this SMTP relay (Resend, SES, Postmark, ...) instead of capturing it. The password is stored encrypted and never shown. "+
+			"Omit password to keep the stored one. Preview mail is still captured. Box admins only. Try it with email relay test.", tag),
+		api.Wrap(func(ctx context.Context, in *struct {
+			Body struct {
+				Host     string  `json:"host" minLength:"1" maxLength:"253" doc:"Relay hostname"`
+				Port     int     `json:"port,omitempty" minimum:"1" maximum:"65535" doc:"Default 587 (starttls), 465 for tls, 25 for none"`
+				Username string  `json:"username,omitempty" maxLength:"320"`
+				Password *string `json:"password,omitempty" maxLength:"4096" doc:"Stored encrypted; \"\" removes it"`
+				TLS      string  `json:"tls,omitempty" enum:"starttls,tls,none" doc:"Default starttls. none sends credentials and mail in the clear: only for local test sinks"`
+			}
+		}) (*struct{ Body Status }, error) {
+			if err := boxOnly(p); err != nil {
+				return nil, err
+			}
+			pr := api.PrincipalFrom(ctx)
+			if !pr.BoxAdmin() {
+				return nil, fmt.Errorf("%w: the SMTP relay is set by the box owner", tokens.ErrForbidden)
+			}
+			b := in.Body
+			r := &Relay{Host: strings.TrimSpace(b.Host), Port: b.Port, Username: b.Username, TLS: b.TLS, UpdatedAt: time.Now().UTC(), UpdatedBy: pr.TokenID}
+			if r.TLS == "" {
+				r.TLS = TLSStartTLS
+			}
+			if r.Port == 0 {
+				r.Port = map[string]int{TLSStartTLS: 587, TLSImplicit: 465, TLSNone: 25}[r.TLS]
+			}
+			if strings.ContainsAny(r.Host, " /:@") {
+				return nil, api.NewProblem(422, "validation", "host: a hostname or IP address, without scheme or port")
+			}
+			if err := setRelay(ctx, p, r, b.Password); err != nil {
+				return nil, err
+			}
+			_ = p.DB.Audit(ctx, pr.TokenID, "email.relay.set", r.Host, map[string]any{"port": r.Port, "tls": r.TLS, "session": pr.Session})
+			m.kick() // queued mail waiting for a relay goes now
+			st, err := m.status(ctx, p)
+			if err != nil {
+				return nil, err
+			}
+			return &struct{ Body Status }{*st}, nil
+		}))
+
+	huma.Register(a, api.Op("email-relay-delete", http.MethodDelete, "/v1/email/relay", "email relay delete", api.RiskWrite, "Remove the SMTP relay",
+		"Back to capturing every message in the dev inbox. Messages already queued for the relay wait until a relay is configured again. Box admins only.", tag),
+		api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body Status }, error) {
+			if err := boxOnly(p); err != nil {
+				return nil, err
+			}
+			pr := api.PrincipalFrom(ctx)
+			if !pr.BoxAdmin() {
+				return nil, fmt.Errorf("%w: the SMTP relay is set by the box owner", tokens.ErrForbidden)
+			}
+			if err := deleteRelay(ctx, p); err != nil {
+				return nil, err
+			}
+			_ = p.DB.Audit(ctx, pr.TokenID, "email.relay.delete", "", map[string]any{"session": pr.Session})
+			st, err := m.status(ctx, p)
+			if err != nil {
+				return nil, err
+			}
+			return &struct{ Body Status }{*st}, nil
+		}))
+
+	huma.Register(a, api.Op("email-relay-test", http.MethodPost, "/v1/email/relay/test", "email relay test", api.RiskWrite, "Send a test email through the relay",
+		"Connects to the relay now and sends one short test message, reporting exactly what the relay said. Box admins only.", tag),
+		api.Wrap(func(ctx context.Context, in *struct {
+			Body struct {
+				To   string `json:"to" minLength:"3" maxLength:"320" doc:"Where to send the test"`
+				From string `json:"from,omitempty" maxLength:"320" doc:"Default tiffin@<box domain>"`
+			}
+		}) (*struct {
+			Body struct {
+				OK     bool   `json:"ok"`
+				Detail string `json:"detail"`
+			}
+		}, error) {
+			if err := boxOnly(p); err != nil {
+				return nil, err
+			}
+			pr := api.PrincipalFrom(ctx)
+			if !pr.BoxAdmin() {
+				return nil, fmt.Errorf("%w: only the box owner can test the relay", tokens.ErrForbidden)
+			}
+			out := &struct {
+				Body struct {
+					OK     bool   `json:"ok"`
+					Detail string `json:"detail"`
+				}
+			}{}
+			res, err := testRelay(ctx, p, in.Body.To, in.Body.From)
+			switch {
+			case err != nil:
+				out.Body.Detail = err.Error()
+			case len(res.Accepted) == 0:
+				out.Body.Detail = "the relay refused the recipient: " + res.Rejected[in.Body.To]
+			default:
+				out.Body.OK, out.Body.Detail = true, strings.TrimSpace("accepted by the relay. "+res.Reply)
+			}
+			return out, nil
+		}))
+}
+
+func (m *Module) status(ctx context.Context, p *platform.Platform) (*Status, error) {
+	r, err := getRelay(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	st := &Status{Mode: DeliveryInbox, Relay: r, SMTP: []string{}}
+	if r != nil {
+		st.Mode = DeliveryRelay
+	}
+	m.mu.Lock()
+	srv := m.smtpd
+	m.mu.Unlock()
+	if srv != nil {
+		st.SMTP = srv.addrs()
+	}
+	_ = p.DB.SQL().QueryRowContext(ctx, `SELECT count(*) FROM email_messages WHERE status = ?`, StatusQueued).Scan(&st.Queued)
+	st.FailedDay = failedCount(ctx, p)
+	return st, nil
+}
+
+func (m *Module) detail(ctx context.Context, p *platform.Platform, project, id string) (*Detail, error) {
+	rec, err := getRecord(ctx, p.DB.SQL(), project, id)
+	if err != nil {
+		return nil, err
+	}
+	d := &Detail{Summary: rec.Summary, Headers: []Header{}, Links: []string{}, AttachList: []AttachmentInfo{},
+		RawURL: "/v1/projects/" + project + "/email/messages/" + id + "/raw"}
+	d.Envelope.From, d.Envelope.To = rec.MailFrom, rec.Rcpt
+	if d.Envelope.To == nil {
+		d.Envelope.To = []string{}
+	}
+	raw, err := readRaw(p.DataRoot, project, id)
+	if err != nil {
+		return d, nil // relayed long ago: metadata only
+	}
+	parsed, err := parse(raw)
+	if err != nil {
+		return d, nil
+	}
+	d.Headers, d.Text, d.HTML, d.Links, d.AttachList = parsed.Headers, parsed.Text, sanitize(parsed.HTML), parsed.links(), parsed.Attachments
+	if d.Headers == nil {
+		d.Headers = []Header{}
+	}
+	return d, nil
+}
