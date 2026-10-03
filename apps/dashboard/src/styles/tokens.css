@@ -1,0 +1,221 @@
+/* ---------------------------------------------------------------------------
+   Tiffin · the Fusion · tokens
+   Ledger's paper, ink and brass (light is the hero; dark is authored as warm
+   graphite, not inverted), Enamel's six project colours, Instrument's levers.
+
+   Step jobs (Geist-style). Use the job, not the colour:
+     ground ............ --paper          the page
+     hover / wells ..... --paper-sunk     hovered rows, code, inputs at rest
+     raised ............ --paper-raised   menus, popovers, the plan tray, cards that are objects
+     hairline .......... --rule           between rows (about 8 % ink)
+     group rule ........ --rule-2         inputs, buttons, group boundaries
+     outline ........... --rule-3         the Stack drawing, rims, dashed "room left"
+     text .............. --ink            sentences, values, people (human authorship)
+     secondary ......... --ink-2          status sentences, descriptions
+     labels ............ --ink-3          labels, time margins, units (≥ 4.5:1 on every surface)
+     incidental ........ --ink-4          decoration-level text only (≥ 3:1)
+     agents ............ --graphite       anything an agent wrote, until a person signs it
+     accent ............ --brass          the one primary action, focus, active marker, staged
+     accent text ....... --brass-ink      brass words on paper (links, "1 waiting")
+   Status colours (--danger, --warn, --ok) appear only when status isn't fine.
+   Enamels (--enamel-*) are project colours: tier rim, swatch, memory-bar share. Nothing else.
+   Measured contrast: see /_kit (Contrast) and the table at the end of this file.
+--------------------------------------------------------------------------- */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  /* paper */
+  --paper: oklch(0.975 0.007 85);
+  --paper-sunk: oklch(0.952 0.009 82);
+  --paper-raised: oklch(0.993 0.004 85);
+  --paper-press: oklch(0.932 0.01 80);
+  /* ink */
+  --ink: oklch(0.235 0.014 60);
+  --ink-2: oklch(0.43 0.014 62);
+  --ink-3: oklch(0.515 0.012 66);
+  --ink-4: oklch(0.6 0.011 70);
+  --graphite: oklch(0.47 0.03 250);
+  /* rules */
+  --rule: oklch(0.235 0.014 60 / 0.085);
+  --rule-2: oklch(0.235 0.014 60 / 0.17);
+  --rule-3: oklch(0.235 0.014 60 / 0.4);
+  --steel: oklch(0.64 0.01 75);
+  /* brass: one accent, under 5 % of pixels */
+  --brass: oklch(0.66 0.115 76);
+  --brass-ink: oklch(0.485 0.098 70);
+  --brass-wash: oklch(0.66 0.115 76 / 0.13);
+  --on-brass: oklch(0.2 0.02 60);
+  /* status: only when status isn't fine */
+  --danger: oklch(0.52 0.175 27);
+  --danger-wash: oklch(0.52 0.175 27 / 0.07);
+  --danger-rule: oklch(0.52 0.175 27 / 0.35);
+  --on-danger: oklch(0.985 0.005 85);
+  --warn: oklch(0.6 0.14 52);
+  --warn-ink: oklch(0.5 0.12 50);
+  --warn-wash: oklch(0.6 0.14 52 / 0.1);
+  --ok: oklch(0.52 0.11 150);
+  --ok-wash: oklch(0.52 0.11 150 / 0.09);
+  --focus: oklch(0.6 0.12 74); /* brass, deep enough for 3:1 against paper */
+  /* meters */
+  --seg-off: oklch(0.235 0.014 60 / 0.1);
+  --seg-on: oklch(0.235 0.014 60 / 0.78);
+  --part-1: oklch(0.32 0.014 60);
+  --part-2: oklch(0.52 0.014 62);
+  --part-3: oklch(0.68 0.012 68);
+  --part-4: oklch(0.8 0.01 72);
+  /* enamels: six project colours at matched lightness */
+  --enamel-leaf: oklch(0.6 0.1 150);
+  --enamel-teal: oklch(0.6 0.09 200);
+  --enamel-indigo: oklch(0.6 0.11 258);
+  --enamel-kokum: oklch(0.6 0.12 0);
+  --enamel-chilli: oklch(0.6 0.13 38);
+  --enamel-turmeric: oklch(0.6 0.11 90);
+  /* elevation: ground, raised, overlay */
+  --lift-raised: 0 1px 1px oklch(0.3 0.02 60 / 0.05), 0 6px 20px -8px oklch(0.3 0.02 60 / 0.16);
+  --lift-overlay: 0 -1px 0 oklch(0.235 0.014 60 / 0.1), 0 -18px 48px -20px oklch(0.3 0.02 60 / 0.28), 0 1px 2px oklch(0.3 0.02 60 / 0.06);
+  --scrim: oklch(0.32 0.02 60 / 0.26);
+  --top-light: inset 0 0 0 0 transparent;
+}
+
+/* Dark, authored: warm graphite. Written twice: once for "follow the system"
+   before the theme script runs, once for the explicit choice and /_kit panels. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: oklch(0.185 0.005 65);
+    --paper-sunk: oklch(0.162 0.005 65);
+    --paper-raised: oklch(0.222 0.006 65);
+    --paper-press: oklch(0.245 0.006 65);
+    --ink: oklch(0.935 0.008 85);
+    --ink-2: oklch(0.775 0.009 80);
+    --ink-3: oklch(0.665 0.009 78);
+    --ink-4: oklch(0.55 0.008 75);
+    --graphite: oklch(0.76 0.035 245);
+    --rule: oklch(0.935 0.008 85 / 0.085);
+    --rule-2: oklch(0.935 0.008 85 / 0.15);
+    --rule-3: oklch(0.935 0.008 85 / 0.34);
+    --steel: oklch(0.5 0.008 75);
+    --brass: oklch(0.77 0.11 80);
+    --brass-ink: oklch(0.8 0.1 80);
+    --brass-wash: oklch(0.77 0.11 80 / 0.12);
+    --on-brass: oklch(0.2 0.02 60);
+    --danger: oklch(0.69 0.165 27);
+    --danger-wash: oklch(0.69 0.165 27 / 0.09);
+    --danger-rule: oklch(0.69 0.165 27 / 0.4);
+    --on-danger: oklch(0.17 0.01 30);
+    --warn: oklch(0.77 0.13 62);
+    --warn-ink: oklch(0.8 0.12 65);
+    --warn-wash: oklch(0.77 0.13 62 / 0.1);
+    --ok: oklch(0.74 0.12 150);
+    --ok-wash: oklch(0.74 0.12 150 / 0.09);
+    --focus: oklch(0.77 0.11 80);
+    --seg-off: oklch(0.935 0.008 85 / 0.1);
+    --seg-on: oklch(0.935 0.008 85 / 0.8);
+    --part-1: oklch(0.88 0.008 85);
+    --part-2: oklch(0.7 0.009 80);
+    --part-3: oklch(0.54 0.008 75);
+    --part-4: oklch(0.4 0.007 70);
+    --enamel-leaf: oklch(0.68 0.1 150);
+    --enamel-teal: oklch(0.68 0.09 200);
+    --enamel-indigo: oklch(0.68 0.105 258);
+    --enamel-kokum: oklch(0.68 0.115 0);
+    --enamel-chilli: oklch(0.68 0.125 38);
+    --enamel-turmeric: oklch(0.68 0.11 90);
+    --lift-raised: 0 1px 0 oklch(1 0 0 / 0.04) inset, 0 8px 24px -8px oklch(0 0 0 / 0.6);
+    --lift-overlay: 0 -1px 0 oklch(1 0 0 / 0.07), 0 -20px 50px -18px oklch(0 0 0 / 0.7);
+    --scrim: oklch(0.1 0.005 65 / 0.5);
+    --top-light: inset 0 1px 0 oklch(1 0 0 / 0.055);
+  }
+}
+:root[data-theme="dark"],
+[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: oklch(0.185 0.005 65);
+  --paper-sunk: oklch(0.162 0.005 65);
+  --paper-raised: oklch(0.222 0.006 65);
+  --paper-press: oklch(0.245 0.006 65);
+  --ink: oklch(0.935 0.008 85);
+  --ink-2: oklch(0.775 0.009 80);
+  --ink-3: oklch(0.665 0.009 78);
+  --ink-4: oklch(0.55 0.008 75);
+  --graphite: oklch(0.76 0.035 245);
+  --rule: oklch(0.935 0.008 85 / 0.085);
+  --rule-2: oklch(0.935 0.008 85 / 0.15);
+  --rule-3: oklch(0.935 0.008 85 / 0.34);
+  --steel: oklch(0.5 0.008 75);
+  --brass: oklch(0.77 0.11 80);
+  --brass-ink: oklch(0.8 0.1 80);
+  --brass-wash: oklch(0.77 0.11 80 / 0.12);
+  --on-brass: oklch(0.2 0.02 60);
+  --danger: oklch(0.69 0.165 27);
+  --danger-wash: oklch(0.69 0.165 27 / 0.09);
+  --danger-rule: oklch(0.69 0.165 27 / 0.4);
+  --on-danger: oklch(0.17 0.01 30);
+  --warn: oklch(0.77 0.13 62);
+  --warn-ink: oklch(0.8 0.12 65);
+  --warn-wash: oklch(0.77 0.13 62 / 0.1);
+  --ok: oklch(0.74 0.12 150);
+  --ok-wash: oklch(0.74 0.12 150 / 0.09);
+  --focus: oklch(0.77 0.11 80);
+  --seg-off: oklch(0.935 0.008 85 / 0.1);
+  --seg-on: oklch(0.935 0.008 85 / 0.8);
+  --part-1: oklch(0.88 0.008 85);
+  --part-2: oklch(0.7 0.009 80);
+  --part-3: oklch(0.54 0.008 75);
+  --part-4: oklch(0.4 0.007 70);
+  --enamel-leaf: oklch(0.68 0.1 150);
+  --enamel-teal: oklch(0.68 0.09 200);
+  --enamel-indigo: oklch(0.68 0.105 258);
+  --enamel-kokum: oklch(0.68 0.115 0);
+  --enamel-chilli: oklch(0.68 0.125 38);
+  --enamel-turmeric: oklch(0.68 0.11 90);
+  --lift-raised: 0 1px 0 oklch(1 0 0 / 0.04) inset, 0 8px 24px -8px oklch(0 0 0 / 0.6);
+  --lift-overlay: 0 -1px 0 oklch(1 0 0 / 0.07), 0 -20px 50px -18px oklch(0 0 0 / 0.7);
+  --scrim: oklch(0.1 0.005 65 / 0.5);
+  --top-light: inset 0 1px 0 oklch(1 0 0 / 0.055);
+}
+
+/* Type, radii and motion are the same in both themes. */
+:root {
+  --serif: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --mono: "Commit Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --r-1: 4px; /* chips, kbd, segments */
+  --r-2: 7px; /* buttons, inputs, nav rows */
+  --r-3: 10px; /* cards that are objects, code */
+  --r-4: 14px; /* the Stack, the plan tray */
+
+  /* motion: one strong ease-out; nothing eases in */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-detent: cubic-bezier(0.2, 0.9, 0.3, 1); /* critically damped snap */
+  --ease-tray: cubic-bezier(0.32, 0.72, 0, 1); /* sheet spring, bounce 0 */
+  --dur-press: 100ms; /* buttons and levers under the finger, scale .97 */
+  --dur-state: 150ms; /* hover, breaker throw, guard lifting */
+  --dur-detent: 120ms; /* throttle snapping to a stop */
+  --dur-enter: 220ms; /* something new arrives: opacity + 4 px rise */
+  --dur-exit: 150ms;
+  --dur-tray: 320ms; /* plan tray and sheets */
+  --dur-unlatch: 200ms; /* a tier lifting to open its page (≤ 250) */
+  --dur-seal: 600ms; /* the brass seal, once */
+  --dur-key: 80ms; /* ⌘K and keyboard actions: fade only */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-press: 0ms;
+    --dur-state: 0ms;
+    --dur-detent: 0ms;
+    --dur-enter: 0ms;
+    --dur-exit: 0ms;
+    --dur-tray: 0ms;
+    --dur-unlatch: 0ms;
+    --dur-seal: 0ms;
+  }
+}
+
+/* Contrast, measured with WCAG 2 relative luminance (scripts in /_kit):
+     light  ink 14.6 · ink-2 8.6 · ink-3 5.3 (4.9 on sunk) · ink-4 3.9 · graphite 6.9 · brass-ink 5.6 · danger 5.6
+     dark   ink 15.1 · ink-2 9.6 · ink-3 6.6 (on raised 5.8) · ink-4 4.2 · graphite 8.6 · brass-ink 9.1 · danger 5.9
+   Exact numbers live in src/lib/contrast.ts and the /_kit Contrast table. */

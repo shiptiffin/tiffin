@@ -37,8 +37,8 @@ export function CopyValue({ value, display, className }: { value: string; displa
 /** A terminal line with a prompt and copy button. */
 export function Command({ cmd, className, wrap }: { cmd: string; className?: string; wrap?: boolean }) {
   return (
-    <div className={cn("flex gap-2 rounded-lg border border-rule bg-paper-sunk py-1.5 pr-1.5 pl-3", wrap ? "items-start" : "items-center", className)}>
-      <span aria-hidden className={cn("font-mono text-sm text-ink-4 select-none", wrap && "pt-0.5")}>
+    <div className={cn("flex gap-2 rounded-[8px] border border-rule bg-paper-sunk py-1.5 pr-1.5 pl-3", wrap ? "items-start" : "items-center", className)}>
+      <span aria-hidden className={cn("font-mono text-sm text-ink-3 select-none", wrap && "pt-0.5")}>
         $
       </span>
       <code

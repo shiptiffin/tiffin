@@ -1,0 +1,679 @@
+/* ---------------------------------------------------------------------------
+   Tiffin · the Fusion · primitives that are drawings, not layout.
+   Each block belongs to one component in src/components; use the component,
+   not the class. Layout around them is Tailwind.
+--------------------------------------------------------------------------- */
+
+@layer components {
+  /* small unit after a number: 1.65<span class="u"> GB</span> */
+  .u {
+    font-size: 0.78em;
+    color: var(--ink-3);
+    letter-spacing: 0;
+  }
+
+  /* ── Breaker (components/breaker.tsx): up = on, down = off, mid-travel red = tripped ── */
+  .breaker {
+    --h: 26px;
+    --w: 14px;
+    --p: 9px;
+    position: relative;
+    display: inline-block;
+    flex: none;
+    width: var(--w);
+    height: var(--h);
+    padding: 0;
+    border-radius: 4px;
+    border: 1px solid var(--rule-3);
+    background: var(--paper-sunk);
+    cursor: pointer;
+    vertical-align: middle;
+    transition: border-color var(--dur-state) var(--ease-out);
+  }
+  .breaker[data-size="md"] {
+    --h: 40px;
+    --w: 20px;
+    --p: 14px;
+    border-radius: 5px;
+  }
+  .breaker::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    top: 2px;
+    height: var(--p);
+    border-radius: 2px;
+    background: var(--ink-2);
+    box-shadow:
+      inset 0 -1px 0 oklch(0 0 0 / 0.15),
+      var(--top-light);
+    transition:
+      top var(--dur-detent) var(--ease-detent),
+      background var(--dur-state) var(--ease-out);
+  }
+  .breaker:hover {
+    border-color: var(--ink-3);
+  }
+  .breaker:active::after {
+    transition-duration: var(--dur-press);
+  }
+  .breaker[data-pos="off"]::after {
+    top: calc(var(--h) - var(--p) - 4px);
+    background: var(--paper-raised);
+    box-shadow: inset 0 0 0 1px var(--rule-3);
+  }
+  .breaker[data-pos="tripped"] {
+    border-color: var(--danger);
+  }
+  .breaker[data-pos="tripped"]::after {
+    top: calc((var(--h) - 2px - var(--p)) / 2);
+    background: var(--danger);
+  }
+  .breaker[data-staged] {
+    border-color: var(--brass);
+  }
+  .breaker[data-staged]::after {
+    background: var(--brass);
+    box-shadow: inset 0 -1px 0 oklch(0 0 0 / 0.12);
+  }
+  .breaker .was {
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    height: var(--p);
+    border-radius: 2px;
+    border: 1px dashed var(--ink-3);
+    pointer-events: none;
+  }
+  .breaker .was[data-at="on"] {
+    top: 2px;
+  }
+  .breaker .was[data-at="off"] {
+    top: calc(var(--h) - var(--p) - 4px);
+  }
+  .breaker:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  /* ── Throttle (components/throttle.tsx): detents, a won't-fit zone, the old position dashed ── */
+  .throttle {
+    position: relative;
+    height: 54px;
+    margin: 18px 8px 0;
+    touch-action: none;
+    cursor: ew-resize;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .throttle .th-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 14px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--rule-2);
+  }
+  .throttle .th-fill {
+    position: absolute;
+    left: 0;
+    top: 14px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--ink-3);
+    transition: width var(--dur-detent) var(--ease-detent);
+  }
+  .throttle .th-nofit {
+    position: absolute;
+    right: -6px;
+    top: 6px;
+    height: 18px;
+    border: 1px dashed var(--danger);
+    border-radius: 4px;
+    opacity: 0.7;
+  }
+  .throttle .th-nofit span {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 3px);
+    font-size: 11px;
+    line-height: 14px;
+    color: var(--danger);
+    white-space: nowrap;
+  }
+  .throttle .th-stop {
+    position: absolute;
+    top: 20px;
+    transform: translateX(-50%);
+    display: grid;
+    justify-items: center;
+    gap: 4px;
+    pointer-events: none;
+  }
+  .throttle .th-stop i {
+    width: 1px;
+    height: 6px;
+    background: var(--rule-3);
+  }
+  .throttle .th-stop b {
+    font-weight: 400;
+    font-size: 12px;
+    line-height: 14px;
+    color: var(--ink-3);
+  }
+  .throttle .th-stop[data-active] b {
+    color: var(--ink);
+    font-weight: 550;
+  }
+  .throttle .th-stop[data-nofit] b {
+    color: var(--ink-4);
+  }
+  .throttle .th-knob,
+  .throttle .th-was {
+    position: absolute;
+    top: 3px;
+    width: 12px;
+    height: 24px;
+    margin-left: -6px;
+    border-radius: 3px;
+  }
+  .throttle .th-knob {
+    background: var(--ink-2);
+    box-shadow:
+      var(--lift-raised),
+      inset 0 1px 0 oklch(1 0 0 / 0.22);
+    transition:
+      left var(--dur-detent) var(--ease-detent),
+      transform var(--dur-press) var(--ease-out),
+      background var(--dur-state) var(--ease-out);
+    cursor: grab;
+  }
+  .throttle .th-knob[data-staged] {
+    background: var(--brass);
+  }
+  .throttle[data-dragging] .th-knob {
+    transform: scale(1.06);
+    cursor: grabbing;
+    transition-property: transform, background;
+  }
+  .throttle .th-was {
+    border: 1px dashed var(--ink-3);
+    pointer-events: none;
+  }
+
+  /* mini throttle, in a Stack row */
+  .throttle[data-size="mini"] {
+    width: 46px;
+    height: 20px;
+    margin: 0;
+  }
+  .throttle[data-size="mini"] .th-track {
+    top: 9px;
+    height: 1px;
+    background: var(--rule-3);
+  }
+  .throttle[data-size="mini"] .th-fill {
+    display: none;
+  }
+  .throttle[data-size="mini"] .th-stop {
+    top: 12px;
+    gap: 0;
+  }
+  .throttle[data-size="mini"] .th-stop i {
+    height: 3px;
+  }
+  .throttle[data-size="mini"] .th-stop b {
+    display: none;
+  }
+  .throttle[data-size="mini"] .th-knob,
+  .throttle[data-size="mini"] .th-was {
+    top: 3px;
+    width: 6px;
+    height: 13px;
+    margin-left: -3px;
+    border-radius: 1.5px;
+  }
+  .throttle[data-size="mini"] .th-knob {
+    box-shadow: var(--top-light);
+  }
+  .throttle[data-size="mini"] .th-nofit {
+    top: 9px;
+    height: 0;
+    right: 0;
+    border: 0;
+    border-top: 1.5px dotted var(--ink-4);
+    border-radius: 0;
+    opacity: 1;
+  }
+  .throttle[data-size="mini"] .th-stop[data-nofit] i {
+    opacity: 0.35;
+  }
+  .throttle[data-size="mini"] .th-nofit span {
+    display: none;
+  }
+  .throttle .th-knob:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  /* ── Segmented meter (components/seg-meter.tsx): 20 segments on a printed 0–100 scale ── */
+  .seg {
+    display: grid;
+    grid-template-columns: repeat(var(--n, 20), minmax(0, 1fr));
+    gap: 2px;
+    height: 10px;
+  }
+  .seg[data-size="row"] {
+    height: 8px;
+  }
+  .seg i {
+    border-radius: 1px;
+    background: var(--seg-off);
+  }
+  .seg i[data-on] {
+    background: var(--seg-on);
+  }
+  .seg i[data-warn] {
+    background: var(--warn);
+  }
+  .seg i[data-full] {
+    background: var(--danger);
+  }
+  .seg i[data-add] {
+    background: var(--brass);
+  }
+  .seg i[data-sub] {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--brass);
+  }
+  .seg-scale {
+    position: relative;
+    height: 14px;
+    margin-top: 3px;
+    font-size: 10px;
+    line-height: 10px;
+    color: var(--ink-3);
+  }
+  .seg-scale::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 3px;
+    background:
+      linear-gradient(var(--rule-3), var(--rule-3)) 0 0 / 1px 3px no-repeat,
+      linear-gradient(var(--rule-3), var(--rule-3)) 25% 0 / 1px 2px no-repeat,
+      linear-gradient(var(--rule-3), var(--rule-3)) 50% 0 / 1px 3px no-repeat,
+      linear-gradient(var(--rule-3), var(--rule-3)) 75% 0 / 1px 2px no-repeat,
+      linear-gradient(var(--rule-3), var(--rule-3)) 100% 0 / 1px 3px no-repeat;
+  }
+  .seg-scale span {
+    position: absolute;
+    top: 5px;
+  }
+  .seg-scale span:nth-child(1) {
+    left: 0;
+  }
+  .seg-scale span:nth-child(2) {
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .seg-scale span:nth-child(3) {
+    right: 0;
+  }
+
+  /* ── Pilot light (components/pilot.tsx): the only thing that ever blinks ── */
+  .pilot {
+    display: inline-block;
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1.25px var(--rule-3);
+  }
+  .pilot[data-state="on"] {
+    background: var(--ok);
+    box-shadow: none;
+  }
+  .pilot[data-state="busy"] {
+    background: var(--brass);
+    box-shadow: none;
+    animation: pilot 1s steps(1, end) infinite;
+  }
+  .pilot[data-state="fault"] {
+    background: var(--danger);
+    box-shadow: none;
+  }
+  @keyframes pilot {
+    50% {
+      opacity: 0.25;
+    }
+  }
+
+  /* ── Risk dots (components/risk-dots.tsx) ── */
+  .riskdots {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    line-height: 16px;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .riskdots .dots {
+    display: inline-flex;
+    gap: 2.5px;
+  }
+  .riskdots .dots i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1.1px var(--rule-3);
+  }
+  .riskdots .dots i[data-f] {
+    background: var(--ink-2);
+    box-shadow: none;
+  }
+  .riskdots[data-tier="irreversible"] {
+    color: var(--danger);
+    font-weight: 550;
+  }
+  .riskdots[data-tier="irreversible"] .dots i[data-f] {
+    background: var(--danger);
+  }
+
+  /* ── Signed entry (components/signed-entry.tsx) ── */
+  .counts {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: -0.02em;
+    color: var(--ink-3);
+    font-variant-ligatures: none;
+  }
+  .counts [data-n] {
+    color: var(--ink-2);
+  }
+  .sigline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+  .sigline::before {
+    content: "";
+    width: 12px;
+    height: 1px;
+    background: var(--ink-3);
+  }
+
+  /* ── Seal (components/seal.tsx): drawn once, about 600 ms ── */
+  .seal {
+    color: var(--brass);
+  }
+  .seal .draw {
+    stroke-dasharray: var(--len, 400);
+    stroke-dashoffset: 0;
+  }
+  .seal[data-animate] .draw {
+    animation: seal-draw var(--dur-seal) var(--ease-out) both;
+  }
+  .seal[data-animate] .fade {
+    animation: seal-fade 300ms 380ms var(--ease-out) both;
+  }
+  @keyframes seal-draw {
+    from {
+      stroke-dashoffset: var(--len, 400);
+    }
+  }
+  @keyframes seal-fade {
+    from {
+      opacity: 0;
+    }
+  }
+
+  /* ── Hold to commit (components/hold-to-commit.tsx) ── */
+  .hold-ring {
+    flex: none;
+    transform: rotate(-90deg);
+  }
+  .hold-ring .track {
+    stroke: currentColor;
+    opacity: 0.25;
+  }
+  .hold-ring .fill {
+    stroke: currentColor;
+  }
+
+  /* ── Config diff (components/plan-tray.tsx, change pages) ── */
+  .diff {
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 19px;
+    letter-spacing: -0.015em;
+    font-variant-ligatures: none;
+    color: var(--ink-2);
+  }
+  .diff .ln {
+    display: grid;
+    grid-template-columns: 40px 18px minmax(0, 1fr);
+    padding-right: 14px;
+    white-space: pre;
+  }
+  .diff .ln > b {
+    font-weight: 400;
+    color: var(--ink-4);
+    text-align: right;
+    padding-right: 10px;
+  }
+  .diff .ln > s {
+    text-decoration: none;
+    color: var(--ink-3);
+  }
+  .diff .ln[data-k="add"] {
+    background: var(--brass-wash);
+    color: var(--ink);
+  }
+  .diff .ln[data-k="add"] > s {
+    color: var(--brass-ink);
+  }
+  .diff .ln[data-k="del"] {
+    background: color-mix(in oklch, var(--danger) 7%, transparent);
+    color: var(--ink-3);
+  }
+  .diff .ln[data-k="del"] > s {
+    color: var(--danger);
+  }
+  .diff .ln[data-k="fold"] {
+    color: var(--ink-3);
+    font-family: var(--sans);
+    font-size: 12px;
+    letter-spacing: 0;
+  }
+
+  /* ── The Stack (components/stack.tsx): the box drawn as a tiffin carrier ── */
+  .carrier {
+    --cols: 52px 152px minmax(0, 1fr) 96px 58px;
+    --rail: 1.5px;
+    position: relative;
+    margin-top: 26px;
+    border: var(--rail) solid var(--steel);
+    border-bottom: 0;
+    border-radius: var(--r-4) var(--r-4) 0 0;
+  }
+  /* the carrying loop and its clamp */
+  .carrier::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -22px;
+    width: 96px;
+    height: 22px;
+    margin-left: -48px;
+    border: var(--rail) solid var(--steel);
+    border-bottom: 0;
+    border-radius: 10px 10px 0 0;
+    pointer-events: none;
+  }
+  .carrier::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -4px;
+    width: 36px;
+    height: 6px;
+    margin-left: -18px;
+    border-radius: 2px;
+    background: var(--steel);
+    pointer-events: none;
+  }
+  .carrier-base {
+    height: 6px;
+    margin: 0 -9px;
+    border-radius: 2px;
+    background: var(--steel);
+  }
+  /* a rim: the lip of a tier, overhanging the rails; enamel for projects, steel for the box */
+  .rim {
+    position: relative;
+    height: 5px;
+    margin: 0 -8px;
+    border-radius: 2px;
+    background: var(--rim, var(--steel));
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.18);
+  }
+  .rim[data-thin] {
+    height: 1.5px;
+    margin: 0 -6px;
+    border-radius: 1px;
+    box-shadow: none;
+  }
+  .tier-grid {
+    display: grid;
+    grid-template-columns: var(--cols);
+    column-gap: 16px;
+    align-items: center;
+    padding: 0 20px;
+  }
+  .tier-row {
+    position: relative;
+    min-height: 44px;
+    transition:
+      background var(--dur-state) var(--ease-out),
+      transform var(--dur-unlatch) var(--ease-out),
+      box-shadow var(--dur-unlatch) var(--ease-out);
+  }
+  .tier-row + .tier-row::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 88px;
+    right: 20px;
+    height: 1px;
+    background: var(--rule);
+  }
+  .tier-row[data-link]:hover {
+    background: var(--paper-sunk);
+    cursor: pointer;
+  }
+  .tier-row[data-link]:hover + .tier-row::before,
+  .tier-row[data-link]:hover::before {
+    opacity: 0;
+  }
+  .tier-row[data-staged] {
+    box-shadow: inset 2px 0 0 var(--brass);
+    background: color-mix(in oklch, var(--brass) 5%, transparent);
+  }
+  .tier-row[data-bound] {
+    box-shadow: inset 2px 0 0 var(--graphite);
+    background: color-mix(in oklch, var(--graphite) 7%, transparent);
+  }
+  .tier-row[data-fault] {
+    box-shadow: inset 2px 0 0 var(--danger);
+  }
+  /* unlatch: the tier lifts out of the carrier, then its page opens */
+  .tier-row[data-unlatching] {
+    z-index: 2;
+    background: var(--paper-raised);
+    transform: translateY(-3px);
+    box-shadow:
+      var(--lift-raised),
+      inset 0 0 0 1px var(--rule);
+    border-radius: var(--r-2);
+  }
+  .tier-row[data-unlatching]::before,
+  .tier-row[data-unlatching] + .tier-row::before {
+    opacity: 0;
+  }
+  .room {
+    border: 1.5px dashed var(--rule-3);
+    border-radius: var(--r-3);
+  }
+
+  /* phones: rows fold to two lines; the share meter goes */
+  @media (max-width: 640px) {
+    .carrier {
+      --cols: 50px minmax(0, 1fr) auto;
+      border-radius: 12px 12px 0 0;
+    }
+    .tier-grid {
+      column-gap: 12px;
+      padding: 0 14px;
+    }
+    .tier-row + .tier-row::before {
+      left: 76px;
+      right: 14px;
+    }
+    .carrier-base {
+      margin: 0 -7px;
+    }
+    .rim {
+      margin: 0 -6px;
+    }
+  }
+
+  /* ── Plan tray (components/plan-tray.tsx) ── */
+  .tray-scrim[data-state="open"] {
+    animation: fade-in var(--dur-tray) var(--ease-out) both;
+  }
+  .tray-scrim[data-state="closed"] {
+    animation: fade-out var(--dur-exit) var(--ease-out) both;
+  }
+  .tray[data-state="open"] {
+    animation: tray-in var(--dur-tray) var(--ease-tray) both;
+  }
+  .tray[data-state="closed"] {
+    animation: tray-out var(--dur-exit) var(--ease-out) both;
+  }
+  @keyframes tray-in {
+    from {
+      transform: translateY(32px);
+      opacity: 0;
+    }
+  }
+  @keyframes tray-out {
+    to {
+      transform: translateY(16px);
+      opacity: 0;
+    }
+  }
+  @keyframes sheet-in {
+    from {
+      transform: translateX(-24px);
+      opacity: 0;
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes fade-out {
+    to {
+      opacity: 0;
+    }
+  }
+}

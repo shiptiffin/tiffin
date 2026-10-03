@@ -1,34 +1,50 @@
 import { cn } from "@/lib/cn";
 
-/** The tiffin: three stacked tins under a carry handle. A line mark that holds up at 16 px. */
-export function TiffinMark({ className, lid }: { className?: string; lid?: boolean }) {
+/**
+ * The mark: a tiffin carrier drawn as one line. A carrying loop, three equal
+ * tiers whose rims overhang the rails (the lips of stacked tins), and a base
+ * plate. Built on a 32-unit grid with a 2-unit stroke whose centres all sit
+ * on odd units, so at 16 px every stroke lands on whole pixels.
+ *
+ * Exported as plain path data too, for the favicon and the seal.
+ */
+export const MARK_PATHS = [
+  "M11 9V6a3 3 0 0 1 3-3h4a3 3 0 0 1 3 3v3", // the loop
+  "M7 27V12a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v15", // the rails and the lid
+  "M3 15h26M3 21h26", // two rims, overhanging
+  "M5 27h22", // the base plate
+] as const;
+
+export function Logo({ className, title }: { className?: string; title?: string }) {
   return (
     <svg
-      viewBox="0 0 24 24"
+      viewBox="0 0 32 32"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.6}
+      strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={cn("size-5", className)}
-      aria-hidden
+      className={cn("shrink-0", className ?? "size-5")}
+      role={title ? "img" : undefined}
+      aria-label={title}
+      aria-hidden={title ? undefined : true}
     >
-      <g className={cn("origin-[6px_8px]", lid && "animate-lid")}>
-        <path d="M8.5 7.5V5.25a3.5 3.5 0 0 1 7 0V7.5" />
-        <path d="M5 8.25h14" />
-      </g>
-      <rect x="5.5" y="8.25" width="13" height="13" rx="2.25" />
-      <path d="M5.5 12.6h13M5.5 16.9h13" />
-      <path d="M3.75 10.4v8.8M20.25 10.4v8.8" opacity={0.55} />
+      {MARK_PATHS.map((d) => (
+        <path key={d} d={d} />
+      ))}
     </svg>
   );
 }
 
+/** Kept for older imports. */
+export const TiffinMark = ({ className }: { className?: string; lid?: boolean }) => <Logo className={className} />;
+
+/** The wordmark: the mark and "tiffin" in Newsreader, lower case. */
 export function Wordmark({ className }: { className?: string }) {
   return (
     <span className={cn("inline-flex items-center gap-2 text-ink", className)}>
-      <TiffinMark className="size-[22px] text-brass" />
-      <span className="display text-[1.3rem] leading-none font-[520] tracking-[-0.02em]">Tiffin</span>
+      <Logo className="size-[22px]" />
+      <span className="font-serif text-[1.375rem] leading-none font-[500] tracking-[-0.03em]">tiffin</span>
     </span>
   );
 }

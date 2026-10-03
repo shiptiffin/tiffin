@@ -16,18 +16,15 @@ export function DialogContent({
 }: ComponentProps<typeof D.Content> & { tone?: "default" | "danger"; hideClose?: boolean }) {
   return (
     <D.Portal>
-      <D.Overlay className="fixed inset-0 z-50 bg-[oklch(0.15_0.01_60/0.45)] backdrop-blur-[2px] data-[state=open]:animate-fade" />
+      <D.Overlay className="fixed inset-0 z-50 bg-[var(--scrim)] data-[state=open]:animate-fade" />
       <D.Content
         className={cn(
-          "fixed left-1/2 top-[max(1rem,10vh)] z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 flex-col overflow-hidden rounded-xl border bg-raised shadow-pop outline-none data-[state=open]:animate-pop",
-          tone === "danger" ? "border-irr-rule" : "border-rule",
+          "fixed left-1/2 top-[max(1rem,10vh)] z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 flex-col overflow-hidden rounded-[12px] border bg-paper-raised shadow-raised outline-none data-[state=open]:animate-pop",
+          tone === "danger" ? "border-danger" : "border-rule-2",
           className,
         )}
         {...props}
       >
-        {tone === "danger" && (
-          <div aria-hidden className="h-1 w-full shrink-0 bg-[repeating-linear-gradient(135deg,var(--irr)_0_8px,transparent_8px_14px)] opacity-70" />
-        )}
         {children}
         {!hideClose && (
           <D.Close
@@ -47,7 +44,7 @@ export function DialogHeader({ children, className }: { children: ReactNode; cla
 }
 
 export function DialogTitle({ className, ...props }: ComponentProps<typeof D.Title>) {
-  return <D.Title className={cn("display text-xl text-ink", className)} {...props} />;
+  return <D.Title className={cn("text-lg font-[550] tracking-[-0.01em] text-ink", className)} {...props} />;
 }
 
 export function DialogDescription({ className, ...props }: ComponentProps<typeof D.Description>) {
@@ -62,7 +59,7 @@ export function DialogFooter({ children, className }: { children: ReactNode; cla
   return (
     <div
       className={cn(
-        "flex flex-col-reverse gap-2 border-t border-rule bg-paper-sunk/60 px-6 py-3.5 sm:flex-row sm:items-center sm:justify-end",
+        "flex flex-col-reverse gap-2 border-t border-rule bg-paper-sunk/50 px-6 py-3.5 sm:flex-row sm:items-center sm:justify-end",
         className,
       )}
     >
