@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"encoding/json"
+	"github.com/danielgtaylor/huma/v2"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,7 +65,13 @@ func TestToolsMirrorTheAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ops := api.New(api.Deps{}).Operations()
+	var ops []*huma.Operation
+	for _, o := range api.New(api.Deps{}).Operations() {
+		if cp := api.CLIPath(o); len(cp) == 1 && cp[0] == "-" {
+			continue // dashboard-only, not a tool
+		}
+		ops = append(ops, o)
+	}
 	if len(res.Tools) != len(ops) {
 		t.Fatalf("%d tools for %d operations", len(res.Tools), len(ops))
 	}

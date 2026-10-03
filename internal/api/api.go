@@ -654,7 +654,7 @@ func (a *API) registerBox() {
 			return &struct{ Body StatusReport }{a.Status(ctx, started)}, nil
 		}))
 
-	huma.Register(api, op("login-link-create", http.MethodPost, "/v1/login-links", "login-link", RiskWrite, "Create a dashboard login link",
+	huma.Register(api, op("login-link-create", http.MethodPost, "/v1/login-links", "login", RiskWrite, "Create a dashboard login link",
 		"A one-time link (valid 10 minutes) that signs a browser into the dashboard with your power. Box admins only.", "system"),
 		wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body LoginLink }, error) {
 			code, exp, err := a.deps.Tokens.CreateLoginLink(ctx, PrincipalFrom(ctx))
@@ -665,7 +665,7 @@ func (a *API) registerBox() {
 			return &struct{ Body LoginLink }{LoginLink{URL: base + "/login#" + code, Code: code, ExpiresAt: exp}}, nil
 		}))
 
-	sc := op("session-create", http.MethodPost, "/v1/session", "session create", RiskWrite, "Start a dashboard session",
+	sc := op("session-create", http.MethodPost, "/v1/session", "-", RiskWrite, "Start a dashboard session",
 		"Exchanges a one-time login code for a session cookie. Used by the dashboard's login page.", "system")
 	sc.Security = nil
 	huma.Register(api, sc, wrap(func(ctx context.Context, in *struct {
@@ -693,7 +693,7 @@ func (a *API) registerBox() {
 		return out, nil
 	}))
 
-	huma.Register(api, op("session-delete", http.MethodDelete, "/v1/session", "session delete", RiskWrite, "End the dashboard session",
+	huma.Register(api, op("session-delete", http.MethodDelete, "/v1/session", "-", RiskWrite, "End the dashboard session",
 		"Revokes the current session token and clears the cookie.", "system"),
 		wrap(func(ctx context.Context, _ *struct{}) (*struct {
 			SetCookie http.Cookie `header:"Set-Cookie"`

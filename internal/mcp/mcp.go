@@ -82,6 +82,9 @@ func Tools(a *api.API) []*Tool {
 	oapi := a.OpenAPI()
 	var out []*Tool
 	for _, o := range a.Operations() {
+		if cp := api.CLIPath(o); len(cp) == 1 && cp[0] == "-" {
+			continue // dashboard-only (cookie sessions), useless to agents
+		}
 		t := &Tool{op: o, params: map[string]string{}, body: map[string]bool{}}
 		props := map[string]any{}
 		var required []string

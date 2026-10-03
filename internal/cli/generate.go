@@ -20,6 +20,9 @@ func (a *app) generate(root *cobra.Command, spec *api.API) {
 	oapi := spec.OpenAPI()
 	for _, o := range spec.Operations() {
 		words := api.CLIPath(o)
+		if len(words) == 1 && words[0] == "-" {
+			continue // dashboard-only operation
+		}
 		parent := root
 		for _, w := range words[:len(words)-1] {
 			parent = subgroup(parent, w)
@@ -89,6 +92,10 @@ var groupShort = map[string]string{
 	"analytics": "Visitors, pageviews and events",
 	"auth":      "Your apps' users, sessions and organizations",
 	"protect":   "Rate limits, bans, the bot challenge and under-attack mode",
+	"git":       "The box's git remote for push-to-deploy",
+	"issues":    "Errors your apps reported, grouped into issues",
+	"observe":   "Observability settings and overview",
+	"previews":  "Preview deploys: list, sleep and delete",
 }
 
 type bodyFlag struct {

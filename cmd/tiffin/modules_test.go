@@ -12,7 +12,12 @@ import (
 func TestAllModulesRegister(t *testing.T) {
 	a := api.New(api.Deps{})
 	seen := map[string]string{}
+	hidden := 0
 	for _, o := range a.Operations() {
+		if cp := api.CLIPath(o); len(cp) == 1 && cp[0] == "-" {
+			hidden++ // dashboard-only
+			continue
+		}
 		cli := ""
 		for _, w := range api.CLIPath(o) {
 			cli += w + " "
@@ -25,7 +30,7 @@ func TestAllModulesRegister(t *testing.T) {
 			t.Errorf("%s: missing summary/description", o.OperationID)
 		}
 	}
-	if tools := mcp.Tools(a); len(tools) != len(a.Operations()) {
+	if tools := mcp.Tools(a); len(tools) != len(a.Operations())-hidden {
 		t.Fatalf("%d tools for %d operations", len(tools), len(a.Operations()))
 	}
 	t.Logf("%d operations", len(a.Operations()))

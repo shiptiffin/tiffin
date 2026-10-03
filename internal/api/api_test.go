@@ -295,6 +295,9 @@ func TestEveryOperationIsAnnotated(t *testing.T) {
 			t.Errorf("%s: missing summary/description (agents read these)", o.OperationID)
 		}
 		cli := strings.Join(api.CLIPath(o), " ")
+		if cli == "-" {
+			continue // dashboard-only operation
+		}
 		if seen[cli] {
 			t.Errorf("duplicate CLI path %q", cli)
 		}
