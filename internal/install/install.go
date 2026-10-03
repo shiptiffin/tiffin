@@ -63,8 +63,9 @@ func (o Options) PublicURL() string {
 func Unit(o Options) string {
 	return fmt.Sprintf(`[Unit]
 Description=Tiffin box
-After=network-online.target
+After=network-online.target local-fs.target
 Wants=network-online.target
+RequiresMountsFor=/var/lib/tiffin
 
 [Service]
 # Root: the box's services (containers, Postgres, Valkey, ...) are managed

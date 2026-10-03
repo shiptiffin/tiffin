@@ -56,16 +56,24 @@ portForwards:
   ignore: true
 
 # Lima mounts an additional disk at /mnt/lima-<disk> and has no per-disk
-# mountPoint setting (checked on Lima 2.2), so bind-mount that XFS filesystem
-# at /var/lib/tiffin. The box has exactly one additional disk, hence the glob.
+# mountPoint setting (checked on Lima 2.2). We mount the same filesystem at
+# /var/lib/tiffin from fstab by its label (lima-<disk>), so it is there at
+# boot before any service starts.
 provision:
 - mode: system
   script: |
     #!/bin/bash
     set -eux -o pipefail
     command -v mkfs.xfs >/dev/null || { apt-get update -y && apt-get install -y xfsprogs; }
-    src="$(findmnt -rno TARGET -t xfs | grep '^/mnt/lima-' | head -n1)"
-    [ -n "$src" ] || { echo "no XFS data disk mounted under /mnt/lima-*" >&2; exit 1; }
+    # Mount the XFS data disk at /var/lib/tiffin by label from fstab, so
+    # systemd mounts it at boot before anything (tiffin.service declares
+    # RequiresMountsFor). A bind of Lima's /mnt/lima-* mount would race it.
+    dev="$(blkid -t TYPE=xfs -o device | head -n1)"
+    [ -n "$dev" ] || { echo "no XFS data disk found" >&2; exit 1; }
+    label="$(blkid -s LABEL -o value "$dev")"
     mkdir -p /var/lib/tiffin
-    mountpoint -q /var/lib/tiffin || mount --bind "$src" /var/lib/tiffin
-    grep -q ' /var/lib/tiffin ' /etc/fstab || echo "$src /var/lib/tiffin none bind 0 0" >> /etc/fstab
+    sed -i '\| /var/lib/tiffin none bind |d' /etc/fstab
+    grep -q "^LABEL=$label /var/lib/tiffin " /etc/fstab || \
+      echo "LABEL=$label /var/lib/tiffin xfs defaults,nofail,x-systemd.device-timeout=60s 0 2" >> /etc/fstab
+    systemctl daemon-reload
+    mountpoint -q /var/lib/tiffin || mount /var/lib/tiffin

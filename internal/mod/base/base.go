@@ -5,6 +5,7 @@ package base
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/btahir/tiffin/internal/platform"
 )
@@ -27,6 +28,9 @@ var Dirs = []string{
 }
 
 func (*Module) Provision(ctx context.Context, s *platform.System) error {
+	if err := fixDataMount(ctx, s); err != nil {
+		return err
+	}
 	if err := s.Apt(ctx, "ca-certificates", "curl", "gnupg", "git", "jq", "xfsprogs", "tar", "gzip", "unzip"); err != nil {
 		return err
 	}
@@ -42,5 +46,36 @@ func (*Module) Provision(ctx context.Context, s *platform.System) error {
 		return err
 	}
 	_, err = s.Run(ctx, "sysctl", "--system")
+	return err
+}
+
+// fixDataMount migrates boxes made before the data disk was mounted by
+// label: their fstab bind-mounted Lima's /mnt/lima-<disk>, which Lima mounts
+// only after boot, so after a reboot services saw an empty /var/lib/tiffin.
+func fixDataMount(ctx context.Context, s *platform.System) error {
+	raw, err := os.ReadFile("/etc/fstab")
+	if err != nil {
+		return nil // not a Lima-style box
+	}
+	var out []string
+	changed := false
+	for _, line := range strings.Split(strings.TrimRight(string(raw), "\n"), "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 4 && f[1] == "/var/lib/tiffin" && f[2] == "none" && strings.Contains(f[3], "bind") && strings.HasPrefix(f[0], "/mnt/lima-") {
+			label := strings.TrimPrefix(f[0], "/mnt/")
+			out = append(out, "LABEL="+label+" /var/lib/tiffin xfs defaults,nofail,x-systemd.device-timeout=60s 0 2")
+			changed = true
+			continue
+		}
+		out = append(out, line)
+	}
+	if !changed {
+		return nil
+	}
+	s.Log("mounting the data disk by label at boot")
+	if _, err := s.WriteFile("/etc/fstab", []byte(strings.Join(out, "\n")+"\n"), 0o644); err != nil {
+		return err
+	}
+	_, err = s.Run(ctx, "systemctl", "daemon-reload")
 	return err
 }
