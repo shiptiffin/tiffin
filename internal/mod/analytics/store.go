@@ -32,6 +32,9 @@ type Store interface {
 	Recent(ctx context.Context, since time.Time) ([]Event, error)
 	Apps(ctx context.Context, project string) ([]string, error)
 	Purge(ctx context.Context, project string, before time.Time) (int64, error)
+	// Footprint counts a project's stored events older than before (zero
+	// time: all of them) and their approximate stored size in bytes.
+	Footprint(ctx context.Context, project string, before time.Time) (events, bytes int64, err error)
 	DeleteProject(ctx context.Context, project string) error
 	Salt(ctx context.Context, day string) ([]byte, error)
 	Key(ctx context.Context, project, app string) (string, error)
@@ -432,6 +435,25 @@ func (s *sqliteStore) Purge(ctx context.Context, project string, before time.Tim
 	n, _ := res.RowsAffected()
 	_, err = s.db.ExecContext(ctx, `DELETE FROM daily WHERE project = ? AND day < ?`, project, dayOf(before))
 	return n, err
+}
+
+// rowOverhead approximates an event row's fixed cost in SQLite: integer
+// columns, the record header and its share of the two indexes.
+const rowOverhead = 72
+
+func (s *sqliteStore) Footprint(ctx context.Context, project string, before time.Time) (int64, int64, error) {
+	q := `SELECT count(*), coalesce(sum(length(app) + length(kind) + length(name) + length(host) + length(path) + length(ref_source) +
+		length(ref_host) + length(utm_source) + length(utm_medium) + length(utm_campaign) + length(country) + length(browser) +
+		length(os) + length(device) + length(props) + length(src) + length(day) + length(project) + ?), 0)
+		FROM events WHERE project = ?`
+	args := []any{rowOverhead, project}
+	if !before.IsZero() {
+		q += ` AND ts < ?`
+		args = append(args, before.UnixMilli())
+	}
+	var n, b int64
+	err := s.db.QueryRowContext(ctx, q, args...).Scan(&n, &b)
+	return n, b, err
 }
 
 func (s *sqliteStore) DeleteProject(ctx context.Context, project string) error {

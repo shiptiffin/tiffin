@@ -270,6 +270,7 @@ func (a *app) serveCmd() *cobra.Command {
 						DataRoot: filepath.Dir(a.home), Domain: domain, PublicURL: publicURL, Version: version.Version,
 						Log: slog.New(slog.NewJSONHandler(a.io.Err, nil))}
 					d.Platform = plat
+					d.Engine.Estimate = plat.EstimateLoss
 					if u, err := url.Parse(publicURL); err == nil && u.Hostname() != "" {
 						am, err := approvals.New(d.DB, u.Hostname(), strings.TrimRight(publicURL, "/"))
 						if err != nil {

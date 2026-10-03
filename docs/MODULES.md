@@ -45,6 +45,7 @@ imported by `cmd/tiffin/modules.go`) and implements any of:
 | `RouteProvider.Routes(ctx, p)` | after every converge (`p.RefreshRoutes`) | edge routes (`edge.Route`: host, path prefix, upstreams, file root) |
 | `Starter.Start(ctx, p)` | when the box serves | background loops (must return promptly) |
 | `Checker.Checks(ctx, p)` | `/v1/status` | health of your service |
+| `LossEstimator.EstimateLoss(ctx, p, project, op)` | every plan with an irreversible op; the plan waits at most 200 ms in all | say what the op destroys (`change.Loss`: "18,204 rows in 12 tables · 41 MB"); return nil, nil for ops that aren't yours; read-only and fast |
 | `Orderer.Order()` | sorting | lower first: base 0, data 10, observe 15, storage/email 20, auth/queue 30, runtime 40 |
 
 API operations: use `api.Op(id, method, path, cliWords, risk, summary, description, tags...)`

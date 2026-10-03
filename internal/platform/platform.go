@@ -12,6 +12,7 @@
 //	RouteProvider  contributes edge routes (app hosts, s3, files, ...)
 //	Starter        runs background loops while the box serves
 //	Checker        contributes health checks to /v1/status
+//	LossEstimator  says what an irreversible op would destroy (rows, files, events)
 //
 // Modules never edit each other's files; they meet here.
 package platform
@@ -84,6 +85,32 @@ type Starter interface {
 // issues, analytics) once a project has been destroyed.
 type ProjectCleaner interface {
 	ProjectDeleted(ctx context.Context, p *Platform, project string) error
+}
+
+// LossEstimator measures what an irreversible op would destroy, so a plan
+// can say "18,204 rows · 41 MB" rather than "all its data". It runs on
+// every plan with such an op, so it must be fast (the whole plan waits at
+// most change.LossBudget) and read-only. Return nil, nil for ops that aren't
+// yours or that you can't measure; errors just leave the estimate out.
+type LossEstimator interface {
+	EstimateLoss(ctx context.Context, p *Platform, project string, op change.Op) (*change.Loss, error)
+}
+
+// EstimateLoss asks every LossEstimator about op; the first answer wins.
+// It has the shape of change.EstimateFunc, for Engine.Estimate.
+func (p *Platform) EstimateLoss(ctx context.Context, project string, op change.Op) (*change.Loss, error) {
+	for _, m := range Modules() {
+		if le, ok := m.(LossEstimator); ok {
+			l, err := le.EstimateLoss(ctx, p, project, op)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", m.Name(), err)
+			}
+			if l != nil {
+				return l, nil
+			}
+		}
+	}
+	return nil, nil
 }
 
 // Checker contributes health checks.

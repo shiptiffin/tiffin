@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/api"
+	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/tokens"
 )
 
@@ -187,6 +188,11 @@ func TestEngineContract(t *testing.T) {
 	st, body := do("POST", "/sign-up/email", map[string]any{"email": "ada@example.com", "password": "correct horse battery", "name": "Ada"}, map[string]string{"x-captcha-response": sol})
 	if st != 200 {
 		t.Fatalf("sign-up: %d %s", st, body)
+	}
+	// Removing sign-in would delete that one account; the plan says so.
+	if l, err := m.EstimateLoss(ctx, p, "shop", change.Op{Action: change.Delete, Address: "service/auth"}); err != nil || l == nil ||
+		l.Summarize().Summary != "1 user" {
+		t.Fatalf("loss: %+v %v", l, err)
 	}
 	var mails []struct {
 		To, Kind, Text string

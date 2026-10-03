@@ -4315,6 +4315,28 @@ export interface components {
             /** @description Open this in a browser */
             url: string;
         };
+        Loss: {
+            /**
+             * Format: int64
+             * @description Bytes that would be deleted (on disk, or the stored size of what goes)
+             */
+            bytes: number;
+            /** @description What goes, counted: rows, tables, files, events, jobs */
+            counts: components["schemas"]["LossCount"][] | null;
+            /** @description The same in plain words, e.g. "18,204 rows in 12 tables · 41 MB" */
+            summary: string;
+        };
+        LossCount: {
+            /** @description True when N is an estimate (a large table's row count) */
+            approx?: boolean;
+            /** Format: int64 */
+            n: number;
+            /**
+             * @description Singular noun of what is counted
+             * @enum {string}
+             */
+            unit: "row" | "table" | "file" | "event" | "job" | "user" | "database";
+        };
         Manifest: {
             apps?: {
                 [key: string]: components["schemas"]["ManifestApp"];
@@ -4777,6 +4799,7 @@ export interface components {
             after?: unknown;
             before?: unknown;
             fields?: string[] | null;
+            loss?: components["schemas"]["Loss"];
             reason: string;
             risk: string;
         };

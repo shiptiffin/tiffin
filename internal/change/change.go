@@ -75,6 +75,9 @@ type Op struct {
 	Fields  []string        `json:"fields,omitempty"` // top-level fields changed (update only)
 	Risk    Tier            `json:"risk"`
 	Reason  string          `json:"reason"` // why this op has this tier, in plain words
+	// Loss is what an irreversible op would destroy, measured when the plan
+	// was made (absent when the box couldn't measure it). Not hashed.
+	Loss *Loss `json:"loss,omitempty"`
 }
 
 // Actor is who asked for a change.

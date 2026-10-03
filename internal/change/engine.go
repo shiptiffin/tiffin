@@ -47,6 +47,9 @@ type Authorizer func(p *Plan) error
 type Engine struct {
 	Store Store
 	Now   func() time.Time
+	// Estimate, when set, measures what each irreversible op of a plan
+	// would destroy (see AttachLosses). The box sets it; nil measures nothing.
+	Estimate EstimateFunc
 }
 
 // NewEngine returns an engine over store.
@@ -58,7 +61,9 @@ func (e *Engine) Plan(ctx context.Context, project string, desired map[string]Re
 	if err != nil {
 		return nil, err
 	}
-	return newPlan(project, ver, Diff(current, desired), ""), nil
+	p := newPlan(project, ver, Diff(current, desired), "")
+	AttachLosses(ctx, p, e.Estimate)
+	return p, nil
 }
 
 // PlanUndo computes the plan that reverts change id. It fails with a
@@ -87,7 +92,9 @@ func (e *Engine) PlanUndo(ctx context.Context, id string) (*Plan, error) {
 	for i := range ops {
 		ops[i].Risk, ops[i].Reason = Classify(ops[i])
 	}
-	return newPlan(c.Project, ver, ops, id), nil
+	p := newPlan(c.Project, ver, ops, id)
+	AttachLosses(ctx, p, e.Estimate)
+	return p, nil
 }
 
 // ApplyRequest is everything Apply needs.
