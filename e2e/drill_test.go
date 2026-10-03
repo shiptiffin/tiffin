@@ -84,8 +84,8 @@ insert into billing.invoices select generate_series(1, 77);`})
 		if got := b.inBox("sudo find /var/lib/tiffin/drill -mindepth 1 -maxdepth 1 | wc -l"); got != "0" {
 			t.Fatalf("scratch directories left behind: %s", got)
 		}
-		if got := b.inBox("pgrep -fc 'tiffin/drill/' || true"); got != "0" {
-			t.Fatalf("scratch Postgres still running: %s", b.inBox("pgrep -fa 'tiffin/drill/' || true"))
+		if got := b.inBox("pgrep -fc '[t]iffin/drill/' || true"); got != "0" {
+			t.Fatalf("scratch Postgres still running: %s", b.inBox("pgrep -fa '[t]iffin/drill/' || true"))
 		}
 	}
 	check := func() map[string]any {
@@ -170,7 +170,7 @@ EOF`)
 	}
 	b.inBox("sudo dd if=/dev/urandom of=" + file + " bs=1k count=8 conv=notrunc status=none")
 	d = drill("backups", "drills", "start", bkID)
-	if d["status"] != "failed" || !strings.Contains(fmt.Sprint(d["message"]), "into the scratch directory failed") {
+	if msg := fmt.Sprint(d["message"]); d["status"] != "failed" || !strings.Contains(msg, "into the scratch directory failed") || strings.Contains(msg, "WARN") {
 		t.Fatalf("a corrupted backup must fail the drill: %v", d)
 	}
 	leftovers()

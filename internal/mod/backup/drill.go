@@ -420,7 +420,7 @@ func (r *drillRun) steps(ctx context.Context, dir string, srv **scratchServer) e
 		}
 	}()
 	_, rerr := pgbackrest(ctx, "--pg1-path="+data, "--set="+r.b.Postgres.Label, "--type=immediate", "--target-action=promote",
-		"--archive-mode=off", "--log-level-console=warn", "--log-level-file=off", "restore")
+		"--no-delta", "--archive-mode=off", "--log-level-console=warn", "--log-level-file=off", "restore")
 	close(stop)
 	n := datakit.DirSize(data)
 	r.set(func(d *BackupDrill) { d.Seconds.Restore, d.RestoredBytes = secs(time.Since(t)), n }, true)
@@ -891,6 +891,8 @@ func human(n int64) string {
 
 func fmtSecs(s float64) string {
 	switch {
+	case s < 0.1:
+		return "under 0.1 s"
 	case s < 10:
 		return strconv.FormatFloat(s, 'f', 1, 64) + " s"
 	case s < 120:
@@ -931,5 +933,9 @@ func clipText(s string, n int) string {
 // clean shortens a command error for a message.
 func clean(err error) string {
 	s := strings.Join(strings.Fields(err.Error()), " ")
+	// pgBackRest: keep what follows its first ERROR, which says what broke.
+	if i := strings.Index(s, " ERROR: "); i >= 0 {
+		s = s[i+len(" ERROR: "):]
+	}
 	return clipText(s, 600)
 }

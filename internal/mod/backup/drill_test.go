@@ -317,6 +317,10 @@ func TestWords(t *testing.T) {
 	if ago(49*time.Hour) != "2 days" || ago(90*time.Minute) != "90 minutes" || ago(5*time.Second) != "5 seconds" {
 		t.Errorf("ago: %s %s %s", ago(49*time.Hour), ago(90*time.Minute), ago(5*time.Second))
 	}
+	pgErr := errors.New("pgbackrest: exit status 29: 2026-10-03 13:34:24.091 P00 WARN: something minor\n2026-10-03 13:34:39.242 P00 ERROR: [029]: raised from local-1 protocol: zst error: [-10] Unknown frame descriptor")
+	if got := clean(pgErr); got != "[029]: raised from local-1 protocol: zst error: [-10] Unknown frame descriptor" {
+		t.Errorf("clean: %s", got)
+	}
 	if secs(14249*time.Millisecond) != 14.2 {
 		t.Errorf("secs: %v", secs(14249*time.Millisecond))
 	}
