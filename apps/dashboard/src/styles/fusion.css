@@ -112,6 +112,20 @@
   .breaker-print[data-staged] {
     color: var(--brass-ink);
   }
+  /* A mini throttle's legend: what it sets, at its position ("2 instances"). */
+  .throttle-print {
+    font-size: 0.5625rem;
+    line-height: 1;
+    font-weight: 550;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .throttle-print[data-staged] {
+    color: var(--brass-ink);
+  }
   .breaker:disabled {
     cursor: not-allowed;
     opacity: 0.55;

@@ -344,20 +344,17 @@ function AppRow({
   const nInst = instances?.kind === "instances" ? instances.to : applied;
   const nMem = memory ? Number(memory.to) : appliedMem;
   const [previewInst, setPreviewInst] = useState<number | null>(null);
-  const [previewMem, setPreviewMem] = useState<number | null>(null);
   const live = useAppStatus(project, app, spec.role, spec.framework);
   const isStatic = spec.framework === "static";
   const maxInst = free === undefined ? undefined : applied + Math.max(0, Math.floor(free / appliedMem));
-  const maxMem = free === undefined ? undefined : appliedMem + Math.max(0, Math.floor(free / Math.max(1, nInst)));
   const pi = previewInst ?? nInst;
-  const pm = previewMem ?? nMem;
-  const moving = previewInst !== null || previewMem !== null;
-  const readout = moving ? (
-    <span>
-      <b className="font-[550] text-ink">{count(pi, "instance")}</b> of {mbWords(pm)}, up to {mbWords(pi * pm)}.{" "}
-      {free !== undefined && <>Room left after {int(Math.max(0, free + RESERVE_MB - (pi * pm - applied * appliedMem)))}&#8239;MB.</>}
-    </span>
-  ) : null;
+  const readout =
+    previewInst !== null ? (
+      <span>
+        <b className="font-[550] text-ink">{count(pi, "instance")}</b> of {mbWords(nMem)}, up to {mbWords(pi * nMem)}.{" "}
+        {free !== undefined && <>Room left after {int(Math.max(0, free + RESERVE_MB - (pi * nMem - applied * appliedMem)))}&#8239;MB.</>}
+      </span>
+    ) : null;
   const sub = isStatic ? "Static site, served by the edge" : `${frameworkName(spec.framework)}${spec.role === "worker" ? " worker" : ""} · ${int(nInst)} \u00d7 ${mbWords(nMem)}`;
   return (
     <Row
@@ -370,6 +367,7 @@ function AppRow({
             value={nInst}
             applied={applied}
             maxFit={maxInst}
+            printed={(n) => count(n, "instance")}
             onChange={setPreviewInst}
             onCommit={(to) => {
               setPreviewInst(null);
@@ -390,34 +388,15 @@ function AppRow({
       sub={sub}
       status={readout ?? (fault ? <span className="text-danger">{fault}</span> : live.sentence)}
       end={
-        isStatic ? (
-          <ChevronRight className="size-4 text-ink-4" />
-        ) : (
-          <span className="flex items-center gap-2.5" title="Memory per instance">
-            <span className="w-12 text-right text-xs text-ink-3 tnum max-sm:hidden">{mbWords(pm)}</span>
-            <Throttle
-              size="mini"
-              label={`${app} memory per instance`}
-              unit="MB"
-              stops={MEMORY_STOPS}
-              value={nMem}
-              applied={appliedMem}
-              maxFit={maxMem}
-              onChange={setPreviewMem}
-              onCommit={(to) => {
-                setPreviewMem(null);
-                stage(project, {
-                  kind: "set",
-                  path: ["apps", app, "memoryMB"],
-                  from: appliedMem,
-                  to,
-                  what: `Give ${app} ${mbWords(to)} per instance (now ${mbWords(appliedMem)})`,
-                  undo: `${app} goes back to ${mbWords(appliedMem)} per instance`,
-                });
-              }}
-            />
-          </span>
-        )
+        <Link
+          to="/projects/$project/apps/$app"
+          params={{ project, app }}
+          aria-label={isStatic ? `Open ${app}` : `Open ${app}: memory, versions and logs`}
+          title={isStatic ? undefined : "Memory per instance, versions and logs"}
+          className="flex items-center text-ink-4 hover:text-ink"
+        >
+          <ChevronRight className="size-4" />
+        </Link>
       }
       staged={!!instances || !!memory}
       fault={!!fault || live.fault}

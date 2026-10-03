@@ -30,6 +30,7 @@ export function Throttle({
   unit = "instances",
   readout,
   format = int,
+  printed,
   className,
 }: {
   label: string;
@@ -48,6 +49,11 @@ export function Throttle({
   readout?: ReactNode;
   /** How a stop is printed and read aloud (default: the number). E.g. a 0 stop that means "no limit". */
   format?: (n: number) => string;
+  /**
+   * A legend printed under a mini throttle, as on a panel ("2 instances"): what
+   * the lever sets, at its current position. Brass while a move is staged.
+   */
+  printed?: (n: number) => string;
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -113,7 +119,7 @@ export function Throttle({
 
   const nofitFrom = lastFit < n - 1 ? ((lastFit + 0.5) / (n - 1)) * 100 : null;
   return (
-    <div className={className}>
+    <div className={cn(printed && "flex flex-col items-start gap-[3px]", className)}>
       <div
         ref={ref}
         className="throttle"
@@ -160,6 +166,11 @@ export function Throttle({
           onKeyDown={onKey}
         />
       </div>
+      {printed && (
+        <span aria-hidden className="throttle-print" data-staged={staged ? "" : undefined}>
+          {printed(stops[idx])}
+        </span>
+      )}
       {readout}
     </div>
   );

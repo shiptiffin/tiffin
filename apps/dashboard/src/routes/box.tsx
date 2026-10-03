@@ -33,7 +33,7 @@ import { Button } from "@/components/ui/button";
 import heroClosed from "@/assets/illustrations/carrier-hero.webp";
 import { Command } from "@/components/copy";
 import { mcpCommand } from "@/lib/mcp";
-import { boxName, domainFrom, versionLabel, whereItRuns } from "@/lib/box";
+import { boxName, boxUp, domainFrom, versionLabel, whereItRuns } from "@/lib/box";
 import { asTier, intentWords, opCounts, splitAddress, splitRequester } from "@/lib/changes";
 import { cn } from "@/lib/cn";
 import { enamelVar, useEnamels, type Enamel } from "@/lib/enamel";
@@ -118,7 +118,7 @@ export function BoxPage() {
                 name={boxName(status.data)}
                 where={whereItRuns(status.data)}
                 version={versionLabel(status.data)}
-                uptime={res.data ? `up ${duration(res.data.uptimeSeconds)}` : undefined}
+                uptime={boxUp(res.data?.uptimeSeconds)}
                 domain={<BoxDomain projects={names} />}
               />
               <Vitals res={res.data} mem={mem} unavailable={!!res.error} names={names} enamels={enamels} />
@@ -486,19 +486,22 @@ function AppRow({
   return (
     <TierRow
       lever={
-        <Throttle
-          size="mini"
-          label={`${app} instances`}
-          stops={INSTANCE_STOPS}
-          value={shown}
-          applied={applied}
-          maxFit={maxFit}
-          onChange={setPreview}
-          onCommit={(to) => {
-            setPreview(null);
-            stage(project, { kind: "instances", app, from: applied, to });
-          }}
-        />
+        spec.framework === "static" ? null : (
+          <Throttle
+            size="mini"
+            label={`${app} instances`}
+            stops={INSTANCE_STOPS}
+            value={shown}
+            applied={applied}
+            maxFit={maxFit}
+            printed={(k) => count(k, "instance")}
+            onChange={setPreview}
+            onCommit={(to) => {
+              setPreview(null);
+              stage(project, { kind: "instances", app, from: applied, to });
+            }}
+          />
+        )
       }
       nameLink={
         <span className="inline-flex items-center gap-2">
