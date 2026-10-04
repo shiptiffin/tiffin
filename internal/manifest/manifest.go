@@ -86,7 +86,38 @@ type App struct {
 	Healthcheck string `json:"healthcheck,omitempty"`
 	// Env holds app-specific plain environment variables (merged over Manifest.Env).
 	Env map[string]string `json:"env,omitempty"`
+	// Git connects the app to a GitHub repository (through the box's GitHub
+	// App): pushes to Branch deploy to production, pull requests get
+	// previews. Absent: deploys only happen when asked.
+	Git *Git `json:"git,omitempty"`
 }
+
+// Git is where an app's code lives on GitHub.
+type Git struct {
+	// Repo is the repository, "owner/name".
+	Repo string `json:"repo"`
+	// Branch is the production branch: every push to it deploys. Default "main".
+	Branch string `json:"branch"`
+	// Path is the app's directory inside the repository (monorepos), e.g.
+	// "apps/web". Default "" (the top).
+	Path string `json:"path,omitempty"`
+	// Previews says which pull requests get a preview. Default "same-repo".
+	Previews GitPreviews `json:"previews"`
+}
+
+// GitPreviews says which pull requests get a preview deploy.
+type GitPreviews string
+
+const (
+	// PreviewsSameRepo builds pull requests opened from a branch of the
+	// repository itself.
+	PreviewsSameRepo GitPreviews = "same-repo"
+	// PreviewsForks also builds pull requests from forks: their code runs
+	// on the box with the project's env and secrets.
+	PreviewsForks GitPreviews = "forks"
+	// PreviewsOff builds no previews.
+	PreviewsOff GitPreviews = "off"
+)
 
 // Resources is a project's share of the box: one lever per project. Every
 // field is optional; set any of them to give the project a fixed budget.

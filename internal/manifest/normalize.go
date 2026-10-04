@@ -15,6 +15,7 @@ const (
 	// no per-copy cap (its copies share the project's memory).
 	DefaultMemoryMB    = 0
 	DefaultHealthcheck = "/"
+	DefaultGitBranch   = "main"
 	DefaultValkeyMemMB = 64
 
 	DefaultAnalyticsRetentionDays = 365
@@ -36,6 +37,7 @@ var DefaultAuthMethods = []string{AuthEmail, AuthMagicLink}
 //     memoryMB unset (no per-copy cap)
 //   - an empty resources object is dropped (automatic)
 //   - web apps get routes [appName] when none are given; workers get none
+//   - app git: branch "main", previews "same-repo", path without slashes at the ends
 //   - web, non-static apps get healthcheck "/"
 //   - valkey maxMemoryMB 64
 //   - postgres extensions are sorted and de-duplicated
@@ -81,6 +83,20 @@ func Normalize(m *Manifest) *Manifest {
 			app.Routes = routes
 		} else {
 			app.Routes = nil
+		}
+		if g := app.Git; g != nil {
+			gc := *g
+			if gc.Branch == "" {
+				gc.Branch = DefaultGitBranch
+			}
+			if gc.Previews == "" {
+				gc.Previews = PreviewsSameRepo
+			}
+			gc.Path = strings.Trim(gc.Path, "/")
+			if gc.Path == "." {
+				gc.Path = ""
+			}
+			app.Git = &gc
 		}
 		m.Apps[name] = app
 	}
