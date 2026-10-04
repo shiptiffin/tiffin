@@ -155,3 +155,30 @@ func TestUnitAndURL(t *testing.T) {
 		}
 	}
 }
+
+// systemd can refuse the rollback's restart (a crash-looping build trips its
+// start limit) while still bringing the previous build back on its own:
+// health, not the restart's exit code, decides that the rollback worked.
+func TestRollbackSurvivesARefusedRestart(t *testing.T) {
+	u, f, dir := setup(t)
+	ctx := context.Background()
+	if err := u.Update(ctx, build(t, dir, "v1", "build one")); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	u.Restart = func(ctx context.Context) error {
+		calls++
+		err := f.restart(ctx) // the service does come back...
+		if calls == 2 {
+			return errors.New("Job for tiffin.service failed") // ...but the call reports failure
+		}
+		return err
+	}
+	err := u.Update(ctx, build(t, dir, "bad", "BROKEN build"))
+	if !errors.Is(err, ErrRolledBack) {
+		t.Fatalf("want ErrRolledBack despite the refused restart, got %v", err)
+	}
+	if got := current(t, u); got != "build one" {
+		t.Fatalf("after rollback current = %q", got)
+	}
+}

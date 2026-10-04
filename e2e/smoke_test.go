@@ -42,8 +42,8 @@ func TestSmoke(t *testing.T) {
 	p = time.Now()
 
 	osr := sh("cat /etc/os-release")
-	if !strings.Contains(osr, `VERSION_ID="24.04"`) || !strings.Contains(osr, "ID=ubuntu") {
-		t.Errorf("expected Ubuntu 24.04, got:\n%s", osr)
+	if !strings.Contains(osr, `VERSION_ID="26.04"`) || !strings.Contains(osr, "ID=ubuntu") {
+		t.Errorf("expected Ubuntu 26.04, got:\n%s", osr)
 	}
 
 	wantArch := map[string]string{"arm64": "aarch64", "amd64": "x86_64"}[HostArch()]

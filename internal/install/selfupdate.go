@@ -38,11 +38,24 @@ func NewUpdater() *Updater {
 		HealthURL:   "http://" + APIAddr + "/v1/health",
 		Timeout:     30 * time.Second,
 		Restart: func(ctx context.Context) error {
-			out, err := exec.CommandContext(ctx, "systemctl", "restart", "tiffin").CombinedOutput()
-			if err != nil {
-				return fmt.Errorf("systemctl restart tiffin: %w: %s", err, out)
+			// A build that crash-loops trips systemd's start limit, and the unit
+			// then refuses a plain restart: clear it first, and retry a little,
+			// since a rollback must not give up on the build that worked.
+			var last error
+			for i := 0; i < 3; i++ {
+				_ = exec.CommandContext(ctx, "systemctl", "reset-failed", "tiffin").Run()
+				out, err := exec.CommandContext(ctx, "systemctl", "restart", "tiffin").CombinedOutput()
+				if err == nil {
+					return nil
+				}
+				last = fmt.Errorf("systemctl restart tiffin: %w: %s", err, out)
+				select {
+				case <-ctx.Done():
+					return last
+				case <-time.After(2 * time.Second):
+				}
 			}
-			return nil
+			return last
 		},
 		Logs: func(ctx context.Context) string {
 			out, _ := exec.CommandContext(ctx, "journalctl", "-u", "tiffin", "-n", "20", "--no-pager", "-o", "cat").CombinedOutput()
@@ -100,11 +113,14 @@ func (u *Updater) Update(ctx context.Context, newBin string) error {
 	if err := swapLink(u.BinLink, prev); err != nil {
 		return fmt.Errorf("rollback failed: %w", err)
 	}
-	if err := u.Restart(ctx); err != nil {
-		return fmt.Errorf("rollback restart failed: %w", err)
-	}
+	// Health decides, not the restart's exit code: systemd (Restart=always)
+	// starts the previous build on its own even if this call was refused.
+	restartErr := u.Restart(ctx)
 	prevSum, _ := FileSHA(prev)
 	if err := u.waitHealthy(ctx, prevSum); err != nil {
+		if restartErr != nil {
+			return fmt.Errorf("rollback restart failed: %w; and the previous build is not healthy: %v", restartErr, err)
+		}
 		return fmt.Errorf("rolled back, but the previous build is not healthy either: %w", err)
 	}
 	return fmt.Errorf("%w (build %s)\n%s", ErrRolledBack, sum[:12], logs)
