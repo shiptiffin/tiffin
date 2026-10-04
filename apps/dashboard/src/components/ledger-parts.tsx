@@ -1,12 +1,13 @@
 // Pieces shared by the Ledger's three pages (the list, a receipt, an approval
 // permit): the time margin, the actor line, steps with their diff, what undo
 // can't restore, and the signature with its Seal.
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
-import type { Approval, Op, Tier } from "@/api/client";
+import type { Op, Tier } from "@/api/client";
+
+/** An approval as old changes recorded it (approvals are gone; nothing new has one). */
+export type Approval = { id: string; decidedBy?: string; decidedAt?: string; createdAt: string };
 import type { Names } from "@/lib/who";
-import { q } from "@/api/queries";
 import { cn } from "@/lib/cn";
 import { actorName } from "@/lib/actors";
 import { asTier, diffOp, formatValue, splitAddress } from "@/lib/changes";
@@ -15,7 +16,6 @@ import { serviceNames } from "@/lib/staged";
 import { clock, dayLabel } from "@/lib/time";
 import { LossLine } from "./loss";
 import { RiskDots } from "./risk-dots";
-import { Seal } from "./seal";
 
 /** Ticks while mounted (for countdowns and "4 minutes ago"). */
 export function useNow(ms = 1000) {
@@ -53,10 +53,8 @@ export function tokenWho(id: string | undefined, names: Names | undefined): stri
 
 /** The approval a change spent, if any (it was signed with a passkey). Quiet when the box has no approvals. */
 export function useApprovalsByChange() {
-  const all = useQuery({ ...q.approvals, retry: false });
-  const map = new Map<string, Approval>();
-  for (const a of all.data ?? []) if (a.usedBy) map.set(a.usedBy, a);
-  return map;
+  // Approvals are gone from the product; old changes that spent one read as ordinary changes.
+  return new Map<string, Approval>();
 }
 
 const dayMonth = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
@@ -332,32 +330,24 @@ export function RiskLine({ tier, ops, hash, children }: { tier: Tier; ops: Op[] 
   );
 }
 
-/**
- * The signature block: the name written large, a ruled line, what signed it,
- * and the brass Seal (drawn once when `fresh`, static otherwise).
- */
+/** The signature block on a change's page: who made it, written large, over a ruled line saying how. */
 export function Signature({
   name,
-  at,
-  hash,
   how,
-  fresh,
-  seal = true,
 }: {
   name: string;
-  at: string;
-  hash: string;
+  at?: string;
+  hash?: string;
   how: ReactNode;
   fresh?: boolean;
   seal?: boolean;
 }) {
   return (
-    <div className={cn("grid items-end gap-x-6 print:break-inside-avoid", seal ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-1")}>
+    <div className={cn("grid items-end gap-x-6 print:break-inside-avoid", "grid-cols-1")}>
       <div className="min-w-0">
         <p className="pb-1.5 font-serif text-[1.875rem] leading-[2.125rem] tracking-[-0.01em] text-ink [font-optical-sizing:auto]">{name}</p>
         <p className="border-t border-ink pt-2 text-[0.8125rem] leading-[1.1875rem] text-ink-2">{how}</p>
       </div>
-      {seal && <Seal name={name} date={sealDate(at)} plan={planShort(hash)} animate={fresh} size={112} className="max-sm:size-[76px]" />}
     </div>
   );
 }

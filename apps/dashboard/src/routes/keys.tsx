@@ -1,0 +1,284 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
+import { useState, type ReactNode } from "react";
+import { api, type CreatedToken, type Token } from "@/api/client";
+import { q } from "@/api/queries";
+import { Confirm } from "@/components/confirm";
+import { Command, CopyButton } from "@/components/copy";
+import { useTitle } from "@/components/favicon";
+import { Page, PageHeader, Skeleton } from "@/components/page";
+import { ProblemNote } from "@/components/problem";
+import { toast } from "@/components/toast";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { actorName } from "@/lib/actors";
+import { cn } from "@/lib/cn";
+import { relative } from "@/lib/time";
+import { ProjectIcon } from "@/components/project-icon";
+
+/**
+ * API keys: how Claude Code, other agents and scripts reach this box. Each
+ * key says which projects it reaches (all, including future ones, or only
+ * some), whether it can change things or only read, and when it expires.
+ * Whatever a key does shows up in History under its name. Only an admin
+ * (or a key with full access to all projects) manages keys.
+ */
+
+export const keyProjects = (t: Token): string[] | "all" => (t.projects === "all" || !t.projects?.length ? "all" : t.projects);
+/** Live keys only (not revoked). */
+export const onlyKeys = (all: Token[]) => all.filter((t) => !t.revokedAt);
+
+type NewKey = { name: string; projects: "all" | string[]; access: "full" | "read"; expiresInDays?: number };
+const createKey = (k: NewKey) => api.createToken({ ...k, expiresInDays: k.expiresInDays ?? null });
+
+export function KeysPage({ create }: { create?: boolean }) {
+  useTitle("API keys");
+  const tokens = useQuery(q.tokens);
+  const navigate = useNavigate();
+  const setCreate = (o: boolean) => navigate({ to: "/settings/keys", search: o ? { create: true } : {}, replace: true });
+  const all = tokens.data ?? [];
+  const keys = onlyKeys(all);
+
+  return (
+    <Page>
+      <PageHeader
+        title="API keys"
+        lede="Keys let Claude Code, other agents and your scripts work on this box. Whatever a key does shows up in History under its name, and you can revoke it any time."
+        actions={
+          <Button variant="primary" size="lg" onClick={() => setCreate(true)}>
+            Create key
+          </Button>
+        }
+      />
+      {tokens.isError && <ProblemNote className="mt-8" error={tokens.error} title="Couldn’t load the keys." />}
+
+      <section className="mt-9" aria-label="Keys">
+        {tokens.isPending ? <Skeleton className="h-32" /> : <KeyList keys={keys} empty="No keys yet. Create one for Claude Code and paste the line it gives you." />}
+      </section>
+
+      <section className="mt-10" aria-label="Connect Claude Code">
+        <h2 className="text-[0.9375rem] font-[550] text-ink">Connect Claude Code</h2>
+        <p className="mt-1 mb-3 text-sm text-ink-2">Run this once in a terminal with your key. Creating a key gives you the line ready to paste.</p>
+        <Command cmd="claude mcp add tiffin -e TIFFIN_TOKEN=<key> -- tiffin mcp" />
+      </section>
+
+
+      <CreateKeyDialog open={!!create} onOpenChange={setCreate} />
+    </Page>
+  );
+}
+
+/** Keys as rows: name, which projects, full or read only, expiry, last used, Revoke. */
+export function KeyList({ keys, empty }: { keys: Token[]; empty: string }) {
+  const [revoke, setRevoke] = useState<Token | null>(null);
+  const qc = useQueryClient();
+  if (keys.length === 0) return <p className="border-y border-rule py-4 text-[0.875rem] text-ink-3">{empty}</p>;
+  return (
+    <>
+      <ul className="divide-y divide-rule border-y border-rule">
+        {keys.map((t) => {
+          const p = keyProjects(t);
+          const access = t.access;
+          return (
+            <li key={t.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[0.9375rem] text-ink">{t.name === "owner" ? "The owner’s key" : actorName({ kind: "agent", name: t.name }).name}</p>
+                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.8125rem] text-ink-3">
+                  <span className="inline-flex flex-wrap items-center gap-x-2 text-ink-2">
+                    {p === "all"
+                      ? "All projects"
+                      : p.map((x) => (
+                          <span key={x} className="inline-flex items-center gap-1.5">
+                            <ProjectIcon project={x} size={14} />
+                            {x}
+                          </span>
+                        ))}
+                  </span>
+                  <span>· {access === "full" ? "Full access" : "Read only"}</span>
+                  <span>· {t.expiresAt ? (relative(t.expiresAt).endsWith("ago") ? "expired" : `expires ${relative(t.expiresAt)}`) : "never expires"}</span>
+                  <span>· {t.lastUsedAt ? `used ${relative(t.lastUsedAt)}` : "never used"}</span>
+                </p>
+                {t.note && <p className="mt-0.5 text-xs text-ink-3">Note: {t.note}.</p>}
+              </div>
+              {t.name === "owner" ? (
+                <span className="text-xs text-ink-3">made with the box</span>
+              ) : (
+                <Button variant="ghost" size="sm" className="hover:text-danger" onClick={() => setRevoke(t)} aria-label={`Revoke ${t.name}`}>
+                  Revoke
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <Confirm
+        open={!!revoke}
+        onClose={() => setRevoke(null)}
+        title={`Revoke ${revoke ? actorName({ kind: "agent", name: revoke.name }).name : "this key"}?`}
+        body="It stops working at once. What it already did stays in History."
+        action={`Revoke ${revoke ? actorName({ kind: "agent", name: revoke.name }).name : "key"}`}
+        run={() => api.revokeToken(revoke!.id)}
+        done={() => {
+          void qc.invalidateQueries({ queryKey: ["tokens"] });
+          toast({ title: `Revoked ${revoke ? actorName({ kind: "agent", name: revoke.name }).name : "the key"}.` });
+        }}
+      />
+    </>
+  );
+}
+
+const field =
+  "h-9 w-full rounded-[8px] border border-rule-2 bg-paper-raised px-2.5 text-[0.875rem] text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]";
+
+/** Create key: a name, and whole box or one project. The secret shows once. */
+export function CreateKeyDialog({ open, onOpenChange, project }: { open: boolean; onOpenChange: (o: boolean) => void; project?: string }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">{open && <CreateKey onClose={() => onOpenChange(false)} fixed={project} />}</DialogContent>
+    </Dialog>
+  );
+}
+
+function CreateKey({ onClose, fixed }: { onClose: () => void; fixed?: string }) {
+  const qc = useQueryClient();
+  const projects = useQuery(q.projects);
+  const names = (projects.data ?? []).map((p) => p.name);
+  const [name, setName] = useState("claude-code");
+  const [all, setAll] = useState(!fixed);
+  const [picked, setPicked] = useState<string[]>(fixed ? [fixed] : []);
+  const [access, setAccess] = useState<"full" | "read">("full");
+  const [expires, setExpires] = useState<0 | 30 | 90>(90);
+  const [created, setCreated] = useState<CreatedToken | null>(null);
+  const make = useMutation({
+    mutationFn: () => createKey({ name: name.trim(), projects: all ? "all" : picked, access, ...(expires ? { expiresInDays: expires } : {}) }),
+    onSuccess: (c) => {
+      setCreated(c);
+      void qc.invalidateQueries({ queryKey: ["tokens"] });
+    },
+  });
+  const ok = /^[a-z0-9][a-z0-9-_.]{0,63}$/i.test(name.trim()) && (all || picked.length > 0);
+  if (created) return <SecretOnce created={created} onDone={onClose} />;
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (ok) make.mutate();
+      }}
+    >
+      <DialogHeader>
+        <DialogTitle>Create key</DialogTitle>
+        <DialogDescription>Name it after what will use it, so History reads “claude-code added a database”.</DialogDescription>
+      </DialogHeader>
+      <DialogBody className="flex flex-col gap-5">
+        <label className="block">
+          <span className="mb-1 block text-xs font-[550] text-ink-2">Name</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" spellCheck={false} className={cn(field, "ident")} />
+        </label>
+        <Choices label="Projects">
+          <Pick checked={all} onPick={() => setAll(true)} title="All projects" note="Including ones you make later." />
+          <Pick checked={!all} onPick={() => setAll(false)} title="Only these">
+            {!all && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {names.map((p) => {
+                  const on = picked.includes(p);
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => setPicked(on ? picked.filter((x) => x !== p) : [...picked, p])}
+                      className={cn(
+                        "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[0.8125rem]",
+                        on ? "border-brass bg-paper-raised text-ink" : "border-rule-2 text-ink-2 hover:border-rule-3",
+                      )}
+                    >
+                      <ProjectIcon project={p} size={14} />
+                      {p}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </Pick>
+        </Choices>
+        <Choices label="Access" row>
+          <Pick checked={access === "full"} onPick={() => setAccess("full")} title="Full access" />
+          <Pick checked={access === "read"} onPick={() => setAccess("read")} title="Read only" />
+        </Choices>
+        <Choices label="Expires" row>
+          <Pick checked={expires === 0} onPick={() => setExpires(0)} title="Never" />
+          <Pick checked={expires === 30} onPick={() => setExpires(30)} title="30 days" />
+          <Pick checked={expires === 90} onPick={() => setExpires(90)} title="90 days" />
+        </Choices>
+        {make.isError && <ProblemNote error={make.error} />}
+      </DialogBody>
+      <DialogFooter>
+        <Button type="button" variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" variant="primary" disabled={!ok || make.isPending}>
+          {make.isPending ? "Creating…" : `Create ${name.trim() || "key"}`}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+function Choices({ label, row, children }: { label: string; row?: boolean; children: ReactNode }) {
+  return (
+    <fieldset>
+      <legend className="mb-1.5 text-xs font-[550] text-ink-2">{label}</legend>
+      <div role="radiogroup" aria-label={label} className={cn("flex gap-1.5", row ? "flex-row flex-wrap" : "flex-col")}>
+        {children}
+      </div>
+    </fieldset>
+  );
+}
+
+function Pick({ checked, onPick, title, note, children }: { checked: boolean; onPick: () => void; title: string; note?: string; children?: ReactNode }) {
+  return (
+    <div className={cn("rounded-[10px] border px-3 py-2", checked ? "border-brass bg-brass-wash" : "border-rule-2")}>
+      <button type="button" role="radio" aria-checked={checked} onClick={onPick} className="flex w-full items-center gap-2.5 text-left">
+        <span className={cn("grid size-4 shrink-0 place-items-center rounded-full border", checked ? "border-brass" : "border-rule-3")} aria-hidden>
+          {checked && <span className="size-2 rounded-full bg-brass" />}
+        </span>
+        <span>
+          <span className="block text-[0.875rem] font-[550] text-ink">{title}</span>
+          {note && <span className="block text-xs text-ink-3">{note}</span>}
+        </span>
+      </button>
+      {children}
+    </div>
+  );
+}
+
+function SecretOnce({ created, onDone }: { created: CreatedToken; onDone: () => void }) {
+  const mcp = `claude mcp add tiffin -e TIFFIN_TOKEN=${created.secret} -- tiffin mcp`;
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>{actorName({ kind: "agent", name: created.key.name }).name} is ready</DialogTitle>
+        <DialogDescription>Copy it now. This is the only time Tiffin shows the key.</DialogDescription>
+      </DialogHeader>
+      <DialogBody className="flex flex-col gap-5">
+        <div className="flex items-center gap-2 rounded-[8px] border border-brass bg-brass-wash px-3 py-2.5">
+          <code data-testid="token-secret" className="min-w-0 flex-1 font-mono text-sm break-all text-ink select-all">
+            {created.secret}
+          </code>
+          <CopyButton value={created.secret} label="Copy key" />
+        </div>
+        <div>
+          <p className="mb-2 text-sm text-ink-2">
+            Use it as <span className="ident text-ink">TIFFIN_TOKEN</span>, or connect Claude Code:
+          </p>
+          <Command cmd={mcp} />
+        </div>
+      </DialogBody>
+      <DialogFooter>
+        <Button variant="primary" onClick={onDone}>
+          I’ve stored it
+        </Button>
+      </DialogFooter>
+    </>
+  );
+}

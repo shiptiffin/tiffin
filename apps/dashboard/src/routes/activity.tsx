@@ -2,13 +2,12 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ApiError, request, type Approval, type Change, type Tier } from "@/api/client";
+import { ApiError, request, type Change, type Tier } from "@/api/client";
+import type { Approval } from "@/components/ledger-parts";
 import { q } from "@/api/queries";
 import { Command } from "@/components/copy";
-import { EnamelSwatch } from "@/components/enamel-swatch";
 import { useTitle } from "@/components/favicon";
 import { dayWords, splitIntent, tokenWho, useApprovalsByChange } from "@/components/ledger-parts";
-import { WorkflowRow } from "@/components/ledger-workflow";
 import { TiffinMark } from "@/components/logo";
 import { Page } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
@@ -16,14 +15,13 @@ import { RiskDots } from "@/components/risk-dots";
 import { SignedEntry } from "@/components/signed-entry";
 import { Button } from "@/components/ui/button";
 import { Menu, MenuContent, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from "@/components/ui/dropdown";
-import { asTier, intentWords, opCounts, splitRequester, tierCopy } from "@/lib/changes";
+import { asTier, intentWords, opCounts, tierCopy } from "@/lib/changes";
 import { cn } from "@/lib/cn";
-import { useEnamels } from "@/lib/enamel";
 import { countWords, words } from "@/lib/format";
 import { mcpCommand } from "@/lib/mcp";
-import { clock, dayKey, dayLabel, relative } from "@/lib/time";
-import { useWaitingWorkflowApprovals } from "@/lib/wf";
+import { clock, dayKey, dayLabel } from "@/lib/time";
 import { actorShown } from "@/lib/who";
+import { ProjectIcon } from "@/components/project-icon";
 
 export type ActivitySearch = { project?: string; risk?: Tier; who?: "people" | "agents" };
 
@@ -83,15 +81,12 @@ const isAgent = (c: Change) => c.actor.kind === "agent";
 
 export function ActivityPage({ search }: { search: ActivitySearch }) {
   const { project, risk, who } = search;
-  useTitle(project ? `${project} · Ledger` : "Ledger");
+  useTitle(project ? `${project} · History` : "History");
   const changes = useLedger(project);
-  const pending = useQuery({ ...q.pending, retry: false });
   const names = useQuery({ ...q.tokenNames, retry: false });
   const projects = useQuery(q.projects);
-  const wf = useWaitingWorkflowApprovals();
   const signedBy = useApprovalsByChange();
   const projectNames = useMemo(() => (projects.data ?? []).map((p) => p.name), [projects.data]);
-  const enamels = useEnamels(projectNames);
 
   if (changes.isPending) return <Skeleton />;
   if (changes.isError)
@@ -103,9 +98,7 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
 
   const { all, legacy } = flatten(changes.data.pages);
   const first = changes.data.pages[0]?.items ?? [];
-  const waiting = (pending.data ?? []).filter((a) => !project || a.project === project);
-  const flows = wf.filter((w) => !project || w.project === project);
-  if (all.length === 0 && waiting.length === 0) return project ? <NoChangesIn project={project} /> : <FirstRun />;
+  if (all.length === 0) return project ? <NoChangesIn project={project} /> : <FirstRun />;
 
   const list = all.filter((c) => (!risk || asTier(c.plan.risk) === risk) && (!who || (who === "agents") === isAgent(c)));
   const byId = new Map(all.map((c) => [c.id, c]));
@@ -113,13 +106,11 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
   return (
     <Page>
       <header>
-        <p className="label mb-2">Ledger{project ? ` · ${project}` : ""}</p>
+        <p className="label mb-2">History{project ? ` · ${project}` : " · every project"}</p>
         <Headline all={first} project={project} live={projects.data?.map((p) => p.name)} />
       </header>
 
-      <Controls search={search} all={all} projects={projectNames} enamels={enamels} />
-
-      {(waiting.length > 0 || flows.length > 0) && <Waiting approvals={waiting} workflows={flows} />}
+      <Controls search={search} all={all} projects={projectNames} />
 
       {list.length === 0 && !changes.hasNextPage ? (
         <p className="mt-10 text-[0.9375rem] text-ink-2">
@@ -137,7 +128,6 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
           byId={byId}
           signedBy={signedBy}
           names={names.data}
-          enamels={enamels}
         />
       )}
     </Page>
@@ -190,7 +180,7 @@ function Headline({ all, project, live }: { all: Change[]; project?: string; liv
 
 // ───────────────────────── controls ─────────────────────────
 
-function Controls({ search, all, projects, enamels }: { search: ActivitySearch; all: Change[]; projects: string[]; enamels: ReturnType<typeof useEnamels> }) {
+function Controls({ search, all, projects }: { search: ActivitySearch; all: Change[]; projects: string[] }) {
   const navigate = useNavigate();
   const set = (patch: Partial<ActivitySearch>) => navigate({ to: "/ledger", search: { ...search, ...patch }, replace: true });
   const tierCount = (t: Tier) => all.filter((c) => asTier(c.plan.risk) === t).length;
@@ -239,7 +229,7 @@ function Controls({ search, all, projects, enamels }: { search: ActivitySearch; 
             <button type="button" className={cn(toggle, "data-[state=open]:bg-paper-sunk")} aria-label={`Project: ${search.project ?? "all"}`}>
               {search.project ? (
                 <>
-                  <EnamelSwatch enamel={enamels[search.project] ?? "indigo"} />
+                  <ProjectIcon project={search.project} size={14} />
                   <span className="text-ink">{search.project}</span>
                 </>
               ) : (
@@ -254,7 +244,7 @@ function Controls({ search, all, projects, enamels }: { search: ActivitySearch; 
               <MenuSeparator />
               {projects.map((p) => (
                 <MenuRadioItem key={p} value={p}>
-                  <EnamelSwatch enamel={enamels[p] ?? "indigo"} />
+                  <ProjectIcon project={p} size={14} />
                   {p}
                 </MenuRadioItem>
               ))}
@@ -268,55 +258,6 @@ function Controls({ search, all, projects, enamels }: { search: ActivitySearch; 
 
 // ───────────────────────── waiting ─────────────────────────
 
-function Waiting({ approvals, workflows }: { approvals: Approval[]; workflows: ReturnType<typeof useWaitingWorkflowApprovals> }) {
-  const n = approvals.length + workflows.length;
-  return (
-    <section aria-labelledby="waiting" className="mt-8 overflow-hidden rounded-[10px] border border-rule-2 bg-paper-raised shadow-raised">
-      <header className="flex items-baseline justify-between px-4 pt-3 sm:px-5">
-        <h2 id="waiting" className="label !text-brass-ink">
-          Waiting for you
-        </h2>
-        {n > 1 && <span className="text-xs text-ink-3 tnum">{n}</span>}
-      </header>
-      <div className="divide-y divide-rule px-4 sm:px-5">
-        {approvals.map((a) => {
-          const r = splitRequester(a.requester);
-          return (
-            <div key={a.id} className="flex flex-col gap-x-6 sm:flex-row sm:items-center">
-              <SignedEntry
-                className="min-w-0 flex-1"
-                time={clock(a.createdAt)}
-                timeNote="asked"
-                actor={{ kind: "agent", name: r.name, session: r.session }}
-                intent={splitIntent(intentWords({ intent: a.intent, plan: a.plan })).head}
-                to="/approvals/$id"
-                params={{ id: a.id }}
-                counts={opCounts(a.plan.ops)}
-                tier={asTier(a.plan.risk)}
-                extra={
-                  <span>
-                    {a.project} · expires {relative(a.expiresAt)}
-                  </span>
-                }
-              />
-              <Button asChild variant="primary" size="md" className="mb-3 self-start max-sm:ml-[56px] sm:mb-0 sm:self-center">
-                <Link to="/approvals/$id" params={{ id: a.id }}>
-                  Review
-                </Link>
-              </Button>
-            </div>
-          );
-        })}
-        {workflows.map((w) => (
-          <WorkflowRow key={w.project + w.id} w={w} compact />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-// ───────────────────────── entries ─────────────────────────
-
 function Entries({
   list,
   more,
@@ -324,7 +265,6 @@ function Entries({
   byId,
   signedBy,
   names,
-  enamels,
 }: {
   list: Change[];
   more: { next: boolean; busy: boolean; fetch: () => void; legacy: boolean; error: boolean };
@@ -332,7 +272,6 @@ function Entries({
   byId: Map<string, Change>;
   signedBy: Map<string, Approval>;
   names: Parameters<typeof tokenWho>[1];
-  enamels: ReturnType<typeof useEnamels>;
 }) {
   const [sel, setSel] = useState(-1);
   const root = useRef<HTMLDivElement>(null);
@@ -428,7 +367,6 @@ function Entries({
                 undid={c.undoOf ? byId.get(c.undoOf) : undefined}
                 approval={signedBy.get(c.id)}
                 names={names}
-                enamel={enamels[c.project]}
               />
             ))}
           </div>
@@ -462,7 +400,6 @@ function Entry({
   undid,
   approval,
   names,
-  enamel,
 }: {
   c: Change;
   index: number;
@@ -473,7 +410,6 @@ function Entry({
   undid?: Change;
   approval?: Approval;
   names: Parameters<typeof tokenWho>[1];
-  enamel?: ReturnType<typeof useEnamels>[string];
 }) {
   const tier = asTier(c.plan.risk);
   const agent = isAgent(c);
@@ -496,7 +432,7 @@ function Entry({
   if (showProject)
     extra.push(
       <span key="p" className="inline-flex items-center gap-1.5">
-        {enamel && <EnamelSwatch enamel={enamel} size={6} />}
+        <ProjectIcon project={c.project} size={14} />
         {c.project}
       </span>,
     );

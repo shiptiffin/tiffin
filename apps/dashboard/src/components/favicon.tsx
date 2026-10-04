@@ -30,9 +30,8 @@ function icon(state: "plain" | "waiting" | "down" | "alarm") {
  */
 export function useFavicon() {
   const { data } = useQuery(q.status());
-  const waiting = useQuery({ ...q.pending, retry: false }).data?.length ?? 0;
   const alarm = !!useQuery(mq.protect).data?.underAttack.on;
-  const state = alarm ? "alarm" : data && !data.ok ? "down" : waiting > 0 ? "waiting" : "plain";
+  const state = alarm ? "alarm" : data && !data.ok ? "down" : "plain";
   useEffect(() => {
     let link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
     if (!link) {
@@ -50,9 +49,8 @@ export function useTitle(page: string) {
   const { data } = useQuery(q.status());
   const degraded = data && !data.ok;
   const alarm = !!useQuery(mq.protect).data?.underAttack.on;
-  const waiting = useQuery({ ...q.pending, retry: false }).data?.length ?? 0;
   useEffect(() => {
-    const lead = alarm ? "Under attack · " : degraded ? "Degraded · " : waiting > 0 ? `(${waiting}) ` : "";
+    const lead = alarm ? "Under attack · " : degraded ? "Degraded · " : "";
     document.title = `${lead}${page} · Tiffin`;
-  }, [page, degraded, alarm, waiting]);
+  }, [page, degraded, alarm]);
 }

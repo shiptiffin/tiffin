@@ -10,11 +10,12 @@ export type Principal = S["Principal"];
 export type ProjectSummary = S["ProjectSummary"];
 export type StatusReport = S["StatusReport"];
 export type Check = S["Check"];
-export type Token = S["Token"];
-export type CreatedToken = S["CreatedToken"];
-export type TokenCreateBody = S["TokenCreateBody"];
+/** An API key (GET /v1/tokens): which projects, full or read access, when it expires. */
+export type Token = S["Key"];
+export type Key = S["Key"];
+export type CreatedToken = S["CreatedKey"];
+export type KeyCreateBody = S["KeyCreateBody"];
 export type ApplyResult = S["ApplyResult"];
-export type Approval = S["Approval"];
 export type Passkey = S["Passkey"];
 export type ProjectState = S["ProjectState"];
 export type ResourceStatus = S["ResourceStatus"];
@@ -90,16 +91,10 @@ export const api = {
   /** Without confirm the API answers 428 with the undo plan (thrown as ApiError). */
   undo: (id: string, confirm?: string) => request<ApplyResult>("POST", `/v1/changes/${encodeURIComponent(id)}/undo`, confirm ? { confirm } : {}),
   status: () => request<StatusReport>("GET", "/v1/status"),
-  tokens: (revoked = false) => request<Token[]>("GET", `/v1/tokens${revoked ? "?revoked=true" : ""}`),
-  createToken: (body: TokenCreateBody) => request<CreatedToken>("POST", "/v1/tokens", body),
+  tokens: (revoked = false) => request<Token[] | null>("GET", `/v1/tokens${revoked ? "?revoked=true" : ""}`).then((x) => x ?? []),
+  createToken: (body: KeyCreateBody) => request<CreatedToken>("POST", "/v1/tokens", body),
   revokeToken: (id: string) => request<void>("DELETE", `/v1/tokens/${encodeURIComponent(id)}`),
   project: (name: string) => request<ProjectState>("GET", `/v1/projects/${encodeURIComponent(name)}`),
-  approvals: (status?: Approval["status"]) => request<Approval[] | null>("GET", `/v1/approvals${status ? `?status=${status}` : ""}`),
-  approval: (id: string) => request<Approval>("GET", `/v1/approvals/${encodeURIComponent(id)}`),
-  /** WebAuthn assertion options bound to this approval, as go-webauthn emits them. */
-  beginApproval: (id: string) => request<unknown>("POST", `/v1/approvals/${encodeURIComponent(id)}/begin`),
-  approve: (id: string, credential: unknown) => request<Approval>("POST", `/v1/approvals/${encodeURIComponent(id)}/approve`, { credential }),
-  reject: (id: string, reason: string) => request<Approval>("POST", `/v1/approvals/${encodeURIComponent(id)}/reject`, reason ? { reason } : {}),
   passkeys: () => request<Passkey[] | null>("GET", "/v1/passkeys"),
   beginPasskey: () => request<unknown>("POST", "/v1/passkeys/register"),
   addPasskey: (name: string, credential: unknown) => request<Passkey>("POST", "/v1/passkeys", { name, credential }),
@@ -137,7 +132,7 @@ export function isProblem(e: unknown, ...codes: Problem["code"][]): e is ApiErro
   return e instanceof ApiError && (codes.length === 0 || codes.includes(e.problem.code));
 }
 
-/** True when the box runs without --box, so approvals, passkeys and secrets don't exist here. */
+/** True when the box runs without --box, so passkeys and secrets don't exist here. */
 export function notOnBox(e: unknown) {
   return e instanceof ApiError && e.status === 501;
 }

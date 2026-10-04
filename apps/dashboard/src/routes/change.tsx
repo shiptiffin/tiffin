@@ -5,7 +5,6 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ApiError, api, type Change, type Plan } from "@/api/client";
 import { q } from "@/api/queries";
 import { CopyValue } from "@/components/copy";
-import { EnamelSwatch } from "@/components/enamel-swatch";
 import { useTitle } from "@/components/favicon";
 import {
   ActorLine,
@@ -38,12 +37,12 @@ import { actorWords } from "@/lib/actors";
 import { asTier, intentWords, tierCopy, tierRank } from "@/lib/changes";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
-import { useEnamel } from "@/lib/enamel";
 import { duration } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { clock } from "@/lib/time";
 import "./ledger-print.css";
 import { actorShown } from "@/lib/who";
+import { ProjectIcon } from "@/components/project-icon";
 
 export function ChangePage({ id }: { id: string }) {
   const { data: c, isPending, error } = useQuery(q.change(id));
@@ -56,7 +55,6 @@ export function ChangePage({ id }: { id: string }) {
   const undoneBy = justUndone ?? c?.undoneBy ?? undefined;
   const undo = useQuery({ ...q.change(undoneBy ?? ""), enabled: !!undoneBy });
   const undid = useQuery({ ...q.change(c?.undoOf ?? ""), enabled: !!c?.undoOf });
-  const enamel = useEnamel(c?.project);
 
   if (isPending)
     return (
@@ -103,7 +101,7 @@ export function ChangePage({ id }: { id: string }) {
               {
                 label: (
                   <span className="inline-flex items-center gap-1.5">
-                    <EnamelSwatch enamel={enamel} size={7} />
+                    <ProjectIcon project={c?.project} size={14} />
                     {c.project}
                   </span>
                 ),
@@ -198,7 +196,7 @@ export function ChangePage({ id }: { id: string }) {
                   </span>,
                 ],
                 ["Entry", <CopyValue key="e" value={c.id} className="-my-1 max-w-full" />],
-                approval && ["Approval", <Link key="ap" to="/approvals/$id" params={{ id: approval.id }} className="ident text-ink-2 hover:text-ink">{approval.id}</Link>],
+                approval && ["Approval", <span key="ap" className="ident text-ink-2">{approval.id}</span>],
               ]}
             />
           </Sec>

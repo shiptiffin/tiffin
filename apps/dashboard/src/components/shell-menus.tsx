@@ -63,9 +63,9 @@ export function WhoMenu() {
           {copied ? "Copied" : "Copy MCP setup command"}
         </MenuItem>
         {admin && (
-          <MenuItem onSelect={() => navigate({ to: "/tokens", search: { create: true } })}>
+          <MenuItem onSelect={() => navigate({ to: "/settings/keys", search: { create: true } })}>
             <KeyRound />
-            Create a token
+            Create a key
           </MenuItem>
         )}
         <MenuItem onSelect={() => navigate({ to: "/settings/passkeys" })}>

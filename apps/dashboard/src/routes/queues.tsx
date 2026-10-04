@@ -33,7 +33,7 @@ import { actorWords } from "@/lib/actors";
 import { cn } from "@/lib/cn";
 import { countWords, int, ms, pct, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
-import { editKey, stage, unstage, useStaged } from "@/lib/staged";
+import { change, editKey, usePending } from "@/lib/staged";
 import { clock, dayKey, dayLabel, full, relative } from "@/lib/time";
 
 // ------------------------------------------------------------------ shared
@@ -125,7 +125,7 @@ export function QueuesPage({ project }: { project: string }) {
   const crons = useQuery(mq.crons(project));
   const topics = useQuery(mq.topics(project));
   const manifest = useQuery({ ...api.manifest(project), retry: false });
-  const edits = useStaged(project);
+  const edits = usePending(project);
   const refresh = () => qc.invalidateQueries({ queryKey: ["queue-stats", project] });
   const toggle = useMutation({
     mutationFn: (x: QueueStats) => (x.paused ? mod2.resume(project, x.name) : mod2.pause(project, x.name)),
@@ -155,7 +155,7 @@ export function QueuesPage({ project }: { project: string }) {
   const stageConcurrency = (x: QueueStats, stop: number) => {
     const c = fromStop(stop);
     if (declared[x.name]) {
-      stage(project, {
+      change(project, {
         kind: "set",
         path: ["queues", x.name, "concurrency"],
         from: x.concurrency,
@@ -165,9 +165,8 @@ export function QueuesPage({ project }: { project: string }) {
       });
       return;
     }
-    const key = `set:queues/${x.name}`;
-    if (c === x.concurrency) return unstage(project, key);
-    stage(project, {
+    if (c === x.concurrency) return;
+    change(project, {
       kind: "set",
       path: ["queues", x.name],
       from: undefined,
@@ -330,7 +329,7 @@ function QueueRow({
     ) : (
       <span className="flex items-center gap-3">
         {canStage ? (
-          <span className="[&_.throttle]:w-[64px]">
+          <span>
             <Throttle
               size="mini"
               label={`${x.name}: jobs at once`}
@@ -347,12 +346,11 @@ function QueueRow({
             />
           </span>
         ) : null}
-        <span
-          className={cn("text-[0.8125rem] whitespace-nowrap tnum", isStaged || preview !== null ? "font-[550] text-brass-ink" : "text-ink-2")}
-          title={declared ? "Set in tiffin.config.ts" : "Not in tiffin.config.ts yet: changing it declares the queue there"}
-        >
-          {atOnce(shown)}
-        </span>
+        {!canStage && (
+          <span className="text-[0.8125rem] whitespace-nowrap text-ink-2 tnum" title={declared ? "Set in tiffin.config.ts" : "Not in tiffin.config.ts yet: changing it declares the queue there"}>
+            {atOnce(shown)}
+          </span>
+        )}
       </span>
     );
   const pause =
@@ -363,7 +361,7 @@ function QueueRow({
     ) : null;
 
   return (
-    <li className={cn("relative", isStaged && "before:absolute before:inset-y-0 before:-left-3 before:w-[2px] before:rounded-full before:bg-brass")}>
+    <li className={cn("relative", isStaged && "opacity-90")}>
       {/* desktop: an instrument row */}
       <div className="hidden grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5.5rem_6rem_9.5rem_5.5rem] items-center gap-x-4 py-3 md:grid">
         <div className="min-w-0">
@@ -1330,13 +1328,6 @@ export function RunPage({ project, id }: { project: string; id: string }) {
                 {s.kind === "approval" && s.state === "waiting" && (
                   <div className="mt-3 max-w-[40rem]">
                     {approval ? <ApprovalCard project={project} a={approval} inRun /> : <p className="text-[0.84375rem] text-ink-2">{s.description}</p>}
-                    <p className="mt-2 text-[0.8125rem] text-ink-3">
-                      It’s also in{" "}
-                      <Link to="/approvals" className="text-brass-ink hover:underline">
-                        Ledger › Approvals
-                      </Link>
-                      , with everything else waiting for you.
-                    </p>
                   </div>
                 )}
                 {s.kind === "approval" && s.decidedBy && (

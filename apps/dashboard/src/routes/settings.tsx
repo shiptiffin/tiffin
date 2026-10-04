@@ -28,7 +28,6 @@ export function PasskeysPage() {
   useTitle("Passkeys");
   const qc = useQueryClient();
   const keys = useQuery(q.passkeys);
-  const pending = useQuery({ ...q.pending, retry: false });
   const { name: me } = useMe();
   const [label, setLabel] = useState("");
   const [adding, setAdding] = useState(false);
@@ -54,22 +53,19 @@ export function PasskeysPage() {
   };
 
   const list = keys.data ?? [];
-  const waiting = pending.data?.length ?? 0;
   return (
     <Page>
       <PageHeader
         eyebrow={accessCrumbs}
         title="Passkeys"
-        lede="Your passkey does two things: it signs you in to this dashboard, and it signs the exact plan when an agent asks for a risky change. A stolen session alone can’t approve anything. Everyone manages their own passkeys here."
+        lede="Sign in to this dashboard with Touch ID, Face ID or a security key instead of a link from the terminal. Everyone manages their own here."
       />
       {keys.isSuccess && (
         <StateSentence className="mt-6">
           {list.length === 0 ? (
-            <span className="text-warn-ink">
-              You have no passkey yet{waiting > 0 ? `, so ${countWords(waiting, "change")} from agents ${waiting === 1 ? "waits" : "wait"} on you` : ", so agents’ risky changes will wait until you add one"}.
-            </span>
+            <span className="text-ink-2">You have no passkey yet, so you sign in with a link from the terminal.</span>
           ) : (
-            `${countWords(list.length, "passkey", "passkeys", true)} can sign for you${list.some((k) => k.lastUsed) ? `; the last signature was ${relative(list.map((k) => k.lastUsed ?? "").sort().pop()!)}` : ""}.`
+            `${countWords(list.length, "passkey", "passkeys", true)} can sign you in${list.some((k) => k.lastUsed) ? `; the last was used ${relative(list.map((k) => k.lastUsed ?? "").sort().pop()!)}` : ""}.`
           )}
         </StateSentence>
       )}
@@ -78,7 +74,7 @@ export function PasskeysPage() {
         {keys.isError && <ProblemNote error={keys.error} />}
         {keys.isPending && <Skeleton className="h-20" />}
         {list.length === 0 && keys.isSuccess && (
-          <p className="border-y border-rule py-4 text-[0.875rem] text-ink-2">None yet. Add one below to sign in without a link from the terminal and to approve agents’ risky changes.</p>
+          <p className="border-y border-rule py-4 text-[0.875rem] text-ink-2">None yet. Add one below to sign in without a link from the terminal.</p>
         )}
         {list.length > 0 && (
           <Rows>
@@ -125,7 +121,7 @@ export function PasskeysPage() {
         open={!!removing}
         onClose={() => setRemoving(null)}
         title={`Remove ${removing?.name ?? "this passkey"}?`}
-        body="It stops working at once. Approvals it already signed stay valid and signed."
+        body="It stops working at once."
         action="Remove passkey"
         run={() => api.deletePasskey(removing!.id)}
         done={() => qc.invalidateQueries({ queryKey: ["passkeys"] })}
