@@ -1,5 +1,5 @@
 // Package lima runs a Tiffin box as a local Lima VM (Apple Virtualization on
-// macOS): Ubuntu 24.04, 2 vCPU / 4 GiB, and an XFS data disk at
+// macOS): Ubuntu 26.04, 2 vCPU / 4 GiB, and an XFS data disk at
 // /var/lib/tiffin. It shells out to limactl.
 package lima
 
@@ -119,7 +119,7 @@ func (p *Provider) Up(ctx context.Context, progress func(string)) (provider.Mach
 		if runtime.GOOS != "darwin" {
 			set += ` | .vmType = "qemu"`
 		}
-		progress("creating the Ubuntu 24.04 VM (the first time downloads a ~600 MB image)")
+		progress("creating the Ubuntu 26.04 VM (the first time downloads a ~600 MB image)")
 		if _, stderr, err := run(ctx, 25*time.Minute, "limactl", "create", "--name", p.Instance, "--tty=false", "--set", set, tmpl); err != nil {
 			return nil, fmt.Errorf("create VM: %w\n%s", err, tail(stderr))
 		}

@@ -234,7 +234,7 @@ func slugify(s string) string {
 }
 
 func (a *app) serveCmd() *cobra.Command {
-	var addr, domain, publicURL string
+	var addr, domain, publicURL, publicIPv6 string
 	var withEdge, onBox bool
 	var httpsPort, httpPort int
 	var tlsMode, acmeCA, acmeRoots, acmeEmail string
@@ -267,7 +267,7 @@ func (a *app) serveCmd() *cobra.Command {
 				if onBox {
 					var err error
 					reach, domain, publicURL, err = boxReach(ctx, d.DB, reachFlags{domain: domain, publicURL: publicURL, httpsPort: httpsPort,
-						tls: tlsMode, ips: publicIPs, acmeCA: acmeCA, acmeRoots: acmeRoots, acmeEmail: acmeEmail, resolvers: resolvers})
+						tls: tlsMode, ips: append(publicIPs, nonEmpty(publicIPv6)...), acmeCA: acmeCA, acmeRoots: acmeRoots, acmeEmail: acmeEmail, resolvers: resolvers})
 					if err != nil {
 						openErr = err
 						return
@@ -385,6 +385,7 @@ func (a *app) serveCmd() *cobra.Command {
 	cmd.Flags().IntVar(&httpPort, "http-port", 80, "edge HTTP port (redirects to HTTPS)")
 	cmd.Flags().StringVar(&publicURL, "public-url", "", "the dashboard URL people use, for login links")
 	cmd.Flags().StringVar(&tlsMode, "tls", "auto", "certificates: auto (public ACME on a server with a public IP, the internal CA otherwise), acme or internal [TIFFIN_TLS]")
+	cmd.Flags().StringVar(&publicIPv6, "public-ipv6", "", "the server's public IPv6 address (same as adding it to --public-ip)")
 	cmd.Flags().StringSliceVar(&publicIPs, "public-ip", nil, "the server's public address(es); default: the global addresses on its interfaces [TIFFIN_PUBLIC_IP]")
 	cmd.Flags().StringVar(&acmeCA, "acme-ca", "", "ACME directory URL; default Let's Encrypt (tests: Pebble, or "+edge.LetsEncryptStaging+") [TIFFIN_ACME_CA]")
 	cmd.Flags().StringVar(&acmeRoots, "acme-ca-roots", "", "PEM file of roots to trust for the ACME directory itself (a test CA) [TIFFIN_ACME_CA_ROOTS]")
@@ -580,4 +581,12 @@ func first(args []string) string {
 		return args[0]
 	}
 	return ""
+}
+
+// nonEmpty returns s as a one-element list, or nothing when it is empty.
+func nonEmpty(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return []string{s}
 }

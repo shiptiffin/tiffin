@@ -36,6 +36,11 @@ type Module struct {
 	timer    *time.Timer
 	runCtx   context.Context
 	expireMu sync.Mutex
+
+	// The owner allowlist (real servers): when each address was last added.
+	ownerMu   sync.Mutex
+	ownerSeen map[string]time.Time
+	allow     func(ctx context.Context, target string) error // replaced in tests
 }
 
 func (*Module) Name() string { return "protect" }
@@ -342,6 +347,19 @@ func (m *Module) Checks(ctx context.Context, p *platform.Platform) []platform.Ch
 	}
 	if st.Firewall.Installed {
 		out = append(out, platform.Check{Name: "firewall", OK: st.Firewall.Active || st.Firewall.Off, Detail: st.Firewall.Detail})
+	}
+	if srv, _ := platform.LoadServerConfig(); srv != nil && st.CrowdSec.Installed {
+		sp := serverProtection(ctx)
+		detail := "SSH brute force is banned at the firewall"
+		if !sp.Bouncer {
+			detail = "the CrowdSec firewall bouncer is not running, so bans do not cover SSH; run tiffin up again"
+		} else if !sp.SSH {
+			detail = "CrowdSec is not reading sshd's log; run tiffin up again"
+		}
+		if len(sp.OwnerIPs) > 0 {
+			detail += "; never banned (owner): " + strings.Join(sp.OwnerIPs, ", ")
+		}
+		out = append(out, platform.Check{Name: "ssh protection", OK: sp.Bouncer && sp.SSH, Detail: detail})
 	}
 	return out
 }

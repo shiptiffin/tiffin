@@ -139,6 +139,7 @@ require (
 	github.com/gotnospirit/messageformat v0.0.0-20221001023931-dfe49f1eb092 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
+	github.com/hetznercloud/hcloud-go/v2 v2.50.0 // indirect
 	github.com/hslatman/ipstore v0.5.0 // indirect
 	github.com/huandu/xstrings v1.6.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
