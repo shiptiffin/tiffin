@@ -1,0 +1,24 @@
+{
+  "name": "@tiffin/react",
+  "version": "0.1.0",
+  "description": "Sign-in, account and organization components for apps on Tiffin. Re-exported as tiffin-sdk/react.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "dependencies": {
+    "@better-auth/api-key": "1.7.7",
+    "@better-auth/passkey": "1.7.7",
+    "altcha-lib": "^2.5.0",
+    "better-auth": "1.7.7"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
+  }
+}

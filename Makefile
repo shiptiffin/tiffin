@@ -17,18 +17,25 @@ HEAVY ?=
 
 RELEASE_TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64 windows/arm64
 
-.PHONY: build release test lint golden-update e2e ci clean auth-engine dashboard
+.PHONY: build release test lint golden-update e2e ci clean auth-engine dashboard sdk
 
 # The web dashboard, built into internal/dashboard/dist and embedded in the
 # binary. The build output is committed so `go build` works without Bun.
 dashboard:
 	cd apps/dashboard && bun install && bun run build
 
-build:
+# tiffin-sdk and @tiffin/react, built from packages/ into internal/sdkpkg/files
+# and embedded: `tiffin sdk add` vendors them into apps (they are not on npm).
+# The output is committed, so without Bun the build uses what is there.
+sdk:
+	@if command -v bun >/dev/null 2>&1; then bun scripts/sdk-pack.ts; \
+	else echo "bun not found: using the committed SDK build in internal/sdkpkg/files"; fi
+
+build: sdk
 	@mkdir -p bin
 	CGO_ENABLED=0 go build $(GOFLAGS_BUILD) -o bin/tiffin ./cmd/tiffin
 
-release:
+release: sdk
 	@rm -rf dist && mkdir -p dist
 	@set -e; for t in $(RELEASE_TARGETS); do \
 		os=$${t%/*}; arch=$${t#*/}; ext=""; [ "$$os" = windows ] && ext=".exe"; \

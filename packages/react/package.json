@@ -1,7 +1,6 @@
 {
   "name": "@tiffin/react",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "Sign-in, account and organization components for apps on Tiffin. Re-exported as tiffin-sdk/react.",
   "license": "Apache-2.0",
   "type": "module",

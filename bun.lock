@@ -65,7 +65,7 @@
     },
     "packages/react": {
       "name": "@tiffin/react",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@better-auth/api-key": "1.7.7",
         "@better-auth/passkey": "1.7.7",
@@ -88,13 +88,13 @@
     },
     "packages/sdk": {
       "name": "tiffin-sdk",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
-        "@tiffin/react": "workspace:*",
         "nodemailer": "^10.0.13",
       },
       "devDependencies": {
         "@react-email/render": "^2.1.0",
+        "@tiffin/react": "workspace:*",
         "@types/nodemailer": "^8.0.2",
         "@types/react": "^19.3.0",
         "@types/smtp-server": "^3.5.13",
@@ -104,11 +104,13 @@
       },
       "peerDependencies": {
         "@react-email/render": ">=1",
+        "@tiffin/react": "0.1.0",
         "react": ">=18",
         "react-dom": ">=18",
       },
       "optionalPeers": [
         "@react-email/render",
+        "@tiffin/react",
         "react",
         "react-dom",
       ],

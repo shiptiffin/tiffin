@@ -25,6 +25,7 @@ import (
 	tmcp "github.com/btahir/tiffin/internal/mcp"
 	"github.com/btahir/tiffin/internal/passkeys"
 	"github.com/btahir/tiffin/internal/platform"
+	"github.com/btahir/tiffin/internal/sdkpkg"
 	"github.com/btahir/tiffin/internal/version"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
@@ -201,10 +202,28 @@ func (a *app) initCmd() *cobra.Command {
 					return err
 				}
 			}
+			// The SDK is not on npm: vendor it into an app that has a package.json.
+			sdk, err := addSDK(dir, false)
+			switch {
+			case errors.Is(err, sdkpkg.ErrNoPackageJSON):
+				sdk = nil
+			case err != nil:
+				return err
+			}
 			if a.tty() {
-				fmt.Fprintf(a.io.Out, "Wrote %s, AGENTS.md and the Tiffin agent skill for project %q. Next: tiffin plan\n", path, project)
+				fmt.Fprintf(a.io.Out, "Wrote %s, AGENTS.md and the Tiffin agent skill for project %q.\n", path, project)
+				if sdk != nil {
+					fmt.Fprintf(a.io.Out, "Added tiffin-sdk (%s, vendored: commit it). Run bun install.\n", strings.Join(sdk.Files, ", "))
+				} else {
+					fmt.Fprintln(a.io.Out, "No package.json yet: once the app has one, `tiffin sdk add` vendors tiffin-sdk into it.")
+				}
+				fmt.Fprintln(a.io.Out, "Next: tiffin plan")
 			} else {
-				writeJSON(a.io.Out, map[string]string{"path": path, "project": project})
+				out := map[string]any{"path": path, "project": project}
+				if sdk != nil {
+					out["sdk"] = sdk
+				}
+				writeJSON(a.io.Out, out)
 			}
 			return nil
 		},

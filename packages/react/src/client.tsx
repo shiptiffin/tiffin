@@ -10,15 +10,27 @@ import { solveChallenge } from "altcha-lib";
 import { deriveKey } from "altcha-lib/algorithms/web/sha";
 import type { Challenge } from "altcha-lib";
 
-export function createTiffinAuth(opts: { baseURL?: string } = {}) {
+// Named from its parts (not inferred), so the published .d.ts stays small and
+// portable. organizationClient is generic: pin its options to {}.
+type Plugins = [
+  ReturnType<typeof organizationClient<{}>>,
+  ReturnType<typeof magicLinkClient>,
+  ReturnType<typeof emailOTPClient>,
+  ReturnType<typeof twoFactorClient>,
+  ReturnType<typeof passkeyClient>,
+  ReturnType<typeof apiKeyClient>,
+];
+
+/** Better Auth's React client with the plugins the box's engine serves. */
+export type TiffinAuthClient = ReturnType<typeof createAuthClient<{ plugins: Plugins }>>;
+
+export function createTiffinAuth(opts: { baseURL?: string } = {}): TiffinAuthClient {
   return createAuthClient({
     baseURL: opts.baseURL ?? (typeof window !== "undefined" ? window.location.origin : undefined),
     basePath: "/api/auth",
     plugins: [organizationClient(), magicLinkClient(), emailOTPClient(), twoFactorClient(), passkeyClient(), apiKeyClient()],
   });
 }
-
-export type TiffinAuthClient = ReturnType<typeof createTiffinAuth>;
 
 /** What the engine says this app supports (GET /api/auth/tiffin/config). */
 export type AuthConfig = {

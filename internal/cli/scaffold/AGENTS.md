@@ -39,8 +39,10 @@ tiffin apply --confirm <hash> -m "why, in one sentence"
 
 ## Writing the app
 
-- `tiffin.config.ts` is read by tiffin, not your app: `tiffin-sdk` is not on npm yet, so don't
-  install or import it; builds leave the config out. Services: `postgres` (the dashboard's
+- `tiffin-sdk` (`/db`, `/kv`, `/storage`, `/email`, `/queue`, `/auth`, `/next`; `/react` with
+  `--react`) ships inside tiffin, not npm: `tiffin sdk add [--react]` writes `vendor/tiffin-sdk-<ver>.tgz`
+  and a `file:` dependency (`tiffin init` does it when package.json exists). Commit `vendor/`, run
+  `bun install`; never install `tiffin-sdk` from the npm registry. Services: `postgres` (the dashboard's
   Database), `valkey` (Cache), `storage` (Files), `auth`, `email`; jobs are top-level `queues`/`crons`.
 - Apps get everything as env vars (`DATABASE_URL`, `REDIS_URL`, `S3_*` for `Bun.s3`,
   `S3_PUBLIC_ENDPOINT` for presigned URLs, `SMTP_URL`, `TIFFIN_AUTH_INTERNAL_URL`,

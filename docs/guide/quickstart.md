@@ -27,7 +27,11 @@ tiffin init
 ```
 
 `tiffin init` writes `tiffin.config.ts`, plus `AGENTS.md` and an agent skill so your
-coding agent knows how to work with the box. Edit the config:
+coding agent knows how to work with the box. `tiffin-sdk` is not on npm: it ships inside
+`tiffin`, and `tiffin init` (or `tiffin sdk add [--react]` once the app has a
+`package.json`) vendors it as `vendor/tiffin-sdk-<version>.tgz` with
+`"tiffin-sdk": "file:./vendor/…"`. Commit `vendor/` and run `bun install`; builds on the
+box install it from there. Edit the config:
 
 ```ts
 import { defineConfig } from "tiffin-sdk";
