@@ -26,6 +26,7 @@ import (
 // No console enrollment and no central API: nothing leaves the box.
 const (
 	lapiAddr       = "127.0.0.1:7422"
+	onlineCreds    = "/etc/crowdsec/online_api_credentials.yaml"
 	bouncerName    = "tiffin-edge"
 	bouncerKeyFile = "/var/lib/tiffin/protect/crowdsec-bouncer.key"
 	accessLog      = "/var/lib/tiffin/logs/access.log"
@@ -159,8 +160,22 @@ func provisionCrowdSec(ctx context.Context, s *platform.System) error {
 	if err := s.AptRepo(ctx, "crowdsec", crowdsecKey, "deb [signed-by={key}] "+crowdsecRepo+" "+platform.RepoCodename("jammy", "noble")+" main"); err != nil {
 		return err
 	}
+	// The package's install script registers with CrowdSec's central API
+	// and fails the install when that answers 429 (many boxes from one
+	// address). Install without it and register afterwards, best effort:
+	// detection and bans are local, and the next provision tries again.
+	if _, err := s.Sh(ctx, `echo "crowdsec crowdsec/capi boolean false" | debconf-set-selections`); err != nil {
+		return err
+	}
 	if err := s.Apt(ctx, "crowdsec="+crowdsecVersion); err != nil {
 		return err
+	}
+	if st, err := os.Stat(onlineCreds); err == nil && st.Size() == 0 {
+		if _, err := s.Run(ctx, cscli, "capi", "register", "--error"); err != nil {
+			s.Log("CrowdSec's central API did not register this box (community blocklists wait for the next `tiffin provision`): " + lastLine(err.Error()))
+		} else {
+			changed = true
+		}
 	}
 	// Install what detection needs explicitly: the package's own service
 	// detection is best effort and skipped when the hub is slow to answer.
@@ -461,4 +476,10 @@ func (cscliCrowdSec) Unban(ctx context.Context, target string) (int, error) {
 		return n, nil
 	}
 	return 0, nil
+}
+
+// lastLine is the last non-empty line of s (a command's error says why there).
+func lastLine(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
 }
