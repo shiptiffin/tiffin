@@ -130,12 +130,13 @@ var DefaultLimits = Limits{MaxBytes: 4 << 30, MaxFiles: 200_000}
 // destination, or that exceed the limits.
 var ErrUnsafe = errors.New("unsafe archive")
 
-// Extract unpacks a gzipped tar into dir (created). It refuses absolute
-// paths, "..", links that point outside dir, and archives over the limits.
-// Only regular files, directories and symlinks are created; modes are
-// normalised to 0644/0755 and ownership is not restored.
-func Extract(r io.Reader, dir string, lim Limits) (Stats, error) {
-	var st Stats
+// Extract unpacks a gzipped tar into dir (created). Every write goes through
+// an os.Root, so no entry or symlink chain can reach outside dir. It refuses
+// absolute paths, "..", links that point outside dir (alone or via other
+// links), entries at or under a path the archive made a symlink, and
+// archives over the limits. Only regular files, directories and symlinks are
+// created; modes are normalised to 0644/0755 and ownership is not restored.
+func Extract(r io.Reader, dir string, lim Limits) (st Stats, err error) {
 	if lim.MaxBytes == 0 {
 		lim = DefaultLimits
 	}
@@ -147,10 +148,25 @@ func Extract(r io.Reader, dir string, lim Limits) (Stats, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return st, err
 	}
-	root, err := filepath.Abs(dir)
+	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return st, err
 	}
+	defer root.Close()
+	links := map[string]bool{} // symlinks this archive created
+	// A link can look safe alone yet resolve outside through others
+	// (t -> ., s -> t/t/..). Writes never follow it, but later readers of
+	// the tree would, so such links are removed and fail the archive.
+	defer func() {
+		for l := range links {
+			if _, serr := root.Stat(l); serr != nil && !errors.Is(serr, fs.ErrNotExist) {
+				_ = root.Remove(l)
+				if err == nil {
+					err = fmt.Errorf("%w: symlink %q does not resolve inside the source", ErrUnsafe, l)
+				}
+			}
+		}
+	}()
 	tr := tar.NewReader(gz)
 	for {
 		h, err := tr.Next()
@@ -167,13 +183,14 @@ func Extract(r io.Reader, dir string, lim Limits) (Stats, error) {
 		if name == "" {
 			continue
 		}
-		dest := filepath.Join(root, filepath.FromSlash(name))
-		if err := checkParents(root, dest); err != nil {
-			return st, err
+		for p := name; p != "."; p = path.Dir(p) {
+			if links[p] {
+				return st, fmt.Errorf("%w: %q is written at or through the symlink %q", ErrUnsafe, h.Name, p)
+			}
 		}
 		switch h.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(dest, 0o755); err != nil {
+			if err := root.MkdirAll(name, 0o755); err != nil {
 				return st, err
 			}
 		case tar.TypeReg, '\x00': // '\x00' is the pre-POSIX regular-file flag
@@ -181,14 +198,14 @@ func Extract(r io.Reader, dir string, lim Limits) (Stats, error) {
 			if st.Files > lim.MaxFiles {
 				return st, fmt.Errorf("%w: more than %d files", ErrUnsafe, lim.MaxFiles)
 			}
-			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			if err := root.MkdirAll(path.Dir(name), 0o755); err != nil {
 				return st, err
 			}
 			mode := os.FileMode(0o644)
 			if h.Mode&0o111 != 0 {
 				mode = 0o755
 			}
-			f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+			f, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 			if err != nil {
 				return st, err
 			}
@@ -205,23 +222,19 @@ func Extract(r io.Reader, dir string, lim Limits) (Stats, error) {
 				return st, cerr
 			}
 		case tar.TypeSymlink:
-			target := filepath.FromSlash(h.Linkname)
-			resolved := target
-			if !filepath.IsAbs(target) {
-				resolved = filepath.Join(filepath.Dir(dest), target)
-			} else {
+			if path.IsAbs(h.Linkname) {
 				return st, fmt.Errorf("%w: absolute symlink %q -> %q", ErrUnsafe, h.Name, h.Linkname)
 			}
-			if !within(root, resolved) {
+			if _, ok := cleanName(path.Join(path.Dir(name), h.Linkname)); !ok {
 				return st, fmt.Errorf("%w: symlink %q points outside the source (%q)", ErrUnsafe, h.Name, h.Linkname)
 			}
-			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			if err := root.MkdirAll(path.Dir(name), 0o755); err != nil {
 				return st, err
 			}
-			_ = os.Remove(dest)
-			if err := os.Symlink(target, dest); err != nil {
+			if err := root.Symlink(h.Linkname, name); err != nil {
 				return st, err
 			}
+			links[name] = true
 			st.Files++
 		default:
 			// Hard links, devices, fifos: skipped. Pack never writes them.
@@ -243,33 +256,4 @@ func cleanName(n string) (string, bool) {
 		return "", false
 	}
 	return c, true
-}
-
-func within(root, p string) bool {
-	rel, err := filepath.Rel(root, filepath.Clean(p))
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-// checkParents refuses to write through a symlinked parent directory that
-// an earlier entry created (a classic tar escape).
-func checkParents(root, dest string) error {
-	rel, _ := filepath.Rel(root, filepath.Dir(dest))
-	if rel == "." {
-		return nil
-	}
-	cur := root
-	for _, part := range strings.Split(rel, string(filepath.Separator)) {
-		cur = filepath.Join(cur, part)
-		fi, err := os.Lstat(cur)
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if fi.Mode()&fs.ModeSymlink != 0 {
-			return fmt.Errorf("%w: %q is written through a symlink", ErrUnsafe, dest)
-		}
-	}
-	return nil
 }
