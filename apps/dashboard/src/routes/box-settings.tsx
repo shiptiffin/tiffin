@@ -10,6 +10,7 @@ import { Segmented } from "@/components/health-kit";
 import { Nameplate } from "@/components/nameplate";
 import { Page, PageHeader } from "@/components/page";
 import { ExportBox, ImportBox } from "@/components/settings-move";
+import { BoxDomainSection } from "@/components/box-domain";
 import { boxName, boxUp, tiffinStarted, versionLabel, whereItRuns } from "@/lib/box";
 import { useMe } from "@/lib/me";
 import { setTheme, useTheme, type ThemePref } from "@/lib/theme";
@@ -68,6 +69,8 @@ export function SettingsPage() {
           ))}
         </dl>
       </Section>
+
+      <BoxDomainSection admin={admin} Wrap={Section} />
 
       <Section title="Look and sound" note="Auto follows your system. Sounds are off until you turn them on, and stay on this browser.">
         <div className="flex flex-col gap-4">

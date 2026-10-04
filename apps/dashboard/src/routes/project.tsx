@@ -20,6 +20,7 @@ import { frameworkName } from "@/lib/starters";
 import { PARTS } from "@/lib/names";
 import { relative } from "@/lib/time";
 import { ProjectIcon } from "@/components/project-icon";
+import { DomainsSummary } from "@/components/project-domains";
 
 /**
  * A project's overview: its name, live address and one status line, then
@@ -120,6 +121,7 @@ export function ProjectPage({ project }: { project: string }) {
         )}
         {p.data && <AddTile project={project} manifest={man} routes={routes} empty={!!empty} />}
       </ul>
+      {apps.some((a) => a.spec?.role !== "worker") && <DomainsSummary project={project} className="mt-10 max-w-[44rem]" />}
     </Page>
   );
 }

@@ -20,6 +20,7 @@ import { pendingFor, usePending } from "@/lib/staged";
 import { relative } from "@/lib/time";
 import { CreateKeyDialog, KeyList, keyProjects, onlyKeys } from "./keys";
 import { ProjectIcon } from "@/components/project-icon";
+import { DomainsLink } from "@/components/project-domains";
 
 /**
  * A project's settings: its name and colour, its addresses, the settings
@@ -60,8 +61,9 @@ export function ProjectSettingsPage({ project }: { project: string }) {
       </Section>
 
       {apps.length > 0 && (
-        <Section title="Addresses" note="Where each app answers. They come from the app’s name.">
+        <Section title="Addresses" note="Where each app answers. They come from the app’s name; add your own domain too.">
           <Addresses project={project} apps={apps.filter(([, a]) => a.role !== "worker").map(([n]) => n)} />
+          {apps.some(([, a]) => a.role !== "worker") && <DomainsLink project={project} />}
         </Section>
       )}
 

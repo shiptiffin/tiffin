@@ -206,7 +206,7 @@ function MobileBar({ onMenu, onSearch, switcher }: { onMenu: () => void; onSearc
 
 // ───────────────────────── sidebar ─────────────────────────
 
-const settingsPaths = ["/settings", "/settings/box", "/settings/git", "/settings/people", "/settings/passkeys", "/protect"];
+const settingsPaths = ["/settings", "/settings/box", "/settings/git", "/settings/dns", "/settings/people", "/settings/passkeys", "/protect"];
 const healthPaths = ["/status", "/metrics", "/logs", "/errors", "/alerts"];
 const activityPaths = ["/ledger", "/changes"];
 
@@ -274,6 +274,7 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
                 <NavItem to="/settings" exact sub label="Your box" />
                 <NavItem to="/settings/box" sub label="Machine" />
                 {onBox && <NavItem to="/settings/git" sub label="Git" />}
+                {onBox && <NavItem to="/settings/dns" sub label="DNS" />}
                 <NavItem to="/settings/people" sub label="People" />
                 {onBox && <NavItem to="/protect" sub label="Shield" aside={<AttackBadge />} />}
               </div>
@@ -314,7 +315,7 @@ function ProjectNav({ project, path }: { project: string; path: string }) {
       <div className="my-2 h-px bg-rule" aria-hidden />
       <NavItem to="/projects/$project/usage" params={params} label="Usage" />
       <NavItem to="/projects/$project/history" params={params} label="History" />
-      <NavItem to="/projects/$project/settings" params={params} label="Settings" active={at("settings") || at("secrets")} />
+      <NavItem to="/projects/$project/settings" params={params} label="Settings" active={at("settings") || at("secrets") || at("domains")} />
     </>
   );
 }

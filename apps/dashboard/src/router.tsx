@@ -51,6 +51,8 @@ const StatusPage = lz(() => import("@/routes/status"), "StatusPage");
 const KeysPage = lz<{ create?: boolean }>(() => import("@/routes/keys"), "KeysPage");
 const ProjectPage = lz<{ project: string }>(() => import("@/routes/project"), "ProjectPage");
 const SecretsPage = lz<{ project: string }>(() => import("@/routes/project-settings"), "SecretsPage");
+const DomainsPage = lz<{ project: string }>(() => import("@/routes/domains"), "DomainsPage");
+const DnsSettingsPage = lz(() => import("@/routes/dns-settings"), "DnsSettingsPage");
 const PeoplePage = lz(() => import("@/routes/settings"), "PeoplePage");
 const PasskeysPage = lz(() => import("@/routes/settings"), "PasskeysPage");
 const StoragePage = lz<{ project: string }>(() => import("@/routes/storage"), "StoragePage");
@@ -165,6 +167,8 @@ const gitSettings = createRoute({
     return <GitSettingsPage search={gitSettings.useSearch()} />;
   },
 });
+const dnsSettings = createRoute({ getParentRoute: () => app, path: "/settings/dns", loader: () => void DnsSettingsPage.preload(),
+  component: DnsSettingsPage });
 const kit = createRoute({ getParentRoute: () => app, path: "/_kit", loader: () => void KitPage.preload(),
   component: KitPage });
 
@@ -246,6 +250,15 @@ const secrets = createRoute({
   component: function Secrets() {
     const { project: p } = secrets.useParams();
     return <SecretsPage key={p} project={p} />;
+  },
+});
+const domainsRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/domains",
+  loader: warm(DomainsPage),
+  component: function Domains() {
+    const { project: p } = domainsRoute.useParams();
+    return <DomainsPage key={p} project={p} />;
   },
 });
 const storage = createRoute({
@@ -542,6 +555,7 @@ const tree = root.addChildren([
     activity,
     settings,
     gitSettings,
+    dnsSettings,
     newProject,
     kit,
     change,
@@ -554,6 +568,7 @@ const tree = root.addChildren([
     projectHistory,
     projectSettings,
     secrets,
+    domainsRoute,
     storage,
     bucket,
     inbox,

@@ -43,6 +43,8 @@ const box: Array<[string, string, string[]]> = [
   ["Errors", "/errors", ["issues", "exceptions", "sentry"]],
   ["Alerts", "/alerts", ["rules", "notify"]],
   ["Backups", "/backups", ["restore", "snapshot"]],
+  ["Connect DNS", "/settings/dns", ["cloudflare", "dns", "records", "token", "wildcard", "certificate"]],
+  ["Your box’s domain", "/settings", ["domain", "address", "sslip", "dashboard address", "own domain"]],
   ["Shield", "/protect", ["protection", "under attack", "ban", "crowdsec", "firewall", "waf", "rate limit", "bots"]],
 ];
 const projectPages: Array<[string, string, string[]]> = [
@@ -57,7 +59,8 @@ const projectPages: Array<[string, string, string[]]> = [
   ["Jobs", "/projects/$project/queues", ["queues", "dead letter", "cron"]],
   ["Usage", "/projects/$project/usage", ["memory", "cpu", "limit", "resources", "copies", "scale"]],
   ["History", "/projects/$project/history", ["changes", "undo", "ledger"]],
-  ["Settings", "/projects/$project/settings", ["env", "colour", "domains", "addresses"]],
+  ["Settings", "/projects/$project/settings", ["env", "colour", "addresses"]],
+  ["Domains", "/projects/$project/domains", ["domain", "dns", "https", "certificate", "www", "custom domain"]],
   ["Workflows", "/projects/$project/workflows", ["runs", "durable"]],
   ["Auth: users", "/projects/$project/users", ["users", "sign in", "passkeys", "ban"]],
   ["Organizations", "/projects/$project/orgs", ["teams", "members"]],

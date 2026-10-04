@@ -109,5 +109,17 @@ itself. `tiffin dns disconnect cloudflare` forgets the token.
   names keep working until the new ones have certificates, then for another hour.
   Touch ID sign-ins belong to the dashboard's address: add them again on the new one.
 
+## In the dashboard
+
+- **A project › Settings › Domains** (also linked from the project's overview): add a
+  domain, pick the app that shows it and whether `www.` comes along. The page lists
+  the exact records to add, with a copy button for each, and watches DNS until the
+  domain is live with HTTPS. With Cloudflare connected, one button adds the records.
+- **Settings › Your box › Domain**: the box's address, *Use your own domain* (check the
+  two records, then switch; the page follows the dashboard to its new address) and
+  *Go back to the automatic address*.
+- **Settings › DNS**: connect Cloudflare with a token made from its *Edit zone DNS*
+  template (All zones), see which domains it can manage, or disconnect.
+
 For agents: `GET /v1/domain`, `POST /v1/domain`, `GET /v1/projects/{project}/domains`,
 `POST /v1/projects/{project}/domains`; the same names as MCP tools.
