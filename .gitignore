@@ -12,10 +12,11 @@ coverage.out
 *.db-shm
 *.db-wal
 
-# internal notes (briefs, plans, reviews stay out of git)
+# private notes (briefs, plans, reviews stay out of git)
 notes/
 BRIEF.md
 PLAN.md
+CRITIQUE*.md
 
 # OS / editor
 .DS_Store
@@ -28,3 +29,6 @@ PLAN.md
 .env.*
 !.env.example
 .secrets/
+*.pem
+*.p12
+*.pfx
