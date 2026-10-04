@@ -13,7 +13,7 @@ step "test"
 make test
 
 step "release dry run"
-for t in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64 windows/arm64; do
+for t in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
   echo "  $t"
   CGO_ENABLED=0 GOOS="${t%/*}" GOARCH="${t#*/}" go build -trimpath -o /dev/null ./cmd/tiffin
 done

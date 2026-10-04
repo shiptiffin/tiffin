@@ -15,7 +15,7 @@ GOFLAGS_BUILD := -trimpath -ldflags '$(LDFLAGS)'
 # Empty by default: the job runs directly.
 HEAVY ?=
 
-RELEASE_TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64 windows/arm64
+RELEASE_TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64
 
 .PHONY: build release test lint golden-update e2e ci clean auth-engine dashboard sdk
 
@@ -38,8 +38,8 @@ build: sdk
 release: sdk
 	@rm -rf dist && mkdir -p dist
 	@set -e; for t in $(RELEASE_TARGETS); do \
-		os=$${t%/*}; arch=$${t#*/}; ext=""; [ "$$os" = windows ] && ext=".exe"; \
-		out="dist/tiffin_$${os}_$${arch}$$ext"; \
+		os=$${t%/*}; arch=$${t#*/}; \
+		out="dist/tiffin_$${os}_$${arch}"; \
 		echo "building $$out"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build $(GOFLAGS_BUILD) -o "$$out" ./cmd/tiffin; \
 	done
