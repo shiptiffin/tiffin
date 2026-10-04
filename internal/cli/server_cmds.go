@@ -404,7 +404,13 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 	if err := os.WriteFile(caFile, res.CAPEM, 0o644); err != nil {
 		return err
 	}
-	bx.URL, bx.Token, bx.CAFile, bx.Build = opts.PublicURL(), res.OwnerToken, caFile, res.Build
+	// A box moved to its own domain (tiffin domain set) stays there: its sslip
+	// names stop being served an hour after the switch.
+	boxURL := opts.PublicURL()
+	if prev := bx.URL; prev != "" && !strings.Contains(prev, opts.Domain) {
+		boxURL = prev
+	}
+	bx.URL, bx.Token, bx.CAFile, bx.Build = boxURL, res.OwnerToken, caFile, res.Build
 	f.Current = name
 	if err := a.saveBoxes(f); err != nil {
 		return err
@@ -464,7 +470,9 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 	for _, wn := range warnings {
 		fmt.Fprintf(w, "  %s %s\n", a.paint("!", amber), wn)
 	}
-	fmt.Fprintf(w, "\n%s The box's HTTPS certificate comes from its own CA until it has a domain; this CLI trusts it. For browsers: %s\n", a.paint("→", amber), a.paint("tiffin trust", bold))
+	if !publiclyTrusted(ctx, bx.URL) {
+		fmt.Fprintf(w, "\n%s The box's HTTPS certificate comes from its own CA until it has a domain; this CLI trusts it. For browsers: %s\n", a.paint("→", amber), a.paint("tiffin trust", bold))
+	}
 	return nil
 }
 
@@ -750,4 +758,21 @@ func (a *app) downServer(ctx context.Context, name string, bx *boxConfig, confir
 		fmt.Fprintf(a.io.Out, "%s Kept %s. Delete it with: tiffin down --provider hetzner --confirm %s --delete-data\n", a.paint("!", amber), k, name)
 	}
 	return nil
+}
+
+// publiclyTrusted reports whether url's certificate verifies against this
+// computer's own roots, as a browser's would.
+func publiclyTrusted(ctx context.Context, url string) bool {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+"/v1/health", nil)
+	if err != nil {
+		return false
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	res.Body.Close()
+	return true
 }
