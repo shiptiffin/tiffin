@@ -350,7 +350,7 @@ type ProjectManifest struct {
 
 // Health is the unauthenticated liveness report.
 type Health struct {
-	Status  string `json:"status" example:"ok"`
+	Status  string `json:"status" example:"ok" enum:"ok,starting"`
 	Version string `json:"version"`
 	Build   string `json:"build,omitempty" doc:"SHA-256 of the running binary; self-update uses it to know the new build is the one answering"`
 }
@@ -396,10 +396,15 @@ type keyCreateBody struct {
 func (a *API) register() {
 	api := a.api
 
-	h := op("health", http.MethodGet, "/v1/health", "health", RiskRead, "Check the box is up", "Unauthenticated liveness check.", "system")
+	h := op("health", http.MethodGet, "/v1/health", "health", RiskRead, "Check the box is up",
+		"Unauthenticated liveness check. On a box, status is starting until every module has started.", "system")
 	h.Security = nil
 	huma.Register(api, h, func(ctx context.Context, _ *struct{}) (*struct{ Body Health }, error) {
-		return &struct{ Body Health }{Health{Status: "ok", Version: orDefault(a.deps.Version, "dev"), Build: selfBuild()}}, nil
+		status := "ok"
+		if a.deps.Platform != nil && !a.deps.Platform.Started() {
+			status = "starting"
+		}
+		return &struct{ Body Health }{Health{Status: status, Version: orDefault(a.deps.Version, "dev"), Build: selfBuild()}}, nil
 	})
 
 	s := op("schema-manifest", http.MethodGet, "/v1/schema/manifest", "schema manifest", RiskRead, "Get the manifest JSON Schema",

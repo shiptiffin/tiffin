@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/btahir/tiffin/internal/state"
 )
 
 // fakeService stands in for systemd: "restarting" reads the build the
@@ -22,21 +24,33 @@ type fakeService struct {
 	link string
 	srv  *http.Server
 	addr string
+	// broken runs when a BROKEN build starts, before it crashes.
+	broken func()
 }
 
-func (f *fakeService) restart(context.Context) error {
+func (f *fakeService) stop(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.srv != nil {
 		f.srv.Close()
 		f.srv = nil
 	}
+	return nil
+}
+
+func (f *fakeService) restart(ctx context.Context) error {
+	_ = f.stop(ctx)
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	target, err := os.Readlink(f.link)
 	if err != nil {
 		return err
 	}
 	body, _ := os.ReadFile(target)
 	if strings.HasPrefix(string(body), "BROKEN") {
+		if f.broken != nil {
+			f.broken()
+		}
 		return nil // the process crashes on start; restart itself "succeeds"
 	}
 	sum, _ := FileSHA(target)
@@ -70,6 +84,7 @@ func setup(t *testing.T) (*Updater, *fakeService, string) {
 		HealthURL:   "http://" + addr + "/v1/health",
 		Timeout:     2 * time.Second,
 		Restart:     f.restart,
+		Stop:        f.stop,
 		Logs:        func(context.Context) string { return "(logs)" },
 		Progress:    func(string) {},
 	}
@@ -180,5 +195,56 @@ func TestRollbackSurvivesARefusedRestart(t *testing.T) {
 	}
 	if got := current(t, u); got != "build one" {
 		t.Fatalf("after rollback current = %q", got)
+	}
+}
+
+// A new build that migrates the state database and then fails to start is
+// rolled back together with the database, so the previous build opens it.
+func TestRollbackRestoresTheStateDatabase(t *testing.T) {
+	u, f, dir := setup(t)
+	ctx := context.Background()
+	u.StateDB = filepath.Join(dir, "platform", "state.db")
+	db, err := state.Open(u.StateDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.KVPut(ctx, "t", "before", []byte("1")); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	if err := u.Update(ctx, build(t, dir, "v1", "build one")); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.Update(ctx, build(t, dir, "v2", "build two")); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := filepath.Glob(filepath.Join(u.VersionsDir, "*", "state-before.db")); len(m) != 0 {
+		t.Fatalf("a successful update keeps no snapshot: %v", m)
+	}
+	f.broken = func() {
+		db, err := state.Open(u.StateDB)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer db.Close()
+		_ = db.KVPut(ctx, "t", "after", []byte("1"))
+		if _, err := db.SQL().Exec(fmt.Sprintf(`PRAGMA user_version = %d`, state.SchemaVersion()+1)); err != nil {
+			t.Error(err)
+		}
+	}
+	if err := u.Update(ctx, build(t, dir, "bad", "BROKEN migrates")); !errors.Is(err, ErrRolledBack) {
+		t.Fatalf("want ErrRolledBack, got %v", err)
+	}
+	db, err = state.Open(u.StateDB)
+	if err != nil {
+		t.Fatalf("the previous build cannot open the state: %v", err)
+	}
+	defer db.Close()
+	if _, ok, _ := db.KVGet(ctx, "t", "before"); !ok {
+		t.Fatal("state from before the update is gone")
+	}
+	if _, ok, _ := db.KVGet(ctx, "t", "after"); ok {
+		t.Fatal("the failed build's write survived the rollback")
 	}
 }

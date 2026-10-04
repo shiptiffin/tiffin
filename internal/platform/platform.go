@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/edge"
@@ -228,8 +229,14 @@ type Platform struct {
 	// Nil off-box.
 	Restart func(reason string)
 
-	rec *reconciler
+	rec     *reconciler
+	started atomic.Bool
 }
+
+// Started reports whether Start finished: every module started. Health
+// answers "starting" until then, so an update is not judged on a build
+// whose modules may still fail to start.
+func (p *Platform) Started() bool { return p.started.Load() }
 
 // Host returns the public hostname for a first-level name: "shop" → "shop.tiffin.localhost".
 func (p *Platform) Host(name string) string { return name + "." + p.Domain }
@@ -295,6 +302,7 @@ func (p *Platform) Start(ctx context.Context) error {
 	for _, pr := range projects {
 		p.ReconcileProject(pr)
 	}
+	p.started.Store(true)
 	return nil
 }
 
