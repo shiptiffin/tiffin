@@ -95,7 +95,7 @@ export interface paths {
         put?: never;
         /**
          * Apply a manifest
-         * @description Plans the manifest and applies it if `confirm` matches the plan hash and your token's scopes cover the plan's risk. Without `confirm` (or with a stale one) nothing changes: you get status 428 with the plan to review. Risk tiers: reversible needs apply:reversible; outbound needs apply:outbound; irreversible needs apply:irreversible.
+         * @description Plans the manifest and applies it if `confirm` matches the plan hash. Without `confirm` (or with a stale one) nothing changes: you get status 428 with the plan to review. Applying needs a key with full access to the project; a read key can only plan.
          */
         post: operations["apply"];
         delete?: never;
@@ -139,7 +139,7 @@ export interface paths {
         put?: never;
         /**
          * Back up the box now
-         * @description Takes a backup set now and waits for it: Postgres (pgBackRest; incremental unless you ask for full or none exists yet), a Valkey snapshot and the platform state. Needs apply:reversible on all projects.
+         * @description Takes a backup set now and waits for it: Postgres (pgBackRest; incremental unless you ask for full or none exists yet), a Valkey snapshot and the platform state. Needs full access to all projects.
          */
         post: operations["backup-create"];
         delete?: never;
@@ -159,7 +159,7 @@ export interface paths {
         put?: never;
         /**
          * Run a restore drill of the newest backup
-         * @description Proves the newest successful backup can be restored. Restores the backup's Postgres part into a scratch directory on the data disk, starts a private temporary Postgres on it (unix socket only, WAL archiving off), counts the rows of every table in every database and checks that every database and table the box had when the backup was taken is there, then stops the temporary server and deletes the scratch copy. Nothing live changes: the live cluster, its WAL archive and the backup repository are only read. It runs in the background and returns the drill at once (status running, with its phase); poll GET /v1/backups/drills/{id} (`tiffin backups drills get <id>`) until status is passed or failed, or pass wait=true to wait up to 50 seconds. Refused with 409 when a drill is already running or the data disk has less free space than the backup's size plus 20%. Needs apply:reversible on all projects. To drill an older backup use POST /v1/backups/{id}/drill (`tiffin backups drills start <id>`).
+         * @description Proves the newest successful backup can be restored. Restores the backup's Postgres part into a scratch directory on the data disk, starts a private temporary Postgres on it (unix socket only, WAL archiving off), counts the rows of every table in every database and checks that every database and table the box had when the backup was taken is there, then stops the temporary server and deletes the scratch copy. Nothing live changes: the live cluster, its WAL archive and the backup repository are only read. It runs in the background and returns the drill at once (status running, with its phase); poll GET /v1/backups/drills/{id} (`tiffin backups drills get <id>`) until status is passed or failed, or pass wait=true to wait up to 50 seconds. Refused with 409 when a drill is already running or the data disk has less free space than the backup's size plus 20%. Needs full access to all projects. To drill an older backup use POST /v1/backups/{id}/drill (`tiffin backups drills start <id>`).
          */
         post: operations["backup-drill"];
         delete?: never;
@@ -219,7 +219,7 @@ export interface paths {
         put?: never;
         /**
          * Cancel a running restore drill
-         * @description Stops a running restore drill: the temporary Postgres is stopped and the scratch copy deleted; the drill ends as failed (cancelled). Returns the drill. 409 when it is not running. Needs apply:reversible on all projects.
+         * @description Stops a running restore drill: the temporary Postgres is stopped and the scratch copy deleted; the drill ends as failed (cancelled). Returns the drill. 409 when it is not running. Needs full access to all projects.
          */
         post: operations["backups-drills-cancel"];
         delete?: never;
@@ -259,7 +259,7 @@ export interface paths {
         put?: never;
         /**
          * Run a restore drill of a backup
-         * @description Proves this backup can be restored. Restores the backup's Postgres part into a scratch directory on the data disk, starts a private temporary Postgres on it (unix socket only, WAL archiving off), counts the rows of every table in every database and checks that every database and table the box had when the backup was taken is there, then stops the temporary server and deletes the scratch copy. Nothing live changes: the live cluster, its WAL archive and the backup repository are only read. It runs in the background and returns the drill at once (status running, with its phase); poll GET /v1/backups/drills/{id} (`tiffin backups drills get <id>`) until status is passed or failed, or pass wait=true to wait up to 50 seconds. Refused with 409 when a drill is already running or the data disk has less free space than the backup's size plus 20%. Needs apply:reversible on all projects.
+         * @description Proves this backup can be restored. Restores the backup's Postgres part into a scratch directory on the data disk, starts a private temporary Postgres on it (unix socket only, WAL archiving off), counts the rows of every table in every database and checks that every database and table the box had when the backup was taken is there, then stops the temporary server and deletes the scratch copy. Nothing live changes: the live cluster, its WAL archive and the backup repository are only read. It runs in the background and returns the drill at once (status running, with its phase); poll GET /v1/backups/drills/{id} (`tiffin backups drills get <id>`) until status is passed or failed, or pass wait=true to wait up to 50 seconds. Refused with 409 when a drill is already running or the data disk has less free space than the backup's size plus 20%. Needs full access to all projects.
          */
         post: operations["backups-drills-start"];
         delete?: never;
@@ -1832,7 +1832,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a database branch
-         * @description Drops a branch database and closes its connections. The branch's data is gone; main is untouched. Needs apply:irreversible.
+         * @description Drops a branch database and closes its connections. The branch's data is gone; main is untouched. Needs full access.
          */
         delete: operations["branch-delete"];
         options?: never;
@@ -2003,7 +2003,7 @@ export interface paths {
         put?: never;
         /**
          * Send an email
-         * @description Sends a message from the project. Until the box has an SMTP relay (and always for previews) it is captured in the dev inbox instead: the reply says where it went. Suppressed recipients are skipped. Sending for real needs apply:outbound; capturing needs apply:reversible.
+         * @description Sends a message from the project. Until the box has an SMTP relay (and always for previews) it is captured in the dev inbox instead: the reply says where it went. Suppressed recipients are skipped. Needs full access.
          */
         post: operations["email-send"];
         delete?: never;
@@ -2021,7 +2021,7 @@ export interface paths {
         };
         /**
          * Show a project's SMTP credentials
-         * @description The SMTP env vars the project's apps get (SMTP_URL, EMAIL_FROM, ...), including the password, for tools and local development. Needs apply:outbound because the credentials can send real mail once a relay is configured.
+         * @description The SMTP env vars the project's apps get (SMTP_URL, EMAIL_FROM, ...), including the password, for tools and local development. Needs full access because the credentials can send real mail once a relay is configured.
          */
         get: operations["email-smtp"];
         put?: never;
@@ -2635,7 +2635,7 @@ export interface paths {
         put?: never;
         /**
          * Restore a database snapshot
-         * @description Replaces the snapshot's database (main or a branch) with the snapshot's contents. The current contents are snapshotted first. Without confirm nothing changes: you get status 428 with a preview and the confirm value. Needs apply:irreversible.
+         * @description Replaces the snapshot's database (main or a branch) with the snapshot's contents. The current contents are snapshotted first. Without confirm nothing changes: you get status 428 with a preview and the confirm value. Needs full access.
          */
         post: operations["snapshot-restore"];
         delete?: never;
@@ -2675,7 +2675,7 @@ export interface paths {
         put?: never;
         /**
          * Change a project's database with SQL
-         * @description Runs SQL that may change data and schema (DDL and DML) as the project's own Postgres role; several statements separated by semicolons run in one implicit transaction. Needs apply:irreversible. The database is snapshotted first and the snapshot ID is returned, so `snapshots restore` can undo it. For reads use sql, which needs no confirmation. Use branch to target a preview branch. Postgres errors come back as 422 with the SQLSTATE.
+         * @description Runs SQL that may change data and schema (DDL and DML) as the project's own Postgres role; several statements separated by semicolons run in one implicit transaction. Needs full access. The database is snapshotted first and the snapshot ID is returned, so `snapshots restore` can undo it. For reads use sql, which needs no confirmation. Use branch to target a preview branch. Postgres errors come back as 422 with the SQLSTATE.
          */
         post: operations["sql-write"];
         delete?: never;
@@ -2783,7 +2783,7 @@ export interface paths {
         put?: never;
         /**
          * Create a presigned URL
-         * @description A time-limited URL on the public S3 endpoint that lets anyone holding it GET (download) or PUT (upload) one object without credentials. PUT URLs need apply:reversible.
+         * @description A time-limited URL on the public S3 endpoint that lets anyone holding it GET (download) or PUT (upload) one object without credentials. PUT URLs need full access.
          */
         post: operations["storage-presign"];
         delete?: never;
@@ -2801,7 +2801,7 @@ export interface paths {
         };
         /**
          * Show a project's S3 credentials
-         * @description The S3 env vars the project's apps get (S3_*, AWS_*), including the secret key, for tools and local development. Needs apply:irreversible because the key can read and delete every object.
+         * @description The S3 env vars the project's apps get (S3_*, AWS_*), including the secret key, for tools and local development. Needs full access because the key can read and delete every object.
          */
         get: operations["storage-credentials"];
         put?: never;
@@ -2822,7 +2822,7 @@ export interface paths {
         get?: never;
         /**
          * Set a project's storage limit
-         * @description Caps what a project stores on the box: its databases (branches included) and its files together. Off by default. Uploads that would go over are refused with QuotaExceeded (files measured every minute plus uploads since, databases every 30 seconds); a project that reaches its limit becomes read-only (its database refuses writes, its buckets refuse uploads) until it is under the limit again, and the box's change log records both. Raising or clearing the limit lifts it within seconds. maxBytes: >0 sets the limit, 0 returns to the box default, -1 means none. Box admins only.
+         * @description Caps what a project stores on the box: its databases (branches included) and its files together. Off by default. Uploads that would go over are refused with QuotaExceeded (files measured every minute plus uploads since, databases every 30 seconds); a project that reaches its limit becomes read-only (its database refuses writes, its buckets refuse uploads) until it is under the limit again, and the box's change log records both. Raising or clearing the limit lifts it within seconds. Setting it is a change in History too: undo puts the previous limit back. maxBytes: >0 sets the limit, 0 returns to the box default, -1 means none. Box admins only.
          */
         put: operations["storage-quota-set"];
         post?: never;
@@ -3030,7 +3030,7 @@ export interface paths {
         get: operations["protect-get"];
         /**
          * Change protection settings
-         * @description Change per-IP rate limits (app, auth, dashboard), which hosts always get the challenge and its difficulty, what under-attack tightens to, and the WAF. Omitted fields keep their value; reset:true starts from the defaults. Takes effect at once (the edge reloads). Needs apply:reversible on all projects.
+         * @description Change per-IP rate limits (app, auth, dashboard), which hosts always get the challenge and its difficulty, what under-attack tightens to, and the WAF. Omitted fields keep their value; reset:true starts from the defaults. Takes effect at once (the edge reloads). Needs full access to all projects.
          */
         put: operations["protect-update"];
         post?: never;
@@ -3377,7 +3377,7 @@ export interface paths {
         };
         /**
          * Show the current token
-         * @description Who you are: token name, kind, scopes and projects.
+         * @description Who you are: key name, kind, access (full or read) and projects.
          */
         get: operations["whoami"];
         put?: never;
@@ -4491,8 +4491,12 @@ export interface components {
             valkey?: components["schemas"]["BoxKVUsage"];
         };
         BoxUsageStorage: {
+            /** Format: int64 */
+            databaseBytes: number;
             /** @description Set while the data disk is past its warning level and this project is the one growing fastest */
             diskWarning?: string;
+            /** Format: int64 */
+            filesBytes: number;
             /**
              * Format: int64
              * @description Its storage limit; 0: none (the default)
@@ -6693,7 +6697,7 @@ export interface components {
             name: string;
             /** @description Path on the app (default /queues/<name>) */
             path?: string;
-            /** @description Job payload: any JSON, up to 1 MB. Pass it with --body '{"payload": ...}' on the CLI. */
+            /** @description Job payload: any JSON, up to 1 MB (on the CLI: --payload '{...}'). */
             payload?: unknown;
             /**
              * @description Default normal. Retries always run after new jobs.
@@ -7533,11 +7537,16 @@ export interface components {
             buckets: components["schemas"]["StorageBucketInfo"][] | null;
             /**
              * Format: int64
-             * @description The project's databases (branches included), as the disk guard last measured them: they count toward quotaBytes with the files
+             * @description The project's databases (branches included), as the disk guard last measured them
              */
             databaseBytes: number;
             /** @description Public S3 endpoint (path-style), for browsers and tools off the box */
             endpoint: string;
+            /**
+             * Format: int64
+             * @description Bucket files
+             */
+            filesBytes: number;
             /** @description Public files base: <filesUrl>/<bucket>/<key> (public buckets only) */
             filesUrl: string;
             /** @description S3 endpoint apps on the box use (env S3_ENDPOINT) */
@@ -7560,7 +7569,7 @@ export interface components {
             region: string;
             /**
              * Format: int64
-             * @description Bucket files
+             * @description What the storage limit (quotaBytes) counts: databaseBytes plus filesBytes
              */
             usedBytes: number;
         };
@@ -20398,6 +20407,15 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

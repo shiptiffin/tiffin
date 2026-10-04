@@ -7,7 +7,7 @@ import type { Op, Tier } from "@/api/client";
 import { cn } from "@/lib/cn";
 import { actorName } from "@/lib/actors";
 import { asTier, diffOp, formatValue, splitAddress } from "@/lib/changes";
-import { MINUS, words } from "@/lib/format";
+import { bytes, MINUS, words } from "@/lib/format";
 import { serviceNames } from "@/lib/staged";
 import { clock, dayLabel } from "@/lib/time";
 import { LossLine } from "./loss";
@@ -180,6 +180,12 @@ export function opTitle(op: Op, project: string, past = false): string {
   if (kind === "readonly") {
     if (op.action === "delete") return `${v("Let", "Let")} ${project} write again`;
     return `${v("Make", "Made")} ${project} read-only`;
+  }
+  if (kind === "storagelimit") {
+    const max = Number(after.maxBytes ?? 0);
+    if (op.action === "delete") return `${v("Return", "Returned")} ${project} to the box’s default storage limit`;
+    if (max < 0) return `${v("Remove", "Removed")} ${project}’s storage limit`;
+    return `${v("Set", "Set")} ${project}’s storage limit to ${bytes(max, 0)}`;
   }
   if (kind === "bucket" && op.action === "update" && op.fields?.length === 1 && op.fields[0] === "public") {
     return `${v("Make", "Made")} the ${name} bucket ${after.public ? "public" : "private"}`;

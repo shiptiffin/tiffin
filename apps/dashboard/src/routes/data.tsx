@@ -680,7 +680,7 @@ export function SqlPage({ project }: { project: string }) {
               </label>
               <label
                 className={cn("flex items-center gap-2 text-sm", writer ? "cursor-pointer text-ink-2" : "text-ink-4")}
-                title={writer ? undefined : "Writes need a token that may destroy data (apply:irreversible)"}
+                title={writer ? undefined : "Writes need a key with full access"}
               >
                 <button
                   type="button"

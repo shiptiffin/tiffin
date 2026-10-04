@@ -308,7 +308,7 @@ function FilesTile({ project }: { project: string }) {
       kind={st.data ? `${PARTS.storage.sub} · ${count(b.length, "bucket")}` : PARTS.storage.sub}
       to="/projects/$project/storage"
       params={{ project }}
-      fact={st.isError ? <span className="text-ink-3">Files aren’t answering.</span> : st.data ? `${count(files, "file")} · ${bytes(st.data.usedBytes)}` : <Skeleton className="h-4 w-28" />}
+      fact={st.isError ? <span className="text-ink-3">Files aren’t answering.</span> : st.data ? `${count(files, "file")} · ${bytes(st.data.filesBytes)}` : <Skeleton className="h-4 w-28" />}
     />
   );
 }
