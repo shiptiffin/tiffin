@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/btahir/tiffin/internal/dnskit"
 )
 
 // boxConfig is what the CLI on your computer knows about a box.
@@ -101,6 +103,9 @@ func boxTransport(caFile string) (*http.Transport, error) {
 			host, port, err := net.SplitHostPort(addr)
 			if err == nil && (host == "localhost" || strings.HasSuffix(host, ".localhost")) {
 				addr = net.JoinHostPort("127.0.0.1", port)
+			} else if ip, ok := dnskit.SslipAddr(host); ok && err == nil {
+				// <ip>.sslip.io names spell their address: no DNS needed.
+				addr = net.JoinHostPort(ip.String(), port)
 			}
 			return d.DialContext(ctx, network, addr)
 		},

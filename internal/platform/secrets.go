@@ -53,6 +53,32 @@ func OpenSecrets(db *state.DB, home string) (*Secrets, error) {
 	return &Secrets{db: db, id: id, now: time.Now}, nil
 }
 
+// Seal encrypts a value to the box's key, for modules that keep their own
+// credentials (a DNS provider token, say) outside project secrets.
+func (s *Secrets) Seal(plain []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	w, err := age.Encrypt(&buf, s.id.Recipient())
+	if err != nil {
+		return nil, err
+	}
+	if _, err := w.Write(plain); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// Unseal decrypts what Seal produced.
+func (s *Secrets) Unseal(ct []byte) ([]byte, error) {
+	r, err := age.Decrypt(bytes.NewReader(ct), s.id)
+	if err != nil {
+		return nil, err
+	}
+	return io.ReadAll(r)
+}
+
 // SecretInfo is a secret's metadata. Values are never listed.
 type SecretInfo struct {
 	Name      string    `json:"name"`

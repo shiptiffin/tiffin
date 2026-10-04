@@ -98,6 +98,15 @@ func ManifestFromResources(project string, res map[string]Resource) (*manifest.M
 				m.Crons = map[string]manifest.Cron{}
 			}
 			m.Crons[name] = c
+		case KindDomain:
+			var d manifest.Domain
+			if err := dec(&d); err != nil {
+				return nil, err
+			}
+			if m.Domains == nil {
+				m.Domains = map[string]manifest.Domain{}
+			}
+			m.Domains[name] = d
 		case KindService:
 			s := &m.Services
 			var err error

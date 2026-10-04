@@ -41,6 +41,12 @@ type Manifest struct {
 	// lowercase letters, digits, dots or dashes, starting with a letter
 	// (e.g. "order.created"). A topic name must not also be a queue name.
 	Topics map[string]Topic `json:"topics,omitempty"`
+	// Domains holds options for the project's own domain names (not under
+	// the box domain), keyed by host name ("example.com"). Which app serves
+	// a name is set by that app's Routes ("example.com", "example.com/api");
+	// a domain needs an entry here only for its options. The box checks each
+	// such name's DNS and gets its certificate once it points at the box.
+	Domains map[string]Domain `json:"domains,omitempty"`
 	// Env holds plain, non-secret environment variables shared by all apps.
 	// Secrets never live in the manifest.
 	Env map[string]string `json:"env,omitempty"`
@@ -241,6 +247,18 @@ type Queue struct {
 	// LeaseSeconds is how long one attempt may run without a response or
 	// heartbeat before it counts as failed, 5-3600. Default 60.
 	LeaseSeconds int `json:"leaseSeconds"`
+}
+
+// WWWRedirect is the Domain.WWW value that redirects www.<domain> to <domain>.
+const WWWRedirect = "redirect"
+
+// Domain holds options for one of the project's own domains.
+type Domain struct {
+	// WWW "redirect" also serves www.<domain> and sends its visitors to
+	// <domain> (308, path and query kept); point www.<domain> at the box
+	// too. Default "" (off; to serve www.<domain> itself, add it to an
+	// app's routes).
+	WWW string `json:"www,omitempty"`
 }
 
 // Topic is a fan-out name: every message sent to the topic becomes one job

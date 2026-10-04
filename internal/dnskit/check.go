@@ -13,7 +13,7 @@ import (
 type Record struct {
 	Type  string `json:"type" doc:"A, AAAA, CNAME, TXT or CAA."`
 	Name  string `json:"name" doc:"The full name, e.g. shop.example.com or *.example.com."`
-	Host  string `json:"host" doc:"The name as most DNS panels want it, relative to the zone: @ for the zone itself, * for the wildcard, shop for shop.example.com."`
+	Host  string `json:"host" required:"false" doc:"The name as most DNS panels want it, relative to the zone: @ for the zone itself, * for the wildcard, shop for shop.example.com."`
 	Value string `json:"value"`
 	TTL   int    `json:"ttl,omitempty" doc:"Seconds; 0 or absent means the provider's default (automatic)."`
 }

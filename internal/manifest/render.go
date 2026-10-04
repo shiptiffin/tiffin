@@ -143,6 +143,17 @@ func configNode(m *Manifest) *node {
 		}
 		root.set("crons", cs)
 	}
+	if len(m.Domains) > 0 {
+		ds := obj()
+		for _, name := range sortedKeys(m.Domains) {
+			d := obj()
+			if w := m.Domains[name].WWW; w != "" {
+				d.set("www", str(w))
+			}
+			ds.set(name, d)
+		}
+		root.set("domains", ds)
+	}
 	return root
 }
 

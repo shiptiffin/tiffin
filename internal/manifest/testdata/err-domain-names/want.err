@@ -1,0 +1,3 @@
+/domains/Example.com: "Example.com" must be a full lowercase host name with at least one dot, such as "example.com" (no scheme, port, path or wildcard)
+/domains/example.com/www: value must be one of '', 'redirect'
+/domains/https:~1~1bad: "https://bad" must be a full lowercase host name with at least one dot, such as "example.com" (no scheme, port, path or wildcard)

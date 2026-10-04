@@ -142,6 +142,15 @@ func Normalize(m *Manifest) *Manifest {
 		t.Subscribers = subs
 		m.Topics[name] = t
 	}
+	if len(m.Domains) > 0 {
+		ds := make(map[string]Domain, len(m.Domains))
+		for name, d := range m.Domains {
+			ds[strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")] = d
+		}
+		m.Domains = ds
+	} else {
+		m.Domains = nil
+	}
 	return m
 }
 

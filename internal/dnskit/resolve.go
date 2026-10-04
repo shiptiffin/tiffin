@@ -202,6 +202,8 @@ var nonPublic = []netip.Prefix{
 	netip.MustParsePrefix("203.0.113.0/24"),  // TEST-NET-3
 	netip.MustParsePrefix("198.18.0.0/15"),   // benchmarking
 	netip.MustParsePrefix("2001:db8::/32"),   // documentation
+	netip.MustParsePrefix("fec0::/10"),       // site-local (old; Lima and QEMU user networking)
+	netip.MustParsePrefix("240.0.0.0/4"),     // reserved
 }
 
 // LocalPublicIPs lists this machine's public addresses, from its network

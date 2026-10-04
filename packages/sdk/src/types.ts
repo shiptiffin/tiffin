@@ -193,6 +193,16 @@ export interface TopicConfig {
   subscribers?: string[];
 }
 
+/** Options for one of the project's own domains. */
+export interface DomainConfig {
+  /**
+   * "redirect" also serves www.<domain> and sends its visitors to <domain>
+   * (308, path and query kept); point www.<domain> at the box too.
+   * Default "" (off; to serve www.<domain> itself, add it to an app's routes).
+   */
+  www?: "" | "redirect";
+}
+
 /**
  * Services are the box-provided backends. Leave a service out and it is not
  * provisioned.
@@ -266,6 +276,14 @@ export interface TiffinConfig {
    * e.g. "order.created". A topic name must not also be a queue name.
    */
   topics?: Record<string, TopicConfig>;
+  /**
+   * Options for the project's own domain names (not under the box domain),
+   * keyed by host name, e.g. "example.com". Which app serves a name is set by
+   * that app's `routes` ("example.com", "example.com/api"); a domain needs an
+   * entry here only for its options. The box checks each name's DNS and gets
+   * its certificate once it points at the box (`tiffin domains list`).
+   */
+  domains?: Record<string, DomainConfig>;
   /**
    * Plain, non-secret environment variables shared by all apps.
    * Secrets never live in the manifest.

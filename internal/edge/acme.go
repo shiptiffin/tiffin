@@ -397,7 +397,7 @@ func CertStatus(host string) CertInfo {
 	now := time.Now()
 	info := CertInfo{Host: host, State: "none", CheckedAt: now}
 	var best *x509.Certificate
-	for _, cert := range caddytls.AllMatchingCertificates(host) {
+	for _, cert := range matching(host) {
 		leaf := cert.Leaf
 		if leaf == nil {
 			continue
@@ -446,6 +446,17 @@ func CertStatus(host string) CertInfo {
 		}
 	}
 	return info
+}
+
+// matching is caddytls.AllMatchingCertificates, which panics before any
+// edge has started in this process (its cache does not exist yet).
+func matching(host string) (out []certmagic.Certificate) {
+	defer func() {
+		if recover() != nil {
+			out = nil
+		}
+	}()
+	return caddytls.AllMatchingCertificates(host)
 }
 
 func failedAt(ev CertEvent) time.Time {

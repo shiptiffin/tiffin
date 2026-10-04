@@ -19,6 +19,7 @@ const (
 	KindQueue   = "queue"
 	KindTopic   = "topic"
 	KindCron    = "cron"
+	KindDomain  = "domain"
 )
 
 // ProjectSpec is the spec of the "project" resource: project-wide settings.
@@ -116,6 +117,11 @@ func Resources(m *manifest.Manifest) (map[string]Resource, error) {
 			return nil, err
 		}
 	}
+	for name, d := range m.Domains {
+		if err := add(KindDomain+"/"+name, d); err != nil {
+			return nil, err
+		}
+	}
 	return out, nil
 }
 
@@ -158,7 +164,7 @@ func Diff(current, desired map[string]Resource) []Op {
 // order of kinds when creating; deletes run in reverse. Queues come after
 // apps (they push jobs into them), topics after the queues they fan out to,
 // and crons last.
-var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindApp: 4, KindQueue: 5, KindTopic: 6, KindCron: 7}
+var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindApp: 4, KindQueue: 5, KindTopic: 6, KindCron: 7, KindDomain: 8}
 
 // SortOps orders ops: creates (containers first), updates, then deletes
 // (contents first).

@@ -15,7 +15,8 @@ import (
 // Config describes the platform edge: one domain, one upstream and any extra
 // host routes.
 type Config struct {
-	Domain    string  // e.g. "tiffin.localhost"; dashboard lives at "dashboard."+Domain
+	Domain    string  // e.g. "tiffin.localhost"; dashboard lives at Dashboard+"."+Domain
+	Dashboard string  // the dashboard's first-level name; default "dashboard"
 	Upstream  string  // tiffin API/dashboard http address, e.g. "127.0.0.1:7070"
 	DataDir   string  // Caddy storage (certs, CA), e.g. /var/lib/tiffin/platform/caddy
 	HTTPPort  int     // default 80
@@ -90,13 +91,23 @@ const (
 )
 
 // DashboardHost is the host the dashboard is served on.
-func (c Config) DashboardHost() string { return "dashboard." + c.Domain }
+func (c Config) DashboardHost() string { return c.dashboardName() + "." + c.Domain }
+
+func (c Config) dashboardName() string {
+	if c.Dashboard == "" {
+		return "dashboard"
+	}
+	return c.Dashboard
+}
 
 // dashboardHosts are the dashboard's host and its names under each alias.
 func (c Config) dashboardHosts() []string {
 	out := []string{c.DashboardHost()}
 	for _, a := range c.Aliases {
-		out = append(out, "dashboard."+a)
+		out = append(out, c.dashboardName()+"."+a)
+		if c.dashboardName() != "dashboard" {
+			out = append(out, "dashboard."+a)
+		}
 	}
 	return out
 }
@@ -149,6 +160,10 @@ func (c Config) normalized() (Config, error) {
 	}
 	if strings.TrimSpace(c.DataDir) == "" {
 		return c, errors.New("edge: DataDir is required")
+	}
+	c.Dashboard = strings.ToLower(strings.TrimSpace(c.Dashboard))
+	if c.Dashboard != "" && (validHost(c.Dashboard) != nil || strings.ContainsAny(c.Dashboard, ".*")) {
+		return c, fmt.Errorf("edge: invalid dashboard name %q: one label, like \"dashboard\"", c.Dashboard)
 	}
 	if c.HTTPPort == 0 {
 		c.HTTPPort = 80
@@ -267,8 +282,9 @@ func validHost(h string) error {
 func (c Config) managedHosts() []string {
 	subjects := []string{"*." + c.Domain, c.DashboardHost()}
 	for _, a := range c.Aliases {
-		subjects = append(subjects, "*."+a, "dashboard."+a)
+		subjects = append(subjects, "*."+a)
 	}
+	subjects = append(subjects, c.dashboardHosts()[1:]...)
 	have := map[string]bool{}
 	for _, x := range subjects {
 		have[x] = true
