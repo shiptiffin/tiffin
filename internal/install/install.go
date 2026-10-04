@@ -181,7 +181,9 @@ rc=$?; rm -f /tmp/tiffin.new; exit $rc`
 	if err != nil {
 		return nil, fmt.Errorf("read owner token: %w\n%s", err, stderr)
 	}
-	ca, stderr, err := m.Exec(ctx, "sudo cat "+Home+"/ca.crt")
+	// The API answers health before the HTTPS edge has written its CA
+	// (a fresh box makes the CA on first start): wait for the file.
+	ca, stderr, err := m.Exec(ctx, "for i in $(seq 1 60); do sudo test -s "+Home+"/ca.crt && break; sleep 0.5; done; sudo cat "+Home+"/ca.crt")
 	if err != nil {
 		return nil, fmt.Errorf("read the box's CA certificate: %w\n%s", err, stderr)
 	}
