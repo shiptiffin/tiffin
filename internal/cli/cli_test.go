@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -261,6 +262,9 @@ func TestMCPOverHTTPNeedsAKey(t *testing.T) {
 	call := func(token string) *httptest.ResponseRecorder {
 		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"run","arguments":{"code":"return 'ran-' + (40 + 2);"}}}`
 		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+		// As on a box: the service listens on loopback, the edge forwards the public name.
+		req = req.WithContext(context.WithValue(req.Context(), http.LocalAddrContextKey, &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 7070}))
+		req.Host = "dashboard.example.com"
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json, text/event-stream")
 		if token != "" {

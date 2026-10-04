@@ -490,7 +490,11 @@ func serveMux(b *box) http.Handler {
 		}
 		return core
 	},
-		&sdk.StreamableHTTPOptions{Stateless: true, JSONResponse: true})))
+		&sdk.StreamableHTTPOptions{Stateless: true, JSONResponse: true,
+			// The box serves /mcp behind its edge under its public name, and every
+			// request needs an API key (requireKey), so the SDK's loopback Host check
+			// only refuses legitimate callers.
+			DisableLocalhostProtection: true})))
 	return mux
 }
 
