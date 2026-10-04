@@ -1,7 +1,10 @@
 package runtime
 
 import (
+	"cmp"
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -28,33 +31,47 @@ const warmUpAttempts = 3
 type warmSlot struct {
 	mu      sync.Mutex
 	cancel  context.CancelFunc // stops the running warm-up build; nil when none runs
+	holder  string             // the deploy's app ("shop/web") building now; "" for none or the warm-up
 	waiting atomic.Int32       // deploys waiting for the slot
 	last    atomic.Int64       // unix nanos a deploy last released the slot
 	poll    time.Duration      // how often a waiting warm-up looks again
 	quiet   time.Duration      // how long after a deploy's build it waits
 }
 
-// acquireBuild takes the build slot for a deploy, stopping the warm-up if it
-// holds it.
-func (r *rt) acquireBuild(ctx context.Context) error {
+// acquireBuild takes the build slot for a deploy (who: "shop/web"), stopping
+// the warm-up if it holds it. A deploy that has to wait says so in its log.
+func (r *rt) acquireBuild(ctx context.Context, who string, log io.Writer) error {
 	r.warm.waiting.Add(1)
 	defer r.warm.waiting.Add(-1)
 	r.warm.mu.Lock()
+	wait := fmt.Sprintf("==> waiting for another build (%s) to finish: the box builds one at a time\n", cmp.Or(r.warm.holder, "another deploy"))
 	if r.warm.cancel != nil {
 		r.warm.cancel()
+		wait = "==> stopping the build warm-up for this deploy\n"
 	}
 	r.warm.mu.Unlock()
 	select {
 	case r.build <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	default:
+		io.WriteString(log, wait)
+		select {
+		case r.build <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
+	r.warm.mu.Lock()
+	r.warm.holder = who
+	r.warm.mu.Unlock()
+	return nil
 }
 
 // releaseBuild gives a deploy's build slot back.
 func (r *rt) releaseBuild() {
 	r.warm.last.Store(time.Now().UnixNano())
+	r.warm.mu.Lock()
+	r.warm.holder = ""
+	r.warm.mu.Unlock()
 	<-r.build
 }
 

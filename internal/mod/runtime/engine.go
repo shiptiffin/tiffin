@@ -32,10 +32,11 @@ type RunSpec struct {
 
 // Container is what the engine reports about one container.
 type Container struct {
-	Name    string            `json:"name"`
-	Running bool              `json:"running"`
-	Status  string            `json:"status"`
-	Labels  map[string]string `json:"labels,omitempty"`
+	Name     string            `json:"name"`
+	Running  bool              `json:"running"`
+	Status   string            `json:"status"`
+	ExitCode int               `json:"exitCode,omitempty"` // of its last run, once it exited
+	Labels   map[string]string `json:"labels,omitempty"`
 }
 
 // Engine runs app containers. The box uses nerdctl over containerd; tests
@@ -134,23 +135,35 @@ func (n *nerdctl) Run(ctx context.Context, s RunSpec) error {
 	return nil
 }
 
+// Remove stops and deletes a container. An inspect that fails is no proof
+// the container is gone, so removal goes ahead anyway; rm is retried, since
+// containerd's restart monitor can restart a crashing container under it.
 func (n *nerdctl) Remove(ctx context.Context, name string, grace time.Duration) error {
-	if c, _ := n.Inspect(ctx, name); c == nil {
+	if c, err := n.Inspect(ctx, name); err == nil && c == nil {
 		return nil
 	}
 	secs := strconv.Itoa(max(1, int(grace.Seconds())))
 	_, _ = n.run(ctx, "stop", "--time", secs, name)
-	if _, err := n.run(ctx, "rm", "--force", name); err != nil && !strings.Contains(err.Error(), "no such container") {
-		return err
+	var err error
+	for try := 0; try < 3; try++ {
+		if _, err = n.run(ctx, "rm", "--force", name); err == nil || strings.Contains(err.Error(), "no such container") {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(time.Second):
+		}
 	}
-	return nil
+	return err
 }
 
 type nerdctlInspect struct {
 	Name  string `json:"Name"`
 	State struct {
-		Status  string `json:"Status"`
-		Running bool   `json:"Running"`
+		Status   string `json:"Status"`
+		Running  bool   `json:"Running"`
+		ExitCode int    `json:"ExitCode"`
 	} `json:"State"`
 	Config struct {
 		Labels map[string]string `json:"Labels"`
@@ -170,7 +183,7 @@ func (n *nerdctl) Inspect(ctx context.Context, name string) (*Container, error) 
 		return nil, nil
 	}
 	r := res[0]
-	return &Container{Name: strings.TrimPrefix(r.Name, "/"), Running: r.State.Running, Status: r.State.Status, Labels: r.Config.Labels}, nil
+	return &Container{Name: strings.TrimPrefix(r.Name, "/"), Running: r.State.Running, Status: r.State.Status, ExitCode: r.State.ExitCode, Labels: r.Config.Labels}, nil
 }
 
 func (n *nerdctl) List(ctx context.Context) ([]Container, error) {
