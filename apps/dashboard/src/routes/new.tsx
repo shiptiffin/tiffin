@@ -16,6 +16,7 @@ import { ProblemNote } from "@/components/problem";
 import { Qty } from "@/components/qty";
 import { BuildLogView, firstError, useBuildLog } from "@/components/start-build-log";
 import { Button } from "@/components/ui/button";
+import { RadioGroup, RadioItem } from "@/components/ui/choice";
 import { GitHubMark } from "@/components/github-mark";
 import { checkPick, emptyPick, GitHubImport, type GitHubPick } from "@/components/github-import";
 import { deployGitHub, nameFromRepo, setSecret } from "@/lib/github";
@@ -35,6 +36,7 @@ import {
   newProjectManifest,
   slugify,
   starterLine,
+  starterEdit,
   starterOrder,
   pickable,
   starterTitle,
@@ -215,26 +217,28 @@ export function NewProjectPage() {
             {header}
             <div className="mt-9">
             <Step n={1} label="What are you making?">
-              {starters.isError ? (
-                <ProblemNote error={starters.error} title="The starters can’t be listed right now." />
-              ) : (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Starter">
-                  {(list.length ? list : placeholders).map((s) => (
-                    <StarterTile key={s.id} s={s} picked={choice === s.id} onPick={() => setChoice(s.id)} loading={!list.length} />
-                  ))}
+              <RadioGroup value={choice} onValueChange={setChoice} aria-label="What are you making?" loop>
+                {starters.isError ? (
+                  <ProblemNote error={starters.error} title="The starters can’t be listed right now." />
+                ) : (
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
+                    {(list.length ? list : placeholders).map((s) => (
+                      <StarterTile key={s.id} s={s} picked={choice === s.id} loading={!list.length} />
+                    ))}
+                  </div>
+                )}
+                <div className="mt-4 divide-y divide-rule border-y border-rule">
+                  <OptionRow
+                    value="github"
+                    picked={choice === "github"}
+                    icon={<GitHubMark />}
+                    title="Import from GitHub"
+                    line="Your repositories, private ones too. Every push deploys; each pull request gets a preview."
+                  />
+                  <OptionRow value="git" picked={choice === "git"} icon={<GitBranch />} title="From a public git URL" line={starterLine.git} />
+                  <OptionRow value="empty" picked={choice === "empty"} icon={<Plus />} title="Empty project" line={starterLine.empty} />
                 </div>
-              )}
-              <div className="mt-4 divide-y divide-rule border-y border-rule" role="radiogroup" aria-label="Or">
-                <OptionRow
-                  picked={choice === "github"}
-                  onPick={() => setChoice("github")}
-                  icon={<GitHubMark />}
-                  title="Import from GitHub"
-                  line="Your repositories, private ones too. Every push deploys; each pull request gets a preview."
-                />
-                <OptionRow picked={choice === "git"} onPick={() => setChoice("git")} icon={<GitBranch />} title="From a public git URL" line={starterLine.git} />
-                <OptionRow picked={choice === "empty"} onPick={() => setChoice("empty")} icon={<Plus />} title="Empty project" line={starterLine.empty} />
-              </div>
+              </RadioGroup>
               {choice === "git" && <GitFields git={git} setGit={setGit} check={gitCheck} />}
               {choice === "github" && <GitHubImport value={gh} onChange={setGh} admin={admin} />}
             </Step>
@@ -347,23 +351,21 @@ function Step({ n, label, children }: { n: number; label: string; children: Reac
 
 const placeholders = starterOrder.map((id) => ({ id, name: "", app: "", framework: "static", services: [], description: "", fragment: { apps: {} }, files: 0, bytes: 0 })) as Starter[];
 
-function StarterTile({ s, picked, onPick, loading }: { s: Starter; picked: boolean; onPick: () => void; loading?: boolean }) {
+/** A starter as a tile: its drawing over its name. On a phone, a compact row with a small drawing. */
+function StarterTile({ s, picked, loading }: { s: Starter; picked: boolean; loading?: boolean }) {
   return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={picked}
-      onClick={onPick}
+    <RadioItem
+      value={s.id}
       disabled={loading}
       className={cn(
-        "group relative flex flex-col overflow-hidden rounded-[12px] border bg-paper-raised text-left transition-[border-color,box-shadow,transform] duration-[var(--dur-state)] ease-[var(--ease-out)] active:scale-[0.985]",
+        "group relative flex overflow-hidden rounded-[12px] border bg-paper-raised text-left transition-[border-color,box-shadow,transform] duration-[var(--dur-state)] ease-[var(--ease-out)] active:scale-[0.985] sm:flex-col",
         picked ? "border-brass shadow-[0_0_0_1px_var(--brass)]" : "border-rule-2 hover:border-rule-3",
       )}
     >
-      <span className="block aspect-[16/10] w-full bg-paper-sunk max-sm:aspect-[16/7]">
+      <span className="block w-20 shrink-0 bg-paper-sunk sm:aspect-[16/10] sm:w-full">
         {starterThumb[s.id] && <img src={starterThumb[s.id]} alt="" width={320} height={200} className="size-full object-contain p-1.5 transition-transform duration-[var(--dur-enter)] ease-[var(--ease-out)] group-hover:scale-[1.03]" />}
       </span>
-      <span className="flex flex-col gap-1 border-t border-rule px-3 pt-2.5 pb-3">
+      <span className="flex min-w-0 flex-1 flex-col gap-1 border-l border-rule px-3 pt-2.5 pb-3 sm:border-t sm:border-l-0">
         <span className="flex items-center justify-between gap-2 text-[0.875rem] font-[550] text-ink">
           {loading ? <span className="h-4 w-20 rounded bg-paper-sunk" /> : (starterTitle[s.id] ?? s.name)}
           <span
@@ -378,17 +380,14 @@ function StarterTile({ s, picked, onPick, loading }: { s: Starter; picked: boole
         </span>
         <span className="text-[0.78125rem] leading-[1.125rem] text-ink-3">{starterLine[s.id] ?? s.description}</span>
       </span>
-    </button>
+    </RadioItem>
   );
 }
 
-function OptionRow({ picked, onPick, icon, title, line }: { picked: boolean; onPick: () => void; icon: ReactNode; title: string; line: string }) {
+function OptionRow({ value, picked, icon, title, line }: { value: string; picked: boolean; icon: ReactNode; title: string; line: string }) {
   return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={picked}
-      onClick={onPick}
+    <RadioItem
+      value={value}
       className="grid w-full grid-cols-[28px_minmax(0,1fr)_16px] items-center gap-x-3 py-3 text-left transition-colors hover:bg-[color-mix(in_oklch,var(--ink)_2.5%,transparent)]"
     >
       <span className="grid size-7 place-items-center text-ink-3 [&_svg]:size-4">{icon}</span>
@@ -399,7 +398,7 @@ function OptionRow({ picked, onPick, icon, title, line }: { picked: boolean; onP
       <span aria-hidden className={cn("grid size-4 place-items-center rounded-full border", picked ? "border-brass bg-brass text-on-brass" : "border-rule-3 text-transparent")}>
         <Check className="size-2.5" strokeWidth={3} />
       </span>
-    </button>
+    </RadioItem>
   );
 }
 
@@ -759,7 +758,7 @@ function Failed({ L, deploy, error, logText, retry }: { L: { project: string; ap
         <ProblemNote error={error} className="border-0 bg-transparent p-0" />
       )}
       <p className="mt-2 text-sm text-ink-2">
-        {L.project} exists and nothing else on the box changed. Try again, open the app to change it, or undo the project from the Ledger.
+        {L.project} exists and nothing else on the box changed. Try again, open the app to change it, or undo the project from History.
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
         {L.app && (
@@ -776,7 +775,7 @@ function Failed({ L, deploy, error, logText, retry }: { L: { project: string; ap
         )}
         <Button asChild variant="ghost" size="md">
           <Link to="/ledger" search={{ project: L.project }}>
-            Undo from the Ledger
+            Undo from History
           </Link>
         </Button>
       </div>
@@ -801,6 +800,21 @@ function Live({
   const url = deploy?.url;
   const host = url?.replace(/^https?:\/\//, "");
   const thumb = L.source.kind === "starter" ? starterThumb[L.source.starter.id] : undefined;
+  const { admin } = useMe();
+  const agent = (
+    <NextStep
+      n={2}
+      title="Connect your agent"
+      line="Claude Code gets the box’s agent key: full access to every project. It asks you before anything destructive, and every change lands in History, where you can undo it."
+    >
+      <Command cmd="claude mcp add tiffin -- tiffin mcp" />
+      {admin && (
+        <Link to="/settings/keys" search={{ create: true }} className="mt-2 inline-block text-[0.8125rem] text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink">
+          Or make a key for just {L.project}, or read only
+        </Link>
+      )}
+    </NextStep>
+  );
   return (
     <div className={GRID}>
       {url && L.app ? (
@@ -842,7 +856,11 @@ function Live({
             <h2 className="label mt-10 mb-1">Next</h2>
             <ol className="divide-y divide-rule border-y border-rule">
               {L.source.kind === "github" ? (
-                <NextStep n={1} title={`Push to ${L.source.branch}`} line={`Every push to ${L.source.branch} deploys ${L.app}. Each pull request gets a preview at its own address, and a comment with the link.`}>
+                <NextStep
+                  n={1}
+                  title={`Push to ${L.source.branch}`}
+                  line={`Every push to ${L.source.branch} deploys ${L.app}. Each pull request gets a preview at its own address, and a comment with the link. Previews use this project’s live data. Email goes to the dev inbox.`}
+                >
                   <Button asChild size="md">
                     <a href={`https://github.com/${L.source.repo}`} target="_blank" rel="noopener noreferrer">
                       <GitHubMark /> Open {L.source.repo}
@@ -850,14 +868,16 @@ function Live({
                   </Button>
                 </NextStep>
               ) : (
-                <NextStep n={1} title="Connect your agent" line="Claude Code can plan changes to this box. Anything risky waits for you to approve it with a passkey.">
-                  <Command cmd="claude mcp add tiffin -- tiffin mcp" />
+                <NextStep n={1} title="Make your first change" line={firstChange(L)}>
+                  <div className="grid gap-1.5">
+                    {L.source.kind === "git" && <Command cmd={`git clone ${L.source.url.trim()} ${L.project} && cd ${[L.project, L.source.path.trim().replace(/^\/+|\/+$/g, "")].filter(Boolean).join("/")}`} />}
+                    <Command cmd={L.source.kind === "git" ? `tiffin pull --project ${L.project}` : `tiffin pull ${L.project} --project ${L.project} && cd ${L.project}`} />
+                    <Command cmd="tiffin deploy" />
+                  </div>
                 </NextStep>
               )}
-              <NextStep n={2} title="Edit it locally" line={`Pull ${L.project}’s config into a folder, change it, and tiffin apply shows the plan first.`}>
-                <Command cmd={`tiffin pull --project ${L.project}`} />
-              </NextStep>
-              <NextStep n={3} title="Add a service" line="Storage, email, sign-in or a schedule. It stages a change you review before anything happens.">
+              {agent}
+              <NextStep n={3} title="Add a service" line="Files, Email, Auth or Jobs. Each one is a click, and History can undo it.">
                 <Button asChild size="md">
                   <Link to="/projects/$project" params={{ project: L.project }}>
                     Open {L.project}
@@ -881,7 +901,7 @@ function Live({
         <div className="max-w-[40rem]">
           {header}
           <p className="mt-6 text-md text-ink-2">
-            {L.project} is in the box with its config. Add an app or a service from its page; each one is planned and shown to you first.
+            {L.project} is in the box with its config. Add an app or a service from its page; every change lands in History, where you can undo it.
           </p>
           <div className="mt-5 flex gap-2">
             <Button asChild variant="primary" size="lg">
@@ -899,6 +919,13 @@ function Live({
       )}
     </div>
   );
+}
+
+/** What "Make your first change" says: where the source comes from and which file to open. */
+function firstChange(L: Launched): string {
+  if (L.source.kind === "git") return `Clone your code, add ${L.project}’s config beside it, change something, then deploy it to the same address.`;
+  const file = L.source.kind === "starter" ? starterEdit[L.source.starter.id] : undefined;
+  return `This writes ${L.app}’s source and config into a folder. Change ${file ? file : "a file"}, then deploy it to the same address.`;
 }
 
 function NextStep({ n, title, line, children }: { n: number; title: string; line: string; children: ReactNode }) {

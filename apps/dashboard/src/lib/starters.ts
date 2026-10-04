@@ -67,6 +67,14 @@ export const starterLine: Record<string, string> = {
   empty: "Start with nothing and add pieces as you go.",
 };
 
+/** The file to change first in each starter's source (what tiffin pull writes). */
+export const starterEdit: Record<string, string> = {
+  "next-postgres": "app/page.jsx",
+  "hono-postgres": "index.ts",
+  "static-site": "public/index.html",
+  guestbook: "public/index.html",
+};
+
 /** Hostnames the box keeps for itself. */
 const RESERVED = new Set(["dashboard", "s3", "www", "api", "t", "mail", "auth", "git"]);
 

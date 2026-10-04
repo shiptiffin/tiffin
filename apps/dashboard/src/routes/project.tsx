@@ -79,6 +79,11 @@ export function ProjectPage({ project }: { project: string }) {
                     See why
                   </Link>
                 )}
+                {pulse.retry && (
+                  <button type="button" onClick={pulse.retry} className="font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink">
+                    Retry
+                  </button>
+                )}
               </>
             )}
           </div>

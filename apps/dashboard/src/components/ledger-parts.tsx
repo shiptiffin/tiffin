@@ -1,13 +1,9 @@
-// Pieces shared by the Ledger's three pages (the list, a receipt, an approval
-// permit): the time margin, the actor line, steps with their diff, what undo
-// can't restore, and the signature with its Seal.
+// Pieces shared by History's pages (the list and a change's receipt): the time
+// margin, the actor line, steps with their diff, what undo can't restore, and
+// the signature.
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Op, Tier } from "@/api/client";
-
-/** An approval as old changes recorded it (approvals are gone; nothing new has one). */
-export type Approval = { id: string; decidedBy?: string; decidedAt?: string; createdAt: string };
-import type { Names } from "@/lib/who";
 import { cn } from "@/lib/cn";
 import { actorName } from "@/lib/actors";
 import { asTier, diffOp, formatValue, splitAddress } from "@/lib/changes";
@@ -45,20 +41,6 @@ export function splitIntent(raw: string): { head: string; rest?: string } {
   return { head: cap(m[1]), rest: stop(m[2]) };
 }
 
-/** "Sam", "Claude Code": who a token ID belongs to (the person behind an owner or session token). */
-export function tokenWho(id: string | undefined, names: Names | undefined): string {
-  if (!id) return "someone";
-  return names?.get(id)?.who ?? "someone";
-}
-
-/** The approval a change spent, if any (it was signed with a passkey). Quiet when the box has no approvals. */
-export function useApprovalsByChange() {
-  // Approvals are gone from the product; old changes that spent one read as ordinary changes.
-  return new Map<string, Approval>();
-}
-
-const dayMonth = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
-const hms = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
 /** "19:19 today", "09:12 yesterday", "17:40 on Friday 2 October". */
 export function when(iso: string) {
   const d = dayLabel(iso);
@@ -71,11 +53,6 @@ const stampFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long
 export const dayWords = (iso: string) => longFmt.format(new Date(iso));
 /** "3 October 2026 at 11:44:58". */
 export const stamp = (iso: string) => stampFmt.format(new Date(iso));
-
-/** "3 Oct 2026". */
-export const sealDate = (iso: string) => dayMonth.format(new Date(iso));
-/** "19:46:03". */
-export const clockSeconds = (iso: string) => hms.format(new Date(iso));
 
 /**
  * One line of the page with the time in the margin, the Ledger's grammar:
@@ -331,17 +308,7 @@ export function RiskLine({ tier, ops, hash, children }: { tier: Tier; ops: Op[] 
 }
 
 /** The signature block on a change's page: who made it, written large, over a ruled line saying how. */
-export function Signature({
-  name,
-  how,
-}: {
-  name: string;
-  at?: string;
-  hash?: string;
-  how: ReactNode;
-  fresh?: boolean;
-  seal?: boolean;
-}) {
+export function Signature({ name, how }: { name: string; how: ReactNode }) {
   return (
     <div className={cn("grid items-end gap-x-6 print:break-inside-avoid", "grid-cols-1")}>
       <div className="min-w-0">

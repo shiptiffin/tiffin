@@ -159,7 +159,7 @@ func preview(ctx context.Context, p *platform.Platform, rec *Import, replace boo
 		fmt.Sprintf("Postgres databases %s are loaded from the archive (any of the same name here are dropped first)", strings.Join(s.Databases, ", ")),
 		"Valkey data is replaced by the archive's snapshot",
 		"Buckets and objects, email, analytics, observe settings, static sites and git repositories are replaced by the archive's",
-		"Tokens, people, passkeys and approvals become the archive's (this box's owner token is kept as well)",
+		"Tokens, people and passkeys become the archive's (this box's owner token is kept as well)",
 		"The box key becomes the archive's key, and the HTTPS certificate authority becomes the source box's (re-trust it in browsers that trusted this box)",
 	}
 	pv.Keeps = []string{"This box's domain, public URL and installed Tiffin build", "This box's owner token", "This box's backups (local repository) and backup schedule"}

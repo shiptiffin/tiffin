@@ -1,5 +1,5 @@
 /* A Ledger receipt on paper: no chrome, light ink on white, nothing that
-   only makes sense on a screen. Used by routes/change.tsx and approvals.tsx. */
+   only makes sense on a screen. Used by routes/change.tsx. */
 @media print {
   @page {
     margin: 16mm 18mm;

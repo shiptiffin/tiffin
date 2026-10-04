@@ -188,6 +188,44 @@ func fragment(m *manifest.Manifest) (ManifestFragment, error) {
 	return f, nil
 }
 
+// WriteSource copies a starter's source into dir for someone to edit (tiffin
+// pull): never its own tiffin.config.ts (the project's config is the truth),
+// and never over a file that is already there. It returns the files written
+// and the ones kept, as slash paths relative to dir.
+func WriteSource(id, dir string) (written, kept []string, err error) {
+	root := path.Join("files", id)
+	if _, err := fs.Stat(files, root); err != nil {
+		return nil, nil, fmt.Errorf("no starter %q", id)
+	}
+	err = fs.WalkDir(files, root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel := strings.TrimPrefix(p, root+"/")
+		if rel == "tiffin.config.ts" {
+			return nil
+		}
+		dest := filepath.Join(dir, filepath.FromSlash(rel))
+		if _, err := os.Lstat(dest); err == nil {
+			kept = append(kept, rel)
+			return nil
+		}
+		b, err := fs.ReadFile(files, p)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(dest, b, 0o644); err != nil {
+			return err
+		}
+		written = append(written, rel)
+		return nil
+	})
+	return written, kept, err
+}
+
 // WriteTo copies a starter's files into dir.
 func WriteTo(id, dir string) error {
 	root := path.Join("files", id)
