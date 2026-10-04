@@ -24,6 +24,7 @@ type spy struct {
 type spyLog struct {
 	mu    sync.Mutex
 	calls []string
+	fail  func(project, address string) error // nil: every reconcile succeeds
 }
 
 func (s *spy) Name() string    { return "spy-" + s.name }
@@ -37,6 +38,9 @@ func (s *spy) Reconcile(_ context.Context, _ *Platform, project, address string,
 		verb = "delete"
 	}
 	s.log.calls = append(s.log.calls, verb+" "+project+" "+address)
+	if s.log.fail != nil {
+		return s.log.fail(project, address)
+	}
 	return nil
 }
 

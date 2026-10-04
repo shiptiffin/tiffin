@@ -163,3 +163,26 @@ func TestSecretChangesAreUndoable(t *testing.T) {
 		t.Fatalf("history has %d changes: %v", len(list), list)
 	}
 }
+
+// A plan with nothing to change still names resources that failed to
+// converge, and an apply retries them rather than saying all is well.
+func TestEmptyApplyRetriesFailed(t *testing.T) {
+	e, _, db := secretsBox(t)
+	m := map[string]any{"project": "shop", "services": map[string]any{"postgres": map[string]any{}}}
+	code, out, _ := e.call(e.owner, "POST", "/v1/plan", map[string]any{"manifest": m})
+	if code != 200 {
+		t.Fatalf("plan: %d %v", code, out)
+	}
+	if code, out, _ = e.call(e.owner, "POST", "/v1/apply", map[string]any{"manifest": m, "confirm": out["hash"]}); code != 200 || out["applied"] != true {
+		t.Fatalf("apply: %d %v", code, out)
+	}
+	_ = db.SetResourceStatus(t.Context(), "shop", "service/postgres", platform.StateFailed, "cannot execute CREATE SCHEMA in a read-only transaction\nmore")
+	code, out, _ = e.call(e.owner, "POST", "/v1/plan", map[string]any{"manifest": m})
+	if code != 200 || !strings.Contains(fmt.Sprint(out["warnings"]), "service/postgres: cannot execute CREATE SCHEMA in a read-only transaction") {
+		t.Fatalf("empty plan with a failure: %d %v", code, out)
+	}
+	code, out, _ = e.call(e.owner, "POST", "/v1/apply", map[string]any{"manifest": m})
+	if code != 200 || out["applied"] != false || !strings.Contains(fmt.Sprint(out["plan"]), "retrying now") {
+		t.Fatalf("empty apply with a failure: %d %v", code, out)
+	}
+}
