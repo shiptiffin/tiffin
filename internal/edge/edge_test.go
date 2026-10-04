@@ -172,7 +172,7 @@ func TestConfigValidation(t *testing.T) {
 	}
 	c := ok
 	c.Internal = false
-	if _, err := ConfigJSON(c); err != ErrPublicACMEUnsupported {
+	if _, err := ConfigJSON(c); err != ErrACMERequired {
 		t.Errorf("Internal=false: got %v", err)
 	}
 	if _, err := ConfigJSON(ok); err != nil {
@@ -378,7 +378,7 @@ func TestRootCAPersistsAcrossRestarts(t *testing.T) {
 
 func TestStartRejectsPublicACME(t *testing.T) {
 	cfg := Config{Domain: "example.com", Upstream: "127.0.0.1:1", DataDir: t.TempDir()}
-	if _, err := Start(context.Background(), cfg); err != ErrPublicACMEUnsupported {
+	if _, err := Start(context.Background(), cfg); err != ErrACMERequired {
 		t.Fatalf("got %v", err)
 	}
 }

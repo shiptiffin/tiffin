@@ -218,6 +218,15 @@ type Platform struct {
 	Version   string
 	Edge      EdgeController // nil off-box
 	Log       *slog.Logger
+	// Reach is how the world reaches the box (public IPs, ACME, DNS).
+	Reach Reach
+	// DNS manages records through a connected DNS provider; nil when the
+	// box has none (set by the domains module when it starts).
+	DNS DNSManager
+	// Restart asks the service to restart (systemd starts it again within
+	// seconds), for settings read only at start such as the box domain.
+	// Nil off-box.
+	Restart func(reason string)
 
 	rec *reconciler
 }

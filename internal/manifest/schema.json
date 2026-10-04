@@ -47,6 +47,12 @@
       "propertyNames": { "$ref": "#/$defs/topicName" },
       "additionalProperties": { "$ref": "#/$defs/topic" }
     },
+    "domains": {
+      "description": "Options for the project's own domain names (not under the box domain), keyed by host name, e.g. \"example.com\". Which app serves a name is set by that app's `routes` (\"example.com\", \"example.com/api\"); a domain needs an entry here only for its options. The box checks every such name's DNS and gets its certificate once it points at the box: see GET /v1/projects/{project}/domains for the records to add and the live status.",
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/domainName" },
+      "additionalProperties": { "$ref": "#/$defs/domain" }
+    },
     "env": {
       "description": "Plain, non-secret environment variables shared by all apps. Secrets never live in the manifest; set them with `tiffin secrets`.",
       "$ref": "#/$defs/env"
@@ -214,6 +220,24 @@
             "minLength": 1,
             "description": "A queue name defined in `queues`."
           }
+        }
+      }
+    },
+    "domainName": {
+      "description": "A full host name with at least one dot, lowercase, e.g. \"example.com\" or \"shop.example.com\".",
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$",
+      "maxLength": 253
+    },
+    "domain": {
+      "description": "Options for one of the project's own domains.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "www": {
+          "description": "\"redirect\" also serves www.<domain> and sends its visitors to <domain> (308, path and query kept); point www.<domain> at the box too. Default \"\" (off; to serve www.<domain> itself, add it to an app's routes).",
+          "type": "string",
+          "enum": ["", "redirect"]
         }
       }
     },

@@ -237,6 +237,8 @@ func (a *app) serveCmd() *cobra.Command {
 	var addr, domain, publicURL string
 	var withEdge, onBox bool
 	var httpsPort, httpPort int
+	var tlsMode, acmeCA, acmeRoots, acmeEmail string
+	var publicIPs, resolvers []string
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the box API and MCP endpoint",
@@ -248,6 +250,9 @@ func (a *app) serveCmd() *cobra.Command {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			started := time.Now()
+			envDefault(cmd, a.io.Env, map[string]string{"tls": "TIFFIN_TLS", "public-ip": "TIFFIN_PUBLIC_IP",
+				"acme-ca": "TIFFIN_ACME_CA", "acme-ca-roots": "TIFFIN_ACME_CA_ROOTS", "acme-email": "TIFFIN_ACME_EMAIL", "dns-resolver": "TIFFIN_DNS_RESOLVER"})
+			var reach platform.Reach
 			var ed *edge.Edge
 			var plat *platform.Platform
 			var openErr error
@@ -258,8 +263,17 @@ func (a *app) serveCmd() *cobra.Command {
 				}
 			}
 			b, fresh, err := openBox(ctx, a.home, func(d *api.Deps) {
-				d.PublicURL = publicURL
 				d.Checks = func(ctx context.Context) []api.Check { return boxChecks(a.home, ed, started) }
+				if onBox {
+					var err error
+					reach, domain, publicURL, err = boxReach(ctx, d.DB, reachFlags{domain: domain, publicURL: publicURL, httpsPort: httpsPort,
+						tls: tlsMode, ips: publicIPs, acmeCA: acmeCA, acmeRoots: acmeRoots, acmeEmail: acmeEmail, resolvers: resolvers})
+					if err != nil {
+						openErr = err
+						return
+					}
+				}
+				d.PublicURL = publicURL
 				if onBox {
 					sec, err := platform.OpenSecrets(d.DB, a.home)
 					if err != nil {
@@ -268,7 +282,13 @@ func (a *app) serveCmd() *cobra.Command {
 					}
 					plat = &platform.Platform{DB: d.DB, Engine: d.Engine, Tokens: d.Tokens, Secrets: sec, Home: a.home,
 						DataRoot: filepath.Dir(a.home), Domain: domain, PublicURL: publicURL, Version: version.Version,
-						Log: slog.New(slog.NewJSONHandler(a.io.Err, nil))}
+						Log: slog.New(slog.NewJSONHandler(a.io.Err, nil)), Reach: reach}
+					plat.Restart = func(reason string) {
+						plat.Log.Info("restarting the service", "reason", reason)
+						// After the answer that asked for it is sent; systemd
+						// (Restart=always) starts the service again.
+						time.AfterFunc(time.Second, stop)
+					}
 					d.Platform = plat
 					d.Engine.Estimate = plat.EstimateLoss
 					if u, err := url.Parse(publicURL); err == nil && u.Hostname() != "" {
@@ -297,23 +317,29 @@ func (a *app) serveCmd() *cobra.Command {
 			go func() { errc <- hs.Serve(ln) }()
 			base := "http://" + ln.Addr().String()
 			if withEdge {
-				ed, err = edge.Start(ctx, edge.Config{Domain: domain, Upstream: ln.Addr().String(), DataDir: filepath.Join(a.home, "edge"),
-					HTTPPort: httpPort, HTTPSPort: httpsPort, Internal: true, AccessLog: accessLog(onBox)})
+				ecfg := edge.Config{Domain: domain, Dashboard: reach.Dashboard, Upstream: ln.Addr().String(), DataDir: filepath.Join(a.home, "edge"),
+					HTTPPort: httpPort, HTTPSPort: httpsPort, Internal: !reach.ACME, AccessLog: accessLog(onBox)}
+				if reach.ACME {
+					ecfg.ACME = &edge.ACME{CA: reach.ACMEDirectory, Email: reach.ACMEEmail, TrustedRoots: reach.ACMERoots}
+				}
+				ed, err = edge.Start(ctx, ecfg)
 				if err != nil {
 					return fmt.Errorf("start the HTTPS edge: %w", err)
 				}
 				defer ed.Stop()
 				pem, err := ed.RootCAPEM()
-				if err != nil {
+				if err != nil && !reach.ACME {
 					return err
 				}
-				// Public: clients fetch it to trust the box's HTTPS.
-				if err := os.WriteFile(filepath.Join(a.home, "ca.crt"), pem, 0o644); err != nil {
-					return err
+				// Public: clients fetch it to trust the box's HTTPS (a local
+				// box; with public certificates nobody needs it).
+				if err == nil {
+					if err := os.WriteFile(filepath.Join(a.home, "ca.crt"), pem, 0o644); err != nil {
+						return err
+					}
 				}
 				if plat != nil {
-					plat.Edge = &edgeControl{ed: ed, base: edge.Config{Domain: domain, Upstream: ln.Addr().String(), DataDir: filepath.Join(a.home, "edge"),
-						HTTPPort: httpPort, HTTPSPort: httpsPort, Internal: true, AccessLog: accessLog(onBox)}}
+					plat.Edge = &edgeControl{ed: ed, base: ecfg}
 				}
 				if publicURL != "" {
 					base = publicURL
@@ -358,6 +384,12 @@ func (a *app) serveCmd() *cobra.Command {
 	cmd.Flags().IntVar(&httpsPort, "https-port", 443, "edge HTTPS port")
 	cmd.Flags().IntVar(&httpPort, "http-port", 80, "edge HTTP port (redirects to HTTPS)")
 	cmd.Flags().StringVar(&publicURL, "public-url", "", "the dashboard URL people use, for login links")
+	cmd.Flags().StringVar(&tlsMode, "tls", "auto", "certificates: auto (public ACME on a server with a public IP, the internal CA otherwise), acme or internal [TIFFIN_TLS]")
+	cmd.Flags().StringSliceVar(&publicIPs, "public-ip", nil, "the server's public address(es); default: the global addresses on its interfaces [TIFFIN_PUBLIC_IP]")
+	cmd.Flags().StringVar(&acmeCA, "acme-ca", "", "ACME directory URL; default Let's Encrypt (tests: Pebble, or "+edge.LetsEncryptStaging+") [TIFFIN_ACME_CA]")
+	cmd.Flags().StringVar(&acmeRoots, "acme-ca-roots", "", "PEM file of roots to trust for the ACME directory itself (a test CA) [TIFFIN_ACME_CA_ROOTS]")
+	cmd.Flags().StringVar(&acmeEmail, "acme-email", "", "ACME account contact; also enables the ZeroSSL fallback [TIFFIN_ACME_EMAIL]")
+	cmd.Flags().StringSliceVar(&resolvers, "dns-resolver", nil, "DNS servers (host:port) for the box's DNS checks; default public resolvers [TIFFIN_DNS_RESOLVER]")
 	return cmd
 }
 

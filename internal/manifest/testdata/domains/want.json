@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "project": "shop",
+  "apps": {
+    "api": {
+      "path": ".",
+      "framework": "bun",
+      "role": "web",
+      "routes": [
+        "example.com/api"
+      ],
+      "instances": 1,
+      "healthcheck": "/"
+    },
+    "web": {
+      "path": ".",
+      "framework": "bun",
+      "role": "web",
+      "routes": [
+        "web",
+        "example.com"
+      ],
+      "instances": 1,
+      "healthcheck": "/"
+    }
+  },
+  "domains": {
+    "example.com": {
+      "www": "redirect"
+    }
+  }
+}

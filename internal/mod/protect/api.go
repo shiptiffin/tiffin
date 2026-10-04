@@ -257,7 +257,7 @@ func (m *Module) patch(p *platform.Platform, cur Settings, in settingsPatch) (Se
 						return s, api.NewProblem(422, "validation", fmt.Sprintf("challenge host %q is not a host name", h))
 					}
 				}
-				if p != nil && h == p.Host("dashboard") {
+				if p != nil && h == p.DashboardHost() {
 					return s, api.NewProblem(422, "validation", "the dashboard is never challenged; it has its own sign-in")
 				}
 				if !slices.Contains(hosts, h) {

@@ -1,0 +1,4 @@
+/domains/nobody.example.com: no app serves "nobody.example.com"; add it to an app's routes, e.g. "routes": ["web", "nobody.example.com"]
+/domains/shop.test/www: www.shop.test is a route of app "web", so it cannot also redirect; remove one of them
+/domains/www.example.com: no app serves "www.example.com"; add it to an app's routes, e.g. "routes": ["web", "www.example.com"]
+/domains/www.example.com/www: "www.example.com" already starts with www.; set www: "redirect" on the bare domain instead

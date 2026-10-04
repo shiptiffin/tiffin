@@ -124,6 +124,7 @@ func semanticErrors(m *Manifest) []FieldError {
 		}
 	}
 	errs = append(errs, queueErrors(m)...)
+	errs = append(errs, domainErrors(m)...)
 	return errs
 }
 
@@ -178,7 +179,38 @@ var (
 	// emailRe accepts a bare address: a local part, "@", and a dotted hostname.
 	emailRe  = regexp.MustCompile(`^[A-Za-z0-9.!#$%&'*+/=?^_` + "`" + `{|}~-]+@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$`)
 	envKeyRe = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+	domainRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
 )
+
+// domainErrors checks the domains section against the apps' routes: every
+// domain is served by an app, and a www redirect does not shadow a route.
+func domainErrors(m *Manifest) []FieldError {
+	var errs []FieldError
+	hosts := map[string]string{} // route host → app
+	for _, name := range sortedKeys(m.Apps) {
+		for _, r := range m.Apps[name].Routes {
+			h, _, _ := strings.Cut(normalizeRoute(r), "/")
+			if _, ok := hosts[h]; !ok {
+				hosts[h] = name
+			}
+		}
+	}
+	for _, d := range sortedKeys(m.Domains) {
+		base := "/domains/" + escapePointer(d)
+		if _, ok := hosts[d]; !ok {
+			errs = append(errs, FieldError{Path: base, Message: fmt.Sprintf("no app serves %q; add it to an app's routes, e.g. \"routes\": [\"web\", %q]", d, d)})
+		}
+		if m.Domains[d].WWW == WWWRedirect {
+			www := "www." + d
+			if strings.HasPrefix(d, "www.") {
+				errs = append(errs, FieldError{Path: base + "/www", Message: fmt.Sprintf("%q already starts with www.; set www: \"redirect\" on the bare domain instead", d)})
+			} else if app, ok := hosts[www]; ok {
+				errs = append(errs, FieldError{Path: base + "/www", Message: fmt.Sprintf("%s is a route of app %q, so it cannot also redirect; remove one of them", www, app)})
+			}
+		}
+	}
+	return errs
+}
 
 // keyErrors checks the names used as map keys in a decoded JSON document: app
 // and bucket names are slugs, env variable names are UPPER_SNAKE_CASE. It is
@@ -214,6 +246,12 @@ func keyErrors(doc any) []FieldError {
 		}
 	}
 	slug("/services/storage/buckets", asMap(asMap(asMap(root["services"])["storage"])["buckets"]))
+	for key := range asMap(root["domains"]) {
+		if !domainRe.MatchString(key) || len(key) > 253 {
+			errs = append(errs, FieldError{Path: "/domains/" + escapePointer(key),
+				Message: fmt.Sprintf("%q must be a full lowercase host name with at least one dot, such as \"example.com\" (no scheme, port, path or wildcard)", key)})
+		}
+	}
 	return errs
 }
 

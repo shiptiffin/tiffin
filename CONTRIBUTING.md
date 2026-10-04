@@ -51,7 +51,10 @@ makes the machine match. Operational actions (deploy, restore, send test email) 
 operations. Small module bookkeeping goes in `p.DB.KVGet/KVPut(ns, key)`.
 
 Secrets: `p.Secrets` (age-encrypted); `p.ProjectEnv(ctx, project, app)` assembles the
-full env for an app. Hosts: `p.Host("shop")` → `shop.tiffin.localhost`, `p.URL(host)`.
+full env for an app. Hosts: `p.Host("shop")` → `shop.<box domain>`, `p.URL(host)`, `p.DashboardHost()`; the domain
+can change (`tiffin domain set` restarts the service), so never store full host names. `p.Reach` says how the
+world reaches the box (public IPs, ACME or the internal CA); `p.DNS` (nil without a connected provider) sets
+DNS records, e.g. email's SPF/DKIM/DMARC.
 Data disk: `/var/lib/tiffin` (XFS, reflinks) — use `/var/lib/tiffin/<yourmodule>/`.
 The service runs as root (`tiffin serve --box`). Edge access logs: `/var/lib/tiffin/logs/access.log`.
 
