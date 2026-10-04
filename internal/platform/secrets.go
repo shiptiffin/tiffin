@@ -138,6 +138,9 @@ func (s *Secrets) List(ctx context.Context, project string) ([]SecretInfo, error
 	return out, rows.Err()
 }
 
+// Open decrypts what Seal encrypted (the same as Unseal).
+func (s *Secrets) Open(sealed []byte) ([]byte, error) { return s.Unseal(sealed) }
+
 // All decrypts every secret of a project, for starting its apps.
 func (s *Secrets) All(ctx context.Context, project string) (map[string]string, error) {
 	rows, err := s.db.SQL().QueryContext(ctx, `SELECT name, ciphertext FROM secrets WHERE project = ?`, project)

@@ -106,12 +106,16 @@ export function suggestName(starter: Starter | undefined, taken: { projects: str
   return "";
 }
 
-export type Source = { kind: "starter"; starter: Starter } | { kind: "empty" } | { kind: "git"; url: string; ref: string; path: string; framework: string; postgres: boolean };
+export type Source =
+  | { kind: "starter"; starter: Starter }
+  | { kind: "empty" }
+  | { kind: "git"; url: string; ref: string; path: string; framework: string; postgres: boolean }
+  | { kind: "github"; repo: string; branch: string; path: string; framework: string; postgres: boolean; env: Array<{ k: string; v: string }> };
 
 /** The app a source puts in the project (none for an empty project). */
 export function appFor(source: Source): { name: string; framework: string } | null {
   if (source.kind === "starter") return { name: source.starter.app, framework: source.starter.framework };
-  if (source.kind === "git") return { name: "web", framework: source.framework };
+  if (source.kind === "git" || source.kind === "github") return { name: "web", framework: source.framework };
   return null;
 }
 
@@ -133,6 +137,11 @@ export function newProjectManifest(project: string, source: Source): Manifest {
     if (f.env && Object.keys(f.env).length) m.env = { ...f.env };
   } else if (source.kind === "git") {
     m.apps = { web: { framework: source.framework, routes: [project] } } as unknown as Manifest["apps"];
+    if (source.postgres) m.services = { postgres: {} };
+  } else if (source.kind === "github") {
+    const path = source.path.trim().replace(/^\/+|\/+$/g, "");
+    const git = { repo: source.repo, branch: source.branch, ...(path ? { path } : {}) };
+    m.apps = { web: { framework: source.framework, routes: [project], git } } as unknown as Manifest["apps"];
     if (source.postgres) m.services = { postgres: {} };
   }
   return m;

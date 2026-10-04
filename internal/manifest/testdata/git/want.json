@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "project": "shop",
+  "apps": {
+    "api": {
+      "path": ".",
+      "framework": "hono",
+      "role": "web",
+      "routes": [
+        "api"
+      ],
+      "instances": 1,
+      "healthcheck": "/",
+      "git": {
+        "repo": "acme/api",
+        "branch": "main",
+        "previews": "forks"
+      }
+    },
+    "docs": {
+      "path": ".",
+      "framework": "static",
+      "role": "web",
+      "routes": [
+        "docs"
+      ],
+      "instances": 1,
+      "git": {
+        "repo": "acme/shop",
+        "branch": "release",
+        "path": "docs",
+        "previews": "off"
+      }
+    },
+    "web": {
+      "path": ".",
+      "framework": "next",
+      "role": "web",
+      "routes": [
+        "web"
+      ],
+      "instances": 1,
+      "healthcheck": "/",
+      "git": {
+        "repo": "acme/shop",
+        "branch": "main",
+        "path": "apps/web",
+        "previews": "same-repo"
+      }
+    }
+  }
+}

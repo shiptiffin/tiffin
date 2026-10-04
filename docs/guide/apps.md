@@ -52,7 +52,111 @@ the manifest fragment it needs: add that to the project (see
 A git URL deploy shallow-clones one commit of a **public https** repository on the box
 (no credentials, public hosts only, no submodules, 512 MB and 3 minutes at most) and
 builds it like `tiffin deploy`; the clone shows in the build log. For private code, push
-to the box instead.
+to the box instead, or connect GitHub.
+
+## Deploy from GitHub
+
+Connect the box to GitHub once, and it deploys like Vercel: every push to an app's
+production branch goes live, every pull request gets a preview at its own address (with
+one comment on the pull request, kept up to date), and closing the pull request removes
+the preview.
+
+**1. Connect.** Dashboard › Settings › Git › **Connect GitHub**. The box makes its own
+GitHub App (the *manifest flow*: no shared secrets, nothing to copy): GitHub asks you to
+confirm `tiffin-<your box>` for your account (tick *In an organization* for an org), then
+you choose which repositories it may see. The app's private key and webhook secret stay
+on the box, encrypted with the box's own key. The box needs a public HTTPS address first,
+because GitHub delivers pushes to `https://<dashboard>/v1/github/webhook`.
+
+The app asks for: code (read), metadata (read), pull requests (write, for the preview
+comment), commit statuses (write) and deployments (write). Events: push and pull request.
+
+**2. Import a repository.** New project › **Import from GitHub**: search your repositories
+(private ones included), pick one, then its production branch and folder (monorepos list
+each app they find, with the framework the box would use), add environment variables
+(they're saved as encrypted secrets) and create. That writes the app with a `git` block
+and deploys the branch's latest commit:
+
+```ts
+apps: {
+  web: { framework: "next", git: { repo: "acme/shop", branch: "main", path: "apps/web" } },
+}
+```
+
+| `git` field | Default | |
+|---|---|---|
+| `repo` | (required) | `owner/name` on GitHub |
+| `branch` | `"main"` | the production branch: every push to it deploys |
+| `path` | the top | the app's folder in the repository |
+| `previews` | `"same-repo"` | `"same-repo"`: a preview per pull request from a branch of this repository; `"forks"`: forks too; `"off"` |
+
+`tiffin pull` writes the block back, so the config round-trips.
+
+**3. Push.** That's it. What happens on GitHub:
+
+- the commit gets a status `tiffin/<project>/<app>`: *pending* while it builds, then
+  *success* (linking the live address) or *failure* (linking the build log);
+- a GitHub deployment per deploy (`tiffin/<project>/<app>`, previews as transient
+  environments `…/pr-12`);
+- a pull request's preview lives at `pr-12--web.<domain>`; one comment says
+  "Preview of `web`: https://pr-12--web.example.com · built in 34 s · logs".
+
+Rapid pushes to one branch coalesce: while one builds, only the newest waiting push is
+built next (the ones in between show as *skipped*). A commit message with `[skip deploy]`
+or `[skip ci]` deploys nothing. On the app's page: the connected repository and branch,
+each version's commit (message, author, SHA), **Redeploy** and **Disconnect repo**.
+
+**Security.** Deliveries must carry a valid `X-Hub-Signature-256` (HMAC-SHA256 with the
+app's webhook secret, compared in constant time); a delivery id is accepted once, and
+events older than an hour are refused. Each clone uses a fresh token that can only read
+that one repository, handed to git through its environment (never a file or the command
+line) and revoked as soon as the clone is done. **Pull requests from forks are not built**
+unless the app says `previews: "forks"`: a fork's code would run on your box with the
+project's env and secrets.
+
+**From the terminal or an agent** (every step is an API operation, so also an MCP tool):
+
+```bash
+tiffin github status                       # connected? installed where? recent deliveries
+tiffin github repos --q shop               # repositories the app can see
+tiffin github repo acme shop               # branches, latest commit, folders + framework
+# add apps.web.git to the manifest, then plan and apply it (projects manifest → plan → apply)
+tiffin deploys github shop web             # deploy the branch now (Redeploy); --ref for another
+```
+
+Connecting needs a person in a browser (`tiffin github connect` returns the form GitHub
+expects); agents should ask the owner to click Connect GitHub. `tiffin github disconnect`
+forgets the app (delete it on GitHub too: Settings › Developer settings › GitHub Apps).
+
+**A shared app instead** (a hosted box, or an app you already have): `tiffin github use-app
+--app-id 123 --private-key "$(cat app.pem)" --webhook-secret … [--client-id … --client-secret
+… --public]`, or the operator writes `/var/lib/tiffin/platform/github.json`:
+
+```json
+{ "app": { "id": 123, "privateKeyFile": "/etc/tiffin/github-app.pem", "webhookSecretFile": "/etc/tiffin/github-webhook",
+           "clientId": "Iv1.…", "clientSecretFile": "/etc/tiffin/github-client", "public": true } }
+```
+
+The app's webhook must point at `<box>/v1/github/webhook`. A **public** app is installed by
+other accounts too, so the box only acts for installations made from it: enable *Request
+user authorization (OAuth) during installation* on the app with `<box>/v1/github/setup` as
+a callback URL; after an install the box checks, with GitHub sign-in, that the person can
+reach that installation. The same file takes `"apiUrl"` and `"webUrl"` for GitHub
+Enterprise Server.
+
+**Try it for real (once the box has its public domain):**
+
+1. Dashboard › Settings › Git › Connect GitHub → confirm on GitHub → choose a repository
+   (a small Next.js or static one) → you land back on Settings › Git with "Connected".
+2. New project › Import from GitHub → pick it → Create. The build log streams; the commit
+   on GitHub shows a pending, then green, `tiffin/…` check.
+3. Push a commit to the branch: a new version appears on the app's page within seconds of
+   the push, with its message and author.
+4. Open a pull request: a preview comment appears, then updates with the address; open it.
+   Push to the pull request: the same comment updates. Close it: the preview is removed
+   and the comment says so.
+5. Settings › Git › Recently lists each delivery; GitHub's app settings › Advanced lists
+   them too (all should be 2xx).
 
 ## Sharing the box
 

@@ -14,7 +14,12 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
 3. Before an irreversible plan (deleting data), say exactly what will be lost; your
    client asks the human before destructive tools. A `403 forbidden` means your API key
    doesn't reach it: ask the human, don't work around it.
-4. Deploy with `tiffin deploy`; check `tiffin logs <app>` and the app URL afterwards.
+4. Deploy with `tiffin deploy`; check `tiffin logs <app>` and the app URL afterwards. Code on
+   GitHub? If `tiffin github status` says connected: `tiffin github repos` / `tiffin github repo
+   <owner> <repo>` (folders and framework), put `git: { repo, branch, path }` on the app, plan,
+   apply, then `tiffin deploys github <project> <app>` (also Redeploy). Every push to the branch
+   then deploys and pull requests get previews. Not connected? Ask the human to click Connect
+   GitHub in Settings › Git (it needs a browser).
 5. Secrets go in `tiffin secrets set`, never in the config or the repo. Starting a new project?
    Reuse keys the box already has instead of asking for them again:
    `tiffin secrets list <other>` shows names, `tiffin secrets copy <new> --from <other> [--names A,B]`

@@ -16,6 +16,10 @@ import { ProblemNote } from "@/components/problem";
 import { Qty } from "@/components/qty";
 import { BuildLogView, firstError, useBuildLog } from "@/components/start-build-log";
 import { Button } from "@/components/ui/button";
+import { GitHubMark } from "@/components/github-mark";
+import { checkPick, emptyPick, GitHubImport, type GitHubPick } from "@/components/github-import";
+import { deployGitHub, nameFromRepo, setSecret } from "@/lib/github";
+import { useMe } from "@/lib/me";
 import { splitAddress } from "@/lib/changes";
 import { cn } from "@/lib/cn";
 import { partName, partSub } from "@/lib/names";
@@ -83,15 +87,25 @@ export function NewProjectPage() {
   const asked = typeof search.starter === "string" ? search.starter : undefined;
   const [choice, setChoice] = useState<string>(asked ?? "next-postgres");
   const [git, setGit] = useState({ url: "", ref: "", path: "", framework: "next", postgres: true });
+  const [gh, setGh] = useState<GitHubPick>(emptyPick);
+  const { admin } = useMe();
   const [typed, setTyped] = useState<string | null>(null);
 
   const starter = list.find((s) => s.id === choice);
   const source: Source | null =
-    choice === "empty" ? { kind: "empty" } : choice === "git" ? { kind: "git", ...git } : starter ? { kind: "starter", starter } : null;
-  const suggested = choice === "git" ? nameFromGit(git.url) || "web" : suggestName(starter, taken) || "project";
+    choice === "empty"
+      ? { kind: "empty" }
+      : choice === "git"
+        ? { kind: "git", ...git }
+        : choice === "github"
+          ? { kind: "github", ...gh, env: gh.env.filter((e) => e.k && e.v) }
+          : starter
+            ? { kind: "starter", starter }
+            : null;
+  const suggested = choice === "git" ? nameFromGit(git.url) || "web" : choice === "github" ? nameFromRepo(gh.repo) || "web" : suggestName(starter, taken) || "project";
   const name = typed ?? suggested;
   const check = checkName(name, taken);
-  const gitCheck = choice === "git" ? checkGitUrl(git.url) : ({ ok: true } as const);
+  const gitCheck = choice === "git" ? checkGitUrl(git.url) : choice === "github" ? checkPick(gh) : ({ ok: true } as const);
 
   const [stage, setPhase] = useState<Phase>("compose");
   const [L, setL] = useState<Launched | null>(null);
@@ -114,13 +128,25 @@ export function NewProjectPage() {
       const app = appFor(source);
       setL({ project: name, app: app?.name, started, source });
       const intent =
-        source.kind === "starter" ? `Start ${name} from the ${source.starter.name} starter` : source.kind === "git" ? `Start ${name} from ${shortRepo(git.url)}` : `Start ${name}`;
+        source.kind === "starter"
+          ? `Start ${name} from the ${source.starter.name} starter`
+          : source.kind === "git"
+            ? `Start ${name} from ${shortRepo(git.url)}`
+            : source.kind === "github"
+              ? `Start ${name} from ${source.repo} on GitHub`
+              : `Start ${name}`;
       await api.apply(desired, plan.data.hash, intent);
       setPhase("launching");
       void qc.invalidateQueries({ queryKey: ["projects"] });
       void qc.invalidateQueries({ queryKey: ["changes"] });
       if (!app) return null;
-      const d = source.kind === "starter" ? await deployTemplate(name, app.name, source.starter.id) : await deployGit(name, app.name, git);
+      if (source.kind === "github") for (const e of source.env) await setSecret(name, e.k, e.v);
+      const d =
+        source.kind === "starter"
+          ? await deployTemplate(name, app.name, source.starter.id)
+          : source.kind === "github"
+            ? await deployGitHub(name, app.name)
+            : await deployGit(name, app.name, git);
       setDeployId(d.id);
       return d;
     },
@@ -199,10 +225,18 @@ export function NewProjectPage() {
                 </div>
               )}
               <div className="mt-4 divide-y divide-rule border-y border-rule" role="radiogroup" aria-label="Or">
-                <OptionRow picked={choice === "git"} onPick={() => setChoice("git")} icon={<GitBranch />} title="From a git repo" line={starterLine.git} />
+                <OptionRow
+                  picked={choice === "github"}
+                  onPick={() => setChoice("github")}
+                  icon={<GitHubMark />}
+                  title="Import from GitHub"
+                  line="Your repositories, private ones too. Every push deploys; each pull request gets a preview."
+                />
+                <OptionRow picked={choice === "git"} onPick={() => setChoice("git")} icon={<GitBranch />} title="From a public git URL" line={starterLine.git} />
                 <OptionRow picked={choice === "empty"} onPick={() => setChoice("empty")} icon={<Plus />} title="Empty project" line={starterLine.empty} />
               </div>
               {choice === "git" && <GitFields git={git} setGit={setGit} check={gitCheck} />}
+              {choice === "github" && <GitHubImport value={gh} onChange={setGh} admin={admin} />}
             </Step>
 
             <Step n={2} label="Name">
@@ -272,7 +306,13 @@ export function NewProjectPage() {
             if (!L?.app) return;
             setPhase("launching");
             const src = L.source;
-            (src.kind === "starter" ? deployTemplate(L.project, L.app, src.starter.id) : src.kind === "git" ? deployGit(L.project, L.app, src) : Promise.reject())
+            (src.kind === "starter"
+              ? deployTemplate(L.project, L.app, src.starter.id)
+              : src.kind === "git"
+                ? deployGit(L.project, L.app, src)
+                : src.kind === "github"
+                  ? deployGitHub(L.project, L.app)
+                  : Promise.reject())
               .then((d) => setDeployId(d.id))
               .catch(() => setPhase("failed"));
           }}
@@ -467,7 +507,9 @@ function PlanPanel({
         </div>
         <p className="mt-2 text-[0.9375rem] leading-[1.375rem] font-[550] tracking-[-0.01em] text-ink">
           {blocked
-            ? "Pick a starter and a free name to see the plan."
+            ? source?.kind === "github" && !source.repo
+              ? "Pick a repository to see the plan."
+              : "Pick a starter and a free name to see the plan."
             : clash
               ? `There’s already a project called ${name}. Pick another name.`
               : planError
@@ -565,7 +607,9 @@ function OpRow({ op, project }: { op: Op; project: string }) {
         App <b className="font-[550]">{name}</b>
       </>
     );
+    const git = a.git as { repo?: string; branch?: string } | undefined;
     line = a.framework === "static" ? "Static files, served instantly" : `${frameworkName(String(a.framework ?? ""))}${n > 1 ? `, ${countWords(n, "copy", "copies")}` : ""}`;
+    if (git?.repo) line = `${line}, from ${git.repo} (deploys on every push to ${git.branch ?? "main"})`;
     amount = a.framework === "static" || !a.memoryMB ? null : <Qty value={`+${int(n * Number(a.memoryMB))}`} unit="MB" />;
   } else if (kind === "service") {
     title = partName(name);
@@ -619,7 +663,14 @@ function Launch({
   const since = (now - L.started) / 1000;
   const url = deploy?.url;
   const host = url?.replace(/^https?:\/\//, "");
-  const what = L.source.kind === "starter" ? `the ${L.source.starter.name} starter` : L.source.kind === "git" ? shortRepo(L.source.url) : "";
+  const what =
+    L.source.kind === "starter"
+      ? `the ${L.source.starter.name} starter`
+      : L.source.kind === "git"
+        ? shortRepo(L.source.url)
+        : L.source.kind === "github"
+          ? `${L.source.repo} (${L.source.branch})`
+          : "";
 
   const steps: Array<{ key: string; label: ReactNode; state: "done" | "busy" | "todo" | "fault"; note?: ReactNode }> = [
     { key: "apply", label: `Made ${L.project}`, state: "done" },
@@ -790,9 +841,19 @@ function Live({
 
             <h2 className="label mt-10 mb-1">Next</h2>
             <ol className="divide-y divide-rule border-y border-rule">
-              <NextStep n={1} title="Connect your agent" line="Claude Code can plan changes to this box. Anything risky waits for you to approve it with a passkey.">
-                <Command cmd="claude mcp add tiffin -- tiffin mcp" />
-              </NextStep>
+              {L.source.kind === "github" ? (
+                <NextStep n={1} title={`Push to ${L.source.branch}`} line={`Every push to ${L.source.branch} deploys ${L.app}. Each pull request gets a preview at its own address, and a comment with the link.`}>
+                  <Button asChild size="md">
+                    <a href={`https://github.com/${L.source.repo}`} target="_blank" rel="noopener noreferrer">
+                      <GitHubMark /> Open {L.source.repo}
+                    </a>
+                  </Button>
+                </NextStep>
+              ) : (
+                <NextStep n={1} title="Connect your agent" line="Claude Code can plan changes to this box. Anything risky waits for you to approve it with a passkey.">
+                  <Command cmd="claude mcp add tiffin -- tiffin mcp" />
+                </NextStep>
+              )}
               <NextStep n={2} title="Edit it locally" line={`Pull ${L.project}’s config into a folder, change it, and tiffin apply shows the plan first.`}>
                 <Command cmd={`tiffin pull --project ${L.project}`} />
               </NextStep>

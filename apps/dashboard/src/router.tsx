@@ -3,6 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { Tier } from "@/api/client";
 import { Shell } from "@/components/shell";
 import type { ActivitySearch } from "@/routes/activity";
+import type { GitSearch } from "@/routes/git-settings";
 import { HomePage } from "@/routes/home";
 import { Page } from "@/components/page";
 import { q } from "@/api/queries";
@@ -43,6 +44,7 @@ const ProjectSettingsPage = lz<{ project: string }>(() => import("@/routes/proje
 const ActivityPage = lz<{ search: ActivitySearch }>(() => import("@/routes/activity"), "ActivityPage");
 const SettingsPage = lz(() => import("@/routes/box-settings"), "SettingsPage");
 const NewProjectPage = lz(() => import("@/routes/new"), "NewProjectPage");
+const GitSettingsPage = lz<{ search: GitSearch }>(() => import("@/routes/git-settings"), "GitSettingsPage");
 const KitPage = lz(() => import("@/routes/kit"), "KitPage");
 const ChangePage = lz<{ id: string }>(() => import("@/routes/change"), "ChangePage");
 const StatusPage = lz(() => import("@/routes/status"), "StatusPage");
@@ -150,6 +152,19 @@ const settings = createRoute({ getParentRoute: () => app, path: "/settings", loa
   component: SettingsPage });
 const newProject = createRoute({ getParentRoute: () => app, path: "/new", loader: () => void NewProjectPage.preload(),
   component: NewProjectPage });
+const gitSettings = createRoute({
+  getParentRoute: () => app,
+  path: "/settings/git",
+  validateSearch: (s: Record<string, unknown>): GitSearch => ({
+    ...(s.installed === "1" || s.installed === 1 || s.installed === true ? { installed: true } : {}),
+    ...(s.requested === "1" || s.requested === 1 || s.requested === true ? { requested: true } : {}),
+    ...(typeof s.error === "string" && s.error ? { error: s.error.slice(0, 400) } : {}),
+  }),
+  loader: () => void GitSettingsPage.preload(),
+  component: function GitSettings() {
+    return <GitSettingsPage search={gitSettings.useSearch()} />;
+  },
+});
 const kit = createRoute({ getParentRoute: () => app, path: "/_kit", loader: () => void KitPage.preload(),
   component: KitPage });
 
@@ -526,6 +541,7 @@ const tree = root.addChildren([
     boxUsage,
     activity,
     settings,
+    gitSettings,
     newProject,
     kit,
     change,

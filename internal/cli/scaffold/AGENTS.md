@@ -29,6 +29,7 @@ tiffin apply --confirm <hash> -m "why, in one sentence"
 |---|---|
 | What's running and is it healthy? | `tiffin status`, `tiffin projects get <project>` |
 | Deploy an app | `tiffin deploy [dir] --app <name>` |
+| Deploy from GitHub | `tiffin github repos --q <name>`, `tiffin github repo <owner> <repo>` (folders, framework), add `git: {repo, branch, path}` to the app, plan, apply, then `tiffin deploys github <project> <app>`; pushes deploy by themselves after that |
 | Logs | `tiffin logs <app> -f` |
 | Secrets (never in tiffin.config.ts) | `tiffin secrets set <project> <NAME> --value ...` |
 | Reuse another project's keys | `tiffin secrets copy <project> --from <other> [--names OPENAI_API_KEY]` (values stay in the box) |

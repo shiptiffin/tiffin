@@ -93,6 +93,7 @@ var groupShort = map[string]string{
 	"auth":      "Your apps' users, sessions and organizations",
 	"protect":   "Rate limits, bans, the bot challenge and under-attack mode",
 	"git":       "The box's git remote for push-to-deploy",
+	"github":    "Connect GitHub: deploy on push, a preview per pull request",
 	"issues":    "Errors your apps reported, grouped into issues",
 	"observe":   "Observability settings and overview",
 	"previews":  "Preview deploys: list, sleep and delete",

@@ -51,6 +51,28 @@ export interface AppConfig {
   healthcheck?: string;
   /** App-specific plain environment variables (merged over the top-level `env`). */
   env?: Record<string, string>;
+  /**
+   * Connects the app to a GitHub repository through the box's GitHub App
+   * (Settings › Git): every push to `branch` deploys to production, and pull
+   * requests get preview deploys.
+   */
+  git?: GitConfig;
+}
+
+/** Where an app's code lives on GitHub. */
+export interface GitConfig {
+  /** The repository, "owner/name", e.g. "acme/shop". */
+  repo: string;
+  /** The production branch: every push to it deploys. Default "main". */
+  branch?: string;
+  /** The app's folder inside the repository (monorepos), e.g. "apps/web". Default: the top. */
+  path?: string;
+  /**
+   * Which pull requests get a preview. "same-repo" (default): branches of this
+   * repository. "forks": also forks, whose code then runs with the project's
+   * env and secrets. "off": none.
+   */
+  previews?: "same-repo" | "forks" | "off";
 }
 
 /** Postgres gives the project its own database. */

@@ -38,7 +38,7 @@ func TestAllModulesRegister(t *testing.T) {
 		t.Fatalf("%d tools for %d operations", len(tools), len(a.Operations()))
 	}
 	// Adding or removing an operation is a deliberate API change: update this.
-	const wantOps = 185
+	const wantOps = 193
 	if n := len(a.Operations()); n != wantOps {
 		t.Errorf("%d operations, want %d", n, wantOps)
 	}
@@ -59,6 +59,15 @@ func TestCreateOperations(t *testing.T) {
 		"project-usage":    {"GET", "/v1/projects/{project}/usage", "projects usage", api.RiskRead, false},
 		"box-settings-get": {"GET", "/v1/box/settings", "box settings get", api.RiskRead, false},
 		"box-settings-set": {"PUT", "/v1/box/settings", "box settings set", api.RiskWrite, false},
+		// Deploying from GitHub.
+		"github-status":     {"GET", "/v1/github", "github status", api.RiskRead, true},
+		"github-connect":    {"POST", "/v1/github/connect", "github connect", api.RiskWrite, false},
+		"github-install":    {"POST", "/v1/github/install", "github install", api.RiskWrite, false},
+		"github-use-app":    {"PUT", "/v1/github/app", "github use-app", api.RiskWrite, true},
+		"github-disconnect": {"DELETE", "/v1/github", "github disconnect", api.RiskDestructive, false},
+		"github-repos":      {"GET", "/v1/github/repos", "github repos", api.RiskRead, true},
+		"github-repo":       {"GET", "/v1/github/repos/{owner}/{repo}", "github repo", api.RiskRead, true},
+		"deploy-github":     {"POST", "/v1/projects/{project}/apps/{app}/deploys/github", "deploys github", api.RiskWrite, true},
 	}
 	for _, o := range a.Operations() {
 		w, ok := want[o.OperationID]

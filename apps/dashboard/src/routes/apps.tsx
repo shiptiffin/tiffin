@@ -14,6 +14,9 @@ import { ProblemNote } from "@/components/problem";
 import { AddMenu } from "@/components/start-add-menu";
 import { BuildLogView, firstError, useBuildLog } from "@/components/start-build-log";
 import { DeployTray } from "@/components/start-deploy-tray";
+import { AppRepo, useRedeploy } from "@/components/app-github";
+import { GitHubMark } from "@/components/github-mark";
+import { deployGitHub } from "@/lib/github";
 import { INSTANCE_STOPS, Throttle } from "@/components/throttle";
 import { useAppStatus } from "@/components/tier-status";
 import { toast } from "@/components/toast";
@@ -45,6 +48,7 @@ const statusWord: Record<Deploy["status"], string> = {
   superseded: "Replaced",
   rolled_back: "Rolled back",
   stopped: "Stopped",
+  skipped: "Skipped",
 };
 
 /** Production deploys oldest first get v1, v2…: the number people say ("roll back to v11"). */
@@ -55,6 +59,7 @@ function versions(list: Deploy[]): Map<string, number> {
 
 function sourceWords(d: Deploy, starters?: Array<{ id: string; name: string }>) {
   if (d.source === "template") return `the ${starters?.find((s) => s.id === d.template)?.name ?? d.template} starter`;
+  if (d.source === "git" && d.message) return `“${d.message}” · ${d.commit?.slice(0, 7) ?? d.ref ?? ""}${d.pullRequest ? ` · pull request #${d.pullRequest}` : ""}`;
   if (d.source === "git") {
     const repo = d.repo?.replace(/^https?:\/\/(www\.)?/, "").replace(/\.git$/, "");
     return `${repo ?? "git"}${d.commit ? ` @ ${d.commit.slice(0, 7)}` : d.ref ? ` @ ${d.ref}` : ""}`;
@@ -238,6 +243,7 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
   const [restarting, setRestarting] = useState(false);
   const [deletePreview, setDeletePreview] = useState<string | null>(null);
   const makeCurrent = useMakeCurrent(project, app);
+  const redeploy = useRedeploy(project, app, spec?.git);
   const sleep = useMutation({
     mutationFn: (name: string) => mod3.sleepPreview(project, app, name),
     onSuccess: (_r, name) => {
@@ -297,11 +303,15 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
         }
         actions={
           <>
-            {writer && (
+            {writer && spec?.git ? (
+              <Button variant="primary" size="lg" onClick={() => redeploy.mutate()} disabled={redeploy.isPending}>
+                {redeploy.isPending ? "Starting…" : prodList.length ? "Redeploy" : `Deploy ${spec.git.branch ?? "main"}`}
+              </Button>
+            ) : writer ? (
               <Button variant="primary" size="lg" onClick={() => setTray(true)}>
                 Deploy {app}
               </Button>
-            )}
+            ) : null}
             <Button asChild size="lg">
               <Link to="/projects/$project/apps/$app/logs" params={{ project, app }}>
                 Logs
@@ -342,11 +352,11 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
           <div className="min-w-0">
             <p className="text-[0.9375rem] font-[550] text-ink">Nothing deployed yet.</p>
             <p className="text-sm text-ink-2">
-              {next ? ("template" in next ? `It was added from the ${starters.data?.find((s) => s.id === next.template)?.name ?? next.template} starter. Build it now.` : `It was added from ${next.git.url.replace(/^https:\/\//, "")}. Build it now.`) : "Deploy a starter or a git URL from here, or push from your terminal."}
+              {spec?.git ? `It deploys from ${spec.git.repo} on every push to ${spec.git.branch ?? "main"}. Build the latest commit now.` : next ? ("template" in next ? `It was added from the ${starters.data?.find((s) => s.id === next.template)?.name ?? next.template} starter. Build it now.` : `It was added from ${next.git.url.replace(/^https:\/\//, "")}. Build it now.`) : "Deploy a starter or a git URL from here, or push from your terminal."}
             </p>
           </div>
-          <Button variant="primary" size="lg" onClick={() => setTray(true)}>
-            Deploy {app}
+          <Button variant="primary" size="lg" onClick={() => (spec?.git ? redeploy.mutate() : setTray(true))} disabled={redeploy.isPending}>
+            {spec?.git ? `Deploy ${spec.git.branch ?? "main"}` : `Deploy ${app}`}
           </Button>
         </div>
       )}
@@ -372,7 +382,7 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
                     app={app}
                     d={d}
                     v={vs.get(d.id)!}
-                    who={d.createdBy ? who(d.createdBy) : undefined}
+                    who={d.createdBy?.startsWith("github:") ? (d.author ?? d.createdBy.slice(7)) : d.createdBy ? who(d.createdBy) : undefined}
                     source={sourceWords(d, starters.data)}
                     onMakeCurrent={writer && d.digest && (d.status === "superseded" || d.status === "rolled_back") ? () => makeCurrent.mutate({ to: d, from: current, v: vs.get(d.id), fromV: current ? vs.get(current.id) : undefined }) : undefined}
                     busy={makeCurrent.isPending && makeCurrent.variables?.to.id === d.id}
@@ -425,6 +435,7 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
         </div>
 
         <aside className="flex min-w-0 flex-col gap-9" aria-label="Scale">
+          {spec?.git && <AppRepo project={project} app={app} git={spec.git} writer={writer} />}
           {spec && !isStatic && (
             <Scale project={project} app={app} spec={spec} free={free} instances={pendingFor(edits, `instances:${app}`)} memory={edits.find((e: StagedEdit) => e.kind === "set" && e.path.join("/") === `apps/${app}/memoryMB`)} writer={writer} />
           )}
@@ -636,7 +647,12 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
     return () => clearInterval(t);
   }, [running]);
   const again = useMutation({
-    mutationFn: () => (dep!.source === "template" ? deployTemplate(project, app, dep!.template!) : deployGit(project, app, { url: dep!.repo!, ref: dep!.ref, path: undefined })),
+    mutationFn: () =>
+      dep!.source === "template"
+        ? deployTemplate(project, app, dep!.template!)
+        : dep!.trigger
+          ? deployGitHub(project, app, dep!.commit)
+          : deployGit(project, app, { url: dep!.repo!, ref: dep!.ref, path: undefined }),
     onSuccess: (n) => {
       refresh(qc, project, app);
       void navigate({ to: "/projects/$project/apps/$app/deploys/$id", params: { project, app, id: n.id } });
@@ -662,10 +678,11 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
   if (dep) {
     const from = sourceWords(dep, starters.data);
     if (running) sentence = `${dep.status === "starting" ? "Checking its health" : dep.status === "queued" ? "Waiting to build" : "Building"} from ${from}, ${secs(elapsed)} so far.`;
-    else if (dep.status === "live") sentence = `Live since ${clock(liveSince(dep))}, ${secs(dep.durationSeconds)} after it was queued.`;
+    else if (dep.status === "live") sentence = dep.durationSeconds !== undefined ? `Live since ${clock(liveSince(dep))}, ${secs(dep.durationSeconds)} after it was queued.` : `Live since ${clock(liveSince(dep))}.`;
     else if (dep.status === "failed") sentence = <span className="text-danger">{dep.buildSeconds !== undefined ? "It built, but didn’t start." : "It didn’t build."}</span>;
     else if (dep.status === "superseded") sentence = `Replaced by a newer version. It can be made current again.`;
     else if (dep.status === "rolled_back") sentence = "Rolled back. It can be made current again.";
+    else if (dep.status === "skipped") sentence = "Skipped: a newer commit arrived before this one was built, and that one was deployed instead.";
     else sentence = "Stopped.";
   }
 
@@ -711,8 +728,25 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
       {dep && (
         <p className="mt-1.5 text-[0.875rem] text-ink-3">
           Started {relative(dep.createdAt)}
-          {dep.createdBy ? ` by ${who(dep.createdBy)}` : ""} from {sourceWords(dep, starters.data)}
+          {dep.createdBy ? ` by ${dep.createdBy.startsWith("github:") ? `a push from ${dep.createdBy.slice(7)}` : who(dep.createdBy)}` : ""}
+          {dep.trigger ? "" : ` from ${sourceWords(dep, starters.data)}`}
           {dep.preview ? `, preview ${dep.preview}` : ""} · <span className="ident text-[0.75rem]">{dep.id}</span>
+        </p>
+      )}
+      {dep?.trigger && dep.commit && (
+        <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[0.8125rem] text-ink-3">
+          <GitHubMark className="size-3.5 text-ink-3" />
+          <a href={`${dep.repo}/commit/${dep.commit}`} target="_blank" rel="noopener noreferrer" className="ident text-[0.75rem] text-brass-ink hover:text-ink">
+            {dep.commit.slice(0, 7)}
+          </a>
+          {dep.message && <span className="min-w-0 truncate text-ink-2">{dep.message}</span>}
+          {dep.author && <span>by {dep.author}</span>}
+          {dep.ref && <span>on {dep.ref}</span>}
+          {dep.pullRequest ? (
+            <a href={`${dep.repo}/pull/${dep.pullRequest}`} target="_blank" rel="noopener noreferrer" className="hover:text-ink">
+              pull request #{dep.pullRequest}
+            </a>
+          ) : null}
         </p>
       )}
 

@@ -192,6 +192,20 @@ func appNode(name string, a App) *node {
 	if len(a.Env) > 0 {
 		n.set("env", strMap(a.Env))
 	}
+	if g := a.Git; g != nil {
+		gn := obj()
+		gn.set("repo", str(g.Repo))
+		if g.Branch != DefaultGitBranch {
+			gn.set("branch", str(g.Branch))
+		}
+		if g.Path != "" {
+			gn.set("path", str(g.Path))
+		}
+		if g.Previews != PreviewsSameRepo {
+			gn.set("previews", str(string(g.Previews)))
+		}
+		n.set("git", gn)
+	}
 	return n
 }
 

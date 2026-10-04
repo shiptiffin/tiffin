@@ -704,6 +704,130 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/github": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show the GitHub connection
+         * @description Whether the box is connected to GitHub (its GitHub App), the accounts the app is installed on, the webhook address, whether GitHub can reach the box, and the last things the box did because of GitHub (pushes deployed, previews made or removed).
+         */
+        get: operations["github-status"];
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect GitHub
+         * @description Forgets the box's GitHub App (its key and webhook secret): pushes stop deploying and previews stop. Apps keep their repository settings, and what runs keeps running. The app itself stays on GitHub until you delete it there (settingsUrl). Connecting again creates a new app. Box admins only.
+         */
+        delete: operations["github-disconnect"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/github/app": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Use an existing GitHub App
+         * @description Points the box at a GitHub App that already exists (a hosted service's shared app, or one you made by hand) instead of creating its own: the app id, its private key and webhook secret (and, for a public app, its client id and secret). The box checks the key with GitHub, then keeps everything sealed with its own key. The app's webhook must point at <box>/v1/github/webhook. Box admins only.
+         */
+        put: operations["github-use-app"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/github/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start connecting GitHub
+         * @description Starts creating the box's own GitHub App (the manifest flow): returns a GitHub address and an app manifest that a browser POSTs there as a form field named manifest. The owner confirms on GitHub, GitHub sends them back to the box, the box keeps the app's key sealed, and they go on to pick repositories. It needs a person in a browser; agents should ask the owner to click Connect GitHub in Settings › Git. Connecting again replaces the app. Box admins only.
+         */
+        post: operations["github-connect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/github/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Install the GitHub App on repositories
+         * @description Returns the GitHub page where the owner picks which accounts and repositories the box's app may reach (open it in a browser). GitHub sends them back to the box afterwards. Box admins only.
+         */
+        post: operations["github-install"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/github/repos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List GitHub repositories
+         * @description Repositories the box's GitHub App can reach (private ones included), most recently pushed first, with their default branch and which apps already deploy from them. Filter with q. To deploy one: github repo for its folders and framework, then add an app with git: {repo, branch, path} to the project's manifest, plan, apply, and deploys github.
+         */
+        get: operations["github-repos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/github/repos/{owner}/{repo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Look inside a GitHub repository
+         * @description What the box sees in a repository before importing it: branches, the latest commit, and the folders that look like apps (package.json, index.html) with the framework the box would use for each (next, hono, bun or static), most likely first. Monorepos list each app's folder; use it as git.path.
+         */
+        get: operations["github-repo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/health": {
         parameters: {
             query?: never;
@@ -1286,6 +1410,26 @@ export interface paths {
          * @description Deploys an app from a public git repository: the box shallow-clones one commit (https only, no credentials, public hosts only, no submodules, size and time limits), then builds and releases it through the regular pipeline (build log, health check, zero-downtime switch, rollback). The clone shows in the build log. The app must already exist: add it to the manifest and apply first. Returns at once with the queued deploy; poll deploys get until status is live or failed. For private code, push to the box instead (git info).
          */
         post: operations["deploy-git"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/apps/{app}/deploys/github": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deploy from GitHub
+         * @description Deploys an app connected to a GitHub repository (git in its manifest) now: the latest commit of its production branch, or ref. Pushes deploy on their own; this is Redeploy, or the first deploy after importing a repository. The box clones exactly that commit with a short-lived read-only token, builds and releases it through the regular pipeline, and marks the commit on GitHub. Returns at once with the queued deploy; poll deploys get until status is live or failed.
+         */
+        post: operations["deploy-github"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4978,6 +5122,7 @@ export interface components {
                 [key: string]: string;
             };
             framework: string;
+            git?: components["schemas"]["ManifestGit"];
             healthcheck?: string;
             /** Format: int64 */
             instances: number;
@@ -5019,6 +5164,12 @@ export interface components {
                     [key: string]: unknown;
                 };
             };
+        };
+        ManifestGit: {
+            branch: string;
+            path?: string;
+            previews: string;
+            repo: string;
         };
         ManifestPostgres: {
             extensions?: string[] | null;
@@ -6612,6 +6763,8 @@ export interface components {
         };
         RuntimeDeploy: {
             app: string;
+            /** @description Who made the commit (GitHub login or git author name), for deploys from GitHub */
+            author?: string;
             /**
              * Format: double
              * @description Time spent building
@@ -6619,7 +6772,7 @@ export interface components {
             buildSeconds?: number;
             /** Format: date-time */
             builtAt?: string;
-            /** @description Git commit, for git pushes and deploys from a git URL */
+            /** @description Git commit, for git pushes and deploys from a git URL or GitHub */
             commit?: string;
             /** Format: date-time */
             createdAt: string;
@@ -6654,12 +6807,19 @@ export interface components {
              * @description When it went live: deployed, or rolled back to. Restarts and rescales don't move it.
              */
             liveAt?: string;
+            /** @description The commit's message (first line), for deploys from GitHub */
+            message?: string;
             /** @description Preview name, empty for production */
             preview?: string;
             project: string;
-            /** @description Branch, tag or commit asked for, for deploys from a git URL */
+            /**
+             * Format: int64
+             * @description The pull request a preview deploy is for, for deploys from GitHub
+             */
+            pullRequest?: number;
+            /** @description Branch, tag or commit asked for, for deploys from a git URL or GitHub */
             ref?: string;
-            /** @description Repository URL, for deploys from a git URL */
+            /** @description Repository URL, for deploys from a git URL or GitHub */
             repo?: string;
             /** @enum {string} */
             source: "upload" | "files" | "prebuilt" | "git" | "template";
@@ -6667,12 +6827,17 @@ export interface components {
             sourceBytes?: number;
             staticRoot?: string;
             /**
-             * @description queued → building → starting → live; failed keeps the previous deploy serving; superseded and rolled_back deploys can be rolled back to
+             * @description queued → building → starting → live; failed keeps the previous deploy serving; superseded and rolled_back deploys can be rolled back to; skipped: a newer push arrived before it was built
              * @enum {string}
              */
-            status: "queued" | "building" | "starting" | "live" | "failed" | "superseded" | "rolled_back" | "stopped";
+            status: "queued" | "building" | "starting" | "live" | "failed" | "superseded" | "rolled_back" | "stopped" | "skipped";
             /** @description Starter template, for template deploys */
             template?: string;
+            /**
+             * @description What started a deploy from GitHub: a push to the production branch, a pull request, or a redeploy asked for on the box
+             * @enum {string}
+             */
+            trigger?: "push" | "pull_request" | "redeploy" | "";
             /** @description Where the deploy is served (web apps) */
             url?: string;
         };
@@ -6706,6 +6871,33 @@ export interface components {
             updatedAt: string;
             url?: string;
         };
+        RuntimeGhConnectBody: {
+            /** @description The app's name on GitHub (unique across GitHub). Default tiffin-<box> */
+            name?: string;
+            /** @description Create the app in this GitHub organization instead of your personal account */
+            org?: string;
+        };
+        RuntimeGhDeployBody: {
+            /** @description Branch, tag or commit SHA to deploy. Default: the app's production branch (git.branch) */
+            ref?: string;
+        };
+        RuntimeGhUseAppBody: {
+            /**
+             * Format: int64
+             * @description The GitHub App's id
+             */
+            appId: number;
+            /** @description The app's client id (needed for a public app) */
+            clientId?: string;
+            /** @description The app's client secret (needed for a public app) */
+            clientSecret?: string;
+            /** @description The app's private key (PEM) */
+            privateKey: string;
+            /** @description Other GitHub accounts install this app too (a shared, public app). The box then only acts for installations its admin makes from the box, proven with GitHub sign-in during the install (enable 'Request user authorization (OAuth) during installation' on the app, with <box>/v1/github/setup as its callback URL). */
+            public?: boolean;
+            /** @description The app's webhook secret */
+            webhookSecret: string;
+        };
         RuntimeGitDeployBody: {
             /** @description The app's directory inside the repository, e.g. apps/web. Default: the top. */
             path?: string;
@@ -6716,6 +6908,135 @@ export interface components {
              * @example https://github.com/owner/repo
              */
             url: string;
+        };
+        RuntimeGitHubAppInfo: {
+            /** Format: date-time */
+            createdAt?: string;
+            htmlUrl?: string;
+            /** Format: int64 */
+            id: number;
+            name: string;
+            owner?: string;
+            /** @description Where to manage or delete the app on GitHub */
+            settingsUrl?: string;
+            slug: string;
+        };
+        RuntimeGitHubCommit: {
+            author: string;
+            message: string;
+            sha: string;
+        };
+        RuntimeGitHubConnectStart: {
+            /** @description The app manifest (JSON) for the form's manifest field */
+            manifest: string;
+            /** @description The app's name (the owner can change it on GitHub) */
+            name: string;
+            /** @description POST a form here from the browser, with one field, manifest */
+            url: string;
+        };
+        RuntimeGitHubEvent: {
+            /** Format: date-time */
+            at: string;
+            /** @description push, pull_request, installation, connect... */
+            event: string;
+            ok: boolean;
+            repo?: string;
+            /** @description What happened, in plain words */
+            summary: string;
+        };
+        RuntimeGitHubInstallation: {
+            account: string;
+            /** @description User or Organization */
+            accountType: string;
+            /** Format: int64 */
+            id: number;
+            /**
+             * @description Every repository of the account, or the ones picked
+             * @enum {string}
+             */
+            repositories: "all" | "selected";
+            /** @description Where to change which repositories it reaches */
+            settingsUrl?: string;
+            suspended?: boolean;
+        };
+        RuntimeGitHubLink: {
+            url: string;
+        };
+        RuntimeGitHubRepo: {
+            archived?: boolean;
+            /** @description project/app already deploying from it */
+            connected: string[] | null;
+            defaultBranch: string;
+            description?: string;
+            fork?: boolean;
+            /** @example acme/shop */
+            fullName: string;
+            /** Format: int64 */
+            installation: number;
+            name: string;
+            owner: string;
+            private: boolean;
+            /** Format: date-time */
+            pushedAt: string;
+            url: string;
+        };
+        RuntimeGitHubRepoDetail: {
+            /** @description The branch looked at */
+            branch: string;
+            branches: string[] | null;
+            /** @description The branch's latest commit */
+            commit?: components["schemas"]["RuntimeGitHubCommit"];
+            /** @description project/app already deploying from it */
+            connected: string[] | null;
+            defaultBranch: string;
+            fullName: string;
+            private: boolean;
+            /** @description Folders that look like apps, the most likely first */
+            roots: components["schemas"]["RuntimeRepoRoot"][] | null;
+            /** @description The folder to deploy, if unsure */
+            suggested: string;
+            /** @description The repository is very large; only part of it was looked at */
+            truncated?: boolean;
+        };
+        RuntimeGitHubRepoList: {
+            /**
+             * Format: int64
+             * @description Accounts searched
+             */
+            installations: number;
+            repos: components["schemas"]["RuntimeGitHubRepo"][] | null;
+            /**
+             * Format: int64
+             * @description Repositories before the search filter and limit
+             */
+            total: number;
+        };
+        RuntimeGitHubStatus: {
+            app?: components["schemas"]["RuntimeGitHubAppInfo"];
+            /** @description The caller can connect, install and disconnect (box admins) */
+            canManage: boolean;
+            /** @description The box has a working GitHub App */
+            connected: boolean;
+            /** @description What the box did because of GitHub, newest first */
+            events: components["schemas"]["RuntimeGitHubEvent"][] | null;
+            /** @description The GitHub this box talks to */
+            githubUrl: string;
+            /** @description Accounts the app is installed on, that this box acts for */
+            installations: components["schemas"]["RuntimeGitHubInstallation"][] | null;
+            /** @description Why the app does not work right now */
+            problem?: string;
+            /** @description GitHub can deliver to the box's address */
+            reachable: boolean;
+            reachableHint?: string;
+            /** @description A public app other GitHub accounts install too: the box only acts for installations made from this box */
+            shared: boolean;
+            /**
+             * @description box: an app this box created (Connect GitHub). configured: an existing app given to the box (github use-app). file: set by the box's operator in its settings file
+             * @enum {string}
+             */
+            source?: "box" | "configured" | "file" | "";
+            /** @description Where GitHub delivers events */
+            webhookUrl: string;
         };
         RuntimeGitInfo: {
             instructions: string;
@@ -6759,6 +7080,21 @@ export interface components {
             lines: components["schemas"]["RuntimeLogLine"][] | null;
             /** @description Pass as since to get only newer lines */
             next?: string;
+        };
+        RuntimeRepoRoot: {
+            /**
+             * @description How the box would build it
+             * @enum {string}
+             */
+            framework: "next" | "hono" | "bun" | "static";
+            /** @description The package name, if any */
+            name?: string;
+            /** @description Folder inside the repository; empty for the top */
+            path: string;
+            /** @description What the guess is based on, in plain words */
+            why: string;
+            /** @description A monorepo's top: its apps are in the folders below */
+            workspace?: boolean;
         };
         RuntimeTemplateBody: {
             /**
@@ -10487,6 +10823,547 @@ export interface operations {
             };
         };
     };
+    "github-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeGitHubStatus"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "github-disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeGitHubLink"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "github-use-app": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuntimeGhUseAppBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeGitHubStatus"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "github-connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuntimeGhConnectBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeGitHubConnectStart"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "github-install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeGitHubLink"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "github-repos": {
+        parameters: {
+            query?: {
+                /** @description Only repositories whose owner/name contains this */
+                q?: string;
+                /** @description Maximum repositories to return */
+                limit?: number;
+                /** @description Ask GitHub again instead of using the list from the last minute */
+                refresh?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeGitHubRepoList"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "github-repo": {
+        parameters: {
+            query?: {
+                /** @description Branch to look at. Default: the repository's default branch */
+                branch?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Account that owns the repository */
+                owner: string;
+                /** @description Repository name */
+                repo: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeGitHubRepoDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     health: {
         parameters: {
             query?: never;
@@ -12935,6 +13812,101 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "deploy-github": {
+        parameters: {
+            query?: {
+                /** @description Deploy as a preview with this name instead of production */
+                preview?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description App name */
+                app: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RuntimeGhDeployBody"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeDeploy"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

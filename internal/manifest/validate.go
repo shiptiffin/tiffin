@@ -80,6 +80,15 @@ func semanticErrors(m *Manifest) []FieldError {
 	for _, name := range sortedKeys(m.Apps) {
 		app := m.Apps[name]
 		base := "/apps/" + escapePointer(name)
+		if g := app.Git; g != nil && g.Path != "" {
+			for _, seg := range strings.Split(g.Path, "/") {
+				if seg == ".." || seg == "." || seg == "" {
+					errs = append(errs, FieldError{Path: base + "/git/path",
+						Message: fmt.Sprintf("%q must be a folder inside the repository, like \"apps/web\" (no \"..\", \".\" or empty parts)", g.Path)})
+					break
+				}
+			}
+		}
 		if app.Role == RoleWorker && len(app.Routes) > 0 {
 			errs = append(errs, FieldError{
 				Path:    base + "/routes",

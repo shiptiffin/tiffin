@@ -127,6 +127,40 @@
         "env": {
           "description": "App-specific plain environment variables, merged over the top-level `env`.",
           "$ref": "#/$defs/env"
+        },
+        "git": {
+          "description": "Connects the app to a GitHub repository through the box's GitHub App (Settings › Git): every push to `branch` deploys to production, and pull requests get preview deploys. Absent: the app deploys only when asked.",
+          "$ref": "#/$defs/git"
+        }
+      }
+    },
+    "git": {
+      "description": "Where an app's code lives on GitHub.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo"],
+      "properties": {
+        "repo": {
+          "description": "The repository, \"owner/name\", e.g. \"acme/shop\". The box's GitHub App must be installed on it.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$"
+        },
+        "branch": {
+          "description": "The production branch: every push to it deploys the app. Default \"main\".",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+        },
+        "path": {
+          "description": "The app's folder inside the repository, for monorepos, e.g. \"apps/web\". Default: the top of the repository.",
+          "type": "string",
+          "maxLength": 500,
+          "pattern": "^/?([A-Za-z0-9._@()+-][A-Za-z0-9._@()+/ -]*)?$"
+        },
+        "previews": {
+          "description": "Which pull requests get a preview deploy at its own address. \"same-repo\": pull requests from branches of this repository. \"forks\": also pull requests from forks, whose code then runs on your box with the project's env and secrets. \"off\": no previews. Default \"same-repo\".",
+          "enum": ["same-repo", "forks", "off"]
         }
       }
     },

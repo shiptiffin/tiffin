@@ -4,6 +4,7 @@ export type {
   AppConfig,
   BucketConfig,
   Framework,
+  GitConfig,
   PostgresConfig,
   QueueConfig,
   ResourcesConfig,
