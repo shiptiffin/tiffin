@@ -27,13 +27,16 @@ const checkNames: Record<string, string> = {
   "observe.ingest": "Error intake",
   email: "Email",
   storage: "Storage",
-  auth: "Sign-in",
+  auth: "Auth",
   queue: "Queues",
   "analytics.collector": "Analytics",
   "analytics.geoip": "Visitor locations",
   runtime: "Apps",
   backups: "Backups",
   "disk-guard": "Disk guard",
+  containers: "Containers",
+  deploys: "Deploys",
+  resources: "Project resources",
 };
 const checkName = (c: Check) => checkNames[c.name] ?? c.name.charAt(0).toUpperCase() + c.name.slice(1);
 
@@ -264,12 +267,12 @@ export function StatusPage() {
 /** The parts of the box the checks belong to, in the order a request meets them. */
 const parts: Array<{ name: string; about: string; checks: string[] }> = [
   { name: "Edge", about: "HTTPS, protection and the firewall", checks: ["edge", "protection", "crowdsec", "firewall"] },
-  { name: "Apps", about: "Containers and sign-in", checks: ["runtime", "auth"] },
+  { name: "Apps", about: "Containers, deploys and sign-in", checks: ["runtime", "containers", "deploys", "auth"] },
   { name: "Data", about: "Databases, files and backups", checks: ["postgres", "valkey", "storage", "backups", "disk", "disk-guard"] },
-  { name: "Mail", about: "Sending and catching email", checks: ["email"] },
+  { name: "Email", about: "Sending and catching email", checks: ["email"] },
   { name: "Jobs", about: "Queues, workflows and schedules", checks: ["queue"] },
   { name: "Watching", about: "Metrics, logs, errors and analytics", checks: ["observe.metrics", "observe.logs", "observe.ingest", "analytics.collector", "analytics.geoip"] },
-  { name: "Platform", about: "Tiffin itself and the machine", checks: ["state", "provision", "memory"] },
+  { name: "Platform", about: "Tiffin itself and the machine", checks: ["state", "provision", "resources", "memory"] },
 ];
 
 function partsOf(checks: Check[]) {
