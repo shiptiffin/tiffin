@@ -14,7 +14,8 @@ is `storage`, then `auth`, `email` and `analytics`; Jobs are the top-level `queu
 `crons`. `database`, `cache` and `files` also work in `tiffin.config.ts` and are stored
 under the first name (which is what `tiffin pull` writes back).
 
-Each web app is served at `<app>.<domain>` unless it sets `routes`. Addresses are
+Each web app is served at `<app>.<domain>` unless it sets `routes` (`<domain>` is the
+box's domain, or its separate apps domain: see [Domains](domains.md)). Addresses are
 box-wide, so a second project's `web` app needs its own (`routes: ["blog"]`): the plan
 refuses an address another project already serves.
 
