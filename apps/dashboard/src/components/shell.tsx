@@ -206,7 +206,7 @@ function MobileBar({ onMenu, onSearch, switcher }: { onMenu: () => void; onSearc
 
 // ───────────────────────── sidebar ─────────────────────────
 
-const settingsPaths = ["/settings", "/settings/box", "/settings/people", "/settings/passkeys", "/protect"];
+const settingsPaths = ["/settings", "/settings/box", "/settings/git", "/settings/people", "/settings/passkeys", "/protect"];
 const healthPaths = ["/status", "/metrics", "/logs", "/errors", "/alerts"];
 const activityPaths = ["/ledger", "/changes"];
 
@@ -273,6 +273,7 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
               <div className="relative mt-px mb-1 flex flex-col gap-px before:absolute before:top-0 before:bottom-0 before:left-[12px] before:w-px before:bg-rule-2">
                 <NavItem to="/settings" exact sub label="Your box" />
                 <NavItem to="/settings/box" sub label="Machine" />
+                {onBox && <NavItem to="/settings/git" sub label="Git" />}
                 <NavItem to="/settings/people" sub label="People" />
                 {onBox && <NavItem to="/protect" sub label="Shield" aside={<AttackBadge />} />}
               </div>
