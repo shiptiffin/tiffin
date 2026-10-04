@@ -45,7 +45,7 @@ export function splitIntent(raw: string): { head: string; rest?: string } {
   return { head: cap(m[1]), rest: stop(m[2]) };
 }
 
-/** "Bilal", "Claude Code": who a token ID belongs to (the person behind an owner or session token). */
+/** "Sam", "Claude Code": who a token ID belongs to (the person behind an owner or session token). */
 export function tokenWho(id: string | undefined, names: Names | undefined): string {
   if (!id) return "someone";
   return names?.get(id)?.who ?? "someone";

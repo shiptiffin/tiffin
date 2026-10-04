@@ -20,7 +20,7 @@ export type EntryActor = {
  * with their model and session); the intent as one Newsreader sentence;
  * then `+3 ~0 −1`, the risk dots and the signature line.
  *
- *   <SignedEntry time="10:31" actor={{ kind: "human", name: "Bilal" }}
+ *   <SignedEntry time="10:31" actor={{ kind: "human", name: "Sam" }}
  *     intent="Deployed web v42 to shop." counts={{ create: 0, update: 1, delete: 0 }}
  *     tier="reversible" signature="signed · passkey" to="/changes/$id" params={{ id }} />
  */
@@ -46,7 +46,7 @@ export function SignedEntry({
   intent: ReactNode;
   counts?: { create: number; update: number; delete: number };
   tier?: Tier;
-  /** The signature line ("signed by Bilal · passkey · 10:46"), drawn after a short rule. */
+  /** The signature line ("signed by Sam · passkey · 10:46"), drawn after a short rule. */
   signature?: ReactNode;
   /** Anything else for the meta row (a project swatch, "undone"). */
   extra?: ReactNode;

@@ -6,8 +6,7 @@ brass handle and latch, project enamel only on a tier's rim). Generated 2026-10-
 
 All files except `og-card.png` are transparent WebP, sized at 2x their display size. They work on both the
 paper ground (`oklch(0.975 0.008 85)`) and the graphite ground (`oklch(0.18 0.01 60)`) without a dark
-variant: the objects carry their own steel tones and outline. Contact sheet on both grounds:
-`research/2026-10-03-design/illustrations-contact-sheet.png`.
+variant: the objects carry their own steel tones and outline.
 
 ## Files
 

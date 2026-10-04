@@ -8,7 +8,7 @@ const OWNER = "__owner";
 
 /**
  * Key IDs → who they are: an API key by its own name ("Claude Code"), and the
- * box's owner (changes signed "owner") by the owner's current name ("Bilal").
+ * box's owner (changes signed "owner") by the owner's current name ("Sam").
  */
 export function whoMap(tokens: Token[], people: Person[]): Names {
   const owner = people.find((p) => p.role === "owner")?.name;

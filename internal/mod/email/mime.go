@@ -22,7 +22,7 @@ import (
 
 // Message is an email to send.
 type Message struct {
-	From        string            `json:"from,omitempty" doc:"Sender, e.g. \"Shop <hello@shop.com>\". Default: the project's from address"`
+	From        string            `json:"from,omitempty" doc:"Sender, e.g. \"Shop <hello@shop.example>\". Default: the project's from address"`
 	To          []string          `json:"to" minItems:"1" maxItems:"50" doc:"Recipients"`
 	Cc          []string          `json:"cc,omitempty" maxItems:"50"`
 	Bcc         []string          `json:"bcc,omitempty" maxItems:"50" doc:"Hidden recipients (envelope only)"`

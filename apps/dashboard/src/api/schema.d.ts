@@ -4280,7 +4280,7 @@ export interface components {
             /** @description Hidden recipients (envelope only) */
             bcc?: string[] | null;
             cc?: string[] | null;
-            /** @description Sender, e.g. "Shop <hello@shop.com>". Default: the project's from address */
+            /** @description Sender, e.g. "Shop <hello@shop.example>". Default: the project's from address */
             from?: string;
             /** @description Extra headers, e.g. List-Unsubscribe. Structural headers (From, To, Subject, Content-*, ...) are refused */
             headers?: {

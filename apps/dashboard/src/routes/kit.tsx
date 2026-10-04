@@ -161,7 +161,7 @@ export function KitPage() {
         </table>
       </Section>
 
-      <Section id="rules" title="Rules" note="The ones that keep it from turning into a costume. Full list: research/2026-10-03-design/03-craft-and-brand.md §10.">
+      <Section id="rules" title="Rules" note="The ones that keep it from turning into a costume. More in apps/dashboard/DESIGN.md.">
         <ul className="grid gap-x-10 gap-y-2 text-sm text-ink-2 md:grid-cols-2">
           {[
             "Rows on the page with hairlines. Boxes only for objects: a receipt, code, the plan tray, a waiting card.",
@@ -386,7 +386,7 @@ function LedgerDemo() {
   return (
     <div className="grid items-center gap-6">
       <div className="divide-y divide-rule border-y border-rule">
-        <SignedEntry time="10:31" actor={{ kind: "human", name: "Bilal" }} intent="Deployed web v42 to shop." counts={{ create: 0, update: 1, delete: 0 }} tier="reversible" />
+        <SignedEntry time="10:31" actor={{ kind: "human", name: "Sam" }} intent="Deployed web v42 to shop." counts={{ create: 0, update: 1, delete: 0 }} tier="reversible" />
         <SignedEntry
           time="09:58"
           actor={{ kind: "agent", name: "Claude Code", model: "claude-opus-5-5", session: "51c0a2" }}

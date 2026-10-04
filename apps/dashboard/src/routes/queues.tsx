@@ -78,7 +78,7 @@ function useOwnerName() {
 }
 const cachedOwner = () => queryClient.getQueryData(api.people.queryKey)?.find((p) => p.role === "owner")?.name;
 
-/** "owner (owner)" → "Bilal", "claude-code (agent)" → "Claude Code", "workflow" → "a workflow". */
+/** "owner (owner)" → "Sam", "claude-code (agent)" → "Claude Code", "workflow" → "a workflow". */
 function whoWords(s?: string) {
   if (!s) return undefined;
   const m = s.match(/^(.*) \((\w+)\)$/);
@@ -89,7 +89,7 @@ function whoWords(s?: string) {
   return s;
 }
 
-/** A workflow's history line in words: local clock times, real plurals, a result as "status shipped, by Bilal". */
+/** A workflow's history line in words: local clock times, real plurals, a result as "status shipped, by Sam". */
 function timelineWords(m: string) {
   return m
     .replace(/\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\b/g, (iso) => clockSec(iso))

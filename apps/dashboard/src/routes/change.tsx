@@ -85,7 +85,7 @@ export function ChangePage({ id }: { id: string }) {
   const agent = c.actor.kind === "agent";
   const approval = approvals.get(c.id);
   const intent = splitIntent(intentWords(c));
-  // People by their current name (the owner token reads "Bilal", not "Owner"); agents by theirs.
+  // People by their current name (the owner token reads "Sam", not "Owner"); agents by theirs.
   const who = agent ? actorWords(c.actor) : actorShown(c.actor, names.data);
   const signer = approval ? tokenWho(approval.decidedBy, names.data) : who;
   const undoneAt = undo.data?.at;
