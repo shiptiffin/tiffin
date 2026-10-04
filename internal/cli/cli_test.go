@@ -281,6 +281,22 @@ func TestOnlyConfirmableCommandsPromiseDryRun(t *testing.T) {
 	}
 }
 
+// Every op with an intent takes -m for it, as apply does, and destroy's help
+// talks about deleting, not undoing.
+func TestIntentShorthandEverywhere(t *testing.T) {
+	env := newEnv(t)
+	for _, args := range [][]string{{"apply"}, {"undo"}, {"changes", "undo"}, {"projects", "destroy"}} {
+		_, out, _ := run(t, env, append(args, "--help")...)
+		if !strings.Contains(string(out), "-m, --intent") {
+			t.Errorf("%s help has no -m for --intent:\n%s", strings.Join(args, " "), out)
+		}
+	}
+	_, out, _ := run(t, env, "projects", "destroy", "--help")
+	if strings.Contains(string(out), "undo plan") || !strings.Contains(string(out), "deletes the project") {
+		t.Errorf("projects destroy --confirm help is wrong:\n%s", out)
+	}
+}
+
 // The local agent key has full access to all projects (Claude Code asks
 // the person before destructive tools; Tiffin records and can undo), but
 // it is not the owner token and it expires.

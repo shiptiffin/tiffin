@@ -4495,6 +4495,12 @@ export interface components {
             /** @description The key's secret (tfn_...). Shown once; store it now. */
             secret: string;
         };
+        DestroyBody: {
+            /** @description The hash of the plan that deletes the project (or its first 8+ characters), which you reviewed. Without it nothing is deleted and the plan comes back with status 428. */
+            confirm?: string;
+            /** @description Why you are deleting the project, in one sentence. */
+            intent?: string;
+        };
         DetailEnvelopeStruct: {
             from: string;
             to: string[] | null;
@@ -15726,7 +15732,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["UndoBody"];
+                "application/json": components["schemas"]["DestroyBody"];
             };
         };
         responses: {

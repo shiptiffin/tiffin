@@ -205,7 +205,12 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 				f := bodyFlag{name: n, kind: ps.Type, flag: fn}
 				switch ps.Type {
 				case "string":
-					values[n] = cmd.Flags().String(fn, "", ps.Description)
+					if n == "intent" && cmd.Flags().ShorthandLookup("m") == nil {
+						// -m, as in apply and git commit: every op with an intent takes it.
+						values[n] = cmd.Flags().StringP(fn, "m", "", ps.Description)
+					} else {
+						values[n] = cmd.Flags().String(fn, "", ps.Description)
+					}
 				case "integer":
 					values[n] = cmd.Flags().Int(fn, 0, ps.Description)
 				case "boolean":

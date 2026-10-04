@@ -300,6 +300,11 @@ type undoBody struct {
 	Intent  string `json:"intent,omitempty" maxLength:"500" doc:"Why you are undoing, in one sentence."`
 }
 
+type destroyBody struct {
+	Confirm string `json:"confirm,omitempty" doc:"The hash of the plan that deletes the project (or its first 8+ characters), which you reviewed. Without it nothing is deleted and the plan comes back with status 428."`
+	Intent  string `json:"intent,omitempty" maxLength:"500" doc:"Why you are deleting the project, in one sentence."`
+}
+
 // ApplyResult is the outcome of a confirmed apply or undo.
 type ApplyResult struct {
 	Applied bool           `json:"applied" doc:"False when the plan was empty (nothing to do)."`
@@ -535,7 +540,7 @@ func (a *API) register() {
 	de.Extensions[ExtConfirm] = true
 	huma.Register(api, de, wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
-		Body    undoBody
+		Body    destroyBody
 	}) (*struct{ Body ApplyResult }, error) {
 		p := PrincipalFrom(ctx)
 		if err := p.Require(tokens.ScopePlan, in.Project); err != nil {
