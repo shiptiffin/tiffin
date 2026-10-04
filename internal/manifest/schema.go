@@ -133,6 +133,10 @@ func schemaMessage(k jsonschema.ErrorKind) string {
 		return fmt.Sprintf("must be at least %s (got %s)", k.Want.RatString(), k.Got.RatString())
 	case *kind.Maximum:
 		return fmt.Sprintf("must be at most %s (got %s)", k.Want.RatString(), k.Got.RatString())
+	case *kind.MultipleOf:
+		got, _ := k.Got.Float64()
+		want, _ := k.Want.Float64()
+		return fmt.Sprintf("must be a multiple of %v (got %v)", want, got)
 	case *kind.MinLength:
 		return "must not be empty"
 	}

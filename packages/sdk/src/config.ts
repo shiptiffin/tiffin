@@ -6,6 +6,7 @@ export type {
   Framework,
   PostgresConfig,
   QueueConfig,
+  ResourcesConfig,
   Role,
   ServicesConfig,
   Slug,

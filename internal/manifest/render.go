@@ -85,6 +85,19 @@ func strMap(m map[string]string) *node {
 func configNode(m *Manifest) *node {
 	root := obj()
 	root.set("project", str(m.Project))
+	if r := m.Resources; r != nil {
+		n := obj()
+		if r.MemoryMB != 0 {
+			n.set("memoryMB", num(r.MemoryMB))
+		}
+		if r.CPUs != 0 {
+			n.set("cpus", &node{lit: strconv.FormatFloat(r.CPUs, 'f', -1, 64)})
+		}
+		if r.MaxSharePercent != 0 {
+			n.set("maxSharePercent", num(r.MaxSharePercent))
+		}
+		root.set("resources", n)
+	}
 	if len(m.Apps) > 0 {
 		apps := obj()
 		for _, name := range sortedKeys(m.Apps) {
@@ -159,7 +172,7 @@ func appNode(name string, a App) *node {
 	if a.Instances != DefaultInstances {
 		n.set("instances", num(a.Instances))
 	}
-	if a.MemoryMB != DefaultMemoryMB {
+	if a.MemoryMB != 0 {
 		n.set("memoryMB", num(a.MemoryMB))
 	}
 	if a.Healthcheck != defHealth {

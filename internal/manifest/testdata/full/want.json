@@ -10,7 +10,6 @@
         "example.com/api"
       ],
       "instances": 1,
-      "memoryMB": 512,
       "healthcheck": "/healthz"
     },
     "docs": {
@@ -20,8 +19,7 @@
       "routes": [
         "docs"
       ],
-      "instances": 1,
-      "memoryMB": 512
+      "instances": 1
     },
     "jobs": {
       "path": "apps/jobs",

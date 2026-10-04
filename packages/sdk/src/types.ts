@@ -42,7 +42,10 @@ export interface AppConfig {
   routes?: string[];
   /** Instances to run, 1-16. Default 1. */
   instances?: number;
-  /** Memory cap per instance in MiB, 64-8192. Default 512. */
+  /**
+   * Optional memory cap per instance (copy) in MiB, 64-8192. Default: no
+   * per-copy cap; the copies share their project's memory (see `resources`).
+   */
   memoryMB?: number;
   /** Healthcheck path. Default "/". Ignored for workers and static apps. */
   healthcheck?: string;
@@ -203,12 +206,42 @@ export interface ServicesConfig {
   analytics?: AnalyticsConfig;
 }
 
+/**
+ * A project's share of the box: one lever per project. Every field is
+ * optional; when `memoryMB` and `maxSharePercent` are both set, the lower
+ * limit wins. Changes apply live, without restarting apps.
+ */
+export interface ResourcesConfig {
+  /**
+   * The most memory all of the project's app copies (production and
+   * previews) may use together, in MiB, at least 128. A hard cap and a
+   * guarantee: all projects' `memoryMB` budgets together must fit in the
+   * memory the box keeps for apps (the plan checks).
+   */
+  memoryMB?: number;
+  /** The most CPU the project's apps may use together, in cores, in steps of 0.25. At most the box's CPUs. */
+  cpus?: number;
+  /**
+   * Caps the project at this percentage (5-100) of the box: of the memory it
+   * keeps for apps and of its CPUs. A ceiling, not a reservation; it follows
+   * the box when it is resized.
+   */
+  maxSharePercent?: number;
+}
+
 /** The shape of the default export of tiffin.config.ts. */
 export interface TiffinConfig {
   /** Version of the manifest format. Always 1 for now (the default). */
   version?: 1;
   /** Project slug: lowercase letters, digits and dashes, 1-40 chars. */
   project: Slug;
+  /**
+   * How much of the box the project's apps may use. Leave it out for
+   * automatic: the project grows into whatever the box has free, shares the
+   * CPU fairly under contention and can never starve the platform or the
+   * other projects' running apps.
+   */
+  resources?: ResourcesConfig;
   /** Apps keyed by name (same slug rules as `project`). */
   apps?: Record<Slug, AppConfig>;
   /** Services the project uses. Absent means "not provisioned". */

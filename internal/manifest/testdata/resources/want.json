@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "project": "guestbook",
+  "resources": {
+    "memoryMB": 768,
+    "cpus": 1.5,
+    "maxSharePercent": 25
+  },
+  "apps": {
+    "jobs": {
+      "path": ".",
+      "framework": "bun",
+      "role": "worker",
+      "instances": 1,
+      "memoryMB": 256
+    },
+    "web": {
+      "path": ".",
+      "framework": "bun",
+      "role": "web",
+      "routes": [
+        "web"
+      ],
+      "instances": 1,
+      "healthcheck": "/"
+    }
+  }
+}

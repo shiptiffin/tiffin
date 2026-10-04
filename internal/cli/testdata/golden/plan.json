@@ -1,6 +1,6 @@
 {
   "baseVersion": 0,
-  "hash": "6b4bc0a464126bd6e245158976ce76185b595e3115315f05ee4c8e50aa0b7e4d",
+  "hash": "b37d99735926fa1a17077296060774e924f84bf78fc0425e0cbec1d4f652aaf5",
   "ops": [
     {
       "action": "create",
@@ -62,7 +62,6 @@
         "framework": "hono",
         "healthcheck": "/healthz",
         "instances": 2,
-        "memoryMB": 512,
         "path": "apps/api",
         "role": "web",
         "routes": [

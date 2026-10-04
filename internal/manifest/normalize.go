@@ -7,11 +7,13 @@ import (
 
 // Defaults applied by Normalize.
 const (
-	DefaultAppPath     = "."
-	DefaultFramework   = FrameworkBun
-	DefaultRole        = RoleWeb
-	DefaultInstances   = 1
-	DefaultMemoryMB    = 512
+	DefaultAppPath   = "."
+	DefaultFramework = FrameworkBun
+	DefaultRole      = RoleWeb
+	DefaultInstances = 1
+	// DefaultMemoryMB is an app's per-copy memory cap when it sets none: 0,
+	// no per-copy cap (its copies share the project's memory).
+	DefaultMemoryMB    = 0
 	DefaultHealthcheck = "/"
 	DefaultValkeyMemMB = 64
 
@@ -31,7 +33,8 @@ var DefaultAuthMethods = []string{AuthEmail, AuthMagicLink}
 // for chaining. It is idempotent. It does not validate: call Validate after.
 //
 //   - version 1; app path ".", framework "bun", role "web", instances 1,
-//     memoryMB 512
+//     memoryMB unset (no per-copy cap)
+//   - an empty resources object is dropped (automatic)
 //   - web apps get routes [appName] when none are given; workers get none
 //   - web, non-static apps get healthcheck "/"
 //   - valkey maxMemoryMB 64
@@ -62,9 +65,6 @@ func Normalize(m *Manifest) *Manifest {
 		if app.Instances == 0 {
 			app.Instances = DefaultInstances
 		}
-		if app.MemoryMB == 0 {
-			app.MemoryMB = DefaultMemoryMB
-		}
 		if app.Role == RoleWeb {
 			if len(app.Routes) == 0 {
 				app.Routes = []string{name}
@@ -83,6 +83,9 @@ func Normalize(m *Manifest) *Manifest {
 			app.Routes = nil
 		}
 		m.Apps[name] = app
+	}
+	if r := m.Resources; r != nil && *r == (Resources{}) {
+		m.Resources = nil
 	}
 	if v := m.Services.Valkey; v != nil && v.MaxMemoryMB == 0 {
 		v.MaxMemoryMB = DefaultValkeyMemMB

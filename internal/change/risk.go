@@ -57,6 +57,8 @@ func Classify(op Op) (Tier, string) {
 			if name == "analytics" && shortenedRetention(op.Before, op.After) {
 				return TierIrreversible, "shortens analytics retention and deletes events older than the new limit"
 			}
+		case KindProject:
+			return TierReversible, "changes the project's share of the box; applies live without restarting apps, and undo restores the previous limits"
 		case KindBucket:
 			if becamePublic(op.Before, op.After) {
 				return TierOutbound, fmt.Sprintf("makes bucket %q publicly readable by anyone with a link", name)
