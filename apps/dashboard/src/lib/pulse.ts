@@ -8,6 +8,8 @@ import { liveSince, relative } from "./time";
  *   "Live · updated 2 hours ago"   "Last deploy failed · See why"   "Building…"
  * Shared by the home cards and the project header, through the same query
  * keys the deeper pages use (so moving between them doesn't refetch).
+ * When a check fails (500, 403, offline) the line says so, with Retry: missing
+ * evidence is never shown as healthy, even if an older answer said it was.
  */
 
 const quiet = { retry: false, refetchOnWindowFocus: false, staleTime: 15_000 } as const;
@@ -24,7 +26,7 @@ export const runtimeQuery = (project: string, app: string) => ({
   staleTime: 60_000,
 });
 
-export type Tone = "ok" | "busy" | "bad" | "quiet";
+export type Tone = "ok" | "busy" | "bad" | "quiet" | "unknown";
 export type AppPulse = { tone: Tone; words: string; since?: string; failedWhy?: string; servingOld?: boolean };
 
 /** Why a deploy failed, in its first clause. */
@@ -60,6 +62,8 @@ export type ProjectPulse = {
   apps: string[];
   services: string[];
   loading: boolean;
+  /** Asks again, when a check failed (tone "unknown"). */
+  retry?: () => void;
 };
 
 /** A project's one-line state and live link. */
@@ -78,6 +82,7 @@ export function useProjectPulse(project: string): ProjectPulse {
   const failedRes = Object.values(p.data?.status ?? {}).filter((s) => s.state === "failed");
   const pulses = apps.map((a, i) => ({ app: a.name, pulse: appPulse(deploys[i]?.data, a.spec?.role) }));
   const loading = p.isPending || deploys.some((d) => d.isPending);
+  const failedChecks = [p, ...deploys].filter((x) => x.isError);
 
   let tone: Tone = "ok";
   let words: string;
@@ -93,6 +98,12 @@ export function useProjectPulse(project: string): ProjectPulse {
     tone = "bad";
     words = apps.length > 1 ? `${bad.app}’s last deploy failed` : "Last deploy failed";
     why = { app: bad.app };
+  } else if (failedChecks.length > 0) {
+    // An older answer may still be cached; say what it was, but not as health.
+    tone = "unknown";
+    words = "Couldn’t check its status";
+    const seen = Math.min(...failedChecks.map((x) => x.dataUpdatedAt));
+    if (apps.length > 0 && failedChecks.every((x) => x.data) && pulses.every((x) => x.pulse?.tone === "ok") && seen > 0) words += ` · last seen live ${relative(new Date(seen).toISOString())}`;
   } else if (busy) {
     tone = "busy";
     words = `${busy.pulse?.words}…`;
@@ -109,7 +120,8 @@ export function useProjectPulse(project: string): ProjectPulse {
     const since = pulses.map((x) => x.pulse?.since).filter(Boolean).sort().pop();
     if (since) words += ` · updated ${relative(since)}`;
   }
-  return { tone, words, why, url, apps: apps.map((a) => a.name), services, loading };
+  const retry = tone === "unknown" ? () => failedChecks.forEach((x) => void x.refetch()) : undefined;
+  return { tone, words, why, url, apps: apps.map((a) => a.name), services, loading, retry };
 }
 
 export const toneClass: Record<Tone, string> = {
@@ -117,4 +129,5 @@ export const toneClass: Record<Tone, string> = {
   busy: "bg-brass",
   bad: "bg-danger",
   quiet: "bg-ink-4",
+  unknown: "bg-warn",
 };

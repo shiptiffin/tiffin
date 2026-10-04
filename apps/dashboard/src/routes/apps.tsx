@@ -277,7 +277,21 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
   const running = instances.filter((i) => i.running).length;
 
   let sentence: ReactNode = null;
-  if (r && deploys.data) {
+  // A failed check never leaves an older "is live" on screen.
+  if (rt.isError || deploys.isError)
+    sentence = (
+      <span className="text-ink-2">
+        Couldn’t check {app} right now.{" "}
+        <button
+          type="button"
+          onClick={() => void Promise.all([rt.refetch(), deploys.refetch()])}
+          className="font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink"
+        >
+          Retry
+        </button>
+      </span>
+    );
+  else if (r && deploys.data) {
     if (inFlight(latest?.status)) sentence = `${latest!.status === "starting" ? "Starting" : "Building"} v${vs.get(latest!.id)}, from ${sourceWords(latest!, starters.data)}.`;
     else if (latest?.status === "failed")
       sentence = <span className="text-danger">{current ? `v${vs.get(latest.id)} failed. v${vs.get(current.id)} is still serving.` : `The first deploy failed.`}</span>;
@@ -341,7 +355,7 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
           <span>
             {frameworkName(r.framework)}
             {r.role === "worker" ? " worker, no public address" : ""}
-            {current && ` · live ${relative(liveSince(current))}`}
+            {current && !deploys.isError && ` · live ${relative(liveSince(current))}`}
           </span>
         )}
       </div>
@@ -398,7 +412,7 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
                 <h2 id="previews" className="label">
                   Previews
                 </h2>
-                <span className="text-xs text-ink-3">Separate copies at their own address. Idle ones sleep and wake on the next visit.</span>
+                <span className="text-xs text-ink-3">Each at its own address; idle ones sleep. Previews use this project’s live data. Email goes to the dev inbox.</span>
               </div>
               <ul className="divide-y divide-rule border-y border-rule">
                 {(r?.previews ?? []).map((pv) => (
