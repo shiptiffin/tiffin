@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 
 	"github.com/btahir/tiffin/internal/platform"
@@ -65,6 +67,37 @@ func limitsChanged() {
 	}
 }
 
+// limitSpec is the spec of a project's "storagelimit" resource.
+type limitSpec struct {
+	MaxBytes int64 `json:"maxBytes"` // > 0: the limit; -1: none
+}
+
+// setLimit applies a project's "storagelimit" resource (nil spec: the box
+// default applies again).
+func setLimit(ctx context.Context, p *platform.Platform, project string, spec json.RawMessage) error {
+	var err error
+	if spec == nil {
+		err = p.DB.KVDelete(ctx, kvNS, "quota/"+project)
+	} else {
+		var s limitSpec
+		if err := json.Unmarshal(spec, &s); err != nil {
+			return err
+		}
+		err = p.DB.KVPut(ctx, kvNS, "quota/"+project, []byte(strconv.FormatInt(s.MaxBytes, 10)))
+	}
+	limitsChanged()
+	return err
+}
+
+// FreeUp says what a project over its storage limit can delete, the bigger
+// of its database and its files first.
+func FreeUp(db, files int64) string {
+	if db > files {
+		return fmt.Sprintf("Delete data from its database (%s) or files (%s)", HumanBytes(db), HumanBytes(files))
+	}
+	return fmt.Sprintf("Delete files (%s) or data from its database (%s)", HumanBytes(files), HumanBytes(db))
+}
+
 // Limit returns a project's storage limit in bytes (0: none) and whether it
 // was set for the project rather than taken from the box default.
 func Limit(ctx context.Context, p *platform.Platform, project string) (int64, bool, error) {
@@ -113,7 +146,7 @@ func (m *Module) refusal(ctx context.Context, p *platform.Platform, meta map[str
 	files, db := m.tracker().project(meta, project), databaseBytes(project)
 	if used := files + db; used+max(n, 0) > limit {
 		return fmt.Sprintf("project %s is over its storage limit: %s used of %s (database %s, files %s).", project, HumanBytes(used), HumanBytes(limit), HumanBytes(db), HumanBytes(files)),
-			fmt.Sprintf("Delete files, or ask the box owner to raise the limit (tiffin storage quota set %s --max-bytes N).", project)
+			fmt.Sprintf("%s, or ask the box owner to raise the limit (tiffin storage quota set %s --max-bytes N).", FreeUp(db, files), project)
 	}
 	return "", ""
 }

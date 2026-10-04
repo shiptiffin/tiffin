@@ -50,7 +50,7 @@ a teammate's agent, CI) a narrower key. A key with full access to all projects i
 box admin: it also manages keys, people and exports. No other key can manage keys.
 
 Outside its reach, a call fails with `403 forbidden`, a plain reason ("this key is read
-only", "this key can only change shop") and a hint. `tiffin whoami` shows the key's
+only", "this key can only reach shop") and a hint. `tiffin whoami` shows the key's
 projects and access.
 
 Over HTTP the shapes are:

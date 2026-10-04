@@ -114,7 +114,7 @@ func (p *Principal) Require(s Scope, project string) error {
 		return p.refusal(s)
 	}
 	if project != "" && !p.CanProject(project) {
-		return p.projectRefusal(project)
+		return p.projectRefusal(s, project)
 	}
 	return nil
 }

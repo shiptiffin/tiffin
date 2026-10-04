@@ -225,6 +225,9 @@ func (m *Module) Env(ctx context.Context, p *platform.Platform, project, app str
 	if err != nil {
 		return nil, err
 	}
+	if app != "" {
+		appKey = AppKey(appKey, project, app) // what it sends names it
+	}
 	return map[string]string{
 		"TIFFIN_QUEUE_URL":            boxURLForApps(ctx, p),
 		"TIFFIN_QUEUE_KEY":            appKey,

@@ -431,9 +431,14 @@ func projectStorage(ctx context.Context, p *platform.Platform, project string) (
 
 // ---- reconcile ----
 
-func (*Module) Kinds() []string { return []string{change.KindService + "/storage", change.KindBucket} }
+func (*Module) Kinds() []string {
+	return []string{change.KindService + "/storage", change.KindBucket, change.KindStorageLimit}
+}
 
 func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, address string, spec json.RawMessage) error {
+	if address == change.KindStorageLimit {
+		return setLimit(ctx, p, project, spec)
+	}
 	gw, err := m.gateway(p)
 	if err != nil {
 		return err

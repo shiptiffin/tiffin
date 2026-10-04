@@ -415,7 +415,7 @@ func (a *API) register() {
 	})
 
 	huma.Register(api, op("whoami", http.MethodGet, "/v1/whoami", "whoami", RiskRead, "Show the current token",
-		"Who you are: token name, kind, scopes and projects.", "system"),
+		"Who you are: key name, kind, access (full or read) and projects.", "system"),
 		wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body *tokens.Principal }, error) {
 			return &struct{ Body *tokens.Principal }{PrincipalFrom(ctx)}, nil
 		}))
@@ -538,13 +538,14 @@ func (a *API) register() {
 				return nil, err
 			}
 			p.Warnings = manifest.Warnings(m)
+			a.failedWarning(ctx, p)
 			return &struct{ Body *change.Plan }{p}, nil
 		}))
 
 	ap := op("apply", http.MethodPost, "/v1/apply", "apply", RiskDestructive, "Apply a manifest",
-		"Plans the manifest and applies it if `confirm` matches the plan hash and your token's scopes cover the plan's risk. "+
+		"Plans the manifest and applies it if `confirm` matches the plan hash. "+
 			"Without `confirm` (or with a stale one) nothing changes: you get status 428 with the plan to review. "+
-			"Risk tiers: reversible needs apply:reversible; outbound needs apply:outbound; irreversible needs apply:irreversible.", "changes")
+			"Applying needs a key with full access to the project; a read key can only plan.", "changes")
 	ap.Errors = append(ap.Errors, 409, 428)
 	ap.Extensions[ExtConfirm] = true
 	huma.Register(api, ap,
@@ -756,8 +757,8 @@ func (a *API) register() {
 			return &struct{}{}, a.deps.Tokens.Revoke(ctx, p, in.ID)
 		}))
 
-	huma.Register(api, op("audit-list", http.MethodGet, "/v1/audit", "audit list", RiskRead, "List audit events",
-		"Security events that are not changes: keys created and revoked, sign-ins, people invited. Box admins only (a key with full access to all projects, or an owner or admin person).", "system"),
+	huma.Register(api, Untrusted(op("audit-list", http.MethodGet, "/v1/audit", "audit list", RiskRead, "List audit events",
+		"Security events that are not changes: keys created and revoked, sign-ins, people invited. Box admins only (a key with full access to all projects, or an owner or admin person).", "system")),
 		wrap(func(ctx context.Context, in *struct {
 			Limit int `query:"limit" minimum:"1" maximum:"500" default:"50"`
 		}) (*struct{ Body []state.AuditEvent }, error) {
@@ -899,8 +900,29 @@ func (a *API) apply(ctx context.Context, p *tokens.Principal, plan *change.Plan,
 	r := ApplyResult{Applied: c != nil, Change: c}
 	if c == nil {
 		r.Plan = plan // with a change, the plan is change.plan: don't send it twice
+		// Nothing to change, but what failed to converge is tried again: an
+		// apply is how people ask the box to match its state.
+		if pl := a.deps.Platform; pl != nil && p.Require(tokens.ScopeApplyReversible, plan.Project) == nil {
+			if failed := pl.Failed(ctx, plan.Project); len(failed) > 0 {
+				pl.ReconcileProject(plan.Project)
+				plan.Warnings = append(plan.Warnings, fmt.Sprintf("Nothing to change, but %d failed to converge; retrying now (see tiffin projects get %s): %s",
+					len(failed), plan.Project, strings.Join(failed, "; ")))
+			}
+		}
 	}
 	return &struct{ Body ApplyResult }{r}, nil
+}
+
+// failedWarning tells a plan with nothing to change about resources that
+// failed to converge, which an apply retries.
+func (a *API) failedWarning(ctx context.Context, plan *change.Plan) {
+	if a.deps.Platform == nil || !plan.Empty() {
+		return
+	}
+	if failed := a.deps.Platform.Failed(ctx, plan.Project); len(failed) > 0 {
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf("Nothing to change, but %d failed to converge; tiffin apply retries them: %s",
+			len(failed), strings.Join(failed, "; ")))
+	}
 }
 
 func parseManifest(raw ManifestJSON) (*manifest.Manifest, map[string]change.Resource, error) {

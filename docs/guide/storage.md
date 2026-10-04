@@ -33,8 +33,8 @@ Bucket `uploads` of project `shop` is the S3 bucket `shop-uploads`. The S3 name
 
 The key can only reach the project's own buckets; it cannot create or delete
 buckets (that is what `tiffin.config.ts` is for). `tiffin storage credentials <project>`
-prints the same variables for tools and local development (it needs
-`apply:irreversible`, because the key can delete every object).
+prints the same variables for tools and local development (it needs a key with
+full access, because the key can delete every object).
 
 ```ts
 import { upload, presign, publicUrl } from "tiffin-sdk/storage";
@@ -62,13 +62,15 @@ limit are refused with `QuotaExceeded` (S3) or a `precondition` problem (API). F
 are measured every minute, plus what was uploaded since, and databases every 30
 seconds. A project that reaches its limit becomes read-only (its database refuses
 writes too) until it is under it again; raising or clearing the limit lifts that
-within seconds. The box owner sets limits, on the project's Usage page or:
+within seconds. The box owner sets limits on the project's Usage page or with the
+CLI. Setting one is a change in History: undo puts the previous limit back.
 
 ```bash
 tiffin storage quota set shop --max-bytes 53687091200   # 50 GiB for one project
 tiffin storage quota set shop --max-bytes=-1            # no limit
 tiffin storage quota set shop --max-bytes 0             # back to the box default
 tiffin storage quota default --max-bytes 21474836480    # a default for everyone
+tiffin storage quota get shop                           # the limit, and what counts toward it
 ```
 
 ## Deleting a bucket

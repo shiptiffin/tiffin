@@ -76,6 +76,11 @@ func (a *app) emit(status int, raw []byte) {
 			if json.Unmarshal(raw, &r) == nil {
 				if !r.Applied {
 					fmt.Fprintln(out, "No changes. The box already matches.")
+					if r.Plan != nil {
+						for _, warn := range r.Plan.Warnings {
+							fmt.Fprintf(out, "%s %s\n", a.paint("! warning:", amber), warn)
+						}
+					}
 					return
 				}
 				c := r.Change

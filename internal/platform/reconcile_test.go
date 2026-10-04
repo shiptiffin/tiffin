@@ -3,10 +3,12 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -87,5 +89,112 @@ func TestConvergeSettlesSecretStatuses(t *testing.T) {
 	newReconciler(p).converge(ctx, "shop")
 	if st, _ = db.ResourceStatuses(ctx, "shop"); len(st) != 1 {
 		t.Fatalf("after deleting a secret: %+v", st)
+	}
+}
+
+// holdSpy applies "readonly" holds the way the box does: while one holds,
+// the project's database refuses writes.
+type holdSpy struct{}
+
+var held = struct {
+	sync.Mutex
+	m map[string]bool
+}{m: map[string]bool{}}
+
+func (holdSpy) Name() string    { return "spy-readonly" }
+func (holdSpy) Order() int      { return 5 }
+func (holdSpy) Kinds() []string { return []string{change.KindReadOnly} }
+func (holdSpy) Reconcile(_ context.Context, _ *Platform, project, _ string, spec json.RawMessage) error {
+	held.Lock()
+	defer held.Unlock()
+	held.m[project] = spec != nil
+	return nil
+}
+
+func init() { Register(holdSpy{}) }
+
+// Lifting a read-only hold must come before the services that write to the
+// database converge, and a resource that failed is tried again on its own
+// (backing off) until it converges.
+func TestConvergeLiftsHoldFirstAndRetriesFailures(t *testing.T) {
+	ctx := context.Background()
+	db, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	p := &Platform{DB: db, Engine: change.NewEngine(db), Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	spies.mu.Lock()
+	spies.calls = nil
+	spies.fail = func(project, address string) error {
+		held.Lock()
+		defer held.Unlock()
+		if held.m[project] {
+			return errors.New("cannot execute CREATE SCHEMA in a read-only transaction")
+		}
+		return nil
+	}
+	spies.mu.Unlock()
+	defer func() { spies.mu.Lock(); spies.fail = nil; spies.mu.Unlock() }()
+
+	apply := func(ops ...change.Op) {
+		t.Helper()
+		plan, err := p.Engine.PlanEdit(ctx, "held", func(cur map[string]change.Resource) (map[string]change.Resource, error) {
+			return change.ApplyOps(cur, ops), nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := p.Engine.Apply(ctx, change.ApplyRequest{Plan: plan, Confirm: plan.Hash, Actor: change.Actor{Kind: "system", ID: "system"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := newReconciler(p)
+	now := time.Now()
+	r.now = func() time.Time { return now }
+	apply(change.Op{Action: change.Create, Address: "service/postgres", After: json.RawMessage(`{}`)},
+		change.Op{Action: change.Create, Address: "service/auth", After: json.RawMessage(`{}`)},
+		change.Op{Action: change.Create, Address: change.KindReadOnly, After: json.RawMessage(`{"reason":"limit"}`)})
+	r.converge(ctx, "held")
+	if st, _ := db.ResourceStatuses(ctx, "held"); st["service/postgres"].State != StateReady || st[change.KindReadOnly].State != StateReady {
+		t.Fatalf("holding: %+v", st)
+	}
+	// Converging while held (another change, a restart) fails the services...
+	r.converge(ctx, "held")
+	if st, _ := db.ResourceStatuses(ctx, "held"); st["service/postgres"].State != StateFailed || st["service/auth"].State != StateFailed {
+		t.Fatalf("converged while held: %+v", st)
+	}
+	if len(p.Failed(ctx, "held")) != 2 {
+		t.Fatalf("Failed = %v", p.Failed(ctx, "held"))
+	}
+	// ...and is tried again after a backoff, not before.
+	r.queueDue()
+	if r.queue["held"] {
+		t.Fatal("retried at once")
+	}
+	now = now.Add(retryBase)
+	r.queueDue()
+	if !r.queue["held"] {
+		t.Fatal("not retried after the backoff")
+	}
+	delete(r.queue, "held")
+	r.converge(ctx, "held") // still held: fails again, waits twice as long
+	now = now.Add(retryBase)
+	if r.queueDue(); r.queue["held"] {
+		t.Fatal("backoff did not grow")
+	}
+
+	// Lifting the hold converges the services in the same pass.
+	apply(change.Op{Action: change.Delete, Address: change.KindReadOnly})
+	r.converge(ctx, "held")
+	st, _ := db.ResourceStatuses(ctx, "held")
+	if st["service/postgres"].State != StateReady || st["service/auth"].State != StateReady {
+		t.Fatalf("after lifting: %+v", st)
+	}
+	if _, ok := st[change.KindReadOnly]; ok {
+		t.Fatalf("hold status left: %+v", st)
+	}
+	if _, ok := r.retry["held"]; ok {
+		t.Fatal("a converged project keeps retrying")
 	}
 }

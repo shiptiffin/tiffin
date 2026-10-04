@@ -525,7 +525,7 @@ func (a *app) mcpCmd() *cobra.Command {
 			"  claude mcp add tiffin -- tiffin mcp\n" +
 			"It talks to the box from `tiffin up` as that box's agent API key: full access to every project,\n" +
 			"recorded in History as an agent, never the owner. TIFFIN_URL and TIFFIN_TOKEN point it at another\n" +
-			"box or key (a box in --home gets a key that cannot apply irreversible plans).\n" +
+			"box or key (a box in --home gets its own local agent key, also with full access to every project).\n" +
 			"History labels each change with TIFFIN_SESSION if set (else mcp:stdio-<random>) and TIFFIN_MODEL.\n" +
 			"--tools core (the default) lists the ~40 most-used tools plus run, which calls any other operation by name;\n" +
 			"--tools all lists every operation as its own tool.",
@@ -570,7 +570,7 @@ func (a *app) mcpCmd() *cobra.Command {
 				h = b.api.Handler()
 				if token == "" {
 					// Agents never get the owner token implicitly: they get a
-					// local agent token that cannot apply irreversible plans.
+					// local agent key (full access to every project, recorded as an agent).
 					t, err := b.agentToken(ctx)
 					if err != nil {
 						return err
@@ -633,6 +633,44 @@ func (a *app) ownerCmd() *cobra.Command {
 		},
 	})
 	return owner
+}
+
+// quotaGetCmd shows a project's storage limit and what counts toward it:
+// the storage part of the project's usage.
+func (a *app) quotaGetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "get <project>",
+		Short: "Show a project's storage limit and what counts toward it",
+		Long: "The project's storage limit (limitBytes: its own, or the box default; 0 means none), what it uses (usedBytes: its databases " +
+			"and files together, and each part) and why it is read-only, if it is. The storage part of tiffin projects usage.",
+		Example: "  tiffin storage quota get shop",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			c, err := a.client(ctx)
+			if err != nil {
+				return err
+			}
+			defer c.close()
+			status, raw, err := c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(args[0])+"/usage", nil, nil)
+			if err != nil {
+				return &exitError{ExitError, err.Error()}
+			}
+			if status == http.StatusOK {
+				var u struct {
+					Storage map[string]any `json:"storage"`
+				}
+				if json.Unmarshal(raw, &u) != nil || u.Storage == nil {
+					return &exitError{ExitError, "the box has not measured " + args[0] + "'s storage yet (it does every 30 seconds): try again shortly"}
+				}
+				u.Storage["project"] = args[0]
+				raw, _ = json.Marshal(u.Storage)
+			}
+			a.emit(status, raw)
+			a.code = exitFor(status, raw)
+			return nil
+		},
+	}
 }
 
 func first(args []string) string {

@@ -33,8 +33,7 @@ Agents and scripts can send through the API or CLI:
 tiffin email send shop --to ada@example.com --subject "Hi" --text "Hello Ada"
 ```
 
-Capturing needs `apply:reversible`; once a relay is set, real sending needs
-`apply:outbound`.
+Sending needs a key with full access to the project.
 
 ## The dev inbox
 

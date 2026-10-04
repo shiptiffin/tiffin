@@ -31,12 +31,31 @@ const postgresService = change.KindService + "/postgres"
 type reconciler struct {
 	p     *Platform
 	mu    sync.Mutex
-	queue map[string]bool // projects waiting
+	queue map[string]bool  // projects waiting
+	retry map[string]retry // projects a pass left with failed resources
 	wake  chan struct{}
+	now   func() time.Time
 }
 
+// retry is when to converge a project again after a pass left resources
+// failed.
+type retry struct {
+	failures int
+	at       time.Time
+}
+
+// A pass that leaves resources failed converges the project again after
+// retryBase, doubling up to retryMax while it keeps failing: what failed for
+// a moment (a service still starting, a read-only hold being lifted)
+// recovers without anyone applying a change.
+const (
+	retryBase  = 30 * time.Second
+	retryMax   = 30 * time.Minute
+	retryCheck = 10 * time.Second
+)
+
 func newReconciler(p *Platform) *reconciler {
-	return &reconciler{p: p, queue: map[string]bool{}, wake: make(chan struct{}, 1)}
+	return &reconciler{p: p, queue: map[string]bool{}, retry: map[string]retry{}, wake: make(chan struct{}, 1), now: time.Now}
 }
 
 // ReconcileProject schedules a full converge of a project's resources,
@@ -54,6 +73,24 @@ func (p *Platform) ReconcileProject(project string) {
 	}
 }
 
+// Failed returns a project's resources whose last reconcile failed, as
+// "address: first line of the reason", sorted.
+func (p *Platform) Failed(ctx context.Context, project string) []string {
+	st, err := p.DB.ResourceStatuses(ctx, project)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for addr, rs := range st {
+		if rs.State == StateFailed {
+			msg, _, _ := strings.Cut(rs.Message, "\n")
+			out = append(out, addr+": "+msg)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // AfterApply is called by the API after a change commits.
 func (p *Platform) AfterApply(c *change.Change) {
 	if c != nil {
@@ -62,11 +99,15 @@ func (p *Platform) AfterApply(c *change.Change) {
 }
 
 func (r *reconciler) run(ctx context.Context) {
+	t := time.NewTicker(retryCheck)
+	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-r.wake:
+		case <-t.C:
+			r.queueDue()
 		}
 		for {
 			r.mu.Lock()
@@ -87,6 +128,35 @@ func (r *reconciler) run(ctx context.Context) {
 	}
 }
 
+// queueDue queues the projects whose retry is due.
+func (r *reconciler) queueDue() {
+	now := r.now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for pr, rt := range r.retry {
+		if !now.Before(rt.at) {
+			r.queue[pr] = true
+		}
+	}
+}
+
+// settled records how a pass over project ended: with failed resources it
+// schedules the next pass (backing off), without them it forgets the project.
+func (r *reconciler) settled(project string, failed bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !failed {
+		delete(r.retry, project)
+		return
+	}
+	rt := r.retry[project]
+	wait := retryMax
+	if rt.failures < 16 {
+		wait = min(retryBase<<rt.failures, retryMax)
+	}
+	r.retry[project] = retry{failures: rt.failures + 1, at: r.now().Add(wait)}
+}
+
 // converge reconciles every resource of project in dependency order, then
 // handles resources the machine still has that the project no longer wants.
 func (r *reconciler) converge(ctx context.Context, project string) {
@@ -94,6 +164,7 @@ func (r *reconciler) converge(ctx context.Context, project string) {
 	_, res, err := p.DB.Load(ctx, project)
 	if err != nil {
 		p.Log.Error("reconcile load", "project", project, "err", err)
+		r.settled(project, true)
 		return
 	}
 	known, _ := p.DB.ResourceStatuses(ctx, project)
@@ -127,6 +198,11 @@ func (r *reconciler) converge(ctx context.Context, project string) {
 		}
 		return oa < ob
 	})
+	// Lifting a read-only hold comes first: while it holds, the project's
+	// database refuses the writes other services make as they converge
+	// (Postgres's own setup, auth's migrations).
+	sort.SliceStable(ops, func(i, j int) bool { return liftsHold(ops[i]) && !liftsHold(ops[j]) })
+	failed := false
 	for _, o := range ops {
 		rc := reconcilerFor(o.Address)
 		if rc == nil && change.Unmanaged(o.Address) {
@@ -157,6 +233,7 @@ func (r *reconciler) converge(ctx context.Context, project string) {
 		case err != nil:
 			p.Log.Error("reconcile", "project", project, "address", o.Address, "err", err)
 			_ = p.DB.SetResourceStatus(ctx, project, o.Address, StateFailed, err.Error())
+			failed = true
 		case o.Action == change.Delete:
 			_ = p.DB.DeleteResourceStatus(ctx, project, o.Address)
 		default:
@@ -176,6 +253,11 @@ func (r *reconciler) converge(ctx context.Context, project string) {
 	if err := p.RefreshRoutes(ctx); err != nil {
 		p.Log.Error("refresh routes", "err", err)
 	}
+	r.settled(project, failed)
+}
+
+func liftsHold(o change.Op) bool {
+	return o.Action == change.Delete && o.Address == change.KindReadOnly
 }
 
 func safeReconcile(ctx context.Context, rc Reconciler, p *Platform, project, addr string, spec json.RawMessage) (err error) {

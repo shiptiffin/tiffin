@@ -52,6 +52,28 @@ func TestPull(t *testing.T) {
 	if res := decode(t, out); code != ExitOK || res["written"] != false || res["changed"] != false {
 		t.Fatalf("second pull: %d %s", code, out)
 	}
+	// A change and its reverse (or a secret set and deleted) move the box's
+	// version, not the config: pull updates the header's version without
+	// asking for --force.
+	other := filepath.Join(t.TempDir(), "other.json")
+	_ = os.WriteFile(other, []byte(`{"project":"hello","apps":{"web":{}}}`), 0o644)
+	for _, src := range []string{other, dir} {
+		code, out, _ := run(t, env, "plan", src)
+		if code != ExitOK {
+			t.Fatalf("plan %s: %d %s", src, code, out)
+		}
+		if code, out, _ = run(t, env, "apply", src, "--confirm", decode(t, out)["hash"].(string)); code != ExitOK {
+			t.Fatalf("apply %s: %d %s", src, code, out)
+		}
+	}
+	code, out, _ = run(t, env, "pull", dir)
+	if res := decode(t, out); code != ExitOK || res["written"] != true || res["changed"] != false || !strings.Contains(fmt.Sprint(res["note"]), "version 3") {
+		t.Fatalf("pull after a header-only change: %d %s", code, out)
+	}
+	if b, _ := os.ReadFile(cfg); !strings.Contains(string(b), "at version 3, pulled from the box") {
+		t.Fatalf("header not updated:\n%s", b)
+	}
+	src, _ = os.ReadFile(cfg)
 
 	// A local edit is never overwritten without --force, but the diff shows.
 	edited := strings.Replace(string(src), "memoryMB: 256", "memoryMB: 384", 1)

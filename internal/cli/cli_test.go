@@ -451,3 +451,36 @@ func TestAgentShellUsesAgentKey(t *testing.T) {
 		t.Fatalf("explicit token: %q", got)
 	}
 }
+
+// A wrong call says how the command is used, and a group refuses a
+// subcommand it does not have instead of printing its help with exit 0.
+func TestUsageErrorsHint(t *testing.T) {
+	env := newEnv(t)
+	code, out, _ := run(t, env, "changes", "list", "extra")
+	if p := decode(t, out); code != ExitInvalid || p["code"] != "cli" || p["hint"] != "usage: tiffin changes list [flags]; example: tiffin changes list" {
+		t.Fatalf("extra argument: %d %s", code, out)
+	}
+	code, out, _ = run(t, env, "changes", "bogus")
+	if p := decode(t, out); code != ExitInvalid || !strings.Contains(p["detail"].(string), `unknown command "bogus"`) || !strings.Contains(fmt.Sprint(p["hint"]), "one of: get, list, undo") {
+		t.Fatalf("unknown subcommand: %d %s", code, out)
+	}
+	if code, out, _ = run(t, env, "changes"); code != ExitOK || !strings.Contains(string(out), "Available Commands") {
+		t.Fatalf("a group alone prints its help: %d %s", code, out)
+	}
+}
+
+// Deploying a preview says what it shares with production.
+func TestPreviewNote(t *testing.T) {
+	var out bytes.Buffer
+	no := false
+	a := &app{io: IO{Out: &out, TTY: &no}}
+	a.printDeploys([]*rtDeploy{{App: "web", Preview: "fix", Status: "live"}}, nil)
+	if p := decode(t, out.Bytes()); p["note"] != "Previews use this project's live data. Email goes to the dev inbox." {
+		t.Fatalf("preview: %s", out.String())
+	}
+	out.Reset()
+	a.printDeploys([]*rtDeploy{{App: "web", Status: "live"}}, nil)
+	if p := decode(t, out.Bytes()); p["note"] != nil {
+		t.Fatalf("production: %s", out.String())
+	}
+}

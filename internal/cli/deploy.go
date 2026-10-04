@@ -163,6 +163,7 @@ func (a *app) deployCmd() *cobra.Command {
 			"builds it on the box (Railpack + BuildKit; static sites are served as files), starts the new instances, waits for their health check, " +
 			"switches traffic and drains the old ones. A failed deploy leaves the running version untouched.\n\n" +
 			"Streams the build, exits 0 only when every deploy is live, and prints the URL.\n\n" +
+			"--preview deploys beside production, at its own address. " + previewNote + "\n\n" +
 			"The apps must exist on the box first: tiffin plan, then tiffin apply --confirm <hash>.",
 		Example: "  tiffin deploy                      # every app in ./tiffin.config.ts\n" +
 			"  tiffin deploy --app api            # one app\n" +
@@ -244,7 +245,7 @@ func (a *app) deployCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringSliceVar(&apps, "app", nil, "deploy only these apps (repeat or comma-separate); default: every app")
-	f.StringVar(&preview, "preview", "", "deploy as a preview named this, at <preview>--<app>.<domain>")
+	f.StringVar(&preview, "preview", "", "deploy as a preview named this, at <preview>--<app>.<domain>. "+previewNote)
 	f.StringVar(&prebuilt, "prebuilt", "", "deploy an image tarball (docker save / nerdctl save) instead of building from source")
 	f.StringVar(&project, "project", "", "project (default: from tiffin.config.ts)")
 	f.BoolVar(&noWait, "no-wait", false, "return once the upload is accepted (status queued)")
@@ -435,7 +436,15 @@ func (a *app) buildOutput(prefix, text string) {
 	}
 }
 
+// previewNote is what a preview shares with production (the dashboard says
+// the same).
+const previewNote = "Previews use this project's live data. Email goes to the dev inbox."
+
 func (a *app) printDeploys(ds []*rtDeploy, checks map[string]string) {
+	preview := false
+	for _, d := range ds {
+		preview = preview || d.Preview != ""
+	}
 	if !a.tty() {
 		out := map[string]any{"ok": true, "deploys": ds}
 		for _, d := range ds {
@@ -446,8 +455,14 @@ func (a *app) printDeploys(ds []*rtDeploy, checks map[string]string) {
 		if len(checks) > 0 {
 			out["checks"] = checks
 		}
+		if preview {
+			out["note"] = previewNote
+		}
 		writeJSON(a.io.Out, out)
 		return
+	}
+	if preview {
+		defer fmt.Fprintf(a.io.Out, "%s %s\n", a.paint("note:", dim), previewNote)
 	}
 	for _, d := range ds {
 		switch d.Status {

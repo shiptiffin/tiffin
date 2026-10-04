@@ -49,10 +49,10 @@ export function StoragePage({ project }: { project: string }) {
   const s = info.data;
   const buckets = s.buckets ?? [];
   const quota = s.quotaBytes;
-  const used = bytesParts(s.usedBytes);
+  const used = bytesParts(s.filesBytes);
   const files = buckets.reduce((n, b) => n + b.objects, 0);
   // The storage limit counts the project's databases with its files.
-  const share = quota > 0 ? (s.usedBytes + (s.databaseBytes ?? 0)) / quota : 0;
+  const share = quota > 0 ? s.usedBytes / quota : 0;
   return (
     <Page wide>
       <PageHeader
@@ -298,7 +298,7 @@ const link = file.presign({ expiresIn: 600 }); // 10 min`;
           <span className="text-ink-2">Keys for local tools.</span>{" "}
           {canReveal
             ? "They can read and delete every file in this project, so only reveal them on a screen you trust."
-            : "Revealing them needs a token that may destroy data (apply:irreversible)."}
+            : "Revealing them needs a key with full access."}
         </p>
         {!creds && canReveal && (
           <Button

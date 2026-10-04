@@ -14,7 +14,7 @@ import (
 )
 
 // App-facing endpoints, used by tiffin-sdk inside apps. They authenticate
-// with the project's app key (TIFFIN_QUEUE_KEY, "Bearer tqk_..."), not with
+// with their app key (TIFFIN_QUEUE_KEY, "Bearer tqk_...", see AppKey), not with
 // Tiffin tokens, and are not part of the OpenAPI document, so they are not
 // CLI commands or MCP tools. /v1/hooks/{token} is public: the token is the
 // secret.
@@ -22,12 +22,12 @@ import (
 type internalRoute struct {
 	method, path string
 	public       bool
-	h            func(e *Engine, project string, w http.ResponseWriter, r *http.Request) (any, error)
+	h            func(e *Engine, c caller, w http.ResponseWriter, r *http.Request) (any, error)
 }
 
 func internalRoutes() []internalRoute {
 	return []internalRoute{
-		{method: "POST", path: "/v1/queue-internal/send", h: func(e *Engine, project string, w http.ResponseWriter, r *http.Request) (any, error) {
+		{method: "POST", path: "/v1/queue-internal/send", h: func(e *Engine, c caller, w http.ResponseWriter, r *http.Request) (any, error) {
 			var b struct {
 				sendBody
 				FromApp string `json:"fromApp"`
@@ -35,9 +35,10 @@ func internalRoutes() []internalRoute {
 			if err := decode(r, &b); err != nil {
 				return nil, err
 			}
-			return e.Send(r.Context(), project, b.request("app:"+orDefault(b.FromApp, "?"), b.FromApp))
+			from := c.app(b.FromApp)
+			return e.Send(r.Context(), c.project, b.request(c.by(from), from))
 		}},
-		{method: "POST", path: "/v1/queue-internal/jobs/{id}/heartbeat", h: func(e *Engine, project string, w http.ResponseWriter, r *http.Request) (any, error) {
+		{method: "POST", path: "/v1/queue-internal/jobs/{id}/heartbeat", h: func(e *Engine, c caller, w http.ResponseWriter, r *http.Request) (any, error) {
 			var b struct {
 				AttemptID int `json:"attemptId"`
 			}
@@ -48,13 +49,13 @@ func internalRoutes() []internalRoute {
 			if err != nil {
 				return nil, err
 			}
-			until, err := e.Heartbeat(r.Context(), project, id, b.AttemptID)
+			until, err := e.Heartbeat(r.Context(), c.project, id, b.AttemptID)
 			if err != nil {
 				return nil, err
 			}
 			return map[string]any{"leaseUntil": until}, nil
 		}},
-		{method: "POST", path: "/v1/queue-internal/workflows/start", h: func(e *Engine, project string, w http.ResponseWriter, r *http.Request) (any, error) {
+		{method: "POST", path: "/v1/queue-internal/workflows/start", h: func(e *Engine, c caller, w http.ResponseWriter, r *http.Request) (any, error) {
 			var b struct {
 				Workflow string          `json:"workflow"`
 				Input    json.RawMessage `json:"input"`
@@ -66,31 +67,31 @@ func internalRoutes() []internalRoute {
 			if err := decode(r, &b); err != nil {
 				return nil, err
 			}
-			run, created, err := e.StartRun(r.Context(), project, StartRequest{Workflow: b.Workflow, Input: b.Input, ID: b.ID, App: b.App,
-				Path: b.Path, By: "app:" + orDefault(b.FromApp, "?"), FromApp: b.FromApp})
+			run, created, err := e.StartRun(r.Context(), c.project, StartRequest{Workflow: b.Workflow, Input: b.Input, ID: b.ID, App: b.App,
+				Path: b.Path, By: c.by(c.app(b.FromApp)), FromApp: c.app(b.FromApp)})
 			if err != nil {
 				return nil, err
 			}
 			return map[string]any{"run": run, "created": created}, nil
 		}},
-		{method: "GET", path: "/v1/queue-internal/workflows/runs/{id}", h: func(e *Engine, project string, w http.ResponseWriter, r *http.Request) (any, error) {
-			return e.GetRun(r.Context(), project, r.PathValue("id"), false)
+		{method: "GET", path: "/v1/queue-internal/workflows/runs/{id}", h: func(e *Engine, c caller, w http.ResponseWriter, r *http.Request) (any, error) {
+			return e.GetRun(r.Context(), c.project, r.PathValue("id"), false)
 		}},
-		{method: "POST", path: "/v1/queue-internal/workflows/runs/{id}/steps", h: func(e *Engine, project string, w http.ResponseWriter, r *http.Request) (any, error) {
+		{method: "POST", path: "/v1/queue-internal/workflows/runs/{id}/steps", h: func(e *Engine, c caller, w http.ResponseWriter, r *http.Request) (any, error) {
 			var b StepRecord
 			if err := decode(r, &b); err != nil {
 				return nil, err
 			}
-			return e.RecordStep(r.Context(), project, r.PathValue("id"), b)
+			return e.RecordStep(r.Context(), c.project, r.PathValue("id"), b)
 		}},
-		{method: "POST", path: "/v1/queue-internal/workflows/runs/{id}/waits", h: func(e *Engine, project string, w http.ResponseWriter, r *http.Request) (any, error) {
+		{method: "POST", path: "/v1/queue-internal/workflows/runs/{id}/waits", h: func(e *Engine, c caller, w http.ResponseWriter, r *http.Request) (any, error) {
 			var b WaitRequest
 			if err := decode(r, &b); err != nil {
 				return nil, err
 			}
-			return e.Wait(r.Context(), project, r.PathValue("id"), b)
+			return e.Wait(r.Context(), c.project, r.PathValue("id"), b)
 		}},
-		{method: "POST", path: "/v1/queue-internal/workflows/events", h: func(e *Engine, project string, w http.ResponseWriter, r *http.Request) (any, error) {
+		{method: "POST", path: "/v1/queue-internal/workflows/events", h: func(e *Engine, c caller, w http.ResponseWriter, r *http.Request) (any, error) {
 			var b struct {
 				Name    string          `json:"name"`
 				Payload json.RawMessage `json:"payload"`
@@ -99,13 +100,13 @@ func internalRoutes() []internalRoute {
 			if err := decode(r, &b); err != nil {
 				return nil, err
 			}
-			return e.Emit(r.Context(), project, b.Name, b.Payload, "app:"+orDefault(b.FromApp, "?"))
+			return e.Emit(r.Context(), c.project, b.Name, b.Payload, c.by(c.app(b.FromApp)))
 		}},
-		{method: "POST", path: "/v1/queue-internal/outbox/kick", h: func(e *Engine, project string, w http.ResponseWriter, r *http.Request) (any, error) {
+		{method: "POST", path: "/v1/queue-internal/outbox/kick", h: func(e *Engine, c caller, w http.ResponseWriter, r *http.Request) (any, error) {
 			e.KickOutbox()
 			return map[string]bool{"ok": true}, nil
 		}},
-		{method: "POST", path: "/v1/hooks/{token}", public: true, h: func(e *Engine, _ string, w http.ResponseWriter, r *http.Request) (any, error) {
+		{method: "POST", path: "/v1/hooks/{token}", public: true, h: func(e *Engine, _ caller, w http.ResponseWriter, r *http.Request) (any, error) {
 			raw, err := io.ReadAll(io.LimitReader(r.Body, maxPayload+1))
 			if err != nil {
 				return nil, err
@@ -127,6 +128,22 @@ func internalRoutes() []internalRoute {
 			return map[string]any{"accepted": res.Accepted, "message": res.Message}, nil
 		}},
 	}
+}
+
+// caller is who called an app-facing endpoint: the project its key belongs
+// to and, for an app's own key, the app.
+type caller struct{ project, keyApp string }
+
+// app is the calling app: the one its key names, else the one the request
+// says (keys from before apps had their own).
+func (c caller) app(claimed string) string { return orDefault(c.keyApp, claimed) }
+
+// by is how History and job records name the calling app.
+func (c caller) by(app string) string {
+	if app == "" {
+		return "app:" + c.project
+	}
+	return "app:" + c.project + "/" + app
 }
 
 func orDefault(s, d string) string {
@@ -178,13 +195,13 @@ func serveInternal(rt internalRoute, getEngine func() *Engine, keys func() Keys,
 		writeErr(w, &Error{Status: 503, Code: "precondition", Msg: "the queue is not running yet", Hint: "retry shortly"})
 		return
 	}
-	project := ""
+	var c caller
 	if !rt.public {
 		k := keys()
 		key := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 		var okKey bool
 		if k != nil {
-			project, okKey = CheckKey(r.Context(), k, key)
+			c.project, c.keyApp, okKey = CheckKey(r.Context(), k, key)
 		}
 		if !okKey {
 			writeErr(w, &Error{Status: 401, Code: "unauthenticated", Msg: "missing or wrong queue key", Hint: "send Authorization: Bearer $TIFFIN_QUEUE_KEY"})
@@ -194,7 +211,7 @@ func serveInternal(rt internalRoute, getEngine func() *Engine, keys func() Keys,
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	sr := &statusRecorder{ResponseWriter: w}
-	res, err := rt.h(e, project, sr, r.WithContext(ctx))
+	res, err := rt.h(e, c, sr, r.WithContext(ctx))
 	if err != nil {
 		writeErr(w, err)
 		return

@@ -30,13 +30,20 @@ const (
 	// its storage limit); undoing that change lifts it by hand. Manifests
 	// never list it, and every manifest plan keeps it.
 	KindReadOnly = "readonly"
+	// KindStorageLimit ("storagelimit", one per project) is the project's
+	// own storage limit, set by the box owner (storage quota set): spec
+	// {"maxBytes": N}, N > 0 bytes or -1 for none. Without one the box
+	// default applies. Manifests never list it, and every manifest plan
+	// keeps it.
+	KindStorageLimit = "storagelimit"
 )
 
 // Unmanaged reports whether resources of this address are outside the
-// manifest (secrets, read-only holds): a manifest plan keeps them as they are.
+// manifest (secrets, read-only holds, storage limits): a manifest plan keeps
+// them as they are.
 func Unmanaged(address string) bool {
 	k := Kind(address)
-	return k == KindSecret || k == KindReadOnly
+	return k == KindSecret || k == KindReadOnly || k == KindStorageLimit
 }
 
 // ProjectSpec is the spec of the "project" resource: project-wide settings.
@@ -181,7 +188,7 @@ func Diff(current, desired map[string]Resource) []Op {
 // order of kinds when creating; deletes run in reverse. Queues come after
 // apps (they push jobs into them), topics after the queues they fan out to,
 // and crons last.
-var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindSecret: 3, KindApp: 4, KindQueue: 5, KindTopic: 6, KindCron: 7, KindDomain: 8, KindReadOnly: 9}
+var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindSecret: 3, KindApp: 4, KindQueue: 5, KindTopic: 6, KindCron: 7, KindDomain: 8, KindStorageLimit: 9, KindReadOnly: 9}
 
 // SortOps orders ops: creates (containers first), updates, then deletes
 // (contents first).

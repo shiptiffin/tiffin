@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -45,6 +46,23 @@ func TestAllModulesRegister(t *testing.T) {
 	const wantOps = 194
 	if n := len(a.Operations()); n != wantOps {
 		t.Errorf("%d operations, want %d", n, wantOps)
+	}
+}
+
+// Operations whose output carries what apps, their users or the internet
+// wrote are untrusted: MCP wraps their results in <untrusted-data>.
+func TestUntrustedOutputs(t *testing.T) {
+	byID := map[string]bool{}
+	for _, o := range api.New(api.Deps{}).Operations() {
+		byID[o.OperationID] = api.IsUntrusted(o)
+	}
+	for _, id := range []string{"sql", "sql-write", "app-logs", "logs-query", "email-messages-list", "email-message-get", "email-suppressions-list",
+		"auth-users-list", "auth-user-get", "auth-orgs-list", "auth-org-get", "storage-objects-list", "storage-object-get", "storage-audit",
+		"kv-get", "kv-keys", "db-tables", "queue-jobs-list", "queue-job-get", "workflow-runs-list", "workflow-run-get", "workflow-approvals-list",
+		"analytics-overview", "analytics-events", "issues-list", "issue-get", "deploy-build-log", "changes-list", "audit-list"} {
+		if !byID[id] {
+			t.Errorf("%s: output is not marked untrusted", id)
+		}
 	}
 }
 
@@ -207,6 +225,47 @@ func TestSQLCommandRoutes(t *testing.T) {
 		"POST /v1/projects/shop/sql select 2",
 		"POST /v1/projects/shop/sql/write create table t()",
 		"POST /v1/projects/shop/sql/write drop table t",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// Commands agents guessed at in a live test: a key as the last argument,
+// a job payload as --payload, and storage quota get.
+func TestGuessableCommands(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		got = append(got, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery+" "+strings.TrimSpace(string(raw)))
+		_, _ = w.Write([]byte(`{"project":"shop","memory":{},"storage":{"usedBytes":30,"filesBytes":10,"databaseBytes":20,"limitBytes":100,"limitSource":"project"}}`))
+	}))
+	defer srv.Close()
+	env := map[string]string{"TIFFIN_HOME": t.TempDir(), "HOME": t.TempDir(), "TIFFIN_CONFIG_DIR": t.TempDir(),
+		"TIFFIN_URL": srv.URL, "TIFFIN_TOKEN": "tfn_x"}
+	run := func(args ...string) []byte {
+		t.Helper()
+		var out, errb bytes.Buffer
+		no := false
+		if code := cli.Execute(context.Background(), args, cli.IO{Out: &out, Err: &errb, TTY: &no, In: strings.NewReader(""),
+			Env: func(k string) string { return env[k] }}); code != cli.ExitOK {
+			t.Fatalf("%v: exit %d %s %s", args, code, out.String(), errb.String())
+		}
+		return out.Bytes()
+	}
+	run("kv", "get", "shop", "greet")
+	run("kv", "get", "shop", "--key", "greet")
+	run("queue", "send", "shop", "--name", "emails", "--payload", `{"to":"ada"}`)
+	run("queue", "send", "shop", "--name", "emails", "--payload", "hello")
+	if out := string(run("storage", "quota", "get", "shop")); !strings.Contains(out, `"limitBytes": 100`) || !strings.Contains(out, `"project": "shop"`) || strings.Contains(out, "memory") {
+		t.Errorf("storage quota get: %s", out)
+	}
+	want := []string{
+		"GET /v1/projects/shop/kv/key?key=greet ",
+		"GET /v1/projects/shop/kv/key?key=greet ",
+		`POST /v1/projects/shop/queue/send? {"name":"emails","payload":{"to":"ada"}}`,
+		`POST /v1/projects/shop/queue/send? {"name":"emails","payload":"hello"}`,
+		"GET /v1/projects/shop/usage? ",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

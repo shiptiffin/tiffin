@@ -252,7 +252,7 @@ func (f *frontServer) serveFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !meta.Public {
-		plain(w, http.StatusForbidden, "bucket "+bucket+" is private: use a presigned URL (tiffin storage presign) or make it public in tiffin.config.ts")
+		plain(w, http.StatusForbidden, "forbidden: this file is not public")
 		return
 	}
 	gw, err := f.m.gateway(f.p)

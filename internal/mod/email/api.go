@@ -87,7 +87,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	send := api.Op("email-send", http.MethodPost, base+"/send", "email send", api.RiskWrite, "Send an email",
 		"Sends a message from the project. Until the box has an SMTP relay (and always for previews) it is captured in the dev inbox instead: "+
-			"the reply says where it went. Suppressed recipients are skipped. Sending for real needs apply:outbound; capturing needs apply:reversible.", tag)
+			"the reply says where it went. Suppressed recipients are skipped. Needs full access.", tag)
 	send.MaxBodyBytes = MaxMessageBytes * 4 / 3
 	send.Errors = append(send.Errors, 404, 429)
 	huma.Register(a, send, api.Wrap(func(ctx context.Context, in *struct {
@@ -120,8 +120,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		return &struct{ Body Result }{*res}, nil
 	}))
 
-	huma.Register(a, api.Op("email-messages-list", http.MethodGet, base+"/messages", "email messages list", api.RiskRead, "List the dev inbox",
-		"Messages captured in the project's dev inbox, newest first. With all=true: every message, including ones sent through the relay or suppressed, with delivery status.", tag),
+	huma.Register(a, api.Untrusted(api.Op("email-messages-list", http.MethodGet, base+"/messages", "email messages list", api.RiskRead, "List the dev inbox",
+		"Messages captured in the project's dev inbox, newest first. With all=true: every message, including ones sent through the relay or suppressed, with delivery status.", tag)),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 			Q       string `query:"q" maxLength:"200" doc:"Search subject, from, to and text"`
@@ -149,7 +149,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	get := api.Op("email-message-get", http.MethodGet, base+"/messages/{id}", "email messages get", api.RiskRead, "Read a message",
 		"One message: headers, text, sanitised HTML, attachments, the links in it (handy for sign-in and verification links) and its delivery status.", tag)
 	get.Errors = append(get.Errors, 404)
-	huma.Register(a, get, api.Wrap(func(ctx context.Context, in *messageIn) (*struct{ Body Detail }, error) {
+	huma.Register(a, api.Untrusted(get), api.Wrap(func(ctx context.Context, in *messageIn) (*struct{ Body Detail }, error) {
 		if err := boxOnly(p); err != nil {
 			return nil, err
 		}
@@ -313,8 +313,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		}
 	})
 
-	huma.Register(a, api.Op("email-suppressions-list", http.MethodGet, base+"/suppressions", "email suppressions list", api.RiskRead,
-		"List suppressed addresses", "Addresses the project will not send to: hard bounces (added automatically), complaints, unsubscribes and manual entries.", tag),
+	huma.Register(a, api.Untrusted(api.Op("email-suppressions-list", http.MethodGet, base+"/suppressions", "email suppressions list", api.RiskRead,
+		"List suppressed addresses", "Addresses the project will not send to: hard bounces (added automatically), complaints, unsubscribes and manual entries.", tag)),
 		api.Wrap(func(ctx context.Context, in *projectIn) (*struct{ Body []Suppression }, error) {
 			if err := boxOnly(p); err != nil {
 				return nil, err
@@ -381,7 +381,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	huma.Register(a, api.Op("email-smtp", http.MethodGet, base+"/smtp", "email smtp", api.RiskRead, "Show a project's SMTP credentials",
 		"The SMTP env vars the project's apps get (SMTP_URL, EMAIL_FROM, ...), including the password, for tools and local development. "+
-			"Needs apply:outbound because the credentials can send real mail once a relay is configured.", tag),
+			"Needs full access because the credentials can send real mail once a relay is configured.", tag),
 		api.Wrap(func(ctx context.Context, in *projectIn) (*struct{ Body map[string]string }, error) {
 			if err := boxOnly(p); err != nil {
 				return nil, err

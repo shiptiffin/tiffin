@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/btahir/tiffin/internal/api"
+	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
@@ -42,8 +44,9 @@ type Info struct {
 	FilesURL         string       `json:"filesUrl" doc:"Public files base: <filesUrl>/<bucket>/<key> (public buckets only)"`
 	Region           string       `json:"region"`
 	AccessKeyID      string       `json:"accessKeyId,omitempty" doc:"The project's S3 access key id (the secret is in the app env, or GET .../storage/credentials)"`
-	UsedBytes        int64        `json:"usedBytes" doc:"Bucket files"`
-	DatabaseBytes    int64        `json:"databaseBytes" doc:"The project's databases (branches included), as the disk guard last measured them: they count toward quotaBytes with the files"`
+	UsedBytes        int64        `json:"usedBytes" doc:"What the storage limit (quotaBytes) counts: databaseBytes plus filesBytes"`
+	FilesBytes       int64        `json:"filesBytes" doc:"Bucket files"`
+	DatabaseBytes    int64        `json:"databaseBytes" doc:"The project's databases (branches included), as the disk guard last measured them"`
 	QuotaBytes       int64        `json:"quotaBytes" doc:"The project's storage limit, database and files together; 0 means none (the default)"`
 	QuotaSource      string       `json:"quotaSource" enum:"project,box-default"`
 	ReadOnly         string       `json:"readOnly,omitempty" doc:"Set while uploads are refused: which limit was reached and how to fix it"`
@@ -140,8 +143,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			return &struct{ Body Info }{*info}, nil
 		}))
 
-	huma.Register(a, api.Op("storage-objects-list", http.MethodGet, "/v1/projects/{project}/storage/buckets/{bucket}/objects", "storage objects list", api.RiskRead,
-		"List objects in a bucket", "One page of objects, optionally under a prefix. With delimiter \"/\" you get one folder level and the sub-folders in prefixes.", tag),
+	huma.Register(a, api.Untrusted(api.Op("storage-objects-list", http.MethodGet, "/v1/projects/{project}/storage/buckets/{bucket}/objects", "storage objects list", api.RiskRead,
+		"List objects in a bucket", "One page of objects, optionally under a prefix. With delimiter \"/\" you get one folder level and the sub-folders in prefixes.", tag)),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project   string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 			Bucket    string `path:"bucket" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Bucket name"`
@@ -241,8 +244,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		return &struct{ Body Uploaded }{*out}, nil
 	}))
 
-	huma.Register(a, api.Op("storage-object-get", http.MethodGet, "/v1/projects/{project}/storage/buckets/{bucket}/object", "storage objects get", api.RiskRead,
-		"Read a small object", "Returns an object's content (up to 1 MiB) as text, or base64 when it is binary. For anything bigger use a presigned GET URL.", tag),
+	huma.Register(a, api.Untrusted(api.Op("storage-object-get", http.MethodGet, "/v1/projects/{project}/storage/buckets/{bucket}/object", "storage objects get", api.RiskRead,
+		"Read a small object", "Returns an object's content (up to 1 MiB) as text, or base64 when it is binary. For anything bigger use a presigned GET URL.", tag)),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 			Bucket  string `path:"bucket" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Bucket name"`
@@ -315,7 +318,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	huma.Register(a, api.Op("storage-presign", http.MethodPost, "/v1/projects/{project}/storage/buckets/{bucket}/presign", "storage presign", api.RiskRead,
 		"Create a presigned URL", "A time-limited URL on the public S3 endpoint that lets anyone holding it GET (download) or PUT (upload) one object without credentials. "+
-			"PUT URLs need apply:reversible.", tag),
+			"PUT URLs need full access.", tag),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 			Bucket  string `path:"bucket" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Bucket name"`
@@ -349,7 +352,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	huma.Register(a, api.Op("storage-credentials", http.MethodGet, "/v1/projects/{project}/storage/credentials", "storage credentials", api.RiskRead,
 		"Show a project's S3 credentials", "The S3 env vars the project's apps get (S3_*, AWS_*), including the secret key, for tools and local development. "+
-			"Needs apply:irreversible because the key can read and delete every object.", tag),
+			"Needs full access because the key can read and delete every object.", tag),
 		api.Wrap(func(ctx context.Context, in *projectIn) (*struct{ Body map[string]string }, error) {
 			pr := api.PrincipalFrom(ctx)
 			if err := pr.Require(tokens.ScopeApplyIrreversible, in.Project); err != nil {
@@ -375,7 +378,9 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			"Off by default. Uploads that would go over are refused with QuotaExceeded (files measured every minute plus uploads since, databases "+
 			"every 30 seconds); a project that reaches its limit becomes read-only (its database refuses writes, its buckets refuse uploads) until it "+
 			"is under the limit again, and the box's change log records both. Raising or clearing the limit lifts it within seconds. "+
+			"Setting it is a change in History too: undo puts the previous limit back. "+
 			"maxBytes: >0 sets the limit, 0 returns to the box default, -1 means none. Box admins only.", tag)
+	q.Errors = append(q.Errors, 404)
 	huma.Register(a, q, api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Body    struct {
@@ -390,19 +395,55 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if err != nil {
 			return nil, err
 		}
-		if in.Body.MaxBytes == 0 {
-			err = p.DB.KVDelete(ctx, kvNS, "quota/"+in.Project)
-		} else {
-			err = p.DB.KVPut(ctx, kvNS, "quota/"+in.Project, []byte(strconv.FormatInt(in.Body.MaxBytes, 10)))
+		if v, _, err := p.DB.Load(ctx, in.Project); err != nil {
+			return nil, err
+		} else if v == 0 {
+			return nil, api.NewProblem(404, "not_found", "project "+in.Project+" does not exist")
 		}
+		// The limit is a resource of the project, so setting it is a change
+		// in History that undo reverts.
+		var spec json.RawMessage
+		intent := in.Project + "'s storage limit follows the box default again"
+		switch n := in.Body.MaxBytes; {
+		case n > 0:
+			intent = fmt.Sprintf("Set %s's storage limit to %s", in.Project, HumanBytes(n))
+		case n < 0:
+			intent = "Removed " + in.Project + "'s storage limit"
+		}
+		if in.Body.MaxBytes != 0 {
+			spec, _ = json.Marshal(limitSpec{MaxBytes: in.Body.MaxBytes})
+		}
+		plan, err := p.Engine.PlanEdit(ctx, in.Project, func(cur map[string]change.Resource) (map[string]change.Resource, error) {
+			if spec == nil {
+				delete(cur, change.KindStorageLimit)
+			} else {
+				cur[change.KindStorageLimit] = change.Resource{Address: change.KindStorageLimit, Spec: spec}
+			}
+			return cur, nil
+		})
 		if err != nil {
 			return nil, err
 		}
-		_ = p.DB.Audit(ctx, pr.TokenID, "storage.quota.set", in.Project, map[string]any{"maxBytes": in.Body.MaxBytes})
-		limitsChanged()
+		c, err := p.Engine.Apply(ctx, change.ApplyRequest{Plan: plan, Confirm: plan.Hash, Actor: pr.Actor(), Intent: intent, Authorize: pr.Authorizer()})
+		if err != nil {
+			return nil, err
+		}
+		if err := setLimit(ctx, p, in.Project, spec); err != nil { // now, so the answer shows it; converging writes the same
+			return nil, err
+		}
+		if c != nil {
+			p.AfterApply(c)
+		}
 		info, err := m.info(ctx, p, in.Project)
 		if err != nil {
-			return nil, err
+			// A project without buckets has a limit too: its databases count.
+			n, own, _ := quotaFor(ctx, p, in.Project)
+			db := databaseBytes(in.Project)
+			info = &Info{Project: in.Project, UsedBytes: db, DatabaseBytes: db, QuotaBytes: n, QuotaSource: "box-default",
+				ReadOnly: ReadOnly(in.Project), Buckets: []BucketInfo{}}
+			if own {
+				info.QuotaSource = "project"
+			}
 		}
 		return &struct{ Body Info }{*info}, nil
 	}))
@@ -439,9 +480,9 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			return out, nil
 		}))
 
-	huma.Register(a, api.Op("storage-audit", http.MethodPost, "/v1/projects/{project}/storage/audit", "storage audit", api.RiskRead,
+	huma.Register(a, api.Untrusted(api.Op("storage-audit", http.MethodPost, "/v1/projects/{project}/storage/audit", "storage audit", api.RiskRead,
 		"Audit a project's stored bytes", "Reads every object and checks it against its recorded checksum (MD5 ETag), "+
-			"then writes a SHA-256 manifest a backup mirror can be verified against. Takes as long as reading the data.", tag),
+			"then writes a SHA-256 manifest a backup mirror can be verified against. Takes as long as reading the data.", tag)),
 		api.Wrap(func(ctx context.Context, in *projectIn) (*struct{ Body AuditReport }, error) {
 			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
 				return nil, err
@@ -605,7 +646,8 @@ func (m *Module) info(ctx context.Context, p *platform.Platform, project string)
 		}
 		info.Buckets = append(info.Buckets, bi)
 	}
-	info.UsedBytes, info.DatabaseBytes, info.ReadOnly = t.project(meta, project), databaseBytes(project), ReadOnly(project)
+	info.FilesBytes, info.DatabaseBytes, info.ReadOnly = t.project(meta, project), databaseBytes(project), ReadOnly(project)
+	info.UsedBytes = info.FilesBytes + info.DatabaseBytes
 	q, own, err := quotaFor(ctx, p, project)
 	if err != nil {
 		return nil, err

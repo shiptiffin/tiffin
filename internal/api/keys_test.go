@@ -132,7 +132,7 @@ func TestReadKeyRefusal(t *testing.T) {
 		t.Fatalf("read-only apply: %d %v", code, out)
 	}
 	code, out, _ = e.call(tok, "GET", "/v1/projects/blog", nil)
-	if code != 403 || !strings.Contains(out["detail"].(string), "can only read shop") {
+	if code != 403 || !strings.Contains(out["detail"].(string), "can only reach shop") {
 		t.Fatalf("read other project: %d %v", code, out)
 	}
 }

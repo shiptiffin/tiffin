@@ -190,12 +190,25 @@ func TestGuardRound(t *testing.T) {
 		return 0
 	}
 	round()
-	if h := hold("shop"); h == nil || h.Reason != "limit" || !strings.Contains(h.Message, "storage quota set shop") {
+	if h := hold("shop"); h == nil || h.Reason != "limit" || !strings.Contains(h.Message, "storage quota set shop") ||
+		!strings.Contains(h.Message, "Delete data from its database (3.0 GiB) or files (0 B)") {
 		t.Fatalf("limit: %+v", h)
+	}
+	cs, _ = db.ListChanges(ctx, change.ListFilter{Project: "shop", Limit: 1})
+	if cs[0].Actor.Name != "storage limit" {
+		t.Fatalf("a limit's hold is the storage limit's doing: %+v", cs[0].Actor)
 	}
 	limit = 4 << 30
 	round()
-	if hold("shop") != nil {
-		t.Fatal("raising the limit lifts the hold")
+	cs, _ = db.ListChanges(ctx, change.ListFilter{Project: "shop", Limit: 1})
+	if hold("shop") != nil || cs[0].Actor.Name != "storage limit" || cs[0].Intent != "shop is under its 4.0 GiB storage limit: it can write again" {
+		t.Fatalf("raising the limit lifts the hold: %+v", cs[0])
+	}
+	limit = 2 << 30
+	round()
+	limit = 0
+	round()
+	if cs, _ = db.ListChanges(ctx, change.ListFilter{Project: "shop", Limit: 1}); hold("shop") != nil || cs[0].Intent != "shop has no storage limit now: it can write again" {
+		t.Fatalf("clearing the limit lifts the hold: %+v", cs[0])
 	}
 }

@@ -106,7 +106,7 @@ export function useStorageStatus(project: string): { sentence: ReactNode; bucket
   if (!st.data) return { sentence: null };
   const b = st.data.buckets ?? [];
   const files = b.reduce((s, x) => s + (x.objects ?? 0), 0);
-  return { sentence: `${bytes(st.data.usedBytes)} in ${count(files, "file")}.`, buckets: b.length };
+  return { sentence: `${bytes(st.data.filesBytes)} in ${count(files, "file")}.`, buckets: b.length };
 }
 
 export function useEmailStatus(project: string): { sentence: ReactNode; mode?: string } {

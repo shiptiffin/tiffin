@@ -99,12 +99,6 @@ func TestParseRoute(t *testing.T) {
 	}
 }
 
-func TestAppName(t *testing.T) {
-	if got := AppName("my-shop"); got != "My shop" {
-		t.Fatalf("AppName = %q", got)
-	}
-}
-
 const shop = `{"project":"shop","apps":{
   "web":{"routes":["shop","shop.example.com/app"]},
   "admin":{},
@@ -146,7 +140,7 @@ func TestEngineConfig(t *testing.T) {
 	if s.Social["google"] == nil || s.Social["google"].ClientSecret != "gsecret" || s.Social["github"] != nil {
 		t.Fatalf("social: %+v", s.Social)
 	}
-	if s.AppName != "Shop" || len(s.Secret) < 32 {
+	if s.AppName != "shop" || len(s.Secret) < 32 { // the project's name as written, not "Shop"
 		t.Fatalf("name/secret: %q %d", s.AppName, len(s.Secret))
 	}
 	// The secret is stable across rebuilds.

@@ -113,5 +113,5 @@ for seven days.
 - A key with full access to all projects is the box admin: it also manages keys,
   people and exports. No other key can manage keys.
 - Outside its reach a key gets `403 forbidden` with a plain reason ("this key is read
-  only", "this key can only change shop"). There is no approval step: the agent's own
+  only", "this key can only reach shop"). There is no approval step: the agent's own
   client asks you before destructive tools, and History records everything.

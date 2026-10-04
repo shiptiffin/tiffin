@@ -487,9 +487,24 @@ func TestWebhookAndInternalAuth(t *testing.T) {
 		t.Fatalf("internal send %d %+v", code, sent)
 	}
 	j := (&testEngine{Engine: e.Engine, t: t}).job(proj, sent.Jobs[0])
-	if j.Target != "web:/queues/emails" || j.State != stateScheduled || j.EnqueuedBy != "app:web" {
+	if j.Target != "web:/queues/emails" || j.State != stateScheduled || j.EnqueuedBy != "app:"+proj+"/web" {
 		t.Errorf("job %+v", j)
 	}
+	// An app's own key names it, whatever the request claims; a key for an
+	// app that was not derived from the project's key is refused.
+	projectKey := sdk.key
+	sdk.key = AppKey(projectKey, proj, "worker")
+	if code := sdk.call("POST", "/v1/queue-internal/send", map[string]any{"name": "emails", "fromApp": "web", "delaySeconds": 3600}, &sent); code != 200 {
+		t.Fatalf("send with an app key: %d", code)
+	}
+	if j := (&testEngine{Engine: e.Engine, t: t}).job(proj, sent.Jobs[0]); j.EnqueuedBy != "app:"+proj+"/worker" {
+		t.Errorf("sent with worker's key: enqueuedBy %q", j.EnqueuedBy)
+	}
+	sdk.key = "tqk_" + proj + "_worker_" + strings.Repeat("0", 32)
+	if code := sdk.call("POST", "/v1/queue-internal/send", map[string]any{"name": "emails"}, &sent); code != 401 {
+		t.Errorf("forged app key: %d", code)
+	}
+	sdk.key = projectKey
 	var prob map[string]any
 	if code := sdk.call("POST", "/v1/queue-internal/jobs/"+sent.Jobs[0]+"/heartbeat", map[string]int{"attemptId": 1}, &prob); code != 409 || prob["code"] != "conflict" {
 		t.Errorf("heartbeat on a waiting job: %d %v", code, prob)
