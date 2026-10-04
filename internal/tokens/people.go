@@ -127,7 +127,8 @@ func (m *Manager) AddPerson(ctx context.Context, by *Principal, name, email, rol
 }
 
 // UpdatePerson renames someone or changes their role. Their open sessions
-// end, so the new role applies at once.
+// end, so the new role applies at once; a demotion also revokes every key
+// they created (and keys those keys made), which may hold the old role's power.
 func (m *Manager) UpdatePerson(ctx context.Context, by *Principal, id, name, role string) (*Person, error) {
 	if !by.BoxAdmin() {
 		return nil, fmt.Errorf("%w: only an owner, an admin or a key with full access to all projects can change people", ErrForbidden)
@@ -136,6 +137,7 @@ func (m *Manager) UpdatePerson(ctx context.Context, by *Principal, id, name, rol
 	if err != nil {
 		return nil, err
 	}
+	changed, demoted := false, false
 	if role != "" && role != p.Role {
 		if p.Role == RoleOwner {
 			return nil, fmt.Errorf("%w: the owner's role cannot change", ErrForbidden)
@@ -143,8 +145,8 @@ func (m *Manager) UpdatePerson(ctx context.Context, by *Principal, id, name, rol
 		if !slices.Contains(Roles, role) {
 			return nil, fmt.Errorf("%w: role must be admin, member or viewer", ErrInvalid)
 		}
+		changed, demoted = true, slices.Index(Roles, role) > slices.Index(Roles, p.Role)
 		p.Role = role
-		m.endSessions(ctx, id)
 	}
 	if n := strings.TrimSpace(name); n != "" {
 		if len(n) > 64 {
@@ -152,14 +154,28 @@ func (m *Manager) UpdatePerson(ctx context.Context, by *Principal, id, name, rol
 		}
 		p.Name = n
 	}
-	if _, err := m.db.SQL().ExecContext(ctx, `UPDATE people SET name = ?, role = ? WHERE id = ?`, p.Name, p.Role, id); err != nil {
+	tx, err := m.db.SQL().BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE people SET name = ?, role = ? WHERE id = ?`, p.Name, p.Role, id); err != nil {
+		return nil, err
+	}
+	if changed {
+		if err := m.endSessions(ctx, tx, id, demoted); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	_ = m.db.Audit(ctx, by.TokenID, "person.update", id, map[string]any{"name": p.Name, "role": p.Role})
 	return p, nil
 }
 
-// RemovePerson disables someone and ends their sessions. The owner stays.
+// RemovePerson disables someone, ends their sessions and revokes every key
+// they created (and keys those keys made). The owner stays.
 func (m *Manager) RemovePerson(ctx context.Context, by *Principal, id string) error {
 	if !by.BoxAdmin() {
 		return fmt.Errorf("%w: only an owner, an admin or a key with full access to all projects can remove people", ErrForbidden)
@@ -168,21 +184,41 @@ func (m *Manager) RemovePerson(ctx context.Context, by *Principal, id string) er
 		return fmt.Errorf("%w: the owner cannot be removed", ErrForbidden)
 	}
 	now := m.now().UTC()
-	res, err := m.db.SQL().ExecContext(ctx, `UPDATE people SET disabled_at = ? WHERE id = ? AND disabled_at IS NULL`, ts(&now), id)
+	tx, err := m.db.SQL().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE people SET disabled_at = ? WHERE id = ? AND disabled_at IS NULL`, ts(&now), id)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrPersonNotFound
 	}
-	m.endSessions(ctx, id)
+	if err := m.endSessions(ctx, tx, id, true); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
 	_ = m.db.Audit(ctx, by.TokenID, "person.remove", id, nil)
 	return nil
 }
 
-func (m *Manager) endSessions(ctx context.Context, person string) {
+// endSessions revokes a person's sessions and, with keys, every token those
+// sessions (current or past) sponsored, transitively.
+func (m *Manager) endSessions(ctx context.Context, tx *sql.Tx, person string, keys bool) error {
 	now := m.now().UTC()
-	_, _ = m.db.SQL().ExecContext(ctx, `UPDATE tokens SET revoked_at = ? WHERE person = ? AND revoked_at IS NULL`, ts(&now), person)
+	q := `UPDATE tokens SET revoked_at = ?1 WHERE person = ?2 AND revoked_at IS NULL`
+	if keys {
+		q = `WITH RECURSIVE tree(id) AS (
+				SELECT id FROM tokens WHERE person = ?2
+				UNION SELECT t.id FROM tokens t JOIN tree ON t.sponsor = tree.id)
+			UPDATE tokens SET revoked_at = ?1 WHERE id IN (SELECT id FROM tree) AND revoked_at IS NULL`
+	}
+	_, err := tx.ExecContext(ctx, q, ts(&now), person)
+	return err
 }
 
 // LoginLinkFor creates a one-time sign-in link for a person (an invite, or

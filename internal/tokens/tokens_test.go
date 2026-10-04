@@ -246,3 +246,58 @@ func TestConcurrentBootstrapCreatesOneOwner(t *testing.T) {
 		t.Fatalf("%d owner tokens created", n)
 	}
 }
+
+// Removing or demoting a person ends their sessions and revokes every key
+// they created, down to keys those keys made; other people's keys stay.
+func TestRemovedOrDemotedPersonLosesTheirKeys(t *testing.T) {
+	m, owner, _ := setup(t)
+	ctx := context.Background()
+	// keys signs person in and returns the session, a full key it made and a
+	// key that key made.
+	keys := func(person string) []string {
+		t.Helper()
+		sess, _, _, err := m.SessionFor(ctx, person, "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, _ := m.Authenticate(ctx, sess)
+		child, _, err := m.CreateKey(ctx, p, KeyRequest{Name: "child", Projects: Projects{AllProjects}, Access: LevelFull})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cp, _ := m.Authenticate(ctx, child)
+		grand, _, err := m.CreateKey(ctx, cp, KeyRequest{Name: "grandchild", Projects: Projects{AllProjects}, Access: LevelRead})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return []string{sess, child, grand}
+	}
+	works := func(label string, want bool, secrets ...string) {
+		t.Helper()
+		for i, s := range secrets {
+			if _, err := m.Authenticate(ctx, s); (err == nil) != want {
+				t.Errorf("%s: secret %d works=%v, want %v", label, i, err == nil, want)
+			}
+		}
+	}
+	ann, _ := m.AddPerson(ctx, owner, "Ann", "", RoleAdmin)
+	bob, _ := m.AddPerson(ctx, owner, "Bob", "", RoleAdmin)
+	annKeys, bobKeys := keys(ann.ID), keys(bob.ID)
+	ownerKey, _, _ := m.CreateKey(ctx, owner, KeyRequest{Name: "mine", Projects: Projects{AllProjects}, Access: LevelFull})
+
+	if _, err := m.UpdatePerson(ctx, owner, bob.ID, "Robert", ""); err != nil {
+		t.Fatal(err)
+	}
+	works("after a rename", true, bobKeys...)
+	if _, err := m.UpdatePerson(ctx, owner, ann.ID, "", RoleMember); err != nil {
+		t.Fatal(err)
+	}
+	works("demoted", false, annKeys...)
+	works("bystander", true, append(bobKeys, ownerKey)...)
+
+	if err := m.RemovePerson(ctx, owner, bob.ID); err != nil {
+		t.Fatal(err)
+	}
+	works("removed", false, bobKeys...)
+	works("owner key", true, ownerKey)
+}

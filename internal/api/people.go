@@ -65,7 +65,7 @@ func (a *API) registerPeople() {
 		}))
 
 	huma.Register(api, op("person-update", http.MethodPatch, "/v1/people/{id}", "people update", RiskWrite, "Change a person",
-		"Renames someone or changes their role. Their open sessions end so the new role applies at once.", "people"),
+		"Renames someone or changes their role. Their open sessions end so the new role applies at once; a demotion also revokes the API keys they created (and keys those keys made).", "people"),
 		wrap(func(ctx context.Context, in *struct {
 			ID   string `path:"id" maxLength:"40"`
 			Body struct {
@@ -78,7 +78,7 @@ func (a *API) registerPeople() {
 		}))
 
 	huma.Register(api, op("person-remove", http.MethodDelete, "/v1/people/{id}", "people remove", RiskDestructive, "Remove a person",
-		"Removes someone's access and ends their sessions. Their past changes stay in the log.", "people"),
+		"Removes someone's access, ends their sessions and revokes the API keys they created (and keys those keys made). Their past changes stay in the log.", "people"),
 		wrap(func(ctx context.Context, in *struct {
 			ID string `path:"id" maxLength:"40"`
 		}) (*struct{}, error) {

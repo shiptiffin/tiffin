@@ -1256,14 +1256,14 @@ export interface paths {
         post?: never;
         /**
          * Remove a person
-         * @description Removes someone's access and ends their sessions. Their past changes stay in the log.
+         * @description Removes someone's access, ends their sessions and revokes the API keys they created (and keys those keys made). Their past changes stay in the log.
          */
         delete: operations["person-remove"];
         options?: never;
         head?: never;
         /**
          * Change a person
-         * @description Renames someone or changes their role. Their open sessions end so the new role applies at once.
+         * @description Renames someone or changes their role. Their open sessions end so the new role applies at once; a demotion also revokes the API keys they created (and keys those keys made).
          */
         patch: operations["person-update"];
         trace?: never;
