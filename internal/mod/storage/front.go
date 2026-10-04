@@ -154,8 +154,9 @@ func (f *frontServer) serveS3(w http.ResponseWriter, r *http.Request) {
 	f.proxy.ServeHTTP(w, r)
 }
 
-// overQuota returns a message when writing n more bytes to bucket would put
-// its project over quota, else "".
+// overQuota returns a message when writing n more bytes to bucket is
+// refused (its project is read-only or would go over its storage limit),
+// else "".
 func (f *frontServer) overQuota(ctx context.Context, bucket string, n int64) string {
 	meta, err := allMeta(ctx, f.p)
 	if err != nil {
@@ -165,19 +166,8 @@ func (f *frontServer) overQuota(ctx context.Context, bucket string, n int64) str
 	if !ok {
 		return "" // not ours to judge; the gateway decides
 	}
-	max, _, err := quotaFor(ctx, f.p, b.Project)
-	if err != nil || max <= 0 {
-		return ""
-	}
-	used := f.m.tracker().project(meta, b.Project)
-	if n < 0 {
-		n = 0
-	}
-	if used+n > max {
-		return fmt.Sprintf("project %s is over its storage quota: %s used of %s. Delete objects, or ask the box owner to raise it (tiffin storage quota set %s --max-bytes N)",
-			b.Project, humanBytes(used), humanBytes(max), b.Project)
-	}
-	return ""
+	what, fix := f.m.refusal(ctx, f.p, meta, b.Project, n)
+	return strings.TrimSpace(what + " " + fix)
 }
 
 type statusRecorder struct {
@@ -315,7 +305,8 @@ func (f *frontServer) serveFile(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func humanBytes(n int64) string {
+// HumanBytes formats a size the way messages say it: "1.5 GiB".
+func HumanBytes(n int64) string {
 	const unit = 1024
 	if n < unit {
 		return fmt.Sprintf("%d B", n)

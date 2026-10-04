@@ -9,6 +9,7 @@ import { useTitle } from "@/components/favicon";
 import { Page, Skeleton } from "@/components/page";
 import { PilotLight } from "@/components/pilot";
 import { ProblemNote } from "@/components/problem";
+import { ReadOnlyBanner } from "@/components/read-only";
 import { AddMenu } from "@/components/start-add-menu";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -97,6 +98,7 @@ export function ProjectPage({ project }: { project: string }) {
           </Button>
         )}
       </header>
+      <ReadOnlyBanner project={project} className="mt-6" />
 
       <h2 className="label mt-10 mb-3">What’s in it</h2>
       {m.isError && <ProblemNote className="mb-4" error={m.error} title="The project’s config can’t be read." />}

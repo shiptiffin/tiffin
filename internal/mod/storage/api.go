@@ -42,9 +42,11 @@ type Info struct {
 	FilesURL         string       `json:"filesUrl" doc:"Public files base: <filesUrl>/<bucket>/<key> (public buckets only)"`
 	Region           string       `json:"region"`
 	AccessKeyID      string       `json:"accessKeyId,omitempty" doc:"The project's S3 access key id (the secret is in the app env, or GET .../storage/credentials)"`
-	UsedBytes        int64        `json:"usedBytes"`
-	QuotaBytes       int64        `json:"quotaBytes" doc:"Upload limit for the whole project; 0 means unlimited"`
+	UsedBytes        int64        `json:"usedBytes" doc:"Bucket files"`
+	DatabaseBytes    int64        `json:"databaseBytes" doc:"The project's databases (branches included), as the disk guard last measured them: they count toward quotaBytes with the files"`
+	QuotaBytes       int64        `json:"quotaBytes" doc:"The project's storage limit, database and files together; 0 means none (the default)"`
 	QuotaSource      string       `json:"quotaSource" enum:"project,box-default"`
+	ReadOnly         string       `json:"readOnly,omitempty" doc:"Set while uploads are refused: which limit was reached and how to fix it"`
 	MeasuredAt       time.Time    `json:"measuredAt" doc:"When usage was last measured (every minute, and after changes)"`
 	Buckets          []BucketInfo `json:"buckets"`
 }
@@ -264,7 +266,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			}
 			defer res.Body.Close()
 			if res.ContentLength > 1<<20 {
-				return nil, api.NewProblem(413, "validation", fmt.Sprintf("object is %s; read objects over 1 MiB with a presigned GET URL", humanBytes(res.ContentLength)))
+				return nil, api.NewProblem(413, "validation", fmt.Sprintf("object is %s; read objects over 1 MiB with a presigned GET URL", HumanBytes(res.ContentLength)))
 			}
 			data, err := io.ReadAll(io.LimitReader(res.Body, 1<<20+1))
 			if err != nil {
@@ -369,8 +371,11 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		}))
 
 	q := api.Op("storage-quota-set", http.MethodPut, "/v1/projects/{project}/storage/quota", "storage quota set", api.RiskWrite,
-		"Set a project's storage quota", "Caps the bytes a project can store. Uploads that would go over are refused with QuotaExceeded "+
-			"(checked against usage measured every minute plus uploads since). maxBytes: >0 sets the limit, 0 returns to the box default, -1 means unlimited. Box admins only.", tag)
+		"Set a project's storage limit", "Caps what a project stores on the box: its databases (branches included) and its files together. "+
+			"Off by default. Uploads that would go over are refused with QuotaExceeded (files measured every minute plus uploads since, databases "+
+			"every 30 seconds); a project that reaches its limit becomes read-only (its database refuses writes, its buckets refuse uploads) until it "+
+			"is under the limit again, and the box's change log records both. Raising or clearing the limit lifts it within seconds. "+
+			"maxBytes: >0 sets the limit, 0 returns to the box default, -1 means none. Box admins only.", tag)
 	huma.Register(a, q, api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Body    struct {
@@ -394,6 +399,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			return nil, err
 		}
 		_ = p.DB.Audit(ctx, pr.TokenID, "storage.quota.set", in.Project, map[string]any{"maxBytes": in.Body.MaxBytes})
+		limitsChanged()
 		info, err := m.info(ctx, p, in.Project)
 		if err != nil {
 			return nil, err
@@ -402,7 +408,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}))
 
 	huma.Register(a, api.Op("storage-quota-default-set", http.MethodPut, "/v1/storage/quota", "storage quota default", api.RiskWrite,
-		"Set the box's default storage quota", fmt.Sprintf("The quota for projects without their own. 0 means unlimited. Starts at %d GiB. Box admins only.", DefaultQuotaBytes>>30), tag),
+		"Set the box's default storage limit", "The storage limit (database and files together) for projects without their own. 0 means none, which is where a box starts. Box admins only.", tag),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Body struct {
 				MaxBytes int64 `json:"maxBytes" minimum:"0" doc:"Bytes per project; 0 means unlimited"`
@@ -423,6 +429,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			if err := p.DB.KVPut(ctx, kvNS, "quota-default", []byte(strconv.FormatInt(in.Body.MaxBytes, 10))); err != nil {
 				return nil, err
 			}
+			limitsChanged()
 			out := &struct {
 				Body struct {
 					MaxBytes int64 `json:"maxBytes"`
@@ -598,7 +605,7 @@ func (m *Module) info(ctx context.Context, p *platform.Platform, project string)
 		}
 		info.Buckets = append(info.Buckets, bi)
 	}
-	info.UsedBytes = t.project(meta, project)
+	info.UsedBytes, info.DatabaseBytes, info.ReadOnly = t.project(meta, project), databaseBytes(project), ReadOnly(project)
 	q, own, err := quotaFor(ctx, p, project)
 	if err != nil {
 		return nil, err
@@ -625,12 +632,10 @@ func (m *Module) upload(ctx context.Context, p *platform.Platform, project, buck
 	if err != nil {
 		return nil, err
 	}
-	if max, _, err := quotaFor(ctx, p, project); err == nil && max > 0 {
-		if used := m.tracker().project(all, project); used+int64(len(data)) > max {
-			pr := api.NewProblem(409, "precondition", fmt.Sprintf("project %s is over its storage quota: %s used of %s", project, humanBytes(used), humanBytes(max)))
-			pr.Hint = "delete objects, or ask the box owner to raise the quota (tiffin storage quota set)"
-			return nil, pr
-		}
+	if what, fix := m.refusal(ctx, p, all, project, int64(len(data))); what != "" {
+		pr := api.NewProblem(409, "precondition", what)
+		pr.Hint = fix
+		return nil, pr
 	}
 	if contentType == "" {
 		contentType = http.DetectContentType(data)

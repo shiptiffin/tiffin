@@ -177,6 +177,10 @@ export function opTitle(op: Op, project: string, past = false): string {
     if (op.action === "delete") return `${v("Destroy", "Destroyed")} the project ${project}`;
     return `${v("Change", "Changed")} ${project}’s settings`;
   }
+  if (kind === "readonly") {
+    if (op.action === "delete") return `${v("Let", "Let")} ${project} write again`;
+    return `${v("Make", "Made")} ${project} read-only`;
+  }
   if (kind === "bucket" && op.action === "update" && op.fields?.length === 1 && op.fields[0] === "public") {
     return `${v("Make", "Made")} the ${name} bucket ${after.public ? "public" : "private"}`;
   }

@@ -33,6 +33,7 @@ const checkNames: Record<string, string> = {
   "analytics.geoip": "Visitor locations",
   runtime: "Apps",
   backups: "Backups",
+  "disk-guard": "Disk guard",
 };
 const checkName = (c: Check) => checkNames[c.name] ?? c.name.charAt(0).toUpperCase() + c.name.slice(1);
 
@@ -264,7 +265,7 @@ export function StatusPage() {
 const parts: Array<{ name: string; about: string; checks: string[] }> = [
   { name: "Edge", about: "HTTPS, protection and the firewall", checks: ["edge", "protection", "crowdsec", "firewall"] },
   { name: "Apps", about: "Containers and sign-in", checks: ["runtime", "auth"] },
-  { name: "Data", about: "Databases, files and backups", checks: ["postgres", "valkey", "storage", "backups", "disk"] },
+  { name: "Data", about: "Databases, files and backups", checks: ["postgres", "valkey", "storage", "backups", "disk", "disk-guard"] },
   { name: "Mail", about: "Sending and catching email", checks: ["email"] },
   { name: "Jobs", about: "Queues, workflows and schedules", checks: ["queue"] },
   { name: "Watching", about: "Metrics, logs, errors and analytics", checks: ["observe.metrics", "observe.logs", "observe.ingest", "analytics.collector", "analytics.geoip"] },

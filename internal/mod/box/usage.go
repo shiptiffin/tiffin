@@ -25,6 +25,7 @@ type Usage struct {
 	Memory      UsageMemory   `json:"memory"`
 	CPU         UsageCPU      `json:"cpu"`
 	Disk        UsageDisk     `json:"disk"`
+	Storage     *UsageStorage `json:"storage,omitempty" doc:"Its storage limit (databases and files together; none by default) and whether its writes are held read-only (absent until the disk guard's first round)"`
 	Apps        []UsageApp    `json:"apps" doc:"Every app of the project, and every preview with running copies"`
 	Services    UsageServices `json:"services"`
 }
@@ -453,6 +454,9 @@ func (s *sampler) usage(ctx context.Context, t *tracker, project string, apps []
 		}
 	}
 	u.Disk.TotalBytes = u.Disk.DatabaseBytes + u.Disk.FilesBytes + u.Disk.KVBytes
+	if s.guard.state() != nil {
+		u.Storage = s.guard.projectStorage(ctx, project)
+	}
 	t.mu.Lock()
 	t.cache[project] = u
 	t.cacheGen[project] = gen

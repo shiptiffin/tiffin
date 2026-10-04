@@ -11,6 +11,7 @@ import { useTitle } from "@/components/favicon";
 import { Crumbs, Empty, Page, PageHeader, Skeleton, Untrusted, NotOnBox } from "@/components/page";
 import { PilotLight } from "@/components/pilot";
 import { ProblemNote } from "@/components/problem";
+import { ReadOnlyBanner } from "@/components/read-only";
 import { SegMeter } from "@/components/seg-meter";
 import { Button } from "@/components/ui/button";
 import { copyText } from "@/lib/clipboard";
@@ -50,7 +51,8 @@ export function StoragePage({ project }: { project: string }) {
   const quota = s.quotaBytes;
   const used = bytesParts(s.usedBytes);
   const files = buckets.reduce((n, b) => n + b.objects, 0);
-  const share = quota > 0 ? s.usedBytes / quota : 0;
+  // The storage limit counts the project's databases with its files.
+  const share = quota > 0 ? (s.usedBytes + (s.databaseBytes ?? 0)) / quota : 0;
   return (
     <Page wide>
       <PageHeader
@@ -63,6 +65,7 @@ export function StoragePage({ project }: { project: string }) {
           </>
         }
       />
+      <ReadOnlyBanner project={project} className="mb-6" />
 
       <Readings className="grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr]">
         <Reading
@@ -83,8 +86,14 @@ export function StoragePage({ project }: { project: string }) {
             />
           )}
           <p className="mt-2 text-xs text-ink-3">
-            {share < 0.001 ? "Under 0.1 %" : pct(share, share < 0.1 ? 1 : 0)} of{" "}
-            {s.quotaSource === "box-default" ? "the box's default limit" : "this project's limit"}, measured {relative(s.measuredAt)}.
+            {quota > 0 ? (
+              <>
+                With its database, {share < 0.001 ? "under 0.1 %" : pct(share, share < 0.1 ? 1 : 0)} of{" "}
+                {s.quotaSource === "box-default" ? "the box's default storage limit" : "its storage limit"}, measured {relative(s.measuredAt)}.
+              </>
+            ) : (
+              <>No storage limit. Measured {relative(s.measuredAt)}.</>
+            )}
           </p>
         </Reading>
         <Reading

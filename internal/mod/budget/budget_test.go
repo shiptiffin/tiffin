@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -203,8 +204,17 @@ func TestModule(t *testing.T) {
 	if code, _ := h.call("PUT", "/v1/box/settings", map[string]any{"defaultMaxSharePercent": 2}); code != 422 {
 		t.Fatalf("2%%: %d", code)
 	}
-	if code, out := h.call("GET", "/v1/box/settings", nil); code != 200 || out["defaultMaxSharePercent"].(float64) != 25 || out["cpus"].(float64) != 2 {
+	if code, out := h.call("GET", "/v1/box/settings", nil); code != 200 || out["defaultMaxSharePercent"].(float64) != 25 || out["cpus"].(float64) != 2 ||
+		out["diskWarnPercent"].(float64) != 85 || out["diskStopPercent"].(float64) != 95 || out["diskResumePercent"].(float64) != 90 {
 		t.Fatalf("get settings: %d %v", code, out)
+	}
+	// The disk guard's levels change alone, the share stays, and they must stay in order.
+	if code, out := h.call("PUT", "/v1/box/settings", map[string]any{"diskStopPercent": 97}); code != 200 || out["diskStopPercent"].(float64) != 97 ||
+		out["defaultMaxSharePercent"].(float64) != 25 || CurrentSettings().DiskStopPercent != 97 {
+		t.Fatalf("disk stop: %d %v", code, out)
+	}
+	if code, out := h.call("PUT", "/v1/box/settings", map[string]any{"diskResumePercent": 98}); code != 422 || !strings.Contains(fmt.Sprint(out["detail"]), "diskResumePercent") {
+		t.Fatalf("resume above stop: %d %v", code, out)
 	}
 
 	// Pressure: an OOM kill after Tiffin started watching.

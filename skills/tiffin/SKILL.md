@@ -13,7 +13,9 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    `tiffin apply --confirm <that hash> -m "<why>"`. Exit code 4 means re-plan.
 3. Before an irreversible plan (deleting data), say exactly what will be lost; your
    client asks the human before destructive tools. A `403 forbidden` means your API key
-   doesn't reach it: ask the human, don't work around it.
+   doesn't reach it: ask the human, don't work around it. "Read-only" errors (a database
+   write refused, `QuotaExceeded` on upload) mean the box's disk is nearly full or the project
+   reached its storage limit: pass on the fix the message names, don't work around it.
 4. Deploy with `tiffin deploy`; check `tiffin logs <app>` and the app URL afterwards. Code on
    GitHub? If `tiffin github status` says connected: `tiffin github repos` / `tiffin github repo
    <owner> <repo>` (folders and framework), put `git: { repo, branch, path }` on the app, plan,

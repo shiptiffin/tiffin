@@ -53,18 +53,22 @@ are cached for a year as immutable; other keys for five minutes. Files are serve
 with a sandboxing Content-Security-Policy, so an uploaded HTML file cannot run
 script on that domain. Private buckets answer 403 there: use a presigned URL.
 
-## Quotas
+## Storage limits
 
-Each project may store up to 10 GiB by default. Uploads that would go over are
-refused with `QuotaExceeded` (S3) or a `precondition` problem (API). Usage is
-measured every minute, plus what was uploaded since, so a burst can overshoot by
-at most what is in flight. The box owner sets limits:
+A project's storage limit counts its databases (branches included) and its files
+together. There is none by default: the box's disk guard already keeps one project
+from filling the disk (see [Concepts](concepts.md)). Uploads that would go over a
+limit are refused with `QuotaExceeded` (S3) or a `precondition` problem (API). Files
+are measured every minute, plus what was uploaded since, and databases every 30
+seconds. A project that reaches its limit becomes read-only (its database refuses
+writes too) until it is under it again; raising or clearing the limit lifts that
+within seconds. The box owner sets limits, on the project's Usage page or:
 
 ```bash
 tiffin storage quota set shop --max-bytes 53687091200   # 50 GiB for one project
-tiffin storage quota set shop --max-bytes=-1            # unlimited
+tiffin storage quota set shop --max-bytes=-1            # no limit
 tiffin storage quota set shop --max-bytes 0             # back to the box default
-tiffin storage quota default --max-bytes 21474836480    # the default for everyone
+tiffin storage quota default --max-bytes 21474836480    # a default for everyone
 ```
 
 ## Deleting a bucket
@@ -87,6 +91,6 @@ Every backup set (`tiffin backups list`) includes the whole storage tree.
 [versitygw](https://github.com/versity/versitygw) (Apache-2.0, pinned release,
 checksum-verified) runs as `tiffin-storage.service` on `127.0.0.1:7480` with its
 POSIX backend on `/var/lib/tiffin/storage/data`. A small front server in Tiffin
-(`127.0.0.1:7481`) enforces quotas, serves public files and passes S3 requests
+(`127.0.0.1:7481`) enforces storage limits and read-only holds, serves public files and passes S3 requests
 through unchanged, so signatures and presigned URLs verify. The edge serves it as
 `s3.<domain>` and `files.<domain>`.

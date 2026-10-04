@@ -113,10 +113,30 @@ type Settings struct {
 	// own at this share of the box (memory for apps and CPUs). 100 means no
 	// cap: automatic projects are elastic.
 	DefaultMaxSharePercent int `json:"defaultMaxSharePercent" minimum:"5" maximum:"100" doc:"Projects that set no limit of their own may use at most this percentage of the box: of the memory it keeps for apps and of its CPUs. 100 (the default) means elastic: a project grows into whatever the box has free."`
+	// The disk guard: the data disk holds every project's database and
+	// files, so one project filling it would stop them all.
+	DiskWarnPercent   int `json:"diskWarnPercent" doc:"Past this share of the data disk the box warns, naming the project growing fastest (default 85)"`
+	DiskStopPercent   int `json:"diskStopPercent" doc:"Past this share the project growing fastest becomes read-only (its database refuses writes, its buckets refuse uploads) so every other project keeps running (default 95; 100 turns this off)"`
+	DiskResumePercent int `json:"diskResumePercent" doc:"Below this share read-only projects can write again (default 90)"`
 }
 
-// DefaultSettings is a fresh box: elastic.
-var DefaultSettings = Settings{DefaultMaxSharePercent: 100}
+// DefaultSettings is a fresh box: elastic, with the disk guard on.
+var DefaultSettings = Settings{DefaultMaxSharePercent: 100, DiskWarnPercent: 85, DiskStopPercent: 95, DiskResumePercent: 90}
+
+// check says what is wrong with settings, or "".
+func (s Settings) check() string {
+	switch {
+	case s.DefaultMaxSharePercent < 5 || s.DefaultMaxSharePercent > 100:
+		return "defaultMaxSharePercent must be between 5 and 100"
+	case s.DiskWarnPercent < 50 || s.DiskWarnPercent > 99:
+		return "diskWarnPercent must be between 50 and 99"
+	case s.DiskStopPercent <= s.DiskWarnPercent || s.DiskStopPercent > 100:
+		return "diskStopPercent must be above diskWarnPercent, at most 100 (100 turns read-only off)"
+	case s.DiskResumePercent < 50 || s.DiskResumePercent >= s.DiskStopPercent:
+		return "diskResumePercent must be at least 50 and below diskStopPercent"
+	}
+	return ""
+}
 
 // Project is one project's input to Resolve.
 type Project struct {
