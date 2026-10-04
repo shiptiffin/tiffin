@@ -252,7 +252,7 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
         creatorRole: "owner",
         invitationExpiresIn: 48 * 3600,
         cancelPendingInvitationsOnReInvite: true,
-        requireEmailVerificationOnInvitation: true,
+        requireEmailVerificationOnInvitation: c.requireEmailVerification,
         sendInvitationEmail: async (d, request) => {
           const url = `${originOf(request)}${c.acceptInvitePath}?invitation=${encodeURIComponent(d.id)}`;
           await mail(templates.invite(c.appName, d.email, url, d.inviter.user.name || d.inviter.user.email, d.organization.name, d.role));
@@ -323,7 +323,7 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
     account: { accountLinking: { enabled: true, trustedProviders: ["google", "github"] } },
     emailAndPassword: {
       enabled: methods.has("email"),
-      requireEmailVerification: true,
+      requireEmailVerification: c.requireEmailVerification,
       minPasswordLength: 8,
       maxPasswordLength: 256,
       resetPasswordTokenExpiresIn: 3600,
@@ -331,8 +331,8 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
       sendResetPassword: async ({ user, url }) => mail(templates.reset(c.appName, user.email, url)),
     },
     emailVerification: {
-      sendOnSignUp: true,
-      sendOnSignIn: true,
+      sendOnSignUp: c.requireEmailVerification,
+      sendOnSignIn: c.requireEmailVerification,
       autoSignInAfterVerification: true,
       expiresIn: 3600,
       sendVerificationEmail: async ({ user, url }) => mail(templates.verify(c.appName, user.email, url)),

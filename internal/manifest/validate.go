@@ -309,6 +309,10 @@ func Warnings(m *Manifest) []string {
 			}
 		}
 	}
+	if a := m.Services.Auth; a != nil && a.EmailVerification != nil && !*a.EmailVerification {
+		out = append(out, "services.auth.emailVerification is false: anyone can sign up with an address they don't own. "+
+			"Fine for testing; before real users sign up, remove it (verification turns on by itself once the box has an SMTP relay) or set it to true")
+	}
 	over := func(where string, env map[string]string) {
 		for _, k := range sortedKeys(env) {
 			if SetByBox(k) {

@@ -23,6 +23,7 @@ export function projectConfig(databaseUrl: string, over: Partial<ProjectConfig> 
     captcha: true,
     rateLimit: false,
     acceptInvitePath: "/accept-invite",
+    requireEmailVerification: true,
     ...over,
   };
 }

@@ -132,6 +132,31 @@ describe("email + password", () => {
   });
 });
 
+describe("email verification off", () => {
+  test("sign-up signs in at once and sends no confirmation", async () => {
+    const db = await freshDatabase("engine_noverify");
+    const r2 = new Registry(null, { version: 1, listen: [], projects: { shop: projectConfig(db, { requireEmailVerification: false }) } });
+    try {
+      const a = adminHandler(r2);
+      const m = await a(new Request("http://admin/projects/shop/migrate", { method: "POST" }));
+      expect(m.status).toBe(200);
+      const c = new Client(publicHandler(r2));
+      const r = await c.withCaptcha("/sign-up/email", { email: "tester@example.com", password: "correct horse battery", name: "Tester" });
+      expect(r.status).toBe(200);
+      expect(typeof r.body.token).toBe("string"); // signed in, no confirmation needed
+      const s = await c.json("/tiffin/session");
+      expect(s.body.user.email).toBe("tester@example.com");
+      expect(s.body.user.emailVerified).toBe(false);
+      expect(() => lastMail("tester@example.com", "verify")).toThrow();
+      const again = new Client(publicHandler(r2));
+      const si = await again.withCaptcha("/sign-in/email", { email: "tester@example.com", password: "correct horse battery" });
+      expect(si.status).toBe(200);
+    } finally {
+      await r2.closeAll();
+    }
+  }, 60_000);
+});
+
 describe("passwordless", () => {
   test("magic link signs in (and signs up) by email", async () => {
     const c = new Client(handle);

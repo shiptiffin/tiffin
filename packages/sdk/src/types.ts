@@ -128,6 +128,13 @@ export interface AuthConfig {
    * viewer. Default true.
    */
   organizations?: boolean;
+  /**
+   * Whether new users must confirm their email address before they can sign
+   * in. Leave it out for automatic: required once the box has an SMTP relay
+   * (real mail goes out), not required while mail only reaches the dev inbox,
+   * so test sign-ups work at once. true or false forces it.
+   */
+  emailVerification?: boolean;
 }
 
 /**

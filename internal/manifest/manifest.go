@@ -202,6 +202,11 @@ type Auth struct {
 	// Organizations enables teams (organizations) with the roles owner, admin,
 	// member and viewer. Default true.
 	Organizations bool `json:"organizations"`
+	// EmailVerification: whether new users must confirm their email address
+	// before they can sign in. Unset means automatic: required when the box
+	// sends real mail (an SMTP relay is set up), not required while mail
+	// only reaches the dev inbox, so test sign-ups work at once.
+	EmailVerification *bool `json:"emailVerification,omitempty"`
 }
 
 // UnmarshalJSON decodes an Auth, defaulting Organizations to true when the

@@ -29,6 +29,10 @@ func (f *fakeModule) Env(_ context.Context, _ *platform.Platform, project, _ str
 
 var fakeDB = map[string]string{} // project → DATABASE_URL
 
+var fakeRelay bool // whether the fake email module's mail leaves the box
+
+func (f *fakeModule) WillSend(context.Context, *platform.Platform, string) (bool, error) { return fakeRelay, nil }
+
 func init() {
 	platform.Register(&fakeModule{name: "postgres", env: func(project string) map[string]string {
 		if u, ok := fakeDB[project]; ok {
@@ -228,5 +232,42 @@ func TestDuplicateHostsDontBreakTheEdge(t *testing.T) {
 	}
 	if c.Projects["aaa"] == nil || c.Projects["bbb"] != nil || errs["bbb"] == nil {
 		t.Fatalf("aaa keeps the host, bbb reports it: %v %v", c.Projects, errs)
+	}
+}
+
+// Email verification: automatic by default (required only once real mail
+// goes out through a relay), or what auth.emailVerification says.
+func TestEmailVerificationSetting(t *testing.T) {
+	p := newPlatform(t)
+	ctx := t.Context()
+	required := func() bool {
+		t.Helper()
+		c, errs, err := buildEngineConfig(ctx, p)
+		if err != nil || c.Projects["shop"] == nil {
+			t.Fatalf("config: %v %v", err, errs)
+		}
+		return c.Projects["shop"].RequireEmailVerification
+	}
+	apply(t, p, `{"project":"shop","apps":{"web":{}},"services":{"postgres":{},"email":{},"auth":{}}}`)
+	if required() {
+		t.Fatal("without a relay, sign-ups must not wait for a confirmation that only reaches the dev inbox")
+	}
+	fakeRelay = true
+	t.Cleanup(func() { fakeRelay = false })
+	if !required() {
+		t.Fatal("with a relay, new users confirm their address")
+	}
+	apply(t, p, `{"project":"shop","apps":{"web":{}},"services":{"postgres":{},"email":{},"auth":{"emailVerification":false}}}`)
+	if required() {
+		t.Fatal("emailVerification:false must turn it off")
+	}
+	_, res, _ := p.DB.Load(ctx, "shop")
+	if o := overview(p, "shop", res); o.EmailVerification.Required || o.EmailVerification.Source != VerifyManifest {
+		t.Fatalf("overview: %+v", o.EmailVerification)
+	}
+	fakeRelay = false
+	apply(t, p, `{"project":"shop","apps":{"web":{}},"services":{"postgres":{},"email":{},"auth":{"emailVerification":true}}}`)
+	if !required() {
+		t.Fatal("emailVerification:true must turn it on")
 	}
 }

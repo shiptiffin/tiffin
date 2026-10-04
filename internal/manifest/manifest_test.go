@@ -574,3 +574,22 @@ func TestWarnings(t *testing.T) {
 		t.Fatalf("clean manifest warned: %q", w)
 	}
 }
+
+// auth.emailVerification: unset means automatic (kept unset), an explicit
+// value survives parsing and rendering, and false warns in plans.
+func TestAuthEmailVerification(t *testing.T) {
+	m, err := Parse([]byte(`{"project":"p","services":{"postgres":{},"email":{},"auth":{}}}`))
+	if err != nil || m.Services.Auth.EmailVerification != nil || len(Warnings(m)) != 0 {
+		t.Fatalf("unset: %+v %v %v", m.Services.Auth, err, Warnings(m))
+	}
+	m, err = Parse([]byte(`{"project":"p","services":{"postgres":{},"email":{},"auth":{"emailVerification":false}}}`))
+	if err != nil || m.Services.Auth.EmailVerification == nil || *m.Services.Auth.EmailVerification {
+		t.Fatalf("false: %+v %v", m.Services.Auth, err)
+	}
+	if w := Warnings(m); len(w) != 1 || !strings.Contains(w[0], "emailVerification is false") {
+		t.Fatalf("warnings: %v", w)
+	}
+	if src := string(RenderConfig(m, "")); !strings.Contains(src, "emailVerification: false") {
+		t.Fatalf("render: %s", src)
+	}
+}

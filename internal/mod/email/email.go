@@ -304,6 +304,13 @@ func (m *Module) route(ctx context.Context, p *platform.Platform, project, previ
 	return DeliveryRelay, "sent through the relay " + r.Host, nil
 }
 
+// WillSend reports whether a project's mail would leave the box now (a
+// relay is set up and the project is not a preview). Auth uses it to decide
+// whether new users must confirm their address.
+func (m *Module) WillSend(ctx context.Context, p *platform.Platform, project string) (bool, error) {
+	return m.willSend(ctx, p, project)
+}
+
 // willSend reports whether a project's mail would leave the box now.
 func (m *Module) willSend(ctx context.Context, p *platform.Platform, project string) (bool, error) {
 	d, _, err := m.route(ctx, p, project, "")

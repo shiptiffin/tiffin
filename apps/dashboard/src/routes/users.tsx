@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError, notOnBox } from "@/api/client";
 import { mod3, type AuthUser } from "@/api/modules";
+import { Breaker } from "@/components/breaker";
 import { Confirm } from "@/components/confirm";
+import type { SetEdit } from "@/components/project-rows";
 import { useTitle } from "@/components/favicon";
 import { StateSentence } from "@/components/jobs-words";
 import { Crumbs, NotOnBox, Page, PageHeader, Skeleton, Tabs } from "@/components/page";
@@ -15,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { countWords, int, pct, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
+import { change, usePending } from "@/lib/staged";
 import { clock, dayKey, full, relative } from "@/lib/time";
 
 // ------------------------------------------------------------------ shared
@@ -120,6 +123,58 @@ const err = (e: unknown) => (e instanceof ApiError ? (e.problem.detail ?? e.mess
 
 // ------------------------------------------------------------------ users
 
+const VERIFY_PATH = ["services", "auth", "emailVerification"];
+
+const verifyNote: Record<string, string> = {
+  manifest: "Set for this project.",
+  relay: "On by itself: the box sends real mail, so new people confirm their address.",
+  "no-relay": "Off by itself while mail only reaches the dev inbox, so test sign-ups work at once. It turns on once the box has an SMTP relay.",
+  "no-email": "Off: the project has no email service to send the confirmation.",
+};
+
+/** One switch: must new people confirm their email before they can sign in? Writes auth.emailVerification. */
+function VerificationSwitch({ project, ev }: { project: string; ev: { required: boolean; source: string } }) {
+  const { can } = useMe();
+  const qc = useQueryClient();
+  const pending = usePending(project);
+  const staged = pending.find((e) => e.kind === "set" && e.path.join("/") === VERIFY_PATH.join("/")) as SetEdit | undefined;
+  const live = ev.required ? "on" : "off";
+  const was = useRef(staged);
+  useEffect(() => {
+    if (was.current && !staged) void qc.invalidateQueries({ queryKey: ["auth", project] });
+    was.current = staged;
+  }, [staged, qc, project]);
+  return (
+    <div className="mt-5 flex max-w-[48rem] items-start gap-3">
+      <Breaker
+        label="Require email verification"
+        state={live}
+        staged={staged ? (staged.to ? "on" : "off") : undefined}
+        disabled={!can("apply:reversible")}
+        className="mt-0.5"
+        onFlip={(next) =>
+          change(
+            project,
+            {
+              kind: "set",
+              path: VERIFY_PATH,
+              from: ev.source === "manifest" ? ev.required : undefined,
+              to: next === "on",
+              what: next === "on" ? `Require email verification for ${project}` : `Let people sign in to ${project} without confirming their email`,
+              undo: next === "on" ? "new people sign in without confirming again" : "new people confirm their email again",
+            },
+            { immediate: true },
+          )
+        }
+      />
+      <div>
+        <p className="text-[0.875rem] text-ink">Require email verification</p>
+        <p className="mt-0.5 text-xs text-ink-3">{verifyNote[ev.source] ?? ""}</p>
+      </div>
+    </div>
+  );
+}
+
 export function UsersPage({ project, search = "", page = 1 }: { project: string; search?: string; page?: number }) {
   useTitle(`${project} · Users`);
   const navigate = useNavigate();
@@ -170,6 +225,7 @@ export function UsersPage({ project, search = "", page = 1 }: { project: string;
           {overview.data.organizations && <> · {countWords(st.organizations, "organization")}</>}
         </p>
       )}
+      {overview.data?.emailVerification && <VerificationSwitch project={project} ev={overview.data.emailVerification} />}
 
       <div className="mt-8 flex items-center justify-between gap-4">
         <SearchBox value={q} onChange={setQ} label="Search users" placeholder="Search by name or email" />

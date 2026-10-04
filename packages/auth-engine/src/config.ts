@@ -38,6 +38,8 @@ export const projectSchema = z.object({
   rateLimit: z.boolean().default(true),
   /** Where invitation emails point: <origin><path>?invitation=<id>. */
   acceptInvitePath: z.string().default("/accept-invite"),
+  /** New users confirm their email before signing in. The box decides (auth.emailVerification, or on once a relay sends real mail). */
+  requireEmailVerification: z.boolean().default(true),
 });
 
 export type ProjectConfig = z.infer<typeof projectSchema>;

@@ -43,6 +43,9 @@ type ProjectConfig struct {
 	Captcha          bool                 `json:"captcha"`
 	RateLimit        bool                 `json:"rateLimit"`
 	AcceptInvitePath string               `json:"acceptInvitePath"`
+	// RequireEmailVerification: new users confirm their address before
+	// signing in (see EmailVerification).
+	RequireEmailVerification bool `json:"requireEmailVerification"`
 }
 
 // EngineConfig is the whole engine config file.
@@ -101,6 +104,37 @@ func AppName(project string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// Why email verification is on or off for a project.
+const (
+	VerifyManifest = "manifest" // auth.emailVerification says so
+	VerifyRelay    = "relay"    // automatic: on, mail leaves the box
+	VerifyNoRelay  = "no-relay" // automatic: off, mail only reaches the dev inbox
+	VerifyNoEmail  = "no-email" // automatic: off, the project has no email service
+)
+
+// EmailVerification decides whether a project's new users must confirm their
+// address: what the manifest says, else on exactly when the project's mail
+// leaves the box (an SMTP relay is set up). Without a relay a required
+// confirmation would only land in the dev inbox and block every sign-up.
+func EmailVerification(ctx context.Context, p *platform.Platform, project string, a *manifest.Auth, hasEmail bool) (bool, string) {
+	if a.EmailVerification != nil {
+		return *a.EmailVerification, VerifyManifest
+	}
+	if !hasEmail {
+		return false, VerifyNoEmail
+	}
+	for _, m := range platform.Modules() {
+		if s, ok := m.(interface {
+			WillSend(context.Context, *platform.Platform, string) (bool, error)
+		}); ok && m.Name() == "email" {
+			if sends, err := s.WillSend(ctx, p, project); err == nil && sends {
+				return true, VerifyRelay
+			}
+		}
+	}
+	return false, VerifyNoRelay
 }
 
 // projectConfig builds one project's engine entry from its resources.
@@ -174,6 +208,7 @@ func projectConfig(ctx context.Context, p *platform.Platform, project string, re
 	if c.EmailFrom == "" {
 		c.EmailFrom = project + "@" + p.Domain
 	}
+	c.RequireEmailVerification, _ = EmailVerification(ctx, p, project, &a, c.SMTPURL != "")
 
 	// Social sign-in: OAuth apps come from the project's secrets.
 	if p.Secrets != nil && (contains(c.Methods, manifest.AuthGoogle) || contains(c.Methods, manifest.AuthGitHub)) {

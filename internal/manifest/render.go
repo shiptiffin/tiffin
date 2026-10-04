@@ -248,6 +248,9 @@ func servicesNode(s Services) *node {
 		if !a.Organizations {
 			p.set("organizations", boolean(false))
 		}
+		if a.EmailVerification != nil {
+			p.set("emailVerification", boolean(*a.EmailVerification))
+		}
 		n.set("auth", p)
 	}
 	if e := s.Email; e != nil {

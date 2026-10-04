@@ -10,6 +10,10 @@ and sessions live in the project's own Postgres (schema `auth`).
 - **Methods:** email + password (with verification), magic links, one-time codes,
   passkeys, Google and GitHub (set `GOOGLE_CLIENT_ID`/`SECRET` etc. as secrets; until
   then the endpoint explains exactly what to set), TOTP two-factor.
+- **Email verification:** `auth: { emailVerification: true | false }`. Left out it is
+  automatic: new users confirm their address once the box has an SMTP relay (real mail
+  goes out), and sign in at once while mail only reaches the dev inbox, so test sign-ups
+  just work. `false` warns in every plan; the dashboard's Auth page has the switch.
 - **Organizations:** every user gets a personal org; teams have roles owner, admin,
   member and viewer, email and link invites. Nobody can grant a role above their own.
 - **API keys** act as their user, capped by a role.

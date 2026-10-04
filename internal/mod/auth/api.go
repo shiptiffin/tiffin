@@ -35,7 +35,15 @@ type Overview struct {
 	Endpoint      string          `json:"endpoint" doc:"Public base URL of the auth endpoint on the primary app host (TIFFIN_AUTH_URL)"`
 	Hosts         []string        `json:"hosts" doc:"Every app host that serves /api/auth"`
 	Social        map[string]bool `json:"social" doc:"For google/github when turned on: whether the OAuth app secrets are set"`
-	Stats         Stats           `json:"stats"`
+	// EmailVerification is the setting in effect and why.
+	EmailVerification EmailVerificationState `json:"emailVerification"`
+	Stats             Stats                  `json:"stats"`
+}
+
+// EmailVerificationState says whether new users must confirm their address.
+type EmailVerificationState struct {
+	Required bool   `json:"required" doc:"New users confirm their email address before they can sign in"`
+	Source   string `json:"source" enum:"manifest,relay,no-relay,no-email" doc:"manifest: auth.emailVerification sets it. Otherwise automatic: relay (on: mail leaves the box), no-relay (off: mail only reaches the dev inbox), no-email (off: the project has no email service)"`
 }
 
 // User is one account.
@@ -356,6 +364,8 @@ func overview(p *platform.Platform, project string, res map[string]change.Resour
 		primary = o.Hosts[0]
 	}
 	o.Endpoint = p.URL(primary) + PathPrefix
+	_, hasEmail := res[change.KindService+"/email"]
+	o.EmailVerification.Required, o.EmailVerification.Source = EmailVerification(context.Background(), p, project, &a, hasEmail)
 	if p.Secrets != nil {
 		if sec, err := p.Secrets.List(context.Background(), project); err == nil {
 			have := map[string]bool{}

@@ -45,7 +45,8 @@ tiffin apply --confirm <hash> -m "why, in one sentence"
 - Apps get everything as env vars (`DATABASE_URL`, `REDIS_URL`, `S3_*` for `Bun.s3`,
   `S3_PUBLIC_ENDPOINT` for presigned URLs, `SMTP_URL`, `TIFFIN_AUTH_INTERNAL_URL`,
   `TIFFIN_QUEUE_*`). Don't set those yourself; the plan warns if you do.
-- Auth (add `email: {}` too: sign-up mails a confirm link, in the dev inbox locally): the
+- Auth (add `email: {}` too): new users must confirm their email only once the box has an SMTP
+  relay (or with `auth: {emailVerification: true}`); until then test sign-ups sign in at once. The
   signed-in user is `GET $TIFFIN_AUTH_INTERNAL_URL/tiffin/session` with the request's cookie and
   `x-tiffin-host`; sign-up/sign-in POSTs need `x-captcha-response` (solve
   `GET /api/auth/altcha/challenge` with altcha-lib, send base64 of `{challenge, solution}`).

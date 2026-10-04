@@ -123,6 +123,9 @@ func TestEngineContract(t *testing.T) {
 	}
 	p := newPlatform(t)
 	ctx := t.Context()
+	// With a relay (real mail goes out) new users confirm their address.
+	fakeRelay = true
+	t.Cleanup(func() { fakeRelay = false })
 	dbURL, port, sock := startEngine(t, ConfigPath(p))
 	fakeDB["shop"] = dbURL
 	t.Cleanup(func() { delete(fakeDB, "shop") })
