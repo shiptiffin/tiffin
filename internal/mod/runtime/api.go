@@ -151,8 +151,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		return &struct{ Body *Deploy }{d}, nil
 	}))
 
-	huma.Register(a, api.Op("deploys-list", http.MethodGet, appPath+"/deploys", "deploys list", api.RiskRead, "List an app's deploys",
-		"Deploys of an app, newest first, with status, image digest, build time and URL. Production only unless preview or all is set.", "apps"),
+	huma.Register(a, api.Untrusted(api.Op("deploys-list", http.MethodGet, appPath+"/deploys", "deploys list", api.RiskRead, "List an app's deploys",
+		"Deploys of an app, newest first, with status, image digest, build time and URL. Production only unless preview or all is set.", "apps")),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 			App     string `path:"app" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"App name"`
@@ -190,7 +190,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		"One deploy: status (queued, building, starting, live, failed, superseded, rolled_back, stopped), error and hint when it failed, image digest, timings and URL. "+
 			"Pass wait (seconds) to get the answer once the deploy is live or failed instead of polling.", "apps")
 	get.Errors = append(get.Errors, 404)
-	huma.Register(a, get, api.Wrap(func(ctx context.Context, in *struct {
+	huma.Register(a, api.Untrusted(get), api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		App     string `path:"app" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"App name"`
 		ID      string `path:"id" pattern:"^dep_[0-9A-Z]{26}$" doc:"Deploy ID"`
@@ -490,7 +490,7 @@ func (m *Module) uploadMiddleware(a huma.API) func(huma.Context, func(huma.Conte
 			return
 		}
 		if err := pr.Require(tokens.ScopeApplyReversible, project); err != nil {
-			writeProblem(hctx, problem(403, "forbidden", err.Error(), "Deploying needs a token with apply:reversible for this project."))
+			writeProblem(hctx, problem(403, "forbidden", err.Error(), "Deploying needs a key with full access to this project."))
 			return
 		}
 		prebuilt := hctx.Query("prebuilt") == "true"
