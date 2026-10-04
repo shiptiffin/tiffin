@@ -81,20 +81,22 @@ func readOwnerToken(home string) string {
 const agentTokenFile = "agent-token"
 
 // agentToken returns the box's local agent token, minting (or re-minting
-// once expired or revoked) a 30-day token with the default agent scopes.
+// once expired, revoked or narrower) a 90-day key with full access to all projects.
 func (b *box) agentToken(ctx context.Context) (string, error) {
 	path := filepath.Join(b.home, agentTokenFile)
 	if raw, err := os.ReadFile(path); err == nil {
 		s := strings.TrimSpace(string(raw))
-		if _, err := b.tokens.Authenticate(ctx, s); err == nil {
+		// Older versions minted a narrower token; the agent key now has full
+		// access to all projects, so replace it.
+		if p, err := b.tokens.Authenticate(ctx, s); err == nil && p.BoxAdmin() {
 			return s, nil
 		}
 	}
 	owner, err := b.tokens.Authenticate(ctx, readOwnerToken(b.home))
 	if err != nil {
-		return "", fmt.Errorf("cannot mint the local agent token: owner token unavailable (%v); set TIFFIN_TOKEN", err)
+		return "", fmt.Errorf("cannot mint the local agent key: owner token unavailable (%v); set TIFFIN_TOKEN", err)
 	}
-	secret, _, err := b.tokens.Create(ctx, owner, tokens.CreateRequest{Name: "local-agent", Kind: tokens.KindAgent})
+	secret, _, err := b.tokens.CreateKey(ctx, owner, tokens.KeyRequest{Name: "local-agent", Projects: tokens.Projects{tokens.AllProjects}, Access: tokens.LevelFull, TTL: 90 * 24 * time.Hour})
 	if err != nil {
 		return "", err
 	}

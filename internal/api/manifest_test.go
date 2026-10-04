@@ -120,7 +120,7 @@ func TestProjectManifestErrors(t *testing.T) {
 	}
 	e.applyManifest(map[string]any{"project": "shop"})
 	e.applyManifest(map[string]any{"project": "blog"})
-	tok := e.agent([]string{"read"}, []string{"blog"})
+	tok := e.key([]string{"blog"}, "read")
 	if code, _, _ := e.call(tok, "GET", "/v1/projects/shop/manifest", nil); code != 403 {
 		t.Fatalf("other project: %d", code)
 	}

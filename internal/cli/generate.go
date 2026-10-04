@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -59,12 +60,11 @@ func subgroup(parent *cobra.Command, name string) *cobra.Command {
 var groupShort = map[string]string{
 	"projects":  "See projects and their current state",
 	"changes":   "See, inspect and undo changes",
-	"tokens":    "Create, list and revoke tokens",
+	"tokens":    "Create, list and revoke API keys",
 	"audit":     "See security events",
 	"schema":    "Print JSON Schemas",
 	"secrets":   "Set and remove a project's secret env vars",
-	"approvals": "Review and decide plans agents asked a human to approve",
-	"passkeys":  "Manage the passkeys that approve risky plans",
+	"passkeys":  "List and remove the passkeys people sign in with",
 	"people":    "Invite people and manage their roles",
 	"session":   "Dashboard sessions",
 	"db":        "Inspect a project's Postgres database",
@@ -106,6 +106,32 @@ type bodyFlag struct {
 	name string
 	kind string // string | integer | boolean | array
 	flag string // the CLI flag (usually the kebab-case name)
+	// words are the string values a "word or list" field takes as a bare
+	// string (projects: "all" or a list): --projects all sends "all".
+	words []string
+}
+
+// wordOrList returns the enum of a oneOf {string enum, array of strings}
+// schema, such as an API key's projects ("all" or a list).
+func wordOrList(s *huma.Schema) ([]string, bool) {
+	if s == nil || len(s.OneOf) != 2 {
+		return nil, false
+	}
+	var words []string
+	list := false
+	for _, o := range s.OneOf {
+		switch {
+		case o.Type == "string" && len(o.Enum) > 0:
+			for _, e := range o.Enum {
+				if w, ok := e.(string); ok {
+					words = append(words, w)
+				}
+			}
+		case o.Type == "array" && o.Items != nil && o.Items.Type == "string":
+			list = true
+		}
+	}
+	return words, list && len(words) > 0
 }
 
 func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGlobal func(flag string) bool) *cobra.Command {
@@ -184,7 +210,12 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 				case "array":
 					values[n] = cmd.Flags().StringSlice(fn, nil, ps.Description+" (comma-separated)")
 				default:
-					continue // objects come in through --body
+					words, ok := wordOrList(ps)
+					if !ok {
+						continue // objects come in through --body
+					}
+					f.kind, f.words = "array", words
+					values[n] = cmd.Flags().StringSlice(fn, nil, ps.Description+" (comma-separated, or "+strings.Join(words, " or ")+")")
 				}
 				flags = append(flags, f)
 			}
@@ -221,7 +252,11 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 				case *bool:
 					m[f.name] = *v
 				case *[]string:
-					m[f.name] = *v
+					if len(*v) == 1 && slices.Contains(f.words, (*v)[0]) {
+						m[f.name] = (*v)[0]
+					} else {
+						m[f.name] = *v
+					}
 				}
 			}
 			body = m

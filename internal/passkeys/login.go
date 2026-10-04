@@ -1,4 +1,4 @@
-package approvals
+package passkeys
 
 import (
 	"bytes"

@@ -15,11 +15,13 @@ tiffin apply --confirm <hash> -m "why, in one sentence"
 
 - Never guess a hash. Use the one from the plan you just reviewed. If the box changed
   meanwhile, apply refuses (exit 4) and shows the new plan.
-- Risk tiers: **reversible** (you may apply), **outbound** and **irreversible** (deleting
-  data, making files public). For those, apply answers `approval_required` with an
-  `approvalUrl`: give that link to the human, wait for them to approve with their
-  passkey, then repeat the apply with `--approval <id>` (or `approval` in MCP).
-- Every change can be reviewed (`tiffin changes list`) and undone (`tiffin undo <id>`).
+- Risk tiers: **reversible**, **outbound** (reaches outside the box) and **irreversible**
+  (deleting data). Before an irreversible apply, tell the human exactly what will be
+  lost; your client asks them before destructive tools run.
+- Your API key decides what you can reach (some projects or all, full or read access).
+  Outside it you get `403 forbidden` with the reason: ask the human, don't work around it.
+- Every change is recorded in History under your key's name, can be reviewed
+  (`tiffin changes list`) and undone (`tiffin undo <id>`).
 
 ## Useful commands
 

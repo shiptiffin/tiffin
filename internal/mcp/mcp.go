@@ -31,7 +31,9 @@ Every change follows plan → review → apply:
 2. Call "apply" with the same manifest and confirm=<plan hash>. Without confirm, or if the plan changed, nothing is applied and you get the plan back to review.
 3. Every applied change can be reviewed with "changes_list" and reverted with "change_undo" (also plan-then-confirm).
 
-Your token's scopes decide which risk tiers you may apply. If an apply needs approval (code approval_required), give the human the approvalUrl; once they approve with their passkey, call apply again with the same confirm hash plus approval=<id>. Poll approval_get to see the decision. Never guess a confirm hash; always use the one from the plan you reviewed. Tell the human what you changed and why (pass "intent").`
+Your client asks the person before destructive tools run (apply, change_undo, project_destroy and the like are marked destructive), so say plainly what the plan does before you call them, especially anything irreversible (deleting data). Tiffin records every change in History under your key's name and can undo it.
+
+Your API key decides what you can reach: some projects or all of them, with full access (apply any change) or read access (read and plan only). Outside its reach you get 403 forbidden with a hint; ask the person to do it, or for a key that reaches it. whoami shows your key. Never guess a confirm hash; always use the one from the plan you reviewed. Tell the person what you changed and why (pass "intent").`
 
 // TokenFunc returns the bearer token for a tool call. For the HTTP
 // transport it reads the request's Authorization header; for stdio it

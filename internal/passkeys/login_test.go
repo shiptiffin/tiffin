@@ -1,4 +1,4 @@
-package approvals
+package passkeys
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btahir/tiffin/internal/approvals/passkeytest"
+	"github.com/btahir/tiffin/internal/passkeys/passkeytest"
 	"github.com/btahir/tiffin/internal/state"
 	"github.com/btahir/tiffin/internal/tokens"
 )
@@ -219,13 +219,10 @@ func TestPasskeyHolders(t *testing.T) {
 	if _, err := m.Passkeys(t.Context(), loose); !errors.Is(err, ErrNoPerson) {
 		t.Fatalf("personless human listing: %v", err)
 	}
-	// A member's passkey signs them in but cannot approve plans.
+	// A member's passkey signs them in.
 	a := passkeytest.New(testOrigin)
 	cred := register(t, m, a, member)
 	if _, who, err := signIn(t, m, a, cred); err != nil || who.Person != "usr_member" {
 		t.Fatalf("member sign-in: %+v %v", who, err)
-	}
-	if _, err := m.BeginApproval(t.Context(), member, "apr_x"); !errors.Is(err, ErrHumanOnly) {
-		t.Fatalf("member approving: %v", err)
 	}
 }

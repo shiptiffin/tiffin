@@ -3,7 +3,7 @@
 // diff of resources, a risk tier, the inverse needed to undo it, and a plan
 // hash that binds an approval to exactly what was reviewed.
 //
-// The flow is always plan → (approve) → apply. Plans are pure and cheap;
+// The flow is always plan → review → apply. Plans are pure and cheap;
 // apply re-plans, checks the confirmed hash, checks policy, and commits with
 // optimistic concurrency against the project's version.
 package change
@@ -15,9 +15,9 @@ import (
 	"time"
 )
 
-// Tier is how risky an operation is. Tiers map to MCP tool annotations and
-// to approval policy: read → auto; reversible → auto in dev, approval in
-// prod; irreversible → approval + passkey; outbound → approval.
+// Tier is how risky an operation is. Tiers map to the scope a token needs
+// to apply a plan (an API key with full access holds them all) and are shown
+// with every plan, so people and agents see what is irreversible.
 type Tier string
 
 const (

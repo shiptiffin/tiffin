@@ -1,10 +1,10 @@
 // Package tokens issues and checks platform API tokens until platform
 // identity moves to Better Auth in M6.
 //
-// There is one owner (bootstrap) token per box. The owner mints scoped
-// tokens for agents and other tools. A token can never mint a token with more
-// power than itself, and agent tokens always expire and name their sponsor.
-// Only a SHA-256 of each secret is stored.
+// There is one owner (bootstrap) token per box. People get session tokens
+// with their role's scopes; agents, scripts and CI get API keys (keys.go):
+// some projects or all, full or read access. Only a SHA-256 of each secret
+// is stored.
 package tokens
 
 import (
@@ -76,6 +76,8 @@ type Principal struct {
 	// PersonName and Role describe that person.
 	PersonName string `json:"personName,omitempty"`
 	Role       string `json:"role,omitempty" enum:"owner,admin,member,viewer,"`
+	// Access is the caller's level: full (apply changes) or read (read and plan).
+	Access string `json:"access,omitempty" enum:"full,read," doc:"full: can apply changes in its projects. read: can only read and plan."`
 }
 
 // Has reports whether p holds scope s, directly or via the ladder.
@@ -110,10 +112,10 @@ func (p *Principal) CanProject(project string) bool {
 // Pass project "" for box-wide operations.
 func (p *Principal) Require(s Scope, project string) error {
 	if !p.Has(s) {
-		return fmt.Errorf("%w: token %q lacks scope %q", ErrForbidden, p.Name, s)
+		return p.refusal(s)
 	}
 	if project != "" && !p.CanProject(project) {
-		return fmt.Errorf("%w: token %q is not allowed on project %q", ErrForbidden, p.Name, project)
+		return p.projectRefusal(project)
 	}
 	return nil
 }
@@ -135,7 +137,7 @@ func (p *Principal) Authorizer() change.Authorizer {
 	return func(plan *change.Plan) error {
 		need := ScopeForTier(plan.Risk)
 		if err := p.Require(need, plan.Project); err != nil {
-			return fmt.Errorf("%s plan needs scope %q: %w", plan.Risk, need, err)
+			return err // it says what the key reaches
 		}
 		return nil
 	}
@@ -163,6 +165,9 @@ type Token struct {
 	RevokedAt  *time.Time `json:"revokedAt,omitempty"`
 	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
 	Person     string     `json:"person,omitempty"`
+	// Grants are an API key's {projects, level} pairs (see keys.go); empty
+	// for tokens made before keys, which have only Scopes and Projects.
+	Grants []Grant `json:"grants,omitempty"`
 }
 
 // CreateRequest describes a new token.
@@ -322,10 +327,15 @@ func dedupe[T comparable](in []T) []T {
 func (m *Manager) insert(ctx context.Context, t *Token, secret string) error {
 	scopes, _ := json.Marshal(t.Scopes)
 	projects, _ := json.Marshal(t.Projects)
-	_, err := m.db.SQL().ExecContext(ctx, `INSERT INTO tokens(id, name, kind, hash, scopes, projects, sponsor, created_at, expires_at, person)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	var grants any
+	if len(t.Grants) > 0 {
+		b, _ := json.Marshal(t.Grants)
+		grants = string(b)
+	}
+	_, err := m.db.SQL().ExecContext(ctx, `INSERT INTO tokens(id, name, kind, hash, scopes, projects, sponsor, created_at, expires_at, person, grants)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.Name, t.Kind, hash(secret), string(scopes), string(projects), nullStr(t.Sponsor),
-		ts(&t.CreatedAt), ts(t.ExpiresAt), nullStr(t.Person))
+		ts(&t.CreatedAt), ts(t.ExpiresAt), nullStr(t.Person), grants)
 	return err
 }
 
@@ -354,6 +364,7 @@ func (m *Manager) Authenticate(ctx context.Context, secret string) (*Principal, 
 		person = OwnerPerson
 	}
 	pr := &Principal{TokenID: t.ID, Name: t.Name, Kind: t.Kind, Scopes: t.Scopes, Projects: t.Projects, Sponsor: t.Sponsor, ExpiresAt: t.ExpiresAt, Person: person}
+	pr.Access = pr.access()
 	if person != "" {
 		if pp, err := m.GetPerson(ctx, person); err == nil {
 			if pp.DisabledAt != nil {
@@ -453,15 +464,15 @@ func (m *Manager) List(ctx context.Context, includeRevoked bool) ([]*Token, erro
 	return out, rows.Err()
 }
 
-const tokenCols = `SELECT id, name, kind, scopes, projects, sponsor, created_at, expires_at, revoked_at, last_used_at, person`
+const tokenCols = `SELECT id, name, kind, scopes, projects, sponsor, created_at, expires_at, revoked_at, last_used_at, person, grants`
 
 type scanner interface{ Scan(dest ...any) error }
 
 func scanToken(r scanner) (*Token, error) {
 	var t Token
 	var scopes, projects, created string
-	var sponsor, expires, revoked, used, person sql.NullString
-	if err := r.Scan(&t.ID, &t.Name, &t.Kind, &scopes, &projects, &sponsor, &created, &expires, &revoked, &used, &person); err != nil {
+	var sponsor, expires, revoked, used, person, grants sql.NullString
+	if err := r.Scan(&t.ID, &t.Name, &t.Kind, &scopes, &projects, &sponsor, &created, &expires, &revoked, &used, &person, &grants); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(scopes), &t.Scopes)
@@ -472,6 +483,9 @@ func scanToken(r scanner) (*Token, error) {
 	t.ExpiresAt = parseNullTS(expires)
 	t.RevokedAt = parseNullTS(revoked)
 	t.LastUsedAt = parseNullTS(used)
+	if grants.Valid {
+		_ = json.Unmarshal([]byte(grants.String), &t.Grants)
+	}
 	return &t, nil
 }
 

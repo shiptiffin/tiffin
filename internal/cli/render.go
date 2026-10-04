@@ -38,7 +38,7 @@ func (a *app) emit(status int, raw []byte) {
 	if status >= 300 {
 		var p api.Problem
 		_ = json.Unmarshal(raw, &p)
-		if p.Plan != nil && (p.Code == "confirm_required" || p.Code == "plan_mismatch" || p.Code == "denied") {
+		if p.Plan != nil && (p.Code == "confirm_required" || p.Code == "plan_mismatch" || p.Code == "forbidden") {
 			renderPlan(out, p.Plan, a.color())
 		}
 		w := a.io.Err

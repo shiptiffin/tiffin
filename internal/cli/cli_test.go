@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/btahir/tiffin/internal/tokens"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -138,12 +140,14 @@ func TestExitCodes(t *testing.T) {
 	}
 }
 
-func TestScopedAgentTokenViaCLI(t *testing.T) {
+func TestReadKeyViaCLI(t *testing.T) {
 	env := newEnv(t)
-	_, out, _ := run(t, env, "tokens", "create", "--name", "claude", "--scopes", "read,plan", "--projects", "hello")
-	secret, _ := decode(t, out)["secret"].(string)
-	if !strings.HasPrefix(secret, "tfn_") {
-		t.Fatalf("token create: %s", out)
+	_, out, _ := run(t, env, "tokens", "create", "--name", "claude", "--projects", "hello", "--access", "read", "--expires-in-days", "30")
+	created := decode(t, out)
+	secret, _ := created["secret"].(string)
+	key, _ := created["key"].(map[string]any)
+	if !strings.HasPrefix(secret, "tfn_") || key["access"] != "read" || fmt.Sprint(key["projects"]) != "[hello]" || key["expiresAt"] == nil {
+		t.Fatalf("key create: %s", out)
 	}
 	agent := map[string]string{"TIFFIN_HOME": env["TIFFIN_HOME"], "TIFFIN_TOKEN": secret, "TIFFIN_SESSION": "s1"}
 	code, out, _ := run(t, agent, "plan", "testdata")
@@ -152,8 +156,13 @@ func TestScopedAgentTokenViaCLI(t *testing.T) {
 	}
 	hash := decode(t, out)["hash"].(string)
 	code, out, _ = run(t, agent, "apply", "testdata", "--confirm", hash)
-	if code != ExitAuth || decode(t, out)["code"] != "denied" {
-		t.Fatalf("plan-only token must not apply: %d %s", code, out)
+	if p := decode(t, out); code != ExitAuth || p["code"] != "forbidden" || !strings.Contains(p["detail"].(string), "read only") {
+		t.Fatalf("read key must not apply: %d %s", code, out)
+	}
+	// --projects all sends "all".
+	_, out, _ = run(t, env, "tokens", "create", "--name", "ci", "--projects", "all", "--access", "full")
+	if k, _ := decode(t, out)["key"].(map[string]any); k["projects"] != "all" || k["admin"] != true || k["expiresAt"] != nil {
+		t.Fatalf("all-projects key: %s", out)
 	}
 	if code, _, _ := run(t, agent, "tokens", "list"); code != ExitAuth {
 		t.Fatalf("agent token list: %d", code)
@@ -272,7 +281,10 @@ func TestOnlyConfirmableCommandsPromiseDryRun(t *testing.T) {
 	}
 }
 
-func TestLocalAgentTokenIsNotOwner(t *testing.T) {
+// The local agent key has full access to all projects (Claude Code asks
+// the person before destructive tools; Tiffin records and can undo), but
+// it is not the owner token and it expires.
+func TestLocalAgentKey(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "box")
 	b, _, err := openBox(t.Context(), home)
 	if err != nil {
@@ -284,8 +296,8 @@ func TestLocalAgentTokenIsNotOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	p, err := b.tokens.Authenticate(t.Context(), s1)
-	if err != nil || p.Kind != "agent" || p.BoxAdmin() || p.Has("apply:irreversible") || p.ExpiresAt == nil {
-		t.Fatalf("local agent token too powerful: %+v %v", p, err)
+	if err != nil || p.Kind != "agent" || !p.BoxAdmin() || p.Access != "full" || p.ExpiresAt == nil {
+		t.Fatalf("local agent key: %+v %v", p, err)
 	}
 	if s1 == readOwnerToken(home) {
 		t.Fatal("agent token is the owner token")
@@ -295,6 +307,18 @@ func TestLocalAgentTokenIsNotOwner(t *testing.T) {
 	}
 	if fi, _ := os.Stat(filepath.Join(home, agentTokenFile)); fi.Mode().Perm() != 0o600 {
 		t.Fatalf("agent-token mode %o", fi.Mode().Perm())
+	}
+	// A narrower token left by an older version is replaced.
+	owner, _ := b.tokens.Authenticate(t.Context(), readOwnerToken(home))
+	old, _, err := b.tokens.Create(t.Context(), owner, tokens.CreateRequest{Name: "local-agent", Kind: tokens.KindAgent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, agentTokenFile), []byte(old+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if s3, _ := b.agentToken(t.Context()); s3 == old {
+		t.Fatal("a narrower agent token was kept")
 	}
 }
 

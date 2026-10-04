@@ -164,7 +164,7 @@ func (h *harness) call(token, method, path string, body any) (int, map[string]an
 
 func (h *harness) agent(projects ...string) string {
 	h.t.Helper()
-	code, out, _ := h.call(h.owner, "POST", "/v1/tokens", map[string]any{"name": "agent", "projects": projects})
+	code, out, _ := h.call(h.owner, "POST", "/v1/tokens", map[string]any{"name": "agent", "projects": projects, "access": "full"})
 	if code != 200 {
 		h.t.Fatalf("token: %d %v", code, out)
 	}

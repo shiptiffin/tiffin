@@ -206,6 +206,8 @@ var migrations = []string{
 	`ALTER TABLE tokens ADD COLUMN person TEXT`,
 	`ALTER TABLE login_links ADD COLUMN person TEXT`,
 	`ALTER TABLE passkeys ADD COLUMN person TEXT`,
+	// API keys: a JSON list of {projects, level} grants (see internal/tokens/keys.go).
+	`ALTER TABLE tokens ADD COLUMN grants TEXT`,
 }
 
 // SchemaVersion is the state schema this build writes (box exports record

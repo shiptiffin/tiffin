@@ -3,7 +3,6 @@ package main
 // Every box module, registered by import. Add new modules here.
 import (
 	_ "github.com/btahir/tiffin/internal/mod/analytics"
-	_ "github.com/btahir/tiffin/internal/mod/approvals"
 	_ "github.com/btahir/tiffin/internal/mod/auth"
 	_ "github.com/btahir/tiffin/internal/mod/backup"
 	_ "github.com/btahir/tiffin/internal/mod/base"

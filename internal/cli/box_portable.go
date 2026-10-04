@@ -711,8 +711,9 @@ func (a *app) importClient(c *client, bx *boxConfig, caPEM string) (*client, err
 	return &cp, nil
 }
 
-// refreshAgentToken mints a new agent token if the box's changed tokens
-// no longer know the CLI's (an import brings the source box's tokens).
+// refreshAgentToken mints a new agent key if the box's changed tokens no
+// longer know the CLI's (an import brings the source box's tokens), or if
+// the one it has is narrower than full access to all projects.
 func (a *app) refreshAgentToken(ctx context.Context, name string) error {
 	f, err := a.loadBoxes()
 	if err != nil {
@@ -722,21 +723,13 @@ func (a *app) refreshAgentToken(ctx context.Context, name string) error {
 	if bx == nil {
 		return nil
 	}
-	if bx.AgentToken != "" && tokenWorks(ctx, a, bx, bx.AgentToken) {
-		return nil
-	}
 	c, err := a.boxClient(bx, bx.Token)
 	if err != nil {
 		return err
 	}
-	status, raw, err := c.do(ctx, http.MethodPost, "/v1/tokens", nil, map[string]any{"name": "claude-code"})
-	if err != nil || status != http.StatusOK {
-		return fmt.Errorf("%v %s", err, raw)
+	changed, err := ensureAgentKey(ctx, a, c, bx)
+	if err != nil || !changed {
+		return err
 	}
-	var ct struct {
-		Secret string `json:"secret"`
-	}
-	_ = json.Unmarshal(raw, &ct)
-	bx.AgentToken = ct.Secret
 	return a.saveBoxes(f)
 }

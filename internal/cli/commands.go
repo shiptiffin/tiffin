@@ -19,11 +19,11 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/approvals"
 	"github.com/btahir/tiffin/internal/dashboard"
 	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/manifest"
 	tmcp "github.com/btahir/tiffin/internal/mcp"
+	"github.com/btahir/tiffin/internal/passkeys"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/version"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -272,12 +272,12 @@ func (a *app) serveCmd() *cobra.Command {
 					d.Platform = plat
 					d.Engine.Estimate = plat.EstimateLoss
 					if u, err := url.Parse(publicURL); err == nil && u.Hostname() != "" {
-						am, err := approvals.New(d.DB, u.Hostname(), strings.TrimRight(publicURL, "/"))
+						am, err := passkeys.New(d.DB, u.Hostname(), strings.TrimRight(publicURL, "/"))
 						if err != nil {
 							openErr = err
 							return
 						}
-						d.Approvals = am
+						d.Passkeys = am
 					}
 				}
 			})
@@ -333,9 +333,9 @@ func (a *app) serveCmd() *cobra.Command {
 				fmt.Fprintf(a.io.Err, "owner token created and saved to %s\n", filepath.Join(a.home, ownerTokenFile))
 			} else if fresh != "" {
 				fmt.Fprintf(a.io.Err, "\nOwner token (shown once, also saved to %s):\n  %s\n\n"+
-					"Give agents their own token, never this one. It can plan and make reversible changes only:\n"+
-					"  TIFFIN_TOKEN=<owner token> tiffin --url %s tokens create --name claude-code\n"+
-					"  claude mcp add --transport http tiffin %s/mcp --header \"Authorization: Bearer <agent token>\"\n\n",
+					"Give agents their own API key, never this token, so History shows who did what:\n"+
+					"  TIFFIN_TOKEN=<owner token> tiffin --url %s tokens create --name claude-code --projects all --access full\n"+
+					"  claude mcp add --transport http tiffin %s/mcp --header \"Authorization: Bearer <key>\"\n\n",
 					filepath.Join(a.home, ownerTokenFile), fresh, base, base)
 			}
 			select {

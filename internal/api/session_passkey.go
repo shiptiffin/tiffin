@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btahir/tiffin/internal/approvals"
+	"github.com/btahir/tiffin/internal/passkeys"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -127,11 +127,11 @@ func (a *API) limitPerIP(l *ipLimiter, op string) func(huma.Context, func(huma.C
 func signInProblem(err error) error {
 	out := problem(401, "unauthenticated", err.Error())
 	switch {
-	case errors.Is(err, approvals.ErrLoginBusy):
+	case errors.Is(err, passkeys.ErrLoginBusy):
 		out = problem(429, "rate_limited", err.Error())
-	case errors.Is(err, approvals.ErrLoginExpired), errors.Is(err, approvals.ErrLoginFailed):
+	case errors.Is(err, passkeys.ErrLoginExpired), errors.Is(err, passkeys.ErrLoginFailed):
 		out.Hint = "start again: POST /v1/session/passkey/options, then sign with the passkey within 2 minutes"
-	case errors.Is(err, approvals.ErrUnknownPasskey), errors.Is(err, approvals.ErrCloned):
+	case errors.Is(err, passkeys.ErrUnknownPasskey), errors.Is(err, passkeys.ErrCloned):
 		out.Hint = "sign in with a one-time link (`tiffin login`, or ask an admin for one) and manage passkeys in Settings › Passkeys"
 	case errors.Is(err, tokens.ErrPersonNotFound):
 		out.Detail = "this person no longer has access to the box"
@@ -153,7 +153,7 @@ func (a *API) registerPasskeySignIn() {
 	o.Errors = append(o.Errors, 429, 501)
 	o.Middlewares = huma.Middlewares{a.limitPerIP(optLimit, "options")}
 	huma.Register(api, o, wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body any }, error) {
-		m, err := a.approvalsMgr()
+		m, err := a.passkeysMgr()
 		if err != nil {
 			return nil, err
 		}
@@ -179,7 +179,7 @@ func (a *API) registerPasskeySignIn() {
 		SetCookie http.Cookie `header:"Set-Cookie"`
 		Body      PasskeySignIn
 	}, error) {
-		m, err := a.approvalsMgr()
+		m, err := a.passkeysMgr()
 		if err != nil {
 			return nil, err
 		}

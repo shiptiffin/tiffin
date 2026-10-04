@@ -9,10 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"github.com/btahir/tiffin/internal/approvals"
-	"github.com/btahir/tiffin/internal/platform"
 	"io"
 	"net/http"
 	"os"
@@ -26,6 +23,8 @@ import (
 
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/passkeys"
+	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/state"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
@@ -81,8 +80,8 @@ type Deps struct {
 	PublicURL string
 	// Platform is the box runtime (nil off-box and when only the spec is built).
 	Platform *platform.Platform
-	// Approvals lets agents ask humans to approve plans (nil off-box).
-	Approvals *approvals.Manager
+	// Passkeys signs people in to the dashboard (nil off-box).
+	Passkeys *passkeys.Manager
 }
 
 // API is the HTTP API.
@@ -113,7 +112,7 @@ func New(d Deps) *API {
 	a.register()
 	a.registerBox()
 	a.registerSecrets()
-	a.registerApprovals()
+	a.registerPasskeys()
 	a.registerPasskeySignIn()
 	a.registerPeople()
 	a.registerAppearance()
@@ -290,13 +289,11 @@ type applyBody struct {
 	Manifest ManifestJSON `json:"manifest" required:"true"`
 	Confirm  string       `json:"confirm,omitempty" doc:"The plan hash (or its first 8+ characters) you reviewed. Without it nothing is applied and the plan comes back with status 428."`
 	Intent   string       `json:"intent,omitempty" maxLength:"500" doc:"Why you are making this change, in one sentence. Shown in the activity timeline."`
-	Approval string       `json:"approval,omitempty" pattern:"^apr_[0-9A-Z]{26}$" doc:"An approval ID a human granted for exactly this plan (see approval_required). Single use."`
 }
 
 type undoBody struct {
-	Confirm  string `json:"confirm,omitempty" doc:"The undo plan's hash (or its first 8+ characters). Without it the undo plan comes back with status 428."`
-	Intent   string `json:"intent,omitempty" maxLength:"500" doc:"Why you are undoing, in one sentence."`
-	Approval string `json:"approval,omitempty" pattern:"^apr_[0-9A-Z]{26}$" doc:"An approval ID a human granted for exactly this plan (see approval_required). Single use."`
+	Confirm string `json:"confirm,omitempty" doc:"The undo plan's hash (or its first 8+ characters). Without it the undo plan comes back with status 428."`
+	Intent  string `json:"intent,omitempty" maxLength:"500" doc:"Why you are undoing, in one sentence."`
 }
 
 // ApplyResult is the outcome of a confirmed apply or undo.
@@ -363,18 +360,17 @@ func selfBuild() string {
 	return buildSum
 }
 
-// CreatedToken carries the secret exactly once.
-type CreatedToken struct {
-	Secret string        `json:"secret" doc:"The token secret. Shown once; store it now."`
-	Token  *tokens.Token `json:"token"`
+// CreatedKey carries the secret exactly once.
+type CreatedKey struct {
+	Secret string      `json:"secret" doc:"The key's secret (tfn_...). Shown once; store it now."`
+	Key    *tokens.Key `json:"key"`
 }
 
-type tokenCreateBody struct {
-	Name     string   `json:"name" minLength:"1" maxLength:"64" doc:"A name you will recognise in the activity timeline, e.g. claude-code."`
-	Kind     string   `json:"kind,omitempty" enum:"agent,human" doc:"Default agent. Agent tokens always expire."`
-	Scopes   []string `json:"scopes,omitempty" doc:"Default read, plan, apply:reversible. One of read, plan, apply:reversible, apply:outbound, apply:irreversible, tokens, *. You can only grant scopes you hold."`
-	Projects []string `json:"projects,omitempty" doc:"Projects the token may touch. Default: all of yours. \"*\" means all."`
-	TTLHours int      `json:"ttlHours,omitempty" minimum:"0" maximum:"8760" doc:"Lifetime in hours. Default 720 (30 days) for agents; 0 means never for humans."`
+type keyCreateBody struct {
+	Name          string          `json:"name" minLength:"1" maxLength:"64" doc:"A name you will recognise in History, e.g. claude-code or ci."`
+	Projects      tokens.Projects `json:"projects" required:"true"`
+	Access        string          `json:"access" enum:"full,read" doc:"full: read, plan and apply any change in those projects, irreversible ones included (deleting data). read: read and plan only."`
+	ExpiresInDays *int            `json:"expiresInDays,omitempty" nullable:"true" doc:"30 or 90. Leave it out (or null) for a key that never expires."`
 }
 
 func (a *API) register() {
@@ -518,7 +514,7 @@ func (a *API) register() {
 			if err != nil {
 				return nil, err
 			}
-			return a.apply(ctx, p, plan, in.Body.Confirm, in.Body.Intent, in.Body.Approval)
+			return a.apply(ctx, p, plan, in.Body.Confirm, in.Body.Intent)
 		}))
 
 	de := op("project-destroy", http.MethodPost, "/v1/projects/{project}/destroy", "projects destroy", RiskDestructive, "Destroy a project",
@@ -549,7 +545,7 @@ func (a *API) register() {
 		if intent == "" {
 			intent = "destroy project " + in.Project
 		}
-		return a.apply(ctx, p, plan, in.Body.Confirm, intent, in.Body.Approval)
+		return a.apply(ctx, p, plan, in.Body.Confirm, intent)
 	}))
 
 	type changesQuery struct {
@@ -647,64 +643,74 @@ func (a *API) register() {
 			if intent == "" {
 				intent = "undo " + in.ID + ": " + c.Intent
 			}
-			return a.apply(ctx, p, plan, in.Body.Confirm, intent, in.Body.Approval)
+			return a.apply(ctx, p, plan, in.Body.Confirm, intent)
 		}))
 
-	huma.Register(api, op("tokens-list", http.MethodGet, "/v1/tokens", "tokens list", RiskRead, "List tokens",
-		"Active tokens (secrets are never shown). Box admins see all; others see the tokens they minted.", "tokens"),
+	huma.Register(api, op("tokens-list", http.MethodGet, "/v1/tokens", "tokens list", RiskRead, "List API keys",
+		"API keys on this box (secrets are never shown): what projects each reaches, full or read access, and when it expires. "+
+			"Dashboard sign-in sessions are not listed. Only a key with full access to all projects (or an owner or admin person) can list keys.", "tokens"),
 		wrap(func(ctx context.Context, in *struct {
-			Revoked bool `query:"revoked" doc:"Include revoked tokens"`
-		}) (*struct{ Body []*tokens.Token }, error) {
-			p := PrincipalFrom(ctx)
-			if err := p.Require(tokens.ScopeTokens, ""); err != nil {
-				return nil, err
+			Revoked bool `query:"revoked" doc:"Include revoked keys"`
+		}) (*struct{ Body []*tokens.Key }, error) {
+			if !PrincipalFrom(ctx).BoxAdmin() {
+				return nil, tokens.ErrNotAdmin
 			}
 			all, err := a.deps.Tokens.List(ctx, in.Revoked)
 			if err != nil {
 				return nil, err
 			}
-			// Box admins see every token; everyone else only what they minted.
-			ts := []*tokens.Token{}
+			out := []*tokens.Key{}
 			for _, t := range all {
-				if p.BoxAdmin() || t.Sponsor == p.TokenID {
-					ts = append(ts, t)
+				if t.Kind == tokens.KindHuman && t.Person != "" {
+					continue // a dashboard session, not a key
 				}
+				out = append(out, t.AsKey())
 			}
-			return &struct{ Body []*tokens.Token }{ts}, nil
+			return &struct{ Body []*tokens.Key }{out}, nil
 		}))
 
-	huma.Register(api, op("token-create", http.MethodPost, "/v1/tokens", "tokens create", RiskWrite, "Create a token",
-		"Mints a scoped token, e.g. for an agent. You can only grant scopes and projects you hold. The secret is returned once.", "tokens"),
-		wrap(func(ctx context.Context, in *struct{ Body tokenCreateBody }) (*struct{ Body CreatedToken }, error) {
-			req := tokens.CreateRequest{Name: in.Body.Name, Kind: in.Body.Kind, Projects: in.Body.Projects}
-			for _, s := range in.Body.Scopes {
-				req.Scopes = append(req.Scopes, tokens.Scope(s))
+	tc := op("token-create", http.MethodPost, "/v1/tokens", "tokens create", RiskWrite, "Create an API key",
+		"Creates an API key for an agent, a script or CI. `projects` is \"all\" (every project, including ones created later) or a list; "+
+			"`access` is full (read, plan and apply any change there, deleting data included) or read (read and plan only). "+
+			"A key with full access to all projects is the box admin: it also manages keys, people, box settings and exports/imports. "+
+			"Changes made with a key are recorded in History under its name and can be undone. The secret is returned once. "+
+			"Only a key with full access to all projects (or an owner or admin person) can create keys.", "tokens")
+	huma.Register(api, tc, wrap(func(ctx context.Context, in *struct{ Body keyCreateBody }) (*struct{ Body CreatedKey }, error) {
+		req := tokens.KeyRequest{Name: in.Body.Name, Projects: in.Body.Projects, Access: in.Body.Access}
+		if d := in.Body.ExpiresInDays; d != nil {
+			if *d != 30 && *d != 90 {
+				return nil, problem(422, "validation", "expiresInDays must be 30, 90 or null (never)")
 			}
-			req.TTL = hours(in.Body.TTLHours)
-			secret, t, err := a.deps.Tokens.Create(ctx, PrincipalFrom(ctx), req)
-			if err != nil {
-				return nil, err
-			}
-			return &struct{ Body CreatedToken }{CreatedToken{Secret: secret, Token: t}}, nil
-		}))
+			req.TTL = time.Duration(*d) * 24 * time.Hour
+		}
+		secret, k, err := a.deps.Tokens.CreateKey(ctx, PrincipalFrom(ctx), req)
+		if err != nil {
+			return nil, err
+		}
+		return &struct{ Body CreatedKey }{CreatedKey{Secret: secret, Key: k}}, nil
+	}))
 
-	rv := op("token-revoke", http.MethodDelete, "/v1/tokens/{id}", "tokens revoke", RiskDestructive, "Revoke a token",
-		"Revokes a token and every token it minted.", "tokens")
+	rv := op("token-revoke", http.MethodDelete, "/v1/tokens/{id}", "tokens revoke", RiskDestructive, "Revoke an API key",
+		"Revokes an API key at once (and any key it created). Only a key with full access to all projects (or an owner or admin person) can revoke keys.", "tokens")
 	rv.Errors = append(rv.Errors, 404)
 	huma.Register(api, rv,
 		wrap(func(ctx context.Context, in *struct {
 			ID string `path:"id" pattern:"^tok_[0-9A-Z]{26}$" doc:"Token ID"`
 		}) (*struct{}, error) {
-			return &struct{}{}, a.deps.Tokens.Revoke(ctx, PrincipalFrom(ctx), in.ID)
+			p := PrincipalFrom(ctx)
+			if !p.BoxAdmin() {
+				return nil, tokens.ErrNotAdmin
+			}
+			return &struct{}{}, a.deps.Tokens.Revoke(ctx, p, in.ID)
 		}))
 
 	huma.Register(api, op("audit-list", http.MethodGet, "/v1/audit", "audit list", RiskRead, "List audit events",
-		"Security events that are not changes: tokens minted and revoked. Box admins only.", "system"),
+		"Security events that are not changes: keys created and revoked, sign-ins, people invited. Box admins only (a key with full access to all projects, or an owner or admin person).", "system"),
 		wrap(func(ctx context.Context, in *struct {
 			Limit int `query:"limit" minimum:"1" maximum:"500" default:"50"`
 		}) (*struct{ Body []state.AuditEvent }, error) {
 			if p := PrincipalFrom(ctx); !p.BoxAdmin() {
-				return nil, fmt.Errorf("%w: the audit log needs a box-admin token (scope * on all projects)", tokens.ErrForbidden)
+				return nil, fmt.Errorf("%w: the audit log needs a key with full access to all projects", tokens.ErrForbidden)
 			}
 			ev, err := a.deps.DB.AuditLog(ctx, in.Limit)
 			if ev == nil {
@@ -828,44 +834,12 @@ func (a *API) Status(ctx context.Context, started time.Time) StatusReport {
 	return r
 }
 
-func (a *API) apply(ctx context.Context, p *tokens.Principal, plan *change.Plan, confirm, intent, approval string) (*struct{ Body ApplyResult }, error) {
-	authorize := p.Authorizer()
-	if approval != "" {
-		// A human approved exactly this plan for this caller: their passkey
-		// stands in for the scope the caller lacks.
-		if a.deps.Approvals == nil {
-			return nil, problem(501, "internal", "approvals need a box")
-		}
-		if !change.MatchHash(plan.Hash, confirm) {
-			return nil, &change.ConfirmRequiredError{Plan: plan, Mismatch: confirm != ""}
-		}
-		if err := a.deps.Approvals.Spend(ctx, approval, p, plan); err != nil {
-			return nil, problem(403, "denied", err.Error())
-		}
-		authorize = nil
-	}
+func (a *API) apply(ctx context.Context, p *tokens.Principal, plan *change.Plan, confirm, intent string) (*struct{ Body ApplyResult }, error) {
 	c, err := a.deps.Engine.Apply(ctx, change.ApplyRequest{
-		Plan: plan, Confirm: confirm, Actor: p.Actor(), Intent: intent, Authorize: authorize,
+		Plan: plan, Confirm: confirm, Actor: p.Actor(), Intent: intent, Authorize: p.Authorizer(),
 	})
-	var denied *change.DeniedError
-	if errors.As(err, &denied) && p.Kind == tokens.KindAgent && a.deps.Approvals != nil {
-		ap, aerr := a.deps.Approvals.Request(ctx, p, plan, intent)
-		if aerr != nil {
-			return nil, aerr
-		}
-		out := problem(403, "approval_required", denied.Reason)
-		out.Plan = plan
-		out.Approval = ap
-		out.ApprovalURL = strings.TrimRight(a.deps.PublicURL, "/") + "/approvals/" + ap.ID
-		out.Hint = "a human must approve this plan with their passkey at " + out.ApprovalURL +
-			"; then call again with confirm=" + plan.Hash[:12] + " and approval=" + ap.ID
-		return nil, out
-	}
 	if err != nil {
 		return nil, err
-	}
-	if approval != "" {
-		a.deps.Approvals.MarkUsedBy(ctx, approval, c.ID)
 	}
 	if c != nil && a.deps.Platform != nil {
 		a.deps.Platform.AfterApply(c)
@@ -921,5 +895,3 @@ func (a *API) Operations() []*huma.Operation {
 	slices.SortFunc(ops, func(x, y *huma.Operation) int { return strings.Compare(x.OperationID, y.OperationID) })
 	return ops
 }
-
-func hours(h int) time.Duration { return time.Duration(h) * time.Hour }

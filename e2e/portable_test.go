@@ -108,7 +108,7 @@ func TestPortable(t *testing.T) {
 	}
 	a.ok("secrets", "set", "shop", "GREETING", "--value", "hi from a secret")
 	person := a.ok("people", "add", "--name", "Ada Lovelace", "--email", "ada@example.com", "--role", "member")
-	agent := a.ok("tokens", "create", "--name", "e2e-agent")
+	agent := a.ok("tokens", "create", "--name", "e2e-agent", "--projects", "shop", "--access", "full")
 	agentSecret, _ := agent["secret"].(string)
 	if agentSecret == "" || person["person"] == nil {
 		t.Fatalf("person %v / token created: %v", person, agentSecret != "")

@@ -11,9 +11,9 @@ import (
 	"testing"
 
 	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/approvals"
-	"github.com/btahir/tiffin/internal/approvals/passkeytest"
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/passkeys"
+	"github.com/btahir/tiffin/internal/passkeys/passkeytest"
 	"github.com/btahir/tiffin/internal/state"
 	"github.com/btahir/tiffin/internal/tokens"
 )
@@ -29,11 +29,11 @@ func newPasskeyEnv(t *testing.T) (*env, *state.DB) {
 	t.Cleanup(func() { db.Close() })
 	tm := tokens.NewManager(db)
 	owner, _, _ := tm.Bootstrap(t.Context())
-	am, err := approvals.New(db, "dashboard.tiffin.localhost", pkOrigin)
+	am, err := passkeys.New(db, "dashboard.tiffin.localhost", pkOrigin)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := api.New(api.Deps{DB: db, Engine: change.NewEngine(db), Tokens: tm, Approvals: am, PublicURL: pkOrigin})
+	a := api.New(api.Deps{DB: db, Engine: change.NewEngine(db), Tokens: tm, Passkeys: am, PublicURL: pkOrigin})
 	srv := httptest.NewServer(a.Handler())
 	t.Cleanup(srv.Close)
 	return &env{t: t, srv: srv, owner: owner, tm: tm}, db
@@ -230,7 +230,7 @@ func TestPasskeySignInRateLimit(t *testing.T) {
 }
 
 func TestPasskeySignInNeedsABox(t *testing.T) {
-	e := newEnv(t) // no approvals manager: no public URL
+	e := newEnv(t) // no passkeys manager: no public URL
 	res, prob := e.post("/v1/session/passkey/options", "198.51.100.4", nil)
 	if res.StatusCode != 501 {
 		t.Fatalf("off-box options: %d %v", res.StatusCode, prob)

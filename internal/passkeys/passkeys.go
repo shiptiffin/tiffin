@@ -1,4 +1,4 @@
-package approvals
+package passkeys
 
 import (
 	"context"
@@ -36,7 +36,7 @@ func personOf(p *tokens.Principal) string {
 // passkeyHolder: a passkey belongs to a person. Any person's dashboard
 // session manages its own passkeys (they sign that person in); a box-admin
 // token with no person (the owner's CLI token) manages the owner's. Agents
-// never hold passkeys. Approving plans additionally needs humanOnly.
+// never hold passkeys.
 func passkeyHolder(p *tokens.Principal) error {
 	if p == nil || p.Kind == tokens.KindAgent || (p.Person == "" && !p.BoxAdmin()) {
 		return ErrNoPerson
@@ -197,71 +197,4 @@ func (m *Manager) FinishRegistration(ctx context.Context, by *tokens.Principal, 
 	}
 	_ = m.db.Audit(ctx, by.TokenID, "passkey.add", name, nil)
 	return &Passkey{ID: base64.RawURLEncoding.EncodeToString(cred.ID), Name: name, CreatedAt: now}, nil
-}
-
-// BeginApproval starts the passkey assertion for approval id. The challenge
-// is stored with that approval only.
-func (m *Manager) BeginApproval(ctx context.Context, by *tokens.Principal, id string) (*protocol.CredentialAssertion, error) {
-	if err := humanOnly(by); err != nil {
-		return nil, err
-	}
-	a, err := m.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if a.Status != Pending {
-		return nil, ErrNotPending
-	}
-	o, err := m.owner(ctx, personOf(by))
-	if err != nil {
-		return nil, err
-	}
-	if len(o.creds) == 0 {
-		return nil, ErrNoPasskey
-	}
-	ca, s, err := m.wa.BeginLogin(o)
-	if err != nil {
-		return nil, err
-	}
-	return ca, m.saveSession(ctx, "approve:"+id, s)
-}
-
-// FinishApproval verifies the passkey assertion and approves.
-func (m *Manager) FinishApproval(ctx context.Context, by *tokens.Principal, id string, response json.RawMessage) (*Approval, error) {
-	if err := humanOnly(by); err != nil {
-		return nil, err
-	}
-	s, err := m.takeSession(ctx, "approve:"+id)
-	if err != nil {
-		return nil, err
-	}
-	parsed, err := protocol.ParseCredentialRequestResponseBytes(response)
-	if err != nil {
-		return nil, fmt.Errorf("passkey response: %w", err)
-	}
-	o, err := m.owner(ctx, personOf(by))
-	if err != nil {
-		return nil, err
-	}
-	cred, err := m.wa.ValidateLogin(o, *s, parsed)
-	if err != nil {
-		return nil, fmt.Errorf("passkey check failed: %w", err)
-	}
-	if cred.Authenticator.CloneWarning {
-		_ = m.db.Audit(ctx, by.TokenID, "passkey.clone_warning", base64.RawURLEncoding.EncodeToString(cred.ID), map[string]any{"approval": id})
-		return nil, ErrCloned
-	}
-	now := m.now().UTC()
-	raw, _ := json.Marshal(cred)
-	_, _ = m.db.SQL().ExecContext(ctx, `UPDATE passkeys SET credential = ?, last_used = ? WHERE id = ?`, string(raw), ts(now), cred.ID)
-	res, err := m.db.SQL().ExecContext(ctx, `UPDATE approvals SET status = ?, decided_at = ?, decided_by = ?
-		WHERE id = ? AND status = ? AND expires_at > ?`, Approved, ts(now), by.TokenID, id, Pending, ts(now))
-	if err != nil {
-		return nil, err
-	}
-	if n, _ := res.RowsAffected(); n != 1 {
-		return nil, ErrNotPending
-	}
-	_ = m.db.Audit(ctx, by.TokenID, "approval.approve", id, map[string]any{"passkey": base64.RawURLEncoding.EncodeToString(cred.ID)})
-	return m.Get(ctx, id)
 }

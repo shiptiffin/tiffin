@@ -221,9 +221,9 @@ func (e *env) call(token, method, path string, body any) (int, map[string]any, [
 	return res.StatusCode, obj, arr
 }
 
-func (e *env) token(scopes, projects []string) string {
+func (e *env) token(projects any, access string) string {
 	e.t.Helper()
-	code, out, _ := e.call(e.owner, "POST", "/v1/tokens", map[string]any{"name": "agent", "scopes": scopes, "projects": projects})
+	code, out, _ := e.call(e.owner, "POST", "/v1/tokens", map[string]any{"name": "agent", "projects": projects, "access": access})
 	if code != 200 {
 		e.t.Fatalf("create token: %d %v", code, out)
 	}
@@ -281,8 +281,8 @@ func TestAPI(t *testing.T) {
 	}
 
 	// Scoped and read-only tokens cannot change box-wide protection.
-	reader := e.token([]string{"read"}, []string{"*"})
-	scoped := e.token([]string{"apply:reversible"}, []string{"shop"})
+	reader := e.token("all", "read")
+	scoped := e.token([]string{"shop"}, "full")
 	if code, _, _ := e.call(reader, "GET", "/v1/protect", nil); code != 200 {
 		t.Errorf("reader status: %d", code)
 	}
@@ -294,7 +294,7 @@ func TestAPI(t *testing.T) {
 	}
 
 	// Under attack: challenge everywhere, tighter limits, then it expires.
-	agent := e.token([]string{"apply:reversible"}, []string{"*"})
+	agent := e.token("all", "full")
 	code, st, _ = e.call(agent, "POST", "/v1/protect/under-attack", map[string]any{"on": true, "minutes": 30})
 	if code != 200 || dig(st, "underAttack", "on") != true || dig(st, "underAttack", "minutesLeft") != float64(30) || dig(st, "underAttack", "by") != "agent" {
 		t.Fatalf("under attack: %d %v", code, st)

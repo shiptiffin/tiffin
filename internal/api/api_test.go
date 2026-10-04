@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/btahir/tiffin/internal/api"
-	"github.com/btahir/tiffin/internal/approvals"
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/state"
 	"github.com/btahir/tiffin/internal/tokens"
@@ -76,13 +75,28 @@ func (e *env) call(token, method, path string, body any) (int, map[string]any, [
 	return res.StatusCode, obj, arr
 }
 
-func (e *env) agent(scopes []string, projects []string) string {
+// key creates an API key: projects is "all" or a list, access full or read.
+func (e *env) key(projects any, access string) string {
 	e.t.Helper()
-	code, out, _ := e.call(e.owner, "POST", "/v1/tokens", map[string]any{"name": "claude", "scopes": scopes, "projects": projects})
+	code, out, _ := e.call(e.owner, "POST", "/v1/tokens", map[string]any{"name": "claude", "projects": projects, "access": access})
 	if code != 200 {
-		e.t.Fatalf("create token: %d %v", code, out)
+		e.t.Fatalf("create key: %d %v", code, out)
 	}
 	return out["secret"].(string)
+}
+
+// legacy mints a token the way boxes did before API keys (exact scopes).
+func (e *env) legacy(name string, scopes []tokens.Scope, projects []string) string {
+	e.t.Helper()
+	owner, err := e.tm.Authenticate(e.t.Context(), e.owner)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	secret, _, err := e.tm.Create(e.t.Context(), owner, tokens.CreateRequest{Name: name, Kind: tokens.KindAgent, Scopes: scopes, Projects: projects})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return secret
 }
 
 var shop = map[string]any{
@@ -202,7 +216,7 @@ func TestAgentScopesEnforced(t *testing.T) {
 			t.Fatalf("setup %s: %d %v", p, code, out)
 		}
 	}
-	agent := e.agent(nil, []string{"shop"}) // defaults: read, plan, apply:reversible
+	agent := e.key([]string{"shop"}, "full")
 
 	// Reversible change on its project: allowed.
 	m := map[string]any{"project": "shop", "env": map[string]any{"A": "1"}, "services": map[string]any{"postgres": map[string]any{}}}
@@ -210,15 +224,9 @@ func TestAgentScopesEnforced(t *testing.T) {
 	if code, out, _ := e.call(agent, "POST", "/v1/apply", map[string]any{"manifest": m, "confirm": plan["hash"]}); code != 200 {
 		t.Fatalf("agent reversible apply: %d %v", code, out)
 	}
-	// Irreversible (drop postgres): denied, with the plan attached for a human.
-	drop := map[string]any{"project": "shop", "env": map[string]any{"A": "1"}}
-	_, plan, _ = e.call(agent, "POST", "/v1/plan", map[string]any{"manifest": drop})
-	code, prob, _ := e.call(agent, "POST", "/v1/apply", map[string]any{"manifest": drop, "confirm": plan["hash"]})
-	if code != 403 || prob["code"] != "denied" || prob["plan"] == nil {
-		t.Fatalf("agent irreversible: %d %v", code, prob)
-	}
-	// Other project: forbidden even to plan or read.
-	if code, prob, _ := e.call(agent, "POST", "/v1/plan", map[string]any{"manifest": map[string]any{"project": "blog"}}); code != 403 {
+	// Other project: forbidden even to plan or read, with a plain reason.
+	if code, prob, _ := e.call(agent, "POST", "/v1/plan", map[string]any{"manifest": map[string]any{"project": "blog"}}); code != 403 ||
+		prob["code"] != "forbidden" || !strings.Contains(prob["detail"].(string), "can only change shop") || prob["hint"] == nil {
 		t.Fatalf("plan other project: %d %v", code, prob)
 	}
 	if code, _, _ := e.call(agent, "GET", "/v1/projects/blog", nil); code != 403 {
@@ -252,15 +260,15 @@ func TestAgentScopesEnforced(t *testing.T) {
 	if _, _, list := e.call(agent, "GET", "/v1/changes?limit=2", nil); len(list) != 2 || list[0].(map[string]any)["project"] != "shop" {
 		t.Fatalf("scoped token's change list: %v", list)
 	}
-	// No token admin, no escalation.
+	// No key management, no escalation.
 	if code, _, _ := e.call(agent, "GET", "/v1/tokens", nil); code != 403 {
-		t.Fatalf("agent lists tokens: %d", code)
+		t.Fatalf("agent lists keys: %d", code)
 	}
-	if code, _, _ := e.call(agent, "POST", "/v1/tokens", map[string]any{"name": "x"}); code != 403 {
-		t.Fatalf("agent mints token: %d", code)
+	if code, _, _ := e.call(agent, "POST", "/v1/tokens", map[string]any{"name": "x", "projects": []string{"shop"}, "access": "full"}); code != 403 {
+		t.Fatalf("agent mints a key: %d", code)
 	}
-	// Read-only token cannot plan.
-	ro := e.agent([]string{"read"}, []string{"shop"})
+	// An older read-only token (no plan scope) still cannot plan.
+	ro := e.legacy("ro", []tokens.Scope{tokens.ScopeRead}, []string{"shop"})
 	if code, _, _ := e.call(ro, "POST", "/v1/plan", map[string]any{"manifest": m}); code != 403 {
 		t.Fatalf("read-only plan: %d", code)
 	}
@@ -273,7 +281,7 @@ func TestAgentScopesEnforced(t *testing.T) {
 
 func TestTokenRevoke(t *testing.T) {
 	e := newEnv(t)
-	agent := e.agent(nil, nil)
+	agent := e.key("all", "full")
 	_, who, _ := e.call(agent, "GET", "/v1/whoami", nil)
 	id := who["tokenId"].(string)
 	if code, out, _ := e.call(e.owner, "DELETE", "/v1/tokens/"+id, nil); code != 204 && code != 200 {
@@ -309,99 +317,26 @@ func TestEveryOperationIsAnnotated(t *testing.T) {
 	}
 }
 
-func TestTokenAdminRespectsProjectScope(t *testing.T) {
+// Only a key with full access to all projects manages keys. An older
+// token that could mint tokens for one project no longer manages any.
+func TestOnlyTheBoxAdminManagesKeys(t *testing.T) {
 	e := newEnv(t)
-	// A delegate that may mint tokens, but only for "blog".
-	code, out, _ := e.call(e.owner, "POST", "/v1/tokens", map[string]any{"name": "blog-lead", "scopes": []string{"*"}, "projects": []string{"blog"}})
-	if code != 200 {
-		t.Fatalf("create: %d %v", code, out)
-	}
-	lead := out["secret"].(string)
-	other := e.agent(nil, []string{"shop"}) // minted by the owner
+	lead := e.legacy("blog-lead", []tokens.Scope{tokens.ScopeAll}, []string{"blog"})
+	other := e.key([]string{"shop"}, "full")
 	_, who, _ := e.call(other, "GET", "/v1/whoami", nil)
-
-	_, _, list := e.call(lead, "GET", "/v1/tokens", nil)
-	if len(list) != 0 {
-		t.Fatalf("project-limited admin sees tokens it did not mint: %v", list)
-	}
-	if code, _, _ := e.call(lead, "GET", "/v1/audit", nil); code != 403 {
-		t.Fatalf("project-limited admin reads audit: %d", code)
-	}
-	if code, _, _ := e.call(lead, "DELETE", "/v1/tokens/"+who["tokenId"].(string), nil); code != 403 {
-		t.Fatalf("project-limited admin revokes a foreign token: %d", code)
-	}
-	// It does see and manage what it minted.
-	e.call(lead, "POST", "/v1/tokens", map[string]any{"name": "blog-bot"})
-	if _, _, list := e.call(lead, "GET", "/v1/tokens", nil); len(list) != 1 {
-		t.Fatalf("lead should see its own token: %v", list)
-	}
-}
-
-func TestAgentApprovalFlow(t *testing.T) {
-	db, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	tm := tokens.NewManager(db)
-	owner, _, _ := tm.Bootstrap(t.Context())
-	am, err := approvals.New(db, "dashboard.tiffin.localhost", "https://dashboard.tiffin.localhost:8443")
-	if err != nil {
-		t.Fatal(err)
-	}
-	a := api.New(api.Deps{DB: db, Engine: change.NewEngine(db), Tokens: tm, Approvals: am, PublicURL: "https://dashboard.tiffin.localhost:8443"})
-	srv := httptest.NewServer(a.Handler())
-	defer srv.Close()
-	e := &env{t: t, srv: srv, owner: owner, tm: tm}
-
-	m := map[string]any{"project": "shop", "services": map[string]any{"postgres": map[string]any{}}}
-	_, plan, _ := e.call(owner, "POST", "/v1/plan", map[string]any{"manifest": m})
-	e.call(owner, "POST", "/v1/apply", map[string]any{"manifest": m, "confirm": plan["hash"]})
-
-	agent := e.agent(nil, []string{"shop"})
-	drop := map[string]any{"project": "shop"}
-	_, plan, _ = e.call(agent, "POST", "/v1/plan", map[string]any{"manifest": drop})
-	hash := plan["hash"].(string)
-	code, prob, _ := e.call(agent, "POST", "/v1/apply", map[string]any{"manifest": drop, "confirm": hash, "intent": "drop db"})
-	if code != 403 || prob["code"] != "approval_required" || !strings.Contains(prob["approvalUrl"].(string), "/approvals/apr_") {
-		t.Fatalf("want approval_required: %d %v", code, prob)
-	}
-	id := prob["approval"].(map[string]any)["id"].(string)
-	// Asking again returns the same pending request.
-	_, prob2, _ := e.call(agent, "POST", "/v1/apply", map[string]any{"manifest": drop, "confirm": hash})
-	if prob2["approval"].(map[string]any)["id"] != id {
-		t.Fatal("duplicate approval request")
-	}
-	// Pending approvals cannot be spent; agents cannot approve.
-	if code, _, _ := e.call(agent, "POST", "/v1/apply", map[string]any{"manifest": drop, "confirm": hash, "approval": id}); code != 403 {
-		t.Fatalf("spent a pending approval: %d", code)
-	}
-	if code, _, _ := e.call(agent, "POST", "/v1/approvals/"+id+"/begin", nil); code != 403 {
-		t.Fatalf("agent began approving: %d", code)
-	}
-	// The owner has no passkey yet: approving must say so.
-	if code, p, _ := e.call(owner, "POST", "/v1/approvals/"+id+"/begin", nil); code != 409 || !strings.Contains(p["detail"].(string), "passkey") {
-		t.Fatalf("no-passkey approve: %d %v", code, p)
-	}
-	// Simulate a successful passkey ceremony (covered by go-webauthn and the dashboard e2e).
-	if _, err := db.SQL().Exec(`UPDATE approvals SET status = 'approved', decided_by = 'test' WHERE id = ?`, id); err != nil {
-		t.Fatal(err)
-	}
-	// Another agent can't use it.
-	other := e.agent(nil, []string{"shop"})
-	if code, _, _ := e.call(other, "POST", "/v1/apply", map[string]any{"manifest": drop, "confirm": hash, "approval": id}); code != 403 {
-		t.Fatalf("other agent spent approval: %d", code)
-	}
-	code, res, _ := e.call(agent, "POST", "/v1/apply", map[string]any{"manifest": drop, "confirm": hash, "approval": id, "intent": "drop db"})
-	if code != 200 || res["applied"] != true {
-		t.Fatalf("approved apply: %d %v", code, res)
-	}
-	if code, _, _ := e.call(agent, "POST", "/v1/apply", map[string]any{"manifest": drop, "confirm": hash, "approval": id}); code == 200 {
-		t.Fatal("approval reused")
-	}
-	_, got, _ := e.call(agent, "GET", "/v1/approvals/"+id, nil)
-	if got["status"] != "used" || got["usedBy"] == "" {
-		t.Fatalf("approval after use: %v", got)
+	for _, tok := range []string{lead, other, e.key("all", "read")} {
+		if code, _, _ := e.call(tok, "GET", "/v1/tokens", nil); code != 403 {
+			t.Fatalf("lists keys: %d", code)
+		}
+		if code, _, _ := e.call(tok, "GET", "/v1/audit", nil); code != 403 {
+			t.Fatalf("reads audit: %d", code)
+		}
+		if code, prob, _ := e.call(tok, "DELETE", "/v1/tokens/"+who["tokenId"].(string), nil); code != 403 || !strings.Contains(prob["detail"].(string), "full access to all projects") {
+			t.Fatalf("revokes a key: %d %v", code, prob)
+		}
+		if code, _, _ := e.call(tok, "POST", "/v1/tokens", map[string]any{"name": "bot", "projects": []string{"blog"}, "access": "read"}); code != 403 {
+			t.Fatalf("creates a key: %d", code)
+		}
 	}
 }
 
@@ -505,7 +440,7 @@ func TestChangesPagingAndAgentModel(t *testing.T) {
 	if _, ok := first["actor"].(map[string]any)["model"]; ok {
 		t.Fatalf("a person's change carries no model: %v", first["actor"])
 	}
-	agent := e.agent([]string{"read", "plan", "apply:reversible"}, []string{"shop"})
+	agent := e.key([]string{"shop"}, "full")
 	apply(agent, map[string]any{"A": "2"})
 	third := apply(agent, map[string]any{"A": "3"})
 	if third["actor"].(map[string]any)["model"] != "claude-opus-5-5" {

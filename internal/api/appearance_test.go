@@ -36,7 +36,7 @@ func TestProjectAppearance(t *testing.T) {
 	if code, _, _ := e.call(e.owner, "GET", "/v1/projects/nope/appearance", nil); code != 404 {
 		t.Fatalf("missing project: %d", code)
 	}
-	reader := e.agent([]string{"read"}, nil)
+	reader := e.key("all", "read")
 	if code, _, _ := e.call(reader, "PUT", "/v1/projects/shop/appearance", map[string]any{"enamel": "leaf"}); code != 403 {
 		t.Fatalf("read-only token set a colour: %d", code)
 	}

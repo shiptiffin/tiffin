@@ -350,8 +350,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		}
 	}) (*struct{ Body *Import }, error) {
 		pr := api.PrincipalFrom(ctx)
-		if pr == nil || pr.Kind == tokens.KindAgent || !pr.BoxAdmin() || (pr.Role != "" && pr.Role != tokens.RoleOwner) {
-			return nil, fmt.Errorf("%w: importing replaces the whole box; it needs the box owner's token", tokens.ErrForbidden)
+		if pr == nil || !pr.BoxAdmin() || (pr.Role != "" && pr.Role != tokens.RoleOwner) {
+			return nil, fmt.Errorf("%w: importing replaces the whole box; it needs the box owner's token or a key with full access to all projects", tokens.ErrForbidden)
 		}
 		if err := onBox(p); err != nil {
 			return nil, err

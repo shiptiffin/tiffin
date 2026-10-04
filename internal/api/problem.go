@@ -3,7 +3,6 @@ package api
 import (
 	"errors"
 	"fmt"
-	"github.com/btahir/tiffin/internal/approvals"
 	"log/slog"
 	"net/http"
 
@@ -20,14 +19,11 @@ type Problem struct {
 	Type   string       `json:"type,omitempty" doc:"URI identifying the problem type"`
 	Title  string       `json:"title" doc:"Short summary"`
 	Status int          `json:"status" doc:"HTTP status code"`
-	Code   string       `json:"code" doc:"Stable machine-readable code" enum:"bad_request,validation,unauthenticated,forbidden,denied,approval_required,rate_limited,not_found,conflict,precondition,confirm_required,plan_mismatch,internal"`
+	Code   string       `json:"code" doc:"Stable machine-readable code" enum:"bad_request,validation,unauthenticated,forbidden,rate_limited,not_found,conflict,precondition,confirm_required,plan_mismatch,internal"`
 	Detail string       `json:"detail,omitempty" doc:"What went wrong"`
 	Hint   string       `json:"hint,omitempty" doc:"What to do next"`
 	Errors []FieldError `json:"errors,omitempty" doc:"Per-field problems"`
-	Plan   *change.Plan `json:"plan,omitempty" doc:"The plan to review and confirm (confirm_required, plan_mismatch, denied)"`
-	// Approval is the request a human must approve (approval_required).
-	Approval    *approvals.Approval `json:"approval,omitempty"`
-	ApprovalURL string              `json:"approvalUrl,omitempty" doc:"Where a human approves it"`
+	Plan   *change.Plan `json:"plan,omitempty" doc:"The plan to review and confirm (confirm_required, plan_mismatch), or the plan the key may not apply (forbidden)"`
 }
 
 // FieldError points at one bad input field.
@@ -88,6 +84,9 @@ func init() {
 	}
 }
 
+// keyHint is what to do about a key that cannot reach something.
+const keyHint = "each API key reaches only its projects, at full or read access; ask the box owner to do it, or for a key that reaches it"
+
 // toProblem maps domain errors to API problems.
 func toProblem(err error) error {
 	if err == nil {
@@ -123,9 +122,9 @@ func toProblem(err error) error {
 		out.Plan, out.Hint = cr.Plan, hint
 		return out
 	case errors.As(err, &de):
-		out := problem(403, "denied", de.Reason)
+		out := problem(403, "forbidden", de.Reason)
 		out.Plan = de.Plan
-		out.Hint = "ask the owner to apply this plan, or for a token with the needed scope"
+		out.Hint = keyHint
 		return out
 	case errors.Is(err, change.ErrConflict):
 		out := problem(409, "conflict", err.Error())
@@ -140,7 +139,9 @@ func toProblem(err error) error {
 		out.Hint = "send Authorization: Bearer <token> (TIFFIN_TOKEN for the CLI)"
 		return out
 	case errors.Is(err, tokens.ErrForbidden):
-		return problem(403, "forbidden", err.Error())
+		out := problem(403, "forbidden", err.Error())
+		out.Hint = keyHint
+		return out
 	case errors.Is(err, tokens.ErrInvalid):
 		return problem(422, "validation", err.Error())
 	case errors.As(err, &hse):

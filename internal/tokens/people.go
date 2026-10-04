@@ -101,8 +101,8 @@ func (m *Manager) People(ctx context.Context) ([]*Person, error) {
 
 // AddPerson invites someone. Only box admins can; nobody can create another owner.
 func (m *Manager) AddPerson(ctx context.Context, by *Principal, name, email, role string) (*Person, error) {
-	if !by.BoxAdmin() || by.Kind == KindAgent {
-		return nil, fmt.Errorf("%w: only an owner or admin can add people", ErrForbidden)
+	if !by.BoxAdmin() {
+		return nil, fmt.Errorf("%w: only an owner, an admin or a key with full access to all projects can add people", ErrForbidden)
 	}
 	name, email = strings.TrimSpace(name), strings.TrimSpace(email)
 	if name == "" || len(name) > 64 {
@@ -129,8 +129,8 @@ func (m *Manager) AddPerson(ctx context.Context, by *Principal, name, email, rol
 // UpdatePerson renames someone or changes their role. Their open sessions
 // end, so the new role applies at once.
 func (m *Manager) UpdatePerson(ctx context.Context, by *Principal, id, name, role string) (*Person, error) {
-	if !by.BoxAdmin() || by.Kind == KindAgent {
-		return nil, fmt.Errorf("%w: only an owner or admin can change people", ErrForbidden)
+	if !by.BoxAdmin() {
+		return nil, fmt.Errorf("%w: only an owner, an admin or a key with full access to all projects can change people", ErrForbidden)
 	}
 	p, err := m.GetPerson(ctx, id)
 	if err != nil {
@@ -161,8 +161,8 @@ func (m *Manager) UpdatePerson(ctx context.Context, by *Principal, id, name, rol
 
 // RemovePerson disables someone and ends their sessions. The owner stays.
 func (m *Manager) RemovePerson(ctx context.Context, by *Principal, id string) error {
-	if !by.BoxAdmin() || by.Kind == KindAgent {
-		return fmt.Errorf("%w: only an owner or admin can remove people", ErrForbidden)
+	if !by.BoxAdmin() {
+		return fmt.Errorf("%w: only an owner, an admin or a key with full access to all projects can remove people", ErrForbidden)
 	}
 	if id == OwnerPerson {
 		return fmt.Errorf("%w: the owner cannot be removed", ErrForbidden)
@@ -188,8 +188,8 @@ func (m *Manager) endSessions(ctx context.Context, person string) {
 // LoginLinkFor creates a one-time sign-in link for a person (an invite, or
 // a fresh link for someone who lost theirs). Box admins only.
 func (m *Manager) LoginLinkFor(ctx context.Context, by *Principal, person string) (string, time.Time, error) {
-	if !by.BoxAdmin() || by.Kind == KindAgent {
-		return "", time.Time{}, fmt.Errorf("%w: only an owner or admin can create sign-in links", ErrForbidden)
+	if !by.BoxAdmin() {
+		return "", time.Time{}, fmt.Errorf("%w: only an owner, an admin or a key with full access to all projects can create sign-in links", ErrForbidden)
 	}
 	p, err := m.GetPerson(ctx, person)
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -92,16 +93,9 @@ func (a *app) upCmd() *cobra.Command {
 			if err := waitHTTPS(ctx, c, res.Build, 30*time.Second); err != nil {
 				return &exitError{ExitError, err.Error()}
 			}
-			if bx.AgentToken == "" || !tokenWorks(ctx, a, bx, bx.AgentToken) {
-				status, raw, err := c.do(ctx, http.MethodPost, "/v1/tokens", nil, map[string]any{"name": "claude-code"})
-				if err != nil || status != 200 {
-					return &exitError{ExitError, fmt.Sprintf("create the agent token: %v %s", err, raw)}
-				}
-				var ct struct {
-					Secret string `json:"secret"`
-				}
-				_ = json.Unmarshal(raw, &ct)
-				bx.AgentToken = ct.Secret
+			if changed, err := ensureAgentKey(ctx, a, c, bx); err != nil {
+				return &exitError{ExitError, err.Error()}
+			} else if changed {
 				if err := a.saveBoxes(f); err != nil {
 					return err
 				}
@@ -146,13 +140,54 @@ func (a *app) boxClient(bx *boxConfig, token string) (*client, error) {
 	return &client{base: strings.TrimRight(bx.URL, "/"), token: token, session: a.session, model: a.model, transport: tr, close: func() error { return nil }}, nil
 }
 
-func tokenWorks(ctx context.Context, a *app, bx *boxConfig, tok string) bool {
+// agentKeyCurrent reports whether tok works and is what the agent key
+// should be: full access to all projects. It also returns tok's ID, so an
+// older, narrower key can be revoked once it is replaced.
+func agentKeyCurrent(ctx context.Context, a *app, bx *boxConfig, tok string) (bool, string) {
 	c, err := a.boxClient(bx, tok)
 	if err != nil {
-		return false
+		return false, ""
 	}
-	status, _, err := c.do(ctx, http.MethodGet, "/v1/whoami", nil, nil)
-	return err == nil && status == 200
+	status, raw, err := c.do(ctx, http.MethodGet, "/v1/whoami", nil, nil)
+	if err != nil || status != 200 {
+		return false, ""
+	}
+	var who struct {
+		TokenID  string   `json:"tokenId"`
+		Scopes   []string `json:"scopes"`
+		Projects []string `json:"projects"`
+	}
+	_ = json.Unmarshal(raw, &who)
+	return slices.Contains(who.Scopes, "*") && slices.Contains(who.Projects, "*"), who.TokenID
+}
+
+// ensureAgentKey makes sure bx has the API key `tiffin mcp` gives agents:
+// full access to all projects (Claude Code asks the person before
+// destructive tools; Tiffin records every change and can undo it). Older
+// boxes minted a narrower token: it is replaced and revoked. owner is a
+// client with the owner token. It reports whether bx changed.
+func ensureAgentKey(ctx context.Context, a *app, owner *client, bx *boxConfig) (bool, error) {
+	var oldID string
+	if bx.AgentToken != "" {
+		ok, id := agentKeyCurrent(ctx, a, bx, bx.AgentToken)
+		if ok {
+			return false, nil
+		}
+		oldID = id
+	}
+	status, raw, err := owner.do(ctx, http.MethodPost, "/v1/tokens", nil, map[string]any{"name": "claude-code", "projects": "all", "access": "full"})
+	if err != nil || status != http.StatusOK {
+		return false, fmt.Errorf("create the agent key: %v %s", err, raw)
+	}
+	var ck struct {
+		Secret string `json:"secret"`
+	}
+	_ = json.Unmarshal(raw, &ck)
+	bx.AgentToken = ck.Secret
+	if oldID != "" {
+		_, _, _ = owner.do(ctx, http.MethodDelete, "/v1/tokens/"+oldID, nil, nil)
+	}
+	return true, nil
 }
 
 func waitHTTPS(ctx context.Context, c *client, build string, d time.Duration) error {
