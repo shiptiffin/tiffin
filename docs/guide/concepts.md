@@ -74,8 +74,9 @@ The config file is one way in, not the only one. `tiffin projects manifest <proj
 (`GET /v1/projects/{project}/manifest`) returns the project's current manifest, rebuilt
 from its resources; the dashboard edits that and sends it through the same plan and
 apply. `tiffin pull` writes it back to a readable `tiffin.config.ts` (it never
-overwrites a file that differs without `--force`, and shows the diff), so a project
-created in the dashboard can move to git at any time.
+overwrites a file that differs without `--force`, and shows the diff), plus the source
+of any app running a starter, so a project created in the dashboard can move to git at
+any time.
 
 ## Risk tiers
 | Tier | Meaning | Example |

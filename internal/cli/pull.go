@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,22 +13,26 @@ import (
 	"strings"
 
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/starters"
 	"github.com/spf13/cobra"
 )
 
 // pullCmd writes a project's current manifest (whatever made it: apply, the
-// dashboard, an agent) to tiffin.config.ts.
+// dashboard, an agent) to tiffin.config.ts, and the source of any app that
+// runs a starter, so a project started in the dashboard can be edited here.
 func (a *app) pullCmd() *cobra.Command {
 	var project string
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "pull [dir]",
-		Short: "Write the project's current manifest to tiffin.config.ts",
+		Short: "Write the project's current manifest to tiffin.config.ts (and a starter's source)",
 		Long: "Fetches the project's current manifest from the box (made by tiffin apply, the dashboard or an agent) and writes it " +
 			"as a readable tiffin.config.ts in dir (default: the current directory), so your files match the box again.\n\n" +
+			"An app whose live version is a starter (the dashboard's New project) also gets that starter's source in its folder, " +
+			"so you can change it and tiffin deploy. Files already there are kept.\n\n" +
 			"An existing config that differs is never overwritten without --force; the differences are printed either way. " +
 			"The project comes from --project, else from the existing config, else the box's only project.",
-		Example: "  tiffin pull                 # into ./tiffin.config.ts\n  tiffin pull web --project shop\n  tiffin pull --force         # overwrite after reviewing the diff",
+		Example: "  tiffin pull                 # into ./tiffin.config.ts\n  tiffin pull shop --project shop && cd shop   # then edit and tiffin deploy\n  tiffin pull --force         # overwrite after reviewing the diff",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -118,9 +123,7 @@ func (a *app) pullCmd() *cobra.Command {
 				res.Note = "already matches the box"
 			case had && !force:
 				res.Note = "differs from the box; not overwritten (run again with --force to replace it)"
-				a.reportPull(res)
 				a.code = ExitInvalid
-				return nil
 			default:
 				if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 					return err
@@ -130,6 +133,7 @@ func (a *app) pullCmd() *cobra.Command {
 				}
 				res.Written = true
 			}
+			res.Sources = pullSources(ctx, c, pm.Project, pm.Manifest, filepath.Dir(target))
 			a.reportPull(res)
 			return nil
 		},
@@ -150,6 +154,66 @@ type pullResult struct {
 	Summary string `json:"summary"`
 	Diff    string `json:"diff,omitempty"`
 	Note    string `json:"note,omitempty"`
+	// Sources are the starter apps whose source was written next to the config.
+	Sources []pulledSource `json:"sources,omitempty"`
+}
+
+type pulledSource struct {
+	App     string   `json:"app"`
+	Starter string   `json:"starter"`
+	Dir     string   `json:"dir"`
+	Written []string `json:"written"`
+	Kept    []string `json:"kept,omitempty"`
+	Error   string   `json:"error,omitempty"`
+}
+
+// pullSources writes the source of each app whose live production version
+// came from a starter (the dashboard's New project), into the app's path next
+// to the config. Apps deployed from your files, git or GitHub already have
+// their source with you, and nothing that exists is overwritten.
+func pullSources(ctx context.Context, c *client, project string, m *manifest.Manifest, base string) []pulledSource {
+	names := make([]string, 0, len(m.Apps))
+	for n := range m.Apps {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var out []pulledSource
+	for _, name := range names {
+		status, raw, err := c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/apps/"+url.PathEscape(name)+"/deploys", url.Values{"limit": {"20"}}, nil)
+		if err != nil || status != http.StatusOK {
+			continue // no runtime here, or no deploys: only the config
+		}
+		var list struct {
+			Deploys []struct {
+				Status   string `json:"status"`
+				Source   string `json:"source"`
+				Template string `json:"template"`
+			} `json:"deploys"`
+		}
+		if json.Unmarshal(raw, &list) != nil {
+			continue
+		}
+		starter := ""
+		for _, d := range list.Deploys { // newest first: the live one is what runs
+			if d.Status == "live" {
+				if d.Source == "template" {
+					starter = d.Template
+				}
+				break
+			}
+		}
+		rel := orDefault(m.Apps[name].Path, ".")
+		if starter == "" || !filepath.IsLocal(rel) {
+			continue
+		}
+		ps := pulledSource{App: name, Starter: starter, Dir: filepath.Join(base, rel)}
+		ps.Written, ps.Kept, err = starters.WriteSource(starter, ps.Dir)
+		if err != nil {
+			ps.Error = err.Error()
+		}
+		out = append(out, ps)
+	}
+	return out
 }
 
 func (a *app) reportPull(r pullResult) {
@@ -182,8 +246,22 @@ func (a *app) reportPull(r pullResult) {
 		fmt.Fprintf(out, ", %d lines added, %d removed", r.Added, r.Removed)
 	}
 	fmt.Fprintf(out, "\n  %s\n", r.Summary)
-	if !r.Written && r.Changed {
+	for _, s := range r.Sources {
+		if s.Error != "" {
+			fmt.Fprintf(out, "Couldn't write %s's source: %s\n", s.App, s.Error)
+			continue
+		}
+		fmt.Fprintf(out, "Wrote %s's source (the %s starter) to %s: %s", s.App, s.Starter, s.Dir, plural(len(s.Written), "file"))
+		if len(s.Kept) > 0 {
+			fmt.Fprintf(out, "; kept %s already there", plural(len(s.Kept), "file"))
+		}
+		fmt.Fprintln(out)
+	}
+	switch {
+	case !r.Written && r.Changed:
 		fmt.Fprintf(out, "%s %s\n", a.paint("next:", dim), "review the diff, then tiffin pull --force")
+	case len(r.Sources) > 0:
+		fmt.Fprintf(out, "%s %s\n", a.paint("next:", dim), "change a file, then tiffin deploy (same address, zero downtime)")
 	}
 }
 

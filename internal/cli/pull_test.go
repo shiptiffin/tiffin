@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,5 +103,63 @@ func TestLineDiff(t *testing.T) {
 	}
 	if d, _, _ := lineDiff("same\n", "same\n"); d != "" {
 		t.Fatalf("no change: %q", d)
+	}
+}
+
+// An app whose live version is a starter gets the starter's source next to the
+// pulled config; files already there are kept, and other apps get nothing.
+func TestPullStarterSource(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/projects/notes/manifest":
+			fmt.Fprint(w, `{"project":"notes","version":2,"config":"export default {}\n","manifest":{"project":"notes",`+
+				`"apps":{"web":{"framework":"next","path":"."},"api":{"framework":"hono","path":"api"},"bad":{"framework":"hono","path":"../out"}}}}`)
+		case "/v1/projects/notes/apps/web/deploys":
+			fmt.Fprint(w, `{"deploys":[{"status":"failed","source":"upload"},{"status":"live","source":"template","template":"next-postgres"}]}`)
+		case "/v1/projects/notes/apps/api/deploys":
+			fmt.Fprint(w, `{"deploys":[{"status":"live","source":"upload"},{"status":"superseded","source":"template","template":"hono-postgres"}]}`)
+		case "/v1/projects/notes/apps/bad/deploys":
+			fmt.Fprint(w, `{"deploys":[{"status":"live","source":"template","template":"hono-postgres"}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	env := map[string]string{"TIFFIN_URL": srv.URL, "TIFFIN_TOKEN": "tfn_x", "TIFFIN_HOME": filepath.Join(t.TempDir(), "unused")}
+
+	dir := t.TempDir()
+	mine := filepath.Join(dir, "app", "page.jsx")
+	_ = os.MkdirAll(filepath.Dir(mine), 0o755)
+	_ = os.WriteFile(mine, []byte("mine"), 0o644)
+
+	code, out, _ := run(t, env, "pull", dir, "--project", "notes")
+	if code != ExitOK {
+		t.Fatalf("pull: %d %s", code, out)
+	}
+	var res pullResult
+	if err := json.Unmarshal(out, &res); err != nil || len(res.Sources) != 1 {
+		t.Fatalf("sources: %s", out)
+	}
+	s := res.Sources[0]
+	if s.App != "web" || s.Starter != "next-postgres" || s.Dir != dir || s.Error != "" || len(s.Kept) != 1 || s.Kept[0] != "app/page.jsx" {
+		t.Fatalf("source: %+v", s)
+	}
+	for _, f := range []string{"package.json", "app/layout.jsx", "lib/db.js"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Errorf("%s not written: %v", f, err)
+		}
+	}
+	if b, _ := os.ReadFile(mine); string(b) != "mine" {
+		t.Error("an existing file was overwritten")
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "tiffin.config.ts")); string(b) != "export default {}\n" {
+		t.Errorf("the starter's own config replaced the project's: %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "api")); !os.IsNotExist(err) {
+		t.Error("an app not running a starter got source")
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "out")); !os.IsNotExist(err) {
+		t.Error("an app path outside the folder was written")
 	}
 }
