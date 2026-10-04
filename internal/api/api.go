@@ -309,8 +309,8 @@ type destroyBody struct {
 // ApplyResult is the outcome of a confirmed apply or undo.
 type ApplyResult struct {
 	Applied bool           `json:"applied" doc:"False when the plan was empty (nothing to do)."`
-	Change  *change.Change `json:"change,omitempty"`
-	Plan    *change.Plan   `json:"plan"`
+	Change  *change.Change `json:"change,omitempty" doc:"The applied change; its plan is change.plan."`
+	Plan    *change.Plan   `json:"plan,omitempty" doc:"The (empty) plan, only when nothing was applied."`
 }
 
 // ProjectSummary is one row of the project list.
@@ -891,7 +891,11 @@ func (a *API) apply(ctx context.Context, p *tokens.Principal, plan *change.Plan,
 	if c != nil && a.deps.Platform != nil {
 		a.deps.Platform.AfterApply(c)
 	}
-	return &struct{ Body ApplyResult }{ApplyResult{Applied: c != nil, Change: c, Plan: plan}}, nil
+	r := ApplyResult{Applied: c != nil, Change: c}
+	if c == nil {
+		r.Plan = plan // with a change, the plan is change.plan: don't send it twice
+	}
+	return &struct{ Body ApplyResult }{r}, nil
 }
 
 func parseManifest(raw ManifestJSON) (*manifest.Manifest, map[string]change.Resource, error) {

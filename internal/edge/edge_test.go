@@ -382,3 +382,23 @@ func TestStartRejectsPublicACME(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// The "Nothing here" page links to the dashboard as people reach it: a VM's
+// forwarded port, not the box's own HTTPS port.
+func TestNotFoundLinksThePublicDashboard(t *testing.T) {
+	cfg := Config{Domain: "tiffin.localhost", Upstream: "127.0.0.1:7070", DataDir: t.TempDir(), Internal: true, HTTPPort: 8080, HTTPSPort: 8443}
+	for _, tc := range []struct{ url, want string }{
+		{"", `href="https://dashboard.tiffin.localhost:8443/"`},
+		{"https://dashboard.tiffin.localhost:8475", `href="https://dashboard.tiffin.localhost:8475/"`},
+		{"https://dashboard.example.com/", `href="https://dashboard.example.com/"`},
+	} {
+		cfg.DashboardURL = tc.url
+		got, err := ConfigJSON(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(got), strings.ReplaceAll(tc.want, `"`, `\"`)) {
+			t.Errorf("DashboardURL %q: no %s in the 404 page", tc.url, tc.want)
+		}
+	}
+}

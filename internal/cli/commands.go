@@ -317,7 +317,7 @@ func (a *app) serveCmd() *cobra.Command {
 			go func() { errc <- hs.Serve(ln) }()
 			base := "http://" + ln.Addr().String()
 			if withEdge {
-				ecfg := edge.Config{Domain: domain, Dashboard: reach.Dashboard, Upstream: ln.Addr().String(), DataDir: filepath.Join(a.home, "edge"),
+				ecfg := edge.Config{Domain: domain, Dashboard: reach.Dashboard, DashboardURL: publicURL, Upstream: ln.Addr().String(), DataDir: filepath.Join(a.home, "edge"),
 					HTTPPort: httpPort, HTTPSPort: httpsPort, Internal: !reach.ACME, AccessLog: accessLog(onBox)}
 				if reach.ACME {
 					ecfg.ACME = &edge.ACME{CA: reach.ACMEDirectory, Email: reach.ACMEEmail, TrustedRoots: reach.ACMERoots}

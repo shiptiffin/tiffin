@@ -15,8 +15,11 @@ tiffin deploy                               # https://web.tiffin.localhost:8443
 claude mcp add tiffin -- tiffin mcp         # let your agent help, safely
 ```
 
-> **Status: pre-1.0, local first.** Everything below runs today on a Lima VM on your Mac.
-> Servers, Cloudflare and off-site backups are not supported yet. Interfaces may change.
+> **Status: pre-1.0.** Everything below runs today on a Lima VM on your Mac, and on a real
+> server: `tiffin up --provider hetzner` creates one on Hetzner Cloud, and
+> `tiffin up --provider ssh --host root@<ip>` installs on any Ubuntu server you can SSH into
+> ([quickstart](docs/guide/quickstart.md#run-it-on-a-server)). Cloudflare DNS is supported;
+> off-site backups are not yet. Interfaces may change.
 
 ## What's in the box
 

@@ -156,8 +156,11 @@ func TestPlanApplyConfirmFlow(t *testing.T) {
 	if ch["intent"] != "launch" || ch["actor"].(map[string]any)["session"] != "sess-1" {
 		t.Fatalf("change record: %v", ch)
 	}
+	if _, twice := res["plan"]; twice || ch["plan"].(map[string]any)["hash"] != hash {
+		t.Fatalf("the applied plan belongs in change.plan only: %v", res)
+	}
 	code, res, _ = e.call(e.owner, "POST", "/v1/apply", map[string]any{"manifest": shop, "confirm": hash})
-	if code != 200 || res["applied"] != false {
+	if code != 200 || res["applied"] != false || res["plan"] == nil {
 		t.Fatalf("idempotent re-apply: %d %v", code, res)
 	}
 	code, st, _ := e.call(e.owner, "GET", "/v1/projects/shop", nil)

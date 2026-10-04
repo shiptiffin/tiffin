@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"net"
 	"slices"
 	"sort"
@@ -17,6 +18,11 @@ import (
 type Config struct {
 	Domain    string  // e.g. "tiffin.localhost"; dashboard lives at Dashboard+"."+Domain
 	Dashboard string  // the dashboard's first-level name; default "dashboard"
+	// DashboardURL is the dashboard as people reach it (the box's public
+	// URL, e.g. https://dashboard.tiffin.localhost:8475 on a VM whose 8443
+	// is forwarded to 8475), linked from the "Nothing here" page. Default:
+	// https://<dashboard host>[:HTTPSPort].
+	DashboardURL string
 	Upstream  string  // tiffin API/dashboard http address, e.g. "127.0.0.1:7070"
 	DataDir   string  // Caddy storage (certs, CA), e.g. /var/lib/tiffin/platform/caddy
 	HTTPPort  int     // default 80
@@ -87,7 +93,7 @@ const (
 		`<meta name="viewport" content="width=device-width,initial-scale=1"></head>` +
 		`<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">` +
 		`<h1>Nothing here</h1><p>This address is not served by this Tiffin box.</p>` +
-		`<p>Open the <a href="https://dashboard.%s%s/">dashboard</a> to see what is running.</p></body></html>`
+		`<p>Open the <a href="%s/">dashboard</a> to see what is running.</p></body></html>`
 )
 
 // DashboardHost is the host the dashboard is served on.
@@ -363,13 +369,21 @@ func routeFor(c Config, r Route, portSuffix string) obj {
 	return obj{"match": []obj{m}, "handle": handle, "terminal": true}
 }
 
-func notFound(domain, portSuffix string) obj {
+func notFound(dashboardURL string) obj {
 	return obj{
 		"handler":     "static_response",
 		"status_code": 404,
 		"headers":     obj{"Content-Type": []string{"text/html; charset=utf-8"}},
-		"body":        fmt.Sprintf(notFoundHT, domain, portSuffix),
+		"body":        fmt.Sprintf(notFoundHT, html.EscapeString(dashboardURL)),
 	}
+}
+
+// dashboardURL is where the "Nothing here" page sends people.
+func (c Config) dashboardURL(portSuffix string) string {
+	if u := strings.TrimRight(c.DashboardURL, "/"); strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "http://") {
+		return u
+	}
+	return "https://" + c.DashboardHost() + portSuffix
 }
 
 func hostRoute(hosts []string, upstream string) obj {
@@ -431,9 +445,9 @@ func buildConfig(c Config) obj {
 	// the wildcard certificate. With ACME it only answers unknown names.
 	routes = append(routes, obj{
 		"match":    []obj{{"host": wild}},
-		"handle":   []obj{notFound(c.Domain, portSuffix)},
+		"handle":   []obj{notFound(c.dashboardURL(portSuffix))},
 		"terminal": true,
-	}, obj{"handle": []obj{notFound(c.Domain, portSuffix)}})
+	}, obj{"handle": []obj{notFound(c.dashboardURL(portSuffix))}})
 
 	httpRedirect := obj{
 		"listen": []string{":" + strconv.Itoa(c.HTTPPort)},
