@@ -18,6 +18,7 @@ import (
 
 	"filippo.io/age"
 	"github.com/btahir/tiffin/internal/boxfile"
+	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/ids"
 	"github.com/btahir/tiffin/internal/mod/backup"
 	"github.com/btahir/tiffin/internal/mod/datakit"
@@ -654,6 +655,23 @@ func fixState(ctx context.Context, path string, live *state.DB, man *boxfile.Man
 		}
 	}
 
+	// The build cache is this box's too: whether it is warm (the runtime's
+	// "warmed-<versions>" marks) is this box's fact, not the archive's.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM kv WHERE ns = 'runtime' AND key LIKE 'warmed-%'`); err != nil {
+		return err
+	}
+	rkv, err := live.KVList(ctx, "runtime")
+	if err != nil {
+		return err
+	}
+	for k, v := range rkv {
+		if strings.HasPrefix(k, "warmed-") {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO kv(ns, key, value) VALUES ('runtime', ?, ?)`, k, v); err != nil {
+				return err
+			}
+		}
+	}
+
 	// 3. Apps: no instance of the source box runs here; the runtime starts
 	// fresh ones from the live deploys. Deploys whose image did not travel
 	// can no longer be rolled back to.
@@ -703,6 +721,30 @@ func fixState(ctx context.Context, path string, live *state.DB, man *boxfile.Man
 	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO resource_status(project, address, state, message, updated_at)
 		SELECT project, address, 'pending', 'imported; converging', ? FROM resources`, at); err != nil {
 		return err
+	}
+	// ... except secrets: nothing converges them (apps read them when they
+	// start), so a pending row would never settle and the import would wait
+	// it out.
+	rows, err = tx.QueryContext(ctx, `SELECT project, address FROM resource_status`)
+	if err != nil {
+		return err
+	}
+	var unmanaged [][2]string
+	for rows.Next() {
+		var pr, addr string
+		if err := rows.Scan(&pr, &addr); err != nil {
+			rows.Close()
+			return err
+		}
+		if change.Unmanaged(addr) {
+			unmanaged = append(unmanaged, [2]string{pr, addr})
+		}
+	}
+	rows.Close()
+	for _, u := range unmanaged {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM resource_status WHERE project = ? AND address = ?`, u[0], u[1]); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return err

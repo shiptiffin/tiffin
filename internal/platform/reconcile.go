@@ -121,7 +121,14 @@ func (r *reconciler) converge(ctx context.Context, project string) {
 	})
 	for _, o := range ops {
 		if change.Unmanaged(o.Address) {
-			continue // secrets: apps read them when they (re)start
+			// Secrets have nothing to converge (apps read them when they
+			// (re)start), so they have no live status. Drop any row one has
+			// (an import marks every resource pending): a pending row that
+			// nothing ever settles would keep the project from converging.
+			if _, ok := known[o.Address]; ok {
+				_ = p.DB.DeleteResourceStatus(ctx, project, o.Address)
+			}
+			continue
 		}
 		rc := reconcilerFor(o.Address)
 		if rc == nil {

@@ -268,3 +268,109 @@ func TestReceiveRefusesBadArchives(t *testing.T) {
 		t.Fatal("archive not kept")
 	}
 }
+
+// Secrets travel as change records: the exported state carries each secret
+// sealed to the source box's key, with its History. On the importing box
+// (which gets that key with --key-file) they decrypt, undo still puts back
+// the previous value, they are not left pending (nothing converges a
+// secret), and the build-cache warm-up mark stays this box's own.
+func TestImportedSecretChanges(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	live := openState(t, filepath.Join(dir, "live.db"))
+	defer live.Close()
+	if _, _, err := tokens.NewManager(live).Bootstrap(ctx); err != nil {
+		t.Fatal(err)
+	}
+	liveHome := filepath.Join(dir, "live-home")
+	_ = os.MkdirAll(liveHome, 0o700)
+	if _, err := platform.OpenSecrets(live, liveHome); err != nil { // B's own key
+		t.Fatal(err)
+	}
+
+	// Box A: a project, a secret set twice (two changes), a warm build cache.
+	srcHome := filepath.Join(dir, "a-home")
+	_ = os.MkdirAll(srcHome, 0o700)
+	src := openState(t, filepath.Join(dir, "a.db"))
+	sec, err := platform.OpenSecrets(src, srcHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pa := &platform.Platform{DB: src, Engine: change.NewEngine(src), Secrets: sec}
+	if err := src.Commit(ctx, &change.Change{ID: "chg_0", Project: "shop", Version: 1, At: time.Now(),
+		Plan: change.Plan{Project: "shop", Ops: []change.Op{{Action: change.Create, Address: "app/web", After: json.RawMessage(`{"framework":"static"}`)}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pa.SetSecrets(ctx, "shop", map[string]string{"GREETING": "hi from a secret"}, "first"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := pa.SetSecrets(ctx, "shop", map[string]string{"GREETING": "second value"}, "second")
+	if err != nil || second == nil {
+		t.Fatalf("second set: %v", err)
+	}
+	_ = src.KVPut(ctx, "runtime", "warmed-a", []byte("2026-10-04T00:00:00Z"))
+	_ = live.KVPut(ctx, "runtime", "warmed-b", []byte("2026-10-04T00:00:00Z"))
+	// The export takes the state the same way.
+	exported := filepath.Join(dir, "state.db")
+	if _, err := src.SQL().ExecContext(ctx, `VACUUM INTO ?`, exported); err != nil {
+		t.Fatal(err)
+	}
+	src.Close()
+	if raw := readFile(t, exported); strings.Contains(raw, "hi from a secret") || strings.Contains(raw, "second value") {
+		t.Fatal("the exported state holds a secret in plain text")
+	}
+
+	if err := fixState(ctx, exported, live, &boxfile.Manifest{}); err != nil {
+		t.Fatal(err)
+	}
+	got := openState(t, exported)
+	defer got.Close()
+	sts, _ := got.ResourceStatuses(ctx, "shop")
+	if len(sts) != 1 || sts["app/web"].State != "pending" {
+		t.Fatalf("statuses after import (a pending secret never settles): %+v", sts)
+	}
+	if _, ok, _ := got.KVGet(ctx, "runtime", "warmed-a"); ok {
+		t.Fatal("the source box's warm build cache came along")
+	}
+	if _, ok, _ := got.KVGet(ctx, "runtime", "warmed-b"); !ok {
+		t.Fatal("this box's warm-up mark was lost")
+	}
+
+	// B's own key cannot read them; the source key (--key-file) can.
+	if wrong, _ := platform.OpenSecrets(got, liveHome); wrong != nil {
+		if _, err := wrong.All(ctx, "shop"); err == nil {
+			t.Fatal("secrets decrypted with the wrong key")
+		}
+	}
+	bsec, err := platform.OpenSecrets(got, srcHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all, err := bsec.All(ctx, "shop"); err != nil || all["GREETING"] != "second value" {
+		t.Fatalf("imported secrets: %v %v", all, err)
+	}
+	hist, err := got.ListChanges(ctx, change.ListFilter{Project: "shop"})
+	if err != nil || len(hist) != 3 {
+		t.Fatalf("history: %d changes, %v", len(hist), err)
+	}
+	pb := &platform.Platform{DB: got, Engine: change.NewEngine(got), Secrets: bsec}
+	plan, err := pb.Engine.PlanUndo(ctx, second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pb.Engine.Apply(ctx, change.ApplyRequest{Plan: plan, Confirm: plan.Hash, Actor: change.Actor{Kind: "system", ID: "system"}}); err != nil {
+		t.Fatal(err)
+	}
+	if all, _ := bsec.All(ctx, "shop"); all["GREETING"] != "hi from a secret" {
+		t.Fatalf("after undo: %v", all)
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
