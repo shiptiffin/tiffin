@@ -1851,7 +1851,7 @@ export interface paths {
         put?: never;
         /**
          * Destroy a project
-         * @description Plans deleting every resource of a project (its apps, databases, buckets, auth users, everything) and applies it with confirm. Irreversible: databases keep a 7-day snapshot and buckets a 7-day trash, then they are gone. Without confirm you get the plan with status 428.
+         * @description Plans deleting every resource of a project (its apps, databases, buckets, auth users, secrets, everything) and applies it with confirm. The plan lists each secret it deletes (secret/NAME), so nothing is left behind for a new project of the same name. Irreversible: databases keep a 7-day snapshot and buckets a 7-day trash, then they are gone. Without confirm you get the plan with status 428.
          */
         post: operations["project-destroy"];
         delete?: never;
@@ -2571,7 +2571,7 @@ export interface paths {
         put?: never;
         /**
          * Copy secrets from another project
-         * @description Copies secrets (e.g. OPENAI_API_KEY) from another project on this box into this one, inside the box: the values never leave it, so you can reuse a key without asking the person to paste it again. Copies the named secrets, or all of them when names is empty. Existing secrets are kept unless overwrite is true. Needs full access to both projects, because this project's apps can read what it receives. Restarts this project's apps with them.
+         * @description Copies secrets (e.g. OPENAI_API_KEY) from another project on this box into this one, inside the box: the values never leave it, so you can reuse a key without asking the person to paste it again. Copies the named secrets, or all of them when names is empty. Existing secrets are kept unless overwrite is true. Needs full access to both projects, because this project's apps can read what it receives. Restarts this project's apps with them. One change in History; change_undo reverts it.
          */
         post: operations["secrets-copy"];
         delete?: never;
@@ -2590,13 +2590,13 @@ export interface paths {
         get?: never;
         /**
          * Set a secret
-         * @description Encrypts and stores a secret env var (age, with the box's own key) and restarts the project's apps with it. The value is never returned or logged. The restart runs in the background: if the new instances fail their health check the old ones keep serving and project_get shows the app failed, with the reason. A secret named like a variable the box sets (DATABASE_URL, REDIS_URL, S3_*, SMTP_URL, TIFFIN_*...) replaces the box's value; the result's note says so.
+         * @description Encrypts and stores a secret env var (age, with the box's own key) and restarts the project's apps with it. The value is never returned or logged. Setting it is a change in History (with your intent) that change_undo reverts, putting back the previous value; the change log keeps values only encrypted. The restart runs in the background: if the new instances fail their health check the old ones keep serving and project_get shows the app failed, with the reason. A secret named like a variable the box sets (DATABASE_URL, REDIS_URL, S3_*, SMTP_URL, TIFFIN_*...) replaces the box's value; the result's note says so.
          */
         put: operations["secret-set"];
         post?: never;
         /**
          * Delete a secret
-         * @description Deletes a secret immediately and restarts the project's apps without it. The value cannot be recovered.
+         * @description Deletes a secret and restarts the project's apps without it. It is a change in History: change_undo puts the secret back with its value (kept encrypted in the change log).
          */
         delete: operations["secret-delete"];
         options?: never;
@@ -2654,10 +2654,30 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Run SQL on a project's database
-         * @description Runs SQL as the project's own Postgres role and returns rows as JSON. Read-only by default (one statement, in a READ ONLY transaction that is rolled back; needs read). With write=true it may change data and schema (needs apply:irreversible): the database is snapshotted first and the snapshot ID is returned, so `snapshots restore` can undo it. Use branch to target a preview branch. Postgres errors come back as 422 with the SQLSTATE.
+         * Query a project's database (read-only)
+         * @description Runs one SQL statement as the project's own Postgres role, inside a READ ONLY transaction that is always rolled back, and returns rows as JSON. Needs only read access and changes nothing, so it never asks for confirmation. A statement that writes fails with SQLSTATE 25006: use sql_write (CLI: tiffin sql write, or tiffin sql --write) for that. Use branch to target a preview branch. Postgres errors come back as 422 with the SQLSTATE.
          */
         post: operations["sql"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/sql/write": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change a project's database with SQL
+         * @description Runs SQL that may change data and schema (DDL and DML) as the project's own Postgres role; several statements separated by semicolons run in one implicit transaction. Needs apply:irreversible. The database is snapshotted first and the snapshot ID is returned, so `snapshots restore` can undo it. For reads use sql, which needs no confirmation. Use branch to target a preview branch. Postgres errors come back as 422 with the SQLSTATE.
+         */
+        post: operations["sql-write"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3569,8 +3589,10 @@ export interface components {
         ApplyResult: {
             /** @description False when the plan was empty (nothing to do). */
             applied: boolean;
+            /** @description The applied change; its plan is change.plan. */
             change?: components["schemas"]["Change"];
-            plan: components["schemas"]["Plan"];
+            /** @description The (empty) plan, only when nothing was applied. */
+            plan?: components["schemas"]["Plan"];
         };
         AuditEvent: {
             action: string;
@@ -3618,6 +3640,15 @@ export interface components {
             banned: boolean;
             /** Format: int64 */
             sessionsRevoked?: number;
+        };
+        AuthEmailVerificationState: {
+            /** @description New users confirm their email address before they can sign in */
+            required: boolean;
+            /**
+             * @description manifest: auth.emailVerification sets it. Otherwise automatic: relay (on: mail leaves the box), no-relay (off: mail only reaches the dev inbox), no-email (off: the project has no email service)
+             * @enum {string}
+             */
+            source: "manifest" | "relay" | "no-relay" | "no-email";
         };
         AuthInvitation: {
             /** Format: date-time */
@@ -3695,6 +3726,7 @@ export interface components {
             total: number;
         };
         AuthOverview: {
+            emailVerification: components["schemas"]["AuthEmailVerificationState"];
             /** @description Public base URL of the auth endpoint on the primary app host (TIFFIN_AUTH_URL) */
             endpoint: string;
             /** @description Every app host that serves /api/auth */
@@ -5139,6 +5171,7 @@ export interface components {
             routes?: string[] | null;
         };
         ManifestAuth: {
+            emailVerification?: boolean;
             methods: string[] | null;
             organizations: boolean;
         };
@@ -5872,15 +5905,13 @@ export interface components {
             limit?: number;
             /** @description Values for $1, $2, ... (strings, numbers, booleans or null). With params only one statement runs. */
             params?: unknown[] | null;
-            /** @description The SQL. Read-only mode runs exactly one statement; write mode may run several, separated by semicolons (they run in one implicit transaction). */
+            /** @description The SQL. sql runs exactly one statement; sql_write may run several, separated by semicolons (they run in one implicit transaction). */
             sql: string;
             /**
              * Format: int64
              * @description Statement timeout (default 30 seconds).
              */
             timeoutSeconds?: number;
-            /** @description Allow writes (DDL and DML). Needs apply:irreversible; the database is snapshotted first. */
-            write?: boolean;
         };
         PostgresPGSQLResult: {
             database: string;
@@ -6019,6 +6050,8 @@ export interface components {
         ProjectState: {
             name: string;
             resources: components["schemas"]["Resource"][] | null;
+            /** @description Names of the project's secrets (values are never shown) */
+            secrets?: string[] | null;
             status?: {
                 [key: string]: components["schemas"]["ResourceStatus"];
             };
@@ -7116,8 +7149,14 @@ export interface components {
             templates: components["schemas"]["Starter"][] | null;
         };
         "Secret-setRequest": {
+            /** @description Why you are setting it, in one sentence. Shown in History. */
+            intent?: string;
             /** @description The secret value */
             value: string;
+        };
+        SecretDeleted: {
+            /** @description The change that deleted it; change_undo puts the secret back */
+            change: string;
         };
         SecretInfo: {
             name: string;
@@ -7126,6 +7165,8 @@ export interface components {
             updatedBy: string;
         };
         SecretSet: {
+            /** @description The change that set it (undo it with change_undo to put back the previous value); empty when the value was already this */
+            change?: string;
             name: string;
             /** @description What happens next, and whether the secret replaces a value the box sets */
             note?: string;
@@ -7136,12 +7177,16 @@ export interface components {
         "Secrets-copyRequest": {
             /** @description Project to copy from */
             from: string;
+            /** @description Why you are copying them, in one sentence. Shown in History. */
+            intent?: string;
             /** @description Secret names to copy; empty copies all */
             names?: string[] | null;
             /** @description Replace secrets this project already has with the same name */
             overwrite?: boolean;
         };
         SecretsCopied: {
+            /** @description The change that copied them (undo it with change_undo) */
+            change?: string;
             copied: string[] | null;
             /** @description Already set in this project (pass overwrite to replace them) */
             skipped: string[] | null;
@@ -19159,7 +19204,10 @@ export interface operations {
     };
     "secret-delete": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Why you are deleting it, in one sentence. Shown in History. */
+                intent?: string;
+            };
             header?: never;
             path: {
                 /** @description Project slug */
@@ -19171,12 +19219,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description No Content */
-            204: {
+            /** @description OK */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["SecretDeleted"];
+                };
             };
             /** @description Bad Request */
             400: {
@@ -19404,6 +19454,96 @@ export interface operations {
         };
     };
     sql: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostgresPGSQLRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostgresPGSQLResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "sql-write": {
         parameters: {
             query?: never;
             header?: never;
