@@ -28,7 +28,7 @@ import (
 //	(Postgres + an app) → reboot (data disk, services and app come back) →
 //	update with a new build → tiffin down.
 //
-// TIFFIN_E2E_UBUNTU=26.04 runs it on Ubuntu 26.04 instead of 24.04.
+// TIFFIN_E2E_UBUNTU=24.04 runs it on Ubuntu 24.04 (a server someone already has) instead of 26.04.
 // TIFFIN_E2E_SSH_INSTANCE / _DISK override the VM and disk names.
 const (
 	sshInstanceDefault = "dev-ssh"
@@ -58,7 +58,7 @@ func TestSSHProvider(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("the SSH-provider e2e needs vzNAT (macOS)")
 	}
-	release := envOr("TIFFIN_E2E_UBUNTU", "24.04")
+	release := envOr("TIFFIN_E2E_UBUNTU", "26.04")
 	imgs, ok := ubuntuImages[release]
 	if !ok {
 		t.Fatalf("TIFFIN_E2E_UBUNTU=%s: use 24.04 or 26.04", release)

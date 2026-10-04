@@ -21,8 +21,7 @@ import (
 // TestHetzner creates a real CAX11 box on Hetzner Cloud and destroys it.
 // It costs a few cents and is skipped unless HCLOUD_TOKEN is set (a read &
 // write token of a project you are happy to use for tests). HCLOUD_SSH_KEY
-// (your own key) and HCLOUD_LOCATION are honoured; TIFFIN_E2E_IMAGE picks
-// ubuntu-26.04 instead of the default.
+// (your own key) and HCLOUD_LOCATION are honoured.
 //
 //	tiffin up --provider hetzner (dry run, then for real) → HTTPS on
 //	dashboard.<ip>.sslip.io → deploy a starter (Postgres + app) → reboot
@@ -62,9 +61,6 @@ func TestHetzner(t *testing.T) {
 	next := buildArch(t, dir, "arm64", "0.0.2-hz")
 	b.env = append(os.Environ(), "TIFFIN_CONFIG_DIR="+filepath.Join(dir, "config"), "TIFFIN_HOME=", "TIFFIN_URL=", "TIFFIN_TOKEN=")
 	args := []string{"up", "--provider", "hetzner", "--name", name, "--type", "cax11"}
-	if img := os.Getenv("TIFFIN_E2E_IMAGE"); img != "" {
-		args = append(args, "--image", img)
-	}
 
 	// ---- dry run: prices, nothing created ----
 	p := time.Now()

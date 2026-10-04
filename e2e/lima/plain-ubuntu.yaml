@@ -2,13 +2,13 @@
 # no Tiffin provisioning, no port forwards, no mounts. It gets an address on
 # a vzNAT network that this computer reaches directly, like a server's
 # public IP, and an unformatted extra disk, like a cloud volume. The test
-# sets the image (Ubuntu 24.04 or 26.04) and the disk with --set.
+# sets the image (Ubuntu 26.04, or 24.04 for an existing server) and the disk with --set.
 minimumLimaVersion: 2.0.0
 
 images:
-- location: https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-arm64.img
+- location: https://cloud-images.ubuntu.com/releases/resolute/release/ubuntu-26.04-server-cloudimg-arm64.img
   arch: aarch64
-- location: https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img
+- location: https://cloud-images.ubuntu.com/releases/resolute/release/ubuntu-26.04-server-cloudimg-amd64.img
   arch: x86_64
 
 vmType: vz

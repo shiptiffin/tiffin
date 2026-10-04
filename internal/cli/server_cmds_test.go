@@ -66,6 +66,13 @@ func TestUpHetznerDryRun(t *testing.T) {
 		t.Fatalf("dry run changed %v", f.Mutations)
 	}
 
+	if code, out, _ = run(t, env, "up", "--provider", "hetzner", "--name", "shop", "--ssh-from", "any", "--dry-run"); code != 0 || !strings.Contains(string(out), `"anywhere"`) {
+		t.Fatalf("--ssh-from any: %d %s", code, out)
+	}
+	if code, out, _ = run(t, env, "up", "--provider", "hetzner", "--ssh-from", "any,198.51.100.7", "--dry-run"); code != ExitInvalid {
+		t.Fatalf("any with addresses: %d %s", code, out)
+	}
+
 	// Mistakes are caught before anything is created.
 	code, out, _ = run(t, env, "up", "--provider", "hetzner", "--location", "ash", "--dry-run")
 	if code != ExitError || !strings.Contains(string(out), "cannot be ordered in ash") {

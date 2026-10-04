@@ -35,7 +35,7 @@ type upOptions struct {
 	location, serverType, tokenFile string
 	volumeGB                        int
 	dryRun                          bool
-	host, identity, sshKey, image   string
+	host, identity, sshKey          string
 	adopt                           string
 	noProtect                       bool
 	dataDisk, dataDir, publicIP     string
@@ -52,9 +52,9 @@ func (a *app) upCmd() *cobra.Command {
 			"Safe to run again: it converges. An unhealthy update rolls back automatically.\n\n" +
 			"Providers:\n" +
 			"  local    a Lima VM on this computer (the default)\n" +
-			"  hetzner  a Hetzner Cloud server, a data volume and a firewall (token in HCLOUD_TOKEN);\n" +
+			"  hetzner  a Hetzner Cloud server (Ubuntu 26.04), a data volume and a firewall (token in HCLOUD_TOKEN);\n" +
 			"           --dry-run prints what it would create and the monthly price\n" +
-			"  ssh      any Ubuntu 24.04 or 26.04 server you can SSH into with sudo (--host user@ip)\n\n" +
+			"  ssh      any Ubuntu 26.04 (or 24.04) server you can SSH into with sudo (--host user@ip)\n\n" +
 			"Update a server box later with: tiffin up --name <box>",
 		Example: "  tiffin up\n" +
 			"  tiffin up --provider hetzner --dry-run\n" +
@@ -102,11 +102,10 @@ func (a *app) upCmd() *cobra.Command {
 	fl.StringVar(&o.serverType, "type", "", "hetzner: server type (default cax11, ARM 2 vCPU 4 GB; cx/cpx/ccx types are x86)")
 	fl.IntVar(&o.volumeGB, "volume-size", 0, "hetzner: data volume size in GB (default 40)")
 	fl.StringVar(&o.tokenFile, "token-file", "", "hetzner: file holding the API token (default: $HCLOUD_TOKEN)")
-	fl.StringSliceVar(&o.sshFrom, "ssh-from", nil, "hetzner: addresses allowed to SSH in (default: this computer's public IP)")
+	fl.StringSliceVar(&o.sshFrom, "ssh-from", nil, "hetzner: addresses allowed to SSH in, or any (default: this computer's current public IP, added to up to 5 recent ones)")
 	fl.StringVar(&o.sshKey, "ssh-key", "", "your own SSH private key to use (default $HCLOUD_SSH_KEY; else hetzner makes one for the box). Only its .pub is uploaded; an identical key already in the Hetzner project is reused")
 	fl.StringVar(&o.adopt, "adopt", "", "hetzner: adopt a server made by hand (its name or ID): label it, keep its IPv4, protect it, add the firewall, install Tiffin. Needs --ssh-key")
 	fl.BoolVar(&o.noProtect, "no-protect", false, "hetzner --adopt: do not turn on delete/rebuild protection")
-	fl.StringVar(&o.image, "image", "", "hetzner: ubuntu-26.04 (default) or ubuntu-24.04")
 	fl.StringVar(&o.host, "host", "", "ssh: the server, as user@host[:port] (the user needs sudo)")
 	fl.StringVar(&o.identity, "identity", "", "ssh: private key file (default: your ssh agent and ~/.ssh)")
 	fl.StringVar(&o.dataDisk, "data-disk", "", "ssh: a block device for /var/lib/tiffin (formatted XFS only if blank)")

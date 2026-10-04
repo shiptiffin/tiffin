@@ -1,5 +1,5 @@
 // Package hetzner creates a Tiffin box on Hetzner Cloud with the official
-// hcloud-go client: a server (Ubuntu 24.04 or 26.04, public IPv4 and IPv6), a Volume
+// hcloud-go client: a server (Ubuntu 26.04, public IPv4 and IPv6), a Volume
 // for /var/lib/tiffin that outlives the server, a Cloud Firewall and an SSH
 // key made on this computer. Everything it makes carries two labels,
 // tiffin=box and tiffin-box=<name>, so `tiffin down` deletes exactly that.
@@ -28,13 +28,10 @@ const (
 	DefaultLocation   = "fsn1"
 	DefaultServerType = "cax11"
 	DefaultVolumeGB   = 40
-	DefaultImage      = "ubuntu-26.04" // new servers; 24.04 stays supported (--image)
+	DefaultImage      = "ubuntu-26.04" // the image new servers get
 	LabelKind         = "tiffin"       // tiffin=box on everything Tiffin makes
 	LabelBox          = "tiffin-box"   // tiffin-box=<name>
 )
-
-// Images are the Ubuntu releases Tiffin can create servers with.
-var Images = []string{"ubuntu-24.04", "ubuntu-26.04"}
 
 // Config is one box on Hetzner.
 type Config struct {
@@ -44,8 +41,13 @@ type Config struct {
 	Location   string // fsn1, nbg1, hel1, ash, hil, sin
 	ServerType string // cax11 (ARM) by default; cx/cpx/ccx are x86
 	VolumeGB   int
-	// SSHFrom are the addresses allowed to reach port 22 (the creator's).
+	// SSHFrom are this computer's addresses: added to the firewall's SSH
+	// rule (with up to MaxSSHSources recent ones) before every connection.
 	SSHFrom []netip.Prefix
+	// SSHAnywhere opens port 22 to everyone (--ssh-from any).
+	SSHAnywhere bool
+	// Now is the clock (tests).
+	Now func() time.Time
 	// KeyPath is this box's private key (made on first up, mode 0600);
 	// the public half is KeyPath+".pub".
 	KeyPath string
@@ -53,7 +55,7 @@ type Config struct {
 	// is and never generated, copied or deleted.
 	OwnKey     bool
 	KnownHosts string
-	// Image is the Ubuntu release: ubuntu-26.04 (default) or ubuntu-24.04.
+	// Image is the Ubuntu release new servers get (DefaultImage).
 	Image   string
 	Version string // tiffin version, sent as the API user agent
 	// PollInterval for actions (tests make it short).
@@ -69,6 +71,7 @@ type Provider struct {
 	Unprotect bool
 
 	// Set by Up.
+	SSH    SSHAccess // what the firewall's SSH rule allows now
 	Server *hcloud.Server
 	Volume *hcloud.Volume
 }
@@ -115,8 +118,8 @@ func New(cfg Config) (*Provider, error) {
 	if cfg.Image == "" {
 		cfg.Image = DefaultImage
 	}
-	if !slices.Contains(Images, cfg.Image) {
-		return nil, fmt.Errorf("image %q: Tiffin runs on %s", cfg.Image, strings.Join(Images, " or "))
+	if cfg.Image != DefaultImage {
+		return nil, fmt.Errorf("image %q: Tiffin creates servers with %s", cfg.Image, DefaultImage)
 	}
 	if cfg.VolumeGB < 10 || cfg.VolumeGB > 10240 {
 		return nil, fmt.Errorf("volume size %d GB: Hetzner volumes are 10 to 10240 GB", cfg.VolumeGB)
@@ -331,9 +334,7 @@ func (p *Provider) Plan(ctx context.Context) (*Plan, error) {
 	}
 	pl := &Plan{Name: p.cfg.Name, Image: p.cfg.Image, Location: r.loc.Name, City: r.loc.City, ServerType: r.st.Name, Arch: GoArch(r.st.Architecture),
 		Cores: r.st.Cores, MemoryGB: r.st.Memory, DiskGB: r.st.Disk, VolumeGB: p.cfg.VolumeGB, Currency: pricing.Currency, VATRate: pricing.VATRate}
-	for _, s := range p.cfg.SSHFrom {
-		pl.SSHFrom = append(pl.SSHFrom, s.String())
-	}
+	pl.SSHFrom = sshFromWords(p.cfg.SSHFrom, p.cfg.SSHAnywhere)
 	server := fmt.Sprintf("server %s (%s: %d vCPU %s, %g GB RAM, %d GB disk; %s; public IPv4 + IPv6)", p.cfg.Name, r.st.Name, r.st.Cores, archWord(r.st.Architecture), r.st.Memory, r.st.Disk, ubuntuName(p.cfg.Image))
 	volume := fmt.Sprintf("volume %s-data (%d GB, XFS, mounted at /var/lib/tiffin, kept if the server is deleted)", p.cfg.Name, p.cfg.VolumeGB)
 	firewall := fmt.Sprintf("firewall %s (in: SSH from %s; HTTP/HTTPS and ping from anywhere)", p.cfg.Name, strings.Join(pl.SSHFrom, ", "))
@@ -464,7 +465,10 @@ func (p *Provider) UpServer(ctx context.Context, progress func(string)) (*remote
 	m := remote.New(t)
 	progress("waiting for SSH on " + t.Host)
 	if err := m.Wait(ctx, 6*time.Minute); err != nil {
-		return nil, err
+		if p.cfg.SSHAnywhere {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w. The firewall allows SSH from %s; if this computer reaches the internet from another address, run: tiffin up --name %s --ssh-from any", err, strings.Join(sshFromWords(p.cfg.SSHFrom, false), ", "), p.cfg.Name)
 	}
 	return m, nil
 }
@@ -473,8 +477,8 @@ func (p *Provider) UpServer(ctx context.Context, progress func(string)) (*remote
 // reach its server over SSH. It does not connect.
 func (p *Provider) Ensure(ctx context.Context, progress func(string)) (remote.Target, error) {
 	var none remote.Target
-	if len(p.cfg.SSHFrom) == 0 {
-		return none, errors.New("no address to allow SSH from: Tiffin could not find this computer's public IP; pass --ssh-from <ip>")
+	if len(p.cfg.SSHFrom) == 0 && !p.cfg.SSHAnywhere {
+		return none, errors.New("no address to allow SSH from: Tiffin could not find this computer's public IP; pass --ssh-from <ip> (or --ssh-from any)")
 	}
 	if p.cfg.KeyPath == "" {
 		return none, errors.New("no SSH key path")
@@ -542,13 +546,18 @@ func (p *Provider) Ensure(ctx context.Context, progress func(string)) (remote.Ta
 		}
 	}
 
-	// 2. The firewall: SSH only from the creator, the web from anywhere.
-	rules := p.firewallRules()
+	// 2. The firewall: SSH from this computer (and a few recent addresses),
+	// the web from anywhere. Updated before any SSH, so a new home IP never
+	// locks the owner out.
 	var fw *hcloud.Firewall
 	if len(in.Firewalls) > 0 {
 		fw = in.Firewalls[0]
-		if !sameRules(fw.Rules, rules) {
-			progress("updating the firewall (SSH from " + joinPrefixes(p.cfg.SSHFrom) + ")")
+	}
+	p.SSH = planSSH(fw, p.cfg.SSHFrom, p.cfg.SSHAnywhere, p.now())
+	rules := p.firewallRules(p.SSH)
+	if fw != nil {
+		if p.SSH.Changed || !sameRules(fw.Rules, rules) {
+			progress("updating the firewall: " + p.SSH.Summary())
 			acts, _, err := p.c.Firewall.SetRules(ctx, fw, hcloud.FirewallSetRulesOpts{Rules: rules})
 			if err != nil {
 				return none, apiErr("update the firewall", err)
@@ -558,7 +567,8 @@ func (p *Provider) Ensure(ctx context.Context, progress func(string)) (remote.Ta
 			}
 		}
 	} else {
-		progress("creating the firewall (SSH from " + joinPrefixes(p.cfg.SSHFrom) + "; HTTP/HTTPS from anywhere)")
+		p.SSH.Changed = true
+		progress("creating the firewall: " + p.SSH.Summary() + "; HTTP/HTTPS from anywhere")
 		res, _, err := p.c.Firewall.Create(ctx, hcloud.FirewallCreateOpts{Name: p.cfg.Name, Labels: p.Labels(), Rules: rules})
 		if err != nil {
 			if hcloud.IsError(err, hcloud.ErrorCodeUniquenessError) {
@@ -679,7 +689,7 @@ func (p *Provider) Ensure(ctx context.Context, progress func(string)) (remote.Ta
 
 	ip4, ip6 := PublicIPs(srv)
 	host := ip4
-	if host == "" || p.cfg.SSHFrom[0].Addr().Is6() {
+	if host == "" || len(p.cfg.SSHFrom) > 0 && p.cfg.SSHFrom[0].Addr().Is6() {
 		host = ip6
 	}
 	if host == "" {
@@ -689,6 +699,17 @@ func (p *Provider) Ensure(ctx context.Context, progress func(string)) (remote.Ta
 		_ = remote.ForgetHost(p.cfg.KnownHosts, ip4, ip6) // a new server may reuse an old IP
 	}
 	return remote.Target{User: "root", Host: host, Port: 22, Identity: p.cfg.KeyPath, KnownHosts: p.cfg.KnownHosts}, nil
+}
+
+func sshFromWords(from []netip.Prefix, anywhere bool) []string {
+	if anywhere {
+		return []string{"anywhere"}
+	}
+	var out []string
+	for _, s := range from {
+		out = append(out, SSHSource{Prefix: s}.String())
+	}
+	return out
 }
 
 // PublicIPs returns the server's IPv4 and its IPv6 (the ::1 of its /64).
@@ -725,15 +746,18 @@ var (
 	anyV6 = net.IPNet{IP: net.IPv6zero, Mask: net.CIDRMask(0, 128)}
 )
 
-func (p *Provider) firewallRules() []hcloud.FirewallRule {
-	var ssh []net.IPNet
-	for _, pf := range p.cfg.SSHFrom {
-		ssh = append(ssh, net.IPNet{IP: pf.Addr().AsSlice(), Mask: net.CIDRMask(pf.Bits(), pf.Addr().BitLen())})
+func (p *Provider) now() time.Time {
+	if p.cfg.Now != nil {
+		return p.cfg.Now()
 	}
+	return time.Now()
+}
+
+func (p *Provider) firewallRules(a SSHAccess) []hcloud.FirewallRule {
 	all := []net.IPNet{anyV4, anyV6}
 	desc := func(s string) *string { return &s }
 	return []hcloud.FirewallRule{
-		{Direction: hcloud.FirewallRuleDirectionIn, Protocol: hcloud.FirewallRuleProtocolTCP, Port: hcloud.Ptr("22"), SourceIPs: ssh, Description: desc("SSH from the computer that ran tiffin up")},
+		sshRule(a),
 		{Direction: hcloud.FirewallRuleDirectionIn, Protocol: hcloud.FirewallRuleProtocolTCP, Port: hcloud.Ptr("80"), SourceIPs: all, Description: desc("HTTP (redirects to HTTPS)")},
 		{Direction: hcloud.FirewallRuleDirectionIn, Protocol: hcloud.FirewallRuleProtocolTCP, Port: hcloud.Ptr("443"), SourceIPs: all, Description: desc("HTTPS")},
 		{Direction: hcloud.FirewallRuleDirectionIn, Protocol: hcloud.FirewallRuleProtocolICMP, SourceIPs: all, Description: desc("ping")},
@@ -773,18 +797,6 @@ func firewallApplied(fw *hcloud.Firewall, serverID int64) bool {
 		}
 	}
 	return false
-}
-
-func joinPrefixes(ps []netip.Prefix) string {
-	var s []string
-	for _, p := range ps {
-		if p.IsSingleIP() {
-			s = append(s, p.Addr().String())
-		} else {
-			s = append(s, p.String())
-		}
-	}
-	return strings.Join(s, ", ")
 }
 
 func (p *Provider) wait(ctx context.Context, acts ...*hcloud.Action) error {

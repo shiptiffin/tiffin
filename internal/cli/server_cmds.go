@@ -83,17 +83,24 @@ var publicIPLookup = func(ctx context.Context) []netip.Addr {
 }
 
 // sshFrom are the addresses allowed to reach a Hetzner box's SSH port.
-func (a *app) sshFrom(ctx context.Context, flag []string) ([]netip.Prefix, error) {
+// "any" opens SSH to everyone (keys only; CrowdSec bans brute force).
+func (a *app) sshFrom(ctx context.Context, flag []string) ([]netip.Prefix, bool, error) {
 	var out []netip.Prefix
 	for _, s := range flag {
+		if strings.EqualFold(strings.TrimSpace(s), "any") {
+			if len(flag) > 1 {
+				return nil, false, &exitError{ExitInvalid, "--ssh-from any cannot be combined with addresses"}
+			}
+			return nil, true, nil
+		}
 		p, err := platform.ParseIPOrPrefix(strings.TrimSpace(s))
 		if err != nil {
-			return nil, &exitError{ExitInvalid, "--ssh-from: " + err.Error()}
+			return nil, false, &exitError{ExitInvalid, "--ssh-from: " + err.Error()}
 		}
 		out = append(out, p)
 	}
 	if len(out) > 0 {
-		return out, nil
+		return out, false, nil
 	}
 	a.progress("finding this computer's public IP (for the firewall's SSH rule)")
 	for _, ip := range publicIPLookup(ctx) {
@@ -101,9 +108,9 @@ func (a *app) sshFrom(ctx context.Context, flag []string) ([]netip.Prefix, error
 		out = append(out, p)
 	}
 	if len(out) == 0 {
-		return nil, &exitError{ExitError, "could not find this computer's public IP to allow SSH from; pass --ssh-from <your ip>"}
+		return nil, false, &exitError{ExitError, "could not find this computer's public IP to allow SSH from; pass --ssh-from <your ip>, or --ssh-from any"}
 	}
-	return out, nil
+	return out, false, nil
 }
 
 // hetznerToken reads the API token from a file or HCLOUD_TOKEN. It is never stored.
@@ -122,12 +129,13 @@ func (a *app) hetznerToken(file string) (string, error) {
 }
 
 func (a *app) hetznerProvider(name string, sb *serverBox, tokenFile string, sshFrom []netip.Prefix) (*hetzner.Provider, error) {
+	anywhere := sb.SSHAnywhere
 	token, err := a.hetznerToken(tokenFile)
 	if err != nil {
 		return nil, err
 	}
-	hp, err := hetzner.New(hetzner.Config{Token: token, Endpoint: a.io.Env("HCLOUD_ENDPOINT"), Name: name, Location: sb.Location, Image: sb.Image, OwnKey: sb.OwnKey,
-		ServerType: sb.ServerType, VolumeGB: sb.VolumeGB, SSHFrom: sshFrom, KeyPath: sb.Identity, KnownHosts: sb.KnownHosts, Version: version.Version})
+	hp, err := hetzner.New(hetzner.Config{Token: token, Endpoint: a.io.Env("HCLOUD_ENDPOINT"), Name: name, Location: sb.Location, OwnKey: sb.OwnKey,
+		ServerType: sb.ServerType, VolumeGB: sb.VolumeGB, SSHFrom: sshFrom, SSHAnywhere: anywhere, KeyPath: sb.Identity, KnownHosts: sb.KnownHosts, Version: version.Version})
 	if err != nil {
 		return nil, &exitError{ExitInvalid, err.Error()}
 	}
@@ -212,6 +220,7 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 	var m *remote.Machine
 	var data install.DataSpec
 	var plan *hetzner.Plan
+	var sshAccess *hetzner.SSHAccess
 	switch prov {
 	case "hetzner":
 		sb.Location = pick(o.location, pick(prev.Location, a.io.Env("HCLOUD_LOCATION")))
@@ -221,16 +230,20 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 			sb.VolumeGB = prev.VolumeGB
 		}
 		sb.TokenFile = pick(o.tokenFile, prev.TokenFile)
-		sb.Image = pick(o.image, prev.Image)
 		sb.Identity, sb.OwnKey = filepath.Join(dir, "id_ed25519"), false
 		if k := pick(o.sshKey, a.io.Env("HCLOUD_SSH_KEY")); k != "" {
 			sb.Identity, sb.OwnKey = a.expandHome(k), true
 		} else if prev.OwnKey {
 			sb.Identity, sb.OwnKey = prev.Identity, true
 		}
-		from, err := a.sshFrom(ctx, o.sshFrom)
-		if err != nil {
-			return err
+		var from []netip.Prefix
+		sb.SSHAnywhere = prev.SSHAnywhere && len(o.sshFrom) == 0
+		if !sb.SSHAnywhere {
+			var anywhere bool
+			if from, anywhere, err = a.sshFrom(ctx, o.sshFrom); err != nil {
+				return err
+			}
+			sb.SSHAnywhere = anywhere
 		}
 		hp, err := a.hetznerProvider(name, sb, sb.TokenFile, from)
 		if err != nil {
@@ -280,6 +293,10 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 			return &exitError{ExitError, err.Error()}
 		}
 		sb.PublicIP, sb.PublicIPv6 = hetzner.PublicIPs(hp.Server)
+		sshAccess = &hp.SSH
+		if a.tty() || hp.SSH.Changed {
+			fmt.Fprintln(a.io.Err, hp.SSH.Summary())
+		}
 		if sb.Ubuntu, err = m.Check(ctx); err != nil {
 			return &exitError{ExitError, err.Error()}
 		}
@@ -415,6 +432,10 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 		"build": res.Build[:12], "login": login, "ca": caFile, "mcp": "claude mcp add tiffin -- tiffin mcp",
 		"seconds": int(time.Since(start).Seconds()), "rebootWindow": orDefault(window, "off"), "ubuntu": sb.Ubuntu,
 	}
+	if sshAccess != nil {
+		out["sshAccess"] = sshAccess
+		out["sshAllowed"] = sshAccess.Summary()
+	}
 	if plan != nil && plan.Currency != "" {
 		out["monthly"] = map[string]any{"net": plan.MonthlyNet, "gross": plan.MonthlyGross, "currency": plan.Currency}
 	}
@@ -433,6 +454,9 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 	}
 	fmt.Fprintf(w, "  %-10s %s\n", "Server", strings.TrimSpace(sb.PublicIP+" "+sb.PublicIPv6))
 	fmt.Fprintf(w, "  %-10s %s\n", "SSH", sshCmd)
+	if sshAccess != nil {
+		fmt.Fprintf(w, "  %-10s %s\n", "", a.paint(sshAccess.Summary(), dim))
+	}
 	if plan != nil && plan.Currency != "" {
 		fmt.Fprintf(w, "  %-10s about %.2f %s a month before VAT (%.2f with VAT)\n", "Cost", plan.MonthlyNet, plan.Currency, plan.MonthlyGross)
 	}

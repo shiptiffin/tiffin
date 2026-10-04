@@ -8,7 +8,7 @@ You need a Mac with [Lima](https://lima-vm.io) (`brew install lima`) and the `ti
 tiffin up
 ```
 
-This creates an Ubuntu VM on your Mac, installs Tiffin and its services, and checks it
+This creates an Ubuntu 26.04 VM on your Mac, installs Tiffin and its services, and checks it
 answers over HTTPS. It takes about a minute the first time (it downloads the Ubuntu
 image) and seconds after that. Run it again any time: it updates Tiffin in place and
 rolls back by itself if an update is unhealthy.
@@ -93,8 +93,8 @@ tiffin up --provider hetzner --name shop --dry-run
 
 It prints the server, a 40 GB data volume, a firewall and an SSH key, and the monthly
 price from Hetzner's own price list. Drop `--dry-run` to create them. The defaults are
-a `cax11` (ARM, 2 vCPU, 4 GB) in `fsn1` on Ubuntu 26.04; change them with `--type`,
-`--location` and `--image ubuntu-24.04`. To use your own SSH key instead of one Tiffin
+a `cax11` (ARM, 2 vCPU, 4 GB) in `fsn1` on Ubuntu 26.04; change them with `--type` and
+`--location`. To use your own SSH key instead of one Tiffin
 makes, pass `--ssh-key ~/.ssh/id_ed25519` (or set `HCLOUD_SSH_KEY`); only the public
 half is uploaded, and a copy already in the project is reused.
 
@@ -106,6 +106,12 @@ tiffin down --confirm shop --delete-data   # the volume too
 ```
 
 `tiffin down` without `--confirm` shows what would go, and what keeps costing money.
+
+The firewall lets SSH in only from where you run `tiffin`: each `tiffin up` adds your
+current address (keeping your last five) before it connects, and says so. Locked out
+anyway? Run `tiffin up --name shop --ssh-from any` (SSH stays keys-only and CrowdSec
+still bans brute force), or open the firewall in the Hetzner console under Firewalls,
+or boot the server's rescue system there.
 
 Already made a server in the Hetzner console? Adopt it instead (by name or ID, with the
 key that logs in to it as root):
@@ -122,7 +128,7 @@ never moved or formatted.
 
 ### Any Ubuntu server
 
-Any Ubuntu 24.04 or 26.04 server you can SSH into with passwordless sudo:
+Any Ubuntu 26.04 server you can SSH into with passwordless sudo (24.04 also works, for a server you already run):
 
 ```bash
 tiffin up --provider ssh --name shop --host root@203.0.113.5 --data-disk /dev/sdb

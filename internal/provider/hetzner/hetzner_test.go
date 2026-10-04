@@ -49,7 +49,7 @@ func TestPlanPricesWithoutCreating(t *testing.T) {
 	if pl.MonthlyGross <= pl.MonthlyNet {
 		t.Fatalf("gross %v must include VAT over net %v", pl.MonthlyGross, pl.MonthlyNet)
 	}
-	if len(pl.Create) != 4 || len(pl.Reuse) != 0 || !strings.Contains(strings.Join(pl.Create, "\n"), "SSH from 198.51.100.7/32") {
+	if len(pl.Create) != 4 || len(pl.Reuse) != 0 || !strings.Contains(strings.Join(pl.Create, "\n"), "SSH from 198.51.100.7;") {
 		t.Fatalf("create: %q reuse: %q", pl.Create, pl.Reuse)
 	}
 	if len(f.Mutations) != 0 {
@@ -318,7 +318,6 @@ func TestOwnKeyIsReusedNeverCopiedOrDeleted(t *testing.T) {
 	boxDir := t.TempDir()
 	p := newProvider(t, f, func(c *Config) {
 		c.KeyPath, c.OwnKey, c.KnownHosts = own, true, filepath.Join(boxDir, "known_hosts")
-		c.Image = "ubuntu-26.04"
 	})
 	pl, err := p.Plan(ctx)
 	if err != nil || pl.Image != "ubuntu-26.04" || !strings.Contains(strings.Join(pl.Create, "\n"), "Ubuntu 26.04") {
@@ -348,7 +347,7 @@ func TestOwnKeyIsReusedNeverCopiedOrDeleted(t *testing.T) {
 	if _, _, _, k := f.Count(); k != 1 {
 		t.Fatal("down must not delete a key Tiffin did not upload")
 	}
-	if _, err := New(Config{Token: "x", Name: "shop", Image: "debian-12"}); err == nil {
+	if _, err := New(Config{Token: "x", Name: "shop", Image: "ubuntu-24.04"}); err == nil {
 		t.Fatal("unsupported images must be refused")
 	}
 }

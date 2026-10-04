@@ -89,9 +89,7 @@ func (p *Provider) PlanAdopt(ctx context.Context, ref string, protect bool) (*Ad
 		pl.Location = s.Location.Name
 	}
 	pl.IPv4, pl.IPv6 = PublicIPs(s)
-	for _, f := range p.cfg.SSHFrom {
-		pl.SSHFrom = append(pl.SSHFrom, f.String())
-	}
+	pl.SSHFrom = sshFromWords(p.cfg.SSHFrom, p.cfg.SSHAnywhere)
 	add := func(f string, a ...any) { pl.Changes = append(pl.Changes, fmt.Sprintf(f, a...)) }
 	if s.Labels[LabelBox] != p.cfg.Name {
 		add("label server %s (id %d) %s=box, %s=%s", s.Name, s.ID, LabelKind, LabelBox, p.cfg.Name)
@@ -118,7 +116,8 @@ func (p *Provider) PlanAdopt(ctx context.Context, ref string, protect bool) (*Ad
 	if len(in.Firewalls) == 0 {
 		add("create the firewall %s (in: SSH from %s; HTTP/HTTPS and ping from anywhere) and attach it", p.cfg.Name, strings.Join(pl.SSHFrom, ", "))
 	} else {
-		add("set the firewall %s's SSH rule to %s", in.Firewalls[0].Name, strings.Join(pl.SSHFrom, ", "))
+		acc := planSSH(in.Firewalls[0], p.cfg.SSHFrom, p.cfg.SSHAnywhere, p.now())
+		add("firewall %s: %s", in.Firewalls[0].Name, acc.Summary())
 	}
 	if protect {
 		if !s.Protection.Delete || !s.Protection.Rebuild {

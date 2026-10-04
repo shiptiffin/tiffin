@@ -1,5 +1,5 @@
 // Package lima runs a Tiffin box as a local Lima VM (Apple Virtualization on
-// macOS): Ubuntu 24.04, 2 vCPU / 4 GiB, and an XFS data disk at
+// macOS): Ubuntu 26.04, 2 vCPU / 4 GiB, and an XFS data disk at
 // /var/lib/tiffin. It shells out to limactl.
 package lima
 
@@ -116,15 +116,10 @@ func (p *Provider) Up(ctx context.Context, progress func(string)) (provider.Mach
 		if v := os.Getenv("TIFFIN_LIMA_CPUS"); v != "" {
 			set += " | .cpus = " + v
 		}
-		if v := os.Getenv("TIFFIN_LIMA_UBUNTU"); v == "26.04" { // try the next LTS; 24.04 stays the default
-			set += ` | .base = [] | .images = [{"location": "https://cloud-images.ubuntu.com/releases/resolute/release/ubuntu-26.04-server-cloudimg-arm64.img", "arch": "aarch64"}, {"location": "https://cloud-images.ubuntu.com/releases/resolute/release/ubuntu-26.04-server-cloudimg-amd64.img", "arch": "x86_64"}]`
-		} else if v != "" && v != "24.04" {
-			return nil, fmt.Errorf("TIFFIN_LIMA_UBUNTU=%s: use 24.04 or 26.04", v)
-		}
 		if runtime.GOOS != "darwin" {
 			set += ` | .vmType = "qemu"`
 		}
-		progress("creating the Ubuntu 24.04 VM (the first time downloads a ~600 MB image)")
+		progress("creating the Ubuntu 26.04 VM (the first time downloads a ~600 MB image)")
 		if _, stderr, err := run(ctx, 25*time.Minute, "limactl", "create", "--name", p.Instance, "--tty=false", "--set", set, tmpl); err != nil {
 			return nil, fmt.Errorf("create VM: %w\n%s", err, tail(stderr))
 		}

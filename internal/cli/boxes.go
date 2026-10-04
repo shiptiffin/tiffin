@@ -46,8 +46,9 @@ type serverBox struct {
 	ServerType string `json:"serverType,omitempty"`
 	VolumeGB   int    `json:"volumeGB,omitempty"`
 	TokenFile  string `json:"tokenFile,omitempty"` // never the token itself
-	Image      string `json:"image,omitempty"`
-	Adopted    int64  `json:"adopted,omitempty"` // the server's ID when it was made by hand and adopted
+	Adopted    int64  `json:"adopted,omitempty"`
+	// SSHAnywhere: the firewall lets SSH in from anywhere (--ssh-from any).
+	SSHAnywhere bool `json:"sshAnywhere,omitempty"` // the server's ID when it was made by hand and adopted
 }
 
 type boxesFile struct {
