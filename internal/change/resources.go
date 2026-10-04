@@ -21,6 +21,13 @@ const (
 	KindCron    = "cron"
 )
 
+// ProjectSpec is the spec of the "project" resource: project-wide settings.
+// A project without any is "{}".
+type ProjectSpec struct {
+	// Resources is the project's budget (nil: automatic).
+	Resources *manifest.Resources `json:"resources,omitempty"`
+}
+
 // Kind returns the kind part of an address ("app/web" → "app").
 func Kind(address string) string {
 	k, _, _ := strings.Cut(address, "/")
@@ -45,7 +52,7 @@ func Resources(m *manifest.Manifest) (map[string]Resource, error) {
 		out[addr] = Resource{Address: addr, Spec: b}
 		return nil
 	}
-	if err := add(KindProject, struct{}{}); err != nil {
+	if err := add(KindProject, ProjectSpec{Resources: m.Resources}); err != nil {
 		return nil, err
 	}
 	for name, app := range m.Apps {

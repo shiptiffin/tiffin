@@ -15,6 +15,10 @@
       "description": "Project slug: a lowercase letter followed by up to 39 lowercase letters, digits or dashes (1-40 chars).",
       "$ref": "#/$defs/slug"
     },
+    "resources": {
+      "description": "How much of the box the project's apps (production and previews) may use. Absent means automatic: the project grows into whatever the box has free, shares the CPU fairly with other projects under contention, and can never take the memory the platform or other projects' running apps need (a box-wide default share, if the owner set one, still applies). Set any field to give the project a fixed budget; when memoryMB and maxSharePercent are both set, the lower limit wins. Changes apply live, without restarting apps.",
+      "$ref": "#/$defs/resources"
+    },
     "apps": {
       "description": "Apps keyed by name. App names follow the same slug rules as `project`. An app is one deployable unit.",
       "type": "object",
@@ -104,7 +108,7 @@
           "maximum": 16
         },
         "memoryMB": {
-          "description": "Memory cap per instance in MiB, 64-8192. Default 512.",
+          "description": "Optional memory cap per instance (copy) in MiB, 64-8192. Default: no per-copy cap; the app's copies share their project's memory (see the project-level `resources`).",
           "type": "integer",
           "minimum": 64,
           "maximum": 8192
@@ -210,6 +214,32 @@
             "minLength": 1,
             "description": "A queue name defined in `queues`."
           }
+        }
+      }
+    },
+    "resources": {
+      "description": "A project's share of the box. Every field is optional.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "memoryMB": {
+          "description": "The most memory all of the project's app copies may use together, in MiB, at least 128. A hard cap and a guarantee: the memoryMB budgets of all projects together must fit in the memory the box keeps for apps (its memory minus what the platform needs), which the plan checks.",
+          "type": "integer",
+          "minimum": 128,
+          "maximum": 1048576
+        },
+        "cpus": {
+          "description": "The most CPU time the project's apps may use together, in cores, in steps of 0.25 (e.g. 0.5, 1, 1.5). At most the box's CPU count, which the plan checks.",
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 1024,
+          "multipleOf": 0.25
+        },
+        "maxSharePercent": {
+          "description": "Caps the project at this percentage of the box, 5-100: of the memory the box keeps for apps and of its CPUs. A ceiling, not a reservation (shares of several projects may add up past 100), and it follows the box when it is resized.",
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 100
         }
       }
     },

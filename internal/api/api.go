@@ -478,13 +478,17 @@ func (a *API) register() {
 	}))
 
 	huma.Register(api, op("plan", http.MethodPost, "/v1/plan", "plan", RiskRead, "Plan a manifest",
-		"Dry run: what applying this manifest would change, the risk of each step and the plan hash. Never writes.", "changes"),
+		"Dry run: what applying this manifest would change, the risk of each step and the plan hash. Never writes. "+
+			"A project `resources` budget that cannot fit this box (more CPUs than it has, memoryMB budgets adding up to more than it keeps for apps) is refused with 422 and a hint.", "changes"),
 		wrap(func(ctx context.Context, in *struct{ Body planBody }) (*struct{ Body *change.Plan }, error) {
 			m, desired, err := parseManifest(in.Body.Manifest)
 			if err != nil {
 				return nil, err
 			}
 			if err := PrincipalFrom(ctx).Require(tokens.ScopePlan, m.Project); err != nil {
+				return nil, err
+			}
+			if err := a.checkPlan(ctx, m.Project, desired); err != nil {
 				return nil, err
 			}
 			p, err := a.deps.Engine.Plan(ctx, m.Project, desired)
@@ -508,6 +512,9 @@ func (a *API) register() {
 			}
 			p := PrincipalFrom(ctx)
 			if err := p.Require(tokens.ScopePlan, m.Project); err != nil {
+				return nil, err
+			}
+			if err := a.checkPlan(ctx, m.Project, desired); err != nil {
 				return nil, err
 			}
 			plan, err := a.deps.Engine.Plan(ctx, m.Project, desired)
@@ -857,6 +864,14 @@ func parseManifest(raw ManifestJSON) (*manifest.Manifest, map[string]change.Reso
 	}
 	desired, err := change.Resources(m)
 	return m, desired, err
+}
+
+// checkPlan lets box modules refuse a desired state the machine cannot run.
+func (a *API) checkPlan(ctx context.Context, project string, desired map[string]change.Resource) error {
+	if a.deps.Platform == nil {
+		return nil
+	}
+	return a.deps.Platform.CheckPlan(ctx, project, desired)
 }
 
 // RiskOf returns an operation's risk class.

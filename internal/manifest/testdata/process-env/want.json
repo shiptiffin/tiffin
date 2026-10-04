@@ -10,7 +10,6 @@
         "web"
       ],
       "instances": 1,
-      "memoryMB": 512,
       "healthcheck": "/"
     }
   },

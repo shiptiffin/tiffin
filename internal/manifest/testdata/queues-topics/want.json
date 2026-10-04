@@ -6,8 +6,7 @@
       "path": "apps/jobs",
       "framework": "bun",
       "role": "worker",
-      "instances": 1,
-      "memoryMB": 512
+      "instances": 1
     },
     "web": {
       "path": "apps/web",
@@ -17,7 +16,6 @@
         "web"
       ],
       "instances": 1,
-      "memoryMB": 512,
       "healthcheck": "/"
     }
   },

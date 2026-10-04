@@ -19,6 +19,12 @@ type Manifest struct {
 	Version int `json:"version"`
 	// Project slug: lowercase letters, digits and dashes, 1-40 chars.
 	Project string `json:"project"`
+	// Resources caps how much of the box the project's apps may use. Absent
+	// means automatic: the project grows into whatever the box has free,
+	// shares the CPU fairly with other projects under contention, and can
+	// never take the memory the platform or the other projects' running apps
+	// need (a box-wide default share, if the owner set one, still applies).
+	Resources *Resources `json:"resources,omitempty"`
 	// Apps keyed by name (same slug rules as Project).
 	Apps map[string]App `json:"apps,omitempty"`
 	// Services the project uses. Absent means "not provisioned".
@@ -72,12 +78,33 @@ type App struct {
 	Routes []string `json:"routes,omitempty"`
 	// Instances to run. Default 1.
 	Instances int `json:"instances"`
-	// Memory cap per instance in MiB. Default 512.
-	MemoryMB int `json:"memoryMB"`
+	// MemoryMB optionally caps each instance (copy) in MiB, 64-8192.
+	// Default 0: no per-copy cap; the app's copies share their project's
+	// memory (see Resources).
+	MemoryMB int `json:"memoryMB,omitempty"`
 	// Healthcheck path. Default "/". Ignored for workers and static apps.
 	Healthcheck string `json:"healthcheck,omitempty"`
 	// Env holds app-specific plain environment variables (merged over Manifest.Env).
 	Env map[string]string `json:"env,omitempty"`
+}
+
+// Resources is a project's share of the box: one lever per project. Every
+// field is optional; set any of them to give the project a fixed budget.
+// When both memoryMB and maxSharePercent are set, the lower limit wins.
+type Resources struct {
+	// MemoryMB is the most memory all of the project's app copies
+	// (production and previews) may use together, in MiB, at least 128. It
+	// is a hard cap and also a guarantee: the memoryMB budgets of all
+	// projects together must fit in the memory the box keeps for apps.
+	MemoryMB int `json:"memoryMB,omitempty"`
+	// CPUs is the most CPU time the project's apps may use together, in
+	// cores, in steps of 0.25 (1.5 = one and a half cores). At most the
+	// box's CPU count.
+	CPUs float64 `json:"cpus,omitempty"`
+	// MaxSharePercent caps the project at this share of the box, 5-100: of
+	// the memory the box keeps for apps and of its CPUs. It is a ceiling,
+	// not a reservation, and follows the box when it is resized.
+	MaxSharePercent int `json:"maxSharePercent,omitempty"`
 }
 
 // Services are the box-provided backends. A nil pointer means "off".

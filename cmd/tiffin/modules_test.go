@@ -38,7 +38,7 @@ func TestAllModulesRegister(t *testing.T) {
 		t.Fatalf("%d tools for %d operations", len(tools), len(a.Operations()))
 	}
 	// Adding or removing an operation is a deliberate API change: update this.
-	const wantOps = 169
+	const wantOps = 172
 	if n := len(a.Operations()); n != wantOps {
 		t.Errorf("%d operations, want %d", n, wantOps)
 	}
@@ -56,6 +56,9 @@ func TestCreateOperations(t *testing.T) {
 		"deploy-template":  {"POST", "/v1/projects/{project}/apps/{app}/deploys/template", "deploys template", api.RiskWrite, false},
 		"deploy-git":       {"POST", "/v1/projects/{project}/apps/{app}/deploys/git", "deploys git", api.RiskWrite, true},
 		"box-resources":    {"GET", "/v1/box/resources", "box resources", api.RiskRead, false},
+		"project-usage":    {"GET", "/v1/projects/{project}/usage", "projects usage", api.RiskRead, false},
+		"box-settings-get": {"GET", "/v1/box/settings", "box settings get", api.RiskRead, false},
+		"box-settings-set": {"PUT", "/v1/box/settings", "box settings set", api.RiskWrite, false},
 	}
 	for _, o := range a.Operations() {
 		w, ok := want[o.OperationID]

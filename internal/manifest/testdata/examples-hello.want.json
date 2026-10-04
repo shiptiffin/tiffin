@@ -10,7 +10,6 @@
         "hello/api"
       ],
       "instances": 2,
-      "memoryMB": 512,
       "healthcheck": "/healthz",
       "env": {
         "CORS_ORIGIN": "https://hello"

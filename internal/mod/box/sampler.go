@@ -20,15 +20,16 @@ import (
 
 // Resources is the box view: the machine, its services and its apps.
 type Resources struct {
-	SampledAt     time.Time `json:"sampledAt"`
-	WindowSeconds float64   `json:"windowSeconds" doc:"CPU percentages are averages over this many seconds before sampledAt"`
-	Hostname      string    `json:"hostname"`
-	UptimeSeconds float64   `json:"uptimeSeconds"`
-	CPU           CPU       `json:"cpu"`
-	Memory        Memory    `json:"memory"`
-	Disks         Disks     `json:"disks"`
-	Services      []Service `json:"services" doc:"Every systemd service the box runs, biggest memory first"`
-	Apps          []App     `json:"apps" doc:"Every app container (production and previews), biggest memory first"`
+	SampledAt     time.Time      `json:"sampledAt"`
+	WindowSeconds float64        `json:"windowSeconds" doc:"CPU percentages are averages over this many seconds before sampledAt"`
+	Hostname      string         `json:"hostname"`
+	UptimeSeconds float64        `json:"uptimeSeconds"`
+	CPU           CPU            `json:"cpu"`
+	Memory        Memory         `json:"memory"`
+	Disks         Disks          `json:"disks"`
+	Services      []Service      `json:"services" doc:"Every systemd service the box runs, biggest memory first"`
+	Apps          []App          `json:"apps" doc:"Every app container (production and previews), biggest memory first"`
+	Projects      []ProjectTotal `json:"projects" doc:"Every project: its app copies' memory and CPU together (its slice), its data on disk and its limits, biggest memory first. Per-project detail: projects usage."`
 }
 
 // CPU is the machine's processors.
@@ -123,6 +124,7 @@ type sampler struct {
 	ctrs    map[string]container // by full ID
 	ctrsAt  time.Time
 	foreign map[string]bool // container cgroups the list does not know
+	track   *tracker        // per-project CPU marks and disk measurements (nil in some tests)
 }
 
 func newSampler(root, dataMount string) *sampler {
@@ -166,6 +168,7 @@ func (s *sampler) sample(ctx context.Context) *Resources {
 	seen := map[string]bool{}
 	s.services(ctx, r, now, seen)
 	s.apps(ctx, r, now, seen)
+	r.Projects = s.projectTotals(ctx, s.track, now, seen)
 	for k := range s.prev {
 		if !seen[k] {
 			delete(s.prev, k)

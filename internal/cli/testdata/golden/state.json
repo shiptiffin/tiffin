@@ -10,7 +10,6 @@
         "framework": "hono",
         "healthcheck": "/healthz",
         "instances": 2,
-        "memoryMB": 512,
         "path": "apps/api",
         "role": "web",
         "routes": [

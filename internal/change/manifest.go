@@ -39,6 +39,11 @@ func ManifestFromResources(project string, res map[string]Resource) (*manifest.M
 		}
 		switch kind {
 		case KindProject:
+			var ps ProjectSpec
+			if err := dec(&ps); err != nil {
+				return nil, err
+			}
+			m.Resources = ps.Resources
 		case KindApp:
 			var a manifest.App
 			if err := dec(&a); err != nil {

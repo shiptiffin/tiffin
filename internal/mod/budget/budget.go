@@ -1,0 +1,359 @@
+// Package budget divides the box between projects. Every project's app
+// containers (production and previews) run in one systemd slice,
+// tiffin-p-<project>.slice, under tiffin-p.slice whose MemoryMax keeps the
+// platform's memory out of the apps' reach.
+//
+// By default a project is automatic (elastic): it grows into whatever the
+// box has free, is protected up to a fair share when memory gets tight, and
+// shares the CPU equally with other projects under contention. A project
+// can instead set `resources` in tiffin.config.ts (memoryMB, cpus,
+// maxSharePercent), and the box owner can set a default share for every
+// project that sets none. Limits apply live; nothing restarts.
+package budget
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os/exec"
+	goruntime "runtime"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/btahir/tiffin/internal/api"
+	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/platform"
+)
+
+var mod = &Module{}
+
+func init() { platform.Register(mod) }
+
+// Module is the budget module.
+type Module struct {
+	syncMu   sync.Mutex
+	mu       sync.Mutex
+	p        *platform.Platform
+	root     string  // "" in production; tests point it at a fake tree
+	sd       systemd // nil: limits are computed but not applied (not a Linux box)
+	specs    map[string]*manifest.Resources
+	settings Settings
+	applied  map[string]string // unit → properties last set
+	limits   map[string]Limits
+	box      Box
+	boxOK    bool
+	history  map[string][]eventMark // project → memory events over the last hour
+	wake     chan struct{}
+	gen      uint64 // bumped whenever any project's limits change
+}
+
+// Generation changes whenever any project's resolved limits change, so
+// readers that cache answers know to measure again.
+func Generation() uint64 {
+	mod.mu.Lock()
+	defer mod.mu.Unlock()
+	return mod.gen
+}
+
+func limitsEqual(a, b map[string]Limits) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if w, ok := b[k]; !ok || w != v {
+			return false
+		}
+	}
+	return true
+}
+
+func (*Module) Name() string { return "budget" }
+
+// Order: before the runtime (40), so a project's slice exists before its
+// containers start.
+func (*Module) Order() int { return 35 }
+
+const (
+	kvNS        = "budget"
+	kvSettings  = "settings"
+	syncEvery   = 15 * time.Second
+	historyKeep = time.Hour
+)
+
+// Start loads every project's budget and the box settings, applies them and
+// keeps them current: automatic limits depend on what the other projects
+// run, and shares follow the box if it is resized.
+func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
+	var sd systemd
+	if goruntime.GOOS == "linux" {
+		if _, err := exec.LookPath("systemctl"); err == nil {
+			sd = systemctl{}
+		}
+	}
+	return m.start(ctx, p, "", sd)
+}
+
+func (m *Module) start(ctx context.Context, p *platform.Platform, root string, sd systemd) error {
+	specs := map[string]*manifest.Resources{}
+	projects, err := p.DB.ListProjects(ctx)
+	if err != nil {
+		return err
+	}
+	for _, pr := range projects {
+		_, res, err := p.DB.Load(ctx, pr)
+		if err != nil {
+			return err
+		}
+		if rs, ok := res[change.KindProject]; ok {
+			specs[pr] = decodeSpec(rs.Spec)
+		}
+	}
+	set := DefaultSettings
+	if raw, ok, _ := p.DB.KVGet(ctx, kvNS, kvSettings); ok {
+		_ = json.Unmarshal(raw, &set)
+		if set.DefaultMaxSharePercent < 5 || set.DefaultMaxSharePercent > 100 {
+			set = DefaultSettings
+		}
+	}
+	m.mu.Lock()
+	m.p, m.root, m.sd, m.specs, m.settings = p, root, sd, specs, set
+	m.applied, m.limits, m.history = map[string]string{}, map[string]Limits{}, map[string][]eventMark{}
+	m.wake = make(chan struct{}, 1)
+	m.mu.Unlock()
+	if err := m.sync(ctx); err != nil {
+		p.Log.Error("budget sync", "err", err)
+	}
+	go m.loop(ctx)
+	return nil
+}
+
+func (m *Module) loop(ctx context.Context) {
+	t := time.NewTicker(syncEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		case <-m.wake:
+		}
+		if err := m.sync(ctx); err != nil {
+			m.p.Log.Error("budget sync", "err", err)
+		}
+	}
+}
+
+func decodeSpec(raw json.RawMessage) *manifest.Resources {
+	var ps change.ProjectSpec
+	_ = json.Unmarshal(raw, &ps)
+	return ps.Resources
+}
+
+// Kinds: the project resource carries the budget.
+func (*Module) Kinds() []string { return []string{change.KindProject} }
+
+// Reconcile records a project's budget and applies every slice's limits
+// (one project's budget changes the others' fair shares). A deleted
+// project's slice is removed.
+func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, address string, spec json.RawMessage) error {
+	m.mu.Lock()
+	if m.specs == nil {
+		m.mu.Unlock()
+		return nil // not serving
+	}
+	if spec == nil {
+		delete(m.specs, project)
+	} else {
+		m.specs[project] = decodeSpec(spec)
+	}
+	sd := m.sd
+	m.mu.Unlock()
+	if spec == nil && sd != nil {
+		unit := Slice(project)
+		if err := sd.Remove(ctx, unit); err != nil {
+			return err
+		}
+		m.mu.Lock()
+		delete(m.applied, unit)
+		delete(m.history, project)
+		m.mu.Unlock()
+	}
+	return m.sync(ctx)
+}
+
+// sync resolves every project's limits and applies the ones that changed.
+// Syncs are serialized; systemctl runs outside m.mu so readers never wait.
+func (m *Module) sync(ctx context.Context) error {
+	m.syncMu.Lock()
+	defer m.syncMu.Unlock()
+	box, ok := ReadBox(m.root)
+	m.mu.Lock()
+	m.box, m.boxOK = box, ok
+	if !ok {
+		m.mu.Unlock()
+		return nil
+	}
+	names := make([]string, 0, len(m.specs))
+	for n := range m.specs {
+		names = append(names, n)
+	}
+	specs := make(map[string]*manifest.Resources, len(m.specs))
+	for k, v := range m.specs {
+		specs[k] = v
+	}
+	settings, sd := m.settings, m.sd
+	m.mu.Unlock()
+
+	sort.Strings(names)
+	now := time.Now()
+	in := make([]Project, 0, len(names))
+	stats := map[string]Stats{}
+	for _, n := range names {
+		st := ReadStats(SliceDir(m.root, n))
+		stats[n] = st
+		in = append(in, Project{Name: n, Resources: specs[n], Copies: st.Copies})
+	}
+	limits := Resolve(box, settings, in)
+
+	type want struct {
+		unit  string
+		props []string
+	}
+	wants := []want{{ParentSlice, []string{fmt.Sprintf("MemoryMax=%dM", box.PoolMB())}}}
+	for _, n := range names {
+		wants = append(wants, want{Slice(n), props(limits[n])})
+	}
+	m.mu.Lock()
+	if !limitsEqual(m.limits, limits) {
+		m.gen++
+	}
+	m.limits = limits
+	for n, st := range stats {
+		if st.Exists {
+			m.recordLocked(n, st, now)
+		}
+	}
+	var todo []want
+	for _, w := range wants {
+		if m.applied[w.unit] != strings.Join(w.props, " ") {
+			todo = append(todo, w)
+		}
+	}
+	m.mu.Unlock()
+	if sd == nil {
+		return nil
+	}
+	var errs []error
+	for _, w := range todo {
+		if err := sd.Set(ctx, w.unit, w.props); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		m.mu.Lock()
+		m.applied[w.unit] = strings.Join(w.props, " ")
+		m.mu.Unlock()
+	}
+	return errors.Join(errs...)
+}
+
+// View is what the box knows about one project's budget.
+type View struct {
+	Box       Box
+	BoxKnown  bool
+	Settings  Settings
+	Resources *manifest.Resources // nil: no limit of its own
+	Limits    Limits
+	Known     bool // the project exists here
+	Pressure  string
+}
+
+// Lookup returns a project's budget and limits as last resolved, and the
+// memory pressure from the given fresh reading of its slice.
+func Lookup(project string, st Stats) View {
+	m := mod
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	v := View{Box: m.box, BoxKnown: m.boxOK, Settings: m.settings, Pressure: PressureNone}
+	if m.specs == nil {
+		v.Settings = DefaultSettings
+		return v
+	}
+	r, ok := m.specs[project]
+	v.Resources, v.Known = r, ok
+	v.Limits = m.limits[project]
+	if st.Exists {
+		v.Pressure = m.pressureLocked(project, st, time.Now())
+	}
+	return v
+}
+
+// Projects returns every known project's budget (nil: none of its own).
+func Projects() map[string]*manifest.Resources {
+	m := mod
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]*manifest.Resources, len(m.specs))
+	for k, v := range m.specs {
+		out[k] = v
+	}
+	return out
+}
+
+// CheckPlan refuses a plan whose project budget cannot fit this box: more
+// CPUs than it has, or memoryMB budgets that add up to more than it keeps
+// for apps. Unchanged budgets are not re-checked, so a box that shrank does
+// not block unrelated changes.
+func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project string, desired map[string]change.Resource) error {
+	rs, ok := desired[change.KindProject]
+	if !ok {
+		return nil
+	}
+	want := decodeSpec(rs.Spec)
+	if want == nil {
+		return nil
+	}
+	_, cur, err := p.DB.Load(ctx, project)
+	if err != nil {
+		return err
+	}
+	if have, ok := cur[change.KindProject]; ok {
+		if h := decodeSpec(have.Spec); h != nil && *h == *want {
+			return nil
+		}
+	}
+	box, ok := ReadBox(m.root)
+	if !ok {
+		return nil // not a box: nothing to measure against
+	}
+	others := map[string]*manifest.Resources{}
+	names, err := p.DB.ListProjects(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range names {
+		if n == project {
+			continue
+		}
+		_, res, err := p.DB.Load(ctx, n)
+		if err != nil {
+			return err
+		}
+		if r, ok := res[change.KindProject]; ok {
+			others[n] = decodeSpec(r.Spec)
+		}
+	}
+	probs := Check(box, project, want, others)
+	if len(probs) == 0 {
+		return nil
+	}
+	out := api.NewProblem(422, "validation", "project "+project+"'s resources do not fit this box: "+probs[0].Message)
+	for _, pr := range probs {
+		out.Errors = append(out.Errors, api.FieldError{Path: pr.Path, Message: pr.Message})
+	}
+	out.Hint = box.Explain() + " Lower the budget, use maxSharePercent (a ceiling that may overlap with other projects), or leave resources out to share the box automatically."
+	return out
+}

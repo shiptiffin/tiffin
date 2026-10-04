@@ -198,7 +198,7 @@ func TestNormalizeDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	web := m.Apps["web"]
-	want := App{Path: ".", Framework: FrameworkBun, Role: RoleWeb, Routes: []string{"web"}, Instances: 1, MemoryMB: 512, Healthcheck: "/"}
+	want := App{Path: ".", Framework: FrameworkBun, Role: RoleWeb, Routes: []string{"web"}, Instances: 1, Healthcheck: "/"}
 	if !reflect.DeepEqual(web, want) {
 		t.Errorf("web = %+v\nwant  %+v", web, want)
 	}
@@ -321,6 +321,7 @@ func TestSchemaMatchesTypes(t *testing.T) {
 	}{
 		{reflect.TypeOf(Manifest{}), root},
 		{reflect.TypeOf(App{}), defs["app"].(map[string]any)},
+		{reflect.TypeOf(Resources{}), defs["resources"].(map[string]any)},
 		{reflect.TypeOf(Services{}), defs["services"].(map[string]any)},
 		{reflect.TypeOf(Postgres{}), get(defs, "services", "properties", "postgres")},
 		{reflect.TypeOf(Valkey{}), get(defs, "services", "properties", "valkey")},
@@ -419,6 +420,18 @@ func randomManifest(r *rand.Rand) *Manifest {
 	m := &Manifest{Project: pick("a", "shop", "my-app-2", "z9")}
 	if r.IntN(2) == 0 {
 		m.Version = 1
+	}
+	if r.IntN(3) == 0 {
+		m.Resources = &Resources{}
+		if r.IntN(2) == 0 {
+			m.Resources.MemoryMB = 128 + r.IntN(16000)
+		}
+		if r.IntN(2) == 0 {
+			m.Resources.CPUs = float64(1+r.IntN(64)) / 4
+		}
+		if r.IntN(2) == 0 {
+			m.Resources.MaxSharePercent = 5 + r.IntN(96)
+		}
 	}
 	names := []string{"web", "api", "jobs", "docs", "admin", "x1"}
 	r.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })

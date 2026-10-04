@@ -433,10 +433,34 @@ export interface paths {
         };
         /**
          * Show the box's resources
-         * @description What the machine has and what uses it, sampled now (cached for 3 seconds): CPU count, load and use; memory total, used and available; data disk and system disk size and use; uptime; and for every service Tiffin runs (postgres, valkey, storage, auth, the tiffin service itself, victoria-metrics, victoria-logs, containerd, buildkit, crowdsec...) and every app container: state, memory, CPU seconds and CPU percent (100 = one core) over the last window. Box only: a laptop running tiffin serve without --box answers 503.
+         * @description What the machine has and what uses it, sampled now (cached for 3 seconds): CPU count, load and use; memory total, used and available; data disk and system disk size and use; uptime; and for every service Tiffin runs (postgres, valkey, storage, auth, the tiffin service itself, victoria-metrics, victoria-logs, containerd, buildkit, crowdsec...) and every app container: state, memory, CPU seconds and CPU percent (100 = one core) over the last window; and every project's totals (all its app copies' memory and CPU, its data on disk, its limits and memory pressure). Box only: a laptop running tiffin serve without --box answers 503.
          */
         get: operations["box-resources"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/box/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show how the box is shared
+         * @description The box-wide default share (defaultMaxSharePercent: projects that set no `resources` of their own may use at most this percentage of the box; 100 = elastic), the box's memory and CPUs, the memory Tiffin keeps for itself, the memory left for apps and how much of it projects' memoryMB budgets take. Per-project limits and live use: projects usage.
+         */
+        get: operations["box-settings-get"];
+        /**
+         * Set the default share of the box
+         * @description Sets defaultMaxSharePercent: every project that sets no `resources` in tiffin.config.ts may use at most this percentage of the box, of its memory for apps and of its CPUs (e.g. 25 = no project can take more than a quarter unless its config says otherwise). 100 restores elastic sharing. Applies live to running apps without restarting them; a project over its new cap has its cache reclaimed, and an app that cannot fit is killed for memory and restarted. Box owner only.
+         */
+        put: operations["box-settings-set"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1039,7 +1063,7 @@ export interface paths {
         put?: never;
         /**
          * Plan a manifest
-         * @description Dry run: what applying this manifest would change, the risk of each step and the plan hash. Never writes.
+         * @description Dry run: what applying this manifest would change, the risk of each step and the plan hash. Never writes. A project `resources` budget that cannot fit this box (more CPUs than it has, memoryMB budgets adding up to more than it keeps for apps) is refused with 422 and a hint.
          */
         post: operations["plan"];
         delete?: never;
@@ -2468,6 +2492,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show what a project uses of the box
+         * @description One project's share of the box, live (cached for 2 seconds): its budget from tiffin.config.ts (auto: true when it sets none); memory used by all its app copies together (production and previews) against its limit, the part the kernel protects for it, its headroom (how much more it could take right now) and pressure ("oom" when an app copy was killed for memory in the last hour: the project is using all the memory it was given); CPU use against its cap; data on disk (database, files, KV; measured in the background every 30 seconds); each app's copies, memory and CPU; and service numbers (Postgres connections, KV keys, bucket objects). limitSource says where the limits come from: "project" (its resources), "box default" (the box-wide default share, see box settings) or "automatic" (elastic: it grows into whatever the box has free). To change the limits, set resources in tiffin.config.ts and plan/apply.
+         */
+        get: operations["project-usage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/workflows/approvals": {
         parameters: {
             query?: never;
@@ -3717,6 +3761,16 @@ export interface components {
              */
             state: string;
         };
+        BoxBudget: {
+            /** @description True when the project sets no resources of its own (automatic, or the box default share if one is set) */
+            auto: boolean;
+            /** Format: double */
+            cpus?: number;
+            /** Format: int64 */
+            maxSharePercent?: number;
+            /** Format: int64 */
+            memoryMB?: number;
+        };
         BoxCPU: {
             /** Format: int64 */
             count: number;
@@ -3755,6 +3809,12 @@ export interface components {
             /** @description The system disk (/): the OS and packages */
             system: components["schemas"]["BoxDisk"];
         };
+        BoxKVUsage: {
+            /** Format: int64 */
+            keys: number;
+            /** Format: int64 */
+            memoryBytes: number;
+        };
         BoxMemory: {
             /**
              * Format: int64
@@ -3775,6 +3835,46 @@ export interface components {
             /** Format: double */
             usedPercent: number;
         };
+        BoxPGUsage: {
+            /**
+             * Format: int64
+             * @description Open connections to its databases
+             */
+            connections: number;
+            /** Format: int64 */
+            databaseBytes: number;
+        };
+        BoxProjectTotal: {
+            budget: components["schemas"]["BoxBudget"];
+            /** Format: int64 */
+            cacheBytes: number;
+            /**
+             * Format: double
+             * @description 100 = one full core
+             */
+            cpuPercent: number;
+            /**
+             * Format: int64
+             * @description Database, files and KV (measured in the background; 0 until the first measurement)
+             */
+            diskBytes: number;
+            /** Format: int64 */
+            limitBytes: number;
+            /** Format: double */
+            limitCpus?: number;
+            /** @enum {string} */
+            limitSource: "project" | "box default" | "automatic";
+            /**
+             * Format: int64
+             * @description All the project's app copies
+             */
+            memoryBytes: number;
+            /** @enum {string} */
+            pressure: "none" | "some" | "oom";
+            project: string;
+            /** Format: int64 */
+            swapBytes: number;
+        };
         BoxResources: {
             /** @description Every app container (production and previews), biggest memory first */
             apps: components["schemas"]["BoxApp"][] | null;
@@ -3782,6 +3882,8 @@ export interface components {
             disks: components["schemas"]["BoxDisks"];
             hostname: string;
             memory: components["schemas"]["BoxMemory"];
+            /** @description Every project: its app copies' memory and CPU together (its slice), its data on disk and its limits, biggest memory first. Per-project detail: projects usage. */
+            projects: components["schemas"]["BoxProjectTotal"][] | null;
             /** Format: date-time */
             sampledAt: string;
             /** @description Every systemd service the box runs, biggest memory first */
@@ -3830,11 +3932,189 @@ export interface components {
             /** @example tiffin-postgres.service */
             unit: string;
         };
+        BoxStorageUsage: {
+            /** Format: int64 */
+            buckets: number;
+            /** Format: int64 */
+            bytes: number;
+            /** Format: int64 */
+            objects: number;
+        };
+        BoxUsage: {
+            /** @description Every app of the project, and every preview with running copies */
+            apps: components["schemas"]["BoxUsageApp"][] | null;
+            budget: components["schemas"]["BoxBudget"];
+            cpu: components["schemas"]["BoxUsageCPU"];
+            disk: components["schemas"]["BoxUsageDisk"];
+            /**
+             * @description Where the project's limits come from: its own resources in tiffin.config.ts, the box-wide default share, or automatic (elastic)
+             * @enum {string}
+             */
+            limitSource: "project" | "box default" | "automatic";
+            memory: components["schemas"]["BoxUsageMemory"];
+            project: string;
+            /** Format: date-time */
+            sampledAt: string;
+            services: components["schemas"]["BoxUsageServices"];
+        };
+        BoxUsageApp: {
+            app: string;
+            /** Format: double */
+            cpuPercent: number;
+            /**
+             * Format: int64
+             * @description Copies running now
+             */
+            instances: number;
+            /** Format: int64 */
+            memoryBytes: number;
+            preview?: string;
+            /** @description running, starting, or stopped (no copies running) */
+            state: string;
+        };
+        BoxUsageCPU: {
+            /**
+             * Format: double
+             * @description CPU cap in cores; absent: no cap (the project shares the CPUs equally with others under contention)
+             */
+            limitCpus?: number;
+            /** @enum {string} */
+            limitSource: "project" | "box default" | "automatic";
+            /**
+             * Format: double
+             * @description CPU use over the last few seconds; 100 = one full core
+             */
+            percent: number;
+            /**
+             * Format: int64
+             * @description CPU weight under contention; every project has the same
+             */
+            weight: number;
+        };
+        BoxUsageDisk: {
+            /**
+             * Format: int64
+             * @description Postgres databases, branches included
+             */
+            databaseBytes: number;
+            /**
+             * Format: int64
+             * @description Bucket files
+             */
+            filesBytes: number;
+            /**
+             * Format: int64
+             * @description Valkey keys (held in memory, snapshotted to disk)
+             */
+            kvBytes: number;
+            /**
+             * Format: date-time
+             * @description When disk use was measured (refreshed every 30 seconds while asked for); absent until the first measurement finishes
+             */
+            measuredAt?: string;
+            /** Format: int64 */
+            totalBytes: number;
+        };
+        BoxUsageMemory: {
+            /**
+             * Format: int64
+             * @description Of usedBytes, file cache the kernel takes back first when memory is tight
+             */
+            cacheBytes: number;
+            /**
+             * Format: int64
+             * @description How much more the project could take right now: the smaller of what is left under its limit and what the box has available
+             */
+            headroomBytes: number;
+            /**
+             * Format: int64
+             * @description The most the project may use now (hard cap). Automatic projects: the box's memory for apps minus 128 MB for each copy other projects run
+             */
+            limitBytes: number;
+            /** @enum {string} */
+            limitSource: "project" | "box default" | "automatic";
+            /**
+             * @description In the last hour: none; some (the project was held back: it reached a limit, waited for memory or has memory swapped out); oom (an app copy was killed for memory and restarted: the project is using all the memory it was given)
+             * @enum {string}
+             */
+            pressure: "none" | "some" | "oom";
+            /**
+             * Format: int64
+             * @description Memory the kernel keeps for the project when the box runs short (its fair share, or its whole memoryMB budget)
+             */
+            protectedBytes: number;
+            /**
+             * Format: int64
+             * @description Memory swapped out to disk because the box was tight (automatic projects over their fair share only; fixed caps never swap)
+             */
+            swapBytes: number;
+            /**
+             * Format: int64
+             * @description Memory the project's app copies use, file cache included
+             */
+            usedBytes: number;
+        };
+        BoxUsageServices: {
+            postgres?: components["schemas"]["BoxPGUsage"];
+            storage?: components["schemas"]["BoxStorageUsage"];
+            valkey?: components["schemas"]["BoxKVUsage"];
+        };
         "Branch-createRequest": {
             /** @description Clone this branch instead of main */
             from?: string;
             /** @description Branch name, e.g. pr-12 */
             name: string;
+        };
+        BudgetBoxSettings: {
+            /**
+             * Format: int64
+             * @description Memory the box keeps for apps, shared by every project: memoryMB minus reserveMB. maxSharePercent and the default share are percentages of this.
+             */
+            appMemoryMB: number;
+            /**
+             * Format: int64
+             * @description Sum of the memoryMB budgets projects set (they must fit in appMemoryMB)
+             */
+            budgetedMB: number;
+            /**
+             * Format: int64
+             * @description The box's CPUs (0 off-box)
+             */
+            cpus: number;
+            /**
+             * Format: double
+             * @description The CPU cap the default share gives a project, in cores (absent at 100%)
+             */
+            defaultCpus?: number;
+            /**
+             * Format: int64
+             * @description Projects that set no limit of their own may use at most this percentage of the box: of the memory it keeps for apps and of its CPUs. 100 (the default) means elastic: a project grows into whatever the box has free.
+             */
+            defaultMaxSharePercent: number;
+            /**
+             * Format: int64
+             * @description The memory cap the default share gives a project, in MiB (absent at 100%)
+             */
+            defaultMemoryMB?: number;
+            /** @description How the memory for apps is computed, in plain words */
+            explanation: string;
+            /**
+             * Format: int64
+             * @description The box's memory in MiB (0 off-box)
+             */
+            memoryMB: number;
+            /**
+             * Format: int64
+             * @description Memory Tiffin keeps for its own services (API, auth, storage, observability, Postgres's shared buffers, Valkey's cache)
+             */
+            reserveMB: number;
+        };
+        BudgetSettingsBody: {
+            /**
+             * Format: int64
+             * @description Projects that set no limit of their own in tiffin.config.ts may use at most this percentage of the box (of the memory it keeps for apps and of its CPUs). 100 means elastic: no cap beyond what keeps the platform and other projects safe.
+             */
+            defaultMaxSharePercent: number;
         };
         Change: {
             actor: components["schemas"]["Actor"];
@@ -4261,6 +4541,7 @@ export interface components {
             queues?: {
                 [key: string]: components["schemas"]["ManifestQueue"];
             };
+            resources?: components["schemas"]["ManifestResources"];
             services?: components["schemas"]["ManifestServices"];
             topics?: {
                 [key: string]: components["schemas"]["ManifestTopic"];
@@ -4281,7 +4562,7 @@ export interface components {
             /** Format: int64 */
             instances: number;
             /** Format: int64 */
-            memoryMB: number;
+            memoryMB?: number;
             path: string;
             role: string;
             routes?: string[] | null;
@@ -4334,6 +4615,14 @@ export interface components {
             rateLimit: number;
             /** Format: int64 */
             ratePeriodSeconds: number;
+        };
+        ManifestResources: {
+            /** Format: double */
+            cpus?: number;
+            /** Format: int64 */
+            maxSharePercent?: number;
+            /** Format: int64 */
+            memoryMB?: number;
         };
         ManifestServices: {
             analytics?: components["schemas"]["ManifestAnalytics"];
@@ -8503,6 +8792,140 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "box-settings-get": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetBoxSettings"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "box-settings-set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BudgetSettingsBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BudgetBoxSettings"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17343,6 +17766,92 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "project-usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BoxUsage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
