@@ -141,7 +141,10 @@ export const mod = {
   pg: (p: string) => request<PgInfo>("GET", `${P(p)}/postgres`),
   pgConnection: (p: string) => request<S["PostgresPGConnection"]>("GET", `${P(p)}/postgres/connection`),
   tables: (p: string, branch?: string) => arr(request<PgTable[] | null>("GET", `${P(p)}/tables${qs({ branch })}`)),
+  /** Read-only: one statement in a READ ONLY transaction. */
   sql: (p: string, body: S["PostgresPGSQLRequest"]) => request<PgResult>("POST", `${P(p)}/sql`, body),
+  /** Writes (DDL and DML), after a snapshot. Needs apply:irreversible. */
+  sqlWrite: (p: string, body: S["PostgresPGSQLRequest"]) => request<PgResult>("POST", `${P(p)}/sql/write`, body),
   branches: (p: string) => arr(request<PgBranch[] | null>("GET", `${P(p)}/branches`)),
   createBranch: (p: string, name: string, from?: string) => request<PgBranchCreated>("POST", `${P(p)}/branches`, { name, ...(from ? { from } : {}) }),
   deleteBranch: (p: string, name: string) => request<void>("DELETE", `${P(p)}/branches/${e(name)}`),

@@ -48,30 +48,45 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		return &struct{ Body *PGInfo }{out}, err
 	}))
 
-	sql := api.Op("sql", http.MethodPost, "/v1/projects/{project}/sql", "sql", api.RiskDestructive,
-		"Run SQL on a project's database",
-		"Runs SQL as the project's own Postgres role and returns rows as JSON. Read-only by default (one statement, in a READ ONLY "+
-			"transaction that is rolled back; needs read). With write=true it may change data and schema (needs apply:irreversible): "+
-			"the database is snapshotted first and the snapshot ID is returned, so `snapshots restore` can undo it. "+
-			"Use branch to target a preview branch. Postgres errors come back as 422 with the SQLSTATE.", tag)
-	sql.Errors = append(sql.Errors, 404, 409)
-	huma.Register(a, sql, api.Wrap(func(ctx context.Context, in *struct {
+	type sqlIn struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Body    PGSQLRequest
-	}) (*struct{ Body *PGSQLResult }, error) {
-		scope := tokens.ScopeRead
-		if in.Body.Write {
-			scope = tokens.ScopeApplyIrreversible
-		}
-		pr := api.PrincipalFrom(ctx)
-		if err := pr.Require(scope, in.Project); err != nil {
+	}
+	sql := api.Op("sql", http.MethodPost, "/v1/projects/{project}/sql", "sql", api.RiskRead,
+		"Query a project's database (read-only)",
+		"Runs one SQL statement as the project's own Postgres role, inside a READ ONLY transaction that is always rolled back, "+
+			"and returns rows as JSON. Needs only read access and changes nothing, so it never asks for confirmation. "+
+			"A statement that writes fails with SQLSTATE 25006: use sql_write (CLI: tiffin sql write, or tiffin sql --write) for that. "+
+			"Use branch to target a preview branch. Postgres errors come back as 422 with the SQLSTATE.", tag)
+	sql.Errors = append(sql.Errors, 404, 409)
+	huma.Register(a, api.Untrusted(sql), api.Wrap(func(ctx context.Context, in *sqlIn) (*struct{ Body *PGSQLResult }, error) {
+		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
 			return nil, err
 		}
 		if err := onBox(p); err != nil {
 			return nil, err
 		}
-		out, err := RunSQL(ctx, p, in.Project, in.Body)
-		if err == nil && in.Body.Write {
+		out, err := RunSQL(ctx, p, in.Project, in.Body, false)
+		return &struct{ Body *PGSQLResult }{out}, err
+	}))
+
+	sw := api.Op("sql-write", http.MethodPost, "/v1/projects/{project}/sql/write", "sql write", api.RiskDestructive,
+		"Change a project's database with SQL",
+		"Runs SQL that may change data and schema (DDL and DML) as the project's own Postgres role; several statements separated by "+
+			"semicolons run in one implicit transaction. Needs apply:irreversible. The database is snapshotted first and the snapshot ID "+
+			"is returned, so `snapshots restore` can undo it. For reads use sql, which needs no confirmation. "+
+			"Use branch to target a preview branch. Postgres errors come back as 422 with the SQLSTATE.", tag)
+	sw.Errors = append(sw.Errors, 404, 409)
+	huma.Register(a, api.Untrusted(sw), api.Wrap(func(ctx context.Context, in *sqlIn) (*struct{ Body *PGSQLResult }, error) {
+		pr := api.PrincipalFrom(ctx)
+		if err := pr.Require(tokens.ScopeApplyIrreversible, in.Project); err != nil {
+			return nil, err
+		}
+		if err := onBox(p); err != nil {
+			return nil, err
+		}
+		out, err := RunSQL(ctx, p, in.Project, in.Body, true)
+		if err == nil {
 			_ = p.DB.Audit(ctx, pr.TokenID, "postgres.sql_write", in.Project, map[string]any{"session": pr.Session, "database": out.Database, "snapshot": out.Snapshot, "sql": clip(in.Body.SQL, 2000)})
 		}
 		return &struct{ Body *PGSQLResult }{out}, err

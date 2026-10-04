@@ -8,8 +8,9 @@ services: { postgres: { extensions: ["vector", "pg_cron"] } }
 
 Each project gets its own Postgres 18 database and role. Apps get `DATABASE_URL`.
 
-- **SQL:** `tiffin sql <project> "select ..."` is read-only by default. Writes need
-  `write: true`, an owner-level token, and take a snapshot first.
+- **SQL:** `tiffin sql <project> "select ..."` runs one statement read-only (MCP `sql`;
+  no confirmation). `tiffin sql write <project> "..."` (or `--write`; MCP `sql_write`)
+  changes data and schema: it needs full access and takes a snapshot first.
 - **Branches:** `tiffin branches create <project> --name pr-12` clones the database with
   copy-on-write in milliseconds, whatever its size. Previews can use their own branch.
 - **Snapshots:** deleting the database (or writing through the console) keeps a

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,6 +29,8 @@ const (
 var runDescription = "Run a short JavaScript program that calls Tiffin tools, to chain several calls in one step. " +
 	"Inside, `tiffin.call(toolName, args)` returns the tool's result object (it throws with the problem on errors) and " +
 	"`console.log(...)` collects notes. `return` a value to send it back. Synchronous only; " +
+	"`tiffin.tools(word?)` lists every tool (also the ones this server doesn't list) as {name, summary, risk}, filtered by a word, and " +
+	"`tiffin.schema(name)` returns a tool's input schema. " +
 	fmt.Sprintf("at most %d calls and %s. ", runMaxCalls, runTimeout) +
 	"It has exactly your token's powers: applying still needs a plan's confirm hash. " +
 	"Example: `const ps = tiffin.call('projects_list', {}).items; return ps.map(p => ({p: p.name, s: tiffin.call('project_get', {project: p.name}).status}))`. " +
@@ -61,6 +64,15 @@ func addRunTool(s *sdk.Server, tools []*Tool, h http.Handler, token TokenFunc) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+func sortedTools(m map[string]*Tool) []*Tool {
+	out := make([]*Tool, 0, len(m))
+	for _, t := range m {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Tool.Name < out[j].Tool.Name })
+	return out
+}
 
 func runProgram(ctx context.Context, code string, tools map[string]*Tool, h http.Handler, tok string, req *sdk.CallToolRequest) *sdk.CallToolResult {
 	vm := goja.New()
@@ -105,6 +117,30 @@ func runProgram(ctx context.Context, code string, tools map[string]*Tool, h http
 			panic(vm.NewGoError(fmt.Errorf("%s", msg)))
 		}
 		return res.StructuredContent
+	})
+	_ = tiffin.Set("tools", func(word goja.Value) any {
+		w := ""
+		if word != nil && !goja.IsUndefined(word) && !goja.IsNull(word) {
+			w = strings.ToLower(word.String())
+		}
+		out := []map[string]any{}
+		for _, t := range sortedTools(tools) {
+			if w != "" && !strings.Contains(strings.ToLower(t.Tool.Name+" "+t.Tool.Title+" "+strings.Join(t.op.Tags, " ")), w) {
+				continue
+			}
+			out = append(out, map[string]any{"name": t.Tool.Name, "summary": t.Tool.Title, "risk": api.RiskOf(t.op)})
+		}
+		return out
+	})
+	_ = tiffin.Set("schema", func(name string) any {
+		t, ok := tools[name]
+		if !ok {
+			panic(vm.NewGoError(fmt.Errorf("no tool %q", name)))
+		}
+		var v any
+		b, _ := json.Marshal(t.Tool.InputSchema)
+		_ = json.Unmarshal(b, &v)
+		return map[string]any{"name": name, "description": t.Tool.Description, "inputSchema": v}
 	})
 	_ = vm.Set("tiffin", tiffin)
 	console := vm.NewObject()

@@ -590,7 +590,7 @@ export function SqlPage({ project }: { project: string }) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const gutter = useRef<HTMLDivElement>(null);
   const run = useMutation({
-    mutationFn: (text: string) => mod.sql(project, { sql: text, write, branch: branch || undefined, limit: 500 }),
+    mutationFn: (text: string) => (write ? mod.sqlWrite : mod.sql)(project, { sql: text, branch: branch || undefined, limit: 500 }),
     onSuccess: (r, text) => {
       const h = [text, ...history.filter((x) => x !== text)].slice(0, 12);
       setHistory(h);

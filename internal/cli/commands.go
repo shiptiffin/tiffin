@@ -459,17 +459,25 @@ func (a *app) provisionCmd() *cobra.Command {
 
 // serveMux routes the box's HTTP surface: the API under /v1 and MCP at /mcp.
 func serveMux(b *box) http.Handler {
-	srv := tmcp.NewServer(b.api, b.api.Handler(), version.Version, tmcp.FromHeader)
+	// /mcp lists the core tools; /mcp?tools=all lists every one.
+	core := tmcp.NewServer(b.api, b.api.Handler(), version.Version, tmcp.FromHeader, tmcp.GroupCore)
+	all := tmcp.NewServer(b.api, b.api.Handler(), version.Version, tmcp.FromHeader, tmcp.GroupAll)
 	mux := http.NewServeMux()
 	mux.Handle("/v1/", b.api.Handler())
 	mux.Handle("/", dashboard.Handler())
-	mux.Handle("/mcp", sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return srv },
+	mux.Handle("/mcp", sdk.NewStreamableHTTPHandler(func(r *http.Request) *sdk.Server {
+		if r.URL.Query().Get("tools") == tmcp.GroupAll {
+			return all
+		}
+		return core
+	},
 		&sdk.StreamableHTTPOptions{Stateless: true, JSONResponse: true}))
 	return mux
 }
 
 func (a *app) mcpCmd() *cobra.Command {
-	return &cobra.Command{
+	var tools string
+	cmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Run an MCP server on stdio",
 		Long: "Speaks MCP over stdin/stdout, for agents that launch tools as subprocesses:\n" +
@@ -477,10 +485,16 @@ func (a *app) mcpCmd() *cobra.Command {
 			"It talks to the box from `tiffin up` as that box's agent API key: full access to every project,\n" +
 			"recorded in History as an agent, never the owner. TIFFIN_URL and TIFFIN_TOKEN point it at another\n" +
 			"box or key (a box in --home gets a key that cannot apply irreversible plans).\n" +
-			"History labels each change with TIFFIN_SESSION if set (else mcp:stdio-<random>) and TIFFIN_MODEL.",
+			"History labels each change with TIFFIN_SESSION if set (else mcp:stdio-<random>) and TIFFIN_MODEL.\n" +
+			"--tools core (the default) lists the ~40 most-used tools plus run, which calls any other operation by name;\n" +
+			"--tools all lists every operation as its own tool.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
+			group, err := tmcp.ParseGroup(tools)
+			if err != nil {
+				return &exitError{ExitInvalid, "--tools: " + err.Error()}
+			}
 			spec := api.New(api.Deps{Version: version.Version})
 			var h http.Handler
 			token := a.token
@@ -526,10 +540,12 @@ func (a *app) mcpCmd() *cobra.Command {
 			if token == "" {
 				return &exitError{ExitAuth, "no token: set TIFFIN_TOKEN"}
 			}
-			srv := tmcp.NewServer(spec, h, version.Version, tmcp.Static(token))
+			srv := tmcp.NewServer(spec, h, version.Version, tmcp.Static(token), group)
 			return srv.Run(ctx, &sdk.StdioTransport{})
 		},
 	}
+	cmd.Flags().StringVar(&tools, "tools", tmcp.GroupCore, "which tools to list: core (most-used, plus run for the rest) or all")
+	return cmd
 }
 
 // proxyTo forwards requests to u, with u's Host header (the edge routes by

@@ -76,7 +76,12 @@ func TestPortable(t *testing.T) {
 	a.waitReady("service/postgres", "service/valkey", "service/storage", "bucket/media", "app/web")
 	sql := func(b *cliBox, body string) string {
 		t.Helper()
-		res := b.ok("sql", "shop", "--body", body)
+		args := []string{"sql", "shop"}
+		if strings.Contains(body, `"write":true,`) {
+			body = strings.Replace(body, `"write":true,`, "", 1)
+			args = append(args, "--write")
+		}
+		res := b.ok(append(args, "--body", body)...)
 		r, _ := res["results"].([]any)
 		if len(r) == 0 {
 			return ""

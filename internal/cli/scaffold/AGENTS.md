@@ -34,7 +34,7 @@ tiffin apply --confirm <hash> -m "why, in one sentence"
 | Secrets (never in tiffin.config.ts) | `tiffin secrets set <project> <NAME> --value ...` |
 | Reuse another project's keys | `tiffin secrets copy <project> --from <other> [--names OPENAI_API_KEY]` (values stay in the box) |
 | See how another project is set up | `tiffin projects manifest <other>` |
-| Database | `tiffin sql <project> "select ..."` |
+| Database | `tiffin sql <project> "select ..."` (read-only); `tiffin sql write <project> "..."` to change data (snapshot first) |
 | Everything else | `tiffin --help` (every API operation is a command) |
 
 ## Writing the app

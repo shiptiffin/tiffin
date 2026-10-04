@@ -3,6 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -38,9 +42,39 @@ func TestAllModulesRegister(t *testing.T) {
 		t.Fatalf("%d tools for %d operations", len(tools), len(a.Operations()))
 	}
 	// Adding or removing an operation is a deliberate API change: update this.
-	const wantOps = 193
+	const wantOps = 194
 	if n := len(a.Operations()); n != wantOps {
 		t.Errorf("%d operations, want %d", n, wantOps)
+	}
+}
+
+// The default MCP tool group names real tools, stays short, and splits SQL
+// by risk: reading is read-only (no confirmation), writing is destructive.
+func TestCoreToolsAndSQLRisk(t *testing.T) {
+	byName := map[string]*mcp.Tool{}
+	for _, tl := range mcp.Tools(api.New(api.Deps{})) {
+		byName[tl.Tool.Name] = tl
+	}
+	for _, n := range mcp.CoreTools {
+		if byName[n] == nil {
+			t.Errorf("core tool %s is not an operation", n)
+		}
+	}
+	if n := len(mcp.CoreTools); n < 30 || n > 40 {
+		t.Errorf("%d core tools: keep the default set between 30 and 40", n)
+	}
+	r, w := byName["sql"], byName["sql_write"]
+	if r == nil || w == nil {
+		t.Fatal("want sql and sql_write tools")
+	}
+	if !r.Tool.Annotations.ReadOnlyHint || strings.Contains(r.Tool.Description, "confirm hash") {
+		t.Errorf("sql must be read-only: %+v", r.Tool.Annotations)
+	}
+	if raw, _ := json.Marshal(r.Tool.InputSchema); strings.Contains(string(raw), `"write"`) {
+		t.Error("sql takes no write flag any more")
+	}
+	if w.Tool.Annotations.ReadOnlyHint || w.Tool.Annotations.DestructiveHint == nil || !*w.Tool.Annotations.DestructiveHint {
+		t.Errorf("sql_write must be destructive: %+v", w.Tool.Annotations)
 	}
 }
 
@@ -135,5 +169,46 @@ func TestDrillCommands(t *testing.T) {
 	}
 	if h := help("backups", "drill"); !strings.Contains(h, "newest backup") || !strings.Contains(h, "--wait") {
 		t.Errorf("backups drill --help:\n%s", h)
+	}
+}
+
+// `tiffin sql` reads; `--write` (or `sql write`) goes to the write operation
+// with the same inputs, and the SQL can be the last argument.
+func TestSQLCommandRoutes(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		got = append(got, r.Method+" "+r.URL.Path+" "+fmt.Sprint(body["sql"]))
+		_, _ = w.Write([]byte(`{"database":"shop","readOnly":true,"results":[],"durationMs":1}`))
+	}))
+	defer srv.Close()
+	env := map[string]string{"TIFFIN_HOME": t.TempDir(), "HOME": t.TempDir(), "TIFFIN_CONFIG_DIR": t.TempDir(),
+		"TIFFIN_URL": srv.URL, "TIFFIN_TOKEN": "tfn_x"}
+	run := func(t *testing.T, env map[string]string, args ...string) (int, []byte, string) {
+		var out, errb bytes.Buffer
+		no := false
+		code := cli.Execute(context.Background(), args, cli.IO{Out: &out, Err: &errb, TTY: &no, In: strings.NewReader(""),
+			Env: func(k string) string { return env[k] }})
+		return code, out.Bytes(), errb.String()
+	}
+	for _, args := range [][]string{
+		{"sql", "shop", "select 1"},
+		{"sql", "shop", "--sql", "select 2"},
+		{"sql", "shop", "--write", "create table t()"},
+		{"sql", "write", "shop", "drop table t"},
+	} {
+		if code, out, errs := run(t, env, args...); code != cli.ExitOK {
+			t.Fatalf("%v: exit %d %s %s", args, code, out, errs)
+		}
+	}
+	want := []string{
+		"POST /v1/projects/shop/sql select 1",
+		"POST /v1/projects/shop/sql select 2",
+		"POST /v1/projects/shop/sql/write create table t()",
+		"POST /v1/projects/shop/sql/write drop table t",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }

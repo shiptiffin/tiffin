@@ -65,8 +65,13 @@ func TestData(t *testing.T) {
 	}
 	sql := func(body map[string]any) map[string]any {
 		t.Helper()
+		args := []string{"sql", "data"}
+		if body["write"] == true {
+			delete(body, "write")
+			args = append(args, "--write")
+		}
 		raw, _ := json.Marshal(body)
-		return ok("sql", "data", "--body", string(raw))
+		return ok(append(args, "--body", string(raw))...)
 	}
 	rows := func(res map[string]any) string {
 		r, _ := res["results"].([]any)

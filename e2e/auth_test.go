@@ -343,13 +343,13 @@ export default defineConfig({ project: "` + project + `", apps: { web: { framewo
 	t0 = time.Now()
 	sqlRun := func(q string) string {
 		t.Helper()
-		raw, _ := json.Marshal(map[string]any{"sql": q, "write": true})
+		raw, _ := json.Marshal(map[string]any{"sql": q})
 		var res struct {
 			Results []struct {
 				Rows [][]any `json:"rows"`
 			} `json:"results"`
 		}
-		ok(&res, "sql", project, "--body", string(raw))
+		ok(&res, "sql", "write", project, "--body", string(raw))
 		if len(res.Results) == 0 {
 			return ""
 		}
@@ -365,8 +365,8 @@ export default defineConfig({ project: "` + project + `", apps: { web: { framewo
 	if got := sqlRun(`SELECT body FROM notes`); got != `null` && got != `[]` {
 		t.Fatalf("no org set, saw %s", got)
 	}
-	raw, _ := json.Marshal(map[string]any{"sql": `SELECT set_config('app.org_id', 'org_a', true); INSERT INTO notes (org_id, body) VALUES ('org_b', 'sneak')`, "write": true})
-	if code, out := run("sql", project, "--body", string(raw)); code == 0 || !strings.Contains(out, "row-level security") {
+	raw, _ := json.Marshal(map[string]any{"sql": `SELECT set_config('app.org_id', 'org_a', true); INSERT INTO notes (org_id, body) VALUES ('org_b', 'sneak')`})
+	if code, out := run("sql", "write", project, "--body", string(raw)); code == 0 || !strings.Contains(out, "row-level security") {
 		t.Fatalf("cross-org insert: exit %d %s", code, out)
 	}
 	phase("rls", t0)

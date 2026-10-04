@@ -28,8 +28,13 @@ func TestDrill(t *testing.T) {
 	b.waitReady("service/postgres")
 	sql := func(body map[string]any) [][]any {
 		t.Helper()
+		args := []string{"sql", "shop"}
+		if body["write"] == true {
+			delete(body, "write")
+			args = append(args, "--write")
+		}
 		raw, _ := json.Marshal(body)
-		res := b.ok("sql", "shop", "--body", string(raw))
+		res := b.ok(append(args, "--body", string(raw))...)
 		r, _ := res["results"].([]any)
 		if len(r) == 0 {
 			return nil

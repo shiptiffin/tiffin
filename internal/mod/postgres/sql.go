@@ -18,8 +18,7 @@ import (
 
 // SQLRequest runs SQL against a project's database.
 type PGSQLRequest struct {
-	SQL            string `json:"sql" minLength:"1" maxLength:"200000" doc:"The SQL. Read-only mode runs exactly one statement; write mode may run several, separated by semicolons (they run in one implicit transaction)."`
-	Write          bool   `json:"write,omitempty" doc:"Allow writes (DDL and DML). Needs apply:irreversible; the database is snapshotted first."`
+	SQL            string `json:"sql" minLength:"1" maxLength:"200000" doc:"The SQL. sql runs exactly one statement; sql_write may run several, separated by semicolons (they run in one implicit transaction)."`
 	Branch         string `json:"branch,omitempty" doc:"Run against this preview branch instead of the main database."`
 	Params         []any  `json:"params,omitempty" doc:"Values for $1, $2, ... (strings, numbers, booleans or null). With params only one statement runs."`
 	Limit          int    `json:"limit,omitempty" minimum:"0" maximum:"10000" doc:"Maximum rows returned per statement (default 500). Extra rows are counted, not returned."`
@@ -50,10 +49,10 @@ type PGSQLResult struct {
 	Snapshot   string              `json:"snapshot,omitempty" doc:"Snapshot taken before a write; restore it with snapshots restore"`
 }
 
-// RunSQL runs SQL as the project's own role. Read-only mode is enforced by
-// Postgres: one statement (extended protocol), inside a READ ONLY
-// transaction that is always rolled back.
-func RunSQL(ctx context.Context, p *platform.Platform, project string, in PGSQLRequest) (*PGSQLResult, error) {
+// RunSQL runs SQL as the project's own role. Without write, read-only is
+// enforced by Postgres: one statement (extended protocol), inside a READ
+// ONLY transaction that is always rolled back.
+func RunSQL(ctx context.Context, p *platform.Platform, project string, in PGSQLRequest, write bool) (*PGSQLResult, error) {
 	db, err := targetDatabase(ctx, p, project, in.Branch)
 	if err != nil {
 		return nil, err
@@ -66,8 +65,8 @@ func RunSQL(ctx context.Context, p *platform.Platform, project string, in PGSQLR
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
-	out := &PGSQLResult{Database: db, ReadOnly: !in.Write, Results: []PGStatementResult{}}
-	if in.Write {
+	out := &PGSQLResult{Database: db, ReadOnly: !write, Results: []PGStatementResult{}}
+	if write {
 		branch := in.Branch
 		if branch == "main" {
 			branch = ""
@@ -79,7 +78,7 @@ func RunSQL(ctx context.Context, p *platform.Platform, project string, in PGSQLR
 		out.Snapshot = snap.ID
 	}
 	start := time.Now()
-	conn, err := roleConn(ctx, p, project, db, timeout, !in.Write)
+	conn, err := roleConn(ctx, p, project, db, timeout, !write)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +89,7 @@ func RunSQL(ctx context.Context, p *platform.Platform, project string, in PGSQLR
 		return nil, err
 	}
 	switch {
-	case !in.Write:
+	case !write:
 		if err := pc.Exec(ctx, "BEGIN TRANSACTION READ ONLY").Close(); err != nil {
 			return nil, sqlError(err)
 		}
@@ -276,7 +275,7 @@ func sqlError(err error) error {
 		p := api.NewProblem(422, "validation", fmt.Sprintf("Postgres error %s: %s", pe.Code, msg))
 		switch {
 		case pe.Code == "25006":
-			p.Hint = "this statement writes; repeat with write=true (needs apply:irreversible; a snapshot is taken first)"
+			p.Hint = "this statement writes; run it with sql_write (tiffin sql write) instead: it needs apply:irreversible and takes a snapshot first"
 		case pe.Code == "42601" && strings.Contains(pe.Message, "multiple commands"):
 			p.Hint = "read-only mode runs one statement at a time; send them separately"
 		case pe.Code == "57014":

@@ -105,6 +105,17 @@ var groupShort = map[string]string{
 	"imports":   "List, inspect, apply and discard uploaded box exports",
 }
 
+// switchFlags give a generated command a flag that sends the call to a
+// sibling operation with the same inputs: `tiffin sql --write` is
+// `tiffin sql write` (the path gains the suffix).
+var switchFlags = map[string]struct{ flag, suffix, usage string }{
+	"sql": {"write", "/write", "allow writes: runs as sql write (needs full access; the database is snapshotted first)"},
+}
+
+// trailingArg lets a command take one body field as a last positional
+// argument: `tiffin sql shop "select 1"` is `--sql "select 1"`.
+var trailingArg = map[string]string{"sql": "sql", "sql-write": "sql"}
+
 type bodyFlag struct {
 	name string
 	kind string // string | integer | boolean | array
@@ -163,6 +174,12 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 	for _, p := range pathParams {
 		use += " <" + p + ">"
 	}
+	trailing := trailingArg[o.OperationID]
+	nargs := cobra.ExactArgs(len(pathParams))
+	if trailing != "" {
+		use += " [" + trailing + "]"
+		nargs = cobra.RangeArgs(len(pathParams), len(pathParams)+1)
+	}
 	long := o.Summary + ".\n\n" + o.Description
 	if api.Confirmable(o) {
 		long += "\n\nWithout --confirm nothing changes: the plan is printed and the exit code is 4."
@@ -171,7 +188,7 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 		Use:     use,
 		Short:   o.Summary,
 		Long:    long,
-		Args:    cobra.ExactArgs(len(pathParams)),
+		Args:    nargs,
 		Example: "  tiffin " + strings.Join(append(api.CLIPath(o), exampleArgs(pathParams)...), " "),
 	}
 	query := map[string]*string{}
@@ -242,8 +259,16 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 			cmd.Flags().StringVar(&bodyFile, "body-file", "", "read the request body from a JSON file (- for stdin)")
 		}
 	}
+	sw, hasSwitch := switchFlags[o.OperationID]
+	var switched bool
+	if hasSwitch {
+		cmd.Flags().BoolVar(&switched, sw.flag, false, sw.usage)
+	}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		path := o.Path
+		if switched {
+			path += sw.suffix
+		}
 		for i, p := range pathParams {
 			path = strings.ReplaceAll(path, "{"+p+"}", url.PathEscape(args[i]))
 		}
@@ -277,6 +302,9 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 						m[f.name] = *v
 					}
 				}
+			}
+			if trailing != "" && len(args) > len(pathParams) {
+				m[trailing] = args[len(pathParams)]
 			}
 			body = m
 		}

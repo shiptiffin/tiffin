@@ -132,8 +132,8 @@ func TestEncodeParams(t *testing.T) {
 func TestSQLErrorHints(t *testing.T) {
 	err := sqlError(&pgconn.PgError{Code: "25006", Message: "cannot execute INSERT in a read-only transaction"})
 	b, _ := json.Marshal(err)
-	if !strings.Contains(string(b), "write=true") || !strings.Contains(string(b), `"status":422`) {
-		t.Fatalf("read-only violation must point at write=true: %s", b)
+	if !strings.Contains(string(b), "sql_write") || !strings.Contains(string(b), `"status":422`) {
+		t.Fatalf("read-only violation must point at sql_write: %s", b)
 	}
 }
 

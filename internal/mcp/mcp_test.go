@@ -18,6 +18,11 @@ import (
 
 func connect(t *testing.T, scopes ...tokens.Scope) *sdk.ClientSession {
 	t.Helper()
+	return connectGroup(t, tmcp.GroupAll, scopes...)
+}
+
+func connectGroup(t *testing.T, group string, scopes ...tokens.Scope) *sdk.ClientSession {
+	t.Helper()
 	ctx := t.Context()
 	db, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
@@ -35,7 +40,7 @@ func connect(t *testing.T, scopes ...tokens.Scope) *sdk.ClientSession {
 		}
 	}
 	a := api.New(api.Deps{DB: db, Engine: change.NewEngine(db), Tokens: tm, Version: "test"})
-	srv := tmcp.NewServer(a, a.Handler(), "test", tmcp.Static(secret))
+	srv := tmcp.NewServer(a, a.Handler(), "test", tmcp.Static(secret), group)
 	st, ct := sdk.NewInMemoryTransports()
 	if _, err := srv.Connect(ctx, st, nil); err != nil {
 		t.Fatal(err)
@@ -230,5 +235,51 @@ func TestRunToolChainsCalls(t *testing.T) {
 	res, out = call(t, cs, "run", map[string]any{"code": `for (let i = 0; i < 100; i++) tiffin.call("whoami", {});`})
 	if !res.IsError || !strings.Contains(fmt.Sprint(out["error"]), "more than") {
 		t.Fatalf("call cap: %+v", out)
+	}
+}
+
+// The default (core) group lists a short set of tools plus run, and run still
+// reaches every operation: it can list them, read their schemas and call them.
+// (cmd/tiffin checks every core tool exists once all modules register.)
+func TestCoreGroupListsFewToolsAndRunReachesTheRest(t *testing.T) {
+	all := map[string]bool{}
+	for _, tl := range tmcp.Tools(api.New(api.Deps{})) {
+		all[tl.Tool.Name] = true
+	}
+	want := 1 // run
+	for _, n := range tmcp.CoreTools {
+		if all[n] {
+			want++
+		}
+	}
+	cs := connectGroup(t, tmcp.GroupCore)
+	res, err := cs.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Tools) != want {
+		t.Fatalf("core lists %d tools, want %d", len(res.Tools), want)
+	}
+	if init := cs.InitializeResult(); !strings.Contains(init.Instructions, "tiffin.tools(") || !strings.Contains(init.Instructions, "--tools all") {
+		t.Errorf("core instructions must say how to reach the other tools: %s", init.Instructions)
+	}
+	r, out := call(t, cs, "run", map[string]any{"code": `
+		const names = tiffin.tools("audit").map(t => t.name);
+		const s = tiffin.schema("audit_list");
+		const log = tiffin.call("audit_list", {});
+		return {names, hasLimit: JSON.stringify(s.inputSchema).includes("limit"), items: Array.isArray(log.items)};`})
+	if r.IsError {
+		t.Fatalf("run: %+v", out)
+	}
+	got := out["result"].(map[string]any)
+	if fmt.Sprint(got["names"]) != "[audit_list]" || got["items"] != true || got["hasLimit"] != true {
+		t.Fatalf("run reaching a non-core tool: %+v", got)
+	}
+	res, _ = connectGroup(t, tmcp.GroupAll).ListTools(t.Context(), nil)
+	if len(res.Tools) != len(all)+1 {
+		t.Errorf("all lists %d tools, want %d", len(res.Tools), len(all)+1)
+	}
+	if _, err := tmcp.ParseGroup("most"); err == nil {
+		t.Error("unknown group accepted")
 	}
 }
