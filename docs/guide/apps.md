@@ -54,6 +54,24 @@ A git URL deploy shallow-clones one commit of a **public https** repository on t
 builds it like `tiffin deploy`; the clone shows in the build log. For private code, push
 to the box instead.
 
+## Sharing the box
+
+Every app copy of a project, previews included, runs inside the project's share of the
+box. Apps don't need a memory setting: by default their copies share the project's
+memory, and the project grows into whatever the box has free (see
+[Sharing the box](concepts.md#sharing-the-box)). To give a project a fixed share, set
+`resources` at the top of `tiffin.config.ts`; to also stop one copy from crowding out
+its siblings, give the app its own cap:
+
+```ts
+resources: { memoryMB: 1024 },               // the whole project
+apps: { web: { instances: 2, memoryMB: 384 } } // each web copy, within that
+```
+
+`tiffin projects usage shop` shows how much the project uses, how much more it could
+take, and whether it ran out lately. When an app is stopped for memory, it restarts on
+its own and the usage says `pressure: "oom"`: raise the budget or find the leak.
+
 ## What your app gets
 
 `PORT`, `NODE_ENV`, `TIFFIN_URL` (its public URL), plus each service's variables:

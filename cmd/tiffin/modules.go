@@ -8,6 +8,7 @@ import (
 	_ "github.com/btahir/tiffin/internal/mod/backup"
 	_ "github.com/btahir/tiffin/internal/mod/base"
 	_ "github.com/btahir/tiffin/internal/mod/box"
+	_ "github.com/btahir/tiffin/internal/mod/budget"
 	_ "github.com/btahir/tiffin/internal/mod/email"
 	_ "github.com/btahir/tiffin/internal/mod/observe"
 	_ "github.com/btahir/tiffin/internal/mod/portable"

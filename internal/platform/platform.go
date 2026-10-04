@@ -113,6 +113,46 @@ func (p *Platform) EstimateLoss(ctx context.Context, project string, op change.O
 	return nil, nil
 }
 
+// PlanChecker can refuse a manifest before it is planned: the desired state
+// cannot work on this box (a budget bigger than the machine, say). It runs
+// on every plan and apply of a manifest, so it must be fast and read-only.
+// Return nil to allow, or an error that says why (an *api.Problem with
+// status 422 and a hint reads best).
+type PlanChecker interface {
+	CheckPlan(ctx context.Context, p *Platform, project string, desired map[string]change.Resource) error
+}
+
+// CheckPlan asks every PlanChecker about a desired state; the first refusal wins.
+func (p *Platform) CheckPlan(ctx context.Context, project string, desired map[string]change.Resource) error {
+	for _, m := range Modules() {
+		if pc, ok := m.(PlanChecker); ok {
+			if err := pc.CheckPlan(ctx, p, project, desired); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// ServiceUsage is what one project holds in one service.
+type ServiceUsage struct {
+	Service string // "postgres", "valkey", "storage"
+	// Disk says which disk total Bytes counts toward: "database", "kv" or "files".
+	Disk  string
+	Bytes int64
+	// Counts the service reports, by name (e.g. "connections", "keys",
+	// "objects", "buckets").
+	Counts map[string]int64
+}
+
+// UsageReporter measures what a project holds in a module's service. It
+// runs in the background for the usage API (results are cached), so it may
+// take a second, but it must be read-only. Return nil, nil when the project
+// does not use the service.
+type UsageReporter interface {
+	ProjectUsage(ctx context.Context, p *Platform, project string) (*ServiceUsage, error)
+}
+
 // Checker contributes health checks.
 type Checker interface {
 	Checks(ctx context.Context, p *Platform) []Check

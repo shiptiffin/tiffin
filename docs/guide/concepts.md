@@ -9,6 +9,47 @@ A project is described by `tiffin.config.ts`. Tiffin turns it into **resources**
 `app/web`, `service/postgres`, `bucket/uploads`, `env/LOG_LEVEL`, `cron/nightly` and so
 on. Each resource has a live state on the machine: *pending*, *ready* or *failed*.
 
+## Sharing the box
+Launch as many projects as you like: they divide the box between them on their own.
+Tiffin keeps memory for itself first (its services, plus Postgres's and Valkey's caches;
+about 1.4 GB of a 3 GB box), and the rest is **memory for apps**, shared by every
+project. `tiffin box settings get` shows the numbers.
+
+By default a project is **automatic**. It grows into whatever the box has free, so a
+busy shop can use most of the box while the others are quiet. It can never take the
+platform's memory, and it always leaves 128 MB for each copy the other projects run.
+When the box gets tight, each project is protected up to a fair share; one that is over
+its share gets swapped out first, so it slows down rather than anyone being killed. CPU
+works the same way: full speed when the box is idle, equal shares when projects compete.
+
+When you want a fixed share, give the project a budget in `tiffin.config.ts`:
+
+```ts
+export default defineConfig({
+  project: "guestbook",
+  resources: { memoryMB: 512, cpus: 0.5 },   // or: { maxSharePercent: 25 }
+  apps: { web: {} },
+});
+```
+
+- `memoryMB` caps all of the project's app copies together (production and previews)
+  and also reserves that memory for it. All projects' `memoryMB` budgets must fit in the
+  memory for apps; the plan says so if they don't.
+- `cpus` caps its CPU, in steps of 0.25.
+- `maxSharePercent` caps it at a share of the box (memory for apps and CPUs). It is a
+  ceiling, not a reservation, and follows the box when you move to a bigger server.
+- If both `memoryMB` and `maxSharePercent` are set, the lower wins.
+
+A project at its cap is held there: an app that needs more is stopped for memory and
+restarts, and the project's usage says `pressure: "oom"`. Budget changes apply live
+through plan and apply; nothing restarts. The box owner can also cap every project that
+sets no budget: `tiffin box settings set --body '{"defaultMaxSharePercent":25}'`.
+
+`tiffin projects usage <project>` shows what a project uses against its limits: memory,
+headroom (how much more it could take now), CPU, disk, each app's copies and its
+services. There is no disk budget yet: Postgres has no per-database quota, so disk is
+reported, not enforced (buckets have their own quota, see [Storage](storage.md)).
+
 ## Changes
 Every change to a project is a **Change**: who made it (a person or an agent, and the
 agent's session), why (the intent), exactly what changed, how risky it was, and the

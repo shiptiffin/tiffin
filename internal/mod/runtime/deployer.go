@@ -21,6 +21,7 @@ import (
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/ids"
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/mod/budget"
 	"github.com/btahir/tiffin/internal/mod/email"
 	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
 )
@@ -226,7 +227,11 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 			n = 1 // previews run one instance
 		}
 		if mode != modeWake {
-			fmt.Fprintf(log, "==> starting %d instance(s) (%d MiB each)\n", n, spec.MemoryMB)
+			if spec.MemoryMB > 0 {
+				fmt.Fprintf(log, "==> starting %d instance(s) (at most %d MiB each, within project %s's share of the box)\n", n, spec.MemoryMB, d.Project)
+			} else {
+				fmt.Fprintf(log, "==> starting %d instance(s) (sharing project %s's memory)\n", n, d.Project)
+			}
 		}
 		started, err = r.startInstances(ctx, st, d, spec, n, env)
 		if err != nil {
@@ -316,7 +321,8 @@ func (r *rt) startInstances(ctx context.Context, st *AppState, d *Deploy, spec *
 		logPath := r.logFile(d.Project, d.App, d.Preview, d.ID, st.Serial)
 		_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
 		spec := RunSpec{Name: name, Image: d.Image, Port: port, MemoryMB: spec.MemoryMB, Env: ienv, LogPath: logPath,
-			Labels: map[string]string{"tiffin.project": d.Project, "tiffin.app": d.App, "tiffin.preview": d.Preview, "tiffin.deploy": d.ID, "tiffin.port": strconv.Itoa(port)}}
+			CgroupParent: budget.Slice(d.Project),
+			Labels:       map[string]string{"tiffin.project": d.Project, "tiffin.app": d.App, "tiffin.preview": d.Preview, "tiffin.deploy": d.ID, "tiffin.port": strconv.Itoa(port)}}
 		if err := r.eng.Run(ctx, spec); err != nil {
 			r.freePort(port)
 			r.removeInstances(ctx, out)
@@ -484,6 +490,9 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 		instances = 1
 	}
 	fmt.Fprintf(h, "instances=%d memory=%d role=%s health=%s", instances, spec.MemoryMB, spec.Role, spec.Healthcheck)
+	// Containers started before project slices existed restart into theirs
+	// once (with zero downtime) when the hash changes.
+	fmt.Fprintf(h, " slice=%s", budget.Slice(project))
 	return env, hex.EncodeToString(h.Sum(nil))[:16], nil
 }
 

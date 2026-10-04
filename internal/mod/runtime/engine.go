@@ -25,6 +25,9 @@ type RunSpec struct {
 	Labels   map[string]string
 	LogPath  string
 	Mounts   []string // host:container[:ro]
+	// CgroupParent is the systemd slice the container runs in (its
+	// project's budget); "" leaves nerdctl's default.
+	CgroupParent string
 }
 
 // Container is what the engine reports about one container.
@@ -94,6 +97,9 @@ func (n *nerdctl) Run(ctx context.Context, s RunSpec) error {
 	}
 	if s.MemoryMB > 0 {
 		args = append(args, "--memory", strconv.Itoa(s.MemoryMB)+"m", "--memory-swap", strconv.Itoa(s.MemoryMB)+"m")
+	}
+	if s.CgroupParent != "" {
+		args = append(args, "--cgroup-parent", s.CgroupParent)
 	}
 	keys := make([]string, 0, len(s.Labels))
 	for k := range s.Labels {
