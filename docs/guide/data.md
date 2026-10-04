@@ -43,7 +43,7 @@ tiffin backups list
 tiffin restore <id>           # shows what it will overwrite; repeat with --confirm
 ```
 
-Restore takes a safety backup first. Off-site copies (R2 or any S3) come next.
+Restore takes a safety backup first. Off-site copies are not supported yet.
 
 ### Restore drills
 

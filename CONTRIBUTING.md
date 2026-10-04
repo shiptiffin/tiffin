@@ -1,40 +1,30 @@
-# Building a Tiffin module
+# Contributing to Tiffin
 
 Tiffin is "your app in a box": one Linux box runs a whole app stack (apps, Postgres,
 Valkey, storage, email, auth, queues, observability, analytics), operated by humans
 and AI agents through one API. Every box feature is a **module** that plugs into the
 platform spine in `internal/platform`. Read `internal/platform/platform.go` first.
 
-Design sources: `../research/2026-10-02-architecture/STACK.md`, `BUILD-PLAN.md`,
-and the topic notes there (08 queues, 11 workflows, 14 analytics, 16 protection, 17 design).
+Tooling and the `make` targets are in the README's "Developing" section.
 
-## Rules for every agent
+## Ground rules
 
-- **Stay in your area.** Other agents edit this tree at the same time. Your module
-  lives in `internal/mod/<name>/` (plus any packages/apps you were given). Shared files
-  you may touch only if your brief says so. Need a change in someone else's area?
-  Note it in your final report instead.
-- **Commits:** small and path-limited: `git add <explicit paths>` then
-  `git commit -m "..." -- <paths>`. Never `git add -A`/`.`, stash, reset, clean or rebase.
-  If `.git/index.lock` exists, wait and retry. End messages with
-  `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Never push.
-- **go.mod:** only through the lock: `scripts/golock.sh go get pkg@version`,
-  `scripts/golock.sh go mod tidy`. Prefer small, permissive (MIT/BSD/Apache/ISC/MPL
-  unmodified) dependencies. Prefer driving a pinned upstream binary over importing a
-  giant library when that is cleaner.
-- **Heavy jobs** (VM boots, big builds, Playwright, `next build`) go through
-  `/Users/bilaltahir/Downloads/personal/projects/throwaway/research/heavy.sh <cmd>`.
-- **No external accounts or services.** Downloads of pinned upstream releases (apt,
-  GitHub releases, npm) from inside a dev VM are fine. Never touch macOS settings or
-  trust stores, never the owner's box `tiffin`, never `~/.tiffin`.
-- **Quality bar:** this ships to people who will judge it in minutes. Agent-friendly
-  APIs (clear summaries/descriptions, stable error codes, hints), plain-words output,
-  honest docs. Test everything you build; leave no stubs that pretend to work.
+- **Small, focused commits** that touch only the paths they need.
+- **Dependencies:** change `go.mod` through `scripts/golock.sh go get pkg@version` and
+  `scripts/golock.sh go mod tidy` (it serialises concurrent edits). Prefer small,
+  permissive (MIT/BSD/Apache/ISC, MPL unmodified) dependencies, and prefer driving a
+  pinned upstream binary over importing a giant library when that is cleaner.
+- **Dev boxes only.** Develop against a separate dev box (below), never your default
+  box or `~/.tiffin`. Don't change host settings or trust stores from tests.
+- **Quality bar:** agent-friendly APIs (clear summaries and descriptions, stable error
+  codes, hints), plain-words output, honest docs. Test what you build; no stubs that
+  pretend to work.
 
 ## The contract
 
-A module registers in `init()` (`platform.Register(&Module{})`; the stub is already
-imported by `cmd/tiffin/modules.go`) and implements any of:
+A module lives in `internal/mod/<name>/`, registers in `init()`
+(`platform.Register(&Module{})`, with a blank import in `cmd/tiffin/modules.go`) and
+implements any of:
 
 | Interface | When it runs | Typical use |
 |---|---|---|
@@ -65,28 +55,26 @@ full env for an app. Hosts: `p.Host("shop")` → `shop.tiffin.localhost`, `p.URL
 Data disk: `/var/lib/tiffin` (XFS, reflinks) — use `/var/lib/tiffin/<yourmodule>/`.
 The service runs as root (`tiffin serve --box`). Edge access logs: `/var/lib/tiffin/logs/access.log`.
 
-## Your dev box
+## A dev box
 
-Each agent gets its own throwaway VM beside the owner's box. Use your assigned names:
+A dev box is a second Lima VM beside your default one, with its own instance, disk,
+port and config dir, chosen with environment variables:
 
 ```bash
-cd /Users/bilaltahir/Downloads/personal/projects/throwaway/tiffin
-export TIFFIN_CONFIG_DIR=/tmp/tiffin-dev-<area>  TIFFIN_LIMA_INSTANCE=dev-<area> \
-       TIFFIN_LIMA_DISK=<disk, max 7 chars>  TIFFIN_LIMA_PORT=<port>  TIFFIN_LIMA_MEMORY=<e.g. 3GiB>
-go build -o /tmp/tiffin-<area> ./cmd/tiffin
-GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/tiffin-<area>-linux ./cmd/tiffin
-/tmp/tiffin-<area> up --binary /tmp/tiffin-<area>-linux     # create or update (provision + self-update)
-/tmp/tiffin-<area> status            # every CLI command talks to your dev box
-limactl shell dev-<area> -- sudo journalctl -u tiffin -n 200 --no-pager
-/tmp/tiffin-<area> down --confirm local   # when you finish: delete it
+export TIFFIN_CONFIG_DIR=/tmp/tiffin-dev  TIFFIN_LIMA_INSTANCE=tiffin-dev \
+       TIFFIN_LIMA_DISK=tdev  TIFFIN_LIMA_PORT=18443  TIFFIN_LIMA_MEMORY=3GiB
+# TIFFIN_LIMA_DISK is at most 7 characters; TIFFIN_LIMA_CPUS is optional.
+go build -o /tmp/tiffin-dev ./cmd/tiffin
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/tiffin-dev-linux ./cmd/tiffin
+/tmp/tiffin-dev up --binary /tmp/tiffin-dev-linux    # create or update (provision + self-update)
+/tmp/tiffin-dev status                               # every CLI command talks to the dev box
+limactl shell tiffin-dev -- sudo journalctl -u tiffin -n 200 --no-pager
+/tmp/tiffin-dev down --confirm local                 # delete it when you're done
 ```
 
-Write unit tests that run on the Mac (`go test ./internal/mod/<name>/...`) and an e2e
+## Tests
+
+Unit tests run on the host: `go test ./internal/mod/<name>/...` (`make test` runs all Go
+and Bun tests; `make lint` runs gofmt, go vet and staticcheck). A module also gets an e2e
 test in `e2e/<name>_test.go` (build tag `e2e`) that drives the CLI against a fresh box
-the way `e2e/up_test.go` does. Delete your dev box when done.
-
-## Report
-
-Final reply (<450 words): what works end to end (with the exact commands you ran and
-real numbers), API operations added, env vars provided, files, tests, gaps, and what the
-dashboard needs to show for your module (endpoints + shapes).
+the way `e2e/up_test.go` does; `make e2e` runs them all, each on a fresh VM (slow).

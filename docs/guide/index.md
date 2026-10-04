@@ -20,11 +20,11 @@ online this weekend without stitching six services together.
 
 Honesty matters more than a big claim:
 
-- **One machine.** If the box is down, your app is down. Backups are local until you
-  connect off-site storage. That is fine for side projects; it is not a bank.
+- **One machine.** If the box is down, your app is down. Backups stay on the box;
+  off-site storage is not supported yet. That is fine for side projects; it is not a bank.
 - **Pre-1.0.** Interfaces may still change between versions.
-- **Local first.** Today a box runs as a VM on your Mac. Servers (Hetzner) and
-  Cloudflare come next.
+- **Local first.** Today a box runs as a VM on your Mac. Servers and Cloudflare are
+  not supported yet.
 
 Start with the [quickstart](quickstart.md), then [concepts](concepts.md) and
 [working with agents](agents.md).

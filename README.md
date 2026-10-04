@@ -16,7 +16,7 @@ claude mcp add tiffin -- tiffin mcp         # let your agent help, safely
 ```
 
 > **Status: pre-1.0, local first.** Everything below runs today on a Lima VM on your Mac.
-> Servers (Hetzner), Cloudflare and off-site backups come next. Interfaces may change.
+> Servers, Cloudflare and off-site backups are not supported yet. Interfaces may change.
 
 ## What's in the box
 
@@ -44,8 +44,8 @@ claude mcp add tiffin -- tiffin mcp         # let your agent help, safely
 ## Honest limits
 
 It is one machine: if it's down, your app is down. It is made for side projects,
-experiments and small apps, not banks. Backups stay on the box until off-site storage
-lands. Read [docs/guide/security.md](docs/guide/security.md) before you put anything
+experiments and small apps, not banks. Backups stay on the box; off-site storage is not
+supported yet. Read [docs/guide/security.md](docs/guide/security.md) before you put anything
 important on it.
 
 ## Docs
@@ -54,7 +54,7 @@ Start with [the quickstart](docs/guide/quickstart.md), then
 [concepts](docs/guide/concepts.md) and [working with agents](docs/guide/agents.md).
 Per-service guides: [storage](docs/guide/storage.md), [email](docs/guide/email.md),
 [observability](docs/guide/observe.md), [analytics](docs/guide/analytics.md).
-Building a module: [docs/MODULES.md](docs/MODULES.md).
+Contributing and building a module: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Developing
 
