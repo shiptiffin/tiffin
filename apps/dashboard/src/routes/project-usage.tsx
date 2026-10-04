@@ -1,16 +1,20 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import type { ManifestApp } from "@/api/client";
+import { request, type ManifestApp } from "@/api/client";
 import { mq } from "@/api/modules";
 import { q } from "@/api/queries";
 import { BoxBar } from "@/components/box-bar";
 import { useTitle } from "@/components/favicon";
 import { Crumbs, Page, PageHeader, Skeleton } from "@/components/page";
+import { ProblemNote } from "@/components/problem";
 import { AppRow, Group, RESERVE_MB, Working } from "@/components/project-rows";
+import { ReadOnlyBanner } from "@/components/read-only";
 import { SegMeter } from "@/components/seg-meter";
+import { toast } from "@/components/toast";
 import { cn } from "@/lib/cn";
 import { bytes, count, dec } from "@/lib/format";
+import { useMe } from "@/lib/me";
 import { rememberProject } from "@/lib/recent";
 import { change, pendingFor, usePending } from "@/lib/staged";
 import { partName, partSub } from "@/lib/names";
@@ -52,6 +56,7 @@ export function ProjectUsagePage({ project }: { project: string }) {
   const limitMB = usage.data?.memory.limitBytes ? usage.data.memory.limitBytes / MB : undefined;
   const totalMB = shares?.totalMB;
   const cpus = shares?.cpuCount ?? res?.cpu.count ?? 1;
+  const storage = usage.data?.storage;
 
   let sentence: ReactNode = <Skeleton className="h-7 w-80" />;
   if (memMB !== undefined && totalMB) {
@@ -76,6 +81,12 @@ export function ProjectUsagePage({ project }: { project: string }) {
     <Page wide>
       <PageHeader eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params: { project } }, { label: "Usage" }]} />} title="Usage" />
       <div className="mt-3 max-w-[44rem] text-[1.0625rem] leading-7 text-ink">{sentence}</div>
+      <ReadOnlyBanner project={project} className="mt-5" />
+      {usage.data?.storage?.diskWarning && !usage.data.storage.readOnly && (
+        <p role="status" className="mt-5 max-w-[46rem] rounded-[10px] bg-warn-wash px-4 py-3 text-[0.9375rem] text-ink">
+          {usage.data.storage.diskWarning}
+        </p>
+      )}
 
       {shares && (
         <div className="mt-5 max-w-[46rem]">
@@ -94,7 +105,13 @@ export function ProjectUsagePage({ project }: { project: string }) {
           of={`of one CPU · the box has ${cpuWords(cpus).replace(/^one CPU$/, "one")}`}
           bar={cpuPct !== undefined ? { v: cpuPct, max: 100 } : undefined}
         />
-        <Stat label="Disk" value={bytes(diskBytes)} of="databases and files" />
+        <Stat
+          label="Disk"
+          value={bytes(storage?.limitBytes ? storage.usedBytes : diskBytes)}
+          of={storage?.limitBytes ? `of ${bytes(storage.limitBytes, 0)} allowed` : "databases and files"}
+          bar={storage?.limitBytes ? { v: storage.usedBytes, max: storage.limitBytes } : undefined}
+          full={!!storage?.readOnly}
+        />
       </div>
       {usage.data?.memory.pressure === "oom" && totalMB && (
         <OutOfMemory project={project} live={live} source={usage.data.limitSource} />
@@ -103,6 +120,7 @@ export function ProjectUsagePage({ project }: { project: string }) {
       {hasUsage && totalMB && (
         <Limit project={project} resources={resources} busy={!!staged} live={live} totalMB={totalMB} cpus={cpus} source={usage.data?.limitSource} />
       )}
+      {storage && <StorageLimit project={project} storage={storage} />}
 
       <Advanced
         project={project}
@@ -191,6 +209,75 @@ function Limit({
           )}
         </Choice>
       </div>
+    </section>
+  );
+}
+
+const GB = 1073741824;
+
+/** The optional storage limit: databases and files together, off unless the box owner sets one. */
+function StorageLimit({ project, storage }: { project: string; storage: NonNullable<ProjectUsage["storage"]> }) {
+  const { admin } = useMe();
+  const qc = useQueryClient();
+  const limited = storage.limitBytes > 0;
+  const [gb, setGb] = useState(String(limited ? Math.round((storage.limitBytes / GB) * 10) / 10 : Math.max(1, Math.ceil((storage.usedBytes * 2) / GB))));
+  const save = useMutation({
+    mutationFn: (maxBytes: number) => request("PUT", `/v1/projects/${encodeURIComponent(project)}/storage/quota`, { maxBytes }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: usageQuery(project).queryKey });
+      void qc.invalidateQueries({ queryKey: ["storage", project] });
+    },
+  });
+  // Undo puts back this project's own limit, or the box's default.
+  const before = storage.limitSource === "project" ? storage.limitBytes || -1 : 0;
+  const set = (maxBytes: number, title: string) => save.mutate(maxBytes, { onSuccess: () => toast({ title, action: { label: "Undo", run: () => save.mutateAsync(before) } }) });
+  const n = Number(gb);
+  const ok = Number.isFinite(n) && n > 0;
+  const limitTo = () => ok && set(Math.round(n * GB), `${project} may store up to ${bytes(Math.round(n * GB), 1)} now.`);
+  const used = `Its databases and files use ${bytes(storage.usedBytes)}.`;
+
+  return (
+    <section id="storage" className="mt-10 max-w-[46rem] scroll-mt-8" aria-label="Storage">
+      <h2 className="text-[0.9375rem] font-[550] text-ink">Storage</h2>
+      {!admin ? (
+        <p className="mt-1 text-sm text-ink-2">
+          {used} {limited ? `The box owner limits it to ${bytes(storage.limitBytes, 0)}.` : "It has no storage limit."}
+        </p>
+      ) : (
+        <div role="radiogroup" aria-label={`How much disk ${project} may use`} className="mt-3 flex flex-col gap-2">
+          <Choice
+            checked={!limited}
+            onSelect={() => limited && set(-1, `${project} has no storage limit now.`)}
+            title="No limit"
+            note={`${used} If the box’s disk fills up, the project growing fastest goes read-only first, so the others keep running.`}
+          />
+          <Choice checked={limited} onSelect={() => !limited && limitTo()} title={limited ? `Limited to ${bytes(storage.limitBytes, 0)}` : "Limit its storage"} note="Databases and files together. At the limit it becomes read-only until it’s under it again.">
+            {limited && (
+              <form
+                className="mt-3 flex flex-wrap items-end gap-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  limitTo();
+                }}
+              >
+                <label className="text-xs text-ink-3">
+                  Limit (GB)
+                  <input
+                    value={gb}
+                    onChange={(e) => setGb(e.target.value.replace(/[^0-9.]/g, ""))}
+                    inputMode="decimal"
+                    className="ident mt-1 block h-8 w-28 rounded-[7px] border border-rule-2 bg-paper-raised px-2 text-[0.8125rem] text-ink outline-none focus-visible:border-brass"
+                  />
+                </label>
+                <Button type="submit" size="md" disabled={!ok || save.isPending || Math.round(n * GB) === storage.limitBytes}>
+                  Set limit
+                </Button>
+              </form>
+            )}
+          </Choice>
+        </div>
+      )}
+      {save.isError && <ProblemNote className="mt-3" error={save.error} />}
     </section>
   );
 }

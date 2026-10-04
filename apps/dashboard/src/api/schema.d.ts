@@ -433,7 +433,7 @@ export interface paths {
         };
         /**
          * Show the box's resources
-         * @description What the machine has and what uses it, sampled now (cached for 3 seconds): CPU count, load and use; memory total, used and available; data disk and system disk size and use; uptime; and for every service Tiffin runs (postgres, valkey, storage, auth, the tiffin service itself, victoria-metrics, victoria-logs, containerd, buildkit, crowdsec...) and every app container: state, memory, CPU seconds and CPU percent (100 = one core) over the last window; and every project's totals (all its app copies' memory and CPU, its data on disk, its limits and memory pressure). Box only: a laptop running tiffin serve without --box answers 503.
+         * @description What the machine has and what uses it, sampled now (cached for 3 seconds): CPU count, load and use; memory total, used and available; data disk and system disk size and use; uptime; and for every service Tiffin runs (postgres, valkey, storage, auth, the tiffin service itself, victoria-metrics, victoria-logs, containerd, buildkit, crowdsec...) and every app container: state, memory, CPU seconds and CPU percent (100 = one core) over the last window; and every project's totals (all its app copies' memory and CPU, its data on disk, its limits and memory pressure); and the disk guard (guard): the data disk against its warning and stop levels, the project growing fastest and the projects held read-only. Box only: a laptop running tiffin serve without --box answers 503.
          */
         get: operations["box-resources"];
         put?: never;
@@ -453,12 +453,12 @@ export interface paths {
         };
         /**
          * Show how the box is shared
-         * @description The box-wide default share (defaultMaxSharePercent: projects that set no `resources` of their own may use at most this percentage of the box; 100 = elastic), the box's memory and CPUs, the memory Tiffin keeps for itself, the memory left for apps and how much of it projects' memoryMB budgets take. Per-project limits and live use: projects usage.
+         * @description The box-wide default share (defaultMaxSharePercent: projects that set no `resources` of their own may use at most this percentage of the box; 100 = elastic), the disk guard's levels (diskWarnPercent, diskStopPercent, diskResumePercent: shares of the data disk), the box's memory and CPUs, the memory Tiffin keeps for itself, the memory left for apps and how much of it projects' memoryMB budgets take. Per-project limits and live use: projects usage; the disk guard's state: box resources.
          */
         get: operations["box-settings-get"];
         /**
-         * Set the default share of the box
-         * @description Sets defaultMaxSharePercent: every project that sets no `resources` in tiffin.config.ts may use at most this percentage of the box, of its memory for apps and of its CPUs (e.g. 25 = no project can take more than a quarter unless its config says otherwise). 100 restores elastic sharing. Applies live to running apps without restarting them; a project over its new cap has its cache reclaimed, and an app that cannot fit is killed for memory and restarted. Box owner only.
+         * Set how the box is shared
+         * @description Changes the settings it names and keeps the rest. defaultMaxSharePercent: every project that sets no `resources` in tiffin.config.ts may use at most this percentage of the box, of its memory for apps and of its CPUs (e.g. 25 = no project can take more than a quarter unless its config says otherwise); 100 restores elastic sharing. Applies live to running apps without restarting them; a project over its new cap has its cache reclaimed, and an app that cannot fit is killed for memory and restarted. The disk guard (on by default): past diskWarnPercent of the data disk the box warns, naming the project growing fastest; past diskStopPercent that project becomes read-only (database writes and uploads refused, recorded in its history) so every other project keeps running; below diskResumePercent it can write again. Box owner only.
          */
         put: operations["box-settings-set"];
         post?: never;
@@ -2821,8 +2821,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Set a project's storage quota
-         * @description Caps the bytes a project can store. Uploads that would go over are refused with QuotaExceeded (checked against usage measured every minute plus uploads since). maxBytes: >0 sets the limit, 0 returns to the box default, -1 means unlimited. Box admins only.
+         * Set a project's storage limit
+         * @description Caps what a project stores on the box: its databases (branches included) and its files together. Off by default. Uploads that would go over are refused with QuotaExceeded (files measured every minute plus uploads since, databases every 30 seconds); a project that reaches its limit becomes read-only (its database refuses writes, its buckets refuse uploads) until it is under the limit again, and the box's change log records both. Raising or clearing the limit lifts it within seconds. maxBytes: >0 sets the limit, 0 returns to the box default, -1 means none. Box admins only.
          */
         put: operations["storage-quota-set"];
         post?: never;
@@ -2861,7 +2861,7 @@ export interface paths {
         };
         /**
          * Show what a project uses of the box
-         * @description One project's share of the box, live (cached for 2 seconds): its budget from tiffin.config.ts (auto: true when it sets none); memory used by all its app copies together (production and previews) against its limit, the part the kernel protects for it, its headroom (how much more it could take right now) and pressure ("oom" when an app copy was killed for memory in the last hour: the project is using all the memory it was given); CPU use against its cap; data on disk (database, files, KV; measured in the background every 30 seconds); each app's copies, memory and CPU; and service numbers (Postgres connections, KV keys, bucket objects). limitSource says where the limits come from: "project" (its resources), "box default" (the box-wide default share, see box settings) or "automatic" (elastic: it grows into whatever the box has free). To change the limits, set resources in tiffin.config.ts and plan/apply. Every project at once: box resources (its projects list).
+         * @description One project's share of the box, live (cached for 2 seconds): its budget from tiffin.config.ts (auto: true when it sets none); memory used by all its app copies together (production and previews) against its limit, the part the kernel protects for it, its headroom (how much more it could take right now) and pressure ("oom" when an app copy was killed for memory in the last hour: the project is using all the memory it was given); CPU use against its cap; data on disk (database, files, KV; measured in the background every 30 seconds); storage: its databases and files against its storage limit (none by default; set with storage quota set), and readOnly when its writes are held (disk nearly full, or over its limit) with how to fix it; each app's copies, memory and CPU; and service numbers (Postgres connections, KV keys, bucket objects). limitSource says where the limits come from: "project" (its resources), "box default" (the box-wide default share, see box settings) or "automatic" (elastic: it grows into whatever the box has free). To change the limits, set resources in tiffin.config.ts and plan/apply. Every project at once: box resources (its projects list).
          */
         get: operations["project-usage"];
         put?: never;
@@ -3253,8 +3253,8 @@ export interface paths {
         };
         get?: never;
         /**
-         * Set the box's default storage quota
-         * @description The quota for projects without their own. 0 means unlimited. Starts at 10 GiB. Box admins only.
+         * Set the box's default storage limit
+         * @description The storage limit (database and files together) for projects without their own. 0 means none, which is where a box starts. Box admins only.
          */
         put: operations["storage-quota-default-set"];
         post?: never;
@@ -4181,6 +4181,59 @@ export interface components {
             /** @description The system disk (/): the OS and packages */
             system: components["schemas"]["BoxDisk"];
         };
+        BoxGuard: {
+            /**
+             * @description ok; warn: the data disk is past warnPercent; stop: past stopPercent, and the project growing fastest is read-only
+             * @enum {string}
+             */
+            level: "ok" | "warn" | "stop";
+            /** @description What is happening and how to fix it, in plain words (absent when all is well) */
+            message?: string;
+            /** @description Projects whose writes are held now */
+            readOnly: components["schemas"]["BoxHold"][] | null;
+            /** Format: int64 */
+            resumePercent: number;
+            /**
+             * Format: int64
+             * @description 100: the guard only warns
+             */
+            stopPercent: number;
+            /** @description The project growing fastest over the last hour (the biggest when none grew): the one the guard stops first */
+            top?: components["schemas"]["BoxGuardProject"];
+            /** Format: double */
+            usedPercent: number;
+            /** Format: int64 */
+            warnPercent: number;
+        };
+        BoxGuardProject: {
+            /**
+             * Format: int64
+             * @description Its databases (branches included) and files
+             */
+            bytes: number;
+            /** Format: int64 */
+            databaseBytes: number;
+            /** Format: int64 */
+            filesBytes: number;
+            /**
+             * Format: int64
+             * @description How much it grew over the last hour (since the guard started, when sooner)
+             */
+            growthBytes: number;
+            project: string;
+        };
+        BoxHold: {
+            /** @description Which limit, and how to fix it */
+            message: string;
+            project: string;
+            /**
+             * @description disk: the data disk is nearly full and it grew the most; limit: it reached its storage limit
+             * @enum {string}
+             */
+            reason: "disk" | "limit";
+            /** Format: date-time */
+            since: string;
+        };
         BoxKVUsage: {
             /** Format: int64 */
             keys: number;
@@ -4252,6 +4305,8 @@ export interface components {
             apps: components["schemas"]["BoxApp"][] | null;
             cpu: components["schemas"]["BoxCPU"];
             disks: components["schemas"]["BoxDisks"];
+            /** @description The disk guard: the data disk against its warning, stop and resume levels, the project growing fastest, and the projects held read-only (absent until its first round, 30 seconds after the box starts) */
+            guard?: components["schemas"]["BoxGuard"];
             hostname: string;
             memory: components["schemas"]["BoxMemory"];
             /** @description Every project: its app copies' memory and CPU together (its slice), its data on disk and its limits, biggest memory first. Per-project detail: projects usage. */
@@ -4328,6 +4383,8 @@ export interface components {
             /** Format: date-time */
             sampledAt: string;
             services: components["schemas"]["BoxUsageServices"];
+            /** @description Its storage limit (databases and files together; none by default) and whether its writes are held read-only (absent until the disk guard's first round) */
+            storage?: components["schemas"]["BoxUsageStorage"];
         };
         BoxUsageApp: {
             app: string;
@@ -4431,6 +4488,24 @@ export interface components {
             storage?: components["schemas"]["BoxStorageUsage"];
             valkey?: components["schemas"]["BoxKVUsage"];
         };
+        BoxUsageStorage: {
+            /** @description Set while the data disk is past its warning level and this project is the one growing fastest */
+            diskWarning?: string;
+            /**
+             * Format: int64
+             * @description Its storage limit; 0: none (the default)
+             */
+            limitBytes: number;
+            /** @enum {string} */
+            limitSource: "project" | "box-default";
+            /** @description Set while its writes are held: which limit and how to fix it */
+            readOnly?: components["schemas"]["BoxHold"];
+            /**
+             * Format: int64
+             * @description Its databases (branches included) and files: what its storage limit counts (measured every 30 seconds)
+             */
+            usedBytes: number;
+        };
         "Branch-createRequest": {
             /** @description Clone this branch instead of main */
             from?: string;
@@ -4468,6 +4543,21 @@ export interface components {
              * @description The memory cap the default share gives a project, in MiB (absent at 100%)
              */
             defaultMemoryMB?: number;
+            /**
+             * Format: int64
+             * @description Below this share read-only projects can write again (default 90)
+             */
+            diskResumePercent: number;
+            /**
+             * Format: int64
+             * @description Past this share the project growing fastest becomes read-only (its database refuses writes, its buckets refuse uploads) so every other project keeps running (default 95; 100 turns this off)
+             */
+            diskStopPercent: number;
+            /**
+             * Format: int64
+             * @description Past this share of the data disk the box warns, naming the project growing fastest (default 85)
+             */
+            diskWarnPercent: number;
             /** @description How the memory for apps is computed, in plain words */
             explanation: string;
             /**
@@ -4486,7 +4576,22 @@ export interface components {
              * Format: int64
              * @description Projects that set no limit of their own in tiffin.config.ts may use at most this percentage of the box (of the memory it keeps for apps and of its CPUs). 100 means elastic: no cap beyond what keeps the platform and other projects safe.
              */
-            defaultMaxSharePercent: number;
+            defaultMaxSharePercent?: number;
+            /**
+             * Format: int64
+             * @description Below this share, read-only projects can write again (default 90)
+             */
+            diskResumePercent?: number;
+            /**
+             * Format: int64
+             * @description Past this share, make the project growing fastest read-only so the others keep running (default 95; 100 turns it off)
+             */
+            diskStopPercent?: number;
+            /**
+             * Format: int64
+             * @description Warn past this share of the data disk, naming the project growing fastest (default 85)
+             */
+            diskWarnPercent?: number;
         };
         CertInfo: {
             /** Format: date-time */
@@ -7411,6 +7516,11 @@ export interface components {
             /** @description The project's S3 access key id (the secret is in the app env, or GET .../storage/credentials) */
             accessKeyId?: string;
             buckets: components["schemas"]["StorageBucketInfo"][] | null;
+            /**
+             * Format: int64
+             * @description The project's databases (branches included), as the disk guard last measured them: they count toward quotaBytes with the files
+             */
+            databaseBytes: number;
             /** @description Public S3 endpoint (path-style), for browsers and tools off the box */
             endpoint: string;
             /** @description Public files base: <filesUrl>/<bucket>/<key> (public buckets only) */
@@ -7425,13 +7535,18 @@ export interface components {
             project: string;
             /**
              * Format: int64
-             * @description Upload limit for the whole project; 0 means unlimited
+             * @description The project's storage limit, database and files together; 0 means none (the default)
              */
             quotaBytes: number;
             /** @enum {string} */
             quotaSource: "project" | "box-default";
+            /** @description Set while uploads are refused: which limit was reached and how to fix it */
+            readOnly?: string;
             region: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Bucket files
+             */
             usedBytes: number;
         };
         StorageObject: {
