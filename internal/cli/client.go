@@ -137,6 +137,11 @@ func (a *app) client(ctx context.Context) (*client, error) {
 				return nil, err
 			}
 			tok := orDefault(a.token, bx.Token)
+			if a.token == "" && bx.AgentToken != "" && a.agentRun() {
+				// An agent's shell acts as the box's agent key, as `tiffin mcp` does,
+				// so History shows the agent rather than the owner.
+				tok = bx.AgentToken
+			}
 			return &client{base: strings.TrimRight(bx.URL, "/"), token: tok, session: a.session, model: a.model, transport: tr, close: func() error { return nil }}, nil
 		}
 	}
@@ -152,6 +157,12 @@ func (a *app) client(ctx context.Context) (*client, error) {
 		tok = readOwnerToken(a.home)
 	}
 	return &client{handler: b.api.Handler(), token: tok, session: a.session, model: a.model, close: b.Close}, nil
+}
+
+// agentRun reports whether a coding agent runs this command: Claude Code
+// sets CLAUDECODE=1 in its shells; any other agent can set TIFFIN_AGENT=1.
+func (a *app) agentRun() bool {
+	return a.io.Env("TIFFIN_AGENT") == "1" || a.io.Env("CLAUDECODE") == "1"
 }
 
 // do performs one API call and returns the status and raw body.

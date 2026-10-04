@@ -142,11 +142,16 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 	w := io.MultiWriter(req.Log, &out)
 	err := runLoggedEnv(ctx, w, req.SrcDir, extra, "/usr/local/bin/buildctl", bargs...)
 	if err != nil {
-		hint := "Read the build log above: the first error is usually the cause."
+		hint := "Read the build log (deploys build-log): the first error is usually the cause."
+		msg := "the build failed: " + err.Error()
+		if first := firstBuildError(out.String()); first != "" {
+			msg = "the build failed: " + first
+			hint = "That is the first error in the build log; fix it and deploy again (deploys build-log has the rest)."
+		}
 		if strings.Contains(out.String(), "exit code: 137") || strings.Contains(out.String(), "Killed") {
 			hint = "The build ran out of memory. Build elsewhere and deploy with --prebuilt, or give the box more memory."
 		}
-		return BuildResult{}, &BuildError{Msg: "the build failed: " + err.Error(), Hint: hint}
+		return BuildResult{}, &BuildError{Msg: msg, Hint: hint}
 	}
 	dg := ""
 	if m := manifestDigest.FindStringSubmatch(out.String()); m != nil {
@@ -276,6 +281,47 @@ func pinsBun(dir string) bool {
 }
 
 // runLogged runs a command with its output streamed to w.
+var (
+	// BuildKit prefixes each line of a step with "#<step> <seconds> ".
+	buildkitPrefix = regexp.MustCompile(`^#\d+ \d+(\.\d+)? `)
+	// Lines that name the cause (compiler and bundler errors), not the
+	// wrappers that only say a step failed.
+	buildErrorLine  = regexp.MustCompile(`error TS\d+|Type error:|Module not found|SyntaxError|Cannot find module|npm ERR!|^error: |^Error: |\berror\[`)
+	buildErrorNoise = regexp.MustCompile(`^error: (script ".*" exited|failed to solve)|did not complete successfully|exited with code`)
+)
+
+// firstBuildError finds the first line of build output that names a cause,
+// so a failed deploy says why without reading the whole log.
+func firstBuildError(out string) string {
+	sc := bufio.NewScanner(strings.NewReader(out))
+	sc.Buffer(make([]byte, 64<<10), 1<<20)
+	for sc.Scan() {
+		line := strings.TrimSpace(buildkitPrefix.ReplaceAllString(sc.Text(), ""))
+		if line == "" || !buildErrorLine.MatchString(line) || buildErrorNoise.MatchString(line) {
+			continue
+		}
+		if len(line) > 300 {
+			line = line[:300] + "…"
+		}
+		return line
+	}
+	return ""
+}
+
+// configFiles are tiffin's own config: the box reads them, apps never import
+// them, and they import tiffin-sdk, which a type-checking build (next build)
+// cannot resolve. Builds leave them out.
+var configFiles = []string{"tiffin.config.ts", "tiffin.config.mts", "tiffin.config.js", "tiffin.config.mjs"}
+
+// dropConfig removes tiffin.config.* from the top of an unpacked source tree.
+func dropConfig(srcDir string, log io.Writer) {
+	for _, name := range configFiles {
+		if err := os.Remove(filepath.Join(srcDir, name)); err == nil {
+			fmt.Fprintf(log, "==> %s is read by tiffin, not built into the app: left out of the build\n", name)
+		}
+	}
+}
+
 func runLogged(ctx context.Context, w io.Writer, dir, name string, args ...string) error {
 	return runLoggedEnv(ctx, w, dir, nil, name, args...)
 }

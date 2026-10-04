@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -1038,5 +1039,55 @@ func TestPinnedReleasesDrainBeforeStop(t *testing.T) {
 	}
 	if _, err := h.m.AppEndpoint(ctx, h.p, "shop", "api", v1.ID); err == nil || !strings.Contains(err.Error(), "release gone") {
 		t.Fatalf("drained release: %v", err)
+	}
+}
+
+func TestPlanRefusesAnotherProjectsRoute(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	app := func(spec string) map[string]change.Resource {
+		return map[string]change.Resource{"app/shop": {Address: "app/shop", Spec: json.RawMessage(spec)}}
+	}
+	// "shop" (the default route of an app named shop) is site's in project shop.
+	err := h.m.CheckPlan(ctx, h.p, "blog", app(`{"framework":"bun"}`))
+	var prob *api.Problem
+	if !errors.As(err, &prob) || prob.Status != 422 || !strings.Contains(prob.Detail, "shop/site") ||
+		!strings.Contains(prob.Hint, `routes: ["blog"]`) || prob.Errors[0].Path != "/apps/shop/routes" {
+		t.Fatalf("clash: %v %+v", err, prob)
+	}
+	// A path under it is a different route; workers have none; own routes are fine.
+	for _, spec := range []string{`{"routes":["shop/blog"]}`, `{"role":"worker"}`, `{"routes":["blog"]}`} {
+		if err := h.m.CheckPlan(ctx, h.p, "blog", app(spec)); err != nil {
+			t.Fatalf("%s: %v", spec, err)
+		}
+	}
+	if err := h.m.CheckPlan(ctx, h.p, "shop", map[string]change.Resource{"app/site": {Address: "app/site", Spec: json.RawMessage(`{"routes":["shop"]}`)}}); err != nil {
+		t.Fatalf("own route: %v", err)
+	}
+}
+
+func TestFirstBuildErrorAndDropConfig(t *testing.T) {
+	out := "#26 0.123 $ next build\n#26 4.805   Running TypeScript ...\n" +
+		"#26 6.406 tiffin.config.ts(1,30): error TS2307: Cannot find module 'tiffin-sdk' or its corresponding type declarations.\n" +
+		"#26 6.433 error: script \"build\" exited with code 1\n#26 ERROR: process \"bun run build\" did not complete successfully: exit code: 1\n"
+	if got := firstBuildError(out); !strings.HasPrefix(got, "tiffin.config.ts(1,30): error TS2307") {
+		t.Fatalf("first error = %q", got)
+	}
+	if got := firstBuildError("#5 ERROR: process \"bun install\" did not complete successfully: exit code: 1\nerror: failed to solve: x\n"); got != "" {
+		t.Fatalf("wrappers only: %q", got)
+	}
+	dir := t.TempDir()
+	for _, f := range []string{"tiffin.config.ts", "index.ts"} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var log bytes.Buffer
+	dropConfig(dir, &log)
+	if _, err := os.Stat(filepath.Join(dir, "tiffin.config.ts")); !os.IsNotExist(err) {
+		t.Fatal("config not dropped")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "index.ts")); err != nil || !strings.Contains(log.String(), "left out of the build") {
+		t.Fatalf("index.ts kept? %v; log %q", err, log.String())
 	}
 }

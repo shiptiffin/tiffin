@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "project": "aliases",
+  "apps": {
+    "web": {
+      "path": ".",
+      "framework": "next",
+      "role": "web",
+      "routes": [
+        "web"
+      ],
+      "instances": 1,
+      "healthcheck": "/"
+    }
+  },
+  "services": {
+    "postgres": {
+      "extensions": [
+        "vector"
+      ]
+    },
+    "valkey": {
+      "maxMemoryMB": 32
+    },
+    "storage": {
+      "buckets": {
+        "photos": {
+          "public": false
+        }
+      }
+    }
+  }
+}

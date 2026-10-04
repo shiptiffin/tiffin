@@ -230,12 +230,21 @@ export interface DomainConfig {
  * provisioned.
  */
 export interface ServicesConfig {
+  /** Database in the dashboard. */
   postgres?: PostgresConfig;
+  /** Cache in the dashboard. */
   valkey?: ValkeyConfig;
+  /** Files in the dashboard. */
   storage?: StorageConfig;
   auth?: AuthConfig;
   email?: EmailConfig;
   analytics?: AnalyticsConfig;
+  /** The dashboard's name for `postgres`; stored (and pulled) as `postgres`. */
+  database?: PostgresConfig;
+  /** The dashboard's name for `valkey`; stored (and pulled) as `valkey`. */
+  cache?: ValkeyConfig;
+  /** The dashboard's name for `storage`; stored (and pulled) as `storage`. */
+  files?: StorageConfig;
 }
 
 /**

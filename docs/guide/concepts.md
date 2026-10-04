@@ -9,6 +9,15 @@ A project is described by `tiffin.config.ts`. Tiffin turns it into **resources**
 `app/web`, `service/postgres`, `bucket/uploads`, `env/LOG_LEVEL`, `cron/nightly` and so
 on. Each resource has a live state on the machine: *pending*, *ready* or *failed*.
 
+The dashboard's names map to services: Database is `postgres`, Cache is `valkey`, Files
+is `storage`, then `auth`, `email` and `analytics`; Jobs are the top-level `queues` and
+`crons`. `database`, `cache` and `files` also work in `tiffin.config.ts` and are stored
+under the first name (which is what `tiffin pull` writes back).
+
+Each web app is served at `<app>.<domain>` unless it sets `routes`. Addresses are
+box-wide, so a second project's `web` app needs its own (`routes: ["blog"]`): the plan
+refuses an address another project already serves.
+
 ## Sharing the box
 Launch as many projects as you like: they divide the box between them on their own.
 Tiffin keeps memory for itself first (its services, plus Postgres's and Valkey's caches;

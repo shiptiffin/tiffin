@@ -120,6 +120,9 @@ func (a *app) root() *cobra.Command {
 	pf.StringVar(&a.session, "session", env("TIFFIN_SESSION"), "agent session label recorded on changes (env TIFFIN_SESSION)")
 	pf.StringVar(&a.model, "model", env("TIFFIN_MODEL"), "the model an agent runs, shown beside its name in the change log (env TIFFIN_MODEL)")
 	a.token = env("TIFFIN_TOKEN")
+	if a.session == "" && env("CLAUDECODE") == "1" && len(env("CLAUDE_CODE_SESSION_ID")) >= 8 {
+		a.session = "claude-code:" + env("CLAUDE_CODE_SESSION_ID")[:8] // tells one Claude Code session from another in History
+	}
 	root.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
 		a.started = true
 		a.homeExplicit = env("TIFFIN_HOME") != "" || cmd.Flags().Changed("home")

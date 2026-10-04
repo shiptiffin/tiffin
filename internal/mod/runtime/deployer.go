@@ -150,6 +150,7 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 			return &BuildError{Msg: "could not unpack the source: " + err.Error(), Hint: "Upload a gzipped tar of the app directory (tiffin deploy does this)."}
 		}
 		fmt.Fprintf(log, "==> source: %d files, %s\n", st.Files, humanBytes(st.Bytes))
+		dropConfig(req.SrcDir, log)
 	}
 	bctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	res, err := r.bld.Build(bctx, req)

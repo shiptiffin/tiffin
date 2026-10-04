@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"reflect"
@@ -309,9 +310,18 @@ type ApplyResult struct {
 
 // ProjectSummary is one row of the project list.
 type ProjectSummary struct {
-	Name      string `json:"name"`
-	Version   int64  `json:"version"`
-	Resources int    `json:"resources"`
+	Name      string   `json:"name"`
+	Version   int64    `json:"version"`
+	Resources int      `json:"resources"`
+	Failing   []string `json:"failing,omitempty" doc:"Resources whose last reconcile failed, with the first line of the reason"`
+}
+
+// truncate shortens s to at most n bytes, marking the cut.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // ProjectState is a project's current resources.
@@ -400,7 +410,8 @@ func (a *API) register() {
 		}))
 
 	huma.Register(api, op("projects-list", http.MethodGet, "/v1/projects", "projects list", RiskRead, "List projects",
-		"Projects on this box that your token can see, with their current version.", "projects"),
+		"Projects on this box that your token can see, with their current version and any resource that failed to converge "+
+			"(failing: an app whose new instances did not pass their health check, say; project_get has the details).", "projects"),
 		wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body []ProjectSummary }, error) {
 			p := PrincipalFrom(ctx)
 			if err := p.Require(tokens.ScopeRead, ""); err != nil {
@@ -419,7 +430,16 @@ func (a *API) register() {
 				if err != nil {
 					return nil, err
 				}
-				out = append(out, ProjectSummary{Name: n, Version: v, Resources: len(res)})
+				ps := ProjectSummary{Name: n, Version: v, Resources: len(res)}
+				if st, err := a.deps.DB.ResourceStatuses(ctx, n); err == nil {
+					for _, addr := range slices.Sorted(maps.Keys(st)) {
+						if rs := st[addr]; rs.State == "failed" {
+							msg, _, _ := strings.Cut(rs.Message, "\n")
+							ps.Failing = append(ps.Failing, addr+": "+truncate(msg, 200))
+						}
+					}
+				}
+				out = append(out, ps)
 			}
 			return &struct{ Body []ProjectSummary }{out}, nil
 		}))
@@ -427,8 +447,9 @@ func (a *API) register() {
 	type projectPath struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 	}
-	huma.Register(api, op("project-get", http.MethodGet, "/v1/projects/{project}", "projects get", RiskRead, "Get a project's state",
-		"The project's current resources and version.", "projects"),
+	huma.Register(api, Untrusted(op("project-get", http.MethodGet, "/v1/projects/{project}", "projects get", RiskRead, "Get a project's state",
+		"The project's current resources and version, and each resource's live state (pending, ready or failed, with the reason: "+
+			"a failed app's message ends with its last log lines).", "projects")),
 		wrap(func(ctx context.Context, in *projectPath) (*struct{ Body ProjectState }, error) {
 			if err := PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
 				return nil, err
@@ -483,6 +504,7 @@ func (a *API) register() {
 
 	huma.Register(api, op("plan", http.MethodPost, "/v1/plan", "plan", RiskRead, "Plan a manifest",
 		"Dry run: what applying this manifest would change, the risk of each step and the plan hash. Never writes. "+
+			"`warnings` lists things the manifest probably did not mean (auth without email, env that replaces what the box sets): fix them before applying. "+
 			"A project `resources` budget that cannot fit this box (more CPUs than it has, memoryMB budgets adding up to more than it keeps for apps) is refused with 422 and a hint.", "changes"),
 		wrap(func(ctx context.Context, in *struct{ Body planBody }) (*struct{ Body *change.Plan }, error) {
 			m, desired, err := parseManifest(in.Body.Manifest)
@@ -499,6 +521,7 @@ func (a *API) register() {
 			if err != nil {
 				return nil, err
 			}
+			p.Warnings = manifest.Warnings(m)
 			return &struct{ Body *change.Plan }{p}, nil
 		}))
 
@@ -525,6 +548,7 @@ func (a *API) register() {
 			if err != nil {
 				return nil, err
 			}
+			plan.Warnings = manifest.Warnings(m)
 			return a.apply(ctx, p, plan, in.Body.Confirm, in.Body.Intent)
 		}))
 

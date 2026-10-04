@@ -117,6 +117,11 @@ func paint(on bool, s, code string) string {
 }
 
 func renderPlan(w io.Writer, p *change.Plan, color bool) {
+	defer func() {
+		for _, warn := range p.Warnings {
+			fmt.Fprintf(w, "%s %s\n", paint(color, "! warning:", amber), warn)
+		}
+	}()
 	if p.Empty() {
 		fmt.Fprintf(w, "No changes for %s. The box already matches.\n", p.Project)
 		return

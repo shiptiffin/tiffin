@@ -84,7 +84,7 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 			"in the background every 30 seconds); each app's copies, memory and CPU; and service numbers (Postgres connections, KV keys, "+
 			"bucket objects). limitSource says where the limits come from: \"project\" (its resources), \"box default\" (the box-wide "+
 			"default share, see box settings) or \"automatic\" (elastic: it grows into whatever the box has free). To change the "+
-			"limits, set resources in tiffin.config.ts and plan/apply.", "system")
+			"limits, set resources in tiffin.config.ts and plan/apply. Every project at once: box resources (its projects list).", "system")
 	uo.Errors = append(uo.Errors, 404, 503)
 	huma.Register(a, uo, api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
