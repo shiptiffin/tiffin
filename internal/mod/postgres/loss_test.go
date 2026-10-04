@@ -14,9 +14,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestMeasureTables counts tables and rows on a real Postgres (embedded,
-// downloaded once into ~/.embedded-postgres-go).
-func TestMeasureTables(t *testing.T) {
+// embedded starts a real Postgres (embedded, downloaded once into
+// ~/.embedded-postgres-go) and returns a superuser connection to db
+// "postgres" and a function connecting to another database.
+func embedded(t *testing.T) (*pgx.Conn, func(db string) *pgx.Conn) {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("needs an embedded Postgres")
 	}
@@ -36,13 +38,23 @@ func TestMeasureTables(t *testing.T) {
 	if err := pg.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = pg.Stop() }()
-	ctx := context.Background()
-	c, err := pgx.Connect(ctx, fmt.Sprintf("postgres://tiffin:tiffin@127.0.0.1:%d/postgres", port))
-	if err != nil {
-		t.Fatal(err)
+	t.Cleanup(func() { _ = pg.Stop() })
+	connect := func(db string) *pgx.Conn {
+		t.Helper()
+		c, err := pgx.Connect(context.Background(), fmt.Sprintf("postgres://tiffin:tiffin@127.0.0.1:%d/%s", port, db))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { c.Close(context.Background()) })
+		return c
 	}
-	defer c.Close(ctx)
+	return connect("postgres"), connect
+}
+
+// TestMeasureTables counts tables and rows on a real Postgres.
+func TestMeasureTables(t *testing.T) {
+	c, _ := embedded(t)
+	ctx := context.Background()
 
 	tables, rows, approx, err := measureTables(ctx, c)
 	if err != nil || tables != 0 || rows != 0 || approx {

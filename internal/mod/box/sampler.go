@@ -30,6 +30,7 @@ type Resources struct {
 	Services      []Service      `json:"services" doc:"Every systemd service the box runs, biggest memory first"`
 	Apps          []App          `json:"apps" doc:"Every app container (production and previews), biggest memory first"`
 	Projects      []ProjectTotal `json:"projects" doc:"Every project: its app copies' memory and CPU together (its slice), its data on disk and its limits, biggest memory first. Per-project detail: projects usage."`
+	Guard         *Guard         `json:"guard,omitempty" doc:"The disk guard: the data disk against its warning, stop and resume levels, the project growing fastest, and the projects held read-only (absent until its first round, 30 seconds after the box starts)"`
 }
 
 // CPU is the machine's processors.
@@ -125,6 +126,7 @@ type sampler struct {
 	ctrsAt  time.Time
 	foreign map[string]bool // container cgroups the list does not know
 	track   *tracker        // per-project CPU marks and disk measurements (nil in some tests)
+	guard   *guard          // the disk guard (nil in tests)
 }
 
 func newSampler(root, dataMount string) *sampler {
@@ -169,6 +171,7 @@ func (s *sampler) sample(ctx context.Context) *Resources {
 	s.services(ctx, r, now, seen)
 	s.apps(ctx, r, now, seen)
 	r.Projects = s.projectTotals(ctx, s.track, now, seen)
+	r.Guard = s.guard.state()
 	for k := range s.prev {
 		if !seen[k] {
 			delete(s.prev, k)

@@ -13,7 +13,7 @@
 //   - Bucket "media" of project "shop" is the S3 bucket "shop-media". Public
 //     buckets carry an anonymous-read bucket policy.
 //   - A small front server inside tiffin (127.0.0.1:7481) sits before the
-//     gateway: it enforces per-project quotas on uploads, proxies every other
+//     gateway: it enforces storage limits and read-only holds on uploads, proxies every other
 //     S3 call untouched (Host preserved, so signatures and presigned URLs
 //     verify), and serves public files at files.<domain>/<project>/<bucket>/<key>.
 //   - The edge routes s3.<domain> and files.<domain> to the front server.
@@ -49,8 +49,11 @@ import (
 	"github.com/btahir/tiffin/internal/platform"
 )
 
+// mod is the registered module (tests make their own).
+var mod = &Module{}
+
 func init() {
-	platform.Register(&Module{})
+	platform.Register(mod)
 	// Every backup set copies the whole storage tree (objects, accounts, root
 	// key, audit manifests) with reflinks; the "files" restore target puts
 	// it back.
@@ -86,8 +89,10 @@ const (
 
 	// TrashRetention is how long deleted buckets stay restorable.
 	TrashRetention = 7 * 24 * time.Hour
-	// DefaultQuotaBytes is the per-project quota until the owner sets one.
-	DefaultQuotaBytes int64 = 10 << 30
+	// DefaultQuotaBytes is the per-project storage limit (database and files)
+	// until the owner sets one: none. The box's disk guard keeps one project
+	// from filling the disk; a limit is for sharing it more tightly.
+	DefaultQuotaBytes int64 = 0
 
 	kvNS = "storage"
 	// Secrets for every project's S3 account live under this pseudo-project

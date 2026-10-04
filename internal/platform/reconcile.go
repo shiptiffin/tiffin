@@ -120,7 +120,8 @@ func (r *reconciler) converge(ctx context.Context, project string) {
 		return oa < ob
 	})
 	for _, o := range ops {
-		if change.Unmanaged(o.Address) {
+		rc := reconcilerFor(o.Address)
+		if rc == nil && change.Unmanaged(o.Address) {
 			// Secrets have nothing to converge (apps read them when they
 			// (re)start), so they have no live status. Drop any row one has
 			// (an import marks every resource pending): a pending row that
@@ -130,7 +131,6 @@ func (r *reconciler) converge(ctx context.Context, project string) {
 			}
 			continue
 		}
-		rc := reconcilerFor(o.Address)
 		if rc == nil {
 			if o.Action == change.Delete {
 				_ = p.DB.DeleteResourceStatus(ctx, project, o.Address)

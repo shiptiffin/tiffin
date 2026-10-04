@@ -38,6 +38,9 @@ func CreateBranch(ctx context.Context, p *platform.Platform, project, name, from
 	if !BranchPattern.MatchString(name) || name == "main" {
 		return nil, api.NewProblem(422, "validation", "branch names are 1-19 characters: lowercase letters, digits and hyphens, starting with a letter (not \"main\")")
 	}
+	if err := heldProblem(project); err != nil {
+		return nil, err // a branch is a full copy, and it would not be read-only
+	}
 	if from == "" {
 		from = "main"
 	}

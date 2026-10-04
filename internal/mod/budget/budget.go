@@ -114,8 +114,8 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, root string, s
 	}
 	set := DefaultSettings
 	if raw, ok, _ := p.DB.KVGet(ctx, kvNS, kvSettings); ok {
-		_ = json.Unmarshal(raw, &set)
-		if set.DefaultMaxSharePercent < 5 || set.DefaultMaxSharePercent > 100 {
+		_ = json.Unmarshal(raw, &set) // settings saved before the disk guard keep its defaults
+		if set.check() != "" {
 			set = DefaultSettings
 		}
 	}

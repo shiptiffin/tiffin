@@ -15,6 +15,9 @@ func Classify(op Op) (Tier, string) {
 	kind, name := Kind(op.Address), Name(op.Address)
 	switch op.Action {
 	case Create:
+		if kind == KindReadOnly {
+			return TierReversible, "stops the project's database writes and file uploads; undo lifts it"
+		}
 		return TierReversible, "new " + kindNoun(kind, name) + "; undo deletes it"
 	case Delete:
 		switch kind {
@@ -43,6 +46,8 @@ func Classify(op Op) (Tier, string) {
 			return TierIrreversible, "deletes the project"
 		case KindApp:
 			return TierReversible, fmt.Sprintf("stops and removes app %q; its builds are kept so undo restores it", name)
+		case KindReadOnly:
+			return TierReversible, "lets the project write again; undo makes it read-only again"
 		default:
 			return TierReversible, "removes " + kindNoun(kind, name) + "; undo restores it"
 		}
@@ -79,6 +84,8 @@ func kindNoun(kind, name string) string {
 		return "env var " + name
 	case KindSecret:
 		return "secret " + name
+	case KindReadOnly:
+		return "read-only hold"
 	case KindService:
 		return name + " service"
 	}

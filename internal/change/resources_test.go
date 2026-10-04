@@ -1,11 +1,42 @@
 package change
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/btahir/tiffin/internal/manifest"
 )
+
+// A read-only hold is the box's, not the manifest's: plans keep it, and
+// setting or lifting it is reversible.
+func TestReadOnlyHoldIsUnmanaged(t *testing.T) {
+	ctx := context.Background()
+	e := NewEngine(NewMemStore())
+	proj := Resource{Address: KindProject, Spec: json.RawMessage(`{}`)}
+	hold := Resource{Address: KindReadOnly, Spec: json.RawMessage(`{"reason":"disk"}`)}
+	p, _ := e.Plan(ctx, "p", map[string]Resource{KindProject: proj, KindReadOnly: hold})
+	if len(p.Ops) != 1 || p.Ops[0].Address != KindProject {
+		t.Fatalf("a manifest cannot set a hold: %+v", p.Ops)
+	}
+	if _, err := e.Apply(ctx, ApplyRequest{Plan: p, Confirm: p.Hash}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = e.PlanEdit(ctx, "p", func(cur map[string]Resource) (map[string]Resource, error) { cur[KindReadOnly] = hold; return cur, nil })
+	if p.Risk != TierReversible || !strings.Contains(p.Ops[0].Reason, "database writes") {
+		t.Fatalf("hold: %+v", p.Ops)
+	}
+	if _, err := e.Apply(ctx, ApplyRequest{Plan: p, Confirm: p.Hash}); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = e.Plan(ctx, "p", map[string]Resource{KindProject: proj}); !p.Empty() {
+		t.Fatalf("a manifest plan keeps the hold: %+v", p.Ops)
+	}
+	if _, err := ManifestFromResources("p", map[string]Resource{KindProject: proj, KindReadOnly: hold}); err != nil {
+		t.Fatalf("the manifest leaves the hold out: %v", err)
+	}
+}
 
 func platformManifest() *manifest.Manifest {
 	return &manifest.Manifest{

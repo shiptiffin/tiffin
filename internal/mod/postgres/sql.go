@@ -67,6 +67,9 @@ func RunSQL(ctx context.Context, p *platform.Platform, project string, in PGSQLR
 	}
 	out := &PGSQLResult{Database: db, ReadOnly: !write, Results: []PGStatementResult{}}
 	if write {
+		if err := heldProblem(project); err != nil {
+			return nil, err
+		}
 		branch := in.Branch
 		if branch == "main" {
 			branch = ""

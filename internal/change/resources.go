@@ -24,11 +24,20 @@ const (
 	// spec is the value sealed to the box's key (see platform.Secrets), set
 	// and removed by the secrets API, and kept by every manifest plan.
 	KindSecret = "secret"
+	// KindReadOnly ("readonly", one per project) is a hold on a project's
+	// writes: its database refuses writes and its buckets refuse uploads.
+	// The box sets and lifts it (data disk nearly full, or the project over
+	// its storage limit); undoing that change lifts it by hand. Manifests
+	// never list it, and every manifest plan keeps it.
+	KindReadOnly = "readonly"
 )
 
 // Unmanaged reports whether resources of this address are outside the
-// manifest (secrets): a manifest plan keeps them as they are.
-func Unmanaged(address string) bool { return Kind(address) == KindSecret }
+// manifest (secrets, read-only holds): a manifest plan keeps them as they are.
+func Unmanaged(address string) bool {
+	k := Kind(address)
+	return k == KindSecret || k == KindReadOnly
+}
 
 // ProjectSpec is the spec of the "project" resource: project-wide settings.
 // A project without any is "{}".
@@ -172,7 +181,7 @@ func Diff(current, desired map[string]Resource) []Op {
 // order of kinds when creating; deletes run in reverse. Queues come after
 // apps (they push jobs into them), topics after the queues they fan out to,
 // and crons last.
-var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindSecret: 3, KindApp: 4, KindQueue: 5, KindTopic: 6, KindCron: 7, KindDomain: 8}
+var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindSecret: 3, KindApp: 4, KindQueue: 5, KindTopic: 6, KindCron: 7, KindDomain: 8, KindReadOnly: 9}
 
 // SortOps orders ops: creates (containers first), updates, then deletes
 // (contents first).
