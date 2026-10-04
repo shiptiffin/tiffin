@@ -18,6 +18,9 @@ import (
 type Config struct {
 	Domain    string // e.g. "tiffin.localhost"; dashboard lives at Dashboard+"."+Domain
 	Dashboard string // the dashboard's first-level name; default "dashboard"
+	// Apps is the domain of the one-label app hosts ("shop.<Apps>") when it
+	// is not Domain (e.g. example.app beside example.com). Empty: Domain.
+	Apps string
 	// DashboardURL is the dashboard as people reach it (the box's public
 	// URL, e.g. https://dashboard.tiffin.localhost:8475 on a VM whose 8443
 	// is forwarded to 8475), linked from the "Nothing here" page. Default:
@@ -32,9 +35,9 @@ type Config struct {
 	AccessLog    string  // file for JSON access logs (rolled); empty disables them
 	// ACME configures public certificates; required when Internal is false.
 	ACME *ACME
-	// Aliases are earlier box domains still served while a domain switch
-	// completes: the dashboard and every one-label host under Domain also
-	// answer under each alias ("shop.<alias>"). Nil: the ones the registered
+	// Aliases are earlier box and apps domains still served while a domain
+	// switch completes: the dashboard and every one-label host under the
+	// apps domain also answer under each alias ("shop.<alias>"). Nil: the ones the registered
 	// cert source gives (see SetCertSource).
 	Aliases []string
 	// HSTS is the Strict-Transport-Security max-age. 0 means the default:
@@ -106,13 +109,22 @@ func (c Config) dashboardName() string {
 	return c.Dashboard
 }
 
+// appsDomain is the domain of the one-label app hosts.
+func (c Config) appsDomain() string {
+	if c.Apps != "" {
+		return c.Apps
+	}
+	return c.Domain
+}
+
 // dashboardHosts are the dashboard's host and its names under each alias.
 func (c Config) dashboardHosts() []string {
 	out := []string{c.DashboardHost()}
 	for _, a := range c.Aliases {
-		out = append(out, c.dashboardName()+"."+a)
-		if c.dashboardName() != "dashboard" {
-			out = append(out, "dashboard."+a)
+		for _, h := range []string{c.dashboardName() + "." + a, "dashboard." + a} {
+			if !slices.Contains(out, h) {
+				out = append(out, h)
+			}
 		}
 	}
 	return out
@@ -129,10 +141,10 @@ func BoxLabel(host, domain string) string {
 }
 
 // hostsFor is a route host plus its names under each alias, when it is a
-// one-label host under the box domain.
+// one-label host under the apps domain.
 func (c Config) hostsFor(host string) []string {
 	out := []string{host}
-	if label := BoxLabel(host, c.Domain); label != "" {
+	if label := BoxLabel(host, c.appsDomain()); label != "" {
 		for _, a := range c.Aliases {
 			out = append(out, label+"."+a)
 		}
@@ -160,6 +172,11 @@ func (c Config) normalized() (Config, error) {
 	c.Domain = strings.ToLower(strings.Trim(strings.TrimSpace(c.Domain), "."))
 	if err := validHost(c.Domain); err != nil || strings.Contains(c.Domain, "*") {
 		return c, fmt.Errorf("edge: invalid Domain %q", c.Domain)
+	}
+	if c.Apps = strings.ToLower(strings.Trim(strings.TrimSpace(c.Apps), ".")); c.Apps == c.Domain {
+		c.Apps = ""
+	} else if c.Apps != "" && (validHost(c.Apps) != nil || strings.Contains(c.Apps, "*")) {
+		return c, fmt.Errorf("edge: invalid apps domain %q", c.Apps)
 	}
 	if _, _, err := net.SplitHostPort(c.Upstream); err != nil {
 		return c, fmt.Errorf("edge: invalid Upstream %q: want host:port", c.Upstream)
@@ -200,7 +217,7 @@ func (c Config) normalized() (Config, error) {
 	aliases := make([]string, 0, len(c.Aliases))
 	for _, a := range c.Aliases {
 		a = strings.ToLower(strings.Trim(strings.TrimSpace(a), "."))
-		if a == "" || a == c.Domain || slices.Contains(aliases, a) {
+		if a == "" || a == c.appsDomain() || slices.Contains(aliases, a) {
 			continue
 		}
 		if err := validHost(a); err != nil || strings.Contains(a, "*") {
@@ -286,7 +303,7 @@ func validHost(h string) error {
 // which would also try to install itself into the OS trust store. (Do not
 // use tls.certificates.automate: it also creates that default CA.)
 func (c Config) managedHosts() []string {
-	subjects := []string{"*." + c.Domain, c.DashboardHost()}
+	subjects := []string{"*." + c.appsDomain(), c.DashboardHost()}
 	for _, a := range c.Aliases {
 		subjects = append(subjects, "*."+a)
 	}
@@ -437,7 +454,7 @@ func buildConfig(c Config) obj {
 	for _, r := range c.Routes {
 		routes = append(routes, routeFor(c, r, portSuffix))
 	}
-	wild := []string{"*." + c.Domain}
+	wild := []string{"*." + c.appsDomain()}
 	for _, a := range c.Aliases {
 		wild = append(wild, "*."+a)
 	}

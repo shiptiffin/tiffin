@@ -15,6 +15,7 @@ import (
 // domainStatus is the part of GET /v1/domain the CLI acts on.
 type domainStatus struct {
 	Domain       string `json:"domain"`
+	AppsDomain   string `json:"appsDomain"`
 	Dashboard    string `json:"dashboard"`
 	DashboardURL string `json:"dashboardUrl"`
 	State        string `json:"state"`
@@ -27,10 +28,12 @@ func (a *app) domainCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "domain",
 		Short: "The box's domain: status, set, check, unset",
-		Long: "Shows the box's domain, its dashboard address and whether its certificates are live.\n\n" +
+		Long: "Shows the box's domain, its dashboard address, where apps live and whether its certificates are live.\n\n" +
 			"A server without a domain uses <its-ipv4-with-dashes>.sslip.io: real names, real certificates, no setup.\n" +
 			"Your own domain takes two DNS records (tiffin domain check --domain example.com lists them):\n" +
-			"  tiffin domain set example.com",
+			"  tiffin domain set example.com\n" +
+			"Apps can live on a domain of their own, apart from the dashboard (like vercel.com and vercel.app):\n" +
+			"  tiffin domain set example.com --apps-domain example.app",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, err := a.client(cmd.Context())
@@ -53,19 +56,23 @@ func (a *app) domainCmd() *cobra.Command {
 			return nil
 		},
 	}
-	var dashboard, email string
+	var dashboard, appsDomain, email string
 	var createRecords, force, noWait bool
 	set := &cobra.Command{
 		Use:   "set <domain>",
 		Short: "Use your own domain for the box",
 		Long: "Switches the box to <domain>: the dashboard moves to dashboard.<domain> and apps to <app>.<domain>.\n\n" +
-			"<domain> and *.<domain> must point at the box first (A/AAAA records); if they don't, nothing changes and\n" +
-			"you get the exact records to add. With --create-records and a connected DNS provider (tiffin dns connect),\n" +
-			"the box adds them itself. The service restarts (apps keep running), certificates are obtained, and the old\n" +
-			"names keep working until the new ones have certificates. This computer switches to the new address once\n" +
-			"it answers.",
-		Example: "  tiffin domain set example.com\n  tiffin domain set apps.example.com --dashboard admin\n  tiffin domain set example.com --create-records",
-		Args:    cobra.ExactArgs(1),
+			"With --apps-domain, apps and previews go to <app>.<apps-domain> instead, a registrable domain of their own\n" +
+			"(example.app beside example.com), so app code cannot set cookies on the dashboard's domain. The dashboard,\n" +
+			"API and webhooks stay on <domain>.\n\n" +
+			"<domain> and *.<domain> must point at the box first (with --apps-domain: dashboard.<domain> and\n" +
+			"*.<apps-domain>; A/AAAA records); if they don't, nothing changes and you get the exact records to add.\n" +
+			"With --create-records and a connected DNS provider (tiffin dns connect), the box adds the ones in zones the\n" +
+			"provider holds. The service restarts (apps keep running), certificates are obtained, and the old names keep\n" +
+			"working until the new ones have certificates. This computer switches to the new address once it answers.",
+		Example: "  tiffin domain set example.com\n  tiffin domain set apps.example.com --dashboard admin\n  tiffin domain set example.com --create-records\n" +
+			"  tiffin domain set example.com --apps-domain example.app --create-records",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			c, err := a.client(ctx)
@@ -76,6 +83,9 @@ func (a *app) domainCmd() *cobra.Command {
 			body := map[string]any{"domain": args[0]}
 			if dashboard != "" {
 				body["dashboard"] = dashboard
+			}
+			if appsDomain != "" {
+				body["appsDomain"] = appsDomain
 			}
 			if email != "" {
 				body["email"] = email
@@ -102,7 +112,7 @@ func (a *app) domainCmd() *cobra.Command {
 			}
 			// The service restarts, then gets certificates: wait (bounded)
 			// on the old address, which keeps working meanwhile.
-			st, ok := a.waitDomain(ctx, c, want.Domain, 4*time.Minute)
+			st, ok := a.waitDomain(ctx, c, want, 4*time.Minute)
 			if !ok {
 				a.emit(status, raw)
 				fmt.Fprintf(a.io.Err, "The box is switching to %s but its dashboard certificate is not live yet. Check with: tiffin domain\n", want.Domain)
@@ -115,6 +125,7 @@ func (a *app) domainCmd() *cobra.Command {
 		},
 	}
 	set.Flags().StringVar(&dashboard, "dashboard", "", "the dashboard's first-level name (default dashboard)")
+	set.Flags().StringVar(&appsDomain, "apps-domain", "", "a separate domain for apps and previews, e.g. example.app (default: <domain>)")
 	set.Flags().StringVar(&email, "email", "", "a contact for the certificate authority (optional; enables the ZeroSSL fallback)")
 	set.Flags().BoolVar(&createRecords, "create-records", false, "create the DNS records through the connected DNS provider")
 	set.Flags().BoolVar(&force, "force", false, "switch even if DNS does not point here yet")
@@ -123,9 +134,9 @@ func (a *app) domainCmd() *cobra.Command {
 	return cmd
 }
 
-// waitDomain polls the box until it serves domain with a live dashboard
-// certificate (or a local box's internal one).
-func (a *app) waitDomain(ctx context.Context, c *client, domain string, d time.Duration) (domainStatus, bool) {
+// waitDomain polls the box until it serves want's domain, dashboard and apps
+// domain with a live dashboard certificate (or a local box's internal one).
+func (a *app) waitDomain(ctx context.Context, c *client, want domainStatus, d time.Duration) (domainStatus, bool) {
 	deadline := time.Now().Add(d)
 	last := ""
 	for time.Now().Before(deadline) {
@@ -139,8 +150,9 @@ func (a *app) waitDomain(ctx context.Context, c *client, domain string, d time.D
 			continue // restarting
 		}
 		var st domainStatus
-		if json.Unmarshal(raw, &st) != nil || st.Domain != domain {
-			continue
+		if json.Unmarshal(raw, &st) != nil || st.Domain != want.Domain || st.Dashboard != want.Dashboard ||
+			(want.AppsDomain != "" && st.AppsDomain != want.AppsDomain) {
+			continue // not restarted yet
 		}
 		if st.State == "live" || st.State == "internal" {
 			return st, true

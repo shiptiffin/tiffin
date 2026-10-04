@@ -558,7 +558,7 @@ export interface paths {
         get?: never;
         /**
          * Connect a DNS provider
-         * @description Stores a DNS provider's credentials, encrypted with the box's key, after checking them by listing the zones they reach. Cloudflare: an API token with Zone · DNS · Edit on the zones (account-owned or user tokens both work). If one of its zones holds the box domain, the box switches to a wildcard certificate for *.<domain>. Replaces earlier credentials for the same provider. Box admins only.
+         * @description Stores a DNS provider's credentials, encrypted with the box's key, after checking them by listing the zones they reach. Cloudflare: an API token with Zone · DNS · Edit on the zones (account-owned or user tokens both work). If one of its zones holds the domain apps live under, the box switches to a wildcard certificate for *.<that domain>. Replaces earlier credentials for the same provider. Box admins only.
          */
         put: operations["dns-connect"];
         post?: never;
@@ -601,13 +601,13 @@ export interface paths {
         };
         /**
          * Show the box's domain
-         * @description The box's domain and dashboard address, where certificates come from (Let's Encrypt or the box's own CA on a local box), whether the dashboard's certificate is live, the wildcard certificate when a DNS provider is connected, and during a switch the previous domain and until when it still works. Without tiffin domain set, a server uses <its-ipv4-with-dashes>.sslip.io: real names and real certificates with no DNS setup.
+         * @description The box's domain, dashboard address and apps domain, where certificates come from (Let's Encrypt or the box's own CA on a local box), whether the dashboard's certificate is live, the wildcard certificate when a DNS provider is connected, and during a switch the previous domain and until when it still works. Without tiffin domain set, a server uses <its-ipv4-with-dashes>.sslip.io: real names and real certificates with no DNS setup.
          */
         get: operations["domain-get"];
         put?: never;
         /**
          * Use your own domain for the box
-         * @description Switches the box to <domain>: the dashboard moves to dashboard.<domain> (or <dashboard>.<domain>) and apps to <app>.<domain>. First checks that <domain> and *.<domain> point at this box (A/AAAA records); if not, nothing changes and the answer (status 412) lists exactly the records to add. With createRecords and a connected DNS provider that holds the zone, the box creates them itself. The service restarts (a few seconds; apps keep running), new certificates are obtained, and the old names keep working until the new ones have certificates, then for another hour. Touch ID sign-ins belong to the dashboard's address: add them again on the new one. Box admins only.
+         * @description Switches the box to <domain>: the dashboard moves to dashboard.<domain> (or <dashboard>.<domain>) and apps to <app>.<domain>, or with appsDomain to <app>.<appsDomain> (like vercel.com and vercel.app: app code on another registrable domain cannot set cookies on the dashboard's). First checks that <domain> and *.<domain> (with appsDomain: <dashboard>.<domain> and *.<appsDomain>) point at this box (A/AAAA records); if not, nothing changes and the answer (status 412) lists exactly the records to add. With createRecords, the box creates the ones in zones a connected DNS provider holds. The service restarts (a few seconds; apps keep running), new certificates are obtained, and the old names keep working until the new ones have certificates, then for another hour. Touch ID sign-ins belong to the dashboard's address: add them again on the new one. Box admins only.
          */
         post: operations["domain-set"];
         /**
@@ -629,7 +629,7 @@ export interface paths {
         };
         /**
          * Check a domain before using it for the box
-         * @description Read-only: the two DNS records a box domain needs (<domain> and *.<domain>, A and AAAA to this box's public addresses) with what DNS answers now, CAA records that would block certificates, and whether a connected DNS provider can set them. Asks public DNS resolvers.
+         * @description Read-only: the DNS records a box domain needs (A and AAAA to this box's public addresses) with what DNS answers now: <domain> and *.<domain>; with a separate appsDomain, <dashboard>.<domain> and *.<appsDomain>. Also CAA records that would block certificates, and which records a connected DNS provider can set. Asks public DNS resolvers.
          */
         get: operations["domain-check"];
         put?: never;
@@ -1869,7 +1869,7 @@ export interface paths {
         };
         /**
          * List a project's own domains
-         * @description Every host outside the box domain that the project's apps serve (their routes) or redirect (www), with its state: waiting_for_dns (with the records to add and what DNS says now), issuing, live or error (with the reason: points elsewhere, a CAA record, a rate limit...). The box re-checks waiting domains on its own with backoff (15 s, then up to every 30 min).
+         * @description Every host outside the box's own names that the project's apps serve (their routes) or redirect (www), with its state: waiting_for_dns (with the records to add and what DNS says now), issuing, live or error (with the reason: points elsewhere, a CAA record, a rate limit...). The box re-checks waiting domains on its own with backoff (15 s, then up to every 30 min).
          */
         get: operations["domains-list"];
         put?: never;
@@ -4555,7 +4555,9 @@ export interface components {
             summary: string;
         };
         "Domain-setRequest": {
-            /** @description Create the two records through the connected DNS provider first. */
+            /** @description Serve apps and previews at <app>.<appsDomain> instead of <app>.<domain>, e.g. example.app beside example.com. Default: domain itself. */
+            appsDomain?: string;
+            /** @description Create the records through the connected DNS provider first (those in zones it holds). */
             createRecords?: boolean;
             /** @description The dashboard's first-level name. Default dashboard. */
             dashboard?: string;
@@ -4583,6 +4585,8 @@ export interface components {
             www?: boolean;
         };
         DomainsBoxDomain: {
+            /** @description Apps and previews are at <app>.<appsDomain>: the box domain, or a separate one (tiffin domain set --apps-domain) so app code cannot set cookies on the dashboard's domain. */
+            appsDomain: string;
             /** @description The ACME directory, when it is not Let's Encrypt. */
             ca?: string;
             /**
@@ -4596,12 +4600,12 @@ export interface components {
             dashboardUrl: string;
             /** @description The domain without tiffin domain set. */
             default: string;
-            /** @description Apps are at <app>.<domain>. */
+            /** @description The box's domain: the dashboard, API and webhooks are under it, and apps too unless appsDomain is another domain. */
             domain: string;
-            /** @description The domain before the last switch, still served for a while. */
+            /** @description The domains before the last switch, still served for a while. */
             previous?: components["schemas"]["DomainsPrevious"];
             publicIps: string[] | null;
-            /** @description For a set domain: the two records it needs and whether DNS answers them. */
+            /** @description For a set domain: the records it needs and whether DNS answers them. */
             records?: components["schemas"]["DomainsRecordCheck"][] | null;
             /** @description The service restarts (a few seconds) to switch domains; apps keep running. */
             restarting?: boolean;
@@ -4613,11 +4617,11 @@ export interface components {
             /** @enum {string} */
             state: "live" | "issuing" | "error" | "internal";
             summary: string;
-            /** @description Present when a connected DNS provider holds the domain's zone: one *.<domain> certificate covers every app and preview. */
+            /** @description Present when a connected DNS provider holds the apps domain's zone: one *.<appsDomain> certificate covers every app and preview. */
             wildcard?: components["schemas"]["DomainsWildcard"];
         };
         DomainsConnectedProvider: {
-            /** @description It holds the box domain's zone: the box uses one wildcard certificate (DNS-01) for every app. */
+            /** @description It holds the zone apps live under (the box domain, or the separate apps domain): the box uses one wildcard certificate (DNS-01) for every app. */
             boxDomain: boolean;
             /** Format: date-time */
             connectedAt: string;
@@ -4671,18 +4675,22 @@ export interface components {
             plan: components["schemas"]["Plan"];
         };
         DomainsDomainCheck: {
+            /** @description The separate apps domain checked with it, if any. */
+            appsDomain?: string;
             /** @description A CAA record that blocks the box's certificate authority, and the fix. */
             caa?: string;
             domain: string;
-            /** @description The connected DNS provider that holds this zone: createRecords sets the records for you. */
+            /** @description The connected DNS provider that holds every record's zone: createRecords sets them all for you. Records whose own managedBy is empty must be added by hand. */
             managedBy?: string;
-            /** @description Both records point at this box and nothing blocks certificates. */
+            /** @description Every record points at this box and nothing blocks certificates. */
             ok: boolean;
             /** @description Add these at your DNS host. */
             records: components["schemas"]["DomainsRecordCheck"][] | null;
             summary: string;
         };
         DomainsPrevious: {
+            /** @description The earlier apps domain, when it was another domain; its names keep working just as long. */
+            appsDomain?: string;
             domain: string;
             /**
              * Format: date-time
@@ -4700,6 +4708,8 @@ export interface components {
             found: string[] | null;
             /** @description The name as most DNS panels want it, relative to the zone: @ for the zone itself, * for the wildcard, shop for shop.example.com. */
             host?: string;
+            /** @description The connected DNS provider that holds this record's zone (createRecords sets it); absent: add it by hand. */
+            managedBy?: string;
             /** @description The full name, e.g. shop.example.com or *.example.com. */
             name: string;
             /** @description DNS already answers this way. */
@@ -10559,6 +10569,10 @@ export interface operations {
             query: {
                 /** @description e.g. example.com */
                 domain: string;
+                /** @description A separate domain for apps, e.g. example.app (see domain set). */
+                appsDomain?: string;
+                /** @description The dashboard's first-level name, with appsDomain. Default dashboard. */
+                dashboard?: string;
             };
             header?: never;
             path?: never;

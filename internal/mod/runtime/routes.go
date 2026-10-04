@@ -93,7 +93,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 		spa := strings.HasSuffix(d.Framework, "+spa")
 		if st.Preview != "" {
 			who += "@" + st.Preview
-			rt := edge.Route{Host: previewHost(st.Preview, st.App, r.p.Domain)}
+			rt := edge.Route{Host: previewHost(st.Preview, st.App, r.p.AppsDomain())}
 			if static {
 				rt.FileRoot, rt.SPA = r.staticLink(st.Project, st.App, st.Preview), spa
 			} else {
@@ -207,7 +207,7 @@ func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project st
 			}
 			prob = api.NewProblem(422, "validation", "app "+app+" would share an address with another project: "+msg)
 			prob.Hint = fmt.Sprintf("An app is served at <app name>.%s unless it sets routes. Give it its own: routes: [%q] (served at %s), or rename the app.",
-				p.Domain, suggest, p.Host(suggest))
+				p.AppsDomain(), suggest, p.Host(suggest))
 		}
 		prob.Errors = append(prob.Errors, api.FieldError{Path: "/apps/" + app + "/routes", Message: msg})
 	}

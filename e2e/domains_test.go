@@ -31,7 +31,10 @@ import (
 //   - a custom domain: waiting_for_dns ("points to 10.9.9.9, not this box")
 //     → issuing → live, with the www redirect, captured in the manifest;
 //   - the box domain switch: tiffin domain set example.test restarts the
-//     service, the new names get certificates and the old ones keep working.
+//     service, the new names get certificates and the old ones keep working;
+//   - apps on a domain of their own: tiffin domain set example.test
+//     --apps-domain apps.test keeps the dashboard on example.test, moves
+//     apps to <app>.apps.test, and the old app names keep working.
 //
 // DNS-01 wildcards and renewals are covered in process (internal/edge).
 // TIFFIN_E2E_INSTANCE (+ TIFFIN_E2E_PORT, TIFFIN_E2E_CONFIG) reuses a box.
@@ -195,11 +198,11 @@ for i in $(seq 1 100); do curl -sf http://127.0.0.1:7070/v1/health >/dev/null &&
 		return res.StatusCode, res.Header, string(b)
 	}
 	type boxDomain struct {
-		Domain, Source, Dashboard, State, Certificates, Summary string
-		DashboardCertificate                                    struct{ State, Issuer, Error string }
-		Previous                                                *struct{ Domain string }
+		Domain, AppsDomain, Source, Dashboard, State, Certificates, Summary string
+		DashboardCertificate                                                struct{ State, Issuer, Error string }
+		Previous                                                            *struct{ Domain string }
 	}
-	waitBox := func(domain string) boxDomain {
+	waitBox := func(domain, apps string) boxDomain {
 		t.Helper()
 		deadline := time.Now().Add(2 * time.Minute)
 		for {
@@ -208,18 +211,18 @@ for i in $(seq 1 100); do curl -sf http://127.0.0.1:7070/v1/health >/dev/null &&
 			if code == 0 {
 				_ = decodeFirst(out, &st)
 			}
-			if st.Domain == domain && st.State == "live" {
+			if st.Domain == domain && st.AppsDomain == apps && st.State == "live" {
 				return st
 			}
 			if time.Now().After(deadline) {
-				t.Fatalf("box domain %s not live: exit %d %s\npebble: %s", domain, code, out, box("tail -5 "+opt+"/pebble.log"))
+				t.Fatalf("box domain %s (apps %s) not live: exit %d %s\npebble: %s", domain, apps, code, out, box("tail -5 "+opt+"/pebble.log"))
 			}
 			time.Sleep(time.Second)
 		}
 	}
 
 	// ---- 1. zero setup: sslip.io with an ACME certificate ----
-	st := waitBox("127-0-0-1.sslip.io")
+	st := waitBox("127-0-0-1.sslip.io", "127-0-0-1.sslip.io")
 	if st.Source != "sslip" || st.Certificates != "acme" || !strings.Contains(st.DashboardCertificate.Issuer, "Pebble") {
 		t.Fatalf("zero-setup domain: %+v", st)
 	}
@@ -330,7 +333,7 @@ for i in $(seq 1 100); do curl -sf http://127.0.0.1:7070/v1/health >/dev/null &&
 	if code != 0 {
 		t.Fatalf("domain set: exit %d\n%s\nbox: %s", code, out, box("journalctl -u tiffin -n 40 --no-pager"))
 	}
-	st = waitBox("example.test")
+	st = waitBox("example.test", "example.test")
 	if st.Source != "set" || st.Previous == nil || st.Previous.Domain != "127-0-0-1.sslip.io" {
 		t.Errorf("after set: %+v", st)
 	}
@@ -347,6 +350,37 @@ for i in $(seq 1 100); do curl -sf http://127.0.0.1:7070/v1/health >/dev/null &&
 		t.Errorf("the custom domain after the switch: %d", code)
 	}
 	phase("domain set", p)
+
+	// ---- 4. apps on a domain of their own (dashboard.example.test, <app>.apps.test) ----
+	p = time.Now()
+	ok(&chk, "domain", "check", "--domain", "example.test", "--apps-domain", "apps.test")
+	if !chk.OK || len(chk.Records) != 2 || chk.Records[0].Name != "dashboard.example.test" || chk.Records[1].Name != "*.apps.test" {
+		t.Fatalf("domain check --apps-domain: %+v", chk)
+	}
+	code, out = run("domain", "set", "example.test", "--apps-domain", "apps.test")
+	if code != 0 {
+		t.Fatalf("domain set --apps-domain: exit %d\n%s\nbox: %s", code, out, box("journalctl -u tiffin -n 40 --no-pager"))
+	}
+	st = waitBox("example.test", "apps.test")
+	if st.Dashboard != "dashboard.example.test" || st.Previous == nil || st.Previous.Domain != "example.test" {
+		t.Errorf("after set --apps-domain: %+v", st)
+	}
+	if code, _, _ := get("dashboard.example.test", "/v1/health"); code != 200 {
+		t.Errorf("dashboard on the box domain: %d", code)
+	}
+	if code, _, body := get("shop.apps.test", "/"); code != 200 || !strings.Contains(body, "shop on a real name") {
+		t.Errorf("app under the apps domain: %d %s", code, body)
+	}
+	if code, _, _ := get("shop.example.test", "/"); code != 200 {
+		t.Errorf("the old app name stopped working during the grace period: %d", code)
+	}
+	if _, err := mac.Get(fmt.Sprintf("https://dashboard.apps.test:%d/", port)); err == nil {
+		t.Error("the dashboard answers under the apps domain")
+	}
+	if code, _, _ := get("shop.test", "/"); code != 200 {
+		t.Errorf("the custom domain after the apps switch: %d", code)
+	}
+	phase("apps domain", p)
 }
 
 // decodeFirst decodes the first JSON value in a command's output.

@@ -496,19 +496,23 @@ func (m *Module) certState() edge.CertState {
 	return st
 }
 
-// aliasesLocked: the previous box domain, while it is still served.
+// aliasesLocked: the previous box and apps domains, while they are still
+// served. A name the apps live under now is no alias.
 func (m *Module) aliasesLocked() []string {
 	b := m.box
-	if b.Previous == "" || (m.p != nil && b.Previous == m.p.Domain) {
-		return []string{}
-	}
 	if !b.PreviousUntil.IsZero() && m.now().After(b.PreviousUntil) {
 		return []string{}
 	}
-	return []string{b.Previous}
+	out := []string{}
+	for _, d := range []string{b.Previous, b.PreviousApps} {
+		if d != "" && (m.p == nil || d != m.p.AppsDomain()) && !slices.Contains(out, d) {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
-// boxDomainTick starts the previous domain's grace period once the new
+// boxDomainTick starts the previous domains' grace period once the new
 // names have certificates, and ends it. It reports whether the aliases
 // changed.
 func (m *Module) boxDomainTick(ctx context.Context) bool {
@@ -516,19 +520,23 @@ func (m *Module) boxDomainTick(ctx context.Context) bool {
 	defer m.mu.Unlock()
 	b := m.box
 	p := m.p
-	if b.Previous == "" || p == nil {
+	if (b.Previous == "" && b.PreviousApps == "") || p == nil {
 		return false
 	}
 	now := m.now()
 	switch {
 	case b.PreviousUntil.IsZero():
 		live := !p.Reach.ACME || edge.CertStatus(p.DashboardHost()).State == "live"
+		if live && p.AppsDomain() != p.Domain && m.wildcardLocked() != nil {
+			// Apps elsewhere: their wildcard is a certificate of its own.
+			live = edge.CertStatus("wildcard-probe."+p.AppsDomain()).State == "live"
+		}
 		if !live {
 			return false
 		}
 		b.PreviousUntil = now.Add(AliasGrace)
 	case now.After(b.PreviousUntil):
-		b.Previous, b.PreviousUntil = "", time.Time{}
+		b.Previous, b.PreviousApps, b.PreviousUntil = "", "", time.Time{}
 	default:
 		return false
 	}
@@ -536,7 +544,7 @@ func (m *Module) boxDomainTick(ctx context.Context) bool {
 	if p.DB != nil {
 		_ = platform.SaveBoxDomain(ctx, p.DB, b)
 	}
-	return b.Previous == ""
+	return b.PreviousUntil.IsZero() // the grace period ended
 }
 
 // Routes are the www redirects (the apps' own routes come from the runtime).

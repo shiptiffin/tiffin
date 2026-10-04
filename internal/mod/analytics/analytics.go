@@ -147,7 +147,7 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 func (m *Module) setup(p *platform.Platform, st Store, geo *enrich.Geo) {
 	m.p, m.store, m.geo = p, st, geo
 	m.rt = &Realtime{}
-	m.sites = &edgelog.Sites{DB: p.DB, Domain: p.Domain}
+	m.sites = &edgelog.Sites{DB: p.DB, Domain: p.AppsDomain()}
 	m.pipe = &Pipeline{Store: st, Bots: enrich.NewBots(), Agents: enrich.NewAgents(), Geo: geo, RT: m.rt}
 }
 

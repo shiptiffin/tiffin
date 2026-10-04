@@ -43,10 +43,11 @@ export const dnsProvidersQuery = queryOptions({
   staleTime: 30_000,
 });
 
-export const checkBoxDomain = (domain: string) => request<DomainCheck>("GET", `/v1/domain/check?domain=${enc(domain)}`);
+export const checkBoxDomain = (domain: string, appsDomain = "") =>
+  request<DomainCheck>("GET", `/v1/domain/check?domain=${enc(domain)}${appsDomain ? `&appsDomain=${enc(appsDomain)}` : ""}`);
 
-/** Switches the box to `domain`. 412 (thrown) when DNS isn't ready yet. */
-export const setBoxDomain = (domain: string) => request<BoxDomain>("POST", "/v1/domain", { domain });
+/** Switches the box to `domain` (apps to `appsDomain` when given). 412 (thrown) when DNS isn't ready yet. */
+export const setBoxDomain = (domain: string, appsDomain = "") => request<BoxDomain>("POST", "/v1/domain", { domain, ...(appsDomain ? { appsDomain } : {}) });
 export const unsetBoxDomain = () => request<BoxDomain>("DELETE", "/v1/domain");
 
 export const recheckDomain = (project: string, domain: string) => request<Domain>("POST", `${projectPath(project)}/${enc(domain)}/check`);

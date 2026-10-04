@@ -10,7 +10,7 @@ import { ProblemNote } from "@/components/problem";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CLOUDFLARE_TOKENS, connectDns, disconnectDns, dnsProvidersQuery, type ConnectedProvider, type Providers } from "@/lib/domains";
+import { boxDomainQuery, CLOUDFLARE_TOKENS, connectDns, disconnectDns, dnsProvidersQuery, type ConnectedProvider, type Providers } from "@/lib/domains";
 import { useWho } from "@/lib/me";
 import { relative } from "@/lib/time";
 import { countWords } from "@/lib/format";
@@ -68,6 +68,10 @@ function CloudflareCard({ connected }: { connected?: ConnectedProvider }) {
   });
   const zones = connected?.zones ?? [];
   const showForm = !connected || replacing || !!connected.error;
+  // Apps live under the box domain, or a domain of their own: the wildcard is for that one.
+  const bd = useQuery(boxDomainQuery);
+  const appsHost = bd.data?.appsDomain ?? location.hostname;
+  const apart = !!bd.data && bd.data.appsDomain !== bd.data.domain;
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (token.trim()) connect.mutate();
@@ -115,7 +119,7 @@ function CloudflareCard({ connected }: { connected?: ConnectedProvider }) {
           {zones.map((z) => (
             <li key={z} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 py-2.5">
               <span className="ident text-[0.8125rem] text-ink">{z}</span>
-              {connected.boxDomain && isBoxZone(z) ? <span className="text-xs text-ink-3">Your box’s domain: one certificate for every app</span> : null}
+              {connected.boxDomain && inZone(appsHost, z) ? <span className="text-xs text-ink-3">{apart ? "Your apps’ domain" : "Your box’s domain"}: one certificate for every app</span> : null}
             </li>
           ))}
         </ul>
@@ -216,9 +220,8 @@ function Step({ n, children }: { n: number; children: ReactNode }) {
   );
 }
 
-/** The box's domain is under this zone (the dashboard's host ends with it). */
-function isBoxZone(z: string) {
-  const h = location.hostname;
+/** Host h is under zone z. */
+function inZone(h: string, z: string) {
   return h === z || h.endsWith(`.${z}`);
 }
 

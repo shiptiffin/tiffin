@@ -30,13 +30,15 @@ const (
 //
 // Which names get a certificate, and when:
 //
-//   - with Wildcard (a DNS provider): *.<Domain> through the DNS-01
-//     challenge, which covers the dashboard, every app and every preview
-//     at once (one certificate, one issuance);
-//   - without it: the dashboard right away, and each other one-label host
-//     under the box domain on its first visit (on-demand TLS, HTTP-01 or
-//     TLS-ALPN), so previews nobody opens never use up rate limits;
-//   - hosts outside the box domain (custom domains) right away, but only
+//   - with Wildcard (a DNS provider): *.<apps domain> through the DNS-01
+//     challenge, which covers every app and every preview at once (one
+//     certificate, one issuance), and the dashboard too when apps share
+//     the box domain;
+//   - the dashboard right away when the wildcard does not cover it;
+//   - without a wildcard, each one-label host under the apps domain on its
+//     first visit (on-demand TLS, HTTP-01 or TLS-ALPN), so previews nobody
+//     opens never use up rate limits;
+//   - other hosts (custom domains) right away, but only
 //     those listed in Ready: their DNS points at this box. A route whose
 //     DNS does not point here yet gets no certificate attempts at all, so a
 //     waiting domain never burns Let's Encrypt's failed-validation limit.
@@ -51,10 +53,10 @@ type ACME struct {
 	Email string
 	// TrustedRoots is a PEM file of roots for talking to a test CA (Pebble).
 	TrustedRoots string
-	// Ready are hosts outside the box domain whose DNS points at this box.
+	// Ready are hosts outside the apps domain whose DNS points at this box.
 	// Nil: the ones the registered cert source gives (see SetCertSource).
 	Ready []string
-	// Wildcard obtains *.<Domain> through the DNS-01 challenge. Nil: the
+	// Wildcard obtains *.<apps domain> through the DNS-01 challenge. Nil: the
 	// one the registered cert source gives, if any.
 	Wildcard *DNSChallenge
 	// RenewInterval is how often certificates are checked for renewal.
@@ -171,9 +173,10 @@ func (c Config) issuers(dns *DNSChallenge) []obj {
 	return out
 }
 
-// customHosts are the route hosts outside the box domain (and its aliases).
+// isBoxHost: a one-label host under the apps domain (or an alias); every
+// other route host is a custom domain.
 func (c Config) isBoxHost(h string) bool {
-	if BoxLabel(h, c.Domain) != "" {
+	if BoxLabel(h, c.appsDomain()) != "" {
 		return true
 	}
 	for _, a := range c.Aliases {
@@ -187,7 +190,7 @@ func (c Config) isBoxHost(h string) bool {
 // proactiveHosts get certificates as soon as the config loads.
 func (c Config) proactiveHosts() []string {
 	var out []string
-	if c.ACME.Wildcard == nil {
+	if c.ACME.Wildcard == nil || c.appsDomain() != c.Domain {
 		out = append(out, c.DashboardHost())
 	}
 	for _, r := range c.Routes {
@@ -223,8 +226,8 @@ func (c Config) acmeTLS() obj {
 	var policies []obj
 	var automate []string
 	if a.Wildcard != nil {
-		policies = append(policies, obj{"subjects": []string{"*." + c.Domain}, "issuers": c.issuers(a.Wildcard)})
-		automate = append(automate, "*."+c.Domain)
+		policies = append(policies, obj{"subjects": []string{"*." + c.appsDomain()}, "issuers": c.issuers(a.Wildcard)})
+		automate = append(automate, "*."+c.appsDomain())
 	}
 	if hosts := c.proactiveHosts(); len(hosts) > 0 {
 		// A policy without subjects matches everything, so this one is only

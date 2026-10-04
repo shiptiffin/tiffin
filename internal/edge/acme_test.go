@@ -394,3 +394,109 @@ func TestACMEConfigShape(t *testing.T) {
 		t.Error("a DNS challenge without a provider must be refused")
 	}
 }
+
+// TestAppsDomainConfig: apps on their own domain (example.app beside
+// example.com): one-label hosts, aliases, the wildcard and the dashboard.
+func TestAppsDomainConfig(t *testing.T) {
+	prov := dnstest.NewProvider(nil)
+	base := Config{Domain: "example.com", Apps: "Example.APP.", Upstream: "127.0.0.1:7070", DataDir: "/x",
+		Aliases: []string{"example.com", "old.example", "example.app"},
+		ACME:    &ACME{Ready: []string{"shop.example.org"}, Wildcard: &DNSChallenge{Name: "fake", Provider: prov}},
+		Routes: []Route{{Host: "web.example.app", Upstream: "127.0.0.1:1"}, {Host: "shop.example.org", Upstream: "127.0.0.1:1"},
+			{Host: "blog.example.com", Upstream: "127.0.0.1:1"}}}
+	c, err := base.normalized()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Apps != "example.app" || c.DashboardHost() != "dashboard.example.com" || strings.Join(c.Aliases, ",") != "example.com,old.example" {
+		t.Fatalf("normalized: apps %q dashboard %q aliases %v", c.Apps, c.DashboardHost(), c.Aliases)
+	}
+	if got := strings.Join(c.dashboardHosts(), ","); got != "dashboard.example.com,dashboard.old.example" {
+		t.Errorf("dashboard hosts = %s", got)
+	}
+	if got := strings.Join(c.hostsFor("web.example.app"), ","); got != "web.example.app,web.example.com,web.old.example" {
+		t.Errorf("hostsFor = %s", got)
+	}
+	// The wildcard covers the apps; the dashboard is not under it, so it
+	// gets its own certificate right away.
+	if got := c.proactiveHosts(); strings.Join(got, ",") != "dashboard.example.com,shop.example.org" {
+		t.Errorf("proactive = %v", got)
+	}
+	pol := c.acmeTLS()["automation"].(obj)["policies"].([]obj)
+	if s := pol[0]["subjects"].([]string); len(s) != 1 || s[0] != "*.example.app" {
+		t.Errorf("wildcard policy = %v", s)
+	}
+	al := c.Allowed()
+	for h, want := range map[string]bool{"dashboard.example.com": true, "web.example.app": true, "web.example.com": true, "web.old.example": true,
+		"shop.example.org": true, "x.example.app": false, "dashboard.example.app": false,
+		"blog.example.com": true, // under an alias: the old apps domain's names keep working
+	} {
+		if al[h] != want {
+			t.Errorf("allowed[%s] = %v", h, al[h])
+		}
+	}
+	// Without the alias, a name under the box domain is a custom domain:
+	// served only once its DNS points here.
+	c.Aliases = []string{"old.example"}
+	if c.Allowed()["blog.example.com"] {
+		t.Error("blog.example.com allowed without being ready")
+	}
+	// The internal CA manages the apps wildcard and the dashboard.
+	c.ACME, c.Internal = nil, true
+	if got := c.managedHosts(); got[0] != "*.example.app" || got[1] != "dashboard.example.com" {
+		t.Errorf("managed = %v", got)
+	}
+	// Without a separate apps domain nothing changes.
+	same := Config{Domain: "example.com", Apps: "example.com", Upstream: "127.0.0.1:1", DataDir: "/x", ACME: &ACME{Wildcard: &DNSChallenge{Name: "fake", Provider: prov}}}
+	if c, err := same.normalized(); err != nil || c.Apps != "" || len(c.proactiveHosts()) != 0 {
+		t.Errorf("apps = domain: %q %v %v", c.Apps, c.proactiveHosts(), err)
+	}
+	if _, err := ConfigJSON(Config{Domain: "example.com", Apps: "bad_name", Upstream: "127.0.0.1:1", DataDir: "/x", Internal: true}); err == nil {
+		t.Error("an invalid apps domain must be refused")
+	}
+}
+
+// TestACMEAppsDomain: with apps on their own domain, the DNS provider's
+// wildcard covers *.<apps> and the dashboard gets its own certificate.
+func TestACMEAppsDomain(t *testing.T) {
+	isolate(t)
+	dns := dnstest.Start(t)
+	dns.AddZone("box.test")
+	dns.AddZone("apps.test")
+	dns.Set("dashboard.box.test", "A", "127.0.0.1")
+	dns.Set("*.apps.test", "A", "127.0.0.1")
+	prov := dnstest.NewProvider(dns)
+	ports := freePorts(t, 2)
+	pb := startPebble(t, dns.Addr(), ports[0], ports[1], 0)
+	up := upstreamServer(t, "platform")
+	app := upstreamServer(t, "preview")
+	SetCertSource(func() CertState {
+		return CertState{Wildcard: &DNSChallenge{Name: "fake", Provider: prov, Resolvers: []string{dns.Addr()}, PropagationTimeout: -1}}
+	})
+	defer SetCertSource(nil)
+	e, err := Start(context.Background(), Config{
+		Domain: "box.test", Apps: "apps.test", Upstream: addr(up), DataDir: filepath.Join(t.TempDir(), "caddy"),
+		HTTPPort: ports[0], HTTPSPort: ports[1],
+		ACME:   &ACME{CA: pb.dir, TrustedRoots: pb.roots},
+		Routes: []Route{{Host: "pr-7--web.apps.test", Upstream: addr(app)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Stop()
+	if ci := waitCert(t, "dashboard.box.test", "live", 30*time.Second); ci.Subject != "dashboard.box.test" {
+		t.Errorf("dashboard certificate covers %q", ci.Subject)
+	}
+	c := acmeClient(t, pb.pool, ports[1], ports[0])
+	if res, body := get(t, c, "https://dashboard.box.test/"); res.StatusCode != 200 || !strings.Contains(body, "hello from platform") {
+		t.Errorf("dashboard: %d %s", res.StatusCode, body)
+	}
+	waitCert(t, "pr-7--web.apps.test", "live", 30*time.Second)
+	if res, body := get(t, c, "https://pr-7--web.apps.test/"); res.StatusCode != 200 || !strings.Contains(body, "hello from preview") {
+		t.Fatalf("preview: %d %s", res.StatusCode, body)
+	}
+	leaf, err := handshake(pb.pool, ports[1], "pr-7--web.apps.test")
+	if err != nil || len(leaf.DNSNames) != 1 || leaf.DNSNames[0] != "*.apps.test" {
+		t.Fatalf("preview certificate: %v %v", leaf, err)
+	}
+}

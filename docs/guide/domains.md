@@ -41,6 +41,38 @@ itself for something else? Use a subdomain: `tiffin domain set apps.example.com`
 
 `tiffin domain unset` goes back to the sslip.io name.
 
+## Apps on a domain of their own
+
+Like vercel.com and vercel.app, the dashboard can live on one domain and the apps on
+another:
+
+```
+tiffin domain set example.com --apps-domain example.app
+```
+
+The dashboard, the API and webhooks stay at `dashboard.example.com`; apps, previews
+and the box's own service names (`s3`, `files`, `t`, `errors`, `otel`) move to
+`<name>.example.app`. App code then runs on a different registrable domain from the
+dashboard, so it cannot set cookies on the dashboard's domain. (The dashboard's
+sign-in cookie is host-only either way.) The records are:
+
+| Type | Name | Value |
+|---|---|---|
+| A | `dashboard.example.com` | your server's IPv4 |
+| A | `*.example.app` | your server's IPv4 |
+
+(plus AAAA with IPv6). `example.com` itself is not needed, so it can stay your
+website. `tiffin domain check --domain example.com --apps-domain example.app` lists
+them and what DNS says now; with `--create-records`, the box adds the ones in zones
+your connected DNS provider holds and tells you exactly which to add by hand (a
+Cloudflare token for *All zones* holds both). A custom domain's CNAME then points at
+`dashboard.example.com`.
+
+`tiffin domain set` is the whole setting: running it again without `--apps-domain`
+puts the apps back on the box domain. Either way the old app names keep working until
+the new certificates are live, then for an hour. Apps read the domain they live under
+from `TIFFIN_DOMAIN`, and their own address from `TIFFIN_URL`.
+
 ## A domain for one project
 
 Give an app its own name, `example.com` or `shop.example.com`:
@@ -89,7 +121,8 @@ The box checks the token by listing your zones and stores it encrypted. From the
 - `tiffin domain set example.com --create-records` and `tiffin domains add ...
   --create-records` add the records for you;
 - the box gets **one wildcard certificate** for `*.example.com` (DNS-01), so new apps
-  and previews have HTTPS the moment they exist;
+  and previews have HTTPS the moment they exist (for `*.example.app` with a separate
+  apps domain, when the provider holds that zone; the dashboard then gets its own);
 - records for email (SPF, DKIM, DMARC) can be set with `tiffin dns records set`.
 
 Keep these records **DNS only** (grey cloud) in Cloudflare; the box serves HTTPS
@@ -115,9 +148,10 @@ itself. `tiffin dns disconnect cloudflare` forgets the token.
   domain, pick the app that shows it and whether `www.` comes along. The page lists
   the exact records to add, with a copy button for each, and watches DNS until the
   domain is live with HTTPS. With Cloudflare connected, one button adds the records.
-- **Settings › Your box › Domain**: the box's address, *Use your own domain* (check the
-  two records, then switch; the page follows the dashboard to its new address) and
-  *Go back to the automatic address*.
+- **Settings › Your box › Domain**: the box's address and where apps live, *Use your
+  own domain* (optionally with *Put apps on a domain of their own*; check the two
+  records, then switch; the page follows the dashboard to its new address) and *Go
+  back to the automatic address*.
 - **Settings › DNS**: connect Cloudflare with a token made from its *Edit zone DNS*
   template (All zones), see which domains it can manage, or disconnect.
 

@@ -21,6 +21,7 @@ import { GitHubMark } from "@/components/github-mark";
 import { checkPick, emptyPick, GitHubImport, type GitHubPick } from "@/components/github-import";
 import { deployGitHub, nameFromRepo, setSecret } from "@/lib/github";
 import { useMe } from "@/lib/me";
+import { boxDomainQuery } from "@/lib/domains";
 import { splitAddress } from "@/lib/changes";
 import { cn } from "@/lib/cn";
 import { partName, partSub } from "@/lib/names";
@@ -999,12 +1000,16 @@ export function Odometer({ to, prefix = "v" }: { to: number; prefix?: string }) 
 // ───────────────────────── helpers ─────────────────────────
 
 /**
- * The box's domain with its port, as apps get it: "tiffin.localhost:8470". From the dashboard's own
- * address on a box; on a local dev server, from any app the box already serves.
+ * The domain apps live under, with its port, as apps get it: "tiffin.localhost:8470". On a box, the
+ * box's apps domain (it can differ from the dashboard's); on a local dev server, from any app the box
+ * already serves.
  */
 export function useBoxDomain(probe?: { project: string; app: string }) {
+  const bd = useQuery({ ...boxDomainQuery, staleTime: 300_000 });
   const h = location.hostname;
-  const own = h.startsWith("dashboard.") ? h.slice("dashboard.".length) + (location.port && location.port !== "443" ? `:${location.port}` : "") : undefined;
+  const onBox = bd.data ? h === bd.data.dashboard : h.startsWith("dashboard.");
+  const port = location.port && location.port !== "443" ? `:${location.port}` : "";
+  const own = onBox ? (bd.data?.appsDomain || h.slice(h.indexOf(".") + 1)) + port : undefined;
   const rt = useQuery({
     queryKey: ["runtime", probe?.project ?? "", probe?.app ?? ""],
     queryFn: () => mod3.runtime(probe!.project, probe!.app),

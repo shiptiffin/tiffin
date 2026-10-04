@@ -25,15 +25,17 @@ import (
 // RecordCheck is one DNS record the box needs, and what DNS says now.
 type RecordCheck struct {
 	dnskit.Record
-	OK     bool     `json:"ok" doc:"DNS already answers this way."`
-	Found  []string `json:"found" doc:"The addresses DNS gives for the name now."`
-	Reason string   `json:"reason,omitempty" doc:"What is wrong, in plain words."`
+	OK        bool     `json:"ok" doc:"DNS already answers this way."`
+	Found     []string `json:"found" doc:"The addresses DNS gives for the name now."`
+	Reason    string   `json:"reason,omitempty" doc:"What is wrong, in plain words."`
+	ManagedBy string   `json:"managedBy,omitempty" doc:"The connected DNS provider that holds this record's zone (createRecords sets it); absent: add it by hand."`
 }
 
 // Previous is the box domain before the last switch.
 type Previous struct {
-	Domain string     `json:"domain"`
-	Until  *time.Time `json:"until,omitempty" doc:"When its names stop working; absent while the new names have no certificate yet."`
+	Domain     string     `json:"domain"`
+	AppsDomain string     `json:"appsDomain,omitempty" doc:"The earlier apps domain, when it was another domain; its names keep working just as long."`
+	Until      *time.Time `json:"until,omitempty" doc:"When its names stop working; absent while the new names have no certificate yet."`
 }
 
 // Wildcard is the wildcard certificate a DNS provider makes possible.
@@ -44,7 +46,8 @@ type Wildcard struct {
 
 // BoxDomain is the box domain's status.
 type BoxDomain struct {
-	Domain       string `json:"domain" doc:"Apps are at <app>.<domain>."`
+	Domain       string `json:"domain" doc:"The box's domain: the dashboard, API and webhooks are under it, and apps too unless appsDomain is another domain."`
+	AppsDomain   string `json:"appsDomain" doc:"Apps and previews are at <app>.<appsDomain>: the box domain, or a separate one (tiffin domain set --apps-domain) so app code cannot set cookies on the dashboard's domain."`
 	Source       string `json:"source" enum:"set,sslip,flag" doc:"set: chosen with tiffin domain set; sslip: automatic, from the server's public IPv4 (no DNS setup); flag: the service's --domain (a local box)."`
 	Default      string `json:"default" doc:"The domain without tiffin domain set."`
 	Dashboard    string `json:"dashboard" doc:"The dashboard's host."`
@@ -56,21 +59,22 @@ type BoxDomain struct {
 	State                string        `json:"state" enum:"live,issuing,error,internal"`
 	PublicIPs            []string      `json:"publicIps"`
 	DashboardCertificate edge.CertInfo `json:"dashboardCertificate"`
-	Wildcard             *Wildcard     `json:"wildcard,omitempty" doc:"Present when a connected DNS provider holds the domain's zone: one *.<domain> certificate covers every app and preview."`
-	Records              []RecordCheck `json:"records,omitempty" doc:"For a set domain: the two records it needs and whether DNS answers them."`
-	Previous             *Previous     `json:"previous,omitempty" doc:"The domain before the last switch, still served for a while."`
+	Wildcard             *Wildcard     `json:"wildcard,omitempty" doc:"Present when a connected DNS provider holds the apps domain's zone: one *.<appsDomain> certificate covers every app and preview."`
+	Records              []RecordCheck `json:"records,omitempty" doc:"For a set domain: the records it needs and whether DNS answers them."`
+	Previous             *Previous     `json:"previous,omitempty" doc:"The domains before the last switch, still served for a while."`
 	Restarting           bool          `json:"restarting,omitempty" doc:"The service restarts (a few seconds) to switch domains; apps keep running."`
 	Summary              string        `json:"summary"`
 }
 
 // DomainCheck is what a box domain needs before tiffin domain set.
 type DomainCheck struct {
-	Domain    string        `json:"domain"`
-	OK        bool          `json:"ok" doc:"Both records point at this box and nothing blocks certificates."`
-	Records   []RecordCheck `json:"records" doc:"Add these at your DNS host."`
-	CAA       string        `json:"caa,omitempty" doc:"A CAA record that blocks the box's certificate authority, and the fix."`
-	ManagedBy string        `json:"managedBy,omitempty" doc:"The connected DNS provider that holds this zone: createRecords sets the records for you."`
-	Summary   string        `json:"summary"`
+	Domain     string        `json:"domain"`
+	AppsDomain string        `json:"appsDomain,omitempty" doc:"The separate apps domain checked with it, if any."`
+	OK         bool          `json:"ok" doc:"Every record points at this box and nothing blocks certificates."`
+	Records    []RecordCheck `json:"records" doc:"Add these at your DNS host."`
+	CAA        string        `json:"caa,omitempty" doc:"A CAA record that blocks the box's certificate authority, and the fix."`
+	ManagedBy  string        `json:"managedBy,omitempty" doc:"The connected DNS provider that holds every record's zone: createRecords sets them all for you. Records whose own managedBy is empty must be added by hand."`
+	Summary    string        `json:"summary"`
 }
 
 // Domain is one of a project's own domains.
@@ -111,7 +115,8 @@ type DomainChange struct {
 
 func (m *Module) boxStatus(ctx context.Context, p *platform.Platform) BoxDomain {
 	r := p.Reach
-	b := BoxDomain{Domain: p.Domain, Source: orDefault(r.DomainSource, "flag"), Default: orDefault(r.DefaultDomain, p.Domain),
+	apps := p.AppsDomain()
+	b := BoxDomain{Domain: p.Domain, AppsDomain: apps, Source: orDefault(r.DomainSource, "flag"), Default: orDefault(r.DefaultDomain, p.Domain),
 		Dashboard: p.DashboardHost(), DashboardURL: strings.TrimRight(p.PublicURL, "/"), PublicIPs: []string{}}
 	if b.DashboardURL == "" {
 		b.DashboardURL = p.URL(p.DashboardHost())
@@ -126,6 +131,9 @@ func (m *Module) boxStatus(ctx context.Context, p *platform.Platform) BoxDomain 
 	m.mu.Unlock()
 	if len(aliases) > 0 {
 		b.Previous = &Previous{Domain: aliases[0]}
+		if len(aliases) > 1 {
+			b.Previous.AppsDomain = aliases[1]
+		}
 		if !box.PreviousUntil.IsZero() {
 			u := box.PreviousUntil
 			b.Previous.Until = &u
@@ -133,7 +141,7 @@ func (m *Module) boxStatus(ctx context.Context, p *platform.Platform) BoxDomain 
 	}
 	if !r.ACME {
 		b.Certificates, b.State = "internal", "internal"
-		b.Summary = fmt.Sprintf("A local box: %s and <app>.%s use the box's own certificate authority (trusted by your computer after tiffin up). Real domains and public certificates need a server.", p.DashboardHost(), p.Domain)
+		b.Summary = fmt.Sprintf("A local box: %s and <app>.%s use the box's own certificate authority (trusted by your computer after tiffin up). Real domains and public certificates need a server.", p.DashboardHost(), apps)
 		return b
 	}
 	b.Certificates = "acme"
@@ -151,11 +159,11 @@ func (m *Module) boxStatus(ctx context.Context, p *platform.Platform) BoxDomain 
 	}
 	if wild != nil && r.ACME {
 		// Any one-label name finds the wildcard certificate.
-		b.Wildcard = &Wildcard{Provider: wild.Name, Certificate: edge.CertStatus("wildcard-probe." + p.Domain)}
-		b.Wildcard.Certificate.Host = "*." + p.Domain
+		b.Wildcard = &Wildcard{Provider: wild.Name, Certificate: edge.CertStatus("wildcard-probe." + apps)}
+		b.Wildcard.Certificate.Host = "*." + apps
 	}
 	if b.Source == "set" {
-		b.Records, _, _ = m.checkRecords(ctx, p, p.Domain)
+		b.Records, _, _ = m.checkRecords(ctx, p, p.Domain, r.AppsDomain, r.Dashboard)
 	}
 	var s []string
 	switch b.State {
@@ -167,18 +175,22 @@ func (m *Module) boxStatus(ctx context.Context, p *platform.Platform) BoxDomain 
 		s = append(s, fmt.Sprintf("Getting a certificate for %s (usually under a minute).", p.DashboardHost()))
 	}
 	if b.Wildcard != nil {
-		s = append(s, fmt.Sprintf("Apps and previews share one *.%s certificate (DNS-01 through %s).", p.Domain, b.Wildcard.Provider))
+		s = append(s, fmt.Sprintf("Apps and previews are at <app>.%s and share one *.%s certificate (DNS-01 through %s).", apps, apps, b.Wildcard.Provider))
 	} else {
-		s = append(s, fmt.Sprintf("Apps are at <app>.%s and get their certificate on their first visit.", p.Domain))
+		s = append(s, fmt.Sprintf("Apps are at <app>.%s and get their certificate on their first visit.", apps))
 	}
 	if b.Source == "sslip" {
 		s = append(s, "Use your own domain with `tiffin domain set example.com` (two DNS records).")
 	}
 	if b.Previous != nil {
+		old := b.Previous.Domain
+		if b.Previous.AppsDomain != "" {
+			old += " and " + b.Previous.AppsDomain
+		}
 		if b.Previous.Until == nil {
-			s = append(s, fmt.Sprintf("The old names under %s keep working until the new ones have certificates.", b.Previous.Domain))
+			s = append(s, fmt.Sprintf("The old names under %s keep working until the new ones have certificates.", old))
 		} else {
-			s = append(s, fmt.Sprintf("The old names under %s keep working until %s.", b.Previous.Domain, b.Previous.Until.Format("15:04 MST")))
+			s = append(s, fmt.Sprintf("The old names under %s keep working until %s.", old, b.Previous.Until.Format("15:04 MST")))
 		}
 	}
 	b.Summary = strings.Join(s, " ")
@@ -192,19 +204,28 @@ func orDefault(s, d string) string {
 	return s
 }
 
-// checkRecords checks the two records a box domain needs: the domain and
-// its wildcard (probed with a random name), both pointing at the box.
-func (m *Module) checkRecords(ctx context.Context, p *platform.Platform, domain string) ([]RecordCheck, bool, error) {
+// recordNames are the names a box domain needs pointing at the box: the
+// domain and its wildcard; with a separate apps domain, the dashboard's host
+// and the apps domain's wildcard.
+func recordNames(domain, apps, dash string) []string {
+	if apps == "" || apps == domain {
+		return []string{domain, "*." + domain}
+	}
+	return []string{orDefault(dash, "dashboard") + "." + domain, "*." + apps}
+}
+
+// checkRecords checks the records a box domain needs (recordNames; a
+// wildcard is probed with a random name), all pointing at the box.
+func (m *Module) checkRecords(ctx context.Context, p *platform.Platform, domain, apps, dash string) ([]RecordCheck, bool, error) {
 	res := p.Reach.Resolver()
 	var b [4]byte
 	_, _ = rand.Read(b[:])
-	probe := "tiffin-check-" + hex.EncodeToString(b[:]) + "." + domain
 	all := true
 	var out []RecordCheck
-	for _, name := range []string{domain, "*." + domain} {
+	for _, name := range recordNames(domain, apps, dash) {
 		q := name
-		if strings.HasPrefix(name, "*.") {
-			q = probe
+		if rest, ok := strings.CutPrefix(name, "*."); ok {
+			q = "tiffin-check-" + hex.EncodeToString(b[:]) + "." + rest
 		}
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		ans, err := res.Lookup(cctx, q)
@@ -214,54 +235,131 @@ func (m *Module) checkRecords(ctx context.Context, p *platform.Platform, domain 
 		}
 		ok, why := dnskit.PointsHere(ans, p.Reach.PublicIPs)
 		all = all && ok
+		managed := ""
+		if st, _ := m.providerFor(name); st != nil {
+			managed = st.rec.Name
+		}
 		for _, rec := range dnskit.AddressRecords(name, p.Reach.PublicIPs) {
-			out = append(out, RecordCheck{Record: rec, OK: ok, Found: addrStrings(ans.Addrs), Reason: why})
+			out = append(out, RecordCheck{Record: rec, OK: ok, Found: addrStrings(ans.Addrs), Reason: why, ManagedBy: managed})
 		}
 	}
 	return out, all, nil
 }
 
-// domainCheck is GET /v1/domain/check.
-func (m *Module) domainCheck(ctx context.Context, p *platform.Platform, domain string) (*DomainCheck, error) {
-	recs, ok, err := m.checkRecords(ctx, p, domain)
+// domainCheck is GET /v1/domain/check. apps is a separate apps domain
+// ("" or domain: none) and dash the dashboard's name.
+func (m *Module) domainCheck(ctx context.Context, p *platform.Platform, domain, apps, dash string) (*DomainCheck, error) {
+	if apps == domain {
+		apps = ""
+	}
+	recs, ok, err := m.checkRecords(ctx, p, domain, apps, dash)
 	if err != nil {
 		return nil, api.NewProblem(http.StatusBadGateway, "internal", "could not ask DNS about "+domain+": "+err.Error())
 	}
-	c := &DomainCheck{Domain: domain, Records: recs, OK: ok}
-	if st, _ := m.providerFor(domain); st != nil {
-		c.ManagedBy = st.rec.Name
-	}
-	if ids := p.Reach.CAAIdentities(); len(ids) > 0 {
-		wild := c.ManagedBy != ""
-		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		caa, owner, err := p.Reach.Resolver().CAASet(cctx, "x."+domain)
-		cancel()
-		if err == nil && (!dnskit.CAAAllows(caa, false, ids...) || (wild && !dnskit.CAAAllows(caa, true, ids...))) {
-			c.CAA = fmt.Sprintf("CAA records on %s do not allow %s; add: %s CAA 0 issue \"%s\"", owner, ids[0], owner, ids[0])
-			if wild {
-				c.CAA += fmt.Sprintf(" (and 0 issuewild \"%s\")", ids[0])
-			}
-			c.OK = false
+	c := &DomainCheck{Domain: domain, AppsDomain: apps, Records: recs, OK: ok}
+	var managers []string
+	for _, r := range recs {
+		if r.ManagedBy == "" {
+			managers = nil
+			break
+		}
+		if !slices.Contains(managers, r.ManagedBy) {
+			managers = append(managers, r.ManagedBy)
 		}
 	}
+	c.ManagedBy = strings.Join(managers, " and ")
+	if ids := p.Reach.CAAIdentities(); len(ids) > 0 {
+		// The dashboard (HTTP-01) and the apps' names (DNS-01 wildcard when
+		// a provider holds their zone).
+		type target struct {
+			name string
+			wild bool
+		}
+		ts := []target{{"x." + domain, false}}
+		if apps != "" {
+			ts = []target{{orDefault(dash, "dashboard") + "." + domain, false}, {"x." + apps, false}}
+		}
+		last := &ts[len(ts)-1]
+		if st, _ := m.providerFor(last.name); st != nil {
+			last.wild = true
+		}
+		var problems []string
+		for _, t := range ts {
+			cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			caa, owner, err := p.Reach.Resolver().CAASet(cctx, t.name)
+			cancel()
+			if err == nil && (!dnskit.CAAAllows(caa, false, ids...) || (t.wild && !dnskit.CAAAllows(caa, true, ids...))) {
+				s := fmt.Sprintf("CAA records on %s do not allow %s; add: %s CAA 0 issue \"%s\"", owner, ids[0], owner, ids[0])
+				if t.wild {
+					s += fmt.Sprintf(" (and 0 issuewild \"%s\")", ids[0])
+				}
+				problems = append(problems, s)
+			}
+		}
+		if len(problems) > 0 {
+			c.CAA, c.OK = strings.Join(problems, "; "), false
+		}
+	}
+	names := recordNames(domain, apps, dash)
 	switch {
 	case c.OK:
-		c.Summary = fmt.Sprintf("%s and *.%s point at this box: tiffin domain set %s", domain, domain, domain)
+		cmd := "tiffin domain set " + domain
+		if apps != "" {
+			cmd += " --apps-domain " + apps
+		}
+		if dash != "" && dash != "dashboard" {
+			cmd += " --dashboard " + dash
+		}
+		c.Summary = fmt.Sprintf("%s and %s point at this box: %s", names[0], names[1], cmd)
 	case c.CAA != "":
 		c.Summary = c.CAA
 	default:
-		var lines []string
+		var lines, byHand []string
+		managed := map[string]bool{}
 		for _, r := range recs {
-			if !r.OK {
-				lines = append(lines, fmt.Sprintf("%s %s %s (name %q in most DNS panels)", r.Name, r.Type, r.Value, r.Host))
+			if r.OK {
+				continue
+			}
+			line := fmt.Sprintf("%s %s %s (name %q in most DNS panels)", r.Name, r.Type, r.Value, r.Host)
+			lines = append(lines, line)
+			if r.ManagedBy == "" {
+				byHand = append(byHand, line)
+			} else {
+				managed[r.ManagedBy] = true
 			}
 		}
 		c.Summary = "Add these records at your DNS host, then run this again (new records usually show up within minutes): " + strings.Join(lines, "; ")
-		if c.ManagedBy != "" {
-			c.Summary += fmt.Sprintf(". Or let the box do it: %s holds this zone, so pass createRecords.", c.ManagedBy)
+		switch {
+		case c.ManagedBy != "":
+			c.Summary += fmt.Sprintf(". Or let the box do it: %s holds these zones, so pass createRecords.", c.ManagedBy)
+		case len(managed) > 0:
+			c.Summary += ". createRecords sets the ones in zones a connected DNS provider holds; add these by hand: " + strings.Join(byHand, "; ")
 		}
 	}
 	return c, nil
+}
+
+// validAppsDomain is validDomain for the optional apps domain ("" stays "").
+func validAppsDomain(d string) (string, error) {
+	if strings.TrimSpace(d) == "" {
+		return "", nil
+	}
+	d, err := validDomain(d)
+	if err == nil && strings.HasSuffix(d, ".sslip.io") {
+		return "", api.NewProblem(422, "validation", "sslip.io names are automatic; the apps domain must be one of your own")
+	}
+	return d, err
+}
+
+// onlyManagedMissing: every record DNS does not answer yet is one a
+// connected provider was asked to create (worth waiting for).
+func onlyManagedMissing(c *DomainCheck) bool {
+	for _, r := range c.Records {
+		if !r.OK && r.ManagedBy == "" {
+			return false
+		}
+	}
+	return c.CAA == ""
 }
 
 // validDomain cleans and checks a domain name typed by someone.
@@ -308,7 +406,13 @@ func (m *Module) domainStatus(ctx context.Context, p *platform.Platform, w want)
 		d.Records = []dnskit.Record{}
 	}
 	if !dnskit.IsApex(w.Host) && p.Reach.ACME && !platform.IsLocalDomain(p.Domain) {
-		d.Alternative = []dnskit.Record{dnskit.CNAMERecord(w.Host, p.Domain)}
+		// A name the box's own records point here: the box domain, or the
+		// dashboard's host when apps live elsewhere (the apex is not needed then).
+		target := p.Domain
+		if p.AppsDomain() != p.Domain {
+			target = p.DashboardHost()
+		}
+		d.Alternative = []dnskit.Record{dnskit.CNAMERecord(w.Host, target)}
 	}
 	if st, _ := m.providerFor(w.Host); st != nil {
 		d.ManagedBy = st.rec.Name
@@ -450,7 +554,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	huma.Register(a, api.Op("domain-get", http.MethodGet, "/v1/domain", "domain status", api.RiskRead,
 		"Show the box's domain",
-		"The box's domain and dashboard address, where certificates come from (Let's Encrypt or the box's own CA on a local box), whether the dashboard's certificate is live, "+
+		"The box's domain, dashboard address and apps domain, where certificates come from (Let's Encrypt or the box's own CA on a local box), whether the dashboard's certificate is live, "+
 			"the wildcard certificate when a DNS provider is connected, and during a switch the previous domain and until when it still works. "+
 			"Without tiffin domain set, a server uses <its-ipv4-with-dashes>.sslip.io: real names and real certificates with no DNS setup.", tag),
 		api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body BoxDomain }, error) {
@@ -465,10 +569,12 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	huma.Register(a, api.Outbound(api.Op("domain-check", http.MethodGet, "/v1/domain/check", "domain check", api.RiskRead,
 		"Check a domain before using it for the box",
-		"Read-only: the two DNS records a box domain needs (<domain> and *.<domain>, A and AAAA to this box's public addresses) with what DNS answers now, "+
-			"CAA records that would block certificates, and whether a connected DNS provider can set them. Asks public DNS resolvers.", tag)),
+		"Read-only: the DNS records a box domain needs (A and AAAA to this box's public addresses) with what DNS answers now: <domain> and *.<domain>; "+
+			"with a separate appsDomain, <dashboard>.<domain> and *.<appsDomain>. Also CAA records that would block certificates, and which records a connected DNS provider can set. Asks public DNS resolvers.", tag)),
 		api.Wrap(func(ctx context.Context, in *struct {
-			Domain string `query:"domain" required:"true" doc:"e.g. example.com"`
+			Domain     string `query:"domain" required:"true" doc:"e.g. example.com"`
+			AppsDomain string `query:"appsDomain" doc:"A separate domain for apps, e.g. example.app (see domain set)."`
+			Dashboard  string `query:"dashboard" pattern:"^([a-z][a-z0-9-]{0,39})?$" doc:"The dashboard's first-level name, with appsDomain. Default dashboard."`
 		}) (*struct{ Body DomainCheck }, error) {
 			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, ""); err != nil {
 				return nil, err
@@ -480,7 +586,11 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			if err != nil {
 				return nil, err
 			}
-			c, err := m.domainCheck(ctx, p, d)
+			apps, err := validAppsDomain(in.AppsDomain)
+			if err != nil {
+				return nil, err
+			}
+			c, err := m.domainCheck(ctx, p, d, apps, in.Dashboard)
 			if err != nil {
 				return nil, err
 			}
@@ -489,9 +599,10 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	set := api.Outbound(api.Op("domain-set", http.MethodPost, "/v1/domain", "domain set", api.RiskWrite,
 		"Use your own domain for the box",
-		"Switches the box to <domain>: the dashboard moves to dashboard.<domain> (or <dashboard>.<domain>) and apps to <app>.<domain>. "+
-			"First checks that <domain> and *.<domain> point at this box (A/AAAA records); if not, nothing changes and the answer (status 412) lists exactly the records to add. "+
-			"With createRecords and a connected DNS provider that holds the zone, the box creates them itself. "+
+		"Switches the box to <domain>: the dashboard moves to dashboard.<domain> (or <dashboard>.<domain>) and apps to <app>.<domain>, "+
+			"or with appsDomain to <app>.<appsDomain> (like vercel.com and vercel.app: app code on another registrable domain cannot set cookies on the dashboard's). "+
+			"First checks that <domain> and *.<domain> (with appsDomain: <dashboard>.<domain> and *.<appsDomain>) point at this box (A/AAAA records); if not, nothing changes and the answer (status 412) lists exactly the records to add. "+
+			"With createRecords, the box creates the ones in zones a connected DNS provider holds. "+
 			"The service restarts (a few seconds; apps keep running), new certificates are obtained, and the old names keep working until the new ones have certificates, then for another hour. "+
 			"Touch ID sign-ins belong to the dashboard's address: add them again on the new one. Box admins only.", tag))
 	set.Errors = append(set.Errors, 409, 412)
@@ -499,8 +610,9 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		Body struct {
 			Domain        string `json:"domain" minLength:"3" maxLength:"253" doc:"e.g. example.com (or apps.example.com to keep the apex for something else)."`
 			Dashboard     string `json:"dashboard,omitempty" pattern:"^([a-z][a-z0-9-]{0,39})?$" doc:"The dashboard's first-level name. Default dashboard."`
+			AppsDomain    string `json:"appsDomain,omitempty" maxLength:"253" doc:"Serve apps and previews at <app>.<appsDomain> instead of <app>.<domain>, e.g. example.app beside example.com. Default: domain itself."`
 			Email         string `json:"email,omitempty" maxLength:"200" doc:"A contact for the certificate authority (optional; also enables the ZeroSSL fallback)."`
-			CreateRecords bool   `json:"createRecords,omitempty" doc:"Create the two records through the connected DNS provider first."`
+			CreateRecords bool   `json:"createRecords,omitempty" doc:"Create the records through the connected DNS provider first (those in zones it holds)."`
 			Force         bool   `json:"force,omitempty" doc:"Switch even if DNS does not point here yet (certificates fail until it does)."`
 		}
 	}) (*struct{ Body BoxDomain }, error) {
@@ -514,13 +626,20 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if err != nil {
 			return nil, err
 		}
+		apps, err := validAppsDomain(in.Body.AppsDomain)
+		if err != nil {
+			return nil, err
+		}
+		if apps == d {
+			apps = ""
+		}
 		if !p.Reach.ACME || len(p.Reach.PublicIPs) == 0 {
 			pr := api.NewProblem(http.StatusPreconditionFailed, "precondition", "this box has no public IP address (it is a local VM), so no domain can point at it")
 			pr.Hint = "real domains need a server: tiffin up --provider hetzner (or ssh), then tiffin domain set"
 			return nil, pr
 		}
 		dash := orDefault(in.Body.Dashboard, "dashboard")
-		if d == p.Domain && dash == orDefault(p.Reach.Dashboard, "dashboard") {
+		if d == p.Domain && dash == orDefault(p.Reach.Dashboard, "dashboard") && apps == p.Reach.AppsDomain {
 			return nil, api.NewProblem(http.StatusConflict, "conflict", "the box already uses "+d)
 		}
 		if strings.HasSuffix(d, ".sslip.io") {
@@ -528,60 +647,79 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			pr.Hint = "tiffin domain unset goes back to the automatic sslip.io name"
 			return nil, pr
 		}
+		check := "tiffin domain check --domain " + d
+		if apps != "" {
+			check += " --apps-domain " + apps
+		}
 		if in.Body.CreateRecords {
-			st, _ := m.providerFor(d)
-			if st == nil {
-				pr := api.NewProblem(http.StatusPreconditionFailed, "precondition", "no connected DNS provider holds the zone of "+d)
-				pr.Hint = "connect one with tiffin dns connect cloudflare --token <token>, or add the records yourself (tiffin domain check --domain " + d + ")"
+			var recs []dnskit.Record
+			for _, name := range recordNames(d, apps, dash) {
+				if st, _ := m.providerFor(name); st != nil {
+					recs = append(recs, dnskit.AddressRecords(name, p.Reach.PublicIPs)...)
+				}
+			}
+			if len(recs) == 0 {
+				pr := api.NewProblem(http.StatusPreconditionFailed, "precondition", "no connected DNS provider holds the zone of "+strings.Join(recordNames(d, apps, dash), " or "))
+				pr.Hint = "connect one with tiffin dns connect cloudflare --token <token>, or add the records yourself (" + check + ")"
 				return nil, pr
 			}
-			var recs []dnskit.Record
-			recs = append(recs, dnskit.AddressRecords(d, p.Reach.PublicIPs)...)
-			recs = append(recs, dnskit.AddressRecords("*."+d, p.Reach.PublicIPs)...)
 			if err := p.DNS.SetRecords(ctx, recs, actor(ctx)); err != nil {
 				return nil, api.NewProblem(http.StatusBadGateway, "internal", "the DNS provider refused the records: "+err.Error())
 			}
 		}
-		chk, err := m.domainCheck(ctx, p, d)
+		chk, err := m.domainCheck(ctx, p, d, apps, dash)
 		if err != nil {
 			return nil, err
 		}
-		for i := 0; !chk.OK && in.Body.CreateRecords && i < 10; i++ {
+		for i := 0; !chk.OK && in.Body.CreateRecords && onlyManagedMissing(chk) && i < 10; i++ {
 			// Records just created take a moment to show up in public DNS.
 			time.Sleep(3 * time.Second)
-			if chk, err = m.domainCheck(ctx, p, d); err != nil {
+			if chk, err = m.domainCheck(ctx, p, d, apps, dash); err != nil {
 				return nil, err
 			}
 		}
 		if !chk.OK && !in.Body.Force {
 			pr := api.NewProblem(http.StatusPreconditionFailed, "precondition", chk.Summary)
+			var byHand []string
 			for _, r := range chk.Records {
 				if !r.OK {
 					pr.Errors = append(pr.Errors, api.FieldError{Path: r.Type + " " + r.Name, Message: fmt.Sprintf("add %s %s %s (DNS panel name %q); now: %s", r.Name, r.Type, r.Value, r.Host, r.Reason)})
+					if r.ManagedBy == "" {
+						byHand = append(byHand, r.Name+" "+r.Type+" "+r.Value)
+					}
 				}
 			}
-			pr.Hint = "add the records, wait a minute, then run tiffin domain set again (tiffin domain check --domain " + d + " shows progress)"
-			if chk.ManagedBy != "" {
-				pr.Hint += "; or pass createRecords: " + chk.ManagedBy + " holds this zone"
+			pr.Hint = "add the records, wait a minute, then run tiffin domain set again (" + check + " shows progress)"
+			switch {
+			case chk.ManagedBy != "":
+				pr.Hint += "; or pass createRecords: " + chk.ManagedBy + " holds these zones"
+			case in.Body.CreateRecords && len(byHand) > 0:
+				pr.Hint = "no connected DNS provider holds these, so add them by hand: " + strings.Join(byHand, "; ") + "; then run tiffin domain set again (" + check + " shows progress)"
 			}
 			return nil, pr
 		}
 		m.mu.Lock()
 		box := m.box
 		m.mu.Unlock()
-		next := platform.BoxDomain{Domain: d, Dashboard: in.Body.Dashboard, Email: orDefault(in.Body.Email, box.Email), SetAt: m.now(), SetBy: actor(ctx)}
+		next := platform.BoxDomain{Domain: d, Dashboard: in.Body.Dashboard, Apps: apps, Email: orDefault(in.Body.Email, box.Email), SetAt: m.now(), SetBy: actor(ctx)}
 		if d != p.Domain {
 			next.Previous = p.Domain
+		}
+		if old := p.AppsDomain(); old != orDefault(apps, d) && old != next.Previous {
+			next.PreviousApps = old
 		}
 		if err := m.saveBox(ctx, next); err != nil {
 			return nil, err
 		}
-		_ = p.DB.Audit(ctx, actor(ctx), "domain.set", "box", map[string]any{"domain": d, "previous": p.Domain, "dashboard": dash})
+		_ = p.DB.Audit(ctx, actor(ctx), "domain.set", "box", map[string]any{"domain": d, "previous": p.Domain, "dashboard": dash, "appsDomain": orDefault(apps, d)})
 		st := m.boxStatus(ctx, p)
-		st.Domain, st.Source, st.Dashboard = d, "set", dash+"."+d
+		st.Domain, st.AppsDomain, st.Source, st.Dashboard = d, orDefault(apps, d), "set", dash+"."+d
 		st.DashboardURL = p.URL(st.Dashboard)
 		st.Records, st.State = chk.Records, "issuing"
 		st.Summary = fmt.Sprintf("Switching to %s: the service restarts, then gets certificates for %s (usually under a minute). %s keeps working meanwhile.", d, st.Dashboard, p.DashboardHost())
+		if apps != "" {
+			st.Summary += fmt.Sprintf(" Apps move to <app>.%s.", apps)
+		}
 		st.Restarting = m.restart(p, "box domain set to "+d)
 		return &struct{ Body BoxDomain }{st}, nil
 	}))
@@ -605,12 +743,15 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			return nil, api.NewProblem(http.StatusConflict, "conflict", "the box already uses its automatic domain "+p.Domain)
 		}
 		next := platform.BoxDomain{Email: box.Email, Previous: p.Domain, SetAt: m.now(), SetBy: actor(ctx)}
+		if p.AppsDomain() != p.Domain {
+			next.PreviousApps = p.AppsDomain()
+		}
 		if err := m.saveBox(ctx, next); err != nil {
 			return nil, err
 		}
 		_ = p.DB.Audit(ctx, actor(ctx), "domain.unset", "box", map[string]any{"previous": p.Domain, "next": p.Reach.DefaultDomain})
 		st := m.boxStatus(ctx, p)
-		st.Domain, st.Source, st.Dashboard = p.Reach.DefaultDomain, "sslip", "dashboard."+p.Reach.DefaultDomain
+		st.Domain, st.AppsDomain, st.Source, st.Dashboard = p.Reach.DefaultDomain, p.Reach.DefaultDomain, "sslip", "dashboard."+p.Reach.DefaultDomain
 		st.DashboardURL, st.State, st.Records = p.URL(st.Dashboard), "issuing", nil
 		st.Summary = fmt.Sprintf("Switching back to %s; the service restarts. %s keeps working meanwhile.", p.Reach.DefaultDomain, p.DashboardHost())
 		st.Restarting = m.restart(p, "box domain unset")
@@ -622,7 +763,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}
 	huma.Register(a, api.Op("domains-list", http.MethodGet, "/v1/projects/{project}/domains", "domains list", api.RiskRead,
 		"List a project's own domains",
-		"Every host outside the box domain that the project's apps serve (their routes) or redirect (www), with its state: "+
+		"Every host outside the box's own names that the project's apps serve (their routes) or redirect (www), with its state: "+
 			"waiting_for_dns (with the records to add and what DNS says now), issuing, live or error (with the reason: points elsewhere, a CAA record, a rate limit...). "+
 			"The box re-checks waiting domains on its own with backoff (15 s, then up to every 30 min).", tag),
 		api.Wrap(func(ctx context.Context, in *projectPath) (*struct{ Body []Domain }, error) {
@@ -654,9 +795,9 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if err != nil {
 			return nil, err
 		}
-		if p.IsBoxHost(d) || d == p.Domain {
-			pr := api.NewProblem(422, "validation", d+" is under the box domain, which already points here")
-			pr.Hint = "use the app's routes for first-level names (\"shop\" is shop." + p.Domain + "), or pick a domain of your own"
+		if p.IsBoxHost(d) || d == p.Domain || d == p.AppsDomain() || d == p.DashboardHost() {
+			pr := api.NewProblem(422, "validation", d+" is one of the box's own names, which already point here")
+			pr.Hint = "use the app's routes for first-level names (\"shop\" is " + p.Host("shop") + "), or pick a domain of your own"
 			return nil, pr
 		}
 		path := strings.TrimRight(strings.TrimSpace(in.Body.Path), "/")

@@ -10,6 +10,7 @@ import { StatusDot } from "@/components/project-domains";
 import { Skeleton } from "@/components/page";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/choice";
 import { Input } from "@/components/ui/input";
 import {
   boxDomainQuery,
@@ -90,21 +91,33 @@ function boxTone(b: BoxDomain): Tone {
   return b.state === "live" || b.state === "internal" ? "ok" : b.state === "error" ? "bad" : "busy";
 }
 
+/** Apps live on a domain of their own (not the dashboard's). */
+const appsApart = (b: BoxDomain) => !!b.appsDomain && b.appsDomain !== b.domain;
+
 function Current({ b }: { b: BoxDomain }) {
   const local = b.certificates === "internal";
   const missing = (b.records ?? []).filter((r) => !r.ok);
+  const apart = appsApart(b);
   return (
     <div>
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <p className="ident text-[1rem] text-ink">{b.domain}</p>
         <span className="text-[0.8125rem] text-ink-3">{local ? "On this computer" : b.source === "set" ? "Your own domain" : "Automatic"}</span>
       </div>
+      {apart && (
+        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <p className="ident text-[1rem] text-ink">{b.appsDomain}</p>
+          <span className="text-[0.8125rem] text-ink-3">Apps</span>
+        </div>
+      )}
       <p className="mt-1 max-w-[36rem] text-[0.875rem] text-ink-2">
         {local
           ? `A box on your computer answers on names under ${b.domain}, with its own certificates your browser trusts. Your own domain needs a box on a server.`
-          : b.source === "set"
-            ? `Each app answers at its own name under it, like web.${b.domain}; the dashboard is at ${b.dashboard}.`
-            : "The address your box uses until you set your own. It works with HTTPS already, with nothing to set up."}
+          : apart
+            ? `The dashboard is at ${b.dashboard}. Each app answers at its own name under ${b.appsDomain}, like web.${b.appsDomain}: a domain of their own, so app code can’t set cookies on the dashboard’s.`
+            : b.source === "set"
+              ? `Each app answers at its own name under it, like web.${b.domain}; the dashboard is at ${b.dashboard}.`
+              : "The address your box uses until you set your own. It works with HTTPS already, with nothing to set up."}
       </p>
       {!local && (
         <ul className="mt-3 divide-y divide-rule border-y border-rule text-[0.8125rem]">
@@ -125,14 +138,23 @@ function Current({ b }: { b: BoxDomain }) {
           )}
           {b.previous && (
             <li className="py-2 text-ink-3">
-              The old address, <span className="ident text-[0.75rem]">{b.previous.domain}</span>, keeps working {b.previous.until ? `until ${clock(b.previous.until)}` : "until the new one has its certificates"}.
+              {b.previous.appsDomain ? (
+                <>
+                  The old addresses, <span className="ident text-[0.75rem]">{b.previous.domain}</span> and <span className="ident text-[0.75rem]">{b.previous.appsDomain}</span>, keep working
+                </>
+              ) : (
+                <>
+                  The old address, <span className="ident text-[0.75rem]">{b.previous.domain}</span>, keeps working
+                </>
+              )}{" "}
+              {b.previous.until ? `until ${clock(b.previous.until)}` : "until the new one has its certificates"}.
             </li>
           )}
         </ul>
       )}
       {missing.length > 0 && (
         <div className="mt-3 rounded-[10px] bg-warn-wash px-4 py-3">
-          <p className="text-[0.875rem] text-ink">DNS for {b.domain} doesn’t point here any more. Put these records back at your DNS host:</p>
+          <p className="text-[0.875rem] text-ink">DNS for {apart ? `${b.domain} and ${b.appsDomain}` : b.domain} doesn’t point here any more. Put these records back at your DNS host:</p>
           <RecordsTable className="mt-2.5" records={b.records ?? []} />
         </div>
       )}
@@ -140,39 +162,48 @@ function Current({ b }: { b: BoxDomain }) {
   );
 }
 
-/** Use your own domain: which one, its two records (checked every few seconds), then Switch. */
+/** Use your own domain: which one (and, optionally, one for the apps), its two records (checked every few seconds), then Switch. */
 function UseOwn({ current, onCancel, onMoving }: { current: BoxDomain; onCancel: () => void; onMoving: (b: BoxDomain) => void }) {
   const qc = useQueryClient();
+  const currentApps = appsApart(current) ? current.appsDomain : "";
   const [raw, setRaw] = useState("");
-  const [domain, setDomain] = useState("");
+  const [rawApps, setRawApps] = useState(currentApps);
+  const [apart, setApart] = useState(!!currentApps);
+  const [want, setWant] = useState({ domain: "", apps: "" });
+  const { domain, apps } = want;
   const check = useQuery({
-    queryKey: ["box-domain-check", domain],
-    queryFn: () => checkBoxDomain(domain),
+    queryKey: ["box-domain-check", domain, apps],
+    queryFn: () => checkBoxDomain(domain, apps),
     enabled: !!domain,
     retry: false,
     refetchInterval: (qq) => (qq.state.data?.ok || qq.state.error ? false : 10_000),
   });
   const c = check.data;
+  const mine = (c?.records ?? []).filter((r) => r.managedBy);
+  const provider = mine[0]?.managedBy;
   const auto = useMutation({
-    mutationFn: () => setRecords(c?.records ?? []),
+    mutationFn: () => setRecords(mine),
     onSuccess: () => {
-      toast({ title: `Added the records for ${domain} at ${providerName(c?.managedBy)}.`, detail: "The check below turns green within a minute or so." });
+      toast({ title: `Added the records ${providerName(provider)} looks after.`, detail: "The check below turns green within a minute or so." });
       setTimeout(() => void check.refetch(), 3000);
     },
   });
   const sw = useMutation({
-    mutationFn: () => setBoxDomain(domain),
+    mutationFn: () => setBoxDomain(domain, apps),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ["box-domain"] });
       onMoving(r);
     },
   });
   const typed = cleanDomain(raw);
+  const typedApps = apart ? cleanDomain(rawApps) : "";
+  const valid = looksLikeDomain(typed) && (!apart || (looksLikeDomain(typedApps) && typedApps !== typed));
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (looksLikeDomain(typed)) setDomain(typed);
+    if (valid) setWant({ domain: typed, apps: typedApps });
   };
   const dash = `dashboard.${domain}`;
+  const appsAt = apps || domain;
 
   return (
     <div className="mt-5 rounded-[12px] border border-rule-2 bg-paper-raised px-4 py-4 shadow-[var(--top-light)] sm:px-5">
@@ -192,27 +223,52 @@ function UseOwn({ current, onCancel, onMoving }: { current: BoxDomain; onCancel:
             spellCheck={false}
             className="ident text-[0.875rem] sm:flex-1"
           />
-          <Button type="submit" size="lg" className="h-9" variant={domain ? "secondary" : "primary"} disabled={!looksLikeDomain(typed) || typed === current.domain || (typed === domain && check.isFetching)}>
-            {typed === domain && check.isFetching ? "Checking…" : "Check"}
+          <Button
+            type="submit"
+            size="lg"
+            className="h-9"
+            variant={domain ? "secondary" : "primary"}
+            disabled={!valid || (typed === current.domain && typedApps === currentApps) || (typed === domain && typedApps === apps && check.isFetching)}
+          >
+            {typed === domain && typedApps === apps && check.isFetching ? "Checking…" : "Check"}
           </Button>
           <Button type="button" variant="ghost" size="lg" className="h-9" onClick={onCancel}>
             Cancel
           </Button>
         </div>
+        <label className="mt-3 flex cursor-pointer items-start gap-3">
+          <Checkbox className="mt-0.5" checked={apart} onCheckedChange={(v) => setApart(v === true)} />
+          <span className="text-[0.875rem] text-ink">
+            Put apps on a domain of their own
+            <span className="block text-[0.8125rem] text-ink-3">Like example.app beside example.com: the dashboard stays on your domain, and app code can’t set cookies on it.</span>
+          </span>
+        </label>
+        {apart && (
+          <Input
+            aria-label="Apps domain"
+            value={rawApps}
+            onChange={(e) => setRawApps(e.target.value)}
+            placeholder="example.app"
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            className="ident mt-2 text-[0.875rem] sm:max-w-[20rem]"
+          />
+        )}
       </form>
 
       {check.isError && <ProblemNote className="mt-4" error={check.error} />}
-      {c && c.domain === domain && (
+      {c && c.domain === domain && (c.appsDomain ?? "") === apps && (
         <div className="mt-5 border-t border-rule pt-4">
           {c.ok ? (
             <>
               <p className="flex items-center gap-2 text-[0.9375rem] font-[550] text-ink">
                 <Check className="size-4 text-ok" strokeWidth={2.5} />
-                {domain} points at your box.
+                {apps ? `${domain} and ${apps} point at your box.` : `${domain} points at your box.`}
               </p>
               <ul className="mt-2 max-w-[38rem] list-disc space-y-1 pl-5 text-[0.875rem] text-ink-2 marker:text-ink-4">
                 <li>
-                  The dashboard moves to <span className="ident text-[0.8125rem] text-ink">{dash}</span>, and apps to names like <span className="ident text-[0.8125rem] text-ink">web.{domain}</span>.
+                  The dashboard moves to <span className="ident text-[0.8125rem] text-ink">{dash}</span>, and apps to names like <span className="ident text-[0.8125rem] text-ink">web.{appsAt}</span>.
                 </li>
                 <li>The box restarts for a few seconds; apps keep running. This page reloads on the new address by itself.</li>
                 <li>Touch ID sign-ins belong to this address. Set them up again there; until then, sign in with a link from <code className="ident text-[0.8125rem] text-ink">tiffin login</code>.</li>
@@ -225,11 +281,15 @@ function UseOwn({ current, onCancel, onMoving }: { current: BoxDomain; onCancel:
           ) : (
             <>
               <p className="text-[0.875rem] text-ink">
-                {c.managedBy ? `${providerName(c.managedBy)} looks after ${domain}, so the box can add the records itself.` : `Add ${(c.records ?? []).length === 2 ? "these two records" : "these records"} at your DNS host:`}
+                {c.managedBy
+                  ? `${providerName(c.managedBy)} looks after ${apps ? `${domain} and ${apps}` : domain}, so the box can add the records itself.`
+                  : provider
+                    ? `${providerName(provider)} looks after some of these, so the box can add those; add the others at your DNS host:`
+                    : `Add ${(c.records ?? []).length === 2 ? "these two records" : "these records"} at your DNS host:`}
               </p>
-              {c.managedBy && (
+              {provider && (
                 <Button variant="primary" size="md" className="mt-3" onClick={() => auto.mutate()} disabled={auto.isPending}>
-                  {auto.isPending ? "Adding…" : "Add the records for me"}
+                  {auto.isPending ? "Adding…" : c.managedBy ? "Add the records for me" : `Add the ${providerName(provider)} ones for me`}
                 </Button>
               )}
               <RecordsTable className="mt-3" records={c.records ?? []} />

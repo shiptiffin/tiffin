@@ -36,6 +36,9 @@ type Reach struct {
 	DefaultDomain string
 	// Dashboard is the dashboard's first-level name ("dashboard").
 	Dashboard string
+	// AppsDomain is where apps and previews live when it is not the box
+	// domain (`tiffin domain set --apps-domain`); empty means the box domain.
+	AppsDomain string
 }
 
 // Resolver returns a resolver that asks the box's DNS servers.
@@ -64,11 +67,18 @@ type BoxDomain struct {
 	Domain string `json:"domain,omitempty"`
 	// Dashboard is the dashboard's first-level name; empty means "dashboard".
 	Dashboard string `json:"dashboard,omitempty"`
+	// Apps is a separate domain for apps and previews (<app>.<apps>); empty
+	// means Domain. A different registrable domain (example.app beside
+	// example.com) keeps app code from setting cookies on the dashboard's.
+	Apps string `json:"apps,omitempty"`
 	// Email is the ACME account contact, if the owner gave one.
 	Email string `json:"email,omitempty"`
 	// Previous is the domain before the last switch. Its names keep
 	// working until the new ones have certificates, then for an hour.
 	Previous string `json:"previous,omitempty"`
+	// PreviousApps is the apps domain before the last switch, when it was
+	// not Previous; its names keep working for as long as Previous's.
+	PreviousApps string `json:"previousApps,omitempty"`
 	// PreviousUntil is when Previous stops being served; zero while the
 	// new certificates are not live yet.
 	PreviousUntil time.Time `json:"previousUntil,omitzero"`
@@ -147,19 +157,29 @@ type DNSManager interface {
 	DeleteRecords(ctx context.Context, recs []dnskit.Record, by string) error
 }
 
-// DashboardHost is the dashboard's host ("dashboard.<domain>" by default).
+// DashboardHost is the dashboard's host ("dashboard.<domain>" by default),
+// always under the box domain.
 func (p *Platform) DashboardHost() string {
 	name := p.Reach.Dashboard
 	if name == "" {
 		name = "dashboard"
 	}
-	return p.Host(name)
+	return name + "." + p.Domain
 }
 
-// IsBoxHost reports whether host is a first-level name under the box
-// domain ("shop.<domain>"): covered by the box domain's DNS and, with a
-// DNS provider, by its wildcard certificate.
+// AppsDomain is the domain apps and previews live under: the box domain,
+// or a separate one set with `tiffin domain set --apps-domain`.
+func (p *Platform) AppsDomain() string {
+	if p.Reach.AppsDomain != "" {
+		return p.Reach.AppsDomain
+	}
+	return p.Domain
+}
+
+// IsBoxHost reports whether host is a first-level name under the apps
+// domain ("shop.<apps domain>"): covered by its wildcard DNS record and,
+// with a DNS provider, by its wildcard certificate.
 func (p *Platform) IsBoxHost(host string) bool {
 	label, rest, ok := strings.Cut(strings.ToLower(host), ".")
-	return ok && label != "" && rest == p.Domain
+	return ok && label != "" && rest == p.AppsDomain()
 }

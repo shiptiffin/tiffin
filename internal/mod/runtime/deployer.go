@@ -49,7 +49,7 @@ func (r *rt) deployURL(d *Deploy, spec *manifest.App) string {
 		return ""
 	}
 	if d.Preview != "" {
-		return r.p.URL(previewHost(d.Preview, d.App, r.p.Domain))
+		return r.p.URL(previewHost(d.Preview, d.App, r.p.AppsDomain()))
 	}
 	routes := spec.Routes
 	if len(routes) == 0 {

@@ -791,6 +791,34 @@ func TestRouteSplittingAndConflicts(t *testing.T) {
 	}
 }
 
+// TestAppsDomainHosts: with a separate apps domain, app routes, previews
+// and the clash hint use it; the dashboard keeps the box domain.
+func TestAppsDomainHosts(t *testing.T) {
+	h := newHarness(t)
+	h.p.Reach.AppsDomain = "example.app"
+	if host, prefix := h.r.splitRoute("shop/api"); host != "shop.example.app" || prefix != "/api" {
+		t.Errorf("splitRoute = %s %s", host, prefix)
+	}
+	if host, _ := h.r.splitRoute("example.com"); host != "example.com" {
+		t.Errorf("custom route = %s", host)
+	}
+	web := &manifest.App{}
+	if u := h.r.deployURL(&Deploy{App: "web", Preview: "pr-7"}, web); u != "https://pr-7--web.example.app:8443" {
+		t.Errorf("preview URL = %s", u)
+	}
+	if u := h.r.deployURL(&Deploy{App: "web"}, web); u != "https://web.example.app:8443" {
+		t.Errorf("production URL = %s", u)
+	}
+	err := h.m.CheckPlan(context.Background(), h.p, "blog", map[string]change.Resource{"app/shop": {Address: "app/shop", Spec: json.RawMessage(`{}`)}})
+	var prob *api.Problem
+	if !errors.As(err, &prob) || !strings.Contains(prob.Hint, "<app name>.example.app") || !strings.Contains(prob.Hint, "blog.example.app") {
+		t.Errorf("clash hint: %v", err)
+	}
+	if h.p.DashboardHost() != "dashboard.tiffin.localhost" {
+		t.Errorf("dashboard = %s", h.p.DashboardHost())
+	}
+}
+
 func TestGCKeepsRollbackTargets(t *testing.T) {
 	h := newHarness(t)
 	var ds []*Deploy
