@@ -16,20 +16,20 @@ import (
 
 var limits = struct {
 	sync.Mutex
-	why     map[string]string // project → why its uploads are held
-	db      map[string]int64  // project → database bytes, last measured
+	held    map[string][2]string // project → reason ("disk", "limit") and why its uploads are held
+	db      map[string]int64     // project → database bytes, last measured
 	changed chan struct{}
-}{why: map[string]string{}, db: map[string]int64{}, changed: make(chan struct{}, 1)}
+}{held: map[string][2]string{}, db: map[string]int64{}, changed: make(chan struct{}, 1)}
 
-// SetReadOnly holds a project's uploads (why says which limit and how to fix
-// it) or, with why "", lifts the hold.
-func SetReadOnly(project, why string) {
+// SetReadOnly holds a project's uploads for reason ("disk" or "limit"; why
+// says which limit and how to fix it) or, with why "", lifts the hold.
+func SetReadOnly(project, reason, why string) {
 	limits.Lock()
 	defer limits.Unlock()
 	if why == "" {
-		delete(limits.why, project)
+		delete(limits.held, project)
 	} else {
-		limits.why[project] = why
+		limits.held[project] = [2]string{reason, why}
 	}
 }
 
@@ -37,7 +37,7 @@ func SetReadOnly(project, why string) {
 func ReadOnly(project string) string {
 	limits.Lock()
 	defer limits.Unlock()
-	return limits.why[project]
+	return limits.held[project][1]
 }
 
 // SetDatabaseBytes records the size of a project's databases, which counts
@@ -97,9 +97,15 @@ func projectsOf(meta map[string]*bucketMeta) map[string]bool {
 // refusal says why writing n more bytes to a project's buckets is refused
 // (what happened, and how to fix it), or "" when it is allowed.
 func (m *Module) refusal(ctx context.Context, p *platform.Platform, meta map[string]*bucketMeta, project string, n int64) (string, string) {
-	if why := ReadOnly(project); why != "" {
-		return why, ""
+	limits.Lock()
+	h := limits.held[project]
+	limits.Unlock()
+	if h[0] == "disk" {
+		return h[1], ""
 	}
+	// A project held for its limit goes by the limit itself: the moment it
+	// is raised (or files are deleted) uploads fit again, before the guard's
+	// next round lifts the hold.
 	limit, _, err := quotaFor(ctx, p, project)
 	if err != nil || limit <= 0 {
 		return "", ""

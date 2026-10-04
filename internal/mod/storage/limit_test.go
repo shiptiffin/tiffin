@@ -42,8 +42,20 @@ func TestRefusal(t *testing.T) {
 		t.Fatalf("blog has no limit: %q", what)
 	}
 
-	SetReadOnly("blog", "The box's data disk is 96% full and blog grew the most, so it is read-only.")
-	defer SetReadOnly("blog", "")
+	// Held for its limit, shop goes by the limit itself: raising it lets
+	// uploads in before the guard's next round lifts the hold.
+	SetReadOnly("shop", "limit", "shop uses 90 B of its 100 B storage limit, so it is read-only.")
+	defer SetReadOnly("shop", "", "")
+	if what, _ := m.refusal(ctx, p, meta, "shop", 11); !strings.Contains(what, "over its storage limit") {
+		t.Fatalf("held for its limit: %q", what)
+	}
+	_ = db.KVPut(ctx, kvNS, "quota/shop", []byte("1000"))
+	if what, _ := m.refusal(ctx, p, meta, "shop", 11); what != "" || ReadOnly("shop") == "" {
+		t.Fatalf("limit raised: %q", what)
+	}
+
+	SetReadOnly("blog", "disk", "The box's data disk is 96% full and blog grew the most, so it is read-only.")
+	defer SetReadOnly("blog", "", "")
 	if what, _ := m.refusal(ctx, p, meta, "blog", 0); !strings.Contains(what, "96% full") {
 		t.Fatalf("held: %q", what)
 	}

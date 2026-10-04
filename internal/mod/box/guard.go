@@ -436,7 +436,7 @@ func (g *guard) hold(ctx context.Context, project string, spec json.RawMessage) 
 		g.holds[project] = Hold{Project: project, Reason: h.Reason, Message: h.Message, Since: h.Since}
 	}
 	g.mu.Unlock()
-	storage.SetReadOnly(project, h.Message)
+	storage.SetReadOnly(project, h.Reason, h.Message)
 	return postgres.SetReadOnly(ctx, g.p, project, h.Message)
 }
 
