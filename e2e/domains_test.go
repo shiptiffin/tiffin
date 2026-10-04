@@ -200,7 +200,7 @@ for i in $(seq 1 100); do curl -sf http://127.0.0.1:7070/v1/health >/dev/null &&
 	type boxDomain struct {
 		Domain, AppsDomain, Source, Dashboard, State, Certificates, Summary string
 		DashboardCertificate                                                struct{ State, Issuer, Error string }
-		Previous                                                            *struct{ Domain string }
+		Previous                                                            *struct{ Domain, AppsDomain string }
 	}
 	waitBox := func(domain, apps string) boxDomain {
 		t.Helper()
@@ -362,7 +362,8 @@ for i in $(seq 1 100); do curl -sf http://127.0.0.1:7070/v1/health >/dev/null &&
 		t.Fatalf("domain set --apps-domain: exit %d\n%s\nbox: %s", code, out, box("journalctl -u tiffin -n 40 --no-pager"))
 	}
 	st = waitBox("example.test", "apps.test")
-	if st.Dashboard != "dashboard.example.test" || st.Previous == nil || st.Previous.Domain != "example.test" {
+	// The sslip names from before step 3 are still in their grace period, so they stay alongside example.test.
+	if st.Dashboard != "dashboard.example.test" || st.Previous == nil || st.Previous.Domain != "127-0-0-1.sslip.io" || st.Previous.AppsDomain != "example.test" {
 		t.Errorf("after set --apps-domain: %+v", st)
 	}
 	if code, _, _ := get("dashboard.example.test", "/v1/health"); code != 200 {

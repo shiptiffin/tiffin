@@ -704,6 +704,11 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		next := platform.BoxDomain{Domain: d, Dashboard: in.Body.Dashboard, Apps: apps, Email: orDefault(in.Body.Email, box.Email), SetAt: m.now(), SetBy: actor(ctx)}
 		if d != p.Domain {
 			next.Previous = p.Domain
+		} else if box.Previous != "" && box.Previous != d && (box.PreviousUntil.IsZero() || m.now().Before(box.PreviousUntil)) {
+			// A switch inside another's grace period (a new apps domain or
+			// dashboard name) keeps the older names working too, until the
+			// new certificates are live and a fresh grace period ends.
+			next.Previous = box.Previous
 		}
 		if old := p.AppsDomain(); old != orDefault(apps, d) && old != next.Previous {
 			next.PreviousApps = old

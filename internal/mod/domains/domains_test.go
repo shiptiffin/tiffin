@@ -430,21 +430,22 @@ func TestAppsDomain(t *testing.T) {
 	if alt, _ := json.Marshal(out["domain"].(map[string]any)["alternative"]); !strings.Contains(string(alt), "dashboard.example.test") {
 		t.Errorf("CNAME alternative: %s", alt)
 	}
-	// Back to one domain: the apps domain's names keep working for a while.
+	// Back to one domain: the apps domain's names keep working for a while,
+	// and so does box.test, whose grace period has not run out yet.
 	h.dns.Set("example.test", "A", boxIP)
 	h.dns.Set("*.example.test", "A", boxIP)
 	if code, out := h.call("POST", "/v1/domain", map[string]any{"domain": "example.test"}); code != 200 || out["appsDomain"] != "example.test" {
 		t.Fatalf("back to one domain: %d %v", code, out)
 	}
 	saved, _ = platform.LoadBoxDomain(t.Context(), h.p.DB)
-	if saved.Apps != "" || saved.Previous != "" || saved.PreviousApps != "apps.test" {
+	if saved.Apps != "" || saved.Previous != "box.test" || saved.PreviousApps != "apps.test" {
 		t.Fatalf("saved: %+v", saved)
 	}
 	h.p.Reach.AppsDomain = ""
-	if a := h.m.certState().Aliases; !slices.Equal(a, []string{"apps.test"}) {
+	if a := h.m.certState().Aliases; !slices.Equal(a, []string{"box.test", "apps.test"}) {
 		t.Fatalf("aliases: %v", a)
 	}
-	if _, st := h.call("GET", "/v1/domain", nil); st["previous"].(map[string]any)["domain"] != "apps.test" {
+	if _, st := h.call("GET", "/v1/domain", nil); st["previous"].(map[string]any)["domain"] != "box.test" || st["previous"].(map[string]any)["appsDomain"] != "apps.test" {
 		t.Errorf("previous: %v", st["previous"])
 	}
 }
