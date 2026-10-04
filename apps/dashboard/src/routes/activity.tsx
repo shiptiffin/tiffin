@@ -3,11 +3,10 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ApiError, request, type Change, type Tier } from "@/api/client";
-import type { Approval } from "@/components/ledger-parts";
 import { q } from "@/api/queries";
 import { Command } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
-import { dayWords, splitIntent, tokenWho, useApprovalsByChange } from "@/components/ledger-parts";
+import { dayWords, splitIntent } from "@/components/ledger-parts";
 import { TiffinMark } from "@/components/logo";
 import { Page } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
@@ -20,7 +19,7 @@ import { cn } from "@/lib/cn";
 import { countWords, words } from "@/lib/format";
 import { mcpCommand } from "@/lib/mcp";
 import { clock, dayKey, dayLabel } from "@/lib/time";
-import { actorShown } from "@/lib/who";
+import { actorShown, type Names } from "@/lib/who";
 import { ProjectIcon } from "@/components/project-icon";
 
 export type ActivitySearch = { project?: string; risk?: Tier; who?: "people" | "agents" };
@@ -85,7 +84,6 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
   const changes = useLedger(project);
   const names = useQuery({ ...q.tokenNames, retry: false });
   const projects = useQuery(q.projects);
-  const signedBy = useApprovalsByChange();
   const projectNames = useMemo(() => (projects.data ?? []).map((p) => p.name), [projects.data]);
 
   if (changes.isPending) return <Skeleton />;
@@ -126,7 +124,6 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
           more={{ next: !!changes.hasNextPage, busy: changes.isFetchingNextPage, fetch: () => void changes.fetchNextPage(), legacy, error: changes.isFetchNextPageError }}
           showProject={!project}
           byId={byId}
-          signedBy={signedBy}
           names={names.data}
         />
       )}
@@ -263,15 +260,13 @@ function Entries({
   more,
   showProject,
   byId,
-  signedBy,
   names,
 }: {
   list: Change[];
   more: { next: boolean; busy: boolean; fetch: () => void; legacy: boolean; error: boolean };
   showProject: boolean;
   byId: Map<string, Change>;
-  signedBy: Map<string, Approval>;
-  names: Parameters<typeof tokenWho>[1];
+  names: Names | undefined;
 }) {
   const [sel, setSel] = useState(-1);
   const root = useRef<HTMLDivElement>(null);
@@ -365,7 +360,6 @@ function Entries({
                 showProject={showProject}
                 undo={c.undoneBy ? byId.get(c.undoneBy) : undefined}
                 undid={c.undoOf ? byId.get(c.undoOf) : undefined}
-                approval={signedBy.get(c.id)}
                 names={names}
               />
             ))}
@@ -398,7 +392,6 @@ function Entry({
   showProject,
   undo,
   undid,
-  approval,
   names,
 }: {
   c: Change;
@@ -408,12 +401,9 @@ function Entry({
   showProject: boolean;
   undo?: Change;
   undid?: Change;
-  approval?: Approval;
-  names: Parameters<typeof tokenWho>[1];
+  names: Names | undefined;
 }) {
   const tier = asTier(c.plan.risk);
-  let signature: ReactNode;
-  if (approval) signature = `signed by ${tokenWho(approval.decidedBy, names)} · passkey${approval.decidedAt ? ` · ${clock(approval.decidedAt)}` : ""}`;
   const extra: ReactNode[] = [];
   if (c.undoneBy)
     extra.push(
@@ -450,7 +440,6 @@ function Entry({
         counts={opCounts(c.plan.ops)}
         tier={tier}
         muted={!!c.undoneBy}
-        signature={signature}
         extra={extra.length ? <>{extra}</> : undefined}
         className="!py-2"
       />

@@ -16,14 +16,11 @@ import {
   Signature,
   Steps,
   UndoCant,
-  clockSeconds,
   opTitle,
   planShort,
   reasonWords,
   splitIntent,
-  tokenWho,
   stamp,
-  useApprovalsByChange,
   when,
 } from "@/components/ledger-parts";
 import { Logo } from "@/components/logo";
@@ -37,7 +34,6 @@ import { actorWords } from "@/lib/actors";
 import { asTier, intentWords, tierCopy, tierRank } from "@/lib/changes";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
-import { duration } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { clock } from "@/lib/time";
 import "./ledger-print.css";
@@ -49,7 +45,6 @@ export function ChangePage({ id }: { id: string }) {
   useTitle(c ? intentWords(c) || "Entry" : "Entry");
   const [undoOpen, setUndoOpen] = useState(false);
   const [justUndone, setJustUndone] = useState<string | null>(null);
-  const approvals = useApprovalsByChange();
   const names = useQuery({ ...q.tokenNames, retry: false });
   const { can } = useMe();
   const undoneBy = justUndone ?? c?.undoneBy ?? undefined;
@@ -83,11 +78,9 @@ export function ChangePage({ id }: { id: string }) {
   const tier = asTier(c.plan.risk);
   const ops = c.plan.ops ?? [];
   const agent = c.actor.kind === "agent";
-  const approval = approvals.get(c.id);
   const intent = splitIntent(intentWords(c));
   // People by their current name (the owner token reads "Sam", not "Owner"); agents by theirs.
   const who = agent ? actorWords(c.actor) : actorShown(c.actor, names.data);
-  const signer = approval ? tokenWho(approval.decidedBy, names.data) : who;
   const undoneAt = undo.data?.at;
 
   return (
@@ -114,16 +107,14 @@ export function ChangePage({ id }: { id: string }) {
 
         <Leaf className="mt-7" time={clock(c.at)} note="applied">
           <p className="flex flex-wrap items-baseline gap-x-2.5 text-[0.8125rem] text-ink-2">
-            <span className={cn("label", approval && "!text-brass-ink")}>
-              {approval ? (undoneBy ? "Signed, applied, then undone" : "Signed and applied") : undoneBy ? "Applied, then undone" : "Applied"}
-            </span>
+            <span className="label">{undoneBy ? "Applied, then undone" : "Applied"}</span>
             <span>{when(c.at)}</span>
           </p>
           <ActorLine className="mt-4" kind={c.actor.kind} name={actorShown(c.actor, names.data)} session={c.actor.session} model={c.actor.model} verb="changed" project={c.project} />
           <h1
             className={cn(
               "intent mt-1.5",
-              agent && !approval ? "text-graphite" : "text-ink",
+              agent ? "text-graphite" : "text-ink",
               undoneBy && "text-ink-2 line-through decoration-ink-4/50 decoration-1",
             )}
           >
@@ -177,13 +168,6 @@ export function ChangePage({ id }: { id: string }) {
           <Sec label="Times and numbers">
             <Facts
               items={[
-                approval && ["Asked", <span key="a">{clockSeconds(approval.createdAt)}, by {who}</span>],
-                approval?.decidedAt && [
-                  "Signed",
-                  <span key="s">
-                    {clockSeconds(approval.decidedAt)}, {duration((new Date(approval.decidedAt).getTime() - new Date(approval.createdAt).getTime()) / 1000)} later
-                  </span>,
-                ],
                 ["Applied", <span key="ap">{stamp(c.at)}</span>],
                 undoneAt && ["Undone", <span key="u">{stamp(undoneAt)}</span>],
                 ["Version", <span key="v">{c.plan.baseVersion} to {c.version} of {c.project}</span>],
@@ -195,25 +179,17 @@ export function ChangePage({ id }: { id: string }) {
                   </span>,
                 ],
                 ["Entry", <CopyValue key="e" value={c.id} className="-my-1 max-w-full" />],
-                approval && ["Approval", <span key="ap" className="ident text-ink-2">{approval.id}</span>],
               ]}
             />
           </Sec>
         </Leaf>
 
-        <Leaf className="mt-3" time={clock(approval?.decidedAt ?? c.at)} note={approval ? "signed" : "applied"}>
+        <Leaf className="mt-3" time={clock(c.at)} note="applied">
           <div className="border-t border-rule pt-7">
             <Signature
-              name={signer}
-              at={approval?.decidedAt ?? c.at}
-              hash={c.plan.hash}
-              seal={!!approval}
+              name={who}
               how={
-                approval ? (
-                  <>
-                    Signed by {signer} · passkey · {clock(approval.decidedAt ?? c.at)} · plan <span className="ident text-ink">{planShort(c.plan.hash)}</span>
-                  </>
-                ) : agent ? (
+                agent ? (
                   <>
                     Applied by {who}{c.actor.model ? <> (<span className="ident">{c.actor.model}</span>)</> : null} within its grant{c.actor.session ? <> · session <span className="ident">{c.actor.session}</span></> : null} · {clock(c.at)} · plan{" "}
                     <span className="ident text-ink">{planShort(c.plan.hash)}</span>
@@ -225,7 +201,6 @@ export function ChangePage({ id }: { id: string }) {
                 )
               }
             />
-            {approval && <p className="mt-4 text-[0.84375rem] text-ink-2">{who} asked; {signer} signed it with a passkey, so the box let it apply this exact plan, once.</p>}
           </div>
           <ReceiptActions />
         </Leaf>

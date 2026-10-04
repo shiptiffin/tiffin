@@ -1,7 +1,7 @@
 // Package change is Tiffin's core primitive. Every mutation of a project —
 // by a human, an agent or the system — is a Change: who did it, why, a typed
 // diff of resources, a risk tier, the inverse needed to undo it, and a plan
-// hash that binds an approval to exactly what was reviewed.
+// hash that binds a confirmation to exactly what was reviewed.
 //
 // The flow is always plan → review → apply. Plans are pure and cheap;
 // apply re-plans, checks the confirmed hash, checks policy, and commits with
