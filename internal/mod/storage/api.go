@@ -436,7 +436,14 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		}
 		info, err := m.info(ctx, p, in.Project)
 		if err != nil {
-			return nil, err
+			// A project without buckets has a limit too: its databases count.
+			n, own, _ := quotaFor(ctx, p, in.Project)
+			db := databaseBytes(in.Project)
+			info = &Info{Project: in.Project, UsedBytes: db, DatabaseBytes: db, QuotaBytes: n, QuotaSource: "box-default",
+				ReadOnly: ReadOnly(in.Project), Buckets: []BucketInfo{}}
+			if own {
+				info.QuotaSource = "project"
+			}
 		}
 		return &struct{ Body Info }{*info}, nil
 	}))

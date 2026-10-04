@@ -238,7 +238,7 @@ func TestGuessableCommands(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		got = append(got, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery+" "+strings.TrimSpace(string(raw)))
-		_, _ = w.Write([]byte(`{"project":"shop","usedBytes":30,"filesBytes":10,"databaseBytes":20,"quotaBytes":100,"quotaSource":"project","buckets":[]}`))
+		_, _ = w.Write([]byte(`{"project":"shop","memory":{},"storage":{"usedBytes":30,"filesBytes":10,"databaseBytes":20,"limitBytes":100,"limitSource":"project"}}`))
 	}))
 	defer srv.Close()
 	env := map[string]string{"TIFFIN_HOME": t.TempDir(), "HOME": t.TempDir(), "TIFFIN_CONFIG_DIR": t.TempDir(),
@@ -257,7 +257,7 @@ func TestGuessableCommands(t *testing.T) {
 	run("kv", "get", "shop", "--key", "greet")
 	run("queue", "send", "shop", "--name", "emails", "--payload", `{"to":"ada"}`)
 	run("queue", "send", "shop", "--name", "emails", "--payload", "hello")
-	if out := string(run("storage", "quota", "get", "shop")); !strings.Contains(out, `"quotaBytes": 100`) || strings.Contains(out, "buckets") {
+	if out := string(run("storage", "quota", "get", "shop")); !strings.Contains(out, `"limitBytes": 100`) || !strings.Contains(out, `"project": "shop"`) || strings.Contains(out, "memory") {
 		t.Errorf("storage quota get: %s", out)
 	}
 	want := []string{
@@ -265,7 +265,7 @@ func TestGuessableCommands(t *testing.T) {
 		"GET /v1/projects/shop/kv/key?key=greet ",
 		`POST /v1/projects/shop/queue/send? {"name":"emails","payload":{"to":"ada"}}`,
 		`POST /v1/projects/shop/queue/send? {"name":"emails","payload":"hello"}`,
-		"GET /v1/projects/shop/storage? ",
+		"GET /v1/projects/shop/usage? ",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

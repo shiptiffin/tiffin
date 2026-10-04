@@ -415,7 +415,7 @@ func (a *API) register() {
 	})
 
 	huma.Register(api, op("whoami", http.MethodGet, "/v1/whoami", "whoami", RiskRead, "Show the current token",
-		"Who you are: token name, kind, scopes and projects.", "system"),
+		"Who you are: key name, kind, access (full or read) and projects.", "system"),
 		wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body *tokens.Principal }, error) {
 			return &struct{ Body *tokens.Principal }{PrincipalFrom(ctx)}, nil
 		}))
@@ -543,7 +543,7 @@ func (a *API) register() {
 		}))
 
 	ap := op("apply", http.MethodPost, "/v1/apply", "apply", RiskDestructive, "Apply a manifest",
-		"Plans the manifest and applies it if `confirm` matches the plan hash and your token's scopes cover the plan's risk. "+
+		"Plans the manifest and applies it if `confirm` matches the plan hash. "+
 			"Without `confirm` (or with a stale one) nothing changes: you get status 428 with the plan to review. "+
 			"Applying needs a key with full access to the project; a read key can only plan.", "changes")
 	ap.Errors = append(ap.Errors, 409, 428)

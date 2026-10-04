@@ -632,13 +632,13 @@ func (a *app) ownerCmd() *cobra.Command {
 }
 
 // quotaGetCmd shows a project's storage limit and what counts toward it:
-// the limit fields of the storage overview.
+// the storage part of the project's usage.
 func (a *app) quotaGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <project>",
 		Short: "Show a project's storage limit and what counts toward it",
-		Long: "The project's storage limit (its own, or the box default; 0 means none), what it uses (its databases and files together, " +
-			"and each part) and why it is read-only, if it is. The same fields as in tiffin storage get.",
+		Long: "The project's storage limit (limitBytes: its own, or the box default; 0 means none), what it uses (usedBytes: its databases " +
+			"and files together, and each part) and why it is read-only, if it is. The storage part of tiffin projects usage.",
 		Example: "  tiffin storage quota get shop",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -648,23 +648,19 @@ func (a *app) quotaGetCmd() *cobra.Command {
 				return err
 			}
 			defer c.close()
-			status, raw, err := c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(args[0])+"/storage", nil, nil)
+			status, raw, err := c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(args[0])+"/usage", nil, nil)
 			if err != nil {
 				return &exitError{ExitError, err.Error()}
 			}
 			if status == http.StatusOK {
-				var q struct {
-					Project       string `json:"project"`
-					QuotaBytes    int64  `json:"quotaBytes"`
-					QuotaSource   string `json:"quotaSource"`
-					UsedBytes     int64  `json:"usedBytes"`
-					DatabaseBytes int64  `json:"databaseBytes"`
-					FilesBytes    int64  `json:"filesBytes"`
-					ReadOnly      string `json:"readOnly,omitempty"`
+				var u struct {
+					Storage map[string]any `json:"storage"`
 				}
-				if json.Unmarshal(raw, &q) == nil {
-					raw, _ = json.Marshal(q)
+				if json.Unmarshal(raw, &u) != nil || u.Storage == nil {
+					return &exitError{ExitError, "the box has not measured " + args[0] + "'s storage yet (it does every 30 seconds): try again shortly"}
 				}
+				u.Storage["project"] = args[0]
+				raw, _ = json.Marshal(u.Storage)
 			}
 			a.emit(status, raw)
 			a.code = exitFor(status, raw)
