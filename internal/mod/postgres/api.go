@@ -73,7 +73,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	sw := api.Op("sql-write", http.MethodPost, "/v1/projects/{project}/sql/write", "sql write", api.RiskDestructive,
 		"Change a project's database with SQL",
 		"Runs SQL that may change data and schema (DDL and DML) as the project's own Postgres role; several statements separated by "+
-			"semicolons run in one implicit transaction. Needs apply:irreversible. The database is snapshotted first and the snapshot ID "+
+			"semicolons run in one implicit transaction. Needs full access. The database is snapshotted first and the snapshot ID "+
 			"is returned, so `snapshots restore` can undo it. For reads use sql, which needs no confirmation. "+
 			"Use branch to target a preview branch. Postgres errors come back as 422 with the SQLSTATE.", tag)
 	sw.Errors = append(sw.Errors, 404, 409)
@@ -152,7 +152,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}))
 
 	bd := api.Op("branch-delete", http.MethodDelete, "/v1/projects/{project}/branches/{name}", "branches delete", api.RiskDestructive,
-		"Delete a database branch", "Drops a branch database and closes its connections. The branch's data is gone; main is untouched. Needs apply:irreversible.", tag)
+		"Delete a database branch", "Drops a branch database and closes its connections. The branch's data is gone; main is untouched. Needs full access.", tag)
 	bd.Errors = append(bd.Errors, 404)
 	huma.Register(a, bd, api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
@@ -191,7 +191,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	sr := api.Op("snapshot-restore", http.MethodPost, "/v1/projects/{project}/snapshots/{id}/restore", "snapshots restore", api.RiskDestructive,
 		"Restore a database snapshot",
 		"Replaces the snapshot's database (main or a branch) with the snapshot's contents. The current contents are snapshotted first. "+
-			"Without confirm nothing changes: you get status 428 with a preview and the confirm value. Needs apply:irreversible.", tag)
+			"Without confirm nothing changes: you get status 428 with a preview and the confirm value. Needs full access.", tag)
 	sr.Errors = append(sr.Errors, 404, 409, 428)
 	sr.Extensions[api.ExtConfirm] = true
 	huma.Register(a, sr, api.Wrap(func(ctx context.Context, in *struct {

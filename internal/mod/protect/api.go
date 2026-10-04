@@ -364,7 +364,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	huma.Register(a, api.Op("protect-update", http.MethodPut, "/v1/protect", "protect set", api.RiskWrite,
 		"Change protection settings",
-		"Change per-IP rate limits (app, auth, dashboard), which hosts always get the challenge and its difficulty, what under-attack tightens to, and the WAF. Omitted fields keep their value; reset:true starts from the defaults. Takes effect at once (the edge reloads). Needs apply:reversible on all projects.",
+		"Change per-IP rate limits (app, auth, dashboard), which hosts always get the challenge and its difficulty, what under-attack tightens to, and the WAF. Omitted fields keep their value; reset:true starts from the defaults. Takes effect at once (the edge reloads). Needs full access to all projects.",
 		"protect"),
 		api.Wrap(func(ctx context.Context, in *struct{ Body settingsPatch }) (*struct{ Body Status }, error) {
 			if err := requireBox(ctx, true); err != nil {

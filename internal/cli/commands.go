@@ -521,7 +521,7 @@ func (a *app) mcpCmd() *cobra.Command {
 			"  claude mcp add tiffin -- tiffin mcp\n" +
 			"It talks to the box from `tiffin up` as that box's agent API key: full access to every project,\n" +
 			"recorded in History as an agent, never the owner. TIFFIN_URL and TIFFIN_TOKEN point it at another\n" +
-			"box or key (a box in --home gets a key that cannot apply irreversible plans).\n" +
+			"box or key (a box in --home gets its own local agent key, also with full access to every project).\n" +
 			"History labels each change with TIFFIN_SESSION if set (else mcp:stdio-<random>) and TIFFIN_MODEL.\n" +
 			"--tools core (the default) lists the ~40 most-used tools plus run, which calls any other operation by name;\n" +
 			"--tools all lists every operation as its own tool.",
@@ -566,7 +566,7 @@ func (a *app) mcpCmd() *cobra.Command {
 				h = b.api.Handler()
 				if token == "" {
 					// Agents never get the owner token implicitly: they get a
-					// local agent token that cannot apply irreversible plans.
+					// local agent key (full access to every project, recorded as an agent).
 					t, err := b.agentToken(ctx)
 					if err != nil {
 						return err

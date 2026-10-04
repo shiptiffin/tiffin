@@ -278,7 +278,7 @@ func sqlError(err error) error {
 		p := api.NewProblem(422, "validation", fmt.Sprintf("Postgres error %s: %s", pe.Code, msg))
 		switch {
 		case pe.Code == "25006":
-			p.Hint = "this statement writes; run it with sql_write (tiffin sql write) instead: it needs apply:irreversible and takes a snapshot first"
+			p.Hint = "this statement writes; run it with sql_write (tiffin sql write) instead: it needs a key with full access and takes a snapshot first"
 		case pe.Code == "42601" && strings.Contains(pe.Message, "multiple commands"):
 			p.Hint = "read-only mode runs one statement at a time; send them separately"
 		case pe.Code == "57014":

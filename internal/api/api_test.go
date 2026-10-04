@@ -234,7 +234,7 @@ func TestAgentScopesEnforced(t *testing.T) {
 	}
 	// Other project: forbidden even to plan or read, with a plain reason.
 	if code, prob, _ := e.call(agent, "POST", "/v1/plan", map[string]any{"manifest": map[string]any{"project": "blog"}}); code != 403 ||
-		prob["code"] != "forbidden" || !strings.Contains(prob["detail"].(string), "can only change shop") || prob["hint"] == nil {
+		prob["code"] != "forbidden" || !strings.Contains(prob["detail"].(string), "can only reach shop") || prob["hint"] == nil {
 		t.Fatalf("plan other project: %d %v", code, prob)
 	}
 	if code, _, _ := e.call(agent, "GET", "/v1/projects/blog", nil); code != 403 {

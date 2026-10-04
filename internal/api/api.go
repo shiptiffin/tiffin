@@ -545,7 +545,7 @@ func (a *API) register() {
 	ap := op("apply", http.MethodPost, "/v1/apply", "apply", RiskDestructive, "Apply a manifest",
 		"Plans the manifest and applies it if `confirm` matches the plan hash and your token's scopes cover the plan's risk. "+
 			"Without `confirm` (or with a stale one) nothing changes: you get status 428 with the plan to review. "+
-			"Risk tiers: reversible needs apply:reversible; outbound needs apply:outbound; irreversible needs apply:irreversible.", "changes")
+			"Applying needs a key with full access to the project; a read key can only plan.", "changes")
 	ap.Errors = append(ap.Errors, 409, 428)
 	ap.Extensions[ExtConfirm] = true
 	huma.Register(api, ap,

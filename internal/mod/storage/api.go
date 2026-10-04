@@ -318,7 +318,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	huma.Register(a, api.Op("storage-presign", http.MethodPost, "/v1/projects/{project}/storage/buckets/{bucket}/presign", "storage presign", api.RiskRead,
 		"Create a presigned URL", "A time-limited URL on the public S3 endpoint that lets anyone holding it GET (download) or PUT (upload) one object without credentials. "+
-			"PUT URLs need apply:reversible.", tag),
+			"PUT URLs need full access.", tag),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 			Bucket  string `path:"bucket" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Bucket name"`
@@ -352,7 +352,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	huma.Register(a, api.Op("storage-credentials", http.MethodGet, "/v1/projects/{project}/storage/credentials", "storage credentials", api.RiskRead,
 		"Show a project's S3 credentials", "The S3 env vars the project's apps get (S3_*, AWS_*), including the secret key, for tools and local development. "+
-			"Needs apply:irreversible because the key can read and delete every object.", tag),
+			"Needs full access because the key can read and delete every object.", tag),
 		api.Wrap(func(ctx context.Context, in *projectIn) (*struct{ Body map[string]string }, error) {
 			pr := api.PrincipalFrom(ctx)
 			if err := pr.Require(tokens.ScopeApplyIrreversible, in.Project); err != nil {

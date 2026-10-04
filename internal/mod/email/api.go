@@ -87,7 +87,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	send := api.Op("email-send", http.MethodPost, base+"/send", "email send", api.RiskWrite, "Send an email",
 		"Sends a message from the project. Until the box has an SMTP relay (and always for previews) it is captured in the dev inbox instead: "+
-			"the reply says where it went. Suppressed recipients are skipped. Sending for real needs apply:outbound; capturing needs apply:reversible.", tag)
+			"the reply says where it went. Suppressed recipients are skipped. Needs full access.", tag)
 	send.MaxBodyBytes = MaxMessageBytes * 4 / 3
 	send.Errors = append(send.Errors, 404, 429)
 	huma.Register(a, send, api.Wrap(func(ctx context.Context, in *struct {
@@ -381,7 +381,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	huma.Register(a, api.Op("email-smtp", http.MethodGet, base+"/smtp", "email smtp", api.RiskRead, "Show a project's SMTP credentials",
 		"The SMTP env vars the project's apps get (SMTP_URL, EMAIL_FROM, ...), including the password, for tools and local development. "+
-			"Needs apply:outbound because the credentials can send real mail once a relay is configured.", tag),
+			"Needs full access because the credentials can send real mail once a relay is configured.", tag),
 		api.Wrap(func(ctx context.Context, in *projectIn) (*struct{ Body map[string]string }, error) {
 			if err := boxOnly(p); err != nil {
 				return nil, err

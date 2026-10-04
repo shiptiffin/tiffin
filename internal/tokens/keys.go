@@ -252,24 +252,27 @@ func (p *Principal) refusal(s Scope) error {
 	case !p.Has(ScopePlan) && s == ScopePlan:
 		return fmt.Errorf("%w: this key (%q) can read but not plan", ErrForbidden, p.Name)
 	case slices.Contains(ladder, s):
-		return fmt.Errorf("%w: this key (%q) cannot apply %s changes (it needs %q)", ErrForbidden, p.Name, tierWords[s], s)
+		// Only keys made before API keys get here: every key now is full or read.
+		return fmt.Errorf("%w: this older key (%q) cannot apply %s; that needs a key with full access", ErrForbidden, p.Name, tierWords[s])
 	}
-	return fmt.Errorf("%w: this key (%q) lacks scope %q", ErrForbidden, p.Name, s)
+	return fmt.Errorf("%w: this key (%q) cannot do this; it needs full access to all projects", ErrForbidden, p.Name)
 }
 
-var tierWords = map[Scope]string{ScopeApplyOutbound: "outbound", ScopeApplyIrreversible: "irreversible", ScopeRead: "read"}
+var tierWords = map[Scope]string{ScopeApplyOutbound: "outbound changes (sending mail, making files public)",
+	ScopeApplyIrreversible: "irreversible changes (deleting data)", ScopeRead: "anything"}
 
-// projectRefusal explains that project is outside p's reach.
-func (p *Principal) projectRefusal(project string) error {
+// projectRefusal explains that project is outside p's reach (s is what the
+// caller wanted to do there).
+func (p *Principal) projectRefusal(s Scope, project string) error {
 	var ps []string
 	for _, x := range p.Projects {
 		if x != AllProjects {
 			ps = append(ps, x)
 		}
 	}
-	verb := "change"
-	if !p.Has(ScopeApplyReversible) {
-		verb = "read"
+	verb := "reach"
+	if slices.Index(ladder, s) >= slices.Index(ladder, ScopeApplyReversible) {
+		verb = "change"
 	}
 	reach := "no project"
 	if len(ps) > 0 {

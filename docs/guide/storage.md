@@ -33,8 +33,8 @@ Bucket `uploads` of project `shop` is the S3 bucket `shop-uploads`. The S3 name
 
 The key can only reach the project's own buckets; it cannot create or delete
 buckets (that is what `tiffin.config.ts` is for). `tiffin storage credentials <project>`
-prints the same variables for tools and local development (it needs
-`apply:irreversible`, because the key can delete every object).
+prints the same variables for tools and local development (it needs a key with
+full access, because the key can delete every object).
 
 ```ts
 import { upload, presign, publicUrl } from "tiffin-sdk/storage";

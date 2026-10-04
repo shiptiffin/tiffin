@@ -97,15 +97,6 @@ func projectSecret(ctx context.Context, p *platform.Platform, project string) (s
 	return s, p.DB.KVPut(ctx, nsSecret, project, []byte(s))
 }
 
-// AppName turns a project slug into a display name: "my-shop" → "My shop".
-func AppName(project string) string {
-	s := strings.ReplaceAll(project, "-", " ")
-	if s == "" {
-		return s
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
-}
-
 // Why email verification is on or off for a project.
 const (
 	VerifyManifest = "manifest" // auth.emailVerification says so
@@ -166,7 +157,7 @@ func projectConfig(ctx context.Context, p *platform.Platform, project string, re
 	c := &ProjectConfig{
 		Secret:           secret,
 		DatabaseURL:      dbURL,
-		AppName:          AppName(project),
+		AppName:          project, // the name people gave it: APP_NAME below, else the project's own
 		Methods:          append([]string(nil), a.Methods...),
 		Organizations:    a.Organizations,
 		Social:           map[string]*OAuthApp{},

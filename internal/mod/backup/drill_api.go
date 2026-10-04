@@ -22,7 +22,7 @@ const drillWhat = "Restores the backup's Postgres part into a scratch directory 
 const drillAsync = "It runs in the background and returns the drill at once (status running, with its phase); poll " +
 	"GET /v1/backups/drills/{id} (`tiffin backups drills get <id>`) until status is passed or failed, or pass wait=true to wait up to 50 seconds. " +
 	"Refused with 409 when a drill is already running or the data disk has less free space than the backup's size plus 20%. " +
-	"Needs apply:reversible on all projects."
+	"Needs full access to all projects."
 
 type drillStartOut struct{ Body *BackupDrill }
 
@@ -186,7 +186,7 @@ func registerDrills(a huma.API, p *platform.Platform, tag string) {
 	cn := api.Op("backups-drills-cancel", http.MethodPost, "/v1/backups/drills/{id}/cancel", "backups drills cancel", api.RiskWrite,
 		"Cancel a running restore drill",
 		"Stops a running restore drill: the temporary Postgres is stopped and the scratch copy deleted; the drill ends as failed (cancelled). "+
-			"Returns the drill. 409 when it is not running. Needs apply:reversible on all projects.", tag)
+			"Returns the drill. 409 when it is not running. Needs full access to all projects.", tag)
 	cn.Errors = append(cn.Errors, 404, 409)
 	huma.Register(a, cn, api.Wrap(func(ctx context.Context, in *struct {
 		ID string `path:"id" pattern:"^dr_[0-9A-Z]{26}$" doc:"Drill ID"`

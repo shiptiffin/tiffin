@@ -76,7 +76,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	bc := api.Op("backup-create", http.MethodPost, "/v1/backups", "backup", api.RiskWrite,
 		"Back up the box now",
 		"Takes a backup set now and waits for it: Postgres (pgBackRest; incremental unless you ask for full or none exists yet), "+
-			"a Valkey snapshot and the platform state. Needs apply:reversible on all projects.", tag)
+			"a Valkey snapshot and the platform state. Needs full access to all projects.", tag)
 	bc.Errors = append(bc.Errors, 409)
 	huma.Register(a, bc, api.Wrap(func(ctx context.Context, in *struct {
 		Body struct {
