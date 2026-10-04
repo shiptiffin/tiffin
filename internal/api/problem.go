@@ -46,7 +46,7 @@ func (p *Problem) GetStatus() int { return p.Status }
 func (p *Problem) ContentType(string) string { return "application/problem+json" }
 
 func problem(status int, code, detail string) *Problem {
-	return &Problem{Type: "https://tiffin.dev/errors/" + code, Title: http.StatusText(status), Status: status, Code: code, Detail: detail}
+	return &Problem{Type: "https://shiptiffin.com/errors/" + code, Title: http.StatusText(status), Status: status, Code: code, Detail: detail}
 }
 
 func init() {

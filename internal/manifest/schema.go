@@ -15,7 +15,7 @@ import (
 )
 
 // SchemaID is the $id of the manifest JSON Schema (placeholder domain).
-const SchemaID = "https://tiffin.dev/schema/manifest-v1.json"
+const SchemaID = "https://shiptiffin.com/schema/manifest-v1.json"
 
 //go:embed schema.json
 var schemaJSON []byte

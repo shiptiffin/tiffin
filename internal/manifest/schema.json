@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://tiffin.dev/schema/manifest-v1.json",
+  "$id": "https://shiptiffin.com/schema/manifest-v1.json",
   "title": "Tiffin manifest v1",
   "description": "The project manifest: the evaluated form of tiffin.config.ts. Everything except `project` is optional; omitted fields get the defaults described on each property.",
   "type": "object",
