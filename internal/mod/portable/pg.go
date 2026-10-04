@@ -3,7 +3,6 @@ package portable
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -355,23 +354,4 @@ func restoreCron(ctx context.Context, c *pgx.Conn, jobs []cronJob, replace bool)
 		}
 	}
 	return nil
-}
-
-// ---- SQLite ----
-
-// sqliteSnapshot writes a consistent copy of the live SQLite database src
-// to dst (VACUUM INTO reads one transaction's view; writers keep going).
-func sqliteSnapshot(ctx context.Context, src, dst string) error {
-	db, err := sql.Open("sqlite3", "file:"+src+"?_pragma=busy_timeout(10000)")
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	_, err = db.ExecContext(ctx, `VACUUM INTO ?`, dst)
-	return err
-}
-
-// isSQLite reports whether path starts with the SQLite header.
-func isSQLite(head []byte) bool {
-	return bytes.HasPrefix(head, []byte("SQLite format 3\x00"))
 }

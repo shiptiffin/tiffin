@@ -53,8 +53,8 @@ func init() {
 	platform.Register(&Module{})
 	// Every backup set copies the whole storage tree (objects, accounts, root
 	// key, audit manifests) with reflinks; the "files" restore target puts
-	// it back.
-	backup.Include("storage", storageDir(boxRoot))
+	// it back, with the gateway stopped.
+	backup.Include("storage", storageDir(boxRoot), unitName)
 }
 
 // Pinned versitygw release.

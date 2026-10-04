@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -47,6 +48,7 @@ type BackupRestored struct {
 	Targets    []string `json:"targets"`
 	SafetyID   string   `json:"safetyBackup" doc:"Backup of the state just before the restore; restore it to go back"`
 	DurationMs int64    `json:"durationMs"`
+	Restarting bool     `json:"restarting,omitempty" doc:"The box's service restarts now to swap in the restored files (seconds)"`
 }
 
 func normalizeTargets(t []string) ([]string, error) {
@@ -121,6 +123,7 @@ func Preview(ctx context.Context, p *platform.Platform, b *Backup, targets []str
 			}
 			slices.Sort(items)
 			pv.Overwrites = append(pv.Overwrites, BackupOverwrite{Target: t, Items: items, What: "registered files and directories are replaced by their copies in the backup"})
+			pv.Downtime += "; the box's service restarts once to swap the files in (seconds)"
 		}
 	}
 	return pv, nil
@@ -149,12 +152,27 @@ func Restore(ctx context.Context, p *platform.Platform, b *Backup, targets []str
 		case TargetValkey:
 			err = restoreValkey(ctx, b)
 		case TargetFiles:
-			err = restoreFiles(ctx, b)
+			if p.Restart == nil {
+				err = errors.New("files are swapped in by a restart of the box's service, and this process is not it")
+			} else {
+				err = stageFiles(ctx, p.DataRoot, b.dir(), b)
+				out.Restarting = err == nil
+			}
 		}
 		if err != nil {
+			if out.Restarting {
+				_ = os.Remove(platform.PendingImportPath(p.DataRoot))
+			}
 			return out, fmt.Errorf("restore %s: %w (safety backup %s holds the state from before)", t, err, safety.ID)
 		}
 		p.Log.Info("backup: restored", "backup", b.ID, "target", t)
+	}
+	if out.Restarting {
+		// The files are swapped in by the next start, before any module
+		// opens them (platform.ApplyPendingImport).
+		out.DurationMs = time.Since(start).Milliseconds()
+		p.Restart("swap in the files of backup " + b.ID)
+		return out, nil
 	}
 	// Re-converge every project: roles, ACL users and extensions created
 	// after the backup come back; passwords match what apps have.
@@ -297,25 +315,71 @@ func rewriteAOF(ctx context.Context) error {
 	return nil
 }
 
-func restoreFiles(ctx context.Context, b *Backup) error {
+// Where a files restore stages its copies and moves the replaced files
+// (the data disk, so the swap is a rename).
+var (
+	restoreStage = Root + "/restore-staged"
+	restoreAside = Root + "/pre-restore"
+)
+
+// stageFiles copies the backup's files next to the live ones and leaves a
+// plan for the next start of the service to swap them in, before any
+// module opens them: observe and analytics hold their SQLite databases open
+// in this process, so replacing them under it would keep it reading (and
+// writing) the old ones. The units that write a set are stopped meanwhile.
+func stageFiles(ctx context.Context, dataRoot, setDir string, b *Backup) error {
+	planPath := platform.PendingImportPath(dataRoot)
+	if _, err := os.Stat(planPath); err == nil {
+		return errors.New("a box import is waiting for the service to restart; restore the files after it")
+	}
+	_ = os.RemoveAll(restoreStage)
+	_ = os.RemoveAll(restoreAside)
+	plan := platform.PendingImport{Import: "backup " + b.ID, Aside: restoreAside}
+	inc := included()
 	for name, part := range b.Files {
-		src := filepath.Join(b.dir(), "files", name)
+		src := filepath.Join(setDir, "files", name)
 		dst := part.Detail
 		if dst == "" || !filepath.IsAbs(dst) {
 			continue
 		}
-		aside := dst + ".pre-restore"
-		os.RemoveAll(aside)
-		if _, err := os.Stat(dst); err == nil {
-			if err := os.Rename(dst, aside); err != nil {
-				return err
-			}
-		}
-		if _, err := datakit.Run(ctx, "cp", "-a", "--reflink=auto", src, dst); err != nil {
-			_ = os.Rename(aside, dst)
+		staged := filepath.Join(restoreStage, name)
+		_ = os.MkdirAll(restoreStage, 0o700)
+		if _, err := datakit.Run(ctx, "cp", "-a", "--reflink=auto", src, staged); err != nil {
 			return err
 		}
-		os.RemoveAll(aside)
+		plan.Swaps = append(plan.Swaps, platform.PendingSwap{From: staged, To: dst})
+		if fi, err := os.Stat(staged); err == nil && !fi.IsDir() {
+			// A single database: its old WAL must not be replayed onto the restored one.
+			for _, s := range []string{"-wal", "-shm", "-journal"} {
+				plan.Swaps = append(plan.Swaps, platform.PendingSwap{To: dst + s})
+			}
+		}
+		for _, u := range inc[name].units {
+			if !slices.Contains(plan.StopUnits, u) {
+				plan.StopUnits, plan.StartUnits = append(plan.StopUnits, u), append(plan.StartUnits, u)
+			}
+		}
 	}
-	return nil
+	raw, _ := json.MarshalIndent(plan, "", "  ")
+	if err := os.MkdirAll(filepath.Dir(planPath), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(planPath, raw, 0o600)
+}
+
+// finishFilesRestore reports how the swap of a files restore went and
+// removes what it staged and replaced (the safety backup has the latter).
+func finishFilesRestore(p *platform.Platform) {
+	raw, err := os.ReadFile(platform.PendingResultPath(p.DataRoot))
+	var res platform.PendingResult
+	if err == nil && json.Unmarshal(raw, &res) == nil && strings.HasPrefix(res.Import, "backup ") {
+		if res.OK {
+			p.Log.Info("backup: restored files swapped in", "backup", strings.TrimPrefix(res.Import, "backup "), "items", res.Swapped)
+		} else {
+			p.Log.Error("backup: swapping in restored files failed; the box kept its files", "backup", strings.TrimPrefix(res.Import, "backup "), "err", res.Error)
+		}
+		_ = os.Remove(platform.PendingResultPath(p.DataRoot))
+	}
+	_ = os.RemoveAll(restoreStage)
+	_ = os.RemoveAll(restoreAside)
 }

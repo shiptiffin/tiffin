@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/btahir/tiffin/internal/mod/datakit"
 	"github.com/btahir/tiffin/internal/platform"
 )
 
@@ -39,12 +40,6 @@ func under(rel string) func(*platform.Platform) string {
 		}
 		return filepath.Join(root, rel)
 	}
-}
-
-// sqliteSide reports SQLite's side files, never copied on their own: each
-// database is snapshotted whole with VACUUM INTO.
-func sqliteSide(rel string) bool {
-	return strings.HasSuffix(rel, "-wal") || strings.HasSuffix(rel, "-shm") || strings.HasSuffix(rel, "-journal")
 }
 
 // observeKeep are the Victoria stores and binaries in /var/lib/tiffin/observe.
@@ -124,7 +119,7 @@ func (s fileSet) skip(withHistory bool, dbs map[string]string) func(string, fs.D
 		if s.Skip != nil && s.Skip(rel, d, withHistory) {
 			return true
 		}
-		if sqliteSide(rel) {
+		if datakit.SQLiteSide(rel) {
 			base := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(rel, "-wal"), "-shm"), "-journal")
 			_, ok := dbs[base]
 			return ok

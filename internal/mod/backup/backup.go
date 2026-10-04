@@ -58,25 +58,32 @@ func (*Module) Order() int   { return 60 }
 
 var (
 	incMu    sync.Mutex
-	includes = map[string]string{}
+	includes = map[string]include{}
 	// run serialises backups and restores.
 	run sync.Mutex
 )
 
-// Include adds a file or directory to every backup set under name (for
-// example Include("storage", "/var/lib/tiffin/storage")). Call it from init().
-// Directories are copied with reflinks, so large ones cost little.
-// The "files" restore target puts them back.
-func Include(name, path string) {
-	incMu.Lock()
-	defer incMu.Unlock()
-	includes[name] = path
+type include struct {
+	path  string
+	units []string
 }
 
-func included() map[string]string {
+// Include adds a file or directory to every backup set under name (for
+// example Include("storage", "/var/lib/tiffin/storage")). Call it from init().
+// Directories are copied with reflinks, so large ones cost little; SQLite
+// databases in them are snapshotted with VACUUM INTO. The "files" restore
+// target puts them back while the tiffin service and units (the systemd
+// units that write them) are stopped.
+func Include(name, path string, units ...string) {
 	incMu.Lock()
 	defer incMu.Unlock()
-	out := make(map[string]string, len(includes))
+	includes[name] = include{path, units}
+}
+
+func included() map[string]include {
+	incMu.Lock()
+	defer incMu.Unlock()
+	out := make(map[string]include, len(includes))
 	for k, v := range includes {
 		out[k] = v
 	}
@@ -316,7 +323,8 @@ func takeParts(ctx context.Context, p *platform.Platform, b *Backup) error {
 	b.Platform = BackupPart{SizeBytes: datakit.DirSize(pdir), Detail: "state database and box key (manual recovery)"}
 
 	// 4. Registered files.
-	for name, path := range included() {
+	for name, inc := range included() {
+		path := inc.path
 		if _, err := os.Stat(path); err != nil {
 			continue
 		}
@@ -328,7 +336,28 @@ func takeParts(ctx context.Context, p *platform.Platform, b *Backup) error {
 		if _, err := datakit.Run(ctx, "cp", "-a", "--reflink=auto", path, filepath.Join(fdir, name)); err != nil {
 			return fmt.Errorf("files %s: %w", name, err)
 		}
+		if err := snapshotSQLite(ctx, path, filepath.Join(fdir, name)); err != nil {
+			return fmt.Errorf("files %s: %w", name, err)
+		}
 		b.Files[name] = BackupPart{SizeBytes: datakit.DirSize(filepath.Join(fdir, name)), Detail: path}
+	}
+	return nil
+}
+
+// snapshotSQLite replaces the file copies of the SQLite databases in live
+// (a database file or a directory) under dst with VACUUM INTO snapshots:
+// a copied database misses commits still in its WAL, or is torn.
+func snapshotSQLite(ctx context.Context, live, dst string) error {
+	for _, rel := range datakit.FindSQLite(live, nil) {
+		to := filepath.Join(dst, filepath.FromSlash(rel))
+		for _, s := range []string{"", "-wal", "-shm", "-journal"} {
+			if err := os.Remove(to + s); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+		if err := datakit.SQLiteSnapshot(ctx, filepath.Join(live, filepath.FromSlash(rel)), to); err != nil {
+			return fmt.Errorf("snapshot %s: %w", rel, err)
+		}
 	}
 	return nil
 }
@@ -529,6 +558,7 @@ func (*Module) Start(ctx context.Context, p *platform.Platform) error {
 	drillState.ctx = ctx
 	drillState.mu.Unlock()
 	cleanupScratch(ctx, p)
+	finishFilesRestore(p)
 	go func() {
 		var lastFail time.Time
 		timer := time.NewTimer(20 * time.Second)
