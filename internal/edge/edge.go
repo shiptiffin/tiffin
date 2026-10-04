@@ -7,6 +7,7 @@ package edge
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -45,7 +46,7 @@ type Edge struct {
 // Start loads the Caddy config and returns once the edge is serving HTTPS.
 // Cancelling ctx stops the edge.
 func Start(ctx context.Context, cfg Config) (*Edge, error) {
-	c, err := cfg.normalized()
+	c, err := withCertSource(cfg).normalized()
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +80,7 @@ func Start(ctx context.Context, cfg Config) (*Edge, error) {
 // Reload atomically swaps in a new config (for example with more routes).
 // The DataDir cannot change on reload.
 func (e *Edge) Reload(cfg Config) error {
-	c, err := cfg.normalized()
+	c, err := withCertSource(cfg).normalized()
 	if err != nil {
 		return err
 	}
@@ -133,7 +134,12 @@ func RootCAPEM(dataDir string) ([]byte, error) {
 }
 
 func load(c Config) error {
-	raw, err := ConfigJSON(c)
+	n, err := c.normalized()
+	if err != nil {
+		return err
+	}
+	install(n)
+	raw, err := json.MarshalIndent(buildConfig(n), "", "  ")
 	if err != nil {
 		return err
 	}
@@ -145,7 +151,13 @@ func load(c Config) error {
 
 // waitReady blocks until every managed host presents a certificate, because
 // Caddy issues certificates asynchronously after Load returns.
+//
+// With ACME, public certificates take seconds to minutes and some names only
+// get one on their first visit, so it waits for the HTTPS listener only.
 func (e *Edge) waitReady(ctx context.Context, c Config) error {
+	if c.ACME != nil {
+		return waitListening(ctx, net.JoinHostPort("127.0.0.1", strconv.Itoa(c.HTTPSPort)))
+	}
 	hosts := []string{c.DashboardHost()}
 	for _, r := range c.Routes {
 		hosts = append(hosts, r.Host)
@@ -168,6 +180,31 @@ func (e *Edge) waitReady(ctx context.Context, c Config) error {
 		}
 	}
 	return nil
+}
+
+func waitListening(ctx context.Context, addr string) error {
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		conn, err := net.DialTimeout("tcp", addr, time.Second)
+		if err == nil {
+			return conn.Close()
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("edge: HTTPS listener not up: %w", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// Config returns the config the edge runs now (normalized, with the cert
+// source merged in).
+func (e *Edge) Config() Config {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.cfg
 }
 
 func probe(addr, host string) error {

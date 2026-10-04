@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -242,15 +243,15 @@ func zone(match []obj, l Limit) obj {
 
 // protectRoutes are the non-terminal routes that run before host routing.
 func (p *Protection) protectRoutes(c Config) []obj {
-	dash := c.DashboardHost()
-	notDash := obj{"not": []obj{{"host": []string{dash}}}}
+	dash := c.dashboardHosts()
+	notDash := obj{"not": []obj{{"host": dash}}}
 	var routes []obj
 	if p.CrowdSec != nil {
 		routes = append(routes, obj{"handle": []obj{{"handler": "crowdsec"}}})
 	}
 	zones := obj{}
 	if p.Dashboard.Events > 0 {
-		zones[zoneName(zoneDashboard, p.Dashboard)] = zone([]obj{{"host": []string{dash}}}, p.Dashboard)
+		zones[zoneName(zoneDashboard, p.Dashboard)] = zone([]obj{{"host": dash}}, p.Dashboard)
 	}
 	if p.App.Events > 0 {
 		zones[zoneName(zoneApp, p.App)] = zone([]obj{notDash}, p.App)
@@ -269,7 +270,7 @@ func (p *Protection) protectRoutes(c Config) []obj {
 		} else {
 			hosts := make([]string, 0, len(ch.Hosts))
 			for _, h := range ch.Hosts {
-				if h = strings.ToLower(h); h != dash {
+				if h = strings.ToLower(h); !slices.Contains(dash, h) {
 					hosts = append(hosts, h)
 				}
 			}

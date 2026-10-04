@@ -5,6 +5,7 @@ go 1.27.1
 require (
 	filippo.io/age v1.3.2
 	github.com/caddyserver/caddy/v2 v2.11.6
+	github.com/caddyserver/certmagic v0.25.6
 	github.com/corazawaf/coraza-caddy/v2 v2.6.1
 	github.com/danielgtaylor/huma/v2 v2.39.1
 	github.com/dlclark/regexp2/v2 v2.8.1
@@ -18,8 +19,12 @@ require (
 	github.com/hslatman/caddy-crowdsec-bouncer v0.14.1
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/klauspost/compress v1.20.1
+	github.com/letsencrypt/pebble/v2 v2.10.1
+	github.com/libdns/cloudflare v0.2.2
+	github.com/libdns/libdns v1.1.1
 	github.com/mholt/caddy-ratelimit v0.1.1-0.20260612195517-5625512f24f6
 	github.com/microcosm-cc/bluemonday v1.0.27
+	github.com/miekg/dns v1.1.73
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/ncruces/go-sqlite3 v0.35.6
 	github.com/oschwald/maxminddb-golang/v2 v2.7.0
@@ -31,6 +36,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/ua-parser/uap-go v0.0.0-20260529044130-17c35e68e58c
 	go.opentelemetry.io/proto/otlp v1.11.0
+	golang.org/x/net v0.59.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/text v0.42.0
 	google.golang.org/protobuf v1.36.12
@@ -59,7 +65,6 @@ require (
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.25.0 // indirect
-	github.com/caddyserver/certmagic v0.25.6 // indirect
 	github.com/caddyserver/zerossl v0.1.6 // indirect
 	github.com/ccoveille/go-safecast/v2 v2.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
@@ -144,8 +149,8 @@ require (
 	github.com/kaptinlin/go-i18n v0.1.4 // indirect
 	github.com/kaptinlin/jsonschema v0.4.6 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
+	github.com/letsencrypt/challtestsrv v1.4.2 // indirect
 	github.com/lib/pq v1.10.9 // indirect
-	github.com/libdns/libdns v1.1.1 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magefile/mage v1.17.2 // indirect
 	github.com/manifoldco/promptui v0.9.0 // indirect
@@ -154,7 +159,6 @@ require (
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
 	github.com/mholt/acmez/v3 v3.1.7 // indirect
 	github.com/mholt/caddy-l4 v0.1.1 // indirect
-	github.com/miekg/dns v1.1.73 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/go-ps v1.0.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
@@ -246,7 +250,6 @@ require (
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/crypto/x509roots/fallback v0.0.0-20260929172509-b39ff6d641ec // indirect
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
-	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/term v0.46.0 // indirect

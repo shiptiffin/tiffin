@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config describes the platform edge: one domain, one upstream and any extra
@@ -18,9 +20,21 @@ type Config struct {
 	DataDir   string  // Caddy storage (certs, CA), e.g. /var/lib/tiffin/platform/caddy
 	HTTPPort  int     // default 80
 	HTTPSPort int     // default 443
-	Internal  bool    // true: Caddy internal CA (local/dev); false: public ACME (not implemented yet)
+	Internal  bool    // true: Caddy internal CA (local/dev); false: public ACME (see ACME)
 	Routes    []Route // extra host -> upstream routes
 	AccessLog string  // file for JSON access logs (rolled); empty disables them
+	// ACME configures public certificates; required when Internal is false.
+	ACME *ACME
+	// Aliases are earlier box domains still served while a domain switch
+	// completes: the dashboard and every one-label host under Domain also
+	// answer under each alias ("shop.<alias>"). Nil: the ones the registered
+	// cert source gives (see SetCertSource).
+	Aliases []string
+	// HSTS is the Strict-Transport-Security max-age. 0 means the default:
+	// 5 minutes with the internal CA, 30 days with a public CA, off with
+	// any other ACME CA (a test CA's certificates are not trusted, so
+	// pinning HTTPS would only lock browsers out). Negative turns it off.
+	HSTS time.Duration
 	// Protect is the protection layer (rate limits, challenge, CrowdSec,
 	// WAF). Nil: the one registered with SetProtectionSource, if any.
 	Protect *Protection
@@ -37,6 +51,9 @@ type Route struct {
 	FileRoot   string   // serve static files from this directory instead of proxying
 	SPA        bool     // with FileRoot: unknown paths serve index.html
 	Immutable  bool     // with FileRoot: long-lived cache headers
+	// RedirectTo permanently redirects (308, path and query kept) to this
+	// host over HTTPS instead of serving: "www.example.com" → "example.com".
+	RedirectTo string
 }
 
 func (r Route) upstreams() []string {
@@ -49,15 +66,22 @@ func (r Route) upstreams() []string {
 	return nil
 }
 
-// ErrPublicACMEUnsupported is returned when Internal is false: public ACME
-// arrives in Phase 2.
-var ErrPublicACMEUnsupported = errors.New("edge: public ACME is not implemented yet; set Internal=true")
+// ErrACMERequired is returned when Internal is false and no ACME settings
+// say where public certificates come from.
+var ErrACMERequired = errors.New("edge: Internal is false but ACME is not set; public certificates need ACME settings")
 
 const (
-	caID       = "tiffin"
-	caName     = "Tiffin Local CA"
-	hstsValue  = "max-age=300"
-	cspValue   = "frame-ancestors 'none'"
+	caID     = "tiffin"
+	caName   = "Tiffin Local CA"
+	cspValue = "frame-ancestors 'none'"
+	// hstsLocal is the max-age with the internal CA: short, so a browser
+	// that saw a dev box does not insist on HTTPS for long.
+	hstsLocal = 5 * time.Minute
+	// hstsPublic is the max-age once certificates come from a public CA:
+	// long enough to matter, short enough that a domain moved to a host
+	// without HTTPS recovers within a month. No includeSubDomains: other
+	// names under a custom domain may live elsewhere.
+	hstsPublic = 30 * 24 * time.Hour
 	notFoundHT = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Not found</title>` +
 		`<meta name="viewport" content="width=device-width,initial-scale=1"></head>` +
 		`<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">` +
@@ -67,6 +91,52 @@ const (
 
 // DashboardHost is the host the dashboard is served on.
 func (c Config) DashboardHost() string { return "dashboard." + c.Domain }
+
+// dashboardHosts are the dashboard's host and its names under each alias.
+func (c Config) dashboardHosts() []string {
+	out := []string{c.DashboardHost()}
+	for _, a := range c.Aliases {
+		out = append(out, "dashboard."+a)
+	}
+	return out
+}
+
+// BoxLabel returns the first-level name when host is exactly one label
+// under domain ("shop.example.com" in "example.com" → "shop"), else "".
+func BoxLabel(host, domain string) string {
+	label, rest, ok := strings.Cut(host, ".")
+	if !ok || label == "" || rest != domain {
+		return ""
+	}
+	return label
+}
+
+// hostsFor is a route host plus its names under each alias, when it is a
+// one-label host under the box domain.
+func (c Config) hostsFor(host string) []string {
+	out := []string{host}
+	if label := BoxLabel(host, c.Domain); label != "" {
+		for _, a := range c.Aliases {
+			out = append(out, label+"."+a)
+		}
+	}
+	return out
+}
+
+// hstsMaxAge is the effective Strict-Transport-Security max-age (0: off).
+func (c Config) hstsMaxAge() time.Duration {
+	switch {
+	case c.HSTS < 0:
+		return 0
+	case c.HSTS > 0:
+		return c.HSTS
+	case c.Internal:
+		return hstsLocal
+	case c.ACME != nil && c.ACME.publicCA():
+		return hstsPublic
+	}
+	return 0
+}
 
 // normalized returns a validated copy with defaults applied and routes sorted.
 func (c Config) normalized() (Config, error) {
@@ -94,15 +164,39 @@ func (c Config) normalized() (Config, error) {
 	if c.HTTPPort == c.HTTPSPort {
 		return c, errors.New("edge: HTTPPort and HTTPSPort must differ")
 	}
-	if !c.Internal {
-		return c, ErrPublicACMEUnsupported
+	if c.Internal {
+		c.ACME = nil
+	} else {
+		if c.ACME == nil {
+			return c, ErrACMERequired
+		}
+		a, err := c.ACME.normalized()
+		if err != nil {
+			return c, err
+		}
+		c.ACME = a
 	}
+	aliases := make([]string, 0, len(c.Aliases))
+	for _, a := range c.Aliases {
+		a = strings.ToLower(strings.Trim(strings.TrimSpace(a), "."))
+		if a == "" || a == c.Domain || slices.Contains(aliases, a) {
+			continue
+		}
+		if err := validHost(a); err != nil || strings.Contains(a, "*") {
+			return c, fmt.Errorf("edge: invalid alias domain %q", a)
+		}
+		aliases = append(aliases, a)
+	}
+	c.Aliases = aliases
 	if c.Protect != nil {
 		if err := c.Protect.validate(); err != nil {
 			return c, err
 		}
 	}
-	seen := map[string]bool{c.DashboardHost(): true}
+	seen := map[string]bool{}
+	for _, d := range c.dashboardHosts() {
+		seen[d] = true
+	}
 	routes := make([]Route, 0, len(c.Routes))
 	for _, r := range c.Routes {
 		r.Host = strings.ToLower(strings.TrimSpace(r.Host))
@@ -115,7 +209,13 @@ func (c Config) normalized() (Config, error) {
 		if r.PathPrefix != "" && (!strings.HasPrefix(r.PathPrefix, "/") || strings.HasSuffix(r.PathPrefix, "/")) {
 			return c, fmt.Errorf("edge: route %q: path prefix %q must start with / and not end with /", r.Host, r.PathPrefix)
 		}
-		if r.FileRoot == "" {
+		switch {
+		case r.RedirectTo != "":
+			r.RedirectTo = strings.ToLower(strings.TrimSpace(r.RedirectTo))
+			if err := validHost(r.RedirectTo); err != nil || strings.Contains(r.RedirectTo, "*") || r.RedirectTo == r.Host {
+				return c, fmt.Errorf("edge: route %q: invalid redirect target %q", r.Host, r.RedirectTo)
+			}
+		case r.FileRoot == "":
 			ups := r.upstreams()
 			if len(ups) == 0 {
 				return c, fmt.Errorf("edge: route %q: needs an upstream or a file root", r.Host)
@@ -158,21 +258,27 @@ func validHost(h string) error {
 	return nil
 }
 
-// managedHosts are the TLS subjects: the one-level wildcard, the dashboard and
-// every route host. Caddy matches policy subjects to route hosts by exact
-// string; a host missing here would get an implicit policy on Caddy's default
-// "local" CA, which would also try to install itself into the OS trust store.
-// (Do not use tls.certificates.automate: it also creates that default CA.)
+// managedHosts are the TLS subjects with the internal CA: the one-level
+// wildcard, the dashboard and every route host (and their alias names).
+// Caddy matches policy subjects to route hosts by exact string; a host
+// missing here would get an implicit policy on Caddy's default "local" CA,
+// which would also try to install itself into the OS trust store. (Do not
+// use tls.certificates.automate: it also creates that default CA.)
 func (c Config) managedHosts() []string {
 	subjects := []string{"*." + c.Domain, c.DashboardHost()}
+	for _, a := range c.Aliases {
+		subjects = append(subjects, "*."+a, "dashboard."+a)
+	}
 	have := map[string]bool{}
 	for _, x := range subjects {
 		have[x] = true
 	}
 	for _, r := range c.Routes {
-		if !have[r.Host] {
-			have[r.Host] = true
-			subjects = append(subjects, r.Host)
+		for _, h := range c.hostsFor(r.Host) {
+			if !have[h] {
+				have[h] = true
+				subjects = append(subjects, h)
+			}
 		}
 	}
 	return subjects
@@ -213,13 +319,19 @@ func proxyMany(upstreams []string) obj {
 	return h
 }
 
-func routeFor(r Route) obj {
-	m := obj{"host": []string{r.Host}}
+func routeFor(c Config, r Route, portSuffix string) obj {
+	m := obj{"host": c.hostsFor(r.Host)}
 	if r.PathPrefix != "" {
 		m["path"] = []string{r.PathPrefix, r.PathPrefix + "/*"}
 	}
 	var handle []obj
 	switch {
+	case r.RedirectTo != "":
+		handle = []obj{{
+			"handler":     "static_response",
+			"status_code": 308,
+			"headers":     obj{"Location": []string{"https://" + r.RedirectTo + portSuffix + "{http.request.uri}"}},
+		}}
 	case r.FileRoot != "":
 		if r.Immutable {
 			handle = append(handle, obj{"handler": "headers", "response": obj{"set": obj{"Cache-Control": []string{"public, max-age=31536000, immutable"}}}})
@@ -244,9 +356,9 @@ func notFound(domain, portSuffix string) obj {
 	}
 }
 
-func hostRoute(host, upstream string) obj {
+func hostRoute(hosts []string, upstream string) obj {
 	return obj{
-		"match":    []obj{{"host": []string{host}}},
+		"match":    []obj{{"host": hosts}},
 		"handle":   []obj{proxy(upstream)},
 		"terminal": true,
 	}
@@ -259,6 +371,14 @@ func buildConfig(c Config) obj {
 		portSuffix = ":" + httpsPort
 	}
 
+	security := obj{
+		"X-Content-Type-Options": []string{"nosniff"},
+		"X-Frame-Options":        []string{"DENY"},
+		"Referrer-Policy":        []string{"strict-origin-when-cross-origin"},
+	}
+	if age := c.hstsMaxAge(); age > 0 {
+		security["Strict-Transport-Security"] = []string{"max-age=" + strconv.Itoa(int(age/time.Second))}
+	}
 	routes := []obj{
 		// Non-terminal: security headers on every response, including 404s.
 		{"handle": []obj{
@@ -266,13 +386,8 @@ func buildConfig(c Config) obj {
 				"handler": "headers",
 				"response": obj{
 					"deferred": true, // after the upstream, so ours win rather than duplicate
-					"set": obj{
-						"Strict-Transport-Security": []string{hstsValue},
-						"X-Content-Type-Options":    []string{"nosniff"},
-						"X-Frame-Options":           []string{"DENY"},
-						"Referrer-Policy":           []string{"strict-origin-when-cross-origin"},
-					},
-					"delete": []string{"Server"},
+					"set":      security,
+					"delete":   []string{"Server"},
 				},
 			},
 			{
@@ -288,13 +403,18 @@ func buildConfig(c Config) obj {
 	if c.Protect != nil {
 		routes = append(routes, c.Protect.protectRoutes(c)...)
 	}
-	routes = append(routes, hostRoute(c.DashboardHost(), c.Upstream))
+	routes = append(routes, hostRoute(c.dashboardHosts(), c.Upstream))
 	for _, r := range c.Routes {
-		routes = append(routes, routeFor(r))
+		routes = append(routes, routeFor(c, r, portSuffix))
 	}
-	// The wildcard route is what makes Caddy manage the wildcard certificate.
+	wild := []string{"*." + c.Domain}
+	for _, a := range c.Aliases {
+		wild = append(wild, "*."+a)
+	}
+	// With the internal CA, the wildcard route is what makes Caddy manage
+	// the wildcard certificate. With ACME it only answers unknown names.
 	routes = append(routes, obj{
-		"match":    []obj{{"host": []string{"*." + c.Domain}}},
+		"match":    []obj{{"host": wild}},
 		"handle":   []obj{notFound(c.Domain, portSuffix)},
 		"terminal": true,
 	}, obj{"handle": []obj{notFound(c.Domain, portSuffix)}})
@@ -321,6 +441,11 @@ func buildConfig(c Config) obj {
 		},
 		"tls_connection_policies": []obj{{}},
 	}
+	if c.ACME != nil {
+		// The automation policies below decide which names get certificates
+		// (and when); Caddy must not manage every route host on its own.
+		httpsServer["automatic_https"] = obj{"disable_redirects": true, "disable_certificates": true}
+	}
 	if c.Protect != nil {
 		httpsServer["errors"] = obj{"routes": c.Protect.errorRoutes()}
 	}
@@ -340,29 +465,40 @@ func buildConfig(c Config) obj {
 			"include": []string{"http.log.access.access"},
 		}
 	}
+	cas := obj{caID: obj{
+		"name":                     caName,
+		"root_common_name":         caName,
+		"intermediate_common_name": caName + " Intermediate",
+		"install_trust":            false, // never touch the OS trust store
+	}}
+	tlsApp := obj{
+		"automation": obj{"policies": []obj{{
+			"subjects": c.managedHosts(),
+			"issuers":  []obj{{"module": "internal", "ca": caID}},
+		}}},
+	}
+	apps := obj{
+		"http": obj{
+			"http_port":  c.HTTPPort,
+			"https_port": c.HTTPSPort,
+			"servers":    obj{"https": httpsServer, "http": httpRedirect},
+		},
+		"pki": obj{"certificate_authorities": cas},
+		"tls": tlsApp,
+	}
+	if c.ACME != nil {
+		// Caddy keeps an internal policy for names that cannot get public
+		// certificates (IPs, localhost) on its default "local" CA: define it
+		// so it never installs itself into the OS trust store either.
+		cas["local"] = obj{"install_trust": false}
+		apps["tls"] = c.acmeTLS()
+		apps["events"] = certEvents()
+	}
 	out := obj{
 		"admin":   obj{"disabled": true, "config": obj{"persist": false}},
 		"logging": obj{"logs": logs},
 		"storage": obj{"module": "file_system", "root": c.DataDir},
-		"apps": obj{
-			"http": obj{
-				"http_port":  c.HTTPPort,
-				"https_port": c.HTTPSPort,
-				"servers":    obj{"https": httpsServer, "http": httpRedirect},
-			},
-			"pki": obj{"certificate_authorities": obj{caID: obj{
-				"name":                     caName,
-				"root_common_name":         caName,
-				"intermediate_common_name": caName + " Intermediate",
-				"install_trust":            false, // never touch the OS trust store
-			}}},
-			"tls": obj{
-				"automation": obj{"policies": []obj{{
-					"subjects": c.managedHosts(),
-					"issuers":  []obj{{"module": "internal", "ca": caID}},
-				}}},
-			},
-		},
+		"apps":    apps,
 	}
 	if c.Protect != nil {
 		for k, v := range c.Protect.apps() {
