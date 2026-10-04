@@ -39,14 +39,3 @@ export function versionLabel(s: StatusReport | undefined): string | undefined {
   return `Tiffin ${s.version.replace(/^v/, "")}`;
 }
 
-/** The box's domain, from any URL it serves: "https://web.tiffin.localhost:8470" → "tiffin.localhost". */
-export function domainFrom(url: string | undefined): string | undefined {
-  if (!url) return undefined;
-  try {
-    const host = new URL(url).hostname;
-    const parts = host.split(".");
-    return parts.length > 2 ? parts.slice(1).join(".") : host;
-  } catch {
-    return undefined;
-  }
-}

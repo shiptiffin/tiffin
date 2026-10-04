@@ -11,6 +11,7 @@ import { Nameplate } from "@/components/nameplate";
 import { Page, PageHeader } from "@/components/page";
 import { ExportBox, ImportBox } from "@/components/settings-move";
 import { BoxDomainSection } from "@/components/box-domain";
+import { boxDomainQuery } from "@/lib/domains";
 import { boxName, boxUp, tiffinStarted, versionLabel, whereItRuns } from "@/lib/box";
 import { useMe } from "@/lib/me";
 import { setTheme, useTheme, type ThemePref } from "@/lib/theme";
@@ -37,9 +38,8 @@ export function SettingsPage() {
     retry: false,
   });
   const names = (projects.data ?? []).map((p) => p.name);
-  // The box's domain, from where its storage answers ("S3 at s3.tiffin.localhost").
-  const s3 = status.data?.checks?.find((c) => c.name === "storage")?.detail?.match(/\bs3\.([\w.-]+)/)?.[1];
-  const domain = s3 ?? location.hostname.replace(/^dashboard\./, "");
+  const boxDomain = useQuery(boxDomainQuery);
+  const domain = boxDomain.data?.domain ?? location.hostname.replace(/^dashboard\./, "");
   const { admin, role } = useMe();
   const name = boxName(status.data);
   const build = health.data?.build;

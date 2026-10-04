@@ -2,7 +2,6 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { type BoxResources, type ProjectState, type StatusReport } from "@/api/client";
-import { mq } from "@/api/modules";
 import { q } from "@/api/queries";
 import { useTitle } from "@/components/favicon";
 import { Nameplate } from "@/components/nameplate";
@@ -12,7 +11,8 @@ import { Qty } from "@/components/qty";
 import { SegMeter } from "@/components/seg-meter";
 import { Carrier, Lid, Rim, TierHead, TierRow, useUnlatch } from "@/components/stack";
 import { checkWords } from "@/components/tier-status";
-import { boxName, boxUp, domainFrom, versionLabel, whereItRuns } from "@/lib/box";
+import { boxName, boxUp, versionLabel, whereItRuns } from "@/lib/box";
+import { boxDomainQuery } from "@/lib/domains";
 import { cn } from "@/lib/cn";
 import { memoryModel, type MemoryModel } from "@/lib/memory";
 import { bytesParts, countWords, dec, duration, int, words } from "@/lib/format";
@@ -52,7 +52,7 @@ export function BoxPage() {
               where={whereItRuns(status.data)}
               version={versionLabel(status.data)}
               uptime={boxUp(res.data?.uptimeSeconds)}
-              domain={<BoxDomain projects={names} />}
+              domain={<BoxDomain />}
             />
             <Vitals res={res.data} mem={mem} unavailable={!!res.error} names={names} />
           </Lid>
@@ -65,12 +65,10 @@ export function BoxPage() {
   );
 }
 
-function BoxDomain({ projects }: { projects: string[] }) {
-  // Any project's storage endpoint names the box's domain (s3.<domain>); on the box itself the dashboard's own host does too.
-  const st = useQueries({ queries: projects.map((p) => ({ ...mq.storage(p), retry: false, staleTime: 300_000 })) });
-  const endpoint = st.map((x) => x.data?.endpoint).find(Boolean);
-  const d = domainFrom(endpoint) ?? location.hostname.replace(/^dashboard\./, "");
-  return <>{d}</>;
+function BoxDomain() {
+  // Until /v1/domain answers (or for someone not allowed to read it), the dashboard's own host names it.
+  const bd = useQuery(boxDomainQuery);
+  return <>{bd.data?.domain ?? location.hostname.replace(/^dashboard\./, "")}</>;
 }
 
 // ───────────────────────── vitals ─────────────────────────
