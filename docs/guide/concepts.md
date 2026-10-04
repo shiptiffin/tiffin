@@ -52,12 +52,21 @@ export default defineConfig({
 A project at its cap is held there: an app that needs more is stopped for memory and
 restarts, and the project's usage says `pressure: "oom"`. Budget changes apply live
 through plan and apply; nothing restarts. The box owner can also cap every project that
-sets no budget: `tiffin box settings set --body '{"defaultMaxSharePercent":25}'`.
+sets no budget: `tiffin box settings set --default-max-share-percent 25`.
 
 `tiffin projects usage <project>` shows what a project uses against its limits: memory,
 headroom (how much more it could take now), CPU, disk, each app's copies and its
-services. There is no disk budget yet: Postgres has no per-database quota, so disk is
-reported, not enforced (buckets have their own quota, see [Storage](storage.md)).
+services.
+
+Disk is shared too: every project's database and files live on the data disk, so the box
+guards it. Past 85% full it warns (on Usage and Health), naming the project growing
+fastest; past 95% that project becomes read-only (its database refuses writes, its
+buckets refuse uploads) so every other project keeps running; below 90% it can write
+again. Each step is a change by the system in the project's history, and undoing it lets
+the project write at once. Change the levels with
+`tiffin box settings set --disk-warn-percent 85 --disk-stop-percent 95 --disk-resume-percent 90`
+(a stop level of 100 only warns). For a tighter share, give a project a storage limit
+(off by default; see [Storage](storage.md#storage-limits)).
 
 ## Changes
 Every change to a project is a **Change**: who made it (a person or an agent, and the
