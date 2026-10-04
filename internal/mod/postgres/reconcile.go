@@ -49,6 +49,9 @@ func extName(e string) string {
 type deletedRecord struct {
 	Snapshot string    `json:"snapshot"`
 	At       time.Time `json:"at"`
+	// Failed: restoring it failed; deleting the service again drops the
+	// record, so adding it back starts with an empty database.
+	Failed bool `json:"failed,omitempty"`
 }
 
 func ensure(ctx context.Context, p *platform.Platform, project string, extensions []string) error {
@@ -93,7 +96,13 @@ func ensure(ctx context.Context, p *platform.Platform, project string, extension
 			return err
 		}
 		if err := restoreAfterUndo(ctx, p, project); err != nil {
-			p.Log.Error("postgres: restoring the delete snapshot failed; the database starts empty", "project", project, "err", err)
+			// Never ready with an empty database instead of the data: drop
+			// it, so the next reconcile creates it and restores again.
+			if _, derr := admin.Exec(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS %s WITH (FORCE)`, quoteIdent(db))); derr != nil {
+				p.Log.Error("postgres: drop the database a failed restore left empty", "project", project, "err", derr)
+			}
+			return fmt.Errorf("bring back the data from when Postgres was deleted: %w (to start with an empty database instead, "+
+				"remove postgres from the project, apply, then add it back)", err)
 		}
 	}
 	if _, err := admin.Exec(ctx, fmt.Sprintf(`REVOKE ALL ON DATABASE %[1]s FROM PUBLIC; GRANT ALL ON DATABASE %[1]s TO %[2]s`, quoteIdent(db), quoteIdent(role))); err != nil {
@@ -223,6 +232,16 @@ func remove(ctx context.Context, p *platform.Platform, project string) error {
 	if err != nil {
 		return err
 	}
+	if len(dbs) == 0 {
+		// No database because restoring the delete snapshot failed: deleting
+		// the service now is the owner choosing to start empty next time.
+		if raw, ok, _ := p.DB.KVGet(ctx, nsDeleted, project); ok {
+			var rec deletedRecord
+			if json.Unmarshal(raw, &rec) != nil || rec.Failed {
+				_ = p.DB.KVDelete(ctx, nsDeleted, project)
+			}
+		}
+	}
 	for _, d := range dbs {
 		snap, err := takeSnapshot(ctx, project, d.Name, d.Branch, "service deleted")
 		if err != nil {
@@ -258,26 +277,36 @@ func remove(ctx context.Context, p *platform.Platform, project string) error {
 
 // restoreAfterUndo restores the snapshot taken when the service was deleted,
 // if that happened within SnapshotKeep: re-adding postgres (an undo) brings
-// the data back. The record is consumed either way.
+// the data back. The record is kept until the restore succeeds; a missing
+// snapshot or a failed restore is an error (and marks the record Failed).
 func restoreAfterUndo(ctx context.Context, p *platform.Platform, project string) error {
 	raw, ok, err := p.DB.KVGet(ctx, nsDeleted, project)
 	if err != nil || !ok {
 		return err
 	}
-	_ = p.DB.KVDelete(ctx, nsDeleted, project)
 	var rec deletedRecord
-	if err := json.Unmarshal(raw, &rec); err != nil || time.Since(rec.At) > SnapshotKeep {
-		return nil
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		return fmt.Errorf("unreadable record of the snapshot taken at the delete: %w", err)
+	}
+	if time.Since(rec.At) > SnapshotKeep {
+		// Past the undo window, its snapshot is pruned: re-adding starts empty.
+		return p.DB.KVDelete(ctx, nsDeleted, project)
 	}
 	snap, err := getSnapshot(project, rec.Snapshot)
+	if errors.Is(err, os.ErrNotExist) {
+		err = fmt.Errorf("snapshot %s is missing", rec.Snapshot)
+	}
+	if err == nil {
+		p.Log.Info("postgres: restoring the data from when the service was deleted", "project", project, "snapshot", snap.ID)
+		err = pgRestore(ctx, snap.Path, Database(project))
+	}
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
+		rec.Failed = true
+		raw, _ := json.Marshal(rec)
+		_ = p.DB.KVPut(ctx, nsDeleted, project, raw)
 		return err
 	}
-	p.Log.Info("postgres: restoring the data from when the service was deleted", "project", project, "snapshot", snap.ID)
-	return pgRestore(ctx, snap.Path, Database(project))
+	return p.DB.KVDelete(ctx, nsDeleted, project)
 }
 
 // dbMeta is stored as the database's COMMENT, so it travels with the

@@ -113,9 +113,9 @@ func TestChecks(t *testing.T) {
 }
 
 func TestInclude(t *testing.T) {
-	Include("storage", "/var/lib/tiffin/storage")
+	Include("storage", "/var/lib/tiffin/storage", "tiffin-storage.service")
 	defer func() { incMu.Lock(); delete(includes, "storage"); incMu.Unlock() }()
-	if included()["storage"] != "/var/lib/tiffin/storage" {
+	if inc := included()["storage"]; inc.path != "/var/lib/tiffin/storage" || len(inc.units) != 1 {
 		t.Fatal("include not registered")
 	}
 	if !strings.Contains(pgbackrestConf, "repo1-path="+RepoPath) || !strings.Contains(pgbackrestConf, "pg1-path=/var/lib/tiffin/postgres/18/data") {

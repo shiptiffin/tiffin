@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/btahir/tiffin/internal/api"
@@ -85,10 +86,18 @@ func CreateBranch(ctx context.Context, p *platform.Platform, project, name, from
 		return nil, err
 	}
 	defer func() {
-		// Always reopen the source, even if the clone failed or ctx ended.
+		// Always reopen the source, even if the clone failed or ctx ended,
+		// through a fresh connection if this one broke. After a crash here,
+		// the box's next start reopens it (reopenBlocked).
 		c2, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_, _ = admin.Exec(c2, fmt.Sprintf(`ALTER DATABASE %s WITH ALLOW_CONNECTIONS true`, quoteIdent(src)))
+		reopen := fmt.Sprintf(`ALTER DATABASE %s WITH ALLOW_CONNECTIONS true`, quoteIdent(src))
+		if _, err := admin.Exec(c2, reopen); err != nil {
+			if c, err := Admin(c2, "postgres"); err == nil {
+				_, _ = c.Exec(c2, reopen)
+				c.Close(c2)
+			}
+		}
 	}()
 	if _, err := admin.Exec(ctx, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, src); err != nil {
 		return nil, err
@@ -116,6 +125,31 @@ func CreateBranch(ctx context.Context, p *platform.Platform, project, name, from
 		PGBranch: PGBranch{Name: name, Database: dst, From: from, CreatedAt: meta.CreatedAt, SizeBytes: size},
 		CloneMs:  cloneMs, BlockedMs: blockedMs, TotalMs: time.Since(start).Milliseconds(),
 	}, nil
+}
+
+// reopenBlocked lets connections back into every project database that
+// refuses them. Only a branch clone blocks one, and only while it runs (it
+// holds mu), so any found here was left by a crash or a broken connection.
+func reopenBlocked(ctx context.Context, admin *pgx.Conn, log *slog.Logger) error {
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	mu.Lock()
+	defer mu.Unlock()
+	rows, err := admin.Query(cctx, `SELECT datname FROM pg_database WHERE NOT datallowconn AND NOT datistemplate AND datname LIKE 'p\_%'`)
+	if err != nil {
+		return err
+	}
+	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
+	for _, db := range names {
+		if _, err := admin.Exec(cctx, fmt.Sprintf(`ALTER DATABASE %s WITH ALLOW_CONNECTIONS true`, quoteIdent(db))); err != nil {
+			return fmt.Errorf("reopen %s: %w", db, err)
+		}
+		log.Warn("postgres: reopened a database an interrupted branch clone left blocked", "database", db)
+	}
+	return nil
 }
 
 // DeleteBranch drops a branch database (closing its connections).

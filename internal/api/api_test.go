@@ -113,6 +113,11 @@ func TestHealthAndSchemaArePublic(t *testing.T) {
 	if code, out, _ := e.call("", "GET", "/v1/schema/manifest", nil); code != 200 || out["$id"] == nil {
 		t.Fatalf("schema: %d", code)
 	}
+	// A box answers before its modules have started; self-update waits for ok.
+	box, _, _ := secretsBox(t)
+	if code, out, _ := box.call("", "GET", "/v1/health", nil); code != 200 || out["status"] != "starting" {
+		t.Fatalf("health before the platform started: %d %v", code, out)
+	}
 	if code, out, _ := e.call("", "GET", "/v1/openapi.json", nil); code != 200 || out["openapi"] == nil {
 		t.Fatalf("openapi: %d", code)
 	}

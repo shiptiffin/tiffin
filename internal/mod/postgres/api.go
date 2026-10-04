@@ -287,8 +287,30 @@ func clip(s string, n int) string {
 	return s
 }
 
-// Start prunes expired snapshots hourly.
+// Start reopens databases an interrupted branch clone left blocked, and
+// prunes expired snapshots hourly.
 func (*Module) Start(ctx context.Context, p *platform.Platform) error {
+	go func() {
+		// Postgres may still be starting with the box: retry for a while.
+		for i := 0; i < 60; i++ {
+			admin, err := Admin(ctx, "postgres")
+			if err == nil {
+				err = reopenBlocked(ctx, admin, p.Log)
+				admin.Close(context.WithoutCancel(ctx))
+			}
+			if err == nil || ctx.Err() != nil {
+				return
+			}
+			if i == 59 {
+				p.Log.Error("postgres: reopen blocked databases", "err", err)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+		}
+	}()
 	go func() {
 		t := time.NewTicker(time.Hour)
 		defer t.Stop()

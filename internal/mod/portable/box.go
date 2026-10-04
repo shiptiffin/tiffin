@@ -296,30 +296,3 @@ func freeBytes(path string) int64 {
 		}
 	}
 }
-
-// findSQLite lists SQLite databases under root (relative paths).
-func findSQLite(root string, skip func(string) bool) []string {
-	var out []string
-	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !d.Type().IsRegular() {
-			return nil
-		}
-		rel, _ := filepath.Rel(root, p)
-		rel = filepath.ToSlash(rel)
-		if sqliteSide(rel) || (skip != nil && skip(rel)) {
-			return nil
-		}
-		f, err := os.Open(p)
-		if err != nil {
-			return nil
-		}
-		head := make([]byte, 16)
-		n, _ := io.ReadFull(f, head)
-		f.Close()
-		if isSQLite(head[:n]) {
-			out = append(out, rel)
-		}
-		return nil
-	})
-	return out
-}

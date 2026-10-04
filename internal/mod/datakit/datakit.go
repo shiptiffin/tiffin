@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -164,4 +165,58 @@ func RequireConfirm(confirm string, key, preview any) error {
 	p := api.NewProblem(428, code, detail)
 	p.Hint = fmt.Sprintf("review preview, then repeat the call with confirm=%q", hash)
 	return &ConfirmProblem{Problem: p, Confirm: hash, Preview: preview}
+}
+
+// ---- SQLite ----
+
+// SQLiteSnapshot writes a consistent copy of the live SQLite database src
+// to dst (VACUUM INTO reads one transaction's view, WAL included; writers
+// keep going). A file copy instead misses commits still in the WAL.
+func SQLiteSnapshot(ctx context.Context, src, dst string) error {
+	db, err := sql.Open("sqlite3", "file:"+src+"?_pragma=busy_timeout(10000)")
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	_, err = db.ExecContext(ctx, `VACUUM INTO ?`, dst)
+	return err
+}
+
+// IsSQLite reports whether head starts with the SQLite header.
+func IsSQLite(head []byte) bool {
+	return bytes.HasPrefix(head, []byte("SQLite format 3\x00"))
+}
+
+// SQLiteSide reports SQLite's side files, never copied on their own: each
+// database is snapshotted whole with VACUUM INTO.
+func SQLiteSide(rel string) bool {
+	return strings.HasSuffix(rel, "-wal") || strings.HasSuffix(rel, "-shm") || strings.HasSuffix(rel, "-journal")
+}
+
+// FindSQLite lists the SQLite databases under root (relative paths; "."
+// when root is itself a database file).
+func FindSQLite(root string, skip func(string) bool) []string {
+	var out []string
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !d.Type().IsRegular() {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, p)
+		rel = filepath.ToSlash(rel)
+		if SQLiteSide(rel) || (skip != nil && skip(rel)) {
+			return nil
+		}
+		f, err := os.Open(p)
+		if err != nil {
+			return nil
+		}
+		head := make([]byte, 16)
+		n, _ := io.ReadFull(f, head)
+		f.Close()
+		if IsSQLite(head[:n]) {
+			out = append(out, rel)
+		}
+		return nil
+	})
+	return out
 }

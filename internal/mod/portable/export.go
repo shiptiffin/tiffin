@@ -202,10 +202,10 @@ func (m *Module) runExport(ctx context.Context, p *platform.Platform, rec *Expor
 			continue
 		}
 		live := s.Path(p)
-		for _, rel := range findSQLite(live, func(rel string) bool { return s.Skip != nil && s.Skip(rel, nil, rec.WithHistory) }) {
+		for _, rel := range datakit.FindSQLite(live, func(rel string) bool { return s.Skip != nil && s.Skip(rel, nil, rec.WithHistory) }) {
 			dst := filepath.Join(stage, "sqlite", s.Name, filepath.FromSlash(rel))
 			_ = os.MkdirAll(filepath.Dir(dst), 0o700)
-			if err := sqliteSnapshot(ctx, filepath.Join(live, filepath.FromSlash(rel)), dst); err != nil {
+			if err := datakit.SQLiteSnapshot(ctx, filepath.Join(live, filepath.FromSlash(rel)), dst); err != nil {
 				return fmt.Errorf("%s: snapshot %s: %w", s.Name, rel, err)
 			}
 			if replace[s.Name] == nil {
