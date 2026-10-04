@@ -1091,3 +1091,31 @@ func TestFirstBuildErrorAndDropConfig(t *testing.T) {
 		t.Fatalf("index.ts kept? %v; log %q", err, log.String())
 	}
 }
+
+// The build warm-up builds the Next.js starter once per tool version, drops
+// the image and remembers it did.
+func TestWarmUpBuildsOnce(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	before := h.bld.builds.Load()
+	h.r.warmUp(ctx)
+	if got := h.bld.builds.Load() - before; got != 1 {
+		t.Fatalf("warm-up ran %d builds, want 1", got)
+	}
+	if _, ok, _ := h.p.DB.KVGet(ctx, "runtime", warmUpKey); !ok {
+		t.Fatal("warm-up not remembered")
+	}
+	h.eng.mu.Lock()
+	kept := h.eng.images[imageRef("tiffin-warmup", "web", "warmup")]
+	h.eng.mu.Unlock()
+	if kept {
+		t.Fatal("the warm-up image should be removed")
+	}
+	h.r.warmUp(ctx)
+	if got := h.bld.builds.Load() - before; got != 1 {
+		t.Fatalf("a second warm-up built again (%d builds)", got)
+	}
+	if len(h.r.build) != 0 {
+		t.Fatal("warm-up kept the build slot")
+	}
+}

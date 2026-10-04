@@ -84,11 +84,21 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 	opt.Engine = newNerdctl()
 	// A box keeps its data under /var/lib/tiffin; a laptop running
 	// `tiffin serve --box` (the dashboard e2e) keeps it under its home.
+	onBox := true
 	if p != nil && p.DataRoot != "" && filepath.Clean(p.DataRoot) != filepath.Dir(DataDir) {
 		opt.DataDir = filepath.Join(p.DataRoot, "runtime")
 		opt.LogDir = filepath.Join(p.DataRoot, "logs", "apps")
+		onBox = false
 	}
-	return m.start(ctx, p, opt)
+	if err := m.start(ctx, p, opt); err != nil {
+		return err
+	}
+	if _, err := os.Stat("/usr/local/bin/buildctl"); err == nil && onBox {
+		if r, err := m.rt(); err == nil {
+			go r.warmUp(ctx)
+		}
+	}
+	return nil
 }
 
 func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) error {
