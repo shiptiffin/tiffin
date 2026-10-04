@@ -4,14 +4,16 @@ import { cn } from "@/lib/cn";
 export type BreakerState = "on" | "off" | "tripped";
 
 /**
- * A circuit breaker, for services: paddle up is on, down is off, and
- * mid-travel in red is tripped (crashed). It never applies anything itself:
- * flipping it stages a change (see lib/staged.ts), drawn in brass with the
- * old position dashed, until the plan tray applies it.
+ * An on/off toggle, the familiar kind: a horizontal switch, brass when on.
+ * Its label sits beside it (pass `printed="beside"` to print the label, or
+ * put your own text next to it). A crashed service is still "on": say what
+ * happened in the row's status line, not on the switch.
  *
- *   <Breaker label="Postgres" state="on" staged="off" onFlip={(next) => stage(...)} />
+ *   <Breaker label="Database" state="on" onFlip={(next) => change(project, …)} />
  *
- * Keyboard: it is a switch (Space/Enter). A tripped breaker flips to on (a reset).
+ * `staged` is the position on its way (the change is applying): the switch
+ * shows it, with a small spinner. Keyboard: Space/Enter toggles it.
+ * (The file keeps its old name so every caller changed at once.)
  */
 export function Breaker({
   label,
@@ -19,55 +21,52 @@ export function Breaker({
   staged,
   onFlip,
   size = "sm",
-  printed = "below",
+  printed = false,
   className,
   ...rest
 }: {
-  /** What it switches, for screen readers ("Postgres"). */
+  /** What it switches ("Database"). */
   label: string;
   /** What is live now. */
   state: BreakerState;
-  /** A staged position, if a change is waiting in the tray. */
+  /** The position on its way, while the change applies. */
   staged?: "on" | "off";
   /** Called with the position the person asked for. */
   onFlip?: (next: "on" | "off") => void;
   size?: "sm" | "md";
-  /** Print the position in small caps (ON / OFF / TRIP), as on a panel: under the switch (fits a 2 rem lever column), beside it, or not at all. */
+  /** Print the label beside the switch. */
   printed?: "below" | "beside" | false;
 } & Omit<ComponentProps<"button">, "onClick" | "children">) {
-  const shown = staged ?? state;
-  const next: "on" | "off" = shown === "on" ? "off" : "on";
-  const words = staged
-    ? `${label}: ${state} now, ${staged} staged`
-    : state === "tripped"
-      ? `${label}: tripped. Reset to on`
-      : `${label}: ${state}`;
+  const live = state === "tripped" ? "on" : state;
+  const shown = staged ?? live;
+  const busy = !!staged && staged !== live;
+  const words = busy ? `${label}: turning ${staged}` : `${label}: ${live}`;
   const button = (
     <button
       type="button"
       role="switch"
       aria-checked={shown === "on"}
       aria-label={words}
-      title={words}
-      data-pos={shown}
+      aria-busy={busy || undefined}
       data-size={size}
-      data-staged={staged ? "" : undefined}
-      className={cn("breaker", className)}
+      className={cn("toggle", className)}
       onClick={(e) => {
         e.stopPropagation();
-        onFlip?.(next);
+        onFlip?.(shown === "on" ? "off" : "on");
       }}
       {...rest}
     >
-      {staged && staged !== state && state !== "tripped" && <span className="was" data-at={state} aria-hidden />}
+      <span className="toggle-thumb" aria-hidden>
+        {busy && <span className="spinner" />}
+      </span>
     </button>
   );
   if (!printed) return button;
   return (
-    <span className={printed === "beside" ? "inline-flex items-center gap-2" : "inline-flex flex-col items-center gap-[3px]"}>
+    <span className="inline-flex items-center gap-2.5">
       {button}
-      <span aria-hidden className="breaker-print" data-pos={shown} data-staged={staged && staged !== state ? "" : undefined}>
-        {shown === "tripped" ? "trip" : shown}
+      <span aria-hidden className="text-[0.875rem] text-ink">
+        {label}
       </span>
     </span>
   );

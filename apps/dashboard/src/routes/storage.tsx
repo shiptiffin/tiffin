@@ -17,7 +17,7 @@ import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
 import { bytes, bytesParts, count, int, pct, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
-import { stage, stagedFor, useStaged, type BucketAccess } from "@/lib/staged";
+import { change, pendingFor, usePending, type BucketAccess } from "@/lib/staged";
 import { full, relative } from "@/lib/time";
 
 const shortDate = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" });
@@ -141,8 +141,8 @@ function StorageCrumbs({ project, bucket }: { project: string; bucket?: boolean 
 }
 
 function BucketRow({ project, b, canStage }: { project: string; b: StorageBucket; canStage: boolean }) {
-  const edits = useStaged(project);
-  const staged = stagedFor(edits, `bucket:${b.name}`);
+  const edits = usePending(project);
+  const staged = pendingFor(edits, `bucket:${b.name}`);
   const live: BucketAccess = b.public ? "public" : "private";
   const shown = staged?.kind === "bucket" ? staged.to : live;
   return (
@@ -160,7 +160,7 @@ function BucketRow({ project, b, canStage }: { project: string; b: StorageBucket
           <span className="mt-0.5 block text-sm text-ink-3 sm:truncate">
             {staged ? (
               <span className="text-brass-ink">
-                {shown === "public" ? "Staged: anyone with the link will read files" : "Staged: only signed links will read files"}
+                {shown === "public" ? "Opening it to anyone with the link…" : "Making it private…"}
               </span>
             ) : shown === "public" ? (
               "Anyone with the link can read files"
@@ -176,7 +176,7 @@ function BucketRow({ project, b, canStage }: { project: string; b: StorageBucket
             live={live}
             staged={staged?.kind === "bucket" ? staged.to : undefined}
             disabled={!canStage}
-            onPick={(to) => stage(project, { kind: "bucket", bucket: b.name, from: live, to })}
+            onPick={(to) => change(project, { kind: "bucket", bucket: b.name, from: live, to }, { immediate: true })}
           />
         </span>
         <span className="col-start-1 text-sm text-ink-2 tnum sm:col-start-auto sm:text-right sm:text-base">
@@ -192,8 +192,8 @@ function BucketRow({ project, b, canStage }: { project: string; b: StorageBucket
 
 /**
  * Private or public, as a two-position lever with printed labels. Moving it
- * stages a change to tiffin.config.ts (drawn in brass, the live position
- * dashed) that the plan tray applies; moving it back unstages it.
+ * changes tiffin.config.ts at once (in brass while it applies; making it
+ * public asks first, since it reaches outside the box).
  */
 function AccessLever({
   name,
@@ -212,7 +212,7 @@ function AccessLever({
   return (
     <span
       role="radiogroup"
-      aria-label={`${name}: who can read files${staged ? `, ${staged} staged` : ""}`}
+      aria-label={`${name}: who can read files${staged ? `, changing to ${staged}` : ""}`}
       className="inline-flex h-7 items-stretch rounded-[7px] border border-rule-2 bg-paper-sunk p-0.5"
     >
       {(["private", "public"] as const).map((v) => {
@@ -326,7 +326,7 @@ const link = file.presign({ expiresIn: 600 }); // 10 min`;
 
 function TrashList({ project, entries, canPurge, canRestore }: { project: string; entries: TrashEntry[]; canPurge: boolean; canRestore: boolean }) {
   const qc = useQueryClient();
-  const edits = useStaged(project);
+  const edits = usePending(project);
   const [purging, setPurging] = useState<TrashEntry | null>(null);
   return (
     <Section id="trash" label="Trash" aside="deleted buckets wait 7 days, files and all">
@@ -335,7 +335,7 @@ function TrashList({ project, entries, canPurge, canRestore }: { project: string
       ) : (
         <Rows>
           {entries.map((t) => {
-            const staged = stagedFor(edits, `bucket:${t.bucket}`);
+            const staged = pendingFor(edits, `bucket:${t.bucket}`);
             return (
               <li key={t.id} className="flex items-start gap-3 py-3">
                 <div className="min-w-0 flex-1">
@@ -353,15 +353,15 @@ function TrashList({ project, entries, canPurge, canRestore }: { project: string
                     </time>
                     .
                   </p>
-                  {staged && <p className="mt-1 text-sm text-brass-ink">Restore staged: it comes back private, with its files.</p>}
+                  {staged && <p className="mt-1 text-sm text-brass-ink">Restoring it, private, with its files…</p>}
                 </div>
                 <span className="flex shrink-0 gap-1">
                   {canRestore && !staged && (
                     <Button
                       size="sm"
                       variant="secondary"
-                      onClick={() => stage(project, { kind: "bucket", bucket: t.bucket, from: "absent", to: "private" })}
-                      title="Stages adding the bucket back to tiffin.config.ts; applying it restores the files"
+                      onClick={() => change(project, { kind: "bucket", bucket: t.bucket, from: "absent", to: "private" }, { immediate: true })}
+                      title="Adds the bucket back to tiffin.config.ts, files and all"
                     >
                       Restore
                     </Button>

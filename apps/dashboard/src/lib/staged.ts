@@ -1,22 +1,30 @@
 import { useSyncExternalStore } from "react";
-import type { Manifest } from "@/api/client";
+import { api, ApiError, type Manifest, type Plan } from "@/api/client";
+import { q, queryClient } from "@/api/queries";
+import { toast } from "@/components/toast";
+import { asTier, tierRank } from "./changes";
+import { partA, partName } from "./names";
 
 /**
- * Staged changes: what levers have been moved but not applied. Nothing on
- * the dashboard applies a lever directly; it stages here, per project, and
- * the plan tray turns the staged edits into one plan (GET manifest → apply
- * edits → POST /v1/plan → POST /v1/apply with the hash).
+ * Changes happen when you click. A toggle, a stepper, Add or a limit calls
  *
- * Kept in sessionStorage, so a reload keeps your staged changes ("esc keeps
- * it staged") but a new tab starts clean.
+ *   change("shop", { kind: "service", service: "postgres", from: "off", to: "on" })
  *
- *   stage("shop", { kind: "instances", app: "web", from: 2, to: 3 })
- *   const edits = useStaged("shop")
- *   const next = applyEdits(manifest, edits)
+ * and this runs the same path an agent does, in one go: read the manifest,
+ * apply the edit, POST /v1/plan, then POST /v1/apply with that plan's hash
+ * and a written-for-you intent. History and Undo work as always; a quiet
+ * toast says what happened ("Added a database to shop · Undo").
  *
- * To add a new kind of lever: add a variant to StagedEdit, teach applyEdits,
- * describe and undoWords about it. Everything else (tray, counts, Review
- * button) follows.
+ * Rapid clicks on one control (+, +, +) are batched: edits wait 500 ms for
+ * the next click on the same project, then go as one change. While a change
+ * is on its way, usePending(project) returns its edits so the control can
+ * show the new value with a spinner ("Adding a database…").
+ *
+ * Only two kinds of plan stop to ask: one that can't be undone (it deletes
+ * data) and one that reaches outside the box. Those open the confirm dialog
+ * (components/plan-tray.tsx), which says exactly what's lost; Confirm applies
+ * that same plan's hash. If a plan comes back riskier than the control
+ * expected, it is the dialog that decides, never the click.
  */
 export type StagedEdit =
   | { kind: "instances"; app: string; from: number; to: number }
@@ -24,36 +32,37 @@ export type StagedEdit =
   /** A bucket's access (public/private), or "absent": adding a trashed bucket back restores it with its files. */
   | { kind: "bucket"; bucket: string; from: BucketAccess; to: BucketAccess }
   /**
-   * Any other manifest edit (an app's memory, a new app, queue, schedule or env var): sets the value at
-   * `path` (removes it when `to` is undefined). `what` and `undo` are the words the tray shows.
+   * Any other manifest edit (an app's memory, a new app, queue, schedule, env var, a limit): sets the value at
+   * `path` (removes it when `to` is undefined). `what` and `undo` are the words the toast and History show.
    */
   | { kind: "set"; path: string[]; from?: unknown; to?: unknown; what: string; undo: string };
 
 export type BucketAccess = "public" | "private" | "absent";
 
-type Store = { edits: Record<string, StagedEdit[]>; tray: string | null };
+/** A plan that needs a person's yes before it applies. */
+export type ConfirmRequest = { project: string; edits: StagedEdit[]; desired: Manifest; plan: Plan };
 
-const KEY = "tiffin.staged";
-let state: Store = load();
+type Store = {
+  queued: Record<string, StagedEdit[]>;
+  inflight: Record<string, StagedEdit[]>;
+  confirm: ConfirmRequest | null;
+  /** inflight + queued per project, recomputed on every change (stable between them). */
+  pending?: Record<string, StagedEdit[]>;
+};
+
+let state: Store = { queued: {}, inflight: {}, confirm: null, pending: {} };
 const subs = new Set<() => void>();
-
-function load(): Store {
-  try {
-    const raw = sessionStorage.getItem(KEY);
-    if (raw) return { edits: JSON.parse(raw) as Record<string, StagedEdit[]>, tray: null };
-  } catch {
-    /* storage blocked or garbled: start clean */
-  }
-  return { edits: {}, tray: null };
-}
+const timers = new Map<string, ReturnType<typeof setTimeout>>();
+const DEBOUNCE_MS = 500;
+const none: StagedEdit[] = [];
 
 function set(next: Store) {
-  state = next;
-  try {
-    sessionStorage.setItem(KEY, JSON.stringify(state.edits));
-  } catch {
-    /* storage blocked: staged edits live for this page only */
+  const pending: Record<string, StagedEdit[]> = {};
+  for (const p of new Set([...Object.keys(next.inflight), ...Object.keys(next.queued)])) {
+    const list = (next.queued[p] ?? []).reduce(merge, next.inflight[p] ?? []);
+    pending[p] = list.length === 0 ? none : JSON.stringify(list) === JSON.stringify(state.pending?.[p]) ? state.pending![p] : list;
   }
+  state = { ...next, pending };
   subs.forEach((f) => f());
 }
 
@@ -66,39 +75,133 @@ export const editKey = (e: StagedEdit) =>
         ? `set:${e.path.join("/")}`
         : `service:${e.service}`;
 
-/** Stages an edit, replacing an earlier one on the same lever. Moving a lever back to where it is unstages it. */
-export function stage(project: string, e: StagedEdit) {
-  const list = (state.edits[project] ?? []).filter((x) => editKey(x) !== editKey(e));
+const merge = (list: StagedEdit[], e: StagedEdit): StagedEdit[] => {
+  const prev = list.find((x) => editKey(x) === editKey(e));
   const merged = { ...e };
-  const prev = (state.edits[project] ?? []).find((x) => editKey(x) === editKey(e));
   if (prev) merged.from = prev.from as never; // keep the live value as "from"
-  const next = merged.from === merged.to ? list : [...list, merged];
-  const edits = { ...state.edits };
-  if (next.length) edits[project] = next;
-  else delete edits[project];
-  set({ ...state, edits });
+  const rest = list.filter((x) => editKey(x) !== editKey(e));
+  return JSON.stringify(merged.from) === JSON.stringify(merged.to) ? rest : [...rest, merged];
+};
+
+/**
+ * Makes a change now (after a short pause that batches rapid clicks on the same project).
+ * `immediate` skips the pause, for one-off actions such as Add.
+ */
+export function change(project: string, e: StagedEdit, opts: { immediate?: boolean } = {}) {
+  const queued = merge(state.queued[project] ?? [], e);
+  const q2 = { ...state.queued };
+  if (queued.length) q2[project] = queued;
+  else delete q2[project];
+  set({ ...state, queued: q2 });
+  clearTimeout(timers.get(project));
+  if (!queued.length) return;
+  timers.set(
+    project,
+    setTimeout(() => void flush(project), opts.immediate ? 0 : DEBOUNCE_MS),
+  );
 }
 
-export function unstage(project: string, key: string) {
-  const list = (state.edits[project] ?? []).filter((x) => editKey(x) !== key);
-  const edits = { ...state.edits };
-  if (list.length) edits[project] = list;
-  else delete edits[project];
-  set({ ...state, edits });
+/** Several edits as one change (Add an app that needs a database). */
+export function changeMany(project: string, edits: StagedEdit[]) {
+  for (const e of edits) change(project, e, { immediate: true });
 }
 
-export function discard(project: string) {
-  const edits = { ...state.edits };
-  delete edits[project];
-  set({ edits, tray: state.tray === project ? null : state.tray });
+const invalidate = async (project: string) => {
+  await Promise.all(
+    [["project", project], ["manifest", project], ["changes"], ["box-resources"], ["projects"], ["usage", project]].map((k) => queryClient.invalidateQueries({ queryKey: k })),
+  );
+};
+
+function clearInflight(project: string) {
+  const inflight = { ...state.inflight };
+  delete inflight[project];
+  set({ ...state, inflight });
 }
 
-export function openTray(project: string) {
-  set({ ...state, tray: project });
+async function flush(project: string, retried = false) {
+  const edits = state.queued[project] ?? [];
+  if (!edits.length) return;
+  const queued = { ...state.queued };
+  delete queued[project];
+  set({ ...state, queued, inflight: { ...state.inflight, [project]: [...(state.inflight[project] ?? []), ...edits] } });
+  try {
+    const man = await queryClient.fetchQuery({ ...q.manifest(project), staleTime: 0 });
+    const desired = applyEdits(man.manifest, edits);
+    const plan = await api.plan(desired);
+    if (!plan.ops?.length) {
+      clearInflight(project);
+      return;
+    }
+    if (tierRank[asTier(plan.risk)] > tierRank.reversible) {
+      // It deletes data or reaches outside the box: the dialog asks first. The control keeps showing the edit until then.
+      set({ ...state, confirm: { project, edits, desired, plan } });
+      return;
+    }
+    await applyPlan(project, edits, desired, plan);
+  } catch (err) {
+    if (!retried && err instanceof ApiError && err.status === 428) {
+      // Someone (or an agent) changed the project in between: plan again once.
+      set({ ...state, queued: { ...state.queued, [project]: [...edits, ...(state.queued[project] ?? [])] } });
+      clearInflight(project);
+      return flush(project, true);
+    }
+    clearInflight(project);
+    toast({ title: `Couldn’t ${lower(intentFor(edits, project))}.`, detail: err instanceof ApiError ? (err.problem.detail ?? err.message) : String(err), tone: "danger" });
+  }
 }
 
-export function closeTray() {
-  set({ ...state, tray: null });
+/** Applies a plan the person has seen (or one that didn't need asking), then says so with Undo. */
+export async function applyPlan(project: string, edits: StagedEdit[], desired: Manifest, plan: Plan) {
+  try {
+    const r = await api.apply(desired, plan.hash, intentFor(edits, project));
+    await invalidate(project);
+    const id = r.change?.id;
+    toast({
+      title: r.applied ? doneWords(edits, project) : "Nothing to change: it already looks like that.",
+      action: id && r.change && asTier(r.change.plan.risk) !== "irreversible" ? { label: "Undo", run: () => undoChange(id) } : undefined,
+    });
+  } finally {
+    clearInflight(project);
+    if (state.confirm?.plan.hash === plan.hash) set({ ...state, confirm: null });
+  }
+}
+
+/** The person said no in the confirm dialog: nothing happens, the control goes back. */
+export function cancelConfirm() {
+  const c = state.confirm;
+  set({ ...state, confirm: null });
+  if (c) clearInflight(c.project);
+}
+
+let go: ((to: string) => void) | undefined;
+/** The Shell hands over navigation, so an undo that needs a look can open its change. */
+export function setNavigator(f: (to: string) => void) {
+  go = f;
+}
+
+/** Undo from a toast or History: plan the undo; apply it at once when it can be undone again, otherwise open the change. */
+export async function undoChange(id: string) {
+  try {
+    await api.undo(id);
+  } catch (e) {
+    const plan = e instanceof ApiError && e.status === 428 ? (e.problem.plan as Plan | undefined) : undefined;
+    if (!plan) {
+      toast({ title: "Couldn’t undo that.", detail: e instanceof ApiError ? (e.problem.detail ?? e.message) : String(e), tone: "danger" });
+      return;
+    }
+    if (tierRank[asTier(plan.risk)] > tierRank.outbound) {
+      if (go) go(`/changes/${encodeURIComponent(id)}`);
+      return;
+    }
+    try {
+      await api.undo(id, plan.hash);
+      toast({ title: "Undone. Everything is back as it was." });
+    } catch (e2) {
+      toast({ title: "Couldn’t undo that.", detail: e2 instanceof ApiError ? (e2.problem.detail ?? e2.message) : String(e2), tone: "danger" });
+    }
+  }
+  for (const k of [["changes"], ["box-resources"], ["projects"]]) void queryClient.invalidateQueries({ queryKey: k });
+  void queryClient.invalidateQueries({ predicate: (qq) => ["project", "manifest", "usage"].includes(String(qq.queryKey[0])) });
 }
 
 const subscribe = (f: () => void) => {
@@ -106,21 +209,18 @@ const subscribe = (f: () => void) => {
   return () => subs.delete(f);
 };
 
-const none: StagedEdit[] = [];
-export function useStaged(project: string | undefined): StagedEdit[] {
-  return useSyncExternalStore(subscribe, () => (project ? (state.edits[project] ?? none) : none));
+/** Edits on their way for a project (queued or applying): show them as the new value, with a spinner. */
+export function usePending(project: string | undefined): StagedEdit[] {
+  return useSyncExternalStore(subscribe, () => (project ? (state.pending?.[project] ?? none) : none));
 }
 
-export function useAllStaged(): Record<string, StagedEdit[]> {
-  return useSyncExternalStore(subscribe, () => state.edits);
+/** The plan waiting for a person's yes, if any. */
+export function useConfirmRequest(): ConfirmRequest | null {
+  return useSyncExternalStore(subscribe, () => state.confirm);
 }
 
-export function useTray(): string | null {
-  return useSyncExternalStore(subscribe, () => state.tray);
-}
-
-/** The staged edit on one lever, if any. */
-export function stagedFor(edits: StagedEdit[], key: string) {
+/** The pending edit on one control, if any. */
+export function pendingFor(edits: StagedEdit[], key: string) {
   return edits.find((e) => editKey(e) === key);
 }
 
@@ -157,41 +257,82 @@ export function applyEdits(m: Manifest, edits: StagedEdit[]): Manifest {
   return next;
 }
 
-export const serviceNames: Record<string, string> = {
-  postgres: "Postgres",
-  valkey: "Valkey",
-  storage: "Storage",
-  email: "Email",
-  auth: "Sign-in",
-  analytics: "Analytics",
-  queue: "Queues",
-};
+/** The services by their names in the interface (lib/names.ts): "Database", "Cache", "Files"… */
+export const serviceNames: Record<string, string> = Object.fromEntries(["postgres", "valkey", "storage", "email", "auth", "analytics", "queue"].map((k) => [k, partName(k)]));
 
-/** "Scale web from 2 to 3 instances", "Remove Analytics from shop". */
+/** The services as a person says them in a sentence: "Add a database to shop". */
+export const serviceWords: Record<string, string> = Object.fromEntries(["postgres", "valkey", "storage", "email", "auth", "analytics", "queue"].map((k) => [k, partA(k)]));
+
+/** "Scale web to 3 copies", "Remove the database from shop". */
 export function describe(e: StagedEdit, project: string): string {
-  if (e.kind === "instances") return `Scale ${e.app} from ${e.from} to ${e.to} ${e.to === 1 ? "instance" : "instances"}`;
+  if (e.kind === "instances") return `Run ${e.app} on ${e.to} ${e.to === 1 ? "copy" : "copies"} instead of ${e.from}`;
   if (e.kind === "set") return e.what;
   if (e.kind === "bucket") {
     if (e.to === "absent") return `Remove the ${e.bucket} bucket from ${project}`;
     if (e.from === "absent") return `Restore the ${e.bucket} bucket from the trash`;
     return `Make the ${e.bucket} bucket ${e.to}`;
   }
-  const name = serviceNames[e.service] ?? e.service;
-  return e.to === "off" ? `Remove ${name} from ${project}` : `Add ${name} to ${project}`;
+  const name = serviceWords[e.service] ?? e.service;
+  return e.to === "off" ? `Remove ${name.replace(/^a /, "the ")} from ${project}` : `Add ${name} to ${project}`;
 }
 
 /** What undo would do for this edit, in words. */
 export function undoWords(e: StagedEdit): string {
-  if (e.kind === "instances") return `${e.app} goes back to ${e.from} ${e.from === 1 ? "instance" : "instances"}`;
+  if (e.kind === "instances") return `${e.app} goes back to ${e.from} ${e.from === 1 ? "copy" : "copies"}`;
   if (e.kind === "set") return e.undo;
   if (e.kind === "bucket") return e.from === "absent" ? `${e.bucket} goes back to the trash` : `${e.bucket} is ${e.from} again`;
-  const name = serviceNames[e.service] ?? e.service;
-  return e.to === "off" ? `${name} comes back with its settings` : `${name} is removed again`;
+  const name = serviceWords[e.service] ?? e.service;
+  return e.to === "off" ? `${name.replace(/^a /, "the ")} comes back with its settings` : `${name.replace(/^a /, "the ")} is removed again`;
+}
+
+/** "Adding a database…": what a control says while its change is on the way. */
+export function progressWords(e: StagedEdit, project: string): string {
+  const d = describe(e, project);
+  return `${ing(d)}…`;
 }
 
 /** One intent sentence for the change, from its edits. */
 export function intentFor(edits: StagedEdit[], project: string): string {
   if (edits.length === 1) return describe(edits[0], project);
   const parts = edits.map((e) => describe(e, project));
-  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1].charAt(0).toLowerCase()}${parts[parts.length - 1].slice(1)}`;
+  return `${parts.slice(0, -1).join(", ")} and ${lower(parts[parts.length - 1])}`;
+}
+
+const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
+const PAST: Record<string, string> = {
+  Add: "Added",
+  Remove: "Removed",
+  Run: "Running",
+  Scale: "Scaled",
+  Make: "Made",
+  Restore: "Restored",
+  Set: "Set",
+  Give: "Gave",
+  Let: "Let",
+  Limit: "Limited",
+  Change: "Changed",
+  Declare: "Declared",
+};
+const ING: Record<string, string> = {
+  Add: "Adding",
+  Remove: "Removing",
+  Run: "Moving",
+  Scale: "Scaling",
+  Make: "Making",
+  Restore: "Restoring",
+  Set: "Setting",
+  Give: "Giving",
+  Let: "Letting",
+  Limit: "Limiting",
+  Change: "Changing",
+  Declare: "Declaring",
+};
+const swapVerb = (s: string, map: Record<string, string>) => s.replace(/^(\w+)/, (v) => map[v] ?? v);
+const ing = (s: string) => swapVerb(s, ING);
+
+/** "Added a database to shop." */
+export function doneWords(edits: StagedEdit[], project: string): string {
+  if (edits.length === 1 && edits[0].kind === "instances") return `${edits[0].app} runs on ${edits[0].to} ${edits[0].to === 1 ? "copy" : "copies"} now.`;
+  return `${swapVerb(intentFor(edits, project), PAST)}.`;
 }

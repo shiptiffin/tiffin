@@ -7,7 +7,6 @@ import { mod3, type AppRuntime, type Deploy, type LogLine } from "@/api/modules"
 import { q as core } from "@/api/queries";
 import { Confirm } from "@/components/confirm";
 import { Command, CopyButton } from "@/components/copy";
-import { EnamelSwatch } from "@/components/enamel-swatch";
 import { useTitle } from "@/components/favicon";
 import { Crumbs, NotOnBox, Page, PageHeader, Skeleton, Untrusted } from "@/components/page";
 import { PilotLight, type PilotState } from "@/components/pilot";
@@ -20,14 +19,14 @@ import { useAppStatus } from "@/components/tier-status";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { useEnamel } from "@/lib/enamel";
 import { count, dec, int, NNBSP, withUnit, words } from "@/lib/format";
 import { mcpCommand } from "@/lib/mcp";
 import { useMe, useWho } from "@/lib/me";
-import { serviceNames, stage, stagedFor, useStaged, type StagedEdit } from "@/lib/staged";
+import { change, pendingFor, serviceNames, usePending, type StagedEdit } from "@/lib/staged";
 import { deployGit, deployTemplate, frameworkName, nextDeployFor, startersQuery } from "@/lib/starters";
 import { clock, full, liveSince, relative, windowLabel } from "@/lib/time";
-import { MEMORY_STOPS } from "./project";
+import { MEMORY_STOPS } from "@/components/project-rows";
+import { ProjectIcon } from "@/components/project-icon";
 
 // ------------------------------------------------------------------ shared
 
@@ -65,14 +64,13 @@ function sourceWords(d: Deploy, starters?: Array<{ id: string; name: string }>) 
 }
 
 function ProjectCrumbs({ project, items }: { project: string; items: Array<{ label: ReactNode; to?: string; params?: Record<string, string> }> }) {
-  const enamel = useEnamel(project);
   return (
     <Crumbs
       items={[
         {
           label: (
             <span className="inline-flex items-center gap-1.5">
-              <EnamelSwatch enamel={enamel} size={7} />
+              <ProjectIcon project={project} size={14} />
               {project}
             </span>
           ),
@@ -141,7 +139,7 @@ export function AppsPage({ project }: { project: string }) {
         <Skeleton className="mt-9 h-40" />
       ) : apps.length === 0 ? (
         <p className="mt-9 border-y border-rule py-6 text-md text-ink-2">
-          No apps in {project} yet. <b className="font-[550] text-ink">Add</b> one from a starter or a git URL; it’s staged, you apply it, then it builds here.
+          No apps in {project} yet. <b className="font-[550] text-ink">Add</b> one from a starter or a git URL on the project’s overview; it builds here.
         </p>
       ) : (
         <ul className="mt-9 divide-y divide-rule border-y border-rule">
@@ -223,7 +221,7 @@ function TermRow({ title, note, children }: { title: string; note?: ReactNode; c
 
 // ------------------------------------------------------------------ one app
 
-export function AppPage({ project, app }: { project: string; app: string }) {
+export function AppPage({ project, app, deploy }: { project: string; app: string; deploy?: boolean }) {
   useTitle(`${app} · ${project}`);
   const qc = useQueryClient();
   const { can } = useMe();
@@ -235,8 +233,8 @@ export function AppPage({ project, app }: { project: string; app: string }) {
   const starters = useQuery(startersQuery);
   const resQ = useQuery(core.resources);
   const free = resQ.data && resQ.data.memory.totalBytes > 0 ? resQ.data.memory.availableBytes / MB - RESERVE_MB : undefined;
-  const edits = useStaged(project);
-  const [tray, setTray] = useState(false);
+  const edits = usePending(project);
+  const [tray, setTray] = useState(!!deploy);
   const [restarting, setRestarting] = useState(false);
   const [deletePreview, setDeletePreview] = useState<string | null>(null);
   const makeCurrent = useMakeCurrent(project, app);
@@ -428,7 +426,7 @@ export function AppPage({ project, app }: { project: string; app: string }) {
 
         <aside className="flex min-w-0 flex-col gap-9" aria-label="Scale">
           {spec && !isStatic && (
-            <Scale project={project} app={app} spec={spec} free={free} instances={stagedFor(edits, `instances:${app}`)} memory={edits.find((e) => e.kind === "set" && e.path.join("/") === `apps/${app}/memoryMB`)} writer={writer} />
+            <Scale project={project} app={app} spec={spec} free={free} instances={pendingFor(edits, `instances:${app}`)} memory={edits.find((e: StagedEdit) => e.kind === "set" && e.path.join("/") === `apps/${app}/memoryMB`)} writer={writer} />
           )}
           {!isStatic && instances.length > 0 && (
             <section aria-label="Instances">
@@ -527,7 +525,7 @@ function VersionRow({
   );
 }
 
-/** Instances and memory, as full throttles with a live readout. Moving them stages; the tray applies. */
+/** Copies and memory, as steppers with what they add up to. Each step is a change (rapid clicks go as one). */
 function Scale({
   project,
   app,
@@ -553,18 +551,18 @@ function Scale({
   const [pm, setPm] = useState<number | null>(null);
   const i = pi ?? nInst;
   const mm = pm ?? nMem;
-  const change = i * mm - applied * appliedMem;
-  const after = free === undefined ? undefined : free + RESERVE_MB - change;
+  const delta = i * mm - applied * appliedMem;
+  const after = free === undefined ? undefined : free + RESERVE_MB - delta;
   return (
     <section aria-label="Scale">
       <div className="flex items-baseline justify-between">
-        <h2 className="label">Scale</h2>
-        {(instances || memory) && <span className="label text-brass-ink">staged</span>}
+        <h2 className="label">Size</h2>
+        {(instances || memory) && <span className="text-xs text-brass-ink">Saving…</span>}
       </div>
       <div className={cn("mt-1", !writer && "pointer-events-none opacity-60")}>
-        <p className="mt-2 text-xs text-ink-3">Instances</p>
+        <p className="mt-3 mb-1.5 text-xs text-ink-3">Copies running</p>
         <Throttle
-          label={`${app} instances`}
+          label={`${app} copies`}
           stops={INSTANCE_STOPS}
           value={nInst}
           applied={applied}
@@ -572,13 +570,13 @@ function Scale({
           onChange={setPi}
           onCommit={(to) => {
             setPi(null);
-            stage(project, { kind: "instances", app, from: applied, to });
+            change(project, { kind: "instances", app, from: applied, to });
           }}
-          className="-mt-3"
         />
-        <p className="mt-1 text-xs text-ink-3">Memory per instance</p>
+        <p className="mt-4 mb-1.5 text-xs text-ink-3">Memory for each copy</p>
         <Throttle
-          label={`${app} memory per instance`}
+          label={`${app} memory per copy`}
+          format={(n) => mbWords(n)}
           unit="MB"
           stops={MEMORY_STOPS}
           value={nMem}
@@ -587,16 +585,15 @@ function Scale({
           onChange={setPm}
           onCommit={(to) => {
             setPm(null);
-            stage(project, {
+            change(project, {
               kind: "set",
               path: ["apps", app, "memoryMB"],
               from: appliedMem,
               to,
-              what: `Give ${app} ${mbWords(to)} per instance (now ${mbWords(appliedMem)})`,
-              undo: `${app} goes back to ${mbWords(appliedMem)} per instance`,
+              what: `Give ${app} ${mbWords(to)} for each copy (was ${mbWords(appliedMem)})`,
+              undo: `${app} goes back to ${mbWords(appliedMem)} for each copy`,
             });
           }}
-          className="-mt-3"
         />
       </div>
       <dl className="mt-3 grid grid-cols-3 gap-3 border-t border-rule pt-3 text-xs text-ink-3">
@@ -608,14 +605,14 @@ function Scale({
         </div>
         <div>
           <dt>Change</dt>
-          <dd className={cn("mt-0.5 text-[1.0625rem] tnum", change === 0 ? "text-ink-3" : "text-brass-ink")}>{change === 0 ? "none" : `${change > 0 ? "+" : "−"}${mbWords(Math.abs(change))}`}</dd>
+          <dd className={cn("mt-0.5 text-[1.0625rem] tnum", delta === 0 ? "text-ink-3" : "text-brass-ink")}>{delta === 0 ? "none" : `${delta > 0 ? "+" : "−"}${mbWords(Math.abs(delta))}`}</dd>
         </div>
         <div>
           <dt>Room left</dt>
           <dd className="mt-0.5 text-[1.0625rem] text-ink tnum">{after === undefined ? "–" : mbWords(Math.max(0, after))}</dd>
         </div>
       </dl>
-      <p className="mt-2 text-xs text-ink-3">At most; apps use what they need under the cap. Nothing changes until you apply.</p>
+      <p className="mt-2 text-xs text-ink-3">At most: apps use what they need under it. Changes apply as you click, and History can undo them.</p>
     </section>
   );
 }
@@ -825,8 +822,7 @@ function Fix({ project, app, text }: { project: string; app: string; text: strin
           variant="primary"
           size="md"
           onClick={() => {
-            stage(project, { kind: "service", service, from: "off", to: "on" });
-            toast({ title: <>Staged: add {serviceNames[service]} to {project}.</>, detail: "Apply it, then deploy again." });
+            change(project, { kind: "service", service, from: "off", to: "on" }, { immediate: true });
           }}
         >
           Add {serviceNames[service]} to {project}

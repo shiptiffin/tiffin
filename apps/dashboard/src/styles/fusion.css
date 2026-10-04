@@ -12,369 +12,81 @@
     letter-spacing: 0;
   }
 
-  /* ── Breaker (components/breaker.tsx): up = on, down = off, mid-travel red = tripped ── */
-  .breaker {
-    --h: 26px;
-    --w: 14px;
-    --p: 9px;
+  /* ── Toggle (components/breaker.tsx): the familiar on/off switch, brass when on ── */
+  .toggle {
     position: relative;
-    display: inline-block;
-    flex: none;
-    width: var(--w);
-    height: var(--h);
-    padding: 0;
-    border-radius: 4px;
-    border: 1px solid var(--rule-3);
-    background: var(--paper-sunk);
-    cursor: pointer;
-    vertical-align: middle;
-    transition: border-color var(--dur-state) var(--ease-out);
-  }
-  .breaker[data-size="md"] {
-    --h: 40px;
-    --w: 20px;
-    --p: 14px;
-    border-radius: 5px;
-  }
-  .breaker::after {
-    content: "";
-    position: absolute;
-    left: 2px;
-    right: 2px;
-    top: 2px;
-    height: var(--p);
-    border-radius: 2px;
-    background: var(--ink-2);
-    box-shadow:
-      inset 0 -1px 0 oklch(0 0 0 / 0.15),
-      var(--top-light);
-    transition:
-      top var(--dur-detent) var(--ease-detent),
-      background var(--dur-state) var(--ease-out);
-  }
-  .breaker:hover {
-    border-color: var(--ink-3);
-  }
-  .breaker:active::after {
-    transition-duration: var(--dur-press);
-  }
-  .breaker[data-pos="off"]::after {
-    top: calc(var(--h) - var(--p) - 4px);
-    background: var(--paper-raised);
-    box-shadow: inset 0 0 0 1px var(--rule-3);
-  }
-  .breaker[data-pos="tripped"] {
-    border-color: var(--danger);
-  }
-  .breaker[data-pos="tripped"]::after {
-    top: calc((var(--h) - 2px - var(--p)) / 2);
-    background: var(--danger);
-  }
-  .breaker[data-staged] {
-    border-color: var(--brass);
-  }
-  .breaker[data-staged]::after {
-    background: var(--brass);
-    box-shadow: inset 0 -1px 0 oklch(0 0 0 / 0.12);
-  }
-  .breaker .was {
-    position: absolute;
-    left: 2px;
-    right: 2px;
-    height: var(--p);
-    border-radius: 2px;
-    border: 1px dashed var(--ink-3);
-    pointer-events: none;
-  }
-  .breaker .was[data-at="on"] {
-    top: 2px;
-  }
-  .breaker .was[data-at="off"] {
-    top: calc(var(--h) - var(--p) - 4px);
-  }
-  /* the printed position beside a breaker, like the legend on a panel */
-  .breaker-print {
-    font-size: 0.625rem;
-    line-height: 1;
-    font-weight: 550;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--ink-3);
-    min-width: 2.2em;
-    text-align: center;
-  }
-  .breaker-print[data-pos="off"] {
-    color: var(--ink-4);
-  }
-  .breaker-print[data-pos="tripped"] {
-    color: var(--danger);
-  }
-  .breaker-print[data-staged] {
-    color: var(--brass-ink);
-  }
-  /* A mini throttle's legend: what it sets, at its position ("2 instances"). */
-  .throttle-print {
-    font-size: 0.5625rem;
-    line-height: 1;
-    font-weight: 550;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--ink-3);
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-  }
-  .throttle-print[data-staged] {
-    color: var(--brass-ink);
-  }
-  .breaker:disabled {
-    cursor: not-allowed;
-    opacity: 0.55;
-  }
-
-  /* ── Throttle (components/throttle.tsx): detents, a won't-fit zone, the old position dashed ── */
-  .throttle {
-    position: relative;
-    height: 54px;
-    margin: 18px 8px 0;
-    touch-action: none;
-    cursor: ew-resize;
-    user-select: none;
-    -webkit-user-select: none;
-  }
-  .throttle .th-track {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 14px;
-    height: 2px;
-    border-radius: 1px;
-    background: var(--rule-2);
-  }
-  .throttle .th-fill {
-    position: absolute;
-    left: 0;
-    top: 14px;
-    height: 2px;
-    border-radius: 1px;
-    background: var(--ink-3);
-    transition: width var(--dur-detent) var(--ease-detent);
-  }
-  .throttle .th-nofit {
-    position: absolute;
-    right: -6px;
-    top: 6px;
-    height: 18px;
-    border: 1px dashed var(--danger);
-    border-radius: 4px;
-    opacity: 0.7;
-  }
-  .throttle .th-nofit span {
-    position: absolute;
-    right: 0;
-    bottom: calc(100% + 3px);
-    font-size: 11px;
-    line-height: 14px;
-    color: var(--danger);
-    white-space: nowrap;
-  }
-  .throttle .th-stop {
-    position: absolute;
-    top: 20px;
-    transform: translateX(-50%);
-    display: grid;
-    justify-items: center;
-    gap: 4px;
-    pointer-events: none;
-  }
-  .throttle .th-stop i {
-    width: 1px;
-    height: 6px;
-    background: var(--rule-3);
-  }
-  .throttle .th-stop b {
-    font-weight: 400;
-    font-size: 12px;
-    line-height: 14px;
-    color: var(--ink-3);
-  }
-  .throttle .th-stop[data-active] b {
-    color: var(--ink);
-    font-weight: 550;
-  }
-  .throttle .th-stop[data-nofit] b {
-    color: var(--ink-4);
-  }
-  .throttle .th-knob,
-  .throttle .th-was {
-    position: absolute;
-    top: 3px;
-    width: 12px;
-    height: 24px;
-    margin-left: -6px;
-    border-radius: 3px;
-  }
-  .throttle .th-knob {
-    background: var(--ink-2);
-    box-shadow:
-      var(--lift-raised),
-      inset 0 1px 0 oklch(1 0 0 / 0.22);
-    transition:
-      left var(--dur-detent) var(--ease-detent),
-      transform var(--dur-press) var(--ease-out),
-      background var(--dur-state) var(--ease-out);
-    cursor: grab;
-  }
-  .throttle .th-knob[data-staged] {
-    background: var(--brass);
-  }
-  .throttle[data-dragging] .th-knob {
-    transform: scale(1.06);
-    cursor: grabbing;
-    transition-property: transform, background;
-  }
-  .throttle .th-was {
-    border: 1px dashed var(--ink-3);
-    pointer-events: none;
-  }
-
-  /* mini throttle, in a Stack row */
-  .throttle[data-size="mini"] {
-    width: 46px;
+    display: inline-flex;
+    flex-shrink: 0;
+    width: 34px;
     height: 20px;
-    margin: 0;
-  }
-  .throttle[data-size="mini"] .th-track {
-    top: 9px;
-    height: 1px;
+    padding: 2px;
+    border-radius: 999px;
     background: var(--rule-3);
+    box-shadow: inset 0 1px 1px oklch(0.2 0.01 60 / 0.12);
+    transition: background-color var(--dur-state) var(--ease-out);
+    cursor: pointer;
   }
-  .throttle[data-size="mini"] .th-fill {
-    display: none;
+  .toggle[aria-checked="true"] {
+    background: var(--brass);
   }
-  .throttle[data-size="mini"] .th-stop {
-    top: 12px;
-    gap: 0;
-  }
-  .throttle[data-size="mini"] .th-stop i {
-    height: 3px;
-  }
-  .throttle[data-size="mini"] .th-stop b {
-    display: none;
-  }
-  .throttle[data-size="mini"] .th-knob,
-  .throttle[data-size="mini"] .th-was {
-    top: 3px;
-    width: 6px;
-    height: 13px;
-    margin-left: -3px;
-    border-radius: 1.5px;
-  }
-  .throttle[data-size="mini"] .th-knob {
-    box-shadow: var(--top-light);
-  }
-  .throttle[data-size="mini"] .th-nofit {
-    top: 9px;
-    height: 0;
-    right: 0;
-    border: 0;
-    border-top: 1.5px dotted var(--ink-4);
-    border-radius: 0;
-    opacity: 1;
-  }
-  .throttle[data-size="mini"] .th-stop[data-nofit] i {
-    opacity: 0.35;
-  }
-  .throttle[data-size="mini"] .th-nofit span {
-    display: none;
-  }
-  .throttle .th-knob:focus-visible {
-    outline: 2px solid var(--focus);
+  .toggle:focus-visible {
+    outline: 2px solid var(--brass);
     outline-offset: 2px;
   }
-
-  /* ── Segmented meter (components/seg-meter.tsx): 20 segments on a printed 0–100 scale ── */
-  .seg {
+  .toggle:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .toggle-thumb {
     display: grid;
-    grid-template-columns: repeat(var(--n, 20), minmax(0, 1fr));
-    gap: 2px;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    background: var(--paper-raised);
+    box-shadow: 0 1px 2px oklch(0.2 0.01 60 / 0.25);
+    transition: transform var(--dur-state) var(--ease-out);
+  }
+  .toggle[aria-checked="true"] .toggle-thumb {
+    transform: translateX(14px);
+  }
+  .toggle[data-size="md"] {
+    width: 40px;
+    height: 24px;
+  }
+  .toggle[data-size="md"] .toggle-thumb {
+    width: 20px;
+    height: 20px;
+  }
+  .toggle[data-size="md"][aria-checked="true"] .toggle-thumb {
+    transform: translateX(16px);
+  }
+  .toggle .spinner {
+    width: 10px;
     height: 10px;
+    border-width: 1.5px;
   }
-  .seg[data-size="row"] {
-    height: 8px;
+
+  /* ── Spinner: a change on its way (a toggle, a stepper, an "Adding…" tile) ── */
+  .spinner {
+    display: inline-block;
+    flex-shrink: 0;
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid color-mix(in oklch, currentColor 25%, transparent);
+    border-top-color: currentColor;
+    border-radius: 999px;
+    animation: spin 0.8s linear infinite;
   }
-  .seg i {
-    border-radius: 1px;
-    background: var(--seg-off);
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
-  .seg i[data-on] {
-    background: var(--seg-on);
-  }
-  .seg i[data-trace] {
-    background: linear-gradient(to right, var(--seg-on) 0 2px, var(--seg-off) 2px);
-  }
-  /* past the end of its scale: the last segment carries a notch */
-  .seg[data-over] {
-    position: relative;
-    padding-right: 6px;
-  }
-  .seg[data-over]::after {
-    content: "";
-    position: absolute;
-    right: 0;
-    top: -2px;
-    bottom: -2px;
-    width: 3px;
-    border-radius: 1px;
-    background: var(--ink-2);
-  }
-  .seg i[data-warn] {
-    background: var(--warn);
-  }
-  .seg i[data-full] {
-    background: var(--danger);
-  }
-  .seg i[data-add] {
-    background: var(--brass);
-  }
-  .seg i[data-sub] {
-    background: transparent;
-    box-shadow: inset 0 0 0 1px var(--brass);
-  }
-  .seg-scale {
-    position: relative;
-    height: 14px;
-    margin-top: 3px;
-    font-size: 10px;
-    line-height: 10px;
-    color: var(--ink-3);
-  }
-  .seg-scale::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: 3px;
-    background:
-      linear-gradient(var(--rule-3), var(--rule-3)) 0 0 / 1px 3px no-repeat,
-      linear-gradient(var(--rule-3), var(--rule-3)) 25% 0 / 1px 2px no-repeat,
-      linear-gradient(var(--rule-3), var(--rule-3)) 50% 0 / 1px 3px no-repeat,
-      linear-gradient(var(--rule-3), var(--rule-3)) 75% 0 / 1px 2px no-repeat,
-      linear-gradient(var(--rule-3), var(--rule-3)) 100% 0 / 1px 3px no-repeat;
-  }
-  .seg-scale span {
-    position: absolute;
-    top: 5px;
-  }
-  .seg-scale span:nth-child(1) {
-    left: 0;
-  }
-  .seg-scale span:nth-child(2) {
-    left: 50%;
-    transform: translateX(-50%);
-  }
-  .seg-scale span:nth-child(3) {
-    right: 0;
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      animation-duration: 2.4s;
+    }
   }
 
   /* ── Pilot light (components/pilot.tsx): the only thing that ever blinks ── */
@@ -405,38 +117,6 @@
     }
   }
 
-  /* ── Risk dots (components/risk-dots.tsx) ── */
-  .riskdots {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 12.5px;
-    line-height: 16px;
-    color: var(--ink-2);
-    white-space: nowrap;
-  }
-  .riskdots .dots {
-    display: inline-flex;
-    gap: 2.5px;
-  }
-  .riskdots .dots i {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    box-shadow: inset 0 0 0 1.1px var(--rule-3);
-  }
-  .riskdots .dots i[data-f] {
-    background: var(--ink-2);
-    box-shadow: none;
-  }
-  .riskdots[data-tier="irreversible"] {
-    color: var(--danger);
-    font-weight: 550;
-  }
-  .riskdots[data-tier="irreversible"] .dots i[data-f] {
-    background: var(--danger);
-  }
-
   /* ── Signed entry (components/signed-entry.tsx) ── */
   .counts {
     font-family: var(--mono);
@@ -460,44 +140,6 @@
     width: 12px;
     height: 1px;
     background: var(--ink-3);
-  }
-
-  /* ── Seal (components/seal.tsx): drawn once, about 600 ms ── */
-  .seal {
-    color: var(--brass);
-  }
-  .seal .draw {
-    stroke-dasharray: var(--len, 400);
-    stroke-dashoffset: 0;
-  }
-  .seal[data-animate] .draw {
-    animation: seal-draw var(--dur-seal) var(--ease-out) both;
-  }
-  .seal[data-animate] .fade {
-    animation: seal-fade 300ms 380ms var(--ease-out) both;
-  }
-  @keyframes seal-draw {
-    from {
-      stroke-dashoffset: var(--len, 400);
-    }
-  }
-  @keyframes seal-fade {
-    from {
-      opacity: 0;
-    }
-  }
-
-  /* ── Hold to commit (components/hold-to-commit.tsx) ── */
-  .hold-ring {
-    flex: none;
-    transform: rotate(-90deg);
-  }
-  .hold-ring .track {
-    stroke: currentColor;
-    opacity: 0.25;
-  }
-  .hold-ring .fill {
-    stroke: currentColor;
   }
 
   /* ── Config diff (components/plan-tray.tsx, change pages) ── */
@@ -769,5 +411,19 @@
     to {
       opacity: 0;
     }
+  }
+}
+
+/* ── Range (the Usage limit slider): the browser's own slider, in brass ── */
+@layer components {
+  .range {
+    accent-color: var(--brass);
+    height: 20px;
+    cursor: pointer;
+  }
+  .range:focus-visible {
+    outline: 2px solid var(--brass);
+    outline-offset: 4px;
+    border-radius: 4px;
   }
 }

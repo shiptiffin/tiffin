@@ -4,7 +4,7 @@ import { Command } from "cmdk";
 import { Dialog as D } from "radix-ui";
 import {
   Fingerprint,
-  Stamp,
+
   UserPlus,
   Users,
   CornerDownLeft,
@@ -29,33 +29,36 @@ import { setTheme } from "@/lib/theme";
 import { RiskMark } from "./risk";
 import { useCurrentProject } from "@/lib/project";
 import { mcpCommand } from "@/lib/mcp";
-import { useEnamels } from "@/lib/enamel";
-import { openTray, stage } from "@/lib/staged";
-import { EnamelSwatch } from "./enamel-swatch";
+import { change } from "@/lib/staged";
 import { INSTANCE_STOPS } from "./throttle";
+import { ProjectIcon } from "@/components/project-icon";
 
 
 // Box-wide pages and each project's pages, so every area is a keystroke away.
 const box: Array<[string, string, string[]]> = [
+  ["Machine", "/settings/box", ["box", "memory", "cpu", "disk", "room", "platform", "services"]],
   ["Metrics", "/metrics", ["cpu", "memory", "disk", "charts"]],
   ["Logs", "/logs", ["logsql", "search", "tail"]],
   ["Errors", "/errors", ["issues", "exceptions", "sentry"]],
   ["Alerts", "/alerts", ["rules", "notify"]],
   ["Backups", "/backups", ["restore", "snapshot"]],
-  ["Protection", "/protect", ["under attack", "ban", "crowdsec", "firewall", "waf", "rate limit"]],
+  ["Shield", "/protect", ["protection", "under attack", "ban", "crowdsec", "firewall", "waf", "rate limit", "bots"]],
 ];
 const projectPages: Array<[string, string, string[]]> = [
   ["Overview", "/projects/$project", ["resources"]],
   ["Apps and deploys", "/projects/$project/apps", ["deploy", "rollback", "preview", "restart"]],
-  ["Tables", "/projects/$project/data", ["postgres", "database"]],
+  ["Database tables", "/projects/$project/data", ["postgres", "database"]],
   ["Run SQL", "/projects/$project/data/sql", ["query", "postgres"]],
   ["Database branches", "/projects/$project/data/branches", ["clone", "preview"]],
-  ["Key-value", "/projects/$project/data/kv", ["valkey", "redis", "cache"]],
-  ["Storage", "/projects/$project/storage", ["buckets", "files", "s3", "upload"]],
-  ["Email inbox", "/projects/$project/email", ["mail", "dev inbox", "relay"]],
-  ["Queues", "/projects/$project/queues", ["jobs", "dead letter", "cron"]],
+  ["Cache", "/projects/$project/data/kv", ["valkey", "redis", "key-value"]],
+  ["Files", "/projects/$project/storage", ["buckets", "storage", "s3", "upload"]],
+  ["Email", "/projects/$project/email", ["mail", "inbox", "relay"]],
+  ["Jobs", "/projects/$project/queues", ["queues", "dead letter", "cron"]],
+  ["Usage", "/projects/$project/usage", ["memory", "cpu", "limit", "resources", "copies", "scale"]],
+  ["History", "/projects/$project/history", ["changes", "undo", "ledger"]],
+  ["Settings", "/projects/$project/settings", ["env", "colour", "domains", "addresses"]],
   ["Workflows", "/projects/$project/workflows", ["runs", "durable"]],
-  ["Users", "/projects/$project/users", ["auth", "sign in", "ban"]],
+  ["Auth: users", "/projects/$project/users", ["users", "sign in", "passkeys", "ban"]],
   ["Organizations", "/projects/$project/orgs", ["teams", "members"]],
   ["Analytics", "/projects/$project/analytics", ["visitors", "pageviews", "traffic"]],
   ["Secrets", "/projects/$project/secrets", ["env", "api key"]],
@@ -68,8 +71,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const { data: changes } = useQuery({ ...q.changes(), enabled: open });
   const [toast, setToast] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const enamels = useEnamels((projects ?? []).map((p) => p.name));
-  // Levers have ⌘K twins: "scale web to 4" (or "scale web in shop to 4") stages the same change the throttle would.
+  // "scale web to 4" (or "scale web in shop to 4") makes the same change the copies stepper would.
   const states = useQueries({ queries: (projects ?? []).map((p) => ({ ...q.project(p.name), enabled: open, refetchInterval: false as const })) });
   const scale = search.trim().toLowerCase().match(/^scale\s+([a-z0-9-]+)(?:\s+in\s+([a-z0-9-]+))?\s+to\s+(\d+)$/);
   const scaleHits = scale
@@ -116,29 +118,30 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 Nothing matches. Try a project name or part of an intent.
               </Command.Empty>
               {scaleHits.length > 0 && (
-                <Command.Group heading="Stage">
+                <Command.Group heading="Do it now">
                   {scaleHits.map((h) => (
                     <Item
                       key={h.project + h.app}
                       value={search}
                       icon={<Gauge />}
                       onSelect={run(() => {
-                        stage(h.project, { kind: "instances", app: h.app, from: h.from, to: h.to });
-                        openTray(h.project);
+                        change(h.project, { kind: "instances", app: h.app, from: h.from, to: h.to }, { immediate: true });
                       })}
                     >
-                      Scale {h.app} in {h.project} from {h.from} to {h.to} instances
-                      <span className="ml-2 text-xs text-ink-3">opens the plan</span>
+                      Run {h.app} in {h.project} on {h.to} copies (now {h.from})
                     </Item>
                   ))}
                 </Command.Group>
               )}
               <Command.Group heading="Go to">
-                <Item icon={<ScrollText />} onSelect={run(() => navigate({ to: "/" }))} keywords={["home", "stack", "memory", "room"]}>
-                  Box
+                <Item icon={<ScrollText />} onSelect={run(() => navigate({ to: "/" }))} keywords={["home", "all projects"]}>
+                  Projects
                 </Item>
-                <Item icon={<ScrollText />} onSelect={run(() => navigate({ to: "/ledger", search: {} }))} keywords={["activity", "changes", "history"]}>
-                  Ledger
+                <Item icon={<Plus />} onSelect={run(() => navigate({ to: "/new" }))} keywords={["create", "start", "starter"]}>
+                  New project
+                </Item>
+                <Item icon={<ScrollText />} onSelect={run(() => navigate({ to: "/ledger", search: {} }))} keywords={["activity", "changes", "ledger", "undo"]}>
+                  History of every project
                 </Item>
                 <Item icon={<Gauge />} onSelect={run(() => navigate({ to: "/status" }))} keywords={["status", "checks"]}>
                   Health
@@ -146,11 +149,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 <Item icon={<Gauge />} onSelect={run(() => navigate({ to: "/settings" }))} keywords={["box", "export", "import", "domain"]}>
                   Settings
                 </Item>
-                <Item icon={<Stamp />} onSelect={run(() => navigate({ to: "/approvals" }))} keywords={["approve", "passkey", "waiting"]}>
-                  Approvals
-                </Item>
-                <Item icon={<KeyRound />} onSelect={run(() => navigate({ to: "/tokens", search: {} }))}>
-                  Tokens
+                <Item icon={<KeyRound />} onSelect={run(() => navigate({ to: "/settings/keys", search: {} }))} keywords={["tokens", "claude", "mcp", "approvals"]}>
+                  Keys for agents
                 </Item>
                 <Item icon={<Users />} onSelect={run(() => navigate({ to: "/settings/people" }))} keywords={["team", "invite", "roles"]}>
                   People
@@ -174,8 +174,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 </Command.Group>
               )}
               <Command.Group heading="Do">
-                <Item icon={<Plus />} onSelect={run(() => navigate({ to: "/tokens", search: { create: true } }))} keywords={["new", "agent", "key"]}>
-                  Create a token
+                <Item icon={<Plus />} onSelect={run(() => navigate({ to: "/settings/keys", search: { create: true } }))} keywords={["new", "agent", "token"]}>
+                  Create a key
                 </Item>
                 <Item icon={<UserPlus />} onSelect={run(() => navigate({ to: "/settings/people" }))} keywords={["invite", "team", "person"]}>
                   Invite someone
@@ -222,7 +222,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                     <Item
                       key={p.name}
                       value={`project ${p.name}`}
-                      icon={<span className="grid size-4 place-items-center"><EnamelSwatch enamel={enamels[p.name]} /></span>}
+                      icon={<span className="grid size-4 place-items-center"><ProjectIcon project={p.name} size={14} /></span>}
                       onSelect={run(() => navigate({ to: "/projects/$project", params: { project: p.name } }))}
                     >
                       {p.name}

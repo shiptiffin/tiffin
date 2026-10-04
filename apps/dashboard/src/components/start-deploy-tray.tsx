@@ -6,7 +6,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { mod3 } from "@/api/modules";
 import { cn } from "@/lib/cn";
 import { mcpCommand } from "@/lib/mcp";
-import { checkGitUrl, deployGit, deployTemplate, frameworkName, rememberNextDeploy, starterLine, starterOrder, startersQuery, starterThumb, type NextDeploy } from "@/lib/starters";
+import { checkGitUrl, deployGit, deployTemplate, frameworkName, rememberNextDeploy, starterLine, pickable, startersQuery, starterThumb, type NextDeploy } from "@/lib/starters";
 import { Command } from "./copy";
 import { MorphLabel } from "./morph-label";
 import { ProblemNote } from "./problem";
@@ -70,7 +70,7 @@ function Body({
   const qc = useQueryClient();
   const navigate = useNavigate();
   const starters = useQuery(startersQuery);
-  const fits = [...(starters.data ?? [])].filter((s) => !framework || s.framework === framework).sort((a, b) => starterOrder.indexOf(a.id) - starterOrder.indexOf(b.id));
+  const fits = pickable(starters.data ?? []).filter((s) => !framework || s.framework === framework);
   const [mode, setMode] = useState<"starter" | "git">(suggest && "git" in suggest ? "git" : "starter");
   const [pick, setPick] = useState<string | undefined>(suggest && "template" in suggest ? suggest.template : undefined);
   // An empty app may start from the first starter; one with versions never gets a sample preselected over its code.

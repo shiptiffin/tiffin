@@ -1,25 +1,20 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Breaker } from "@/components/breaker";
-import { EnamelSwatch } from "@/components/enamel-swatch";
 import { useTitle } from "@/components/favicon";
-import { HoldToCommit } from "@/components/hold-to-commit";
 import { Logo, Wordmark } from "@/components/logo";
 import { MorphLabel } from "@/components/morph-label";
 import { Nameplate } from "@/components/nameplate";
 import { PilotLight } from "@/components/pilot";
 import { Qty } from "@/components/qty";
-import { RiskDots } from "@/components/risk-dots";
-import { Seal } from "@/components/seal";
 import { SegMeter } from "@/components/seg-meter";
 import { SignedEntry } from "@/components/signed-entry";
 import { Carrier, Lid, Rim, TierColumns, TierHead, TierRow } from "@/components/stack";
 import { INSTANCE_STOPS, Throttle } from "@/components/throttle";
+import { TiffinGlyph } from "@/components/project-icon";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { contrast } from "@/lib/contrast";
-import { ENAMELS, enamelNames } from "@/lib/enamel";
-import { int } from "@/lib/format";
 
 /**
  * /_kit: the living style guide. Every primitive of the Fusion in both
@@ -45,7 +40,7 @@ export function KitPage() {
         ))}
       </nav>
 
-      <Section id="colour" title="Colour" note="About 90 % neutrals. Brass under 5 %: the one primary action, focus, the active marker, staged things. Status colours only when status isn't fine. Enamels only for a project's rim, swatch and memory share.">
+      <Section id="colour" title="Colour" note="About 90 % neutrals. Brass under 5 %: the one primary action, focus, the active marker, a change on its way, the project you’re looking at in a usage bar. Status colours only when status isn't fine. Projects have icons, not colours.">
         <Both>{(theme) => <Tokens theme={theme} />}</Both>
       </Section>
 
@@ -106,15 +101,15 @@ export function KitPage() {
         </div>
       </Section>
 
-      <Section id="levers" title="Levers" note="Shape = consequence. Moving a lever stages a change (brass, old position dashed); the plan tray applies it. Every lever has a ⌘K twin.">
+      <Section id="controls" title="Controls" note="Familiar controls only: a toggle, a stepper, a progress bar. A click makes the change at once (with Undo in the toast); only what deletes data or reaches outside the box asks first.">
         <Both>{() => <Levers />}</Both>
       </Section>
 
-      <Section id="buttons" title="Buttons" note="Verb, object, number. One primary (brass) per screen. Ceremony matches risk: hold-to-commit only for irreversible changes with no passkey.">
+      <Section id="buttons" title="Buttons" note="Verb and object. One primary (brass) per screen. Danger red only on the confirm that deletes data.">
         <Both>{() => <Buttons />}</Both>
       </Section>
 
-      <Section id="ledger" title="Ledger" note="One signed entry for Ledger rows, permits and receipts. People in ink, agents in graphite. The brass seal is the only flourish: drawn once, when a person signs.">
+      <Section id="ledger" title="History entries" note="The all-projects History (Settings › History) and a change's own page. People in ink, agents in graphite.">
         <Both>{() => <LedgerDemo />}</Both>
       </Section>
 
@@ -246,7 +241,7 @@ function Tokens({ theme }: { theme: string }) {
   const [vals, setVals] = useState<Record<string, string>>({});
   useLayoutEffect(() => {
     const cs = getComputedStyle(ref.current!);
-    const names = [...tokenJobs.map((t) => t[0]), "paper", "paper-sunk", ...ENAMELS.map((e) => `enamel-${e}`), "on-brass"];
+    const names = [...tokenJobs.map((t) => t[0]), "paper", "paper-sunk", "on-brass"];
     setVals(Object.fromEntries(names.map((n) => [n, cs.getPropertyValue(`--${n}`).trim()])));
   }, [theme]);
   const ratio = (fg: string, bg: string) => {
@@ -271,125 +266,85 @@ function Tokens({ theme }: { theme: string }) {
           <span className="text-ink-3 tnum">{ratio("on-brass", "brass")} on brass</span>
         </div>
       </div>
-      <p className="label mt-5 mb-2">Enamels</p>
-      <div className="flex flex-wrap gap-3">
-        {ENAMELS.map((e) => (
-          <span key={e} className="flex items-center gap-2 text-xs text-ink-2">
-            <EnamelSwatch enamel={e} size={14} />
-            {enamelNames[e]}
-            <span className="text-ink-3 tnum">{ratio(`enamel-${e}`, "paper")}</span>
-          </span>
-        ))}
-      </div>
     </div>
   );
 }
 
 function Levers() {
   const [svc, setSvc] = useState<"on" | "off" | undefined>(undefined);
-  const [inst, setInst] = useState(3);
-  const [preview, setPreview] = useState<number | null>(null);
-  const n = preview ?? inst;
+  const [inst, setInst] = useState(2);
   return (
     <div className="grid gap-8">
       <div>
-        <p className="label mb-3">Breaker</p>
+        <p className="label mb-3">Toggle (on/off)</p>
         <div className="flex flex-wrap gap-8">
           {(
             [
-              ["On", <Breaker key="a" printed={false} size="md" label="Postgres" state="on" />],
-              ["Off", <Breaker key="b" printed={false} size="md" label="Email" state="off" />],
-              ["Tripped", <Breaker key="c" printed={false} size="md" label="Valkey" state="tripped" />],
-              ["Staged (click)", <Breaker key="d" size="md" label="Queues" state="on" staged={svc} onFlip={(x) => setSvc(x === "on" ? undefined : x)} />],
+              ["On", <Breaker key="a" size="md" label="Database" state="on" />],
+              ["Off", <Breaker key="b" size="md" label="Email" state="off" />],
+              ["Applying (click)", <Breaker key="d" size="md" label="Cache" state="on" staged={svc} onFlip={(x) => setSvc(x === "on" ? undefined : x)} />],
+              ["Label beside", <Breaker key="e" label="Analytics" state="on" printed="beside" />],
             ] as Array<[string, ReactNode]>
           ).map(([l, b]) => (
-            <figure key={l} className="m-0 grid justify-items-center gap-2">
+            <figure key={l} className="m-0 grid justify-items-start gap-2">
               {b}
               <figcaption className="text-xs text-ink-3">{l}</figcaption>
             </figure>
           ))}
         </div>
-        <code className="ident mt-3 block text-[0.6875rem] text-ink-3">{'<Breaker label="Postgres" state="on" staged="off" onFlip={…} />'}</code>
+        <p className="mt-3 text-xs text-ink-3">A crashed service stays “on”; the row says “Stopped unexpectedly”.</p>
+        <code className="ident mt-1 block text-[0.6875rem] text-ink-3">{'<Breaker label="Database" state="on" staged="off" onFlip={…} />'}</code>
       </div>
       <div>
-        <p className="label mb-1">Throttle (drag, or focus and use ←/→)</p>
-        <Throttle
-          label="web instances"
-          stops={INSTANCE_STOPS}
-          value={inst}
-          applied={2}
-          maxFit={8}
-          onChange={setPreview}
-          onCommit={(v) => {
-            setPreview(null);
-            setInst(v);
-          }}
-          readout={
-            <div className="mt-3 flex gap-7 border-t border-rule pt-2.5 text-xs text-ink-3">
-              <div>
-                web
-                <b className="block text-lg font-[400] text-ink">{n} instances</b>
-              </div>
-              <div>
-                Uses
-                <b className="block text-lg font-[400] text-ink tnum">{int(n * 148)}&#8239;MB</b>
-              </div>
-              <div>
-                Change
-                <b className="block text-lg font-[400] text-brass-ink tnum">{n === 2 ? "none" : `${n > 2 ? "+" : "−"}${int(Math.abs(n - 2) * 148)} MB`}</b>
-              </div>
-            </div>
-          }
-        />
-        <div className="mt-4 flex items-center gap-3 text-sm text-ink-2">
-          <Throttle size="mini" label="worker instances" stops={INSTANCE_STOPS} value={2} applied={1} maxFit={6} /> mini, in a Stack row (staged 1 → 2)
+        <p className="label mb-2">Stepper (click, or focus and use ↑/↓)</p>
+        <div className="flex flex-wrap items-start gap-8">
+          <Throttle label="web copies" stops={INSTANCE_STOPS} value={inst} applied={inst} maxFit={8} onCommit={setInst} />
+          <Throttle label="worker copies" stops={INSTANCE_STOPS} value={3} applied={2} maxFit={6} printed={(n) => `${n} copies, applying`} />
+          <Throttle label="api copies" stops={INSTANCE_STOPS} value={4} applied={4} maxFit={4} />
         </div>
-        <code className="ident mt-3 block text-[0.6875rem] text-ink-3">{"<Throttle label stops={INSTANCE_STOPS} value applied maxFit onChange onCommit readout />"}</code>
+        <code className="ident mt-3 block text-[0.6875rem] text-ink-3">{"<Throttle label stops={INSTANCE_STOPS} value applied maxFit onCommit />"}</code>
       </div>
       <div>
-        <p className="label mb-3">Segmented meter</p>
+        <p className="label mb-3">Progress bar</p>
         <div className="grid gap-4">
-          <div className="grid grid-cols-[110px_minmax(0,1fr)_64px] items-start gap-3 text-sm">
-            <span className="pt-0.5 text-ink-2">CPU</span>
-            <SegMeter label="CPU" value={9} scale />
-            <span className="text-right tnum">9&#8239;%</span>
-          </div>
-          <div className="grid grid-cols-[110px_minmax(0,1fr)_64px] items-start gap-3 text-sm">
-            <span className="pt-0.5 text-ink-2">Agent changes</span>
-            <SegMeter label="Agent changes today" value={42} max={50} warnAt={0.8} fullAt={0.98} scale={["0", "25", "50"]} />
-            <span className="text-right tnum">42 of 50</span>
-          </div>
-          <div className="grid grid-cols-[110px_minmax(0,1fr)_64px] items-start gap-3 text-sm">
-            <span className="pt-0.5 text-ink-2">Disk, at the cap</span>
-            <SegMeter label="Disk" value={99} warnAt={0.8} fullAt={0.95} scale />
-            <span className="text-right text-danger tnum">39.8&#8239;GB</span>
-          </div>
+          {(
+            [
+              ["CPU", <SegMeter key="c" label="CPU" value={9} />, "9 %"],
+              ["Memory", <SegMeter key="m" label="Memory" value={420} max={1900} add={256} />, "420 MB, +256"],
+              ["Disk, nearly full", <SegMeter key="d" label="Disk" value={97} warnAt={0.8} fullAt={0.95} />, "39.8 GB"],
+            ] as Array<[string, ReactNode, string]>
+          ).map(([l, m, v]) => (
+            <div key={l} className="grid grid-cols-[120px_minmax(0,1fr)_96px] items-center gap-3 text-sm">
+              <span className="text-ink-2">{l}</span>
+              {m}
+              <span className="text-right tnum">{v}</span>
+            </div>
+          ))}
         </div>
       </div>
       <div className="grid gap-6 sm:grid-cols-2">
         <div>
-          <p className="label mb-3">Pilot light</p>
+          <p className="label mb-3">Something happening</p>
           <div className="grid gap-2 text-sm text-ink-2">
-            <span className="flex items-center gap-2">
-              <PilotLight state="off" /> Off
-            </span>
-            <span className="flex items-center gap-2">
-              <PilotLight state="on" /> Live
+            <span className="flex items-center gap-2 text-brass-ink">
+              <span className="spinner" /> Adding a database…
             </span>
             <span className="flex items-center gap-2">
               <PilotLight state="busy" /> Building (the only blink)
             </span>
-            <span className="flex items-center gap-2">
-              <PilotLight state="fault" /> Build failed
-            </span>
           </div>
         </div>
         <div>
-          <p className="label mb-3">Risk dots</p>
-          <div className="grid gap-2">
-            <RiskDots tier="reversible" />
-            <RiskDots tier="outbound" />
-            <RiskDots tier="irreversible" />
+          <p className="label mb-3">Project icons</p>
+          <div className="flex items-center gap-4 text-sm text-ink-2">
+            {[0, 1, 3, 5].map((n) => (
+              <span key={n} className="grid justify-items-center gap-1">
+                <span className="size-6 text-ink-2">
+                  <TiffinGlyph tiers={n} />
+                </span>
+                <span className="text-xs text-ink-3">{n} parts</span>
+              </span>
+            ))}
           </div>
         </div>
       </div>
@@ -402,25 +357,21 @@ function Buttons() {
   return (
     <div className="grid gap-6">
       <div className="flex flex-wrap items-center gap-2.5">
-        <Button variant="primary">Apply 3 changes to shop</Button>
-        <Button>New project</Button>
-        <Button variant="ghost">Discard all</Button>
-        <Button variant="danger">Drop imports</Button>
+        <Button variant="primary">New project</Button>
+        <Button>Add a setting…</Button>
+        <Button variant="ghost">Cancel</Button>
+        <Button variant="danger">Delete for good</Button>
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="primary" size="lg" onClick={() => setReviewed((r) => !r)}>
-          <MorphLabel text={reviewed ? "Apply 3 changes to shop" : "Review 3 changes"} />
+          <MorphLabel text={reviewed ? "Creating…" : "Create shop"} />
         </Button>
         <span className="text-sm text-ink-3">MorphLabel: click to morph</span>
       </div>
       <div>
-        <HoldToCommit label="Hold to drop imports" onCommit={() => toast({ title: "Held for 1.2 s: this would apply now.", detail: "Demo only." })} />
-        <code className="ident mt-2 block text-[0.6875rem] text-ink-3">{'<HoldToCommit label="Hold to drop imports" onCommit={apply} />'}</code>
-      </div>
-      <div>
         <Button
           onClick={() =>
-            toast({ title: "Scaled web to 3 instances in shop.", detail: "Signed into the Ledger.", action: { label: "Undo", run: () => void toast({ title: "Undone (demo)." }) } })
+            toast({ title: "Added a database to shop.", action: { label: "Undo", run: () => void toast({ title: "Undone (demo)." }) } })
           }
         >
           Show a toast with Undo
@@ -432,9 +383,8 @@ function Buttons() {
 }
 
 function LedgerDemo() {
-  const [k, setK] = useState(0);
   return (
-    <div className="grid items-center gap-6 md:grid-cols-[minmax(0,1fr)_150px]">
+    <div className="grid items-center gap-6">
       <div className="divide-y divide-rule border-y border-rule">
         <SignedEntry time="10:31" actor={{ kind: "human", name: "Bilal" }} intent="Deployed web v42 to shop." counts={{ create: 0, update: 1, delete: 0 }} tier="reversible" />
         <SignedEntry
@@ -452,14 +402,8 @@ function LedgerDemo() {
           intent="Dropped the imports table from shop’s database."
           counts={{ create: 0, update: 0, delete: 1 }}
           tier="irreversible"
-          signature="signed by Bilal · passkey · 10:46 · plan d746 1a9e"
+          signature="can’t be undone"
         />
-      </div>
-      <div className="grid justify-items-center gap-2">
-        <Seal key={k} name="Bilal" date="3 Oct 2026" plan="d746 1a9e" animate size={120} />
-        <button className="text-sm text-brass-ink hover:underline" onClick={() => setK((x) => x + 1)}>
-          Draw again
-        </button>
       </div>
     </div>
   );
@@ -474,7 +418,7 @@ function StackDemo() {
         </Lid>
         <Rim />
         <TierColumns />
-        <Rim enamel="indigo" />
+        <Rim />
         <TierHead name="shop" about="three apps, six services" total="826" />
         <TierRow
           lever={<Throttle size="mini" label="web instances" stops={INSTANCE_STOPS} value={2} applied={2} maxFit={8} />}

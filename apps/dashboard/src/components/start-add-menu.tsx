@@ -1,81 +1,97 @@
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, Clock, Database, FolderPlus, GitBranch, Inbox, KeyRound, LayoutTemplate } from "lucide-react";
+import { BarChart3, ChevronDown, Clock, Database, FolderPlus, GitBranch, Inbox, KeyRound, LayoutTemplate, Mail, Zap } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 import type { Manifest } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/dropdown";
 import { cn } from "@/lib/cn";
+import { PARTS } from "@/lib/names";
 import { cronWords } from "@/lib/format";
-import { serviceNames, stage, type StagedEdit } from "@/lib/staged";
-import { checkGitUrl, frameworkName, rememberNextDeploy, slugify, starterLine, starterOrder, startersQuery, starterThumb, type Starter } from "@/lib/starters";
-import { toast } from "./toast";
+import { change, serviceWords, type StagedEdit } from "@/lib/staged";
+import { checkGitUrl, frameworkName, rememberNextDeploy, slugify, starterLine, pickable, startersQuery, starterThumb, type Starter } from "@/lib/starters";
 
-type Kind = "app" | "bucket" | "queue" | "cron" | "env";
-const ALL_SERVICES = ["postgres", "valkey", "storage", "email", "auth", "analytics"] as const;
+export type Kind = "app" | "bucket" | "queue" | "cron" | "env";
+
+const FRIENDLY: Record<string, { label: string; icon: ReactNode }> = {
+  postgres: { label: PARTS.postgres.name, icon: <Database /> },
+  storage: { label: PARTS.storage.name, icon: <FolderPlus /> },
+  auth: { label: PARTS.auth.name, icon: <KeyRound /> },
+  email: { label: PARTS.email.name, icon: <Mail /> },
+  analytics: { label: PARTS.analytics.name, icon: <BarChart3 /> },
+  valkey: { label: PARTS.valkey.name, icon: <Zap /> },
+};
 
 /**
- * "Add" on a project: every new part stages a change (nothing applies from
- * here); the staged bar and the plan tray take it from there. Services stage
- * at once; the rest ask for a name and the one or two things they need.
+ * "Add" on a project. A built-in part (database, files, sign-in…) is added
+ * the moment you pick it; an app, bucket, queue, schedule or setting asks
+ * for a name and the one or two things it needs, then is added. Each is one
+ * change in History, with Undo in the toast.
  */
-export function AddMenu({ project, manifest, routes, className }: { project: string; manifest?: Manifest; routes: string[]; className?: string }) {
+export function AddMenu({ project, manifest, routes, className, trigger, only }: { project: string; manifest?: Manifest; routes: string[]; className?: string; trigger?: ReactNode; /** Skip the menu: the trigger opens this one form. */ only?: Kind }) {
   const [open, setOpen] = useState<Kind | null>(null);
   const services = (manifest?.services ?? {}) as Record<string, unknown>;
-  const off = ALL_SERVICES.filter((s) => !(s in services));
-  const staged = (what: string) => toast({ title: <>Staged: {what}.</>, detail: "Review it with anything else you stage, then apply." });
+  const off = ["postgres", "storage", "auth", "email", "analytics", "valkey"].filter((s) => !(s in services));
+  const dialog = (
+    <Dialog open={!!open} onOpenChange={(o) => !o && setOpen(null)}>
+      <DialogContent className="max-w-lg">
+        {open === "app" && manifest && <AddApp project={project} manifest={manifest} routes={routes} done={() => setOpen(null)} />}
+        {open === "bucket" && manifest && <AddBucket project={project} manifest={manifest} done={() => setOpen(null)} />}
+        {open === "queue" && manifest && <AddQueue project={project} manifest={manifest} done={() => setOpen(null)} />}
+        {open === "cron" && manifest && <AddCron project={project} manifest={manifest} done={() => setOpen(null)} />}
+        {open === "env" && manifest && <AddEnv project={project} manifest={manifest} done={() => setOpen(null)} />}
+      </DialogContent>
+    </Dialog>
+  );
+  if (only)
+    return (
+      <>
+        <span className="contents" onClickCapture={() => manifest && setOpen(only)}>
+          {trigger}
+        </span>
+        {dialog}
+      </>
+    );
   return (
     <>
       <Menu>
         <MenuTrigger asChild>
-          <Button variant="secondary" size="lg" className={className} disabled={!manifest}>
-            Add <ChevronDown className="-mr-1 text-ink-3" />
-          </Button>
+          {trigger ?? (
+            <Button variant="secondary" size="lg" className={className} disabled={!manifest}>
+              Add <ChevronDown className="-mr-1 text-ink-3" />
+            </Button>
+          )}
         </MenuTrigger>
-        <MenuContent align="end" className="min-w-60">
+        <MenuContent align="start" className="min-w-60">
+          {off.length > 0 && <MenuLabel>Built in, ready in seconds</MenuLabel>}
+          {off.map((s) => (
+            <MenuItem key={s} onSelect={() => change(project, { kind: "service", service: s, from: "off", to: "on" }, { immediate: true })}>
+              {FRIENDLY[s].icon}
+              <span className="flex min-w-0 flex-col">
+                <span>{FRIENDLY[s].label}</span>
+                <span className="text-xs text-ink-3">{PARTS[s as keyof typeof PARTS].sub}</span>
+              </span>
+            </MenuItem>
+          ))}
+          {off.length > 0 && <MenuSeparator />}
           <MenuItem onSelect={() => setOpen("app")}>
-            <LayoutTemplate /> App…
+            <LayoutTemplate /> {Object.keys(manifest?.apps ?? {}).length ? "Another app…" : "An app…"}
           </MenuItem>
           <MenuItem onSelect={() => setOpen("bucket")}>
-            <FolderPlus /> Bucket…
-          </MenuItem>
-          <MenuItem onSelect={() => setOpen("queue")}>
-            <Inbox /> Queue…
+            <FolderPlus /> A bucket for files…
           </MenuItem>
           <MenuItem onSelect={() => setOpen("cron")}>
-            <Clock /> Schedule…
+            <Clock /> A scheduled job…
+          </MenuItem>
+          <MenuItem onSelect={() => setOpen("queue")}>
+            <Inbox /> A job queue…
           </MenuItem>
           <MenuItem onSelect={() => setOpen("env")}>
-            <KeyRound /> Environment variable…
+            <KeyRound /> A setting (env var)…
           </MenuItem>
-          {off.length > 0 && (
-            <>
-              <MenuSeparator />
-              <MenuLabel>Services</MenuLabel>
-              {off.map((s) => (
-                <MenuItem
-                  key={s}
-                  onSelect={() => {
-                    stage(project, { kind: "service", service: s, from: "off", to: "on" });
-                    staged(`add ${serviceNames[s] ?? s} to ${project}`);
-                  }}
-                >
-                  <Database /> {serviceNames[s] ?? s}
-                </MenuItem>
-              ))}
-            </>
-          )}
         </MenuContent>
       </Menu>
-      <Dialog open={!!open} onOpenChange={(o) => !o && setOpen(null)}>
-        <DialogContent className="max-w-lg">
-          {open === "app" && manifest && <AddApp project={project} manifest={manifest} routes={routes} done={() => setOpen(null)} />}
-          {open === "bucket" && manifest && <AddBucket project={project} manifest={manifest} done={() => setOpen(null)} />}
-          {open === "queue" && manifest && <AddQueue project={project} manifest={manifest} done={() => setOpen(null)} />}
-          {open === "cron" && manifest && <AddCron project={project} manifest={manifest} done={() => setOpen(null)} />}
-          {open === "env" && manifest && <AddEnv project={project} manifest={manifest} done={() => setOpen(null)} />}
-        </DialogContent>
-      </Dialog>
+      {dialog}
     </>
   );
 }
@@ -127,7 +143,7 @@ function Shell({
       </DialogHeader>
       <DialogBody className="grid gap-4">{children}</DialogBody>
       <DialogFooter>
-        <span className="mr-auto text-xs text-ink-3 max-sm:hidden">Stages a change. Nothing happens until you apply it.</span>
+        <span className="mr-auto text-xs text-ink-3 max-sm:hidden">You can undo it afterwards.</span>
         <Button type="button" variant="ghost" onClick={done}>
           Cancel
         </Button>
@@ -140,14 +156,14 @@ function Shell({
 }
 
 const slugOk = (s: string) => /^[a-z][a-z0-9-]{0,39}$/.test(s) && !s.endsWith("-");
-const say = (what: string) => toast({ title: <>Staged: {what}.</>, detail: "Review it with anything else you stage, then apply." });
-const set = (project: string, e: Omit<Extract<StagedEdit, { kind: "set" }>, "kind">) => stage(project, { kind: "set", ...e });
+const say = (what: string) => void what; // the change's own toast says what happened
+const set = (project: string, e: Omit<Extract<StagedEdit, { kind: "set" }>, "kind">) => change(project, { kind: "set", ...e }, { immediate: true });
 
 // ───────────────────────── app ─────────────────────────
 
 function AddApp({ project, manifest, routes, done }: { project: string; manifest: Manifest; routes: string[]; done: () => void }) {
   const starters = useQuery(startersQuery);
-  const list = [...(starters.data ?? [])].sort((a, b) => starterOrder.indexOf(a.id) - starterOrder.indexOf(b.id));
+  const list = pickable(starters.data ?? []);
   const [pick, setPick] = useState<string>("hono-postgres");
   const [git, setGit] = useState({ url: "", ref: "", path: "", framework: "next" });
   const starter: Starter | undefined = list.find((s) => s.id === pick);
@@ -166,8 +182,8 @@ function AddApp({ project, manifest, routes, done }: { project: string; manifest
   return (
     <Shell
       title={`Add an app to ${project}`}
-      lede="Built on the box from a starter or a public repository. Once the change is applied, its page offers the first deploy."
-      submit={`Stage ${name || "the app"}`}
+      lede="Built on the box from a starter or a public repository. Its page offers the first deploy as soon as it’s added."
+      submit={`Add ${name || "the app"}`}
       ok={!nameErr && !gitErr && (pick === "git" || !!starter)}
       done={done}
       onSubmit={() => {
@@ -175,10 +191,10 @@ function AddApp({ project, manifest, routes, done }: { project: string; manifest
           pick === "git" ? { framework } : { ...(structuredClone(Object.values(starter!.fragment.apps)[0] ?? {}) as Record<string, unknown>), framework };
         if (route) spec.routes = [route];
         set(project, { path: ["apps", name], to: spec, what: `Add the ${name} app (${frameworkName(framework)}) to ${project}`, undo: `${name} is removed again` });
-        for (const s of needs) stage(project, { kind: "service", service: s, from: "off", to: "on" });
+        for (const s of needs) change(project, { kind: "service", service: s, from: "off", to: "on" }, { immediate: true });
         if (pick === "git") rememberNextDeploy(project, name, { git: { url: git.url.trim(), ref: git.ref, path: git.path } });
         else rememberNextDeploy(project, name, { template: starter!.id });
-        say(`add ${name} to ${project}${needs.length ? ` with ${needs.map((s) => serviceNames[s] ?? s).join(", ")}` : ""}`);
+        say(`add ${name} to ${project}${needs.length ? ` with ${needs.map((s) => serviceWords[s] ?? s).join(", ")}` : ""}`);
       }}
     >
       <div role="radiogroup" aria-label="Build it from" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -215,7 +231,7 @@ function AddApp({ project, manifest, routes, done }: { project: string; manifest
         note={
           <>
             Answers at <span className="ident text-ink-2">{route ?? name}.…</span>
-            {needs.length > 0 && <> · also adds {needs.map((s) => serviceNames[s] ?? s).join(", ")}</>}
+            {needs.length > 0 && <> · also adds {needs.map((s) => serviceWords[s] ?? s).join(", ")}</>}
           </>
         }
       >
@@ -257,7 +273,7 @@ function AddBucket({ project, manifest, done }: { project: string; manifest: Man
     <Shell
       title={`Add a bucket to ${project}`}
       lede="S3-compatible storage for files your apps write. Private buckets serve files only through signed links."
-      submit={name ? `Stage ${name}` : "Stage the bucket"}
+      submit={name ? `Add ${name}` : "Add the bucket"}
       ok={!!name && !err}
       done={done}
       onSubmit={() => {
@@ -305,7 +321,7 @@ function AddQueue({ project, manifest, done }: { project: string; manifest: Mani
     <Shell
       title={`Add a queue to ${project}`}
       lede="Jobs you send are delivered to an app as HTTP requests, retried with backoff, and kept when they keep failing."
-      submit={name ? `Stage ${name}` : "Stage the queue"}
+      submit={name ? `Add ${name}` : "Add the queue"}
       ok={!!name && !err && !!app && p.startsWith("/")}
       done={done}
       onSubmit={() => {
@@ -357,7 +373,7 @@ function AddCron({ project, manifest, done }: { project: string; manifest: Manif
     <Shell
       title={`Add a schedule to ${project}`}
       lede="The box calls an app’s path on a schedule, like cron, and keeps every run in the queue’s history."
-      submit={name ? `Stage ${name}` : "Stage the schedule"}
+      submit={name ? `Add ${name}` : "Add the schedule"}
       ok={!!name && !err && !!app && fields && p.startsWith("/")}
       done={done}
       onSubmit={() => {
@@ -410,7 +426,7 @@ function AddEnv({ project, manifest, done }: { project: string; manifest: Manife
           Plain settings every app in {project} reads, kept in <span className="ident">tiffin.config.ts</span>. Keys and passwords go in Secrets instead.
         </>
       }
-      submit={replacing ? `Stage the new ${key}` : key ? `Stage ${key}` : "Stage the variable"}
+      submit={replacing ? `Change ${key}` : key ? `Add ${key}` : "Add the setting"}
       ok={valid}
       done={done}
       onSubmit={() => {
