@@ -65,6 +65,21 @@ Tokens made before API keys keep working with exactly the permissions they had; 
 list shows them as the nearest key, with a `note` when they can do less (for example
 "applies reversible changes only").
 
+## Starting a new project from what you have
+
+Most new projects need things the box already holds: an `OPENAI_API_KEY`, Stripe keys, Google
+sign-in credentials. Agents shouldn't ask you to paste them again, and they never need to see them:
+
+```bash
+tiffin secrets list shop                                   # names only, never values
+tiffin secrets copy blog --from shop --names OPENAI_API_KEY,STRIPE_KEY
+tiffin projects manifest shop                              # how shop is set up, to start from
+```
+
+`secrets copy` moves the values inside the box, so they never pass through the agent or its
+transcript. It needs an API key that reaches both projects. Every new project also gets the box's
+domain (`blog.yourdomain.com`) and its email and backup settings without any setup.
+
 ## CLI conventions
 - JSON on stdout whenever stdout is not a terminal (`--json` forces it).
 - Exit codes: `0` ok, `1` error, `2` auth, `3` invalid input, `4` confirmation needed.
