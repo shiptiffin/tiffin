@@ -110,10 +110,7 @@ func TestEngineConfig(t *testing.T) {
 	ctx := t.Context()
 	apply(t, p, shop)
 	apply(t, p, `{"project":"blog","apps":{"web":{}},"services":{"auth":{}}}`) // no postgres
-	if err := p.Secrets.Set(ctx, "shop", "GOOGLE_CLIENT_ID", "gid", "test"); err != nil {
-		t.Fatal(err)
-	}
-	if err := p.Secrets.Set(ctx, "shop", "GOOGLE_CLIENT_SECRET", "gsecret", "test"); err != nil {
+	if _, err := p.SetSecrets(ctx, "shop", map[string]string{"GOOGLE_CLIENT_ID": "gid", "GOOGLE_CLIENT_SECRET": "gsecret"}, "google sign-in"); err != nil {
 		t.Fatal(err)
 	}
 	c, errs, err := buildEngineConfig(ctx, p)

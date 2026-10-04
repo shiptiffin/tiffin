@@ -201,7 +201,7 @@ export async function undoChange(id: string) {
     }
   }
   for (const k of [["changes"], ["box-resources"], ["projects"]]) void queryClient.invalidateQueries({ queryKey: k });
-  void queryClient.invalidateQueries({ predicate: (qq) => ["project", "manifest", "usage"].includes(String(qq.queryKey[0])) });
+  void queryClient.invalidateQueries({ predicate: (qq) => ["project", "manifest", "usage", "secrets"].includes(String(qq.queryKey[0])) });
 }
 
 const subscribe = (f: () => void) => {

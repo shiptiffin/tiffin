@@ -208,6 +208,19 @@ var migrations = []string{
 	`ALTER TABLE passkeys ADD COLUMN person TEXT`,
 	// API keys: a JSON list of {projects, level} grants (see internal/tokens/keys.go).
 	`ALTER TABLE tokens ADD COLUMN grants TEXT`,
+	// Project secrets become resources ("secret/NAME", the value still sealed
+	// to the box key), so setting one is a change with an undo. Projects that
+	// only had secrets (never applied) get their project row first. Leftovers
+	// of destroyed projects (a row, no resources) stay behind in the table,
+	// where nothing reads them; module secrets ("_email"...) stay too.
+	`INSERT INTO projects(name, version) SELECT DISTINCT project, 1 FROM secrets
+		WHERE project GLOB '[a-z]*' AND project NOT IN (SELECT name FROM projects)`,
+	`INSERT OR IGNORE INTO resources(project, address, spec)
+		SELECT project, 'secret/' || name, json_object('sealed', lower(hex(ciphertext)), 'updatedAt', updated_at, 'updatedBy', updated_by)
+		FROM secrets WHERE project GLOB '[a-z]*'
+		AND (project IN (SELECT project FROM resources) OR project IN (SELECT name FROM projects WHERE version = 1))`,
+	`DELETE FROM secrets WHERE project GLOB '[a-z]*' AND EXISTS
+		(SELECT 1 FROM resources r WHERE r.project = secrets.project AND r.address = 'secret/' || secrets.name)`,
 }
 
 // SchemaVersion is the state schema this build writes (box exports record

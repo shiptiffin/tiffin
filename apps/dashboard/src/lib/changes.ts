@@ -74,6 +74,9 @@ export function diffOp(op: Op): FieldDiff[] {
     if (y === "value") return 1;
     return x.localeCompare(y);
   });
+  // A secret's value is sealed to the box's key: show that it changed, not the ciphertext.
+  const secret = splitAddress(op.address).kind === "secret";
+  const shown = (path: string, v: unknown) => (secret && path === "sealed" && v !== undefined ? "encrypted value" : v);
   return keys.map((path) => {
     const hasB = b.has(path);
     const hasA = a.has(path);
@@ -83,7 +86,7 @@ export function diffOp(op: Op): FieldDiff[] {
     if (hasB && !hasA) kind = "removed";
     else if (!hasB && hasA) kind = "added";
     else if (JSON.stringify(before) !== JSON.stringify(after)) kind = "changed";
-    return { path, before, after, kind };
+    return { path, before: shown(path, before), after: shown(path, after), kind };
   });
 }
 

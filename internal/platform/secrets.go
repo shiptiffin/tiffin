@@ -3,22 +3,31 @@ package platform
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"filippo.io/age"
+	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/state"
 )
 
-// Secrets stores per-project secret env vars, each encrypted to the box's
-// own age key (secrets.key in the platform home, 0600). Values are only
-// decrypted to start apps; the API never returns them.
+// Secrets stores secret env vars, each encrypted to the box's own age key
+// (secrets.key in the platform home, 0600). Values are only decrypted to
+// start apps; the API never returns them.
+//
+// A project's secrets are resources ("secret/NAME" with a SecretSpec), so
+// setting or deleting one is a change in History with an undo; the API
+// builds those changes with SealSpec. Modules keep their own credentials
+// under pseudo-projects starting with "_" ("_email"), with Set and Delete.
 type Secrets struct {
 	db  *state.DB
 	id  *age.X25519Identity
@@ -79,6 +88,46 @@ func (s *Secrets) Unseal(ct []byte) ([]byte, error) {
 	return io.ReadAll(r)
 }
 
+// SecretSpec is the spec of a "secret/NAME" resource: the value sealed to
+// the box's key (hex), and who set it when. Changes keep it as it is, so the
+// change log never holds a secret in plain text and undo can put back the
+// previous value.
+type SecretSpec struct {
+	Sealed    string    `json:"sealed"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	UpdatedBy string    `json:"updatedBy"`
+}
+
+// SealSpec seals value into a secret resource's spec.
+func (s *Secrets) SealSpec(value, by string) (json.RawMessage, error) {
+	ct, err := s.Seal([]byte(value))
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(SecretSpec{Sealed: hex.EncodeToString(ct), UpdatedAt: s.now().UTC(), UpdatedBy: by})
+}
+
+// OpenSpec decrypts a secret resource's spec.
+func (s *Secrets) OpenSpec(spec json.RawMessage) (string, error) {
+	var sp SecretSpec
+	if err := json.Unmarshal(spec, &sp); err != nil {
+		return "", err
+	}
+	ct, err := hex.DecodeString(sp.Sealed)
+	if err != nil {
+		return "", err
+	}
+	v, err := s.Unseal(ct)
+	return string(v), err
+}
+
+// ValidSecretName reports whether name is an UPPER_SNAKE env var name.
+func ValidSecretName(name string) bool { return secretName.MatchString(name) }
+
+// modulePseudoProject reports whether project is a module's own secret
+// store ("_email") rather than a project.
+func modulePseudoProject(project string) bool { return strings.HasPrefix(project, "_") }
+
 // SecretInfo is a secret's metadata. Values are never listed.
 type SecretInfo struct {
 	Name      string    `json:"name"`
@@ -86,7 +135,8 @@ type SecretInfo struct {
 	UpdatedBy string    `json:"updatedBy"`
 }
 
-// Set encrypts and stores a secret.
+// Set encrypts and stores a module secret (project "_<module>"). A
+// project's own secrets change through the API, as changes.
 func (s *Secrets) Set(ctx context.Context, project, name, value, by string) error {
 	if !secretName.MatchString(name) {
 		return ErrSecretName
@@ -120,6 +170,17 @@ func (s *Secrets) Delete(ctx context.Context, project, name string) (bool, error
 
 // List returns a project's secret names.
 func (s *Secrets) List(ctx context.Context, project string) ([]SecretInfo, error) {
+	if !modulePseudoProject(project) {
+		res, err := s.resources(ctx, project)
+		if err != nil {
+			return nil, err
+		}
+		out := []SecretInfo{}
+		for _, r := range res {
+			out = append(out, SecretInfo{Name: r.name, UpdatedAt: r.spec.UpdatedAt, UpdatedBy: r.spec.UpdatedBy})
+		}
+		return out, nil
+	}
 	rows, err := s.db.SQL().QueryContext(ctx, `SELECT name, updated_at, updated_by FROM secrets WHERE project = ? ORDER BY name`, project)
 	if err != nil {
 		return nil, err
@@ -141,8 +202,51 @@ func (s *Secrets) List(ctx context.Context, project string) ([]SecretInfo, error
 // Open decrypts what Seal encrypted (the same as Unseal).
 func (s *Secrets) Open(sealed []byte) ([]byte, error) { return s.Unseal(sealed) }
 
+type secretResource struct {
+	name string
+	spec SecretSpec
+	raw  json.RawMessage
+}
+
+// resources reads a project's secret resources, sorted by name.
+func (s *Secrets) resources(ctx context.Context, project string) ([]secretResource, error) {
+	rows, err := s.db.SQL().QueryContext(ctx, `SELECT address, spec FROM resources WHERE project = ? AND address LIKE 'secret/%' ORDER BY address`, project)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []secretResource
+	for rows.Next() {
+		var addr, spec string
+		if err := rows.Scan(&addr, &spec); err != nil {
+			return nil, err
+		}
+		r := secretResource{name: strings.TrimPrefix(addr, "secret/"), raw: json.RawMessage(spec)}
+		if err := json.Unmarshal(r.raw, &r.spec); err != nil {
+			return nil, fmt.Errorf("secret %s: %w", r.name, err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // All decrypts every secret of a project, for starting its apps.
 func (s *Secrets) All(ctx context.Context, project string) (map[string]string, error) {
+	if !modulePseudoProject(project) {
+		res, err := s.resources(ctx, project)
+		if err != nil {
+			return nil, err
+		}
+		out := map[string]string{}
+		for _, r := range res {
+			v, err := s.OpenSpec(r.raw)
+			if err != nil {
+				return nil, fmt.Errorf("decrypt %s: %w", r.name, err)
+			}
+			out[r.name] = v
+		}
+		return out, nil
+	}
 	rows, err := s.db.SQL().QueryContext(ctx, `SELECT name, ciphertext FROM secrets WHERE project = ?`, project)
 	if err != nil {
 		return nil, err
@@ -166,4 +270,64 @@ func (s *Secrets) All(ctx context.Context, project string) (map[string]string, e
 		out[name] = string(v)
 	}
 	return out, rows.Err()
+}
+
+// ErrNoSecret is returned when deleting a secret a project does not have.
+var ErrNoSecret = errors.New("no such secret")
+
+// PlanSecrets plans a change to a project's secrets: set gives new values
+// (sealed here; a value equal to the current one is left alone), del names
+// secrets to delete (ErrNoSecret if one is missing). Apply the plan with
+// Engine.Apply like any other.
+func (p *Platform) PlanSecrets(ctx context.Context, project string, set map[string]string, del []string, by string) (*change.Plan, error) {
+	if p.Secrets == nil {
+		return nil, errors.New("secrets are only available on a box")
+	}
+	return p.Engine.PlanEdit(ctx, project, func(cur map[string]change.Resource) (map[string]change.Resource, error) {
+		names := make([]string, 0, len(set))
+		for n := range set {
+			names = append(names, n)
+		}
+		slices.Sort(names)
+		for _, n := range names {
+			if !ValidSecretName(n) {
+				return nil, ErrSecretName
+			}
+			addr := change.KindSecret + "/" + n
+			if r, ok := cur[addr]; ok {
+				if v, err := p.Secrets.OpenSpec(r.Spec); err == nil && v == set[n] {
+					continue
+				}
+			}
+			spec, err := p.Secrets.SealSpec(set[n], by)
+			if err != nil {
+				return nil, err
+			}
+			cur[addr] = change.Resource{Address: addr, Spec: spec}
+		}
+		for _, n := range del {
+			addr := change.KindSecret + "/" + n
+			if _, ok := cur[addr]; !ok {
+				return nil, fmt.Errorf("%w: %s in %s", ErrNoSecret, n, project)
+			}
+			delete(cur, addr)
+		}
+		return cur, nil
+	})
+}
+
+// SetSecrets sets a project's secrets as one change by the system (box
+// code and tests; the API applies PlanSecrets with the caller's key) and
+// reconciles the project. It returns nil when nothing changed.
+func (p *Platform) SetSecrets(ctx context.Context, project string, set map[string]string, intent string) (*change.Change, error) {
+	plan, err := p.PlanSecrets(ctx, project, set, nil, "system")
+	if err != nil {
+		return nil, err
+	}
+	c, err := p.Engine.Apply(ctx, change.ApplyRequest{Plan: plan, Confirm: plan.Hash, Intent: intent,
+		Actor: change.Actor{Kind: "system", ID: "system"}})
+	if err == nil && c != nil {
+		p.AfterApply(c)
+	}
+	return c, err
 }

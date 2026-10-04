@@ -2,7 +2,9 @@ package state
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -117,5 +119,52 @@ func TestAudit(t *testing.T) {
 	log, err := db.AuditLog(ctx, 10)
 	if err != nil || len(log) != 2 || log[0].Action != "token.revoke" || log[0].At.IsZero() {
 		t.Fatalf("audit log: %v %+v", err, log)
+	}
+}
+
+// Project secrets move from the secrets table into "secret/NAME" resources:
+// for applied projects and for projects that only had secrets. Leftovers of
+// destroyed projects and module secrets stay in the table.
+func TestSecretsMigrateToResources(t *testing.T) {
+	db := openTemp(t)
+	ctx := context.Background()
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := db.sql.ExecContext(ctx, q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	exec(`INSERT INTO projects(name, version) VALUES ('shop', 2), ('gone', 3)`)
+	exec(`INSERT INTO resources(project, address, spec) VALUES ('shop', 'project', '{}')`)
+	for _, p := range []string{"shop", "fresh", "gone", "_email"} {
+		exec(`INSERT INTO secrets(project, name, ciphertext, updated_at, updated_by) VALUES (?, 'KEY', X'00FF', '2026-01-02T03:04:05Z', 'tok_1')`, p)
+	}
+	exec(fmt.Sprintf(`PRAGMA user_version = %d`, len(migrations)-3))
+	if err := db.migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"shop", "fresh"} {
+		v, res, err := db.Load(ctx, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, ok := res["secret/KEY"]
+		if !ok || v < 1 || !strings.Contains(string(r.Spec), `"sealed":"00ff"`) || !strings.Contains(string(r.Spec), `"updatedBy":"tok_1"`) {
+			t.Fatalf("%s: version %d, resources %v", p, v, res)
+		}
+	}
+	if _, res, _ := db.Load(ctx, "gone"); len(res) != 0 {
+		t.Fatalf("a destroyed project came back: %v", res)
+	}
+	var left []string
+	rows, _ := db.sql.QueryContext(ctx, `SELECT project FROM secrets ORDER BY project`)
+	for rows.Next() {
+		var p string
+		_ = rows.Scan(&p)
+		left = append(left, p)
+	}
+	rows.Close()
+	if strings.Join(left, ",") != "_email,gone" {
+		t.Fatalf("left in the secrets table: %v", left)
 	}
 }

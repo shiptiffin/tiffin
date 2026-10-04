@@ -578,7 +578,7 @@ func TestEnvChangeRestartsAndDeleteStops(t *testing.T) {
 		t.Fatal("reconcile without changes restarted the app")
 	}
 	// A secret changes the env: the app restarts with it.
-	if err := h.p.Secrets.Set(context.Background(), "shop", "GREETING", "bonjour", "tok_test"); err != nil {
+	if _, err := h.p.SetSecrets(context.Background(), "shop", map[string]string{"GREETING": "bonjour"}, "greet in French"); err != nil {
 		t.Fatal(err)
 	}
 	h.apply()

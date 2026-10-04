@@ -100,10 +100,11 @@ export const api = {
   addPasskey: (name: string, credential: unknown) => request<Passkey>("POST", "/v1/passkeys", { name, credential }),
   deletePasskey: (id: string) => request<void>("DELETE", `/v1/passkeys/${encodeURIComponent(id)}`),
   secrets: (project: string) => request<SecretInfo[] | null>("GET", `/v1/projects/${encodeURIComponent(project)}/secrets`),
+  /** A change in History (`change`, absent when the value was already this); undo puts the old value back. */
   setSecret: (project: string, name: string, value: string) =>
-    request<unknown>("PUT", `/v1/projects/${encodeURIComponent(project)}/secrets/${encodeURIComponent(name)}`, { value }),
+    request<{ change?: string }>("PUT", `/v1/projects/${encodeURIComponent(project)}/secrets/${encodeURIComponent(name)}`, { value }),
   deleteSecret: (project: string, name: string) =>
-    request<void>("DELETE", `/v1/projects/${encodeURIComponent(project)}/secrets/${encodeURIComponent(name)}`),
+    request<{ change?: string }>("DELETE", `/v1/projects/${encodeURIComponent(project)}/secrets/${encodeURIComponent(name)}`),
   people: () => request<Person[] | null>("GET", "/v1/people"),
   invite: (body: { name: string; email?: string; role: Exclude<Role, "owner"> }) => request<Invite>("POST", "/v1/people", body),
   updatePerson: (id: string, body: { name?: string; role?: Exclude<Role, "owner"> }) =>

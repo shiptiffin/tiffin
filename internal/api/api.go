@@ -334,6 +334,7 @@ type ProjectState struct {
 	Name      string            `json:"name"`
 	Version   int64             `json:"version"`
 	Resources []change.Resource `json:"resources"`
+	Secrets   []string          `json:"secrets,omitempty" doc:"Names of the project's secrets (values are never shown)"`
 	// Status is each resource's live state on the machine (pending, ready, failed).
 	Status map[string]state.ResourceStatus `json:"status,omitempty"`
 }
@@ -468,8 +469,13 @@ func (a *API) register() {
 			}
 			out := ProjectState{Name: in.Project, Version: v, Resources: make([]change.Resource, 0, len(res))}
 			for _, r := range res {
+				if change.Kind(r.Address) == change.KindSecret {
+					out.Secrets = append(out.Secrets, change.Name(r.Address))
+					continue
+				}
 				out.Resources = append(out.Resources, r)
 			}
+			slices.Sort(out.Secrets)
 			sort.Slice(out.Resources, func(i, j int) bool { return out.Resources[i].Address < out.Resources[j].Address })
 			if st, err := a.deps.DB.ResourceStatuses(ctx, in.Project); err == nil && len(st) > 0 {
 				out.Status = st
@@ -558,7 +564,8 @@ func (a *API) register() {
 		}))
 
 	de := op("project-destroy", http.MethodPost, "/v1/projects/{project}/destroy", "projects destroy", RiskDestructive, "Destroy a project",
-		"Plans deleting every resource of a project (its apps, databases, buckets, auth users, everything) and applies it with confirm. "+
+		"Plans deleting every resource of a project (its apps, databases, buckets, auth users, secrets, everything) and applies it with confirm. "+
+			"The plan lists each secret it deletes (secret/NAME), so nothing is left behind for a new project of the same name. "+
 			"Irreversible: databases keep a 7-day snapshot and buckets a 7-day trash, then they are gone. Without confirm you get the plan with status 428.", "projects")
 	de.Errors = append(de.Errors, 404, 409, 428)
 	de.Extensions[ExtConfirm] = true
@@ -577,7 +584,7 @@ func (a *API) register() {
 		if v == 0 {
 			return nil, problem(404, "not_found", "project "+in.Project+" does not exist")
 		}
-		plan, err := a.deps.Engine.Plan(ctx, in.Project, map[string]change.Resource{})
+		plan, err := a.deps.Engine.PlanDelete(ctx, in.Project)
 		if err != nil {
 			return nil, err
 		}

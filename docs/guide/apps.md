@@ -181,7 +181,10 @@ its own and the usage says `pressure: "oom"`: raise the budget or find the leak.
 `PORT`, `NODE_ENV`, `TIFFIN_URL` (its public URL), plus each service's variables:
 `DATABASE_URL`, `REDIS_URL`, `S3_*`, `SMTP_URL`, `TIFFIN_AUTH_URL`, `SENTRY_DSN`,
 `OTEL_*`, `TIFFIN_QUEUE_*` and your secrets (`tiffin secrets set`). Changing env or
-secrets restarts the app with the new values.
+secrets restarts the app with the new values. Setting, copying or deleting a secret is a
+change in History (`-m` gives the reason) that `tiffin undo <id>` reverts, putting back the
+old value: the change log keeps values only encrypted to the box key. Destroying a project
+deletes its secrets too (its plan lists them).
 
 ## Next.js
 

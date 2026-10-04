@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ChevronRight, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, notOnBox, type SecretInfo } from "@/api/client";
 import { q } from "@/api/queries";
 import { Confirm } from "@/components/confirm";
@@ -16,7 +16,7 @@ import { count, cronWords } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { DeleteProject } from "@/components/delete-project";
 import { rememberProject } from "@/lib/recent";
-import { pendingFor, usePending } from "@/lib/staged";
+import { pendingFor, undoChange, usePending } from "@/lib/staged";
 import { relative } from "@/lib/time";
 import { CreateKeyDialog, KeyList, keyProjects, onlyKeys } from "./keys";
 import { ProjectIcon } from "@/components/project-icon";
@@ -188,18 +188,25 @@ export function SecretsPage({ project }: { project: string }) {
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
   const [deleting, setDeleting] = useState<SecretInfo | null>(null);
+  const deleted = useRef<string | undefined>(undefined);
   const valid = /^[A-Z_][A-Z0-9_]{0,127}$/.test(name);
   const writer = can("apply:reversible");
 
   const save = useMutation({
     mutationFn: () => api.setSecret(project, name, value),
-    onSuccess: () => {
+    onSuccess: (r) => {
       const n = name;
       const replaced = (secrets.data ?? []).some((s) => s.name === n);
       setName("");
       setValue("");
       void qc.invalidateQueries({ queryKey: ["secrets", project] });
-      toast({ title: <>{replaced ? "Replaced" : "Saved"} {n}.</>, detail: `Apps in ${project} restart with it, one instance at a time.` });
+      void qc.invalidateQueries({ queryKey: ["changes"] });
+      const id = r?.change;
+      toast({
+        title: <>{id ? (replaced ? "Replaced" : "Saved") : "Already set"} {n}.</>,
+        detail: id ? `Apps in ${project} restart with it, one instance at a time.` : "It already had that value, so nothing changed.",
+        action: id ? { label: "Undo", run: () => undoChange(id) } : undefined,
+      });
     },
   });
 
@@ -314,7 +321,9 @@ export function SecretsPage({ project }: { project: string }) {
           </div>
           {save.isError && <ProblemNote className="mt-4" error={save.error} />}
           <p className="mt-2.5 text-xs text-ink-3">
-            {replacing ? "The old value is replaced and can’t be recovered." : "Stored encrypted with the box’s own key. It never leaves the box, and this page never shows it again."}
+            {replacing
+              ? "The old value is replaced. History keeps it encrypted, so you can undo."
+              : "Stored encrypted with the box’s own key. It never leaves the box, and this page never shows it again."}
           </p>
         </form>
       )}
@@ -323,12 +332,20 @@ export function SecretsPage({ project }: { project: string }) {
         open={!!deleting}
         onClose={() => setDeleting(null)}
         title={`Delete ${deleting?.name ?? "this secret"}?`}
-        body={`Apps in ${project} restart without it. The value can’t be recovered.`}
+        body={`Apps in ${project} restart without it. You can undo this from History.`}
         action={`Delete ${deleting?.name ?? "secret"}`}
-        run={() => api.deleteSecret(project, deleting!.name)}
+        run={async () => {
+          deleted.current = (await api.deleteSecret(project, deleting!.name))?.change;
+        }}
         done={() => {
+          const id = deleted.current;
           void qc.invalidateQueries({ queryKey: ["secrets", project] });
-          toast({ title: <>Deleted {deleting?.name}.</>, detail: `Apps in ${project} restart without it.` });
+          void qc.invalidateQueries({ queryKey: ["changes"] });
+          toast({
+            title: <>Deleted {deleting?.name}.</>,
+            detail: `Apps in ${project} restart without it.`,
+            action: id ? { label: "Undo", run: () => undoChange(id) } : undefined,
+          });
         }}
       />
     </Page>

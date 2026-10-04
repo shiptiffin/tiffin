@@ -120,6 +120,9 @@ func (r *reconciler) converge(ctx context.Context, project string) {
 		return oa < ob
 	})
 	for _, o := range ops {
+		if change.Unmanaged(o.Address) {
+			continue // secrets: apps read them when they (re)start
+		}
 		rc := reconcilerFor(o.Address)
 		if rc == nil {
 			if o.Action == change.Delete {

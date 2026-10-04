@@ -20,7 +20,15 @@ const (
 	KindTopic   = "topic"
 	KindCron    = "cron"
 	KindDomain  = "domain"
+	// KindSecret is a secret env var. Manifests never list secrets: their
+	// spec is the value sealed to the box's key (see platform.Secrets), set
+	// and removed by the secrets API, and kept by every manifest plan.
+	KindSecret = "secret"
 )
+
+// Unmanaged reports whether resources of this address are outside the
+// manifest (secrets): a manifest plan keeps them as they are.
+func Unmanaged(address string) bool { return Kind(address) == KindSecret }
 
 // ProjectSpec is the spec of the "project" resource: project-wide settings.
 // A project without any is "{}".
@@ -164,7 +172,7 @@ func Diff(current, desired map[string]Resource) []Op {
 // order of kinds when creating; deletes run in reverse. Queues come after
 // apps (they push jobs into them), topics after the queues they fan out to,
 // and crons last.
-var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindApp: 4, KindQueue: 5, KindTopic: 6, KindCron: 7, KindDomain: 8}
+var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindSecret: 3, KindApp: 4, KindQueue: 5, KindTopic: 6, KindCron: 7, KindDomain: 8}
 
 // SortOps orders ops: creates (containers first), updates, then deletes
 // (contents first).

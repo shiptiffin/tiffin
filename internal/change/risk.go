@@ -59,6 +59,8 @@ func Classify(op Op) (Tier, string) {
 			}
 		case KindProject:
 			return TierReversible, "changes the project's share of the box; applies live without restarting apps, and undo restores the previous limits"
+		case KindSecret:
+			return TierReversible, "replaces secret " + name + "'s value; undo restores the previous value"
 		case KindBucket:
 			if becamePublic(op.Before, op.After) {
 				return TierOutbound, fmt.Sprintf("makes bucket %q publicly readable by anyone with a link", name)
@@ -75,6 +77,8 @@ func kindNoun(kind, name string) string {
 		return "project"
 	case KindEnv:
 		return "env var " + name
+	case KindSecret:
+		return "secret " + name
 	case KindService:
 		return name + " service"
 	}

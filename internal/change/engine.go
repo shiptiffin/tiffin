@@ -55,9 +55,45 @@ type Engine struct {
 // NewEngine returns an engine over store.
 func NewEngine(s Store) *Engine { return &Engine{Store: s, Now: time.Now} }
 
-// Plan computes the ops that make project match desired. It never writes.
+// Plan computes the ops that make project match desired (a manifest's
+// resources). Unmanaged resources (secrets) are kept as they are. It never
+// writes.
 func (e *Engine) Plan(ctx context.Context, project string, desired map[string]Resource) (*Plan, error) {
+	return e.PlanEdit(ctx, project, func(current map[string]Resource) (map[string]Resource, error) {
+		want := make(map[string]Resource, len(desired))
+		for k, v := range desired {
+			if !Unmanaged(k) {
+				want[k] = v
+			}
+		}
+		for k, v := range current {
+			if Unmanaged(k) {
+				want[k] = v
+			}
+		}
+		return want, nil
+	})
+}
+
+// PlanDelete plans deleting every resource of project, secrets included.
+func (e *Engine) PlanDelete(ctx context.Context, project string) (*Plan, error) {
+	return e.PlanEdit(ctx, project, func(map[string]Resource) (map[string]Resource, error) {
+		return map[string]Resource{}, nil
+	})
+}
+
+// PlanEdit plans the change edit makes: it gets a copy of the project's
+// current resources and returns the desired ones. It never writes.
+func (e *Engine) PlanEdit(ctx context.Context, project string, edit func(current map[string]Resource) (map[string]Resource, error)) (*Plan, error) {
 	ver, current, err := e.Store.Load(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	cp := make(map[string]Resource, len(current))
+	for k, v := range current {
+		cp[k] = v
+	}
+	desired, err := edit(cp)
 	if err != nil {
 		return nil, err
 	}
