@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/btahir/tiffin/internal/provider/hetzner"
 	"github.com/btahir/tiffin/internal/provider/remote"
 	"github.com/btahir/tiffin/internal/version"
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
 	"github.com/spf13/cobra"
 )
 
@@ -164,6 +166,15 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 	ctx := cmd.Context()
 	start := time.Now()
 	name := pick(o.name, "tiffin")
+	if o.adopt != "" && o.name == "" {
+		if _, err := strconv.ParseInt(o.adopt, 10, 64); err == nil {
+			return &exitError{ExitInvalid, "--adopt by ID needs --name for the box (e.g. the server's name)"}
+		}
+		name = o.adopt
+	}
+	if o.adopt != "" && prov != "hetzner" {
+		return &exitError{ExitInvalid, "--adopt is for --provider hetzner (for any other server use --provider ssh)"}
+	}
 	if name == "local" {
 		return &exitError{ExitInvalid, "local is the local box's name; pick another --name"}
 	}
@@ -225,15 +236,42 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 		if err != nil {
 			return err
 		}
-		if plan, err = hp.Plan(ctx); err != nil {
-			return &exitError{ExitError, err.Error()}
-		}
-		if o.dryRun {
-			a.printPlan(plan)
-			return nil
-		}
-		if len(plan.Create) > 0 {
-			a.progress(fmt.Sprintf("creating %d Hetzner resources: about %.2f %s a month before VAT (%.2f with VAT)", len(plan.Create), plan.MonthlyNet, plan.Currency, plan.MonthlyGross))
+		existing := bx != nil && bx.URL != ""
+		switch {
+		case o.adopt != "":
+			if !sb.OwnKey {
+				return &exitError{ExitInvalid, "--adopt needs the key that already logs in to the server as root: pass --ssh-key <private key> or set HCLOUD_SSH_KEY"}
+			}
+			ap, err := hp.PlanAdopt(ctx, o.adopt, !o.noProtect)
+			if err != nil {
+				return &exitError{ExitError, err.Error()}
+			}
+			if o.dryRun {
+				a.printAdoptPlan(ap)
+				return nil
+			}
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return err
+			}
+			if err := hp.Adopt(ctx, o.adopt, !o.noProtect, a.progress); err != nil {
+				return &exitError{ExitError, err.Error()}
+			}
+			plan = &hetzner.Plan{Location: ap.Location, ServerType: ap.ServerType, Currency: ap.Currency, MonthlyNet: ap.MonthlyNet, MonthlyGross: ap.MonthlyGross}
+			sb.Adopted = ap.ID
+		case existing && !o.dryRun:
+			// Updating a box: nothing new is created, no plan to price.
+			sb.Adopted = prev.Adopted
+		default:
+			if plan, err = hp.Plan(ctx); err != nil {
+				return &exitError{ExitError, err.Error()}
+			}
+			if o.dryRun {
+				a.printPlan(plan)
+				return nil
+			}
+			if len(plan.Create) > 0 {
+				a.progress(fmt.Sprintf("creating %d Hetzner resources: about %.2f %s a month before VAT (%.2f with VAT)", len(plan.Create), plan.MonthlyNet, plan.Currency, plan.MonthlyGross))
+			}
 		}
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return err
@@ -245,9 +283,12 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 		if sb.Ubuntu, err = m.Check(ctx); err != nil {
 			return &exitError{ExitError, err.Error()}
 		}
-		sb.Location, sb.ServerType, sb.VolumeGB = plan.Location, plan.ServerType, hp.Volume.Size
+		sb.VolumeGB = hp.Volume.Size
 		if hp.Server.ServerType != nil {
 			sb.ServerType = hp.Server.ServerType.Name
+		}
+		if hp.Server.Location != nil {
+			sb.Location = hp.Server.Location.Name
 		}
 		data = install.DataSpec{Device: hp.VolumeDevice()}
 	case "ssh":
@@ -374,7 +415,7 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 		"build": res.Build[:12], "login": login, "ca": caFile, "mcp": "claude mcp add tiffin -- tiffin mcp",
 		"seconds": int(time.Since(start).Seconds()), "rebootWindow": orDefault(window, "off"), "ubuntu": sb.Ubuntu,
 	}
-	if plan != nil {
+	if plan != nil && plan.Currency != "" {
 		out["monthly"] = map[string]any{"net": plan.MonthlyNet, "gross": plan.MonthlyGross, "currency": plan.Currency}
 	}
 	if len(warnings) > 0 {
@@ -392,7 +433,7 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 	}
 	fmt.Fprintf(w, "  %-10s %s\n", "Server", strings.TrimSpace(sb.PublicIP+" "+sb.PublicIPv6))
 	fmt.Fprintf(w, "  %-10s %s\n", "SSH", sshCmd)
-	if plan != nil {
+	if plan != nil && plan.Currency != "" {
 		fmt.Fprintf(w, "  %-10s about %.2f %s a month before VAT (%.2f with VAT)\n", "Cost", plan.MonthlyNet, plan.Currency, plan.MonthlyGross)
 	}
 	fmt.Fprintf(w, "  %-10s %s\n", "Agents", "claude mcp add tiffin -- tiffin mcp")
@@ -471,6 +512,25 @@ func (a *app) printPlan(pl *hetzner.Plan) {
 	fmt.Fprintf(w, "\n%s run it again without --dry-run to create the box\n", a.paint("→", amber))
 }
 
+func (a *app) printAdoptPlan(ap *hetzner.AdoptPlan) {
+	if !a.tty() {
+		writeJSON(a.io.Out, map[string]any{"dryRun": true, "provider": "hetzner", "adopt": ap})
+		return
+	}
+	w := a.io.Out
+	fmt.Fprintf(w, "%s nothing was changed. Adopting %s %s would:\n", a.paint("Dry run:", bold), ap.Server,
+		a.paint(fmt.Sprintf("(id %d · %s in %s · %s · %s)", ap.ID, ap.ServerType, ap.Location, ap.IPv4, ap.Arch), dim))
+	for _, c := range ap.Changes {
+		fmt.Fprintf(w, "  %s %s\n", a.paint("~", amber), c)
+	}
+	fmt.Fprintf(w, "\nIt already costs (%s a month, before VAT; adopting adds nothing):\n", ap.Currency)
+	for _, c := range ap.Costs {
+		fmt.Fprintf(w, "  %-24s %8.2f\n", c.What, c.MonthlyNet)
+	}
+	fmt.Fprintf(w, "  %-24s %8.2f  %s\n", a.paint("total", bold), ap.MonthlyNet, a.paint(fmt.Sprintf("(%.2f with VAT)", ap.MonthlyGross), dim))
+	fmt.Fprintf(w, "\n%s run it again without --dry-run to adopt the server\n", a.paint("→", amber))
+}
+
 func (a *app) printSSHPlan(name string, t remote.Target, d install.DataSpec, sb *serverBox) {
 	data := install.DataRoot + " on the root disk (database branches copy instead of reflinking unless it is XFS)"
 	if d.Device != "" {
@@ -496,7 +556,7 @@ func (a *app) printSSHPlan(name string, t remote.Target, d install.DataSpec, sb 
 }
 
 // downServer deletes (hetzner) or detaches (ssh) a server box.
-func (a *app) downServer(ctx context.Context, name string, bx *boxConfig, confirmed, deleteData bool, tokenFile string) error {
+func (a *app) downServer(ctx context.Context, name string, bx *boxConfig, confirmed, deleteData, unprotect bool, tokenFile string) error {
 	sb := bx.Server
 	if sb == nil {
 		sb = &serverBox{}
@@ -564,6 +624,7 @@ func (a *app) downServer(ctx context.Context, name string, bx *boxConfig, confir
 	if err != nil {
 		return err
 	}
+	hp.Unprotect = unprotect
 	in, err := hp.Inventory(ctx)
 	if err != nil {
 		return &exitError{ExitError, err.Error()}
@@ -585,7 +646,17 @@ func (a *app) downServer(ctx context.Context, name string, bx *boxConfig, confir
 		del = append(del, "SSH key "+k.Name)
 	}
 	for _, ip := range in.PrimaryIPs {
-		del = append(del, "primary IP "+ip.IP.String())
+		if ip.AutoDelete || deleteData {
+			del = append(del, "IP address "+ip.IP.String())
+			continue
+		}
+		if ip.Type == hcloud.PrimaryIPTypeIPv4 {
+			n, g, _ := hetzner.IPv4Price(prices, ip.Location)
+			keptNet += n
+			keep = append(keep, fmt.Sprintf("IPv4 address %s (DNS may point at it): %.2f %s a month before VAT (%.2f with VAT) while it is unassigned", ip.IP, n, prices.Currency, g))
+		} else {
+			keep = append(keep, "IP address "+ip.IP.String())
+		}
 	}
 	for _, v := range in.Volumes {
 		net, gross := hetzner.VolumePrice(prices, v.Size)
@@ -606,11 +677,21 @@ func (a *app) downServer(ctx context.Context, name string, bx *boxConfig, confir
 			for _, d := range del {
 				fmt.Fprintf(&b, "  - %s\n", d)
 			}
+			if len(keep) > 0 {
+				fmt.Fprintf(&b, "Kept (add --delete-data to delete them too):\n")
+			}
 			for _, k := range keep {
-				fmt.Fprintf(&b, "Kept (add --delete-data to delete it too):\n  = %s\n", k)
+				fmt.Fprintf(&b, "  = %s\n", k)
+			}
+			if prot := hetzner.Protected(in, deleteData); len(prot) > 0 && !unprotect {
+				fmt.Fprintf(&b, "Protected against deletion (add --unprotect to lift it): %s\n", strings.Join(prot, ", "))
 			}
 		}
-		return confirmLater(strings.TrimRight(b.String(), "\n"), map[string]any{"delete": del, "keep": keep})
+		extra := map[string]any{"delete": del, "keep": keep}
+		if prot := hetzner.Protected(in, deleteData); len(prot) > 0 {
+			extra["protected"] = prot
+		}
+		return confirmLater(strings.TrimRight(b.String(), "\n"), extra)
 	}
 	rep, err := hp.DestroyAll(ctx, deleteData, a.progress)
 	if err != nil {
@@ -621,7 +702,13 @@ func (a *app) downServer(ctx context.Context, name string, bx *boxConfig, confir
 	if err != nil {
 		return &exitError{ExitError, err.Error()}
 	}
-	if n := len(left.Servers) + len(left.Firewalls) + len(left.SSHKeys) + len(left.PrimaryIPs); n > 0 || (deleteData && len(left.Volumes) > 0) {
+	keptIPs := 0
+	for _, ip := range left.PrimaryIPs {
+		if !ip.AutoDelete && !deleteData {
+			keptIPs++
+		}
+	}
+	if n := len(left.Servers) + len(left.Firewalls) + len(left.SSHKeys) + len(left.PrimaryIPs) - keptIPs; n > 0 || (deleteData && len(left.Volumes) > 0) {
 		return &exitError{ExitError, fmt.Sprintf("Hetzner still lists %d resources labelled tiffin-box=%s; run tiffin down again or delete them in the console", n+len(left.Volumes), name)}
 	}
 	forget()

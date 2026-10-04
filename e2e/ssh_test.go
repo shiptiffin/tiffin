@@ -119,6 +119,14 @@ func TestSSHProvider(t *testing.T) {
 	if osr != release || dev == "" {
 		t.Fatalf("server: ubuntu %q, blank disk %q", osr, dev)
 	}
+	if os.Getenv("TIFFIN_E2E_PREMOUNT") == "1" {
+		// Like a Hetzner volume made in the console: XFS without a label,
+		// automounted at /mnt/HC_Volume_<id> from fstab. up must move it.
+		mustShell(`set -e; sudo mkfs.xfs -q ` + dev + `; sudo mkdir -p /mnt/HC_Volume_123
+echo "` + dev + ` /mnt/HC_Volume_123 xfs discard,nofail,defaults 0 0" | sudo tee -a /etc/fstab >/dev/null
+sudo systemctl daemon-reload; sudo mount /mnt/HC_Volume_123`)
+		t.Logf("pre-mounted %s at /mnt/HC_Volume_123 (XFS, no label), like a Hetzner volume", dev)
+	}
 	home, _ := os.UserHomeDir()
 	key := filepath.Join(home, ".lima", "_config", "user")
 	t.Logf("server: Ubuntu %s at %s, user %s, blank disk %s", osr, ip, user, dev)
@@ -147,17 +155,18 @@ func TestSSHProvider(t *testing.T) {
 	// ---- the server: data disk, hardening ----
 	p = time.Now()
 	checks := map[string]string{
-		`findmnt -no FSTYPE,SOURCE /var/lib/tiffin | tr -s " "`:                "xfs " + dev,
-		`sudo blkid -s LABEL -o value ` + dev:                                  "tiffin-data",
-		`sudo sshd -T | grep -E '^passwordauthentication '`:                    "passwordauthentication no",
-		`sudo sshd -T | grep -E '^permitrootlogin '`:                           "permitrootlogin without-password",
-		`grep -c 'Unattended-Upgrade "1"' /etc/apt/apt.conf.d/20auto-upgrades`: "1",
-		`systemctl is-enabled unattended-upgrades`:                             "enabled",
-		`swapon --show=NAME --noheadings`:                                      "/swapfile",
-		`test -f /etc/systemd/journald.conf.d/50-tiffin.conf && echo yes`:      "yes",
-		`sudo nft list table inet tiffin_guard >/dev/null && echo yes`:         "yes",
-		`systemctl is-active crowdsec crowdsec-firewall-bouncer | sort -u`:     "active",
-		`timedatectl show -p NTP --value`:                                      "yes",
+		`findmnt -no FSTYPE,SOURCE /var/lib/tiffin | tr -s " "`:                                    "xfs " + dev,
+		`sudo blkid -s LABEL -o value ` + dev:                                                      "tiffin-data",
+		`sudo sshd -T | grep -E '^passwordauthentication '`:                                        "passwordauthentication no",
+		`sudo sshd -T | grep -E '^permitrootlogin ' | sed 's/without-password/prohibit-password/'`: "permitrootlogin prohibit-password", // OpenSSH 10 (26.04) prints the new name
+		`grep -c 'Unattended-Upgrade "1"' /etc/apt/apt.conf.d/20auto-upgrades`:                     "1",
+		`systemctl is-enabled unattended-upgrades`:                                                 "enabled",
+		`grep -c HC_Volume /etc/fstab || true`:                                                     "0",
+		`swapon --show=NAME --noheadings`:                                                          "/swapfile",
+		`test -f /etc/systemd/journald.conf.d/50-tiffin.conf && echo yes`:                          "yes",
+		`sudo nft list table inet tiffin_guard >/dev/null && echo yes`:                             "yes",
+		`systemctl is-active crowdsec crowdsec-firewall-bouncer | sort -u`:                         "active",
+		`timedatectl show -p NTP --value`:                                                          "yes",
 	}
 	for script, want := range checks {
 		if got := mustShell(script); !strings.Contains(got, want) {

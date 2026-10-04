@@ -93,8 +93,8 @@ tiffin up --provider hetzner --name shop --dry-run
 
 It prints the server, a 40 GB data volume, a firewall and an SSH key, and the monthly
 price from Hetzner's own price list. Drop `--dry-run` to create them. The defaults are
-a `cax11` (ARM, 2 vCPU, 4 GB) in `fsn1` on Ubuntu 24.04; change them with `--type`,
-`--location` and `--image ubuntu-26.04`. To use your own SSH key instead of one Tiffin
+a `cax11` (ARM, 2 vCPU, 4 GB) in `fsn1` on Ubuntu 26.04; change them with `--type`,
+`--location` and `--image ubuntu-24.04`. To use your own SSH key instead of one Tiffin
 makes, pass `--ssh-key ~/.ssh/id_ed25519` (or set `HCLOUD_SSH_KEY`); only the public
 half is uploaded, and a copy already in the project is reused.
 
@@ -106,6 +106,19 @@ tiffin down --confirm shop --delete-data   # the volume too
 ```
 
 `tiffin down` without `--confirm` shows what would go, and what keeps costing money.
+
+Already made a server in the Hetzner console? Adopt it instead (by name or ID, with the
+key that logs in to it as root):
+
+```bash
+tiffin up --provider hetzner --adopt my-server --ssh-key ~/.ssh/id_ed25519 --dry-run
+```
+
+Adopting labels the server, its volume and its IPs, keeps the IPv4 address if the server
+is ever deleted, turns on delete protection (`--no-protect` skips it; while it is on, `tiffin down`
+needs `--unprotect`), adds the firewall and installs Tiffin. An empty volume moves from
+Hetzner's `/mnt/HC_Volume_<id>` to Tiffin's data directory; a volume with files on it is
+never moved or formatted.
 
 ### Any Ubuntu server
 

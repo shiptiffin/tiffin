@@ -36,6 +36,8 @@ type upOptions struct {
 	volumeGB                        int
 	dryRun                          bool
 	host, identity, sshKey, image   string
+	adopt                           string
+	noProtect                       bool
 	dataDisk, dataDir, publicIP     string
 	sshFrom                         []string
 	rebootWindow                    string
@@ -57,6 +59,7 @@ func (a *app) upCmd() *cobra.Command {
 		Example: "  tiffin up\n" +
 			"  tiffin up --provider hetzner --dry-run\n" +
 			"  tiffin up --provider hetzner --name shop --location nbg1\n" +
+			"  tiffin up --provider hetzner --adopt shiptiffin-server --ssh-key ~/.ssh/id_ed25519 --dry-run\n" +
 			"  tiffin up --provider ssh --host root@203.0.113.5 --data-disk /dev/sdb",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -101,7 +104,9 @@ func (a *app) upCmd() *cobra.Command {
 	fl.StringVar(&o.tokenFile, "token-file", "", "hetzner: file holding the API token (default: $HCLOUD_TOKEN)")
 	fl.StringSliceVar(&o.sshFrom, "ssh-from", nil, "hetzner: addresses allowed to SSH in (default: this computer's public IP)")
 	fl.StringVar(&o.sshKey, "ssh-key", "", "your own SSH private key to use (default $HCLOUD_SSH_KEY; else hetzner makes one for the box). Only its .pub is uploaded; an identical key already in the Hetzner project is reused")
-	fl.StringVar(&o.image, "image", "", "hetzner: ubuntu-24.04 (default) or ubuntu-26.04")
+	fl.StringVar(&o.adopt, "adopt", "", "hetzner: adopt a server made by hand (its name or ID): label it, keep its IPv4, protect it, add the firewall, install Tiffin. Needs --ssh-key")
+	fl.BoolVar(&o.noProtect, "no-protect", false, "hetzner --adopt: do not turn on delete/rebuild protection")
+	fl.StringVar(&o.image, "image", "", "hetzner: ubuntu-26.04 (default) or ubuntu-24.04")
 	fl.StringVar(&o.host, "host", "", "ssh: the server, as user@host[:port] (the user needs sudo)")
 	fl.StringVar(&o.identity, "identity", "", "ssh: private key file (default: your ssh agent and ~/.ssh)")
 	fl.StringVar(&o.dataDisk, "data-disk", "", "ssh: a block device for /var/lib/tiffin (formatted XFS only if blank)")
@@ -360,7 +365,7 @@ func repoRoot() string {
 
 func (a *app) downCmd() *cobra.Command {
 	var confirm, prov, tokenFile string
-	var deleteData bool
+	var deleteData, unprotect bool
 	cmd := &cobra.Command{
 		Use:   "down",
 		Short: "Destroy your box and everything on it",
@@ -383,10 +388,10 @@ func (a *app) downCmd() *cobra.Command {
 			bx := f.Boxes[name]
 			switch {
 			case bx != nil && bx.Provider != "local":
-				return a.downServer(cmd.Context(), name, bx, confirm == name, deleteData, tokenFile)
+				return a.downServer(cmd.Context(), name, bx, confirm == name, deleteData, unprotect, tokenFile)
 			case bx == nil && prov == "hetzner" && name != "" && name != "local":
 				// A box this computer forgot (e.g. only its kept volume is left).
-				return a.downServer(cmd.Context(), name, &boxConfig{Provider: "hetzner", Server: &serverBox{}}, confirm == name, deleteData, tokenFile)
+				return a.downServer(cmd.Context(), name, &boxConfig{Provider: "hetzner", Server: &serverBox{}}, confirm == name, deleteData, unprotect, tokenFile)
 			case name != "" && name != "local" && confirm != "":
 				return &exitError{ExitInvalid, "there is no box named " + name + " on this computer (for a Hetzner box it forgot, add --provider hetzner)"}
 			}
@@ -397,6 +402,7 @@ func (a *app) downCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&confirm, "confirm", "", "the box's name, to confirm (local for the local box)")
+	cmd.Flags().BoolVar(&unprotect, "unprotect", false, "hetzner: lift delete protection (an adopted server has it) so down can delete")
 	cmd.Flags().BoolVar(&deleteData, "delete-data", false, "hetzner: also delete the data volume (every project, database and file)")
 	cmd.Flags().StringVar(&prov, "provider", "", "hetzner: delete a box this computer no longer knows, by --confirm <name>")
 	cmd.Flags().StringVar(&tokenFile, "token-file", "", "hetzner: file holding the API token (default: $HCLOUD_TOKEN)")

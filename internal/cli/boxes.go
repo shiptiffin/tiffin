@@ -47,6 +47,7 @@ type serverBox struct {
 	VolumeGB   int    `json:"volumeGB,omitempty"`
 	TokenFile  string `json:"tokenFile,omitempty"` // never the token itself
 	Image      string `json:"image,omitempty"`
+	Adopted    int64  `json:"adopted,omitempty"` // the server's ID when it was made by hand and adopted
 }
 
 type boxesFile struct {

@@ -60,8 +60,21 @@ if mountpoint -q "$root"; then fsok; exit 0; fi
 for i in $(seq 1 90); do [ -b "$dev" ] && break; sleep 1; done
 [ -b "$dev" ] || { echo "the data disk $dev does not exist on this server" >&2; exit 3; }
 real="$(readlink -f "$dev")"
-if [ -n "$(findmnt -n -o TARGET -S "$real" 2>/dev/null || true)" ]; then
-  echo "$dev is already mounted at $(findmnt -n -o TARGET -S "$real" | head -n1); unmount it (and remove it from /etc/fstab) first, or pass that directory instead" >&2; exit 3
+moved=0
+cur="$(findmnt -n -o TARGET -S "$real" 2>/dev/null | head -n1 || true)"
+if [ -n "$cur" ]; then
+  # Mounted elsewhere (Hetzner automounts volumes at /mnt/HC_Volume_<id>).
+  # An empty disk moves to /var/lib/tiffin; one holding files is left alone.
+  extra="$(sudo find "$cur" -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)"
+  if [ -n "$extra" ]; then
+    echo "$dev is mounted at $cur and holds files (e.g. $extra); Tiffin never moves or formats a disk with data. Empty it, or pass --data-dir $cur" >&2; exit 3
+  fi
+  echo "moving $dev from $cur to $root (it is empty)"
+  sudo umount "$cur"
+  sudo sed -i "\|[[:space:]]$cur[[:space:]]|d" /etc/fstab
+  sudo rmdir "$cur" 2>/dev/null || true
+  sudo systemctl daemon-reload
+  moved=1
 fi
 fstype="$(sudo blkid -o value -s TYPE "$real" 2>/dev/null || true)"
 if [ -z "$fstype" ]; then
@@ -72,6 +85,13 @@ if [ -z "$fstype" ]; then
   fstype=xfs
 fi
 label="$(sudo blkid -o value -s LABEL "$real" 2>/dev/null || true)"
+if [ "$label" != %[2]s ] && { [ -z "$label" ] || [ "$moved" = 1 ]; }; then
+  # Label it as the box expects (the filesystem is unmounted here).
+  case "$fstype" in
+    xfs) sudo xfs_admin -L %[2]s "$real" >/dev/null && label=%[2]s ;;
+    ext2|ext3|ext4) sudo e2label "$real" %[2]s && label=%[2]s ;;
+  esac
+fi
 if [ "$label" = %[2]s ]; then src="LABEL=%[2]s"; else src="UUID=$(sudo blkid -o value -s UUID "$real")"; fi
 sudo sed -i '\| /var/lib/tiffin |d' /etc/fstab
 echo "$src $root $fstype defaults,nofail,x-systemd.device-timeout=90s 0 2" | sudo tee -a /etc/fstab >/dev/null

@@ -10,6 +10,7 @@ import (
 
 	"github.com/btahir/tiffin/internal/provider/hetzner"
 	"github.com/btahir/tiffin/internal/provider/hetzner/hetznertest"
+	"github.com/btahir/tiffin/internal/provider/remote"
 )
 
 func TestSSLIP(t *testing.T) {
@@ -128,6 +129,37 @@ func TestDownHetznerShowsThenDeletes(t *testing.T) {
 	mustRun(t, env, ExitOK, "down", "--provider", "hetzner", "--confirm", "shop", "--delete-data")
 	if s, v, fw, k := f.Count(); s+v+fw+k != 0 {
 		t.Fatal("everything must be gone")
+	}
+}
+
+func TestUpHetznerAdoptDryRun(t *testing.T) {
+	f := hetznertest.New()
+	defer f.Close()
+	f.AddHandmadeServer("shiptiffin-server")
+	env := newEnv(t)
+	env["TIFFIN_CONFIG_DIR"] = filepath.Join(t.TempDir(), "cfg")
+	env["HCLOUD_ENDPOINT"] = f.URL
+	env["HCLOUD_TOKEN"] = hetznertest.Token
+	args := []string{"up", "--provider", "hetzner", "--adopt", "shiptiffin-server", "--ssh-from", "198.51.100.7", "--dry-run"}
+	if code, out, _ := run(t, env, args...); code != ExitInvalid || !strings.Contains(string(out), "--ssh-key") {
+		t.Fatalf("adopt without a key: %d %s", code, out)
+	}
+	key := filepath.Join(t.TempDir(), "id")
+	pub, err := remote.GenerateKey(key, "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.AddKey("mine", pub)
+	env["HCLOUD_SSH_KEY"] = key
+	out := mustRun(t, env, ExitOK, args...)
+	var res struct {
+		Adopt *hetzner.AdoptPlan `json:"adopt"`
+	}
+	if err := json.Unmarshal(out, &res); err != nil || res.Adopt == nil || res.Adopt.Server != "shiptiffin-server" || len(res.Adopt.Changes) < 5 {
+		t.Fatalf("%v %s", err, out)
+	}
+	if len(f.Mutations) != 0 {
+		t.Fatalf("a dry run changed %v", f.Mutations)
 	}
 }
 

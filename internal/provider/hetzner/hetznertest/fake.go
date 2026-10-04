@@ -33,6 +33,7 @@ type Fake struct {
 	volumes   map[int64]*schema.Volume
 	firewalls map[int64]*schema.Firewall
 	keys      map[int64]*schema.SSHKey
+	ips       map[int64]*schema.PrimaryIP
 	actions   map[int64]*schema.Action
 	// Mutations is every non-GET request ("POST /servers"), in order.
 	Mutations []string
@@ -79,7 +80,7 @@ func serverTypes() []schema.ServerType {
 // New starts a fake project.
 func New() *Fake {
 	f := &Fake{nextID: 1000, servers: map[int64]*schema.Server{}, volumes: map[int64]*schema.Volume{},
-		firewalls: map[int64]*schema.Firewall{}, keys: map[int64]*schema.SSHKey{}, actions: map[int64]*schema.Action{}}
+		firewalls: map[int64]*schema.Firewall{}, keys: map[int64]*schema.SSHKey{}, ips: map[int64]*schema.PrimaryIP{}, actions: map[int64]*schema.Action{}}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
 	return f
 }
@@ -130,8 +131,49 @@ func (f *Fake) ServerByName(name string) *schema.Server {
 func (f *Fake) AddForeignServer(name string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	id := f.id()
-	f.servers[id] = &schema.Server{ID: id, Name: name, Status: "running", Labels: map[string]string{}, Location: Locations[0], ServerType: serverTypes()[0]}
+	f.newServer(name, serverTypes()[0], Locations[0], map[string]string{})
+}
+
+// AddHandmadeServer adds a server made in the console, the way the owner
+// made shiptiffin-server: an x86 cx23 in nbg1 with its primary IPs
+// (auto-delete on), a 40 GB XFS volume attached, no labels, no firewall.
+// It returns the server's and the volume's IDs.
+func (f *Fake) AddHandmadeServer(name string) (int64, int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s := f.newServer(name, serverTypes()[1], Locations[1], map[string]string{"owner": "me"})
+	xfs := "xfs"
+	v := &schema.Volume{ID: f.id(), Name: name + "-vol", Size: 40, Status: "available", Labels: map[string]string{}, Format: &xfs, Location: s.Location, Server: &s.ID}
+	v.LinuxDevice = fmt.Sprintf("/dev/disk/by-id/scsi-0HC_Volume_%d", v.ID)
+	f.volumes[v.ID] = v
+	s.Volumes = append(s.Volumes, v.ID)
+	return s.ID, v.ID
+}
+
+// PrimaryIP returns a primary IP by ID.
+func (f *Fake) PrimaryIP(id int64) *schema.PrimaryIP {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if ip := f.ips[id]; ip != nil {
+		c := *ip
+		return &c
+	}
+	return nil
+}
+
+// IPCount is how many primary IPs exist.
+func (f *Fake) IPCount() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f.ips) }
+
+func (f *Fake) newServer(name string, st schema.ServerType, l schema.Location, labels map[string]string) *schema.Server {
+	s := &schema.Server{ID: f.id(), Name: name, Status: "running", Created: time.Now(), ServerType: st, Labels: labels, Location: l}
+	n := s.ID % 250
+	v4 := &schema.PrimaryIP{ID: f.id(), IP: fmt.Sprintf("203.0.113.%d", n), Type: "ipv4", AutoDelete: true, Labels: map[string]string{}, Location: l, AssigneeID: &s.ID, AssigneeType: "server", Name: "primary_ip-" + strconv.FormatInt(n, 10)}
+	v6 := &schema.PrimaryIP{ID: f.id(), IP: fmt.Sprintf("2001:db8:%x::/64", n), Type: "ipv6", AutoDelete: true, Labels: map[string]string{}, Location: l, AssigneeID: &s.ID, AssigneeType: "server", Name: "primary_ip6-" + strconv.FormatInt(n, 10)}
+	f.ips[v4.ID], f.ips[v6.ID] = v4, v6
+	s.PublicNet.IPv4 = schema.ServerPublicNetIPv4{ID: v4.ID, IP: v4.IP}
+	s.PublicNet.IPv6 = schema.ServerPublicNetIPv6{ID: v6.ID, IP: v6.IP}
+	f.servers[s.ID] = s
+	return s
 }
 
 // AddKey adds an SSH key someone uploaded in the console (no labels).
@@ -286,7 +328,115 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		write(w, 200, schema.ActionListResponse{Actions: out})
 	case "GET primary_ips":
-		write(w, 200, schema.PrimaryIPListResponse{PrimaryIPs: []schema.PrimaryIP{}})
+		write(w, 200, schema.PrimaryIPListResponse{PrimaryIPs: sorted(f.ips, func(ip *schema.PrimaryIP) bool { return matches(ip.Labels, sel) })})
+	case "GET primary_ips/{id}":
+		ip := f.ips[id]
+		if ip == nil {
+			apiError(w, 404, "not_found", "primary ip not found")
+			return
+		}
+		write(w, 200, schema.PrimaryIPGetResponse{PrimaryIP: *ip})
+	case "PUT primary_ips/{id}":
+		ip := f.ips[id]
+		var req schema.PrimaryIPUpdateRequest
+		if ip == nil || !decode(&req) {
+			if ip == nil {
+				apiError(w, 404, "not_found", "primary ip not found")
+			}
+			return
+		}
+		if req.Labels != nil {
+			ip.Labels = *req.Labels
+		}
+		if req.AutoDelete != nil {
+			ip.AutoDelete = *req.AutoDelete
+		}
+		write(w, 200, schema.PrimaryIPUpdateResponse{PrimaryIP: *ip})
+	case "POST primary_ips/{id}/actions/change_protection":
+		ip := f.ips[id]
+		var req struct {
+			Delete bool `json:"delete"`
+		}
+		if ip == nil || !decode(&req) {
+			if ip == nil {
+				apiError(w, 404, "not_found", "primary ip not found")
+			}
+			return
+		}
+		ip.Protection.Delete = req.Delete
+		write(w, 201, schema.ServerActionPoweronResponse{Action: f.action("change_protection")})
+	case "DELETE primary_ips/{id}":
+		ip := f.ips[id]
+		if ip == nil {
+			apiError(w, 404, "not_found", "primary ip not found")
+			return
+		}
+		if ip.Protection.Delete {
+			apiError(w, 403, "protected", "primary ip is protected")
+			return
+		}
+		delete(f.ips, id)
+		w.WriteHeader(204)
+	case "PUT servers/{id}":
+		s := f.servers[id]
+		var req schema.ServerUpdateRequest
+		if s == nil || !decode(&req) {
+			if s == nil {
+				apiError(w, 404, "not_found", "server not found")
+			}
+			return
+		}
+		if req.Labels != nil {
+			s.Labels = *req.Labels
+		}
+		write(w, 200, schema.ServerUpdateResponse{Server: *s})
+	case "POST servers/{id}/actions/change_protection":
+		s := f.servers[id]
+		var req struct {
+			Delete  *bool `json:"delete"`
+			Rebuild *bool `json:"rebuild"`
+		}
+		if s == nil || !decode(&req) {
+			if s == nil {
+				apiError(w, 404, "not_found", "server not found")
+			}
+			return
+		}
+		if req.Delete != nil {
+			s.Protection.Delete = *req.Delete
+		}
+		if req.Rebuild != nil {
+			s.Protection.Rebuild = *req.Rebuild
+		}
+		write(w, 201, schema.ServerActionPoweronResponse{Action: f.action("change_protection")})
+	case "PUT volumes/{id}":
+		v := f.volumes[id]
+		var req schema.VolumeUpdateRequest
+		if v == nil || !decode(&req) {
+			if v == nil {
+				apiError(w, 404, "not_found", "volume not found")
+			}
+			return
+		}
+		if req.Labels != nil {
+			v.Labels = *req.Labels
+		}
+		write(w, 200, schema.VolumeUpdateResponse{Volume: *v})
+	case "POST volumes/{id}/actions/change_protection":
+		v := f.volumes[id]
+		var req struct {
+			Delete *bool `json:"delete"`
+		}
+		if v == nil || !decode(&req) {
+			if v == nil {
+				apiError(w, 404, "not_found", "volume not found")
+			}
+			return
+		}
+		if req.Delete != nil {
+			v.Protection.Delete = *req.Delete
+		}
+		write(w, 201, schema.ServerActionPoweronResponse{Action: f.action("change_protection")})
 
 	// ---- SSH keys ----
 	case "GET ssh_keys":
@@ -450,6 +600,10 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 			apiError(w, 422, "resource_in_use", "volume is attached")
 			return
 		}
+		if v.Protection.Delete {
+			apiError(w, 403, "protected", "volume is protected")
+			return
+		}
 		delete(f.volumes, id)
 		w.WriteHeader(204)
 
@@ -486,11 +640,7 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 			apiError(w, 400, "invalid_input", "server type and location required")
 			return
 		}
-		s := &schema.Server{ID: f.id(), Name: req.Name, Status: "running", Created: time.Now(), ServerType: *st, Labels: deref(req.Labels), Location: loc(req.Location)}
-		n := s.ID % 250
-		s.PublicNet.IPv4 = schema.ServerPublicNetIPv4{ID: f.id(), IP: fmt.Sprintf("203.0.113.%d", n)}
-		s.PublicNet.IPv6 = schema.ServerPublicNetIPv6{ID: f.id(), IP: fmt.Sprintf("2001:db8:%x::/64", n)}
-		f.servers[s.ID] = s
+		s := f.newServer(req.Name, *st, loc(req.Location), deref(req.Labels))
 		for _, vid := range req.Volumes {
 			if v := f.volumes[vid]; v != nil {
 				v.Server = &s.ID
@@ -516,6 +666,19 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 		if s == nil {
 			apiError(w, 404, "not_found", "server not found")
 			return
+		}
+		if s.Protection.Delete {
+			apiError(w, 403, "protected", "server is protected")
+			return
+		}
+		for ipID, ip := range f.ips {
+			if ip.AssigneeID != nil && *ip.AssigneeID == id {
+				if ip.AutoDelete {
+					delete(f.ips, ipID)
+				} else {
+					ip.AssigneeID = nil
+				}
+			}
 		}
 		for _, v := range f.volumes {
 			if v.Server != nil && *v.Server == id {

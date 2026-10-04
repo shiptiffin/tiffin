@@ -28,9 +28,9 @@ const (
 	DefaultLocation   = "fsn1"
 	DefaultServerType = "cax11"
 	DefaultVolumeGB   = 40
-	DefaultImage      = "ubuntu-24.04"
-	LabelKind         = "tiffin"     // tiffin=box on everything Tiffin makes
-	LabelBox          = "tiffin-box" // tiffin-box=<name>
+	DefaultImage      = "ubuntu-26.04" // new servers; 24.04 stays supported (--image)
+	LabelKind         = "tiffin"       // tiffin=box on everything Tiffin makes
+	LabelBox          = "tiffin-box"   // tiffin-box=<name>
 )
 
 // Images are the Ubuntu releases Tiffin can create servers with.
@@ -53,7 +53,7 @@ type Config struct {
 	// is and never generated, copied or deleted.
 	OwnKey     bool
 	KnownHosts string
-	// Image is the Ubuntu release: ubuntu-24.04 (default) or ubuntu-26.04.
+	// Image is the Ubuntu release: ubuntu-26.04 (default) or ubuntu-24.04.
 	Image   string
 	Version string // tiffin version, sent as the API user agent
 	// PollInterval for actions (tests make it short).
@@ -64,6 +64,9 @@ type Config struct {
 type Provider struct {
 	cfg Config
 	c   *hcloud.Client
+
+	// Unprotect lets DestroyAll remove delete protection (adopted servers).
+	Unprotect bool
 
 	// Set by Up.
 	Server *hcloud.Server
@@ -386,6 +389,14 @@ func serverPrice(pr hcloud.Pricing, st, loc string) (float64, float64, bool) {
 	return 0, 0, false
 }
 
+// IPv4Price is the monthly price of a primary IPv4 address in a location.
+func IPv4Price(pr hcloud.Pricing, l *hcloud.Location) (float64, float64, bool) {
+	if l == nil {
+		return 0, 0, false
+	}
+	return ipv4Price(pr, l.Name)
+}
+
 func ipv4Price(pr hcloud.Pricing, loc string) (float64, float64, bool) {
 	for _, t := range pr.PrimaryIPs {
 		if t.Type != "ipv4" {
@@ -468,16 +479,19 @@ func (p *Provider) Ensure(ctx context.Context, progress func(string)) (remote.Ta
 	if p.cfg.KeyPath == "" {
 		return none, errors.New("no SSH key path")
 	}
-	r, err := p.resolve(ctx)
-	if err != nil {
-		return none, err
-	}
 	in, err := p.Inventory(ctx)
 	if err != nil {
 		return none, err
 	}
 	if len(in.Servers) > 1 {
 		return none, fmt.Errorf("%d servers are labelled %s=%s; Tiffin expects one. Delete the extra ones in the Hetzner console", len(in.Servers), LabelBox, p.cfg.Name)
+	}
+	var r *resolved
+	if len(in.Servers) == 1 && in.Servers[0].ServerType != nil && in.Servers[0].Location != nil {
+		// An existing (or adopted) server: its type and place are what they are.
+		r = &resolved{st: in.Servers[0].ServerType, loc: in.Servers[0].Location}
+	} else if r, err = p.resolve(ctx); err != nil {
+		return none, err
 	}
 	if len(in.Volumes) > 1 {
 		return none, fmt.Errorf("%d volumes are labelled %s=%s; Tiffin expects one", len(in.Volumes), LabelBox, p.cfg.Name)
@@ -587,8 +601,8 @@ func (p *Provider) Ensure(ctx context.Context, progress func(string)) (remote.Ta
 	var srv *hcloud.Server
 	if len(in.Servers) > 0 {
 		srv = in.Servers[0]
-		if srv.ServerType != nil && srv.ServerType.Name != r.st.Name {
-			progress(fmt.Sprintf("the server is a %s; --type %s is ignored (resize it in the Hetzner console)", srv.ServerType.Name, r.st.Name))
+		if srv.ServerType != nil && p.cfg.ServerType != DefaultServerType && srv.ServerType.Name != p.cfg.ServerType {
+			progress(fmt.Sprintf("the server is a %s; --type %s is ignored (resize it in the Hetzner console)", srv.ServerType.Name, p.cfg.ServerType))
 		}
 		if srv.Status == hcloud.ServerStatusOff {
 			progress("starting the server (it was off)")
@@ -811,6 +825,8 @@ type DestroyReport struct {
 	// KeptVolumes are volumes left in place (no --delete-data); they cost
 	// money until deleted.
 	KeptVolumes []*hcloud.Volume `json:"-"`
+	// KeptIPs are primary IPs with auto-delete off (an adopted server's IPv4).
+	KeptIPs []*hcloud.PrimaryIP `json:"-"`
 }
 
 // DestroyAll deletes the server, firewall and SSH key, and the volume only
@@ -821,6 +837,15 @@ func (p *Provider) DestroyAll(ctx context.Context, deleteData bool, progress fun
 		return nil, err
 	}
 	rep := &DestroyReport{}
+	if prot := Protected(in, deleteData); len(prot) > 0 {
+		if !p.Unprotect {
+			return rep, fmt.Errorf("%s %s delete protection (an adopted server is protected); add --unprotect to remove it and delete", strings.Join(prot, ", "), map[bool]string{true: "has", false: "have"}[len(prot) == 1])
+		}
+		progress("removing delete protection from " + strings.Join(prot, ", "))
+		if err := p.unprotect(ctx, in, deleteData); err != nil {
+			return rep, err
+		}
+	}
 	for _, s := range in.Servers {
 		progress("deleting the server " + s.Name)
 		res, _, err := p.c.Server.DeleteWithResult(ctx, s)
@@ -855,6 +880,12 @@ func (p *Provider) DestroyAll(ctx context.Context, deleteData bool, progress fun
 		rep.Deleted = append(rep.Deleted, "SSH key "+k.Name)
 	}
 	for _, ip := range in.PrimaryIPs {
+		if !ip.AutoDelete && !deleteData {
+			// The address DNS points at: kept like the data (it costs while unassigned).
+			rep.Kept = append(rep.Kept, "IPv4 address "+ip.IP.String()+" (id "+strconv.FormatInt(ip.ID, 10)+")")
+			rep.KeptIPs = append(rep.KeptIPs, ip)
+			continue
+		}
 		if _, err := p.c.PrimaryIP.Delete(ctx, ip); err != nil && !hcloud.IsError(err, hcloud.ErrorCodeNotFound) {
 			return rep, apiErr("delete the primary IP", err)
 		}
