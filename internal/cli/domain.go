@@ -15,6 +15,7 @@ import (
 // domainStatus is the part of GET /v1/domain the CLI acts on.
 type domainStatus struct {
 	Domain       string `json:"domain"`
+	AppsDomain   string `json:"appsDomain"`
 	Dashboard    string `json:"dashboard"`
 	DashboardURL string `json:"dashboardUrl"`
 	State        string `json:"state"`
@@ -111,7 +112,7 @@ func (a *app) domainCmd() *cobra.Command {
 			}
 			// The service restarts, then gets certificates: wait (bounded)
 			// on the old address, which keeps working meanwhile.
-			st, ok := a.waitDomain(ctx, c, want.Domain, 4*time.Minute)
+			st, ok := a.waitDomain(ctx, c, want, 4*time.Minute)
 			if !ok {
 				a.emit(status, raw)
 				fmt.Fprintf(a.io.Err, "The box is switching to %s but its dashboard certificate is not live yet. Check with: tiffin domain\n", want.Domain)
@@ -133,9 +134,9 @@ func (a *app) domainCmd() *cobra.Command {
 	return cmd
 }
 
-// waitDomain polls the box until it serves domain with a live dashboard
-// certificate (or a local box's internal one).
-func (a *app) waitDomain(ctx context.Context, c *client, domain string, d time.Duration) (domainStatus, bool) {
+// waitDomain polls the box until it serves want's domain, dashboard and apps
+// domain with a live dashboard certificate (or a local box's internal one).
+func (a *app) waitDomain(ctx context.Context, c *client, want domainStatus, d time.Duration) (domainStatus, bool) {
 	deadline := time.Now().Add(d)
 	last := ""
 	for time.Now().Before(deadline) {
@@ -149,8 +150,9 @@ func (a *app) waitDomain(ctx context.Context, c *client, domain string, d time.D
 			continue // restarting
 		}
 		var st domainStatus
-		if json.Unmarshal(raw, &st) != nil || st.Domain != domain {
-			continue
+		if json.Unmarshal(raw, &st) != nil || st.Domain != want.Domain || st.Dashboard != want.Dashboard ||
+			(want.AppsDomain != "" && st.AppsDomain != want.AppsDomain) {
+			continue // not restarted yet
 		}
 		if st.State == "live" || st.State == "internal" {
 			return st, true
