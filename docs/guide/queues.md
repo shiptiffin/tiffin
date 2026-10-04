@@ -16,6 +16,15 @@ await queue.send("emails", { to: "sam@example.com" }, { delay: "10m", key: "user
   so a job exists if and only if your write committed.
 - **Long jobs** extend their lease with heartbeats; nothing has a time limit.
 
+### Without the SDK
+
+- **Send:** `POST $TIFFIN_QUEUE_URL/v1/queue-internal/send` with
+  `Authorization: Bearer $TIFFIN_QUEUE_KEY` and `{"name", "payload", "key"?, "delaySeconds"?, "dedupe"?}`.
+- **Receive:** the box POSTs `{"id", "attemptId", "payload", ...}` with
+  `Tiffin-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`, keyed with
+  `TIFFIN_QUEUE_SIGNING_SECRET`. Check it (and that `t` is within 5 minutes), then answer
+  2xx to finish, 489 to give up, anything else to retry. Crons arrive the same way.
+
 ## Declare queues and topics
 
 A queue works as soon as an app sends to it, but declaring it in `tiffin.config.ts`

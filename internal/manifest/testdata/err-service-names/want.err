@@ -1,0 +1,2 @@
+/services: unknown field(s): redis, jobs; check the spelling against the schema (for "jobs" use the top-level `queues` and `crons` (not a service); for "redis" use valkey)
+/services/database: "database" is another name for "postgres"; use only one of them

@@ -137,6 +137,17 @@ func wordOrList(s *huma.Schema) ([]string, bool) {
 	return words, list && len(words) > 0
 }
 
+// exampleArgs gives path parameters sample values for a command's example
+// ("shop", "web"), or their names where no sample reads better.
+func exampleArgs(params []string) []string {
+	samples := map[string]string{"project": "shop", "app": "web", "bucket": "uploads", "queue": "emails"}
+	out := make([]string, len(params))
+	for i, p := range params {
+		out[i] = orDefault(samples[p], "<"+p+">")
+	}
+	return out
+}
+
 func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGlobal func(flag string) bool) *cobra.Command {
 	var pathParams []string
 	var queryParams []*huma.Param
@@ -161,7 +172,7 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 		Short:   o.Summary,
 		Long:    long,
 		Args:    cobra.ExactArgs(len(pathParams)),
-		Example: "  tiffin " + strings.Join(api.CLIPath(o), " ") + strings.Repeat(" <id>", len(pathParams)),
+		Example: "  tiffin " + strings.Join(append(api.CLIPath(o), exampleArgs(pathParams)...), " "),
 	}
 	query := map[string]*string{}
 	for _, p := range queryParams {

@@ -26,7 +26,7 @@
       "additionalProperties": { "$ref": "#/$defs/app" }
     },
     "services": {
-      "description": "Box-provided backends the project uses. A service that is absent is not provisioned.",
+      "description": "Box-provided backends the project uses. A service that is absent is not provisioned. The dashboard calls them Database (postgres), Cache (valkey), Files (storage), Auth, Email and Analytics; `database`, `cache` and `files` are accepted here too and stored under the canonical name. Jobs are the top-level `queues` and `crons`, not a service.",
       "$ref": "#/$defs/services"
     },
     "crons": {
@@ -306,7 +306,7 @@
       "additionalProperties": false,
       "properties": {
         "postgres": {
-          "description": "Gives the project its own Postgres database. Provides DATABASE_URL to every app.",
+          "description": "Database: gives the project its own Postgres database. Provides DATABASE_URL to every app.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -322,7 +322,7 @@
           }
         },
         "valkey": {
-          "description": "Gives the project a Valkey (Redis-compatible) key-value/cache namespace. Provides REDIS_URL to every app.",
+          "description": "Cache: gives the project a Valkey (Redis-compatible) key-value/cache namespace. Provides REDIS_URL to every app.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -335,7 +335,7 @@
           }
         },
         "storage": {
-          "description": "Gives the project S3-compatible object storage buckets.",
+          "description": "Files: gives the project S3-compatible object storage buckets. Provides S3_* (and AWS_*) env vars to every app.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -358,7 +358,7 @@
           }
         },
         "auth": {
-          "description": "Gives the project user accounts and sessions. The box serves the auth endpoint at \"/api/auth\" on each app's own routes and exposes its base URL to every app as TIFFIN_AUTH_URL.",
+          "description": "Auth: gives the project user accounts and sessions. Needs postgres (users live there); add email too, for verification and sign-in mail. The box serves the auth endpoint at \"/api/auth\" on each app's own routes and exposes its base URL to every app as TIFFIN_AUTH_URL.",
           "type": "object",
           "additionalProperties": false,
           "properties": {

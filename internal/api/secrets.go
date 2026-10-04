@@ -5,7 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"time"
 
+	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
@@ -14,6 +16,12 @@ import (
 type secretPath struct {
 	Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 	Name    string `path:"name" pattern:"^[A-Z_][A-Z0-9_]{0,127}$" doc:"Secret name (an env var name)"`
+}
+
+// SecretSet is a stored secret and what happens next.
+type SecretSet struct {
+	platform.SecretInfo
+	Note string `json:"note,omitempty" doc:"What happens next, and whether the secret replaces a value the box sets"`
 }
 
 // SecretsCopied says which secrets a copy wrote and which it left alone.
@@ -49,14 +57,16 @@ func (a *API) registerSecrets() {
 
 	set := op("secret-set", http.MethodPut, "/v1/projects/{project}/secrets/{name}", "secrets set", RiskWrite, "Set a secret",
 		"Encrypts and stores a secret env var (age, with the box's own key) and restarts the project's apps with it. "+
-			"The value is never returned or logged.", "secrets")
+			"The value is never returned or logged. The restart runs in the background: if the new instances fail their health check "+
+			"the old ones keep serving and project_get shows the app failed, with the reason. "+
+			"A secret named like a variable the box sets (DATABASE_URL, REDIS_URL, S3_*, SMTP_URL, TIFFIN_*...) replaces the box's value; the result's note says so.", "secrets")
 	huma.Register(api, set, wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Name    string `path:"name" pattern:"^[A-Z_][A-Z0-9_]{0,127}$" doc:"Secret name (an env var name)"`
 		Body    struct {
 			Value string `json:"value" maxLength:"65536" doc:"The secret value"`
 		}
-	}) (*struct{ Body platform.SecretInfo }, error) {
+	}) (*struct{ Body SecretSet }, error) {
 		p := PrincipalFrom(ctx)
 		if err := p.Require(tokens.ScopeApplyReversible, in.Project); err != nil {
 			return nil, err
@@ -73,7 +83,12 @@ func (a *API) registerSecrets() {
 		}
 		_ = a.deps.DB.Audit(ctx, p.TokenID, "secret.set", in.Project+"/"+in.Name, map[string]any{"session": p.Session})
 		a.deps.Platform.ReconcileProject(in.Project)
-		return &struct{ Body platform.SecretInfo }{platform.SecretInfo{Name: in.Name, UpdatedBy: p.TokenID}}, nil
+		out := SecretSet{SecretInfo: platform.SecretInfo{Name: in.Name, UpdatedAt: time.Now().UTC(), UpdatedBy: p.TokenID},
+			Note: "The project's apps restart with it in the background; project_get shows each app's state."}
+		if manifest.SetByBox(in.Name) {
+			out.Note = "The box already gives apps " + in.Name + "; this secret replaces that value. Delete the secret to go back to the box's. " + out.Note
+		}
+		return &struct{ Body SecretSet }{out}, nil
 	}))
 
 	cp := op("secrets-copy", http.MethodPost, "/v1/projects/{project}/secrets/copy", "secrets copy", RiskWrite, "Copy secrets from another project",

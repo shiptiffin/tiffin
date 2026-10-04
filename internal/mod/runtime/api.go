@@ -103,8 +103,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	create := api.Op("deploy-create", http.MethodPost, appPath+"/deploys", "deploys create", api.RiskWrite, "Deploy an app",
 		"Builds and releases a new version of an app with zero downtime: the source is built on the box (Railpack + BuildKit; "+
 			"static sites are served as files), new instances start, pass their health check, take over the app's routes, "+
-			"and the old ones drain and stop. Returns at once with the queued deploy; poll deploys get (or deploys build-log) until "+
-			"status is live or failed. A failed deploy never takes the running version down. "+
+			"and the old ones drain and stop. Returns at once with the queued deploy; then deploys get with wait=120 answers "+
+			"when it is live or failed (the failure says why). A failed deploy never takes the running version down. "+
 			"Send a gzipped tar of the app directory (Content-Type: application/gzip; tiffin deploy does this), "+
 			"an image tarball with prebuilt=true, or JSON with inline files. "+
 			"The app must already exist: add it to tiffin.config.ts and apply first.", "apps")
@@ -187,9 +187,15 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		ID      string `path:"id" pattern:"^dep_[0-9A-Z]{26}$" doc:"Deploy ID"`
 	}
 	get := api.Op("deploy-get", http.MethodGet, appPath+"/deploys/{id}", "deploys get", api.RiskRead, "Get a deploy",
-		"One deploy: status (queued, building, starting, live, failed, superseded, rolled_back, stopped), error and hint when it failed, image digest, timings and URL.", "apps")
+		"One deploy: status (queued, building, starting, live, failed, superseded, rolled_back, stopped), error and hint when it failed, image digest, timings and URL. "+
+			"Pass wait (seconds) to get the answer once the deploy is live or failed instead of polling.", "apps")
 	get.Errors = append(get.Errors, 404)
-	huma.Register(a, get, api.Wrap(func(ctx context.Context, in *deployPath) (*struct{ Body *Deploy }, error) {
+	huma.Register(a, get, api.Wrap(func(ctx context.Context, in *struct {
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		App     string `path:"app" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"App name"`
+		ID      string `path:"id" pattern:"^dep_[0-9A-Z]{26}$" doc:"Deploy ID"`
+		Wait    int    `query:"wait" minimum:"0" maximum:"300" doc:"Seconds to wait for the deploy to finish (live, failed...) before answering; 0 answers at once"`
+	}) (*struct{ Body *Deploy }, error) {
 		r, err := m.rt()
 		if err != nil {
 			return nil, unavailable(err)
@@ -200,6 +206,16 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		d, err := r.st.getDeploy(ctx, in.Project, in.App, in.ID)
 		if err != nil {
 			return nil, notFound(err, "deploy "+in.ID)
+		}
+		for deadline := time.Now().Add(time.Duration(in.Wait) * time.Second); !d.Terminal() && time.Now().Before(deadline); {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(500 * time.Millisecond):
+			}
+			if d, err = r.st.getDeploy(ctx, in.Project, in.App, in.ID); err != nil {
+				return nil, err
+			}
 		}
 		return &struct{ Body *Deploy }{d}, nil
 	}))
@@ -790,7 +806,8 @@ func (r *rt) appRuntime(ctx context.Context, project, app string) (*AppRuntime, 
 		es := EnvStatus{Preview: s.Preview, Stopped: s.Stopped, Sleeping: s.Sleeping, Draining: s.Draining, UpdatedAt: s.UpdatedAt, Instances: []InstanceStatus{}}
 		if s.Live != "" {
 			if d, err := r.st.getDeploy(ctx, project, app, s.Live); err == nil {
-				es.Live, es.URL = d, d.URL
+				// The address now, from the current routes (a route change since the deploy moves it).
+				es.Live, es.URL = d, r.deployURL(d, spec)
 			}
 		}
 		for _, in := range s.Instances {

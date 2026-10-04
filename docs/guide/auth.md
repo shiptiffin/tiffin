@@ -28,7 +28,23 @@ const rows = await withOrg(sql, orgId, tx => tx`select * from projects`); // RLS
 import { SignIn, UserButton, OrgSwitcher } from "tiffin-sdk/react";
 ```
 
-Mail (verification, links, invites) goes through the project's email service, so it
-lands in the dev inbox until you set up a relay.
+Mail (verification, links, invites) goes through the project's email service, so add
+`email: {}` next to `auth` (the plan warns when it is missing). It lands in the dev inbox
+until you set up a relay. Email + password sign-up needs a confirmed address: sign-up
+answers `{"token": null}` and no session until the user opens the link in the mail.
+Testing it yourself? The link is in `tiffin email messages list <project>` / `get`.
+
+### Without the SDK
+
+Everything above is plain HTTP, so any language works:
+
+- **Who is signed in:** `GET $TIFFIN_AUTH_INTERNAL_URL/tiffin/session` with the request's
+  `cookie` (or `x-api-key`) and `x-tiffin-host: <the app's host>`; it answers the session
+  (`user`, `organization`) or 401.
+- **Bot check:** sign-up, sign-in, magic links and resets need a proof of work. Fetch
+  `GET /api/auth/altcha/challenge`, solve it with
+  [altcha-lib](https://github.com/altcha-org/altcha-lib) (`solveChallenge`), and send
+  `x-captcha-response: base64(JSON.stringify({challenge, solution}))` with the POST
+  (for example `POST /api/auth/sign-up/email {email, password, name}`).
 
 The dashboard lists users and organizations; you can ban users and revoke sessions.

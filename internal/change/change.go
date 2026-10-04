@@ -98,6 +98,9 @@ type Plan struct {
 	Hash        string `json:"hash"`
 	Summary     string `json:"summary"`
 	UndoOf      string `json:"undoOf,omitempty"`
+	// Warnings are things the manifest probably did not mean (auth without
+	// email, env that replaces what the box sets). Not part of the hash.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // Empty reports whether the plan changes nothing.

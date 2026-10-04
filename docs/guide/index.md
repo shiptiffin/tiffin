@@ -12,8 +12,8 @@ online this weekend without stitching six services together.
 - **One box, everything in it.** No accounts to create for the database, the cache,
   storage, email or analytics. They are all on the box, set up for you.
 - **Safe for agents by design.** Every change is planned first, shows how risky each
-  step is, and is applied only with that plan's hash. Risky steps need a human's
-  passkey. Everything is logged and can be undone.
+  step is, and is applied only with that plan's hash. Your agent's client asks you
+  before destructive steps. Everything is logged and can be undone.
 - **A calm dashboard.** See what changed, who changed it (person or agent) and why.
 
 ## What it is not (yet)
@@ -23,8 +23,8 @@ Honesty matters more than a big claim:
 - **One machine.** If the box is down, your app is down. Backups stay on the box;
   off-site storage is not supported yet. That is fine for side projects; it is not a bank.
 - **Pre-1.0.** Interfaces may still change between versions.
-- **Local first.** Today a box runs as a VM on your Mac. Servers and Cloudflare are
-  not supported yet.
+- **Local first.** A box runs as a VM on your Mac, or on a Hetzner or any Ubuntu server
+  (see the [quickstart](quickstart.md#run-it-on-a-server)).
 
 Start with the [quickstart](quickstart.md), then [concepts](concepts.md) and
 [working with agents](agents.md).

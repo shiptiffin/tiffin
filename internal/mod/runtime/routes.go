@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/manifest"
@@ -122,6 +123,98 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 		r.p.Log.Warn("route conflict", "route", c.Key, "served_by", c.Winner, "ignored", c.Loser)
 	}
 	return out, conflicts
+}
+
+// routeKeys returns host+path for every route a project's web apps claim,
+// mapped to the app that claims it.
+func routeKeys(p *platform.Platform, res map[string]change.Resource) map[string]string {
+	out := map[string]string{}
+	for addr, rs := range res {
+		if change.Kind(addr) != change.KindApp {
+			continue
+		}
+		var a manifest.App
+		if json.Unmarshal(rs.Spec, &a) != nil || a.Role == manifest.RoleWorker {
+			continue
+		}
+		routes := a.Routes
+		if len(routes) == 0 {
+			routes = []string{change.Name(addr)}
+		}
+		for _, route := range routes {
+			host, rest, hasPath := strings.Cut(route, "/")
+			if !strings.Contains(host, ".") {
+				host = p.Host(host)
+			}
+			key := strings.ToLower(host)
+			if hasPath && strings.Trim(rest, "/") != "" {
+				key += "/" + strings.Trim(rest, "/")
+			}
+			out[key] = change.Name(addr)
+		}
+	}
+	return out
+}
+
+// CheckPlan refuses a route another project already serves: the edge would
+// keep sending it to the other project, so this app would deploy "live" at an
+// address that never reaches it. Routes the project already has are not
+// re-checked, so an old clash does not block unrelated changes.
+func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project string, desired map[string]change.Resource) error {
+	want := routeKeys(p, desired)
+	if len(want) == 0 {
+		return nil
+	}
+	_, cur, err := p.DB.Load(ctx, project)
+	if err != nil {
+		return err
+	}
+	have := routeKeys(p, cur)
+	names, err := p.DB.ListProjects(ctx)
+	if err != nil {
+		return err
+	}
+	taken := map[string]string{}
+	for _, n := range names {
+		if n == project {
+			continue
+		}
+		_, res, err := p.DB.Load(ctx, n)
+		if err != nil {
+			return err
+		}
+		for k, app := range routeKeys(p, res) {
+			taken[k] = n + "/" + app
+		}
+	}
+	var prob *api.Problem
+	keys := make([]string, 0, len(want))
+	for k := range want {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		owner, clash := taken[k]
+		if _, had := have[k]; !clash || had {
+			continue
+		}
+		app := want[k]
+		msg := fmt.Sprintf("%s is already served by %s", k, owner)
+		if prob == nil {
+			suggest := project
+			if _, used := taken[p.Host(suggest)]; used {
+				suggest = app + "-" + project
+			}
+			prob = api.NewProblem(422, "validation", "app "+app+" would share an address with another project: "+msg)
+			prob.Hint = fmt.Sprintf("An app is served at <app name>.%s unless it sets routes. Give it its own: routes: [%q] (served at %s), or rename the app.",
+				p.Domain, suggest, p.Host(suggest))
+		}
+		prob.Errors = append(prob.Errors, api.FieldError{Path: "/apps/" + app + "/routes", Message: msg})
+	}
+	if prob == nil {
+		return nil
+	}
+	return prob
 }
 
 // serveInternal is the runtime's own localhost listener: the preview

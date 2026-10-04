@@ -557,3 +557,20 @@ func randomManifest(r *rand.Rand) *Manifest {
 	}
 	return m
 }
+
+func TestWarnings(t *testing.T) {
+	m, err := Parse([]byte(`{"project":"p","env":{"LOG_LEVEL":"debug","DATABASE_URL":"x"},
+		"apps":{"web":{"env":{"S3_PUBLIC_ENDPOINT":"y"}}},"services":{"postgres":{},"auth":{}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := Warnings(m)
+	if len(w) != 3 || !strings.Contains(w[0], "add `email: {}`") || !strings.Contains(w[1], "env sets DATABASE_URL") ||
+		!strings.Contains(w[2], "apps.web.env sets S3_PUBLIC_ENDPOINT") {
+		t.Fatalf("warnings = %q", w)
+	}
+	m, _ = Parse([]byte(`{"project":"p","services":{"postgres":{},"email":{},"auth":{"methods":["passkey"]}}}`))
+	if w := Warnings(m); len(w) != 0 {
+		t.Fatalf("clean manifest warned: %q", w)
+	}
+}

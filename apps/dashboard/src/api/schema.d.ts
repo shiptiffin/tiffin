@@ -1299,7 +1299,7 @@ export interface paths {
         put?: never;
         /**
          * Plan a manifest
-         * @description Dry run: what applying this manifest would change, the risk of each step and the plan hash. Never writes. A project `resources` budget that cannot fit this box (more CPUs than it has, memoryMB budgets adding up to more than it keeps for apps) is refused with 422 and a hint.
+         * @description Dry run: what applying this manifest would change, the risk of each step and the plan hash. Never writes. `warnings` lists things the manifest probably did not mean (auth without email, env that replaces what the box sets): fix them before applying. A project `resources` budget that cannot fit this box (more CPUs than it has, memoryMB budgets adding up to more than it keeps for apps) is refused with 422 and a hint.
          */
         post: operations["plan"];
         delete?: never;
@@ -1317,7 +1317,7 @@ export interface paths {
         };
         /**
          * List projects
-         * @description Projects on this box that your token can see, with their current version.
+         * @description Projects on this box that your token can see, with their current version and any resource that failed to converge (failing: an app whose new instances did not pass their health check, say; project_get has the details).
          */
         get: operations["projects-list"];
         put?: never;
@@ -1337,7 +1337,7 @@ export interface paths {
         };
         /**
          * Get a project's state
-         * @description The project's current resources and version.
+         * @description The project's current resources and version, and each resource's live state (pending, ready or failed, with the reason: a failed app's message ends with its last log lines).
          */
         get: operations["project-get"];
         put?: never;
@@ -1387,7 +1387,7 @@ export interface paths {
         put?: never;
         /**
          * Deploy an app
-         * @description Builds and releases a new version of an app with zero downtime: the source is built on the box (Railpack + BuildKit; static sites are served as files), new instances start, pass their health check, take over the app's routes, and the old ones drain and stop. Returns at once with the queued deploy; poll deploys get (or deploys build-log) until status is live or failed. A failed deploy never takes the running version down. Send a gzipped tar of the app directory (Content-Type: application/gzip; tiffin deploy does this), an image tarball with prebuilt=true, or JSON with inline files. The app must already exist: add it to tiffin.config.ts and apply first.
+         * @description Builds and releases a new version of an app with zero downtime: the source is built on the box (Railpack + BuildKit; static sites are served as files), new instances start, pass their health check, take over the app's routes, and the old ones drain and stop. Returns at once with the queued deploy; then deploys get with wait=120 answers when it is live or failed (the failure says why). A failed deploy never takes the running version down. Send a gzipped tar of the app directory (Content-Type: application/gzip; tiffin deploy does this), an image tarball with prebuilt=true, or JSON with inline files. The app must already exist: add it to tiffin.config.ts and apply first.
          */
         post: operations["deploy-create"];
         delete?: never;
@@ -1465,7 +1465,7 @@ export interface paths {
         };
         /**
          * Get a deploy
-         * @description One deploy: status (queued, building, starting, live, failed, superseded, rolled_back, stopped), error and hint when it failed, image digest, timings and URL.
+         * @description One deploy: status (queued, building, starting, live, failed, superseded, rolled_back, stopped), error and hint when it failed, image digest, timings and URL. Pass wait (seconds) to get the answer once the deploy is live or failed instead of polling.
          */
         get: operations["deploy-get"];
         put?: never;
@@ -2590,7 +2590,7 @@ export interface paths {
         get?: never;
         /**
          * Set a secret
-         * @description Encrypts and stores a secret env var (age, with the box's own key) and restarts the project's apps with it. The value is never returned or logged.
+         * @description Encrypts and stores a secret env var (age, with the box's own key) and restarts the project's apps with it. The value is never returned or logged. The restart runs in the background: if the new instances fail their health check the old ones keep serving and project_get shows the app failed, with the reason. A secret named like a variable the box sets (DATABASE_URL, REDIS_URL, S3_*, SMTP_URL, TIFFIN_*...) replaces the box's value; the result's note says so.
          */
         put: operations["secret-set"];
         post?: never;
@@ -2841,7 +2841,7 @@ export interface paths {
         };
         /**
          * Show what a project uses of the box
-         * @description One project's share of the box, live (cached for 2 seconds): its budget from tiffin.config.ts (auto: true when it sets none); memory used by all its app copies together (production and previews) against its limit, the part the kernel protects for it, its headroom (how much more it could take right now) and pressure ("oom" when an app copy was killed for memory in the last hour: the project is using all the memory it was given); CPU use against its cap; data on disk (database, files, KV; measured in the background every 30 seconds); each app's copies, memory and CPU; and service numbers (Postgres connections, KV keys, bucket objects). limitSource says where the limits come from: "project" (its resources), "box default" (the box-wide default share, see box settings) or "automatic" (elastic: it grows into whatever the box has free). To change the limits, set resources in tiffin.config.ts and plan/apply.
+         * @description One project's share of the box, live (cached for 2 seconds): its budget from tiffin.config.ts (auto: true when it sets none); memory used by all its app copies together (production and previews) against its limit, the part the kernel protects for it, its headroom (how much more it could take right now) and pressure ("oom" when an app copy was killed for memory in the last hour: the project is using all the memory it was given); CPU use against its cap; data on disk (database, files, KV; measured in the background every 30 seconds); each app's copies, memory and CPU; and service numbers (Postgres connections, KV keys, bucket objects). limitSource says where the limits come from: "project" (its resources), "box default" (the box-wide default share, see box settings) or "automatic" (elastic: it grows into whatever the box has free). To change the limits, set resources in tiffin.config.ts and plan/apply. Every project at once: box resources (its projects list).
          */
         get: operations["project-usage"];
         put?: never;
@@ -5641,6 +5641,7 @@ export interface components {
             risk: string;
             summary: string;
             undoOf?: string;
+            warnings?: string[] | null;
         };
         PlanBody: {
             /** @description The project manifest (the evaluated tiffin.config.ts). Only `project` is required; everything else has defaults. Full schema: GET /v1/schema/manifest. */
@@ -6025,6 +6026,8 @@ export interface components {
             version: number;
         };
         ProjectSummary: {
+            /** @description Resources whose last reconcile failed, with the first line of the reason */
+            failing?: string[] | null;
             name: string;
             /** Format: int64 */
             resources: number;
@@ -7118,6 +7121,14 @@ export interface components {
         };
         SecretInfo: {
             name: string;
+            /** Format: date-time */
+            updatedAt: string;
+            updatedBy: string;
+        };
+        SecretSet: {
+            name: string;
+            /** @description What happens next, and whether the secret replaces a value the box sets */
+            note?: string;
             /** Format: date-time */
             updatedAt: string;
             updatedBy: string;
@@ -14037,7 +14048,10 @@ export interface operations {
     };
     "deploy-get": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Seconds to wait for the deploy to finish (live, failed...) before answering; 0 answers at once */
+                wait?: number;
+            };
             header?: never;
             path: {
                 /** @description Project slug */
@@ -19093,7 +19107,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SecretInfo"];
+                    "application/json": components["schemas"]["SecretSet"];
                 };
             };
             /** @description Bad Request */

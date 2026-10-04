@@ -281,6 +281,48 @@ func quoteList(ss []string) string {
 	return strings.Join(q, ", ")
 }
 
+// boxEnv are variables the box sets for apps; prefixes end in "_".
+var boxEnv = []string{"PORT", "DATABASE_URL", "REDIS_URL", "VALKEY_PREFIX", "SMTP_URL", "EMAIL_FROM", "SENTRY_DSN",
+	"S3_", "AWS_", "TIFFIN_", "OTEL_"}
+
+// SetByBox reports whether the box gives apps an env var of this name, so
+// a value of the project's own (env or a secret) would replace it.
+func SetByBox(name string) bool {
+	for _, b := range boxEnv {
+		if name == b || (strings.HasSuffix(b, "_") && strings.HasPrefix(name, b)) {
+			return true
+		}
+	}
+	return false
+}
+
+// Warnings are things a valid manifest probably did not mean: plans show
+// them so a person or agent can fix them before applying. They never block.
+func Warnings(m *Manifest) []string {
+	var out []string
+	if a := m.Services.Auth; a != nil && m.Services.Email == nil {
+		for _, meth := range a.Methods {
+			if meth == AuthEmail || meth == AuthMagicLink || meth == AuthOTP {
+				out = append(out, "services.auth sends verification, sign-in and reset emails through the project's email service, and there is none: "+
+					"add `email: {}` to services (mail lands in the dev inbox until a relay is set), or new users can't confirm their address or sign in")
+				break
+			}
+		}
+	}
+	over := func(where string, env map[string]string) {
+		for _, k := range sortedKeys(env) {
+			if SetByBox(k) {
+				out = append(out, fmt.Sprintf("%s sets %s, which replaces the value the box gives apps; leave it out unless you mean to override the box", where, k))
+			}
+		}
+	}
+	over("env", m.Env)
+	for _, name := range sortedKeys(m.Apps) {
+		over("apps."+name+".env", m.Apps[name].Env)
+	}
+	return out
+}
+
 func sortedKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

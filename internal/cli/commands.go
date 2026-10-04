@@ -474,8 +474,10 @@ func (a *app) mcpCmd() *cobra.Command {
 		Short: "Run an MCP server on stdio",
 		Long: "Speaks MCP over stdin/stdout, for agents that launch tools as subprocesses:\n" +
 			"  claude mcp add tiffin -- tiffin mcp\n" +
-			"With TIFFIN_URL set it proxies to that box; otherwise it serves the local box in --home.\n" +
-			"Without TIFFIN_TOKEN it uses a local agent token (read, plan, apply:reversible), never the owner token.",
+			"It talks to the box from `tiffin up` as that box's agent API key: full access to every project,\n" +
+			"recorded in History as an agent, never the owner. TIFFIN_URL and TIFFIN_TOKEN point it at another\n" +
+			"box or key (a box in --home gets a key that cannot apply irreversible plans).\n" +
+			"History labels each change with TIFFIN_SESSION if set (else mcp:stdio-<random>) and TIFFIN_MODEL.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()

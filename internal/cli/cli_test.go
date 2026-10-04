@@ -369,3 +369,31 @@ func TestProxySendsTargetHost(t *testing.T) {
 		t.Fatalf("proxy sent Host %q, want %q", got, u.Host)
 	}
 }
+
+// Inside an agent's shell the CLI acts as the box's agent key (as tiffin mcp
+// does), so History shows the agent; an explicit TIFFIN_TOKEN still wins.
+func TestAgentShellUsesAgentKey(t *testing.T) {
+	cfg := t.TempDir()
+	tokenFor := func(env map[string]string) string {
+		env["TIFFIN_CONFIG_DIR"] = cfg
+		a := &app{io: IO{Env: func(k string) string { return env[k] }}, token: env["TIFFIN_TOKEN"]}
+		if err := a.saveBoxes(&boxesFile{Current: "local", Boxes: map[string]*boxConfig{"local": {Provider: "local",
+			URL: "https://dashboard.tiffin.localhost:8443", Token: "tfn_owner", AgentToken: "tfn_agent"}}}); err != nil {
+			t.Fatal(err)
+		}
+		c, err := a.client(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c.token
+	}
+	if got := tokenFor(map[string]string{}); got != "tfn_owner" {
+		t.Fatalf("a person's shell: %q", got)
+	}
+	if got := tokenFor(map[string]string{"CLAUDECODE": "1"}); got != "tfn_agent" {
+		t.Fatalf("Claude Code: %q", got)
+	}
+	if got := tokenFor(map[string]string{"TIFFIN_AGENT": "1", "TIFFIN_TOKEN": "tfn_mine"}); got != "tfn_mine" {
+		t.Fatalf("explicit token: %q", got)
+	}
+}

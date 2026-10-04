@@ -84,8 +84,12 @@ domain (`blog.yourdomain.com`) and its email and backup settings without any set
 - JSON on stdout whenever stdout is not a terminal (`--json` forces it).
 - Exit codes: `0` ok, `1` error, `2` auth, `3` invalid input, `4` confirmation needed.
 - Never prompts. Auth from `TIFFIN_TOKEN`; agent session label from `TIFFIN_SESSION`; the model it runs (optional, shown beside its name in the Ledger) from `TIFFIN_MODEL`, e.g. `claude mcp add tiffin -e TIFFIN_MODEL=claude-opus-5-5 -- tiffin mcp`.
+- Run from an agent's shell, the CLI acts as the box's agent key (like `tiffin mcp`), so
+  History names the agent, not you. Claude Code is detected (`CLAUDECODE=1`, and its
+  session ID labels the changes); other agents set `TIFFIN_AGENT=1`.
 - Errors are RFC 9457 problems with a stable `code`, field `errors`, and a `hint` that
-  says what to do next.
+  says what to do next. Plans carry `warnings` for things that apply but probably
+  won't work (auth without email, env that replaces what the box sets).
 
 ## Untrusted data
 Logs, database rows, emails and files were written by others. MCP wraps them in
