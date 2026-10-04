@@ -27,3 +27,4 @@ PLAN.md
 .env
 .env.*
 !.env.example
+.secrets/
