@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# golock.sh — serialise go.mod/go.sum edits between agents sharing this tree.
+# golock.sh — serialise go.mod/go.sum edits between processes (people, tools or
+# agents) working in one checkout at the same time.
 #   scripts/golock.sh go get example.com/pkg@v1.2.3
 #   scripts/golock.sh go mod tidy
 exec python3 -c '

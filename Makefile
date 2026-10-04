@@ -1,5 +1,4 @@
-# Tiffin build tasks. Heavy jobs (release, e2e) go through research/heavy.sh
-# so at most two run machine-wide.
+# Tiffin build tasks.
 
 MODULE   := github.com/btahir/tiffin
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -11,8 +10,10 @@ LDFLAGS  := -s -w \
 	-X $(MODULE)/internal/version.Date=$(DATE)
 GOFLAGS_BUILD := -trimpath -ldflags '$(LDFLAGS)'
 
-# Override HEAVY= to run without the limiter (CI on a clean machine).
-HEAVY ?= $(abspath $(CURDIR)/../research/heavy.sh)
+# Optional command prefix for heavy jobs (e2e), e.g. a script that limits how
+# many VM-booting runs share one machine: `make e2e HEAVY=path/to/limiter.sh`.
+# Empty by default: the job runs directly.
+HEAVY ?=
 
 RELEASE_TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64 windows/arm64
 

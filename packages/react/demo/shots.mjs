@@ -1,5 +1,5 @@
 // Screenshots of the gallery (demo/server.ts must be running):
-//   research/heavy.sh node demo/shots.mjs [outDir]
+//   node demo/shots.mjs [outDir]
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url + "/../../../../apps/dashboard/");
 const { chromium } = require("@playwright/test");

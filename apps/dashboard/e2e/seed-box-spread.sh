@@ -4,10 +4,10 @@
 # spreads the demo project's finished jobs and captured mail back over the
 # last hours, at uneven gaps, keeping their order. Throwaway dev boxes only.
 #
-#   TIFFIN_LIMA_INSTANCE=dev-ui e2e/seed-box-spread.sh [project]
+#   TIFFIN_LIMA_INSTANCE=tiffin-dev e2e/seed-box-spread.sh [project]
 set -euo pipefail
 : "${TIFFIN_LIMA_INSTANCE:?set TIFFIN_LIMA_INSTANCE to the dev box Lima instance}"
-[ "$TIFFIN_LIMA_INSTANCE" = tiffin ] && { echo "seed-box-spread: not on the owner's box" >&2; exit 1; }
+[ "$TIFFIN_LIMA_INSTANCE" = tiffin ] && { echo "seed-box-spread: not on your default box (instance \"tiffin\"); use a dev box" >&2; exit 1; }
 PROJECT="${1:-shop}"
 
 # Jobs (the queue's own Postgres database): the newest finished job stays
