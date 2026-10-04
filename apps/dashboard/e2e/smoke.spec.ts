@@ -3,7 +3,7 @@ import { signIn } from "./helpers";
 
 // One walk through the whole dashboard against a seeded box (e2e/seed.sh),
 // served from the binary with its real CSP.
-test("login → activity → change → undo → status → tokens → sign out", async ({ page, baseURL }) => {
+test("login → projects → history → change → undo → health → keys → sign out", async ({ page, baseURL }) => {
   const problems: string[] = [];
   page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
   page.on("console", (m) => {
@@ -22,15 +22,17 @@ test("login → activity → change → undo → status → tokens → sign out"
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("That link has been used, or it expired.");
   await expect(page).toHaveURL(/\/login$/); // the code never stays in the address bar
 
-  // A real one signs in and lands on the Box; the change log is the Ledger.
+  // A real one signs in and lands on Projects: a card per project.
   await signIn(page, baseURL!);
-  await expect(page.getByRole("heading", { level: 1 })).toContainText(/waiting for you/);
-  await expect(page).toHaveTitle(/Box · Tiffin$/);
-  await expect(page.getByRole("region", { name: "Project hello" })).toBeVisible();
-  await page.getByRole("link", { name: /^Ledger/ }).first().click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Projects");
+  await expect(page).toHaveTitle(/Projects · Tiffin$/);
+  await expect(page.getByRole("list", { name: "Projects" }).getByRole("link", { name: "hello", exact: true })).toBeVisible();
+  // Every project's history lives in Settings.
+  await page.getByRole("link", { name: "Settings" }).first().click();
+  await page.getByRole("link", { name: "History" }).first().click();
   await expect(page).toHaveURL(/\/ledger$/);
   await expect(page.getByRole("heading", { level: 1 })).toContainText(/changes (today |since [\w ]+? )?across two projects/);
-  await expect(page).toHaveTitle(/Ledger · Tiffin$/);
+  await expect(page).toHaveTitle(/History · Tiffin$/);
   await expect(page.getByRole("heading", { name: /Today/ })).toBeVisible();
 
   // Filtering by risk.
@@ -75,7 +77,7 @@ test("login → activity → change → undo → status → tokens → sign out"
   await expect(destroy).toBeEnabled();
   await page.keyboard.press("Escape");
 
-  // Health.
+  // Health (Settings › Health).
   await page.getByRole("link", { name: "Health" }).first().click();
   await expect(page.getByRole("heading", { level: 1 })).toContainText(/Nothing is wrong|is fine|failing|firing/);
   await expect(page.getByText("Platform state readable.")).toBeVisible();
@@ -83,18 +85,19 @@ test("login → activity → change → undo → status → tokens → sign out"
 
   // Command palette navigates.
   await page.keyboard.press("ControlOrMeta+k");
-  await page.getByRole("combobox", { name: "Command palette" }).fill("tokens");
+  await page.getByRole("combobox", { name: "Command palette" }).fill("keys for agents");
   await page.keyboard.press("Enter");
-  await expect(page).toHaveURL(/\/tokens$/);
+  await expect(page).toHaveURL(/\/settings\/keys$/);
 
-  // Tokens: create shows the secret once; revoke asks first.
-  await page.getByRole("button", { name: "Create a token" }).click();
+  // API keys: create shows the secret once; revoke asks first.
+  await page.getByRole("button", { name: "Create key" }).click();
   await page.getByLabel("Name").fill("smoke-agent");
+  await page.getByRole("dialog").getByRole("radio", { name: "Read only" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Create smoke-agent" }).click();
   await expect(page.getByTestId("token-secret")).toHaveText(/^tfn_/);
-  await page.getByRole("button", { name: "I've stored it" }).click();
+  await page.getByRole("button", { name: "I’ve stored it" }).click();
   const row = page.getByRole("listitem").filter({ hasText: "Smoke Agent" });
-  await expect(row).toBeVisible();
+  await expect(row).toContainText("Read only");
   await row.getByRole("button", { name: "Revoke smoke-agent" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Revoke Smoke Agent" }).click();
   await expect(page.getByRole("listitem").filter({ hasText: "Smoke Agent" })).toHaveCount(0);
@@ -110,9 +113,8 @@ test("login → activity → change → undo → status → tokens → sign out"
   expect(problems, problems.join("\n")).toEqual([]);
 });
 
-// The human side of agent approvals, with a virtual authenticator standing in
-// for Touch ID; then project state, secrets and people.
-test("passkey → approve and reject agent requests → project, secrets, people", async ({ page, baseURL }) => {
+// Passkeys for sign-in, then a project's overview, its secrets, and people.
+test("passkey → project → secrets → people → passkey sign-in", async ({ page, baseURL }) => {
   const problems: string[] = [];
   page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && !m.text().startsWith("Failed to load resource") && problems.push(m.text()));
@@ -124,46 +126,22 @@ test("passkey → approve and reject agent requests → project, secrets, people
   });
 
   await signIn(page, baseURL!);
-  await expect(page.getByRole("link", { name: /^Ledger/ }).first()).toContainText("2 waiting");
-
-  // Approving before there's a passkey explains what to do.
-  await page.goto("/approvals");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Two agents are waiting on you.");
-  await expect(page.getByText("Add a passkey first.")).toBeVisible();
 
   // Add a passkey.
-  await page.getByRole("link", { name: "Add a passkey" }).click();
+  await page.goto("/settings/passkeys");
   await page.getByLabel("Passkey name").fill("Test key");
   await page.getByRole("button", { name: "Add a passkey" }).click();
   await expect(page.getByText("Test key")).toBeVisible();
 
-  // Approve the outbound request with it.
-  await page.goto("/approvals");
-  await page.getByRole("link", { name: /Make thumbnails public/ }).click();
-  await expect(page.getByText(/Signing lets Codex make something visible outside the box/)).toBeVisible();
-  await page.getByRole("button", { name: "Sign with passkey" }).click();
-  await expect(page.getByText("Signed, not applied yet").first()).toBeVisible();
-  await expect(page.getByText(/Codex can now apply this exact plan once/)).toBeVisible();
-
-  // The irreversible one needs the project name typed first; reject it instead.
-  await page.goto("/approvals");
-  await page.getByRole("link", { name: /Drop the notes Postgres after/ }).click();
-  await expect(page.getByRole("button", { name: "Sign with passkey" })).toBeDisabled();
-  await page.getByRole("button", { name: "Decline…" }).click();
-  await page.getByLabel(/Tell Claude Code why/).fill("Keep the database until backups are on.");
-  await page.getByRole("button", { name: "Decline", exact: true }).click();
-  await expect(page.getByText("“Keep the database until backups are on.”")).toBeVisible();
-  await page.goto("/approvals");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Nobody is waiting on you.");
-
-  // Project overview shows live resource state.
+  // A project's overview: what's in it, as tiles.
   await page.goto("/projects/hello");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("hello");
-  await expect(page.getByRole("heading", { name: "Apps" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Services" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "What’s in hello" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Database" })).toBeVisible();
 
-  // Secrets are write-only.
-  await page.getByRole("link", { name: "Secrets" }).first().click();
+  // Secrets are write-only (Settings › Secrets).
+  await page.getByRole("link", { name: "Settings" }).first().click();
+  await page.getByRole("link", { name: /^Secrets/ }).click();
   await expect(page.getByText("STRIPE_SECRET_KEY")).toBeVisible();
   await page.getByLabel("Name").fill("smoke_token");
   await expect(page.getByLabel("Name")).toHaveValue("SMOKE_TOKEN");
@@ -196,46 +174,46 @@ test("passkey → approve and reject agent requests → project, secrets, people
   expect(problems, problems.join("\n")).toEqual([]);
 });
 
-// The Box: a lever stages a change, the plan tray shows the real plan, apply
-// signs it into the Ledger, and the toast's Undo puts it back.
-test("box → throttle stages → plan tray → apply → undo", async ({ page, baseURL }) => {
+// Changes happen when you click: the copies stepper applies at once, the
+// toast's Undo puts it back, and only what deletes data asks first.
+test("usage → copies apply at once → undo → removing a database asks first", async ({ page, baseURL }) => {
   const problems: string[] = [];
   page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && !m.text().startsWith("Failed to load resource") && problems.push(m.text()));
   await signIn(page, baseURL!);
 
-  const notes = page.getByRole("region", { name: "Project notes" });
-  await expect(notes).toBeVisible();
-  // The search worker: a static site has no instances to scale.
-  const search = notes.getByRole("slider", { name: "search instances" });
+  await page.goto("/projects/notes/usage");
+  await page.getByRole("button", { name: "Advanced" }).click();
+  const search = page.getByRole("spinbutton", { name: "search copies" });
   await expect(search).toHaveAttribute("aria-valuenow", "1");
   await search.focus();
-  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowUp");
   await expect(search).toHaveAttribute("aria-valuenow", "2");
 
-  // Staged, not applied: the bar offers a review.
-  const bar = page.getByRole("region", { name: "Staged changes" });
-  await expect(bar).toContainText("1 change staged on notes");
-  await bar.getByRole("button", { name: "Review" }).click();
-
-  const tray = page.getByRole("dialog", { name: /staged on notes/ });
-  await expect(tray.getByRole("heading", { name: "Scale search from 1 to 2 instances" })).toBeVisible();
-  await expect(tray.getByText("If you undo")).toBeVisible();
-  await expect(tray.locator(".diff .ln[data-k=add]")).toContainText("instances: 2");
-
-  // Esc keeps it staged.
-  await page.keyboard.press("Escape");
-  await expect(tray).toBeHidden();
-  await expect(bar).toBeVisible();
-  await bar.getByRole("button", { name: "Review" }).click();
-  await tray.getByRole("button", { name: "Apply 1 change to notes" }).click();
-
-  const toast = page.getByRole("status").filter({ hasText: "Scaled search to 2 instances in notes." });
+  const toast = page.getByRole("status").filter({ hasText: "search runs on 2 copies now." });
   await expect(toast).toBeVisible();
   await expect(search).toHaveAttribute("aria-valuenow", "2");
+  await expect(search).not.toHaveAttribute("aria-busy", "true");
   await toast.getByRole("button", { name: "Undo" }).click();
   await expect(page.getByText("Undone. Everything is back as it was.")).toBeVisible();
   await expect(search).toHaveAttribute("aria-valuenow", "1");
+
+  // The project's History says it in plain words; a change and its undo fold away together.
+  await page.goto("/projects/notes/history");
+  await expect(page.getByRole("link", { name: /Run search on 2 copies instead of 1/ })).toHaveCount(0);
+  await page.getByRole("button", { name: /that (was|were) undone/ }).click();
+  await expect(page.getByRole("link", { name: "Run search on 2 copies instead of 1." })).toBeVisible();
+
+  // Turning the database off would delete data: the dialog says what, and Cancel leaves it on.
+  await page.goto("/projects/notes/settings");
+  await page.getByRole("switch", { name: /^Database: on/ }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Remove the database from notes?" })).toBeVisible();
+  await expect(dialog.getByText("This can’t be undone.")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Delete for good" })).toBeDisabled();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("switch", { name: /^Database: on/ })).toHaveAttribute("aria-checked", "true");
 
   expect(problems, problems.join("\n")).toEqual([]);
 });

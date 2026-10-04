@@ -115,7 +115,7 @@ for (const theme of themes) {
 }
 
 // The whole first minute, for real: FLOW=<name> creates a project from the
-// guestbook starter through the page and shoots it building and live.
+// Next.js starter through the page and shoots it building and live.
 // It changes the box (one new project), so it only runs when asked.
 test("start flow", async ({ page, baseURL }) => {
   test.skip(!process.env.FLOW, "set FLOW=<project name> to create a real project");
@@ -127,7 +127,7 @@ test("start flow", async ({ page, baseURL }) => {
   await page.emulateMedia({ colorScheme: theme });
   await signIn(page, baseURL!);
   await page.goto("/new");
-  await page.getByRole("radio", { name: new RegExp(`^${process.env.STARTER ?? "Guestbook"}`) }).click();
+  await page.getByRole("radio", { name: new RegExp(`^${process.env.STARTER ?? "Next.js app"}`) }).click();
   await page.getByLabel("Project name").fill(name);
   await page.getByRole("radio", { name: process.env.ENAMEL ?? "Kokum" }).click();
   await page.getByRole("button", { name: `Create ${name}` }).waitFor();

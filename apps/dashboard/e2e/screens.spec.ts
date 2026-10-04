@@ -59,14 +59,14 @@ for (const theme of ["dark", "light"] as const) {
       await page.getByRole("heading", { name: "Checks" }).waitFor();
       await shot(page, `status-${tag}`);
 
-      await page.goto("/tokens");
-      await page.getByText("claude-code").first().waitFor();
-      await shot(page, `tokens-${tag}`);
+      await page.goto("/settings/keys");
+      await page.getByText("Claude Code").first().waitFor();
+      await shot(page, `keys-${tag}`);
 
-      await page.goto("/tokens?create=true");
+      await page.goto("/settings/keys?create=true");
       await page.getByRole("dialog").waitFor();
       await page.getByLabel("Name").fill("cursor");
-      await shot(page, `token-create-${tag}`, false);
+      await shot(page, `key-create-${tag}`, false);
       await page.keyboard.press("Escape");
 
       if (size.width < 768) {
@@ -75,15 +75,8 @@ for (const theme of ["dark", "light"] as const) {
         await page.keyboard.press("Escape");
       }
 
-      await page.goto("/approvals");
-      await page.getByRole("heading", { level: 1 }).waitFor();
-      await shot(page, `approvals-${tag}`);
-      await page.getByRole("link", { name: /Drop the notes Postgres after/ }).click();
-      await page.getByRole("heading", { name: "What it will do" }).waitFor();
-      await shot(page, `approval-${tag}`);
-
       await page.goto("/projects/hello");
-      await page.getByRole("heading", { name: "Apps" }).waitFor();
+      await page.getByRole("list", { name: "What’s in hello" }).waitFor();
       await shot(page, `project-${tag}`);
       await page.goto("/projects/hello/secrets");
       await page.getByText("STRIPE_SECRET_KEY").waitFor();

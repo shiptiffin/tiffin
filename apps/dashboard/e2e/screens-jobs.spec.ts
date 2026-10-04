@@ -24,19 +24,6 @@ const h1 = (p: Page) => p.getByRole("heading", { level: 1 }).first().waitFor();
 
 const pages: Array<{ name: string; url: string | ((p: Page) => Promise<string>); wait: (p: Page) => Promise<unknown>; act?: (p: Page) => Promise<unknown>; full?: boolean }> = [
   { name: "queues", url: "/projects/shop/queues", wait: (p) => p.getByRole("heading", { name: "Schedules" }).waitFor() },
-  {
-    name: "queues-staged",
-    url: "/projects/shop/queues",
-    wait: (p) => p.getByRole("heading", { name: "Schedules" }).waitFor(),
-    act: async (p) => {
-      await p.getByRole("slider", { name: "thumbnails: jobs at once" }).focus();
-      await p.keyboard.press("ArrowRight");
-      await p.getByRole("button", { name: "Review" }).click();
-      await p.getByText("What will happen, in order").waitFor();
-      await p.locator(".diff .ln").first().waitFor();
-    },
-    full: false,
-  },
   { name: "jobs", url: "/projects/shop/queues/jobs", wait: (p) => p.locator("main ol li a").first().waitFor() },
   { name: "job-dead", url: "/projects/shop/queues/jobs/job_87", wait: (p) => p.getByRole("heading", { name: "Tries" }).waitFor() },
   { name: "job-done", url: "/projects/shop/queues/jobs/job_41", wait: (p) => p.getByRole("heading", { name: "Tries" }).waitFor() },

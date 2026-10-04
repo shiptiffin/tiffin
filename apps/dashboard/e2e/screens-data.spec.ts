@@ -64,7 +64,8 @@ const pages: Array<{ name: string; url: string; wait: (p: Page) => Promise<unkno
   },
   { name: "storage", url: "/projects/shop/storage", wait: (p) => p.getByRole("heading", { name: "Buckets" }).waitFor() },
   {
-    name: "storage-tray",
+    // Making a bucket public reaches outside the box, so it asks first; the shot is the question (Escape cancels).
+    name: "storage-confirm",
     url: "/projects/shop/storage",
     wait: (p) => p.getByRole("heading", { name: "Buckets" }).waitFor(),
     act: async (p) => {
@@ -72,32 +73,7 @@ const pages: Array<{ name: string; url: string; wait: (p: Page) => Promise<unkno
         .getByRole("radiogroup", { name: /^uploads/ })
         .getByRole("radio", { name: "public" })
         .click();
-      await p.getByRole("button", { name: "Review" }).click();
-      await p.getByText("What will happen, in order").waitFor();
-      await p.locator(".diff .ln").first().waitFor();
-    },
-    full: false,
-  },
-  {
-    name: "storage-staged",
-    url: "/projects/shop/storage",
-    wait: (p) => p.getByRole("heading", { name: "Buckets" }).waitFor(),
-    act: (p) =>
-      p
-        .getByRole("radiogroup", { name: /^uploads/ })
-        .getByRole("radio", { name: "public" })
-        .click(),
-    full: false,
-  },
-  {
-    name: "storage-restore",
-    url: "/projects/shop/storage",
-    wait: (p) => p.getByRole("heading", { name: "Trash" }).waitFor(),
-    act: async (p) => {
-      await p.getByRole("button", { name: "Restore", exact: true }).first().click();
-      await p.getByRole("button", { name: "Review" }).click();
-      await p.getByText("What will happen, in order").waitFor();
-      await p.locator(".diff .ln").first().waitFor();
+      await p.getByRole("dialog").getByRole("button", { name: "Confirm" }).waitFor();
     },
     full: false,
   },

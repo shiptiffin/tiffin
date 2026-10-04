@@ -57,11 +57,11 @@ const pages: Array<{ name: string; url: string; wait: (p: Page) => Promise<unkno
   },
   { name: "errors-empty", url: "/errors?project=notes", wait: (p) => p.getByText("No open errors in notes.").waitFor(), full: false },
   { name: "backups", url: "/backups", wait: (p) => p.getByRole("heading", { name: "History", exact: true }).waitFor() },
-  { name: "tokens", url: "/tokens", wait: (p) => p.getByRole("heading", { name: "Agents", exact: true }).waitFor() },
-  { name: "token-create", url: "/tokens?create=true", wait: (p) => p.getByText("What can it do?").waitFor(), full: false },
+  { name: "keys", url: "/settings/keys", wait: (p) => p.getByRole("heading", { name: "API keys" }).waitFor() },
+  { name: "key-create", url: "/settings/keys?create=true", wait: (p) => p.getByRole("dialog").getByText("Expires").waitFor(), full: false },
   { name: "people", url: "/settings/people", wait: h1 },
   { name: "passkeys", url: "/settings/passkeys", wait: h1 },
-  { name: "settings", url: "/settings", wait: (p) => p.getByText("Project colours").waitFor() },
+  { name: "settings", url: "/settings", wait: (p) => p.getByText("Look and sound").waitFor() },
 ];
 
 for (const theme of themes) {

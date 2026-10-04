@@ -69,9 +69,9 @@ export default defineConfig({
 TS
 apply "$WORK/notes" "Start a notes site with Postgres and an exports bucket"
 
-# Agents: tokens with their own names and scopes.
-CLAUDE="$("$BIN" tokens create --name claude-code --scopes read,plan,apply:reversible,apply:outbound --json | jq -r .secret)"
-CODEX="$("$BIN" tokens create --name codex --projects notes --scopes read,plan,apply:reversible --json | jq -r .secret)"
+# Agents: API keys with their own names (claude-code reaches every project, codex only notes).
+CLAUDE="$("$BIN" tokens create --name claude-code --projects all --access full --json | jq -r .secret)"
+CODEX="$("$BIN" tokens create --name codex --projects notes --access full --json | jq -r .secret)"
 # Kept for seed-live.sh, which plays the agents against a running box.
 printf 'CLAUDE=%s\nCODEX=%s\n' "$CLAUDE" "$CODEX" > "$TIFFIN_HOME/seed-agents.env"
 
@@ -93,7 +93,7 @@ uh="$({ "$BIN" undo "$UNDO_ID" --json || true; } | jq -r .plan.hash)"
 "$BIN" undo "$UNDO_ID" --confirm "$uh" -m "Debug logs were too noisy; put it back" --json >/dev/null
 sed -i '' -e 's/LOG_LEVEL: "debug",/LOG_LEVEL: "info",/' -e '/FEATURE_SEARCH/d' "$H"
 
-# 5. codex makes the exports bucket public? It can't (outbound). It adds an app instead.
+# 5. codex adds a worker app to notes.
 sed -i '' 's/site: { framework: "static", path: "site", routes: \["notes"\] }/site: { framework: "static", path: "site", routes: ["notes"] },\n    search: { framework: "bun", path: "search", role: "worker", memoryMB: 256 }/' "$WORK/notes/tiffin.config.ts"
 agent_apply "$CODEX" codex-7f3a "$WORK/notes" "Add a search indexer worker for the notes site"
 
