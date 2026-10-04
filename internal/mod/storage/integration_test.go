@@ -246,7 +246,7 @@ func TestStorageEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(info.Buckets) != 2 || info.Buckets[0].Name != "assets" || info.Buckets[0].Objects != 2 || info.Buckets[1].Objects != 2 ||
-		info.UsedBytes != int64(len("PNGDATA")+len("hi there")+len("secret doc")+len("uploaded")) || info.QuotaBytes != DefaultQuotaBytes {
+		info.FilesBytes != int64(len("PNGDATA")+len("hi there")+len("secret doc")+len("uploaded")) || info.QuotaBytes != DefaultQuotaBytes {
 		b, _ := json.MarshalIndent(info, "", " ")
 		t.Fatalf("info: %s", b)
 	}

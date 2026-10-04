@@ -62,7 +62,8 @@ limit are refused with `QuotaExceeded` (S3) or a `precondition` problem (API). F
 are measured every minute, plus what was uploaded since, and databases every 30
 seconds. A project that reaches its limit becomes read-only (its database refuses
 writes too) until it is under it again; raising or clearing the limit lifts that
-within seconds. The box owner sets limits, on the project's Usage page or:
+within seconds. The box owner sets limits on the project's Usage page or with the
+CLI. Setting one is a change in History: undo puts the previous limit back.
 
 ```bash
 tiffin storage quota set shop --max-bytes 53687091200   # 50 GiB for one project

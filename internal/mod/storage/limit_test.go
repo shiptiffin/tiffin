@@ -2,9 +2,11 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
+	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/state"
 )
@@ -35,9 +37,24 @@ func TestRefusal(t *testing.T) {
 		t.Fatalf("60 files + 30 database + 10 fits in 100: %q", what)
 	}
 	what, fix := m.refusal(ctx, p, meta, "shop", 11)
-	if !strings.Contains(what, "over its storage limit") || !strings.Contains(what, "database 30 B, files 60 B") || !strings.Contains(fix, "tiffin storage quota set shop") {
+	if !strings.Contains(what, "over its storage limit") || !strings.Contains(what, "database 30 B, files 60 B") || !strings.Contains(fix, "tiffin storage quota set shop") ||
+		!strings.HasPrefix(fix, "Delete files (60 B) or data from its database (30 B)") {
 		t.Fatalf("over: %q %q", what, fix)
 	}
+	// The project's "storagelimit" resource sets the limit (undo removes it).
+	if err := m.Reconcile(ctx, p, "shop", change.KindStorageLimit, json.RawMessage(`{"maxBytes":200}`)); err != nil {
+		t.Fatal(err)
+	}
+	if n, own, _ := Limit(ctx, p, "shop"); n != 200 || !own {
+		t.Fatalf("limit from the resource: %d %v", n, own)
+	}
+	if err := m.Reconcile(ctx, p, "shop", change.KindStorageLimit, nil); err != nil {
+		t.Fatal(err)
+	}
+	if n, own, _ := Limit(ctx, p, "shop"); n != 0 || own {
+		t.Fatalf("limit after deleting the resource: %d %v", n, own)
+	}
+	_ = db.KVPut(ctx, kvNS, "quota/shop", []byte("100"))
 	if what, _ := m.refusal(ctx, p, meta, "blog", 1); what != "" {
 		t.Fatalf("blog has no limit: %q", what)
 	}

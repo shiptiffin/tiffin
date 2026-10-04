@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/btahir/tiffin/internal/api"
+	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
@@ -42,8 +44,9 @@ type Info struct {
 	FilesURL         string       `json:"filesUrl" doc:"Public files base: <filesUrl>/<bucket>/<key> (public buckets only)"`
 	Region           string       `json:"region"`
 	AccessKeyID      string       `json:"accessKeyId,omitempty" doc:"The project's S3 access key id (the secret is in the app env, or GET .../storage/credentials)"`
-	UsedBytes        int64        `json:"usedBytes" doc:"Bucket files"`
-	DatabaseBytes    int64        `json:"databaseBytes" doc:"The project's databases (branches included), as the disk guard last measured them: they count toward quotaBytes with the files"`
+	UsedBytes        int64        `json:"usedBytes" doc:"What the storage limit (quotaBytes) counts: databaseBytes plus filesBytes"`
+	FilesBytes       int64        `json:"filesBytes" doc:"Bucket files"`
+	DatabaseBytes    int64        `json:"databaseBytes" doc:"The project's databases (branches included), as the disk guard last measured them"`
 	QuotaBytes       int64        `json:"quotaBytes" doc:"The project's storage limit, database and files together; 0 means none (the default)"`
 	QuotaSource      string       `json:"quotaSource" enum:"project,box-default"`
 	ReadOnly         string       `json:"readOnly,omitempty" doc:"Set while uploads are refused: which limit was reached and how to fix it"`
@@ -375,7 +378,9 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			"Off by default. Uploads that would go over are refused with QuotaExceeded (files measured every minute plus uploads since, databases "+
 			"every 30 seconds); a project that reaches its limit becomes read-only (its database refuses writes, its buckets refuse uploads) until it "+
 			"is under the limit again, and the box's change log records both. Raising or clearing the limit lifts it within seconds. "+
+			"Setting it is a change in History too: undo puts the previous limit back. "+
 			"maxBytes: >0 sets the limit, 0 returns to the box default, -1 means none. Box admins only.", tag)
+	q.Errors = append(q.Errors, 404)
 	huma.Register(a, q, api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Body    struct {
@@ -390,16 +395,45 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if err != nil {
 			return nil, err
 		}
-		if in.Body.MaxBytes == 0 {
-			err = p.DB.KVDelete(ctx, kvNS, "quota/"+in.Project)
-		} else {
-			err = p.DB.KVPut(ctx, kvNS, "quota/"+in.Project, []byte(strconv.FormatInt(in.Body.MaxBytes, 10)))
+		if v, _, err := p.DB.Load(ctx, in.Project); err != nil {
+			return nil, err
+		} else if v == 0 {
+			return nil, api.NewProblem(404, "not_found", "project "+in.Project+" does not exist")
 		}
+		// The limit is a resource of the project, so setting it is a change
+		// in History that undo reverts.
+		var spec json.RawMessage
+		intent := in.Project + "'s storage limit follows the box default again"
+		switch n := in.Body.MaxBytes; {
+		case n > 0:
+			intent = fmt.Sprintf("Set %s's storage limit to %s", in.Project, HumanBytes(n))
+		case n < 0:
+			intent = "Removed " + in.Project + "'s storage limit"
+		}
+		if in.Body.MaxBytes != 0 {
+			spec, _ = json.Marshal(limitSpec{MaxBytes: in.Body.MaxBytes})
+		}
+		plan, err := p.Engine.PlanEdit(ctx, in.Project, func(cur map[string]change.Resource) (map[string]change.Resource, error) {
+			if spec == nil {
+				delete(cur, change.KindStorageLimit)
+			} else {
+				cur[change.KindStorageLimit] = change.Resource{Address: change.KindStorageLimit, Spec: spec}
+			}
+			return cur, nil
+		})
 		if err != nil {
 			return nil, err
 		}
-		_ = p.DB.Audit(ctx, pr.TokenID, "storage.quota.set", in.Project, map[string]any{"maxBytes": in.Body.MaxBytes})
-		limitsChanged()
+		c, err := p.Engine.Apply(ctx, change.ApplyRequest{Plan: plan, Confirm: plan.Hash, Actor: pr.Actor(), Intent: intent, Authorize: pr.Authorizer()})
+		if err != nil {
+			return nil, err
+		}
+		if err := setLimit(ctx, p, in.Project, spec); err != nil { // now, so the answer shows it; converging writes the same
+			return nil, err
+		}
+		if c != nil {
+			p.AfterApply(c)
+		}
 		info, err := m.info(ctx, p, in.Project)
 		if err != nil {
 			return nil, err
@@ -605,7 +639,8 @@ func (m *Module) info(ctx context.Context, p *platform.Platform, project string)
 		}
 		info.Buckets = append(info.Buckets, bi)
 	}
-	info.UsedBytes, info.DatabaseBytes, info.ReadOnly = t.project(meta, project), databaseBytes(project), ReadOnly(project)
+	info.FilesBytes, info.DatabaseBytes, info.ReadOnly = t.project(meta, project), databaseBytes(project), ReadOnly(project)
+	info.UsedBytes = info.FilesBytes + info.DatabaseBytes
 	q, own, err := quotaFor(ctx, p, project)
 	if err != nil {
 		return nil, err

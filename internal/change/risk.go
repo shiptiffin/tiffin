@@ -86,6 +86,8 @@ func kindNoun(kind, name string) string {
 		return "secret " + name
 	case KindReadOnly:
 		return "read-only hold"
+	case KindStorageLimit:
+		return "storage limit"
 	case KindService:
 		return name + " service"
 	}

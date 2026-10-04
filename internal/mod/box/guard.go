@@ -279,12 +279,14 @@ func (g *guard) round(ctx context.Context) error {
 			continue
 		}
 		var h *holdSpec
-		intent := g.liftIntent(pr, held[pr], d.UsedPercent)
+		reason := held[pr]
+		intent := g.liftIntent(pr, reason, d.UsedPercent, in.limit[pr])
 		if want[pr] != "" {
-			h = &holdSpec{Reason: want[pr], Since: now.UTC()}
+			reason = want[pr]
+			h = &holdSpec{Reason: reason, Since: now.UTC()}
 			h.Message, intent = g.holdWords(pr, h.Reason, in, set)
 		}
-		if err := g.setHold(ctx, pr, h, intent); err != nil {
+		if err := g.setHold(ctx, pr, h, reason, intent); err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -311,8 +313,10 @@ func (g *guard) dbBytes(project string) int64 {
 }
 
 // setHold records a hold (nil lifts it) as a change by the system and
-// converges the project, which applies it.
-func (g *guard) setHold(ctx context.Context, project string, h *holdSpec, intent string) error {
+// converges the project, which applies it. History names the project's
+// storage limit as the actor for a hold of its own limit ("limit"), the disk
+// guard otherwise.
+func (g *guard) setHold(ctx context.Context, project string, h *holdSpec, reason, intent string) error {
 	plan, err := g.p.Engine.PlanEdit(ctx, project, func(cur map[string]change.Resource) (map[string]change.Resource, error) {
 		if h == nil {
 			delete(cur, change.KindReadOnly)
@@ -328,8 +332,12 @@ func (g *guard) setHold(ctx context.Context, project string, h *holdSpec, intent
 	if err != nil {
 		return err
 	}
+	actor := "disk guard"
+	if reason == "limit" {
+		actor = "storage limit"
+	}
 	c, err := g.p.Engine.Apply(ctx, change.ApplyRequest{Plan: plan, Confirm: plan.Hash, Intent: intent,
-		Actor: change.Actor{Kind: "system", ID: "system", Name: "disk guard"}})
+		Actor: change.Actor{Kind: "system", ID: "system", Name: actor}})
 	if err != nil {
 		return err
 	}
@@ -343,8 +351,10 @@ func (g *guard) holdWords(project, reason string, in guardIn, set budget.Setting
 	size := storage.HumanBytes(in.sizes[project])
 	if reason == "limit" {
 		lim := storage.HumanBytes(in.limit[project])
+		db := g.dbBytes(project)
 		return fmt.Sprintf("%s uses %s of its %s storage limit (database and files), so it is read-only: its database refuses writes and its buckets refuse uploads. "+
-				"Delete files, or raise the limit (tiffin storage quota set %s --max-bytes N). It can write again once it is under the limit.", project, size, lim, project),
+				"%s, or raise the limit (tiffin storage quota set %s --max-bytes N). It can write again once it is under the limit.",
+				project, size, lim, storage.FreeUp(db, in.sizes[project]-db), project),
 			fmt.Sprintf("%s reached its %s storage limit: read-only until it is under it", project, lim)
 	}
 	why := fmt.Sprintf("uses the most space (%s)", size)
@@ -357,9 +367,12 @@ func (g *guard) holdWords(project, reason string, in guardIn, set budget.Setting
 		fmt.Sprintf("Data disk %.0f%% full: %s is read-only until it is below %d%%", in.used, project, set.DiskResumePercent)
 }
 
-func (g *guard) liftIntent(project, reason string, used float64) string {
+func (g *guard) liftIntent(project, reason string, used float64, limit int64) string {
 	if reason == "limit" {
-		return project + " is under its storage limit: it can write again"
+		if limit <= 0 {
+			return project + " has no storage limit now: it can write again"
+		}
+		return fmt.Sprintf("%s is under its %s storage limit: it can write again", project, storage.HumanBytes(limit))
 	}
 	return fmt.Sprintf("Data disk down to %.0f%%: %s can write again", used, project)
 }
@@ -442,16 +455,18 @@ func (g *guard) hold(ctx context.Context, project string, spec json.RawMessage) 
 
 // UsageStorage is a project's storage limit and read-only state.
 type UsageStorage struct {
-	UsedBytes   int64  `json:"usedBytes" doc:"Its databases (branches included) and files: what its storage limit counts (measured every 30 seconds)"`
-	LimitBytes  int64  `json:"limitBytes" doc:"Its storage limit; 0: none (the default)"`
-	LimitSource string `json:"limitSource" enum:"project,box-default"`
-	ReadOnly    *Hold  `json:"readOnly,omitempty" doc:"Set while its writes are held: which limit and how to fix it"`
-	DiskWarning string `json:"diskWarning,omitempty" doc:"Set while the data disk is past its warning level and this project is the one growing fastest"`
+	UsedBytes     int64  `json:"usedBytes" doc:"Its databases (branches included) and files: what its storage limit counts (measured every 30 seconds)"`
+	DatabaseBytes int64  `json:"databaseBytes"`
+	FilesBytes    int64  `json:"filesBytes"`
+	LimitBytes    int64  `json:"limitBytes" doc:"Its storage limit; 0: none (the default)"`
+	LimitSource   string `json:"limitSource" enum:"project,box-default"`
+	ReadOnly      *Hold  `json:"readOnly,omitempty" doc:"Set while its writes are held: which limit and how to fix it"`
+	DiskWarning   string `json:"diskWarning,omitempty" doc:"Set while the data disk is past its warning level and this project is the one growing fastest"`
 }
 
 func (g *guard) projectStorage(ctx context.Context, project string) *UsageStorage {
 	g.mu.Lock()
-	u := &UsageStorage{UsedBytes: g.db[project] + g.files[project], LimitSource: "box-default"}
+	u := &UsageStorage{UsedBytes: g.db[project] + g.files[project], DatabaseBytes: g.db[project], FilesBytes: g.files[project], LimitSource: "box-default"}
 	if h, ok := g.holds[project]; ok {
 		u.ReadOnly = &h
 	}
