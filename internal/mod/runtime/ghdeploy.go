@@ -620,7 +620,7 @@ func (r *rt) onPush(ctx context.Context, c *ghConn, body []byte) (int, string) {
 		r.logEvent(ctx, GitHubEvent{Event: "push", Repo: repo, Summary: fmt.Sprintf("Push to %s (%s) asked to skip deploys", branch, short(ev.After)), OK: true})
 		return http.StatusAccepted, "skipped: the commit message asks to skip deploys"
 	}
-	var started []string
+	var started, names []string
 	for _, a := range apps {
 		if a.Git.Branch != branch {
 			continue
@@ -632,12 +632,13 @@ func (r *rt) onPush(ctx context.Context, c *ghConn, body []byte) (int, string) {
 			continue
 		}
 		started = append(started, a.Project+"/"+a.App+" "+d.ID)
+		names = append(names, a.Project+"/"+a.App)
 	}
 	if len(started) == 0 {
 		r.logEvent(ctx, GitHubEvent{Event: "push", Repo: repo, Summary: fmt.Sprintf("Push to %s (%s): no app deploys from this branch", branch, short(ev.After)), OK: true})
 		return http.StatusAccepted, "no app deploys from " + branch
 	}
-	r.logEvent(ctx, GitHubEvent{Event: "push", Repo: repo, Summary: fmt.Sprintf("Push to %s (%s) by %s: deploying %s", branch, short(ev.After), author, strings.Join(started, ", ")), OK: true})
+	r.logEvent(ctx, GitHubEvent{Event: "push", Repo: repo, Summary: fmt.Sprintf("Push to %s (%s) by %s: deploying %s", branch, short(ev.After), author, andList(names)), OK: true})
 	return http.StatusAccepted, "deploying " + strings.Join(started, ", ")
 }
 
@@ -667,7 +668,9 @@ func (r *rt) onPullRequest(ctx context.Context, c *ghConn, body []byte) (int, st
 		return http.StatusInternalServerError, err.Error()
 	}
 	preview := prPreview(n)
-	var did []string
+	var did []string                             // the reply to GitHub (with deploy ids)
+	var built, skipped, removed, failed []string // for people
+	who := ev.PullRequest.User.Login
 	switch ev.Action {
 	case "opened", "reopened", "synchronize", "ready_for_review":
 		sha := ev.PullRequest.Head.SHA
@@ -680,10 +683,12 @@ func (r *rt) onPullRequest(ctx context.Context, c *ghConn, body []byte) (int, st
 				continue
 			case ev.FromFork() && a.Git.Previews != manifest.PreviewsForks:
 				did = append(did, a.Project+"/"+a.App+": not built (pull requests from forks are off)")
+				skipped = append(skipped, a.Project+"/"+a.App)
 				continue
 			}
 			if _, perr := r.checkDeployable(ctx, a.Project, a.App, preview, false); perr != nil {
 				did = append(did, a.Project+"/"+a.App+": "+perr.Detail)
+				failed = append(failed, a.Project+"/"+a.App+" ("+perr.Detail+")")
 				continue
 			}
 			d, err := r.enqueue(ctx, &ghJob{Project: a.Project, App: a.App, Preview: preview, Repo: repo, SHA: sha, Branch: ev.PullRequest.Head.Ref,
@@ -691,9 +696,11 @@ func (r *rt) onPullRequest(ctx context.Context, c *ghConn, body []byte) (int, st
 				Installation: ev.Installation.ID, Trigger: "pull_request", By: "github:" + ev.Sender.Login, Path: a.Git.Path})
 			if err != nil {
 				did = append(did, a.Project+"/"+a.App+": "+err.Error())
+				failed = append(failed, a.Project+"/"+a.App+" ("+err.Error()+")")
 				continue
 			}
 			did = append(did, a.Project+"/"+a.App+" preview "+d.ID)
+			built = append(built, a.Project+"/"+a.App)
 		}
 	case "closed":
 		for _, a := range apps {
@@ -712,24 +719,47 @@ func (r *rt) onPullRequest(ctx context.Context, c *ghConn, body []byte) (int, st
 			if dropped != nil {
 				r.skip(ctx, dropped, "the pull request was closed before it was built")
 			}
-			// Not found: nothing went live yet (one still building is removed when it finishes).
-			if err := r.deletePreview(ctx, a.Project, a.App, preview); err != nil && !errors.Is(err, errNotFound) {
+			// Not found: nothing went live (one still building is removed when it finishes).
+			err := r.deletePreview(ctx, a.Project, a.App, preview)
+			q.mu.Lock()
+			building := q.slots[key] != nil && q.slots[key].running
+			q.mu.Unlock()
+			switch {
+			case err == nil || building:
+				did = append(did, a.Project+"/"+a.App+" preview "+preview+" removed")
+				removed = append(removed, a.Project+"/"+a.App)
+			case !errors.Is(err, errNotFound):
 				did = append(did, a.Project+"/"+a.App+": "+err.Error())
+				failed = append(failed, a.Project+"/"+a.App+" ("+err.Error()+")")
 				continue
 			}
 			r.closeReport(ctx, c, a, repo, n)
-			did = append(did, a.Project+"/"+a.App+" preview "+preview+" removed")
 		}
 	default:
 		return http.StatusAccepted, "nothing to do for " + ev.Action
 	}
 	summary := fmt.Sprintf("Pull request #%d %s", n, ev.Action)
-	if len(did) == 0 {
-		summary += ": no app previews this repository"
-	} else {
-		summary += ": " + strings.Join(did, "; ")
+	if who != "" && ev.Action == "opened" {
+		summary += " by " + who
 	}
-	r.logEvent(ctx, GitHubEvent{Event: "pull_request", Repo: repo, Summary: summary, OK: true})
+	var parts []string
+	if len(built) > 0 {
+		parts = append(parts, "building a preview of "+andList(built))
+	}
+	if len(removed) > 0 {
+		parts = append(parts, "removed the preview of "+andList(removed))
+	}
+	if len(skipped) > 0 {
+		parts = append(parts, "no preview of "+andList(skipped)+": it comes from a fork, and previews of forks are off")
+	}
+	if len(failed) > 0 {
+		parts = append(parts, "could not preview "+andList(failed))
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "nothing to do")
+	}
+	summary += ": " + strings.Join(parts, "; ")
+	r.logEvent(ctx, GitHubEvent{Event: "pull_request", Repo: repo, Summary: summary, OK: len(failed) == 0})
 	if len(did) == 0 {
 		return http.StatusAccepted, "no app previews " + repo
 	}
@@ -758,4 +788,15 @@ func (r *rt) closeReport(ctx context.Context, c *ghConn, a connectedApp, repo st
 		_ = c.App.SetDeploymentStatus(ctx, pc.Install, repo, pc.Deployment, ghapp.DeploymentStatus{State: "inactive", Description: "Preview removed"})
 	}
 	_ = r.p.DB.KVDelete(ctx, nsGitHub, k)
+}
+
+// andList joins names for a sentence: "a", "a and b", "a, b and c".
+func andList(xs []string) string {
+	switch len(xs) {
+	case 0:
+		return ""
+	case 1:
+		return xs[0]
+	}
+	return strings.Join(xs[:len(xs)-1], ", ") + " and " + xs[len(xs)-1]
 }
