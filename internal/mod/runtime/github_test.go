@@ -224,7 +224,7 @@ func TestGitHubConnectPushAndPreviews(t *testing.T) {
 	}
 
 	g.connectSite(manifest.Git{Repo: "octo/shop", Branch: "main", Path: "web", Previews: manifest.PreviewsSameRepo})
-	if code, list = g.call("GET", "/v1/github/repos?refresh=true", ""); list["repos"].([]any)[0].(map[string]any)["connected"].([]any)[0] != "shop/site" {
+	if code, list = g.call("GET", "/v1/github/repos?refresh=true", ""); code != 200 || list["repos"].([]any)[0].(map[string]any)["connected"].([]any)[0] != "shop/site" {
 		t.Fatalf("connected apps are marked: %v", list)
 	}
 
@@ -495,7 +495,9 @@ func TestGitHubSharedAppBindsOnlyProvenInstallations(t *testing.T) {
 		t.Fatalf("forged setup accepted: %s", back)
 	}
 	// The real install from the box binds the new installation.
-	code, link = g.call("POST", "/v1/github/install", "")
+	if code, link = g.call("POST", "/v1/github/install", ""); code != 200 {
+		t.Fatalf("install: %d %v", code, link)
+	}
 	setup := g.browse(http.MethodGet, link["url"].(string)+"&redirect="+url.QueryEscape(g.api.URL+"/v1/github/setup"), nil)
 	if back := g.browse(http.MethodGet, setup.String(), nil); back.Query().Get("installed") != "1" {
 		t.Fatalf("install: %s", back)
