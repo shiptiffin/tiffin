@@ -204,8 +204,8 @@ func TestStorageEndToEnd(t *testing.T) {
 		t.Fatalf("missing public file: %d", res.StatusCode)
 	}
 	// Private bucket: not on files.<domain>, not anonymously on S3.
-	if res, _ := r.s3("GET", "files.tiffin.localhost", "/shop/media/private/doc.txt", nil, nil, nil); res.StatusCode != 403 {
-		t.Fatalf("private via files: %d", res.StatusCode)
+	if res, body := r.s3("GET", "files.tiffin.localhost", "/shop/media/private/doc.txt", nil, nil, nil); res.StatusCode != 403 || strings.Contains(body, "media") {
+		t.Fatalf("private via files (the answer names nothing): %d %s", res.StatusCode, body)
 	}
 	if res, _ := r.s3("GET", "s3.tiffin.localhost:8443", "/shop-media/private/doc.txt", nil, nil, nil); res.StatusCode != 403 {
 		t.Fatalf("private anonymous: %d", res.StatusCode)
