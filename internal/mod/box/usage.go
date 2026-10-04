@@ -131,10 +131,11 @@ type tracker struct {
 	root string
 	p    *platform.Platform
 
-	mu    sync.Mutex
-	marks map[string][2]cpuMark // key → older, newer
-	disk  map[string]*diskEntry
-	cache map[string]*Usage // project → last answer
+	mu       sync.Mutex
+	marks    map[string][2]cpuMark // key → older, newer
+	disk     map[string]*diskEntry
+	cache    map[string]*Usage // project → last answer
+	cacheGen map[string]uint64 // project → budget generation of that answer
 }
 
 type diskEntry struct {
@@ -151,7 +152,7 @@ const (
 )
 
 func newTracker(root string, p *platform.Platform) *tracker {
-	return &tracker{root: root, p: p, marks: map[string][2]cpuMark{}, disk: map[string]*diskEntry{}, cache: map[string]*Usage{}}
+	return &tracker{root: root, p: p, marks: map[string][2]cpuMark{}, disk: map[string]*diskEntry{}, cache: map[string]*Usage{}, cacheGen: map[string]uint64{}}
 }
 
 func (t *tracker) loop(ctx context.Context) {
@@ -362,7 +363,8 @@ func limits(st budget.Stats, v budget.View) (mem, low uint64, cpus *float64) {
 func (s *sampler) usage(ctx context.Context, t *tracker, project string, apps []string, available uint64) *Usage {
 	now := s.now().UTC()
 	t.mu.Lock()
-	if c := t.cache[project]; c != nil && now.Sub(c.SampledAt) < usageCache {
+	gen := budget.Generation()
+	if c := t.cache[project]; c != nil && now.Sub(c.SampledAt) < usageCache && t.cacheGen[project] == gen {
 		t.mu.Unlock()
 		return c
 	}
@@ -453,6 +455,7 @@ func (s *sampler) usage(ctx context.Context, t *tracker, project string, apps []
 	u.Disk.TotalBytes = u.Disk.DatabaseBytes + u.Disk.FilesBytes + u.Disk.KVBytes
 	t.mu.Lock()
 	t.cache[project] = u
+	t.cacheGen[project] = gen
 	t.mu.Unlock()
 	return u
 }

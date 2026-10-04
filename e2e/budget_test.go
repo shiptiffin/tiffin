@@ -152,8 +152,17 @@ func TestBudget(t *testing.T) {
 		t.Fatalf("%s did not come back", host)
 	}
 	waitHTTP("gb")
-	if u := usage("guestbook"); u["memory"].(map[string]any)["pressure"] != "oom" {
-		t.Fatalf("guestbook pressure: %v", u["memory"])
+	// Usage is cached for 2 seconds.
+	for i := 0; ; i++ {
+		u := usage("guestbook")
+		if u["memory"].(map[string]any)["pressure"] == "oom" {
+			break
+		}
+		if i == 10 {
+			t.Logf("events: %s", b.inBox(`cat /sys/fs/cgroup/tiffin.slice/tiffin-p.slice/tiffin-p-guestbook.slice/memory.events; sudo journalctl -u tiffin --no-pager | grep -i budget | tail -5`))
+			t.Fatalf("guestbook pressure: %v", u["memory"])
+		}
+		time.Sleep(time.Second)
 	}
 	if u := usage("shop"); u["memory"].(map[string]any)["pressure"] != "none" {
 		t.Fatalf("shop pressure: %v", u["memory"])

@@ -183,7 +183,9 @@ func TestModule(t *testing.T) {
 		t.Fatalf("lookup: %+v", v)
 	}
 
-	// The box default share caps projects that set nothing, live.
+	// The box default share caps projects that set nothing, live (and
+	// readers caching answers see the generation move).
+	gen := Generation()
 	if code, out := h.call("PUT", "/v1/box/settings", map[string]any{"defaultMaxSharePercent": 25}); code != 200 ||
 		out["defaultMaxSharePercent"].(float64) != 25 || out["appMemoryMB"].(float64) != 1535 || out["defaultMemoryMB"].(float64) != 383 || out["budgetedMB"].(float64) != 256 {
 		t.Fatalf("settings: %d %v", code, out)
@@ -191,6 +193,9 @@ func TestModule(t *testing.T) {
 	blog = h.sd.props(`tiffin-p-my\x2dblog.slice`)
 	if !slices.Contains(blog, "MemoryMax=383M") || !slices.Contains(blog, "CPUQuota=50%") {
 		t.Fatalf("blog under the default: %v", blog)
+	}
+	if Generation() == gen {
+		t.Fatal("generation did not move when limits changed")
 	}
 	if v := Lookup("my-blog", Stats{}); v.Limits.Source() != SourceBoxDefault {
 		t.Fatalf("source: %+v", v.Limits)

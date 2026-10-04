@@ -48,6 +48,27 @@ type Module struct {
 	boxOK    bool
 	history  map[string][]eventMark // project → memory events over the last hour
 	wake     chan struct{}
+	gen      uint64 // bumped whenever any project's limits change
+}
+
+// Generation changes whenever any project's resolved limits change, so
+// readers that cache answers know to measure again.
+func Generation() uint64 {
+	mod.mu.Lock()
+	defer mod.mu.Unlock()
+	return mod.gen
+}
+
+func limitsEqual(a, b map[string]Limits) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if w, ok := b[k]; !ok || w != v {
+			return false
+		}
+	}
+	return true
 }
 
 func (*Module) Name() string { return "budget" }
@@ -207,6 +228,9 @@ func (m *Module) sync(ctx context.Context) error {
 		wants = append(wants, want{Slice(n), props(limits[n])})
 	}
 	m.mu.Lock()
+	if !limitsEqual(m.limits, limits) {
+		m.gen++
+	}
 	m.limits = limits
 	for n, st := range stats {
 		if st.Exists {
