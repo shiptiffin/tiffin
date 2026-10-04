@@ -547,7 +547,7 @@ func (f *Fake) applyFirewall(fw *schema.Firewall, serverID int64) {
 func rules(in []schema.FirewallRuleRequest) []schema.FirewallRule {
 	out := []schema.FirewallRule{}
 	for _, r := range in {
-		out = append(out, schema.FirewallRule{Direction: r.Direction, SourceIPs: r.SourceIPs, DestinationIPs: r.DestinationIPs, Protocol: r.Protocol, Port: r.Port, Description: r.Description})
+		out = append(out, schema.FirewallRule(r))
 	}
 	return out
 }

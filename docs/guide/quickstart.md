@@ -74,3 +74,55 @@ can. Claude Code asks you before it runs anything destructive (deleting a databa
 and every change lands in History under the agent's name, ready to undo. For an agent
 that should only touch one project, or only read, create a narrower key:
 `tiffin tokens create --name ci --projects shop --access read`.
+
+## Run it on a server
+
+The same box runs on a real server. Everything above works the same way; the dashboard
+is at `https://dashboard.<ip>.sslip.io` (your server's IP, with dashes) until you give
+it a domain.
+
+### Hetzner
+
+Create a read & write API token in the Hetzner Cloud console (your project → Security →
+API tokens), then see what you'd get and what it costs, without creating anything:
+
+```bash
+export HCLOUD_TOKEN=...
+tiffin up --provider hetzner --name shop --dry-run
+```
+
+It prints the server, a 40 GB data volume, a firewall and an SSH key, and the monthly
+price from Hetzner's own price list. Drop `--dry-run` to create them. The defaults are
+a `cax11` (ARM, 2 vCPU, 4 GB) in `fsn1` on Ubuntu 24.04; change them with `--type`,
+`--location` and `--image ubuntu-26.04`. To use your own SSH key instead of one Tiffin
+makes, pass `--ssh-key ~/.ssh/id_ed25519` (or set `HCLOUD_SSH_KEY`); only the public
+half is uploaded, and a copy already in the project is reused.
+
+Run `tiffin up --name shop` again to update it. To delete it:
+
+```bash
+tiffin down --confirm shop                 # server, firewall, key; the data volume is kept
+tiffin down --confirm shop --delete-data   # the volume too
+```
+
+`tiffin down` without `--confirm` shows what would go, and what keeps costing money.
+
+### Any Ubuntu server
+
+Any Ubuntu 24.04 or 26.04 server you can SSH into with passwordless sudo:
+
+```bash
+tiffin up --provider ssh --name shop --host root@203.0.113.5 --data-disk /dev/sdb
+```
+
+`--data-disk` is optional: a blank disk is formatted XFS for your data (one with a
+filesystem is used as it is). Without one, data lives on the root disk; that works, but
+database branches copy files instead of sharing them unless the disk is XFS.
+
+### What Tiffin does to the server
+
+It turns on daily security updates, allows SSH keys only, lets in only SSH, HTTP and
+HTTPS, bans brute-force IPs with CrowdSec (never the IP you run `tiffin` from), keeps
+the clock in sync, adds a swap file and caps log size. A kernel update never reboots the
+server unless you choose a time: `tiffin up --name shop --reboot-window 04:00`.
+`tiffin status` shows all of it, including a reboot that is waiting.

@@ -46,3 +46,14 @@ func TestOwnerSeenAllowlistsOncePerAddress(t *testing.T) {
 		t.Fatalf("allowlisted %v", got)
 	}
 }
+
+func TestAllowlistValues(t *testing.T) {
+	raw := `name,description,value,comment,expiration,created_at,console_managed
+tiffin-owner,Addresses the box's owner connects from (tiffin up and the CLI); never banned,192.168.64.1,owner (2026-10-04),never,2026-10-04T05:40:25Z,false
+tiffin-owner,x,2001:db8:1:2::/64,owner,720h,2026-10-04T05:40:25Z,false
+`
+	got := allowlistValues(raw)
+	if len(got) != 2 || got[0] != "192.168.64.1" || got[1] != "2001:db8:1:2::/64" {
+		t.Fatalf("%v", got)
+	}
+}

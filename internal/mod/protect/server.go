@@ -3,12 +3,14 @@ package protect
 import (
 	"context"
 	"crypto/rand"
+	"encoding/csv"
 	"encoding/hex"
 	"fmt"
 	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -235,16 +237,33 @@ func serverProtection(ctx context.Context) ServerProtection {
 	sp.Bouncer = exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", fwBouncerUnit).Run() == nil
 	sp.SSH = sshAcquired() || fileExistsP(sshAcquis)
 	if out, err := run(ctx, "allowlists", "inspect", ownerAllowlist, "-o", "raw"); err == nil {
-		for _, line := range strings.Split(string(out), "\n") {
-			f := strings.Split(line, ",")
-			if len(f) > 0 {
-				if _, err := platform.ParseIPOrPrefix(strings.TrimSpace(f[0])); err == nil {
-					sp.OwnerIPs = append(sp.OwnerIPs, strings.TrimSpace(f[0]))
-				}
+		sp.OwnerIPs = allowlistValues(string(out))
+	}
+	return sp
+}
+
+// allowlistValues reads the addresses out of `cscli allowlists inspect -o
+// raw` (CSV: name,description,value,comment,expiration,...).
+func allowlistValues(raw string) []string {
+	r := csv.NewReader(strings.NewReader(raw))
+	r.FieldsPerRecord = -1
+	rows, err := r.ReadAll()
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	col := slices.Index(rows[0], "value")
+	if col < 0 {
+		return nil
+	}
+	var out []string
+	for _, row := range rows[1:] {
+		if col < len(row) {
+			if _, err := platform.ParseIPOrPrefix(strings.TrimSpace(row[col])); err == nil {
+				out = append(out, strings.TrimSpace(row[col]))
 			}
 		}
 	}
-	return sp
+	return out
 }
 
 func fileExistsP(p string) bool { _, err := os.Stat(p); return err == nil }

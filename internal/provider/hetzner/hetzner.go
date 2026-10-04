@@ -316,7 +316,7 @@ func (p *Provider) Plan(ctx context.Context) (*Plan, error) {
 	if img, _, err := p.c.Image.GetForArchitecture(ctx, p.cfg.Image, r.st.Architecture); err != nil {
 		return nil, apiErr("look up the Ubuntu image", err)
 	} else if img == nil {
-		return nil, fmt.Errorf("Hetzner has no %s image for %s servers", p.cfg.Image, archWord(r.st.Architecture))
+		return nil, fmt.Errorf("no %s image on Hetzner for %s servers", p.cfg.Image, archWord(r.st.Architecture))
 	}
 	in, err := p.Inventory(ctx)
 	if err != nil {
@@ -352,7 +352,7 @@ func (p *Provider) Plan(ctx context.Context) (*Plan, error) {
 
 	stNet, stGross, ok := serverPrice(pricing, r.st.Name, r.loc.Name)
 	if !ok {
-		return nil, fmt.Errorf("Hetzner lists no price for %s in %s", r.st.Name, r.loc.Name)
+		return nil, fmt.Errorf("no price on Hetzner for %s in %s", r.st.Name, r.loc.Name)
 	}
 	pl.Costs = append(pl.Costs, CostLine{What: "server " + r.st.Name, MonthlyNet: stNet, MonthlyGross: stGross})
 	if n, g, ok := ipv4Price(pricing, r.loc.Name); ok {
@@ -615,7 +615,7 @@ func (p *Provider) Ensure(ctx context.Context, progress func(string)) (remote.Ta
 			return none, apiErr("look up the Ubuntu image", err)
 		}
 		if img == nil {
-			return none, fmt.Errorf("Hetzner has no %s image for %s servers", p.cfg.Image, archWord(r.st.Architecture))
+			return none, fmt.Errorf("no %s image on Hetzner for %s servers", p.cfg.Image, archWord(r.st.Architecture))
 		}
 		progress(fmt.Sprintf("creating the server %s (%s in %s)", p.cfg.Name, r.st.Name, r.loc.Name))
 		opts := hcloud.ServerCreateOpts{

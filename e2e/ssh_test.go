@@ -147,7 +147,7 @@ func TestSSHProvider(t *testing.T) {
 	// ---- the server: data disk, hardening ----
 	p = time.Now()
 	checks := map[string]string{
-		`findmnt -no FSTYPE,SOURCE /var/lib/tiffin`:                            "xfs " + dev,
+		`findmnt -no FSTYPE,SOURCE /var/lib/tiffin | tr -s " "`:                "xfs " + dev,
 		`sudo blkid -s LABEL -o value ` + dev:                                  "tiffin-data",
 		`sudo sshd -T | grep -E '^passwordauthentication '`:                    "passwordauthentication no",
 		`sudo sshd -T | grep -E '^permitrootlogin '`:                           "permitrootlogin without-password",
@@ -165,8 +165,11 @@ func TestSSHProvider(t *testing.T) {
 		}
 	}
 	// The address this computer reaches the server from is never banned.
-	owner := mustShell(`echo "$SSH_CLIENT" | cut -d' ' -f1`)
-	if al := mustShell(`sudo cscli allowlists inspect tiffin-owner -o raw`); !strings.Contains(al, strings.TrimSpace(owner)) && !strings.Contains(al, "192.168.") {
+	// The Mac reaches the vzNAT network from its gateway address (x.y.z.1).
+	owner := ip[:strings.LastIndex(ip, ".")] + ".1"
+	al := mustShell(`sudo cscli allowlists inspect tiffin-owner -o raw`)
+	t.Logf("owner allowlist (this computer is %s):\n%s", owner, al)
+	if !strings.Contains(al, strings.TrimSpace(owner)) {
 		t.Errorf("owner allowlist lacks this computer: %s", al)
 	}
 	st := b.ok("status")
@@ -225,8 +228,24 @@ func TestSSHProvider(t *testing.T) {
 
 	// ---- reboot: the data disk, services and app come back ----
 	p = time.Now()
-	lima(5*time.Minute, "stop", instance)
-	lima(15*time.Minute, "start", instance, "--tty=false", "--timeout", "14m")
+	// Reboot from inside, as on a server. Lima's vz backend may power the VM
+	// off instead of rebooting; then start it again. Lima regenerates the SSH
+	// host keys on every start (cloud-init), which a real server never does,
+	// so only in that case the test forgets the old key.
+	_, _ = shell("sudo systemctl reboot")
+	time.Sleep(15 * time.Second)
+	if st := lima(time.Minute, "list", instance, "--format", "{{.Status}}"); st != "Running" {
+		t.Logf("lima stopped the VM on reboot (%s); starting it", st)
+		lima(15*time.Minute, "start", instance, "--tty=false", "--timeout", "14m")
+		kh := filepath.Join(dir, "config", "boxes", "dev-ssh", "known_hosts")
+		_ = os.Remove(kh)
+	}
+	for i := 0; i < 60; i++ {
+		if _, err := shell("true"); err == nil {
+			break
+		}
+		time.Sleep(3 * time.Second)
+	}
 	if ip2 := mustShell(`ip -4 -o addr show lima0 | awk '{print $4}' | cut -d/ -f1`); ip2 != ip {
 		t.Fatalf("the server's address changed across the reboot (%s → %s)", ip, ip2)
 	}

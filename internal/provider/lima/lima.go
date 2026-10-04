@@ -116,6 +116,11 @@ func (p *Provider) Up(ctx context.Context, progress func(string)) (provider.Mach
 		if v := os.Getenv("TIFFIN_LIMA_CPUS"); v != "" {
 			set += " | .cpus = " + v
 		}
+		if v := os.Getenv("TIFFIN_LIMA_UBUNTU"); v == "26.04" { // try the next LTS; 24.04 stays the default
+			set += ` | .base = [] | .images = [{"location": "https://cloud-images.ubuntu.com/releases/resolute/release/ubuntu-26.04-server-cloudimg-arm64.img", "arch": "aarch64"}, {"location": "https://cloud-images.ubuntu.com/releases/resolute/release/ubuntu-26.04-server-cloudimg-amd64.img", "arch": "x86_64"}]`
+		} else if v != "" && v != "24.04" {
+			return nil, fmt.Errorf("TIFFIN_LIMA_UBUNTU=%s: use 24.04 or 26.04", v)
+		}
 		if runtime.GOOS != "darwin" {
 			set += ` | .vmType = "qemu"`
 		}
