@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// TestQueue is M7's acceptance on a fresh box: the queues-worker template is
+// TestQueue is the queues acceptance test on a fresh box: the queues-worker template is
 // deployed as a worker app and driven through the CLI.
 //
 //   - per-key concurrency holds under load

@@ -1,7 +1,7 @@
 // Package state is the platform's own record: project resources, the change
 // log, tokens and the audit trail, in one SQLite database (ncruces, pure Go).
 // It deliberately does not depend on Postgres, so the platform can report and
-// repair itself when Postgres is down. Litestream replication arrives in M4.
+// repair itself when Postgres is down.
 package state
 
 import (

@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// TestObserve is the M8 acceptance test, driven through the CLI on a fresh
+// TestObserve is the observability acceptance test, driven through the CLI on a fresh
 // box: known fixture traffic (people, bots, assets, prefetches, SPA
 // navigations, custom events) → analytics shows exact counts with bots
 // filtered, and realtime agrees with the rollups → an error sent with the

@@ -1,5 +1,5 @@
 // Package auth is the Tiffin auth module: user accounts, sessions and
-// organizations for every project's apps (M6).
+// organizations for every project's apps.
 //
 // One engine process (packages/auth-engine: Better Auth on Bun) serves every
 // auth-enabled project on the box. Each project keeps its users in its own

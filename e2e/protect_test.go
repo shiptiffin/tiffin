@@ -24,7 +24,7 @@ import (
 	"github.com/btahir/tiffin/internal/edge"
 )
 
-// TestProtect is the M11 acceptance test on a fresh box, through the CLI,
+// TestProtect is the protection acceptance test on a fresh box, through the CLI,
 // curl inside the box and HTTPS from the Mac through the forwarded port:
 //
 //   - the firewall leaves SSH and the edge ports open and drops the rest;

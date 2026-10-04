@@ -1,6 +1,6 @@
 // Package runtime is the Tiffin app runtime: builds (Railpack + BuildKit),
 // containers (containerd via nerdctl), zero-downtime deploys, rollbacks,
-// previews with scale-to-zero, logs and a git push endpoint (M2/M3).
+// previews with scale-to-zero, logs and a git push endpoint.
 package runtime
 
 import (

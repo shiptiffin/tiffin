@@ -1,5 +1,4 @@
-// Package tokens issues and checks platform API tokens until platform
-// identity moves to Better Auth in M6.
+// Package tokens issues and checks platform API tokens.
 //
 // There is one owner (bootstrap) token per box. People get session tokens
 // with their role's scopes; agents, scripts and CI get API keys (keys.go):

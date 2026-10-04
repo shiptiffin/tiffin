@@ -642,7 +642,7 @@ type BackupSource struct {
 	Manifests string `json:"manifests"`
 }
 
-// BackupSources describes the object data for an off-box mirror (Phase 2):
+// BackupSources describes the object data for an off-box mirror (not yet used):
 // what to copy, what to skip (in-flight multipart parts, lock files) and the
 // checksum manifests to verify the copy against. Local backup sets already
 // include the whole storage tree (see init).

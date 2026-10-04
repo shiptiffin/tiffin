@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// TestStorage is the M5 acceptance test, through the CLI on a fresh box:
+// TestStorage is the storage acceptance test, through the CLI on a fresh box:
 // apply storage with a private and a public bucket → upload through the S3
 // API from inside the box with the app env credentials (curl SigV4) → the
 // public object is served at files.<domain> over HTTPS with caching; the

@@ -58,7 +58,7 @@ func golden(t *testing.T, name string, got []byte) {
 	}
 }
 
-// The M0 acceptance path: config → JSON → plan → apply → state, all golden.
+// The core acceptance path: config → JSON → plan → apply → state, all golden.
 func TestGoldenConfigToState(t *testing.T) {
 	env := newEnv(t)
 	code, out, _ := run(t, env, "plan", "testdata")

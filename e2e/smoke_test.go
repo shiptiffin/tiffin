@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// budget is the M1 target for up -> checks -> down. It is only logged, never
+// budget is the target for up -> checks -> down. It is only logged, never
 // enforced: the first boot also downloads a ~600 MB cloud image.
 const budget = 5 * time.Minute
 
@@ -91,7 +91,7 @@ sudo rm -rf "$d"`)
 	}
 	phase("copy+version", p)
 
-	// ---- the M0 flow on the box: state on the XFS disk, plan, apply, serve ----
+	// ---- the core flow on the box: state on the XFS disk, plan, apply, serve ----
 	p = time.Now()
 	if err := box.CopyIn(filepath.Join(RepoRoot(), "examples", "hello", "tiffin.config.ts"), "/tmp/tiffin.config.ts"); err != nil {
 		t.Fatal(err)

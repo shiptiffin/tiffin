@@ -30,7 +30,7 @@ func TestShipParsing(t *testing.T) {
 	if r := appLogRecord([]byte("plain text line"), AppLog{App: "web"}); r["_msg"] != "plain text line" {
 		t.Fatal(r)
 	}
-	if got := Redact("Owner token: tfn_gfaarbwkgglmgwng7euk67xsrl354z2o7o77buzl and code tfl_o4vl3qaftm5223daasuv2he2kd4mt4xl"); strings.Contains(got, "gfaar") || strings.Contains(got, "o4vl3") {
+	if got := Redact("Owner token: tfn_fakefakefakefakefakefakefakefake2345 and code tfl_testtesttesttesttesttest2345"); strings.Contains(got, "fakefake") || strings.Contains(got, "testtest") {
 		t.Fatal(got)
 	}
 }

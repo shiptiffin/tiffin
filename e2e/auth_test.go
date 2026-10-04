@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-// TestAuth is the M6 auth acceptance test, on a fresh box through the CLI
+// TestAuth is the auth acceptance test, on a fresh box through the CLI
 // and the box's HTTPS edge:
 //
 //	apply postgres+email+auth → engine ready → sign up over HTTPS (ALTCHA
@@ -48,12 +48,12 @@ func TestAuth(t *testing.T) {
 	configDir := os.Getenv("TIFFIN_CONFIG_DIR")
 	port := os.Getenv("TIFFIN_LIMA_PORT")
 	if reuse := os.Getenv("TIFFIN_E2E_REUSE_CLI"); reuse != "" {
-		// Never fall through to the owner's box (~/.tiffin): reuse needs an
+		// Never fall through to your default box (~/.tiffin): reuse needs an
 		// explicit dev-box config dir and Lima instance.
 		home, _ := os.UserHomeDir()
 		if configDir == "" || port == "" || os.Getenv("TIFFIN_LIMA_INSTANCE") == "" || os.Getenv("TIFFIN_LIMA_INSTANCE") == "tiffin" ||
 			filepath.Clean(configDir) == filepath.Join(home, ".tiffin") {
-			t.Fatal("TIFFIN_E2E_REUSE_CLI needs TIFFIN_CONFIG_DIR, TIFFIN_LIMA_INSTANCE and TIFFIN_LIMA_PORT for a dev box (never the owner's box)")
+			t.Fatal("TIFFIN_E2E_REUSE_CLI needs TIFFIN_CONFIG_DIR, TIFFIN_LIMA_INSTANCE and TIFFIN_LIMA_PORT for a dev box (never your default box)")
 		}
 		cli = reuse
 	} else {

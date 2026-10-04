@@ -14,10 +14,10 @@ import (
 	"time"
 )
 
-// TestUpDown is the M1 acceptance test, driven entirely through the CLI the
+// TestUpDown is the box lifecycle acceptance test, driven entirely through the CLI the
 // way a person or agent would use it: `tiffin up` → HTTPS → doctor →
 // self-update (good, then broken with automatic rollback) → `tiffin down`.
-// It runs a second, throwaway box beside the owner's own (its own instance,
+// It runs a second, throwaway box beside your own (its own instance,
 // disk, host port and config dir), so it never touches ~/.tiffin.
 func TestUpDown(t *testing.T) {
 	RequireLima(t)

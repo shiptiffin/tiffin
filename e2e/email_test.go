@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// TestEmail is the M6 email acceptance test, through the CLI on a fresh box:
+// TestEmail is the email acceptance test, through the CLI on a fresh box:
 // send via the API and via SMTP_URL from inside the box → both in the dev
 // inbox (links extracted, HTML sanitised) → configure a relay pointing at a
 // test SMTP sink on the box → mail is delivered there and not captured →

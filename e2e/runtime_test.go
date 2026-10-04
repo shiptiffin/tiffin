@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// TestRuntime is the M2 acceptance test on a fresh box, through the CLI:
+// TestRuntime is the runtime acceptance test on a fresh box, through the CLI:
 //
 //	deploy hello-hono → HTTPS 200 → redeploy a change and roll back while
 //	hey (keep-alive) and a curl loop (a new HTTP/1.1 or HTTP/2 connection per request) hammer the app (zero failed requests) → logs show

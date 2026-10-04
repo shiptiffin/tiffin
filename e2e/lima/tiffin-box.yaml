@@ -45,7 +45,7 @@ containerd:
   user: false
 
 # Nothing inside the test box is forwarded to the Mac (tests run checks inside
-# the VM), so test boxes never collide with each other or the owner's box.
+# the VM), so test boxes never collide with each other or your default box.
 portForwards:
 - guestIP: 127.0.0.1
   guestPortRange: [1, 65535]

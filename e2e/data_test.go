@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// TestData is the M3/M4 data acceptance test, driven through the CLI on a
+// TestData is the data acceptance test, driven through the CLI on a
 // fresh box: apply postgres(vector)+valkey → ready → SQL create/insert →
 // a ~1 GB table branched by reflink clone (timed) → Valkey through
 // REDIS_URL inside the box (and its ACL) → backup → destroy data → restore

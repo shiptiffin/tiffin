@@ -5,7 +5,7 @@
 // state database (plus the box key that decrypts its secrets) and any files
 // other modules register with Include. Sets are taken on a schedule (daily
 // full, hourly incremental by default) and on demand, and restored with a
-// confirm step. Off-box copies (R2) come in Phase 2.
+// confirm step. Off-box copies are not supported yet.
 package backup
 
 import (

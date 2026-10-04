@@ -1,5 +1,5 @@
 // Package queue is the Tiffin queue module: push queues, topics, cron and
-// durable workflows (M7), on River (MPL-2.0, unmodified) in the platform
+// durable workflows, on River (MPL-2.0, unmodified) in the platform
 // Postgres, database tiffin_queue.
 //
 // Apps never poll. The box POSTs each job to an app route over plain HTTP on
