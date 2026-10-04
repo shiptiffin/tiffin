@@ -112,6 +112,33 @@ func (s *Secrets) List(ctx context.Context, project string) ([]SecretInfo, error
 	return out, rows.Err()
 }
 
+// Seal encrypts a box-level secret (not a project's env var: a GitHub
+// App's private key, say) to the box key. Store the result anywhere; only
+// Open on this box reads it.
+func (s *Secrets) Seal(plain []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	w, err := age.Encrypt(&buf, s.id.Recipient())
+	if err != nil {
+		return nil, err
+	}
+	if _, err := w.Write(plain); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// Open decrypts what Seal encrypted.
+func (s *Secrets) Open(sealed []byte) ([]byte, error) {
+	r, err := age.Decrypt(bytes.NewReader(sealed), s.id)
+	if err != nil {
+		return nil, err
+	}
+	return io.ReadAll(r)
+}
+
 // All decrypts every secret of a project, for starting its apps.
 func (s *Secrets) All(ctx context.Context, project string) (map[string]string, error) {
 	rows, err := s.db.SQL().QueryContext(ctx, `SELECT name, ciphertext FROM secrets WHERE project = ?`, project)

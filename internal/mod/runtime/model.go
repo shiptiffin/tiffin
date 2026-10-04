@@ -21,6 +21,7 @@ const (
 	StatusSuperseded = "superseded"  // a newer deploy went live; can be rolled back to
 	StatusRolledBack = "rolled_back" // replaced by a rollback to an earlier deploy; can be rolled back to
 	StatusStopped    = "stopped"     // was live, but its app or preview was deleted
+	StatusSkipped    = "skipped"     // a newer push to the same branch or pull request arrived before it was built
 )
 
 // Sources of a deploy.
@@ -38,12 +39,16 @@ type Deploy struct {
 	Project     string     `json:"project"`
 	App         string     `json:"app"`
 	Preview     string     `json:"preview,omitempty" doc:"Preview name, empty for production"`
-	Status      string     `json:"status" enum:"queued,building,starting,live,failed,superseded,rolled_back,stopped" doc:"queued → building → starting → live; failed keeps the previous deploy serving; superseded and rolled_back deploys can be rolled back to"`
+	Status      string     `json:"status" enum:"queued,building,starting,live,failed,superseded,rolled_back,stopped,skipped" doc:"queued → building → starting → live; failed keeps the previous deploy serving; superseded and rolled_back deploys can be rolled back to; skipped: a newer push arrived before it was built"`
 	Source      string     `json:"source" enum:"upload,files,prebuilt,git,template"`
 	Framework   string     `json:"framework,omitempty"`
-	Commit      string     `json:"commit,omitempty" doc:"Git commit, for git pushes and deploys from a git URL"`
-	Repo        string     `json:"repo,omitempty" doc:"Repository URL, for deploys from a git URL"`
-	Ref         string     `json:"ref,omitempty" doc:"Branch, tag or commit asked for, for deploys from a git URL"`
+	Commit      string     `json:"commit,omitempty" doc:"Git commit, for git pushes and deploys from a git URL or GitHub"`
+	Repo        string     `json:"repo,omitempty" doc:"Repository URL, for deploys from a git URL or GitHub"`
+	Ref         string     `json:"ref,omitempty" doc:"Branch, tag or commit asked for, for deploys from a git URL or GitHub"`
+	Message     string     `json:"message,omitempty" doc:"The commit's message (first line), for deploys from GitHub"`
+	Author      string     `json:"author,omitempty" doc:"Who made the commit (GitHub login or git author name), for deploys from GitHub"`
+	PullRequest int        `json:"pullRequest,omitempty" doc:"The pull request a preview deploy is for, for deploys from GitHub"`
+	Trigger     string     `json:"trigger,omitempty" enum:"push,pull_request,redeploy," doc:"What started a deploy from GitHub: a push to the production branch, a pull request, or a redeploy asked for on the box"`
 	Template    string     `json:"template,omitempty" doc:"Starter template, for template deploys"`
 	Image       string     `json:"image,omitempty" doc:"Image reference in the box's containerd store"`
 	Digest      string     `json:"digest,omitempty" doc:"Image manifest digest"`

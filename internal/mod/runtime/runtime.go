@@ -73,6 +73,8 @@ type rt struct {
 	hooks        *hookTokens
 	// gitResolve resolves hosts of git URLs to deploy from (nil: DNS).
 	gitResolve resolver
+	// gh is the GitHub connection and its deploy queue.
+	gh ghState
 }
 
 // Start wires the runtime to the platform: it fails deploys a restart
@@ -117,6 +119,7 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	r.actAddr = ln.Addr().String()
 	go r.serveInternal(ctx, ln)
 	go r.loop(ctx)
+	go r.resumeReports(ctx)
 	m.mu.Lock()
 	m.r = r
 	m.mu.Unlock()

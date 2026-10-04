@@ -47,6 +47,10 @@ type gitSource struct {
 	Ref  string // "" means the default branch (HEAD)
 	Path string // subdirectory of the repository, "" for the top
 	IPs  []netip.Addr
+	// Auth is an Authorization header value for the clone (a GitHub
+	// installation token). It reaches git through its environment, never
+	// a file or the command line.
+	Auth string
 }
 
 // resolver looks up a host's addresses (net.DefaultResolver in production).
@@ -217,6 +221,9 @@ func fetchGit(ctx context.Context, src *gitSource, dir string, log io.Writer) (s
 		"HOME="+home, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=", "GIT_PROTOCOL_FROM_USER=0",
 		"GIT_LFS_SKIP_SMUDGE=1", "GIT_ALLOW_PROTOCOL=https")
+	if src.Auth != "" {
+		env = append(env, "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=http.extraHeader", "GIT_CONFIG_VALUE_0=Authorization: "+src.Auth)
+	}
 	git := func(args ...string) *exec.Cmd {
 		full := []string{}
 		for _, c := range cfg {
