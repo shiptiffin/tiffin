@@ -22,7 +22,7 @@ async function shot(page: Page, name: string, fullPage = true) {
   if (wide > vw + 1) console.log(`OVERFLOW ${name}: ${wide}px`);
 }
 
-const IP4 = "46.224.210.97";
+const IP4 = "203.0.113.7";
 const IP6 = "2a01:4f8:c012:7d1b::1";
 const BOX = "46-224-210-97.sslip.io";
 const ago = (s: number) => new Date(Date.now() - s * 1000).toISOString();
@@ -68,7 +68,7 @@ const mixed = [
   }),
 ];
 
-const managed = [dom("shop.com", "waiting_for_dns", { reason: "it points to 104.21.3.9, not this box (46.224.210.97)", managedBy: "cloudflare", found: ["104.21.3.9"] })];
+const managed = [dom("shop.com", "waiting_for_dns", { reason: "it points to 104.21.3.9, not this box (203.0.113.7)", managedBy: "cloudflare", found: ["104.21.3.9"] })];
 
 async function domains(p: Page, list: unknown[]) {
   let current = list;
