@@ -97,7 +97,7 @@ func (m *Module) setup(ctx context.Context, p *platform.Platform, root string, v
 	m.store = st
 	m.vic = vic
 	m.batch = &LogBatcher{V: m.vic}
-	m.sites = &edgelog.Sites{DB: p.DB, Domain: p.Domain}
+	m.sites = &edgelog.Sites{DB: p.DB, Domain: p.AppsDomain()}
 	m.collector = &Collector{Mounts: []string{"/", root}}
 	m.red = &RED{}
 	m.alerter = &Alerter{Store: st, Collector: m.collector, Victoria: m.vic, Platform: p,

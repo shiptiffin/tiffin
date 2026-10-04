@@ -39,7 +39,8 @@ type reachFlags struct {
 
 // boxReach decides how the world reaches this box: its public addresses,
 // its domain (set with tiffin domain set, else <ip>.sslip.io on a server,
-// else --domain) and where certificates come from. It returns the domain
+// else --domain), a separate apps domain if one is set, and where
+// certificates come from. It returns the domain
 // and the dashboard URL to serve.
 func boxReach(ctx context.Context, db *state.DB, f reachFlags) (platform.Reach, string, string, error) {
 	var r platform.Reach
@@ -80,6 +81,9 @@ func boxReach(ctx context.Context, db *state.DB, f reachFlags) (platform.Reach, 
 		domain, source, def = f.domain, "flag", f.domain
 	}
 	r.DomainSource, r.DefaultDomain, r.Dashboard = source, def, set.Dashboard
+	if source == "set" && set.Apps != domain {
+		r.AppsDomain = set.Apps
+	}
 	r.ACMEDirectory, r.ACMERoots = strings.TrimSpace(f.acmeCA), strings.TrimSpace(f.acmeRoots)
 	r.ACMEEmail = set.Email
 	if r.ACMEEmail == "" {

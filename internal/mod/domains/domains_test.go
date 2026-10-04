@@ -360,6 +360,138 @@ func TestBoxDomainSwitch(t *testing.T) {
 	}
 }
 
+func recordNamesOf(v any) []string {
+	var out []string
+	for _, r := range v.([]any) {
+		out = append(out, r.(map[string]any)["name"].(string))
+	}
+	return out
+}
+
+// TestAppsDomain: the dashboard on the box domain, apps on a domain of
+// their own (the vercel.com / vercel.app split).
+func TestAppsDomain(t *testing.T) {
+	h := newHarness(t)
+	h.dns.AddZone("apps.test")
+	code, chk := h.call("GET", "/v1/domain/check?domain=example.test&appsDomain=apps.test", nil)
+	if code != 200 || chk["ok"] != false || chk["appsDomain"] != "apps.test" ||
+		!slices.Equal(recordNamesOf(chk["records"]), []string{"dashboard.example.test", "*.apps.test"}) {
+		t.Fatalf("check: %d %v", code, chk)
+	}
+	code, out := h.call("POST", "/v1/domain", map[string]any{"domain": "example.test", "appsDomain": "apps.test"})
+	if detail, _ := out["detail"].(string); code != 412 || len(out["errors"].([]any)) != 2 ||
+		!strings.Contains(detail, "dashboard.example.test A "+boxIP) || !strings.Contains(detail, "*.apps.test A "+boxIP) {
+		t.Fatalf("set without DNS: %d %v", code, out)
+	}
+	if code, _ := h.call("POST", "/v1/domain", map[string]any{"domain": "example.test", "appsDomain": "1-2-3-4.sslip.io"}); code != 422 {
+		t.Errorf("sslip apps domain: %d", code)
+	}
+	// The box domain's apex is not needed when apps live elsewhere.
+	h.dns.Set("dashboard.example.test", "A", boxIP)
+	h.dns.Set("*.apps.test", "A", boxIP)
+	_, chk = h.call("GET", "/v1/domain/check?domain=example.test&appsDomain=apps.test", nil)
+	if chk["ok"] != true || !strings.Contains(chk["summary"].(string), "tiffin domain set example.test --apps-domain apps.test") {
+		t.Fatalf("check with DNS: %v", chk)
+	}
+	code, out = h.call("POST", "/v1/domain", map[string]any{"domain": "example.test", "appsDomain": "apps.test"})
+	if code != 200 || out["appsDomain"] != "apps.test" || out["dashboard"] != "dashboard.example.test" || len(h.restarts) != 1 {
+		t.Fatalf("set: %d %v", code, out)
+	}
+	saved, _ := platform.LoadBoxDomain(t.Context(), h.p.DB)
+	if saved.Domain != "example.test" || saved.Apps != "apps.test" || saved.Previous != "box.test" || saved.PreviousApps != "" {
+		t.Fatalf("saved: %+v", saved)
+	}
+	// After the restart: apps under apps.test, the dashboard under example.test.
+	d, src, _ := platform.ChooseDomain("box.test", saved, h.p.Reach.PublicIPs)
+	h.p.Domain, h.p.Reach.DomainSource, h.p.Reach.AppsDomain = d, src, saved.Apps
+	if h.p.Host("web") != "web.apps.test" || h.p.DashboardHost() != "dashboard.example.test" {
+		t.Fatalf("hosts: %s %s", h.p.Host("web"), h.p.DashboardHost())
+	}
+	if a := h.m.certState().Aliases; !slices.Equal(a, []string{"box.test"}) {
+		t.Fatalf("aliases: %v", a)
+	}
+	_, st := h.call("GET", "/v1/domain", nil)
+	if st["domain"] != "example.test" || st["appsDomain"] != "apps.test" || !slices.Equal(recordNamesOf(st["records"]), []string{"dashboard.example.test", "*.apps.test"}) ||
+		!strings.Contains(st["summary"].(string), "<app>.apps.test") {
+		t.Errorf("status: %v", st)
+	}
+	if code, _ := h.call("POST", "/v1/domain", map[string]any{"domain": "example.test", "appsDomain": "apps.test"}); code != 409 {
+		t.Errorf("same again: %d", code)
+	}
+	// Project domains: the box's own names are refused, and a subdomain's
+	// CNAME alternative targets the dashboard's host (the apex need not exist).
+	h.project("shop")
+	for _, own := range []string{"apps.test", "web.apps.test", "dashboard.example.test"} {
+		if code, _ := h.call("POST", "/v1/projects/shop/domains", map[string]any{"domain": own, "app": "web"}); code != 422 {
+			t.Errorf("project domain %s: %d", own, code)
+		}
+	}
+	out = h.confirmed("POST", "/v1/projects/shop/domains", map[string]any{"domain": "www.shop.test", "app": "web"})
+	if alt, _ := json.Marshal(out["domain"].(map[string]any)["alternative"]); !strings.Contains(string(alt), "dashboard.example.test") {
+		t.Errorf("CNAME alternative: %s", alt)
+	}
+	// Back to one domain: the apps domain's names keep working for a while.
+	h.dns.Set("example.test", "A", boxIP)
+	h.dns.Set("*.example.test", "A", boxIP)
+	if code, out := h.call("POST", "/v1/domain", map[string]any{"domain": "example.test"}); code != 200 || out["appsDomain"] != "example.test" {
+		t.Fatalf("back to one domain: %d %v", code, out)
+	}
+	saved, _ = platform.LoadBoxDomain(t.Context(), h.p.DB)
+	if saved.Apps != "" || saved.Previous != "" || saved.PreviousApps != "apps.test" {
+		t.Fatalf("saved: %+v", saved)
+	}
+	h.p.Reach.AppsDomain = ""
+	if a := h.m.certState().Aliases; !slices.Equal(a, []string{"apps.test"}) {
+		t.Fatalf("aliases: %v", a)
+	}
+	if _, st := h.call("GET", "/v1/domain", nil); st["previous"].(map[string]any)["domain"] != "apps.test" {
+		t.Errorf("previous: %v", st["previous"])
+	}
+}
+
+// TestAppsDomainCreateRecords: createRecords sets the records in zones the
+// connected provider holds and names the rest to add by hand.
+func TestAppsDomainCreateRecords(t *testing.T) {
+	h := newHarness(t)
+	if code, out := h.call("PUT", "/v1/dns/providers/fake", map[string]any{"token": "secret-token-123"}); code != 200 {
+		t.Fatalf("connect: %d %v", code, out)
+	}
+	h.dns.AddZone("apps.test") // after connecting: the provider does not hold it
+	_, chk := h.call("GET", "/v1/domain/check?domain=example.test&appsDomain=apps.test", nil)
+	recs := chk["records"].([]any)
+	if recs[0].(map[string]any)["managedBy"] != "fake" || recs[1].(map[string]any)["managedBy"] != nil || chk["managedBy"] != nil ||
+		!strings.Contains(chk["summary"].(string), "add these by hand: *.apps.test A "+boxIP) {
+		t.Fatalf("check: %v", chk)
+	}
+	code, out := h.call("POST", "/v1/domain", map[string]any{"domain": "example.test", "appsDomain": "apps.test", "createRecords": true})
+	if hint, _ := out["hint"].(string); code != 412 || len(out["errors"].([]any)) != 1 || !strings.Contains(hint, "add them by hand: *.apps.test A "+boxIP) {
+		t.Fatalf("partly held: %d %v", code, out)
+	}
+	if got := h.dns.Get("dashboard.example.test", "A"); !slices.Equal(got, []string{boxIP}) {
+		t.Errorf("dashboard record: %v", got)
+	}
+	h.dns.Set("*.apps.test", "A", boxIP)
+	if code, out := h.call("POST", "/v1/domain", map[string]any{"domain": "example.test", "appsDomain": "apps.test", "createRecords": true}); code != 200 {
+		t.Fatalf("after adding by hand: %d %v", code, out)
+	}
+	// Both zones held: the box creates everything, and no apex record.
+	if code, out := h.call("POST", "/v1/domain", map[string]any{"domain": "auto.test", "appsDomain": "shop.test", "createRecords": true}); code != 200 {
+		t.Fatalf("both held: %d %v", code, out)
+	}
+	if !slices.Equal(h.dns.Get("dashboard.auto.test", "A"), []string{boxIP}) || !slices.Equal(h.dns.Get("*.shop.test", "A"), []string{boxIP}) || len(h.dns.Get("auto.test", "A")) != 0 {
+		t.Errorf("records: %v %v %v", h.dns.Get("dashboard.auto.test", "A"), h.dns.Get("*.shop.test", "A"), h.dns.Get("auto.test", "A"))
+	}
+	// The wildcard certificate follows the apps domain's zone.
+	h.p.Domain, h.p.Reach.AppsDomain = "auto.test", "shop.test"
+	if w := h.m.certState().Wildcard; w == nil || w.Name != "fake" {
+		t.Errorf("wildcard for *.shop.test: %+v", w)
+	}
+	h.p.Reach.AppsDomain = "apps.test"
+	if w := h.m.certState().Wildcard; w != nil {
+		t.Errorf("wildcard for a zone the provider does not hold: %+v", w)
+	}
+}
+
 func TestDNSProvider(t *testing.T) {
 	h := newHarness(t)
 	if code, out := h.call("PUT", "/v1/dns/providers/fake", map[string]any{"token": "bad"}); code != 422 || !strings.Contains(out["detail"].(string), "invalid token") {

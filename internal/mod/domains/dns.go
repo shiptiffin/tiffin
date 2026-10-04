@@ -137,13 +137,13 @@ func (m *Module) providerForLocked(name string) (*providerState, string) {
 	return best, bestZone
 }
 
-// wildcardLocked is the DNS-01 challenge for *.<box domain>, when a
-// connected provider holds the box domain's zone.
+// wildcardLocked is the DNS-01 challenge for *.<apps domain>, when a
+// connected provider holds the apps domain's zone.
 func (m *Module) wildcardLocked() *edge.DNSChallenge {
-	if m.p == nil || m.p.Domain == "" {
+	if m.p == nil || m.p.AppsDomain() == "" {
 		return nil
 	}
-	st, _ := m.providerForLocked(m.p.Domain)
+	st, _ := m.providerForLocked(m.p.AppsDomain())
 	if st == nil {
 		return nil
 	}

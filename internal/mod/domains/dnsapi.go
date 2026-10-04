@@ -19,7 +19,7 @@ type ConnectedProvider struct {
 	Name        string    `json:"name"`
 	Label       string    `json:"label"`
 	Zones       []string  `json:"zones" doc:"The zones the credentials reach."`
-	BoxDomain   bool      `json:"boxDomain" doc:"It holds the box domain's zone: the box uses one wildcard certificate (DNS-01) for every app."`
+	BoxDomain   bool      `json:"boxDomain" doc:"It holds the zone apps live under (the box domain, or the separate apps domain): the box uses one wildcard certificate (DNS-01) for every app."`
 	ConnectedAt time.Time `json:"connectedAt"`
 	ConnectedBy string    `json:"connectedBy"`
 	Error       string    `json:"error,omitempty" doc:"Why the stored credentials cannot be used."`
@@ -49,7 +49,7 @@ func (m *Module) providers(p *platform.Platform) Providers {
 		if st.err != nil {
 			c.Error = st.err.Error()
 		}
-		if _, ok := dnskit.ZoneFor(st.rec.Zones, p.Domain); ok {
+		if _, ok := dnskit.ZoneFor(st.rec.Zones, p.AppsDomain()); ok {
 			c.BoxDomain = true
 		}
 		out.Connected = append(out.Connected, c)
@@ -88,7 +88,7 @@ func (m *Module) registerDNS(a huma.API, p *platform.Platform, ready func() erro
 		"Connect a DNS provider",
 		"Stores a DNS provider's credentials, encrypted with the box's key, after checking them by listing the zones they reach. "+
 			"Cloudflare: an API token with Zone · DNS · Edit on the zones (account-owned or user tokens both work). "+
-			"If one of its zones holds the box domain, the box switches to a wildcard certificate for *.<domain>. Replaces earlier credentials for the same provider. Box admins only.", tag))
+			"If one of its zones holds the domain apps live under, the box switches to a wildcard certificate for *.<that domain>. Replaces earlier credentials for the same provider. Box admins only.", tag))
 	cn.Errors = append(cn.Errors, 404)
 	huma.Register(a, cn, api.Wrap(func(ctx context.Context, in *struct {
 		Provider string `path:"provider" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"e.g. cloudflare"`

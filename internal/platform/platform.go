@@ -231,8 +231,9 @@ type Platform struct {
 	rec *reconciler
 }
 
-// Host returns the public hostname for a first-level name: "shop" → "shop.tiffin.localhost".
-func (p *Platform) Host(name string) string { return name + "." + p.Domain }
+// Host returns the public hostname for a first-level name under the apps
+// domain: "shop" → "shop.tiffin.localhost". The dashboard is DashboardHost.
+func (p *Platform) Host(name string) string { return name + "." + p.AppsDomain() }
 
 // URL returns the public https URL for a host, with the public port when not 443.
 func (p *Platform) URL(host string) string {
@@ -302,7 +303,7 @@ func (p *Platform) Start(ctx context.Context) error {
 // env (DATABASE_URL, ...), then project env, then app env, then secrets.
 // Later sources win.
 func (p *Platform) ProjectEnv(ctx context.Context, project, app string) (map[string]string, error) {
-	env := map[string]string{"TIFFIN_PROJECT": project, "TIFFIN_APP": app, "TIFFIN_DOMAIN": p.Domain}
+	env := map[string]string{"TIFFIN_PROJECT": project, "TIFFIN_APP": app, "TIFFIN_DOMAIN": p.AppsDomain()}
 	for _, m := range Modules() {
 		if ep, ok := m.(EnvProvider); ok {
 			kv, err := ep.Env(ctx, p, project, app)
