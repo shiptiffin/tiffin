@@ -69,7 +69,9 @@ func boxReach(ctx context.Context, db *state.DB, f reachFlags) (platform.Reach, 
 		r.ACME = true
 	case "internal":
 	case "auto", "":
-		r.ACME = len(r.PublicIPs) > 0 && !platform.IsLocalDomain(domain)
+		// A public CA can only reach a routable address; a private one (a VM on
+		// this machine, a LAN) keeps the internal CA unless a test CA is named.
+		r.ACME = (anyRoutable(r.PublicIPs) || strings.TrimSpace(f.acmeCA) != "") && !platform.IsLocalDomain(domain)
 	default:
 		return r, "", "", fmt.Errorf("--tls %q: want auto, acme or internal", f.tls)
 	}
@@ -110,4 +112,16 @@ func dashboardURL(configured, host string, httpsPort int) string {
 		return "https://" + host
 	}
 	return "https://" + host + ":" + port
+}
+
+// anyRoutable reports whether any address is reachable from the internet
+// (not private, loopback, link-local or shared CGNAT space).
+func anyRoutable(ips []netip.Addr) bool {
+	cgnat := netip.MustParsePrefix("100.64.0.0/10")
+	for _, a := range ips {
+		if a.IsGlobalUnicast() && !a.IsPrivate() && !cgnat.Contains(a) {
+			return true
+		}
+	}
+	return false
 }
