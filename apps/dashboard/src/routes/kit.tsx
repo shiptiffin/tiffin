@@ -33,7 +33,7 @@ export function KitPage() {
         them; don’t restyle them per page. Left is light, right is dark. Sample values on this page are made up for the demo.
       </p>
       <nav className="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-sm text-brass-ink">
-        {["Colour", "Type", "Numbers", "Levers", "Buttons", "Ledger", "Stack", "Mark", "Motion", "Rules"].map((s) => (
+        {["Colour", "Type", "Numbers", "Controls", "Buttons", "History", "Stack", "Mark", "Motion", "Rules"].map((s) => (
           <a key={s} href={`#${s.toLowerCase()}`} className="hover:underline hover:underline-offset-4">
             {s}
           </a>
@@ -109,7 +109,7 @@ export function KitPage() {
         <Both>{() => <Buttons />}</Both>
       </Section>
 
-      <Section id="ledger" title="History entries" note="The all-projects History (Settings › History) and a change's own page. People in ink, agents in graphite.">
+      <Section id="history" title="History entries" note="The all-projects History (Settings › History) and a change's own page. People in ink, agents in graphite.">
         <Both>{() => <LedgerDemo />}</Both>
       </Section>
 
@@ -143,7 +143,7 @@ export function KitPage() {
               ["--dur-press", "100 ms · scale .97", "Buttons and levers under the finger."],
               ["--dur-state", "150 ms", "Hover, breaker throw, guard lifting to red."],
               ["--dur-detent", "120 ms", "Throttle snapping to a stop."],
-              ["--dur-enter", "220 ms · opacity + 4 px rise", "Something new: a Ledger entry, a toast."],
+              ["--dur-enter", "220 ms · opacity + 4 px rise", "Something new: a History entry, a toast."],
               ["--dur-exit", "150 ms", "Leaving is faster than arriving."],
               ["--dur-tray", "320 ms · spring, no bounce", "The plan tray and sheets."],
               ["--dur-unlatch", "200 ms", "A tier lifting out of the Stack to open its page."],
@@ -171,7 +171,7 @@ export function KitPage() {
             "Status colour only when status isn't fine. ‘Ready’ is the default and says nothing.",
             "Numbers through lib/format.ts; no delta without a real baseline (‘nothing to compare yet’).",
             "Plain sentences a person would say. At most one food pun per page, never in nouns or buttons.",
-            "Every change is staged and planned; nothing applies from a lever directly.",
+            "A click makes the change (plan, then apply with its hash); only what deletes data or reaches outside the box asks first.",
           ].map((r) => (
             <li key={r} className="border-b border-rule py-2">
               {r}

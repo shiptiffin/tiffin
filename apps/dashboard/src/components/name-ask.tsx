@@ -60,7 +60,7 @@ export function NameAsk() {
     >
       <label htmlFor="name-ask" className="min-w-0 flex-1 basis-60">
         <span className="block text-[0.9375rem] font-[550] text-ink">What should we call you?</span>
-        <span className="block text-[0.8125rem] text-ink-3">The Ledger signs your changes with it. Right now it says “Owner”.</span>
+        <span className="block text-[0.8125rem] text-ink-3">History shows your changes with it. Right now it says “Owner”.</span>
       </label>
       <input
         id="name-ask"

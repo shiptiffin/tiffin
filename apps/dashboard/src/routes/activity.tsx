@@ -92,7 +92,7 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
   if (changes.isError)
     return (
       <Page>
-        <ProblemNote error={changes.error} title="Couldn’t load the Ledger" />
+        <ProblemNote error={changes.error} title="Couldn’t load History" />
       </Page>
     );
 
@@ -186,7 +186,7 @@ function Controls({ search, all, projects }: { search: ActivitySearch; all: Chan
   const tierCount = (t: Tier) => all.filter((c) => asTier(c.plan.risk) === t).length;
   const toggle = "inline-flex h-7 items-center gap-1.5 rounded-[6px] px-2 text-[0.8125rem] text-ink-3 transition-colors duration-[var(--dur-state)] hover:text-ink aria-pressed:bg-paper-sunk aria-pressed:text-ink disabled:pointer-events-none disabled:opacity-40";
   return (
-    <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-rule py-1.5" role="toolbar" aria-label="Filter the Ledger">
+    <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-rule py-1.5" role="toolbar" aria-label="Filter History">
       <div className="flex items-center" role="group" aria-label="Who">
         {(
           [
@@ -412,10 +412,8 @@ function Entry({
   names: Parameters<typeof tokenWho>[1];
 }) {
   const tier = asTier(c.plan.risk);
-  const agent = isAgent(c);
   let signature: ReactNode;
   if (approval) signature = `signed by ${tokenWho(approval.decidedBy, names)} · passkey${approval.decidedAt ? ` · ${clock(approval.decidedAt)}` : ""}`;
-  else if (agent) signature = "within its grant";
   const extra: ReactNode[] = [];
   if (c.undoneBy)
     extra.push(
@@ -496,7 +494,7 @@ function Skeleton() {
 function NoChangesIn({ project }: { project: string }) {
   return (
     <Page>
-      <p className="label mb-2">Ledger · {project}</p>
+      <p className="label mb-2">History · {project}</p>
       <h1 className="sentence text-ink">Nothing has changed in {project} yet.</h1>
       <p className="mt-3 max-w-[36rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
         Entries are written the moment someone applies a plan.{" "}
@@ -518,7 +516,7 @@ function FirstRun() {
   ];
   return (
     <Page>
-      <p className="label mb-2">Ledger</p>
+      <p className="label mb-2">History</p>
       <h1 className="sentence text-ink">Nothing is written down yet.</h1>
       <p className="mt-3 max-w-[38rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
         Every change to this box, by you or an agent, is planned first, applied with its plan’s hash and written down here, signed and undoable. Make the first

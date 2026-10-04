@@ -55,7 +55,7 @@ export function StoragePage({ project }: { project: string }) {
     <Page wide>
       <PageHeader
         eyebrow={<StorageCrumbs project={project} />}
-        title="Storage"
+        title="Files"
         lede={
           <>
             S3-compatible buckets on the box's own disk. Your apps already have the keys, so <code className="ident text-ink">Bun.s3</code> and any
@@ -134,7 +134,7 @@ function StorageCrumbs({ project, bucket }: { project: string; bucket?: boolean 
     <Crumbs
       items={[
         { label: project, to: "/projects/$project", params: { project }, mono: true },
-        ...(bucket ? [{ label: "Storage", to: "/projects/$project/storage", params: { project } }] : []),
+        ...(bucket ? [{ label: "Files", to: "/projects/$project/storage", params: { project } }] : []),
       ]}
     />
   );

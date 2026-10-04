@@ -196,7 +196,7 @@ export function QueuesPage({ project }: { project: string }) {
 
   return (
     <Page wide>
-      <Header project={project} title="Queues" lede="Jobs your apps send, delivered to them with retries and backoff. A job that runs out of tries waits in dead letters." />
+      <Header project={project} title="Jobs" lede="Jobs your apps send, delivered to them with retries and backoff. A job that runs out of tries waits in dead letters." />
       {stats.isError && <ProblemNote className="mt-6" error={stats.error} />}
       {stats.isSuccess && visible.length > 0 && <StateSentence className="mt-8">{queuesSentence(all)}</StateSentence>}
 

@@ -25,6 +25,25 @@ async function asEmptyBox(p: Page) {
   await p.route("**/v1/changes?*", (r) => r.fulfill({ json: [] }));
 }
 
+// The Usage tab with the resources backend (in progress): /usage answers as it will, with a 25% limit.
+async function withUsage(p: Page) {
+  const MB = 1048576;
+  await p.route("**/v1/projects/shop/usage", (r) =>
+    r.fulfill({
+      json: {
+        project: "shop",
+        budget: { auto: false, maxSharePercent: 25 },
+        limitSource: "project",
+        memory: { usedBytes: 460 * MB, cacheBytes: 40 * MB, limitBytes: 976 * MB, headroomBytes: 556 * MB, pressure: "none" },
+        cpu: { percent: 6, limitCpus: 0.5 },
+        disk: { databaseBytes: 9 * MB, filesBytes: 0.02 * MB, kvBytes: 0.003 * MB, totalBytes: 9.1 * MB },
+        apps: [],
+        services: { postgres: { memoryBytes: 180 * MB }, valkey: { memoryBytes: 12 * MB }, auth: { memoryBytes: 60 * MB } },
+      },
+    }),
+  );
+}
+
 const pages: Array<{
   name: string;
   url: string;
@@ -44,6 +63,7 @@ const pages: Array<{
     full: false,
   },
   { name: "usage", url: "/projects/shop/usage", wait: (p) => p.getByText(/is using/).waitFor() },
+  { name: "usage-limit", url: "/projects/shop/usage", stub: withUsage, wait: (p) => p.getByText(/can grow to/).waitFor() },
   { name: "history", url: "/projects/shop/history", wait: (p) => p.getByRole("heading", { name: "History" }).waitFor() },
   { name: "project-settings", url: "/projects/shop/settings", wait: (p) => p.getByRole("heading", { name: "Built-in parts" }).waitFor() },
   {

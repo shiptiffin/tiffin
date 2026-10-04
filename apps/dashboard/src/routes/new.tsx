@@ -320,7 +320,7 @@ function StarterTile({ s, picked, onPick, loading }: { s: Starter; picked: boole
         picked ? "border-brass shadow-[0_0_0_1px_var(--brass)]" : "border-rule-2 hover:border-rule-3",
       )}
     >
-      <span className="block aspect-[16/10] w-full bg-paper-sunk">
+      <span className="block aspect-[16/10] w-full bg-paper-sunk max-sm:aspect-[16/7]">
         {starterThumb[s.id] && <img src={starterThumb[s.id]} alt="" width={320} height={200} className="size-full object-contain p-1.5 transition-transform duration-[var(--dur-enter)] ease-[var(--ease-out)] group-hover:scale-[1.03]" />}
       </span>
       <span className="flex flex-col gap-1 border-t border-rule px-3 pt-2.5 pb-3">
@@ -684,7 +684,7 @@ function Launch({
         <p>
           The box builds <b className="font-[550] text-ink">{L.app ?? L.project}</b> with Railpack and BuildKit, starts one instance, and only routes traffic to it once its health check passes.
         </p>
-        <p className="mt-3">You can leave this page; the build carries on, and the Box shows it with the same light.</p>
+        <p className="mt-3">You can leave this page; the build carries on, and the project’s page shows it.</p>
       </aside>
     </div>
   );
@@ -829,7 +829,7 @@ function Live({
               </Link>
             </Button>
             <Button asChild variant="ghost" size="lg">
-              <Link to="/">Back to the Box</Link>
+              <Link to="/">All projects</Link>
             </Button>
           </div>
           <h2 className="label mt-10 mb-1">Or from your terminal</h2>

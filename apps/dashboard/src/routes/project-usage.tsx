@@ -13,6 +13,8 @@ import { cn } from "@/lib/cn";
 import { bytes, dec } from "@/lib/format";
 import { rememberProject } from "@/lib/recent";
 import { change, pendingFor, usePending } from "@/lib/staged";
+import { partName, partSub } from "@/lib/names";
+import { Button } from "@/components/ui/button";
 import { boxSettingsQuery, cpuWords, memWords, missing, shareMeans, shareWords, useBoxShares, usageQuery, type ProjectResources } from "@/lib/usage";
 
 const MB = 1048576;
@@ -62,7 +64,11 @@ export function ProjectUsagePage({ project }: { project: string }) {
     );
   } else if (unmeasured) sentence = "Memory and CPU are measured on a running box.";
 
-  const live = (m.data?.manifest as { resources?: ProjectResources } | undefined)?.resources;
+  // The limit as the config says it; a box that reports a budget the config doesn't show yet wins.
+  const budget = usage.data?.budget;
+  const live =
+    (m.data?.manifest as { resources?: ProjectResources } | undefined)?.resources ??
+    (budget && !budget.auto ? { maxSharePercent: budget.maxSharePercent, memoryMB: budget.memoryMB, cpus: budget.cpus } : undefined);
   const staged = pendingFor(pending, "set:resources");
   const resources = staged?.kind === "set" ? (staged.to as ProjectResources | undefined) : live;
 
@@ -98,7 +104,13 @@ export function ProjectUsagePage({ project }: { project: string }) {
         <Limit project={project} resources={resources} busy={!!staged} live={live} totalMB={totalMB} cpus={cpus} source={usage.data?.limitSource} />
       )}
 
-      <Advanced project={project} free={res && res.memory.totalBytes > 0 ? res.memory.availableBytes / MB - RESERVE_MB : undefined} apps={(m.data?.manifest.apps ?? {}) as Record<string, ManifestApp>} status={usage.data} />
+      <Advanced
+        project={project}
+        free={res && res.memory.totalBytes > 0 ? res.memory.availableBytes / MB - RESERVE_MB : undefined}
+        apps={(m.data?.manifest.apps ?? {}) as Record<string, ManifestApp>}
+        status={usage.data}
+        exact={hasUsage ? { live, cpus } : undefined}
+      />
     </Page>
   );
 }
@@ -204,7 +216,19 @@ function Choice({ checked, onSelect, title, note, children }: { checked: boolean
 }
 
 /** Per-app copies, exact limits and what each part uses: one click away, closed by default. */
-function Advanced({ project, apps, free, status }: { project: string; apps: Record<string, ManifestApp>; free?: number; status?: { services?: Record<string, { memoryBytes?: number }>; apps: Array<{ app: string; memoryBytes: number }> } }) {
+function Advanced({
+  project,
+  apps,
+  free,
+  status,
+  exact,
+}: {
+  project: string;
+  apps: Record<string, ManifestApp>;
+  free?: number;
+  status?: { services?: Record<string, { memoryBytes?: number }>; apps: Array<{ app: string; memoryBytes: number }> };
+  exact?: { live?: ProjectResources; cpus: number };
+}) {
   const [open, setOpen] = useState(false);
   const pending = usePending(project);
   const p = useQuery(q.project(project));
@@ -233,11 +257,14 @@ function Advanced({ project, apps, free, status }: { project: string; apps: Reco
               ))}
             </Group>
           )}
+          {exact && <ExactLimit project={project} live={exact.live} cpus={exact.cpus} />}
           {status?.services && Object.keys(status.services).length > 0 && (
             <Group label="Built-in parts">
               {Object.entries(status.services).map(([k, v]) => (
                 <div key={k} className="flex items-center justify-between py-2.5 text-[0.875rem]">
-                  <span className="text-ink">{k}</span>
+                  <span className="text-ink">
+                    {partName(k)} <span className="text-xs text-ink-3">{partSub(k)}</span>
+                  </span>
                   <span className="text-ink-2 tnum">{v.memoryBytes !== undefined ? bytes(v.memoryBytes) : "–"}</span>
                 </div>
               ))}
@@ -246,5 +273,40 @@ function Advanced({ project, apps, free, status }: { project: string; apps: Reco
         </>
       )}
     </section>
+  );
+}
+
+/** The exact form of a limit: memory in MB and CPUs, instead of a share of the box. */
+function ExactLimit({ project, live, cpus }: { project: string; live?: ProjectResources; cpus: number }) {
+  const [mem, setMem] = useState(String(live?.memoryMB ?? ""));
+  const [cpu, setCpu] = useState(String(live?.cpus ?? ""));
+  const m = Number(mem);
+  const c = Number(cpu);
+  const ok = (mem === "" || (m >= 64 && Number.isFinite(m))) && (cpu === "" || (c > 0 && c <= cpus)) && (mem !== "" || cpu !== "");
+  const field = "ident h-8 w-28 rounded-[7px] border border-rule-2 bg-paper-raised px-2 text-[0.8125rem] text-ink outline-none focus-visible:border-brass";
+  return (
+    <Group label="An exact limit" note="Instead of a share of the box.">
+      <form
+        className="flex flex-wrap items-end gap-3 py-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!ok) return;
+          const to: ProjectResources = { ...(mem ? { memoryMB: m } : {}), ...(cpu ? { cpus: c } : {}) };
+          change(project, { kind: "set", path: ["resources"], from: live, to, what: `Limit ${project} to ${[mem && memWords(m), cpu && cpuWords(c)].filter(Boolean).join(" and ")}`, undo: `${project}’s limit goes back as it was` }, { immediate: true });
+        }}
+      >
+        <label className="text-xs text-ink-3">
+          Memory (MB)
+          <input value={mem} onChange={(e) => setMem(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="no limit" className={cn(field, "mt-1 block")} />
+        </label>
+        <label className="text-xs text-ink-3">
+          CPUs
+          <input value={cpu} onChange={(e) => setCpu(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="no limit" className={cn(field, "mt-1 block")} />
+        </label>
+        <Button type="submit" size="md" disabled={!ok}>
+          Set this limit
+        </Button>
+      </form>
+    </Group>
   );
 }

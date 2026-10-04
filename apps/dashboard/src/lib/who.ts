@@ -11,8 +11,8 @@ const OWNER = "__owner";
  * box's owner (changes signed "owner") by the owner's current name ("Bilal").
  */
 export function whoMap(tokens: Token[], people: Person[]): Names {
-  const m: Names = new Map(tokens.map((t) => [t.id, { id: t.id, name: t.name, who: actorName({ kind: "agent", name: t.name }).name }] as const));
   const owner = people.find((p) => p.role === "owner")?.name;
+  const m: Names = new Map(tokens.map((t) => [t.id, { id: t.id, name: t.name, who: t.name === "owner" && owner ? owner : actorName({ kind: "agent", name: t.name }).name }] as const));
   if (owner) m.set(OWNER, { id: OWNER, name: "owner", who: owner });
   return m;
 }

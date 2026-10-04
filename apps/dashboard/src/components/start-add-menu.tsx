@@ -65,9 +65,9 @@ export function AddMenu({ project, manifest, routes, className, trigger, only }:
         <MenuContent align="start" className="min-w-60">
           {off.length > 0 && <MenuLabel>Built in, ready in seconds</MenuLabel>}
           {off.map((s) => (
-            <MenuItem key={s} onSelect={() => change(project, { kind: "service", service: s, from: "off", to: "on" }, { immediate: true })}>
+            <MenuItem key={s} className="h-auto py-1.5" onSelect={() => change(project, { kind: "service", service: s, from: "off", to: "on" }, { immediate: true })}>
               {FRIENDLY[s].icon}
-              <span className="flex min-w-0 flex-col">
+              <span className="flex min-w-0 flex-col leading-[1.15rem]">
                 <span>{FRIENDLY[s].label}</span>
                 <span className="text-xs text-ink-3">{PARTS[s as keyof typeof PARTS].sub}</span>
               </span>

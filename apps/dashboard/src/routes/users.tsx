@@ -151,7 +151,7 @@ export function UsersPage({ project, search = "", page = 1 }: { project: string;
     <Page wide>
       <Header
         project={project}
-        title="Users"
+        title="Auth"
         lede={
           <>
             The people who sign in to {project}’s apps. The box’s own team is under{" "}
@@ -353,7 +353,7 @@ export function UserPage({ project, id }: { project: string; id: string }) {
       <Header
         project={project}
         tabs={false}
-        crumbs={[{ label: "Users", to: "/projects/$project/users", params: { project } }]}
+        crumbs={[{ label: "Auth", to: "/projects/$project/users", params: { project } }]}
         title={
           <span className="flex items-center gap-3">
             <Avatar name={u.name} big />
@@ -511,7 +511,7 @@ export function OrgsPage({ project, search = "" }: { project: string; search?: s
   const orgs = list.data?.organizations ?? [];
   return (
     <Page wide>
-      <Header project={project} title="Users" lede="Teams your users create in your app, with their members, roles and open invitations." />
+      <Header project={project} title="Auth" lede="Teams your users create in your app, with their members, roles and open invitations." />
       <div className="mt-8 flex items-center justify-between gap-4">
         <SearchBox value={q} onChange={setQ} label="Search organizations" placeholder="Search by name or slug" />
         <span className="shrink-0 text-[0.8125rem] text-ink-3 tnum max-sm:hidden">{list.isSuccess && `${int(list.data?.total ?? orgs.length)} in all`}</span>

@@ -160,7 +160,7 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
           {state === "already" && (
             <Button asChild variant="primary" size="lg" className="mt-6 self-start">
               <Link to="/" search={{}}>
-                Open the Box <ArrowRight />
+                Open your projects <ArrowRight />
               </Link>
             </Button>
           )}

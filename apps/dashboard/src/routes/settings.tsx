@@ -262,7 +262,7 @@ export function PeoplePage() {
         open={!!removing}
         onClose={() => setRemoving(null)}
         title={`Remove ${removing?.name ?? "them"}?`}
-        body="They lose access at once and any open sessions end. Their past changes stay in the Ledger under their name."
+        body="They lose access at once and any open sessions end. Their past changes stay in History under their name."
         action="Remove"
         run={() => api.removePerson(removing!.id)}
         done={refresh}

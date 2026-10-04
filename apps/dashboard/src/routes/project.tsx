@@ -150,7 +150,7 @@ function Tile({
   return (
     <li
       className={cn(
-        "group relative flex min-h-[148px] flex-col rounded-[12px] border bg-paper-raised p-4 pb-3 shadow-[var(--top-light)] transition-[border-color,box-shadow] duration-[var(--dur-state)] hover:shadow-raised",
+        "group relative flex flex-col rounded-[12px] border bg-paper-raised p-4 pb-3 sm:min-h-[148px] shadow-[var(--top-light)] transition-[border-color,box-shadow] duration-[var(--dur-state)] hover:shadow-raised",
         tone === "bad" ? "border-danger-rule" : "border-rule-2 hover:border-rule-3",
       )}
     >
@@ -165,7 +165,7 @@ function Tile({
           {kind && <p className="truncate text-xs text-ink-3">{kind}</p>}
         </div>
       </div>
-      <div className={cn("mt-3 min-h-10 text-[0.875rem] leading-5 text-ink-2", tone === "bad" && "text-danger")}>{fact}</div>
+      <div className={cn("mt-3 text-[0.875rem] leading-5 text-ink-2 sm:min-h-10", tone === "bad" && "text-danger")}>{fact}</div>
       {actions && <div className="relative z-10 mt-auto flex flex-wrap items-center gap-1 pt-2 -ml-2">{actions}</div>}
     </li>
   );
@@ -403,7 +403,7 @@ function PendingTile({ words }: { words: string }) {
 
 function AddTile({ project, manifest, routes, empty }: { project: string; manifest?: Manifest; routes: string[]; empty: boolean }) {
   return (
-    <li className="flex min-h-[148px]">
+    <li className="flex min-h-[112px] sm:min-h-[148px]">
       <AddMenu
         project={project}
         manifest={manifest}

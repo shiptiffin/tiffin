@@ -46,7 +46,7 @@ const lengthWord: Record<string, [string, string]> = {
 const byName = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
 
 export function KvPage({ project, match, k }: { project: string; match?: string; k?: string }) {
-  useTitle(`${project} · Key-value`);
+  useTitle(`${project} · Cache`);
   const navigate = useNavigate();
   const stats = useQuery(mq.kvStats(project));
   const [glob, setGlob] = useState(match ?? "");
@@ -76,7 +76,8 @@ export function KvPage({ project, match, k }: { project: string; match?: string;
     <Page full>
       <DataHeader
         project={project}
-        title="Data"
+        title="Cache"
+        tabs={false}
         lede={
           s ? (
             <>

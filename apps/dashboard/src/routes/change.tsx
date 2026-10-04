@@ -70,7 +70,7 @@ export function ChangePage({ id }: { id: string }) {
     return (
       <Page>
         <Leaf>
-          <LedgerCrumbs items={[{ label: "Ledger", to: "/ledger" }, { label: "Entry" }]} />
+          <LedgerCrumbs items={[{ label: "History", to: "/ledger" }, { label: "Change" }]} />
           <ProblemNote
             className="mt-6"
             error={error}
@@ -92,12 +92,11 @@ export function ChangePage({ id }: { id: string }) {
 
   return (
     <Page>
-      <article data-receipt aria-label="Ledger entry" className="flex flex-col">
+      <article data-receipt aria-label="Change" className="flex flex-col">
         <PrintHead />
         <div className="print:hidden">
           <LedgerCrumbs
             items={[
-              { label: "Ledger", to: "/ledger" },
               {
                 label: (
                   <span className="inline-flex items-center gap-1.5">
@@ -105,10 +104,10 @@ export function ChangePage({ id }: { id: string }) {
                     {c.project}
                   </span>
                 ),
-                to: "/ledger",
-                search: { project: c.project },
+                to: `/projects/${encodeURIComponent(c.project)}`,
               },
-              { label: `Entry · version ${c.version}` },
+              { label: "History", to: `/projects/${encodeURIComponent(c.project)}/history` },
+              { label: `Change · version ${c.version}` },
             ]}
           />
         </div>
@@ -244,7 +243,7 @@ function PrintHead() {
     <div className="mb-8 hidden items-center gap-2 border-b border-ink pb-3 text-[0.8125rem] text-ink-2 print:flex">
       <Logo className="size-5 text-ink" />
       <b className="font-[550] text-ink">tiffin</b>
-      <span>Ledger receipt</span>
+      <span>Tiffin change record</span>
       <span className="ml-auto">Printed {stamp(now)}</span>
     </div>
   );
@@ -494,7 +493,7 @@ function UndoProblem({ error }: { error: unknown }) {
       return (
         <Callout title="Something changed since, so undo would overwrite newer work">
           <p>{sentence(p.detail ?? "")}</p>
-          <p className="mt-1 text-ink-3">Undo the newer entries in the Ledger first, or change the project by hand and apply a new plan.</p>
+          <p className="mt-1 text-ink-3">Undo the newer changes in History first, or change the project by hand.</p>
         </Callout>
       );
     }

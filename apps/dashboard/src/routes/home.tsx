@@ -320,7 +320,7 @@ function FirstRun() {
       </div>
       <section aria-label="Hand it to your agent" className="mt-10 max-w-[40rem]">
         <h2 className="text-[0.9375rem] font-[550] text-ink">Or hand it to your agent</h2>
-        <p className="mt-1 mb-3 text-sm text-ink-2">Claude can set up projects for you. Anything risky waits for your OK.</p>
+        <p className="mt-1 mb-3 text-sm text-ink-2">Claude Code can set up projects for you. It asks you before anything destructive, and every change can be undone in History.</p>
         <Command cmd={mcpCommand()} />
       </section>
     </Page>

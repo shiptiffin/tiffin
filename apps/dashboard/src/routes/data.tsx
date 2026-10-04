@@ -39,7 +39,6 @@ export function DataTabs({ project }: { project: string }) {
           { to: "/projects/$project/data/branches", params: { project }, label: "Branches" },
         ]
       : []),
-    ...(s.valkey ? [{ to: "/projects/$project/data/kv", params: { project }, label: "Key-value" }] : []),
   ];
   return <Tabs items={items} />;
 }
@@ -51,12 +50,15 @@ export function DataHeader({
   lede,
   actions,
   sub,
+  tabs = true,
 }: {
   project: string;
   title: ReactNode;
   lede?: ReactNode;
   actions?: ReactNode;
   sub?: string;
+  /** The Database tabs (Tables, SQL, Branches); the Cache page has none. */
+  tabs?: boolean;
 }) {
   return (
     <PageHeader
@@ -72,7 +74,7 @@ export function DataHeader({
       lede={lede}
       actions={actions}
     >
-      <DataTabs project={project} />
+      {tabs && <DataTabs project={project} />}
     </PageHeader>
   );
 }
@@ -88,7 +90,7 @@ const ROLE_CONNECTIONS = 80;
 // ------------------------------------------------------------------ overview
 
 export function DataPage({ project }: { project: string }) {
-  useTitle(`${project} · Data`);
+  useTitle(`${project} · Database`);
   const info = useQuery(mq.pg(project));
   const tables = useQuery(mq.tables(project));
   const snaps = useQuery(mq.snapshots(project));
@@ -98,7 +100,7 @@ export function DataPage({ project }: { project: string }) {
   if (s.loaded && !s.postgres)
     return (
       <Page wide>
-        <DataHeader project={project} title="Data" />
+        <DataHeader project={project} title="Database" />
         <Empty className="mt-10" title="This project has no Postgres yet">
           Add <code className="font-mono text-ink">services: {"{ postgres: {} }"}</code> to tiffin.config.ts, then plan and apply.
         </Empty>
@@ -125,7 +127,7 @@ export function DataPage({ project }: { project: string }) {
     <Page wide>
       <DataHeader
         project={project}
-        title="Data"
+        title="Database"
         lede={
           pg ? (
             <>
@@ -218,7 +220,7 @@ export function DataPage({ project }: { project: string }) {
         <details className="group/managed mt-8">
           <summary className="flex cursor-pointer list-none items-center gap-2 py-1 [&::-webkit-details-marker]:hidden">
             <ChevronRight className="size-3.5 text-ink-3 transition-transform duration-[var(--dur-state)] group-open/managed:rotate-90" />
-            <span className="label">Sign-in (managed by Tiffin)</span>
+            <span className="label">Auth (managed by Tiffin)</span>
             <span className="ml-auto text-sm text-ink-3 tnum">
               {count(managed.length, "table")}, about {num(sum(managed, (t) => t.rowEstimate ?? 0))} rows
             </span>
@@ -356,7 +358,7 @@ export function TablePage({ project, table, page = 1 }: { project: string; table
     <Page full>
       <DataHeader
         project={project}
-        sub="Data"
+        sub="Database"
         title={table}
         lede={
           t
@@ -622,7 +624,7 @@ export function SqlPage({ project }: { project: string }) {
     <Page full>
       <DataHeader
         project={project}
-        title="Data"
+        title="Database"
         lede="Read-only unless you turn writes on. Results are rows your apps wrote, shown as plain text."
       />
       <div className="mt-8 grid gap-x-10 gap-y-8 xl:grid-cols-[minmax(0,1fr)_17rem]">
@@ -831,7 +833,7 @@ export function BranchesPage({ project }: { project: string }) {
     <Page wide>
       <DataHeader
         project={project}
-        title="Data"
+        title="Database"
         lede="A branch is a full, writable copy of the database that takes milliseconds to make: the data disk clones its files (a reflink) instead of copying them."
       />
 
