@@ -149,9 +149,9 @@ itself. `tiffin dns disconnect cloudflare` forgets the token.
   the exact records to add, with a copy button for each, and watches DNS until the
   domain is live with HTTPS. With Cloudflare connected, one button adds the records.
 - **Settings › Your box › Domain**: the box's address and where apps live, *Use your
-  own domain* (check the two records, then switch; the page follows the dashboard to
-  its new address) and *Go back to the automatic address*. A separate apps domain is
-  set from the CLI or the API (`appsDomain`).
+  own domain* (optionally with *Put apps on a domain of their own*; check the two
+  records, then switch; the page follows the dashboard to its new address) and *Go
+  back to the automatic address*.
 - **Settings › DNS**: connect Cloudflare with a token made from its *Edit zone DNS*
   template (All zones), see which domains it can manage, or disconnect.
 
