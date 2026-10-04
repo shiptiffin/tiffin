@@ -88,7 +88,8 @@ type App struct {
 	// Default 0: no per-copy cap; the app's copies share their project's
 	// memory (see Resources).
 	MemoryMB int `json:"memoryMB,omitempty"`
-	// Healthcheck path. Default "/". Ignored for workers and static apps.
+	// Healthcheck path. Default "/", which passes on any status below 500;
+	// a path set here must answer 2xx or 3xx. Ignored for workers and static apps.
 	Healthcheck string `json:"healthcheck,omitempty"`
 	// Env holds app-specific plain environment variables (merged over Manifest.Env).
 	Env map[string]string `json:"env,omitempty"`

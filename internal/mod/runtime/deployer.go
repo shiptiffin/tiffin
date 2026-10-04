@@ -385,9 +385,9 @@ type healthError struct {
 
 func (e *healthError) Error() string { return e.msg }
 
-// waitHealthy waits until a web instance answers its health check with a
-// status below 500, or a worker stays up. A container that exits fails fast,
-// with its last log lines in the error.
+// waitHealthy waits until a web instance passes its health check (healthOK),
+// or a worker stays up. A container that exits fails fast, with its last log
+// lines in the error.
 func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, logPath string) error {
 	deadline := time.Now().Add(r.opt.HealthTimeout)
 	path := spec.Healthcheck
@@ -427,7 +427,7 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 			if err == nil {
 				_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<16))
 				res.Body.Close()
-				if res.StatusCode < 500 {
+				if healthOK(path, res.StatusCode) {
 					return nil
 				}
 				lastStatus = fmt.Sprintf("HTTP %d", res.StatusCode)
@@ -438,7 +438,7 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 		if time.Now().After(deadline) {
 			return &healthError{msg: fmt.Sprintf("instance %s did not pass its health check (GET %s: %s) within %s. Last log lines:\n%s",
 				in.Name, path, lastStatus, r.opt.HealthTimeout, tailLog(logPath, 15)),
-				hint: "Make sure the app listens on the port in $PORT and answers " + path + " with a status below 500 (set healthcheck in tiffin.config.ts)."}
+				hint: "Make sure the app listens on the port in $PORT and answers " + path + healthWant(path) + " (set healthcheck in tiffin.config.ts)."}
 		}
 		select {
 		case <-ctx.Done():
@@ -446,6 +446,25 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
+}
+
+// healthOK reports whether a health check's status counts as healthy. The
+// default path "/" passes on any status below 500: an app with no page at /
+// (a 404) still started. A path the app names is its health endpoint, so it
+// must answer 2xx or 3xx; a 404 there means the check is wrong or missing.
+func healthOK(path string, status int) bool {
+	if path == manifest.DefaultHealthcheck {
+		return status < 500
+	}
+	return status >= 200 && status < 400
+}
+
+// healthWant says what healthOK wants from path, for hints.
+func healthWant(path string) string {
+	if path == manifest.DefaultHealthcheck {
+		return " with a status below 500"
+	}
+	return " with a 2xx or 3xx status"
 }
 
 // instanceEnv is the env every instance of an app environment gets, and its
