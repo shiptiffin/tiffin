@@ -261,7 +261,7 @@ func (a *app) serveCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the box API and MCP endpoint",
-		Long: "Serves the Tiffin API at /v1, MCP (streamable HTTP, stateless) at /mcp and the dashboard at /. " +
+		Long: "Serves the Tiffin API at /v1, MCP (streamable HTTP, stateless, API key required) at /mcp and the dashboard at /. " +
 			"With --edge it also runs the embedded HTTPS edge for dashboard.<domain>. " +
 			"On first start it creates the owner token and prints it once.",
 		Args: cobra.NoArgs,
@@ -484,14 +484,32 @@ func serveMux(b *box) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/v1/", b.api.Handler())
 	mux.Handle("/", dashboard.Handler())
-	mux.Handle("/mcp", sdk.NewStreamableHTTPHandler(func(r *http.Request) *sdk.Server {
+	mux.Handle("/mcp", requireKey(b, sdk.NewStreamableHTTPHandler(func(r *http.Request) *sdk.Server {
 		if r.URL.Query().Get("tools") == tmcp.GroupAll {
 			return all
 		}
 		return core
 	},
-		&sdk.StreamableHTTPOptions{Stateless: true, JSONResponse: true}))
+		&sdk.StreamableHTTPOptions{Stateless: true, JSONResponse: true})))
 	return mux
+}
+
+// requireKey refuses MCP requests without a valid key before any tool is
+// listed or called: "run" executes its code before the API checks anything.
+// Each tool call is still authorized by the API as that key.
+func requireKey(b *box, h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := b.tokens.Authenticate(r.Context(), r.Header.Get("Authorization")); err != nil {
+			p := api.NewProblem(http.StatusUnauthorized, "unauthenticated", "MCP needs an API key in the Authorization header.")
+			p.Hint = `Create a key (tiffin tokens create) and connect with --header "Authorization: Bearer <key>".`
+			w.Header().Set("WWW-Authenticate", `Bearer realm="tiffin"`)
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(p)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
 }
 
 func (a *app) mcpCmd() *cobra.Command {

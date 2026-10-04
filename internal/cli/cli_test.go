@@ -224,17 +224,19 @@ func TestServeRemoteCLIAndMCPOverHTTP(t *testing.T) {
 		t.Fatalf("remote mode must not create a local box")
 	}
 
-	connect := func(token string) *sdk.ClientSession {
+	connect := func(token string) (*sdk.ClientSession, error) {
 		hc := &http.Client{Transport: headerRT{token}}
 		cs, err := sdk.NewClient(&sdk.Implementation{Name: "t", Version: "1"}, nil).
 			Connect(t.Context(), &sdk.StreamableClientTransport{Endpoint: srv.URL + "/mcp", HTTPClient: hc}, nil)
-		if err != nil {
-			t.Fatal(err)
+		if err == nil {
+			t.Cleanup(func() { cs.Close() })
 		}
-		t.Cleanup(func() { cs.Close() })
-		return cs
+		return cs, err
 	}
-	cs := connect(owner)
+	cs, err := connect(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tools, err := cs.ListTools(t.Context(), nil)
 	if err != nil || len(tools.Tools) < 12 {
 		t.Fatalf("tools over HTTP: %v %d", err, len(tools.Tools))
@@ -243,10 +245,42 @@ func TestServeRemoteCLIAndMCPOverHTTP(t *testing.T) {
 	if err != nil || res.IsError {
 		t.Fatalf("project_get over HTTP: %v %+v", err, res)
 	}
-	anon := connect("")
-	res, err = anon.CallTool(t.Context(), &sdk.CallToolParams{Name: "whoami", Arguments: map[string]any{}})
-	if err != nil || !res.IsError {
-		t.Fatalf("MCP without a token must fail: %v %+v", err, res)
+	if _, err := connect(""); err == nil {
+		t.Fatal("MCP without a token must not connect")
+	}
+}
+
+// HTTP MCP checks the key before any tool runs: anonymous or bad-key calls
+// to "run" get a 401 and the code is never evaluated.
+func TestMCPOverHTTPNeedsAKey(t *testing.T) {
+	b, owner, err := openBox(t.Context(), filepath.Join(t.TempDir(), "box"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	call := func(token string) *httptest.ResponseRecorder {
+		body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"run","arguments":{"code":"return 'ran-' + (40 + 2);"}}}`
+		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		rec := httptest.NewRecorder()
+		serveMux(b).ServeHTTP(rec, req)
+		return rec
+	}
+	for _, token := range []string{"", "tfn_not-a-real-key"} {
+		rec := call(token)
+		if rec.Code != http.StatusUnauthorized || strings.Contains(rec.Body.String(), "ran-42") {
+			t.Fatalf("token %q: %d %s", token, rec.Code, rec.Body)
+		}
+		if rec.Header().Get("WWW-Authenticate") == "" || decode(t, rec.Body.Bytes())["code"] != "unauthenticated" {
+			t.Fatalf("token %q: want a Bearer challenge and a problem body: %v %s", token, rec.Header(), rec.Body)
+		}
+	}
+	if rec := call(owner); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "ran-42") {
+		t.Fatalf("with a key: %d %s", rec.Code, rec.Body)
 	}
 }
 
