@@ -73,7 +73,7 @@ func (m *Module) RegisterAPI(a huma.API, plat *platform.Platform) {
 
 type sendBody struct {
 	Name         string          `json:"name" minLength:"1" maxLength:"64" doc:"Queue or topic name. A name with subscribers (see queue topics) fans out; any other name is a queue."`
-	Payload      json.RawMessage `json:"payload,omitempty" doc:"Job payload: any JSON, up to 1 MB. Pass it with --body '{\"payload\": ...}' on the CLI."`
+	Payload      json.RawMessage `json:"payload,omitempty" doc:"Job payload: any JSON, up to 1 MB (on the CLI: --payload '{...}')."`
 	DelaySeconds int             `json:"delaySeconds,omitempty" minimum:"0" maximum:"31622400" doc:"Run after this many seconds"`
 	RunAt        *time.Time      `json:"runAt,omitempty" doc:"Run at this time (RFC 3339). Delay is added to it."`
 	Key          string          `json:"key,omitempty" maxLength:"200" doc:"Limit key: the queue's keyConcurrency and rateLimit apply per key (e.g. a customer ID)"`

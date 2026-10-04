@@ -70,6 +70,7 @@ tiffin storage quota set shop --max-bytes 53687091200   # 50 GiB for one project
 tiffin storage quota set shop --max-bytes=-1            # no limit
 tiffin storage quota set shop --max-bytes 0             # back to the box default
 tiffin storage quota default --max-bytes 21474836480    # a default for everyone
+tiffin storage quota get shop                           # the limit, and what counts toward it
 ```
 
 ## Deleting a bucket

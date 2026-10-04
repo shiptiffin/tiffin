@@ -631,6 +631,48 @@ func (a *app) ownerCmd() *cobra.Command {
 	return owner
 }
 
+// quotaGetCmd shows a project's storage limit and what counts toward it:
+// the limit fields of the storage overview.
+func (a *app) quotaGetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "get <project>",
+		Short: "Show a project's storage limit and what counts toward it",
+		Long: "The project's storage limit (its own, or the box default; 0 means none), what it uses (its databases and files together, " +
+			"and each part) and why it is read-only, if it is. The same fields as in tiffin storage get.",
+		Example: "  tiffin storage quota get shop",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			c, err := a.client(ctx)
+			if err != nil {
+				return err
+			}
+			defer c.close()
+			status, raw, err := c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(args[0])+"/storage", nil, nil)
+			if err != nil {
+				return &exitError{ExitError, err.Error()}
+			}
+			if status == http.StatusOK {
+				var q struct {
+					Project       string `json:"project"`
+					QuotaBytes    int64  `json:"quotaBytes"`
+					QuotaSource   string `json:"quotaSource"`
+					UsedBytes     int64  `json:"usedBytes"`
+					DatabaseBytes int64  `json:"databaseBytes"`
+					FilesBytes    int64  `json:"filesBytes"`
+					ReadOnly      string `json:"readOnly,omitempty"`
+				}
+				if json.Unmarshal(raw, &q) == nil {
+					raw, _ = json.Marshal(q)
+				}
+			}
+			a.emit(status, raw)
+			a.code = exitFor(status, raw)
+			return nil
+		},
+	}
+}
+
 func first(args []string) string {
 	if len(args) > 0 {
 		return args[0]

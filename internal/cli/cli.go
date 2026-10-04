@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/spf13/cobra"
@@ -77,7 +78,7 @@ func Execute(ctx context.Context, args []string, sio IO) int {
 	root.SetArgs(args)
 	root.SetOut(sio.Out)
 	root.SetErr(sio.Err)
-	err := root.ExecuteContext(ctx)
+	cmd, err := root.ExecuteContextC(ctx)
 	if err != nil {
 		var ee *exitError
 		if errors.As(err, &ee) {
@@ -86,15 +87,57 @@ func Execute(ctx context.Context, args []string, sio IO) int {
 			}
 			return ee.code
 		}
-		a.fail(err.Error())
 		if a.started {
 			// The command ran and failed (state db, filesystem, listen...).
+			a.fail(err.Error())
 			return ExitError
 		}
 		// cobra usage errors: unknown command, bad flags, wrong arg count.
+		// Say how the command is used, so the next try gets it right.
+		a.failWith(err.Error(), usageHint(cmd))
 		return ExitInvalid
 	}
 	return a.code
+}
+
+// usageHint is a command's usage line and first example ("" for the root,
+// whose error already suggests commands).
+func usageHint(cmd *cobra.Command) string {
+	if cmd == nil || !cmd.HasParent() {
+		return ""
+	}
+	if cmd.HasAvailableSubCommands() {
+		var names []string
+		for _, c := range cmd.Commands() {
+			if c.IsAvailableCommand() {
+				names = append(names, c.Name())
+			}
+		}
+		return "usage: " + cmd.CommandPath() + " <command>, one of: " + strings.Join(names, ", ")
+	}
+	hint := "usage: " + cmd.UseLine()
+	if ex, _, _ := strings.Cut(strings.TrimSpace(cmd.Example), "\n"); ex != "" {
+		hint += "; example: " + strings.TrimSpace(ex)
+	}
+	return hint
+}
+
+// groups makes every command that only groups others refuse a subcommand it
+// does not have (cobra would print its help and exit 0) and print its help
+// when called alone.
+func groups(c *cobra.Command) {
+	for _, s := range c.Commands() {
+		if s.HasSubCommands() && !s.Runnable() {
+			s.Args = func(cmd *cobra.Command, args []string) error {
+				if len(args) == 0 {
+					return nil
+				}
+				return fmt.Errorf("unknown command %q for %q", args[0], cmd.CommandPath())
+			}
+			s.Run = func(cmd *cobra.Command, _ []string) { _ = cmd.Help() }
+		}
+		groups(s)
+	}
 }
 
 func (a *app) root() *cobra.Command {
@@ -134,6 +177,12 @@ func (a *app) root() *cobra.Command {
 		a.upCmd(), a.downCmd(), a.loginCmd(), a.trustCmd(), a.selfUpdateCmd(), a.provisionCmd(), a.boxCmd(), a.domainCmd(), a.sdkCmd())
 	root.AddCommand(a.runtimeCmds()...) // deploy, logs, rollback, git-remote (internal/cli/deploy.go)
 	a.generate(root, api.New(api.Deps{}))
+	if s := find(root, "storage"); s != nil {
+		if q := find(s, "quota"); q != nil {
+			q.AddCommand(a.quotaGetCmd())
+		}
+	}
+	groups(root)
 	return root
 }
 
@@ -167,10 +216,19 @@ func (a *app) tty() bool {
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
-func (a *app) fail(msg string) {
+func (a *app) fail(msg string) { a.failWith(msg, "") }
+
+func (a *app) failWith(msg, hint string) {
 	if a.tty() {
 		fmt.Fprintln(a.io.Err, "tiffin: "+msg)
+		if hint != "" {
+			fmt.Fprintln(a.io.Err, "  "+strings.Replace(hint, "; example: ", "\n  example: ", 1))
+		}
 		return
 	}
-	writeJSON(a.io.Out, map[string]any{"title": "error", "status": 0, "code": "cli", "detail": msg})
+	out := map[string]any{"title": "error", "status": 0, "code": "cli", "detail": msg}
+	if hint != "" {
+		out["hint"] = hint
+	}
+	writeJSON(a.io.Out, out)
 }

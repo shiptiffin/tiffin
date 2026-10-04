@@ -112,13 +112,14 @@ var switchFlags = map[string]struct{ flag, suffix, usage string }{
 	"sql": {"write", "/write", "allow writes: runs as sql write (needs full access; the database is snapshotted first)"},
 }
 
-// trailingArg lets a command take one body field as a last positional
-// argument: `tiffin sql shop "select 1"` is `--sql "select 1"`.
-var trailingArg = map[string]string{"sql": "sql", "sql-write": "sql"}
+// trailingArg lets a command take one body field or query parameter as a
+// last positional argument: `tiffin sql shop "select 1"` is
+// `--sql "select 1"`, `tiffin kv get shop greet` is `--key greet`.
+var trailingArg = map[string]string{"sql": "sql", "sql-write": "sql", "kv-get": "key"}
 
 type bodyFlag struct {
 	name string
-	kind string // string | integer | boolean | array
+	kind string // string | integer | boolean | array | json (any JSON, as text)
 	flag string // the CLI flag (usually the kebab-case name)
 	// words are the string values a "word or list" field takes as a bare
 	// string (projects: "all" or a list): --projects all sends "all".
@@ -151,7 +152,7 @@ func wordOrList(s *huma.Schema) ([]string, bool) {
 // exampleArgs gives path parameters sample values for a command's example
 // ("shop", "web"), or their names where no sample reads better.
 func exampleArgs(params []string) []string {
-	samples := map[string]string{"project": "shop", "app": "web", "bucket": "uploads", "queue": "emails"}
+	samples := map[string]string{"project": "shop", "app": "web", "bucket": "uploads", "queue": "emails", "key": "greet", "sql": "\"select 1\""}
 	out := make([]string, len(params))
 	for i, p := range params {
 		out[i] = orDefault(samples[p], "<"+p+">")
@@ -176,9 +177,11 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 	}
 	trailing := trailingArg[o.OperationID]
 	nargs := cobra.ExactArgs(len(pathParams))
+	example := append(api.CLIPath(o), exampleArgs(pathParams)...)
 	if trailing != "" {
 		use += " [" + trailing + "]"
 		nargs = cobra.RangeArgs(len(pathParams), len(pathParams)+1)
+		example = append(example, exampleArgs([]string{trailing})...)
 	}
 	long := o.Summary + ".\n\n" + o.Description
 	if api.Confirmable(o) {
@@ -189,7 +192,7 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 		Short:   o.Summary,
 		Long:    long,
 		Args:    nargs,
-		Example: "  tiffin " + strings.Join(append(api.CLIPath(o), exampleArgs(pathParams)...), " "),
+		Example: "  tiffin " + strings.Join(example, " "),
 	}
 	query := map[string]*string{}
 	for _, p := range queryParams {
@@ -246,12 +249,18 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 				case "array":
 					values[n] = cmd.Flags().StringSlice(fn, nil, ps.Description+" (comma-separated)")
 				default:
-					words, ok := wordOrList(ps)
-					if !ok {
+					if words, ok := wordOrList(ps); ok {
+						f.kind, f.words = "array", words
+						values[n] = cmd.Flags().StringSlice(fn, nil, ps.Description+" (comma-separated, or "+strings.Join(words, " or ")+")")
+						break
+					}
+					if ps.Type != "" || len(ps.Properties) > 0 || len(ps.OneOf) > 0 || len(ps.AnyOf) > 0 {
 						continue // objects come in through --body
 					}
-					f.kind, f.words = "array", words
-					values[n] = cmd.Flags().StringSlice(fn, nil, ps.Description+" (comma-separated, or "+strings.Join(words, " or ")+")")
+					// Any JSON (a job's payload, a workflow's input): taken as
+					// JSON text, or as a plain string when it is not JSON.
+					f.kind = "json"
+					values[n] = cmd.Flags().String(fn, "", ps.Description+" (JSON)")
 				}
 				flags = append(flags, f)
 			}
@@ -291,6 +300,9 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 				switch v := values[f.name].(type) {
 				case *string:
 					m[f.name] = *v
+					if f.kind == "json" && json.Valid([]byte(*v)) {
+						m[f.name] = json.RawMessage(*v)
+					}
 				case *int:
 					m[f.name] = *v
 				case *bool:
@@ -303,10 +315,13 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 					}
 				}
 			}
-			if trailing != "" && len(args) > len(pathParams) {
+			if _, inQuery := query[trailing]; trailing != "" && !inQuery && len(args) > len(pathParams) {
 				m[trailing] = args[len(pathParams)]
 			}
 			body = m
+		}
+		if _, inQuery := query[trailing]; inQuery && len(args) > len(pathParams) {
+			q.Set(trailing, args[len(pathParams)])
 		}
 		return a.call(cmd.Context(), o.Method, path, q, body)
 	}

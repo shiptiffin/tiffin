@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -224,6 +225,47 @@ func TestSQLCommandRoutes(t *testing.T) {
 		"POST /v1/projects/shop/sql select 2",
 		"POST /v1/projects/shop/sql/write create table t()",
 		"POST /v1/projects/shop/sql/write drop table t",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// Commands agents guessed at in a live test: a key as the last argument,
+// a job payload as --payload, and storage quota get.
+func TestGuessableCommands(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		got = append(got, r.Method+" "+r.URL.Path+"?"+r.URL.RawQuery+" "+strings.TrimSpace(string(raw)))
+		_, _ = w.Write([]byte(`{"project":"shop","usedBytes":30,"filesBytes":10,"databaseBytes":20,"quotaBytes":100,"quotaSource":"project","buckets":[]}`))
+	}))
+	defer srv.Close()
+	env := map[string]string{"TIFFIN_HOME": t.TempDir(), "HOME": t.TempDir(), "TIFFIN_CONFIG_DIR": t.TempDir(),
+		"TIFFIN_URL": srv.URL, "TIFFIN_TOKEN": "tfn_x"}
+	run := func(args ...string) []byte {
+		t.Helper()
+		var out, errb bytes.Buffer
+		no := false
+		if code := cli.Execute(context.Background(), args, cli.IO{Out: &out, Err: &errb, TTY: &no, In: strings.NewReader(""),
+			Env: func(k string) string { return env[k] }}); code != cli.ExitOK {
+			t.Fatalf("%v: exit %d %s %s", args, code, out.String(), errb.String())
+		}
+		return out.Bytes()
+	}
+	run("kv", "get", "shop", "greet")
+	run("kv", "get", "shop", "--key", "greet")
+	run("queue", "send", "shop", "--name", "emails", "--payload", `{"to":"ada"}`)
+	run("queue", "send", "shop", "--name", "emails", "--payload", "hello")
+	if out := string(run("storage", "quota", "get", "shop")); !strings.Contains(out, `"quotaBytes": 100`) || strings.Contains(out, "buckets") {
+		t.Errorf("storage quota get: %s", out)
+	}
+	want := []string{
+		"GET /v1/projects/shop/kv/key?key=greet ",
+		"GET /v1/projects/shop/kv/key?key=greet ",
+		`POST /v1/projects/shop/queue/send? {"name":"emails","payload":{"to":"ada"}}`,
+		`POST /v1/projects/shop/queue/send? {"name":"emails","payload":"hello"}`,
+		"GET /v1/projects/shop/storage? ",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
