@@ -155,7 +155,7 @@ export default defineConfig({ project: "` + project + `", apps: { web: { framewo
 
 	// ---- apply ----
 	t0 := time.Now()
-	apply(writeConfig(`postgres: {}, email: {}, auth: { methods: ["email", "magic-link"] }`))
+	apply(writeConfig(`postgres: {}, email: {}, auth: { methods: ["email", "magic-link"], emailVerification: true }`))
 	waitReady("service/auth")
 	phase("auth ready", t0)
 
