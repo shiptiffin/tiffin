@@ -433,7 +433,18 @@ func (s *DB) ListChanges(ctx context.Context, f change.ListFilter) ([]*change.Ch
 
 // ListProjects implements change.Store.
 func (s *DB) ListProjects(ctx context.Context) ([]string, error) {
-	rows, err := s.sql.QueryContext(ctx, `SELECT DISTINCT project FROM resources ORDER BY project`)
+	return s.projects(ctx, `SELECT DISTINCT project FROM resources ORDER BY project`)
+}
+
+// ListConvergingProjects lists ListProjects plus the projects that have no
+// resources left but still have live statuses: a deletion the machine has
+// not finished (the box restarted, or a delete failed).
+func (s *DB) ListConvergingProjects(ctx context.Context) ([]string, error) {
+	return s.projects(ctx, `SELECT project FROM resources UNION SELECT project FROM resource_status ORDER BY 1`)
+}
+
+func (s *DB) projects(ctx context.Context, query string) ([]string, error) {
+	rows, err := s.sql.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}

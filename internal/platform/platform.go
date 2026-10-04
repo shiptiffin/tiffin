@@ -295,7 +295,9 @@ func (p *Platform) Start(ctx context.Context) error {
 			}
 		}
 	}
-	projects, err := p.DB.ListProjects(ctx)
+	// Every project, and every deleted one whose cleanup a restart (or a
+	// failure) left unfinished: its resources still have statuses.
+	projects, err := p.DB.ListConvergingProjects(ctx)
 	if err != nil {
 		return err
 	}

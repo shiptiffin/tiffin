@@ -825,6 +825,33 @@ func TestRecoverMarksInterruptedDeploysFailed(t *testing.T) {
 	}
 }
 
+// A container a crash left outside the saved states (started before its
+// deploy was recorded) is removed on start; recorded instances stay.
+func TestRecoverRemovesOrphanedContainers(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	if d := h.deploy("api", "", map[string]string{"index.ts": "v1"}); d.Status != StatusLive {
+		t.Fatalf("deploy: %s %s", d.Status, d.Error)
+	}
+	orphan := RunSpec{Name: "shop-api-99-0", Image: "img", Port: 0, LogPath: filepath.Join(t.TempDir(), "log"),
+		Labels: map[string]string{"tiffin.project": "shop", "tiffin.app": "api"}}
+	h.eng.crash["img"] = true // never listens: nothing to serve
+	if err := h.eng.Run(ctx, orphan); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.r.recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := h.eng.Inspect(ctx, orphan.Name); c != nil {
+		t.Fatal("orphaned container survived the restart")
+	}
+	for _, in := range h.state("api", "").Instances {
+		if c, _ := h.eng.Inspect(ctx, in.Name); c == nil || !c.Running {
+			t.Fatalf("live instance %s was removed", in.Name)
+		}
+	}
+}
+
 // TestAPI drives the operations over HTTP, including the streaming upload.
 func TestAPI(t *testing.T) {
 	h := newHarness(t)

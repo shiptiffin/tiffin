@@ -148,8 +148,8 @@ func (m *Module) rt() (*rt, error) {
 
 var errNotReady = errors.New("the app runtime is not running on this box yet")
 
-// recover marks deploys a restart interrupted as failed and rebuilds the
-// port table from what is running.
+// recover marks deploys a restart interrupted as failed, rebuilds the
+// port table from what is running and removes app containers no state owns.
 func (r *rt) recover(ctx context.Context) error {
 	states, err := r.st.allStates(ctx)
 	if err != nil {
@@ -166,6 +166,7 @@ func (r *rt) recover(ctx context.Context) error {
 			}
 		}
 	}
+	r.removeOrphans(ctx)
 	projects, err := r.p.DB.ListProjects(ctx)
 	if err != nil {
 		return err
@@ -195,6 +196,35 @@ func (r *rt) recover(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// removeOrphans removes the app containers that are neither live nor
+// draining in the saved states: started by a deploy the restart interrupted
+// before it was recorded, or left by a stop or drain whose removal never
+// happened. It runs before any deploy can start, so none is in flight (and
+// none can reuse an orphan's name meanwhile).
+func (r *rt) removeOrphans(ctx context.Context) {
+	lctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	cs, err := r.eng.List(lctx)
+	if err != nil {
+		r.p.Log.Warn("runtime: list containers", "err", err)
+		return
+	}
+	owned := map[string]bool{}
+	for _, name := range r.ports {
+		owned[name] = true
+	}
+	for _, c := range cs {
+		if owned[c.Name] {
+			continue
+		}
+		if err := r.eng.Remove(ctx, c.Name, r.opt.StopGrace); err != nil {
+			r.p.Log.Error("runtime: remove orphaned container", "container", c.Name, "err", err)
+			continue
+		}
+		r.p.Log.Info("runtime: removed a container no app state owns", "container", c.Name, "deploy", c.Labels["tiffin.deploy"])
+	}
 }
 
 // loop runs housekeeping: sleeping idle previews.

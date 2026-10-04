@@ -26,6 +26,8 @@ type ResourceStatus struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+const postgresService = change.KindService + "/postgres"
+
 type reconciler struct {
 	p     *Platform
 	mu    sync.Mutex
@@ -107,7 +109,10 @@ func (r *reconciler) converge(ctx context.Context, project string) {
 	}
 	change.SortOps(ops)
 	// Within a kind, follow module order: postgres (10) before auth (30),
-	// so a service is converged after the services it needs; deletes reverse.
+	// so a service is converged after the services it needs; deletes reverse,
+	// except Postgres's, which goes first: its snapshot (what undoes the
+	// delete) must still hold what other services keep in the project's
+	// database, such as auth's users, and dropping the database drops those.
 	sort.SliceStable(ops, func(i, j int) bool {
 		a, b := ops[i], ops[j]
 		if a.Action != b.Action || change.Kind(a.Address) != change.Kind(b.Address) {
@@ -115,6 +120,9 @@ func (r *reconciler) converge(ctx context.Context, project string) {
 		}
 		oa, ob := moduleOrder(a.Address), moduleOrder(b.Address)
 		if a.Action == change.Delete {
+			if pa, pb := a.Address == postgresService, b.Address == postgresService; pa != pb {
+				return pa
+			}
 			return oa > ob
 		}
 		return oa < ob
