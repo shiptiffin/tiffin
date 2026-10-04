@@ -6,12 +6,38 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/state"
 )
+
+// A failed resource makes the box status not ok, with what to run.
+func TestResourceCheckReportsFailures(t *testing.T) {
+	ctx := context.Background()
+	db, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	p := &Platform{DB: db}
+	c := &change.Change{ID: "chg_1", Project: "shop", Version: 1, At: time.Now(),
+		Plan: change.Plan{Project: "shop", Ops: []change.Op{{Action: change.Create, Address: "env/shared", After: json.RawMessage(`{"vars":{"A":"1"}}`)}}}}
+	if err := db.Commit(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.SetResourceStatus(ctx, "shop", "env/shared", StateReady, "")
+	if c := p.resourceCheck(ctx); !c.OK {
+		t.Fatalf("ready: %+v", c)
+	}
+	_ = db.SetResourceStatus(ctx, "shop", "app/web", StateFailed, "instance tf.shop.web.prod.3 exited with code 1\nlast lines")
+	got := p.resourceCheck(ctx)
+	if got.OK || !strings.Contains(got.Detail, "shop app/web (instance tf.shop.web.prod.3 exited with code 1)") || !strings.Contains(got.Detail, "tiffin projects get shop") {
+		t.Fatalf("failed: %+v", got)
+	}
+}
 
 // A secret has nothing to converge, so it must not keep a status: an import
 // marks every resource pending, and a pending secret nothing ever settled

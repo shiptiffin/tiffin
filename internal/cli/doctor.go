@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/btahir/tiffin/internal/install"
 	"github.com/spf13/cobra"
 )
 
@@ -56,9 +57,9 @@ func (a *app) doctorCmd() *cobra.Command {
 				defer c.close()
 				add("state", true, "platform state opens")
 				status, raw, err := c.do(ctx, http.MethodGet, "/v1/health", nil, nil)
-				var h struct{ Version string }
+				var h struct{ Version, Build string }
 				_ = json.Unmarshal(raw, &h)
-				add("api", err == nil && status == 200, explain(status, err, "tiffin "+h.Version+" answering", raw))
+				add("api", err == nil && status == 200, explain(status, err, answering(h.Version, h.Build), raw))
 				status, raw, err = c.do(ctx, http.MethodGet, "/v1/whoami", nil, nil)
 				var who struct {
 					Name   string   `json:"name"`
@@ -67,6 +68,21 @@ func (a *app) doctorCmd() *cobra.Command {
 				}
 				_ = json.Unmarshal(raw, &who)
 				add("token", err == nil && status == 200, explain(status, err, fmt.Sprintf("%s (%s; scopes %s)", who.Name, who.Kind, strings.Join(who.Scopes, ", ")), raw))
+				// The box's own checks: failed resources, orphaned containers,
+				// stuck deploys, disk, services.
+				status, raw, err = c.do(ctx, http.MethodGet, "/v1/status", nil, nil)
+				var st struct{ Checks []check }
+				_ = json.Unmarshal(raw, &st)
+				failing := 0
+				for _, ch := range st.Checks {
+					if !ch.OK {
+						failing++
+						add(ch.Name, false, ch.Detail)
+					}
+				}
+				if failing == 0 {
+					add("box checks", err == nil && status == 200, explain(status, err, fmt.Sprintf("%d ok (tiffin status lists them)", len(st.Checks)), raw))
+				}
 			}
 			add("platform", true, runtime.GOOS+"/"+runtime.GOARCH)
 
@@ -91,6 +107,18 @@ func (a *app) doctorCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// answering names the tiffin that answers: its version when it is a
+// release, else its build (a source build's version is "dev").
+func answering(version, build string) string {
+	if version != "" && version != "dev" {
+		return "tiffin " + version + " answering"
+	}
+	if build != "" {
+		return "tiffin answering (build " + install.Short(build) + ")"
+	}
+	return "tiffin answering (a source build)"
 }
 
 func explain(status int, err error, ok string, raw []byte) string {
