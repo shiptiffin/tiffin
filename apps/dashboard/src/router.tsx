@@ -3,43 +3,51 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { Tier } from "@/api/client";
 import { Shell } from "@/components/shell";
 import type { ActivitySearch } from "@/routes/activity";
-import { BoxPage } from "@/routes/box";
+import { HomePage } from "@/routes/home";
 import { Page } from "@/components/page";
-import { LoginPage } from "@/routes/login";
+import { q } from "@/api/queries";
 import { lazy, Suspense, type ComponentType, type ReactElement } from "react";
 import { Skeleton } from "@/components/page";
 
-// Every page but the Box and Login loads on demand, so the first paint
-// ships only the shell and the landing page (the others bring their own code).
-function lz<P extends object = Record<string, never>>(load: () => Promise<Record<string, unknown>>, name: string): (props: P) => ReactElement {
+// Every page but Projects (home) loads on demand, so the first paint ships
+// only the shell and the home page. Hovering a link (intent) runs its route's
+// loader, which fetches the page's code and warms its data, so the click is instant.
+type Lazy<P> = ((props: P) => ReactElement) & { preload: () => Promise<void> };
+function lz<P extends object = Record<string, never>>(load: () => Promise<Record<string, unknown>>, name: string): Lazy<P> {
   const L = lazy(() => load().then((m) => ({ default: m[name] as ComponentType<P> })));
-  return function Lazy(props: P) {
+  const Comp = function Lazy(props: P) {
     return (
       <Suspense fallback={<Loading />}>
         <L {...props} />
       </Suspense>
     );
-  };
+  } as Lazy<P>;
+  Comp.preload = () => load().then(() => undefined);
+  return Comp;
 }
+/** Shown only if a page's code takes longer than 300 ms (it fades in then), shaped like a page head. */
 function Loading() {
   return (
-    <Page>
-      <Skeleton className="h-10 w-72 max-w-full" />
-      <Skeleton className="mt-4 h-5 w-96 max-w-full opacity-60" />
+    <Page className="animate-[fade-in_200ms_300ms_both]">
+      <Skeleton className="h-9 w-56 max-w-full" />
+      <Skeleton className="mt-4 h-5 w-80 max-w-full opacity-60" />
     </Page>
   );
 }
+const LoginPage = lz<{ reason?: string; next?: string }>(() => import("@/routes/login"), "LoginPage");
+const BoxPage = lz(() => import("@/routes/box"), "BoxPage");
+const ProjectUsagePage = lz<{ project: string }>(() => import("@/routes/project-usage"), "ProjectUsagePage");
+const ProjectHistoryPage = lz<{ project: string }>(() => import("@/routes/project-history"), "ProjectHistoryPage");
+const ProjectSettingsPage = lz<{ project: string }>(() => import("@/routes/project-settings"), "ProjectSettingsPage");
 const ActivityPage = lz<{ search: ActivitySearch }>(() => import("@/routes/activity"), "ActivityPage");
 const SettingsPage = lz(() => import("@/routes/box-settings"), "SettingsPage");
 const NewProjectPage = lz(() => import("@/routes/new"), "NewProjectPage");
 const KitPage = lz(() => import("@/routes/kit"), "KitPage");
 const ChangePage = lz<{ id: string }>(() => import("@/routes/change"), "ChangePage");
 const StatusPage = lz(() => import("@/routes/status"), "StatusPage");
-const TokensPage = lz<{ create?: boolean }>(() => import("@/routes/tokens"), "TokensPage");
-const ApprovalsPage = lz(() => import("@/routes/approvals"), "ApprovalsPage");
-const ApprovalPage = lz<{ id: string }>(() => import("@/routes/approvals"), "ApprovalPage");
+const KeysPage = lz<{ create?: boolean }>(() => import("@/routes/keys"), "KeysPage");
 const ProjectPage = lz<{ project: string }>(() => import("@/routes/project"), "ProjectPage");
-const SecretsPage = lz<{ project: string }>(() => import("@/routes/project"), "SecretsPage");
+const SecretsPage = lz<{ project: string }>(() => import("@/routes/project-settings"), "SecretsPage");
 const PeoplePage = lz(() => import("@/routes/settings"), "PeoplePage");
 const PasskeysPage = lz(() => import("@/routes/settings"), "PasskeysPage");
 const StoragePage = lz<{ project: string }>(() => import("@/routes/storage"), "StoragePage");
@@ -65,7 +73,7 @@ const RunPage = lz<{ project: string; id: string }>(() => import("@/routes/queue
 const AnalyticsPage = lz<{ project: string; period?: string }>(() => import("@/routes/analytics"), "AnalyticsPage");
 const ProtectPage = lz(() => import("@/routes/protect"), "ProtectPage");
 const AppsPage = lz<{ project: string }>(() => import("@/routes/apps"), "AppsPage");
-const AppPage = lz<{ project: string; app: string }>(() => import("@/routes/apps"), "AppPage");
+const AppPage = lz<{ project: string; app: string; deploy?: boolean }>(() => import("@/routes/apps"), "AppPage");
 const DeployPage = lz<{ project: string; app: string; id: string }>(() => import("@/routes/apps"), "DeployPage");
 const AppLogsPage = lz<{ project: string; app: string }>(() => import("@/routes/apps"), "AppLogsPage");
 const UsersPage = lz<{ project: string; search?: string; page?: number }>(() => import("@/routes/users"), "UsersPage");
@@ -89,6 +97,7 @@ const login = createRoute({
     // Only a path on this dashboard: never an absolute URL somewhere else.
     ...(typeof s.next === "string" && s.next.startsWith("/") && !s.next.startsWith("//") ? { next: s.next } : {}),
   }),
+  loader: () => void LoginPage.preload(),
   component: function Login() {
     const { reason, next } = login.useSearch();
     return <LoginPage reason={reason} next={next} />;
@@ -106,8 +115,9 @@ const box = createRoute({
     const s = search as Record<string, unknown>;
     if (typeof s.project === "string" || typeof s.risk === "string") throw redirect({ to: "/ledger", search: s as ActivitySearch });
   },
-  component: BoxPage,
+  component: HomePage,
 });
+const boxRoute = createRoute({ getParentRoute: () => app, path: "/settings/box", loader: () => void BoxPage.preload(), component: BoxPage });
 const activity = createRoute({
   getParentRoute: () => app,
   path: "/ledger",
@@ -116,6 +126,7 @@ const activity = createRoute({
     risk: tiers.includes(s.risk as Tier) ? (s.risk as Tier) : undefined,
     who: s.who === "people" || s.who === "agents" ? s.who : undefined,
   }),
+  loader: () => void ActivityPage.preload(),
   component: function Activity() {
     return <ActivityPage search={activity.useSearch()} />;
   },
@@ -124,46 +135,97 @@ const activity = createRoute({
 const change = createRoute({
   getParentRoute: () => app,
   path: "/changes/$id",
+  loader: () => void ChangePage.preload(),
   component: function Change() {
     const { id } = change.useParams();
     return <ChangePage key={id} id={id} />;
   },
 });
 
-const status = createRoute({ getParentRoute: () => app, path: "/status", component: StatusPage });
-const settings = createRoute({ getParentRoute: () => app, path: "/settings", component: SettingsPage });
-const newProject = createRoute({ getParentRoute: () => app, path: "/new", component: NewProjectPage });
-const kit = createRoute({ getParentRoute: () => app, path: "/_kit", component: KitPage });
+const status = createRoute({ getParentRoute: () => app, path: "/status", loader: () => void StatusPage.preload(),
+  component: StatusPage });
+const settings = createRoute({ getParentRoute: () => app, path: "/settings", loader: () => void SettingsPage.preload(),
+  component: SettingsPage });
+const newProject = createRoute({ getParentRoute: () => app, path: "/new", loader: () => void NewProjectPage.preload(),
+  component: NewProjectPage });
+const kit = createRoute({ getParentRoute: () => app, path: "/_kit", loader: () => void KitPage.preload(),
+  component: KitPage });
 
+const keys = createRoute({
+  getParentRoute: () => app,
+  path: "/settings/keys",
+  validateSearch: (s: Record<string, unknown>): { create?: boolean } => (s.create === true || s.create === "true" ? { create: true } : {}),
+  loader: () => void KeysPage.preload(),
+  component: function Keys() {
+    return <KeysPage create={keys.useSearch().create} />;
+  },
+});
+// Old links: the tokens page is Keys now; approvals no longer exist (History keeps every change).
 const tokens = createRoute({
   getParentRoute: () => app,
   path: "/tokens",
-  validateSearch: (s: Record<string, unknown>): { create?: boolean } => (s.create === true || s.create === "true" ? { create: true } : {}),
-  component: function Tokens() {
-    return <TokensPage create={tokens.useSearch().create} />;
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: "/settings/keys", search: (search as { create?: boolean }).create ? { create: true } : {} });
   },
 });
-
-const approvals = createRoute({ getParentRoute: () => app, path: "/approvals", component: ApprovalsPage });
-const approval = createRoute({
+const approvals = createRoute({
   getParentRoute: () => app,
-  path: "/approvals/$id",
-  component: function Approval() {
-    const { id } = approval.useParams();
-    return <ApprovalPage key={id} id={id} />;
+  path: "/approvals/$",
+  beforeLoad: () => {
+    throw redirect({ to: "/ledger" });
   },
 });
+/** Warms a project page: its code and the project's state and config. */
+const warm =
+  (page: { preload: () => Promise<void> }) =>
+  ({ params, context }: { params: { project: string }; context: { queryClient: QueryClient } }) => {
+    void page.preload();
+    void context.queryClient.prefetchQuery(q.project(params.project));
+    void context.queryClient.prefetchQuery(q.manifest(params.project));
+  };
 const project = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project",
+  loader: warm(ProjectPage),
   component: function Project() {
     const { project: p } = project.useParams();
     return <ProjectPage key={p} project={p} />;
   },
 });
+const projectUsage = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/usage",
+  loader: warm(ProjectUsagePage),
+  component: function Usage() {
+    const { project: p } = projectUsage.useParams();
+    return <ProjectUsagePage key={p} project={p} />;
+  },
+});
+const projectHistory = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/history",
+  loader: ({ params, context }) => {
+    void ProjectHistoryPage.preload();
+    void context.queryClient.prefetchQuery(q.changes(params.project));
+  },
+  component: function History() {
+    const { project: p } = projectHistory.useParams();
+    return <ProjectHistoryPage key={p} project={p} />;
+  },
+});
+const projectSettings = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/settings",
+  loader: warm(ProjectSettingsPage),
+  component: function ProjectSettings() {
+    const { project: p } = projectSettings.useParams();
+    return <ProjectSettingsPage key={p} project={p} />;
+  },
+});
 const secrets = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/secrets",
+  loader: () => void SecretsPage.preload(),
   component: function Secrets() {
     const { project: p } = secrets.useParams();
     return <SecretsPage key={p} project={p} />;
@@ -172,6 +234,7 @@ const secrets = createRoute({
 const storage = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/storage",
+  loader: () => void StoragePage.preload(),
   component: function Storage() {
     const { project: p } = storage.useParams();
     return <StoragePage key={p} project={p} />;
@@ -181,6 +244,7 @@ const bucket = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/storage/$bucket",
   validateSearch: (s: Record<string, unknown>): { prefix?: string; file?: string } => ({ prefix: str(s.prefix), file: str(s.file) }),
+  loader: () => void BucketPage.preload(),
   component: function Bucket() {
     const { project: p, bucket: b } = bucket.useParams();
     const { prefix, file } = bucket.useSearch();
@@ -191,6 +255,7 @@ const inbox = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/email",
   validateSearch: (s: Record<string, unknown>): { q?: string; m?: string } => ({ q: str(s.q), m: str(s.m) }),
+  loader: () => void InboxPage.preload(),
   component: function Inbox() {
     const { project: p } = inbox.useParams();
     const { q, m } = inbox.useSearch();
@@ -200,6 +265,7 @@ const inbox = createRoute({
 const emailSettings = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/email/settings",
+  loader: () => void EmailSettingsPage.preload(),
   component: function EmailSettings() {
     const { project: p } = emailSettings.useParams();
     return <EmailSettingsPage key={p} project={p} />;
@@ -208,6 +274,7 @@ const emailSettings = createRoute({
 const data = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/data",
+  loader: () => void DataPage.preload(),
   component: function Data() {
     const { project: p } = data.useParams();
     return <DataPage key={p} project={p} />;
@@ -217,6 +284,7 @@ const table = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/data/tables/$table",
   validateSearch: (s: Record<string, unknown>): { page?: number } => (Number(s.page) > 1 ? { page: Number(s.page) } : {}),
+  loader: () => void TablePage.preload(),
   component: function Table() {
     const { project: p, table: t } = table.useParams();
     return <TablePage key={p + t} project={p} table={t} page={table.useSearch().page} />;
@@ -225,6 +293,7 @@ const table = createRoute({
 const sqlRoute = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/data/sql",
+  loader: () => void SqlPage.preload(),
   component: function Sql() {
     const { project: p } = sqlRoute.useParams();
     return <SqlPage key={p} project={p} />;
@@ -233,6 +302,7 @@ const sqlRoute = createRoute({
 const branches = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/data/branches",
+  loader: () => void BranchesPage.preload(),
   component: function Branches() {
     const { project: p } = branches.useParams();
     return <BranchesPage key={p} project={p} />;
@@ -242,13 +312,15 @@ const kv = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/data/kv",
   validateSearch: (s: Record<string, unknown>): { match?: string; key?: string } => ({ match: str(s.match), key: str(s.key) }),
+  loader: () => void KvPage.preload(),
   component: function Kv() {
     const { project: p } = kv.useParams();
     const { match, key } = kv.useSearch();
     return <KvPage key={p} project={p} match={match} k={key} />;
   },
 });
-const metrics = createRoute({ getParentRoute: () => app, path: "/metrics", component: MetricsPage });
+const metrics = createRoute({ getParentRoute: () => app, path: "/metrics", loader: () => void MetricsPage.preload(),
+  component: MetricsPage });
 const logs = createRoute({
   getParentRoute: () => app,
   path: "/logs",
@@ -258,6 +330,7 @@ const logs = createRoute({
     since: str(s.since),
     live: s.live === true || s.live === "true" ? true : undefined,
   }),
+  loader: () => void LogsPage.preload(),
   component: function Logs() {
     return <LogsPage {...logs.useSearch()} />;
   },
@@ -266,6 +339,7 @@ const errors = createRoute({
   getParentRoute: () => app,
   path: "/errors",
   validateSearch: (s: Record<string, unknown>): { project?: string; status?: string } => ({ project: str(s.project), status: str(s.status) }),
+  loader: () => void ErrorsPage.preload(),
   component: function Errors() {
     return <ErrorsPage {...errors.useSearch()} />;
   },
@@ -273,16 +347,20 @@ const errors = createRoute({
 const issue = createRoute({
   getParentRoute: () => app,
   path: "/errors/$id",
+  loader: () => void IssuePage.preload(),
   component: function Issue() {
     const { id } = issue.useParams();
     return <IssuePage key={id} id={id} />;
   },
 });
-const alerts = createRoute({ getParentRoute: () => app, path: "/alerts", component: AlertsPage });
-const backups = createRoute({ getParentRoute: () => app, path: "/backups", component: BackupsPage });
+const alerts = createRoute({ getParentRoute: () => app, path: "/alerts", loader: () => void AlertsPage.preload(),
+  component: AlertsPage });
+const backups = createRoute({ getParentRoute: () => app, path: "/backups", loader: () => void BackupsPage.preload(),
+  component: BackupsPage });
 const queues = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/queues",
+  loader: () => void QueuesPage.preload(),
   component: function Queues() {
     const { project: p } = queues.useParams();
     return <QueuesPage key={p} project={p} />;
@@ -292,6 +370,7 @@ const jobs = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/queues/jobs",
   validateSearch: (s: Record<string, unknown>): { queue?: string; state?: string } => ({ queue: str(s.queue), state: str(s.state) }),
+  loader: () => void JobsPage.preload(),
   component: function Jobs() {
     const { project: p } = jobs.useParams();
     const { queue, state } = jobs.useSearch();
@@ -301,6 +380,7 @@ const jobs = createRoute({
 const job = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/queues/jobs/$id",
+  loader: () => void JobPage.preload(),
   component: function Job() {
     const { project: p, id } = job.useParams();
     return <JobPage key={id} project={p} id={id} />;
@@ -310,6 +390,7 @@ const workflows = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/workflows",
   validateSearch: (s: Record<string, unknown>): { state?: string } => ({ state: str(s.state) }),
+  loader: () => void WorkflowsPage.preload(),
   component: function Workflows() {
     const { project: p } = workflows.useParams();
     return <WorkflowsPage key={p} project={p} state={workflows.useSearch().state} />;
@@ -318,6 +399,7 @@ const workflows = createRoute({
 const runRoute = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/workflows/$id",
+  loader: () => void RunPage.preload(),
   component: function Run() {
     const { project: p, id } = runRoute.useParams();
     return <RunPage key={id} project={p} id={id} />;
@@ -327,6 +409,7 @@ const analytics = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/analytics",
   validateSearch: (s: Record<string, unknown>): { period?: string } => ({ period: str(s.period) }),
+  loader: () => void AnalyticsPage.preload(),
   component: function Analytics() {
     const { project: p } = analytics.useParams();
     return <AnalyticsPage key={p} project={p} period={analytics.useSearch().period} />;
@@ -335,6 +418,7 @@ const analytics = createRoute({
 const appsRoute = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/apps",
+  loader: () => void AppsPage.preload(),
   component: function Apps() {
     const { project: p } = appsRoute.useParams();
     return <AppsPage key={p} project={p} />;
@@ -343,14 +427,17 @@ const appsRoute = createRoute({
 const appRoute = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/apps/$app",
+  validateSearch: (s: Record<string, unknown>): { deploy?: boolean } => (s.deploy === true || s.deploy === "true" ? { deploy: true } : {}),
+  loader: () => void AppPage.preload(),
   component: function AppView() {
     const { project: p, app: a } = appRoute.useParams();
-    return <AppPage key={p + a} project={p} app={a} />;
+    return <AppPage key={p + a} project={p} app={a} deploy={appRoute.useSearch().deploy} />;
   },
 });
 const deployRoute = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/apps/$app/deploys/$id",
+  loader: () => void DeployPage.preload(),
   component: function DeployView() {
     const { project: p, app: a, id } = deployRoute.useParams();
     return <DeployPage key={id} project={p} app={a} id={id} />;
@@ -359,6 +446,7 @@ const deployRoute = createRoute({
 const appLogs = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/apps/$app/logs",
+  loader: () => void AppLogsPage.preload(),
   component: function AppLogs() {
     const { project: p, app: a } = appLogs.useParams();
     return <AppLogsPage key={p + a} project={p} app={a} />;
@@ -371,6 +459,7 @@ const users = createRoute({
     search: str(s.search),
     page: Number(s.page) > 1 ? Number(s.page) : undefined,
   }),
+  loader: () => void UsersPage.preload(),
   component: function Users() {
     const { project: p } = users.useParams();
     const { search, page } = users.useSearch();
@@ -380,6 +469,7 @@ const users = createRoute({
 const userRoute = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/users/$id",
+  loader: () => void UserPage.preload(),
   component: function UserView() {
     const { project: p, id } = userRoute.useParams();
     return <UserPage key={id} project={p} id={id} />;
@@ -389,6 +479,7 @@ const orgs = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/orgs",
   validateSearch: (s: Record<string, unknown>): { search?: string } => ({ search: str(s.search) }),
+  loader: () => void OrgsPage.preload(),
   component: function Orgs() {
     const { project: p } = orgs.useParams();
     return <OrgsPage key={p} project={p} search={orgs.useSearch().search} />;
@@ -397,14 +488,18 @@ const orgs = createRoute({
 const orgRoute = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/orgs/$id",
+  loader: () => void OrgPage.preload(),
   component: function OrgView() {
     const { project: p, id } = orgRoute.useParams();
     return <OrgPage key={id} project={p} id={id} />;
   },
 });
-const protect = createRoute({ getParentRoute: () => app, path: "/protect", component: ProtectPage });
-const people = createRoute({ getParentRoute: () => app, path: "/settings/people", component: PeoplePage });
-const passkeys = createRoute({ getParentRoute: () => app, path: "/settings/passkeys", component: PasskeysPage });
+const protect = createRoute({ getParentRoute: () => app, path: "/protect", loader: () => void ProtectPage.preload(),
+  component: ProtectPage });
+const people = createRoute({ getParentRoute: () => app, path: "/settings/people", loader: () => void PeoplePage.preload(),
+  component: PeoplePage });
+const passkeys = createRoute({ getParentRoute: () => app, path: "/settings/passkeys", loader: () => void PasskeysPage.preload(),
+  component: PasskeysPage });
 
 function NotFound() {
   return (
@@ -413,7 +508,7 @@ function NotFound() {
       <p className="mt-2 text-md text-ink-2">
         The link may be old, or the thing it pointed at was removed.{" "}
         <Link to="/" className="font-[550] text-brass-ink underline underline-offset-4">
-          Back to the Box
+          Back to your projects
         </Link>
         .
       </p>
@@ -425,6 +520,7 @@ const tree = root.addChildren([
   login,
   app.addChildren([
     box,
+    boxRoute,
     activity,
     settings,
     newProject,
@@ -432,9 +528,12 @@ const tree = root.addChildren([
     change,
     status,
     tokens,
+    keys,
     approvals,
-    approval,
     project,
+    projectUsage,
+    projectHistory,
+    projectSettings,
     secrets,
     storage,
     bucket,

@@ -8,20 +8,17 @@ import { q } from "@/api/queries";
 import heroClosed from "@/assets/illustrations/carrier-hero.webp";
 import heroOpen from "@/assets/illustrations/carrier-hero-open.webp";
 import { Command, CopyButton } from "@/components/copy";
-import { EnamelSwatch } from "@/components/enamel-swatch";
 import { useTitle } from "@/components/favicon";
 import { MorphLabel } from "@/components/morph-label";
 import { Crumbs, Page } from "@/components/page";
 import { PilotLight } from "@/components/pilot";
 import { ProblemNote } from "@/components/problem";
-import { EnamelPicker } from "@/components/start-enamel-picker";
 import { Qty } from "@/components/qty";
-import { RiskDots } from "@/components/risk-dots";
 import { BuildLogView, firstError, useBuildLog } from "@/components/start-build-log";
 import { Button } from "@/components/ui/button";
-import { asTier, splitAddress } from "@/lib/changes";
+import { splitAddress } from "@/lib/changes";
 import { cn } from "@/lib/cn";
-import { defaultEnamel, ENAMELS, enamelNames, useEnamels, type Enamel } from "@/lib/enamel";
+import { partName, partSub } from "@/lib/names";
 import { countWords, dec, int, NNBSP } from "@/lib/format";
 import {
   appFor,
@@ -32,10 +29,11 @@ import {
   frameworkName,
   nameFromGit,
   newProjectManifest,
-  serviceWords,
   slugify,
   starterLine,
   starterOrder,
+  pickable,
+  starterTitle,
   startersQuery,
   starterThumb,
   suggestName,
@@ -47,7 +45,7 @@ const MB = 1048576;
 /** Two columns: the work on the left, the carrier and the plan on the right. */
 const GRID = "grid items-start gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_360px]";
 
-type Launched = { project: string; app?: string; started: number; enamel: Enamel; source: Source };
+type Launched = { project: string; app?: string; started: number; source: Source };
 
 type Phase = "compose" | "launching" | "live" | "failed";
 
@@ -64,7 +62,6 @@ export function NewProjectPage() {
   const search = useRouterState({ select: (s) => s.location.search as Record<string, unknown> });
   const projects = useQuery(q.projects);
   const names = useMemo(() => (projects.data ?? []).map((p) => p.name), [projects.data]);
-  const usedEnamels = useEnamels(names);
   const manifests = useQueries({ queries: names.map((n) => ({ ...q.manifest(n), staleTime: 60_000 })) });
   const routes = useMemo(
     () =>
@@ -75,7 +72,7 @@ export function NewProjectPage() {
   );
   const taken = useMemo(() => ({ projects: names, routes }), [names, routes]);
   const starters = useQuery(startersQuery);
-  const list = useMemo(() => [...(starters.data ?? [])].sort((a, b) => starterOrder.indexOf(a.id) - starterOrder.indexOf(b.id)), [starters.data]);
+  const list = useMemo(() => pickable(starters.data ?? []), [starters.data]);
   const firstRun = projects.isSuccess && names.length === 0;
   const probe = manifests
     .map((m, i) => ({ project: names[i], app: Object.entries(m.data?.manifest.apps ?? {}).find(([, a]) => a.role !== "worker")?.[0] }))
@@ -84,10 +81,9 @@ export function NewProjectPage() {
 
   // The choice: a starter id, "empty" or "git". A ?starter= link from the Box preselects one.
   const asked = typeof search.starter === "string" ? search.starter : undefined;
-  const [choice, setChoice] = useState<string>(asked ?? "guestbook");
+  const [choice, setChoice] = useState<string>(asked ?? "next-postgres");
   const [git, setGit] = useState({ url: "", ref: "", path: "", framework: "next", postgres: true });
   const [typed, setTyped] = useState<string | null>(null);
-  const [enamelPick, setEnamelPick] = useState<Enamel | null>(null);
 
   const starter = list.find((s) => s.id === choice);
   const source: Source | null =
@@ -96,10 +92,6 @@ export function NewProjectPage() {
   const name = typed ?? suggested;
   const check = checkName(name, taken);
   const gitCheck = choice === "git" ? checkGitUrl(git.url) : ({ ok: true } as const);
-  // The name's own enamel, unless another project already wears it: then the first one nobody uses.
-  const inUse = new Set(Object.values(usedEnamels));
-  const hashed = defaultEnamel(name || "project");
-  const enamel = enamelPick ?? (inUse.has(hashed) ? (ENAMELS.find((e) => !inUse.has(e)) ?? hashed) : hashed);
 
   const [stage, setPhase] = useState<Phase>("compose");
   const [L, setL] = useState<Launched | null>(null);
@@ -120,12 +112,11 @@ export function NewProjectPage() {
       const name = desired.project;
       const started = performance.now();
       const app = appFor(source);
-      setL({ project: name, app: app?.name, started, enamel, source });
+      setL({ project: name, app: app?.name, started, source });
       const intent =
         source.kind === "starter" ? `Start ${name} from the ${source.starter.name} starter` : source.kind === "git" ? `Start ${name} from ${shortRepo(git.url)}` : `Start ${name}`;
       await api.apply(desired, plan.data.hash, intent);
       setPhase("launching");
-      await api.setAppearance(name, enamel).catch(() => undefined);
       void qc.invalidateQueries({ queryKey: ["projects"] });
       void qc.invalidateQueries({ queryKey: ["changes"] });
       if (!app) return null;
@@ -166,7 +157,7 @@ export function NewProjectPage() {
   };
 
   const open = phase !== "compose";
-  const crumbs = <Crumbs items={[{ label: "Box", to: "/" }, { label: "New project" }]} />;
+  const crumbs = <Crumbs items={[{ label: "Projects", to: "/" }, { label: "New project" }]} />;
 
   const header = (
     <header className="min-w-0">
@@ -177,14 +168,14 @@ export function NewProjectPage() {
           </h1>
           <p className="mt-2 max-w-[38rem] text-md text-ink-2">
             {phase === "compose"
-              ? "Pick a starter and name it. It gets its own address on this box, with HTTPS, and you can watch it build. No terminal needed."
+              ? "Pick what you’re making and give it a name. It gets its own address with HTTPS, and you can watch it go live."
               : phase === "live"
                 ? liveAfter !== undefined
                   ? `It answered its health check ${dec(liveAfter, 1)}${NNBSP}s after you pressed Create.`
-                  : "Created, signed into the Ledger, and ready to grow."
+                  : "Created, and ready to grow."
                 : phase === "failed"
                   ? "The project exists, but its app didn’t come up. Here is why, and what to change."
-                  : "The plan is applied. Now the box builds the app and waits for it to answer."}
+                  : "The project is made. Now the box builds the app and waits for it to answer."}
           </p>
     </header>
   );
@@ -197,30 +188,24 @@ export function NewProjectPage() {
           <div className="min-w-0">
             {header}
             <div className="mt-9">
-            <Step n={1} label="Start from">
+            <Step n={1} label="What are you making?">
               {starters.isError ? (
                 <ProblemNote error={starters.error} title="The starters can’t be listed right now." />
               ) : (
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-4" role="radiogroup" aria-label="Starter">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Starter">
                   {(list.length ? list : placeholders).map((s) => (
                     <StarterTile key={s.id} s={s} picked={choice === s.id} onPick={() => setChoice(s.id)} loading={!list.length} />
                   ))}
                 </div>
               )}
               <div className="mt-4 divide-y divide-rule border-y border-rule" role="radiogroup" aria-label="Or">
-                <OptionRow picked={choice === "empty"} onPick={() => setChoice("empty")} icon={<Plus />} title="Empty project" line="A name and a config file. Add apps and services later." />
-                <OptionRow
-                  picked={choice === "git"}
-                  onPick={() => setChoice("git")}
-                  icon={<GitBranch />}
-                  title="From a git URL"
-                  line="A public https repository. The box clones one commit and builds it."
-                />
+                <OptionRow picked={choice === "git"} onPick={() => setChoice("git")} icon={<GitBranch />} title="From a git repo" line={starterLine.git} />
+                <OptionRow picked={choice === "empty"} onPick={() => setChoice("empty")} icon={<Plus />} title="Empty project" line={starterLine.empty} />
               </div>
               {choice === "git" && <GitFields git={git} setGit={setGit} check={gitCheck} />}
             </Step>
 
-            <Step n={2} label="Name and colour">
+            <Step n={2} label="Name">
               <div className="flex flex-wrap items-start gap-x-5 gap-y-3">
                 <div className="min-w-0 flex-1 basis-64">
                   <label htmlFor="pname" className="sr-only">
@@ -237,7 +222,6 @@ export function NewProjectPage() {
                     className="ident h-10 w-full rounded-[8px] border border-rule-2 bg-paper-raised px-3 text-[0.9375rem] text-ink outline-none transition-[border-color,box-shadow] focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] aria-invalid:border-danger"
                   />
                 </div>
-                <EnamelPicker value={enamel} onChange={setEnamelPick} />
               </div>
               <p id="pname-note" className="mt-2 min-h-5 text-sm" aria-live="polite">
                 {check.ok ? (
@@ -341,7 +325,7 @@ function StarterTile({ s, picked, onPick, loading }: { s: Starter; picked: boole
       </span>
       <span className="flex flex-col gap-1 border-t border-rule px-3 pt-2.5 pb-3">
         <span className="flex items-center justify-between gap-2 text-[0.875rem] font-[550] text-ink">
-          {loading ? <span className="h-4 w-20 rounded bg-paper-sunk" /> : s.name}
+          {loading ? <span className="h-4 w-20 rounded bg-paper-sunk" /> : (starterTitle[s.id] ?? s.name)}
           <span
             aria-hidden
             className={cn(
@@ -479,8 +463,7 @@ function PlanPanel({
     >
       <div className="border-b border-rule px-5 pt-4 pb-3.5">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="label">The plan</h2>
-          {plan && <RiskDots tier={asTier(plan.risk)} />}
+          <h2 className="label">What you’ll get</h2>
         </div>
         <p className="mt-2 text-[0.9375rem] leading-[1.375rem] font-[550] tracking-[-0.01em] text-ink">
           {blocked
@@ -491,7 +474,7 @@ function PlanPanel({
               ? "The box can’t plan this yet."
               : !plan
               ? "Planning…"
-              : `${countWords(things, "thing", "things", true)} will be created. Nothing else on the box changes.`}
+              : `${countWords(things, "thing", "things", true)}, ready in about a minute.`}
         </p>
       </div>
       <div className="px-5">
@@ -508,7 +491,7 @@ function PlanPanel({
       <div className="mt-1 grid gap-3 border-t border-rule px-5 py-4 text-sm">
         <div>
           <div className="flex items-baseline justify-between gap-3">
-            <span className="text-ink-3">Room left in the box</span>
+            <span className="text-ink-3">Room left on your box</span>
             {freeMB !== undefined ? (
               <span className="tnum text-ink">
                 {appMB > 0 && <span className="text-ink-3 line-through decoration-ink-4">{int(freeMB)}</span>}{" "}
@@ -524,9 +507,6 @@ function PlanPanel({
             </p>
           )}
         </div>
-        <p className="text-ink-2">
-          <b className="font-[550] text-ink">If you change your mind,</b> undo it from the Ledger and the whole project goes, in one step.
-        </p>
         {config && (
           <details className="group">
             <summary className="cursor-pointer list-none text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
@@ -544,7 +524,7 @@ function PlanPanel({
             ↵
           </span>
         </Button>
-        <p className="mt-2.5 text-center text-xs text-ink-3">Reversible. Signed into the Ledger as you.</p>
+        <p className="mt-2.5 text-center text-xs text-ink-3">Changed your mind later? Undo it from History.</p>
       </div>
     </aside>
   );
@@ -577,11 +557,7 @@ function OpRow({ op, project }: { op: Op; project: string }) {
         Project <b className="font-[550]">{project}</b>
       </>
     );
-    line = (
-      <>
-        and its <span className="ident text-[0.71875rem]">tiffin.config.ts</span>
-      </>
-    );
+    line = "Its own address and settings";
   } else if (kind === "app") {
     const n = Number(a.instances ?? 1);
     title = (
@@ -589,24 +565,18 @@ function OpRow({ op, project }: { op: Op; project: string }) {
         App <b className="font-[550]">{name}</b>
       </>
     );
-    line = a.framework === "static" ? "Static files, served by the edge" : `${frameworkName(String(a.framework ?? ""))}, ${countWords(n, "instance")}`;
+    line = a.framework === "static" ? "Static files, served instantly" : `${frameworkName(String(a.framework ?? ""))}${n > 1 ? `, ${countWords(n, "copy", "copies")}` : ""}`;
     amount = a.framework === "static" ? null : <Qty value={`+${int(n * Number(a.memoryMB ?? 512))}`} unit="MB" />;
   } else if (kind === "service") {
-    title = serviceWords[name] ?? name;
+    title = partName(name);
     line =
       name === "postgres"
-        ? `Database “${project}”, in the box’s Postgres`
+        ? "Postgres 18, its own database"
         : name === "valkey"
-          ? `Cache, capped at ${int(Number(a.maxMemoryMB ?? 64))}${NNBSP}MB`
+          ? `Fast key-value, up to ${int(Number(a.maxMemoryMB ?? 64))}${NNBSP}MB`
           : name === "analytics"
-            ? `Cookieless visits, kept ${int(Number(a.retentionDays ?? 365))} days`
-            : name === "storage"
-              ? "S3-compatible buckets"
-              : name === "email"
-                ? "Mail goes to the dev inbox until you add a relay"
-                : name === "auth"
-                  ? "Email links and passkeys"
-                  : null;
+            ? `Cookieless, kept ${int(Number(a.retentionDays ?? 365))} days`
+            : partSub(name) || null;
   }
   return (
     <li className="grid grid-cols-[14px_minmax(0,1fr)_auto] items-baseline gap-x-2.5 py-2.5">
@@ -636,7 +606,7 @@ function Launch({
 }: {
   header: ReactNode;
   hero: ReactNode;
-  L: { project: string; app?: string; started: number; enamel: Enamel; source: Source };
+  L: Launched;
   phase: Phase;
   deploy?: Deploy;
   deployId?: string;
@@ -652,16 +622,7 @@ function Launch({
   const what = L.source.kind === "starter" ? `the ${L.source.starter.name} starter` : L.source.kind === "git" ? shortRepo(L.source.url) : "";
 
   const steps: Array<{ key: string; label: ReactNode; state: "done" | "busy" | "todo" | "fault"; note?: ReactNode }> = [
-    { key: "apply", label: "Plan applied, signed into the Ledger", state: "done" },
-    {
-      key: "colour",
-      label: (
-        <span className="inline-flex items-center gap-2">
-          Colour set to {enamelNames[L.enamel]} <EnamelSwatch enamel={L.enamel} size={9} />
-        </span>
-      ),
-      state: "done",
-    },
+    { key: "apply", label: `Made ${L.project}`, state: "done" },
   ];
   if (L.app) {
     const built = status === "starting" || status === "live" || (status === "failed" && deploy?.buildSeconds !== undefined);
@@ -782,7 +743,7 @@ function Live({
 }: {
   header: ReactNode;
   hero: ReactNode;
-  L: { project: string; app?: string; source: Source; enamel: Enamel };
+  L: Launched;
   deploy?: Deploy;
   log: ReturnType<typeof useBuildLog>;
 }) {

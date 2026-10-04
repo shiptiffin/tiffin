@@ -1,50 +1,21 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useMemo, useState, type ReactNode } from "react";
-import { notOnBox, type Approval, type BoxResources, type Change, type ProjectState, type StatusReport } from "@/api/client";
-import { mod, mod3, mq } from "@/api/modules";
+import { useMemo, useState } from "react";
+import { type BoxResources, type ProjectState, type StatusReport } from "@/api/client";
+import { mq } from "@/api/modules";
 import { q } from "@/api/queries";
-import { Breaker, type BreakerState } from "@/components/breaker";
-import { EnamelSwatch } from "@/components/enamel-swatch";
 import { useTitle } from "@/components/favicon";
 import { Nameplate } from "@/components/nameplate";
-import { Page } from "@/components/page";
+import { Page, PageHeader } from "@/components/page";
 import { PilotLight } from "@/components/pilot";
-import { ProblemNote } from "@/components/problem";
 import { Qty } from "@/components/qty";
-import { RiskDots } from "@/components/risk-dots";
 import { SegMeter } from "@/components/seg-meter";
-import { Counts, SignedEntry } from "@/components/signed-entry";
-import { Carrier, Lid, Rim, TierColumns, TierHead, TierRow, useUnlatch } from "@/components/stack";
-import { INSTANCE_STOPS, Throttle } from "@/components/throttle";
-import {
-  checkWords,
-  useAnalyticsStatus,
-  useAppStatus,
-  useAuthStatus,
-  useEmailStatus,
-  usePostgresStatus,
-  useStorageStatus,
-  useValkeyStatus,
-} from "@/components/tier-status";
-import { EmptyBoxStart } from "@/components/start-empty-box";
-import { NameAsk } from "@/components/name-ask";
-import { Button } from "@/components/ui/button";
-import heroClosed from "@/assets/illustrations/carrier-hero.webp";
-import { Command } from "@/components/copy";
-import { mcpCommand } from "@/lib/mcp";
+import { Carrier, Lid, Rim, TierHead, TierRow, useUnlatch } from "@/components/stack";
+import { checkWords } from "@/components/tier-status";
 import { boxName, boxUp, domainFrom, versionLabel, whereItRuns } from "@/lib/box";
-import { asTier, intentWords, opCounts, splitAddress, splitRequester } from "@/lib/changes";
 import { cn } from "@/lib/cn";
-import { enamelVar, useEnamels, type Enamel } from "@/lib/enamel";
-import { actorWords } from "@/lib/actors";
-import { actorShown } from "@/lib/who";
-import { splitIntent, tokenWho } from "@/components/ledger-parts";
 import { memoryModel, type MemoryModel } from "@/lib/memory";
-import { bytes, bytesParts, count, countWords, dec, duration, int, words } from "@/lib/format";
-import { stage, stagedFor, useAllStaged, type StagedEdit } from "@/lib/staged";
-import { clock, dayKey, dayLabel, relative } from "@/lib/time";
-import { useWaitingWorkflowApprovals } from "@/lib/wf";
+import { bytesParts, countWords, dec, duration, int, words } from "@/lib/format";
 
 const MB = 1048576;
 const RESERVE_MB = 512; // kept free for spikes
@@ -52,14 +23,14 @@ const RESERVE_MB = 512; // kept free for spikes
 type AppSpec = { framework?: string; role?: string; instances?: number; memoryMB?: number; path?: string };
 
 /**
- * The Box: the landing page. The machine drawn as a tiffin carrier, with its
- * vitals on the lid, a tier per project (enamel rim) holding its apps
- * (throttles) and services (breakers), the platform tier, and room left.
- * Levers stage changes; nothing applies from here without the plan tray.
- * On the right: what is waiting for you, and the latest Ledger entries.
+ * Settings › Machine: the box itself, for when you want to look inside. The
+ * machine drawn as a tiffin carrier: its vitals on the lid, each project's
+ * share of memory, the platform that runs every project's databases and
+ * files, and the room left. Nothing here needs touching day to day; the
+ * projects' own controls live on their pages.
  */
 export function BoxPage() {
-  useTitle("Box");
+  useTitle("Machine");
   const status = useQuery(q.status());
   const resQ = useQuery(q.resources);
   // A laptop dev server answers 503, or zeros where it can't measure: treat both as "not measured".
@@ -68,178 +39,31 @@ export function BoxPage() {
   const projects = useQuery(q.projects);
   const names = useMemo(() => (projects.data ?? []).map((p) => p.name), [projects.data]);
   const states = useQueries({ queries: names.map((n) => q.project(n)) });
-  const enamels = useEnamels(names);
-  const pending = useQuery({ ...q.pending, retry: false });
-  const onBox = !notOnBox(pending.error);
-  const wf = useWaitingWorkflowApprovals(onBox);
-  const changes = useQuery(q.changes());
-  const approvals = useQuery({ ...q.approvals, enabled: onBox, retry: false });
-
-  const failing = states.flatMap((s) =>
-    Object.values(s.data?.status ?? {})
-      .filter((r) => r.state === "failed")
-      .map((r) => ({ project: s.data!.name, address: r.address })),
-  );
-  const downServices = (res.data?.services ?? []).filter((s) => s.state === "failed");
-
-  if (projects.isError) {
-    return (
-      <Page>
-        <ProblemNote error={projects.error} title="Can’t read the box." />
-      </Page>
-    );
-  }
 
   return (
     <Page full>
-      <NameAsk />
-      {projects.data && names.length === 0 ? (
-        <EmptyHeader />
-      ) : (
-        <Header
-          status={status.data}
-          failing={failing.length + downServices.length}
-          failingFirst={failing[0]}
-          waiting={pending.data ?? []}
-          workflows={wf.length}
-          apps={states.flatMap((s) => (s.data?.resources ?? []).filter((r) => r.address.startsWith("app/")).map((r) => ({ project: s.data!.name, app: r.address.slice(4) })))}
-        />
-      )}
-      <div className="mt-8 grid items-start gap-x-12 gap-y-8 xl:grid-cols-[minmax(0,1fr)_288px]">
-        <div className="min-w-0">
-          {(pending.data?.length ?? 0) + wf.length > 0 && (
-            <div className="mb-8 xl:hidden">
-              <Waiting approvals={pending.data ?? []} workflows={wf} />
-            </div>
-          )}
-          <Carrier>
-            <Lid>
-              <Nameplate
-                name={boxName(status.data)}
-                where={whereItRuns(status.data)}
-                version={versionLabel(status.data)}
-                uptime={boxUp(res.data?.uptimeSeconds)}
-                domain={<BoxDomain projects={names} />}
-              />
-              <Vitals res={res.data} mem={mem} unavailable={!!res.error} names={names} enamels={enamels} />
-            </Lid>
-            <Rim className="max-sm:hidden" />
-            {names.length > 0 && <TierColumns />}
-            {projects.isPending ? (
-              <div className="h-40" />
-            ) : names.length === 0 ? (
-              <EmptyBoxStart headline={false} />
-            ) : (
-              states.map((s, i) =>
-                s.data ? (
-                  <ProjectTier key={names[i]} state={s.data} enamel={enamels[names[i]]} mem={mem} approvals={pending.data ?? []} />
-                ) : (
-                  <div key={names[i]}>
-                    <Rim enamel={enamels[names[i]]} />
-                    <div className="h-24" />
-                  </div>
-                ),
-              )
-            )}
-            <Rim />
-            <PlatformTier res={res.data} mem={mem} status={status.data} unavailable={!!res.error} />
-            <RoomLeft res={res.data} mem={mem} states={states.map((s) => s.data)} empty={names.length === 0} />
-          </Carrier>
-        </div>
-        <aside className="flex min-w-0 flex-col gap-9 xl:pt-0" aria-label="Waiting and latest">
-          {(pending.data?.length ?? 0) + wf.length > 0 && (
-            <div className="max-xl:hidden">
-              <Waiting approvals={pending.data ?? []} workflows={wf} />
-            </div>
-          )}
-          <Latest changes={changes.data} approvals={approvals.data ?? []} enamels={enamels} />
-          {projects.data && names.length === 0 && (
-            <section aria-label="Hand it to your agent">
-              <h2 className="text-[0.9375rem] font-[550] text-ink">Or hand it to your agent</h2>
-              <p className="mt-1 mb-3 text-sm text-ink-2">It plans changes on its own; anything risky waits here for you.</p>
-              <Command cmd={mcpCommand()} />
-            </section>
-          )}
-        </aside>
+      <PageHeader
+        title="Machine"
+        lede="The computer your projects run on: how full it is, the parts that run every project’s databases and files, and the room left."
+      />
+      <div className="mt-12 max-w-[64rem]">
+        <Carrier>
+          <Lid>
+            <Nameplate
+              name={boxName(status.data)}
+              where={whereItRuns(status.data)}
+              version={versionLabel(status.data)}
+              uptime={boxUp(res.data?.uptimeSeconds)}
+              domain={<BoxDomain projects={names} />}
+            />
+            <Vitals res={res.data} mem={mem} unavailable={!!res.error} names={names} />
+          </Lid>
+          <Rim />
+          <PlatformTier res={res.data} mem={mem} status={status.data} unavailable={!!res.error} />
+          <RoomLeft res={res.data} mem={mem} states={states.map((s) => s.data)} empty={names.length === 0} />
+        </Carrier>
       </div>
     </Page>
-  );
-}
-
-// ───────────────────────── header ─────────────────────────
-
-const dateFmt = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long" });
-
-function Header({
-  status,
-  failing,
-  failingFirst,
-  waiting,
-  workflows,
-  apps,
-}: {
-  status?: StatusReport;
-  failing: number;
-  failingFirst?: { project: string; address: string };
-  waiting: Approval[];
-  workflows: number;
-  apps: Array<{ project: string; app: string }>;
-}) {
-  const [now] = useState(() => new Date());
-  // The same deploy lists the rows read (shared cache): a failed last deploy is news even while the old version serves.
-  const deploys = useQueries({
-    queries: apps.map((a) => ({ queryKey: ["deploys", a.project, a.app, ""], queryFn: () => mod3.deploys(a.project, a.app), retry: false, refetchInterval: 10_000 })),
-  });
-  const failedDeploys = apps.filter((_, i) => (deploys[i].data ?? []).filter((d) => !d.preview)[0]?.status === "failed");
-  const failedChecks = (status?.checks ?? []).filter((c) => !c.ok);
-  let health: string;
-  if (failing === 1 && failingFirst) health = `${splitAddress(failingFirst.address).name || failingFirst.address} in ${failingFirst.project} is down.`;
-  else if (failing > 1) health = `${countWords(failing, "part", "parts", true)} of the box need a look.`;
-  else if (failedChecks.length > 0) health = `${countWords(failedChecks.length, "check", "checks", true)} failing: ${failedChecks.map((c) => c.name).join(", ")}.`;
-  else if (failedDeploys.length === 1) health = `${failedDeploys[0].app}’s last deploy failed; the version before it is serving.`;
-  else if (failedDeploys.length > 1) health = `${countWords(failedDeploys.length, "deploy", "deploys", true)} failed; the versions before them are serving.`;
-  else health = "Everything is running.";
-  const people = [...new Set(waiting.map((a) => actorWords({ kind: "agent", name: splitRequester(a.requester).name })))];
-  let wait = "";
-  if (waiting.length === 1) wait = `${people[0]} is waiting for you on one change.`;
-  else if (waiting.length > 1)
-    wait = people.length === 1 ? `${people[0]} is waiting for you on ${words(waiting.length)} changes.` : `${words(people.length, true)} agents are waiting for you.`;
-  else if (workflows > 0) wait = workflows === 1 ? "A workflow is waiting for a person." : `${words(workflows, true)} workflows are waiting for a person.`;
-  return (
-    <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-      <div className="min-w-0">
-        <p className="label mb-2">
-          {dateFmt.format(now)} · {clock(now.toISOString())}
-        </p>
-        <h1 className="sentence text-ink">
-          {health}
-          {wait && <> {wait}</>}
-        </h1>
-      </div>
-      <Button asChild variant="secondary" size="lg" className="self-start sm:self-auto">
-        <Link to="/new">New project</Link>
-      </Button>
-    </header>
-  );
-}
-
-/** The first visit: the box is up and empty. The carrier as a picture, one sentence, and where to start. */
-function EmptyHeader() {
-  const [now] = useState(() => new Date());
-  return (
-    <header className="grid items-center gap-x-10 gap-y-4 sm:grid-cols-[minmax(0,1fr)_200px] lg:grid-cols-[minmax(0,1fr)_240px]">
-      <div className="min-w-0">
-        <p className="label mb-2">
-          {dateFmt.format(now)} · {clock(now.toISOString())}
-        </p>
-        <h1 className="sentence text-ink">Your tiffin is packed. Nothing in it yet.</h1>
-        <p className="mt-2 max-w-[38rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
-          Every part of the box below passed its checks. Start a project and it gets its own address, a database and sign-in if it wants them, live in
-          under a minute.
-        </p>
-      </div>
-      <img src={heroClosed} alt="" width={240} height={240} className="mx-auto -my-6 w-[200px] max-sm:hidden lg:w-[240px]" />
-    </header>
   );
 }
 
@@ -258,13 +82,11 @@ function Vitals({
   mem,
   unavailable,
   names,
-  enamels,
 }: {
   res?: BoxResources;
   mem?: MemoryModel;
   unavailable: boolean;
   names: string[];
-  enamels: Record<string, Enamel>;
 }) {
   if (unavailable) return <p className="mt-4 text-sm text-ink-3">Memory, CPU and disk are measured on a running box. This server runs without one.</p>;
   if (!res || !mem) return <div className="mt-4 h-[88px]" />;
@@ -290,7 +112,7 @@ function Vitals({
           aria-label={`Memory: ${int(mem.usedMB)} MB in use of ${int(mem.totalMB)} MB; ${int(mem.freeMB)} MB room left`}
         >
           {withApps.map((n) => (
-            <span key={n} className="h-full min-w-[3px] rounded-[2px]" style={{ width: seg(mem.projects[n]), background: enamelVar(enamels[n]) }} />
+            <span key={n} title={n} className={cn("h-full min-w-[3px] rounded-[2px]", withApps.indexOf(n) % 2 ? "bg-ink-4" : "bg-ink-3")} style={{ width: seg(mem.projects[n]) }} />
           ))}
           {partsMB > 0 && <span className="h-full min-w-[3px] rounded-[2px] bg-[var(--part-3)]" style={{ width: seg(partsMB) }} />}
           {mem.systemMB > 0 && <span className="h-full min-w-[3px] rounded-[2px] bg-[var(--part-4)]" style={{ width: seg(mem.systemMB) }} />}
@@ -299,7 +121,7 @@ function Vitals({
         <p className="mt-2 flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-ink-3">
           {withApps.map((n) => (
             <span key={n} className="inline-flex items-center gap-1.5">
-              <EnamelSwatch enamel={enamels[n]} size={7} />
+              <i className={cn("inline-block size-[7px] rounded-[1.5px]", withApps.indexOf(n) % 2 ? "bg-ink-4" : "bg-ink-3")} />
               {n}
             </span>
           ))}
@@ -339,306 +161,6 @@ function Vitals({
   );
 }
 
-// ───────────────────────── project tiers ─────────────────────────
-
-const servicePages: Record<string, { label: string; sub: string; to: string }> = {
-  postgres: { label: "Postgres", sub: "Database", to: "/projects/$project/data" },
-  valkey: { label: "Valkey", sub: "Cache and key-value", to: "/projects/$project/data/kv" },
-  storage: { label: "Storage", sub: "Buckets", to: "/projects/$project/storage" },
-  email: { label: "Email", sub: "Mail", to: "/projects/$project/email" },
-  auth: { label: "Sign-in", sub: "Users and sessions", to: "/projects/$project/users" },
-  analytics: { label: "Analytics", sub: "Visitors and events", to: "/projects/$project/analytics" },
-};
-const serviceOrder = ["postgres", "valkey", "storage", "email", "auth", "analytics"];
-
-function ProjectTier({ state, enamel, mem, approvals }: { state: ProjectState; enamel: Enamel; mem?: MemoryModel; approvals: Approval[] }) {
-  const p = state.name;
-  const edits = useAllStaged()[p] ?? [];
-  const { lifting, open } = useUnlatch();
-  const resources = state.resources ?? [];
-  const apps = resources.filter((r) => r.address.startsWith("app/")).map((r) => ({ name: r.address.slice(4), spec: (r.spec ?? {}) as AppSpec }));
-  const services = serviceOrder.filter((s) => resources.some((r) => r.address === `service/${s}`));
-  const total = mem?.projects[p] ?? 0;
-  const free = mem ? mem.freeMB - RESERVE_MB : undefined;
-  const bound = new Set(approvals.filter((a) => a.project === p).flatMap((a) => (a.plan.ops ?? []).map((o) => o.address)));
-  const host = useHost(p, apps[0]?.name);
-  return (
-    <section aria-label={`Project ${p}`}>
-      <Rim enamel={enamel} />
-      <TierHead
-        href={
-          <Link to="/projects/$project" params={{ project: p }} className="inline-flex items-center gap-2 hover:underline hover:decoration-rule-3 hover:underline-offset-4">
-            {p}
-          </Link>
-        }
-        about={
-          <>
-            {countWords(apps.length, "app")}, {countWords(services.length, "service")}
-            {host && (
-              <>
-                {" "}
-                · <span className="ident text-[0.75rem] text-ink-2">{host}</span>
-              </>
-            )}
-            <Held project={p} services={services} />
-          </>
-        }
-        total={mem ? apps.length > 0 ? int(total) : <span className="font-[400] text-ink-3" title="No apps, so nothing of its own in memory">–</span> : undefined}
-      />
-      {apps.map((a) => (
-        <AppRow
-          key={a.name}
-          project={p}
-          app={a.name}
-          spec={a.spec}
-          memory={mem ? mem.app(p, a.name) : undefined}
-          free={free}
-          staged={stagedFor(edits, `instances:${a.name}`)}
-          fault={state.status?.[`app/${a.name}`]?.state === "failed" ? state.status[`app/${a.name}`].message : undefined}
-          bound={bound.has(`app/${a.name}`)}
-          unlatching={lifting === `app/${a.name}`}
-          onOpen={() => open(`app/${a.name}`, "/projects/$project/apps/$app", { project: p, app: a.name })}
-        />
-      ))}
-      {services.map((s) => (
-        <ServiceRow
-          key={s}
-          project={p}
-          service={s}
-          state={state.status?.[`service/${s}`]?.state === "failed" ? "tripped" : "on"}
-          message={state.status?.[`service/${s}`]?.message}
-          staged={stagedFor(edits, `service:${s}`)}
-          bound={bound.has(`service/${s}`)}
-          unlatching={lifting === `service/${s}`}
-          onOpen={() => open(`service/${s}`, servicePages[s].to, { project: p })}
-        />
-      ))}
-    </section>
-  );
-}
-
-/** What the project keeps on disk in the shared platform: " · database 8.8 MB, files 17.6 KB". */
-function Held({ project, services }: { project: string; services: string[] }) {
-  const pg = useQuery({ queryKey: ["pg", project], queryFn: () => mod.pg(project), enabled: services.includes("postgres"), retry: false, staleTime: 15_000 });
-  const st = useQuery({ ...mq.storage(project), enabled: services.includes("storage"), retry: false, staleTime: 15_000 });
-  const held = [pg.data ? `database ${bytes(pg.data.sizeBytes)}` : null, st.data && st.data.usedBytes > 0 ? `files ${bytes(st.data.usedBytes)}` : null].filter(Boolean);
-  if (held.length === 0) return null;
-  return <> · {held.join(", ")} on disk</>;
-}
-
-function useHost(project: string, app?: string) {
-  const rt = useQuery({
-    queryKey: ["runtime", project, app ?? ""],
-    queryFn: () => mod3.runtime(project, app!),
-    enabled: !!app,
-    retry: false,
-    staleTime: 300_000,
-  });
-  const url = rt.data?.production?.url;
-  if (!url) return undefined;
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return undefined;
-  }
-}
-
-function AppRow({
-  project,
-  app,
-  spec,
-  memory,
-  free,
-  staged,
-  fault,
-  bound,
-  unlatching,
-  onOpen,
-}: {
-  project: string;
-  app: string;
-  spec: AppSpec;
-  memory?: number;
-  free?: number;
-  staged?: StagedEdit;
-  fault?: string;
-  bound: boolean;
-  unlatching: boolean;
-  onOpen: () => void;
-}) {
-  const applied = spec.instances ?? 1;
-  const per = spec.memoryMB ?? 512;
-  const shown = staged?.kind === "instances" ? staged.to : applied;
-  const [preview, setPreview] = useState<number | null>(null);
-  const live = useAppStatus(project, app, spec.role, spec.framework);
-  const maxFit = free === undefined ? undefined : applied + Math.max(0, Math.floor(free / per));
-  const n = preview ?? shown;
-  const memMB = memory;
-  // The same words the project page uses: "Hono · 2 × 512 MB", "Bun worker · 1 × 512 MB", "Static site".
-  const sub = spec.framework === "static" ? "Static site" : `${frameworkName(spec.framework)}${spec.role === "worker" ? " worker" : ""} · ${int(shown)} × ${int(per)}\u202FMB`;
-  const readout =
-    preview !== null && preview !== applied ? (
-      <span>
-        <b className="font-[550] text-ink">{count(n, "instance")}</b>, up to {int(n * per)}&#8239;MB.{" "}
-        {free !== undefined && <>Room left after {int(Math.max(0, free + RESERVE_MB - (n - applied) * per))}&#8239;MB.</>}
-      </span>
-    ) : null;
-  return (
-    <TierRow
-      lever={
-        spec.framework === "static" ? null : (
-          <Throttle
-            size="mini"
-            label={`${app} instances`}
-            stops={INSTANCE_STOPS}
-            value={shown}
-            applied={applied}
-            maxFit={maxFit}
-            printed={(k) => count(k, "instance")}
-            onChange={setPreview}
-            onCommit={(to) => {
-              setPreview(null);
-              stage(project, { kind: "instances", app, from: applied, to });
-            }}
-          />
-        )
-      }
-      nameLink={
-        <span className="inline-flex items-center gap-2">
-          <Link to="/projects/$project/apps/$app" params={{ project, app }} className="hover:underline hover:decoration-rule-3 hover:underline-offset-4">
-            {app}
-          </Link>
-          {live.pilot && <PilotLight state={live.pilot} label={live.pilot === "busy" ? "Building" : "Deploy failed"} />}
-          {staged ? <span className="label text-brass-ink">staged</span> : bound && <span className="label text-graphite" title="A change waiting for your approval touches this">waiting</span>}
-        </span>
-      }
-      name={app}
-      sub={sub}
-      status={readout ?? (fault ? <span className="text-danger">{fault}</span> : live.sentence)}
-      share={
-        memMB !== undefined &&
-        memMB >= 1 && (
-          <SegMeter
-            size="row"
-            segments={16}
-            max={512}
-            value={memMB}
-            add={staged?.kind === "instances" ? (memMB / Math.max(1, applied)) * (staged.to - applied) : 0}
-            label={`${app} memory`}
-            valueText={`${int(memMB)} MB of a 512 MB scale`}
-          />
-        )
-      }
-      amount={
-        memMB === undefined ? null : staged?.kind === "instances" ? (
-          <span className="whitespace-nowrap">
-            <span className="text-ink-3">{int(memMB)} →</span> {int((memMB / Math.max(1, applied)) * staged.to)}
-          </span>
-        ) : (
-          <span className={cn(memMB < 0.5 && "text-ink-3")}>{int(memMB)}</span>
-        )
-      }
-      staged={!!staged}
-      fault={!!fault || live.fault}
-      bound={bound}
-      unlatching={unlatching}
-      onOpen={onOpen}
-    />
-  );
-}
-
-function frameworkName(f?: string) {
-  const names: Record<string, string> = { next: "Next.js", hono: "Hono", bun: "Bun", static: "Static site", node: "Node", astro: "Astro", vite: "Vite", sveltekit: "SvelteKit", remix: "Remix" };
-  return f ? (names[f] ?? f) : "App";
-}
-
-function ServiceRow({
-  project,
-  service,
-  state,
-  message,
-  staged,
-  bound,
-  unlatching,
-  onOpen,
-}: {
-  project: string;
-  service: string;
-  state: BreakerState;
-  message?: string;
-  staged?: StagedEdit;
-  bound: boolean;
-  unlatching: boolean;
-  onOpen: () => void;
-}) {
-  const meta = servicePages[service];
-  const sentence = useServiceSentence(project, service);
-  const st = staged?.kind === "service" ? staged.to : undefined;
-  return (
-    <TierRow
-      lever={
-        <Breaker
-          printed="beside"
-          label={meta.label}
-          state={state}
-          staged={st}
-          onFlip={(next) => (state === "tripped" ? onOpen() : stage(project, { kind: "service", service, from: "on", to: next }))}
-        />
-      }
-      nameLink={
-        <span className="inline-flex items-center gap-2">
-          <Link to={meta.to as "/"} params={{ project } as never} className="hover:underline hover:decoration-rule-3 hover:underline-offset-4">
-            {meta.label}
-          </Link>
-          {staged ? <span className="label text-brass-ink">staged</span> : bound && <span className="label text-graphite" title="A change waiting for your approval touches this">waiting</span>}
-        </span>
-      }
-      name={meta.label}
-      sub={<span className="max-sm:hidden">{sentence.sub ?? meta.sub}</span>}
-      status={
-        st === "off" ? (
-          <span className="text-brass-ink">Comes out of {project} when you apply. The plan says what that costs.</span>
-        ) : state === "tripped" ? (
-          <span className="text-danger">Tripped{message ? `: ${message}` : ""}. Open it to see why.</span>
-        ) : (
-          sentence.text
-        )
-      }
-      staged={!!staged}
-      fault={state === "tripped"}
-      bound={bound}
-      unlatching={unlatching}
-      onOpen={onOpen}
-    />
-  );
-}
-
-function useServiceSentence(project: string, service: string): { text: ReactNode; sub?: string } {
-  // Each hook runs only for its own service (the rows are keyed by service, so hook order is stable).
-  switch (service) {
-    case "postgres":
-      return { text: <PgSentence project={project} /> };
-    case "valkey":
-      return { text: <KvSentence project={project} /> };
-    case "storage":
-      return { text: <StorageSentence project={project} /> };
-    case "email":
-      return { text: <EmailSentence project={project} /> };
-    case "auth":
-      return { text: <AuthSentence project={project} /> };
-    case "analytics":
-      return { text: <AnalyticsSentence project={project} /> };
-    default:
-      return { text: null };
-  }
-}
-const PgSentence = ({ project }: { project: string }) => <>{usePostgresStatus(project)}</>;
-const KvSentence = ({ project }: { project: string }) => <>{useValkeyStatus(project)}</>;
-const StorageSentence = ({ project }: { project: string }) => <>{useStorageStatus(project).sentence}</>;
-const EmailSentence = ({ project }: { project: string }) => <>{useEmailStatus(project).sentence}</>;
-const AuthSentence = ({ project }: { project: string }) => <>{useAuthStatus(project)}</>;
-const AnalyticsSentence = ({ project }: { project: string }) => <>{useAnalyticsStatus(project)}</>;
-
 // ───────────────────────── platform ─────────────────────────
 
 const platformRows: Array<{ key: string; name: string; sub: string; units: string[]; check?: string[]; to?: string; say?: (s: StatusReport | undefined) => string }> = [
@@ -653,20 +175,20 @@ const platformRows: Array<{ key: string; name: string; sub: string; units: strin
   },
   {
     key: "postgres",
-    name: "Postgres",
-    sub: "Every project’s database",
+    name: "Database",
+    sub: "Postgres 18, every project’s",
     units: ["postgres"],
     check: ["postgres"],
     to: "/backups",
     say: (s) => checkWords(detail(s, "postgres").replace(/^Postgres [\d.]+(?: \([^)]*\))? up, /, "")),
   },
-  { key: "valkey", name: "Valkey", sub: "Caches and key-value", units: ["valkey"], check: ["valkey"], say: (s) => checkWords(detail(s, "valkey").replace(/^Valkey [\d.]+ up, /, "").replace(/\.0 MB/g, " MB")) },
-  { key: "auth", name: "Sign-in engine", sub: "Users and sessions", units: ["auth"], check: ["auth"] },
-  { key: "storage", name: "Storage", sub: "S3-compatible buckets", units: ["storage"], check: ["storage"], say: (s) => checkWords(detail(s, "storage").replace(/^versitygw v[\d.]+ on [\d.:]+,\s*/i, "")) },
-  { key: "observe", name: "Metrics and logs", sub: "Kept on the box", units: ["victoria-metrics", "victoria-logs"], check: ["observe.metrics"], to: "/metrics", say: () => "Every app’s metrics and logs, stored here. Nothing leaves the box." },
+  { key: "valkey", name: "Cache", sub: "Valkey, Redis-compatible", units: ["valkey"], check: ["valkey"], say: (s) => checkWords(detail(s, "valkey").replace(/^Valkey [\d.]+ up, /, "").replace(/\.0 MB/g, " MB")) },
+  { key: "auth", name: "Auth", sub: "Users, passkeys, sign-in", units: ["auth"], check: ["auth"] },
+  { key: "storage", name: "Files", sub: "S3-compatible", units: ["storage"], check: ["storage"], say: (s) => checkWords(detail(s, "storage").replace(/^versitygw v[\d.]+ on [\d.:]+,\s*/i, "")) },
+  { key: "observe", name: "Health", sub: "Metrics, logs, errors", units: ["victoria-metrics", "victoria-logs"], check: ["observe.metrics"], to: "/metrics", say: () => "Every app’s metrics and logs, stored here. Nothing leaves the box." },
   {
     key: "protect",
-    name: "Protection",
+    name: "Shield",
     sub: "CrowdSec, firewall",
     units: ["crowdsec", "firewall", "app-firewall"],
     check: ["protection"],
@@ -803,138 +325,6 @@ function RoomLeft({ res, mem, states, empty }: { res?: BoxResources; mem?: Memor
     </>
   );
 }
-
-// ───────────────────────── rail ─────────────────────────
-
-function Waiting({ approvals, workflows }: { approvals: Approval[]; workflows: ReturnType<typeof useWaitingWorkflowApprovals> }) {
-  return (
-    <section aria-label="Waiting for you" className="flex flex-col gap-3">
-      {approvals.map((a) => {
-        const tier = asTier(a.plan.risk);
-        const c = opCounts(a.plan.ops);
-        return (
-          <article key={a.id} className="rounded-[10px] border border-rule bg-paper-raised px-4 pt-3.5 pb-4 shadow-raised">
-            <p className="label text-brass-ink">Waiting for you</p>
-            <p className="mt-2 text-[0.78125rem] text-ink-3">
-              <b className="font-[550] text-graphite">{actorWords({ kind: "agent", name: splitRequester(a.requester).name })}</b>
-              {splitRequester(a.requester).session && <span className="ident ml-1.5 text-[0.71875rem]">session {splitRequester(a.requester).session}</span>} asks
-              to change <span className="text-ink-2">{a.project}</span>
-            </p>
-            <p className="entry mt-1 text-graphite">{splitIntent(intentWords({ intent: a.intent, plan: a.plan })).head}</p>
-            {splitIntent(intentWords({ intent: a.intent, plan: a.plan })).rest && (
-              <p className="mt-1 line-clamp-2 text-[0.8125rem] leading-[1.1875rem] text-ink-3">{splitIntent(intentWords({ intent: a.intent, plan: a.plan })).rest}</p>
-            )}
-            <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
-              <RiskDots tier={tier} />
-              <span>expires {relative(a.expiresAt)}</span>
-            </p>
-            <div className="mt-3 flex items-center justify-between">
-              <Counts {...c} />
-              <Button asChild variant="primary" size="md">
-                <Link to="/approvals/$id" params={{ id: a.id }}>
-                  Review
-                </Link>
-              </Button>
-            </div>
-          </article>
-        );
-      })}
-      {workflows.map((w) => (
-        <article key={w.id} className="rounded-[10px] border border-rule bg-paper-raised px-4 pt-3.5 pb-4 shadow-raised">
-          <p className="label text-brass-ink">Waiting for a person</p>
-          <p className="mt-2 text-[0.78125rem] text-ink-3">
-            Workflow <span className="ident text-ink-2">{w.workflow}</span> in {w.project}
-          </p>
-          <p className="entry mt-1 text-ink">{w.title}</p>
-          {w.description && <p className="mt-1 text-sm text-ink-2">{w.description}</p>}
-          <div className="mt-3 flex items-center justify-end">
-            <Button asChild variant="secondary" size="md">
-              <Link to="/projects/$project/workflows" params={{ project: w.project }}>
-                Decide
-              </Link>
-            </Button>
-          </div>
-        </article>
-      ))}
-    </section>
-  );
-}
-
-function Latest({ changes, approvals, enamels }: { changes?: Change[]; approvals: Approval[]; enamels: Record<string, Enamel> }) {
-  const names = useQuery({ ...q.tokenNames, retry: false }).data;
-  // The rail shows what stuck. A change and the undo that cancelled it leave together; the Ledger keeps both.
-  const all = changes ?? [];
-  const ids = new Set(all.map((c) => c.id));
-  const cancelled = (c: Change) => (!!c.undoneBy && ids.has(c.undoneBy)) || (!!c.undoOf && ids.has(c.undoOf));
-  const list = all.filter((c) => !cancelled(c)).slice(0, 5);
-  const pairs = all.filter((c) => c.undoneBy && ids.has(c.undoneBy) && dayKey(c.at) === dayKey(new Date().toISOString())).length;
-  const byChange = new Map(approvals.filter((a) => a.usedBy).map((a) => [a.usedBy!, a]));
-  const days: Array<{ key: string; label: string; first: string; items: Change[] }> = [];
-  for (const c of list) {
-    const k = dayKey(c.at);
-    const last = days[days.length - 1];
-    if (last?.key === k) last.items.push(c);
-    else days.push({ key: k, label: dayLabel(c.at), first: c.at, items: [c] });
-  }
-  return (
-    <section aria-label="Latest in the Ledger">
-      <div className="flex items-baseline justify-between">
-        <h2 className="text-[0.9375rem] font-[550] text-ink">Ledger</h2>
-        <Link to="/ledger" search={{}} className="text-[0.8125rem] font-[550] text-brass-ink hover:underline hover:underline-offset-4">
-          All entries
-        </Link>
-      </div>
-      {!changes ? (
-        <div className="mt-4 h-40" />
-      ) : all.length === 0 ? (
-        <p className="mt-3 text-sm text-ink-3">Nothing has changed yet. Every change to the box will be written down here, signed and undoable.</p>
-      ) : (
-        days.map((d) => (
-          <div key={d.key} className="mt-5">
-            <h3 className="flex items-baseline gap-2">
-              <span className="day text-ink">{d.label.split(",")[0]}</span>
-              {d.label === "Today" || d.label === "Yesterday" ? null : <span className="text-xs text-ink-3">{d.label.split(", ")[1]}</span>}
-            </h3>
-            <div className="divide-y divide-rule">
-              {d.items.map((c) => {
-                const ap = byChange.get(c.id);
-                return (
-                  <SignedEntry
-                    key={c.id}
-                    time={clock(c.at)}
-                    actor={{ kind: c.actor.kind, name: actorShown(c.actor, names), session: c.actor.session }}
-                    intent={splitIntent(intentWords(c)).head}
-                    to="/changes/$id"
-                    params={{ id: c.id }}
-                    counts={opCounts(c.plan.ops)}
-                    tier={asTier(c.plan.risk)}
-                    muted={!!c.undoneBy}
-                    signature={ap ? `signed by ${tokenWho(ap.decidedBy, names)} · passkey` : c.actor.kind === "agent" ? "within its grant" : c.undoneBy ? "undone" : undefined}
-                    extra={
-                      <span className="inline-flex items-center gap-1.5">
-                        <EnamelSwatch enamel={enamels[c.project] ?? "indigo"} size={6} />
-                        {c.project}
-                      </span>
-                    }
-                  />
-                );
-              })}
-            </div>
-          </div>
-        ))
-      )}
-      {pairs > 0 && (
-        <p className="mt-3 text-xs text-ink-3">
-          Also {countWords(pairs, "change")} made and undone today.{" "}
-          <Link to="/ledger" search={{}} className="text-ink-2 underline decoration-rule-3 underline-offset-[3px] hover:text-ink">
-            See them in the Ledger
-          </Link>
-        </p>
-      )}
-    </section>
-  );
-}
-
 
 const detail = (s: StatusReport | undefined, name: string) => s?.checks?.find((c) => c.name === name)?.detail ?? "";
 const uptimeWords = (go: string | undefined) => {

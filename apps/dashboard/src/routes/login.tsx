@@ -1,3 +1,4 @@
+import { takeLoginCode } from "@/lib/login-code";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
@@ -19,12 +20,7 @@ type State = "checking" | "signing-in" | "success" | "no-code" | "bad-link" | "a
 // mounts this page twice in development.
 let spent: string | null = null;
 
-function readCode() {
-  const code = decodeURIComponent(location.hash.replace(/^#/, "")).trim();
-  // Never leave the code in the address bar or history.
-  if (code) history.replaceState(null, "", location.pathname + location.search);
-  return code;
-}
+const readCode = takeLoginCode;
 
 export function LoginPage({ reason, next }: { reason?: string; next?: string }) {
   const navigate = useNavigate();

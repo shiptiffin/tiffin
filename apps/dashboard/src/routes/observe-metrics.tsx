@@ -3,7 +3,6 @@ import { notOnBox, type BoxResources } from "@/api/client";
 import { mod, mq, type AppMetrics } from "@/api/modules";
 import { q } from "@/api/queries";
 import { toPoints } from "@/components/chart";
-import { EnamelSwatch } from "@/components/enamel-swatch";
 import { useTitle } from "@/components/favicon";
 import { niceCeil, TimeChart, type Marker } from "@/components/health-chart";
 import { Alarm, Group, healthCrumbs, Rows } from "@/components/health-kit";
@@ -15,8 +14,8 @@ import { actorWords } from "@/lib/actors";
 import { boxUp } from "@/lib/box";
 import { cn } from "@/lib/cn";
 import { bytes, bytesParts, count, countWords, dec, duration, int, mb, ms, pct, withUnit } from "@/lib/format";
-import { useEnamels } from "@/lib/enamel";
 import { relative } from "@/lib/time";
+import { ProjectIcon } from "@/components/project-icon";
 
 const percent = (v: number) => withUnit(dec(v, 0), "%");
 const rate = (v: number) => `${bytes(v, 0)}/s`;
@@ -316,7 +315,6 @@ const pretty = (n: string) => names[n] ?? n;
 function Apps({ res }: { res?: BoxResources }) {
   const projects = useQuery(q.projects);
   const names = (projects.data ?? []).map((p) => p.name);
-  const enamels = useEnamels(names);
   const traffic = useQueries({
     queries: names.map((p) => ({ queryKey: ["observe-apps", p], queryFn: () => mod.apps(p, "1h"), refetchInterval: 30_000, retry: false })),
   });
@@ -353,7 +351,7 @@ function Apps({ res }: { res?: BoxResources }) {
             <li key={g.project + g.app} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-5 gap-y-1 py-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_9rem_4.5rem]">
               <div className="min-w-0">
                 <p className="flex items-center gap-2 text-[0.875rem] text-ink">
-                  <EnamelSwatch enamel={enamels[g.project]} size={7} />
+                  <ProjectIcon project={g.project} size={14} />
                   <span className="truncate">
                     {g.app === g.project ? g.app : <><span className="text-ink-3">{g.project} ›</span> {g.app}</>}
                   </span>

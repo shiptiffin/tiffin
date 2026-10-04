@@ -31,17 +31,21 @@ export const starterThumb: Record<string, string> = {
   "next-postgres": thumbNext,
 };
 
-/** The order people meet them in: simplest first, the demo third. */
-export const starterOrder = ["static-site", "hono-postgres", "guestbook", "next-postgres"];
+/**
+ * The starters people pick from, in order: a full-stack site, an API, a static
+ * site. (The guestbook ships as a demo; it isn't offered as a starting point.)
+ */
+export const starterOrder = ["next-postgres", "hono-postgres", "static-site"];
+/** Only the starters worth starting from, in their order. */
+export const pickable = <T extends { id: string }>(list: T[]) =>
+  list.filter((s) => starterOrder.includes(s.id)).sort((a, b) => starterOrder.indexOf(a.id) - starterOrder.indexOf(b.id));
 
-/** Plain names for what the box gives each starter. */
-export const serviceWords: Record<string, string> = {
-  postgres: "Postgres",
-  valkey: "Valkey",
-  analytics: "Analytics",
-  storage: "Storage",
-  email: "Email",
-  auth: "Sign-in",
+/** What each starter is called in the picker. */
+export const starterTitle: Record<string, string> = {
+  "next-postgres": "Next.js app",
+  "hono-postgres": "API",
+  "static-site": "Static site",
+  guestbook: "Guestbook",
 };
 
 export const frameworkNames: Record<string, string> = {
@@ -53,12 +57,14 @@ export const frameworkNames: Record<string, string> = {
 };
 export const frameworkName = (f?: string) => (f ? (frameworkNames[f] ?? f) : "App");
 
-/** Short, honest lines for the picker (the API's descriptions are a sentence longer). */
+/** What each starter is for, in one line. */
 export const starterLine: Record<string, string> = {
-  "static-site": "HTML and CSS, served by the edge. No container.",
-  "hono-postgres": "A JSON API on Bun with a notes table in Postgres.",
-  guestbook: "A page, an API, Postgres, Valkey and analytics in one app.",
-  "next-postgres": "App Router on Bun, reading and writing Postgres.",
+  "next-postgres": "A website with pages and a database.",
+  "hono-postgres": "Endpoints for your mobile app or frontend.",
+  "static-site": "A landing page, docs or portfolio. Live instantly.",
+  guestbook: "A page, an API, a database, a cache and analytics in one app.",
+  git: "Your own code from GitHub or any git URL.",
+  empty: "Start with nothing and add pieces as you go.",
 };
 
 /** Hostnames the box keeps for itself. */

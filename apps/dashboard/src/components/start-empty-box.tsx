@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { starterLine, starterOrder, startersQuery, starterThumb } from "@/lib/starters";
+import { pickable, starterLine, starterOrder, startersQuery, starterThumb, starterTitle } from "@/lib/starters";
 
 /**
  * What the Box shows in its project tier while there are no projects: the
@@ -11,7 +11,7 @@ import { starterLine, starterOrder, startersQuery, starterThumb } from "@/lib/st
  */
 export function EmptyBoxStart({ headline = true }: { /** Show the "Your tiffin is packed" sentence (the Box page says it in its own header). */ headline?: boolean } = {}) {
   const starters = useQuery(startersQuery);
-  const list = [...(starters.data ?? [])].sort((a, b) => starterOrder.indexOf(a.id) - starterOrder.indexOf(b.id));
+  const list = pickable(starters.data ?? []);
   return (
     <div className="px-5 pt-7 pb-6 max-sm:px-3.5">
       {headline ? (
@@ -24,10 +24,10 @@ export function EmptyBoxStart({ headline = true }: { /** Show the "Your tiffin i
       ) : (
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-[0.9375rem] font-[550] text-ink">Start a project</h2>
-          <p className="text-[0.8125rem] text-ink-3">Pick a starter. You see the plan before anything is made.</p>
+          <p className="text-[0.8125rem] text-ink-3">Pick one. It’s live at its own address in about a minute.</p>
         </div>
       )}
-      <ul className="mt-5 grid grid-cols-2 gap-2.5 md:grid-cols-4">
+      <ul className="mt-5 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
         {(list.length ? list : starterOrder.map((id) => ({ id, name: "" }))).map((s) => (
           <li key={s.id}>
             <Link
@@ -39,23 +39,23 @@ export function EmptyBoxStart({ headline = true }: { /** Show the "Your tiffin i
                 {starterThumb[s.id] && <img src={starterThumb[s.id]} alt="" width={320} height={200} className="size-full object-contain p-1 transition-transform duration-[var(--dur-enter)] group-hover:scale-[1.03]" />}
               </span>
               <span className="border-t border-rule px-3 pt-2 pb-2.5">
-                <span className="block text-[0.84375rem] font-[550] text-ink">{s.name || " "}</span>
-                <span className="block text-[0.75rem] leading-4 text-ink-3 max-sm:hidden">{starterLine[s.id]}</span>
+                <span className="block text-[0.84375rem] font-[550] text-ink">{starterTitle[s.id] ?? s.name ?? " "}</span>
+                <span className="block text-[0.75rem] leading-4 text-ink-3">{starterLine[s.id]}</span>
               </span>
             </Link>
           </li>
         ))}
       </ul>
       <p className="mt-4 text-[0.8125rem] text-ink-3">
-        Or{" "}
-        <Link to="/new" search={{ starter: "empty" } as never} className="font-[550] text-brass-ink hover:underline hover:underline-offset-4">
-          start an empty project
+        Or bring{" "}
+        <Link to="/new" search={{ starter: "git" } as never} className="font-[550] text-brass-ink hover:underline hover:underline-offset-4">
+          your own code from a git repo
         </Link>
         , or{" "}
-        <Link to="/new" search={{ starter: "git" } as never} className="font-[550] text-brass-ink hover:underline hover:underline-offset-4">
-          build one from a git URL
-        </Link>
-        .
+        <Link to="/new" search={{ starter: "empty" } as never} className="font-[550] text-brass-ink hover:underline hover:underline-offset-4">
+          start empty
+        </Link>{" "}
+        and add pieces as you go.
       </p>
     </div>
   );

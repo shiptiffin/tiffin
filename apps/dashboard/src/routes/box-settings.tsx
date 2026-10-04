@@ -1,18 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ProblemNote } from "@/components/problem";
+import { toast } from "@/components/toast";
+import { boxSettingsQuery, setBoxSettings } from "@/lib/usage";
 import { useState, type ReactNode } from "react";
-import { api } from "@/api/client";
 import { q } from "@/api/queries";
 import { Command } from "@/components/copy";
-import { EnamelSwatch } from "@/components/enamel-swatch";
 import { useTitle } from "@/components/favicon";
 import { Segmented } from "@/components/health-kit";
 import { Nameplate } from "@/components/nameplate";
 import { Page, PageHeader } from "@/components/page";
-import { ProblemNote } from "@/components/problem";
 import { ExportBox, ImportBox } from "@/components/settings-move";
-import { toast } from "@/components/toast";
 import { boxName, boxUp, tiffinStarted, versionLabel, whereItRuns } from "@/lib/box";
-import { ENAMELS, enamelNames, useEnamels, type Enamel } from "@/lib/enamel";
 import { useMe } from "@/lib/me";
 import { setTheme, useTheme, type ThemePref } from "@/lib/theme";
 
@@ -38,17 +36,16 @@ export function SettingsPage() {
     retry: false,
   });
   const names = (projects.data ?? []).map((p) => p.name);
-  const enamels = useEnamels(names);
   // The box's domain, from where its storage answers ("S3 at s3.tiffin.localhost").
   const s3 = status.data?.checks?.find((c) => c.name === "storage")?.detail?.match(/\bs3\.([\w.-]+)/)?.[1];
   const domain = s3 ?? location.hostname.replace(/^dashboard\./, "");
-  const { can, admin, role } = useMe();
+  const { admin, role } = useMe();
   const name = boxName(status.data);
   const build = health.data?.build;
 
   return (
     <Page>
-      <PageHeader title="Settings" lede="The box itself: what it is, how it looks, how to move it and keep it up to date." />
+      <PageHeader title="Settings" lede="Your box: what it is, how it looks, how to move it and keep it up to date." />
 
       <Section title="This box">
         <div className="border-y border-rule py-3">
@@ -77,21 +74,13 @@ export function SettingsPage() {
           <Row label="Theme">
             <ThemeChoice />
           </Row>
-          <Row label="Sounds" note="Two at most: a soft seal when you sign an approval, a low tone if the box goes down.">
+          <Row label="Sounds" note="One at most: a low tone if the box goes down.">
             <Sounds />
           </Row>
         </div>
       </Section>
 
-      <Section title="Project colours" note="Each project has one enamel: its rim on the Box, its swatch in the sidebar and its share of the memory bar.">
-        {projects.isError && <ProblemNote error={projects.error} />}
-        <ul className="divide-y divide-rule border-y border-rule">
-          {names.map((p) => (
-            <ColourRow key={p} project={p} enamel={enamels[p]} canSet={can("apply:reversible")} />
-          ))}
-          {names.length === 0 && <li className="py-3 text-sm text-ink-3">No projects yet.</li>}
-        </ul>
-      </Section>
+      <ShareLimit admin={admin} />
 
       <Section
         id="move"
@@ -115,6 +104,47 @@ export function SettingsPage() {
         <Command className="mt-3" cmd="tiffin up" />
       </Section>
     </Page>
+  );
+}
+
+/**
+ * The box-wide default limit: "no project may use more than N% unless it says
+ * otherwise". Shown once the box has the setting (GET /v1/box/settings).
+ */
+function ShareLimit({ admin }: { admin: boolean }) {
+  const qc = useQueryClient();
+  const settings = useQuery(boxSettingsQuery);
+  const [drag, setDrag] = useState<number | null>(null);
+  const save = useMutation({
+    mutationFn: (p: number) => setBoxSettings({ defaultMaxSharePercent: p }),
+    onSuccess: (r) => {
+      qc.setQueryData(boxSettingsQuery.queryKey, r);
+      setDrag(null);
+      toast({ title: r.defaultMaxSharePercent && r.defaultMaxSharePercent < 100 ? `No project may use more than ${r.defaultMaxSharePercent}% of the box now.` : "Projects may grow to the whole box now." });
+    },
+  });
+  if (!settings.data || settings.data.defaultMaxSharePercent === undefined) return null;
+  const v = drag ?? settings.data.defaultMaxSharePercent;
+  return (
+    <Section title="Sharing the box" note="A project with its own limit keeps it. The rest grow as they need, up to this.">
+      <p className="text-[0.875rem] text-ink">
+        No project may use more than <b className="font-[550] tnum">{v}%</b> of the box unless it says otherwise.
+      </p>
+      <input
+        type="range"
+        min={10}
+        max={100}
+        step={5}
+        value={v}
+        disabled={!admin || save.isPending}
+        onChange={(e) => setDrag(Number(e.target.value))}
+        onPointerUp={() => drag !== null && save.mutate(drag)}
+        onKeyUp={() => drag !== null && save.mutate(drag)}
+        aria-label="Most of the box any one project may use"
+        className="range mt-3 w-full max-w-[24rem]"
+      />
+      {save.isError && <ProblemNote className="mt-3" error={save.error} />}
+    </Section>
   );
 }
 
@@ -158,7 +188,7 @@ function ThemeChoice() {
   );
 }
 
-/** Wires only the setting: the sounds themselves come with approvals and outages. */
+/** Wires only the setting: the sound itself comes with outages. */
 function Sounds() {
   const [on, setOn] = useState(readSounds);
   return (
@@ -178,48 +208,5 @@ function Sounds() {
         { v: "on", label: "On" },
       ]}
     />
-  );
-}
-
-function ColourRow({ project, enamel, canSet }: { project: string; enamel: Enamel; canSet: boolean }) {
-  const qc = useQueryClient();
-  const set = useMutation({
-    mutationFn: (e: Enamel) => api.setAppearance(project, e),
-    onSuccess: (a, e) => {
-      qc.setQueryData(["appearance", project], a);
-      toast({
-        title: `${project} is ${enamelNames[e].toLowerCase()} now.`,
-        action: { label: "Undo", run: () => api.setAppearance(project, enamel).then((b) => qc.setQueryData(["appearance", project], b)) },
-      });
-    },
-  });
-  return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5">
-      <span className="flex w-32 items-center gap-2 text-[0.875rem] text-ink">
-        <EnamelSwatch enamel={enamel} size={9} />
-        {project}
-      </span>
-      <div role="radiogroup" aria-label={`${project} colour`} className="flex gap-1">
-        {ENAMELS.map((e) => (
-          <button
-            key={e}
-            role="radio"
-            aria-checked={e === enamel}
-            aria-label={enamelNames[e]}
-            title={enamelNames[e]}
-            disabled={!canSet || set.isPending}
-            onClick={() => e !== enamel && set.mutate(e)}
-            className={
-              "grid size-7 place-items-center rounded-[6px] border transition-colors duration-[var(--dur-state)] disabled:cursor-not-allowed " +
-              (e === enamel ? "border-ink-3" : "border-transparent hover:border-rule-2")
-            }
-          >
-            <EnamelSwatch enamel={e} size={14} />
-          </button>
-        ))}
-      </div>
-      <span className="ml-auto text-[0.8125rem] text-ink-3 max-sm:hidden">{enamelNames[enamel]}</span>
-      {set.isError && <ProblemNote error={set.error} className="w-full" />}
-    </li>
   );
 }

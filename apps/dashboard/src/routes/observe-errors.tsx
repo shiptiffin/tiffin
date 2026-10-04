@@ -5,7 +5,6 @@ import { notOnBox } from "@/api/client";
 import { mod, mq, type Issue, type IssueDetail } from "@/api/modules";
 import { q as core } from "@/api/queries";
 import type { components } from "@/api/schema";
-import { EnamelSwatch } from "@/components/enamel-swatch";
 import { useTitle } from "@/components/favicon";
 import { BarStrip } from "@/components/health-chart";
 import { Calm, Facts, Group, LevelWord, StateLine } from "@/components/health-kit";
@@ -14,10 +13,10 @@ import { ProblemNote } from "@/components/problem";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { useEnamel, useEnamels } from "@/lib/enamel";
 import { countWords, int, num, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { full, relative } from "@/lib/time";
+import { ProjectIcon } from "@/components/project-icon";
 
 type Frame = components["schemas"]["SentryFrame"];
 const states = [
@@ -40,7 +39,6 @@ export function ErrorsPage({ project, status = "unresolved" }: { project?: strin
   const list = useQuery(mq.issues(project, st));
   const openCount = useQuery({ ...mq.issues(project, "unresolved"), enabled: st !== "unresolved" });
   const projects = useQuery(core.projects);
-  const enamels = useEnamels((projects.data ?? []).map((p) => p.name));
   if (list.isError && notOnBox(list.error)) return <NotOnBox what="Error tracking" />;
   const issues = list.data ?? [];
   const open = st === "unresolved" ? issues : (openCount.data ?? []);
@@ -131,7 +129,7 @@ export function ErrorsPage({ project, status = "unresolved" }: { project?: strin
                       </span>
                       <span className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[0.8125rem] text-ink-3">
                         <span className="inline-flex items-center gap-1.5">
-                          <EnamelSwatch enamel={enamels[i.project] ?? "teal"} size={7} />
+                          <ProjectIcon project={i.project} size={14} />
                           {i.project} › {i.app}
                         </span>
                         {i.culprit && <span className="ident text-ink-2">{i.culprit}</span>}
@@ -159,7 +157,6 @@ export function IssuePage({ id }: { id: string }) {
   const qc = useQueryClient();
   const d = useQuery(mq.issue(id));
   useTitle(d.data ? d.data.title : "Error");
-  const enamel = useEnamel(d.data?.project);
   const { can } = useMe();
   const [ev, setEv] = useState(0);
   const refresh = () => {
@@ -220,7 +217,7 @@ export function IssuePage({ id }: { id: string }) {
           <LevelWord level={i.level} />
           <span>in</span>
           <span className="inline-flex items-center gap-1.5 text-ink-2">
-            <EnamelSwatch enamel={enamel} size={7} />
+            <ProjectIcon project={d.data?.project} size={14} />
             {i.project} › {i.app}
           </span>
           {i.culprit && <span className="ident text-ink-2">{i.culprit}</span>}
