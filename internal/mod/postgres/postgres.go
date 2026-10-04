@@ -58,7 +58,7 @@ var mu sync.Mutex
 // pinned), creates the cluster on the data disk and runs it as a systemd unit.
 func (*Module) Provision(ctx context.Context, s *platform.System) error {
 	if err := s.AptRepo(ctx, "pgdg", "https://www.postgresql.org/media/keys/ACCC4CF8.asc",
-		"deb [signed-by={key}] https://apt.postgresql.org/pub/repos/apt noble-pgdg main"); err != nil {
+		"deb [signed-by={key}] https://apt.postgresql.org/pub/repos/apt "+platform.RepoCodename("noble", "resolute")+"-pgdg main"); err != nil {
 		return err
 	}
 	// Never let the Debian wrapper create its own cluster in /var/lib/postgresql.

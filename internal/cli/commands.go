@@ -234,7 +234,7 @@ func slugify(s string) string {
 }
 
 func (a *app) serveCmd() *cobra.Command {
-	var addr, domain, publicURL string
+	var addr, domain, publicURL, publicIP, publicIPv6 string
 	var withEdge, onBox bool
 	var httpsPort, httpPort int
 	cmd := &cobra.Command{
@@ -267,7 +267,7 @@ func (a *app) serveCmd() *cobra.Command {
 						return
 					}
 					plat = &platform.Platform{DB: d.DB, Engine: d.Engine, Tokens: d.Tokens, Secrets: sec, Home: a.home,
-						DataRoot: filepath.Dir(a.home), Domain: domain, PublicURL: publicURL, Version: version.Version,
+						DataRoot: filepath.Dir(a.home), Domain: domain, PublicURL: publicURL, PublicIP: publicIP, PublicIPv6: publicIPv6, Version: version.Version,
 						Log: slog.New(slog.NewJSONHandler(a.io.Err, nil))}
 					d.Platform = plat
 					d.Engine.Estimate = plat.EstimateLoss
@@ -358,6 +358,8 @@ func (a *app) serveCmd() *cobra.Command {
 	cmd.Flags().IntVar(&httpsPort, "https-port", 443, "edge HTTPS port")
 	cmd.Flags().IntVar(&httpPort, "http-port", 80, "edge HTTP port (redirects to HTTPS)")
 	cmd.Flags().StringVar(&publicURL, "public-url", "", "the dashboard URL people use, for login links")
+	cmd.Flags().StringVar(&publicIP, "public-ip", "", "the server's public IPv4 address (empty on a local box)")
+	cmd.Flags().StringVar(&publicIPv6, "public-ipv6", "", "the server's public IPv6 address")
 	return cmd
 }
 

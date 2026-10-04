@@ -45,8 +45,29 @@ func (*Module) Provision(ctx context.Context, s *platform.System) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.Run(ctx, "sysctl", "--system")
-	return err
+	if _, err = s.Run(ctx, "sysctl", "--system"); err != nil {
+		return err
+	}
+	srv, err := platform.LoadServerConfig()
+	if err != nil {
+		return err
+	}
+	if srv != nil {
+		return harden(ctx, s, srv)
+	}
+	return nil
+}
+
+// Checks reports the server hardening (real servers only).
+func (*Module) Checks(ctx context.Context, _ *platform.Platform) []platform.Check {
+	srv, err := platform.LoadServerConfig()
+	if err != nil {
+		return []platform.Check{{Name: "server", OK: false, Detail: err.Error()}}
+	}
+	if srv == nil {
+		return nil
+	}
+	return serverChecks(ctx, srv)
 }
 
 // fixDataMount migrates boxes made before the data disk was mounted by

@@ -23,7 +23,14 @@ func (m *Module) Provision(ctx context.Context, s *platform.System) error {
 	if err := provisionFirewall(ctx, s); err != nil {
 		return err
 	}
-	return provisionCrowdSec(ctx, s)
+	if err := provisionCrowdSec(ctx, s); err != nil {
+		return err
+	}
+	srv, err := platform.LoadServerConfig()
+	if err != nil || srv == nil {
+		return err
+	}
+	return provisionServerProtection(ctx, s, srv)
 }
 
 func (m *Module) crowdsec() crowdsec {

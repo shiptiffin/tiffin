@@ -1,0 +1,41 @@
+# A plain Ubuntu server for the SSH-provider e2e test (e2e/ssh_test.go):
+# no Tiffin provisioning, no port forwards, no mounts. It gets an address on
+# a vzNAT network that this computer reaches directly, like a server's
+# public IP, and an unformatted extra disk, like a cloud volume. The test
+# sets the image (Ubuntu 24.04 or 26.04) and the disk with --set.
+minimumLimaVersion: 2.0.0
+
+images:
+- location: https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-arm64.img
+  arch: aarch64
+- location: https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img
+  arch: x86_64
+
+vmType: vz
+cpus: 2
+memory: 4GiB
+disk: 20GiB
+mounts: []
+
+containerd:
+  system: false
+  user: false
+
+# The server's "public" address: reachable from this computer, no forwarding.
+networks:
+- vzNAT: true
+
+additionalDisks:
+- name: placeholder
+  format: false
+
+# Nothing is forwarded to the Mac's localhost: the test talks to the VM's
+# vzNAT address, the way a person talks to a server.
+portForwards:
+- guestIP: 127.0.0.1
+  guestPortRange: [1, 65535]
+  proto: any
+  ignore: true
+- guestIP: 0.0.0.0
+  proto: any
+  ignore: true

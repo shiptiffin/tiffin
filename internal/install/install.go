@@ -20,8 +20,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"strings"
 
+	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/provider"
 )
 
@@ -44,6 +46,14 @@ type Options struct {
 	// PublicPort is the port people reach HTTPS on, when it differs from
 	// HTTPSPort (a forwarded local VM). 0 means HTTPSPort.
 	PublicPort int
+	// PublicIP and PublicIPv6 are a real server's public addresses; the
+	// platform exposes them to modules (Platform.PublicIP).
+	PublicIP   string
+	PublicIPv6 string
+	// Server marks a real server (nil for a local VM): it is written to
+	// /etc/tiffin/server.json before provisioning, which hardens the
+	// machine and keeps the owner's IP out of CrowdSec bans.
+	Server *platform.ServerConfig
 }
 
 // PublicURL is the dashboard URL for these options.
@@ -61,6 +71,13 @@ func (o Options) PublicURL() string {
 
 // Unit renders the systemd unit.
 func Unit(o Options) string {
+	ips := ""
+	if o.PublicIP != "" {
+		ips += " --public-ip " + o.PublicIP
+	}
+	if o.PublicIPv6 != "" {
+		ips += " --public-ipv6 " + o.PublicIPv6
+	}
 	return fmt.Sprintf(`[Unit]
 Description=Tiffin box
 After=network-online.target local-fs.target
@@ -72,7 +89,7 @@ RequiresMountsFor=/var/lib/tiffin
 # through system tools. The box itself is the isolation boundary; apps run
 # in containers.
 User=root
-ExecStart=%[2]s serve --box --home %[3]s --addr %[4]s --edge --domain %[5]s --https-port %[6]d --http-port %[7]d --public-url %[8]s
+ExecStart=%[2]s serve --box --home %[3]s --addr %[4]s --edge --domain %[5]s --https-port %[6]d --http-port %[7]d --public-url %[8]s%[9]s
 Environment=XDG_DATA_HOME=/var/lib/tiffin/platform/xdg XDG_CONFIG_HOME=/var/lib/tiffin/platform/xdg
 Restart=always
 RestartSec=2
@@ -84,7 +101,7 @@ KillMode=mixed
 
 [Install]
 WantedBy=multi-user.target
-`, User, BinLink, Home, APIAddr, o.Domain, o.HTTPSPort, o.HTTPPort, o.PublicURL())
+`, User, BinLink, Home, APIAddr, o.Domain, o.HTTPSPort, o.HTTPPort, o.PublicURL(), ips)
 }
 
 // Result is what the installer learned from the box.
@@ -119,7 +136,11 @@ chmod 0755 /tmp/tiffin.new
 	if _, stderr, err := m.Exec(ctx, setup); err != nil {
 		return nil, fmt.Errorf("set up the service: %w\n%s", err, stderr)
 	}
-	progress("starting tiffin (rolls back automatically if unhealthy)")
+	if o.Server != nil {
+		if err := writeServerConfig(ctx, m, o.Server); err != nil {
+			return nil, err
+		}
+	}
 	// The installed build (trusted, known to work) performs the update; only
 	// the very first install runs the new binary itself.
 	progress("provisioning system services (first run installs packages; later runs are quick)")
@@ -143,6 +164,7 @@ chmod 0755 /tmp/tiffin.new
 			}
 		}
 	}
+	progress("starting tiffin (rolls back automatically if unhealthy)")
 	script := `set -o pipefail
 if [ -x ` + BinLink + ` ]; then sudo ` + BinLink + ` self-update /tmp/tiffin.new; else sudo /tmp/tiffin.new self-update /tmp/tiffin.new; fi
 rc=$?; rm -f /tmp/tiffin.new; exit $rc`
@@ -164,6 +186,20 @@ rc=$?; rm -f /tmp/tiffin.new; exit $rc`
 		return nil, fmt.Errorf("read the box's CA certificate: %w\n%s", err, stderr)
 	}
 	return &Result{OwnerToken: strings.TrimSpace(tok), CAPEM: []byte(ca), Build: sum, Warnings: warnings}, nil
+}
+
+// writeServerConfig records on the box that it runs on a real server.
+func writeServerConfig(ctx context.Context, m provider.Machine, c *platform.ServerConfig) error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	raw, _ := json.MarshalIndent(c, "", "  ")
+	script := fmt.Sprintf("set -euo pipefail\nsudo install -d -m 0755 %[1]s\nsudo tee %[2]s.tmp >/dev/null <<'JSON'\n%[3]s\nJSON\nsudo mv %[2]s.tmp %[2]s\n",
+		path.Dir(platform.ServerConfigPath), platform.ServerConfigPath, raw)
+	if _, stderr, err := m.Exec(ctx, script); err != nil {
+		return fmt.Errorf("write %s: %w\n%s", platform.ServerConfigPath, err, stderr)
+	}
+	return nil
 }
 
 // FileSHA returns the hex SHA-256 of a file.

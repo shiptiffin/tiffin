@@ -215,9 +215,13 @@ type Platform struct {
 	DataRoot  string // the data disk, e.g. /var/lib/tiffin
 	Domain    string // e.g. "tiffin.localhost"
 	PublicURL string // e.g. "https://dashboard.tiffin.localhost:8443"
-	Version   string
-	Edge      EdgeController // nil off-box
-	Log       *slog.Logger
+	// PublicIP and PublicIPv6 are the server's public addresses on a real
+	// server (empty on a local box): what DNS records for a domain point at.
+	PublicIP   string
+	PublicIPv6 string
+	Version    string
+	Edge       EdgeController // nil off-box
+	Log        *slog.Logger
 
 	rec *reconciler
 }

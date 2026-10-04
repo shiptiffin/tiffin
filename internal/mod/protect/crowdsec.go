@@ -127,16 +127,6 @@ labels:
   label: "Ignores rate limits"
 `
 
-func osCodename() string {
-	raw, _ := os.ReadFile("/etc/os-release")
-	for _, line := range strings.Split(string(raw), "\n") {
-		if v, ok := strings.CutPrefix(line, "VERSION_CODENAME="); ok {
-			return strings.Trim(v, `"`)
-		}
-	}
-	return "noble"
-}
-
 func provisionCrowdSec(ctx context.Context, s *platform.System) error {
 	// The .local override must exist before the package's postinst starts
 	// the service, so the API never tries to bind 8080.
@@ -166,7 +156,7 @@ func provisionCrowdSec(ctx context.Context, s *platform.System) error {
 		f.Close()
 		changed = true
 	}
-	if err := s.AptRepo(ctx, "crowdsec", crowdsecKey, "deb [signed-by={key}] "+crowdsecRepo+" "+osCodename()+" main"); err != nil {
+	if err := s.AptRepo(ctx, "crowdsec", crowdsecKey, "deb [signed-by={key}] "+crowdsecRepo+" "+platform.RepoCodename("jammy", "noble")+" main"); err != nil {
 		return err
 	}
 	if err := s.Apt(ctx, "crowdsec="+crowdsecVersion); err != nil {

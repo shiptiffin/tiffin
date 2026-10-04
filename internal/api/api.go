@@ -189,6 +189,10 @@ func (a *API) authenticate(ctx huma.Context, next func(huma.Context)) {
 	if m := strings.TrimSpace(ctx.Header(ModelHeader)); m != "" && len(m) <= 64 && p.Kind == "agent" {
 		p.Model = m
 	}
+	if p.Kind == tokens.KindOwner && a.deps.Platform != nil {
+		// On a server, the address the owner's CLI uses is never banned.
+		a.deps.Platform.OwnerSeen(ctx.Context(), clientIP(ctx.RemoteAddr(), ctx.Header("X-Forwarded-For")))
+	}
 	next(huma.WithValue(ctx, ctxKey{}, p))
 }
 
