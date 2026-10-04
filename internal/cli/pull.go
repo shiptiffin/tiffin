@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -112,13 +113,23 @@ func (a *app) pullCmd() *cobra.Command {
 			old, readErr := os.ReadFile(target)
 			had := readErr == nil
 			res := pullResult{Path: target, Project: pm.Project, Version: pm.Version, Summary: summarize(pm.Manifest)}
+			stamp := false // only the version in the header differs
 			if had {
 				res.Diff, res.Added, res.Removed = lineDiff(string(old), string(content))
 				res.Changed = res.Added+res.Removed > 0
+				if res.Changed && unversioned(string(old)) == unversioned(string(content)) {
+					stamp, res.Changed, res.Diff, res.Added, res.Removed = true, false, "", 0, 0
+				}
 			} else {
 				res.Changed = true
 			}
 			switch {
+			case stamp:
+				if err := os.WriteFile(target, content, 0o644); err != nil {
+					return err
+				}
+				res.Written = true
+				res.Note = fmt.Sprintf("already matches the box; its header now says version %d", pm.Version)
 			case had && !res.Changed:
 				res.Note = "already matches the box"
 			case had && !force:
@@ -141,6 +152,15 @@ func (a *app) pullCmd() *cobra.Command {
 	cmd.Flags().StringVar(&project, "project", "", "project to pull (default: the existing config's project, or the box's only project)")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing config that differs from the box")
 	return cmd
+}
+
+// versionStamp is the part of a pulled config's header that names the
+// box's version ("Project shop at version 12, pulled from the box."): it
+// moves with every change, a secret's included, while the config does not.
+var versionStamp = regexp.MustCompile(`at version \d+, pulled from the box`)
+
+func unversioned(config string) string {
+	return versionStamp.ReplaceAllString(config, "at version N, pulled from the box")
 }
 
 type pullResult struct {
