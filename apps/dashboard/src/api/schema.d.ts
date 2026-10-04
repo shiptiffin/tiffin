@@ -837,7 +837,7 @@ export interface paths {
         };
         /**
          * Check the box is up
-         * @description Unauthenticated liveness check.
+         * @description Unauthenticated liveness check. On a box, status is starting until every module has started.
          */
         get: operations["health"];
         put?: never;
@@ -4030,6 +4030,8 @@ export interface components {
             backup: string;
             /** Format: int64 */
             durationMs: number;
+            /** @description The box's service restarts now to swap in the restored files (seconds) */
+            restarting?: boolean;
             /** @description Backup of the state just before the restore; restore it to go back */
             safetyBackup: string;
             targets: string[] | null;
@@ -5005,8 +5007,11 @@ export interface components {
         Health: {
             /** @description SHA-256 of the running binary; self-update uses it to know the new build is the one answering */
             build?: string;
-            /** @example ok */
-            status: string;
+            /**
+             * @example ok
+             * @enum {string}
+             */
+            status: "ok" | "starting";
             version: string;
         };
         Invite: {

@@ -23,7 +23,6 @@ variant: the objects carry their own steel tones and outline.
 | `empty-jobs.webp` | 400x320 | 200x160 | Jobs, nothing scheduled |
 | `empty-errors.webp` | 400x320 | 200x160 | Errors, none (calm, nothing wrong) |
 | `empty-backups.webp` | 400x320 | 200x160 | Backups, none yet |
-| `empty-approvals.webp` | 400x320 | 200x160 | Approvals, nothing waiting |
 | `og-card.png` | 1200x630 | social card | README / social preview. Opaque paper ground; the left ~55% is empty for a headline the site overlays. No text in the image. |
 
 `carrier-hero.webp` and `carrier-hero-open.webp` share the same registration: same scale (base plate the
@@ -112,7 +111,5 @@ The subject lines used for the kept images follow. Each was generated as 2–3 v
     a small brass-and-steel spirit level whose single bubble sits exactly centred. Serene, nothing wrong."
   - **empty-backups**: "two empty tiffin tiers nested one inside the other for storage, with a blank small
     brass tag on a loop of string hanging from the rim (the tag is blank, no writing)."
-  - **empty-approvals**: "a small round brass seal stamp (a short turned steel handle on a plain round brass
-    disc, face blank) standing upright at rest beside a single closed tiffin tier."
 - **og-card**: no separate generation. The kept `carrier-hero` drawing is placed on the paper ground,
   centred at x = 880 px, with the left side left empty for the overlaid headline.
