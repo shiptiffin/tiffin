@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -25,10 +26,33 @@ func boxChecks(home string, ed *edge.Edge, started time.Time) []api.Check {
 			Detail: fmt.Sprintf("%s available of %s", bytesHuman(avail), bytesHuman(total))})
 	}
 	if ed != nil {
-		_, err := ed.RootCAPEM()
-		out = append(out, api.Check{Name: "edge", OK: err == nil, Detail: errOr(err, "HTTPS edge serving with the box's CA")})
+		if cfg := ed.Config(); !cfg.Internal && cfg.ACME != nil {
+			out = append(out, api.Check{Name: "edge", OK: true, Detail: "HTTPS edge serving certificates from " + caName(cfg.ACME)})
+		} else {
+			_, err := ed.RootCAPEM()
+			out = append(out, api.Check{Name: "edge", OK: err == nil, Detail: errOr(err, "HTTPS edge serving with the box's CA")})
+		}
 	}
 	return out
+}
+
+// caName names the public CA an edge gets its certificates from.
+func caName(a *edge.ACME) string {
+	switch strings.TrimRight(a.CA, "/") {
+	case "", edge.LetsEncrypt:
+		if a.Email != "" {
+			return "Let's Encrypt (ZeroSSL as fallback)"
+		}
+		return "Let's Encrypt"
+	case edge.LetsEncryptStaging:
+		return "Let's Encrypt staging"
+	case edge.ZeroSSL:
+		return "ZeroSSL"
+	}
+	if u, err := url.Parse(a.CA); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return "a public ACME CA"
 }
 
 func errOr(err error, ok string) string {

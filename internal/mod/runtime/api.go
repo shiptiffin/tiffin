@@ -250,7 +250,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	rb := api.Op("deploy-rollback", http.MethodPost, appPath+"/deploys/{id}/rollback", "deploys rollback", api.RiskWrite, "Roll back to a deploy",
 		"Makes an earlier deploy (status superseded or rolled_back) live again, with zero downtime: its instances start from the kept image, "+
 			"pass health checks and take over; the current deploy becomes rolled_back. Waits until the switch is done.", "apps")
-	rb.Errors = append(rb.Errors, 404, 409)
+	rb.Errors = append(rb.Errors, 404, 409, 503)
 	huma.Register(a, rb, api.Wrap(func(ctx context.Context, in *deployPath) (*struct{ Body *Deploy }, error) {
 		r, err := m.rt()
 		if err != nil {
@@ -326,7 +326,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	rs := api.Op("app-restart", http.MethodPost, appPath+"/restart", "apps restart", api.RiskWrite, "Restart an app",
 		"Replaces every instance of the live deploy with fresh ones (zero downtime: new instances must pass health checks first). "+
 			"Env and secret changes already restart apps on their own.", "apps")
-	rs.Errors = append(rs.Errors, 404, 409)
+	rs.Errors = append(rs.Errors, 404, 409, 503)
 	huma.Register(a, rs, api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		App     string `path:"app" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"App name"`
@@ -761,6 +761,7 @@ func notFound(err error, what string) error {
 func (r *rt) toProblem(err error, what string) error {
 	var se *stateError
 	var he *healthError
+	var ste *startError
 	switch {
 	case errors.Is(err, errNotFound):
 		return problem(404, "not_found", "no "+what, "")
@@ -768,6 +769,8 @@ func (r *rt) toProblem(err error, what string) error {
 		return problem(409, "precondition", se.msg, se.hint)
 	case errors.As(err, &he):
 		return problem(409, "precondition", he.msg, he.hint)
+	case errors.As(err, &ste):
+		return problem(503, "internal", "the container runtime would not start an instance: "+ste.msg, startHint)
 	}
 	return err
 }

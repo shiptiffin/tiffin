@@ -106,6 +106,10 @@ func (r *rt) startFrom(d *Deploy, kind string, fetch func(ctx context.Context, l
 			if errors.As(err, &he) {
 				hint = he.hint
 			}
+			var se *startError
+			if errors.As(err, &se) {
+				hint = startHint
+			}
 			r.fail(ctx, d, err, hint, log)
 		}
 	}()
@@ -114,7 +118,7 @@ func (r *rt) startFrom(d *Deploy, kind string, fetch func(ctx context.Context, l
 func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.Writer) error {
 	// One build at a time keeps a small box responsive. A deploy goes
 	// before the build warm-up: it stops a running warm-up and takes the slot.
-	if err := r.acquireBuild(ctx); err != nil {
+	if err := r.acquireBuild(ctx, d.Project+"/"+d.App+previewSuffix(d.Preview), log); err != nil {
 		return err
 	}
 	released := false
@@ -235,6 +239,14 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 		}
 		started, err = r.startInstances(ctx, st, d, spec, n, env)
 		if err != nil {
+			// Keep the serials it used, so the next start takes new names
+			// (a first deploy has no state to keep them in; claimName copes).
+			sctx, cancel := cleanupContext(ctx)
+			if fresh, gerr := r.st.getState(sctx, d.Project, d.App, d.Preview); gerr == nil && !fresh.UpdatedAt.IsZero() && fresh.Serial < st.Serial {
+				fresh.Serial = st.Serial
+				_ = r.st.putState(sctx, fresh)
+			}
+			cancel()
 			return err
 		}
 	}
@@ -300,35 +312,18 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 }
 
 // startInstances starts n containers for d and waits for all to be healthy.
-// On failure every container it started is removed again.
+// On failure every container it started is removed again, and the serials
+// it used stay used: a container that could not be removed never blocks
+// the next start's name.
 func (r *rt) startInstances(ctx context.Context, st *AppState, d *Deploy, spec *manifest.App, n int, env map[string]string) ([]Instance, error) {
 	var out []Instance
 	for i := 0; i < n; i++ {
-		st.Serial++
-		name := containerName(d.Project, d.App, d.Preview, st.Serial)
-		port, err := r.allocPort(name)
+		in, err := r.runInstance(ctx, st, d, spec, i, env)
 		if err != nil {
 			r.removeInstances(ctx, out)
 			return nil, err
 		}
-		ienv := make(map[string]string, len(env)+2)
-		for k, v := range env {
-			ienv[k] = v
-		}
-		ienv["PORT"] = strconv.Itoa(port)
-		ienv["TIFFIN_DEPLOY"] = d.ID
-		ienv["TIFFIN_INSTANCE"] = strconv.Itoa(i)
-		logPath := r.logFile(d.Project, d.App, d.Preview, d.ID, st.Serial)
-		_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
-		spec := RunSpec{Name: name, Image: d.Image, Port: port, MemoryMB: spec.MemoryMB, Env: ienv, LogPath: logPath,
-			CgroupParent: budget.Slice(d.Project),
-			Labels:       map[string]string{"tiffin.project": d.Project, "tiffin.app": d.App, "tiffin.preview": d.Preview, "tiffin.deploy": d.ID, "tiffin.port": strconv.Itoa(port)}}
-		if err := r.eng.Run(ctx, spec); err != nil {
-			r.freePort(port)
-			r.removeInstances(ctx, out)
-			return nil, err
-		}
-		out = append(out, Instance{Name: name, Port: port, Deploy: d.ID})
+		out = append(out, in)
 	}
 	// Health checks run in parallel.
 	var wg sync.WaitGroup
@@ -348,7 +343,101 @@ func (r *rt) startInstances(ctx context.Context, st *AppState, d *Deploy, spec *
 	return out, nil
 }
 
+// nameTries bounds how many serials one instance start goes through when
+// names are taken by containers that cannot be removed.
+const nameTries = 10
+
+// runInstance starts instance i of d under the next free name. A container
+// that holds the name but serves nothing (a crashed start whose removal
+// failed) is removed first, or skipped when it will not go.
+func (r *rt) runInstance(ctx context.Context, st *AppState, d *Deploy, app *manifest.App, i int, env map[string]string) (Instance, error) {
+	var err error
+	for try := 0; try < nameTries; try++ {
+		st.Serial++
+		name := containerName(d.Project, d.App, d.Preview, st.Serial)
+		if !r.claimName(ctx, name) {
+			err = fmt.Errorf("container name %s is taken by a container that could not be removed", name)
+			continue
+		}
+		var port int
+		port, err = r.allocPort(name)
+		if err != nil {
+			return Instance{}, err
+		}
+		ienv := make(map[string]string, len(env)+3)
+		for k, v := range env {
+			ienv[k] = v
+		}
+		ienv["PORT"] = strconv.Itoa(port)
+		ienv["TIFFIN_DEPLOY"] = d.ID
+		ienv["TIFFIN_INSTANCE"] = strconv.Itoa(i)
+		logPath := r.logFile(d.Project, d.App, d.Preview, d.ID, st.Serial)
+		_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
+		spec := RunSpec{Name: name, Image: d.Image, Port: port, MemoryMB: app.MemoryMB, Env: ienv, LogPath: logPath,
+			CgroupParent: budget.Slice(d.Project),
+			Labels:       map[string]string{"tiffin.project": d.Project, "tiffin.app": d.App, "tiffin.preview": d.Preview, "tiffin.deploy": d.ID, "tiffin.port": strconv.Itoa(port)}}
+		if err = r.eng.Run(ctx, spec); err == nil {
+			return Instance{Name: name, Port: port, Deploy: d.ID}, nil
+		}
+		// A run that failed may still have created the container.
+		r.removeInstances(ctx, []Instance{{Name: name, Port: port}})
+		if !nameTaken(err) {
+			return Instance{}, &startError{msg: err.Error()}
+		}
+	}
+	return Instance{}, &startError{msg: err.Error()}
+}
+
+// claimName makes sure no container holds name, removing a leftover that no
+// app environment owns. It reports false when the name stays taken.
+func (r *rt) claimName(ctx context.Context, name string) bool {
+	r.mu.Lock()
+	owned := false
+	for _, n := range r.ports {
+		owned = owned || n == name
+	}
+	r.mu.Unlock()
+	if owned {
+		return false
+	}
+	c, err := r.eng.Inspect(ctx, name)
+	if err == nil && c == nil {
+		return true
+	}
+	r.p.Log.Warn("runtime: removing a leftover container that holds a new instance's name", "container", name)
+	rctx, cancel := cleanupContext(ctx)
+	defer cancel()
+	if err := r.eng.Remove(rctx, name, r.opt.StopGrace); err != nil {
+		r.p.Log.Error("remove leftover container", "name", name, "err", err)
+		return false
+	}
+	c, err = r.eng.Inspect(rctx, name)
+	return err == nil && c == nil
+}
+
+// nameTaken reports whether a container start failed on its name: nerdctl
+// keeps names in a store of its own, which can outlive the container.
+func nameTaken(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "already used") || strings.Contains(s, "already in use") || strings.Contains(s, "already exists")
+}
+
+// startError is a container the engine would not start.
+type startError struct{ msg string }
+
+func (e *startError) Error() string { return e.msg }
+
+const startHint = "The running version keeps serving. Try again in a minute; tiffin status shows the runtime's containers."
+
+// cleanupContext outlives ctx: removing what a failed or abandoned start left
+// must happen even when the request that started it is gone.
+func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+}
+
 func (r *rt) removeInstances(ctx context.Context, ins []Instance) {
+	ctx, cancel := cleanupContext(ctx)
+	defer cancel()
 	var wg sync.WaitGroup
 	for _, in := range ins {
 		wg.Add(1)
@@ -400,13 +489,16 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 	upSince := time.Now()
 	lastInspect := time.Time{}
 	lastStatus := ""
+	var exited *Container // seen exited, even if its restart policy brought it back
 	for {
 		if time.Since(lastInspect) > time.Second {
 			lastInspect = time.Now()
 			c, err := r.eng.Inspect(ctx, in.Name)
 			if err == nil && (c == nil || (!c.Running && c.Status != "restarting" && c.Status != "created")) {
-				return &healthError{msg: fmt.Sprintf("instance %s exited before it was healthy. Last log lines:\n%s", in.Name, tailLog(logPath, 15)),
-					hint: "The app crashed on start. Check it listens on $PORT and that its env vars and secrets are set."}
+				return exitedError(in.Name, c, logPath)
+			}
+			if err == nil && c.Status == "restarting" {
+				exited = c
 			}
 		}
 		if worker {
@@ -436,6 +528,9 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 			}
 		}
 		if time.Now().After(deadline) {
+			if exited != nil {
+				return exitedError(in.Name, exited, logPath)
+			}
 			return &healthError{msg: fmt.Sprintf("instance %s did not pass its health check (GET %s: %s) within %s. Last log lines:\n%s",
 				in.Name, path, lastStatus, r.opt.HealthTimeout, tailLog(logPath, 15)),
 				hint: "Make sure the app listens on the port in $PORT and answers " + path + healthWant(path) + " (set healthcheck in tiffin.config.ts)."}
@@ -446,6 +541,17 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
+}
+
+// exitedError explains an instance whose process exited on start (a syntax
+// error, a missing module or env var): its exit code and last log lines.
+func exitedError(name string, c *Container, logPath string) *healthError {
+	how := "exited"
+	if c != nil && c.ExitCode != 0 {
+		how = fmt.Sprintf("exited with code %d", c.ExitCode)
+	}
+	return &healthError{msg: fmt.Sprintf("instance %s %s before it was healthy. Last log lines:\n%s", name, how, tailLog(logPath, 15)),
+		hint: "The app " + how + " on start: its last log lines say why (a syntax error, a missing module, env var or secret). Fix that and deploy again."}
 }
 
 // healthOK reports whether a health check's status counts as healthy. The

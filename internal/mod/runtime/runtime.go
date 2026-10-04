@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -198,12 +199,18 @@ func (r *rt) recover(ctx context.Context) error {
 	return nil
 }
 
-// removeOrphans removes the app containers that are neither live nor
-// draining in the saved states: started by a deploy the restart interrupted
-// before it was recorded, or left by a stop or drain whose removal never
-// happened. It runs before any deploy can start, so none is in flight (and
-// none can reuse an orphan's name meanwhile).
+// removeOrphans removes the app containers that are neither live, draining
+// nor starting: started by a deploy a restart interrupted before it was
+// recorded, a crashed start or a stop or drain whose removal failed. It runs
+// on start, before any deploy can, and every few minutes after.
 func (r *rt) removeOrphans(ctx context.Context) {
+	r.sweep(ctx, func(_ Container, owned bool) bool { return !owned })
+}
+
+// sweep removes the app containers remove picks. owned: an app environment
+// runs or drains it, or a start is under way (its name is in the port
+// table from before it ran, so it is never mistaken for an orphan).
+func (r *rt) sweep(ctx context.Context, remove func(c Container, owned bool) bool) {
 	lctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cs, err := r.eng.List(lctx)
@@ -211,33 +218,82 @@ func (r *rt) removeOrphans(ctx context.Context) {
 		r.p.Log.Warn("runtime: list containers", "err", err)
 		return
 	}
-	owned := map[string]bool{}
-	for _, name := range r.ports {
-		owned[name] = true
-	}
+	owned := r.ownedNames() // after List: anything it saw starting is in the table
 	for _, c := range cs {
-		if owned[c.Name] {
+		if !remove(c, owned[c.Name] != 0) {
 			continue
 		}
 		if err := r.eng.Remove(ctx, c.Name, r.opt.StopGrace); err != nil {
-			r.p.Log.Error("runtime: remove orphaned container", "container", c.Name, "err", err)
+			r.p.Log.Error("runtime: remove container", "container", c.Name, "err", err)
 			continue
 		}
-		r.p.Log.Info("runtime: removed a container no app state owns", "container", c.Name, "deploy", c.Labels["tiffin.deploy"])
+		if p := owned[c.Name]; p != 0 {
+			r.freePort(p)
+		}
+		r.p.Log.Info("runtime: removed a container", "container", c.Name, "deploy", c.Labels["tiffin.deploy"], "owned", owned[c.Name] != 0)
 	}
 }
 
-// loop runs housekeeping: sleeping idle previews.
+// ownedNames maps the containers in the port table to their ports.
+func (r *rt) ownedNames() map[string]int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[string]int, len(r.ports))
+	for p, name := range r.ports {
+		out[name] = p
+	}
+	return out
+}
+
+// orphans lists the app containers nothing owns.
+func (r *rt) orphans(cs []Container) []string {
+	owned := r.ownedNames()
+	var out []string
+	for _, c := range cs {
+		if owned[c.Name] == 0 {
+			out = append(out, c.Name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ProjectDeleted stops a destroyed project's app environments and removes
+// every container labelled for it, live or not.
+func (m *Module) ProjectDeleted(ctx context.Context, p *platform.Platform, project string) error {
+	r, err := m.rt()
+	if err != nil {
+		return nil
+	}
+	states, err := r.st.allStates(ctx)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, s := range states {
+		if s.Project == project {
+			errs = append(errs, r.stopEnv(ctx, s))
+		}
+	}
+	r.sweep(ctx, func(c Container, _ bool) bool { return c.Labels["tiffin.project"] == project })
+	return errors.Join(errs...)
+}
+
+// loop runs housekeeping: sleeping idle previews, stopping drained releases
+// and, every 5 minutes, removing orphaned containers.
 func (r *rt) loop(ctx context.Context) {
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
-	for {
+	for tick := 1; ; tick++ {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 			r.sleepIdlePreviews(ctx)
 			r.reapDrained(ctx)
+			if tick%20 == 0 {
+				r.removeOrphans(ctx)
+			}
 		}
 	}
 }

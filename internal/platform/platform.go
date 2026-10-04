@@ -270,7 +270,7 @@ func (p *Platform) RefreshRoutes(ctx context.Context) error {
 	return p.Edge.SetRoutes(all)
 }
 
-// Checks runs every Checker.
+// Checks runs every Checker, then checks no project resource failed.
 func (p *Platform) Checks(ctx context.Context) []Check {
 	out := provisionChecks(ctx)
 	for _, m := range Modules() {
@@ -278,7 +278,49 @@ func (p *Platform) Checks(ctx context.Context) []Check {
 			out = append(out, c.Checks(ctx, p)...)
 		}
 	}
+	if p.DB != nil {
+		out = append(out, p.resourceCheck(ctx))
+	}
 	return out
+}
+
+// resourceCheck reports the project resources whose last reconcile failed.
+func (p *Platform) resourceCheck(ctx context.Context) Check {
+	projects, err := p.DB.ListProjects(ctx)
+	if err != nil {
+		return Check{Name: "resources", OK: false, Detail: err.Error()}
+	}
+	var failed []string
+	first := ""
+	for _, pr := range projects {
+		st, err := p.DB.ResourceStatuses(ctx, pr)
+		if err != nil {
+			return Check{Name: "resources", OK: false, Detail: err.Error()}
+		}
+		addrs := make([]string, 0, len(st))
+		for a := range st {
+			addrs = append(addrs, a)
+		}
+		sort.Strings(addrs)
+		for _, a := range addrs {
+			if st[a].State != StateFailed {
+				continue
+			}
+			msg, _, _ := strings.Cut(st[a].Message, "\n")
+			if len(msg) > 120 {
+				msg = msg[:120] + "…"
+			}
+			failed = append(failed, pr+" "+a+" ("+msg+")")
+			if first == "" {
+				first = pr
+			}
+		}
+	}
+	if len(failed) == 0 {
+		return Check{Name: "resources", OK: true, Detail: fmt.Sprintf("no failed resources in %d project(s)", len(projects))}
+	}
+	return Check{Name: "resources", OK: false, Detail: fmt.Sprintf("%d failed: %s. tiffin projects get %s says why; fix it and apply again.",
+		len(failed), strings.Join(failed, "; "), first)}
 }
 
 // Start runs every Starter and the reconcile worker, then reconciles every

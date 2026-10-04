@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/tokens"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -185,12 +186,27 @@ func TestInitWritesAWorkingConfig(t *testing.T) {
 	}
 }
 
+// The edge check names the CA the certificates really come from.
+func TestCAName(t *testing.T) {
+	for ca, want := range map[string]string{"": "Let's Encrypt", edge.LetsEncryptStaging: "Let's Encrypt staging",
+		edge.ZeroSSL: "ZeroSSL", "https://pebble:14000/dir": "pebble:14000"} {
+		if got := caName(&edge.ACME{CA: ca}); got != want {
+			t.Errorf("%q: %q, want %q", ca, got, want)
+		}
+	}
+}
+
 func TestDoctor(t *testing.T) {
 	env := newEnv(t)
 	code, out, _ := run(t, env, "doctor")
 	d := decode(t, out)
 	if code != ExitOK || d["ok"] != true {
 		t.Fatalf("doctor: %d %s", code, out)
+	}
+	// A source build is named by its build, not as "tiffin dev"; the box's
+	// own checks are included.
+	if s := string(out); !strings.Contains(s, "tiffin answering (") || strings.Contains(s, "tiffin dev") || !strings.Contains(s, `"box checks"`) {
+		t.Fatalf("doctor: %s", out)
 	}
 	// A world-readable home is flagged.
 	if err := os.Chmod(env["TIFFIN_HOME"], 0o755); err != nil {

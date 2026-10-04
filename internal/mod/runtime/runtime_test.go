@@ -48,10 +48,27 @@ type fakeEngine struct {
 	images map[string]bool
 	crash  map[string]bool
 	runs   int
+	// stuck: removing an exited container fails, as nerdctl rm did on a
+	// box for a container crashing under its restart policy.
+	stuck bool
+	// names nerdctl's name store holds with no container behind them.
+	leaked map[string]bool
 }
 
 func newFakeEngine() *fakeEngine {
-	return &fakeEngine{ctrs: map[string]*fakeCtr{}, images: map[string]bool{}, crash: map[string]bool{}}
+	return &fakeEngine{ctrs: map[string]*fakeCtr{}, images: map[string]bool{}, crash: map[string]bool{}, leaked: map[string]bool{}}
+}
+
+func (e *fakeEngine) setStuck(v bool) {
+	e.mu.Lock()
+	e.stuck = v
+	e.mu.Unlock()
+}
+
+func (e *fakeEngine) leak(name string) {
+	e.mu.Lock()
+	e.leaked[name] = true
+	e.mu.Unlock()
 }
 
 func appendLog(path, stream, text string) {
@@ -67,8 +84,8 @@ func appendLog(path, stream, text string) {
 func (e *fakeEngine) Run(ctx context.Context, s RunSpec) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if _, dup := e.ctrs[s.Name]; dup {
-		return fmt.Errorf("container %s exists", s.Name)
+	if _, dup := e.ctrs[s.Name]; dup || e.leaked[s.Name] {
+		return fmt.Errorf("start container %s: exit status 1: name-store error: name %q is already used", s.Name, s.Name)
 	}
 	e.runs++
 	c := &fakeCtr{spec: s}
@@ -92,8 +109,15 @@ func (e *fakeEngine) Run(ctx context.Context, s RunSpec) error {
 }
 
 func (e *fakeEngine) Remove(ctx context.Context, name string, grace time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err // nerdctl runs under ctx: a cancelled one removes nothing
+	}
 	e.mu.Lock()
 	c := e.ctrs[name]
+	if c != nil && !c.running && e.stuck {
+		e.mu.Unlock()
+		return fmt.Errorf("nerdctl rm: exit status 1: cannot remove container %s", name)
+	}
 	delete(e.ctrs, name)
 	e.mu.Unlock()
 	if c != nil && c.srv != nil {
@@ -111,11 +135,11 @@ func (e *fakeEngine) Inspect(ctx context.Context, name string) (*Container, erro
 	if c == nil {
 		return nil, nil
 	}
-	st := "exited"
+	st, code := "exited", 1
 	if c.running {
-		st = "running"
+		st, code = "running", 0
 	}
-	return &Container{Name: name, Running: c.running, Status: st, Labels: c.spec.Labels}, nil
+	return &Container{Name: name, Running: c.running, Status: st, ExitCode: code, Labels: c.spec.Labels}, nil
 }
 
 func (e *fakeEngine) List(ctx context.Context) ([]Container, error) {
@@ -563,6 +587,134 @@ func TestFailedDeploysKeepTheOldVersion(t *testing.T) {
 	text, _ := h.r.readBuildLog(bad, 0, 1<<20)
 	if !strings.Contains(string(text), "Cannot find module") || !strings.Contains(string(text), "FAILED") {
 		t.Fatalf("build log: %s", text)
+	}
+}
+
+func (h *harness) check(name string) *platform.Check {
+	for _, c := range h.r.checks(context.Background()) {
+		if c.Name == name {
+			return &c
+		}
+	}
+	return nil
+}
+
+// A deploy whose server dies on boot (a syntax error) must not wedge the app,
+// even when its containers cannot be removed at once (as on a box, where
+// nerdctl rm failed): the next deploy, a restart and a rollback work, status
+// names the leftovers and the sweep removes them once they go.
+func TestCrashOnBootDoesNotWedgeTheApp(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	v1 := h.deploy("api", "", map[string]string{"index.ts": "v1"})
+	h.eng.setStuck(true)
+	crash := h.deploy("api", "", map[string]string{"index.ts": "v2", "CRASH": ""})
+	if crash.Status != StatusFailed || !strings.Contains(crash.Error, "exited with code 1") || strings.Contains(crash.Hint, "$PORT") {
+		t.Fatalf("crash: %+v", crash)
+	}
+	c := h.check("containers")
+	if c == nil || c.OK || !strings.Contains(c.Detail, "2 container(s) no app runs") {
+		t.Fatalf("status must name the leftovers: %+v", c)
+	}
+	v3 := h.deploy("api", "", map[string]string{"index.ts": "v3"})
+	if v3.Status != StatusLive {
+		t.Fatalf("deploy after a crash: %s %s", v3.Status, v3.Error)
+	}
+	// A box that ran older code did not keep the crashed start's serials:
+	// its next names are the leftovers' (and the live instances').
+	st := h.state("api", "")
+	st.Serial = 2
+	if err := h.r.st.putState(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.r.restart(ctx, "shop", "api", ""); err != nil {
+		t.Fatalf("restart after a crash: %v", err)
+	}
+	// nerdctl's name store can hold a name with no container behind it.
+	h.eng.leak(containerName("shop", "api", "", h.state("api", "").Serial+1))
+	if _, err := h.r.rollback(ctx, "shop", "api", v1.ID); err != nil {
+		t.Fatalf("rollback after a crash: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond) // the replaced instances drain
+	if _, body := h.get("shop.tiffin.localhost", "/api/"); !strings.Contains(body, strings.ToLower(v1.ID)) {
+		t.Fatalf("rollback: v1 not serving: %s", body)
+	}
+	h.eng.setStuck(false)
+	h.r.removeOrphans(ctx)
+	if c := h.check("containers"); c != nil {
+		t.Fatalf("leftovers survived the sweep: %+v", c)
+	}
+	for _, in := range h.state("api", "").Instances {
+		if c, _ := h.eng.Inspect(ctx, in.Name); c == nil || !c.Running {
+			t.Fatalf("live instance %s was removed", in.Name)
+		}
+	}
+	// An engine that will not start a container is a 503 with a hint, not a bare 500.
+	if p, ok := h.r.toProblem(&startError{"name-store error"}, "app api").(*api.Problem); !ok || p.Status != 503 || p.Hint == "" {
+		t.Fatalf("start error: %+v", p)
+	}
+}
+
+// A deploy waiting for the build slot says whose build it waits for.
+func TestQueuedDeploySaysWhatItWaitsFor(t *testing.T) {
+	h := newHarness(t)
+	if err := h.r.acquireBuild(context.Background(), "shop/site", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		h.r.releaseBuild()
+	}()
+	d := h.deploy("api", "", map[string]string{"index.ts": "v1"})
+	text, _ := h.r.readBuildLog(d, 0, 1<<20)
+	if d.Status != StatusLive || !strings.Contains(string(text), "waiting for another build (shop/site) to finish") {
+		t.Fatalf("%s: %s", d.Status, text)
+	}
+}
+
+// Cleaning up a failed start happens even when the request that started it is gone.
+func TestRemoveInstancesOutlivesItsContext(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	h.eng.crash["img"] = true
+	spec := RunSpec{Name: "tf.shop.api.prod.90", Image: "img", LogPath: filepath.Join(t.TempDir(), "log"),
+		Labels: map[string]string{"tiffin.project": "shop", "tiffin.app": "api"}}
+	if err := h.eng.Run(ctx, spec); err != nil {
+		t.Fatal(err)
+	}
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	h.r.removeInstances(cctx, []Instance{{Name: spec.Name}})
+	if c, _ := h.eng.Inspect(ctx, spec.Name); c != nil {
+		t.Fatal("a cancelled context left the container behind")
+	}
+}
+
+// Destroying a project removes every container labelled for it, including
+// one a crashed start left behind.
+func TestDestroyRemovesDeadContainers(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	h.deploy("api", "", map[string]string{"index.ts": "v1"})
+	h.eng.setStuck(true)
+	h.deploy("api", "", map[string]string{"index.ts": "v2", "CRASH": ""})
+	h.eng.setStuck(false)
+	if cs, _ := h.eng.List(ctx); len(cs) != 4 {
+		t.Fatalf("want 2 live and 2 dead containers, have %d", len(cs))
+	}
+	for _, app := range []string{"api", "site", "jobs"} {
+		if err := h.m.Reconcile(ctx, h.p, "shop", "app/"+app, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.m.ProjectDeleted(ctx, h.p, "shop"); err != nil {
+		t.Fatal(err)
+	}
+	if cs, _ := h.eng.List(ctx); len(cs) != 0 {
+		t.Fatalf("containers survived the destroy: %+v", cs)
+	}
+	if c := h.check("runtime"); c == nil || !c.OK || !strings.Contains(c.Detail, "0 container(s)") {
+		t.Fatalf("runtime check: %+v", c)
 	}
 }
 

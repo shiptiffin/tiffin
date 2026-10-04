@@ -343,6 +343,39 @@ func (r *rt) sleep(ctx context.Context, project, app, preview string) {
 }
 
 // checks reports the container runtime and each app environment.
+// stuckAfter is how long a deploy may stay queued, building or starting
+// before status calls it stuck: past the build timeout and a long queue.
+const stuckAfter = time.Hour
+
+// stuckDeploys lists deploys (project/app/id: status) that have not
+// finished within stuckAfter.
+func (r *rt) stuckDeploys(ctx context.Context) []string {
+	projects, err := r.p.DB.ListProjects(ctx)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, pr := range projects {
+		_, res, err := r.p.DB.Load(ctx, pr)
+		if err != nil {
+			continue
+		}
+		for addr := range res {
+			if change.Kind(addr) != change.KindApp {
+				continue
+			}
+			ds, _ := r.st.listDeploys(ctx, pr, change.Name(addr), "*")
+			for _, d := range ds {
+				if !d.Terminal() && time.Since(d.CreatedAt) > stuckAfter {
+					out = append(out, fmt.Sprintf("%s/%s/%s (%s)", d.Project, d.App, d.ID, d.Status))
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func (r *rt) checks(ctx context.Context) []platform.Check {
 	var out []platform.Check
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -374,6 +407,15 @@ func (r *rt) checks(ctx context.Context) []platform.Check {
 		c.Detail = "not running: " + strings.Join(bad, ", ")
 	}
 	out = append(out, c)
+	if names := r.orphans(cs); len(names) > 0 {
+		out = append(out, platform.Check{Name: "containers", OK: false, Detail: fmt.Sprintf(
+			"%d container(s) no app runs: %s. The runtime removes them within 5 minutes; if they stay, journalctl -u tiffin says why.",
+			len(names), strings.Join(names, ", "))})
+	}
+	if stuck := r.stuckDeploys(ctx); len(stuck) > 0 {
+		out = append(out, platform.Check{Name: "deploys", OK: false, Detail: "stuck for over " + stuckAfter.String() + ": " + strings.Join(stuck, ", ") +
+			". Restarting the service fails them and frees the builder: sudo systemctl restart tiffin."})
+	}
 	if _, conflicts := r.routes(ctx); len(conflicts) > 0 {
 		var parts []string
 		for _, cf := range conflicts {
