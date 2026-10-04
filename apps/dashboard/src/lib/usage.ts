@@ -1,5 +1,6 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { ApiError, request, type BoxResources } from "@/api/client";
+import type { components } from "@/api/schema";
 import { q } from "@/api/queries";
 import { memoryModel } from "./memory";
 
@@ -16,29 +17,17 @@ import { memoryModel } from "./memory";
 
 const MB = 1048576;
 
+type S = components["schemas"];
 /** A project's limit as the manifest says it (absent = grows as it needs). */
-export type ProjectResources = { maxSharePercent?: number; memoryMB?: number; cpus?: number };
-
-export type ProjectUsage = {
-  project: string;
-  budget: { auto: boolean } & ProjectResources;
-  limitSource?: "project" | "box default" | "automatic";
-  memory: { usedBytes: number; cacheBytes: number; limitBytes?: number; headroomBytes?: number; pressure?: "none" | "some" | "oom" };
-  cpu: { percent: number; limitCpus?: number };
-  disk: { databaseBytes: number; filesBytes: number; kvBytes: number; totalBytes: number };
-  apps: Array<{ app: string; instances: number; memoryBytes: number; cpuPercent: number; state: string }>;
-  services?: Record<string, { memoryBytes?: number; cpuPercent?: number; diskBytes?: number }>;
-};
-
-type BoxProject = { project: string; memoryBytes: number; cacheBytes?: number; cpuPercent: number; diskBytes?: number; budget?: { auto: boolean } & ProjectResources };
-export type BoxResourcesWithProjects = BoxResources & { projects?: BoxProject[] | null };
-
+export type ProjectResources = S["ManifestResources"];
+/** One project's share of the box, live: GET /v1/projects/{p}/usage. */
+export type ProjectUsage = S["BoxUsage"];
+export type BoxResourcesWithProjects = BoxResources;
 /**
- * Box-wide settings (backend in progress; hidden while the box answers 404):
- *   defaultMaxSharePercent  "No project may use more than N% unless it says otherwise" (100 = no default limit)
- *   agentApproval           when agents need a person's passkey: off (default) | delete | delete-or-outbound
+ * Box-wide settings: defaultMaxSharePercent is "no project may use more than N%
+ * unless it says otherwise" (100 = elastic); the rest explain the box's memory.
  */
-export type BoxSettings = { defaultMaxSharePercent?: number; agentApproval?: "off" | "delete" | "delete-or-outbound" };
+export type BoxSettings = S["BudgetBoxSettings"];
 
 export const usageQuery = (project: string) =>
   queryOptions({
@@ -55,7 +44,7 @@ export const boxSettingsQuery = queryOptions({
   retry: false,
   staleTime: 60_000,
 });
-export const setBoxSettings = (b: BoxSettings) => request<BoxSettings>("PATCH", "/v1/box/settings", b);
+export const setBoxSettings = (b: S["BudgetSettingsBody"]) => request<BoxSettings>("PUT", "/v1/box/settings", b);
 
 /** True when the box doesn't have this endpoint yet (older box, or a dev server). */
 export const missing = (e: unknown) => e instanceof ApiError && (e.status === 404 || e.status === 405 || e.status === 501);
@@ -83,8 +72,8 @@ export function shares(r: BoxResourcesWithProjects): Shares {
   if (r.projects?.length) {
     for (const p of r.projects) {
       projects[p.project] = Math.max(0, (p.memoryBytes - (p.cacheBytes ?? 0)) / MB);
-      if (p.budget && !p.budget.auto && p.budget.maxSharePercent) caps[p.project] = p.budget.maxSharePercent / 100;
-      else if (p.budget && !p.budget.auto && p.budget.memoryMB) caps[p.project] = p.budget.memoryMB / m.totalMB;
+      // A project with a limit of its own (or the box's default share) shows it as room it may grow into.
+      if (p.limitSource !== "automatic" && p.limitBytes > 0) caps[p.project] = Math.min(1, p.limitBytes / MB / m.totalMB);
     }
   } else Object.assign(projects, m.projects);
   const inProjects = Object.values(projects).reduce((t, v) => t + v, 0);

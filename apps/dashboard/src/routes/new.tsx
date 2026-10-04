@@ -452,7 +452,7 @@ function PlanPanel({
   const clash = !!plan && (ops.length === 0 || ops.some((o) => o.action !== "create"));
   const appMB = ops.reduce((t, o) => {
     const a = (o.after ?? {}) as { framework?: string; instances?: number; memoryMB?: number };
-    return splitAddress(o.address).kind === "app" && o.action === "create" && a.framework !== "static" ? t + (a.instances ?? 1) * (a.memoryMB ?? 512) : t;
+    return splitAddress(o.address).kind === "app" && o.action === "create" && a.framework !== "static" && a.memoryMB ? t + (a.instances ?? 1) * a.memoryMB : t;
   }, 0);
   const things = ops.length;
   const label = creating ? "Creating…" : ready ? `Create ${name}` : "Create project";
@@ -501,9 +501,9 @@ function PlanPanel({
               <span className="text-ink-3">measured on a running box</span>
             )}
           </div>
-          {freeMB !== undefined && appMB > 0 && (
+          {freeMB !== undefined && (
             <p className="mt-1 text-xs text-ink-3">
-              The app may use up to {int(appMB)}{NNBSP}MB; it starts much smaller.
+              {appMB > 0 ? `The app may use up to ${int(appMB)}\u202fMB; it starts much smaller.` : "It grows as it needs and shares the box with your other projects."}
             </p>
           )}
         </div>
@@ -566,7 +566,7 @@ function OpRow({ op, project }: { op: Op; project: string }) {
       </>
     );
     line = a.framework === "static" ? "Static files, served instantly" : `${frameworkName(String(a.framework ?? ""))}${n > 1 ? `, ${countWords(n, "copy", "copies")}` : ""}`;
-    amount = a.framework === "static" ? null : <Qty value={`+${int(n * Number(a.memoryMB ?? 512))}`} unit="MB" />;
+    amount = a.framework === "static" || !a.memoryMB ? null : <Qty value={`+${int(n * Number(a.memoryMB))}`} unit="MB" />;
   } else if (kind === "service") {
     title = partName(name);
     line =

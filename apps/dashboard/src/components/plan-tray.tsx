@@ -223,37 +223,40 @@ function opTitle(op: Op, project: string, apps: Record<string, ManifestApp>, edi
     const b = (op.before ?? {}) as AppLike;
     const a = (op.after ?? {}) as AppLike;
     if (op.action === "create") {
-      const per = a.memoryMB ?? 512;
+      const per = a.memoryMB;
       const n = a.instances ?? 1;
       return {
         title: fallback ?? `Add the ${name} app to ${project}`,
         detail: `It is built on the box; its page offers the first deploy. Until then it uses no memory.`,
-        facts: [
-          <span key="m">
-            Memory up to <b className="font-[550] text-ink-2">{mbw(per * n)}</b> once it runs
-          </span>,
-        ],
+        facts: per
+          ? [
+              <span key="m">
+                Memory up to <b className="font-[550] text-ink-2">{mbw(per * n)}</b> once it runs
+              </span>,
+            ]
+          : [],
       };
     }
     if (op.action === "delete") return { title: `Remove the ${name} app from ${project}`, detail: reason, facts: [] };
     const fromN = b.instances ?? 1;
     const toN = a.instances ?? 1;
-    const fromM = b.memoryMB ?? 512;
-    const toM = a.memoryMB ?? apps[name]?.memoryMB ?? 512;
+    const fromM = b.memoryMB ?? 0;
+    const toM = a.memoryMB ?? apps[name]?.memoryMB ?? 0;
     const delta = toN * toM - fromN * fromM;
-    const memFact = (
+    // Copies without a cap share the project's memory: no "at most" to state.
+    const memFact = fromM && toM ? (
       <span key="m">
         Memory <b className="font-[550] text-ink-2">{signed(delta)}&#8239;MB</b> at most
       </span>
-    );
+    ) : null;
     const onlyMem = fields.length === 1 && fields[0] === "memoryMB";
     const onlyInst = fields.length === 1 && fields[0] === "instances";
     const both = fields.length === 2 && fields.includes("memoryMB") && fields.includes("instances");
     if (onlyMem) {
       return {
-        title: `Give ${name} ${mbw(toM)} of memory, ${toM > fromM ? "up" : "down"} from ${mbw(fromM)}`,
+        title: toM ? (fromM ? `Give ${name} ${mbw(toM)} of memory, ${toM > fromM ? "up" : "down"} from ${mbw(fromM)}` : `Cap ${name} at ${mbw(toM)} of memory`) : `Let ${name} share ${project}’s memory with no cap`,
         detail: `Per instance. ${name} restarts one instance at a time with the new limit${fromN > 1 ? ", so the others keep serving" : "; it is away for a moment while it restarts"}.`,
-        facts: [memFact, <span key="d">{fromN > 1 ? "Downtime none" : "Downtime a few seconds"}</span>],
+        facts: [memFact, <span key="d">{fromN > 1 ? "Downtime none" : "Downtime a few seconds"}</span>].filter(Boolean),
       };
     }
     if (onlyInst || both) {
@@ -274,7 +277,7 @@ function opTitle(op: Op, project: string, apps: Record<string, ManifestApp>, edi
             : more < 0
               ? `Stops ${words(-more)} ${-more === 1 ? "instance" : "instances"} of ${name} once ${-more === 1 ? "it finishes its" : "they finish their"} requests.`
               : `Restarts ${name}'s instances one at a time with the new memory limit.`,
-        facts: [memFact, <span key="d">Downtime none</span>],
+        facts: [memFact, <span key="d">Downtime none</span>].filter(Boolean),
       };
     }
     return { title: fallback ?? `Change ${name}’s ${fieldsWords(fields)}`, detail: reason, facts: [] };

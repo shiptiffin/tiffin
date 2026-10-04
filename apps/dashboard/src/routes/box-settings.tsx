@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ProblemNote } from "@/components/problem";
 import { toast } from "@/components/toast";
-import { boxSettingsQuery, setBoxSettings } from "@/lib/usage";
+import { boxSettingsQuery, memWords, setBoxSettings } from "@/lib/usage";
 import { useState, type ReactNode } from "react";
 import { q } from "@/api/queries";
 import { Command } from "@/components/copy";
@@ -125,6 +125,7 @@ function ShareLimit({ admin }: { admin: boolean }) {
   });
   if (!settings.data || settings.data.defaultMaxSharePercent === undefined) return null;
   const v = drag ?? settings.data.defaultMaxSharePercent;
+  const means = v < 100 && settings.data.appMemoryMB ? `That’s about ${memWords((v / 100) * settings.data.appMemoryMB)} each.` : "Projects grow into whatever the box has free.";
   return (
     <Section title="Sharing the box" note="A project with its own limit keeps it. The rest grow as they need, up to this.">
       <p className="text-[0.875rem] text-ink">
@@ -143,6 +144,8 @@ function ShareLimit({ admin }: { admin: boolean }) {
         aria-label="Most of the box any one project may use"
         className="range mt-3 w-full max-w-[24rem]"
       />
+      <p className="mt-1.5 text-sm text-ink-2">{means}</p>
+      {settings.data.explanation && <p className="mt-1 text-xs text-ink-3">{settings.data.explanation}</p>}
       {save.isError && <ProblemNote className="mt-3" error={save.error} />}
     </Section>
   );

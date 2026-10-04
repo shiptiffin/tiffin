@@ -10,12 +10,12 @@ import { Crumbs, Page, PageHeader, Skeleton } from "@/components/page";
 import { AppRow, Group, RESERVE_MB, Working } from "@/components/project-rows";
 import { SegMeter } from "@/components/seg-meter";
 import { cn } from "@/lib/cn";
-import { bytes, dec } from "@/lib/format";
+import { bytes, count, dec } from "@/lib/format";
 import { rememberProject } from "@/lib/recent";
 import { change, pendingFor, usePending } from "@/lib/staged";
 import { partName, partSub } from "@/lib/names";
 import { Button } from "@/components/ui/button";
-import { boxSettingsQuery, cpuWords, memWords, missing, shareMeans, shareWords, useBoxShares, usageQuery, type ProjectResources } from "@/lib/usage";
+import { boxSettingsQuery, cpuWords, memWords, missing, shareMeans, shareWords, useBoxShares, usageQuery, type ProjectResources, type ProjectUsage } from "@/lib/usage";
 
 const MB = 1048576;
 
@@ -96,8 +96,8 @@ export function ProjectUsagePage({ project }: { project: string }) {
         />
         <Stat label="Disk" value={bytes(diskBytes)} of="databases and files" />
       </div>
-      {usage.data?.memory.pressure === "oom" && (
-        <p className="mt-3 max-w-[46rem] text-sm text-danger">It ran out of memory recently and something was restarted. Give it a bigger share, or let it grow.</p>
+      {usage.data?.memory.pressure === "oom" && totalMB && (
+        <OutOfMemory project={project} live={live} source={usage.data.limitSource} />
       )}
 
       {hasUsage && totalMB && (
@@ -148,6 +148,8 @@ function Limit({
 }) {
   const settings = useQuery(boxSettingsQuery);
   const boxDefault = settings.data?.defaultMaxSharePercent;
+  // A share is of the memory the box keeps for apps (not counting what Tiffin keeps for itself).
+  const base = settings.data?.appMemoryMB || totalMB;
   const limited = !!resources && (!!resources.maxSharePercent || !!resources.memoryMB || !!resources.cpus);
   const pct = resources?.maxSharePercent ?? 25;
   const [drag, setDrag] = useState<number | null>(null);
@@ -179,11 +181,11 @@ function Limit({
                 onPointerUp={() => drag !== null && drag !== pct && (limit(drag), setDrag(null))}
                 onKeyUp={() => drag !== null && drag !== pct && (limit(drag), setDrag(null))}
                 aria-label={`${project}’s share of the box`}
-                aria-valuetext={`${shown}%, ${shareMeans(shown, totalMB, cpus)}`}
+                aria-valuetext={`${shown}%, ${shareMeans(shown, base, cpus)}`}
                 className="range w-full max-w-[24rem]"
               />
               <p className="mt-1.5 text-sm text-ink-2">
-                Right now that’s {shareMeans(shown, totalMB, cpus)}.{busy && <Working> Saving…</Working>}
+                Right now that’s {shareMeans(shown, base, cpus)}.{busy && <Working> Saving…</Working>}
               </p>
             </div>
           )}
@@ -226,7 +228,7 @@ function Advanced({
   project: string;
   apps: Record<string, ManifestApp>;
   free?: number;
-  status?: { services?: Record<string, { memoryBytes?: number }>; apps: Array<{ app: string; memoryBytes: number }> };
+  status?: ProjectUsage;
   exact?: { live?: ProjectResources; cpus: number };
 }) {
   const [open, setOpen] = useState(false);
@@ -258,16 +260,15 @@ function Advanced({
             </Group>
           )}
           {exact && <ExactLimit project={project} live={exact.live} cpus={exact.cpus} />}
-          {status?.services && Object.keys(status.services).length > 0 && (
-            <Group label="Built-in parts">
-              {Object.entries(status.services).map(([k, v]) => (
-                <div key={k} className="flex items-center justify-between py-2.5 text-[0.875rem]">
-                  <span className="text-ink">
-                    {partName(k)} <span className="text-xs text-ink-3">{partSub(k)}</span>
-                  </span>
-                  <span className="text-ink-2 tnum">{v.memoryBytes !== undefined ? bytes(v.memoryBytes) : "–"}</span>
-                </div>
-              ))}
+          {status?.services && (status.services.postgres || status.services.valkey || status.services.storage) && (
+            <Group label="Its data">
+              {status.services.postgres && (
+                <Line name={partName("postgres")} sub={partSub("postgres")} value={`${bytes(status.services.postgres.databaseBytes)} · ${count(status.services.postgres.connections, "connection")}`} />
+              )}
+              {status.services.storage && (
+                <Line name={partName("storage")} sub={partSub("storage")} value={`${count(status.services.storage.objects, "file")} in ${count(status.services.storage.buckets, "bucket")} · ${bytes(status.services.storage.bytes)}`} />
+              )}
+              {status.services.valkey && <Line name={partName("valkey")} sub={partSub("valkey")} value={`${count(status.services.valkey.keys, "key")} · ${bytes(status.services.valkey.memoryBytes)}`} />}
             </Group>
           )}
         </>
@@ -308,5 +309,43 @@ function ExactLimit({ project, live, cpus }: { project: string; live?: ProjectRe
         </Button>
       </form>
     </Group>
+  );
+}
+
+function Line({ name, sub, value }: { name: string; sub: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-2.5 text-[0.875rem]">
+      <span className="text-ink">
+        {name} <span className="text-xs text-ink-3">{sub}</span>
+      </span>
+      <span className="text-ink-2 tnum">{value}</span>
+    </div>
+  );
+}
+
+/** "shop ran out of the memory it's allowed": say so, and offer more in one click. */
+function OutOfMemory({ project, live, source }: { project: string; live?: ProjectResources; source: ProjectUsage["limitSource"] }) {
+  const share = live?.maxSharePercent;
+  const next = share ? STOPS.find((x) => x > share) : undefined;
+  const give = () => {
+    if (source === "project" && share && next)
+      change(project, { kind: "set", path: ["resources"], from: live, to: { ...live, maxSharePercent: next }, what: `Give ${project} ${next}% of the box`, undo: `${project} goes back to ${share}%` }, { immediate: true });
+    else if (source === "project")
+      change(project, { kind: "set", path: ["resources"], from: live, to: undefined, what: `Let ${project} grow as it needs`, undo: `${project} gets its limit back` }, { immediate: true });
+    else change(project, { kind: "set", path: ["resources"], from: live, to: { maxSharePercent: 50 }, what: `Give ${project} up to 50% of the box`, undo: `${project} follows the box’s default again` }, { immediate: true });
+  };
+  return (
+    <div role="status" className="mt-4 flex max-w-[46rem] flex-wrap items-center gap-x-4 gap-y-2 rounded-[10px] bg-danger-wash px-4 py-3 text-[0.9375rem] text-ink">
+      <span className="min-w-0 flex-1">
+        <b className="font-[550]">{project} ran out of the memory it’s allowed.</b> An app was restarted in the last hour.
+      </span>
+      {source !== "automatic" ? (
+        <Button size="md" variant="primary" onClick={give}>
+          Give it more
+        </Button>
+      ) : (
+        <span className="text-sm text-ink-2">The whole box is full: give another project less, or move to a bigger machine.</span>
+      )}
+    </div>
   );
 }

@@ -16,7 +16,7 @@ import { cn } from "@/lib/cn";
 import { words } from "@/lib/format";
 import { mcpCommand } from "@/lib/mcp";
 import { toneClass, useProjectPulse } from "@/lib/pulse";
-import { fullWords, useBoxShares, type Shares } from "@/lib/usage";
+import { fullWords, memWords, useBoxShares, type Shares } from "@/lib/usage";
 import { useRecentProjects } from "@/lib/recent";
 import { PartGlyphs } from "@/components/part-glyph";
 import { ProjectIcon } from "@/components/project-icon";
@@ -177,12 +177,11 @@ function useStoredState<T extends string>(key: string, initial: T): [T, (v: T) =
 /** "Your box is about two-fifths full. Room for about four more apps." and the bar. */
 function BoxLine({ shares, names }: { shares?: Shares; names: string[] }) {
   if (!shares) return <div className="mt-6 h-[52px]" aria-hidden />;
-  const more = Math.max(0, Math.floor((shares.freeMB - 512) / 512));
   return (
     <section className="mt-5 max-w-[46rem]" aria-label="Your box">
       <p className="text-[0.9375rem] text-ink-2">
         <span className="text-ink">Your box is {fullWords(shares.full)}.</span>{" "}
-        {more > 0 ? `Room for about ${words(more)} more ${more === 1 ? "app" : "apps"}.` : "It’s getting full: limit a project, or move to a bigger machine."}{" "}
+        {shares.full < 0.85 ? `${memWords(shares.freeMB)} free.` : "It’s getting full: limit a project, or move to a bigger machine."}{" "}
         <Link to="/settings/box" className="text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink">
           Details
         </Link>

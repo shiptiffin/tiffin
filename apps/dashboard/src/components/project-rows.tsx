@@ -126,12 +126,13 @@ export function AppRow({
   fault?: string;
 }) {
   const applied = spec.instances ?? 1;
-  const mem = spec.memoryMB ?? 512;
+  // No per-copy cap by default: copies share the project's memory, so only a capped app has a "won't fit".
+  const mem = spec.memoryMB;
   const n = instances?.kind === "instances" ? instances.to : applied;
   const live = useAppStatus(project, app, spec.role, spec.framework);
   const isStatic = spec.framework === "static";
-  const maxInst = free === undefined ? undefined : applied + Math.max(0, Math.floor(free / mem));
-  const sub = isStatic ? "Static site, served by the edge" : `${frameworkName(spec.framework)}${spec.role === "worker" ? " worker" : ""} · up to ${mbWords(mem)} each`;
+  const maxInst = free === undefined || !mem ? undefined : applied + Math.max(0, Math.floor(free / mem));
+  const sub = isStatic ? "Static site, served by the edge" : `${frameworkName(spec.framework)}${spec.role === "worker" ? " worker" : ""}${mem ? ` · up to ${mbWords(mem)} each` : ""}`;
   return (
     <Row
       lever={

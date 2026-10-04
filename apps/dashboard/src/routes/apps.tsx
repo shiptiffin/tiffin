@@ -544,15 +544,11 @@ function Scale({
   writer: boolean;
 }) {
   const applied = spec.instances ?? 1;
-  const appliedMem = spec.memoryMB ?? 512;
+  // No cap (0) is the default: an app's copies share the project's memory.
+  const appliedMem = spec.memoryMB ?? 0;
   const nInst = instances?.kind === "instances" ? instances.to : applied;
-  const nMem = memory?.kind === "set" ? Number(memory.to) : appliedMem;
-  const [pi, setPi] = useState<number | null>(null);
-  const [pm, setPm] = useState<number | null>(null);
-  const i = pi ?? nInst;
-  const mm = pm ?? nMem;
-  const delta = i * mm - applied * appliedMem;
-  const after = free === undefined ? undefined : free + RESERVE_MB - delta;
+  const nMem = memory?.kind === "set" ? Number(memory.to ?? 0) : appliedMem;
+  const capWords = (n: number) => (n ? mbWords(n) : "No cap");
   return (
     <section aria-label="Scale">
       <div className="flex items-baseline justify-between">
@@ -566,53 +562,44 @@ function Scale({
           stops={INSTANCE_STOPS}
           value={nInst}
           applied={applied}
-          maxFit={free === undefined ? undefined : applied + Math.max(0, Math.floor(free / appliedMem))}
-          onChange={setPi}
-          onCommit={(to) => {
-            setPi(null);
-            change(project, { kind: "instances", app, from: applied, to });
-          }}
+          maxFit={free === undefined || !appliedMem ? undefined : applied + Math.max(0, Math.floor(free / appliedMem))}
+          onCommit={(to) => change(project, { kind: "instances", app, from: applied, to })}
         />
-        <p className="mt-4 mb-1.5 text-xs text-ink-3">Memory for each copy</p>
+        <p className="mt-4 mb-1.5 text-xs text-ink-3">Memory cap for each copy</p>
         <Throttle
           label={`${app} memory per copy`}
-          format={(n) => mbWords(n)}
-          unit="MB"
-          stops={MEMORY_STOPS}
+          format={capWords}
+          unit=""
+          stops={[0, ...MEMORY_STOPS]}
           value={nMem}
           applied={appliedMem}
-          maxFit={free === undefined ? undefined : appliedMem + Math.max(0, Math.floor(free / Math.max(1, nInst)))}
-          onChange={setPm}
-          onCommit={(to) => {
-            setPm(null);
+          onCommit={(to) =>
             change(project, {
               kind: "set",
               path: ["apps", app, "memoryMB"],
-              from: appliedMem,
-              to,
-              what: `Give ${app} ${mbWords(to)} for each copy (was ${mbWords(appliedMem)})`,
-              undo: `${app} goes back to ${mbWords(appliedMem)} for each copy`,
-            });
-          }}
+              from: spec.memoryMB,
+              to: to || undefined,
+              what: to ? `Cap each copy of ${app} at ${mbWords(to)}` : `Let ${app}’s copies share ${project}’s memory with no cap`,
+              undo: appliedMem ? `${app} goes back to ${mbWords(appliedMem)} for each copy` : `${app}’s copies share ${project}’s memory again`,
+            })
+          }
         />
       </div>
-      <dl className="mt-3 grid grid-cols-3 gap-3 border-t border-rule pt-3 text-xs text-ink-3">
-        <div>
-          <dt>Runs</dt>
-          <dd className="mt-0.5 text-[1.0625rem] text-ink tnum">
-            {int(i)} <span className="text-xs text-ink-3">×</span> {mbWords(mm)}
-          </dd>
-        </div>
-        <div>
-          <dt>Change</dt>
-          <dd className={cn("mt-0.5 text-[1.0625rem] tnum", delta === 0 ? "text-ink-3" : "text-brass-ink")}>{delta === 0 ? "none" : `${delta > 0 ? "+" : "−"}${mbWords(Math.abs(delta))}`}</dd>
-        </div>
-        <div>
-          <dt>Room left</dt>
-          <dd className="mt-0.5 text-[1.0625rem] text-ink tnum">{after === undefined ? "–" : mbWords(Math.max(0, after))}</dd>
-        </div>
-      </dl>
-      <p className="mt-2 text-xs text-ink-3">At most: apps use what they need under it. Changes apply as you click, and History can undo them.</p>
+      <p className="mt-3 border-t border-rule pt-3 text-sm text-ink-2">
+        {nMem ? (
+          <>
+            {count(nInst, "copy", "copies")} of up to {mbWords(nMem)} each: at most {mbWords(nInst * nMem)}.
+          </>
+        ) : (
+          <>
+            {count(nInst, "copy", "copies")}, sharing what {project} may use.{" "}
+            <Link to="/projects/$project/usage" params={{ project }} className="text-ink underline decoration-rule-3 underline-offset-4">
+              Usage
+            </Link>
+          </>
+        )}
+      </p>
+      <p className="mt-1 text-xs text-ink-3">Changes apply as you click, and History can undo them.</p>
     </section>
   );
 }

@@ -18,9 +18,7 @@ import { memoryModel, type MemoryModel } from "@/lib/memory";
 import { bytesParts, countWords, dec, duration, int, words } from "@/lib/format";
 
 const MB = 1048576;
-const RESERVE_MB = 512; // kept free for spikes
 
-type AppSpec = { framework?: string; role?: string; instances?: number; memoryMB?: number; path?: string };
 
 /**
  * Settings › Machine: the box itself, for when you want to look inside. The
@@ -286,13 +284,8 @@ function RoomLeft({ res, mem, states, empty }: { res?: BoxResources; mem?: Memor
   if (!res || !mem) return <div className="m-3 h-16" />;
   const free = mem.freeMB;
   // "The size of web": web's memory cap, or the first app's, or 512 MB.
-  const caps = states.flatMap((s) => (s?.resources ?? []).filter((r) => r.address.startsWith("app/")).map((r) => ({ app: r.address.slice(4), mb: ((r.spec ?? {}) as AppSpec).memoryMB ?? 512 })));
-  const like = caps.find((c) => c.app === "web") ?? caps[0];
-  const per = like?.mb ?? 512;
-  const fits = Math.max(0, Math.floor((free - RESERVE_MB) / per));
-  const say = empty
-    ? `Room for about ${words(fits)} apps of ${int(per)}\u202FMB each, keeping ${int(RESERVE_MB)}\u202FMB spare.`
-    : `Enough for about ${words(fits)} more ${fits === 1 ? "app" : "apps"} the size of ${like?.app ?? "an app"} (up to ${int(per)}\u202FMB each), keeping ${int(RESERVE_MB)}\u202FMB spare.`;
+  void states;
+  const say = empty ? "Every project you start grows into this as it needs." : "Projects grow into this as they need, unless they set a limit.";
   const disk = bytesParts(res.disks.data.freeBytes, 0);
   return (
     <>
