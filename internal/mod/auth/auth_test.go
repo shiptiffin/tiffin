@@ -31,7 +31,9 @@ var fakeDB = map[string]string{} // project → DATABASE_URL
 
 var fakeRelay bool // whether the fake email module's mail leaves the box
 
-func (f *fakeModule) WillSend(context.Context, *platform.Platform, string) (bool, error) { return fakeRelay, nil }
+func (f *fakeModule) WillSend(context.Context, *platform.Platform, string) (bool, error) {
+	return fakeRelay, nil
+}
 
 func init() {
 	platform.Register(&fakeModule{name: "postgres", env: func(project string) map[string]string {

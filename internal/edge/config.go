@@ -16,20 +16,20 @@ import (
 // Config describes the platform edge: one domain, one upstream and any extra
 // host routes.
 type Config struct {
-	Domain    string  // e.g. "tiffin.localhost"; dashboard lives at Dashboard+"."+Domain
-	Dashboard string  // the dashboard's first-level name; default "dashboard"
+	Domain    string // e.g. "tiffin.localhost"; dashboard lives at Dashboard+"."+Domain
+	Dashboard string // the dashboard's first-level name; default "dashboard"
 	// DashboardURL is the dashboard as people reach it (the box's public
 	// URL, e.g. https://dashboard.tiffin.localhost:8475 on a VM whose 8443
 	// is forwarded to 8475), linked from the "Nothing here" page. Default:
 	// https://<dashboard host>[:HTTPSPort].
 	DashboardURL string
-	Upstream  string  // tiffin API/dashboard http address, e.g. "127.0.0.1:7070"
-	DataDir   string  // Caddy storage (certs, CA), e.g. /var/lib/tiffin/platform/caddy
-	HTTPPort  int     // default 80
-	HTTPSPort int     // default 443
-	Internal  bool    // true: Caddy internal CA (local/dev); false: public ACME (see ACME)
-	Routes    []Route // extra host -> upstream routes
-	AccessLog string  // file for JSON access logs (rolled); empty disables them
+	Upstream     string  // tiffin API/dashboard http address, e.g. "127.0.0.1:7070"
+	DataDir      string  // Caddy storage (certs, CA), e.g. /var/lib/tiffin/platform/caddy
+	HTTPPort     int     // default 80
+	HTTPSPort    int     // default 443
+	Internal     bool    // true: Caddy internal CA (local/dev); false: public ACME (see ACME)
+	Routes       []Route // extra host -> upstream routes
+	AccessLog    string  // file for JSON access logs (rolled); empty disables them
 	// ACME configures public certificates; required when Internal is false.
 	ACME *ACME
 	// Aliases are earlier box domains still served while a domain switch
