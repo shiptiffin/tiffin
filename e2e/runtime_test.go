@@ -18,7 +18,8 @@ import (
 //
 //	deploy hello-hono → HTTPS 200 → redeploy a change and roll back while
 //	hey (keep-alive) and a curl loop (a new HTTP/1.1 or HTTP/2 connection per request) hammer the app (zero failed requests) → logs show
-//	the requests → a secret restarts the app with the new env → a preview
+//	the requests → a deploy that crashes on boot fails while the live version
+//	serves, and the next deploy works → a secret restarts the app with the new env → a preview
 //	sleeps and wakes → git push deploys → deleting the app stops it.
 func TestRuntime(t *testing.T) {
 	start := time.Now()
@@ -124,6 +125,31 @@ echo started`)
 		t.Fatalf("logs do not show the request (%d lines)", len(lines))
 	}
 	phase("logs", p)
+
+	// ---- a crash on boot fails its deploy, the live version keeps serving, the next deploy works ----
+	p = time.Now()
+	good, _ := os.ReadFile(idx)
+	if err := os.WriteFile(idx, append([]byte("throw new Error(\"e2e: crash on boot\");\n"), good...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := b.run("deploy", app); code == 0 || !strings.Contains(out, "e2e: crash on boot") {
+		t.Fatalf("a deploy that crashes on boot: exit %d\n%s", code, out)
+	}
+	if _, _, body := b.get(c, "GET", b.url("api")+"/", nil); !strings.Contains(body, `"hello":"world"`) {
+		t.Fatalf("after a crashed deploy the live version must serve: %s", body)
+	}
+	if err := os.WriteFile(idx, good, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deploy(t, b, app)
+	st := b.ok("status")
+	checks, _ := st["checks"].([]any)
+	for _, ch := range checks {
+		if m, _ := ch.(map[string]any); (m["name"] == "containers" || m["name"] == "resources") && m["ok"] != true {
+			t.Fatalf("status after a crashed deploy: %v", m)
+		}
+	}
+	phase("crash on boot", p)
 
 	// ---- a secret restarts the app with the new env ----
 	p = time.Now()
