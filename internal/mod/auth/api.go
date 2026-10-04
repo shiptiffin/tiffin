@@ -231,7 +231,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	ul := api.Op("auth-users-list", http.MethodGet, "/v1/projects/{project}/auth/users", "auth users list", api.RiskRead,
 		"List a project's users", "Newest first. Search matches email or name (case-insensitive) or an exact user ID.", tag)
 	ul.Errors = append(ul.Errors, 404, 503)
-	huma.Register(a, ul, api.Wrap(func(ctx context.Context, in *pageIn) (*struct{ Body *UserList }, error) {
+	huma.Register(a, api.Untrusted(ul), api.Wrap(func(ctx context.Context, in *pageIn) (*struct{ Body *UserList }, error) {
 		if _, err := authProject(ctx, p, in.Project, tokens.ScopeRead); err != nil {
 			return nil, err
 		}
@@ -242,7 +242,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	ug := api.Op("auth-user-get", http.MethodGet, "/v1/projects/{project}/auth/users/{id}", "auth users get", api.RiskRead,
 		"Show one user", "A user with how they sign in, their signed-in sessions, organizations, passkey count and API keys (never secrets).", tag)
 	ug.Errors = append(ug.Errors, 404, 503)
-	huma.Register(a, ug, api.Wrap(func(ctx context.Context, in *userIn) (*struct{ Body *UserDetail }, error) {
+	huma.Register(a, api.Untrusted(ug), api.Wrap(func(ctx context.Context, in *userIn) (*struct{ Body *UserDetail }, error) {
 		if _, err := authProject(ctx, p, in.Project, tokens.ScopeRead); err != nil {
 			return nil, err
 		}
@@ -305,7 +305,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	ol := api.Op("auth-orgs-list", http.MethodGet, "/v1/projects/{project}/auth/orgs", "auth orgs list", api.RiskRead,
 		"List a project's organizations", "Newest first, with member and pending-invitation counts. Each person's own org has metadata {\"personal\":true}.", tag)
 	ol.Errors = append(ol.Errors, 404, 503)
-	huma.Register(a, ol, api.Wrap(func(ctx context.Context, in *pageIn) (*struct{ Body *OrgList }, error) {
+	huma.Register(a, api.Untrusted(ol), api.Wrap(func(ctx context.Context, in *pageIn) (*struct{ Body *OrgList }, error) {
 		if _, err := authProject(ctx, p, in.Project, tokens.ScopeRead); err != nil {
 			return nil, err
 		}
@@ -316,7 +316,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	og := api.Op("auth-org-get", http.MethodGet, "/v1/projects/{project}/auth/orgs/{id}", "auth orgs get", api.RiskRead,
 		"Show one organization", "Members with roles, email invitations and invite links (tokens are never shown).", tag)
 	og.Errors = append(og.Errors, 404, 503)
-	huma.Register(a, og, api.Wrap(func(ctx context.Context, in *struct {
+	huma.Register(a, api.Untrusted(og), api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		ID      string `path:"id" pattern:"^[A-Za-z0-9_-]{1,64}$" doc:"Organization ID"`
 	}) (*struct{ Body *OrgDetail }, error) {

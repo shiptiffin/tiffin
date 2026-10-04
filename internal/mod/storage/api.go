@@ -140,8 +140,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			return &struct{ Body Info }{*info}, nil
 		}))
 
-	huma.Register(a, api.Op("storage-objects-list", http.MethodGet, "/v1/projects/{project}/storage/buckets/{bucket}/objects", "storage objects list", api.RiskRead,
-		"List objects in a bucket", "One page of objects, optionally under a prefix. With delimiter \"/\" you get one folder level and the sub-folders in prefixes.", tag),
+	huma.Register(a, api.Untrusted(api.Op("storage-objects-list", http.MethodGet, "/v1/projects/{project}/storage/buckets/{bucket}/objects", "storage objects list", api.RiskRead,
+		"List objects in a bucket", "One page of objects, optionally under a prefix. With delimiter \"/\" you get one folder level and the sub-folders in prefixes.", tag)),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project   string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 			Bucket    string `path:"bucket" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Bucket name"`
@@ -241,8 +241,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		return &struct{ Body Uploaded }{*out}, nil
 	}))
 
-	huma.Register(a, api.Op("storage-object-get", http.MethodGet, "/v1/projects/{project}/storage/buckets/{bucket}/object", "storage objects get", api.RiskRead,
-		"Read a small object", "Returns an object's content (up to 1 MiB) as text, or base64 when it is binary. For anything bigger use a presigned GET URL.", tag),
+	huma.Register(a, api.Untrusted(api.Op("storage-object-get", http.MethodGet, "/v1/projects/{project}/storage/buckets/{bucket}/object", "storage objects get", api.RiskRead,
+		"Read a small object", "Returns an object's content (up to 1 MiB) as text, or base64 when it is binary. For anything bigger use a presigned GET URL.", tag)),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 			Bucket  string `path:"bucket" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Bucket name"`
@@ -439,9 +439,9 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			return out, nil
 		}))
 
-	huma.Register(a, api.Op("storage-audit", http.MethodPost, "/v1/projects/{project}/storage/audit", "storage audit", api.RiskRead,
+	huma.Register(a, api.Untrusted(api.Op("storage-audit", http.MethodPost, "/v1/projects/{project}/storage/audit", "storage audit", api.RiskRead,
 		"Audit a project's stored bytes", "Reads every object and checks it against its recorded checksum (MD5 ETag), "+
-			"then writes a SHA-256 manifest a backup mirror can be verified against. Takes as long as reading the data.", tag),
+			"then writes a SHA-256 manifest a backup mirror can be verified against. Takes as long as reading the data.", tag)),
 		api.Wrap(func(ctx context.Context, in *projectIn) (*struct{ Body AuditReport }, error) {
 			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
 				return nil, err

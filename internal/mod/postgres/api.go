@@ -95,7 +95,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	tables := api.Op("db-tables", http.MethodGet, "/v1/projects/{project}/tables", "db tables", api.RiskRead,
 		"List a project's tables", "Tables, views and materialized views with their columns, primary keys, row estimates and sizes. For the data browser and for agents writing queries.", tag)
 	tables.Errors = append(tables.Errors, 404, 409)
-	huma.Register(a, tables, api.Wrap(func(ctx context.Context, in *struct {
+	huma.Register(a, api.Untrusted(tables), api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Branch  string `query:"branch" doc:"A preview branch instead of the main database"`
 	}) (*struct{ Body []PGTable }, error) {

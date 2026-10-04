@@ -757,8 +757,8 @@ func (a *API) register() {
 			return &struct{}{}, a.deps.Tokens.Revoke(ctx, p, in.ID)
 		}))
 
-	huma.Register(api, op("audit-list", http.MethodGet, "/v1/audit", "audit list", RiskRead, "List audit events",
-		"Security events that are not changes: keys created and revoked, sign-ins, people invited. Box admins only (a key with full access to all projects, or an owner or admin person).", "system"),
+	huma.Register(api, Untrusted(op("audit-list", http.MethodGet, "/v1/audit", "audit list", RiskRead, "List audit events",
+		"Security events that are not changes: keys created and revoked, sign-ins, people invited. Box admins only (a key with full access to all projects, or an owner or admin person).", "system")),
 		wrap(func(ctx context.Context, in *struct {
 			Limit int `query:"limit" minimum:"1" maximum:"500" default:"50"`
 		}) (*struct{ Body []state.AuditEvent }, error) {

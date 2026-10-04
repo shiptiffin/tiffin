@@ -140,10 +140,10 @@ func (m *Module) registerQueueAPI(a huma.API, plat *platform.Platform) {
 			return ok(res), nil
 		}))
 
-	huma.Register(a, op("queue-jobs-list", http.MethodGet, "/v1/projects/{project}/queue/jobs", "queue jobs list", api.RiskRead,
+	huma.Register(a, api.Untrusted(op("queue-jobs-list", http.MethodGet, "/v1/projects/{project}/queue/jobs", "queue jobs list", api.RiskRead,
 		"List jobs",
 		"Jobs of a project, newest first, without payloads. Filter by queue and state; state=dead is the dead-letter queue. "+
-			"Page with before=<last id>. Queued jobs say what they are waitingFor (a limit, a FIFO group, a paused queue)."),
+			"Page with before=<last id>. Queued jobs say what they are waitingFor (a limit, a FIFO group, a paused queue).")),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 			Queue   string `query:"queue" doc:"Only this queue or topic"`
@@ -184,9 +184,9 @@ func (m *Module) registerQueueAPI(a huma.API, plat *platform.Platform) {
 		return e, id, toProblem(err)
 	}
 
-	huma.Register(a, op("queue-job-get", http.MethodGet, "/v1/projects/{project}/queue/jobs/{id}", "queue jobs get", api.RiskRead,
+	huma.Register(a, api.Untrusted(op("queue-job-get", http.MethodGet, "/v1/projects/{project}/queue/jobs/{id}", "queue jobs get", api.RiskRead,
 		"Get a job",
-		"One job with its payload, the app's response (output) and every attempt: when it ran, how long, the HTTP status and error.", 404),
+		"One job with its payload, the app's response (output) and every attempt: when it ran, how long, the HTTP status and error.", 404)),
 		api.Wrap(func(ctx context.Context, in *jobPath) (*out[*Job], error) {
 			e, id, err := withJob(ctx, in, tokens.ScopeRead)
 			if err != nil {
@@ -509,9 +509,9 @@ func (m *Module) registerWorkflowAPI(a huma.API, plat *platform.Platform) {
 			return ok(run), toProblem(err)
 		}))
 
-	huma.Register(a, op("workflow-runs-list", http.MethodGet, "/v1/projects/{project}/workflows/runs", "workflows runs list", api.RiskRead,
+	huma.Register(a, api.Untrusted(op("workflow-runs-list", http.MethodGet, "/v1/projects/{project}/workflows/runs", "workflows runs list", api.RiskRead,
 		"List workflow runs",
-		"Runs newest first, with state (running, waiting, completed, failed, cancelled) and, for waiting runs, what they wait for."),
+		"Runs newest first, with state (running, waiting, completed, failed, cancelled) and, for waiting runs, what they wait for.")),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project  string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 			Workflow string `query:"workflow" doc:"Only this workflow"`
@@ -529,10 +529,10 @@ func (m *Module) registerWorkflowAPI(a huma.API, plat *platform.Platform) {
 			return ok(rs), toProblem(err)
 		}))
 
-	huma.Register(a, op("workflow-run-get", http.MethodGet, "/v1/projects/{project}/workflows/runs/{id}", "workflows runs get", api.RiskRead,
+	huma.Register(a, api.Untrusted(op("workflow-run-get", http.MethodGet, "/v1/projects/{project}/workflows/runs/{id}", "workflows runs get", api.RiskRead,
 		"Get a workflow run and its timeline",
 		"A run with its input, output or error, every step in call order (state, timing, output, attempts), the timeline of turns, waits, "+
-			"events, approvals and operator actions, and the queue job behind each turn.", 404),
+			"events, approvals and operator actions, and the queue job behind each turn.", 404)),
 		api.Wrap(func(ctx context.Context, in *runPath) (*out[*Run], error) {
 			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
 				return nil, err
@@ -609,9 +609,9 @@ func (m *Module) registerWorkflowAPI(a huma.API, plat *platform.Platform) {
 			return ok(res), toProblem(err)
 		}))
 
-	huma.Register(a, op("workflow-approvals-list", http.MethodGet, "/v1/projects/{project}/workflows/approvals", "workflows approvals list", api.RiskRead,
+	huma.Register(a, api.Untrusted(op("workflow-approvals-list", http.MethodGet, "/v1/projects/{project}/workflows/approvals", "workflows approvals list", api.RiskRead,
 		"List workflow approvals",
-		"Approval steps (ctx.approval) waiting for a decision, or all with state=all. humanOnly approvals can only be decided by a person."),
+		"Approval steps (ctx.approval) waiting for a decision, or all with state=all. humanOnly approvals can only be decided by a person.")),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 			State   string `query:"state" enum:"waiting,completed,timed_out,cancelled,all" default:"waiting"`

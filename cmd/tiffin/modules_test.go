@@ -48,6 +48,23 @@ func TestAllModulesRegister(t *testing.T) {
 	}
 }
 
+// Operations whose output carries what apps, their users or the internet
+// wrote are untrusted: MCP wraps their results in <untrusted-data>.
+func TestUntrustedOutputs(t *testing.T) {
+	byID := map[string]bool{}
+	for _, o := range api.New(api.Deps{}).Operations() {
+		byID[o.OperationID] = api.IsUntrusted(o)
+	}
+	for _, id := range []string{"sql", "sql-write", "app-logs", "logs-query", "email-messages-list", "email-message-get", "email-suppressions-list",
+		"auth-users-list", "auth-user-get", "auth-orgs-list", "auth-org-get", "storage-objects-list", "storage-object-get", "storage-audit",
+		"kv-get", "kv-keys", "db-tables", "queue-jobs-list", "queue-job-get", "workflow-runs-list", "workflow-run-get", "workflow-approvals-list",
+		"analytics-overview", "analytics-events", "issues-list", "issue-get", "deploy-build-log", "changes-list", "audit-list"} {
+		if !byID[id] {
+			t.Errorf("%s: output is not marked untrusted", id)
+		}
+	}
+}
+
 // The default MCP tool group names real tools, stays short, and splits SQL
 // by risk: reading is read-only (no confirmation), writing is destructive.
 func TestCoreToolsAndSQLRisk(t *testing.T) {

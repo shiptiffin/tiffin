@@ -105,7 +105,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	ks := api.Op("kv-keys", http.MethodGet, "/v1/projects/{project}/kv/keys", "kv keys", api.RiskRead,
 		"Browse a project's keys", "Scans keys under the project's prefix, a page at a time, with type and TTL.", tag)
 	ks.Errors = append(ks.Errors, 409)
-	huma.Register(a, ks, api.Wrap(func(ctx context.Context, in *struct {
+	huma.Register(a, api.Untrusted(ks), api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Match   string `query:"match" maxLength:"256" doc:"Glob after the prefix, e.g. user:* (default *)"`
 		Cursor  string `query:"cursor" pattern:"^[0-9]*$" doc:"From the previous page (default 0)"`
@@ -124,7 +124,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	kg := api.Op("kv-get", http.MethodGet, "/v1/projects/{project}/kv/key", "kv get", api.RiskRead,
 		"Show a key's value", "A key's type, TTL, size and a preview of its value. The key may be given with or without the project prefix.", tag)
 	kg.Errors = append(kg.Errors, 404, 409)
-	huma.Register(a, kg, api.Wrap(func(ctx context.Context, in *struct {
+	huma.Register(a, api.Untrusted(kg), api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Key     string `query:"key" required:"true" minLength:"1" maxLength:"1024" doc:"The key"`
 	}) (*struct{ Body *KVKeyValue }, error) {
