@@ -12,7 +12,8 @@ Each project gets its own Postgres 18 database and role. Apps get `DATABASE_URL`
   no confirmation). `tiffin sql write <project> "..."` (or `--write`; MCP `sql_write`)
   changes data and schema: it needs full access and takes a snapshot first.
 - **Branches:** `tiffin branches create <project> --name pr-12` clones the database with
-  copy-on-write in milliseconds, whatever its size. Previews can use their own branch.
+  copy-on-write in milliseconds, whatever its size. Previews don't use one: they share
+  the production database.
 - **Snapshots:** deleting the database (or writing through the console) keeps a
   snapshot for 7 days; `tiffin snapshots restore` brings it back.
 - **Org isolation:** `auth.enable_org_rls('table')` adds row-level security keyed on the

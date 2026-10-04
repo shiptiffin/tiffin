@@ -20,6 +20,8 @@ export function Checkbox({ className, ...props }: ComponentProps<typeof C.Root>)
 }
 
 export const RadioGroup = R.Root;
+/** A bare radio item to style as a tile or row (arrow keys move through its group). */
+export const RadioItem = R.Item;
 
 export function Radio({ className, ...props }: ComponentProps<typeof R.Item>) {
   return (

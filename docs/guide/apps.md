@@ -29,8 +29,9 @@ failed build or health check leaves the old version serving.
 
 - **Rollback:** `tiffin rollback <app> [deploy]`, to any earlier successful deploy.
 - **Logs:** `tiffin logs <app> -f`.
-- **Previews** sleep when idle and wake on the first request. Their email always goes
-  to the dev inbox.
+- **Previews** sleep when idle and wake on the first request. Previews use this
+  project's live data: the same database, cache, files and secrets. Email goes to the
+  dev inbox.
 - **Prebuilt images:** `tiffin deploy --prebuilt image.tar`.
 
 ## Without a checkout: templates and git URLs
@@ -48,6 +49,10 @@ creates its table on boot), `guestbook` (page + API + Postgres + Valkey + analyt
 one Hono app) and `next-postgres` (App Router, reads and writes Postgres). Each lists
 the manifest fragment it needs: add that to the project (see
 [Concepts](concepts.md#changes)), apply, then deploy the template.
+
+To change a starter app, `tiffin pull <dir> --project <project>` writes the config and
+the starter's source into `<dir>` (it never overwrites a file that is there); edit it,
+then `tiffin deploy` from that folder ships it to the same address.
 
 A git URL deploy shallow-clones one commit of a **public https** repository on the box
 (no credentials, public hosts only, no submodules, 512 MB and 3 minutes at most) and
