@@ -42,11 +42,15 @@ It refuses if something the change touched was modified since, so it never silen
 overwrites newer work. Deleting a database or bucket keeps a snapshot or trash copy
 for seven days.
 
-## Tokens, people and approvals
-- **People** use the dashboard with a role: owner, admin, member or viewer.
-- **Agents** use tokens. A token has scopes (read, plan, apply:reversible,
-  apply:outbound, apply:irreversible, tokens) and projects. It can never hand out more
-  than it has, and agent tokens always expire.
-- When an agent's plan goes beyond its token, it gets an **approval request**. A human
-  approves it in the dashboard with their **passkey**. The approval is for that exact
-  plan, that agent, once.
+## People and API keys
+- **People** use the dashboard with a role: owner, admin, member or viewer. They sign
+  in with a one-time link or a passkey.
+- **Agents, scripts and CI** use **API keys**. A key reaches some projects (`all`,
+  which includes projects created later, or a list) with **full** access (read, plan
+  and apply any change, deleting data included) or **read** access (read and plan
+  only). It can expire after 30 or 90 days, or never.
+- A key with full access to all projects is the box admin: it also manages keys,
+  people and exports. No other key can manage keys.
+- Outside its reach a key gets `403 forbidden` with a plain reason ("this key is read
+  only", "this key can only change shop"). There is no approval step: the agent's own
+  client asks you before destructive tools, and History records everything.

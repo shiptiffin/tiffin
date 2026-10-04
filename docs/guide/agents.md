@@ -5,13 +5,65 @@ Tiffin is built to be operated by AI agents, safely.
 ## Connect
 
 ```bash
-claude mcp add tiffin -- tiffin mcp            # stdio, uses the box's agent token
+claude mcp add tiffin -- tiffin mcp            # stdio, uses the box's agent key
 ```
 
 Every API operation is an MCP tool and a CLI command, generated from one OpenAPI
 description, so they always agree. Tools are annotated: read-only tools say so;
-destructive ones say so and explain that calling without a confirm hash only returns
-the plan.
+destructive ones (`apply`, `change_undo`, `project_destroy`...) carry
+`destructiveHint`, so your client asks you before they run, and their descriptions
+explain that calling without a confirm hash only returns the plan.
+
+## How it stays safe
+
+By default, your agent can do what you can. Claude Code asks you before anything
+destructive runs; Tiffin records every change in History (who, which session, why)
+and can undo it. There is no second approval step on top.
+
+- Every change is plan, then apply with the plan's hash, so nothing is applied blind.
+- Irreversible steps (dropping a database or bucket) are marked as such in the plan,
+  with what they would destroy ("18,204 rows in 12 tables"). Databases keep a 7-day
+  snapshot and buckets a 7-day trash.
+- `tiffin undo <change>` reverts a change, after showing you the plan.
+
+## API keys
+
+Each agent, script or CI job gets its own **API key**, so History shows who did what.
+A key has:
+
+- **projects**: `all` (every project, including ones created later) or a list, e.g.
+  `shop, blog`;
+- **access**: `full` (read, plan and apply any change, deleting data included) or
+  `read` (read and plan only);
+- an expiry: 30 or 90 days, or never.
+
+```bash
+tiffin tokens create --name ci --projects shop --access full --expires-in-days 90
+tiffin tokens create --name dashboards --projects all --access read
+tiffin tokens list
+tiffin tokens revoke <id>
+```
+
+The key `tiffin up` makes for `tiffin mcp` has full access to all projects: it is your
+own agent. Give anything that should only touch one project (an unattended cloud agent,
+a teammate's agent, CI) a narrower key. A key with full access to all projects is the
+box admin: it also manages keys, people and exports. No other key can manage keys.
+
+Outside its reach, a call fails with `403 forbidden`, a plain reason ("this key is read
+only", "this key can only change shop") and a hint. `tiffin whoami` shows the key's
+projects and access.
+
+Over HTTP the shapes are:
+
+```text
+POST /v1/tokens  {"name": "ci", "projects": "all" | ["shop"], "access": "full" | "read", "expiresInDays": 30 | 90 | null}
+  → {"secret": "tfn_...", "key": {id, name, projects, access, admin, expiresAt, lastUsedAt, createdAt}}
+GET  /v1/tokens  → [key...]          DELETE /v1/tokens/{id}
+```
+
+Tokens made before API keys keep working with exactly the permissions they had; the
+list shows them as the nearest key, with a `note` when they can do less (for example
+"applies reversible changes only").
 
 ## CLI conventions
 - JSON on stdout whenever stdout is not a terminal (`--json` forces it).
@@ -19,13 +71,6 @@ the plan.
 - Never prompts. Auth from `TIFFIN_TOKEN`; agent session label from `TIFFIN_SESSION`; the model it runs (optional, shown beside its name in the Ledger) from `TIFFIN_MODEL`, e.g. `claude mcp add tiffin -e TIFFIN_MODEL=claude-opus-5-5 -- tiffin mcp`.
 - Errors are RFC 9457 problems with a stable `code`, field `errors`, and a `hint` that
   says what to do next.
-
-## The approval loop
-1. Agent plans and applies with the plan hash.
-2. If the plan is beyond its token, the answer is `approval_required` with an
-   `approvalUrl`. The agent shares the link with its human.
-3. The human reviews the plan in the dashboard and approves with a passkey.
-4. The agent applies again with the same hash and `approval=<id>`.
 
 ## Untrusted data
 Logs, database rows, emails and files were written by others. MCP wraps them in

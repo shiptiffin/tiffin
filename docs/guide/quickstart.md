@@ -69,6 +69,8 @@ tiffin login --open
 claude mcp add tiffin -- tiffin mcp
 ```
 
-Agents get their own token: they can plan anything and apply reversible changes. For
-anything that deletes data or makes it public, they send you an approval link and
-wait for your passkey.
+Your agent gets its own API key with full access to all projects, so it can do what you
+can. Claude Code asks you before it runs anything destructive (deleting a database, say),
+and every change lands in History under the agent's name, ready to undo. For an agent
+that should only touch one project, or only read, create a narrower key:
+`tiffin tokens create --name ci --projects shop --access read`.

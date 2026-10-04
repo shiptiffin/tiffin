@@ -104,106 +104,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/approvals": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List approval requests
-         * @description Plans agents asked a human to approve (irreversible or outbound changes beyond their token). Box admins see all.
-         */
-        get: operations["approvals-list"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/approvals/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get an approval request
-         * @description One approval request with its full plan. Agents poll this to learn when a human decided.
-         */
-        get: operations["approval-get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/approvals/{id}/approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Approve with a passkey
-         * @description Verifies the passkey assertion and approves the plan. Humans only.
-         */
-        post: operations["approval-approve"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/approvals/{id}/begin": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Start approving with a passkey
-         * @description Returns WebAuthn assertion options bound to this approval. Humans only (the dashboard calls this).
-         */
-        post: operations["approval-begin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/approvals/{id}/reject": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Reject an approval request
-         * @description Declines the plan; the agent sees the reason. Humans only.
-         */
-        post: operations["approval-reject"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/audit": {
         parameters: {
             query?: never;
@@ -213,7 +113,7 @@ export interface paths {
         };
         /**
          * List audit events
-         * @description Security events that are not changes: tokens minted and revoked. Box admins only.
+         * @description Security events that are not changes: keys created and revoked, sign-ins, people invited. Box admins only (a key with full access to all projects, or an owner or admin person).
          */
         get: operations["audit-list"];
         put?: never;
@@ -1005,13 +905,13 @@ export interface paths {
         };
         /**
          * List passkeys
-         * @description Your passkeys. They sign you in to the dashboard; owners and admins also approve plans with them.
+         * @description Your passkeys: they sign you in to the dashboard. People only (dashboard sessions, or the owner's own token); never API keys.
          */
         get: operations["passkeys-list"];
         put?: never;
         /**
          * Finish adding a passkey
-         * @description Stores the passkey from navigator.credentials.create(). It signs this person in from then on (and approves plans if they are an owner or admin).
+         * @description Stores the passkey from navigator.credentials.create(). It signs this person in to the dashboard from then on.
          */
         post: operations["passkey-register-finish"];
         delete?: never;
@@ -1031,7 +931,7 @@ export interface paths {
         put?: never;
         /**
          * Start adding a passkey
-         * @description Returns WebAuthn creation options for a discoverable passkey (resident key and user verification required), so it can sign you in without a username. Any person's dashboard session; never agents (the dashboard calls this).
+         * @description Returns WebAuthn creation options for a discoverable passkey (resident key and user verification required), so it can sign you in without a username. Any person's dashboard session; never API keys (the dashboard calls this).
          */
         post: operations["passkey-register-begin"];
         delete?: never;
@@ -1052,7 +952,7 @@ export interface paths {
         post?: never;
         /**
          * Remove a passkey
-         * @description Removes one of your passkeys immediately: it no longer signs you in or approves plans.
+         * @description Removes one of your passkeys immediately: it no longer signs you in.
          */
         delete: operations["passkey-delete"];
         options?: never;
@@ -3028,14 +2928,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List tokens
-         * @description Active tokens (secrets are never shown). Box admins see all; others see the tokens they minted.
+         * List API keys
+         * @description API keys on this box (secrets are never shown): what projects each reaches, full or read access, and when it expires. Dashboard sign-in sessions are not listed. Only a key with full access to all projects (or an owner or admin person) can list keys.
          */
         get: operations["tokens-list"];
         put?: never;
         /**
-         * Create a token
-         * @description Mints a scoped token, e.g. for an agent. You can only grant scopes and projects you hold. The secret is returned once.
+         * Create an API key
+         * @description Creates an API key for an agent, a script or CI. `projects` is "all" (every project, including ones created later) or a list; `access` is full (read, plan and apply any change there, deleting data included) or read (read and plan only). A key with full access to all projects is the box admin: it also manages keys, people, box settings and exports/imports. Changes made with a key are recorded in History under its name and can be undone. The secret is returned once. Only a key with full access to all projects (or an owner or admin person) can create keys.
          */
         post: operations["token-create"];
         delete?: never;
@@ -3055,8 +2955,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Revoke a token
-         * @description Revokes a token and every token it minted.
+         * Revoke an API key
+         * @description Revokes an API key at once (and any key it created). Only a key with full access to all projects (or an owner or admin person) can revoke keys.
          */
         delete: operations["token-revoke"];
         options?: never;
@@ -3273,8 +3173,6 @@ export interface components {
             enamel: "leaf" | "teal" | "indigo" | "kokum" | "chilli" | "turmeric";
         };
         ApplyBody: {
-            /** @description An approval ID a human granted for exactly this plan (see approval_required). Single use. */
-            approval?: string;
             /** @description The plan hash (or its first 8+ characters) you reviewed. Without it nothing is applied and the plan comes back with status 428. */
             confirm?: string;
             /** @description Why you are making this change, in one sentence. Shown in the activity timeline. */
@@ -3289,36 +3187,6 @@ export interface components {
             applied: boolean;
             change?: components["schemas"]["Change"];
             plan: components["schemas"]["Plan"];
-        };
-        Approval: {
-            /** Format: date-time */
-            createdAt: string;
-            /** Format: date-time */
-            decidedAt?: string;
-            decidedBy?: string;
-            /** Format: date-time */
-            expiresAt: string;
-            id: string;
-            intent: string;
-            plan: components["schemas"]["Plan"];
-            planHash: string;
-            project: string;
-            reason?: string;
-            /** @description token ID of the agent that asked */
-            requestedBy: string;
-            /** @description name of the agent (and session) */
-            requester: string;
-            /** @enum {string} */
-            status: "pending" | "approved" | "rejected" | "used" | "expired";
-            /** @description the change that spent it */
-            usedBy?: string;
-        };
-        "Approval-approveRequest": {
-            /** @description The PublicKeyCredential from navigator.credentials.get() */
-            credential: unknown;
-        };
-        "Approval-rejectRequest": {
-            reason?: string;
         };
         AuditEvent: {
             action: string;
@@ -3987,10 +3855,10 @@ export interface components {
             name: string;
             ok: boolean;
         };
-        CreatedToken: {
-            /** @description The token secret. Shown once; store it now. */
+        CreatedKey: {
+            key: components["schemas"]["Key"];
+            /** @description The key's secret (tfn_...). Shown once; store it now. */
             secret: string;
-            token: components["schemas"]["Token"];
         };
         DetailEnvelopeStruct: {
             from: string;
@@ -4307,6 +4175,48 @@ export interface components {
             /** Format: int64 */
             usedBytes: number;
             version: string;
+        };
+        Key: {
+            /**
+             * @description full: read, plan and apply any change, irreversible ones included. read: read and plan only.
+             * @enum {string}
+             */
+            access: "full" | "read";
+            /** @description Full access to all projects: this key also manages keys, people, box settings and exports/imports */
+            admin: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description When it stops working; null means never
+             */
+            expiresAt: string | null;
+            id: string;
+            /** Format: date-time */
+            lastUsedAt?: string;
+            name: string;
+            /** @description For keys made before API keys existed whose permissions are narrower than their access suggests */
+            note?: string;
+            /** @description "all" (every project, including ones created later) or a list of project names */
+            projects: "all" | string[];
+            /** Format: date-time */
+            revokedAt?: string;
+        };
+        KeyCreateBody: {
+            /**
+             * @description full: read, plan and apply any change in those projects, irreversible ones included (deleting data). read: read and plan only.
+             * @enum {string}
+             */
+            access: "full" | "read";
+            /**
+             * Format: int64
+             * @description 30 or 90. Leave it out (or null) for a key that never expires.
+             */
+            expiresInDays?: number | null;
+            /** @description A name you will recognise in History, e.g. claude-code or ci. */
+            name: string;
+            /** @description "all" (every project, including ones created later) or a list of project names */
+            projects: "all" | string[];
         };
         LoginLink: {
             code: string;
@@ -5180,6 +5090,11 @@ export interface components {
             type: string;
         };
         Principal: {
+            /**
+             * @description full: can apply changes in its projects. read: can only read and plan.
+             * @enum {string}
+             */
+            access?: "full" | "read" | "";
             /** Format: date-time */
             expiresAt?: string;
             kind: string;
@@ -5196,21 +5111,18 @@ export interface components {
             tokenId: string;
         };
         Problem: {
-            approval?: components["schemas"]["Approval"];
-            /** @description Where a human approves it */
-            approvalUrl?: string;
             /**
              * @description Stable machine-readable code
              * @enum {string}
              */
-            code: "bad_request" | "validation" | "unauthenticated" | "forbidden" | "denied" | "approval_required" | "rate_limited" | "not_found" | "conflict" | "precondition" | "confirm_required" | "plan_mismatch" | "internal";
+            code: "bad_request" | "validation" | "unauthenticated" | "forbidden" | "rate_limited" | "not_found" | "conflict" | "precondition" | "confirm_required" | "plan_mismatch" | "internal";
             /** @description What went wrong */
             detail?: string;
             /** @description Per-field problems */
             errors?: components["schemas"]["FieldError"][] | null;
             /** @description What to do next */
             hint?: string;
-            /** @description The plan to review and confirm (confirm_required, plan_mismatch, denied) */
+            /** @description The plan to review and confirm (confirm_required, plan_mismatch), or the plan the key may not apply (forbidden) */
             plan?: components["schemas"]["Plan"];
             /**
              * Format: int64
@@ -6452,44 +6364,7 @@ export interface components {
             /** @description Public URL (public buckets only) */
             url?: string;
         };
-        Token: {
-            /** Format: date-time */
-            createdAt: string;
-            /** Format: date-time */
-            expiresAt?: string;
-            id: string;
-            kind: string;
-            /** Format: date-time */
-            lastUsedAt?: string;
-            name: string;
-            person?: string;
-            projects: string[] | null;
-            /** Format: date-time */
-            revokedAt?: string;
-            scopes: string[] | null;
-            sponsor?: string;
-        };
-        TokenCreateBody: {
-            /**
-             * @description Default agent. Agent tokens always expire.
-             * @enum {string}
-             */
-            kind?: "agent" | "human";
-            /** @description A name you will recognise in the activity timeline, e.g. claude-code. */
-            name: string;
-            /** @description Projects the token may touch. Default: all of yours. "*" means all. */
-            projects?: string[] | null;
-            /** @description Default read, plan, apply:reversible. One of read, plan, apply:reversible, apply:outbound, apply:irreversible, tokens, *. You can only grant scopes you hold. */
-            scopes?: string[] | null;
-            /**
-             * Format: int64
-             * @description Lifetime in hours. Default 720 (30 days) for agents; 0 means never for humans.
-             */
-            ttlHours?: number;
-        };
         UndoBody: {
-            /** @description An approval ID a human granted for exactly this plan (see approval_required). Single use. */
-            approval?: string;
             /** @description The undo plan's hash (or its first 8+ characters). Without it the undo plan comes back with status 428. */
             confirm?: string;
             /** @description Why you are undoing, in one sentence. */
@@ -6963,350 +6838,6 @@ export interface operations {
             };
             /** @description Precondition Required */
             428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "approvals-list": {
-        parameters: {
-            query?: {
-                /** @description Only this status */
-                status?: "pending" | "approved" | "rejected" | "used" | "expired" | "";
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Approval"][] | null;
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "approval-get": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Approval"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "approval-approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Approval-approveRequest"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Approval"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "approval-begin": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    "approval-reject": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Approval-rejectRequest"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Approval"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -19726,7 +19257,7 @@ export interface operations {
     "tokens-list": {
         parameters: {
             query?: {
-                /** @description Include revoked tokens */
+                /** @description Include revoked keys */
                 revoked?: boolean;
             };
             header?: never;
@@ -19741,7 +19272,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Token"][] | null;
+                    "application/json": components["schemas"]["Key"][] | null;
                 };
             };
             /** @description Bad Request */
@@ -19800,7 +19331,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TokenCreateBody"];
+                "application/json": components["schemas"]["KeyCreateBody"];
             };
         };
         responses: {
@@ -19810,7 +19341,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CreatedToken"];
+                    "application/json": components["schemas"]["CreatedKey"];
                 };
             };
             /** @description Bad Request */

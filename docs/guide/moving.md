@@ -18,7 +18,7 @@ What goes in:
 
 | Part | How |
 |---|---|
-| Platform state: projects, change history, settings, deploy records, tokens, people, passkeys, approvals | a consistent SQLite copy |
+| Platform state: projects, change history, settings, deploy records, API keys, people, passkeys | a consistent SQLite copy |
 | Secrets | inside the state, **still encrypted** to the box key |
 | Every Postgres database (with auth users and queue jobs, which live there) | `pg_dump`, plain SQL, plus roles and pg_cron jobs |
 | Valkey | an RDB snapshot |

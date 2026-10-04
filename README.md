@@ -35,8 +35,8 @@ claude mcp add tiffin -- tiffin mcp         # let your agent help, safely
 
 - **Plan, then apply.** Every change shows each step, its risk (reversible, outbound,
   irreversible) and why, and applies only with that plan's hash.
-- **Approvals.** Agents get their own expiring tokens. When a plan would delete data or
-  make it public, the agent sends you an approval link and you approve with your passkey.
+- **API keys.** Each agent gets its own key: all projects or a few, full or read access.
+  Claude Code asks you before anything destructive runs; Tiffin records it.
 - **Everything is logged and undoable.** Who changed what, which agent session, and why.
 - **Untrusted data is fenced.** Logs, rows and emails reach agents marked as data, never
   as instructions.
