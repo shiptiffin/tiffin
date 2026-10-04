@@ -112,17 +112,16 @@ func (r *rt) startFrom(d *Deploy, kind string, fetch func(ctx context.Context, l
 }
 
 func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.Writer) error {
-	// One build at a time keeps a small box responsive.
-	select {
-	case r.build <- struct{}{}:
-	case <-ctx.Done():
-		return ctx.Err()
+	// One build at a time keeps a small box responsive. A deploy goes
+	// before the build warm-up: it stops a running warm-up and takes the slot.
+	if err := r.acquireBuild(ctx); err != nil {
+		return err
 	}
 	released := false
 	release := func() {
 		if !released {
 			released = true
-			<-r.build
+			r.releaseBuild()
 		}
 	}
 	defer release()

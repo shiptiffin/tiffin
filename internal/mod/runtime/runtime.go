@@ -61,6 +61,7 @@ type rt struct {
 	bld   Builder
 	ctx   context.Context // box lifetime
 	build chan struct{}   // one build at a time
+	warm  warmSlot        // the build warm-up's claim on the slot (deploys preempt it)
 
 	mu       sync.Mutex
 	locks    map[string]*sync.Mutex // per app environment
@@ -107,7 +108,7 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	}
 	r := &rt{p: p, opt: opt, st: store{db: p.DB, cache: newStateCache()}, eng: opt.Engine, bld: opt.Builder, ctx: ctx,
 		build: make(chan struct{}, 1), locks: map[string]*sync.Mutex{}, ports: map[int]string{},
-		lastSeen: map[string]time.Time{}, hooks: newHookTokens()}
+		lastSeen: map[string]time.Time{}, hooks: newHookTokens(), warm: warmSlot{poll: 10 * time.Second, quiet: time.Minute}}
 	for _, d := range []string{opt.DataDir, opt.LogDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err

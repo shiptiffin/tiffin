@@ -176,10 +176,16 @@ type fakeBuilder struct {
 	eng    *fakeEngine
 	static *boxBuilder
 	builds atomic.Int32
+	// warmBlock makes warm-up builds run until they are stopped, once.
+	warmBlock atomic.Bool
 }
 
 func (b *fakeBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult, error) {
 	b.builds.Add(1)
+	if req.Deploy.ID == "warmup" && b.warmBlock.CompareAndSwap(true, false) {
+		<-ctx.Done()
+		return BuildResult{}, ctx.Err()
+	}
 	if req.Spec.Framework == manifest.FrameworkStatic {
 		return b.static.Build(ctx, req)
 	}
@@ -1117,5 +1123,64 @@ func TestWarmUpBuildsOnce(t *testing.T) {
 	}
 	if len(h.r.build) != 0 {
 		t.Fatal("warm-up kept the build slot")
+	}
+}
+
+// A deploy never waits for the warm-up: it stops a running warm-up and
+// builds at once; the warm-up tries again once the box is quiet. And the
+// warm-up does not start while resources are still converging (a box that
+// just started or imported has its apps to start first).
+func TestWarmUpYieldsToDeploys(t *testing.T) {
+	h := newHarness(t)
+	ctx := t.Context()
+	h.r.warm.poll, h.r.warm.quiet = 10*time.Millisecond, 200*time.Millisecond
+
+	// Converging: the warm-up waits.
+	_ = h.p.DB.SetResourceStatus(ctx, "shop", "app/site", platform.StatePending, "imported; converging")
+	h.bld.warmBlock.Store(true)
+	before := h.bld.builds.Load()
+	done := make(chan struct{})
+	go func() { h.r.warmUp(ctx); close(done) }()
+	time.Sleep(100 * time.Millisecond)
+	if h.bld.builds.Load() != before || len(h.r.build) != 0 {
+		t.Fatal("the warm-up started while the box was converging")
+	}
+	_ = h.p.DB.SetResourceStatus(ctx, "shop", "app/site", platform.StateReady, "")
+	holding := func() bool {
+		h.r.warm.mu.Lock()
+		defer h.r.warm.mu.Unlock()
+		return h.r.warm.cancel != nil
+	}
+	for i := 0; !holding(); i++ {
+		if i > 200 {
+			t.Fatal("the warm-up never started")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// A deploy comes in while the warm-up holds the slot: it goes first.
+	began := time.Now()
+	d := h.deploy("site", "", map[string]string{"index.html": "<h1>hi</h1>"})
+	if d.Status != StatusLive {
+		t.Fatalf("deploy: %s %s", d.Status, d.Error)
+	}
+	if waited := time.Since(began); waited > 5*time.Second {
+		t.Fatalf("the deploy waited %s for the warm-up", waited)
+	}
+	if _, ok, _ := h.p.DB.KVGet(ctx, "runtime", warmUpKey); ok {
+		t.Fatal("a stopped warm-up counted as warm")
+	}
+
+	// Once the box is quiet again, the warm-up runs to the end.
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the warm-up did not finish after the deploy")
+	}
+	if _, ok, _ := h.p.DB.KVGet(ctx, "runtime", warmUpKey); !ok {
+		t.Fatal("the warm-up did not run again after yielding")
+	}
+	if len(h.r.build) != 0 {
+		t.Fatal("the build slot is still held")
 	}
 }
