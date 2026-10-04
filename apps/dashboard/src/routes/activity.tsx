@@ -81,7 +81,7 @@ const isAgent = (c: Change) => c.actor.kind === "agent";
 
 export function ActivityPage({ search }: { search: ActivitySearch }) {
   const { project, risk, who } = search;
-  useTitle(project ? `${project} · History` : "History");
+  useTitle(project ? `${project} · Activity` : "Activity");
   const changes = useLedger(project);
   const names = useQuery({ ...q.tokenNames, retry: false });
   const projects = useQuery(q.projects);
@@ -92,7 +92,7 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
   if (changes.isError)
     return (
       <Page>
-        <ProblemNote error={changes.error} title="Couldn’t load History" />
+        <ProblemNote error={changes.error} title="Couldn’t load Activity" />
       </Page>
     );
 
@@ -106,7 +106,7 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
   return (
     <Page>
       <header>
-        <p className="label mb-2">History{project ? ` · ${project}` : " · every project"}</p>
+        <p className="label mb-2">Activity{project ? ` · ${project}` : " · every project"}</p>
         <Headline all={first} project={project} live={projects.data?.map((p) => p.name)} />
       </header>
 
@@ -114,7 +114,7 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
 
       {list.length === 0 && !changes.hasNextPage ? (
         <p className="mt-10 text-[0.9375rem] text-ink-2">
-          {risk ? `No ${tierCopy[risk].label.toLowerCase()} changes here.` : who === "agents" ? "No agent has changed anything here." : "Nobody has changed anything here."}{" "}
+          {risk ? `No changes here that ${{ read: "only look", reversible: "can be undone", outbound: "reach outside the box", irreversible: "can’t be undone" }[risk]}.` : who === "agents" ? "No agent has changed anything here." : "Nobody has changed anything here."}{" "}
           <Link to="/ledger" search={{ project }} className="text-brass-ink hover:underline hover:underline-offset-4">
             Show every entry
           </Link>
@@ -166,7 +166,7 @@ function Headline({ all, project, live }: { all: Change[]; project?: string; liv
     </>
   );
   const whoWords = agents === 0 ? "All by people." : agents === all.length ? "All by agents." : `Agents made ${words(agents)} of them.`;
-  const risk = irr > 0 ? `${words(irr, true)} ${irr === 1 ? "was" : "were"} irreversible.` : out > 0 ? `${words(out, true)} reached outside the box.` : "Every one can be undone.";
+  const risk = irr > 0 ? `${words(irr, true)} couldn’t be undone.` : out > 0 ? `${words(out, true)} reached outside the box.` : "Every one can be undone.";
   return (
     <h1 className="sentence max-w-[44rem] text-ink">
       {countWords(all.length, "change", "changes", true)}
@@ -186,7 +186,7 @@ function Controls({ search, all, projects }: { search: ActivitySearch; all: Chan
   const tierCount = (t: Tier) => all.filter((c) => asTier(c.plan.risk) === t).length;
   const toggle = "inline-flex h-7 items-center gap-1.5 rounded-[6px] px-2 text-[0.8125rem] text-ink-3 transition-colors duration-[var(--dur-state)] hover:text-ink aria-pressed:bg-paper-sunk aria-pressed:text-ink disabled:pointer-events-none disabled:opacity-40";
   return (
-    <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-rule py-1.5" role="toolbar" aria-label="Filter History">
+    <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-rule py-1.5" role="toolbar" aria-label="Filter Activity">
       <div className="flex items-center" role="group" aria-label="Who">
         {(
           [
@@ -494,7 +494,7 @@ function Skeleton() {
 function NoChangesIn({ project }: { project: string }) {
   return (
     <Page>
-      <p className="label mb-2">History · {project}</p>
+      <p className="label mb-2">Activity · {project}</p>
       <h1 className="sentence text-ink">Nothing has changed in {project} yet.</h1>
       <p className="mt-3 max-w-[36rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
         Entries are written the moment someone applies a plan.{" "}
@@ -516,7 +516,7 @@ function FirstRun() {
   ];
   return (
     <Page>
-      <p className="label mb-2">History</p>
+      <p className="label mb-2">Activity</p>
       <h1 className="sentence text-ink">Nothing is written down yet.</h1>
       <p className="mt-3 max-w-[38rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
         Every change to this box, by you or an agent, is planned first, applied with its plan’s hash and written down here, signed and undoable. Make the first

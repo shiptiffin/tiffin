@@ -63,14 +63,17 @@ export function WhoMenu() {
           {copied ? "Copied" : "Copy MCP setup command"}
         </MenuItem>
         {admin && (
-          <MenuItem onSelect={() => navigate({ to: "/settings/keys", search: { create: true } })}>
+          <MenuItem onSelect={() => navigate({ to: "/settings/keys", search: {} })}>
             <KeyRound />
-            Create a key
+            API keys
           </MenuItem>
         )}
-        <MenuItem onSelect={() => navigate({ to: "/settings/passkeys" })}>
+        <MenuItem onSelect={() => navigate({ to: "/settings/passkeys" })} className="h-auto py-1.5">
           <Fingerprint />
-          Your passkeys
+          <span className="flex flex-col leading-[1.15rem]">
+            <span>Sign in with Touch ID / Face ID</span>
+            <span className="text-xs text-ink-3">Your fingerprint or face instead of a link</span>
+          </span>
         </MenuItem>
         <MenuSeparator />
         <MenuItem

@@ -12,9 +12,14 @@ test("login → projects → history → change → undo → health → keys →
     if (m.type() === "error" && !t.startsWith("Failed to load resource")) problems.push(t);
   });
 
-  // Login without a code explains how to get one.
+  // Login without a code offers Touch ID, and a sign-in link from the terminal behind a small fallback.
   await page.goto("/login");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^Sign in (to your box|with a link from your terminal)\.$/);
+  const fallback = page.getByRole("button", { name: "or use a sign-in link" });
+  if (await fallback.isVisible()) {
+    await expect(page.getByRole("button", { name: "Sign in with Touch ID" })).toBeVisible();
+    await fallback.click();
+  }
   await expect(page.getByText("tiffin login")).toBeVisible();
 
   // A used or made-up code is refused kindly.
@@ -27,19 +32,18 @@ test("login → projects → history → change → undo → health → keys →
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Projects");
   await expect(page).toHaveTitle(/Projects · Tiffin$/);
   await expect(page.getByRole("list", { name: "Projects" }).getByRole("link", { name: "hello", exact: true })).toBeVisible();
-  // Every project's history lives in Settings.
-  await page.getByRole("link", { name: "Settings" }).first().click();
-  await page.getByRole("link", { name: "History" }).first().click();
+  // Every project's changes: Activity, in the sidebar.
+  await page.getByRole("link", { name: "Activity" }).first().click();
   await expect(page).toHaveURL(/\/ledger$/);
   await expect(page.getByRole("heading", { level: 1 })).toContainText(/changes (today |since [\w ]+? )?across two projects/);
-  await expect(page).toHaveTitle(/History · Tiffin$/);
+  await expect(page).toHaveTitle(/Activity · Tiffin$/);
   await expect(page.getByRole("heading", { name: /Today/ })).toBeVisible();
 
   // Filtering by risk.
-  await page.getByRole("button", { name: /Irreversible/ }).click();
+  await page.getByRole("button", { name: /Can’t be undone/ }).click();
   await expect(page.getByRole("link", { name: /Drop the uploads bucket/ })).toBeVisible();
   await expect(page.getByRole("link", { name: /Scale the API/ })).toHaveCount(0);
-  await page.getByRole("button", { name: /Irreversible/ }).click();
+  await page.getByRole("button", { name: /Can’t be undone/ }).click();
 
   // Change detail: intent, plan hash, op with reason and diff.
   await page.getByRole("link", { name: /Drop the uploads bucket/ }).click();
@@ -77,7 +81,7 @@ test("login → projects → history → change → undo → health → keys →
   await expect(destroy).toBeEnabled();
   await page.keyboard.press("Escape");
 
-  // Health (Settings › Health).
+  // Health.
   await page.getByRole("link", { name: "Health" }).first().click();
   await expect(page.getByRole("heading", { level: 1 })).toContainText(/Nothing is wrong|is fine|failing|firing/);
   await expect(page.getByText("Platform state readable.")).toBeVisible();
@@ -85,7 +89,7 @@ test("login → projects → history → change → undo → health → keys →
 
   // Command palette navigates.
   await page.keyboard.press("ControlOrMeta+k");
-  await page.getByRole("combobox", { name: "Command palette" }).fill("keys for agents");
+  await page.getByRole("combobox", { name: "Command palette" }).fill("api keys");
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/settings\/keys$/);
 
@@ -113,8 +117,8 @@ test("login → projects → history → change → undo → health → keys →
   expect(problems, problems.join("\n")).toEqual([]);
 });
 
-// Passkeys for sign-in, then a project's overview, its secrets, and people.
-test("passkey → project → secrets → people → passkey sign-in", async ({ page, baseURL }) => {
+// Touch ID / Face ID sign-in, then a project's overview, its secrets, and people.
+test("touch id → project → secrets → people → touch id sign-in", async ({ page, baseURL }) => {
   const problems: string[] = [];
   page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && !m.text().startsWith("Failed to load resource") && problems.push(m.text()));
@@ -127,10 +131,12 @@ test("passkey → project → secrets → people → passkey sign-in", async ({ 
 
   await signIn(page, baseURL!);
 
-  // Add a passkey.
-  await page.goto("/settings/passkeys");
-  await page.getByLabel("Passkey name").fill("Test key");
-  await page.getByRole("button", { name: "Add a passkey" }).click();
+  // Touch ID / Face ID, from the account menu.
+  await page.getByRole("button", { name: "Account" }).click();
+  await page.getByRole("menuitem", { name: /Sign in with Touch ID \/ Face ID/ }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sign in with Touch ID / Face ID");
+  await page.getByLabel("Device name").fill("Test key");
+  await page.getByRole("button", { name: "Set up this device" }).click();
   await expect(page.getByText("Test key")).toBeVisible();
 
   // A project's overview: what's in it, as tiles.
@@ -163,11 +169,11 @@ test("passkey → project → secrets → people → passkey sign-in", async ({ 
   await page.getByRole("button", { name: "Done" }).click();
   await expect(page.getByText("Ada")).toBeVisible();
 
-  // The passkey added above also signs in: sign out, sign back in with it, land where you were going.
+  // The device set up above also signs in: sign out, sign back in with it, land where you were going.
   await page.request.delete("/v1/session");
   await page.goto("/settings/passkeys");
   await expect(page).toHaveURL(/\/login\?reason=session&next=%2Fsettings%2Fpasskeys/);
-  await page.getByRole("button", { name: "Sign in with a passkey" }).click();
+  await page.getByRole("button", { name: "Sign in with Touch ID" }).click();
   await expect(page).toHaveURL(/\/settings\/passkeys$/);
   await expect(page.getByText("Test key")).toBeVisible();
 

@@ -25,7 +25,7 @@ import { StateSentence } from "@/components/jobs-words";
 // ---------------------------------------------------------------- passkeys
 
 export function PasskeysPage() {
-  useTitle("Passkeys");
+  useTitle("Touch ID / Face ID");
   const qc = useQueryClient();
   const keys = useQuery(q.passkeys);
   const { name: me } = useMe();
@@ -56,25 +56,24 @@ export function PasskeysPage() {
   return (
     <Page>
       <PageHeader
-        eyebrow={accessCrumbs}
-        title="Passkeys"
-        lede="Sign in to this dashboard with Touch ID, Face ID or a security key instead of a link from the terminal. Everyone manages their own here."
+        title="Sign in with Touch ID / Face ID"
+        lede="Use your fingerprint or face instead of a sign-in link. It works on each device you set up (it’s a passkey kept on that device)."
       />
       {keys.isSuccess && (
         <StateSentence className="mt-6">
           {list.length === 0 ? (
-            <span className="text-ink-2">You have no passkey yet, so you sign in with a link from the terminal.</span>
+            <span className="text-ink-2">Not set up yet, so you sign in with a link from the terminal.</span>
           ) : (
-            `${countWords(list.length, "passkey", "passkeys", true)} can sign you in${list.some((k) => k.lastUsed) ? `; the last was used ${relative(list.map((k) => k.lastUsed ?? "").sort().pop()!)}` : ""}.`
+            `${countWords(list.length, "device", "devices", true)} can sign you in${list.some((k) => k.lastUsed) ? `; the last was used ${relative(list.map((k) => k.lastUsed ?? "").sort().pop()!)}` : ""}.`
           )}
         </StateSentence>
       )}
 
-      <Group label={me ? `Your passkeys, ${me}` : "Your passkeys"} id="keys" aside={list.length ? countWords(list.length, "passkey") : undefined}>
+      <Group label={me ? `Your devices, ${me}` : "Your devices"} id="keys" aside={list.length ? countWords(list.length, "device") : undefined}>
         {keys.isError && <ProblemNote error={keys.error} />}
         {keys.isPending && <Skeleton className="h-20" />}
         {list.length === 0 && keys.isSuccess && (
-          <p className="border-y border-rule py-4 text-[0.875rem] text-ink-2">None yet. Add one below to sign in without a link from the terminal.</p>
+          <p className="border-y border-rule py-4 text-[0.875rem] text-ink-2">None yet. Set up this device below.</p>
         )}
         {list.length > 0 && (
           <Rows>
@@ -83,7 +82,7 @@ export function PasskeysPage() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[0.875rem] text-ink">{k.name}</p>
                   <p className="text-[0.8125rem] text-ink-3">
-                    Added {relative(k.createdAt)} · {k.lastUsed ? `last signed ${relative(k.lastUsed)}` : "hasn’t signed anything yet"}
+                    Added {relative(k.createdAt)} · {k.lastUsed ? `last used ${relative(k.lastUsed)}` : "not used yet"}
                   </p>
                 </div>
                 <Button variant="ghost" size="sm" onClick={() => setRemoving(k)} className="hover:text-danger">
@@ -95,7 +94,7 @@ export function PasskeysPage() {
         )}
       </Group>
 
-      <Group label="Add a passkey" id="add">
+      <Group label="Set up this device" id="add">
         <form
           className="flex flex-col gap-2 sm:flex-row"
           onSubmit={(e) => {
@@ -103,13 +102,13 @@ export function PasskeysPage() {
             void add();
           }}
         >
-          <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={defaultName()} maxLength={64} aria-label="Passkey name" />
+          <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={defaultName()} maxLength={64} aria-label="Device name" />
           <Button type="submit" variant={list.length ? "secondary" : "primary"} size="lg" className="h-9" disabled={adding || !webauthnSupported()}>
-            {adding ? "Waiting for your device…" : "Add a passkey"}
+            {adding ? "Waiting for Touch ID…" : "Set up this device"}
           </Button>
         </form>
-        <p className="mt-2 text-[0.8125rem] text-ink-3">Name it after the device, so you know which one to remove later.</p>
-        {!webauthnSupported() && <p className="mt-2 text-[0.8125rem] text-warn-ink">This browser can’t use passkeys here. They need HTTPS or localhost, and a recent browser.</p>}
+        <p className="mt-2 text-[0.8125rem] text-ink-3">Name it after the device, so you know which one to remove later. Your browser asks for your fingerprint or face.</p>
+        {!webauthnSupported() && <p className="mt-2 text-[0.8125rem] text-warn-ink">This browser can’t do it here. It needs HTTPS (or localhost) and a recent browser.</p>}
         {error && (
           <p role="alert" className="mt-3 text-[0.875rem] text-danger">
             {error}
@@ -120,9 +119,9 @@ export function PasskeysPage() {
       <Confirm
         open={!!removing}
         onClose={() => setRemoving(null)}
-        title={`Remove ${removing?.name ?? "this passkey"}?`}
-        body="It stops working at once."
-        action="Remove passkey"
+        title={`Remove ${removing?.name ?? "this device"}?`}
+        body="It can’t sign you in any more. You can set it up again later."
+        action="Remove device"
         run={() => api.deletePasskey(removing!.id)}
         done={() => qc.invalidateQueries({ queryKey: ["passkeys"] })}
       />
@@ -141,7 +140,7 @@ function defaultName() {
         : /Windows/.test(ua)
           ? "Windows PC"
           : "This device";
-  return `${os} passkey`;
+  return os;
 }
 
 // ---------------------------------------------------------------- people

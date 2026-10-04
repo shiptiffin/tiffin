@@ -24,9 +24,14 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
 
 - **Sidebar** never grows with the number of projects. Top: the project switcher (the current project, or All
   projects; search, five recent, All projects, New project; ⌘K and `g p` reach it). Outside a project:
-  Projects, and Settings at the bottom (its sections appear under it while you're in them). Inside a project:
+  Projects, Usage (the box, divided by project, and its default limit), Activity (every project's changes),
+  Health, Backups, API keys; Settings at the bottom (Your box, Machine, People, Shield). Inside a project:
   "← All projects", then only that project's sections: Overview, the parts it has (App(s), Database, Cache,
-  Files, Email, Auth, Analytics, Jobs), then Usage, History, Settings.
+  Files, Email, Auth, Analytics, Jobs), then Usage, History, Settings; and a small "Your box" group at the
+  bottom (Usage, Activity, Health) so nothing is a dead end.
+- **Account menu** (your name, bottom left): API keys, "Sign in with Touch ID / Face ID", sign out. The word
+  "passkey" is never a heading; at most a subtitle. Login offers "Sign in with Touch ID" with "or use a
+  sign-in link" as the fallback.
 - **Projects (home)**: one line about the box ("Your box is about two-fifths full") over one bar split by
   project, then a card per project: icon, name, live address, one status line, its parts as small glyphs,
   its share of the box. Sort, list view and (past six projects) search. Nothing about the platform here.
@@ -35,8 +40,8 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
   it needs, or a share of the box), copies and exact numbers under Advanced. **History**: plain sentences,
   who and when, Undo. **Settings**: name, addresses, settings and secrets, built-in parts (toggles), keys
   that reach it, delete.
-- **Settings** (the box): Your box, Machine (the carrier with the platform's parts), Health, Backups,
-  Shield, People, API keys, Passkeys, History of every project.
+- **Settings** (the box): Your box (name, domain, look, moving it, updates), Machine (the carrier with the
+  platform's parts), People, Shield.
 
 ## Rules for every page
 

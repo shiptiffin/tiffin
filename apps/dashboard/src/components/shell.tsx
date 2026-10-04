@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { ArrowLeft, ChevronsUpDown, Menu as MenuIcon, Search, Settings as SettingsIcon } from "lucide-react";
+import { Activity as ActivityIcon, ArchiveRestore, ArrowLeft, ChevronsUpDown, Gauge, HeartPulse, KeyRound, LayoutGrid, Menu as MenuIcon, Search, Settings as SettingsIcon } from "lucide-react";
 import { forwardRef, lazy, Suspense, useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
 import { mq } from "@/api/modules";
@@ -206,14 +206,19 @@ function MobileBar({ onMenu, onSearch, switcher }: { onMenu: () => void; onSearc
 
 // ───────────────────────── sidebar ─────────────────────────
 
-const settingsPaths = ["/settings", "/status", "/metrics", "/logs", "/errors", "/alerts", "/backups", "/protect", "/ledger", "/changes"];
+const settingsPaths = ["/settings", "/settings/box", "/settings/people", "/settings/passkeys", "/protect"];
 const healthPaths = ["/status", "/metrics", "/logs", "/errors", "/alerts"];
+const activityPaths = ["/ledger", "/changes"];
 
 function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: ReactNode }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const project = useProjectInPath();
   const under = (list: string[]) => list.some((p) => path === p || path.startsWith(`${p}/`));
-  const inSettings = !project && under(settingsPaths);
+  const inSettings = !project && settingsPaths.some((p) => path === p || (p !== "/settings" && path.startsWith(`${p}/`)));
+  // A laptop dev server (no --box) has no backups or shield.
+  const passkeys = useQuery({ ...q.passkeys, retry: false });
+  const onBox = !notOnBox(passkeys.error);
+  const icon = "size-4 text-ink-3";
 
   return (
     <nav className="flex h-full flex-col gap-4 overflow-y-auto pt-3.5 pr-3.5 pb-4 pl-[14px] [&>*]:shrink-0" aria-label="Main">
@@ -244,15 +249,34 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
         </div>
       ) : (
         <div className="flex flex-col gap-px pl-1">
-          <NavItem to="/" exact label="Projects" />
+          <NavItem to="/" exact label="Projects" lead={<LayoutGrid className={icon} />} />
+          <NavItem to="/usage" label="Usage" lead={<Gauge className={icon} />} />
+          <NavItem to="/ledger" label="Activity" active={under(activityPaths)} lead={<ActivityIcon className={icon} />} />
+          <NavItem to="/status" label="Health" active={under(healthPaths)} lead={<HeartPulse className={icon} />} aside={<Trouble />} />
+          {onBox && <NavItem to="/backups" label="Backups" lead={<ArchiveRestore className={icon} />} />}
+          <NavItem to="/settings/keys" label="API keys" lead={<KeyRound className={icon} />} />
         </div>
       )}
 
       <div className="mt-auto flex flex-col gap-3 pt-2 pl-1">
-        {!project && (
+        {project ? (
           <div className="flex flex-col gap-px">
-            <NavItem to="/settings" label="Settings" active={inSettings} lead={<SettingsIcon className="size-4 text-ink-3" />} />
-            {inSettings && <SettingsNav path={path} />}
+            <p className="label px-2.5 pb-1">Your box</p>
+            <NavItem to="/usage" label="Usage" lead={<Gauge className={icon} />} />
+            <NavItem to="/ledger" label="Activity" lead={<ActivityIcon className={icon} />} />
+            <NavItem to="/status" label="Health" lead={<HeartPulse className={icon} />} aside={<Trouble />} />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-px">
+            <NavItem to="/settings" exact label="Settings" active={inSettings} lead={<SettingsIcon className={icon} />} />
+            {inSettings && (
+              <div className="relative mt-px mb-1 flex flex-col gap-px before:absolute before:top-0 before:bottom-0 before:left-[12px] before:w-px before:bg-rule-2">
+                <NavItem to="/settings" exact sub label="Your box" />
+                <NavItem to="/settings/box" sub label="Machine" />
+                <NavItem to="/settings/people" sub label="People" />
+                {onBox && <NavItem to="/protect" sub label="Shield" aside={<AttackBadge />} />}
+              </div>
+            )}
           </div>
         )}
         <Suspense fallback={<WhoTrigger onClick={rememberClick("who")} />}>
@@ -291,26 +315,6 @@ function ProjectNav({ project, path }: { project: string; path: string }) {
       <NavItem to="/projects/$project/history" params={params} label="History" />
       <NavItem to="/projects/$project/settings" params={params} label="Settings" active={at("settings") || at("secrets")} />
     </>
-  );
-}
-
-function SettingsNav({ path }: { path: string }) {
-  // A laptop dev server (no --box) has no backups, protection or passkeys.
-  const passkeys = useQuery({ ...q.passkeys, retry: false });
-  const onBox = !notOnBox(passkeys.error);
-  const under = (list: string[]) => list.some((p) => path === p || path.startsWith(`${p}/`));
-  return (
-    <div className="relative mt-px mb-1 flex flex-col gap-px before:absolute before:top-0 before:bottom-0 before:left-[12px] before:w-px before:bg-rule-2">
-      <NavItem to="/settings" exact sub label="Your box" />
-      <NavItem to="/settings/box" sub label="Machine" />
-      <NavItem to="/status" sub label="Health" active={under(healthPaths)} aside={<Trouble />} />
-      {onBox && <NavItem to="/backups" sub label="Backups" />}
-      {onBox && <NavItem to="/protect" sub label="Shield" aside={<AttackBadge />} />}
-      <NavItem to="/settings/people" sub label="People" />
-      <NavItem to="/settings/keys" sub label="Keys" />
-      {onBox && <NavItem to="/settings/passkeys" sub label="Passkeys" />}
-      <NavItem to="/ledger" sub label="History" active={under(["/ledger", "/changes"])} />
-    </div>
   );
 }
 

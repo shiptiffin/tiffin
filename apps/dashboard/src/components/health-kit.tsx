@@ -11,7 +11,7 @@ import { Crumbs } from "./page";
 // here is a new visual language.
 
 export const healthCrumbs = <Crumbs items={[{ label: "Health", to: "/status" }]} />;
-export const accessCrumbs = <Crumbs items={[{ label: "Access", to: "/settings/people" }]} />;
+export const accessCrumbs = <Crumbs items={[{ label: "Settings", to: "/settings" }]} />;
 
 /**
  * The state of things in one sentence, under a page title: Newsreader, a

@@ -36,7 +36,8 @@ import { ProjectIcon } from "@/components/project-icon";
 
 // Box-wide pages and each project's pages, so every area is a keystroke away.
 const box: Array<[string, string, string[]]> = [
-  ["Machine", "/settings/box", ["box", "memory", "cpu", "disk", "room", "platform", "services"]],
+  ["Usage", "/usage", ["box", "memory", "cpu", "disk", "room", "limits", "share"]],
+  ["Machine", "/settings/box", ["box", "platform", "services", "carrier"]],
   ["Metrics", "/metrics", ["cpu", "memory", "disk", "charts"]],
   ["Logs", "/logs", ["logsql", "search", "tail"]],
   ["Errors", "/errors", ["issues", "exceptions", "sentry"]],
@@ -141,7 +142,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   New project
                 </Item>
                 <Item icon={<ScrollText />} onSelect={run(() => navigate({ to: "/ledger", search: {} }))} keywords={["activity", "changes", "ledger", "undo"]}>
-                  History of every project
+                  Activity: every project’s changes
                 </Item>
                 <Item icon={<Gauge />} onSelect={run(() => navigate({ to: "/status" }))} keywords={["status", "checks"]}>
                   Health
@@ -150,13 +151,13 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   Settings
                 </Item>
                 <Item icon={<KeyRound />} onSelect={run(() => navigate({ to: "/settings/keys", search: {} }))} keywords={["tokens", "claude", "mcp", "approvals"]}>
-                  Keys for agents
+                  API keys
                 </Item>
                 <Item icon={<Users />} onSelect={run(() => navigate({ to: "/settings/people" }))} keywords={["team", "invite", "roles"]}>
                   People
                 </Item>
-                <Item icon={<Fingerprint />} onSelect={run(() => navigate({ to: "/settings/passkeys" }))} keywords={["webauthn", "security"]}>
-                  Passkeys
+                <Item icon={<Fingerprint />} onSelect={run(() => navigate({ to: "/settings/passkeys" }))} keywords={["passkeys", "face id", "fingerprint", "webauthn", "sign in"]}>
+                  Sign in with Touch ID / Face ID
                 </Item>
                 {box.map(([label, to, kw]) => (
                   <Item key={to} icon={<Gauge />} onSelect={run(() => navigate({ to: to as "/" }))} keywords={kw}>

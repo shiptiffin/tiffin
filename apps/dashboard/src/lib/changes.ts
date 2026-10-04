@@ -8,10 +8,10 @@ export function asTier(t: string | undefined): Tier {
 }
 
 export const tierCopy: Record<Tier, { label: string; short: string; blurb: string }> = {
-  read: { label: "Read only", short: "Read", blurb: "Looks, doesn't touch." },
-  reversible: { label: "Reversible", short: "Reversible", blurb: "Can be undone, settings and all." },
-  outbound: { label: "Outbound", short: "Outbound", blurb: "Reaches outside the box: people or the internet can see it." },
-  irreversible: { label: "Irreversible", short: "Irreversible", blurb: "Destroys data that undo can't bring back." },
+  read: { label: "Only looks", short: "Read", blurb: "Looks, doesn't touch." },
+  reversible: { label: "Can be undone", short: "Can be undone", blurb: "Can be undone, settings and all." },
+  outbound: { label: "Reaches outside", short: "Reaches outside", blurb: "Reaches outside the box: people or the internet can see it." },
+  irreversible: { label: "Can’t be undone", short: "Can’t be undone", blurb: "Deletes data that undo can't bring back." },
 };
 
 export function opCounts(ops: Op[] | null | undefined) {

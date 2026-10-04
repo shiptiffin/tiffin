@@ -80,8 +80,6 @@ export function SettingsPage() {
         </div>
       </Section>
 
-      <ShareLimit admin={admin} />
-
       <Section
         id="move"
         title="Move this box"
@@ -111,7 +109,7 @@ export function SettingsPage() {
  * The box-wide default limit: "no project may use more than N% unless it says
  * otherwise". Shown once the box has the setting (GET /v1/box/settings).
  */
-function ShareLimit({ admin }: { admin: boolean }) {
+export function ShareLimit({ admin, Wrap = Section }: { admin: boolean; Wrap?: typeof Section }) {
   const qc = useQueryClient();
   const settings = useQuery(boxSettingsQuery);
   const [drag, setDrag] = useState<number | null>(null);
@@ -127,7 +125,7 @@ function ShareLimit({ admin }: { admin: boolean }) {
   const v = drag ?? settings.data.defaultMaxSharePercent;
   const means = v < 100 && settings.data.appMemoryMB ? `That’s about ${memWords((v / 100) * settings.data.appMemoryMB)} each.` : "Projects grow into whatever the box has free.";
   return (
-    <Section title="Sharing the box" note="A project with its own limit keeps it. The rest grow as they need, up to this.">
+    <Wrap title="Sharing the box" note="A project with its own limit keeps it. The rest grow as they need, up to this.">
       <p className="text-[0.875rem] text-ink">
         No project may use more than <b className="font-[550] tnum">{v}%</b> of the box unless it says otherwise.
       </p>
@@ -147,11 +145,11 @@ function ShareLimit({ admin }: { admin: boolean }) {
       <p className="mt-1.5 text-sm text-ink-2">{means}</p>
       {settings.data.explanation && <p className="mt-1 text-xs text-ink-3">{settings.data.explanation}</p>}
       {save.isError && <ProblemNote className="mt-3" error={save.error} />}
-    </Section>
+    </Wrap>
   );
 }
 
-function Section({ id, title, note, children }: { id?: string; title: string; note?: string; children: ReactNode }) {
+export function Section({ id, title, note, children }: { id?: string; title: string; note?: string; children: ReactNode }) {
   return (
     <section id={id} className="mt-10 grid scroll-mt-8 gap-x-10 gap-y-3 border-t border-rule-2 pt-6 md:grid-cols-[13rem_minmax(0,1fr)]">
       <div>

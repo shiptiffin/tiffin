@@ -134,7 +134,15 @@ function ProjectKeys({ project }: { project: string }) {
   const tokens = useQuery({ ...q.tokens, retry: false });
   const [open, setOpen] = useState(false);
   const { admin } = useMe();
-  if (!admin || tokens.isError) return null;
+  if (!admin || tokens.isError)
+    return (
+      <Section title="API keys" note="For Claude Code, other agents and scripts.">
+        <Link to="/settings/keys" className="inline-flex items-center gap-1 text-[0.875rem] text-ink-2 hover:text-ink">
+          API keys
+          <ChevronRight className="size-4 text-ink-4" />
+        </Link>
+      </Section>
+    );
   const keys = onlyKeys(tokens.data ?? []).filter((t) => {
     const p = keyProjects(t as never);
     return p === "all" || p.includes(project);
@@ -142,9 +150,15 @@ function ProjectKeys({ project }: { project: string }) {
   return (
     <Section title="Keys that can reach this project" note="For Claude Code, other agents and scripts. Whatever a key does shows up in History under its name.">
       {tokens.isPending ? <Skeleton className="h-16" /> : <KeyList keys={keys} empty={`No keys reach ${project} yet.`} />}
-      <Button className="mt-3" size="md" onClick={() => setOpen(true)}>
-        Create key for {project}
-      </Button>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Button size="md" onClick={() => setOpen(true)}>
+          Create key for {project}
+        </Button>
+        <Link to="/settings/keys" className="inline-flex items-center gap-1 text-[0.875rem] text-ink-2 hover:text-ink">
+          All API keys
+          <ChevronRight className="size-4 text-ink-4" />
+        </Link>
+      </div>
       <CreateKeyDialog open={open} onOpenChange={setOpen} project={project} />
     </Section>
   );

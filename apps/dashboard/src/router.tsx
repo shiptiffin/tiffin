@@ -36,6 +36,7 @@ function Loading() {
 }
 const LoginPage = lz<{ reason?: string; next?: string }>(() => import("@/routes/login"), "LoginPage");
 const BoxPage = lz(() => import("@/routes/box"), "BoxPage");
+const BoxUsagePage = lz(() => import("@/routes/box-usage"), "BoxUsagePage");
 const ProjectUsagePage = lz<{ project: string }>(() => import("@/routes/project-usage"), "ProjectUsagePage");
 const ProjectHistoryPage = lz<{ project: string }>(() => import("@/routes/project-history"), "ProjectHistoryPage");
 const ProjectSettingsPage = lz<{ project: string }>(() => import("@/routes/project-settings"), "ProjectSettingsPage");
@@ -117,6 +118,7 @@ const box = createRoute({
   },
   component: HomePage,
 });
+const boxUsage = createRoute({ getParentRoute: () => app, path: "/usage", loader: () => void BoxUsagePage.preload(), component: BoxUsagePage });
 const boxRoute = createRoute({ getParentRoute: () => app, path: "/settings/box", loader: () => void BoxPage.preload(), component: BoxPage });
 const activity = createRoute({
   getParentRoute: () => app,
@@ -521,6 +523,7 @@ const tree = root.addChildren([
   app.addChildren([
     box,
     boxRoute,
+    boxUsage,
     activity,
     settings,
     newProject,

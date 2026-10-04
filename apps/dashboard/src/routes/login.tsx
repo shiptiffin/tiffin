@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { ProblemNote } from "@/components/problem";
 import { cn } from "@/lib/cn";
 import { getAssertion, webauthnSupported } from "@/lib/webauthn";
-import { KeyRound } from "lucide-react";
+import { Fingerprint } from "lucide-react";
 
 type State = "checking" | "signing-in" | "success" | "no-code" | "bad-link" | "already" | "offline";
 
@@ -61,6 +61,9 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
   const [passkeyBusy, setPasskeyBusy] = useState(false);
   const [passkeyErr, setPasskeyErr] = useState<unknown>(null);
   const canPasskey = webauthnSupported();
+  // With Touch ID on offer, the terminal link is the small fallback (open at once after a bad link).
+  const [linkOpen, setLinkOpen] = useState(false);
+  if (state === "bad-link" && !linkOpen) setLinkOpen(true);
   const passkey = async () => {
     setPasskeyErr(null);
     setPasskeyBusy(true);
@@ -131,30 +134,34 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
               {canPasskey && (
                 <>
                   <p className="mt-2.5 text-md text-ink-2">
-                    {state === "bad-link"
-                      ? "Sign in with your passkey instead, or get a fresh link."
-                      : reason === "session" || reason === "signed-out"
-                        ? "Sign in again with the passkey you added in Settings, or a one-time link from your terminal."
-                        : "With the passkey you added in Settings, or a one-time link from your terminal."}
+                    {state === "bad-link" ? "Use your fingerprint or face instead, or get a fresh link." : "Use your fingerprint or face, if you’ve set it up on this box."}
                   </p>
                   <Button variant="primary" size="lg" className="mt-5" onClick={passkey} disabled={passkeyBusy}>
-                    <KeyRound />
-                    {passkeyBusy ? "Waiting for your passkey…" : "Sign in with a passkey"}
+                    <Fingerprint />
+                    {passkeyBusy ? "Waiting for Touch ID…" : "Sign in with Touch ID"}
                   </Button>
                   {!!passkeyErr && <ProblemNote className="mt-4" error={passkeyErr} />}
-                  <p className="mt-8 text-[0.8125rem] font-[550] text-ink-2">Or with a link from your terminal</p>
+                  {!linkOpen && (
+                    <button type="button" onClick={() => setLinkOpen(true)} className="mt-4 block text-[0.875rem] text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink">
+                      or use a sign-in link
+                    </button>
+                  )}
                 </>
               )}
-              <p className={cn("text-md text-ink-2", canPasskey ? "mt-1 text-[0.875rem]" : "mt-2.5")}>
-                {state === "bad-link"
-                  ? "Sign-in links work once, for ten minutes. Get a fresh one where Tiffin is installed:"
-                  : "Run this where Tiffin is installed. It prints a link that signs you in once, within ten minutes."}
-              </p>
-              <Command cmd="tiffin login" className={canPasskey ? "mt-3" : "mt-5"} />
-              <p className="mt-4 text-sm text-ink-3">
-                Signing in to a box on another machine? Set <code className="ident text-ink-2">TIFFIN_URL</code> and an owner{" "}
-                <code className="ident text-ink-2">TIFFIN_TOKEN</code> first, or ask its owner to invite you.
-              </p>
+              {(!canPasskey || linkOpen) && (
+                <>
+                  <p className={cn("text-md text-ink-2", canPasskey ? "mt-8 text-[0.875rem]" : "mt-2.5")}>
+                    {state === "bad-link"
+                      ? "Sign-in links work once, for ten minutes. Get a fresh one where Tiffin is installed:"
+                      : "Run this where Tiffin is installed. It prints a link that signs you in once, within ten minutes."}
+                  </p>
+                  <Command cmd="tiffin login" className={canPasskey ? "mt-3" : "mt-5"} />
+                  <p className="mt-4 text-sm text-ink-3">
+                    Signing in to a box on another machine? Set <code className="ident text-ink-2">TIFFIN_URL</code> and an owner{" "}
+                    <code className="ident text-ink-2">TIFFIN_TOKEN</code> first, or ask its owner to invite you.
+                  </p>
+                </>
+              )}
             </div>
           )}
           {state === "already" && (

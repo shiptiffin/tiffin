@@ -182,7 +182,7 @@ function BoxLine({ shares, names }: { shares?: Shares; names: string[] }) {
       <p className="text-[0.9375rem] text-ink-2">
         <span className="text-ink">Your box is {fullWords(shares.full)}.</span>{" "}
         {shares.full < 0.85 ? `${memWords(shares.freeMB)} free.` : "It’s getting full: limit a project, or move to a bigger machine."}{" "}
-        <Link to="/settings/box" className="text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink">
+        <Link to="/usage" className="text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink">
           Details
         </Link>
       </p>

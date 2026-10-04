@@ -53,6 +53,30 @@ const pages: Array<{
   full?: boolean;
 }> = [
   { name: "home", url: "/", wait: (p) => p.getByText(/^Your box is/).waitFor() },
+  { name: "box-usage", url: "/usage", wait: (p) => p.getByRole("heading", { name: "By project" }).waitFor() },
+  {
+    name: "account",
+    url: "/",
+    wait: (p) => p.getByText(/^Your box is/).waitFor(),
+    act: async (p) => {
+      const nav = p.getByRole("button", { name: "Open navigation" });
+      if (await nav.isVisible()) await nav.click();
+      await p.getByRole("button", { name: "Account" }).last().click();
+      await p.getByRole("menuitem", { name: /Touch ID/ }).waitFor();
+    },
+    full: false,
+  },
+  {
+    name: "sidebar-project",
+    url: "/projects/shop",
+    wait: (p) => p.getByRole("heading", { name: "Database" }).waitFor(),
+    act: async (p) => {
+      const nav = p.getByRole("button", { name: "Open navigation" });
+      if (await nav.isVisible()) await nav.click();
+    },
+    full: false,
+  },
+  { name: "passkeys", url: "/settings/passkeys", wait: (p) => p.getByRole("heading", { name: "Sign in with Touch ID / Face ID" }).waitFor() },
   { name: "home-empty", url: "/", stub: asEmptyBox, wait: (p) => p.getByRole("heading", { name: "Start a project" }).waitFor() },
   { name: "project", url: "/projects/shop", wait: (p) => p.getByRole("heading", { name: "Database" }).waitFor() },
   {
@@ -114,6 +138,13 @@ for (const theme of ["light", "dark"] as const) {
         await shot(page, `${pg.name}-${theme}-${size.name}`, pg.full ?? true);
         await page.keyboard.press("Escape");
         if (pg.stub) await page.unrouteAll({ behavior: "ignoreErrors" });
+      }
+      // Signed out: the login page, Touch ID first and the sign-in link as the fallback.
+      if (!only || only.includes("login")) {
+        await page.context().clearCookies();
+        await page.goto("/login");
+        await page.getByRole("heading", { level: 1 }).waitFor();
+        await shot(page, `login-${theme}-${size.name}`, false);
       }
     });
   }
