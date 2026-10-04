@@ -528,6 +528,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/dns/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List DNS providers
+         * @description Connected DNS providers (never their credentials) with the zones they reach, and the providers the box supports with the credentials each needs. A connected provider is optional: with it the box creates records for the box domain, project domains and email, and uses one wildcard certificate (DNS-01) for every app and preview.
+         */
+        get: operations["dns-providers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dns/providers/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Connect a DNS provider
+         * @description Stores a DNS provider's credentials, encrypted with the box's key, after checking them by listing the zones they reach. Cloudflare: an API token with Zone · DNS · Edit on the zones (account-owned or user tokens both work). If one of its zones holds the box domain, the box switches to a wildcard certificate for *.<domain>. Replaces earlier credentials for the same provider. Box admins only.
+         */
+        put: operations["dns-connect"];
+        post?: never;
+        /**
+         * Disconnect a DNS provider
+         * @description Deletes the stored credentials. Records it created stay. The box goes back to per-name certificates (each app gets its own on its first visit). Box admins only.
+         */
+        delete: operations["dns-disconnect"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/dns/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Create or replace DNS records
+         * @description Sets records through the connected provider that holds each name's zone: every name and type ends up with exactly the given values (other records are untouched). For what the box cannot infer itself, such as email's SPF (TXT), DKIM (TXT or CNAME from your mail relay) and DMARC (TXT _dmarc.<domain>). Types: A, AAAA, CNAME, TXT, MX ("10 mail.example.com."), CAA. Box admins only.
+         */
+        put: operations["dns-records-set"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/domain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show the box's domain
+         * @description The box's domain and dashboard address, where certificates come from (Let's Encrypt or the box's own CA on a local box), whether the dashboard's certificate is live, the wildcard certificate when a DNS provider is connected, and during a switch the previous domain and until when it still works. Without tiffin domain set, a server uses <its-ipv4-with-dashes>.sslip.io: real names and real certificates with no DNS setup.
+         */
+        get: operations["domain-get"];
+        put?: never;
+        /**
+         * Use your own domain for the box
+         * @description Switches the box to <domain>: the dashboard moves to dashboard.<domain> (or <dashboard>.<domain>) and apps to <app>.<domain>. First checks that <domain> and *.<domain> point at this box (A/AAAA records); if not, nothing changes and the answer (status 412) lists exactly the records to add. With createRecords and a connected DNS provider that holds the zone, the box creates them itself. The service restarts (a few seconds; apps keep running), new certificates are obtained, and the old names keep working until the new ones have certificates, then for another hour. Touch ID sign-ins belong to the dashboard's address: add them again on the new one. Box admins only.
+         */
+        post: operations["domain-set"];
+        /**
+         * Go back to the automatic domain
+         * @description Stops using the domain set with tiffin domain set: the box goes back to its automatic name (<ipv4-with-dashes>.sslip.io on a server). The service restarts; the old names keep working until the new ones have certificates. Box admins only.
+         */
+        delete: operations["domain-unset"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/domain/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check a domain before using it for the box
+         * @description Read-only: the two DNS records a box domain needs (<domain> and *.<domain>, A and AAAA to this box's public addresses) with what DNS answers now, CAA records that would block certificates, and whether a connected DNS provider can set them. Asks public DNS resolvers.
+         */
+        get: operations["domain-check"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/email": {
         parameters: {
             query?: never;
@@ -1604,6 +1716,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/domains": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a project's own domains
+         * @description Every host outside the box domain that the project's apps serve (their routes) or redirect (www), with its state: waiting_for_dns (with the records to add and what DNS says now), issuing, live or error (with the reason: points elsewhere, a CAA record, a rate limit...). The box re-checks waiting domains on its own with backoff (15 s, then up to every 30 min).
+         */
+        get: operations["domains-list"];
+        put?: never;
+        /**
+         * Add a domain to a project
+         * @description Serves <domain> (optionally only <path>) from one of the project's apps: adds "<domain>[/path]" to the app's routes in the manifest (and www: "redirect" under domains), through plan and apply like any change, so tiffin pull captures it. Without confirm you get status 428 with the plan. The answer lists the DNS records to add (A/AAAA to this box; for a subdomain, or one CNAME to the box's own name). The box then watches DNS and gets the certificate: waiting_for_dns → issuing → live. With createRecords and a connected DNS provider it adds the records itself.
+         */
+        post: operations["domain-add"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/domains/{domain}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a domain's DNS now
+         * @description Looks the domain up right away instead of waiting for the next background check (after you add its records, say), and resets its backoff. If it now points here, the certificate is requested at once.
+         */
+        post: operations["domain-recheck"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/domains/{domain}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove a domain from a project
+         * @description Stops serving <domain>: removes every route of the project's apps on that host (all paths) and its domains entry (www redirect), through plan and apply. Without confirm you get status 428 with the plan. DNS records are left alone.
+         */
+        post: operations["domain-remove"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/email/messages": {
         parameters: {
             query?: never;
@@ -2234,6 +2410,26 @@ export interface paths {
         get: operations["secrets-list"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/secrets/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy secrets from another project
+         * @description Copies secrets (e.g. OPENAI_API_KEY) from another project on this box into this one, inside the box: the values never leave it, so you can reuse a key without asking the person to paste it again. Copies the named secrets, or all of them when names is empty. Existing secrets are kept unless overwrite is true. Needs full access to both projects, because this project's apps can read what it receives. Restarts this project's apps with them.
+         */
+        post: operations["secrets-copy"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4116,6 +4312,21 @@ export interface components {
              */
             defaultMaxSharePercent: number;
         };
+        CertInfo: {
+            /** Format: date-time */
+            checkedAt: string;
+            error?: string;
+            /** Format: date-time */
+            errorAt?: string;
+            host: string;
+            issuer?: string;
+            /** Format: date-time */
+            notAfter?: string;
+            renewing?: boolean;
+            state: string;
+            /** @description The name the certificate covers, e.g. *.example.com for a wildcard. */
+            subject?: string;
+        };
         Change: {
             actor: components["schemas"]["Actor"];
             /** Format: date-time */
@@ -4143,6 +4354,197 @@ export interface components {
         DetailEnvelopeStruct: {
             from: string;
             to: string[] | null;
+        };
+        "Dns-connectRequest": {
+            /** @description Every credential by name, for providers that need several (see dns providers). */
+            credentials?: {
+                [key: string]: string;
+            };
+            /** @description The API token, for providers that take one (Cloudflare). */
+            token?: string;
+        };
+        "Dns-records-setRequest": {
+            records: components["schemas"]["Record"][] | null;
+        };
+        "Dns-records-setResponse": {
+            set: components["schemas"]["Record"][] | null;
+            summary: string;
+        };
+        "Domain-setRequest": {
+            /** @description Create the two records through the connected DNS provider first. */
+            createRecords?: boolean;
+            /** @description The dashboard's first-level name. Default dashboard. */
+            dashboard?: string;
+            /** @description e.g. example.com (or apps.example.com to keep the apex for something else). */
+            domain: string;
+            /** @description A contact for the certificate authority (optional; also enables the ZeroSSL fallback). */
+            email?: string;
+            /** @description Switch even if DNS does not point here yet (certificates fail until it does). */
+            force?: boolean;
+        };
+        DomainsAddBody: {
+            /** @description The app that serves it (a web app of this project). */
+            app: string;
+            /** @description The plan hash (or its first 8+ characters) you reviewed. Without it nothing changes: you get status 428 with the plan. */
+            confirm?: string;
+            /** @description Create the DNS records through the connected DNS provider that holds the zone (after the change is applied). */
+            createRecords?: boolean;
+            /** @description The host name, e.g. example.com or shop.example.com. */
+            domain: string;
+            /** @description Why, in one sentence (shown in the activity timeline). */
+            intent?: string;
+            /** @description Only this path prefix goes to the app, e.g. /api (another app can serve the rest). Default: everything. */
+            path?: string;
+            /** @description Also serve www.<domain> and redirect it here (point www at the box too). */
+            www?: boolean;
+        };
+        DomainsBoxDomain: {
+            /** @description The ACME directory, when it is not Let's Encrypt. */
+            ca?: string;
+            /**
+             * @description acme: publicly trusted certificates (Let's Encrypt, ZeroSSL fallback); internal: the box's own CA (a local box).
+             * @enum {string}
+             */
+            certificates: "acme" | "internal";
+            /** @description The dashboard's host. */
+            dashboard: string;
+            dashboardCertificate: components["schemas"]["CertInfo"];
+            dashboardUrl: string;
+            /** @description The domain without tiffin domain set. */
+            default: string;
+            /** @description Apps are at <app>.<domain>. */
+            domain: string;
+            /** @description The domain before the last switch, still served for a while. */
+            previous?: components["schemas"]["DomainsPrevious"];
+            publicIps: string[] | null;
+            /** @description For a set domain: the two records it needs and whether DNS answers them. */
+            records?: components["schemas"]["DomainsRecordCheck"][] | null;
+            /** @description The service restarts (a few seconds) to switch domains; apps keep running. */
+            restarting?: boolean;
+            /**
+             * @description set: chosen with tiffin domain set; sslip: automatic, from the server's public IPv4 (no DNS setup); flag: the service's --domain (a local box).
+             * @enum {string}
+             */
+            source: "set" | "sslip" | "flag";
+            /** @enum {string} */
+            state: "live" | "issuing" | "error" | "internal";
+            summary: string;
+            /** @description Present when a connected DNS provider holds the domain's zone: one *.<domain> certificate covers every app and preview. */
+            wildcard?: components["schemas"]["DomainsWildcard"];
+        };
+        DomainsConnectedProvider: {
+            /** @description It holds the box domain's zone: the box uses one wildcard certificate (DNS-01) for every app. */
+            boxDomain: boolean;
+            /** Format: date-time */
+            connectedAt: string;
+            connectedBy: string;
+            /** @description Why the stored credentials cannot be used. */
+            error?: string;
+            label: string;
+            name: string;
+            /** @description The zones the credentials reach. */
+            zones: string[] | null;
+        };
+        DomainsDomain: {
+            /** @description For a subdomain, instead of records: one CNAME to the box's own name. */
+            alternative?: components["schemas"]["Record"][] | null;
+            certificate?: components["schemas"]["CertInfo"];
+            /** Format: date-time */
+            checkedAt?: string;
+            cname?: string;
+            domain: string;
+            /** @description The addresses DNS gives for the name now. */
+            found: string[] | null;
+            /** @description The connected DNS provider that holds its zone (records can be created for you). */
+            managedBy?: string;
+            /** Format: date-time */
+            nextCheckAt?: string;
+            project: string;
+            reason?: string;
+            /** @description Point the name at the box with these (all of them). */
+            records: components["schemas"]["Record"][] | null;
+            /** @description For www.<domain>: where it redirects. */
+            redirectTo?: string;
+            /** @description Path prefixes and the app serving each. */
+            routes: components["schemas"]["DomainsRoute"][] | null;
+            /** Format: date-time */
+            since: string;
+            /** @enum {string} */
+            state: "waiting_for_dns" | "issuing" | "live" | "error";
+            summary: string;
+            url: string;
+            /** @description www.<domain> redirects here. */
+            wwwRedirect: boolean;
+        };
+        DomainsDomainChange: {
+            /** @description False when nothing needed to change. */
+            applied: boolean;
+            change?: components["schemas"]["Change"];
+            /** @description Records the box created through the connected DNS provider (createRecords). */
+            created?: components["schemas"]["Record"][] | null;
+            /** @description The domain's status and the records to add (after an add). */
+            domain?: components["schemas"]["DomainsDomain"];
+            plan: components["schemas"]["Plan"];
+        };
+        DomainsDomainCheck: {
+            /** @description A CAA record that blocks the box's certificate authority, and the fix. */
+            caa?: string;
+            domain: string;
+            /** @description The connected DNS provider that holds this zone: createRecords sets the records for you. */
+            managedBy?: string;
+            /** @description Both records point at this box and nothing blocks certificates. */
+            ok: boolean;
+            /** @description Add these at your DNS host. */
+            records: components["schemas"]["DomainsRecordCheck"][] | null;
+            summary: string;
+        };
+        DomainsPrevious: {
+            domain: string;
+            /**
+             * Format: date-time
+             * @description When its names stop working; absent while the new names have no certificate yet.
+             */
+            until?: string;
+        };
+        DomainsProviders: {
+            available: components["schemas"]["Kind"][] | null;
+            connected: components["schemas"]["DomainsConnectedProvider"][] | null;
+            summary: string;
+        };
+        DomainsRecordCheck: {
+            /** @description The addresses DNS gives for the name now. */
+            found: string[] | null;
+            /** @description The name as most DNS panels want it, relative to the zone: @ for the zone itself, * for the wildcard, shop for shop.example.com. */
+            host?: string;
+            /** @description The full name, e.g. shop.example.com or *.example.com. */
+            name: string;
+            /** @description DNS already answers this way. */
+            ok: boolean;
+            /** @description What is wrong, in plain words. */
+            reason?: string;
+            /**
+             * Format: int64
+             * @description Seconds; 0 or absent means the provider's default (automatic).
+             */
+            ttl?: number;
+            /** @description A, AAAA, CNAME, TXT or CAA. */
+            type: string;
+            value: string;
+        };
+        DomainsRemoveBody: {
+            /** @description The plan hash (or its first 8+ characters) you reviewed. Without it nothing changes: you get status 428 with the plan. */
+            confirm?: string;
+            /** @description Why, in one sentence. */
+            intent?: string;
+        };
+        DomainsRoute: {
+            app: string;
+            /** @description Path prefix; / is everything else. */
+            path: string;
+        };
+        DomainsWildcard: {
+            certificate: components["schemas"]["CertInfo"];
+            provider: string;
         };
         "Email-messages-clearResponse": {
             /** Format: int64 */
@@ -4406,6 +4808,13 @@ export interface components {
              */
             reason: "bounce" | "complaint" | "unsubscribe" | "manual";
         };
+        Field: {
+            help?: string;
+            label: string;
+            /** @description The key in credentials, e.g. token. */
+            name: string;
+            secret: boolean;
+        };
         FieldError: {
             message: string;
             /** @description JSON pointer or parameter location */
@@ -4498,6 +4907,14 @@ export interface components {
             /** @description "all" (every project, including ones created later) or a list of project names */
             projects: "all" | string[];
         };
+        Kind: {
+            fields: components["schemas"]["Field"][] | null;
+            /** @description How to make a credential for it. */
+            help: string;
+            label: string;
+            /** @description Its id in the API, e.g. cloudflare. */
+            name: string;
+        };
         LoginLink: {
             code: string;
             /** Format: date-time */
@@ -4533,6 +4950,9 @@ export interface components {
             };
             crons?: {
                 [key: string]: components["schemas"]["ManifestCron"];
+            };
+            domains?: {
+                [key: string]: components["schemas"]["ManifestDomain"];
             };
             env?: {
                 [key: string]: string;
@@ -4578,6 +4998,9 @@ export interface components {
             app: string;
             path: string;
             schedule: string;
+        };
+        ManifestDomain: {
+            www?: string;
         };
         ManifestEmail: {
             from?: string;
@@ -6135,6 +6558,20 @@ export interface components {
             name: string;
             subscriptions: components["schemas"]["QueueSubscription"][] | null;
         };
+        Record: {
+            /** @description The name as most DNS panels want it, relative to the zone: @ for the zone itself, * for the wildcard, shop for shop.example.com. */
+            host?: string;
+            /** @description The full name, e.g. shop.example.com or *.example.com. */
+            name: string;
+            /**
+             * Format: int64
+             * @description Seconds; 0 or absent means the provider's default (automatic).
+             */
+            ttl?: number;
+            /** @description A, AAAA, CNAME, TXT or CAA. */
+            type: string;
+            value: string;
+        };
         RenderedConfig: {
             /** @description The manifest as a readable tiffin.config.ts, defaults left out (what tiffin pull writes) */
             config: string;
@@ -6342,6 +6779,19 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
             updatedBy: string;
+        };
+        "Secrets-copyRequest": {
+            /** @description Project to copy from */
+            from: string;
+            /** @description Secret names to copy; empty copies all */
+            names?: string[] | null;
+            /** @description Replace secrets this project already has with the same name */
+            overwrite?: boolean;
+        };
+        SecretsCopied: {
+            copied: string[] | null;
+            /** @description Already set in this project (pass overwrite to replace them) */
+            skipped: string[] | null;
         };
         SentryEvent: {
             environment?: string;
@@ -9156,6 +9606,601 @@ export interface operations {
             };
             /** @description Precondition Required */
             428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "dns-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsProviders"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "dns-connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description e.g. cloudflare */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Dns-connectRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsProviders"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "dns-disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description e.g. cloudflare */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsProviders"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "dns-records-set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Dns-records-setRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Dns-records-setResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "domain-get": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsBoxDomain"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "domain-set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Domain-setRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsBoxDomain"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "domain-unset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsBoxDomain"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "domain-check": {
+        parameters: {
+            query: {
+                /** @description e.g. example.com */
+                domain: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsDomainCheck"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13796,6 +14841,353 @@ export interface operations {
             };
         };
     };
+    "domains-list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsDomain"][] | null;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "domain-add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DomainsAddBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsDomainChange"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "domain-recheck": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description The domain, e.g. example.com */
+                domain: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsDomain"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "domain-remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description The domain, e.g. example.com */
+                domain: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DomainsRemoveBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainsDomainChange"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "email-messages-list": {
         parameters: {
             query?: {
@@ -16591,6 +17983,87 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "secrets-copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project to copy into */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Secrets-copyRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecretsCopied"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -143,7 +143,9 @@ func load(c Config) error {
 	if err != nil {
 		return err
 	}
-	if err := caddy.Load(raw, true); err != nil {
+	// Not forced: an identical config is a no-op, so the frequent route
+	// refreshes do not interrupt certificates being obtained.
+	if err := caddy.Load(raw, false); err != nil {
 		return fmt.Errorf("edge: load caddy config: %w", err)
 	}
 	return nil
@@ -158,9 +160,9 @@ func (e *Edge) waitReady(ctx context.Context, c Config) error {
 	if c.ACME != nil {
 		return waitListening(ctx, net.JoinHostPort("127.0.0.1", strconv.Itoa(c.HTTPSPort)))
 	}
-	hosts := []string{c.DashboardHost()}
+	hosts := c.dashboardHosts()
 	for _, r := range c.Routes {
-		hosts = append(hosts, r.Host)
+		hosts = append(hosts, c.hostsFor(r.Host)...)
 	}
 	deadline := time.Now().Add(15 * time.Second)
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(c.HTTPSPort))

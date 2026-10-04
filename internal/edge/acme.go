@@ -76,6 +76,10 @@ type DNSChallenge struct {
 	PropagationTimeout time.Duration
 }
 
+// key names one provider instance in the config: a new instance (new
+// credentials) changes the config, so the edge reloads and uses it.
+func (d *DNSChallenge) key() string { return fmt.Sprintf("%s-%p", d.Name, d.Provider) }
+
 func (a *ACME) publicCA() bool {
 	switch strings.TrimRight(a.CA, "/") {
 	case "", LetsEncrypt, ZeroSSL:
@@ -129,7 +133,7 @@ func (c Config) issuer(ca string, dns *DNSChallenge) obj {
 	}
 	ch := obj{}
 	if dns != nil {
-		d := obj{"provider": obj{"name": dnsModuleName, "key": dns.Name}}
+		d := obj{"provider": obj{"name": dnsModuleName, "key": dns.key()}}
 		if len(dns.Resolvers) > 0 {
 			d["resolvers"] = dns.Resolvers
 		}
@@ -317,7 +321,7 @@ func install(c Config) {
 	allowed.Store(&set)
 	if c.ACME != nil && c.ACME.Wildcard != nil {
 		providersMu.Lock()
-		providers[c.ACME.Wildcard.Name] = c.ACME.Wildcard.Provider
+		providers[c.ACME.Wildcard.key()] = c.ACME.Wildcard.Provider
 		providersMu.Unlock()
 	}
 }
@@ -356,6 +360,11 @@ func OnCertEvent(fn func(CertEvent)) (cancel func()) {
 }
 
 func recordEvent(ev CertEvent) {
+	if ev.Kind == "failed" && strings.Contains(ev.Error, "context canceled") {
+		// A reload or shutdown interrupted the attempt; the new config
+		// starts it again. Not a failure worth reporting.
+		return
+	}
 	eventsMu.Lock()
 	if ev.Kind == "obtaining" {
 		// Keep a failure visible while the retry runs.
