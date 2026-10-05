@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -120,7 +121,7 @@ const routePattern = `^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Z
 func schemaMessage(k jsonschema.ErrorKind) string {
 	switch k := k.(type) {
 	case *kind.AdditionalProperties:
-		return "unknown field(s): " + strings.Join(k.Properties, ", ") + "; check the spelling against the schema"
+		return "unknown field(s): " + strings.Join(slices.Sorted(slices.Values(k.Properties)), ", ") + "; check the spelling against the schema"
 	case *kind.Required:
 		return "missing required field(s): " + strings.Join(k.Missing, ", ")
 	case *kind.Pattern:
