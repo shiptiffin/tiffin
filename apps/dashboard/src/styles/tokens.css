@@ -42,10 +42,10 @@
   --rule-3: oklch(0.235 0.014 60 / 0.4);
   --steel: oklch(0.64 0.01 75);
   /* brass: one accent, under 5 % of pixels */
-  --brass: oklch(0.66 0.115 76);
+  --brass: oklch(0.8 0.15 78); /* marigold: bright enough to read as sunny, not olive */
   --brass-ink: oklch(0.485 0.098 70);
-  --brass-wash: oklch(0.66 0.115 76 / 0.13);
-  --on-brass: oklch(0.2 0.02 60);
+  --brass-wash: oklch(0.8 0.15 78 / 0.16);
+  --on-brass: oklch(0.22 0.03 60);
   /* status: only when status isn't fine */
   --danger: oklch(0.52 0.175 27);
   --danger-wash: oklch(0.52 0.175 27 / 0.07);
@@ -96,9 +96,9 @@
     --rule-2: oklch(0.935 0.008 85 / 0.15);
     --rule-3: oklch(0.935 0.008 85 / 0.34);
     --steel: oklch(0.5 0.008 75);
-    --brass: oklch(0.77 0.11 80);
+    --brass: oklch(0.82 0.15 80);
     --brass-ink: oklch(0.8 0.1 80);
-    --brass-wash: oklch(0.77 0.11 80 / 0.12);
+    --brass-wash: oklch(0.82 0.15 80 / 0.13);
     --on-brass: oklch(0.2 0.02 60);
     --danger: oklch(0.69 0.165 27);
     --danger-wash: oklch(0.69 0.165 27 / 0.09);
@@ -144,9 +144,9 @@
   --rule-2: oklch(0.935 0.008 85 / 0.15);
   --rule-3: oklch(0.935 0.008 85 / 0.34);
   --steel: oklch(0.5 0.008 75);
-  --brass: oklch(0.77 0.11 80);
+  --brass: oklch(0.82 0.15 80);
   --brass-ink: oklch(0.8 0.1 80);
-  --brass-wash: oklch(0.77 0.11 80 / 0.12);
+  --brass-wash: oklch(0.82 0.15 80 / 0.13);
   --on-brass: oklch(0.2 0.02 60);
   --danger: oklch(0.69 0.165 27);
   --danger-wash: oklch(0.69 0.165 27 / 0.09);
@@ -218,7 +218,7 @@
 /* Contrast, measured (WCAG 2 relative luminance; /_kit recomputes it live from these tokens).
    Text needs 4.5:1, incidental text and UI parts 3:1.
      light  ink 15.5 · ink-2 7.6 · ink-3 5.3 (4.9 on sunk, 5.5 on raised) · ink-4 3.7 (3.4 on sunk)
-            graphite 6.3 · brass-ink 6.1 · danger 5.6 · warn-ink 5.8 · ok 4.9 · on-brass 5.7 · focus 3.8
+            graphite 6.3 · brass-ink 6.1 · danger 5.6 · warn-ink 5.8 · ok 4.9 · on-brass 9.5 · focus 3.8
      dark   ink 15.4 · ink-2 9.2 · ink-3 6.1 (5.7 on raised) · ink-4 3.8 (3.6 on raised)
-            graphite 8.7 · brass-ink 9.9 · danger 6.3 · warn-ink 9.8 · ok 8.5 · on-brass 8.7 · focus 8.9
-   Brass itself (2.9:1 on light paper) is a fill, never text; the focus ring uses --focus. */
+            graphite 8.7 · brass-ink 9.9 · danger 6.3 · warn-ink 9.8 · ok 8.5 · on-brass 10.1 · focus 8.9
+   Brass itself (1.8:1 on light paper) is a fill, never text; the focus ring uses --focus. */

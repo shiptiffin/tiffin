@@ -35,7 +35,7 @@ export function HomePage() {
   const changes = useQuery({ ...q.changes(), staleTime: 30_000 });
   const recent = useRecentProjects();
   const names = useMemo(() => (projects.data ?? []).map((p) => p.name), [projects.data]);
-  const { shares } = useBoxShares();
+  const { shares, pending } = useBoxShares();
   const [view, setView] = useStoredState<"grid" | "list">("tiffin.home-view", "grid");
   const [sort, setSort] = useStoredState<Sort>("tiffin.home-sort", "active");
   const [query, setQuery] = useState("");
@@ -75,7 +75,7 @@ export function HomePage() {
         </Button>
       </header>
 
-      <BoxLine shares={shares} names={names} />
+      <BoxLine shares={shares} names={names} pending={pending} />
 
       {names.length > 0 && (
         <div className="mt-9 flex flex-wrap items-center gap-2">
@@ -175,8 +175,9 @@ function useStoredState<T extends string>(key: string, initial: T): [T, (v: T) =
 }
 
 /** "Your box is about two-fifths full. Room for about four more apps." and the bar. */
-function BoxLine({ shares, names }: { shares?: Shares; names: string[] }) {
-  if (!shares) return <div className="mt-6 h-[52px]" aria-hidden />;
+function BoxLine({ shares, names, pending }: { shares?: Shares; names: string[]; pending: boolean }) {
+  // Hold the line's space while it loads (no jump); a box that can't measure itself shows nothing.
+  if (!shares) return pending ? <div className="mt-6 h-[52px]" aria-hidden /> : null;
   return (
     <section className="mt-5 max-w-[46rem]" aria-label="Your box">
       <p className="text-[0.9375rem] text-ink-2">
