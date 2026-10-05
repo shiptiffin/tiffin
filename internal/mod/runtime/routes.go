@@ -168,7 +168,8 @@ func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project st
 	}
 	// The box's own names are never an app's.
 	taken := map[string]string{p.DashboardHost(): "the dashboard"}
-	for _, n := range []string{"s3", "files", "t", "otel", "errors"} {
+	// "dashboard" stays the box's on the apps domain too: an app there would pass for it.
+	for _, n := range []string{"dashboard", "s3", "files", "t", "otel", "errors"} {
 		taken[p.Host(n)] = "the box"
 	}
 	for _, n := range names {

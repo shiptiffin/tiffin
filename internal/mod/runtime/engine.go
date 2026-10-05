@@ -263,12 +263,12 @@ func (n *nerdctl) LoadImage(ctx context.Context, tarball io.Reader, ref string, 
 		// it points to: nerdctl names the index first, and either runs.
 		fmt.Fprintf(log, "the tarball loaded %d names (an index and its manifests); using %s\n", len(names), names[0])
 	}
-	id := strings.TrimPrefix(names[0], loadedPrefix)[:12]
-	if _, err := n.run(ctx, "tag", id, ref); err != nil {
+	// Tag by the full loaded name: a short ID of an index digest is no image ID.
+	if _, err := n.run(ctx, "tag", names[0], ref); err != nil {
 		return err
 	}
 	drop()
-	fmt.Fprintf(log, "loaded image %s as %s\n", id, ref)
+	fmt.Fprintf(log, "loaded image %s as %s\n", strings.TrimPrefix(names[0], loadedPrefix)[:12], ref)
 	return nil
 }
 
