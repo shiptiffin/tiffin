@@ -479,6 +479,9 @@ func randomManifest(r *rand.Rand) *Manifest {
 		for range r.IntN(4) {
 			m.Services.Postgres.Extensions = append(m.Services.Postgres.Extensions, pick("vector", "pg_cron", "uuid-ossp", "citext"))
 		}
+		if r.IntN(3) == 0 {
+			m.Services.Postgres.StatementTimeoutSeconds = 1 + r.IntN(3600)
+		}
 	}
 	if r.IntN(2) == 0 {
 		m.Services.Valkey = &Valkey{}

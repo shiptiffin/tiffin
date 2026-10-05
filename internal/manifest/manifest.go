@@ -159,11 +159,16 @@ type Services struct {
 type Postgres struct {
 	// Extensions to enable, e.g. "vector", "pg_cron". Sorted, unique.
 	Extensions []string `json:"extensions,omitempty"`
+	// StatementTimeoutSeconds stops any one query of the project's after
+	// this many seconds, 1-3600. Default 0: 30 seconds. A query can raise it
+	// for itself (SET LOCAL statement_timeout).
+	StatementTimeoutSeconds int `json:"statementTimeoutSeconds,omitempty"`
 }
 
 // Valkey gives the project a KV/cache namespace.
 type Valkey struct {
-	// MaxMemoryMB caps this project's share. Default 64.
+	// MaxMemoryMB caps this project's share. Default 64. Enforced while the
+	// project has a limit (see Resources); otherwise only reported.
 	MaxMemoryMB int `json:"maxMemoryMB"`
 }
 

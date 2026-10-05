@@ -152,7 +152,7 @@ func TestModule(t *testing.T) {
 
 	// A fixed budget: hard cap, guarantee, CPU quota.
 	h.apply(`{"project":"shop","resources":{"memoryMB":256,"cpus":0.5},"apps":{"web":{}}}`)
-	want := []string{"MemoryMax=256M", "MemorySwapMax=0M", "MemoryLow=256M", "CPUWeight=100", "MemoryHigh=infinity", "CPUQuota=50%"}
+	want := []string{"MemoryMax=256M", "MemorySwapMax=0M", "MemoryLow=256M", "CPUWeight=100", "MemoryHigh=infinity", "CPUQuota=50%", "IOWeight=25"}
 	if got := h.sd.props(`tiffin-p-shop.slice`); !slices.Equal(got, want) {
 		t.Fatalf("shop slice: %v", got)
 	}
@@ -242,6 +242,22 @@ func TestModule(t *testing.T) {
 	write(t, h.root, shopRel+"/memory.events", "low 0\nhigh 9\nmax 5\noom 1\noom_kill 1\n")
 	if v := Lookup("shop", ReadStats(SliceDir(h.root, "shop"))); v.Pressure != PressureOOM {
 		t.Fatalf("oom pressure: %s", v.Pressure)
+	}
+	// The kill is in the project's history of limits, once an hour at most.
+	if s := SharedLimit("shop"); s.Percent != 25 || s.CPUs != 0.5 || s.MemoryMB != 256 {
+		t.Fatalf("shared limit: %+v", s)
+	}
+	for range 2 {
+		if err := mod.sync(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(t, h.root, shopRel+"/memory.events", "low 0\nhigh 9\nmax 5\noom 2\noom_kill 2\n")
+	if err := mod.sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if ev := Events(ctx, "shop"); len(ev) != 1 || ev[0].Kind != EventMemory || !strings.Contains(ev[0].Message, "256 MB") {
+		t.Fatalf("events: %+v", ev)
 	}
 
 	// Deleting a project removes its slice.

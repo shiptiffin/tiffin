@@ -183,7 +183,7 @@ listen_addresses = '127.0.0.1'
 port = %[3]d
 unix_socket_directories = '%[4]s'
 unix_socket_permissions = 0777
-max_connections = 100
+max_connections = %[9]d
 password_encryption = scram-sha-256
 
 # Memory, sized for a %[5]d MB box.
@@ -226,7 +226,7 @@ lc_monetary = 'C.UTF-8'
 lc_numeric = 'C.UTF-8'
 lc_time = 'C.UTF-8'
 idle_in_transaction_session_timeout = '10min'
-`, DataDir, ConfDir, Port, SocketDir, memMB, shared, cache, maint)
+`, DataDir, ConfDir, Port, SocketDir, memMB, shared, cache, maint, MaxConnections)
 }
 
 // The box itself (root, via the ident map) connects as the postgres
@@ -258,6 +258,11 @@ Environment=TIFFIN_PG_CONF=` + confSum + `
 ExecStartPre=+/usr/bin/install -d -m 2775 -o postgres -g postgres ` + SocketDir + `
 ExecStart=` + BinDir + `/postgres -c config_file=` + ConfDir + `/postgresql.conf
 ExecReload=/bin/kill -HUP $MAINPID
+# The box holds each limited project's backends to its share of the CPUs
+# (tiffin-postgres.service/p-<project>); the server and everything else
+# runs in the "shared" group.
+Delegate=cpu io
+DelegateSubgroup=` + sharedGroup + `
 KillMode=mixed
 KillSignal=SIGINT
 TimeoutStartSec=600

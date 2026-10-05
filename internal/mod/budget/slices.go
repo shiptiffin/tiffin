@@ -141,7 +141,10 @@ func props(l Limits) []string {
 	} else {
 		p = append(p, "CPUQuota=")
 	}
-	return p
+	// Disk reads and writes: a limited project gets its share's weight
+	// against everyone else's 100 when the disk is busy. The kernel honours
+	// weights only with an IO scheduler that has them (BFQ, or io.cost).
+	return append(p, "IOWeight="+strconv.Itoa(max(1, l.IOWeight)))
 }
 
 // systemd applies slice properties. Tests use a fake.

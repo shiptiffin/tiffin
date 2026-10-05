@@ -21,9 +21,13 @@ type KVStats struct {
 	Keys        int64  `json:"keys" doc:"Keys under the prefix"`
 	MemoryBytes int64  `json:"memoryBytes" doc:"Memory used by those keys (MEMORY USAGE)"`
 	Approximate bool   `json:"approximate" doc:"True when there were too many keys to measure each; memory is extrapolated from a sample"`
-	MaxMemoryMB int    `json:"maxMemoryMB" doc:"The project's cap from tiffin.config.ts. Tracked and reported, not enforced (Valkey has no per-prefix limit)."`
+	MaxMemoryMB int    `json:"maxMemoryMB" doc:"The project's cap from tiffin.config.ts. Enforced while the project has a limit (see enforcedBytes); otherwise only reported."`
 	OverCap     bool   `json:"overCap" doc:"Usage is above maxMemoryMB"`
-	Server      struct {
+	// EnforcedBytes and WritesRefused: the cache limit the box holds the
+	// project to while it has a limit (see limits.go).
+	EnforcedBytes int64 `json:"enforcedBytes,omitempty" doc:"While the project has a limit: the cache limit the box holds it to (the smaller of maxMemoryMB and its share of Valkey's memory). Over it, keys with an expiry are cleared first, then writes are refused."`
+	WritesRefused bool  `json:"writesRefused,omitempty" doc:"True while its cache is over that limit and writes (but not deletes) are refused"`
+	Server        struct {
 		Version     string `json:"version"`
 		UsedBytes   int64  `json:"usedBytes"`
 		MaxBytes    int64  `json:"maxBytes" doc:"Server-wide limit"`
@@ -170,41 +174,13 @@ func GetStats(ctx context.Context, p *platform.Platform, project string) (*KVSta
 	if raw, ok, _ := p.DB.KVGet(ctx, nsCap, project); ok {
 		out.MaxMemoryMB, _ = strconv.Atoi(string(raw))
 	}
-	const sampleMax = 2000
-	cursor := "0"
-	var sampled, sampledBytes int64
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		v, err := c.Do(ctx, "SCAN", cursor, "MATCH", out.Prefix+"*", "COUNT", "1000")
-		if err != nil {
-			return nil, err
-		}
-		next, keys := scanReply(v)
-		cursor = next
-		for _, k := range keys {
-			out.Keys++
-			if sampled < sampleMax {
-				if n, err := c.Int(ctx, "MEMORY", "USAGE", k, "SAMPLES", "5"); err == nil {
-					sampledBytes += n
-					sampled++
-				}
-			}
-		}
-		if cursor == "0" {
-			break
-		}
-		if time.Now().After(deadline) {
-			out.Approximate = true // stopped counting early
-			break
-		}
-	}
-	if sampled > 0 {
-		out.MemoryBytes = sampledBytes * out.Keys / sampled
-	}
-	if sampled < out.Keys {
-		out.Approximate = true
+	if out.Keys, out.MemoryBytes, out.Approximate, err = prefixUsage(ctx, c, out.Prefix); err != nil {
+		return nil, err
 	}
 	out.OverCap = out.MaxMemoryMB > 0 && out.MemoryBytes > int64(out.MaxMemoryMB)<<20
+	if l, ok := CacheLimit(project); ok && l.LimitBytes > 0 {
+		out.EnforcedBytes, out.WritesRefused = l.LimitBytes, l.WritesRefused
+	}
 	raw, err := c.String(ctx, "INFO", "everything")
 	if err != nil {
 		return nil, err

@@ -112,14 +112,39 @@ func TestBoxDefaultShare(t *testing.T) {
 	}
 }
 
+// The share a project is limited to, for the services the box shares
+// (database, cache, builds) and its disk weight.
+func TestSharePercent(t *testing.T) {
+	pool := box3.PoolMB() // 1535
+	l := Resolve(box3, Settings{DefaultMaxSharePercent: 20}, []Project{
+		{Name: "share", Resources: &manifest.Resources{MaxSharePercent: 25, MemoryMB: 128}},
+		{Name: "mem", Resources: &manifest.Resources{MemoryMB: pool / 10}},
+		{Name: "cpu", Resources: &manifest.Resources{MemoryMB: 128, CPUs: 0.5}},
+		{Name: "all", Resources: &manifest.Resources{MaxSharePercent: 100}},
+		{Name: "default"},
+	})
+	for name, want := range map[string]int{"share": 25, "mem": 10, "cpu": 25, "all": 0, "default": 20} {
+		if got := l[name].SharePercent; got != want {
+			t.Errorf("%s: share %d, want %d", name, got, want)
+		}
+	}
+	if l["share"].IOWeight != 25 || l["all"].IOWeight != 100 {
+		t.Fatalf("io weights: %+v %+v", l["share"], l["all"])
+	}
+	// A box default of 100 is no limit.
+	if a := Resolve(box3, DefaultSettings, []Project{{Name: "a"}})["a"]; a.SharePercent != 0 || a.IOWeight != 100 {
+		t.Fatalf("elastic: %+v", a)
+	}
+}
+
 func TestProps(t *testing.T) {
-	p := props(Limits{MemoryMaxMB: 256, MemoryLowMB: 256, CPUs: 1.5, CPUWeight: 100})
-	want := []string{"MemoryMax=256M", "MemorySwapMax=0M", "MemoryLow=256M", "CPUWeight=100", "MemoryHigh=infinity", "CPUQuota=150%"}
+	p := props(Limits{MemoryMaxMB: 256, MemoryLowMB: 256, CPUs: 1.5, CPUWeight: 100, IOWeight: 25})
+	want := []string{"MemoryMax=256M", "MemorySwapMax=0M", "MemoryLow=256M", "CPUWeight=100", "MemoryHigh=infinity", "CPUQuota=150%", "IOWeight=25"}
 	if !slices.Equal(p, want) {
 		t.Fatalf("props = %v", p)
 	}
-	p = props(Limits{MemoryMaxMB: 1279, MemoryLowMB: 767, CPUWeight: 100})
-	if !slices.Contains(p, "MemoryHigh=infinity") || !slices.Contains(p, "CPUQuota=") {
+	p = props(Limits{MemoryMaxMB: 1279, MemoryLowMB: 767, CPUWeight: 100, IOWeight: 100})
+	if !slices.Contains(p, "MemoryHigh=infinity") || !slices.Contains(p, "CPUQuota=") || !slices.Contains(p, "IOWeight=100") {
 		t.Fatalf("automatic props = %v", p)
 	}
 }

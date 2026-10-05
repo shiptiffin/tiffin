@@ -17,5 +17,6 @@ func (*Module) ProjectUsage(ctx context.Context, p *platform.Platform, project s
 	if err != nil {
 		return nil, err
 	}
-	return &platform.ServiceUsage{Service: "valkey", Disk: "kv", Bytes: st.MemoryBytes, Counts: map[string]int64{"keys": st.Keys}}, nil
+	return &platform.ServiceUsage{Service: "valkey", Disk: "kv", Bytes: st.MemoryBytes,
+		Counts: map[string]int64{"keys": st.Keys, "maxMemoryMB": int64(st.MaxMemoryMB)}}, nil
 }

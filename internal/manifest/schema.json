@@ -318,6 +318,12 @@
                 "pattern": "^[a-z][a-z0-9_-]*$",
                 "description": "Extension name, lowercase."
               }
+            },
+            "statementTimeoutSeconds": {
+              "description": "Stops any one query of the project's after this many seconds, 1-3600. Default 30. A query can raise it for itself with SET LOCAL statement_timeout.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3600
             }
           }
         },
@@ -327,7 +333,7 @@
           "additionalProperties": false,
           "properties": {
             "maxMemoryMB": {
-              "description": "Cap on this project's share of Valkey memory in MiB, 1-65536. Default 64.",
+              "description": "This project's cache limit in MiB, 1-65536. Default 64. Enforced while the project has a limit (resources, or the box's default share): keys with an expiry are cleared first, then writes are refused until it is under the limit.",
               "type": "integer",
               "minimum": 1,
               "maximum": 65536

@@ -216,6 +216,9 @@ func servicesNode(s Services) *node {
 		if len(pg.Extensions) > 0 {
 			p.set("extensions", strs(pg.Extensions))
 		}
+		if pg.StatementTimeoutSeconds > 0 {
+			p.set("statementTimeoutSeconds", num(pg.StatementTimeoutSeconds))
+		}
 		n.set("postgres", p)
 	}
 	if v := s.Valkey; v != nil {

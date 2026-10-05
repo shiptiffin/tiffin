@@ -79,11 +79,16 @@ export interface GitConfig {
 export interface PostgresConfig {
   /** Extensions to enable, e.g. "vector", "pg_cron". Sorted and de-duplicated. */
   extensions?: string[];
+  /**
+   * Stops any one query after this many seconds, 1-3600. Default 30. A query
+   * can raise it for itself with SET LOCAL statement_timeout.
+   */
+  statementTimeoutSeconds?: number;
 }
 
 /** Valkey gives the project a KV/cache namespace. */
 export interface ValkeyConfig {
-  /** Caps this project's share, in MiB. Default 64. */
+  /** This project's cache limit, in MiB. Default 64. Enforced while the project has a limit (resources). */
   maxMemoryMB?: number;
 }
 

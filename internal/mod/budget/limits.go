@@ -31,6 +31,10 @@ const (
 	// CPUWeight is every project's CPU weight: equal shares under
 	// contention, full speed when the box is idle.
 	CPUWeight = 100
+	// MinBuildMB is the least memory a limited project's builds get before
+	// they slow down: a JavaScript build needs about a gigabyte however
+	// small the project's share is.
+	MinBuildMB = 1024
 )
 
 // Box is what the machine has.
@@ -153,11 +157,18 @@ type Limits struct {
 	// is tight: half its cap for automatic projects (so a project over its
 	// fair share slows down instead of anyone being killed), 0 for fixed caps
 	// (a capped project fails fast and restarts).
-	SwapMaxMB    int     `json:"swapMaxMB"`
-	CPUs         float64 `json:"cpus,omitempty"` // CPU quota in cores; 0: none
-	CPUWeight    int     `json:"cpuWeight"`
-	MemorySource string  `json:"memorySource"`
-	CPUSource    string  `json:"cpuSource"`
+	SwapMaxMB int     `json:"swapMaxMB"`
+	CPUs      float64 `json:"cpus,omitempty"` // CPU quota in cores; 0: none
+	CPUWeight int     `json:"cpuWeight"`
+	// IOWeight is the slice's disk weight under contention: 100 (every
+	// project the same), or a limited project's share (25% → 25).
+	IOWeight     int    `json:"ioWeight"`
+	MemorySource string `json:"memorySource"`
+	CPUSource    string `json:"cpuSource"`
+	// SharePercent is the share of the box the project is limited to, for
+	// everything it uses of the box: its apps, its database's CPU and
+	// connections, its cache and its builds. 0: no limit (see sharePercent).
+	SharePercent int `json:"sharePercent,omitempty"`
 }
 
 // Source is the overall source: the project's own when it set either
@@ -244,6 +255,11 @@ func Resolve(b Box, s Settings, projects []Project) map[string]Limits {
 		default:
 			l.CPUSource = SourceAutomatic
 		}
+		l.SharePercent = sharePercent(b, s, p.Resources)
+		l.IOWeight = CPUWeight
+		if l.SharePercent > 0 {
+			l.IOWeight = l.SharePercent
+		}
 		if r.MemoryMB > 0 {
 			reserved += l.MemoryMaxMB
 		} else if p.Copies > 0 {
@@ -262,6 +278,31 @@ func Resolve(b Box, s Settings, projects []Project) map[string]Limits {
 		out[p.Name] = l
 	}
 	return out
+}
+
+// sharePercent is the share of the box a project is limited to, 1-99, or 0
+// for none: its own maxSharePercent; else, for exact limits (memoryMB,
+// cpus), the larger of what they are of the box (memory for apps, CPUs),
+// rounded up; else the box default when it is below 100.
+func sharePercent(b Box, s Settings, r *manifest.Resources) int {
+	pct := 0
+	switch {
+	case r != nil && r.MaxSharePercent > 0:
+		pct = r.MaxSharePercent
+	case r != nil && (r.MemoryMB > 0 || r.CPUs > 0):
+		if pool := b.PoolMB(); r.MemoryMB > 0 && pool > 0 {
+			pct = (r.MemoryMB*100 + pool - 1) / pool
+		}
+		if r.CPUs > 0 && b.CPUs > 0 {
+			pct = max(pct, int(math.Ceil(r.CPUs*100/float64(b.CPUs)-1e-9)))
+		}
+	default:
+		pct = s.DefaultMaxSharePercent
+	}
+	if pct >= 100 {
+		return 0
+	}
+	return max(pct, 0)
 }
 
 // Problem is one reason a budget does not fit the box.

@@ -63,6 +63,26 @@ func TestUsage(t *testing.T) {
 	}
 }
 
+// Without a limit: the database's safety settings, the cache's limit only
+// reported, no build cap; queries of limited projects are marked for CPU.
+func TestSharedUsage(t *testing.T) {
+	s, f, _, _ := newFake(t)
+	f.write("sys/fs/cgroup/system.slice/tiffin-postgres.service/p-shop/cpu.stat", "usage_usec 1000000\n")
+	tr := newTracker(f.root, nil)
+	tr.markAll(time.Now())
+	if _, ok := tr.marks["pg:shop"]; !ok {
+		t.Fatalf("the database group's CPU is not marked: %v", tr.marks)
+	}
+	u := &Usage{Project: "blog", Services: UsageServices{Postgres: &PGUsage{Connections: 3}}, Cache: &UsageCache{UsedBytes: 1 << 20, LimitBytes: 64 << 20}}
+	s.sharedUsage(context.Background(), tr, u, time.Now())
+	if d := u.Database; d == nil || d.Connections != 3 || d.ConnectionLimit != 80 || d.QueryTimeLimitSeconds != 30 || d.LimitCpus != nil {
+		t.Fatalf("database: %+v", u.Database)
+	}
+	if u.SharePercent != 0 || u.Builds.LimitCpus != nil || u.Cache.Enforced || u.LimitEvents == nil {
+		t.Fatalf("no limit: %+v", u)
+	}
+}
+
 func TestHeadroomNeverNegative(t *testing.T) {
 	s, f, _, _ := newFake(t)
 	slice := "sys/fs/cgroup/tiffin.slice/tiffin-p.slice/tiffin-p-full.slice/"
