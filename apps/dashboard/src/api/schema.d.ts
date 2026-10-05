@@ -14714,7 +14714,7 @@ export interface operations {
     "deploy-create": {
         parameters: {
             query?: {
-                /** @description Deploy as a preview with this name, served at <preview>--<app>.<domain>. Production is untouched. */
+                /** @description Deploy as a preview with this name, served at <preview>--<app address>.<domain> (pr-12--shop for the app at shop). Production is untouched. */
                 preview?: string;
                 /** @description The upload is an image tarball (docker save) instead of source */
                 prebuilt?: boolean;

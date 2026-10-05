@@ -108,7 +108,7 @@ func TestEvaluateJSONFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Project != "jsonly" || m.Apps["web"].Routes[0] != "web" {
+	if m.Project != "jsonly" || m.Apps["web"].Routes[0] != "jsonly" {
 		t.Fatalf("unexpected manifest: %+v", m)
 	}
 }
@@ -198,11 +198,11 @@ func TestNormalizeDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	web := m.Apps["web"]
-	want := App{Path: ".", Framework: FrameworkBun, Role: RoleWeb, Routes: []string{"web"}, Instances: 1, Healthcheck: "/"}
+	want := App{Path: ".", Framework: FrameworkBun, Role: RoleWeb, Routes: []string{"p"}, Instances: 1, Healthcheck: "/"}
 	if !reflect.DeepEqual(web, want) {
 		t.Errorf("web = %+v\nwant  %+v", web, want)
 	}
-	if s := m.Apps["site"]; s.Healthcheck != "" || !reflect.DeepEqual(s.Routes, []string{"site"}) {
+	if s := m.Apps["site"]; s.Healthcheck != "" || !reflect.DeepEqual(s.Routes, []string{"p-site"}) {
 		t.Errorf("static app = %+v", s)
 	}
 	if w := m.Apps["w"]; w.Healthcheck != "" || w.Routes != nil {

@@ -98,6 +98,14 @@ func semanticErrors(m *Manifest) []FieldError {
 		}
 		for i, r := range app.Routes {
 			key := normalizeRoute(r)
+			if h, _, _ := strings.Cut(key, "/"); !strings.Contains(h, ".") && len(h) > 63 {
+				errs = append(errs, FieldError{
+					Path: fmt.Sprintf("%s/routes/%d", base, i),
+					Message: fmt.Sprintf("address %q is longer than 63 characters, the most a name under the box domain can have; "+
+						"set a shorter one in \"routes\" (an app that sets none is served at <project>-<app>)", h),
+				})
+				continue
+			}
 			if prev, dup := owners[key]; dup {
 				who := fmt.Sprintf("app %q", prev)
 				if prev == name {

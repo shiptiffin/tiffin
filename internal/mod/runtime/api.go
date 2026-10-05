@@ -115,7 +115,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	huma.Register(a, create, api.Wrap(func(ctx context.Context, in *struct {
 		Project  string      `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		App      string      `path:"app" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"App name"`
-		Preview  string      `query:"preview" pattern:"^[a-z0-9][a-z0-9-]{0,29}$" doc:"Deploy as a preview with this name, served at <preview>--<app>.<domain>. Production is untouched."`
+		Preview  string      `query:"preview" pattern:"^[a-z0-9][a-z0-9-]{0,29}$" doc:"Deploy as a preview with this name, served at <preview>--<app address>.<domain> (pr-12--shop for the app at shop). Production is untouched."`
 		Prebuilt bool        `query:"prebuilt" doc:"The upload is an image tarball (docker save) instead of source"`
 		Body     *deployBody `required:"false"`
 	}) (*struct{ Body *Deploy }, error) {
@@ -451,8 +451,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 // checkDeployable validates a deploy request against the applied app.
 func (r *rt) checkDeployable(ctx context.Context, project, app, preview string, prebuilt bool) (*manifest.App, *api.Problem) {
-	if preview != "" && (!previewRe.MatchString(preview) || len(preview)+2+len(app) > 63) {
-		return nil, problem(422, "validation", "preview names are lowercase letters, digits and dashes, and <preview>--<app> must fit in 63 characters", "")
+	if preview != "" && !previewRe.MatchString(preview) {
+		return nil, problem(422, "validation", "preview names are 1-30 lowercase letters, digits and dashes, starting with a letter or digit", "")
 	}
 	spec, err := r.appSpec(ctx, project, app)
 	if errors.Is(err, errNotFound) {

@@ -36,7 +36,8 @@ var DefaultAuthMethods = []string{AuthEmail, AuthMagicLink}
 //   - version 1; app path ".", framework "bun", role "web", instances 1,
 //     memoryMB unset (no per-copy cap)
 //   - an empty resources object is dropped (automatic)
-//   - web apps get routes [appName] when none are given; workers get none
+//   - web apps that set no routes get [<project>] for the main app and
+//     [<project>-<app>] for the others (see MainApp); workers get none
 //   - app git: branch "main", previews "same-repo", path without slashes at the ends
 //   - web, non-static apps get healthcheck "/"
 //   - valkey maxMemoryMB 64
@@ -51,6 +52,20 @@ var DefaultAuthMethods = []string{AuthEmail, AuthMagicLink}
 //   - topic subscribers are sorted and de-duplicated
 //   - route hostnames are lowercased and path prefixes lose trailing slashes
 func Normalize(m *Manifest) *Manifest {
+	normalize(m, nil)
+	return m
+}
+
+// NormalizeOnBox is Normalize for a project the box may already run: onBox
+// holds each app's routes on the box now, and an app that sets no routes
+// keeps the address a default already gave it there (see MainApp). It
+// returns the apps that keep their app name as their address, from before
+// addresses were named after the project.
+func NormalizeOnBox(m *Manifest, onBox map[string][]string) []string {
+	return normalize(m, onBox)
+}
+
+func normalize(m *Manifest, onBox map[string][]string) []string {
 	if m.Version == 0 {
 		m.Version = Version
 	}
@@ -68,9 +83,6 @@ func Normalize(m *Manifest) *Manifest {
 			app.Instances = DefaultInstances
 		}
 		if app.Role == RoleWeb {
-			if len(app.Routes) == 0 {
-				app.Routes = []string{name}
-			}
 			if app.Framework != FrameworkStatic && app.Healthcheck == "" {
 				app.Healthcheck = DefaultHealthcheck
 			}
@@ -100,6 +112,7 @@ func Normalize(m *Manifest) *Manifest {
 		}
 		m.Apps[name] = app
 	}
+	older := defaultRoutes(m, onBox)
 	if r := m.Resources; r != nil && *r == (Resources{}) {
 		m.Resources = nil
 	}
@@ -167,7 +180,7 @@ func Normalize(m *Manifest) *Manifest {
 	} else {
 		m.Domains = nil
 	}
-	return m
+	return older
 }
 
 // normalizeRoute lowercases the host part and strips trailing slashes from

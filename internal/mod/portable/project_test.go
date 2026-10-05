@@ -652,10 +652,15 @@ func TestRenamed(t *testing.T) {
 		"web":    {Role: manifest.RoleWeb, Routes: []string{"shop", "shop/api", "shop-admin", "www.example.com", "example.com/x"}},
 		"blog":   {Role: manifest.RoleWeb},
 		"custom": {Role: manifest.RoleWeb, Routes: []string{"example.org"}},
+		"api":    {Role: manifest.RoleWeb, Routes: []string{"api"}}, // an address from before they were named after the project
+		"site":   {Role: manifest.RoleWeb, Routes: []string{"www"}},
 		"jobs":   {Role: manifest.RoleWorker},
 	}, Domains: map[string]manifest.Domain{"example.com": {}}}
 	notes := renamed(m, "shop", "shop-copy")
-	for app, want := range map[string][]string{"web": {"shop-copy", "shop-copy/api", "shop-copy-admin"}, "blog": {"blog-shop-copy"}, "custom": {"custom-shop-copy"}, "jobs": nil} {
+	for app, want := range map[string][]string{
+		"web": {"shop-copy", "shop-copy/api", "shop-copy-admin"}, "blog": {"shop-copy-blog"}, "custom": {"shop-copy-custom"},
+		"api": {"shop-copy-api"}, "site": {"www-shop-copy"}, "jobs": nil,
+	} {
 		if got := m.Apps[app].Routes; !slices.Equal(got, want) {
 			t.Errorf("%s: %v, want %v", app, got, want)
 		}

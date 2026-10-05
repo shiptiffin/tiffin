@@ -523,7 +523,7 @@ func (a *API) register() {
 			"`warnings` lists things the manifest probably did not mean (auth without email, env that replaces what the box sets): fix them before applying. "+
 			"A project `resources` budget that cannot fit this box (more CPUs than it has, memoryMB budgets adding up to more than it keeps for apps) is refused with 422 and a hint.", "changes"),
 		wrap(func(ctx context.Context, in *struct{ Body planBody }) (*struct{ Body *change.Plan }, error) {
-			m, desired, err := parseManifest(in.Body.Manifest)
+			m, desired, older, err := a.parseManifest(ctx, in.Body.Manifest)
 			if err != nil {
 				return nil, err
 			}
@@ -537,7 +537,7 @@ func (a *API) register() {
 			if err != nil {
 				return nil, err
 			}
-			p.Warnings = manifest.Warnings(m)
+			p.Warnings = append(manifest.Warnings(m), older...)
 			a.failedWarning(ctx, p)
 			return &struct{ Body *change.Plan }{p}, nil
 		}))
@@ -550,7 +550,7 @@ func (a *API) register() {
 	ap.Extensions[ExtConfirm] = true
 	huma.Register(api, ap,
 		wrap(func(ctx context.Context, in *struct{ Body applyBody }) (*struct{ Body ApplyResult }, error) {
-			m, desired, err := parseManifest(in.Body.Manifest)
+			m, desired, older, err := a.parseManifest(ctx, in.Body.Manifest)
 			if err != nil {
 				return nil, err
 			}
@@ -565,7 +565,7 @@ func (a *API) register() {
 			if err != nil {
 				return nil, err
 			}
-			plan.Warnings = manifest.Warnings(m)
+			plan.Warnings = append(manifest.Warnings(m), older...)
 			return a.apply(ctx, p, plan, in.Body.Confirm, in.Body.Intent)
 		}))
 
@@ -925,16 +925,36 @@ func (a *API) failedWarning(ctx context.Context, plan *change.Plan) {
 	}
 }
 
-func parseManifest(raw ManifestJSON) (*manifest.Manifest, map[string]change.Resource, error) {
+// parseManifest parses a manifest for planning on this box: an app that sets
+// no routes keeps the address a default already gave it here (see
+// manifest.ParseOnBox). The returned warnings say which apps keep an app-name
+// address from before addresses were named after the project.
+func (a *API) parseManifest(ctx context.Context, raw ManifestJSON) (*manifest.Manifest, map[string]change.Resource, []string, error) {
 	if len(raw) == 0 || string(raw) == "null" {
-		return nil, nil, problem(422, "validation", "manifest is required")
+		return nil, nil, nil, problem(422, "validation", "manifest is required")
 	}
-	m, err := manifest.Parse(raw)
+	var onBox manifest.OnBox
+	if a.deps.DB != nil {
+		onBox = func(project string) (map[string][]string, error) {
+			_, res, err := a.deps.DB.Load(ctx, project)
+			if err != nil {
+				return nil, err
+			}
+			return change.AppRoutes(res), nil
+		}
+	}
+	m, older, err := manifest.ParseOnBox(raw, onBox)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+	var warn []string
+	for _, app := range older {
+		def := manifest.DefaultRoute(m.Project, app, m.Apps)
+		warn = append(warn, fmt.Sprintf("app %s keeps its old address %q, from before addresses were named after the project (a new app like it gets %q); "+
+			"set routes: [%q] on it to keep that for good, or routes: [%q] to move it", app, app, def, app, def))
 	}
 	desired, err := change.Resources(m)
-	return m, desired, err
+	return m, desired, warn, err
 }
 
 // checkPlan lets box modules refuse a desired state the machine cannot run.

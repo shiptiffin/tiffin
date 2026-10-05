@@ -128,3 +128,40 @@ func TestProjectManifestErrors(t *testing.T) {
 		t.Fatalf("own project: %d %v", code, out)
 	}
 }
+
+// An app that sets no routes keeps the address it already has on the box:
+// one applied before addresses were named after the project stays at its
+// app name (with a warning), and a new app gets the new default.
+func TestDefaultAddressesKeepOldOnes(t *testing.T) {
+	e := newEnv(t)
+	routes := func(project, app string) []any {
+		t.Helper()
+		_, got, _ := e.call(e.owner, "GET", "/v1/projects/"+project+"/manifest", nil)
+		return got["manifest"].(map[string]any)["apps"].(map[string]any)[app].(map[string]any)["routes"].([]any)
+	}
+	// What a box from before stored: the app's own name.
+	e.applyManifest(map[string]any{"project": "shop", "apps": map[string]any{"web": map[string]any{"routes": []string{"web"}}}})
+	plain := map[string]any{"project": "shop", "apps": map[string]any{"web": map[string]any{}}}
+	code, plan, _ := e.call(e.owner, "POST", "/v1/plan", map[string]any{"manifest": plain})
+	warn, _ := json.Marshal(plan["warnings"])
+	if code != 200 || len(plan["ops"].([]any)) != 0 || !strings.Contains(string(warn), `keeps its old address \"web\"`) || !strings.Contains(string(warn), `routes: [\"shop\"]`) {
+		t.Fatalf("old address: %d %v", code, plan)
+	}
+	plain["apps"].(map[string]any)["docs"] = map[string]any{}
+	e.applyManifest(plain)
+	if r := routes("shop", "web"); len(r) != 1 || r[0] != "web" {
+		t.Fatalf("web moved: %v", r)
+	}
+	if r := routes("shop", "docs"); len(r) != 1 || r[0] != "shop-docs" {
+		t.Fatalf("docs: %v", r)
+	}
+	// A new project gets the new defaults and no warning.
+	blog := map[string]any{"project": "blog", "apps": map[string]any{"web": map[string]any{}}}
+	if code, plan, _ = e.call(e.owner, "POST", "/v1/plan", map[string]any{"manifest": blog}); code != 200 || plan["warnings"] != nil {
+		t.Fatalf("new project: %d %v", code, plan)
+	}
+	e.applyManifest(blog)
+	if r := routes("blog", "web"); len(r) != 1 || r[0] != "blog" {
+		t.Fatalf("blog: %v", r)
+	}
+}

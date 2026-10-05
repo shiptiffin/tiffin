@@ -245,7 +245,7 @@ func (a *app) deployCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringSliceVar(&apps, "app", nil, "deploy only these apps (repeat or comma-separate); default: every app")
-	f.StringVar(&preview, "preview", "", "deploy as a preview named this, at <preview>--<app>.<domain>. "+previewNote)
+	f.StringVar(&preview, "preview", "", "deploy as a preview named this, at <preview>--<app address>.<domain> (pr-12--shop). "+previewNote)
 	f.StringVar(&prebuilt, "prebuilt", "", "deploy an image tarball (docker save / nerdctl save) instead of building from source")
 	f.StringVar(&project, "project", "", "project (default: from tiffin.config.ts)")
 	f.BoolVar(&noWait, "no-wait", false, "return once the upload is accepted (status queued)")

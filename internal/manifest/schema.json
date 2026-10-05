@@ -99,7 +99,7 @@
           "enum": ["web", "worker"]
         },
         "routes": {
-          "description": "Hostnames (optionally with a path prefix) this app serves, e.g. \"shop\" (expands to shop.<box domain>), \"example.com\", \"example.com/api\". Default: the app name. Workers must not have routes. Routes must be unique across all apps.",
+          "description": "Hostnames (optionally with a path prefix) this app serves, e.g. \"shop\" (expands to shop.<box domain>), \"example.com\", \"example.com/api\". Default: the project name for its main app (\"shop\") and \"<project>-<app>\" for the others (\"shop-docs\"); the main app is the only web app, else the one named like the project, else \"web\", else the first by name. Workers must not have routes. Routes must be unique across all apps.",
           "type": "array",
           "items": {
             "type": "string",

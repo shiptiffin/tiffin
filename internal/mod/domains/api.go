@@ -893,8 +893,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 					}
 					kept = append(kept, rt)
 				}
-				if len(kept) == 0 && len(app.Routes) > 0 {
-					kept = []string{name} // back to the app's own name under the box domain
+				if len(kept) == 0 {
+					kept = nil // back to its default address under the box domain (Normalize)
 				}
 				app.Routes = kept
 				man.Apps[name] = app

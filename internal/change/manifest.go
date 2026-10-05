@@ -10,6 +10,22 @@ import (
 	"github.com/btahir/tiffin/internal/manifest"
 )
 
+// AppRoutes returns each app's routes in a project's stored resources, for
+// manifest.ParseOnBox. Apps whose spec does not decode are left out.
+func AppRoutes(res map[string]Resource) map[string][]string {
+	out := map[string][]string{}
+	for addr, r := range res {
+		if Kind(addr) != KindApp {
+			continue
+		}
+		var a manifest.App
+		if json.Unmarshal(r.Spec, &a) == nil {
+			out[Name(addr)] = a.Routes
+		}
+	}
+	return out
+}
+
 // ManifestFromResources rebuilds a project's canonical manifest from its
 // stored resources: the inverse of Resources. It works for every project,
 // including ones created before the manifest itself was kept, because

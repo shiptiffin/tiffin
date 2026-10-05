@@ -7,7 +7,7 @@
       "framework": "hono",
       "role": "web",
       "routes": [
-        "api"
+        "shop-api"
       ],
       "instances": 1,
       "healthcheck": "/",
@@ -22,7 +22,7 @@
       "framework": "static",
       "role": "web",
       "routes": [
-        "docs"
+        "shop-docs"
       ],
       "instances": 1,
       "git": {
@@ -37,7 +37,7 @@
       "framework": "next",
       "role": "web",
       "routes": [
-        "web"
+        "shop"
       ],
       "instances": 1,
       "healthcheck": "/",

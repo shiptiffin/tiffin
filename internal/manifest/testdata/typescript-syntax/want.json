@@ -18,7 +18,7 @@
       "framework": "next",
       "role": "web",
       "routes": [
-        "web"
+        "typed"
       ],
       "instances": 1,
       "memoryMB": 2048,

@@ -4,6 +4,6 @@ export default {
     a: { routes: ["site", "Shared.com/"] },
     b: { routes: ["shared.com", "b"] },
     c: {},
-    d: { routes: ["c"] },
+    d: { routes: ["dup-c"] },
   },
 };
