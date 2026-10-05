@@ -80,6 +80,7 @@ func finishRepo(dir string) error {
 			return err
 		}
 	}
+	_ = os.Chmod(dir, 0o755) // made 0700 as a scratch directory
 	return os.WriteFile(filepath.Join(dir, "config"), []byte("[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = true\n[http]\n\treceivepack = true\n"), 0o644)
 }
 
@@ -448,6 +449,7 @@ func importProject(ctx context.Context, p *platform.Platform, b backend, r io.Re
 			switch {
 			case sa.siteDir != "":
 				src.StaticDir = sa.siteDir
+				_ = os.Chmod(sa.siteDir, 0o755) // made 0700 as a scratch directory
 			case sa.imageTar != "":
 				src.ImageTar = sa.imageTar
 			case o.sameBox:
