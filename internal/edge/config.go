@@ -407,8 +407,9 @@ func routeFor(c Config, r Route, portSuffix string) obj {
 // types outside its list of text formats (images, video, archives and
 // woff2 are compressed already). Streams keep flowing: a response whose
 // first write is short is passed through, and every flush from the
-// upstream flushes the compressor too; text/event-stream headers go out at
-// once.
+// upstream flushes the compressor too. Headers wait for the first body
+// byte (the encoding is chosen then), except text/event-stream's, which go
+// out at once.
 func compress() obj {
 	return obj{
 		"handler":        "encode",
