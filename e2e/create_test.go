@@ -64,6 +64,29 @@ func TestCreate(t *testing.T) {
 	b.apply("starter", string(raw))
 	b.waitReady("service/postgres", "service/valkey", "service/analytics")
 	phase("plan+apply", p)
+	// An app's status says whether production has a release, not just that its config is applied.
+	releases := func() map[string]string {
+		t.Helper()
+		var st struct {
+			Status map[string]struct{ State, Message, Release string } `json:"status"`
+		}
+		_, out := b.run("projects", "get", "starter")
+		_ = json.Unmarshal([]byte(out), &st)
+		got := map[string]string{}
+		for _, tp := range tl.Templates {
+			s := st.Status["app/"+tp.App]
+			got[tp.App] = s.Release
+			if s.Release == "none" && s.State == "ready" && s.Message != "not deployed yet" {
+				t.Fatalf("%s: ready with no release, message %q", tp.App, s.Message)
+			}
+		}
+		return got
+	}
+	for app, r := range releases() {
+		if r != "none" {
+			t.Fatalf("app %s before any deploy: release %q", app, r)
+		}
+	}
 
 	// ---- deploy each template; each answers over HTTPS ----
 	c := b.https()
@@ -78,6 +101,11 @@ func TestCreate(t *testing.T) {
 		live := waitDeploy(t, b, "starter", tp.App, id, 10*time.Minute)
 		t.Logf("template %-14s → app %-9s build %vs, total %vs, %s", tp.ID, tp.App, orZero(live["buildSeconds"]), orZero(live["durationSeconds"]), live["url"])
 		phase("deploy "+tp.ID, p)
+	}
+	for app, r := range releases() {
+		if r != "live" {
+			t.Fatalf("app %s after its deploy: release %q", app, r)
+		}
 	}
 	checks := []struct{ app, method, path, body, want string }{
 		{"site", "GET", "/", "", "It's live."},

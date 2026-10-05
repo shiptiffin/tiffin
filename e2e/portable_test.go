@@ -358,6 +358,19 @@ func projectCopies(t *testing.T, b *cliBox, dir string) {
 	}
 	b.ok("projects", "start", "shop-copy")
 	serves("shop-copy", "Shop from box A")
+
+	// A name destroyed less than 7 days ago is refused before the archive is sent.
+	_, out := b.run("projects", "destroy", "shop-copy")
+	var pr struct {
+		Plan struct{ Hash string } `json:"plan"`
+	}
+	if _ = json.Unmarshal([]byte(out), &pr); len(pr.Plan.Hash) < 12 {
+		t.Fatalf("destroy plan: %s", out)
+	}
+	b.ok("projects", "destroy", "shop-copy", "--confirm", pr.Plan.Hash[:12])
+	if code, out := b.run("projects", "import", archive, "--name", "shop-copy"); code != 3 || !strings.Contains(out, "destroyed less than 7 days ago") {
+		t.Fatalf("import under a name destroyed just now: exit %d %s", code, out)
+	}
 }
 
 // prebuiltImages loads images saved by nerdctl (an OCI index.json and a
