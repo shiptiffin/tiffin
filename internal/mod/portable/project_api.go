@@ -399,6 +399,8 @@ func (m *Module) nameFree(ctx context.Context, p *platform.Platform, pr *tokens.
 func (m *Module) checkImport(ctx context.Context, p *platform.Platform, pr *tokens.Principal, name string, body io.Reader) (*struct{ Body *ProjectJob }, error) {
 	rec := &ProjectJob{Kind: JobImport, Status: JobChecked, Project: name, CreatedBy: pr.TokenID, CreatedAt: time.Now().UTC()}
 	if body != nil {
+		// Read the rest of a first megabyte, so the client is not cut off while it still sends it.
+		defer func() { _, _ = io.Copy(io.Discard, io.LimitReader(body, 2<<20)) }()
 		invalid := func(err error) error {
 			prob := api.NewProblem(422, "validation", err.Error())
 			prob.Hint = "make the archive with `tiffin projects export`, or update this box with `tiffin up` if it came from a newer Tiffin"
