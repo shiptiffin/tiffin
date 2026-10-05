@@ -56,7 +56,16 @@ sudo mkdir -p "$root"
 	switch {
 	case d.Device != "":
 		return head + fmt.Sprintf(`dev=%q
-if mountpoint -q "$root"; then fsok; exit 0; fi
+grow() { # the disk grew (a resized volume): grow XFS to fill it, online
+  [ "$(findmnt -n -o FSTYPE "$root" 2>/dev/null || true)" = xfs ] && command -v xfs_growfs >/dev/null || return 0
+  name="$(basename "$(readlink -f "$dev")")"
+  if [ -e "/sys/class/block/$name/device/rescan" ]; then echo 1 | sudo tee "/sys/class/block/$name/device/rescan" >/dev/null || true; fi
+  before="$(df -B1 --output=size "$root" | tail -n1 | tr -d ' ')"
+  sudo xfs_growfs -d "$root" >/dev/null
+  after="$(df -B1 --output=size "$root" | tail -n1 | tr -d ' ')"
+  if [ "$after" -gt "$before" ]; then echo "grew the data disk from $(( (before + (1<<29)) >> 30 )) to $(( (after + (1<<29)) >> 30 )) GB"; fi
+}
+if mountpoint -q "$root"; then grow; fsok; exit 0; fi
 for i in $(seq 1 90); do [ -b "$dev" ] && break; sleep 1; done
 [ -b "$dev" ] || { echo "the data disk $dev does not exist on this server" >&2; exit 3; }
 real="$(readlink -f "$dev")"
@@ -97,6 +106,7 @@ sudo sed -i '\| /var/lib/tiffin |d' /etc/fstab
 echo "$src $root $fstype defaults,nofail,x-systemd.device-timeout=90s 0 2" | sudo tee -a /etc/fstab >/dev/null
 sudo systemctl daemon-reload
 sudo mount "$root"
+grow
 fsok
 `, d.Device, DataLabel), nil
 	case d.Dir != "":
@@ -115,7 +125,8 @@ fsok
 }
 
 // PrepareData mounts the server's data disk at /var/lib/tiffin before the
-// first install. It returns warnings for people (e.g. not XFS).
+// first install, and grows its XFS filesystem (online) when the disk grew.
+// It returns warnings for people (e.g. not XFS).
 func PrepareData(ctx context.Context, m provider.Machine, d DataSpec, progress func(string)) ([]string, error) {
 	script, err := dataScript(d)
 	if err != nil {

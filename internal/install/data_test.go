@@ -20,6 +20,9 @@ func TestDataScript(t *testing.T) {
 		if d.Device != "" && (!strings.Contains(s, "mkfs.xfs -q -L tiffin-data") || !strings.Contains(s, `if [ -z "$fstype" ]`)) {
 			t.Fatal("a blank device must be formatted XFS with the label, and only when blank")
 		}
+		if grows := strings.Count(s, "\ngrow\n") + strings.Count(s, "then grow;"); (d.Device != "") != (grows == 2) || d.Device != "" && !strings.Contains(s, `sudo xfs_growfs -d "$root"`) {
+			t.Fatalf("%+v: a data disk grows its XFS filesystem whether it was mounted already or not (%d calls)", d, grows)
+		}
 	}
 	for _, bad := range []DataSpec{{Device: "/dev/sdb", Dir: "/srv"}, {Device: "sdb"}, {Dir: "/srv/$(reboot)"}, {Dir: "/srv/../etc"}} {
 		if _, err := dataScript(bad); err == nil {

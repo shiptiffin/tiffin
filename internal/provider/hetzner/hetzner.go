@@ -237,6 +237,18 @@ func (p *Provider) resolve(ctx context.Context) (*resolved, error) {
 	if st == nil {
 		return nil, fmt.Errorf("unknown Hetzner server type %q; try cax11 (ARM, 2 vCPU, 4 GB) or cx23 (x86)", p.cfg.ServerType)
 	}
+	if available, where := orderable(st, loc.Name); !available {
+		hint := "no location offers it right now"
+		if len(where) > 0 {
+			hint = "it is available in " + strings.Join(where, ", ")
+		}
+		return nil, fmt.Errorf("server type %s (%s) cannot be ordered in %s: %s; pass --location or --type", st.Name, archWord(st.Architecture), loc.Name, hint)
+	}
+	return &resolved{st: st, loc: loc}, nil
+}
+
+// orderable reports whether st can be ordered in the location, and where it can.
+func orderable(st *hcloud.ServerType, loc string) (bool, []string) {
 	var where []string
 	available := false
 	for _, l := range st.Locations {
@@ -247,7 +259,7 @@ func (p *Provider) resolve(ctx context.Context) (*resolved, error) {
 		if ok {
 			where = append(where, l.Location.Name)
 		}
-		if l.Location.Name == loc.Name {
+		if l.Location.Name == loc {
 			available = ok
 		}
 	}
@@ -255,19 +267,12 @@ func (p *Provider) resolve(ctx context.Context) (*resolved, error) {
 		for _, pr := range st.Pricings {
 			if pr.Location != nil {
 				where = append(where, pr.Location.Name)
-				available = available || pr.Location.Name == loc.Name
+				available = available || pr.Location.Name == loc
 			}
 		}
 	}
-	if !available {
-		sort.Strings(where)
-		hint := "no location offers it right now"
-		if len(where) > 0 {
-			hint = "it is available in " + strings.Join(where, ", ")
-		}
-		return nil, fmt.Errorf("server type %s (%s) cannot be ordered in %s: %s; pass --location or --type", st.Name, archWord(st.Architecture), loc.Name, hint)
-	}
-	return &resolved{st: st, loc: loc}, nil
+	sort.Strings(where)
+	return available, where
 }
 
 func ubuntuName(image string) string {
@@ -589,9 +594,6 @@ func (p *Provider) Ensure(ctx context.Context, progress func(string)) (remote.Ta
 		if vol.Location != nil && vol.Location.Name != r.loc.Name {
 			return none, fmt.Errorf("this box's data volume is in %s, but the server would be in %s; volumes cannot move, so pass --location %s", vol.Location.Name, r.loc.Name, vol.Location.Name)
 		}
-		if vol.Size != p.cfg.VolumeGB {
-			progress(fmt.Sprintf("keeping the existing %d GB data volume (--volume-size applies to new volumes only)", vol.Size))
-		}
 	} else {
 		progress(fmt.Sprintf("creating the %d GB data volume in %s", p.cfg.VolumeGB, r.loc.Name))
 		res, _, err := p.c.Volume.Create(ctx, hcloud.VolumeCreateOpts{Name: p.cfg.Name + "-data", Size: p.cfg.VolumeGB, Location: r.loc, Labels: p.Labels()})
@@ -611,9 +613,6 @@ func (p *Provider) Ensure(ctx context.Context, progress func(string)) (remote.Ta
 	var srv *hcloud.Server
 	if len(in.Servers) > 0 {
 		srv = in.Servers[0]
-		if srv.ServerType != nil && p.cfg.ServerType != DefaultServerType && srv.ServerType.Name != p.cfg.ServerType {
-			progress(fmt.Sprintf("the server is a %s; --type %s is ignored (resize it in the Hetzner console)", srv.ServerType.Name, p.cfg.ServerType))
-		}
 		if srv.Status == hcloud.ServerStatusOff {
 			progress("starting the server (it was off)")
 			act, _, err := p.c.Server.Poweron(ctx, srv)
