@@ -1333,6 +1333,12 @@ func TestPlanRefusesAnotherProjectsRoute(t *testing.T) {
 	if err := h.m.CheckPlan(ctx, h.p, "shop", map[string]change.Resource{"app/site": {Address: "app/site", Spec: json.RawMessage(`{"routes":["shop"]}`)}}); err != nil {
 		t.Fatalf("own route: %v", err)
 	}
+	// The box's own names (the dashboard, file links) are never an app's.
+	for _, r := range []string{"dashboard", "files"} {
+		if err := h.m.CheckPlan(ctx, h.p, "blog", app(`{"routes":["`+r+`"]}`)); !errors.As(err, &prob) || prob.Status != 422 {
+			t.Fatalf("%s: %v", r, err)
+		}
+	}
 }
 
 func TestFirstBuildErrorAndDropConfig(t *testing.T) {

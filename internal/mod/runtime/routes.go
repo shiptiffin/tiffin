@@ -166,7 +166,11 @@ func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project st
 	if err != nil {
 		return err
 	}
-	taken := map[string]string{}
+	// The box's own names are never an app's.
+	taken := map[string]string{p.DashboardHost(): "the dashboard"}
+	for _, n := range []string{"s3", "files", "t", "otel", "errors"} {
+		taken[p.Host(n)] = "the box"
+	}
 	for _, n := range names {
 		if n == project {
 			continue
