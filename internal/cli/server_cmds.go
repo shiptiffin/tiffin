@@ -293,10 +293,7 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 			return &exitError{ExitError, err.Error()}
 		}
 		sb.PublicIP, sb.PublicIPv6 = hetzner.PublicIPs(hp.Server)
-		sshAccess = &hp.SSH
-		if a.tty() || hp.SSH.Changed {
-			fmt.Fprintln(a.io.Err, hp.SSH.Summary())
-		}
+		sshAccess = &hp.SSH // the summary at the end says who may SSH in
 		if sb.Ubuntu, err = m.Check(ctx); err != nil {
 			return &exitError{ExitError, err.Error()}
 		}
