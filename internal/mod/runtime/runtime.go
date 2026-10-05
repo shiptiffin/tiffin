@@ -68,6 +68,7 @@ type rt struct {
 	locks    map[string]*sync.Mutex // per app environment
 	ports    map[int]string         // allocated port → container
 	lastSeen map[string]time.Time   // preview env key → last request
+	orphanAt map[string]time.Time   // leftover container → when status first saw it
 	actAddr  string                 // switchboard listener (app traffic, previews, git hooks)
 	dispatch map[string][]dispatchEntry
 	// loadedRoutes is the hash of the routes the edge last loaded from us.

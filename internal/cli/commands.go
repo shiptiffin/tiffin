@@ -504,7 +504,11 @@ func serveMux(b *box) http.Handler {
 func requireKey(b *box, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, err := b.tokens.Authenticate(r.Context(), r.Header.Get("Authorization")); err != nil {
-			p := api.NewProblem(http.StatusUnauthorized, "unauthenticated", "MCP needs an API key in the Authorization header.")
+			msg := "MCP needs an API key in the Authorization header."
+			if r.Header.Get("Authorization") != "" {
+				msg = "This API key is not valid: it was revoked, has expired, or is mistyped."
+			}
+			p := api.NewProblem(http.StatusUnauthorized, "unauthenticated", msg)
 			p.Hint = `Create a key (tiffin tokens create) and connect with --header "Authorization: Bearer <key>".`
 			w.Header().Set("WWW-Authenticate", `Bearer realm="tiffin"`)
 			w.Header().Set("Content-Type", "application/problem+json")

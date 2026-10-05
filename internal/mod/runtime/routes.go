@@ -408,9 +408,15 @@ func (r *rt) checks(ctx context.Context) []platform.Check {
 	}
 	out = append(out, c)
 	if names := r.orphans(cs); len(names) > 0 {
-		out = append(out, platform.Check{Name: "containers", OK: false, Detail: fmt.Sprintf(
-			"%d container(s) no app runs: %s. The runtime removes them within 5 minutes; if they stay, journalctl -u tiffin says why.",
-			len(names), strings.Join(names, ", "))})
+		// A failed start's container is usually gone within a sweep; only one
+		// that outlives two sweeps is a problem.
+		old := r.lingering(names, 10*time.Minute)
+		c := platform.Check{Name: "containers", OK: len(old) == 0, Detail: fmt.Sprintf("removing %d leftover container(s): %s", len(names), strings.Join(names, ", "))}
+		if len(old) > 0 {
+			c.Detail = fmt.Sprintf("%d container(s) no app runs, for over 10 minutes: %s. journalctl -u tiffin says why the runtime cannot remove them.",
+				len(old), strings.Join(old, ", "))
+		}
+		out = append(out, c)
 	}
 	if stuck := r.stuckDeploys(ctx); len(stuck) > 0 {
 		out = append(out, platform.Check{Name: "deploys", OK: false, Detail: "stuck for over " + stuckAfter.String() + ": " + strings.Join(stuck, ", ") +
@@ -424,4 +430,26 @@ func (r *rt) checks(ctx context.Context) []platform.Check {
 		out = append(out, platform.Check{Name: "routes", OK: false, Detail: "routes claimed twice: " + strings.Join(parts, "; ")})
 	}
 	return out
+}
+
+// lingering remembers when each leftover container was first seen and
+// returns those seen longer ago than d.
+func (r *rt) lingering(names []string, d time.Duration) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	seen := map[string]time.Time{}
+	var old []string
+	for _, n := range names {
+		at, ok := r.orphanAt[n]
+		if !ok {
+			at = now
+		}
+		seen[n] = at
+		if now.Sub(at) > d {
+			old = append(old, n)
+		}
+	}
+	r.orphanAt = seen
+	return old
 }

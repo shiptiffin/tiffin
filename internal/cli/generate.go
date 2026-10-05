@@ -187,11 +187,29 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 	if api.Confirmable(o) {
 		long += "\n\nWithout --confirm nothing changes: the plan is printed and the exit code is 4."
 	}
+	var required []string
+	for _, p := range queryParams {
+		if p.Required {
+			required = append(required, p.Name)
+		}
+	}
 	cmd := &cobra.Command{
-		Use:     use,
-		Short:   o.Summary,
-		Long:    long,
-		Args:    nargs,
+		Use:   use,
+		Short: o.Summary,
+		Long:  long,
+		// A missing required query parameter is a usage error here, with the
+		// usage line, not a 422 from the box.
+		Args: func(c *cobra.Command, args []string) error {
+			if err := nargs(c, args); err != nil {
+				return err
+			}
+			for _, name := range required {
+				if !c.Flags().Changed(flagName(name)) && (name != trailing || len(args) <= len(pathParams)) {
+					return fmt.Errorf("missing --%s", flagName(name))
+				}
+			}
+			return nil
+		},
 		Example: "  tiffin " + strings.Join(example, " "),
 	}
 	query := map[string]*string{}

@@ -612,9 +612,18 @@ func TestCrashOnBootDoesNotWedgeTheApp(t *testing.T) {
 	if crash.Status != StatusFailed || !strings.Contains(crash.Error, "exited with code 1") || strings.Contains(crash.Hint, "$PORT") {
 		t.Fatalf("crash: %+v", crash)
 	}
+	// Fresh leftovers are named but not a failure: the sweep usually takes them.
 	c := h.check("containers")
-	if c == nil || c.OK || !strings.Contains(c.Detail, "2 container(s) no app runs") {
+	if c == nil || !c.OK || !strings.Contains(c.Detail, "removing 2 leftover container(s)") {
 		t.Fatalf("status must name the leftovers: %+v", c)
+	}
+	h.r.mu.Lock()
+	for n := range h.r.orphanAt {
+		h.r.orphanAt[n] = time.Now().Add(-11 * time.Minute)
+	}
+	h.r.mu.Unlock()
+	if c = h.check("containers"); c == nil || c.OK || !strings.Contains(c.Detail, "2 container(s) no app runs, for over 10 minutes") {
+		t.Fatalf("leftovers that stay must fail status: %+v", c)
 	}
 	v3 := h.deploy("api", "", map[string]string{"index.ts": "v3"})
 	if v3.Status != StatusLive {
