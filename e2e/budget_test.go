@@ -300,7 +300,7 @@ func TestBudget(t *testing.T) {
 		}
 		time.Sleep(time.Second)
 	}
-	if fast := usage("fastdb"); num(fast, "database", "connectionLimit") != 80 || num(fast, "database", "queryTimeLimitSeconds") != 30 || num(fast, "sharePercent") != 0 {
+	if fast := usage("fastdb"); num(fast, "database", "connectionLimit") != 80 || num(fast, "database", "queryTimeLimitSeconds") != 300 || num(fast, "sharePercent") != 0 {
 		t.Fatalf("fastdb's database: %v", fast["database"])
 	}
 	if num(slowDB, "queryTimeLimitSeconds") != 20 || num(slowDB, "limitCpus") != 0.5 {
