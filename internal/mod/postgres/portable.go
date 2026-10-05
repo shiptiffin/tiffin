@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/platform"
 )
 
@@ -16,7 +17,7 @@ import (
 func Prepare(ctx context.Context, p *platform.Platform, project string, extensions []string) error {
 	mu.Lock()
 	defer mu.Unlock()
-	return ensure(ctx, p, project, extensions)
+	return ensure(ctx, p, project, manifest.Postgres{Extensions: extensions})
 }
 
 // Unprepare drops what Prepare made: an import that failed before its

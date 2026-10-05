@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os/exec"
 	goruntime "runtime"
 	"sort"
@@ -47,8 +48,44 @@ type Module struct {
 	box      Box
 	boxOK    bool
 	history  map[string][]eventMark // project → memory events over the last hour
+	kills    map[string]uint64      // project → oom_kill count at the last sync
 	wake     chan struct{}
 	gen      uint64 // bumped whenever any project's limits change
+	synced   bool   // limits were resolved at least once
+}
+
+// Synced reports whether the limits were resolved since the box started,
+// so modules that follow them don't act on an empty answer.
+func Synced() bool {
+	mod.mu.Lock()
+	defer mod.mu.Unlock()
+	return mod.synced
+}
+
+// Shared is a project's limit for what it uses of the services every
+// project shares: its database's CPU and connections, its cache and its
+// builds. Percent 0 means no limit (and the rest is zero).
+type Shared struct {
+	Percent  int     // share of the box, 1-99
+	CPUs     float64 // that share of the box's CPUs, in cores
+	MemoryMB int     // the memory its apps may use (their cap)
+	Source   string  // SourceProject or SourceBoxDefault
+}
+
+// SharedLimit returns a project's shared-services limit as last resolved.
+func SharedLimit(project string) Shared {
+	mod.mu.Lock()
+	defer mod.mu.Unlock()
+	l, ok := mod.limits[project]
+	if !ok || l.SharePercent == 0 || !mod.boxOK {
+		return Shared{}
+	}
+	src := SourceBoxDefault
+	if r := mod.specs[project]; r != nil {
+		src = SourceProject
+	}
+	return Shared{Percent: l.SharePercent, CPUs: max(0.01, math.Floor(float64(mod.box.CPUs*l.SharePercent))/100),
+		MemoryMB: l.MemoryMaxMB, Source: src}
 }
 
 // Generation changes whenever any project's resolved limits change, so
@@ -121,7 +158,7 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, root string, s
 	}
 	m.mu.Lock()
 	m.p, m.root, m.sd, m.specs, m.settings = p, root, sd, specs, set
-	m.applied, m.limits, m.history = map[string]string{}, map[string]Limits{}, map[string][]eventMark{}
+	m.applied, m.limits, m.history, m.kills = map[string]string{}, map[string]Limits{}, map[string][]eventMark{}, map[string]uint64{}
 	m.wake = make(chan struct{}, 1)
 	m.mu.Unlock()
 	if err := m.sync(ctx); err != nil {
@@ -180,7 +217,11 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 		m.mu.Lock()
 		delete(m.applied, unit)
 		delete(m.history, project)
+		delete(m.kills, project)
 		m.mu.Unlock()
+	}
+	if spec == nil {
+		forgetEvents(ctx, project)
 	}
 	return m.sync(ctx)
 }
@@ -231,10 +272,15 @@ func (m *Module) sync(ctx context.Context) error {
 	if !limitsEqual(m.limits, limits) {
 		m.gen++
 	}
-	m.limits = limits
+	m.limits, m.synced = limits, true
+	var killed []string
 	for n, st := range stats {
 		if st.Exists {
 			m.recordLocked(n, st, now)
+			if prev, ok := m.kills[n]; ok && st.OOMKill > prev {
+				killed = append(killed, n)
+			}
+			m.kills[n] = st.OOMKill
 		}
 	}
 	var todo []want
@@ -244,6 +290,10 @@ func (m *Module) sync(ctx context.Context) error {
 		}
 	}
 	m.mu.Unlock()
+	sort.Strings(killed)
+	for _, n := range killed {
+		RecordEvent(ctx, n, EventMemory, killWords(n, limits[n]))
+	}
 	if sd == nil {
 		return nil
 	}
@@ -258,6 +308,14 @@ func (m *Module) sync(ctx context.Context) error {
 		m.mu.Unlock()
 	}
 	return errors.Join(errs...)
+}
+
+// killWords says why an app of a project was stopped for memory.
+func killWords(project string, l Limits) string {
+	if l.MemorySource == SourceAutomatic {
+		return fmt.Sprintf("The box ran out of memory for apps, so an app of %s was stopped and restarted. Give another project a limit, or move to a bigger box.", project)
+	}
+	return fmt.Sprintf("%s used all of the %d MB of memory it may use, so an app was stopped and restarted. Give it a bigger limit if it needs more.", project, l.MemoryMaxMB)
 }
 
 // View is what the box knows about one project's budget.

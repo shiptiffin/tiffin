@@ -127,7 +127,11 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 			"quota set), and readOnly when its writes are held (disk nearly full, or over its limit) with how to fix it; each app's copies, "+
 			"memory and CPU; and service numbers (Postgres connections, KV keys, "+
 			"bucket objects). limitSource says where the limits come from: \"project\" (its resources), \"box default\" (the box-wide "+
-			"default share, see box settings) or \"automatic\" (elastic: it grows into whatever the box has free). To change the "+
+			"default share, see box settings) or \"automatic\" (elastic: it grows into whatever the box has free). sharePercent is the "+
+			"share of the box it is limited to (0: none), which holds everything it uses: database (its queries' CPU, connections; every "+
+			"project also has a query time limit, 30 s by default, and queriesStoppedToday counts the queries it stopped), cache (cleared "+
+			"of expiring keys, then writes refused, over its limit), builds (CPU cap) and disk weight. limitEvents lists when a limit held "+
+			"it back (an app restarted for memory, connections all in use, cache full) in the last 30 days. To change the "+
 			"limits, set resources in tiffin.config.ts and plan/apply. Every project at once: box resources (its projects list).", "system")
 	uo.Errors = append(uo.Errors, 404, 503)
 	huma.Register(a, uo, api.Wrap(func(ctx context.Context, in *struct {

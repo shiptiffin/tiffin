@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/mod/budget"
 )
 
 // BuildRequest is one build.
@@ -60,6 +61,60 @@ type boxBuilder struct {
 	eng       Engine
 	staticDir string // where static deploys' files live
 	memoryMB  int    // cap for static build containers
+	cgroupDir string // the build cgroup ("" → /sys/fs/cgroup/tiffin-build)
+}
+
+// buildLimit is what one project's builds may use while it has a limit:
+// its share of the box's CPUs, and memory past which the build slows down
+// (memory.high: reclaimed and swapped, not killed). Zero: no limit.
+type buildLimit struct {
+	pct    int
+	cpus   float64
+	highMB int
+}
+
+const minBuildMB = budget.MinBuildMB
+
+func buildLimitFor(project string) buildLimit {
+	sh := budget.SharedLimit(project)
+	if sh.Percent == 0 {
+		return buildLimit{}
+	}
+	return buildLimit{pct: sh.Percent, cpus: sh.CPUs, highMB: max(minBuildMB, sh.MemoryMB)}
+}
+
+// staticBuildArgs are the extra nerdctl run flags for a static build.
+func (l buildLimit) staticBuildArgs() []string {
+	if l.cpus <= 0 {
+		return nil
+	}
+	return []string{"--cpus", strconv.FormatFloat(l.cpus, 'f', -1, 64)}
+}
+
+// apply holds the build cgroup (every BuildKit step runs in it, one build at
+// a time) to l, and returns what puts it back.
+func (l buildLimit) apply(dir string) (undo func(), err error) {
+	if l.cpus <= 0 {
+		return func() {}, nil
+	}
+	write := func(name, v string) error { return os.WriteFile(filepath.Join(dir, name), []byte(v), 0o644) }
+	undo = func() {
+		_ = write("cpu.max", "max 100000")
+		_ = write("memory.high", "max")
+	}
+	if err := write("cpu.max", fmt.Sprintf("%d 100000", max(1000, int(l.cpus*100000+0.5)))); err != nil {
+		return func() {}, err
+	}
+	if err := write("memory.high", strconv.Itoa(l.highMB<<20)); err != nil {
+		undo()
+		return func() {}, err
+	}
+	return undo, nil
+}
+
+func (l buildLimit) words(project string) string {
+	return fmt.Sprintf("==> %s is limited to %d%% of the box: this build may use %s CPUs and slows down past %d MB\n",
+		project, l.pct, strconv.FormatFloat(l.cpus, 'f', -1, 64), l.highMB)
 }
 
 func (b *boxBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult, error) {
@@ -121,6 +176,19 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 		return BuildResult{}, &BuildError{Msg: "Railpack could not plan a build for this app: " + err.Error(),
 			Hint: "Make sure the app has a package.json with a start script (or an index.ts), and a lockfile. See the build log for details."}
 	}
+	// A limited project's build counts against its share. Builds run one at
+	// a time, so the shared build cgroup is this build's while it runs.
+	if lim := buildLimitFor(d.Project); lim.cpus > 0 {
+		dir := b.cgroupDir
+		if dir == "" {
+			dir = filepath.Join("/sys/fs/cgroup", buildCgroup)
+		}
+		undo, err := lim.apply(dir)
+		defer undo()
+		if err == nil {
+			fmt.Fprint(req.Log, lim.words(d.Project))
+		}
+	}
 	fmt.Fprintf(req.Log, "==> building the image (BuildKit)\n")
 	// Railpack mounts env vars into build steps as BuildKit secrets (so they
 	// never land in image layers); their values travel in buildctl's env.
@@ -173,6 +241,10 @@ func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildRe
 			"--memory", strconv.Itoa(b.memoryMB) + "m",
 			"--volume", req.SrcDir + ":/app", "--workdir", "/app",
 			"--env", "CI=true", "--env", "NODE_ENV=production"}
+		if lim := buildLimitFor(d.Project); lim.cpus > 0 {
+			args = append(args, lim.staticBuildArgs()...)
+			fmt.Fprint(req.Log, lim.words(d.Project))
+		}
 		keys := make([]string, 0, len(req.Env))
 		for k := range req.Env {
 			keys = append(keys, k)

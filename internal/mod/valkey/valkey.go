@@ -4,11 +4,11 @@
 // (for Bun.redis or any Redis client) and VALKEY_PREFIX.
 //
 // Memory caps: Valkey has one maxmemory for the whole server and no
-// per-prefix limit. Each project's maxMemoryMB is therefore tracked, not
-// enforced: kv stats measures the prefix's usage and reports overCap. The
-// server-wide maxmemory (about an eighth of RAM) with volatile-lru eviction
-// protects the box: keys with a TTL (caches) are evicted first, keys without
-// one are never evicted (writes fail instead).
+// per-prefix limit. The server-wide maxmemory (about an eighth of RAM) with
+// volatile-lru eviction protects the box: keys with a TTL (caches) are
+// evicted first, keys without one are never evicted (writes fail instead).
+// A project with a limit is held to its own cache limit by measuring its
+// prefix (limits.go); for the others maxMemoryMB is tracked, not enforced.
 package valkey
 
 import (
@@ -294,6 +294,7 @@ func (*Module) Reconcile(ctx context.Context, p *platform.Platform, project, add
 		if _, err := deletePrefix(ctx, c, prefix); err != nil {
 			return err
 		}
+		limits.forget(project)
 		_ = p.DB.KVDelete(ctx, nsCap, project)
 		return p.DB.KVDelete(ctx, nsPassword, project)
 	}
@@ -305,7 +306,11 @@ func (*Module) Reconcile(ctx context.Context, p *platform.Platform, project, add
 	if err != nil {
 		return err
 	}
-	if _, err := c.Do(ctx, append([]string{"ACL", "SETUSER", user}, ACLRules(project, pw)...)...); err != nil {
+	rules := ACLRules(project, pw)
+	if limits.held(project) {
+		rules = append(rules, holdRules...) // over its cache limit: keep refusing writes
+	}
+	if _, err := c.Do(ctx, append([]string{"ACL", "SETUSER", user}, rules...)...); err != nil {
 		return fmt.Errorf("ACL SETUSER: %w", err)
 	}
 	if _, err := c.Do(ctx, "ACL", "SAVE"); err != nil {
@@ -320,9 +325,11 @@ func (*Module) Reconcile(ctx context.Context, p *platform.Platform, project, add
 // or switch databases.
 func ACLRules(project, password string) []string {
 	prefix := Prefix(project)
-	return []string{"reset", "on", ">" + password, "~" + prefix + "*", "&" + prefix + "*",
-		"+@all", "-@admin", "-@dangerous", "+info", "-scan", "-randomkey", "-select", "-move", "-swapdb"}
+	return append([]string{"reset", "on", ">" + password, "~" + prefix + "*", "&" + prefix + "*"}, commandRules...)
 }
+
+// commandRules are the commands a project user may run.
+var commandRules = []string{"+@all", "-@admin", "-@dangerous", "+info", "-scan", "-randomkey", "-select", "-move", "-swapdb"}
 
 // deletePrefix removes every key under prefix and returns how many.
 func deletePrefix(ctx context.Context, c *Client, prefix string) (int, error) {

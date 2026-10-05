@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/mod/budget"
 	"github.com/btahir/tiffin/internal/mod/datakit"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/jackc/pgx/v5"
@@ -31,7 +32,7 @@ func (*Module) Reconcile(ctx context.Context, p *platform.Platform, project, add
 	if err := json.Unmarshal(spec, &s); err != nil {
 		return fmt.Errorf("postgres spec: %w", err)
 	}
-	return ensure(ctx, p, project, s.Extensions)
+	return ensure(ctx, p, project, s)
 }
 
 // extAliases maps friendly names to Postgres extension names.
@@ -54,7 +55,7 @@ type deletedRecord struct {
 	Failed bool `json:"failed,omitempty"`
 }
 
-func ensure(ctx context.Context, p *platform.Platform, project string, extensions []string) error {
+func ensure(ctx context.Context, p *platform.Platform, project string, s manifest.Postgres) error {
 	pw, err := datakit.EnsureSecret(ctx, p, nsPassword, project)
 	if err != nil {
 		return err
@@ -74,10 +75,15 @@ func ensure(ctx context.Context, p *platform.Platform, project string, extension
 	if !exists {
 		verb = "CREATE"
 	}
+	limits := roleLimits(budget.SharedLimit(project).Percent, s.StatementTimeoutSeconds, MaxConnections(memTotalMB()), dataDiskBytes())
 	if _, err := admin.Exec(ctx, fmt.Sprintf(`%s ROLE %s WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT %d PASSWORD %s`,
-		verb, quoteIdent(role), RoleConnLimit(memTotalMB()), quoteLiteral(pw))); err != nil {
+		verb, quoteIdent(role), limits.Connections, quoteLiteral(pw))); err != nil {
 		return fmt.Errorf("%s role: %w", strings.ToLower(verb), err)
 	}
+	if err := applyRoleLimits(ctx, admin, role, limits); err != nil {
+		return err
+	}
+	noteApplied(project, s.StatementTimeoutSeconds, limits)
 
 	var comment *string
 	err = admin.QueryRow(ctx, `SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = $1`, db).Scan(&comment)
@@ -111,7 +117,7 @@ func ensure(ctx context.Context, p *platform.Platform, project string, extension
 	if err := setupDatabase(ctx, db, role); err != nil {
 		return err
 	}
-	return reconcileExtensions(ctx, p, project, admin, extensions)
+	return reconcileExtensions(ctx, p, project, admin, s.Extensions)
 }
 
 // setupDatabase adds the tiffin helper schema: RLS helpers reading the
@@ -271,6 +277,7 @@ func remove(ctx context.Context, p *platform.Platform, project string) error {
 			return fmt.Errorf("drop role: %w", err)
 		}
 	}
+	forgetApplied(project)
 	_ = p.DB.KVDelete(ctx, nsExtensions, project)
 	return p.DB.KVDelete(ctx, nsPassword, project)
 }

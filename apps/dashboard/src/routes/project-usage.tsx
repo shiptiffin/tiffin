@@ -16,7 +16,7 @@ import { cn } from "@/lib/cn";
 import { bytes, count, dec } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { rememberProject } from "@/lib/recent";
-import { change, pendingFor, usePending } from "@/lib/staged";
+import { change, changeMany, pendingFor, usePending, type StagedEdit } from "@/lib/staged";
 import { partName, partSub } from "@/lib/names";
 import { Button } from "@/components/ui/button";
 import { boxSettingsQuery, cpuWords, memWords, missing, shareMeans, shareWords, useBoxShares, usageQuery, type ProjectResources, type ProjectUsage } from "@/lib/usage";
@@ -24,10 +24,12 @@ import { boxSettingsQuery, cpuWords, memWords, missing, shareMeans, shareWords, 
 const MB = 1048576;
 
 /**
- * Usage: how much of the box this project takes (memory, CPU, disk), and the
- * one control a person needs: let it grow as it needs, or limit it to a
- * share of the box. Per-app copies and exact numbers sit under Advanced.
- * The limit is a manifest edit (resources), applied when you let go.
+ * Usage: how much of the box this project takes (memory, CPU, disk; its
+ * database, cache and builds against their limits), and the one control a
+ * person needs: no limit, or a share of the box that holds all of it. Its
+ * storage, cache and query time limits sit under the limit's Advanced;
+ * per-app copies and exact numbers under Details. The limit is a manifest
+ * edit (resources), applied when you let go.
  */
 export function ProjectUsagePage({ project }: { project: string }) {
   useTitle(`${project} · Usage`);
@@ -116,13 +118,15 @@ export function ProjectUsagePage({ project }: { project: string }) {
       {usage.data?.memory.pressure === "oom" && totalMB && (
         <OutOfMemory project={project} live={live} source={usage.data.limitSource} />
       )}
+      {usage.data && <SharedMeters usage={usage.data} />}
 
       {hasUsage && totalMB && (
-        <Limit project={project} resources={resources} busy={!!staged} live={live} totalMB={totalMB} cpus={cpus} source={usage.data?.limitSource} />
+        <Limit project={project} resources={resources} busy={!!staged} live={live} totalMB={totalMB} cpus={cpus} source={usage.data?.limitSource}>
+          {usage.data && <LimitAdvanced project={project} usage={usage.data} services={m.data?.manifest.services as Services | undefined} />}
+        </Limit>
       )}
-      {storage && <StorageLimit project={project} storage={storage} />}
 
-      <Advanced
+      <Details
         project={project}
         free={res && res.memory.totalBytes > 0 ? res.memory.availableBytes / MB - RESERVE_MB : undefined}
         apps={(m.data?.manifest.apps ?? {}) as Record<string, ManifestApp>}
@@ -146,7 +150,7 @@ function Stat({ label, value, of, bar, warn, full }: { label: string; value?: st
 
 const STOPS = [5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 90];
 
-/** The one control: grow as it needs, or a share of the box. */
+/** The one control: no limit, or a share of the box (for its apps, database, cache and builds alike). */
 function Limit({
   project,
   resources,
@@ -155,6 +159,7 @@ function Limit({
   totalMB,
   cpus,
   source,
+  children,
 }: {
   project: string;
   resources?: ProjectResources;
@@ -163,6 +168,7 @@ function Limit({
   totalMB: number;
   cpus: number;
   source?: string;
+  children?: ReactNode;
 }) {
   const settings = useQuery(boxSettingsQuery);
   const boxDefault = settings.data?.defaultMaxSharePercent;
@@ -177,15 +183,15 @@ function Limit({
   const limit = (p: number) => set({ maxSharePercent: p }, `Limit ${project} to ${p}% of the box`, live?.maxSharePercent ? `${project} goes back to ${live.maxSharePercent}%` : `${project} grows as it needs again`);
 
   return (
-    <section className="mt-10 max-w-[46rem]" aria-label="Resources">
-      <h2 className="text-[0.9375rem] font-[550] text-ink">Resources</h2>
+    <section className="mt-10 max-w-[46rem]" aria-label="Limit">
+      <h2 className="text-[0.9375rem] font-[550] text-ink">Limit</h2>
       <div role="radiogroup" aria-label={`How much of the box ${project} may use`} className="mt-3 flex flex-col gap-2">
-        <Choice checked={!limited} onSelect={grow} title="Grows as it needs" note={source === "box default" && boxDefault && boxDefault < 100 ? `It shares the box with the others, up to the box’s limit of ${boxDefault}% for every project.` : "It shares the box with the others and uses what it needs. The box keeps a safety margin."} />
+        <Choice checked={!limited} onSelect={grow} title="No limit" note={source === "box default" && boxDefault && boxDefault < 100 ? `It shares the box with the others, up to the box’s limit of ${boxDefault}% for every project.` : "It shares the box with the others and uses what it needs. The box keeps a safety margin."} />
         <Choice
           checked={limited}
           onSelect={() => !limited && limit(25)}
           title={limited && !resources?.maxSharePercent ? "Limited to exact numbers" : `Limit to ${shown}% of the box`}
-          note={limited && !resources?.maxSharePercent ? `${resources?.memoryMB ? memWords(resources.memoryMB) : "no memory limit"}${resources?.cpus ? ` and ${cpuWords(resources.cpus)}` : ""}. Change it under Advanced.` : "So it can’t crowd out your other projects."}
+          note={limited && !resources?.maxSharePercent ? `${resources?.memoryMB ? memWords(resources.memoryMB) : "no memory limit"}${resources?.cpus ? ` and ${cpuWords(resources.cpus)}` : ""}. Change it under Details.` : "Its apps, database, cache and builds each get at most this share, so it can’t crowd out your other projects. At the limit it slows down first."}
         >
           {limited && !!resources?.maxSharePercent && (
             <div className="mt-3">
@@ -209,76 +215,212 @@ function Limit({
           )}
         </Choice>
       </div>
+      {children}
     </section>
   );
 }
 
 const GB = 1073741824;
 
-/** The optional storage limit: databases and files together, off unless the box owner sets one. */
-function StorageLimit({ project, storage }: { project: string; storage: NonNullable<ProjectUsage["storage"]> }) {
+/** The manifest's services, as far as the limits go. */
+type Services = { postgres?: { statementTimeoutSeconds?: number }; valkey?: { maxMemoryMB?: number } };
+
+const DEFAULT_QUERY_SECONDS = 30;
+const DEFAULT_CACHE_MB = 64;
+const field = "ident mt-1 block h-8 w-28 rounded-[7px] border border-rule-2 bg-paper-raised px-2 text-[0.8125rem] text-ink outline-none focus-visible:border-brass";
+
+/**
+ * The limit's finer settings, closed by default: storage (databases and files,
+ * set by the box owner), the cache and how long one query may run. Opens by
+ * itself for a link to #storage (the read-only banner's "Raise its storage limit").
+ */
+function LimitAdvanced({ project, usage, services }: { project: string; usage: ProjectUsage; services?: Services }) {
+  const [open, setOpen] = useState(() => typeof window !== "undefined" && window.location.hash === "#storage");
   const { admin } = useMe();
   const qc = useQueryClient();
-  const limited = storage.limitBytes > 0;
-  const [gb, setGb] = useState(String(limited ? Math.round((storage.limitBytes / GB) * 10) / 10 : Math.max(1, Math.ceil((storage.usedBytes * 2) / GB))));
-  const save = useMutation({
+  const storage = usage.storage;
+  const ownStorage = !!storage && storage.limitSource === "project" && storage.limitBytes > 0;
+  const live = {
+    gb: ownStorage ? String(Math.round((storage.limitBytes / GB) * 10) / 10) : "",
+    mb: String(services?.valkey?.maxMemoryMB ?? DEFAULT_CACHE_MB),
+    secs: String(services?.postgres?.statementTimeoutSeconds ?? DEFAULT_QUERY_SECONDS),
+  };
+  // What the person typed; untouched fields follow the live values (the manifest may arrive after the page).
+  const [typed, setTyped] = useState<Partial<typeof live>>({});
+  const gb = typed.gb ?? live.gb;
+  const mb = typed.mb ?? live.mb;
+  const secs = typed.secs ?? live.secs;
+  const setGb = (v: string) => setTyped((t) => ({ ...t, gb: v }));
+  const setMb = (v: string) => setTyped((t) => ({ ...t, mb: v }));
+  const setSecs = (v: string) => setTyped((t) => ({ ...t, secs: v }));
+  const quota = useMutation({
     mutationFn: (maxBytes: number) => request("PUT", `/v1/projects/${encodeURIComponent(project)}/storage/quota`, { maxBytes }),
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: usageQuery(project).queryKey });
       void qc.invalidateQueries({ queryKey: ["storage", project] });
     },
   });
-  // Undo puts back this project's own limit, or the box's default.
-  const before = storage.limitSource === "project" ? storage.limitBytes || -1 : 0;
-  const set = (maxBytes: number, title: string) => save.mutate(maxBytes, { onSuccess: () => toast({ title, action: { label: "Undo", run: () => save.mutateAsync(before) } }) });
-  const n = Number(gb);
-  const ok = Number.isFinite(n) && n > 0;
-  const limitTo = () => ok && set(Math.round(n * GB), `${project} may store up to ${bytes(Math.round(n * GB), 1)} now.`);
-  const used = `Its databases and files use ${bytes(storage.usedBytes)}.`;
+  const nGb = Number(gb), nMb = Number(mb), nSecs = Number(secs);
+  const okGb = gb === "" || (Number.isFinite(nGb) && nGb > 0);
+  const okMb = !services?.valkey || (Number.isInteger(nMb) && nMb >= 1 && nMb <= 65536);
+  const okSecs = !services?.postgres || (Number.isInteger(nSecs) && nSecs >= 1 && nSecs <= 3600);
+  const storageChanged = admin && !!storage && gb !== live.gb;
+  const dirty = storageChanged || (!!services?.valkey && mb !== live.mb) || (!!services?.postgres && secs !== live.secs);
+
+  const save = () => {
+    const edits: StagedEdit[] = [];
+    if (services?.valkey && mb !== live.mb)
+      edits.push({ kind: "set", path: ["services", "valkey", "maxMemoryMB"], from: services.valkey.maxMemoryMB, to: nMb, what: `Limit ${project}’s cache to ${nMb} MB`, undo: `${project}’s cache limit goes back to ${live.mb} MB` });
+    if (services?.postgres && secs !== live.secs)
+      edits.push({
+        kind: "set",
+        path: ["services", "postgres", "statementTimeoutSeconds"],
+        from: services.postgres.statementTimeoutSeconds,
+        to: nSecs === DEFAULT_QUERY_SECONDS ? undefined : nSecs,
+        what: `Stop ${project}’s queries after ${nSecs} seconds`,
+        undo: `${project}’s queries stop after ${live.secs} seconds again`,
+      });
+    if (edits.length) changeMany(project, edits);
+    if (storageChanged) {
+      // Undo puts back this project's own limit, or the box's default.
+      const before = storage.limitSource === "project" ? storage.limitBytes || -1 : 0;
+      const to = gb === "" ? -1 : Math.round(nGb * GB);
+      quota.mutate(to, {
+        onSuccess: () => toast({ title: to < 0 ? `${project} has no storage limit now.` : `${project} may store up to ${bytes(to, 1)} now.`, action: { label: "Undo", run: () => quota.mutateAsync(before) } }),
+      });
+    }
+  };
 
   return (
-    <section id="storage" className="mt-10 max-w-[46rem] scroll-mt-8" aria-label="Storage">
-      <h2 className="text-[0.9375rem] font-[550] text-ink">Storage</h2>
-      {!admin ? (
-        <p className="mt-1 text-sm text-ink-2">
-          {used} {limited ? `The box owner limits it to ${bytes(storage.limitBytes, 0)}.` : "It has no storage limit."}
-        </p>
-      ) : (
-        <div role="radiogroup" aria-label={`How much disk ${project} may use`} className="mt-3 flex flex-col gap-2">
-          <Choice
-            checked={!limited}
-            onSelect={() => limited && set(-1, `${project} has no storage limit now.`)}
-            title="No limit"
-            note={`${used} If the box’s disk fills up, the project growing fastest goes read-only first, so the others keep running.`}
-          />
-          <Choice checked={limited} onSelect={() => !limited && limitTo()} title={limited ? `Limited to ${bytes(storage.limitBytes, 0)}` : "Limit its storage"} note="Databases and files together. At the limit it becomes read-only until it’s under it again.">
-            {limited && (
-              <form
-                className="mt-3 flex flex-wrap items-end gap-3"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  limitTo();
-                }}
-              >
-                <label className="text-xs text-ink-3">
-                  Limit (GB)
-                  <input
-                    value={gb}
-                    onChange={(e) => setGb(e.target.value.replace(/[^0-9.]/g, ""))}
-                    inputMode="decimal"
-                    className="ident mt-1 block h-8 w-28 rounded-[7px] border border-rule-2 bg-paper-raised px-2 text-[0.8125rem] text-ink outline-none focus-visible:border-brass"
-                  />
-                </label>
-                <Button type="submit" size="md" disabled={!ok || save.isPending || Math.round(n * GB) === storage.limitBytes}>
-                  Set limit
-                </Button>
-              </form>
-            )}
-          </Choice>
-        </div>
+    <div id="storage" className="mt-4 scroll-mt-8">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="inline-flex items-center gap-1.5 text-sm font-[550] text-ink-2 hover:text-ink">
+        Advanced
+        <ChevronDown className={cn("size-4 text-ink-3 transition-transform duration-[var(--dur-state)]", open && "rotate-180")} />
+      </button>
+      {open && (
+        <form
+          className="mt-2 divide-y divide-rule border-y border-rule"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (dirty && okGb && okMb && okSecs) save();
+          }}
+        >
+          {storage && (
+            <Setting
+              label="Storage (GB)"
+              note={`Databases and files together; they use ${bytes(storage.usedBytes)}. At the limit it becomes read-only until it’s under it again.${!ownStorage && storage.limitBytes > 0 ? ` The box’s default for every project is ${bytes(storage.limitBytes, 0)}.` : ""}`}
+            >
+              {admin ? (
+                <input aria-label="Storage limit in GB" value={gb} onChange={(e) => setGb(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="no limit" className={field} />
+              ) : (
+                <p className="mt-1 text-sm text-ink-2">{storage.limitBytes > 0 ? `${bytes(storage.limitBytes, 0)}, set by the box owner` : "No limit"}</p>
+              )}
+            </Setting>
+          )}
+          {services?.valkey && (
+            <Setting label="Cache (MB)" note={usage.cache?.enforced ? "Over it, keys with an expiry are cleared first, then new writes wait until it’s under it." : "Held to this while it has a limit."}>
+              <input aria-label="Cache limit in MB" value={mb} onChange={(e) => setMb(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" className={field} />
+            </Setting>
+          )}
+          {services?.postgres && (
+            <Setting label="Query time limit (seconds)" note="A query that runs longer is stopped. A query can ask for longer for itself (SET LOCAL statement_timeout).">
+              <input aria-label="Query time limit in seconds" value={secs} onChange={(e) => setSecs(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" className={field} />
+            </Setting>
+          )}
+          <div className="py-3">
+            <Button type="submit" size="md" disabled={!dirty || !okGb || !okMb || !okSecs || quota.isPending}>
+              Save
+            </Button>
+            {!(okGb && okMb && okSecs) && <span className="ml-3 text-sm text-warn-ink">Storage above 0 GB, cache 1–65,536 MB, query time 1–3,600 seconds.</span>}
+          </div>
+          {quota.isError && <ProblemNote className="mb-3" error={quota.error} />}
+        </form>
       )}
-      {save.isError && <ProblemNote className="mt-3" error={save.error} />}
+    </div>
+  );
+}
+
+function Setting({ label, note, children }: { label: string; note: string; children: ReactNode }) {
+  return (
+    <div className="grid gap-x-6 gap-y-1 py-3 sm:grid-cols-[minmax(0,1fr)_8rem]">
+      <div className="min-w-0">
+        <p className="text-[0.875rem] text-ink">{label}</p>
+        <p className="text-xs text-ink-3">{note}</p>
+      </div>
+      <div className="sm:justify-self-end">{children}</div>
+    </div>
+  );
+}
+
+/** Its database, cache and builds against their limits: one row each, a bar where there is a limit. */
+function SharedMeters({ usage }: { usage: ProjectUsage }) {
+  const db = usage.database;
+  const cache = usage.cache;
+  const builds = usage.builds;
+  const stopped = db?.queriesStoppedToday ?? 0;
+  return (
+    <section className="mt-8 max-w-[46rem]" aria-label="Database, cache and builds">
+      <h2 className="label mb-1.5">Database, cache and builds</h2>
+      <div className="divide-y divide-rule border-y border-rule">
+        {db?.limitCpus && (
+          <Meter
+            name="Database work"
+            value={db.cpuPercent < 1 ? "idle" : `${dec(db.cpuPercent, 0)}% of one CPU`}
+            sub={`Its queries may use ${cpuWords(db.limitCpus)}; past that they slow down.`}
+            bar={{ v: db.cpuPercent, max: db.limitCpus * 100 }}
+          />
+        )}
+        {db && (
+          <Meter
+            name="Database connections"
+            value={`${db.connections} of ${db.connectionLimit}`}
+            sub={db.connections >= db.connectionLimit ? "All in use: new connections are refused until one closes." : "Connections its apps may keep open at once."}
+            bar={{ v: db.connections, max: db.connectionLimit }}
+          />
+        )}
+        {db && (
+          <Meter
+            name="Query time limit"
+            value={`${db.queryTimeLimitSeconds} seconds`}
+            sub={stopped > 0 ? `${count(stopped, "query", "queries")} stopped at it today.` : "No query has run that long today."}
+            warn={stopped > 0}
+          />
+        )}
+        {cache && (
+          <Meter
+            name="Cache"
+            value={cache.limitBytes > 0 ? `${bytes(cache.usedBytes)} of ${bytes(cache.limitBytes, 0)}` : bytes(cache.usedBytes)}
+            sub={
+              cache.writesRefused
+                ? "Full: new writes wait until it’s under its limit. Reads and deletes still work."
+                : cache.enforced
+                  ? "Held to its limit: keys with an expiry are cleared first."
+                  : "Its limit applies while the project is limited."
+            }
+            bar={cache.enforced && cache.limitBytes > 0 ? { v: cache.usedBytes, max: cache.limitBytes } : undefined}
+            full={cache.writesRefused}
+          />
+        )}
+        <Meter
+          name="Builds"
+          value={builds.limitCpus ? `up to ${cpuWords(builds.limitCpus)}` : "no limit"}
+          sub={builds.limitCpus && builds.slowDownBytes ? `They slow down past ${memWords(builds.slowDownBytes / MB)} of memory instead of failing.` : "They use what the box has free, one at a time."}
+        />
+      </div>
     </section>
+  );
+}
+
+function Meter({ name, value, sub, bar, warn, full }: { name: string; value: string; sub: string; bar?: { v: number; max: number }; warn?: boolean; full?: boolean }) {
+  return (
+    <div className="py-2.5">
+      <div className="flex items-baseline justify-between gap-4 text-[0.875rem]">
+        <span className="text-ink">{name}</span>
+        <span className={cn("tnum", warn || full ? "text-warn-ink" : "text-ink-2")}>{value}</span>
+      </div>
+      <p className="text-xs text-ink-3">{sub}</p>
+      {bar && bar.max > 0 && <SegMeter size="row" className="mt-1.5" label={`${name} in use`} value={bar.v} max={bar.max} warnAt={0.8} fullAt={full ? 0 : 0.95} />}
+    </div>
   );
 }
 
@@ -305,7 +447,7 @@ function Choice({ checked, onSelect, title, note, children }: { checked: boolean
 }
 
 /** Per-app copies, exact limits and what each part uses: one click away, closed by default. */
-function Advanced({
+function Details({
   project,
   apps,
   free,
@@ -325,7 +467,7 @@ function Advanced({
   return (
     <section className="mt-10 max-w-[56rem]">
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="inline-flex items-center gap-1.5 text-[0.9375rem] font-[550] text-ink hover:text-ink-2">
-        Advanced
+        Details
         <ChevronDown className={cn("size-4 text-ink-3 transition-transform duration-[var(--dur-state)]", open && "rotate-180")} />
       </button>
       {!open && <p className="mt-1 text-sm text-ink-3">How many copies of each app run, and what each part uses.</p>}

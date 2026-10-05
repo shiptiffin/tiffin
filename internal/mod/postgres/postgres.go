@@ -280,6 +280,11 @@ Environment=TIFFIN_PG_CONF=` + confSum + `
 ExecStartPre=+/usr/bin/install -d -m 2775 -o postgres -g postgres ` + SocketDir + `
 ExecStart=` + BinDir + `/postgres -c config_file=` + ConfDir + `/postgresql.conf
 ExecReload=/bin/kill -HUP $MAINPID
+# The box holds each limited project's backends to its share of the CPUs
+# (tiffin-postgres.service/p-<project>); the server and everything else
+# runs in the "shared" group.
+Delegate=cpu io
+DelegateSubgroup=` + sharedGroup + `
 KillMode=mixed
 KillSignal=SIGINT
 TimeoutStartSec=600

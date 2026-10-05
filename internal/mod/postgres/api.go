@@ -287,9 +287,10 @@ func clip(s string, n int) string {
 	return s
 }
 
-// Start reopens databases an interrupted branch clone left blocked, and
-// prunes expired snapshots hourly.
+// Start reopens databases an interrupted branch clone left blocked, prunes
+// expired snapshots hourly and runs the limits watcher (cgroups.go).
 func (*Module) Start(ctx context.Context, p *platform.Platform) error {
+	go watch.run(ctx, p)
 	go func() {
 		// Postgres may still be starting with the box: retry for a while.
 		for i := 0; i < 60; i++ {

@@ -13,6 +13,8 @@ import (
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/mod/budget"
+	"github.com/btahir/tiffin/internal/mod/postgres"
+	"github.com/btahir/tiffin/internal/mod/valkey"
 	"github.com/btahir/tiffin/internal/platform"
 )
 
@@ -28,6 +30,36 @@ type Usage struct {
 	Storage     *UsageStorage `json:"storage,omitempty" doc:"Its storage limit (databases and files together; none by default) and whether its writes are held read-only (absent until the disk guard's first round)"`
 	Apps        []UsageApp    `json:"apps" doc:"Every app of the project, and every preview with running copies"`
 	Services    UsageServices `json:"services"`
+	// The project's limit across everything it uses of the box.
+	SharePercent int            `json:"sharePercent" doc:"The share of the box the project is limited to (its own maxSharePercent, the box default, or what its memoryMB/cpus are of the box), for its apps, its database, its cache and its builds alike; 0: no limit"`
+	Database     *UsageDatabase `json:"database,omitempty" doc:"Its database against its limits (absent without a database)"`
+	Cache        *UsageCache    `json:"cache,omitempty" doc:"Its cache against its limit (absent without a cache)"`
+	Builds       UsageBuilds    `json:"builds"`
+	LimitEvents  []budget.Event `json:"limitEvents" doc:"The moments a limit held the project back in the last 30 days, newest first (each kind at most once an hour)"`
+}
+
+// UsageDatabase is the project's database against its limits.
+type UsageDatabase struct {
+	CPUPercent            float64  `json:"cpuPercent" doc:"CPU its queries use, 100 = one full core (measured while it has a limit: its queries then run in their own group; 0 otherwise)"`
+	LimitCpus             *float64 `json:"limitCpus,omitempty" doc:"CPU cap for its queries, in cores (its share of the box's CPUs); absent: no cap"`
+	Connections           int64    `json:"connections" doc:"Open connections to its databases"`
+	ConnectionLimit       int      `json:"connectionLimit" doc:"Connections it may open at once (80 of 100 without a limit; its share of them with one); past it new connections are refused"`
+	QueryTimeLimitSeconds int      `json:"queryTimeLimitSeconds" doc:"A query running longer is stopped (services.postgres.statementTimeoutSeconds; 30 by default). A query can raise it for itself with SET LOCAL statement_timeout."`
+	QueriesStoppedToday   int      `json:"queriesStoppedToday" doc:"Queries stopped by that time limit since midnight UTC (from the database's log, read every minute)"`
+}
+
+// UsageCache is the project's cache against its limit.
+type UsageCache struct {
+	UsedBytes     int64 `json:"usedBytes"`
+	LimitBytes    int64 `json:"limitBytes" doc:"Its cache limit: the smaller of maxMemoryMB and, while it has a limit, its share of the cache's memory"`
+	Enforced      bool  `json:"enforced" doc:"True while it has a limit: over it, keys with an expiry are cleared first, then writes are refused. Otherwise the limit is only reported."`
+	WritesRefused bool  `json:"writesRefused" doc:"True while writes are refused for being over the limit (reads and deletes still work)"`
+}
+
+// UsageBuilds is what the project's builds may use.
+type UsageBuilds struct {
+	LimitCpus     *float64 `json:"limitCpus,omitempty" doc:"CPU cap for its builds, in cores (its share of the box's CPUs); absent: no cap"`
+	SlowDownBytes uint64   `json:"slowDownBytes,omitempty" doc:"Memory past which its builds slow down (swap) instead of growing: its apps' memory limit, at least 1 GB"`
 }
 
 // Budget is what the project's tiffin.config.ts asks for.
@@ -185,6 +217,15 @@ func (t *tracker) markAll(now time.Time) {
 			if m := containerDir.FindStringSubmatch(sc.Name()); m != nil {
 				t.mark("ctr:"+m[1], cgroupCPU(filepath.Join(dir, sc.Name())), now, seen)
 			}
+		}
+	}
+	// The queries of projects with a limit run in their own group under
+	// the Postgres service.
+	pgDir := filepath.Dir(postgres.GroupDir(t.root, "x"))
+	groups, _ := os.ReadDir(pgDir)
+	for _, g := range groups {
+		if pr, ok := strings.CutPrefix(g.Name(), "p-"); ok && g.IsDir() {
+			t.mark("pg:"+pr, cgroupCPU(filepath.Join(pgDir, g.Name())), now, seen)
 		}
 	}
 	t.mu.Lock()
@@ -449,6 +490,7 @@ func (s *sampler) usage(ctx context.Context, t *tracker, project string, apps []
 			u.Services.Postgres = &PGUsage{Connections: sv.Counts["connections"], DatabaseBytes: sv.Bytes}
 		case "valkey":
 			u.Services.Valkey = &KVUsage{Keys: sv.Counts["keys"], MemoryBytes: sv.Bytes}
+			u.Cache = &UsageCache{UsedBytes: sv.Bytes, LimitBytes: sv.Counts["maxMemoryMB"] << 20}
 		case "storage":
 			u.Services.Storage = &StorageUsage{Buckets: sv.Counts["buckets"], Objects: sv.Counts["objects"], Bytes: sv.Bytes}
 		}
@@ -457,11 +499,42 @@ func (s *sampler) usage(ctx context.Context, t *tracker, project string, apps []
 	if s.guard.state() != nil {
 		u.Storage = s.guard.projectStorage(ctx, project)
 	}
+	s.sharedUsage(ctx, t, u, now)
 	t.mu.Lock()
 	t.cache[project] = u
 	t.cacheGen[project] = gen
 	t.mu.Unlock()
 	return u
+}
+
+// sharedUsage adds the project's limit across the services every project
+// shares: its database, its cache and its builds, and the moments a limit
+// held it back.
+func (s *sampler) sharedUsage(ctx context.Context, t *tracker, u *Usage, now time.Time) {
+	sh := budget.SharedLimit(u.Project)
+	u.SharePercent = sh.Percent
+	if sh.Percent > 0 {
+		c := round(sh.CPUs, 2)
+		u.Builds = UsageBuilds{LimitCpus: &c, SlowDownBytes: uint64(max(budget.MinBuildMB, sh.MemoryMB)) << 20}
+	}
+	if pg := u.Services.Postgres; pg != nil {
+		l := postgres.LimitUsage(u.Project)
+		db := &UsageDatabase{Connections: pg.Connections, ConnectionLimit: l.ConnectionLimit, QueryTimeLimitSeconds: l.StatementTimeoutSeconds,
+			QueriesStoppedToday: l.TimeoutsToday}
+		if l.Tracked {
+			db.Connections = int64(l.Connections)
+		}
+		if l.CPUs > 0 {
+			c := round(l.CPUs, 2)
+			db.LimitCpus = &c
+			db.CPUPercent = t.rate("pg:"+u.Project, cgroupCPU(postgres.GroupDir(s.root, u.Project)), now)
+		}
+		u.Database = db
+	}
+	if st, ok := valkey.CacheLimit(u.Project); ok && st.LimitBytes > 0 && u.Cache != nil {
+		u.Cache = &UsageCache{UsedBytes: st.UsedBytes, LimitBytes: st.LimitBytes, Enforced: true, WritesRefused: st.WritesRefused}
+	}
+	u.LimitEvents = budget.Events(ctx, u.Project)
 }
 
 // projectTotals is the projects section of /v1/box/resources.
