@@ -508,9 +508,11 @@ func (s *DB) AuditLog(ctx context.Context, limit int) ([]AuditEvent, error) {
 
 // ResourceStatus is the live state of one resource.
 type ResourceStatus struct {
-	Address   string    `json:"address"`
-	State     string    `json:"state"`
-	Message   string    `json:"message,omitempty"`
+	Address string `json:"address"`
+	State   string `json:"state"`
+	Message string `json:"message,omitempty"`
+	// Release is set on reads for apps (it is not stored): see the doc tag.
+	Release   string    `json:"release,omitempty" enum:"live,none,failed" doc:"Apps: whether production has a release. live: it has one; none: not deployed yet; failed: none, because its last deploy failed (state is then failed too). A ready state alone only means the app's config is applied."`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 

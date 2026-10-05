@@ -137,6 +137,30 @@ func (p *Platform) EstimateLoss(ctx context.Context, project string, op change.O
 	return nil, nil
 }
 
+// StatusReporter adds to a project's resource statuses what only a module
+// knows at read time (whether an app has a live release, say). It runs on
+// every read of a project's status, so it must be fast and read-only; it
+// changes the statuses read, never the stored ones.
+type StatusReporter interface {
+	ReportStatus(ctx context.Context, p *Platform, project string, st map[string]state.ResourceStatus)
+}
+
+// ResourceStatuses is each of a project's resources' live state, as the
+// project's status API reports it: the stored state, with what every
+// StatusReporter adds.
+func (p *Platform) ResourceStatuses(ctx context.Context, project string) (map[string]state.ResourceStatus, error) {
+	st, err := p.DB.ResourceStatuses(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range Modules() {
+		if r, ok := m.(StatusReporter); ok {
+			r.ReportStatus(ctx, p, project, st)
+		}
+	}
+	return st, nil
+}
+
 // PlanChecker can refuse a manifest before it is planned: the desired state
 // cannot work on this box (a budget bigger than the machine, say). It runs
 // on every plan and apply of a manifest, so it must be fast and read-only.

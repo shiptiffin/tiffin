@@ -1319,7 +1319,7 @@ export interface paths {
         put?: never;
         /**
          * Upload a project export to import
-         * @description Send a .tiffin project archive as the raw request body (application/octet-stream). It is stored on the box and verified as it arrives; the job it returns says what the archive holds and whether its name is free here. Nothing changes until you apply it.
+         * @description Send a .tiffin project archive as the raw request body (application/octet-stream). It is stored on the box and verified as it arrives; the job it returns says what the archive holds and whether its name is free here. Nothing changes until you apply it. name: the name it will be imported under, refused before anything is read if it is taken or was destroyed less than 7 days ago. check: store nothing and answer at once (status checked): with name alone, whether that name is free; with the archive, or just its first megabyte, what it holds and whether this box can import it.
          */
         post: operations["project-import-upload"];
         delete?: never;
@@ -1417,7 +1417,7 @@ export interface paths {
         };
         /**
          * Get a project's state
-         * @description The project's current resources and version, and each resource's live state (pending, ready or failed, with the reason: a failed app's message ends with its last log lines).
+         * @description The project's current resources and version, and each resource's live state (pending, ready or failed, with the reason: a failed app's message ends with its last log lines). An app's release says whether production has one: ready means its config is applied; an app whose last deploy failed with none live reads failed, naming that deploy.
          */
         get: operations["project-get"];
         put?: never;
@@ -6342,10 +6342,10 @@ export interface components {
             /** Format: date-time */
             startedAt?: string;
             /**
-             * @description uploaded (an import waiting for apply) → running → done or failed. A job whose project was created but an app of which did not start is failed: created is true, apps says which app and why
+             * @description uploaded (an import waiting for apply) → running → done or failed; checked answers an upload with check (nothing stored). A job whose project was created but an app of which did not start is failed: created is true, apps says which app and why
              * @enum {string}
              */
-            status: "uploaded" | "running" | "done" | "failed";
+            status: "uploaded" | "running" | "done" | "failed" | "checked";
         };
         PortableSummary: {
             /** Format: date-time */
@@ -7350,6 +7350,11 @@ export interface components {
         ResourceStatus: {
             address: string;
             message?: string;
+            /**
+             * @description Apps: whether production has a release. live: it has one; none: not deployed yet; failed: none, because its last deploy failed (state is then failed too). A ready state alone only means the app's config is applied.
+             * @enum {string}
+             */
+            release?: "live" | "none" | "failed";
             state: string;
             /** Format: date-time */
             updatedAt: string;
@@ -14006,7 +14011,12 @@ export interface operations {
     };
     "project-import-upload": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The name it will be imported under: refused before the upload if it is not free here */
+                name?: string;
+                /** @description Store nothing: check the name and, if sent, the archive's start */
+                check?: boolean;
+            };
             header?: {
                 /** @description Archive size in bytes */
                 "Content-Length"?: number;
@@ -14014,8 +14024,8 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        /** @description The archive */
-        requestBody: {
+        /** @description The archive (with check, its first megabyte is enough) */
+        requestBody?: {
             content: {
                 "application/octet-stream": string;
             };
@@ -14050,6 +14060,15 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

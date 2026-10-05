@@ -335,7 +335,8 @@ type ProjectState struct {
 	Version   int64             `json:"version"`
 	Resources []change.Resource `json:"resources"`
 	Secrets   []string          `json:"secrets,omitempty" doc:"Names of the project's secrets (values are never shown)"`
-	// Status is each resource's live state on the machine (pending, ready, failed).
+	// Status is each resource's live state on the machine (pending, ready, failed),
+	// and for apps whether production has a release.
 	Status map[string]state.ResourceStatus `json:"status,omitempty"`
 }
 
@@ -442,7 +443,7 @@ func (a *API) register() {
 					return nil, err
 				}
 				ps := ProjectSummary{Name: n, Version: v, Resources: len(res)}
-				if st, err := a.deps.DB.ResourceStatuses(ctx, n); err == nil {
+				if st, err := a.statuses(ctx, n); err == nil {
 					for _, addr := range slices.Sorted(maps.Keys(st)) {
 						if rs := st[addr]; rs.State == "failed" {
 							msg, _, _ := strings.Cut(rs.Message, "\n")
@@ -460,7 +461,8 @@ func (a *API) register() {
 	}
 	huma.Register(api, Untrusted(op("project-get", http.MethodGet, "/v1/projects/{project}", "projects get", RiskRead, "Get a project's state",
 		"The project's current resources and version, and each resource's live state (pending, ready or failed, with the reason: "+
-			"a failed app's message ends with its last log lines).", "projects")),
+			"a failed app's message ends with its last log lines). An app's release says whether production has one: ready means its config "+
+			"is applied; an app whose last deploy failed with none live reads failed, naming that deploy.", "projects")),
 		wrap(func(ctx context.Context, in *projectPath) (*struct{ Body ProjectState }, error) {
 			if err := PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
 				return nil, err
@@ -482,7 +484,7 @@ func (a *API) register() {
 			}
 			slices.Sort(out.Secrets)
 			sort.Slice(out.Resources, func(i, j int) bool { return out.Resources[i].Address < out.Resources[j].Address })
-			if st, err := a.deps.DB.ResourceStatuses(ctx, in.Project); err == nil && len(st) > 0 {
+			if st, err := a.statuses(ctx, in.Project); err == nil && len(st) > 0 {
 				out.Status = st
 			}
 			return &struct{ Body ProjectState }{out}, nil
@@ -955,6 +957,16 @@ func (a *API) parseManifest(ctx context.Context, raw ManifestJSON) (*manifest.Ma
 	}
 	desired, err := change.Resources(m)
 	return m, desired, warn, err
+}
+
+// statuses is a project's resource statuses as its status API reports them:
+// on a box, with what modules add (an app's release; see
+// platform.StatusReporter). Apply's own convergence check reads the stored ones.
+func (a *API) statuses(ctx context.Context, project string) (map[string]state.ResourceStatus, error) {
+	if a.deps.Platform != nil {
+		return a.deps.Platform.ResourceStatuses(ctx, project)
+	}
+	return a.deps.DB.ResourceStatuses(ctx, project)
 }
 
 // checkPlan lets box modules refuse a desired state the machine cannot run.

@@ -80,7 +80,8 @@ export function useProjectPulse(project: string): ProjectPulse {
   const urls = rts.map((r) => r.data?.production?.url).filter((u): u is string => !!u);
   const url = urls.find((u) => u.includes(`//${project}.`)) ?? urls.find((u) => /\/\/(web|www|app)\./.test(u)) ?? urls[0];
 
-  const failedRes = Object.values(p.data?.status ?? {}).filter((s) => s.state === "failed");
+  // An app whose last deploy failed with none live reads failed too: its deploys say that more exactly, below.
+  const failedRes = Object.values(p.data?.status ?? {}).filter((s) => s.state === "failed" && s.release !== "failed");
   const pulses = apps.map((a, i) => ({ app: a.name, pulse: appPulse(deploys[i]?.data, a.spec?.role) }));
   const loading = p.isPending || deploys.some((d) => d.isPending);
   const failedChecks = [p, ...deploys].filter((x) => x.isError);
