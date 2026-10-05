@@ -39,6 +39,11 @@ async function withUsage(p: Page) {
         disk: { databaseBytes: 9 * MB, filesBytes: 0.02 * MB, kvBytes: 0.003 * MB, totalBytes: 9.1 * MB },
         apps: [],
         services: { postgres: { memoryBytes: 180 * MB }, valkey: { memoryBytes: 12 * MB }, auth: { memoryBytes: 60 * MB } },
+        sharePercent: 25,
+        database: { cpuPercent: 38, limitCpus: 0.5, connections: 6, connectionLimit: 25, queryTimeLimitSeconds: 30, queriesStoppedToday: 2 },
+        cache: { usedBytes: 12 * MB, limitBytes: 64 * MB, enforced: true, writesRefused: false },
+        builds: { limitCpus: 0.5, slowDownBytes: 1024 * MB },
+        limitEvents: [{ at: new Date().toISOString(), kind: "memory", message: "shop used all of the 976 MB of memory it may use, so an app was stopped and restarted. Give it a bigger limit if it needs more." }],
       },
     }),
   );

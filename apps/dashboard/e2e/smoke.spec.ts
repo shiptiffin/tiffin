@@ -189,7 +189,7 @@ test("usage → copies apply at once → undo → removing a database asks first
   await signIn(page, baseURL!);
 
   await page.goto("/projects/notes/usage");
-  await page.getByRole("button", { name: "Advanced" }).click();
+  await page.getByRole("button", { name: "Details" }).click();
   const search = page.getByRole("spinbutton", { name: "search copies" });
   await expect(search).toHaveAttribute("aria-valuenow", "1");
   await search.focus();

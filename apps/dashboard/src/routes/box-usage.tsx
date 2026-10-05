@@ -72,7 +72,7 @@ export function BoxUsagePage() {
                 const used = shares.projects[p] ?? 0;
                 const limit =
                   !t || t.limitSource === "automatic"
-                    ? "Grows as it needs"
+                    ? "No limit"
                     : t.budget.maxSharePercent
                       ? `Limited to ${t.budget.maxSharePercent}% of the box`
                       : t.limitSource === "box default"

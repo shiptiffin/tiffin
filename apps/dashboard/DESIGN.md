@@ -36,9 +36,10 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
   project, then a card per project: icon, name, live address, one status line, its parts as small glyphs,
   its share of the box. Sort, list view and (past six projects) search. Nothing about the platform here.
 - **Project overview**: name, status line, live address; "What's in it" as tiles (only the parts it has) and
-  a quiet Add. Each tile opens its own page. **Usage**: memory, CPU and disk, one Resources choice (grows as
-  it needs, or a share of the box), copies and exact numbers under Advanced. **History**: plain sentences,
-  who and when, Undo. **Settings**: name, addresses, settings and secrets, built-in parts (toggles), keys
+  a quiet Add. Each tile opens its own page. **Usage**: memory, CPU and disk, its database, cache and builds
+  against their limits, one Limit choice (no limit, or a share of the box that holds all of it) with storage,
+  cache and query time under its Advanced, copies and exact numbers under Details. **History**: plain
+  sentences, who and when, Undo, and when its limit held it back. **Settings**: name, addresses, settings and secrets, built-in parts (toggles), keys
   that reach it, delete.
 - **Settings** (the box): Your box (name, domain, look, moving it, updates), Machine (the carrier with the
   platform's parts), People, Shield.

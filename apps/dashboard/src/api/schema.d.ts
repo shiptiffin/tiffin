@@ -2861,7 +2861,7 @@ export interface paths {
         };
         /**
          * Show what a project uses of the box
-         * @description One project's share of the box, live (cached for 2 seconds): its budget from tiffin.config.ts (auto: true when it sets none); memory used by all its app copies together (production and previews) against its limit, the part the kernel protects for it, its headroom (how much more it could take right now) and pressure ("oom" when an app copy was killed for memory in the last hour: the project is using all the memory it was given); CPU use against its cap; data on disk (database, files, KV; measured in the background every 30 seconds); storage: its databases and files against its storage limit (none by default; set with storage quota set), and readOnly when its writes are held (disk nearly full, or over its limit) with how to fix it; each app's copies, memory and CPU; and service numbers (Postgres connections, KV keys, bucket objects). limitSource says where the limits come from: "project" (its resources), "box default" (the box-wide default share, see box settings) or "automatic" (elastic: it grows into whatever the box has free). To change the limits, set resources in tiffin.config.ts and plan/apply. Every project at once: box resources (its projects list).
+         * @description One project's share of the box, live (cached for 2 seconds): its budget from tiffin.config.ts (auto: true when it sets none); memory used by all its app copies together (production and previews) against its limit, the part the kernel protects for it, its headroom (how much more it could take right now) and pressure ("oom" when an app copy was killed for memory in the last hour: the project is using all the memory it was given); CPU use against its cap; data on disk (database, files, KV; measured in the background every 30 seconds); storage: its databases and files against its storage limit (none by default; set with storage quota set), and readOnly when its writes are held (disk nearly full, or over its limit) with how to fix it; each app's copies, memory and CPU; and service numbers (Postgres connections, KV keys, bucket objects). limitSource says where the limits come from: "project" (its resources), "box default" (the box-wide default share, see box settings) or "automatic" (elastic: it grows into whatever the box has free). sharePercent is the share of the box it is limited to (0: none), which holds everything it uses: database (its queries' CPU, connections; every project also has a query time limit, 30 s by default, and queriesStoppedToday counts the queries it stopped), cache (cleared of expiring keys, then writes refused, over its limit), builds (CPU cap) and disk weight. limitEvents lists when a limit held it back (an app restarted for memory, connections all in use, cache full) in the last 30 days. To change the limits, set resources in tiffin.config.ts and plan/apply. Every project at once: box resources (its projects list).
          */
         get: operations["project-usage"];
         put?: never;
@@ -4373,8 +4373,15 @@ export interface components {
             /** @description Every app of the project, and every preview with running copies */
             apps: components["schemas"]["BoxUsageApp"][] | null;
             budget: components["schemas"]["BoxBudget"];
+            builds: components["schemas"]["BoxUsageBuilds"];
+            /** @description Its cache against its limit (absent without a cache) */
+            cache?: components["schemas"]["BoxUsageCache"];
             cpu: components["schemas"]["BoxUsageCPU"];
+            /** @description Its database against its limits (absent without a database) */
+            database?: components["schemas"]["BoxUsageDatabase"];
             disk: components["schemas"]["BoxUsageDisk"];
+            /** @description The moments a limit held the project back in the last 30 days, newest first (each kind at most once an hour) */
+            limitEvents: components["schemas"]["BudgetEvent"][] | null;
             /**
              * @description Where the project's limits come from: its own resources in tiffin.config.ts, the box-wide default share, or automatic (elastic)
              * @enum {string}
@@ -4385,6 +4392,11 @@ export interface components {
             /** Format: date-time */
             sampledAt: string;
             services: components["schemas"]["BoxUsageServices"];
+            /**
+             * Format: int64
+             * @description The share of the box the project is limited to (its own maxSharePercent, the box default, or what its memoryMB/cpus are of the box), for its apps, its database, its cache and its builds alike; 0: no limit
+             */
+            sharePercent: number;
             /** @description Its storage limit (databases and files together; none by default) and whether its writes are held read-only (absent until the disk guard's first round) */
             storage?: components["schemas"]["BoxUsageStorage"];
         };
@@ -4402,6 +4414,18 @@ export interface components {
             preview?: string;
             /** @description running, starting, or stopped (no copies running) */
             state: string;
+        };
+        BoxUsageBuilds: {
+            /**
+             * Format: double
+             * @description CPU cap for its builds, in cores (its share of the box's CPUs); absent: no cap
+             */
+            limitCpus?: number;
+            /**
+             * Format: int64
+             * @description Memory past which its builds slow down (swap) instead of growing: its apps' memory limit, at least 1 GB
+             */
+            slowDownBytes?: number;
         };
         BoxUsageCPU: {
             /**
@@ -4421,6 +4445,51 @@ export interface components {
              * @description CPU weight under contention; every project has the same
              */
             weight: number;
+        };
+        BoxUsageCache: {
+            /** @description True while it has a limit: over it, keys with an expiry are cleared first, then writes are refused. Otherwise the limit is only reported. */
+            enforced: boolean;
+            /**
+             * Format: int64
+             * @description Its cache limit: the smaller of maxMemoryMB and, while it has a limit, its share of the cache's memory
+             */
+            limitBytes: number;
+            /** Format: int64 */
+            usedBytes: number;
+            /** @description True while writes are refused for being over the limit (reads and deletes still work) */
+            writesRefused: boolean;
+        };
+        BoxUsageDatabase: {
+            /**
+             * Format: int64
+             * @description Connections it may open at once (80 of 100 without a limit; its share of them with one); past it new connections are refused
+             */
+            connectionLimit: number;
+            /**
+             * Format: int64
+             * @description Open connections to its databases
+             */
+            connections: number;
+            /**
+             * Format: double
+             * @description CPU its queries use, 100 = one full core (measured while it has a limit: its queries then run in their own group; 0 otherwise)
+             */
+            cpuPercent: number;
+            /**
+             * Format: double
+             * @description CPU cap for its queries, in cores (its share of the box's CPUs); absent: no cap
+             */
+            limitCpus?: number;
+            /**
+             * Format: int64
+             * @description Queries stopped by that time limit since midnight UTC (from the database's log, read every minute)
+             */
+            queriesStoppedToday: number;
+            /**
+             * Format: int64
+             * @description A query running longer is stopped (services.postgres.statementTimeoutSeconds; 30 by default). A query can raise it for itself with SET LOCAL statement_timeout.
+             */
+            queryTimeLimitSeconds: number;
         };
         BoxUsageDisk: {
             /**
@@ -4576,6 +4645,17 @@ export interface components {
              * @description Memory Tiffin keeps for its own services (API, auth, storage, observability, Postgres's shared buffers, Valkey's cache)
              */
             reserveMB: number;
+        };
+        BudgetEvent: {
+            /** Format: date-time */
+            at: string;
+            /**
+             * @description memory: an app ran out of the memory it may use and was restarted; connections: its database used every connection it may open and more were refused; cache-full: its cache reached its limit and writes were refused until it was under it; cache-freed: keys with an expiry were cleared early to keep its cache under its limit
+             * @enum {string}
+             */
+            kind: "memory" | "connections" | "cache-full" | "cache-freed";
+            /** @description What happened and what to do, in plain words */
+            message: string;
         };
         BudgetSettingsBody: {
             /**
@@ -5336,6 +5416,8 @@ export interface components {
         };
         ManifestPostgres: {
             extensions?: string[] | null;
+            /** Format: int64 */
+            statementTimeoutSeconds?: number;
         };
         ManifestQueue: {
             app: string;
@@ -7694,12 +7776,17 @@ export interface components {
             approximate: boolean;
             /**
              * Format: int64
+             * @description While the project has a limit: the cache limit the box holds it to (the smaller of maxMemoryMB and its share of Valkey's memory). Over it, keys with an expiry are cleared first, then writes are refused.
+             */
+            enforcedBytes?: number;
+            /**
+             * Format: int64
              * @description Keys under the prefix
              */
             keys: number;
             /**
              * Format: int64
-             * @description The project's cap from tiffin.config.ts. Tracked and reported, not enforced (Valkey has no per-prefix limit).
+             * @description The project's cap from tiffin.config.ts. Enforced while the project has a limit (see enforcedBytes); otherwise only reported.
              */
             maxMemoryMB: number;
             /**
@@ -7712,6 +7799,8 @@ export interface components {
             /** @description Every key and pub/sub channel of the project starts with this */
             prefix: string;
             server: components["schemas"]["KVStatsServerStruct"];
+            /** @description True while its cache is over that limit and writes (but not deletes) are refused */
+            writesRefused?: boolean;
         };
         "Workflow-approval-decideRequest": {
             /** @description Why, for the timeline */
