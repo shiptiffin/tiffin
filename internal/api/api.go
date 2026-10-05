@@ -949,7 +949,7 @@ func (a *API) parseManifest(ctx context.Context, raw ManifestJSON) (*manifest.Ma
 	}
 	var warn []string
 	for _, app := range older {
-		def := manifest.DefaultRoute(m.Project, app, m.Apps)
+		def := manifest.DefaultRoute(m, app)
 		warn = append(warn, fmt.Sprintf("app %s keeps its old address %q, from before addresses were named after the project (a new app like it gets %q); "+
 			"set routes: [%q] on it to keep that for good, or routes: [%q] to move it", app, app, def, app, def))
 	}

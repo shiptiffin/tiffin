@@ -338,6 +338,9 @@ func TestSchemaMatchesTypes(t *testing.T) {
 		props := c.schema["properties"].(map[string]any)
 		seen := map[string]bool{}
 		for i := range c.typ.NumField() {
+			if !c.typ.Field(i).IsExported() {
+				continue
+			}
 			name, _, _ := strings.Cut(c.typ.Field(i).Tag.Get("json"), ",")
 			seen[name] = true
 			p, ok := props[name].(map[string]any)

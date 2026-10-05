@@ -50,6 +50,7 @@ func decode(raw []byte) (*Manifest, error) {
 	if err != nil {
 		return nil, newValidationError([]FieldError{{Message: "invalid JSON: " + err.Error()}})
 	}
+	order := keyOrder(raw, "apps") // before a rename re-encodes raw with sorted keys
 	aliasErrs, renamed := serviceAliases(doc)
 	if renamed {
 		if raw, err = json.Marshal(doc); err != nil {
@@ -73,7 +74,50 @@ func decode(raw []byte) (*Manifest, error) {
 		// Reaching here means the schema and the Go types disagree.
 		return nil, newValidationError([]FieldError{{Message: err.Error()}})
 	}
+	m.appOrder = order
 	return &m, nil
+}
+
+// keyOrder returns the keys of raw's top-level object field in the order
+// they are written, or nil.
+func keyOrder(raw []byte, field string) []string {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	skip := func() bool {
+		var v json.RawMessage
+		return dec.Decode(&v) == nil
+	}
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil
+	}
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return nil
+		}
+		if t != field {
+			if !skip() {
+				return nil
+			}
+			continue
+		}
+		if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+			return nil
+		}
+		var keys []string
+		for dec.More() {
+			t, err := dec.Token()
+			if err != nil {
+				return nil
+			}
+			k, _ := t.(string)
+			keys = append(keys, k)
+			if !skip() {
+				return nil
+			}
+		}
+		return keys
+	}
+	return nil
 }
 
 // Canonical renders m as deterministic JSON: object keys sorted, no HTML

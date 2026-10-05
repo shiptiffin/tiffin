@@ -50,6 +50,10 @@ type Manifest struct {
 	// Env holds plain, non-secret environment variables shared by all apps.
 	// Secrets never live in the manifest.
 	Env map[string]string `json:"env,omitempty"`
+
+	// appOrder is the apps in the order the config declares them, when
+	// Parse saw it (canonical JSON sorts them, so it is not stored).
+	appOrder []string
 }
 
 // Framework is how an app is built and run. Bun is the only runtime.

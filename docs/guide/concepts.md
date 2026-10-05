@@ -22,7 +22,7 @@ the box's domain, or its separate apps domain: see [Domains](domains.md)):
 - workers at none.
 
 The main app is the project's only web app; else the app named like the project; else the
-app named `web`; else the first web app by name. Set `routes` to choose an address
+app named `web`; else the first web app in your config. Set `routes` to choose an address
 yourself (`routes: ["store"]`, `routes: ["example.com"]`). Addresses are box-wide: the
 plan refuses one another project already serves.
 

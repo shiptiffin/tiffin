@@ -13,9 +13,10 @@ import "strings"
 //   - workers at none
 //
 // The main app is the project's only web app; else the app named like the
-// project; else the app named "web"; else the first web app by name. An app
-// named like its project is always the main app, so it is served at just
-// <project>.
+// project; else the app named "web"; else the first web app the config
+// declares (by name when the order is not known: canonical JSON sorts the
+// apps). An app named like its project is always the main app, so it is
+// served at just <project>.
 //
 // On a box, an app that sets no routes keeps the address it already has
 // when that address is one a default gave it: its own app name (the default
@@ -26,9 +27,10 @@ import "strings"
 
 // MainApp returns the project's main web app, the one served at the project's
 // own name when it sets no routes, or "" when the project has no web app.
-func MainApp(project string, apps map[string]App) string {
+// order is the apps in the order the config declares them (nil: unknown).
+func MainApp(project string, apps map[string]App, order []string) string {
 	var web []string
-	for _, name := range sortedKeys(apps) {
+	for _, name := range declared(apps, order) {
 		if apps[name].Role != RoleWorker {
 			web = append(web, name)
 		}
@@ -49,6 +51,23 @@ func MainApp(project string, apps map[string]App) string {
 	return web[0]
 }
 
+// declared is apps' names in order, then any order leaves out by name.
+func declared(apps map[string]App, order []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, name := range order {
+		if _, ok := apps[name]; ok && !seen[name] {
+			out, seen[name] = append(out, name), true
+		}
+	}
+	for _, name := range sortedKeys(apps) {
+		if !seen[name] {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 // DefaultName is the name under the apps domain an app gets when it sets no
 // routes: the project for its main app (main), <project>-<app> for the
 // others. Without a project it is the app's own name.
@@ -64,13 +83,13 @@ func DefaultName(project, app, main string) string {
 
 // DefaultRoute is the route Normalize gives app when it sets none, before
 // any address it already has on the box is taken into account: "" for a
-// worker or an app not in apps.
-func DefaultRoute(project, app string, apps map[string]App) string {
-	a, ok := apps[app]
+// worker or an app not in m.
+func DefaultRoute(m *Manifest, app string) string {
+	a, ok := m.Apps[app]
 	if !ok || a.Role == RoleWorker {
 		return ""
 	}
-	return DefaultName(project, app, MainApp(project, apps))
+	return DefaultName(m.Project, app, MainApp(m.Project, m.Apps, m.appOrder))
 }
 
 // keptRoute is the address an app already has on the box (have) that it
@@ -95,7 +114,7 @@ func keptRoute(project, app string, have []string) (string, bool) {
 // for a new project). It returns the apps that keep an address from before
 // addresses were named after the project.
 func defaultRoutes(m *Manifest, onBox map[string][]string) (older []string) {
-	main := MainApp(m.Project, m.Apps)
+	main := MainApp(m.Project, m.Apps, m.appOrder)
 	claimed := map[string]string{} // route → app
 	var bare []string
 	for _, name := range sortedKeys(m.Apps) {

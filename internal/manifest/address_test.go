@@ -21,18 +21,22 @@ func TestMainApp(t *testing.T) {
 	for _, c := range []struct {
 		project string
 		apps    map[string]App
+		order   []string
 		want    string
 	}{
-		{"shop", map[string]App{}, ""},
-		{"shop", map[string]App{"jobs": worker}, ""},
-		{"shop", map[string]App{"site": web, "jobs": worker}, "site"},         // the only web app
-		{"shop", map[string]App{"api": web, "shop": web, "web": web}, "shop"}, // named like the project
-		{"shop", map[string]App{"api": web, "web": web}, "web"},               // named web
-		{"shop", map[string]App{"docs": web, "site": web}, "docs"},            // first by name
-		{"shop", map[string]App{"web": worker, "site": web, "api": web}, "api"},
+		{"shop", map[string]App{}, nil, ""},
+		{"shop", map[string]App{"jobs": worker}, nil, ""},
+		{"shop", map[string]App{"site": web, "jobs": worker}, nil, "site"},                                    // the only web app
+		{"shop", map[string]App{"api": web, "shop": web, "web": web}, []string{"api", "web", "shop"}, "shop"}, // named like the project
+		{"shop", map[string]App{"api": web, "web": web}, []string{"api", "web"}, "web"},                       // named web
+		{"shop", map[string]App{"docs": web, "site": web}, []string{"site", "docs"}, "site"},                  // first declared
+		{"shop", map[string]App{"docs": web, "site": web}, nil, "docs"},                                       // order unknown: first by name
+		{"shop", map[string]App{"jobs": worker, "site": web, "api": web}, []string{"jobs", "site", "api"}, "site"},
+		{"shop", map[string]App{"web": worker, "site": web, "api": web}, nil, "api"},
+		{"shop", map[string]App{"docs": web, "site": web, "blog": web}, []string{"site"}, "site"}, // apps the order leaves out come after, by name
 	} {
-		if got := MainApp(c.project, c.apps); got != c.want {
-			t.Errorf("MainApp(%s, %v) = %q, want %q", c.project, slices.Sorted(maps.Keys(c.apps)), got, c.want)
+		if got := MainApp(c.project, c.apps, c.order); got != c.want {
+			t.Errorf("MainApp(%s, %v, %v) = %q, want %q", c.project, slices.Sorted(maps.Keys(c.apps)), c.order, got, c.want)
 		}
 	}
 }
@@ -48,8 +52,12 @@ func TestDefaultAddresses(t *testing.T) {
 			map[string][]string{"web": {"shop"}, "docs": {"shop-docs"}, "jobs": nil}},
 		{"app named like the project", `{"project":"shop","apps":{"shop":{},"web":{}}}`,
 			map[string][]string{"shop": {"shop"}, "web": {"shop-web"}}},
-		{"first by name", `{"project":"shop","apps":{"site":{},"docs":{}}}`,
+		{"first declared", `{"project":"shop","apps":{"site":{},"docs":{}}}`,
+			map[string][]string{"site": {"shop"}, "docs": {"shop-docs"}}},
+		{"first declared, the other way", `{"project":"shop","apps":{"docs":{},"site":{}}}`,
 			map[string][]string{"docs": {"shop"}, "site": {"shop-site"}}},
+		{"first declared web app", `{"project":"shop","apps":{"jobs":{"role":"worker"},"site":{},"api":{}},"services":{"database":{}}}`,
+			map[string][]string{"jobs": nil, "site": {"shop"}, "api": {"shop-api"}}},
 		{"explicit routes are kept", `{"project":"shop","apps":{"web":{"routes":["Example.com"]},"docs":{}}}`,
 			map[string][]string{"web": {"example.com"}, "docs": {"shop-docs"}}},
 		{"a taken default falls back to project-app", `{"project":"shop","apps":{"web":{},"admin":{"routes":["shop"]}}}`,
@@ -120,6 +128,11 @@ func TestAddressesOnBox(t *testing.T) {
 	got, older = parse(`{"project":"shop","apps":{"site":{},"docs":{}}}`, map[string][]string{"site": {"shop"}})
 	if want := map[string][]string{"site": {"shop"}, "docs": {"shop-docs"}}; !reflect.DeepEqual(got, want) || older != nil {
 		t.Errorf("main app added: %v %v", got, older)
+	}
+	// A project whose main app was picked by name keeps it when the config lists another web app first.
+	got, older = parse(`{"project":"shop","apps":{"site":{},"docs":{}}}`, map[string][]string{"docs": {"shop"}, "site": {"shop-site"}})
+	if want := map[string][]string{"site": {"shop-site"}, "docs": {"shop"}}; !reflect.DeepEqual(got, want) || older != nil {
+		t.Errorf("main app picked by name: %v %v", got, older)
 	}
 	// Routes the config sets win; an app whose chosen route is dropped gets the default.
 	got, _ = parse(`{"project":"shop","apps":{"api":{"routes":["shop"]},"web":{}}}`, map[string][]string{"api": {"api"}, "web": {"custom"}})

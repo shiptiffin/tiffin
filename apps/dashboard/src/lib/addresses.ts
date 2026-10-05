@@ -5,12 +5,11 @@ type Apps = NonNullable<Manifest["apps"]>;
 /**
  * The project's main web app, served at the project's own name when it sets
  * no routes: the only web app, else the one named like the project, else
- * "web", else the first by name. Mirrors internal/manifest/address.go.
+ * "web", else the first in apps' order (the order the plan sends them in).
+ * Mirrors internal/manifest/address.go.
  */
 export function mainApp(project: string, apps: Apps): string {
-  const web = Object.keys(apps)
-    .filter((n) => apps[n]?.role !== "worker")
-    .sort();
+  const web = Object.keys(apps).filter((n) => apps[n]?.role !== "worker");
   if (web.length <= 1) return web[0] ?? "";
   return web.find((n) => n === project) ?? web.find((n) => n === "web") ?? web[0];
 }

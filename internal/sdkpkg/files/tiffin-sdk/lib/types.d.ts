@@ -35,8 +35,8 @@ export interface AppConfig {
      * e.g. "shop" (expands to shop.<box domain>), "example.com", "example.com/api".
      * Default: the project name for its main app ("shop", served at shop.<box domain>)
      * and "<project>-<app>" for the others ("shop-docs"). The main app is the only
-     * web app, else the one named like the project, else "web", else the first by
-     * name. Workers have no routes.
+     * web app, else the one named like the project, else "web", else the first one
+     * declared. Workers have no routes.
      */
     routes?: string[];
     /** Instances to run, 1-16. Default 1. */
