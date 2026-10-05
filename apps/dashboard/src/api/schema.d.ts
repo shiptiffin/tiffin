@@ -4315,6 +4315,8 @@ export interface components {
             projects: components["schemas"]["BoxProjectTotal"][] | null;
             /** Format: date-time */
             sampledAt: string;
+            /** @description How the box was set up on a real server (absent on a local box): its provider and name, and on Hetzner its server type, volume and the bigger types it can change to */
+            server?: components["schemas"]["BoxServer"];
             /** @description Every systemd service the box runs, biggest memory first */
             services: components["schemas"]["BoxService"][] | null;
             /** Format: double */
@@ -4324,6 +4326,14 @@ export interface components {
              * @description CPU percentages are averages over this many seconds before sampledAt
              */
             windowSeconds: number;
+        };
+        BoxServer: {
+            /** @description Hetzner only: the server type, the data volume and the next bigger types with monthly prices, as of the last tiffin up. Resize with: tiffin up --name <name> --type <type> (restarts the box for about 2 minutes) or --volume-size <GB> (no downtime) */
+            machine?: components["schemas"]["ServerMachine"];
+            /** @description The box's name on the owner's computer (tiffin up --name) */
+            name: string;
+            /** @enum {string} */
+            provider: "hetzner" | "ssh";
         };
         BoxService: {
             /**
@@ -7348,6 +7358,58 @@ export interface components {
             /** Format: int64 */
             lineno?: number;
             module?: string;
+        };
+        ServerMachine: {
+            currency: string;
+            location: string;
+            /**
+             * Format: date-time
+             * @description When tiffin up read these prices from Hetzner
+             */
+            pricedAt: string;
+            serverType: components["schemas"]["ServerOffer"];
+            /** @description The next few bigger server types this box can change to (same architecture, orderable where it is), cheapest first */
+            upgrades: components["schemas"]["ServerOffer"][] | null;
+            /**
+             * Format: int64
+             * @description The data volume's size
+             */
+            volumeGB: number;
+            /**
+             * Format: double
+             * @description Monthly price of one volume GB before VAT
+             */
+            volumeGBMonthlyNet: number;
+        };
+        ServerOffer: {
+            /** @description arm64 or amd64 */
+            arch: string;
+            /**
+             * Format: int64
+             * @description vCPUs
+             */
+            cores: number;
+            /** @description Dedicated vCPUs */
+            dedicated?: boolean;
+            /**
+             * Format: int64
+             * @description The server's own disk (the data is on the volume)
+             */
+            diskGB: number;
+            /** Format: double */
+            memoryGB: number;
+            /**
+             * Format: double
+             * @description Monthly price with VAT
+             */
+            monthlyGross: number;
+            /**
+             * Format: double
+             * @description Monthly price before VAT
+             */
+            monthlyNet: number;
+            /** @description Hetzner server type, e.g. cax21 */
+            name: string;
         };
         "Session-createRequest": {
             code: string;

@@ -29,6 +29,8 @@ export type Manifest = S["Manifest"];
 export type ManifestApp = S["ManifestApp"];
 export type ProjectManifest = S["ProjectManifest"];
 export type BoxResources = S["BoxResources"];
+export type BoxServer = S["BoxServer"];
+export type ServerOffer = S["ServerOffer"];
 export type BoxService = S["BoxService"];
 export type BoxApp = S["BoxApp"];
 

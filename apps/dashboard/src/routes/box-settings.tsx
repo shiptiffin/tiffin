@@ -11,6 +11,7 @@ import { Nameplate } from "@/components/nameplate";
 import { Page, PageHeader } from "@/components/page";
 import { ExportBox, ImportBox } from "@/components/settings-move";
 import { BoxDomainSection } from "@/components/box-domain";
+import { BoxSize } from "@/components/box-size";
 import { boxDomainQuery } from "@/lib/domains";
 import { boxName, boxUp, tiffinStarted, versionLabel, whereItRuns } from "@/lib/box";
 import { useMe } from "@/lib/me";
@@ -68,6 +69,7 @@ export function SettingsPage() {
             </div>
           ))}
         </dl>
+        <BoxSize server={res.data?.server} />
       </Section>
 
       <BoxDomainSection admin={admin} Wrap={Section} />
