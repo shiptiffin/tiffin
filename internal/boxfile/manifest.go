@@ -1,6 +1,7 @@
 package boxfile
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -9,7 +10,9 @@ import (
 
 // Archive identity and the newest format this build reads and writes.
 const (
-	ManifestKind  = "tiffin-box-export"
+	ManifestKind = "tiffin-box-export"
+	// ProjectKind is one project's export (tiffin projects export).
+	ProjectKind   = "tiffin-project-export"
 	FormatVersion = 1
 	// FileExt is the archive's file extension.
 	FileExt = ".tiffin"
@@ -17,7 +20,8 @@ const (
 
 // Manifest is the archive's first entry: where it came from and what it holds.
 type Manifest struct {
-	Kind          string      `json:"kind" doc:"Always tiffin-box-export"`
+	Kind          string      `json:"kind" doc:"tiffin-box-export or tiffin-project-export"`
+	Project       string      `json:"project,omitempty" doc:"The project, in a project export"`
 	Format        int         `json:"format" doc:"Archive format version"`
 	TiffinVersion string      `json:"tiffinVersion" doc:"Tiffin version of the box that made it"`
 	Schema        int         `json:"schema" doc:"Platform state schema version of that box"`
@@ -52,9 +56,29 @@ type Consistency struct {
 // CheckCompatible refuses archives this box cannot restore: a newer archive
 // format, a newer platform state schema or a newer Tiffin release.
 func CheckCompatible(m *Manifest, schema int, version string) error {
-	if m.Kind != ManifestKind {
+	switch m.Kind {
+	case ManifestKind:
+	case ProjectKind:
+		return fmt.Errorf("this is an export of project %s, not of a whole box: import it with `tiffin projects import`", m.Project)
+	default:
 		return fmt.Errorf("not a Tiffin box export (kind %q)", m.Kind)
 	}
+	return checkVersions(m, schema, version)
+}
+
+// CheckProject is CheckCompatible for project exports.
+func CheckProject(m *Manifest, schema int, version string) error {
+	switch m.Kind {
+	case ProjectKind:
+	case ManifestKind:
+		return errors.New("this is an export of a whole box, not of one project: import it with `tiffin box import`")
+	default:
+		return fmt.Errorf("not a Tiffin project export (kind %q)", m.Kind)
+	}
+	return checkVersions(m, schema, version)
+}
+
+func checkVersions(m *Manifest, schema int, version string) error {
 	if m.Format > FormatVersion {
 		return fmt.Errorf("the archive was made by a newer Tiffin (archive format %d; this box reads up to %d): update this box first with `tiffin up`", m.Format, FormatVersion)
 	}

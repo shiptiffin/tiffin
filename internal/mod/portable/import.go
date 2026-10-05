@@ -43,7 +43,35 @@ func (m *Module) receive(ctx context.Context, p *platform.Platform, body io.Read
 		}
 	}
 	rec := &Import{ID: ids.New("im"), Status: ImportUploaded, UploadedBy: by, UploadedAt: time.Now().UTC()}
-	path := archivePath(p, "imports", rec.ID)
+	st, err := storeArchive(archivePath(p, "imports", rec.ID), body, func(man *boxfile.Manifest) error {
+		return boxfile.CheckCompatible(man, state.SchemaVersion(), version)
+	})
+	if err != nil {
+		return nil, err
+	}
+	rec.SizeBytes, rec.SHA256 = st.size, st.sha256
+	rec.Source, rec.Parts = summarize(st.man), st.tr.Parts
+	if err := m.save(p, "imports", rec.ID, rec); err != nil {
+		return nil, err
+	}
+	p.Log.Info("import: archive received", "import", rec.ID, "bytes", rec.SizeBytes, "sha256", rec.SHA256)
+	return rec, nil
+}
+
+var errNoSpace = errors.New("no space")
+
+// stored is an uploaded archive, verified.
+type stored struct {
+	man    *boxfile.Manifest
+	tr     *boxfile.Trailer
+	size   int64
+	sha256 string
+}
+
+// storeArchive writes an upload to path while verifying it in the same
+// pass (manifest, every entry against the trailer's digest), then check.
+// Only a verified archive is kept.
+func storeArchive(path string, body io.Reader, check func(*boxfile.Manifest) error) (*stored, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
@@ -60,8 +88,7 @@ func (m *Module) receive(ctx context.Context, p *platform.Platform, body io.Read
 	}()
 	h := sha256.New()
 	cw := &hashCounter{w: f, h: h}
-	tee := io.TeeReader(body, cw)
-	man, tr, verr := boxfile.Verify(tee)
+	man, tr, verr := boxfile.Verify(io.TeeReader(body, cw))
 	if verr != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, verr)
 	}
@@ -69,7 +96,7 @@ func (m *Module) receive(ctx context.Context, p *platform.Platform, body io.Read
 	if _, err := io.Copy(cw, body); err != nil {
 		return nil, fmt.Errorf("upload interrupted: %w", err)
 	}
-	if err := boxfile.CheckCompatible(man, state.SchemaVersion(), version); err != nil {
+	if err := check(man); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	if err := f.Sync(); err != nil {
@@ -82,16 +109,8 @@ func (m *Module) receive(ctx context.Context, p *platform.Platform, body io.Read
 		return nil, err
 	}
 	ok = true
-	rec.SizeBytes, rec.SHA256 = cw.n, hex.EncodeToString(h.Sum(nil))
-	rec.Source, rec.Parts = summarize(man), tr.Parts
-	if err := m.save(p, "imports", rec.ID, rec); err != nil {
-		return nil, err
-	}
-	p.Log.Info("import: archive received", "import", rec.ID, "bytes", rec.SizeBytes, "sha256", rec.SHA256)
-	return rec, nil
+	return &stored{man: man, tr: tr, size: cw.n, sha256: hex.EncodeToString(h.Sum(nil))}, nil
 }
-
-var errNoSpace = errors.New("no space")
 
 // hashCounter writes through to w, hashing and counting.
 type hashCounter struct {
