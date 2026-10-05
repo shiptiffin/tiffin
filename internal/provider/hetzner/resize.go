@@ -26,6 +26,7 @@ type Offer struct {
 	Dedicated    bool    `json:"dedicated,omitempty"` // dedicated vCPUs (ccx)
 	MonthlyNet   float64 `json:"monthlyNet"`
 	MonthlyGross float64 `json:"monthlyGross"`
+	SoldOut      bool    `json:"soldOut,omitempty"` // Hetzner has none free in the location right now
 }
 
 // Words describes the type: "cax21 (4 vCPU ARM, 8 GB RAM, 80 GB disk)".
@@ -186,7 +187,7 @@ func (p *Provider) choices(ctx context.Context, srv *hcloud.Server, pricing hclo
 	if err != nil {
 		return "list the types with: tiffin up --name " + p.cfg.Name + " --dry-run"
 	}
-	opts := options(all, srv, pricing, false)
+	opts := options(all, srv, pricing, false, false)
 	if len(opts) == 0 {
 		return "no other " + archWord(srv.ServerType.Architecture) + " type can be ordered in " + srv.Location.Name
 	}
@@ -199,8 +200,9 @@ func (p *Provider) choices(ctx context.Context, srv *hcloud.Server, pricing hclo
 
 // options are the types srv can change to: same architecture, orderable in
 // its location, a disk at least as big as the server's, cheapest first.
-// bigger keeps only types with more memory or more vCPUs.
-func options(all []*hcloud.ServerType, srv *hcloud.Server, pricing hcloud.Pricing, bigger bool) []Offer {
+// bigger keeps only types with more memory or more vCPUs; soldOut also keeps
+// types sold out in the location for now, marked (a list to show, not to order).
+func options(all []*hcloud.ServerType, srv *hcloud.Server, pricing hcloud.Pricing, bigger, soldOut bool) []Offer {
 	cur := srv.ServerType
 	disk := srv.PrimaryDiskSize
 	if disk == 0 {
@@ -211,13 +213,15 @@ func options(all []*hcloud.ServerType, srv *hcloud.Server, pricing hcloud.Pricin
 		if st.Name == cur.Name || st.Architecture != cur.Architecture || st.Disk < disk {
 			continue
 		}
-		if ok, _ := orderable(st, srv.Location.Name); !ok {
+		ok, _ := orderable(st, srv.Location.Name)
+		if !ok && (!soldOut || !offeredIn(st, srv.Location.Name)) {
 			continue
 		}
 		if bigger && st.Memory <= cur.Memory && st.Cores <= cur.Cores {
 			continue
 		}
 		o := offer(st, pricing, srv.Location.Name)
+		o.SoldOut = !ok
 		if o.MonthlyNet == 0 {
 			continue // no price here
 		}
@@ -264,7 +268,7 @@ func (p *Provider) Machine(ctx context.Context, n int) (*Machine, error) {
 	if vol != nil {
 		m.VolumeGB = vol.Size
 	}
-	up := options(all, srv, pricing, true)
+	up := options(all, srv, pricing, true, true)
 	m.Upgrades = up[:min(len(up), n)]
 	return m, nil
 }
@@ -360,4 +364,14 @@ func (p *Provider) GrowVolume(ctx context.Context, gb int, progress func(string)
 		return apiErr("grow the volume", err)
 	}
 	return p.wait(ctx, act)
+}
+
+// offeredIn says st is sold in loc at all (it may be sold out for now).
+func offeredIn(st *hcloud.ServerType, loc string) bool {
+	for _, l := range st.Locations {
+		if l.Location != nil && l.Location.Name == loc && !l.IsDeprecated() {
+			return true
+		}
+	}
+	return false
 }

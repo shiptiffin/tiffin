@@ -28,7 +28,7 @@ function specs(o: ServerOffer): string {
 export function BoxSize({ server }: { server?: BoxServer }) {
   const [open, setOpen] = useState<"type" | "disk" | null>(null);
   const m = server?.machine;
-  const [type, setType] = useState<string | undefined>(m?.upgrades?.[0]?.name);
+  const [type, setType] = useState<string | undefined>(m?.upgrades?.find((o) => !o.soldOut)?.name);
   const sizes = m ? [2, 4, 8].map((x) => m.volumeGB * x).filter((gb) => gb <= 10240) : [];
   const [disk, setDisk] = useState<string | undefined>(sizes[0]?.toString());
   if (!server) return null;
@@ -47,7 +47,7 @@ export function BoxSize({ server }: { server?: BoxServer }) {
   }
 
   const upgrades = m.upgrades ?? [];
-  const pick = upgrades.find((o) => o.name === type) ?? upgrades[0];
+  const pick = upgrades.find((o) => o.name === type && !o.soldOut) ?? upgrades.find((o) => !o.soldOut);
   const gb = Number(disk ?? sizes[0]);
   return (
     <div className="mt-6">
@@ -55,7 +55,7 @@ export function BoxSize({ server }: { server?: BoxServer }) {
       <p className="text-[0.8125rem] text-ink-3">Upgrading restarts the box for about 2 minutes; growing the disk has no downtime.</p>
       <div className="mt-2 divide-y divide-rule border-y border-rule text-[0.875rem]">
         <Line label="Server" value={`${m.serverType.name} · ${specs(m.serverType)} · ${money(m.serverType.monthlyNet, m.currency)} a month`}>
-          {upgrades.length > 0 && (
+          {pick && (
             <Button size="sm" aria-expanded={open === "type"} onClick={() => setOpen(open === "type" ? null : "type")}>
               Upgrade
             </Button>
@@ -70,15 +70,17 @@ export function BoxSize({ server }: { server?: BoxServer }) {
                   type="button"
                   role="radio"
                   aria-checked={o.name === pick.name}
+                  disabled={o.soldOut}
                   onClick={() => setType(o.name)}
                   className={cn(
                     "flex items-baseline justify-between gap-4 rounded-[8px] border px-3 py-2 text-left transition-colors duration-[var(--dur-state)]",
-                    o.name === pick.name ? "border-brass bg-paper-sunk" : "border-rule hover:bg-paper-sunk",
+                    o.soldOut ? "border-rule text-ink-3 opacity-70" : o.name === pick.name ? "border-brass bg-paper-sunk" : "border-rule hover:bg-paper-sunk",
                   )}
                 >
                   <span className="min-w-0">
                     <span className="ident text-ink">{o.name}</span>
                     <span className="ml-2 text-ink-2">{specs(o)}</span>
+                    {o.soldOut && <span className="ml-2 text-ink-3">sold out in {m.location} right now</span>}
                   </span>
                   <span className="shrink-0 text-ink-2 tnum">
                     {money(o.monthlyNet, m.currency)} <span className="text-ink-3">a month</span>

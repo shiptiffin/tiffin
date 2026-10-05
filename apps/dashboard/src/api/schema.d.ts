@@ -7847,6 +7847,8 @@ export interface components {
             monthlyNet: number;
             /** @description Hetzner server type, e.g. cax21 */
             name: string;
+            /** @description Hetzner has none free in the box's location right now */
+            soldOut?: boolean;
         };
         "Session-createRequest": {
             code: string;

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/btahir/tiffin/internal/provider/hetzner/hetznertest"
+	"github.com/hetznercloud/hcloud-go/v2/hcloud"
 )
 
 func TestPlanResizePricesAndRefuses(t *testing.T) {
@@ -163,5 +164,29 @@ func TestChangeTypeAndGrowVolume(t *testing.T) {
 	before = len(f.Mutations)
 	if err := p.GrowVolume(ctx, 100, quiet); err != nil || len(f.Mutations) != before {
 		t.Fatalf("a smaller size never shrinks: %v %v", err, f.Mutations[before:])
+	}
+}
+
+// A size Hetzner has sold out where the box is shows in the list, marked,
+// but is never offered for an actual change.
+func TestOptionsMarkSoldOutSizes(t *testing.T) {
+	nbg := &hcloud.Location{Name: "nbg1"}
+	st := func(name string, cores int, mem float32, disk int, free bool) *hcloud.ServerType {
+		return &hcloud.ServerType{Name: name, Architecture: hcloud.ArchitectureX86, Cores: cores, Memory: mem, Disk: disk,
+			Locations: []hcloud.ServerTypeLocation{{Location: nbg, Available: free}}}
+	}
+	cur, sold, free := st("cx23", 2, 4, 40, true), st("cx33", 4, 8, 80, false), st("cpx32", 4, 8, 160, true)
+	price := func(s *hcloud.ServerType, net string) hcloud.ServerTypePricing {
+		return hcloud.ServerTypePricing{ServerType: s, Pricings: []hcloud.ServerTypeLocationPricing{{Location: nbg, Monthly: hcloud.Price{Net: net, Gross: net}}}}
+	}
+	pr := hcloud.Pricing{ServerTypes: []hcloud.ServerTypePricing{price(cur, "6.49"), price(sold, "9.99"), price(free, "41.99")}}
+	srv := &hcloud.Server{ServerType: cur, Location: nbg}
+	all := []*hcloud.ServerType{cur, sold, free}
+	shown := options(all, srv, pr, true, true)
+	if len(shown) != 2 || shown[0].Name != "cx33" || !shown[0].SoldOut || shown[1].Name != "cpx32" || shown[1].SoldOut {
+		t.Fatalf("shown: %+v", shown)
+	}
+	if orderable := options(all, srv, pr, true, false); len(orderable) != 1 || orderable[0].Name != "cpx32" {
+		t.Fatalf("orderable: %+v", orderable)
 	}
 }

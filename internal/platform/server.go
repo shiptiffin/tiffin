@@ -50,6 +50,7 @@ type ServerOffer struct {
 	Dedicated    bool    `json:"dedicated,omitempty" doc:"Dedicated vCPUs"`
 	MonthlyNet   float64 `json:"monthlyNet" doc:"Monthly price before VAT"`
 	MonthlyGross float64 `json:"monthlyGross" doc:"Monthly price with VAT"`
+	SoldOut      bool    `json:"soldOut,omitempty" doc:"Hetzner has none free in the box's location right now"`
 }
 
 // ServerMachine is a Hetzner box's size and what it could grow to.
