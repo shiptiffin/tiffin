@@ -44,25 +44,6 @@ func sslipDomain(ip string) string {
 	return strings.ReplaceAll(a.String(), ":", "-") + sslipSuffix
 }
 
-// sslipAddr reads the IP back out of a sslip.io name, so the CLI can dial
-// it without a DNS lookup.
-func sslipAddr(host string) (netip.Addr, bool) {
-	rest, ok := strings.CutSuffix(strings.ToLower(strings.TrimSuffix(host, ".")), sslipSuffix)
-	if !ok {
-		return netip.Addr{}, false
-	}
-	if i := strings.LastIndex(rest, "."); i >= 0 {
-		rest = rest[i+1:]
-	}
-	if a, err := netip.ParseAddr(strings.ReplaceAll(rest, "-", ".")); err == nil && a.Is4() {
-		return a, true
-	}
-	if a, err := netip.ParseAddr(strings.ReplaceAll(rest, "-", ":")); err == nil && a.Is6() {
-		return a, true
-	}
-	return netip.Addr{}, false
-}
-
 // publicIPLookup finds this computer's public addresses (for the Hetzner
 // firewall's SSH rule). Tests replace it.
 var publicIPLookup = func(ctx context.Context) []netip.Addr {

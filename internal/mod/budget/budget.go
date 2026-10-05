@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"os/exec"
 	goruntime "runtime"
 	"sort"
@@ -84,7 +83,7 @@ func SharedLimit(project string) Shared {
 	if r := mod.specs[project]; r != nil {
 		src = SourceProject
 	}
-	return Shared{Percent: l.SharePercent, CPUs: max(0.01, math.Floor(float64(mod.box.CPUs*l.SharePercent))/100),
+	return Shared{Percent: l.SharePercent, CPUs: max(0.01, float64(mod.box.CPUs*l.SharePercent)/100),
 		MemoryMB: l.MemoryMaxMB, Source: src}
 }
 

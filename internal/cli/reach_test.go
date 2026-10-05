@@ -32,7 +32,7 @@ func TestBoxReachAppsDomain(t *testing.T) {
 	defer db.Close()
 	f := reachFlags{domain: "tiffin.localhost", ips: []string{"203.0.113.7"}, tls: "acme"}
 	r, domain, url, err := boxReach(t.Context(), db, f)
-	if err != nil || domain != "203-0-113-7.sslip.io" || r.AppsDomain != "" {
+	if err != nil || domain != "203-0-113-7.sslip.io" || r.AppsDomain != "" || url == "" {
 		t.Fatalf("automatic: %v %s %+v", err, domain, r)
 	}
 	if err := platform.SaveBoxDomain(t.Context(), db, platform.BoxDomain{Domain: "example.com", Apps: "example.app"}); err != nil {

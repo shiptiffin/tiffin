@@ -20,21 +20,6 @@ func TestSSLIP(t *testing.T) {
 	if d := sslipDomain("2001:db8:1::1"); d != "2001-db8-1--1.sslip.io" {
 		t.Fatal(d)
 	}
-	for host, want := range map[string]string{
-		"dashboard.203-0-113-5.sslip.io": "203.0.113.5",
-		"shop.2001-db8-1--1.sslip.io":    "2001:db8:1::1",
-		"203-0-113-5.sslip.io":           "203.0.113.5",
-	} {
-		a, ok := sslipAddr(host)
-		if !ok || a.String() != want {
-			t.Errorf("%s: %v %v", host, a, ok)
-		}
-	}
-	for _, host := range []string{"dashboard.tiffin.localhost", "example.com", "x.not-an-ip.sslip.io"} {
-		if _, ok := sslipAddr(host); ok {
-			t.Errorf("%s is not an sslip address", host)
-		}
-	}
 }
 
 func TestUpHetznerDryRun(t *testing.T) {

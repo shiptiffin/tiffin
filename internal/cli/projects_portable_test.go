@@ -90,11 +90,11 @@ func (s *stubBoxes) dst() http.Handler {
 		if r.URL.Query().Get("check") == "true" {
 			switch name := r.URL.Query().Get("name"); {
 			case s.oldBox:
-				http.Error(w, `{"detail":"not a Tiffin export (it is not zstd-compressed)"}`, 422)
+				http.Error(w, `{"detail":"not a Tiffin export (it is not zstd-compressed)"}`, http.StatusUnprocessableEntity)
 			case name == "blog":
-				http.Error(w, `{"detail":"project blog already exists on this box"}`, 409)
+				http.Error(w, `{"detail":"project blog already exists on this box"}`, http.StatusConflict)
 			case name == "gone":
-				http.Error(w, `{"detail":"a project named gone was destroyed less than 7 days ago"}`, 409)
+				http.Error(w, `{"detail":"a project named gone was destroyed less than 7 days ago"}`, http.StatusConflict)
 			default:
 				_, _ = w.Write([]byte(`{"status":"checked","project":"` + name + `"}`))
 			}
