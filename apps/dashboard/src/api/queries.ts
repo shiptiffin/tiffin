@@ -52,4 +52,14 @@ export const q = {
     retry: false,
   }),
   secrets: (project: string) => queryOptions({ queryKey: ["secrets", project], queryFn: async () => (await api.secrets(project)) ?? [] }),
+  /** A duplicate or import: polled every second while it runs. */
+  projectJob: (id: string) =>
+    queryOptions({
+      queryKey: ["project-job", id],
+      queryFn: () => api.projectJob(id),
+      enabled: !!id,
+      staleTime: 0,
+      refetchInterval: (qq) => (qq.state.data?.status === "running" ? 1000 : false),
+      refetchIntervalInBackground: true,
+    }),
 };

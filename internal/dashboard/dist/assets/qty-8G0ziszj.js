@@ -1,0 +1,1 @@
+import{t as e,u as t}from"./cn-DTApy0j0.js";import"./index-hsXLa_9F.js";var n=t();function r({value:t,unit:r,of:i,className:a}){return(0,n.jsxs)(`span`,{className:e(`tnum whitespace-nowrap`,a),children:[t,r&&(0,n.jsxs)(`span`,{className:`u`,children:[` `,r]}),i&&(0,n.jsxs)(`span`,{className:`u`,children:[` `,i]})]})}export{r as t};

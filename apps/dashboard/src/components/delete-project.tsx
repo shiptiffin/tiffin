@@ -18,23 +18,24 @@ const destroy = (project: string, confirm?: string) =>
  * without confirm answers 428 with that plan), the dialog says exactly what
  * goes, the person types the name, and Delete applies that plan's hash.
  */
-export function DeleteProject({ project }: { project: string }) {
+export function DeleteProject({ project, label, onDeleted }: { project: string; label?: string; onDeleted?: () => void }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <Button variant="danger-quiet" size="md" onClick={() => setOpen(true)}>
-        Delete {project}…
+        {label ?? `Delete ${project}…`}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md" tone="danger">
-          {open && <Body project={project} onClose={() => setOpen(false)} />}
+          {open && <Body project={project} onClose={() => setOpen(false)} onDeleted={onDeleted} />}
         </DialogContent>
       </Dialog>
     </>
   );
 }
 
-function Body({ project, onClose }: { project: string; onClose: () => void }) {
+/** Without onDeleted, deleting goes back to Projects. */
+function Body({ project, onClose, onDeleted }: { project: string; onClose: () => void; onDeleted?: () => void }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [typed, setTyped] = useState("");
@@ -58,7 +59,8 @@ function Body({ project, onClose }: { project: string; onClose: () => void }) {
       void qc.invalidateQueries();
       onClose();
       toast({ title: `Deleted ${project}.`, detail: "Its databases keep a snapshot and its files sit in the trash for 7 days." });
-      void navigate({ to: "/" });
+      if (onDeleted) onDeleted();
+      else void navigate({ to: "/" });
     },
   });
   const losses = (plan.data?.ops ?? []).filter((o) => asTier(o.risk) === "irreversible" && o.loss && !lossEmpty(o.loss)).flatMap((o) => lossParts(o.loss!));

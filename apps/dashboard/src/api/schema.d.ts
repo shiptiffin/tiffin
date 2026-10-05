@@ -1308,6 +1308,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/project-imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a project export to import
+         * @description Send a .tiffin project archive as the raw request body (application/octet-stream). It is stored on the box and verified as it arrives; the job it returns says what the archive holds and whether its name is free here. Nothing changes until you apply it.
+         */
+        post: operations["project-import-upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/project-imports/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Discard an uploaded project export
+         * @description Deletes an uploaded archive that has not been imported (or whose import failed before making anything).
+         */
+        delete: operations["project-import-delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/project-imports/{id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import an uploaded project export
+         * @description Creates a new project from an uploaded archive, beside the box's other projects (an import never replaces one): its database, files, cache, secrets and settings, then its apps from the archive's images or files. A name in use is refused: pass name. Under another name than the archive's, the apps get the new project's own addresses and custom domains and GitHub deploys are left out. Secrets sealed to another box's key need that key (secretsKey), or withoutSecrets to leave them out (the job lists them). Returns at once; poll projects jobs get until status is done. Needs permission to create the project.
+         */
+        post: operations["project-import-apply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/project-jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a duplicate or import
+         * @description One project duplicate or import: what it copies, then its phase and progress, and at the end the new project, its change, its apps' addresses, secrets left out and what stayed behind.
+         */
+        get: operations["project-job-get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects": {
         parameters: {
             query?: never;
@@ -1924,6 +2004,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate a project
+         * @description Makes a full copy of a project on this box under a new name: its database, buckets and files, cache keys, secrets, settings and apps (started from the same images or files, at the new project's own addresses: shop → shop-copy). Custom domains and GitHub deploys stay with the original; the copy starts its own History ("Duplicated from <project>"). Returns at once with a job; poll projects jobs get until status is done. To undo, destroy the copy. Needs full access to the project and permission to create the new one.
+         */
+        post: operations["project-duplicate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/email/messages": {
         parameters: {
             query?: never;
@@ -2071,6 +2171,66 @@ export interface paths {
          * @description Lets the project send to this address again. Only do this when the person asked for mail again.
          */
         delete: operations["email-suppression-delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export a project
+         * @description Starts an export of one project to a single .tiffin file of ordinary files: database.sql (pg_dump), files/<bucket>/..., the cache keys, the apps (image tarball or static files, and the git repository), tiffin.config.ts, project.json, and a docker-compose.yml with a README that run it without Tiffin. GET the download path to run it: the archive is made as it downloads and nothing is kept on the box. Secrets stay sealed to this box's key unless includeSecrets puts them inside in plain text (.env). Needs full access to the project.
+         */
+        post: operations["project-export-create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/exports/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show a project export
+         * @description One project export: status and phase while it downloads; size, SHA-256, what it holds and the apps' addresses when done.
+         */
+        get: operations["project-export-get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/exports/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download a project export
+         * @description The archive (application/octet-stream), made as it streams (once). The export's record has the size and SHA-256 to compare at the end. Needs full access to the project.
+         */
+        get: operations["project-export-download"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2678,6 +2838,46 @@ export interface paths {
          * @description Runs SQL that may change data and schema (DDL and DML) as the project's own Postgres role; several statements separated by semicolons run in one implicit transaction. Needs full access. The database is snapshotted first and the snapshot ID is returned, so `snapshots restore` can undo it. For reads use sql, which needs no confirmation. Use branch to target a preview branch. Postgres errors come back as 422 with the SQLSTATE.
          */
         post: operations["sql-write"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a stopped project's apps
+         * @description Lifts a project's stop: its apps start again from their live deploys. Nothing to do if it is not stopped.
+         */
+        post: operations["project-start"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop a project's apps
+         * @description Stops every app of the project and keeps them stopped (deploys and restarts are refused) until it is started again; its data and settings stay as they are. tiffin projects move leaves the project on the old box this way. A change in History: undo it, or projects start, to bring the apps back.
+         */
+        post: operations["project-stop"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5806,6 +6006,37 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        PortableAppResult: {
+            app: string;
+            deploy?: string;
+            error?: string;
+            /** @description live, failed, or none (it had no release to bring) */
+            status: string;
+            /** @description Its address in the new project */
+            url?: string;
+        };
+        PortableArchiveSummary: {
+            apps: string[] | null;
+            buckets: string[] | null;
+            /** @description The box it came from */
+            domain: string;
+            /** Format: date-time */
+            exportedAt: string;
+            history: boolean;
+            postgres: boolean;
+            project: string;
+            /** @description The key sealed secrets need (the source box's) */
+            recipient?: string;
+            secrets: string[] | null;
+            /** @description Sealed secrets are sealed to this box's key (it made the archive) */
+            secretsHere: boolean;
+            /** @description Secrets are in plain text (.env) */
+            secretsPlain: boolean;
+            /** @description A project of this name exists here: import it under another name */
+            taken: boolean;
+            tiffinVersion: string;
+            valkey: boolean;
+        };
         PortableCheck: {
             detail?: string;
             name: string;
@@ -5924,6 +6155,102 @@ export interface components {
             note: string;
             /** @description age public key the secrets are encrypted to */
             recipient?: string;
+        };
+        PortableProjectExport: {
+            /** @description The apps and their addresses on this box */
+            apps?: components["schemas"]["PortableAppResult"][] | null;
+            /**
+             * Format: int64
+             * @description Uncompressed bytes written so far
+             */
+            contentBytes: number;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: string;
+            /** @description GET this path for the archive (once) */
+            download: string;
+            /** Format: int64 */
+            durationMs?: number;
+            error?: string;
+            /** @description Suggested file name */
+            fileName: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            hint?: string;
+            /** @description Project export ID (px_...) */
+            id: string;
+            /** @description Secrets are inside in plain text (.env) */
+            includeSecrets: boolean;
+            parts?: {
+                [key: string]: components["schemas"]["Stats"];
+            };
+            /** @description What it is doing now */
+            phase?: string;
+            project: string;
+            /** @description Secret names in the archive */
+            secrets?: string[] | null;
+            secretsNote?: string;
+            /** @description SHA-256 of the archive file */
+            sha256?: string;
+            /**
+             * Format: int64
+             * @description Archive size
+             */
+            sizeBytes?: number;
+            /** Format: date-time */
+            startedAt?: string;
+            /**
+             * @description pending (the download starts it) → running → done or failed
+             * @enum {string}
+             */
+            status: "pending" | "running" | "done" | "failed" | "expired";
+            withHistory: boolean;
+        };
+        PortableProjectJob: {
+            apps?: components["schemas"]["PortableAppResult"][] | null;
+            /** @description The change that created it: its History's first entry */
+            change?: string;
+            /** @description The new project exists (also after a failure: look at it, or destroy it) */
+            created: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            createdBy: string;
+            /** Format: int64 */
+            durationMs?: number;
+            error?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            /** @description The project copied (duplicate) or the archive's project (import) */
+            from: string;
+            /** @description Done, and every app that had a release is live */
+            healthy: boolean;
+            hint?: string;
+            /** @description Job ID (pj_...) */
+            id: string;
+            /** @enum {string} */
+            kind: "duplicate" | "import";
+            /** @description What stayed behind (custom domains, GitHub deploys...) */
+            notes?: string[] | null;
+            /** Format: int64 */
+            percent: number;
+            /** @description What it is doing now */
+            phase?: string;
+            /** @description The new project */
+            project?: string;
+            /** @description Secrets not imported: set them by hand */
+            secretsMissing?: string[] | null;
+            sha256?: string;
+            /** Format: int64 */
+            sizeBytes?: number;
+            /** @description What the uploaded archive holds (imports) */
+            source?: components["schemas"]["PortableArchiveSummary"];
+            /** Format: date-time */
+            startedAt?: string;
+            /**
+             * @description uploaded (an import waiting for apply) → running → done or failed
+             * @enum {string}
+             */
+            status: "uploaded" | "running" | "done" | "failed";
         };
         PortableSummary: {
             /** Format: date-time */
@@ -6158,6 +6485,34 @@ export interface components {
             title: string;
             /** @description URI identifying the problem type */
             type?: string;
+        };
+        "Project-duplicateRequest": {
+            /** @description The copy's name, e.g. shop-copy */
+            name: string;
+        };
+        "Project-export-createRequest": {
+            /** @description Put the secrets inside in plain text (.env): anyone with the file can read them */
+            includeSecrets?: boolean;
+            /** @description Also export the project's History (every change) */
+            withHistory?: boolean;
+        };
+        "Project-import-applyRequest": {
+            /** @description The new project's first History entry */
+            intent?: string;
+            /** @description The new project's name; default the archive's */
+            name?: string;
+            /** @description The source box's key (AGE-SECRET-KEY-1...), for secrets sealed to it */
+            secretsKey?: string;
+            /** @description Leave the secrets out (the job lists them, to set by hand) */
+            withoutSecrets?: boolean;
+        };
+        "Project-startRequest": {
+            /** @description Why, in one sentence (History shows it) */
+            intent?: string;
+        };
+        "Project-stopRequest": {
+            /** @description Why, in one sentence (History shows it) */
+            intent?: string;
         };
         ProjectManifest: {
             /** @description The same manifest as a readable tiffin.config.ts with defaults left out: what tiffin pull writes. */
@@ -13493,6 +13848,350 @@ export interface operations {
             };
         };
     };
+    "project-import-upload": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Archive size in bytes */
+                "Content-Length"?: number;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The archive */
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortableProjectJob"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Insufficient Storage */
+            507: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "project-import-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Job ID of the upload */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortableProjectJob"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "project-import-apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Job ID of the upload */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Project-import-applyRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortableProjectJob"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "project-job-get": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Job ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortableProjectJob"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "projects-list": {
         parameters: {
             query?: never;
@@ -16386,6 +17085,96 @@ export interface operations {
             };
         };
     };
+    "project-duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Project-duplicateRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortableProjectJob"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "email-messages-list": {
         parameters: {
             query?: {
@@ -17108,6 +17897,254 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "project-export-create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Project-export-createRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortableProjectExport"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "project-export-get": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Project export ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortableProjectExport"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "project-export-download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Project export ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The archive */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -19767,6 +20804,168 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "project-start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Project-startRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "project-stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Project-stopRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { ApiError, request } from "@/api/client";
+import { request, uploadFile } from "@/api/client";
 import type { components } from "@/api/schema";
 import { CopyValue } from "@/components/copy";
 import { HazardDialog } from "@/components/hazard";
@@ -36,32 +36,6 @@ const move = {
   discard: (id: string) => request<void>("DELETE", `/v1/box/imports/${e(id)}`),
   apply: (id: string, body: { replace: boolean; secretsKey?: string; confirm?: string }) => request<Import>("POST", `/v1/box/imports/${e(id)}/apply`, body),
 };
-
-/** Uploads a file as the raw body, reporting progress (fetch can't report upload progress). */
-function upload(file: File, onProgress: (sent: number) => void): Promise<Import> {
-  return new Promise((resolve, reject) => {
-    const x = new XMLHttpRequest();
-    x.open("POST", "/v1/box/imports");
-    x.setRequestHeader("Content-Type", "application/octet-stream");
-    x.setRequestHeader("Accept", "application/json");
-    x.upload.onprogress = (ev) => onProgress(ev.loaded);
-    x.onload = () => {
-      let data: unknown = {};
-      try {
-        data = JSON.parse(x.responseText || "{}");
-      } catch {
-        /* not JSON */
-      }
-      if (x.status >= 200 && x.status < 300) resolve(data as Import);
-      else {
-        const p = data as Partial<components["schemas"]["Problem"]>;
-        reject(new ApiError({ ...p, status: x.status, code: p.code ?? "internal", title: p.title ?? x.statusText }));
-      }
-    };
-    x.onerror = () => reject(new ApiError({ status: 0, code: "internal", title: "Offline", detail: "The upload stopped: can't reach the box." }));
-    x.send(file);
-  });
-}
 
 const partNames: Record<string, string> = {
   platform: "Platform state",
@@ -236,7 +210,7 @@ export function ImportBox({ boxName, projects, isOwner }: { boxName: string; pro
   const [key, setKey] = useState("");
   const [applying, setApplying] = useState(false);
   const up = useMutation({
-    mutationFn: (f: File) => upload(f, (n) => setSent({ name: f.name, size: f.size, at: n })),
+    mutationFn: (f: File) => uploadFile<Import>("/v1/box/imports", f, (n) => setSent({ name: f.name, size: f.size, at: n })),
     onSuccess: (r) => {
       setCurrent(r.id);
       qc.invalidateQueries({ queryKey: ["box-imports"] });

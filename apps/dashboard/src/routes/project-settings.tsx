@@ -21,6 +21,7 @@ import { relative } from "@/lib/time";
 import { CreateKeyDialog, KeyList, keyProjects, onlyKeys } from "./keys";
 import { ProjectIcon } from "@/components/project-icon";
 import { DomainsLink } from "@/components/project-domains";
+import { CopyAndMove, StoppedNote } from "@/components/project-copy";
 
 /**
  * A project's settings: its name and colour, its addresses, the settings
@@ -50,6 +51,7 @@ export function ProjectSettingsPage({ project }: { project: string }) {
   return (
     <Page>
       <PageHeader eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params: { project } }, { label: "Settings" }]} />} title="Settings" />
+      <StoppedNote project={project} state={p.data} />
       {m.isError && <ProblemNote className="mt-6" error={m.error} title="The project’s config can’t be read." />}
 
       <Section title="Name">
@@ -121,6 +123,10 @@ export function ProjectSettingsPage({ project }: { project: string }) {
         </Section>
       )}
       {!m.data && !m.isError && <Skeleton className="mt-8 h-40" />}
+
+      <Section title="Copy & move" note="Make a copy of it here, take it with you as a file, or move it to another box.">
+        <CopyAndMove project={project} />
+      </Section>
 
       {admin && (
         <Section title="Delete this project" note="Everything in it goes: apps, database, files, users. History keeps the record.">
