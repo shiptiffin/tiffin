@@ -37,6 +37,8 @@ type Fake struct {
 	actions   map[int64]*schema.Action
 	// Mutations is every non-GET request ("POST /servers"), in order.
 	Mutations []string
+	// ChangeTypes records every server type change as "<type> upgrade_disk=<bool>".
+	ChangeTypes []string
 }
 
 // Catalog.
@@ -48,10 +50,11 @@ var (
 		{ID: 4, Name: "ash", City: "Ashburn, VA", Country: "US", NetworkZone: "us-east"},
 	}
 	// Prices (EUR, net per month) the fake quotes.
-	ServerPrices = map[string]float64{"cax11": 4.49, "cx23": 4.99}
-	IPv4Price    = 0.61
-	VolumePerGB  = 0.0572
-	VAT          = 0.19
+	ServerPrices = map[string]float64{"cax11": 4.49, "cx23": 4.99, "cax21": 7.99, "cax31": 15.99, "cax41": 31.49,
+		"cx33": 7.99, "cpx31": 15.59, "ccx13": 14.49}
+	IPv4Price   = 0.61
+	VolumePerGB = 0.0572
+	VAT         = 0.19
 )
 
 func price(net float64) schema.Price {
@@ -59,9 +62,13 @@ func price(net float64) schema.Price {
 }
 
 func serverTypes() []schema.ServerType {
-	mk := func(id int64, name, arch string, avail ...string) schema.ServerType {
-		st := schema.ServerType{ID: id, Name: name, Description: strings.ToUpper(name), Cores: 2, Memory: 4, Disk: 40,
-			StorageType: "local", CPUType: "shared", Architecture: arch, Category: "cost_optimized"}
+	mk := func(id int64, name, arch string, cores int, mem float32, disk int, avail ...string) schema.ServerType {
+		cpu := "shared"
+		if strings.HasPrefix(name, "ccx") {
+			cpu = "dedicated"
+		}
+		st := schema.ServerType{ID: id, Name: name, Description: strings.ToUpper(name), Cores: cores, Memory: mem, Disk: disk,
+			StorageType: "local", CPUType: cpu, Architecture: arch, Category: "cost_optimized"}
 		for _, l := range Locations {
 			ok := slices.Contains(avail, l.Name)
 			st.Locations = append(st.Locations, schema.ServerTypeLocation{ID: l.ID, Name: l.Name, Available: ok, Recommended: ok})
@@ -71,9 +78,17 @@ func serverTypes() []schema.ServerType {
 		}
 		return st
 	}
+	eu := []string{"fsn1", "nbg1", "hel1"}
+	all := []string{"fsn1", "nbg1", "hel1", "ash"}
 	return []schema.ServerType{
-		mk(45, "cax11", "arm", "fsn1", "nbg1", "hel1"),
-		mk(108, "cx23", "x86", "fsn1", "nbg1", "hel1", "ash"),
+		mk(45, "cax11", "arm", 2, 4, 40, eu...),
+		mk(108, "cx23", "x86", 2, 4, 40, all...),
+		mk(93, "cax21", "arm", 4, 8, 80, eu...),
+		mk(94, "cax31", "arm", 8, 16, 160, eu...),
+		mk(95, "cax41", "arm", 16, 32, 320, "fsn1"),
+		mk(109, "cx33", "x86", 4, 8, 80, all...),
+		mk(110, "cpx31", "x86", 4, 8, 160, all...),
+		mk(111, "ccx13", "x86", 2, 8, 80, all...),
 	}
 }
 
@@ -150,6 +165,15 @@ func (f *Fake) AddHandmadeServer(name string) (int64, int64) {
 	return s.ID, v.ID
 }
 
+// Protect turns on a server's delete and rebuild protection (as adopt does).
+func (f *Fake) Protect(id int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if s := f.servers[id]; s != nil {
+		s.Protection.Delete, s.Protection.Rebuild = true, true
+	}
+}
+
 // PrimaryIP returns a primary IP by ID.
 func (f *Fake) PrimaryIP(id int64) *schema.PrimaryIP {
 	f.mu.Lock()
@@ -165,7 +189,7 @@ func (f *Fake) PrimaryIP(id int64) *schema.PrimaryIP {
 func (f *Fake) IPCount() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f.ips) }
 
 func (f *Fake) newServer(name string, st schema.ServerType, l schema.Location, labels map[string]string) *schema.Server {
-	s := &schema.Server{ID: f.id(), Name: name, Status: "running", Created: time.Now(), ServerType: st, Labels: labels, Location: l}
+	s := &schema.Server{ID: f.id(), Name: name, Status: "running", Created: time.Now(), ServerType: st, Labels: labels, Location: l, PrimaryDiskSize: st.Disk}
 	n := s.ID % 250
 	v4 := &schema.PrimaryIP{ID: f.id(), IP: fmt.Sprintf("203.0.113.%d", n), Type: "ipv4", AutoDelete: true, Labels: map[string]string{}, Location: l, AssigneeID: &s.ID, AssigneeType: "server", Name: "primary_ip-" + strconv.FormatInt(n, 10)}
 	v6 := &schema.PrimaryIP{ID: f.id(), IP: fmt.Sprintf("2001:db8:%x::/64", n), Type: "ipv6", AutoDelete: true, Labels: map[string]string{}, Location: l, AssigneeID: &s.ID, AssigneeType: "server", Name: "primary_ip6-" + strconv.FormatInt(n, 10)}
@@ -590,6 +614,21 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		v.Server = nil
 		write(w, 201, schema.VolumeActionDetachVolumeResponse{Action: f.action("detach_volume")})
+	case "POST volumes/{id}/actions/resize":
+		v := f.volumes[id]
+		var req schema.VolumeActionResizeVolumeRequest
+		if v == nil || !decode(&req) {
+			if v == nil {
+				apiError(w, 404, "not_found", "volume not found")
+			}
+			return
+		}
+		if req.Size < v.Size {
+			apiError(w, 422, "invalid_input", "volumes cannot be shrunk")
+			return
+		}
+		v.Size = req.Size
+		write(w, 201, schema.VolumeActionResizeVolumeResponse{Action: f.action("resize_volume")})
 	case "DELETE volumes/{id}":
 		v := f.volumes[id]
 		if v == nil {
@@ -653,6 +692,46 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		write(w, 201, schema.ServerCreateResponse{Server: *s, Action: f.action("create_server"), NextActions: []schema.Action{f.action("start_server")}})
+	case "POST servers/{id}/actions/shutdown", "POST servers/{id}/actions/poweroff":
+		s := f.servers[id]
+		if s == nil {
+			apiError(w, 404, "not_found", "server not found")
+			return
+		}
+		s.Status = "off"
+		write(w, 201, schema.ServerActionPoweronResponse{Action: f.action(parts[3])})
+	case "POST servers/{id}/actions/change_type":
+		s := f.servers[id]
+		var req schema.ServerActionChangeTypeRequest
+		if s == nil || !decode(&req) {
+			if s == nil {
+				apiError(w, 404, "not_found", "server not found")
+			}
+			return
+		}
+		var st *schema.ServerType
+		for _, t := range serverTypes() {
+			if t.Name == req.ServerType.Name || t.ID == req.ServerType.ID {
+				st = &t
+			}
+		}
+		switch {
+		case st == nil:
+			apiError(w, 400, "invalid_input", "unknown server type")
+		case s.Status != "off":
+			apiError(w, 409, "conflict", "server must be powered off")
+		case st.Architecture != s.ServerType.Architecture:
+			apiError(w, 422, "invalid_input", "server type has a different architecture")
+		case st.Disk < s.PrimaryDiskSize:
+			apiError(w, 422, "invalid_server_type", "the disk of the server is too big for the new server type")
+		default:
+			s.ServerType = *st
+			if req.UpgradeDisk {
+				s.PrimaryDiskSize = st.Disk
+			}
+			f.ChangeTypes = append(f.ChangeTypes, st.Name+" upgrade_disk="+strconv.FormatBool(req.UpgradeDisk))
+			write(w, 201, schema.ServerActionPoweronResponse{Action: f.action("change_server_type")})
+		}
 	case "POST servers/{id}/actions/poweron", "POST servers/{id}/actions/reboot":
 		s := f.servers[id]
 		if s == nil {

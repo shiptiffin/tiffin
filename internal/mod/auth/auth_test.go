@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/btahir/tiffin/internal/change"
@@ -81,6 +82,13 @@ func apply(t *testing.T, p *platform.Platform, raw string) *change.Plan {
 		t.Fatal(err)
 	}
 	return plan
+}
+
+func TestEngineMemoryFollowsTheBox(t *testing.T) {
+	small, big := unitFile("/bun", "/engine.js", "/conf.json", 4096), unitFile("/bun", "/engine.js", "/conf.json", 16384)
+	if !strings.Contains(small, "\nMemoryMax=384M\n") || !strings.Contains(big, "\nMemoryMax=1024M\n") {
+		t.Fatalf("MemoryMax on 4 GB / 16 GB:\n%s\n%s", small, big)
+	}
 }
 
 func TestParseRoute(t *testing.T) {

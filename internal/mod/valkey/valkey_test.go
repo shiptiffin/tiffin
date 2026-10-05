@@ -171,6 +171,10 @@ func TestConfig(t *testing.T) {
 	if MaxMemoryMB(512) != 128 || MaxMemoryMB(1<<20) != 4096 {
 		t.Error("maxmemory clamp")
 	}
+	// A resized box gets a new config (and the unit restarts) on its next provision.
+	if !strings.Contains(Config(4096), "maxmemory 512mb\n") || !strings.Contains(Config(16384), "maxmemory 2048mb\n") {
+		t.Error("maxmemory must follow the box's memory")
+	}
 }
 
 func TestParseInfo(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"time"
 )
 
 // ServerConfigPath is where `tiffin up` records that a box runs on a real
@@ -33,6 +34,33 @@ type ServerConfig struct {
 	// Hetzner) when unattended upgrades may reboot for a kernel update.
 	// Empty: never reboot automatically; status says when one is waiting.
 	RebootWindow string `json:"rebootWindow,omitempty"`
+	// Machine is, on Hetzner, the server type and volume and the next few
+	// bigger types with their monthly prices, as `tiffin up` last saw them
+	// (the box never holds the Hetzner token).
+	Machine *ServerMachine `json:"machine,omitempty"`
+}
+
+// ServerOffer is a Hetzner server type and its monthly price.
+type ServerOffer struct {
+	Name         string  `json:"name" doc:"Hetzner server type, e.g. cax21"`
+	Arch         string  `json:"arch" doc:"arm64 or amd64"`
+	Cores        int     `json:"cores" doc:"vCPUs"`
+	MemoryGB     float64 `json:"memoryGB"`
+	DiskGB       int     `json:"diskGB" doc:"The server's own disk (the data is on the volume)"`
+	Dedicated    bool    `json:"dedicated,omitempty" doc:"Dedicated vCPUs"`
+	MonthlyNet   float64 `json:"monthlyNet" doc:"Monthly price before VAT"`
+	MonthlyGross float64 `json:"monthlyGross" doc:"Monthly price with VAT"`
+}
+
+// ServerMachine is a Hetzner box's size and what it could grow to.
+type ServerMachine struct {
+	ServerType  ServerOffer   `json:"serverType"`
+	Location    string        `json:"location"`
+	VolumeGB    int           `json:"volumeGB" doc:"The data volume's size"`
+	Currency    string        `json:"currency"`
+	VolumeGBNet float64       `json:"volumeGBMonthlyNet" doc:"Monthly price of one volume GB before VAT"`
+	Upgrades    []ServerOffer `json:"upgrades" doc:"The next few bigger server types this box can change to (same architecture, orderable where it is), cheapest first"`
+	PricedAt    time.Time     `json:"pricedAt" doc:"When tiffin up read these prices from Hetzner"`
 }
 
 var rebootWindowRE = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)

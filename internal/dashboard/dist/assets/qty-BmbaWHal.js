@@ -1,0 +1,1 @@
+import{l as e,t}from"./cn-DsX1FNJX.js";import"./index-dlcK5eGS.js";var n=e();function r({value:e,unit:r,of:i,className:a}){return(0,n.jsxs)(`span`,{className:t(`tnum whitespace-nowrap`,a),children:[e,r&&(0,n.jsxs)(`span`,{className:`u`,children:[` `,r]}),i&&(0,n.jsxs)(`span`,{className:`u`,children:[` `,i]})]})}export{r as t};

@@ -74,8 +74,8 @@ func ensure(ctx context.Context, p *platform.Platform, project string, extension
 	if !exists {
 		verb = "CREATE"
 	}
-	if _, err := admin.Exec(ctx, fmt.Sprintf(`%s ROLE %s WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 80 PASSWORD %s`,
-		verb, quoteIdent(role), quoteLiteral(pw))); err != nil {
+	if _, err := admin.Exec(ctx, fmt.Sprintf(`%s ROLE %s WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT %d PASSWORD %s`,
+		verb, quoteIdent(role), RoleConnLimit(memTotalMB()), quoteLiteral(pw))); err != nil {
 		return fmt.Errorf("%s role: %w", strings.ToLower(verb), err)
 	}
 

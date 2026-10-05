@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -306,4 +307,23 @@ func tail(s string, n int) string {
 		return "…" + s[len(s)-n:]
 	}
 	return s
+}
+
+// MemoryMB is the machine's RAM (MemTotal), read now: provisioners size
+// services from it, so a resized box is retuned on the next tiffin up.
+// 0 when it cannot be read (not Linux).
+func MemoryMB() int {
+	raw, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if rest, ok := strings.CutPrefix(line, "MemTotal:"); ok {
+			if f := strings.Fields(rest); len(f) > 0 {
+				kb, _ := strconv.Atoi(f[0])
+				return kb / 1024
+			}
+		}
+	}
+	return 0
 }

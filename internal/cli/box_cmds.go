@@ -34,7 +34,7 @@ type upOptions struct {
 	provider, binary, name          string
 	location, serverType, tokenFile string
 	volumeGB                        int
-	dryRun                          bool
+	dryRun, yes                     bool
 	host, identity, sshKey          string
 	adopt                           string
 	noProtect                       bool
@@ -55,10 +55,15 @@ func (a *app) upCmd() *cobra.Command {
 			"  hetzner  a Hetzner Cloud server (Ubuntu 26.04), a data volume and a firewall (token in HCLOUD_TOKEN);\n" +
 			"           --dry-run prints what it would create and the monthly price\n" +
 			"  ssh      any Ubuntu 26.04 (or 24.04) server you can SSH into with sudo (--host user@ip)\n\n" +
-			"Update a server box later with: tiffin up --name <box>",
+			"Update a server box later with: tiffin up --name <box>\n\n" +
+			"Upgrade a Hetzner box in place: --type <type> changes its server type (it restarts for about 2 minutes; ARM and x86\n" +
+			"cannot be swapped) and --volume-size <GB> grows its data volume (no downtime; volumes never shrink). Both show the\n" +
+			"plan and its monthly price and ask first; --yes skips the question, --dry-run only shows it. After any resize, and\n" +
+			"after you resize an ssh box at its host, up retunes Postgres, Valkey and the memory apps share to the machine.",
 		Example: "  tiffin up\n" +
 			"  tiffin up --provider hetzner --dry-run\n" +
 			"  tiffin up --provider hetzner --name shop --location nbg1\n" +
+			"  tiffin up --name shop --type cax21 --volume-size 80\n" +
 			"  tiffin up --provider hetzner --adopt shiptiffin-server --ssh-key ~/.ssh/id_ed25519 --dry-run\n" +
 			"  tiffin up --provider ssh --host root@203.0.113.5 --data-disk /dev/sdb",
 		Args: cobra.NoArgs,
@@ -99,8 +104,9 @@ func (a *app) upCmd() *cobra.Command {
 	fl.StringVar(&o.name, "name", "", "the box's name (server boxes; default tiffin). Hetzner resources are named after it")
 	fl.BoolVar(&o.dryRun, "dry-run", false, "print what would be created and what it costs per month; change nothing")
 	fl.StringVar(&o.location, "location", "", "hetzner: location (default $HCLOUD_LOCATION, else fsn1): fsn1, nbg1, hel1, ash, hil, sin")
-	fl.StringVar(&o.serverType, "type", "", "hetzner: server type (default cax11, ARM 2 vCPU 4 GB; cx/cpx/ccx types are x86)")
-	fl.IntVar(&o.volumeGB, "volume-size", 0, "hetzner: data volume size in GB (default 40)")
+	fl.StringVar(&o.serverType, "type", "", "hetzner: server type (default cax11, ARM 2 vCPU 4 GB; cx/cpx/ccx types are x86). On an existing box: change it (restarts it)")
+	fl.IntVar(&o.volumeGB, "volume-size", 0, "hetzner: data volume size in GB (default 40). On an existing box: grow it (online; never shrinks)")
+	fl.BoolVar(&o.yes, "yes", false, "hetzner: resize an existing box (--type, --volume-size) without asking")
 	fl.StringVar(&o.tokenFile, "token-file", "", "hetzner: file holding the API token (default: $HCLOUD_TOKEN)")
 	fl.StringSliceVar(&o.sshFrom, "ssh-from", nil, "hetzner: addresses allowed to SSH in, or any (default: this computer's current public IP, added to up to 5 recent ones)")
 	fl.StringVar(&o.sshKey, "ssh-key", "", "your own SSH private key to use (default $HCLOUD_SSH_KEY; else hetzner makes one for the box). Only its .pub is uploaded; an identical key already in the Hetzner project is reused")
