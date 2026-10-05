@@ -260,8 +260,8 @@ func TestNormalizeQueuesTopics(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]Queue{
-		"plain": {App: "w", Path: "/queues/plain", MaxAttempts: 8, LeaseSeconds: 60},
-		"rated": {App: "w", Path: "/x", Concurrency: 2, RateLimit: 10, RatePeriodSeconds: 60, MaxAttempts: 8, LeaseSeconds: 60},
+		"plain": {App: "w", Path: "/queues/plain", MaxAttempts: 10, LeaseSeconds: 60},
+		"rated": {App: "w", Path: "/x", Concurrency: 2, RateLimit: 10, RatePeriodSeconds: 60, MaxAttempts: 10, LeaseSeconds: 60},
 		"slow":  {App: "w", Path: "/queues/slow", RateLimit: 1, RatePeriodSeconds: 3600, MaxAttempts: 2, LeaseSeconds: 5},
 	}
 	if !reflect.DeepEqual(m.Queues, want) {
@@ -469,6 +469,9 @@ func randomManifest(r *rand.Rand) *Manifest {
 		if r.IntN(3) == 0 {
 			a.Healthcheck = pick("/", "/healthz", "/a/b")
 		}
+		if r.IntN(3) == 0 && a.Framework != FrameworkStatic {
+			a.Command = pick("bun run worker.ts", "bun --bun next start -p $PORT")
+		}
 		if r.IntN(2) == 0 {
 			a.Env = map[string]string{pick("FOO", "_BAR", "A1"): pick("", "x", "<&>", "é\n")}
 		}
@@ -521,6 +524,10 @@ func randomManifest(r *rand.Rand) *Manifest {
 			if r.IntN(2) == 0 {
 				c.Path = pick("/tick", "/a/b")
 			}
+			if r.IntN(3) == 0 {
+				c.Timezone = pick("UTC", "America/New_York", "Europe/Paris")
+			}
+			c.Overlap = r.IntN(4) == 0
 			m.Crons[pick("tick", "nightly", "c-1")] = c
 		}
 	}

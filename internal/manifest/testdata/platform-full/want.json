@@ -3,10 +3,11 @@
   "project": "platform",
   "apps": {
     "jobs": {
-      "path": "apps/jobs",
+      "path": "apps/web",
       "framework": "bun",
       "role": "worker",
-      "instances": 1
+      "instances": 1,
+      "command": "bun run worker.ts"
     },
     "web": {
       "path": "apps/web",
@@ -47,12 +48,14 @@
     "nightly-report": {
       "schedule": "0 3 * * *",
       "app": "jobs",
-      "path": "/jobs/report"
+      "path": "/jobs/report",
+      "timezone": "America/New_York"
     },
     "sweep": {
       "schedule": "*/15 * * * mon-fri",
       "app": "jobs",
-      "path": "/cron/sweep"
+      "path": "/cron/sweep",
+      "overlap": true
     }
   }
 }

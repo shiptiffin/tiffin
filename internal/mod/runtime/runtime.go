@@ -39,18 +39,22 @@ type Options struct {
 	Drain         time.Duration // longest old instances may take to finish in-flight requests after a switch
 	StopGrace     time.Duration // SIGTERM → SIGKILL
 	PreviewIdle   time.Duration // previews sleep after this long without requests
-	KeepImages    int           // rollback targets kept per app environment
+	PreviewExpire time.Duration // previews are deleted after this long without requests or deploys
+	KeepImages    int           // rollback targets kept per production environment (previews keep none)
 	Engine        Engine
 	Builder       Builder
 }
 
 func defaultOptions() Options {
-	idle := 15 * time.Minute
+	idle, expire := 15*time.Minute, 7*24*time.Hour
 	if v, err := time.ParseDuration(os.Getenv("TIFFIN_PREVIEW_IDLE")); err == nil && v > 0 {
 		idle = v
 	}
+	if v, err := time.ParseDuration(os.Getenv("TIFFIN_PREVIEW_EXPIRE")); err == nil && v > 0 {
+		expire = v
+	}
 	return Options{DataDir: DataDir, LogDir: LogDir, HealthTimeout: 120 * time.Second, Drain: 30 * time.Second,
-		StopGrace: 10 * time.Second, PreviewIdle: idle, KeepImages: 5}
+		StopGrace: 10 * time.Second, PreviewIdle: idle, PreviewExpire: expire, KeepImages: 3}
 }
 
 // rt is the running runtime.
@@ -280,8 +284,9 @@ func (m *Module) ProjectDeleted(ctx context.Context, p *platform.Platform, proje
 	return errors.Join(errs...)
 }
 
-// loop runs housekeeping: sleeping idle previews, stopping drained releases
-// and, every 5 minutes, removing orphaned containers.
+// loop runs housekeeping: sleeping idle previews, deleting long-unused
+// ones, stopping drained releases and, every 5 minutes, removing orphaned
+// containers.
 func (r *rt) loop(ctx context.Context) {
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
@@ -291,6 +296,7 @@ func (r *rt) loop(ctx context.Context) {
 			return
 		case <-t.C:
 			r.sleepIdlePreviews(ctx)
+			r.expirePreviews(ctx)
 			r.reapDrained(ctx)
 			if tick%20 == 0 {
 				r.removeOrphans(ctx)

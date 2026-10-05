@@ -27,7 +27,7 @@
       "keyConcurrency": 0,
       "rateLimit": 5,
       "ratePeriodSeconds": 10,
-      "maxAttempts": 8,
+      "maxAttempts": 10,
       "leaseSeconds": 60
     },
     "emails": {
@@ -37,7 +37,7 @@
       "keyConcurrency": 0,
       "rateLimit": 0,
       "ratePeriodSeconds": 0,
-      "maxAttempts": 8,
+      "maxAttempts": 10,
       "leaseSeconds": 60
     },
     "image-resize": {

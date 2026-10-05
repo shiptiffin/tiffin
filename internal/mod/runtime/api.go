@@ -369,7 +369,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		}))
 
 	pd := api.Op("preview-delete", http.MethodDelete, appPath+"/previews/{name}", "previews delete", api.RiskDestructive, "Delete a preview",
-		"Stops a preview and removes its route. Its deploy records stay listed; production is not touched.", "apps")
+		"Stops a preview, removes its route and its builds. Its deploy records stay listed; production is not touched. "+
+			"Previews nobody requested or deployed to for 7 days are deleted the same way.", "apps")
 	pd.Errors = append(pd.Errors, 404)
 	huma.Register(a, pd, api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
@@ -858,7 +859,7 @@ func (r *rt) restart(ctx context.Context, project, app, preview string) (*Deploy
 	return d, nil
 }
 
-// deletePreview stops a preview and forgets it.
+// deletePreview stops a preview, forgets it and removes its builds.
 func (r *rt) deletePreview(ctx context.Context, project, app, name string) error {
 	unlock := r.lock(envKey(project, app, name))
 	defer unlock()
@@ -879,5 +880,6 @@ func (r *rt) deletePreview(ctx context.Context, project, app, name string) error
 		_ = r.st.putDeploy(ctx, d)
 	}
 	_ = os.RemoveAll(r.envLogDir(project, app, name))
+	r.gc(ctx, project, app, name)
 	return nil
 }

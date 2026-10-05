@@ -29,7 +29,7 @@ func TestQueue(t *testing.T) {
 		t.Fatalf("copy template: %v\n%s", err, out)
 	}
 	_ = os.RemoveAll(filepath.Join(app, "node_modules"))
-	b.apply("jobs", `{"project":"jobs","apps":{"worker":{"role":"worker"}},"crons":{"tick":{"schedule":"* * * * *","app":"worker","path":"/cron/tick"}}}`)
+	b.apply("jobs", `{"project":"jobs","apps":{"worker":{"role":"worker"}},"crons":{"tick":{"schedule":"* * * * *","app":"worker","path":"/cron/tick","timezone":"Europe/London"}}}`)
 	b.waitReady("app/worker", "cron/tick")
 	deploy := func() {
 		t.Helper()
@@ -130,7 +130,7 @@ func TestQueue(t *testing.T) {
 	deadline := time.Now().Add(150 * time.Second)
 	for {
 		cs := b.list("queue", "crons", "list", "jobs")
-		if len(cs) == 1 && cs[0]["lastState"] == "completed" {
+		if len(cs) == 1 && cs[0]["lastState"] == "completed" && cs[0]["timezone"] == "Europe/London" {
 			t.Logf("cron tick: job %v completed, next %v", cs[0]["lastJob"], cs[0]["nextAt"])
 			break
 		}

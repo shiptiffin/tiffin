@@ -119,6 +119,53 @@ func (e *Engine) Topics(ctx context.Context, project string) ([]Topic, error) {
 
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 
+// schedule is a cron expression read on the wall clock of a time zone.
+type schedule struct {
+	spec cron.Schedule // matched against wall-clock times written as UTC
+	loc  *time.Location
+}
+
+// parseSchedule reads expr in the IANA time zone tz ("" is UTC).
+func parseSchedule(expr, tz string) (*schedule, error) {
+	loc, err := time.LoadLocation(tz)
+	if err != nil || tz == "Local" {
+		return nil, fmt.Errorf("unknown time zone %q", tz)
+	}
+	spec, err := cronParser.Parse("CRON_TZ=UTC " + expr)
+	if err != nil {
+		return nil, err
+	}
+	return &schedule{spec, loc}, nil
+}
+
+// Next is the first tick after t. Ticks follow the zone's wall clock, so a
+// clock change neither repeats nor drops one: a time that happens twice
+// runs once (ticks in the repeated hour are passed over) and a time the
+// clocks skip runs at the change.
+func (s *schedule) Next(t time.Time) time.Time {
+	w := wallClock(t.In(s.loc))
+	for range 1000 {
+		if w = s.spec.Next(w); w.IsZero() {
+			return w
+		}
+		at := time.Date(w.Year(), w.Month(), w.Day(), w.Hour(), w.Minute(), w.Second(), 0, s.loc)
+		// w does not exist in the zone (clocks skipped it): take the change itself.
+		if got := wallClock(at); got.Before(w) {
+			_, at = at.ZoneBounds()
+		} else if got.After(w) {
+			at, _ = at.ZoneBounds()
+		}
+		if at.After(t) {
+			return at.UTC()
+		}
+	}
+	return time.Time{}
+}
+
+func wallClock(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), 0, time.UTC)
+}
+
 // ReconcileCron makes the stored cron match the manifest (spec nil = deleted).
 func (e *Engine) ReconcileCron(ctx context.Context, project, name string, spec json.RawMessage) error {
 	if spec == nil {
@@ -132,22 +179,23 @@ func (e *Engine) ReconcileCron(ctx context.Context, project, name string, spec j
 	if c.Path == "" {
 		c.Path = "/cron/" + name
 	}
-	sched, err := cronParser.Parse(c.Schedule)
+	sched, err := parseSchedule(c.Schedule, c.Timezone)
 	if err != nil {
 		return fmt.Errorf("cron %s: schedule %q: %w", name, c.Schedule, err)
 	}
-	next := sched.Next(e.now().UTC())
-	// A changed schedule restarts from now; an unchanged one keeps its next tick.
-	_, err = e.pool.Exec(ctx, `INSERT INTO tq_crons (project, name, schedule, app, path, next_at) VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (project, name) DO UPDATE SET app = $4, path = $5,
-		next_at = CASE WHEN tq_crons.schedule = $3 THEN tq_crons.next_at ELSE $6 END, schedule = $3`,
-		project, name, c.Schedule, c.App, c.Path, next)
+	next := sched.Next(e.now())
+	// A changed schedule or time zone restarts from now; an unchanged one keeps its next tick.
+	_, err = e.pool.Exec(ctx, `INSERT INTO tq_crons (project, name, schedule, timezone, overlap, app, path, next_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (project, name) DO UPDATE SET app = $6, path = $7, overlap = $5,
+		next_at = CASE WHEN tq_crons.schedule = $3 AND tq_crons.timezone = $4 THEN tq_crons.next_at ELSE $8 END, schedule = $3, timezone = $4`,
+		project, name, c.Schedule, c.Timezone, c.Overlap, c.App, c.Path, next)
 	return err
 }
 
 // cronLoop fires due crons. Ticks missed while the box was down fire once
-// when it comes back, then the schedule continues from now. A stopped
-// project's crons wait (see stop.go).
+// when it comes back, then the schedule continues from now. A tick whose
+// cron's previous run is still queued or running is skipped (unless the
+// cron allows overlap). A stopped project's crons wait (see stop.go).
 func (e *Engine) cronLoop(ctx context.Context) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
@@ -169,19 +217,22 @@ func (e *Engine) fireDueCrons(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT project, name, schedule, app, path, next_at FROM tq_crons WHERE next_at <= now()
-		AND project NOT IN (SELECT project FROM tq_stopped) FOR UPDATE SKIP LOCKED LIMIT 100`)
+	rows, err := tx.Query(ctx, `SELECT c.project, c.name, c.schedule, c.timezone, c.app, c.path, c.next_at,
+		NOT c.overlap AND coalesce(j.state IN ('scheduled', 'queued', 'running', 'retrying'), false)
+		FROM tq_crons c LEFT JOIN tq_jobs j ON j.id = c.last_job WHERE c.next_at <= now()
+		AND c.project NOT IN (SELECT project FROM tq_stopped) FOR UPDATE OF c SKIP LOCKED LIMIT 100`)
 	if err != nil {
 		return err
 	}
 	type due struct {
-		project, name, schedule, app, path string
-		at                                 time.Time
+		project, name, schedule, tz, app, path string
+		at                                     time.Time
+		busy                                   bool // the previous run is still going
 	}
 	var ds []due
 	for rows.Next() {
 		var d due
-		if err := rows.Scan(&d.project, &d.name, &d.schedule, &d.app, &d.path, &d.at); err != nil {
+		if err := rows.Scan(&d.project, &d.name, &d.schedule, &d.tz, &d.app, &d.path, &d.at, &d.busy); err != nil {
 			rows.Close()
 			return err
 		}
@@ -189,8 +240,16 @@ func (e *Engine) fireDueCrons(ctx context.Context) error {
 	}
 	rows.Close()
 	for _, d := range ds {
-		sched, err := cronParser.Parse(d.schedule)
+		sched, err := parseSchedule(d.schedule, d.tz)
 		if err != nil {
+			continue
+		}
+		if d.busy {
+			e.log.Info("queue: cron tick skipped: the previous run is still queued or running", "project", d.project, "cron", d.name, "tick", d.at)
+			if _, err := tx.Exec(ctx, `UPDATE tq_crons SET next_at = $3, skipped_at = $4 WHERE project = $1 AND name = $2`,
+				d.project, d.name, sched.Next(e.now()), d.at); err != nil {
+				return err
+			}
 			continue
 		}
 		id, err := e.enqueueCron(ctx, tx, d.project, d.name, d.app, d.path, d.schedule, d.at, "cron")
@@ -198,7 +257,7 @@ func (e *Engine) fireDueCrons(ctx context.Context) error {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE tq_crons SET next_at = $3, last_at = $4, last_job = $5 WHERE project = $1 AND name = $2`,
-			d.project, d.name, sched.Next(e.now().UTC()), d.at, id); err != nil {
+			d.project, d.name, sched.Next(e.now()), d.at, id); err != nil {
 			return err
 		}
 	}
@@ -217,18 +276,21 @@ func (e *Engine) enqueueCron(ctx context.Context, tx pgx.Tx, project, name, app,
 
 // CronInfo is a cron with its next and last run.
 type CronInfo struct {
-	Name      string     `json:"name"`
-	Schedule  string     `json:"schedule" doc:"Cron expression, in UTC"`
-	Target    string     `json:"target" doc:"app:path it calls"`
-	NextAt    time.Time  `json:"nextAt"`
-	LastAt    *time.Time `json:"lastAt,omitempty"`
-	LastJob   string     `json:"lastJob,omitempty" doc:"Job of the latest tick (see queue jobs get)"`
-	LastState string     `json:"lastState,omitempty"`
+	Name          string     `json:"name"`
+	Schedule      string     `json:"schedule" doc:"Cron expression, read in timezone"`
+	Timezone      string     `json:"timezone" doc:"IANA time zone of the schedule"`
+	Overlap       bool       `json:"overlap,omitempty" doc:"Ticks run even while the previous run is still going"`
+	Target        string     `json:"target" doc:"app:path it calls"`
+	NextAt        time.Time  `json:"nextAt"`
+	LastAt        *time.Time `json:"lastAt,omitempty"`
+	LastJob       string     `json:"lastJob,omitempty" doc:"Job of the latest tick (see queue jobs get)"`
+	LastState     string     `json:"lastState,omitempty"`
+	LastSkippedAt *time.Time `json:"lastSkippedAt,omitempty" doc:"Latest tick skipped because the previous run was still queued or running"`
 }
 
 // Crons lists a project's crons.
 func (e *Engine) Crons(ctx context.Context, project string) ([]CronInfo, error) {
-	rows, err := e.pool.Query(ctx, `SELECT c.name, c.schedule, c.app, c.path, c.next_at, c.last_at, c.last_job, j.state
+	rows, err := e.pool.Query(ctx, `SELECT c.name, c.schedule, c.timezone, c.overlap, c.app, c.path, c.next_at, c.last_at, c.last_job, j.state, c.skipped_at
 		FROM tq_crons c LEFT JOIN tq_jobs j ON j.id = c.last_job WHERE c.project = $1 ORDER BY c.name`, project)
 	if err != nil {
 		return nil, err
@@ -240,8 +302,11 @@ func (e *Engine) Crons(ctx context.Context, project string) ([]CronInfo, error) 
 		var app, path string
 		var last *int64
 		var st *string
-		if err := rows.Scan(&c.Name, &c.Schedule, &app, &path, &c.NextAt, &c.LastAt, &last, &st); err != nil {
+		if err := rows.Scan(&c.Name, &c.Schedule, &c.Timezone, &c.Overlap, &app, &path, &c.NextAt, &c.LastAt, &last, &st, &c.LastSkippedAt); err != nil {
 			return nil, err
+		}
+		if c.Timezone == "" {
+			c.Timezone = "UTC"
 		}
 		c.Target = app + ":" + path
 		if last != nil {

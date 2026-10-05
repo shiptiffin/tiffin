@@ -139,6 +139,12 @@ func configNode(m *Manifest) *node {
 			if c.Path != DefaultCronPathPrefix+name {
 				n.set("path", str(c.Path))
 			}
+			if c.Timezone != "" {
+				n.set("timezone", str(c.Timezone))
+			}
+			if c.Overlap {
+				n.set("overlap", boolean(true))
+			}
 			cs.set(name, n)
 		}
 		root.set("crons", cs)
@@ -206,6 +212,9 @@ func appNode(name string, a App, implied string) *node {
 	}
 	if a.Healthcheck != defHealth {
 		n.set("healthcheck", str(a.Healthcheck))
+	}
+	if a.Command != "" {
+		n.set("command", str(a.Command))
 	}
 	if len(a.Env) > 0 {
 		n.set("env", strMap(a.Env))

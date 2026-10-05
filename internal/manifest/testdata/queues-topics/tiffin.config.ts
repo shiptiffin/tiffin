@@ -7,7 +7,7 @@ export default defineConfig({
     jobs: { framework: "bun", path: "apps/jobs", role: "worker" },
   },
   queues: {
-    // Everything defaulted: path /queues/emails, 8 attempts, 60 s lease.
+    // Everything defaulted: path /queues/emails, 10 attempts, 60 s lease.
     emails: { app: "jobs" },
     // Explicit limits; the rate window defaults to 60 s.
     "image-resize": { app: "jobs", path: "/jobs/resize", concurrency: 4, keyConcurrency: 1, rateLimit: 30, maxAttempts: 3, leaseSeconds: 600 },

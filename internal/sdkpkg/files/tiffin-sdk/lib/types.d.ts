@@ -48,6 +48,12 @@ export interface AppConfig {
     memoryMB?: number;
     /** Healthcheck path. Default "/". Ignored for workers and static apps. */
     healthcheck?: string;
+    /**
+     * Starts the app instead of the start command the build detects
+     * (package.json "start"), e.g. "bun run worker.ts", so one source folder can
+     * run a web app and a worker. Applies from the next deploy. Not for static apps.
+     */
+    command?: string;
     /** App-specific plain environment variables (merged over the top-level `env`). */
     env?: Record<string, string>;
     /**
@@ -163,6 +169,17 @@ export interface CronConfig {
     app: string;
     /** Request path on the app. Must start with "/". Default "/cron/<cron name>". */
     path?: string;
+    /**
+     * IANA time zone the schedule is read in, e.g. "America/New_York". Default
+     * UTC. When clocks change, a time that happens twice runs once and a time
+     * that is skipped runs at the change.
+     */
+    timezone?: string;
+    /**
+     * Run a tick even while the previous one is still queued or running.
+     * Default false: such a tick is skipped.
+     */
+    overlap?: boolean;
 }
 /**
  * One named job queue. The box POSTs each job sent to the queue to `path` on
@@ -192,7 +209,7 @@ export interface QueueConfig {
      * `rateLimit` is set.
      */
     ratePeriodSeconds?: number;
-    /** How many times a job is tried before it goes to the dead-letter queue, 1-100. Default 8. */
+    /** How many times a job is tried before it goes to the dead-letter queue, 1-100. Default 10. */
     maxAttempts?: number;
     /**
      * How long one attempt may run without a response or heartbeat before it

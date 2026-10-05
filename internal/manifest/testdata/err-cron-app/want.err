@@ -1,1 +1,3 @@
 /crons/ghost/app: cron "ghost" targets app "missing", which is not defined in "apps"; defined apps: "jobs", "web"
+/crons/local/timezone: "Local" is not an IANA time zone name; use one such as "America/New_York", "Europe/London" or "UTC"
+/crons/zone/timezone: "Mars/Olympus_Mons" is not an IANA time zone name; use one such as "America/New_York", "Europe/London" or "UTC"

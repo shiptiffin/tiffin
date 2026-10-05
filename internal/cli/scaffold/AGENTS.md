@@ -44,6 +44,8 @@ tiffin apply --confirm <hash> -m "why, in one sentence"
   and a `file:` dependency (`tiffin init` does it when package.json exists). Commit `vendor/`, run
   `bun install`; never install `tiffin-sdk` from the npm registry. Services: `postgres` (the dashboard's
   Database), `valkey` (Cache), `storage` (Files), `auth`, `email`; jobs are top-level `queues`/`crons`.
+- One folder can run a web app and a worker: give the worker app the same `path` and its own
+  `command` (e.g. `"bun run worker.ts"`; default: package.json `start`).
 - Apps get everything as env vars (`DATABASE_URL`, `REDIS_URL`, `S3_*` for `Bun.s3`,
   `S3_PUBLIC_ENDPOINT` for presigned URLs, `SMTP_URL`, `TIFFIN_AUTH_INTERNAL_URL`,
   `TIFFIN_QUEUE_*`). Don't set those yourself; the plan warns if you do.
@@ -55,7 +57,9 @@ tiffin apply --confirm <hash> -m "why, in one sentence"
 - Jobs: send with `POST $TIFFIN_QUEUE_URL/v1/queue-internal/send` (`Bearer $TIFFIN_QUEUE_KEY`,
   `{name, payload}`); the box POSTs each job and cron to your route with
   `Tiffin-Signature: t=<unix>,v1=<hex HMAC-SHA256("<t>.<body>", $TIFFIN_QUEUE_SIGNING_SECRET)>`.
-  Answer 2xx when done; anything else retries.
+  Answer 2xx when done; anything else retries. Crons run in UTC unless they set `timezone`
+  (IANA, e.g. `"America/New_York"`); a tick whose previous run is still going is skipped
+  unless the cron sets `overlap: true`.
 
 Output is JSON when piped. Exit codes: 0 ok, 1 error, 2 auth, 3 invalid input,
 4 needs confirmation. In Claude Code the CLI acts as the box's agent key (other agents:
