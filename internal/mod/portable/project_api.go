@@ -718,6 +718,9 @@ func (m *Module) registerProjects(a huma.API, p *platform.Platform) {
 		if err := pr.Require(tokens.ScopeApplyReversible, in.Project); err != nil {
 			return nil, err
 		}
+		if err := onBox(p); err != nil {
+			return nil, err
+		}
 		if err := projectExists(ctx, p, in.Project); err != nil {
 			return nil, err
 		}
