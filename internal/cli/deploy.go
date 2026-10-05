@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/btahir/tiffin/internal/api"
@@ -101,11 +101,19 @@ func (a *app) projectFor(flag string) (string, error) {
 }
 
 // stream performs a raw API request (uploads, server-sent events) without
-// the JSON client's timeout. Local in-process boxes are buffered.
-func (c *client) stream(ctx context.Context, method, path string, body io.Reader, contentType, accept string) (*http.Response, error) {
+// the JSON client's timeout. Local in-process boxes are buffered. body is
+// nil for none.
+func (c *client) stream(ctx context.Context, method, path string, body *sendBody, contentType, accept string) (*http.Response, error) {
+	var rd io.Reader
+	if body != nil {
+		rd = body.first
+	}
 	if c.handler != nil {
-		req := httptest.NewRequestWithContext(ctx, method, path, body)
+		req := httptest.NewRequestWithContext(ctx, method, path, rd)
 		c.headers(req.Header, false)
+		if body != nil && body.key != "" {
+			req.Header.Set(api.IdempotencyHeader, body.key)
+		}
 		if contentType != "" {
 			req.Header.Set("Content-Type", contentType)
 		}
@@ -116,24 +124,29 @@ func (c *client) stream(ctx context.Context, method, path string, body io.Reader
 		c.handler.ServeHTTP(rec, req)
 		return rec.Result(), nil
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.base+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, rd)
 	if err != nil {
 		return nil, err
 	}
 	c.headers(req.Header, false)
+	if body != nil {
+		req.GetBody = body.reopen // nil: it cannot be sent twice
+		if body.size > 0 {
+			req.ContentLength = body.size
+		}
+		if body.key != "" {
+			req.Header.Set(api.IdempotencyHeader, body.key)
+		}
+	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
 	if accept != "" {
 		req.Header.Set("Accept", accept)
 	}
-	res, err := (&http.Client{Transport: c.transport}).Do(req)
+	res, err := (&http.Client{Transport: c.roundTripper()}).Do(req)
 	if err != nil {
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			return nil, fmt.Errorf("cannot reach %s: %v", c.base, ue.Err)
-		}
-		return nil, err
+		return nil, c.unreachable(err)
 	}
 	return res, nil
 }
@@ -258,33 +271,53 @@ func (a *app) upload(ctx context.Context, c *client, project, appName, dir, prev
 	if preview != "" {
 		q.Set("preview", preview)
 	}
-	var body io.Reader
+	// The body can be sent again (the box reloading its edge can cut an
+	// upload off); the Idempotency-Key makes sure it deploys only once.
+	var body *sendBody
 	ct := "application/gzip"
 	var stats srcpack.Stats
+	var statsMu sync.Mutex
 	if prebuilt != "" {
 		f, err := os.Open(prebuilt)
 		if err != nil {
 			return nil, &exitError{ExitInvalid, err.Error()}
 		}
 		defer f.Close()
-		fi, _ := f.Stat()
+		fi, err := f.Stat()
+		if err != nil {
+			return nil, &exitError{ExitInvalid, err.Error()}
+		}
 		stats.Bytes = fi.Size()
-		body, ct = f, "application/x-tar"
+		body, ct = fileBody(f, fi.Size(), nil), "application/x-tar"
 		q.Set("prebuilt", "true")
 		a.say("Uploading image %s for %s (%s)", filepath.Base(prebuilt), appName, humanSize(stats.Bytes))
 	} else {
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 			return nil, &exitError{ExitInvalid, fmt.Sprintf("app %s: %s is not a directory", appName, dir)}
 		}
-		pr, pw := io.Pipe()
-		go func() {
-			st, err := srcpack.Pack(dir, pw)
-			stats = st
-			pw.CloseWithError(err)
-		}()
-		body = pr
+		// Packed as it uploads; each attempt packs the directory again.
+		gen := 0
+		pack := func() io.ReadCloser {
+			statsMu.Lock()
+			gen++
+			mine := gen
+			statsMu.Unlock()
+			pr, pw := io.Pipe()
+			go func() {
+				st, err := srcpack.Pack(dir, pw)
+				statsMu.Lock()
+				if mine == gen {
+					stats = st
+				}
+				statsMu.Unlock()
+				pw.CloseWithError(err)
+			}()
+			return pr
+		}
+		body = &sendBody{first: pack(), size: -1, reopen: func() (io.ReadCloser, error) { return pack(), nil }}
 		a.say("Uploading %s from %s", appName, dir)
 	}
+	body.key = newIdempotencyKey()
 	path := "/v1/projects/" + url.PathEscape(project) + "/apps/" + url.PathEscape(appName) + "/deploys"
 	if len(q) > 0 {
 		path += "?" + q.Encode()
@@ -302,6 +335,8 @@ func (a *app) upload(ctx context.Context, c *client, project, appName, dir, prev
 	if err := json.Unmarshal(raw, &d); err != nil {
 		return nil, &exitError{ExitError, "unexpected answer: " + string(raw)}
 	}
+	statsMu.Lock()
+	defer statsMu.Unlock()
 	if prebuilt == "" {
 		a.say("  %d files, %s → deploy %s", stats.Files, humanSize(stats.Bytes), d.ID)
 	} else {
@@ -319,6 +354,9 @@ func (a *app) followDeploy(ctx context.Context, c *client, d *rtDeploy, prefix b
 	if prefix {
 		pfx = d.App + " | "
 	}
+	// A dropped connection (the box reloads its edge when a deploy goes
+	// live) only means asking again.
+	pt := patience{limit: 2 * time.Minute}
 	for attempt := 0; attempt < 200; attempt++ {
 		res, err := c.stream(ctx, http.MethodGet, base+"/build-log?follow=true&offset="+strconv.FormatInt(off, 10), nil, "", "text/event-stream")
 		if err == nil && res.StatusCode == 200 && strings.HasPrefix(res.Header.Get("Content-Type"), "text/event-stream") {
@@ -353,8 +391,15 @@ func (a *app) followDeploy(ctx context.Context, c *client, d *rtDeploy, prefix b
 		// Fall back to polling (or reconnect after a timeout event).
 		status, raw, err := c.do(ctx, http.MethodGet, base, nil, nil)
 		if err != nil {
-			return nil, &exitError{ExitError, err.Error()}
+			if !pt.again(err) {
+				return nil, &exitError{ExitError, err.Error()}
+			}
+			if err := sleepCtx(ctx, time.Second); err != nil {
+				return nil, err
+			}
+			continue
 		}
+		pt.again(nil)
 		if status != 200 {
 			return nil, problemOf(status, raw)
 		}
@@ -559,16 +604,25 @@ func (a *app) logsCmd() *cobra.Command {
 				}
 				return nil
 			}
-			// Follow: server-sent events; reconnect when the server ends a stream.
+			// Follow: server-sent events; reconnect when the server ends a
+			// stream or the connection drops.
 			q.Set("follow", "true")
 			if since != "" {
 				q.Set("since", since)
 			}
+			pt := patience{limit: 2 * time.Minute}
 			for {
 				res, err := c.stream(ctx, http.MethodGet, path+"?"+q.Encode(), nil, "", "text/event-stream")
 				if err != nil {
-					return &exitError{ExitError, err.Error()}
+					if !pt.again(err) {
+						return &exitError{ExitError, err.Error()}
+					}
+					if err := sleepCtx(ctx, time.Second); err != nil {
+						return nil
+					}
+					continue
 				}
+				pt.again(nil)
 				if res.StatusCode != 200 {
 					raw, _ := io.ReadAll(res.Body)
 					res.Body.Close()

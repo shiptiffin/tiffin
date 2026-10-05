@@ -598,14 +598,15 @@ func (a *app) mcpCmd() *cobra.Command {
 }
 
 // proxyTo forwards requests to u, with u's Host header (the edge routes by
-// host, so the incoming request's Host must not leak through).
+// host, so the incoming request's Host must not leak through). A request cut
+// off by the box reloading its edge is sent again when that is safe.
 func proxyTo(u *url.URL, tr http.RoundTripper) http.Handler {
 	return &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(u)
 			r.Out.Host = u.Host
 		},
-		Transport: tr,
+		Transport: newRetryTransport(tr, nil),
 	}
 }
 

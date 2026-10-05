@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -116,7 +115,21 @@ type client struct {
 	session   string
 	model     string
 	close     func() error
+	note      func(string) // says when a request is sent again (nil: quiet)
 }
+
+// notes is where a client says it sends a request again: stderr on a
+// terminal, or with TIFFIN_DEBUG=1.
+func (a *app) notes() func(string) {
+	if !a.tty() && a.io.Env("TIFFIN_DEBUG") != "1" {
+		return nil
+	}
+	return func(s string) { fmt.Fprintln(a.io.Err, a.paint("· "+s, dim)) }
+}
+
+// roundTripper is the client's transport, sending a request again when a
+// dropped connection allows it (see retryTransport).
+func (c *client) roundTripper() http.RoundTripper { return newRetryTransport(c.transport, c.note) }
 
 func (a *app) client(ctx context.Context) (*client, error) {
 	if a.url != "" {
@@ -127,7 +140,7 @@ func (a *app) client(ctx context.Context) (*client, error) {
 		if a.token == "" {
 			return nil, &exitError{ExitAuth, "TIFFIN_TOKEN is not set (needed with TIFFIN_URL)"}
 		}
-		return &client{base: strings.TrimRight(a.url, "/"), token: a.token, session: a.session, model: a.model, close: func() error { return nil }}, nil
+		return &client{base: strings.TrimRight(a.url, "/"), token: a.token, session: a.session, model: a.model, close: func() error { return nil }, note: a.notes()}, nil
 	}
 	// A box set up with `tiffin up` is the default target, unless a local
 	// home was asked for explicitly.
@@ -143,7 +156,7 @@ func (a *app) client(ctx context.Context) (*client, error) {
 				// so History shows the agent rather than the owner.
 				tok = bx.AgentToken
 			}
-			return &client{base: strings.TrimRight(bx.URL, "/"), token: tok, session: a.session, model: a.model, transport: tr, close: func() error { return nil }}, nil
+			return &client{base: strings.TrimRight(bx.URL, "/"), token: tok, session: a.session, model: a.model, transport: tr, close: func() error { return nil }, note: a.notes()}, nil
 		}
 	}
 	b, fresh, err := openBox(ctx, a.home)
@@ -168,14 +181,26 @@ func (a *app) agentRun() bool {
 
 // do performs one API call and returns the status and raw body.
 func (c *client) do(ctx context.Context, method, path string, q url.Values, body any) (int, []byte, error) {
+	return c.send(ctx, method, path, q, body, "")
+}
+
+// doOnce is do for a create the box must do only once (a duplicate, an
+// export, an import): it sends an Idempotency-Key, so when the connection
+// drops before the answer, the client asks the box what became of it, or
+// sends it again, and the box never does it twice.
+func (c *client) doOnce(ctx context.Context, method, path string, q url.Values, body any) (int, []byte, error) {
+	return c.send(ctx, method, path, q, body, newIdempotencyKey())
+}
+
+func (c *client) send(ctx context.Context, method, path string, q url.Values, body any, key string) (int, []byte, error) {
 	wait := requestTimeout(q.Get("timeoutSeconds"))
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}
-	var rd io.Reader
+	var b []byte
 	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
+		var err error
+		if b, err = json.Marshal(body); err != nil {
 			return 0, nil, err
 		}
 		var asked struct {
@@ -184,32 +209,53 @@ func (c *client) do(ctx context.Context, method, path string, q url.Values, body
 		if json.Unmarshal(b, &asked) == nil {
 			wait = max(wait, requestTimeout(asked.TimeoutSeconds.String()))
 		}
-		rd = bytes.NewReader(b)
+	}
+	reader := func() io.Reader {
+		if body == nil {
+			return nil
+		}
+		return bytes.NewReader(b) // NewRequest gives it a GetBody: it can be sent again
 	}
 	if c.handler != nil {
-		req := httptest.NewRequestWithContext(ctx, method, path, rd)
+		req := httptest.NewRequestWithContext(ctx, method, path, reader())
 		c.headers(req.Header, body != nil)
+		if key != "" {
+			req.Header.Set(api.IdempotencyHeader, key)
+		}
 		rec := httptest.NewRecorder()
 		c.handler.ServeHTTP(rec, req)
 		return rec.Code, rec.Body.Bytes(), nil
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.base+path, rd)
-	if err != nil {
-		return 0, nil, err
-	}
-	c.headers(req.Header, body != nil)
-	hc := &http.Client{Timeout: wait, Transport: c.transport}
-	res, err := hc.Do(req)
-	if err != nil {
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			return 0, nil, fmt.Errorf("cannot reach %s: %v", c.base, ue.Err)
+	hc := &http.Client{Timeout: wait, Transport: c.roundTripper()}
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, method, c.base+path, reader())
+		if err != nil {
+			return 0, nil, err
 		}
-		return 0, nil, err
+		c.headers(req.Header, body != nil)
+		if key != "" {
+			req.Header.Set(api.IdempotencyHeader, key)
+		}
+		res, err := hc.Do(req)
+		if err != nil {
+			return 0, nil, c.unreachable(err)
+		}
+		raw, err := io.ReadAll(io.LimitReader(res.Body, 64<<20))
+		res.Body.Close()
+		if err != nil && attempt < len(retryWaits) && (idempotentMethod(method) || key != "") && classify(err) != fatal && ctx.Err() == nil {
+			// The answer broke off: ask again (a keyed create gets its stored answer).
+			if c.note != nil {
+				c.note(retryNote)
+			}
+			if sleepCtx(ctx, retryWaits[attempt]) == nil {
+				continue
+			}
+		}
+		if err != nil {
+			return res.StatusCode, raw, c.unreachable(err)
+		}
+		return res.StatusCode, raw, nil
 	}
-	defer res.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(res.Body, 64<<20))
-	return res.StatusCode, raw, err
 }
 
 func (c *client) headers(h http.Header, hasBody bool) {

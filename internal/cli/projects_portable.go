@@ -108,7 +108,7 @@ func (a *app) projectDuplicateCmd() *cobra.Command {
 				return err
 			}
 			defer c.close()
-			status, raw, err := c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(args[0])+"/duplicate", nil, map[string]any{"name": args[1]})
+			status, raw, err := c.doOnce(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(args[0])+"/duplicate", nil, map[string]any{"name": args[1]})
 			if err != nil {
 				return &exitError{ExitError, err.Error()}
 			}
@@ -127,8 +127,10 @@ func (a *app) projectDuplicateCmd() *cobra.Command {
 	}
 }
 
-// waitProjectJob polls a job until it is done or failed.
+// waitProjectJob polls a job until it is done or failed. A poll that cannot
+// reach the box (the box reloading its edge) is made again.
 func (a *app) waitProjectJob(ctx context.Context, c *client, job *projectJob) error {
+	pt := patience{limit: 2 * time.Minute}
 	var mu sync.Mutex
 	pl := a.startProgress(func() string {
 		mu.Lock()
@@ -144,8 +146,12 @@ func (a *app) waitProjectJob(ctx context.Context, c *client, job *projectJob) er
 		}
 		var cur projectJob
 		if err := a.getJSON(ctx, c, "/v1/project-jobs/"+job.ID, &cur); err != nil {
+			if pt.again(err) {
+				continue
+			}
 			return err
 		}
+		pt.again(nil)
 		mu.Lock()
 		*job = cur
 		mu.Unlock()
@@ -217,7 +223,7 @@ func (a *app) projectExportCmd() *cobra.Command {
 				return err
 			}
 			defer c.close()
-			status, raw, err := c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(args[0])+"/exports", nil,
+			status, raw, err := c.doOnce(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(args[0])+"/exports", nil,
 				map[string]any{"includeSecrets": includeSecrets, "withHistory": withHistory})
 			if err != nil {
 				return &exitError{ExitError, err.Error()}
@@ -238,13 +244,8 @@ func (a *app) projectExportCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			for i := 0; i < 50 && ex.Status != "done" && ex.Status != "failed"; i++ {
-				if err := a.getJSON(ctx, c, record, &ex); err != nil {
-					return err
-				}
-				if ex.Status != "done" {
-					time.Sleep(200 * time.Millisecond)
-				}
+			if err := finalRecord(ctx, c, record, &ex, func() string { return ex.Status }); err != nil {
+				return err
 			}
 			if ex.Status != "done" || ex.SHA256 != sum || ex.SizeBytes != n {
 				_ = os.Remove(path)
@@ -399,7 +400,7 @@ func (a *app) projectImportCmd() *cobra.Command {
 			if key != "" {
 				body["secretsKey"] = key
 			}
-			status, raw, err := c.do(ctx, http.MethodPost, "/v1/project-imports/"+job.ID+"/apply", nil, body)
+			status, raw, err := c.doOnce(ctx, http.MethodPost, "/v1/project-imports/"+job.ID+"/apply", nil, body)
 			if err != nil {
 				return &exitError{ExitError, err.Error()}
 			}
@@ -521,7 +522,7 @@ func moveProject(ctx context.Context, src, dst *client, o moveOptions) (*moveRes
 	get := func(c *client, path string, into any) error {
 		status, raw, err := c.do(ctx, http.MethodGet, path, nil, nil)
 		if err != nil {
-			return &exitError{ExitError, err.Error()}
+			return err
 		}
 		if status != http.StatusOK {
 			return problemOf(status, raw)
@@ -535,7 +536,7 @@ func moveProject(ctx context.Context, src, dst *client, o moveOptions) (*moveRes
 	// The export: secrets in plain text, since only this box could open
 	// sealed ones; they go from box to box and are never written here.
 	say("starting the export on " + o.fromName)
-	status, raw, err := src.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(o.project)+"/exports", nil, map[string]any{"includeSecrets": true, "withHistory": true})
+	status, raw, err := src.doOnce(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(o.project)+"/exports", nil, map[string]any{"includeSecrets": true, "withHistory": true})
 	if err != nil {
 		return nil, &exitError{ExitError, err.Error()}
 	}
@@ -573,7 +574,9 @@ func moveProject(ctx context.Context, src, dst *client, o moveOptions) (*moveRes
 			}
 		}
 	}()
-	up, err := dst.stream(ctx, http.MethodPost, "/v1/project-imports", body, "application/octet-stream", "application/json")
+	// The download cannot be sent twice, but the key lets the CLI find the
+	// upload when the connection drops after it arrived.
+	up, err := dst.stream(ctx, http.MethodPost, "/v1/project-imports", &sendBody{first: body, size: -1, key: newIdempotencyKey()}, "application/octet-stream", "application/json")
 	close(stop)
 	if err != nil {
 		return nil, &exitError{ExitError, "upload to " + o.toName + ": " + err.Error()}
@@ -591,14 +594,9 @@ func moveProject(ctx context.Context, src, dst *client, o moveOptions) (*moveRes
 		_, _, _ = dst.do(context.WithoutCancel(ctx), http.MethodDelete, "/v1/project-imports/"+job.ID, nil, nil)
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
-	for i := 0; i < 50 && ex.Status != "done" && ex.Status != "failed"; i++ {
-		if err := get(src, record, &ex); err != nil {
-			discard()
-			return nil, err
-		}
-		if ex.Status != "done" {
-			time.Sleep(200 * time.Millisecond)
-		}
+	if err := finalRecord(ctx, src, record, &ex, func() string { return ex.Status }); err != nil {
+		discard()
+		return nil, err
 	}
 	if ex.Status != "done" || ex.SHA256 != sum || job.SHA256 != sum {
 		discard()
@@ -607,7 +605,7 @@ func moveProject(ctx context.Context, src, dst *client, o moveOptions) (*moveRes
 	res.SizeBytes, res.SHA256 = n, sum
 
 	say("importing on " + o.toName)
-	status, raw, err = dst.do(ctx, http.MethodPost, "/v1/project-imports/"+job.ID+"/apply", nil, map[string]any{"intent": "Moved from " + o.fromName})
+	status, raw, err = dst.doOnce(ctx, http.MethodPost, "/v1/project-imports/"+job.ID+"/apply", nil, map[string]any{"intent": "Moved from " + o.fromName})
 	if err != nil {
 		discard()
 		return nil, &exitError{ExitError, err.Error()}
@@ -617,6 +615,7 @@ func moveProject(ctx context.Context, src, dst *client, o moveOptions) (*moveRes
 		return nil, problemOf(status, raw)
 	}
 	_ = json.Unmarshal(raw, &job)
+	pt := patience{limit: 2 * time.Minute}
 	for job.Status != "done" && job.Status != "failed" {
 		select {
 		case <-ctx.Done():
@@ -624,8 +623,12 @@ func moveProject(ctx context.Context, src, dst *client, o moveOptions) (*moveRes
 		case <-time.After(time.Second):
 		}
 		if err := get(dst, "/v1/project-jobs/"+job.ID, &job); err != nil {
+			if pt.again(err) {
+				continue // the box reloading its edge: ask again
+			}
 			return nil, err
 		}
+		pt.again(nil)
 		say(fmt.Sprintf("%s on %s (%d%%)", orDefault(job.Phase, job.Status), o.toName, job.Percent))
 	}
 	res.Import = &job

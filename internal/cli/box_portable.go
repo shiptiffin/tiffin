@@ -95,12 +95,42 @@ func (a *app) remoteClient(ctx context.Context, what string) (*client, error) {
 func (a *app) getJSON(ctx context.Context, c *client, path string, into any) error {
 	status, raw, err := c.do(ctx, http.MethodGet, path, nil, nil)
 	if err != nil {
-		return &exitError{ExitError, err.Error()}
+		return err // an unreachableError: waits poll again (see patience)
 	}
 	if status != http.StatusOK {
 		return problemOf(status, raw)
 	}
 	return json.Unmarshal(raw, into)
+}
+
+// finalRecord polls an export's record until it is done or failed: it is
+// final a moment after the download ends. A poll that cannot reach the box
+// is made again.
+func finalRecord(ctx context.Context, c *client, record string, into any, status func() string) error {
+	pt := patience{limit: time.Minute}
+	for i := 0; i < 50 && status() != "done" && status() != "failed"; i++ {
+		st, raw, err := c.do(ctx, http.MethodGet, record, nil, nil)
+		switch {
+		case err != nil:
+			if !pt.again(err) {
+				return err
+			}
+			if err := sleepCtx(ctx, time.Second); err != nil {
+				return err
+			}
+			continue
+		case st != http.StatusOK:
+			return problemOf(st, raw)
+		}
+		pt.again(nil)
+		if err := json.Unmarshal(raw, into); err != nil {
+			return err
+		}
+		if status() != "done" {
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+	return nil
 }
 
 // progressLine redraws one status line on stderr for people; agents get
@@ -161,7 +191,7 @@ func (a *app) boxExportCmd() *cobra.Command {
 				return err
 			}
 			defer c.close()
-			status, raw, err := c.do(ctx, http.MethodPost, "/v1/box/exports", nil, map[string]any{"includeKey": includeKey, "withHistory": withHistory, "store": store})
+			status, raw, err := c.doOnce(ctx, http.MethodPost, "/v1/box/exports", nil, map[string]any{"includeKey": includeKey, "withHistory": withHistory, "store": store})
 			if err != nil {
 				return &exitError{ExitError, err.Error()}
 			}
@@ -182,12 +212,17 @@ func (a *app) boxExportCmd() *cobra.Command {
 			if store {
 				// The box writes the archive first; wait for it.
 				pl := a.startProgress(func() string { return "the box is writing the archive: " + orDefault(ex.Phase, ex.Status) })
+				pt := patience{limit: 2 * time.Minute}
 				for ex.Status == "pending" || ex.Status == "running" {
 					time.Sleep(time.Second)
 					if err := a.getJSON(ctx, c, "/v1/box/exports/"+ex.ID, &ex); err != nil {
+						if pt.again(err) {
+							continue
+						}
 						pl.end()
 						return err
 					}
+					pt.again(nil)
 				}
 				pl.end()
 				if ex.Status != "done" {
@@ -199,13 +234,8 @@ func (a *app) boxExportCmd() *cobra.Command {
 				return err
 			}
 			// The record is final a moment after the stream ends.
-			for i := 0; i < 50 && ex.Status != "done" && ex.Status != "failed"; i++ {
-				if err := a.getJSON(ctx, c, "/v1/box/exports/"+ex.ID, &ex); err != nil {
-					return err
-				}
-				if ex.Status != "done" {
-					time.Sleep(200 * time.Millisecond)
-				}
+			if err := finalRecord(ctx, c, "/v1/box/exports/"+ex.ID, &ex, func() string { return ex.Status }); err != nil {
+				return err
 			}
 			if ex.Status != "done" {
 				_ = os.Remove(path)
@@ -654,14 +684,22 @@ func (a *app) uploadImport(ctx context.Context, c *client, f *os.File, size int6
 }
 
 // uploadArchive streams an archive file to path on the box (which verifies
-// it on arrival) and decodes the answer into into.
+// it on arrival) and decodes the answer into into. The upload is sent again
+// when the connection drops before the box got it, and its Idempotency-Key
+// finds it when the connection drops after: it is never stored twice.
 func (a *app) uploadArchive(ctx context.Context, c *client, path string, f *os.File, size int64, into any) error {
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
 	var mu sync.Mutex
 	var sent int64
-	body := &countingReader{r: f, f: func(n int64) { mu.Lock(); sent += n; mu.Unlock() }}
+	body := fileBody(f, size, func(n int64) {
+		mu.Lock()
+		if n < 0 {
+			sent = 0 // sent again from the start
+		} else {
+			sent += n
+		}
+		mu.Unlock()
+	})
+	body.key = newIdempotencyKey()
 	pl := a.startProgress(func() string {
 		mu.Lock()
 		defer mu.Unlock()
@@ -670,15 +708,7 @@ func (a *app) uploadArchive(ctx context.Context, c *client, path string, f *os.F
 		}
 		return fmt.Sprintf("uploading %s of %s", humanSize(sent), humanSize(size))
 	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, body)
-	if err != nil {
-		pl.end()
-		return err
-	}
-	req.ContentLength = size
-	c.headers(req.Header, false)
-	req.Header.Set("Content-Type", "application/octet-stream")
-	res, err := (&http.Client{Transport: c.transport}).Do(req)
+	res, err := c.stream(ctx, http.MethodPost, path, body, "application/octet-stream", "")
 	pl.end()
 	if err != nil {
 		return &exitError{ExitError, "upload: " + err.Error()}
