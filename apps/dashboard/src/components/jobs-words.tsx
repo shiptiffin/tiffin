@@ -1,9 +1,10 @@
 // Words and small pieces for the Queues, Jobs and Workflows pages: schedules
 // in plain words, job and run states as words (not rainbow pills), the
 // "gave up" message without the SDK's protocol detail, the empty-jobs drawing.
+// (The drawing is the mascot's night pose; it isn't a <Mascot> state.)
 import type { ReactNode } from "react";
 import type { QueueJob, WorkflowRun } from "@/api/modules";
-import emptyJobs from "@/assets/illustrations/empty-jobs.webp";
+import emptyJobs from "@/assets/illustrations/mascot-night.webp";
 import { cn } from "@/lib/cn";
 import { int } from "@/lib/format";
 import { relative } from "@/lib/time";
@@ -246,11 +247,13 @@ export function FilterWords<T extends string | undefined>({
 
 // ------------------------------------------------------------------ empty
 
-/** The empty-jobs drawing (a tier with its winding key at rest), a sentence, and what to do. */
+/** The empty-jobs drawing (the mascot asleep under a moon: nothing to do tonight), a sentence, and what to do. */
 export function EmptyJobs({ title, children, className }: { title: ReactNode; children?: ReactNode; className?: string }) {
   return (
     <div className={cn("flex flex-col items-center px-6 py-10 text-center", className)}>
-      <img src={emptyJobs} alt="" width={200} height={160} className="h-[120px] w-auto select-none" draggable={false} />
+      <span className="art-plate block size-[128px]">
+        <img src={emptyJobs} alt="" width={128} height={128} className="block size-full select-none" draggable={false} />
+      </span>
       <p className="mt-3 text-md text-ink">{title}</p>
       {children && <div className="mx-auto mt-1.5 max-w-[30rem] text-base text-ink-3">{children}</div>}
     </div>

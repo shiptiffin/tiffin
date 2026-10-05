@@ -157,7 +157,7 @@ function Body({
                     chosen?.id === s.id ? "border-brass shadow-[0_0_0_1px_var(--brass)]" : "border-rule-2 hover:border-rule-3",
                   )}
                 >
-                  <img src={starterThumb[s.id]} alt="" className="aspect-[16/10] w-full rounded-[6px] bg-paper-sunk object-contain" />
+                  <img src={starterThumb[s.id]} alt="" className="art-well aspect-[16/10] w-full rounded-[6px] bg-paper-sunk object-contain" />
                   <span className="min-w-0">
                     <span className="block text-[0.875rem] font-[550] text-ink">{s.name}</span>
                     <span className="block text-xs text-ink-3">{starterLine[s.id]}</span>

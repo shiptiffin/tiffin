@@ -2,6 +2,7 @@
 @import "./styles/fonts.css";
 @import "./styles/tokens.css";
 @import "./styles/fusion.css";
+@import "./styles/art.css";
 
 /* ---------------------------------------------------------------------------
    Tailwind theme: the Fusion tokens as utilities (bg-paper, text-ink-3,

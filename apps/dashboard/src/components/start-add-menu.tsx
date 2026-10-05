@@ -253,7 +253,7 @@ function PickTile({ picked, onPick, thumb, icon, title, line }: { picked: boolea
         picked ? "border-brass shadow-[0_0_0_1px_var(--brass)]" : "border-rule-2 hover:border-rule-3",
       )}
     >
-      <span className="grid aspect-[16/9] place-items-center bg-paper-sunk text-ink-3 [&_svg]:size-5">{thumb ? <img src={thumb} alt="" className="size-full object-contain p-1" /> : icon}</span>
+      <span className={cn("grid aspect-[16/9] place-items-center bg-paper-sunk text-ink-3 [&_svg]:size-5", thumb && "art-well")}>{thumb ? <img src={thumb} alt="" className="size-full object-contain p-1" /> : icon}</span>
       <span className="border-t border-rule px-2.5 py-2">
         <span className="block text-[0.8125rem] font-[550] text-ink">{title}</span>
         {line && <span className="line-clamp-2 block text-[0.71875rem] leading-4 text-ink-3">{line}</span>}

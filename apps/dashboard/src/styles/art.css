@@ -1,0 +1,84 @@
+/* ---------------------------------------------------------------------------
+   Illustrations (src/assets/illustrations): flat print drawings in three inks
+   with graphite outlines, cut out on transparency.
+
+   Light: they sit straight on the paper. Dark: a graphite outline vanishes on
+   the graphite ground, so each drawing gets a paper plate behind it, like a
+   printed coaster: a disc for the mascot (.art-plate), a rounded tile for wide
+   scenes (.art-plate[data-plate="tile"]), and the whole thumbnail well for
+   starter pictures (.art-well). One asset per drawing, no dark variants.
+
+   The mascot's band (.mascot-band) is a project's own colour, painted through
+   the drawing's band mask: background var(--enamel-*), mask-image the mask.
+--------------------------------------------------------------------------- */
+
+:root {
+  --art-plate: oklch(0.86 0.016 82); /* the art's paper, a step down so it doesn't glare on graphite */
+}
+
+/* Unlayered, so the dark plate wins over a well's bg-* utility. */
+[data-theme="dark"] .art-plate::before {
+  opacity: 1;
+}
+[data-theme="dark"] .art-well {
+  background-color: var(--art-plate);
+}
+
+@layer components {
+  .art-plate {
+    position: relative;
+    isolation: isolate;
+  }
+  .art-plate::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 9999px;
+    background: var(--art-plate);
+    opacity: 0;
+  }
+  .art-plate[data-plate="tile"]::before {
+    inset: -6% -4%;
+    border-radius: 18px;
+  }
+
+  .mascot {
+    position: relative;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .mascot > img,
+  .mascot > .mascot-band {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transition: opacity 600ms var(--ease-out);
+  }
+  .mascot > img {
+    user-select: none;
+  }
+  .mascot-band {
+    mask-size: 100% 100%;
+    mask-repeat: no-repeat;
+  }
+  /* deploying: a gentle bob while the work happens; nothing moves for reduced motion */
+  .mascot[data-state="deploying"] {
+    animation: mascot-bob 2.4s ease-in-out infinite;
+  }
+  @keyframes mascot-bob {
+    50% {
+      transform: translateY(-3%);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .mascot[data-state="deploying"] {
+      animation: none;
+    }
+    .mascot > img,
+    .mascot > .mascot-band {
+      transition: none;
+    }
+  }
+}

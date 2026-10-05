@@ -152,7 +152,9 @@ export function InboxPage({ project, q = "", m }: { project: string; q?: string;
 
       {empty ? (
         <div className="mt-10 flex flex-col items-center border-y border-rule px-6 py-14 text-center">
-          <img src={emptyInbox} alt="" width={200} height={160} className="h-40 w-50 select-none" draggable={false} />
+          <span className="art-plate block size-40">
+            <img src={emptyInbox} alt="" width={160} height={160} className="block size-full select-none" draggable={false} />
+          </span>
           <p className="mt-4 text-md text-ink">No mail yet.</p>
           <p className="mt-1 max-w-[30rem] text-base text-ink-3">
             When {project} sends a sign-up link or a receipt, it shows up here the moment it's sent, rendered the way the recipient would see it.

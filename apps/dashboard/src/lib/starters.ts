@@ -3,7 +3,6 @@ import type { Manifest } from "@/api/client";
 import { request } from "@/api/client";
 import type { components } from "@/api/schema";
 import thumbApi from "@/assets/illustrations/starter-api.webp";
-import thumbGuestbook from "@/assets/illustrations/starter-guestbook.webp";
 import thumbNext from "@/assets/illustrations/starter-next.webp";
 import thumbStatic from "@/assets/illustrations/starter-static.webp";
 
@@ -23,11 +22,16 @@ export const startersQuery = queryOptions({
   retry: false,
 });
 
-/** Thumbnails by starter id (the art's rim colours are decoration, not a project's enamel). */
+/**
+ * Thumbnails by starter id: a single open tier (a static site), a closed tin
+ * with an order slip (an API), three open tiers side by side (a full-stack
+ * app). The guestbook demo is full-stack too. Transparent; put them in an
+ * .art-well so dark mode gives them a paper ground.
+ */
 export const starterThumb: Record<string, string> = {
   "static-site": thumbStatic,
   "hono-postgres": thumbApi,
-  guestbook: thumbGuestbook,
+  guestbook: thumbNext,
   "next-postgres": thumbNext,
 };
 
