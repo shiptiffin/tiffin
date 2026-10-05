@@ -18,6 +18,9 @@ func Classify(op Op) (Tier, string) {
 		if kind == KindReadOnly {
 			return TierReversible, "stops the project's database writes and file uploads; undo lifts it"
 		}
+		if kind == KindStopped {
+			return TierReversible, "stops every app of the project (its data stays); undo starts them again"
+		}
 		return TierReversible, "new " + kindNoun(kind, name) + "; undo deletes it"
 	case Delete:
 		switch kind {
@@ -48,6 +51,8 @@ func Classify(op Op) (Tier, string) {
 			return TierReversible, fmt.Sprintf("stops and removes app %q; its builds are kept so undo restores it", name)
 		case KindReadOnly:
 			return TierReversible, "lets the project write again; undo makes it read-only again"
+		case KindStopped:
+			return TierReversible, "starts the project's apps again; undo stops them"
 		default:
 			return TierReversible, "removes " + kindNoun(kind, name) + "; undo restores it"
 		}
@@ -88,6 +93,8 @@ func kindNoun(kind, name string) string {
 		return "read-only hold"
 	case KindStorageLimit:
 		return "storage limit"
+	case KindStopped:
+		return "stop"
 	case KindService:
 		return name + " service"
 	}

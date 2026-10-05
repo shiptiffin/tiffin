@@ -353,8 +353,8 @@ func (r *rt) appSpec(ctx context.Context, project, app string) (*manifest.App, e
 	return &a, nil
 }
 
-// Kinds: the runtime converges app resources.
-func (*Module) Kinds() []string { return []string{change.KindApp} }
+// Kinds: the runtime converges app resources, and a project's stop.
+func (*Module) Kinds() []string { return []string{change.KindApp, change.KindStopped} }
 
 // Reconcile makes running instances match the app spec and the project's
 // env and secrets: a changed env hash, instance count or memory cap
@@ -365,12 +365,15 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 	if err != nil {
 		return nil // not serving (spec build, CLI): nothing to converge
 	}
+	if address == change.KindStopped {
+		return r.reconcileStop(ctx, project, spec != nil)
+	}
 	app := change.Name(address)
 	states, err := r.st.statesOf(ctx, project, app)
 	if err != nil {
 		return err
 	}
-	if spec == nil {
+	if spec == nil || r.stopped(ctx, project) {
 		for _, s := range states {
 			if err := r.stopEnv(ctx, s); err != nil {
 				return err

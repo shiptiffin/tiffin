@@ -215,6 +215,10 @@ func (r *rt) promote(ctx context.Context, d *Deploy, spec *manifest.App, mode st
 }
 
 func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, mode string, log io.Writer) error {
+	if r.stopped(ctx, d.Project) {
+		return &stateError{"project " + d.Project + " is stopped, so its apps do not start (was it moved to another box?)",
+			"Start it again with `tiffin projects start " + d.Project + "`, then deploy."}
+	}
 	st, err := r.st.getState(ctx, d.Project, d.App, d.Preview)
 	if err != nil {
 		return err
