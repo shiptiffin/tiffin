@@ -5,9 +5,8 @@ import { ArrowRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ApiError, api } from "@/api/client";
 import { Command } from "@/components/copy";
-import heroOpen from "@/assets/illustrations/carrier-hero-open.webp";
-import heroClosed from "@/assets/illustrations/carrier-hero.webp";
 import { Wordmark } from "@/components/logo";
+import { Mascot } from "@/components/mascot";
 import { Button } from "@/components/ui/button";
 import { ProblemNote } from "@/components/problem";
 import { cn } from "@/lib/cn";
@@ -109,11 +108,9 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
         className="relative flex items-center justify-center overflow-hidden border-rule bg-paper-sunk max-md:h-[13.5rem] max-md:border-b md:border-r"
       >
         <figure className="m-0 flex flex-col items-center md:-mt-6">
-          <div className="relative size-[184px] md:size-[min(30rem,40vw)]">
-            <img src={heroClosed} alt="" width={480} height={480} className={cn("absolute inset-0 size-full transition-opacity duration-[600ms] ease-[var(--ease-out)]", opening && "opacity-0")} />
-            <img src={heroOpen} alt="" width={480} height={480} className={cn("absolute inset-0 size-full opacity-0 transition-opacity duration-[600ms] ease-[var(--ease-out)]", opening && "opacity-100")} />
-          </div>
-          <figcaption className="-mt-2 text-center text-[0.8125rem] leading-5 text-ink-3 max-md:hidden">
+          {/* The mascot waits; once the link is good it lights up (steam), cross-fading in place. */}
+          <Mascot state={opening ? "live" : "base"} className="size-[168px] md:size-[min(26rem,36vw)]" />
+          <figcaption className="mt-5 text-center text-[0.8125rem] leading-5 text-ink-3 max-md:hidden">
             Apps, Postgres, files, mail, jobs and sign-in,
             <br />
             stacked in one machine you own.

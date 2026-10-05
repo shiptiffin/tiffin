@@ -12,7 +12,9 @@ import { ProblemNote } from "@/components/problem";
 import { ReadOnlyBanner } from "@/components/read-only";
 import { AddMenu } from "@/components/start-add-menu";
 import { Button } from "@/components/ui/button";
+import { Mascot, type MascotState } from "@/components/mascot";
 import { cn } from "@/lib/cn";
+import { useEnamel } from "@/lib/enamel";
 import { bytes, count, cronWords, int } from "@/lib/format";
 import { appPulse, deploysQuery, runtimeQuery, toneClass, useProjectPulse } from "@/lib/pulse";
 import { rememberProject } from "@/lib/recent";
@@ -35,6 +37,7 @@ export function ProjectPage({ project }: { project: string }) {
   const p = useQuery(q.project(project));
   const m = useQuery({ ...q.manifest(project), staleTime: 5_000, refetchInterval: 10_000 });
   const pulse = useProjectPulse(project);
+  const enamel = useEnamel(project);
   const staged = usePending(project);
   const projects = useQuery(q.projects);
   const others = (projects.data ?? []).map((x) => x.name).filter((n) => n !== project);
@@ -63,30 +66,34 @@ export function ProjectPage({ project }: { project: string }) {
   return (
     <Page wide>
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="title flex items-center gap-3 text-ink">
-            <ProjectIcon project={project} size={14} />
-            {project}
-          </h1>
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.9375rem] text-ink-2">
-            {pulse.loading ? (
-              <Skeleton className="h-5 w-56" />
-            ) : (
-              <>
-                {pulse.tone === "busy" ? <PilotLight state="busy" /> : <span className={cn("size-2 rounded-full", toneClass[pulse.tone])} aria-hidden />}
-                <span className={cn(pulse.tone === "bad" && "text-danger")}>{pulse.words}</span>
-                {pulse.why && (
-                  <Link to="/projects/$project/apps/$app" params={{ project, app: pulse.why.app }} className="font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink">
-                    See why
-                  </Link>
-                )}
-                {pulse.retry && (
-                  <button type="button" onClick={pulse.retry} className="font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink">
-                    Retry
-                  </button>
-                )}
-              </>
-            )}
+        <div className="flex min-w-0 items-center gap-4">
+          {/* The project's own mascot: its colour on the middle tier, its state in the face (steam, packing, a spill, asleep). */}
+          <Mascot state={pulse.loading ? "base" : mood[pulse.tone]} enamel={enamel} size={64} className="-my-2 -ml-1 max-sm:hidden" />
+          <div className="min-w-0">
+            <h1 className="title flex items-center gap-3 text-ink">
+              <ProjectIcon project={project} size={14} />
+              {project}
+            </h1>
+            <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.9375rem] text-ink-2">
+              {pulse.loading ? (
+                <Skeleton className="h-5 w-56" />
+              ) : (
+                <>
+                  {pulse.tone === "busy" ? <PilotLight state="busy" /> : <span className={cn("size-2 rounded-full", toneClass[pulse.tone])} aria-hidden />}
+                  <span className={cn(pulse.tone === "bad" && "text-danger")}>{pulse.words}</span>
+                  {pulse.why && (
+                    <Link to="/projects/$project/apps/$app" params={{ project, app: pulse.why.app }} className="font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink">
+                      See why
+                    </Link>
+                  )}
+                  {pulse.retry && (
+                    <button type="button" onClick={pulse.retry} className="font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink">
+                      Retry
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </div>
         {pulse.url && (
@@ -132,6 +139,9 @@ export function ProjectPage({ project }: { project: string }) {
     </Page>
   );
 }
+
+/** The mascot's face for a project's status: live, packing, a spill, asleep (not live yet), or plain when it can't tell. */
+const mood: Record<ReturnType<typeof useProjectPulse>["tone"], MascotState> = { ok: "live", busy: "deploying", bad: "failed", quiet: "idle", unknown: "base" };
 
 // ───────────────────────── tiles ─────────────────────────
 

@@ -35,7 +35,7 @@ export function EmptyBoxStart({ headline = true }: { /** Show the "Your tiffin i
               search={{ starter: s.id } as never}
               className="group flex h-full flex-col overflow-hidden rounded-[10px] border border-rule-2 bg-paper-raised transition-[border-color,transform] duration-[var(--dur-state)] ease-[var(--ease-out)] hover:border-rule-3 active:scale-[0.985]"
             >
-              <span className="block aspect-[16/10] bg-paper-sunk">
+              <span className="art-well block aspect-[16/10] bg-paper-sunk">
                 {starterThumb[s.id] && <img src={starterThumb[s.id]} alt="" width={320} height={200} className="size-full object-contain p-1 transition-transform duration-[var(--dur-enter)] group-hover:scale-[1.03]" />}
               </span>
               <span className="border-t border-rule px-3 pt-2 pb-2.5">

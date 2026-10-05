@@ -5,10 +5,9 @@ import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "re
 import { api, ApiError, type Manifest, type Op } from "@/api/client";
 import { mod3, type Deploy } from "@/api/modules";
 import { q } from "@/api/queries";
-import heroClosed from "@/assets/illustrations/carrier-hero.webp";
-import heroOpen from "@/assets/illustrations/carrier-hero-open.webp";
 import { Command, CopyButton } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
+import { Mascot, type MascotState } from "@/components/mascot";
 import { MorphLabel } from "@/components/morph-label";
 import { Crumbs, Page } from "@/components/page";
 import { PilotLight } from "@/components/pilot";
@@ -49,7 +48,7 @@ import {
 } from "@/lib/starters";
 
 const MB = 1048576;
-/** Two columns: the work on the left, the carrier and the plan on the right. */
+/** Two columns: the work on the left, the mascot and the plan on the right. */
 const GRID = "grid items-start gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_360px]";
 
 type Launched = { project: string; app?: string; started: number; source: Source };
@@ -185,12 +184,12 @@ export function NewProjectPage() {
     if (settled && plan.data?.project === name && ops.length > 0 && ops.every((o) => o.action === "create") && !create.isPending && phase === "compose") create.mutate();
   };
 
-  const open = phase !== "compose";
+  const mood: MascotState = phase === "compose" ? "base" : phase === "launching" ? "deploying" : phase;
   const crumbs = <Crumbs items={[{ label: "Projects", to: "/" }, { label: "New project" }]} />;
 
   const header = (
     <header className="min-w-0">
-      {(firstRun || phase !== "compose") && <Hero open={open} small className="mb-1 -ml-3 lg:hidden" />}
+      {(firstRun || phase !== "compose") && <Hero state={mood} small className="mb-1 -ml-3 lg:hidden" />}
           {firstRun && phase === "compose" ? <p className="label mb-2">{new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long" }).format(new Date())}</p> : crumbs}
           <h1 className="sentence mt-2 text-ink" aria-live="polite">
             {phase === "compose" ? (firstRun ? "Your tiffin is packed. Nothing in it yet." : "Start a project.") : phase === "live" ? `${L?.project} is live.` : phase === "failed" ? `${L?.project} didn’t start.` : `Packing ${L?.project}…`}
@@ -208,7 +207,7 @@ export function NewProjectPage() {
           </p>
     </header>
   );
-  const hero = <Hero open={open} className="mx-auto -mt-2 -mb-3 max-lg:hidden" />;
+  const hero = <Hero state={mood} className="mx-auto mb-4 max-lg:hidden" />;
 
   return (
     <Page wide>
@@ -329,14 +328,9 @@ export function NewProjectPage() {
 
 // ───────────────────────── pieces ─────────────────────────
 
-/** The carrier, closed; it opens (cross-fade, the same registration) once a project starts. */
-function Hero({ open, small, className }: { open: boolean; small?: boolean; className?: string }) {
-  return (
-    <div className={cn("relative shrink-0", small ? "size-[132px]" : "-my-6 size-[248px]", className)} aria-hidden>
-      <img src={heroClosed} alt="" width={248} height={248} className={cn("absolute inset-0 size-full transition-opacity duration-[600ms] ease-[var(--ease-out)]", open && "opacity-0")} />
-      <img src={heroOpen} alt="" width={248} height={248} className={cn("absolute inset-0 size-full opacity-0 transition-opacity duration-[600ms] ease-[var(--ease-out)]", open && "opacity-100")} />
-    </div>
-  );
+/** The mascot: waiting, then packing once a project starts, then live (or the spill when it didn't start). Cross-fades in place. */
+function Hero({ state, small, className }: { state: MascotState; small?: boolean; className?: string }) {
+  return <Mascot state={state} size={small ? 112 : 212} className={cn("block", className)} />;
 }
 
 function Step({ n, label, children }: { n: number; label: string; children: ReactNode }) {
@@ -363,7 +357,7 @@ function StarterTile({ s, picked, loading }: { s: Starter; picked: boolean; load
         picked ? "border-brass shadow-[0_0_0_1px_var(--brass)]" : "border-rule-2 hover:border-rule-3",
       )}
     >
-      <span className="block w-20 shrink-0 bg-paper-sunk sm:aspect-[16/10] sm:w-full">
+      <span className="art-well block w-20 shrink-0 bg-paper-sunk sm:aspect-[16/10] sm:w-full">
         {starterThumb[s.id] && <img src={starterThumb[s.id]} alt="" width={320} height={200} className="size-full object-contain p-1.5 transition-transform duration-[var(--dur-enter)] ease-[var(--ease-out)] group-hover:scale-[1.03]" />}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-1 border-l border-rule px-3 pt-2.5 pb-3 sm:border-t sm:border-l-0">
@@ -967,7 +961,7 @@ function Preview({ url, host, thumb, app }: { url: string; host: string; thumb?:
           {host}
         </span>
       </div>
-      <div className="relative grid aspect-[16/10] place-items-center bg-paper">
+      <div className={cn("relative grid aspect-[16/10] place-items-center bg-paper", thumb && "art-well")}>
         {thumb ? <img src={thumb} alt="" className="w-3/4" /> : <span className="text-ink-3">{app}</span>}
         <span className="absolute right-3 bottom-3 inline-flex items-center gap-1 rounded-[7px] border border-rule-2 bg-paper-raised px-2.5 py-1 text-xs font-[550] text-ink shadow-raised transition-colors group-hover:border-brass">
           Open {app} <ArrowUpRight className="size-3.5" />

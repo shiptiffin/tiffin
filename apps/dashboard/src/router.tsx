@@ -1,7 +1,10 @@
-import { createRootRouteWithContext, createRoute, createRouter, Link, Outlet, redirect } from "@tanstack/react-router";
+import { createRootRouteWithContext, createRoute, createRouter, Link, Outlet, redirect, type ErrorComponentProps } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Tier } from "@/api/client";
+import emptyTin from "@/assets/illustrations/empty-inbox.webp";
+import { Mascot } from "@/components/mascot";
 import { Shell } from "@/components/shell";
+import { Button } from "@/components/ui/button";
 import type { ActivitySearch } from "@/routes/activity";
 import type { GitSearch } from "@/routes/git-settings";
 import { HomePage } from "@/routes/home";
@@ -531,17 +534,49 @@ const people = createRoute({ getParentRoute: () => app, path: "/settings/people"
 const passkeys = createRoute({ getParentRoute: () => app, path: "/settings/passkeys", loader: () => void PasskeysPage.preload(),
   component: PasskeysPage });
 
+/** No such page: the mascot has lifted its lid on an empty tin. */
 function NotFound() {
   return (
     <Page>
-      <h1 className="sentence text-ink">There’s no page here.</h1>
-      <p className="mt-2 text-md text-ink-2">
-        The link may be old, or the thing it pointed at was removed.{" "}
-        <Link to="/" className="font-[550] text-brass-ink underline underline-offset-4">
-          Back to your projects
-        </Link>
-        .
-      </p>
+      <div className="flex items-center gap-6">
+        <span className="art-plate block size-28 shrink-0 max-sm:hidden">
+          <img src={emptyTin} alt="" width={112} height={112} className="block size-full select-none" draggable={false} />
+        </span>
+        <div className="min-w-0">
+          <h1 className="sentence text-ink">There’s no page here.</h1>
+          <p className="mt-2 text-md text-ink-2">
+            The link may be old, or the thing it pointed at was removed.{" "}
+            <Link to="/" className="font-[550] text-brass-ink underline underline-offset-4">
+              Back to your projects
+            </Link>
+            .
+          </p>
+        </div>
+      </div>
+    </Page>
+  );
+}
+
+/** A page that threw while showing itself: the mascot's spill, what happened, and a way on. */
+function RouteError({ error }: ErrorComponentProps) {
+  const said = error instanceof Error ? error.message : "";
+  return (
+    <Page>
+      <div className="flex items-center gap-6">
+        <Mascot state="failed" size={112} className="max-sm:hidden" />
+        <div className="min-w-0">
+          <h1 className="sentence text-ink">This page hit a problem.</h1>
+          <p className="mt-2 max-w-[38rem] text-md text-ink-2">{said ? `It said: ${said}` : "It stopped while showing itself."} Reload to try again.</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button variant="primary" size="md" onClick={() => location.reload()}>
+              Reload
+            </Button>
+            <Button asChild variant="ghost" size="md">
+              <Link to="/">Back to your projects</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
     </Page>
   );
 }
@@ -605,7 +640,7 @@ const tree = root.addChildren([
 ]);
 
 export function makeRouter(queryClient: QueryClient) {
-  return createRouter({ routeTree: tree, context: { queryClient }, defaultPreload: "intent", defaultPreloadStaleTime: 0, scrollRestoration: true });
+  return createRouter({ routeTree: tree, context: { queryClient }, defaultPreload: "intent", defaultPreloadStaleTime: 0, scrollRestoration: true, defaultErrorComponent: RouteError });
 }
 
 declare module "@tanstack/react-router" {

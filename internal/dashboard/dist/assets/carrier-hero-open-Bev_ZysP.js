@@ -1,1 +1,0 @@
-var e=`/assets/carrier-hero-open-BXaBHuoa.webp`;export{e as t};

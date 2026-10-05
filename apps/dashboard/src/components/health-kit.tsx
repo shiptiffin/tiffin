@@ -1,8 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import emptyBackups from "@/assets/illustrations/empty-backups.webp";
-import emptyErrors from "@/assets/illustrations/empty-errors.webp";
 import { cn } from "@/lib/cn";
+import { Mascot } from "./mascot";
 import { Crumbs } from "./page";
 
 // Small page-local pieces shared by the Health, Access and Settings pages
@@ -123,13 +123,21 @@ export function LevelWord({ level, className }: { level: string; className?: str
   return <span className={cn(tone, className)}>{word}</span>;
 }
 
-const art = { errors: emptyErrors, backups: emptyBackups } as const;
-
-/** A calm empty state with one of the carrier illustrations, a sentence and what happens next. */
-export function Calm({ art: a, title, children, className }: { art: keyof typeof art; title: ReactNode; children?: ReactNode; className?: string }) {
+/**
+ * A calm empty state with a drawing, a sentence and what happens next.
+ * errors: the mascot, live and content (nothing is wrong). backups: the
+ * mascot beside a pantry shelf of jars (nothing put by yet).
+ */
+export function Calm({ art: a, title, children, className }: { art: "errors" | "backups"; title: ReactNode; children?: ReactNode; className?: string }) {
   return (
     <div className={cn("grid justify-items-center px-4 pt-6 pb-10 text-center", className)}>
-      <img src={art[a]} alt="" width={200} height={160} className="h-40 w-50 select-none" draggable={false} />
+      {a === "errors" ? (
+        <Mascot state="live" size={144} className="my-2" />
+      ) : (
+        <span className="art-plate my-3 block" data-plate="tile">
+          <img src={emptyBackups} alt="" width={240} height={140} className="block h-[140px] w-60 select-none" draggable={false} />
+        </span>
+      )}
       <p className="mt-2 text-[0.9375rem] font-[550] text-ink">{title}</p>
       {children && <div className="mt-1 max-w-[30rem] text-[0.875rem] text-ink-3">{children}</div>}
     </div>

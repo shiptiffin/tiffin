@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowUpRight, LayoutGrid, List, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
-import heroClosed from "@/assets/illustrations/carrier-hero.webp";
+import emptyCart from "@/assets/illustrations/empty-projects.webp";
 import { q } from "@/api/queries";
 import { BoxBar } from "@/components/box-bar";
 import { Command } from "@/components/copy";
@@ -10,9 +10,11 @@ import { useTitle } from "@/components/favicon";
 import { NameAsk } from "@/components/name-ask";
 import { Page, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
+import { ProjectTin } from "@/components/mascot";
 import { EmptyBoxStart } from "@/components/start-empty-box";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
+import { useEnamel } from "@/lib/enamel";
 import { words } from "@/lib/format";
 import { mcpCommand } from "@/lib/mcp";
 import { toneClass, useProjectPulse } from "@/lib/pulse";
@@ -240,6 +242,7 @@ function ProjectCard({ project, shares }: { project: string; shares?: Shares }) 
   const preview = usePreview(project, pulse.tone === "ok" && !!pulse.url);
   const share = shares ? (shares.projects[project] ?? 0) / shares.totalMB : undefined;
   const cap = shares?.caps[project];
+  const enamel = useEnamel(project);
   return (
     <li className="group relative flex min-h-[176px] flex-col overflow-hidden rounded-[12px] border border-rule-2 bg-paper-raised shadow-[var(--top-light)] transition-[border-color,box-shadow] duration-[var(--dur-state)] hover:border-rule-3 hover:shadow-raised">
       {preview && <img src={preview} alt="" className="aspect-[1200/630] w-full border-b border-rule object-cover" loading="lazy" />}
@@ -251,6 +254,7 @@ function ProjectCard({ project, shares }: { project: string; shares?: Shares }) 
               {project}
             </Link>
           </h2>
+          <ProjectTin enamel={enamel} size={40} className="-my-2 ml-auto" />
         </div>
         <div className="mt-1 min-h-5 pl-[32px] text-[0.8125rem]">
           {pulse.url ? (
@@ -306,19 +310,21 @@ function shareOfBox(f: number) {
   return `${Math.round(f * 100)}% of your box`;
 }
 
-/** The first visit: the carrier, one sentence, the starters and the agent line. */
+/** The first visit: the empty cart (the mascot riding alone), one sentence, the starters and the agent line. */
 function FirstRun() {
   return (
     <Page wide>
       <NameAsk />
-      <header className="grid items-center gap-x-10 gap-y-2 sm:grid-cols-[minmax(0,1fr)_200px] lg:grid-cols-[minmax(0,1fr)_220px]">
+      <header className="grid items-center gap-x-10 gap-y-2 sm:grid-cols-[minmax(0,1fr)_260px] lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="min-w-0">
           <h1 className="sentence text-ink">Your tiffin is packed. Nothing in it yet.</h1>
           <p className="mt-2 max-w-[36rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
             Start a project and it gets its own address, and a database and sign-in if it wants them. It’s live in under a minute.
           </p>
         </div>
-        <img src={heroClosed} alt="" width={220} height={220} className="mx-auto -my-4 w-[180px] max-sm:hidden lg:w-[220px]" />
+        <span className="art-plate mx-auto block w-[260px] max-sm:hidden lg:w-[300px]" data-plate="tile">
+          <img src={emptyCart} alt="" width={300} height={150} className="block w-full select-none" draggable={false} />
+        </span>
       </header>
       <div className="mt-6 rounded-[12px] border border-rule-2 bg-paper-raised">
         <EmptyBoxStart headline={false} />
