@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -167,6 +168,7 @@ func (a *app) agentRun() bool {
 
 // do performs one API call and returns the status and raw body.
 func (c *client) do(ctx context.Context, method, path string, q url.Values, body any) (int, []byte, error) {
+	wait := requestTimeout(q.Get("timeoutSeconds"))
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}
@@ -175,6 +177,12 @@ func (c *client) do(ctx context.Context, method, path string, q url.Values, body
 		b, err := json.Marshal(body)
 		if err != nil {
 			return 0, nil, err
+		}
+		var asked struct {
+			TimeoutSeconds json.Number `json:"timeoutSeconds"`
+		}
+		if json.Unmarshal(b, &asked) == nil {
+			wait = max(wait, requestTimeout(asked.TimeoutSeconds.String()))
 		}
 		rd = bytes.NewReader(b)
 	}
@@ -190,7 +198,7 @@ func (c *client) do(ctx context.Context, method, path string, q url.Values, body
 		return 0, nil, err
 	}
 	c.headers(req.Header, body != nil)
-	hc := &http.Client{Timeout: 60 * time.Second, Transport: c.transport}
+	hc := &http.Client{Timeout: wait, Transport: c.transport}
 	res, err := hc.Do(req)
 	if err != nil {
 		var ue *url.Error
@@ -242,4 +250,14 @@ func exitFor(status int, raw []byte) int {
 		}
 	}
 	return ExitError
+}
+
+// requestTimeout is how long a call may take: a minute, or longer when the
+// call itself asks the box to wait longer (a query's timeoutSeconds).
+func requestTimeout(timeoutSeconds string) time.Duration {
+	n, err := strconv.Atoi(timeoutSeconds)
+	if err != nil || n <= 0 {
+		return 60 * time.Second
+	}
+	return max(60*time.Second, time.Duration(n)*time.Second+15*time.Second)
 }
