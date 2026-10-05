@@ -412,7 +412,7 @@ func TestAppsDomain(t *testing.T) {
 	}
 	_, st := h.call("GET", "/v1/domain", nil)
 	if st["domain"] != "example.test" || st["appsDomain"] != "apps.test" || !slices.Equal(recordNamesOf(st["records"]), []string{"dashboard.example.test", "*.apps.test"}) ||
-		!strings.Contains(st["summary"].(string), "<app>.apps.test") {
+		!strings.Contains(st["summary"].(string), "<project>.apps.test") {
 		t.Errorf("status: %v", st)
 	}
 	if code, _ := h.call("POST", "/v1/domain", map[string]any{"domain": "example.test", "appsDomain": "apps.test"}); code != 409 {

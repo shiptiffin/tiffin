@@ -47,7 +47,7 @@ type Wildcard struct {
 // BoxDomain is the box domain's status.
 type BoxDomain struct {
 	Domain       string `json:"domain" doc:"The box's domain: the dashboard, API and webhooks are under it, and apps too unless appsDomain is another domain."`
-	AppsDomain   string `json:"appsDomain" doc:"Apps and previews are at <app>.<appsDomain>: the box domain, or a separate one (tiffin domain set --apps-domain) so app code cannot set cookies on the dashboard's domain."`
+	AppsDomain   string `json:"appsDomain" doc:"Apps and previews are at <project>.<appsDomain>: the box domain, or a separate one (tiffin domain set --apps-domain) so app code cannot set cookies on the dashboard's domain."`
 	Source       string `json:"source" enum:"set,sslip,flag" doc:"set: chosen with tiffin domain set; sslip: automatic, from the server's public IPv4 (no DNS setup); flag: the service's --domain (a local box)."`
 	Default      string `json:"default" doc:"The domain without tiffin domain set."`
 	Dashboard    string `json:"dashboard" doc:"The dashboard's host."`
@@ -141,7 +141,7 @@ func (m *Module) boxStatus(ctx context.Context, p *platform.Platform) BoxDomain 
 	}
 	if !r.ACME {
 		b.Certificates, b.State = "internal", "internal"
-		b.Summary = fmt.Sprintf("A local box: %s and <app>.%s use the box's own certificate authority (trusted by your computer after tiffin up). Real domains and public certificates need a server.", p.DashboardHost(), apps)
+		b.Summary = fmt.Sprintf("A local box: %s and <project>.%s use the box's own certificate authority (trusted by your computer after tiffin up). Real domains and public certificates need a server.", p.DashboardHost(), apps)
 		return b
 	}
 	b.Certificates = "acme"
@@ -175,9 +175,9 @@ func (m *Module) boxStatus(ctx context.Context, p *platform.Platform) BoxDomain 
 		s = append(s, fmt.Sprintf("Getting a certificate for %s (usually under a minute).", p.DashboardHost()))
 	}
 	if b.Wildcard != nil {
-		s = append(s, fmt.Sprintf("Apps and previews are at <app>.%s and share one *.%s certificate (DNS-01 through %s).", apps, apps, b.Wildcard.Provider))
+		s = append(s, fmt.Sprintf("Apps and previews are at <project>.%s and share one *.%s certificate (DNS-01 through %s).", apps, apps, b.Wildcard.Provider))
 	} else {
-		s = append(s, fmt.Sprintf("Apps are at <app>.%s and get their certificate on their first visit.", apps))
+		s = append(s, fmt.Sprintf("Apps are at <project>.%s and get their certificate on their first visit.", apps))
 	}
 	if b.Source == "sslip" {
 		s = append(s, "Use your own domain with `tiffin domain set example.com` (two DNS records).")
@@ -599,8 +599,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	set := api.Outbound(api.Op("domain-set", http.MethodPost, "/v1/domain", "domain set", api.RiskWrite,
 		"Use your own domain for the box",
-		"Switches the box to <domain>: the dashboard moves to dashboard.<domain> (or <dashboard>.<domain>) and apps to <app>.<domain>, "+
-			"or with appsDomain to <app>.<appsDomain> (like vercel.com and vercel.app: app code on another registrable domain cannot set cookies on the dashboard's). "+
+		"Switches the box to <domain>: the dashboard moves to dashboard.<domain> (or <dashboard>.<domain>) and apps to <project>.<domain>, "+
+			"or with appsDomain to <project>.<appsDomain> (like vercel.com and vercel.app: app code on another registrable domain cannot set cookies on the dashboard's). "+
 			"First checks that <domain> and *.<domain> (with appsDomain: <dashboard>.<domain> and *.<appsDomain>) point at this box (A/AAAA records); if not, nothing changes and the answer (status 412) lists exactly the records to add. "+
 			"With createRecords, the box creates the ones in zones a connected DNS provider holds. "+
 			"The service restarts (a few seconds; apps keep running), new certificates are obtained, and the old names keep working until the new ones have certificates, then for another hour. "+
@@ -610,7 +610,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		Body struct {
 			Domain        string `json:"domain" minLength:"3" maxLength:"253" doc:"e.g. example.com (or apps.example.com to keep the apex for something else)."`
 			Dashboard     string `json:"dashboard,omitempty" pattern:"^([a-z][a-z0-9-]{0,39})?$" doc:"The dashboard's first-level name. Default dashboard."`
-			AppsDomain    string `json:"appsDomain,omitempty" maxLength:"253" doc:"Serve apps and previews at <app>.<appsDomain> instead of <app>.<domain>, e.g. example.app beside example.com. Default: domain itself."`
+			AppsDomain    string `json:"appsDomain,omitempty" maxLength:"253" doc:"Serve apps and previews at <project>.<appsDomain> instead of <project>.<domain>, e.g. example.app beside example.com. Default: domain itself."`
 			Email         string `json:"email,omitempty" maxLength:"200" doc:"A contact for the certificate authority (optional; also enables the ZeroSSL fallback)."`
 			CreateRecords bool   `json:"createRecords,omitempty" doc:"Create the records through the connected DNS provider first (those in zones it holds)."`
 			Force         bool   `json:"force,omitempty" doc:"Switch even if DNS does not point here yet (certificates fail until it does)."`
@@ -723,7 +723,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		st.Records, st.State = chk.Records, "issuing"
 		st.Summary = fmt.Sprintf("Switching to %s: the service restarts, then gets certificates for %s (usually under a minute). %s keeps working meanwhile.", d, st.Dashboard, p.DashboardHost())
 		if apps != "" {
-			st.Summary += fmt.Sprintf(" Apps move to <app>.%s.", apps)
+			st.Summary += fmt.Sprintf(" Apps move to <project>.%s.", apps)
 		}
 		st.Restarting = m.restart(p, "box domain set to "+d)
 		return &struct{ Body BoxDomain }{st}, nil

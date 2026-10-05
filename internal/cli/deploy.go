@@ -167,7 +167,7 @@ func (a *app) deployCmd() *cobra.Command {
 			"The apps must exist on the box first: tiffin plan, then tiffin apply --confirm <hash>.",
 		Example: "  tiffin deploy                      # every app in ./tiffin.config.ts\n" +
 			"  tiffin deploy --app api            # one app\n" +
-			"  tiffin deploy --preview fix-login  # at fix-login--<app>.<domain>, production untouched\n" +
+			"  tiffin deploy --preview fix-login  # at fix-login--<project>.<domain>, production untouched\n" +
 			"  tiffin deploy --app api --prebuilt image.tar   # docker save output",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -135,7 +135,7 @@ func IsCloudflare(a netip.Addr) bool {
 
 // SslipDomain is the zero-setup box domain for a public IPv4 address:
 // 203.0.113.7 → "203-0-113-7.sslip.io". sslip.io answers every name under
-// it with the address it spells, so <app>.203-0-113-7.sslip.io reaches the
+// it with the address it spells, so shop.203-0-113-7.sslip.io reaches the
 // box without any DNS setup. Empty for anything but IPv4.
 func SslipDomain(a netip.Addr) string {
 	a = a.Unmap()
