@@ -43,9 +43,12 @@ type fakeCtr struct {
 // that answers with its image and GREETING env, and logs each request in
 // the json-file format nerdctl writes.
 type fakeEngine struct {
-	mu     sync.Mutex
-	ctrs   map[string]*fakeCtr
-	images map[string]bool
+	mu   sync.Mutex
+	ctrs map[string]*fakeCtr
+	// images is the image store: each name and the content it points at.
+	// Names are kept as stored; commands read theirs the way nerdctl does
+	// (dockerName).
+	images map[string]string
 	crash  map[string]bool
 	runs   int
 	// stuck: removing an exited container fails, as nerdctl rm did on a
@@ -56,7 +59,7 @@ type fakeEngine struct {
 }
 
 func newFakeEngine() *fakeEngine {
-	return &fakeEngine{ctrs: map[string]*fakeCtr{}, images: map[string]bool{}, crash: map[string]bool{}, leaked: map[string]bool{}}
+	return &fakeEngine{ctrs: map[string]*fakeCtr{}, images: map[string]string{}, crash: map[string]bool{}, leaked: map[string]bool{}}
 }
 
 func (e *fakeEngine) setStuck(v bool) {
@@ -170,10 +173,20 @@ func (e *fakeEngine) running() []*fakeCtr {
 	return out
 }
 
+// image finds a stored image by name the way nerdctl's image commands do:
+// the name as given, or as nerdctl reads it. Call with e.mu held.
+func (e *fakeEngine) image(name string) (string, bool) {
+	if c, ok := e.images[name]; ok {
+		return name, c != ""
+	}
+	n := dockerName(name)
+	return n, e.images[n] != ""
+}
+
 func (e *fakeEngine) ImageDigest(ctx context.Context, ref string) (string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if !e.images[ref] {
+	if _, ok := e.image(ref); !ok {
 		return "", fmt.Errorf("no image %s", ref)
 	}
 	return "sha256:" + strings.Repeat("a", 64), nil
@@ -182,34 +195,48 @@ func (e *fakeEngine) ImageDigest(ctx context.Context, ref string) (string, error
 func (e *fakeEngine) RemoveImage(ctx context.Context, ref string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	delete(e.images, ref)
+	name, ok := e.image(ref)
+	if !ok {
+		return fmt.Errorf("nerdctl rmi: exit status 1: no such image: %s", ref)
+	}
+	delete(e.images, name)
 	return nil
 }
 
+// TagImage resolves src by its normalized name only, as nerdctl tag does:
+// a digest name nerdctl load stored ("import@sha256:...") or a short ID is
+// not found.
 func (e *fakeEngine) TagImage(ctx context.Context, src, ref string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if !e.images[src] {
-		return fmt.Errorf("no image %s", src)
+	c := e.images[dockerName(src)]
+	if c == "" {
+		return fmt.Errorf("nerdctl tag: exit status 1: image %q: not found", dockerName(src))
 	}
-	e.images[ref] = true
+	e.images[dockerName(ref)] = c
 	return nil
 }
 
-// LoadImage registers the names containerd would take from the tarball
-// (replacing images of the same name), then ref.
+// LoadImage stores the names containerd's import (as nerdctl load drives
+// it) takes from the tarball, replacing images of the same name, then
+// settles them as the box does.
 func (e *fakeEngine) LoadImage(ctx context.Context, tarball io.Reader, ref string, log io.Writer) error {
-	names, err := containerdNames(tarball)
+	names, content, err := containerdLoad(tarball)
 	if err != nil {
-		return err
+		return fmt.Errorf("load image: %w", err)
 	}
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	for _, n := range names {
-		e.images[n] = true
+		e.images[n] = content
 	}
-	e.images[ref] = true
-	return nil
+	e.mu.Unlock()
+	has := func(name string) bool {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		_, ok := e.image(name)
+		return ok
+	}
+	return settleLoad(names, ref, has, func(name string) error { return e.RemoveImage(ctx, name) }, log)
 }
 
 // fakeBuilder "builds" instantly; a FAIL file fails the build, a CRASH file
@@ -242,7 +269,7 @@ func (b *fakeBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult,
 	}
 	ref := imageRef(req.Deploy.Project, req.Deploy.App, req.Deploy.ID)
 	b.eng.mu.Lock()
-	b.eng.images[ref] = true
+	b.eng.images[ref] = "built:" + ref
 	if exists(filepath.Join(req.SrcDir, "CRASH")) {
 		b.eng.crash[ref] = true
 	}
@@ -1199,20 +1226,6 @@ func TestPreviewMailGoesToTheDevInbox(t *testing.T) {
 	}
 }
 
-func TestLoadedImages(t *testing.T) {
-	const one = "import@sha256:6a1e59aa2e1822c073f6e42f928554c0612c56cbd637c2cc0802348440aff9a0"
-	got, err := loadedImages("unpacking...\nLoaded image: " + one + "\nLoaded image: " + one + "\n")
-	if err != nil || len(got) != 1 || got[0] != one {
-		t.Fatalf("by digest: %v %v", got, err)
-	}
-	if _, err := loadedImages("Loaded image: " + one + "\nLoaded image: docker.io/me/app:v1\n"); err == nil {
-		t.Fatal("a named image was accepted")
-	}
-	if got, err := loadedImages("nothing"); err != nil || len(got) != 0 {
-		t.Fatalf("empty: %v %v", got, err)
-	}
-}
-
 func TestGitHelpers(t *testing.T) {
 	for in, want := range map[string]string{"feature/Login-Fix": "feature-login-fix", "--x--": "x", "___": "branch",
 		strings.Repeat("a", 40): strings.Repeat("a", 30)} {
@@ -1381,7 +1394,7 @@ func TestWarmUpBuildsOnce(t *testing.T) {
 		t.Fatal("warm-up not remembered")
 	}
 	h.eng.mu.Lock()
-	kept := h.eng.images[imageRef("tiffin-warmup", "web", "warmup")]
+	kept := h.eng.images[imageRef("tiffin-warmup", "web", "warmup")] != ""
 	h.eng.mu.Unlock()
 	if kept {
 		t.Fatal("the warm-up image should be removed")

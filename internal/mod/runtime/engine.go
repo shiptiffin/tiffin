@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,10 +49,12 @@ type Engine interface {
 	List(ctx context.Context) ([]Container, error)                // tiffin app containers
 	ImageDigest(ctx context.Context, ref string) (string, error)
 	RemoveImage(ctx context.Context, ref string) error
-	// LoadImage imports the one image of a docker/OCI image tarball whose
-	// names were stripped (see loadImage) and names it ref, by digest.
+	// LoadImage imports a docker/OCI image tarball whose every image is
+	// named ref (see loadImage) and makes sure ref is the one name it left
+	// in the store.
 	LoadImage(ctx context.Context, tarball io.Reader, ref string, log io.Writer) error
 	// TagImage gives an image in the store another name (no layers copied).
+	// src is a name, read the way nerdctl reads one (dockerName).
 	TagImage(ctx context.Context, src, ref string) error
 }
 
@@ -232,9 +233,9 @@ func (n *nerdctl) TagImage(ctx context.Context, src, ref string) error {
 	return err
 }
 
-// LoadImage reads an image tarball with its names stripped (see loadImage),
-// so containerd knows the image only by digest (import@sha256:...). It is
-// named ref by that digest, and the digest name is dropped.
+// LoadImage reads an image tarball whose every image is named ref (see
+// loadImage), then checks what the load stored: ref, plus the digest name
+// nerdctl gives the tarball's index, which is dropped (settleLoad).
 func (n *nerdctl) LoadImage(ctx context.Context, tarball io.Reader, ref string, log io.Writer) error {
 	c := n.cmd(ctx, "load")
 	c.Stdin = tarball
@@ -244,31 +245,17 @@ func (n *nerdctl) LoadImage(ctx context.Context, tarball io.Reader, ref string, 
 	if err := c.Run(); err != nil {
 		return fmt.Errorf("load image: %w", err)
 	}
-	names, err := loadedImages(out.String())
-	if err != nil {
+	has := func(name string) bool {
+		_, err := n.run(ctx, "image", "inspect", "--format", "{{.ID}}", name)
+		return err == nil
+	}
+	remove := func(name string) error {
+		_, err := n.run(ctx, "rmi", name)
 		return err
 	}
-	drop := func() {
-		for _, name := range names {
-			if _, err := n.run(ctx, "rmi", name); err != nil {
-				fmt.Fprintf(log, "could not drop the loaded name %s: %v\n", name, err)
-			}
-		}
+	if err := settleLoad(loadedNames(out.String()), ref, has, remove, log); err != nil {
+		return fmt.Errorf("%w (nerdctl load said: %s)", err, strings.TrimSpace(lastLines(out.String(), 3)))
 	}
-	switch {
-	case len(names) == 0:
-		return fmt.Errorf("the tarball contained no image (nerdctl load said: %s)", strings.TrimSpace(lastLines(out.String(), 3)))
-	case len(names) > 1:
-		// An image saved with its index loads as the index plus the manifest
-		// it points to: nerdctl names the index first, and either runs.
-		fmt.Fprintf(log, "the tarball loaded %d names (an index and its manifests); using %s\n", len(names), names[0])
-	}
-	// Tag by the full loaded name: a short ID of an index digest is no image ID.
-	if _, err := n.run(ctx, "tag", names[0], ref); err != nil {
-		return err
-	}
-	drop()
-	fmt.Fprintf(log, "loaded image %s as %s\n", strings.TrimPrefix(names[0], loadedPrefix)[:12], ref)
 	return nil
 }
 
@@ -278,28 +265,4 @@ func lastLines(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
-}
-
-// loadedPrefix is how nerdctl load names an image the tarball does not.
-const loadedPrefix = "import@sha256:"
-
-// loadedImages lists the images nerdctl load imported, by their digest
-// names. Any other name means the tarball still named an image, which a
-// stripped one cannot: it is refused.
-func loadedImages(out string) ([]string, error) {
-	var names []string
-	for _, line := range strings.Split(out, "\n") {
-		_, name, ok := strings.Cut(line, "Loaded image: ")
-		if !ok {
-			continue
-		}
-		name = strings.TrimSpace(name)
-		if dg, ok := strings.CutPrefix(name, loadedPrefix); !ok || len(dg) < 12 {
-			return nil, fmt.Errorf("the tarball named an image (%s); images are loaded by digest only", name)
-		}
-		if !slices.Contains(names, name) {
-			names = append(names, name)
-		}
-	}
-	return names, nil
 }
