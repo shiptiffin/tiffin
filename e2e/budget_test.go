@@ -47,7 +47,9 @@ Bun.serve({
 //	get one each → shop bursts past its fair share of memory, then blog
 //	takes its share and nobody is killed (shop is swapped out) → a budget
 //	change applies live with zero failed requests and no restart → the box
-//	default share caps automatic projects.
+//	default share caps automatic projects → a limited project's heavy query
+//	is held to its share of the CPUs and stopped at its time limit while
+//	another project's queries stay fast.
 func TestBudget(t *testing.T) {
 	start := time.Now()
 	phase := phaseLogger(t)
@@ -267,5 +269,85 @@ func TestBudget(t *testing.T) {
 	if u := usage("shop"); u["limitSource"] != "automatic" {
 		t.Fatalf("back to automatic: %v", u)
 	}
+
+	// ---- the database: a limited project's heavy query is held to its share
+	// and stopped at its time limit, while another project's stay fast ----
+	p = time.Now()
+	b.apply("slowdb", `{"project":"slowdb","resources":{"maxSharePercent":25},"services":{"postgres":{"statementTimeoutSeconds":20}}}`)
+	b.apply("fastdb", `{"project":"fastdb","services":{"postgres":{}}}`)
+	for _, pr := range []string{"slowdb", "fastdb"} {
+		for i := 0; ; i++ {
+			st, _ := b.ok("projects", "get", pr)["status"].(map[string]any)
+			if s, _ := st["service/postgres"].(map[string]any); s["state"] == "ready" {
+				break
+			}
+			if i == 120 {
+				t.Fatalf("%s's database is not ready: %v", pr, st)
+			}
+			time.Sleep(time.Second)
+		}
+	}
+	// The watcher gives roles their settings within a few seconds of a limit change.
+	var slowDB map[string]any
+	for i := 0; ; i++ {
+		u := usage("slowdb")
+		slowDB, _ = u["database"].(map[string]any)
+		if slowDB != nil && num(u, "database", "connectionLimit") == 25 && num(u, "sharePercent") == 25 {
+			break
+		}
+		if i == 45 {
+			t.Fatalf("slowdb's database limits: %v", u)
+		}
+		time.Sleep(time.Second)
+	}
+	if fast := usage("fastdb"); num(fast, "database", "connectionLimit") != 80 || num(fast, "database", "queryTimeLimitSeconds") != 30 || num(fast, "sharePercent") != 0 {
+		t.Fatalf("fastdb's database: %v", fast["database"])
+	}
+	if num(slowDB, "queryTimeLimitSeconds") != 20 || num(slowDB, "limitCpus") != 0.5 {
+		t.Fatalf("slowdb's database: %v", slowDB)
+	}
+	slowURL := b.ok("db", "connection", "slowdb")["databaseUrl"].(string)
+	fastURL := b.ok("db", "connection", "fastdb")["databaseUrl"].(string)
+	b.inBox(fmt.Sprintf(`rm -f /tmp/slow.out /tmp/slow.ms; nohup bash -c 's=$(date +%%s%%3N); psql '\''%s'\'' -XAtc "SELECT count(*) FROM generate_series(1, 1e9)" > /tmp/slow.out 2>&1; echo $(( $(date +%%s%%3N) - s )) > /tmp/slow.ms' >/dev/null 2>&1 &`, slowURL))
+	time.Sleep(3 * time.Second)
+	group := "/sys/fs/cgroup/system.slice/tiffin-postgres.service/p-slowdb"
+	if procs := b.inBox(`cat ` + group + `/cgroup.procs`); procs == "" {
+		t.Fatalf("slowdb's backend is not in its group: %s", b.inBox(`cat /sys/fs/cgroup/system.slice/tiffin-postgres.service/shared/cgroup.procs | wc -l`))
+	}
+	out := b.inBox(fmt.Sprintf(`awk '/usage_usec/{print $2}' %[1]s/cpu.stat; sleep 8; awk '/usage_usec/{print $2}' %[1]s/cpu.stat`, group))
+	f := strings.Fields(out)
+	a, _ := strconv.Atoi(f[0])
+	z, _ := strconv.Atoi(f[1])
+	if pct := (z - a) / 80000; pct < 40 || pct > 60 {
+		t.Fatalf("slowdb's query used %d%% of a core; its share is half a CPU (25%% of 2)", pct)
+	}
+	// Meanwhile another project's queries stay fast.
+	ms := b.inBox(fmt.Sprintf(`s=$(date +%%s%%3N); psql '%s' -XAtc "SELECT count(*) FROM generate_series(1, 1000000)" >/dev/null; echo $(( $(date +%%s%%3N) - s ))`, fastURL))
+	if n, _ := strconv.Atoi(ms); n > 3000 {
+		t.Fatalf("fastdb's query took %d ms while slowdb was busy", n)
+	}
+	// The heavy query is stopped at slowdb's 20 second limit.
+	for i := 0; b.inBox(`cat /tmp/slow.ms 2>/dev/null || true`) == ""; i++ {
+		if i == 40 {
+			t.Fatalf("slowdb's query was not stopped: %s", b.inBox(`cat /tmp/slow.out`))
+		}
+		time.Sleep(time.Second)
+	}
+	took, _ := strconv.Atoi(b.inBox(`cat /tmp/slow.ms`))
+	if why := b.inBox(`cat /tmp/slow.out`); !strings.Contains(why, "canceling statement due to statement timeout") || took < 19000 || took > 26000 {
+		t.Fatalf("slowdb's query after %d ms: %s", took, why)
+	}
+	// Usage counts it among today's stopped queries (the log is read every minute).
+	for i := 0; ; i++ {
+		if num(usage("slowdb"), "database", "queriesStoppedToday") >= 1 {
+			break
+		}
+		if i == 80 {
+			t.Fatalf("stopped queries: %v", usage("slowdb")["database"])
+		}
+		time.Sleep(time.Second)
+	}
+	t.Logf("database: slowdb's query held to half a CPU and stopped after %d ms; fastdb answered in %s ms", took, ms)
+	phase("database", p)
 	phase("total", start)
 }
