@@ -259,8 +259,9 @@ func (n *nerdctl) LoadImage(ctx context.Context, tarball io.Reader, ref string, 
 	case len(names) == 0:
 		return fmt.Errorf("the tarball contained no image (nerdctl load said: %s)", strings.TrimSpace(lastLines(out.String(), 3)))
 	case len(names) > 1:
-		drop()
-		return fmt.Errorf("the tarball holds %d images; save only the app's image", len(names))
+		// An image saved with its index loads as the index plus the manifest
+		// it points to: nerdctl names the index first, and either runs.
+		fmt.Fprintf(log, "the tarball loaded %d names (an index and its manifests); using %s\n", len(names), names[0])
 	}
 	id := strings.TrimPrefix(names[0], loadedPrefix)[:12]
 	if _, err := n.run(ctx, "tag", id, ref); err != nil {
