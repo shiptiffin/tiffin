@@ -123,7 +123,7 @@ func (b *boxBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult, 
 	switch {
 	case req.Prebuilt != "":
 		fmt.Fprintf(req.Log, "==> importing prebuilt image (%s)\n", humanBytes(fileSize(req.Prebuilt)))
-		if err := b.eng.LoadImage(ctx, req.Prebuilt, ref, req.Log); err != nil {
+		if err := loadImage(ctx, b.eng, req.Prebuilt, ref, req.Log); err != nil {
 			return BuildResult{}, &BuildError{Msg: err.Error(), Hint: "Pass a tarball from `docker save <image>` or `nerdctl save`, built for this box's CPU (" + hostArch() + ")."}
 		}
 		dg, _ := b.eng.ImageDigest(ctx, ref)

@@ -88,7 +88,7 @@ func (r *rt) release(ctx context.Context, d *Deploy, spec *manifest.App, src Rel
 	case src.ImageTar != "":
 		ref := imageRef(d.Project, d.App, d.ID)
 		fmt.Fprintf(log, "==> loading the image (%s)\n", humanBytes(fileSize(src.ImageTar)))
-		if err := r.eng.LoadImage(ctx, src.ImageTar, ref, log); err != nil {
+		if err := loadImage(ctx, r.eng, src.ImageTar, ref, log); err != nil {
 			return err
 		}
 		d.Image = ref

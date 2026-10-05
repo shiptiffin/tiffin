@@ -196,9 +196,18 @@ func (e *fakeEngine) TagImage(ctx context.Context, src, ref string) error {
 	return nil
 }
 
-func (e *fakeEngine) LoadImage(ctx context.Context, file, ref string, log io.Writer) error {
+// LoadImage registers the names containerd would take from the tarball
+// (replacing images of the same name), then ref.
+func (e *fakeEngine) LoadImage(ctx context.Context, tarball io.Reader, ref string, log io.Writer) error {
+	names, err := containerdNames(tarball)
+	if err != nil {
+		return err
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	for _, n := range names {
+		e.images[n] = true
+	}
 	e.images[ref] = true
 	return nil
 }
@@ -225,7 +234,7 @@ func (b *fakeBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult,
 	}
 	if req.Prebuilt != "" {
 		ref := imageRef(req.Deploy.Project, req.Deploy.App, req.Deploy.ID)
-		return BuildResult{Image: ref}, b.eng.LoadImage(ctx, req.Prebuilt, ref, req.Log)
+		return BuildResult{Image: ref}, loadImage(ctx, b.eng, req.Prebuilt, ref, req.Log)
 	}
 	if exists(filepath.Join(req.SrcDir, "FAIL")) {
 		fmt.Fprintln(req.Log, "error: Cannot find module 'hono'")
@@ -1165,16 +1174,17 @@ func TestPreviewMailGoesToTheDevInbox(t *testing.T) {
 	}
 }
 
-func TestPickLoaded(t *testing.T) {
-	out := "Loaded image: import@sha256:6a1e59aa2e1822c073f6e42f928554c0612c56cbd637c2cc0802348440aff9a0\nLoaded image: docker.io/me/app:v1\n"
-	if got := pickLoaded(out); got != "docker.io/me/app:v1" {
-		t.Fatalf("tagged: %q", got)
+func TestLoadedImages(t *testing.T) {
+	const one = "import@sha256:6a1e59aa2e1822c073f6e42f928554c0612c56cbd637c2cc0802348440aff9a0"
+	got, err := loadedImages("unpacking...\nLoaded image: " + one + "\nLoaded image: " + one + "\n")
+	if err != nil || len(got) != 1 || got[0] != one {
+		t.Fatalf("by digest: %v %v", got, err)
 	}
-	if got := pickLoaded("Loaded image: import@sha256:6a1e59aa2e1822c073f6e42f928554c0612c56cbd637c2cc0802348440aff9a0\n"); got != "6a1e59aa2e18" {
-		t.Fatalf("untagged: %q", got)
+	if _, err := loadedImages("Loaded image: " + one + "\nLoaded image: docker.io/me/app:v1\n"); err == nil {
+		t.Fatal("a named image was accepted")
 	}
-	if pickLoaded("nothing") != "" {
-		t.Fatal("empty")
+	if got, err := loadedImages("nothing"); err != nil || len(got) != 0 {
+		t.Fatalf("empty: %v %v", got, err)
 	}
 }
 
