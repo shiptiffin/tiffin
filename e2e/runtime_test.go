@@ -47,7 +47,7 @@ func TestRuntime(t *testing.T) {
 	phase("first deploy", p)
 	t.Logf("first deploy: build %.1fs, total %.1fs (cold: base images and Bun downloaded)", d1.BuildSecs, d1.TotalSecs)
 	c := b.https()
-	code, _, body := b.get(c, "GET", b.url("api")+"/", nil)
+	code, _, body := b.get(c, "GET", b.url("hello")+"/", nil)
 	if code != 200 || !strings.Contains(body, `"hello":"world"`) || !strings.Contains(body, d1.ID) {
 		t.Fatalf("GET api: %d %s", code, body)
 	}
@@ -61,8 +61,8 @@ func TestRuntime(t *testing.T) {
 	b.inBox(`sudo apt-get install -y -qq hey >/dev/null 2>&1 || true; command -v hey >/dev/null`)
 	b.inBox(`sudo cp /var/lib/tiffin/platform/ca.crt /tmp/ca.crt && sudo chmod 644 /tmp/ca.crt
 rm -f /tmp/hey.out /tmp/curl.out
-nohup hey -z 50s -c 8 -host api.tiffin.localhost https://api.tiffin.localhost:8443/ > /tmp/hey.out 2>&1 &
-nohup bash -c 'end=$((SECONDS+50)); while [ $SECONDS -lt $end ]; do for v in --http1.1 --http2; do curl $v -s -o /dev/null -w "%{http_code} %{errormsg}\n" --max-time 10 --cacert /tmp/ca.crt https://api.tiffin.localhost:8443/ | sed "s/^/$(date +%T.%N) /"; done; done > /tmp/curl.out' >/dev/null 2>&1 &
+nohup hey -z 50s -c 8 -host hello.tiffin.localhost https://hello.tiffin.localhost:8443/ > /tmp/hey.out 2>&1 &
+nohup bash -c 'end=$((SECONDS+50)); while [ $SECONDS -lt $end ]; do for v in --http1.1 --http2; do curl $v -s -o /dev/null -w "%{http_code} %{errormsg}\n" --max-time 10 --cacert /tmp/ca.crt https://hello.tiffin.localhost:8443/ | sed "s/^/$(date +%T.%N) /"; done; done > /tmp/curl.out' >/dev/null 2>&1 &
 echo started`)
 	time.Sleep(3 * time.Second)
 	idx := filepath.Join(app, "index.ts")
@@ -72,7 +72,7 @@ echo started`)
 	}
 	d2 := deploy(t, b, app)
 	t.Logf("redeploy: build %.1fs, total %.1fs", d2.BuildSecs, d2.TotalSecs)
-	if _, _, body := b.get(c, "GET", b.url("api")+"/", nil); !strings.Contains(body, `"hello":"v2"`) {
+	if _, _, body := b.get(c, "GET", b.url("hello")+"/", nil); !strings.Contains(body, `"hello":"v2"`) {
 		t.Fatalf("after redeploy: %s", body)
 	}
 	time.Sleep(5 * time.Second)
@@ -82,7 +82,7 @@ echo started`)
 	if rolled["id"] != d1.ID || rolled["status"] != "live" {
 		t.Fatalf("rollback: %v", rolled)
 	}
-	if _, _, body := b.get(c, "GET", b.url("api")+"/", nil); !strings.Contains(body, `"hello":"world"`) {
+	if _, _, body := b.get(c, "GET", b.url("hello")+"/", nil); !strings.Contains(body, `"hello":"world"`) {
 		t.Fatalf("after rollback the previous version must serve: %s", body)
 	}
 	if got := deployStatus(t, b, d2.ID); got != "rolled_back" {
@@ -111,7 +111,7 @@ echo started`)
 
 	// ---- logs show requests ----
 	p = time.Now()
-	b.get(c, "GET", b.url("api")+"/e2e-logged", nil)
+	b.get(c, "GET", b.url("hello")+"/e2e-logged", nil)
 	time.Sleep(time.Second)
 	logs := b.ok("logs", "api", "--project", "hello", "--since", "10m", "--limit", "2000")
 	lines, _ := logs["lines"].([]any)
@@ -135,7 +135,7 @@ echo started`)
 	if code, out := b.run("deploy", app); code == 0 || !strings.Contains(out, "e2e: crash on boot") {
 		t.Fatalf("a deploy that crashes on boot: exit %d\n%s", code, out)
 	}
-	if _, _, body := b.get(c, "GET", b.url("api")+"/", nil); !strings.Contains(body, `"hello":"world"`) {
+	if _, _, body := b.get(c, "GET", b.url("hello")+"/", nil); !strings.Contains(body, `"hello":"world"`) {
 		t.Fatalf("after a crashed deploy the live version must serve: %s", body)
 	}
 	if err := os.WriteFile(idx, good, 0o644); err != nil {
@@ -154,20 +154,20 @@ echo started`)
 	// ---- a secret restarts the app with the new env ----
 	p = time.Now()
 	b.ok("secrets", "set", "hello", "GREETING", "--value", "hi from a secret")
-	waitBody(t, b, b.url("api")+"/", `"message":"hi from a secret"`, 60*time.Second)
+	waitBody(t, b, b.url("hello")+"/", `"message":"hi from a secret"`, 60*time.Second)
 	phase("secret restart", p)
 
 	// ---- preview: deploy, sleep, wake ----
 	p = time.Now()
 	pv := deployArgs(t, b, app, "--preview", "pr-1")
-	if code, _, body := b.get(c, "GET", b.url("pr-1--api")+"/", nil); code != 200 || !strings.Contains(body, pv.ID) {
+	if code, _, body := b.get(c, "GET", b.url("pr-1--hello")+"/", nil); code != 200 || !strings.Contains(body, pv.ID) {
 		t.Fatalf("preview: %d %s", code, body)
 	}
 	if st := b.ok("previews", "sleep", "hello", "api", "pr-1"); st["sleeping"] != true {
 		t.Fatalf("sleep: %v", st)
 	}
 	wake := time.Now()
-	if code, _, body := b.get(c, "GET", b.url("pr-1--api")+"/", nil); code != 200 || !strings.Contains(body, pv.ID) {
+	if code, _, body := b.get(c, "GET", b.url("pr-1--hello")+"/", nil); code != 200 || !strings.Contains(body, pv.ID) {
 		t.Fatalf("wake: %d %s", code, body)
 	}
 	t.Logf("sleeping preview answered its first request in %s", time.Since(wake).Round(10*time.Millisecond))
@@ -197,7 +197,7 @@ echo started`)
 	if !strings.Contains(pushed, "tiffin: api is live") {
 		t.Fatalf("git push did not deploy:\n%s", pushed)
 	}
-	if _, _, body := b.get(c, "GET", b.url("api")+"/", nil); !strings.Contains(body, `"hello":"v2"`) {
+	if _, _, body := b.get(c, "GET", b.url("hello")+"/", nil); !strings.Contains(body, `"hello":"v2"`) {
 		t.Fatalf("after git push: %s", body)
 	}
 	phase("git push", p)
@@ -286,7 +286,7 @@ export default defineConfig({ project: "hello" });
 	deadline = time.Now().Add(time.Minute)
 	for {
 		n := b.inBox(`sudo nerdctl -n tiffin ps -q --filter label=tiffin.project=hello | wc -l`)
-		code, _, _ := b.get(c, "GET", b.url("api")+"/", nil)
+		code, _, _ := b.get(c, "GET", b.url("hello")+"/", nil)
 		if n == "0" && code == 404 {
 			break
 		}
