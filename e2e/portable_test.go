@@ -243,5 +243,110 @@ func TestPortable(t *testing.T) {
 		t.Fatalf("import onto a box with projects: exit %d %s", code, out)
 	}
 	phase("verify", p)
+
+	// ---- one project: export → import beside it, duplicate, stop/start ----
+	p = time.Now()
+	projectCopies(t, b, dir)
+	phase("project copies", p)
 	t.Logf("PORTABLE total %s: export %.1fs, archive %d bytes, import %.1fs", time.Since(start).Round(time.Second), exportSecs, size, importSecs)
+}
+
+// projectCopies works on box b's project shop (rows in notes, notes/a.txt
+// in bucket media, p_shop:greeting, the static app web at shop, secret
+// GREETING): its export is imported on the same box as shop-2, it is
+// duplicated as shop-copy, and every copy has the data, its own addresses,
+// and stays independent of the original.
+func projectCopies(t *testing.T, b *cliBox, dir string) {
+	t.Helper()
+	sqlIn := func(project, body string) string {
+		t.Helper()
+		args := []string{"sql", project}
+		if strings.Contains(body, `"write":true,`) {
+			body = strings.Replace(body, `"write":true,`, "", 1)
+			args = append(args, "--write")
+		}
+		res := b.ok(append(args, "--body", body)...)
+		r, _ := res["results"].([]any)
+		if len(r) == 0 {
+			return ""
+		}
+		raw, _ := json.Marshal(r[len(r)-1].(map[string]any)["rows"])
+		return string(raw)
+	}
+	serves := func(project, want string) {
+		t.Helper()
+		var code int
+		var body string
+		for i := 0; i < 90; i++ {
+			code, _, body = b.get(b.https(), "GET", b.url(project)+"/", nil)
+			if code == 200 && strings.Contains(body, want) {
+				return
+			}
+			time.Sleep(time.Second)
+		}
+		t.Fatalf("%s does not serve %q: %d %s", project, want, code, body)
+	}
+	check := func(project string) {
+		t.Helper()
+		if got := sqlIn(project, `{"sql":"select id, body from notes order by id"}`); got != `[[1,"moved with the box"],[2,"still here"]]` {
+			t.Fatalf("%s rows: %s", project, got)
+		}
+		if g := b.ok("storage", "objects", "get", project, "media", "--key", "notes/a.txt"); g["text"] != "written on box A" {
+			t.Fatalf("%s object: %v", project, g)
+		}
+		kv := b.ok("kv", "connection", project)["redisUrl"].(string)
+		prefix := "p_" + strings.ReplaceAll(project, "-", "_") + ":"
+		if got := b.inBox(`valkey-cli -u '` + kv + `' --no-auth-warning get ` + prefix + `greeting`); got != "hello" {
+			t.Fatalf("%s cache key: %q", project, got)
+		}
+		if l := b.list("secrets", "list", project); !strings.Contains(fmt.Sprint(l), "GREETING") {
+			t.Fatalf("%s secrets: %v", project, l)
+		}
+		serves(project, "Shop from box A")
+	}
+
+	// Export, then import beside the original under another name.
+	archive := filepath.Join(dir, "shop-project.tiffin")
+	ex := b.ok("projects", "export", "shop", "-o", archive)
+	if ex["sha256"] == "" || ex["sizeBytes"].(float64) == 0 {
+		t.Fatalf("project export: %v", ex)
+	}
+	if code, out := b.run("projects", "import", archive); code != 3 || !strings.Contains(out, "--name") {
+		t.Fatalf("import over the original: exit %d %s", code, out)
+	}
+	im := b.ok("projects", "import", archive, "--name", "shop-2")
+	if im["status"] != "done" || im["healthy"] != true || im["project"] != "shop-2" {
+		t.Fatalf("project import: %v", im)
+	}
+	check("shop-2")
+
+	// Duplicate, then change the original: the copy keeps its own data.
+	dup := b.ok("projects", "duplicate", "shop", "shop-copy")
+	if dup["status"] != "done" || dup["healthy"] != true {
+		t.Fatalf("duplicate: %v", dup)
+	}
+	check("shop-copy")
+	hist := b.list("changes", "list", "--project", "shop-copy")
+	if len(hist) != 1 || hist[0]["intent"] != "Duplicated from shop" {
+		t.Fatalf("the copy's History: %v", hist)
+	}
+	sqlIn("shop", `{"write":true,"sql":"update notes set body = 'changed' where id = 1"}`)
+	if got := sqlIn("shop-copy", `{"sql":"select body from notes where id = 1"}`); got != `[["moved with the box"]]` {
+		t.Fatalf("the copy follows the original: %s", got)
+	}
+
+	// Stop keeps the copy's app down until it starts again.
+	b.ok("projects", "stop", "shop-copy")
+	for i := 0; ; i++ {
+		code, _, _ := b.get(b.https(), "GET", b.url("shop-copy")+"/", nil)
+		if code != 200 {
+			break
+		}
+		if i > 30 {
+			t.Fatal("a stopped project still serves")
+		}
+		time.Sleep(time.Second)
+	}
+	b.ok("projects", "start", "shop-copy")
+	serves("shop-copy", "Shop from box A")
 }
