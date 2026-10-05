@@ -1357,7 +1357,7 @@ export interface paths {
         };
         /**
          * Get a project's colour
-         * @description The enamel colour the dashboard draws the project with (leaf, teal, indigo, kokum, chilli or turmeric). Until someone picks one, it is chosen from the project's name.
+         * @description The enamel colour the dashboard draws the project with (leaf, teal, indigo, plum, chilli or turmeric). Until someone picks one, it is chosen from the project's name.
          */
         get: operations["appearance-get"];
         /**
@@ -3566,15 +3566,15 @@ export interface components {
              * @description The project's colour: its tier rim on the Box page, its swatch in the sidebar and its share of the memory bar
              * @enum {string}
              */
-            enamel: "leaf" | "teal" | "indigo" | "kokum" | "chilli" | "turmeric";
+            enamel: "leaf" | "teal" | "indigo" | "plum" | "chilli" | "turmeric";
             project: string;
         };
         "Appearance-setRequest": {
             /**
-             * @description One of leaf, teal, indigo, kokum, chilli, turmeric
+             * @description One of leaf, teal, indigo, plum, chilli, turmeric
              * @enum {string}
              */
-            enamel: "leaf" | "teal" | "indigo" | "kokum" | "chilli" | "turmeric";
+            enamel: "leaf" | "teal" | "indigo" | "plum" | "chilli" | "turmeric";
         };
         ApplyBody: {
             /** @description The plan hash (or its first 8+ characters) you reviewed. Without it nothing is applied and the plan comes back with status 428. */

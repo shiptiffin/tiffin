@@ -21,11 +21,11 @@ func TestProjectAppearance(t *testing.T) {
 		t.Fatalf("default for shop: %s", got)
 	}
 
-	code, got, _ = e.call(e.owner, "PUT", "/v1/projects/shop/appearance", map[string]any{"enamel": "kokum"})
-	if code != 200 || got["enamel"] != "kokum" || got["chosen"] != true {
+	code, got, _ = e.call(e.owner, "PUT", "/v1/projects/shop/appearance", map[string]any{"enamel": "plum"})
+	if code != 200 || got["enamel"] != "plum" || got["chosen"] != true {
 		t.Fatalf("set: %d %v", code, got)
 	}
-	if _, got, _ = e.call(e.owner, "GET", "/v1/projects/shop/appearance", nil); got["enamel"] != "kokum" {
+	if _, got, _ = e.call(e.owner, "GET", "/v1/projects/shop/appearance", nil); got["enamel"] != "plum" {
 		t.Fatalf("after set: %v", got)
 	}
 

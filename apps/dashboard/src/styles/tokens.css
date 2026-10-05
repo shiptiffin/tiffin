@@ -68,7 +68,7 @@
   --enamel-leaf: oklch(0.6 0.1 150);
   --enamel-teal: oklch(0.6 0.09 200);
   --enamel-indigo: oklch(0.6 0.11 258);
-  --enamel-kokum: oklch(0.6 0.12 0);
+  --enamel-plum: oklch(0.6 0.12 0);
   --enamel-chilli: oklch(0.6 0.13 38);
   --enamel-turmeric: oklch(0.6 0.11 90);
   /* elevation: ground, raised, overlay */
@@ -119,7 +119,7 @@
     --enamel-leaf: oklch(0.68 0.1 150);
     --enamel-teal: oklch(0.68 0.09 200);
     --enamel-indigo: oklch(0.68 0.105 258);
-    --enamel-kokum: oklch(0.68 0.115 0);
+    --enamel-plum: oklch(0.68 0.115 0);
     --enamel-chilli: oklch(0.68 0.125 38);
     --enamel-turmeric: oklch(0.68 0.11 90);
     --lift-raised: 0 1px 0 oklch(1 0 0 / 0.04) inset, 0 8px 24px -8px oklch(0 0 0 / 0.6);
@@ -167,7 +167,7 @@
   --enamel-leaf: oklch(0.68 0.1 150);
   --enamel-teal: oklch(0.68 0.09 200);
   --enamel-indigo: oklch(0.68 0.105 258);
-  --enamel-kokum: oklch(0.68 0.115 0);
+  --enamel-plum: oklch(0.68 0.115 0);
   --enamel-chilli: oklch(0.68 0.125 38);
   --enamel-turmeric: oklch(0.68 0.11 90);
   --lift-raised: 0 1px 0 oklch(1 0 0 / 0.04) inset, 0 8px 24px -8px oklch(0 0 0 / 0.6);

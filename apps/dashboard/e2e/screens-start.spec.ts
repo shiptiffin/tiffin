@@ -129,7 +129,7 @@ test("start flow", async ({ page, baseURL }) => {
   await page.goto("/new");
   await page.getByRole("radio", { name: new RegExp(`^${process.env.STARTER ?? "Next.js app"}`) }).click();
   await page.getByLabel("Project name").fill(name);
-  await page.getByRole("radio", { name: process.env.ENAMEL ?? "Kokum" }).click();
+  await page.getByRole("radio", { name: process.env.ENAMEL ?? "Plum" }).click();
   await page.getByRole("button", { name: `Create ${name}` }).waitFor();
   await page.getByText(/will be created/).waitFor();
   const t0 = Date.now();
