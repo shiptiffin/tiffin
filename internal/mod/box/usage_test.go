@@ -75,7 +75,7 @@ func TestSharedUsage(t *testing.T) {
 	}
 	u := &Usage{Project: "blog", Services: UsageServices{Postgres: &PGUsage{Connections: 3}}, Cache: &UsageCache{UsedBytes: 1 << 20, LimitBytes: 64 << 20}}
 	s.sharedUsage(context.Background(), tr, u, time.Now())
-	if d := u.Database; d == nil || d.Connections != 3 || d.ConnectionLimit != 80 || d.QueryTimeLimitSeconds != 30 || d.LimitCpus != nil {
+	if d := u.Database; d == nil || d.Connections != 3 || d.ConnectionLimit != 80 || d.QueryTimeLimitSeconds != 300 || d.LimitCpus != nil {
 		t.Fatalf("database: %+v", u.Database)
 	}
 	if u.SharePercent != 0 || u.Builds.LimitCpus != nil || u.Cache.Enforced || u.LimitEvents == nil {
