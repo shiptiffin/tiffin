@@ -3,15 +3,19 @@
 package e2e
 
 import (
+	"archive/tar"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -248,6 +252,11 @@ func TestPortable(t *testing.T) {
 	p = time.Now()
 	projectCopies(t, b, dir)
 	phase("project copies", p)
+
+	// ---- prebuilt images: tarballs with index.json and manifest.json ----
+	p = time.Now()
+	prebuiltImages(t, b, dir)
+	phase("prebuilt images", p)
 	t.Logf("PORTABLE total %s: export %.1fs, archive %d bytes, import %.1fs", time.Since(start).Round(time.Second), exportSecs, size, importSecs)
 }
 
@@ -349,4 +358,168 @@ func projectCopies(t *testing.T, b *cliBox, dir string) {
 	}
 	b.ok("projects", "start", "shop-copy")
 	serves("shop-copy", "Shop from box A")
+}
+
+// prebuiltImages loads images saved by nerdctl (an OCI index.json and a
+// docker manifest.json in one tarball, each naming the image) on box b:
+// tiffin deploy --prebuilt puts one live under the deploy's own name; a
+// tarball naming that deploy's image is loaded beside it without replacing
+// it; and the project's export (whose image.tar nerdctl saves the same way)
+// imports as a new project whose app goes live.
+func prebuiltImages(t *testing.T, b *cliBox, dir string) {
+	t.Helper()
+	srv := filepath.Join(dir, "hellosrv")
+	build := exec.Command("go", "build", "-tags", "e2e", "-o", srv, "./e2e/hellosrv")
+	build.Dir = RepoRoot()
+	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+HostArch())
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build hellosrv: %v\n%s", err, out)
+	}
+	bin, err := os.ReadFile(srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const nerdctl = "sudo /usr/local/bin/nerdctl"
+	// saved builds an image of the server named name, loads it into a
+	// namespace of its own and saves it again with nerdctl: what it writes
+	// has both index.json and manifest.json.
+	saved := func(label, name string, extra map[string]string) string {
+		t.Helper()
+		local := filepath.Join(dir, label+".docker.tar")
+		if err := os.WriteFile(local, dockerArchiveOf(t, bin, extra, name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := exec.Command("limactl", "copy", local, b.instance+":/tmp/"+label+".docker.tar").CombinedOutput(); err != nil {
+			t.Fatalf("copy %s: %v\n%s", label, err, out)
+		}
+		files := b.inBox(nerdctl + " -n e2e load -i /tmp/" + label + ".docker.tar >/dev/null && " + nerdctl + " -n e2e save -o /tmp/" + label + ".tar " + name +
+			" && sudo chmod 644 /tmp/" + label + ".tar && tar tf /tmp/" + label + ".tar")
+		if !strings.Contains(files, "index.json") || !strings.Contains(files, "manifest.json") {
+			t.Fatalf("nerdctl save wrote no index.json and manifest.json: %s", files)
+		}
+		out := filepath.Join(dir, label+".tar")
+		if o, err := exec.Command("limactl", "copy", b.instance+":/tmp/"+label+".tar", out).CombinedOutput(); err != nil {
+			t.Fatalf("copy back %s: %v\n%s", label, err, o)
+		}
+		return out
+	}
+	images := func() string {
+		return b.inBox("sudo ctr -n tiffin images ls -q 2>/dev/null || " + nerdctl + " -n tiffin images --format '{{.Repository}}:{{.Tag}}'")
+	}
+	imageID := func(ref string) string {
+		return b.inBox(nerdctl + " -n tiffin image inspect --format '{{.ID}}' " + ref)
+	}
+	buildLog := func(project, app, id string) string {
+		text, _ := b.ok("deploys", "build-log", project, app, id)["text"].(string)
+		for _, line := range strings.Split(text, "\n") {
+			if strings.Contains(line, "Loaded image") || strings.Contains(line, "loaded the image") || strings.Contains(line, "==> live") {
+				t.Logf("%s/%s %s build log: %s", project, app, id, line)
+			}
+		}
+		return text
+	}
+	prebuilt := func(file string) map[string]any {
+		t.Helper()
+		code, out := b.run("deploy", "--project", "pre", "--app", "api", "--prebuilt", file)
+		var res struct {
+			Deploys []map[string]any `json:"deploys"`
+		}
+		if err := json.Unmarshal([]byte(out), &res); err != nil || code != 0 || len(res.Deploys) != 1 || res.Deploys[0]["status"] != "live" {
+			t.Fatalf("deploy --prebuilt %s: exit %d\n%s", filepath.Base(file), code, out)
+		}
+		return res.Deploys[0]
+	}
+	serves := func(project string) {
+		t.Helper()
+		var code int
+		var body string
+		for i := 0; i < 60; i++ {
+			if code, _, body = b.get(b.https(), "GET", b.url(project)+"/", nil); code == 200 && strings.Contains(body, "hello from a prebuilt image") {
+				return
+			}
+			time.Sleep(time.Second)
+		}
+		t.Fatalf("%s does not serve the prebuilt app: %d %s", project, code, body)
+	}
+
+	b.apply("pre", `{"project":"pre","apps":{"api":{"framework":"bun","routes":["pre"]}}}`)
+	b.project = "pre" // waitReady reads b.project
+	b.waitReady("app/api")
+	b.project = "shop"
+
+	// The tarball names its image e2e/hello:v1; it goes live as the deploy's.
+	d1 := prebuilt(saved("hello", "docker.io/e2e/hello:v1", nil))
+	id1, _ := d1["id"].(string)
+	ref1 := "docker.io/tiffin/pre-api:" + strings.ToLower(id1)
+	if log := buildLog("pre", "api", id1); !strings.Contains(log, "loaded the image as "+ref1) {
+		t.Fatalf("the image was not loaded as %s:\n%s", ref1, log)
+	}
+	serves("pre")
+	if imgs := images(); strings.Contains(imgs, "e2e/hello") || strings.Contains(imgs, "import") || !strings.Contains(imgs, ref1) {
+		t.Fatalf("the box's images after the load:\n%s", imgs)
+	}
+
+	// A tarball naming that live image (other content) is loaded beside it.
+	victimID := imageID(ref1)
+	d2 := prebuilt(saved("victim", ref1, map[string]string{"victim.txt": "not the live image"}))
+	id2, _ := d2["id"].(string)
+	ref2 := "docker.io/tiffin/pre-api:" + strings.ToLower(id2)
+	if log := buildLog("pre", "api", id2); !strings.Contains(log, "loaded the image as "+ref2) {
+		t.Fatalf("the image was not loaded as %s:\n%s", ref2, log)
+	}
+	if got := imageID(ref1); got != victimID || imageID(ref2) == victimID {
+		t.Fatalf("a tarball named %s replaced it: %s, was %s", ref1, got, victimID)
+	}
+	if imgs := images(); strings.Contains(imgs, "import") {
+		t.Fatalf("a load left a digest name behind:\n%s", imgs)
+	}
+	serves("pre")
+
+	// Export → import: the archive's image.tar is nerdctl's save of the live image.
+	archive := filepath.Join(dir, "pre.tiffin")
+	b.ok("projects", "export", "pre", "-o", archive)
+	im := b.ok("projects", "import", archive, "--name", "pre-2")
+	apps, _ := im["apps"].([]any)
+	if im["status"] != "done" || im["healthy"] != true || len(apps) != 1 {
+		t.Fatalf("import of pre: %v", im)
+	}
+	a, _ := apps[0].(map[string]any)
+	id3, _ := a["deploy"].(string)
+	ref3 := "docker.io/tiffin/pre-2-api:" + strings.ToLower(id3)
+	if log := buildLog("pre-2", "api", id3); a["status"] != "live" || !strings.Contains(log, "loaded the image as "+ref3) {
+		t.Fatalf("pre-2's app: %v\n%s", a, log)
+	}
+	serves("pre-2")
+	t.Logf("prebuilt images live as %s, %s and %s", ref1, ref2, ref3)
+}
+
+// dockerArchiveOf is a docker archive (docker save's format) of an image
+// whose one layer holds bin as /server and the extra files, named name.
+func dockerArchiveOf(t *testing.T, bin []byte, extra map[string]string, name string) []byte {
+	t.Helper()
+	tarOf := func(files map[string][]byte, mode map[string]int64) []byte {
+		var buf bytes.Buffer
+		tw := tar.NewWriter(&buf)
+		for _, n := range slices.Sorted(maps.Keys(files)) {
+			if err := tw.WriteHeader(&tar.Header{Name: n, Mode: mode[n], Size: int64(len(files[n])), Typeflag: tar.TypeReg}); err != nil {
+				t.Fatal(err)
+			}
+			_, _ = tw.Write(files[n])
+		}
+		_ = tw.Close()
+		return buf.Bytes()
+	}
+	hexsum := func(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
+	files, mode := map[string][]byte{"server": bin}, map[string]int64{"server": 0o755}
+	for n, body := range extra {
+		files[n], mode[n] = []byte(body), 0o644
+	}
+	layer := tarOf(files, mode)
+	cfg, _ := json.Marshal(map[string]any{"architecture": HostArch(), "os": "linux",
+		"config": map[string]any{"Entrypoint": []string{"/server"}},
+		"rootfs": map[string]any{"type": "layers", "diff_ids": []string{"sha256:" + hexsum(layer)}}})
+	cfgName, layerName := hexsum(cfg)+".json", hexsum(layer)+"/layer.tar"
+	man, _ := json.Marshal([]map[string]any{{"Config": cfgName, "RepoTags": []string{name}, "Layers": []string{layerName}}})
+	return tarOf(map[string][]byte{cfgName: cfg, layerName: layer, "manifest.json": man},
+		map[string]int64{cfgName: 0o644, layerName: 0o644, "manifest.json": 0o644})
 }
