@@ -80,7 +80,9 @@ type App struct {
 	Role Role `json:"role"`
 	// Routes are hostnames (optionally with a path prefix) this app serves,
 	// e.g. "shop" (expands to shop.<box domain>), "example.com", "example.com/api".
-	// Default: the app name. Workers have no routes.
+	// Default: the project name for its main app ("shop") and
+	// "<project>-<app>" for the others ("shop-docs"); see MainApp. Workers
+	// have no routes.
 	Routes []string `json:"routes,omitempty"`
 	// Instances to run. Default 1.
 	Instances int `json:"instances"`

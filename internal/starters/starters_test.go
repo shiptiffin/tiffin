@@ -40,17 +40,16 @@ func TestList(t *testing.T) {
 		frag, _ := json.Marshal(s.Fragment)
 		var doc map[string]any
 		_ = json.Unmarshal(frag, &doc)
-		doc["project"] = "x"
+		own, _, err := manifest.Load(filepath.Join("files", s.ID, "tiffin.config.ts"), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc["project"] = own.Project // addresses are named after the project
 		raw, _ := json.Marshal(doc)
 		got, err := manifest.Parse(raw)
 		if err != nil {
 			t.Fatalf("%s fragment: %v\n%s", s.ID, err, frag)
 		}
-		own, _, err := manifest.Load(filepath.Join("files", s.ID, "tiffin.config.ts"), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		own.Project = "x"
 		a, _ := manifest.Canonical(got)
 		b, _ := manifest.Canonical(own)
 		if string(a) != string(b) {

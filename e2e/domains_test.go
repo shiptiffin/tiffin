@@ -34,7 +34,7 @@ import (
 //     service, the new names get certificates and the old ones keep working;
 //   - apps on a domain of their own: tiffin domain set example.test
 //     --apps-domain apps.test keeps the dashboard on example.test, moves
-//     apps to <app>.apps.test, and the old app names keep working.
+//     apps to <project>.apps.test, and the old app names keep working.
 //
 // DNS-01 wildcards and renewals are covered in process (internal/edge).
 // TIFFIN_E2E_INSTANCE (+ TIFFIN_E2E_PORT, TIFFIN_E2E_CONFIG) reuses a box.
@@ -351,7 +351,7 @@ for i in $(seq 1 100); do curl -sf http://127.0.0.1:7070/v1/health >/dev/null &&
 	}
 	phase("domain set", p)
 
-	// ---- 4. apps on a domain of their own (dashboard.example.test, <app>.apps.test) ----
+	// ---- 4. apps on a domain of their own (dashboard.example.test, <project>.apps.test) ----
 	p = time.Now()
 	ok(&chk, "domain", "check", "--domain", "example.test", "--apps-domain", "apps.test")
 	if !chk.OK || len(chk.Records) != 2 || chk.Records[0].Name != "dashboard.example.test" || chk.Records[1].Name != "*.apps.test" {

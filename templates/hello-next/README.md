@@ -6,8 +6,8 @@ share one cache in Valkey.
 ```bash
 tiffin plan && tiffin apply --confirm <hash>   # project "hello-next": app "web" + Valkey
 tiffin deploy                                   # next build on the box, then live
-curl https://web.tiffin.localhost:8443/         # "Cached at ..." is the same on both instances
-curl -X POST https://web.tiffin.localhost:8443/api/revalidate   # new value, on both
+curl https://hello-next.tiffin.localhost:8443/  # "Cached at ..." is the same on both instances
+curl -X POST https://hello-next.tiffin.localhost:8443/api/revalidate   # new value, on both
 ```
 
 - `cache-handler.mjs` is `tiffin-sdk/next/cache-handler`, bundled (`bun run sync-cache-handler`).

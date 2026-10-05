@@ -132,9 +132,9 @@ export function appFor(source: Source): { name: string; framework: string } | nu
 }
 
 /**
- * The whole manifest for a new project: the starter's fragment, with its app
- * answering at the project's own name (so guestbook lives at guestbook.<domain>,
- * never on another project's hostname).
+ * The whole manifest for a new project: the starter’s fragment. Its app sets no
+ * routes, so the box serves it at the project’s own name (guestbook.<domain>),
+ * never on another project’s hostname.
  */
 export function newProjectManifest(project: string, source: Source): Manifest {
   const m: Manifest = { project, version: 1 };
@@ -142,18 +142,18 @@ export function newProjectManifest(project: string, source: Source): Manifest {
     const f = source.starter.fragment;
     const apps: Record<string, Record<string, unknown>> = {};
     for (const [name, spec] of Object.entries(f.apps)) {
-      apps[name] = { ...spec, routes: [project] };
+      apps[name] = { ...spec };
     }
     m.apps = apps as unknown as Manifest["apps"];
     if (f.services && Object.keys(f.services).length) m.services = structuredClone(f.services) as Manifest["services"];
     if (f.env && Object.keys(f.env).length) m.env = { ...f.env };
   } else if (source.kind === "git") {
-    m.apps = { web: { framework: source.framework, routes: [project] } } as unknown as Manifest["apps"];
+    m.apps = { web: { framework: source.framework } } as unknown as Manifest["apps"];
     if (source.postgres) m.services = { postgres: {} };
   } else if (source.kind === "github") {
     const path = source.path.trim().replace(/^\/+|\/+$/g, "");
     const git = { repo: source.repo, branch: source.branch, ...(path ? { path } : {}) };
-    m.apps = { web: { framework: source.framework, routes: [project], git } } as unknown as Manifest["apps"];
+    m.apps = { web: { framework: source.framework, git } } as unknown as Manifest["apps"];
     if (source.postgres) m.services = { postgres: {} };
   }
   return m;

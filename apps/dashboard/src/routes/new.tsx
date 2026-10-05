@@ -23,6 +23,7 @@ import { deployGitHub, nameFromRepo, setSecret } from "@/lib/github";
 import { useMe } from "@/lib/me";
 import { boxDomainQuery } from "@/lib/domains";
 import { splitAddress } from "@/lib/changes";
+import { addressesOf } from "@/lib/addresses";
 import { cn } from "@/lib/cn";
 import { partName, partSub } from "@/lib/names";
 import { countWords, dec, int, NNBSP } from "@/lib/format";
@@ -72,9 +73,7 @@ export function NewProjectPage() {
   const manifests = useQueries({ queries: names.map((n) => ({ ...q.manifest(n), staleTime: 60_000 })) });
   const routes = useMemo(
     () =>
-      manifests.flatMap((m) =>
-        Object.entries(m.data?.manifest.apps ?? {}).flatMap(([name, a]) => (a.role === "worker" ? [] : (a.routes?.length ? a.routes : [name]).map((r) => r.split(".")[0]))),
-      ),
+      manifests.flatMap((m) => (m.data ? addressesOf(m.data.project, m.data.manifest.apps) : [])),
     [manifests],
   );
   const taken = useMemo(() => ({ projects: names, routes }), [names, routes]);

@@ -61,8 +61,8 @@ func (a *app) domainCmd() *cobra.Command {
 	set := &cobra.Command{
 		Use:   "set <domain>",
 		Short: "Use your own domain for the box",
-		Long: "Switches the box to <domain>: the dashboard moves to dashboard.<domain> and apps to <app>.<domain>.\n\n" +
-			"With --apps-domain, apps and previews go to <app>.<apps-domain> instead, a registrable domain of their own\n" +
+		Long: "Switches the box to <domain>: the dashboard moves to dashboard.<domain> and apps to <project>.<domain>.\n\n" +
+			"With --apps-domain, apps and previews go to <project>.<apps-domain> instead, a registrable domain of their own\n" +
 			"(example.app beside example.com), so app code cannot set cookies on the dashboard's domain. The dashboard,\n" +
 			"API and webhooks stay on <domain>.\n\n" +
 			"<domain> and *.<domain> must point at the box first (with --apps-domain: dashboard.<domain> and\n" +

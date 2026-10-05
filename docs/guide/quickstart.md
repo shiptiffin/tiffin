@@ -59,7 +59,8 @@ that exact plan's hash.
 tiffin deploy
 ```
 
-Your app is live at `https://web.tiffin.localhost:8443`.
+Your app is live at `https://hello.tiffin.localhost:8443`: an app that sets no `routes` is
+served at its project's name ([concepts](concepts.md)).
 
 ## 5. Open the dashboard
 

@@ -305,10 +305,10 @@ func TestGitHubConnectPushAndPreviews(t *testing.T) {
 		t.Fatalf("pr opened: %+v", dl)
 	}
 	pv := g.waitFor("site", func(d *Deploy) bool { return d.Preview == "pr-7" })
-	if pv.Status != StatusLive || pv.PullRequest != 7 || pv.URL != "https://pr-7--site.tiffin.localhost:8443" {
+	if pv.Status != StatusLive || pv.PullRequest != 7 || pv.URL != "https://pr-7--shop.tiffin.localhost:8443" {
 		t.Fatalf("preview: %+v\n%s", pv, g.buildLog("site", pv.ID))
 	}
-	if _, body := g.get("pr-7--site.tiffin.localhost", "/"); body != "<h1>feature</h1>" {
+	if _, body := g.get("pr-7--shop.tiffin.localhost", "/"); body != "<h1>feature</h1>" {
 		t.Fatalf("preview serves: %q", body)
 	}
 	g.settle()
@@ -319,7 +319,7 @@ func TestGitHubConnectPushAndPreviews(t *testing.T) {
 	for _, c := range g.f.Comments {
 		cm = c
 	}
-	if cm.Issue != 7 || !strings.Contains(cm.Body, "https://pr-7--site.tiffin.localhost:8443") || !strings.Contains(cm.Body, "built in") || !strings.Contains(cm.Body, "[logs](") {
+	if cm.Issue != 7 || !strings.Contains(cm.Body, "https://pr-7--shop.tiffin.localhost:8443") || !strings.Contains(cm.Body, "built in") || !strings.Contains(cm.Body, "[logs](") {
 		t.Fatalf("comment: %+v", cm)
 	}
 	sha4, _ := g.f.Commit("octo/shop", "feat", map[string]string{"web/index.html": "<h1>feature 2</h1>"}, "feature 2")
@@ -345,7 +345,7 @@ func TestGitHubConnectPushAndPreviews(t *testing.T) {
 	if dl, _ := g.f.PullRequest("octo/shop", "closed", 7, "feat", false); !strings.Contains(dl.Reply, "removed") {
 		t.Fatalf("pr closed: %+v", dl)
 	}
-	if code, _ := g.get("pr-7--site.tiffin.localhost", "/"); code != 404 {
+	if code, _ := g.get("pr-7--shop.tiffin.localhost", "/"); code != 404 {
 		t.Fatalf("closed preview still served: %d", code)
 	}
 	if !strings.Contains(cm.Body, "was removed") {

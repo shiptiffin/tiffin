@@ -14,10 +14,22 @@ is `storage`, then `auth`, `email` and `analytics`; Jobs are the top-level `queu
 `crons`. `database`, `cache` and `files` also work in `tiffin.config.ts` and are stored
 under the first name (which is what `tiffin pull` writes back).
 
-Each web app is served at `<app>.<domain>` unless it sets `routes` (`<domain>` is the
-box's domain, or its separate apps domain: see [Domains](domains.md)). Addresses are
-box-wide, so a second project's `web` app needs its own (`routes: ["blog"]`): the plan
-refuses an address another project already serves.
+A web app that sets no `routes` is served at a name made from its project (`<domain>` is
+the box's domain, or its separate apps domain: see [Domains](domains.md)):
+
+- the project's main app at `<project>.<domain>` (`shop.<domain>`);
+- every other web app at `<project>-<app>.<domain>` (`shop-docs.<domain>`);
+- workers at none.
+
+The main app is the project's only web app; else the app named like the project; else the
+app named `web`; else the first web app by name. Set `routes` to choose an address
+yourself (`routes: ["store"]`, `routes: ["example.com"]`). Addresses are box-wide: the
+plan refuses one another project already serves.
+
+An app keeps the address it already has: adding an app later, or upgrading a box whose
+apps were served at their app names (`web.<domain>`, the default before addresses were
+named after the project), moves nothing. For such an app the plan says so and how to keep
+the old name for good (`routes: ["web"]`) or move it (`routes: ["shop"]`).
 
 A project can be duplicated on the box, exported to a file, imported as a new project or
 moved to another box ([copying and moving](moving.md)). A **stopped** project (a `stopped`

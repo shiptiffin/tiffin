@@ -19,7 +19,7 @@
       "framework": "bun",
       "role": "web",
       "routes": [
-        "web"
+        "guestbook"
       ],
       "instances": 1,
       "healthcheck": "/"

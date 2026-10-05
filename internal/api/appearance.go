@@ -110,7 +110,7 @@ func (a *API) registerAppearance() {
 		"Validates a manifest and writes it out as a readable tiffin.config.ts, the same way GET /v1/projects/{project}/manifest does. "+
 			"Use it to show the config file an edit would produce before you plan and apply it. Never writes anything.", "projects")
 	huma.Register(api, render, wrap(func(ctx context.Context, in *struct{ Body planBody }) (*struct{ Body RenderedConfig }, error) {
-		m, _, err := parseManifest(in.Body.Manifest)
+		m, _, _, err := a.parseManifest(ctx, in.Body.Manifest)
 		if err != nil {
 			return nil, err
 		}

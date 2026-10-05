@@ -174,8 +174,12 @@ func checkNewName(ctx context.Context, b backend, existing []string, name string
 
 // renamed adapts a project's config to a new name on a box that may still
 // run the original: names under the box domain move to the new project's
-// own (shop → shop-copy, web → web-shop-copy), and custom domains and
-// GitHub deploys stay with the original. It returns what it left behind.
+// own (shop → shop-copy, shop-api → shop-copy-api, www → www-shop-copy),
+// an app served at its own app name (the default before addresses were
+// named after the project) or only at custom domains gets the new project's
+// default (shop-copy for its main app, shop-copy-<app> for the others), and
+// custom domains and GitHub deploys stay with the original. It returns what
+// it left behind.
 func renamed(m *manifest.Manifest, from, to string) []string {
 	var notes, domains, repos []string
 	m.Project = to
@@ -197,11 +201,11 @@ func renamed(m *manifest.Manifest, from, to string) []string {
 			m.Apps[name] = a
 			continue
 		}
-		routes := a.Routes
-		if len(routes) == 0 {
-			routes = []string{name}
-		}
 		var out []string
+		routes := a.Routes
+		if len(routes) == 1 && routes[0] == name && name != from {
+			routes = nil // the old default: the new project's default instead
+		}
 		for _, r := range routes {
 			h, rest, hasPath := strings.Cut(r, "/")
 			if strings.Contains(h, ".") {
@@ -216,12 +220,10 @@ func renamed(m *manifest.Manifest, from, to string) []string {
 				out = append(out, nr)
 			}
 		}
-		if len(out) == 0 {
-			out = []string{host(name)}
-		}
-		a.Routes = out
+		a.Routes = out // none left: Normalize gives the new project's default
 		m.Apps[name] = a
 	}
+	manifest.Normalize(m)
 	for d := range m.Domains {
 		domains = append(domains, d)
 	}

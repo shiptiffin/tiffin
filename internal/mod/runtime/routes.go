@@ -93,7 +93,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 		spa := strings.HasSuffix(d.Framework, "+spa")
 		if st.Preview != "" {
 			who += "@" + st.Preview
-			rt := edge.Route{Host: previewHost(st.Preview, st.App, r.p.AppsDomain())}
+			rt := edge.Route{Host: previewHost(st.Preview, st.Project, st.App, spec, r.p.AppsDomain())}
 			if static {
 				rt.FileRoot, rt.SPA = r.staticLink(st.Project, st.App, st.Preview), spa
 			} else {
@@ -102,11 +102,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 			add(rt, who, env)
 			continue
 		}
-		routes := spec.Routes
-		if len(routes) == 0 {
-			routes = []string{st.App}
-		}
-		for _, rs := range routes {
+		for _, rs := range appRoutes(st.Project, st.App, spec) {
 			host, prefix := r.splitRoute(rs)
 			rt := edge.Route{Host: host, PathPrefix: prefix}
 			if static {
@@ -127,7 +123,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 
 // routeKeys returns host+path for every route a project's web apps claim,
 // mapped to the app that claims it.
-func routeKeys(p *platform.Platform, res map[string]change.Resource) map[string]string {
+func routeKeys(p *platform.Platform, project string, res map[string]change.Resource) map[string]string {
 	out := map[string]string{}
 	for addr, rs := range res {
 		if change.Kind(addr) != change.KindApp {
@@ -137,11 +133,7 @@ func routeKeys(p *platform.Platform, res map[string]change.Resource) map[string]
 		if json.Unmarshal(rs.Spec, &a) != nil || a.Role == manifest.RoleWorker {
 			continue
 		}
-		routes := a.Routes
-		if len(routes) == 0 {
-			routes = []string{change.Name(addr)}
-		}
-		for _, route := range routes {
+		for _, route := range appRoutes(project, change.Name(addr), &a) {
 			host, rest, hasPath := strings.Cut(route, "/")
 			if !strings.Contains(host, ".") {
 				host = p.Host(host)
@@ -161,7 +153,7 @@ func routeKeys(p *platform.Platform, res map[string]change.Resource) map[string]
 // address that never reaches it. Routes the project already has are not
 // re-checked, so an old clash does not block unrelated changes.
 func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project string, desired map[string]change.Resource) error {
-	want := routeKeys(p, desired)
+	want := routeKeys(p, project, desired)
 	if len(want) == 0 {
 		return nil
 	}
@@ -169,7 +161,7 @@ func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project st
 	if err != nil {
 		return err
 	}
-	have := routeKeys(p, cur)
+	have := routeKeys(p, project, cur)
 	names, err := p.DB.ListProjects(ctx)
 	if err != nil {
 		return err
@@ -183,7 +175,7 @@ func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project st
 		if err != nil {
 			return err
 		}
-		for k, app := range routeKeys(p, res) {
+		for k, app := range routeKeys(p, n, res) {
 			taken[k] = n + "/" + app
 		}
 	}
@@ -201,13 +193,13 @@ func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project st
 		app := want[k]
 		msg := fmt.Sprintf("%s is already served by %s", k, owner)
 		if prob == nil {
-			suggest := project
-			if _, used := taken[p.Host(suggest)]; used {
-				suggest = app + "-" + project
+			suggest := project + "-" + app
+			if _, used := taken[p.Host(suggest)]; used || k == p.Host(suggest) {
+				suggest += "-2"
 			}
 			prob = api.NewProblem(422, "validation", "app "+app+" would share an address with another project: "+msg)
-			prob.Hint = fmt.Sprintf("An app is served at <app name>.%s unless it sets routes. Give it its own: routes: [%q] (served at %s), or rename the app.",
-				p.AppsDomain(), suggest, p.Host(suggest))
+			prob.Hint = fmt.Sprintf("An app that sets no routes is served at <project>.%s (the main app) or <project>-<app>.%s. Give it a free one: routes: [%q] (served at %s), or rename the project.",
+				p.AppsDomain(), p.AppsDomain(), suggest, p.Host(suggest))
 		}
 		prob.Errors = append(prob.Errors, api.FieldError{Path: "/apps/" + app + "/routes", Message: msg})
 	}

@@ -7,7 +7,7 @@
       "framework": "next",
       "role": "web",
       "routes": [
-        "web"
+        "blog"
       ],
       "instances": 1,
       "healthcheck": "/"

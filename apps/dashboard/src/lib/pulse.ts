@@ -75,9 +75,10 @@ export function useProjectPulse(project: string): ProjectPulse {
   const deploys = useQueries({ queries: apps.map((a) => deploysQuery(project, a.name)) });
   const web = apps.filter((a) => a.spec?.role !== "worker");
   const rts = useQueries({ queries: web.map((a) => runtimeQuery(project, a.name)) });
-  // A web app with a route of its own name first (shop's "web" over "docs"), else the first that's live.
+  // The app at the project's own name first (shop.<domain> over shop-docs), then
+  // one at web, www or app, else the first that's live.
   const urls = rts.map((r) => r.data?.production?.url).filter((u): u is string => !!u);
-  const url = urls.find((u) => /\/\/(web|www|app)\./.test(u)) ?? urls[0];
+  const url = urls.find((u) => u.includes(`//${project}.`)) ?? urls.find((u) => /\/\/(web|www|app)\./.test(u)) ?? urls[0];
 
   const failedRes = Object.values(p.data?.status ?? {}).filter((s) => s.state === "failed");
   const pulses = apps.map((a, i) => ({ app: a.name, pulse: appPulse(deploys[i]?.data, a.spec?.role) }));

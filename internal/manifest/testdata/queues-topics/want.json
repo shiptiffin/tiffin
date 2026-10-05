@@ -13,7 +13,7 @@
       "framework": "next",
       "role": "web",
       "routes": [
-        "web"
+        "shop"
       ],
       "instances": 1,
       "healthcheck": "/"

@@ -7,7 +7,7 @@
       "framework": "next",
       "role": "web",
       "routes": [
-        "web"
+        "aliases"
       ],
       "instances": 1,
       "healthcheck": "/"

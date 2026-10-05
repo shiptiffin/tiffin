@@ -21,6 +21,7 @@ import { INSTANCE_STOPS, Throttle } from "@/components/throttle";
 import { useAppStatus } from "@/components/tier-status";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
+import { addressesOf } from "@/lib/addresses";
 import { cn } from "@/lib/cn";
 import { count, dec, int, NNBSP, withUnit, words } from "@/lib/format";
 import { mcpCommand } from "@/lib/mcp";
@@ -128,7 +129,7 @@ export function AppsPage({ project }: { project: string }) {
   const projects = useQuery(core.projects);
   const others = (projects.data ?? []).map((x) => x.name).filter((n) => n !== project);
   const om = useQueries({ queries: others.map((n) => ({ ...core.manifest(n), staleTime: 60_000 })) });
-  const routes = om.flatMap((x) => Object.entries(x.data?.manifest.apps ?? {}).flatMap(([n, a]) => (a.role === "worker" ? [] : (a.routes?.length ? a.routes : [n]))));
+  const routes = om.flatMap((x) => (x.data ? addressesOf(x.data.project, x.data.manifest.apps) : []));
   if (rts.some((r) => notOnBox(r.error))) return <NotOnBox what="Apps" />;
 
   return (

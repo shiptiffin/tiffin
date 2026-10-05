@@ -90,12 +90,20 @@ func TestCreate(t *testing.T) {
 		{"guestbook", "GET", "/api/entries", "", `"visits":`},
 		{"web", "GET", "/", "", "Postgres"},
 	}
+	// Apps that set no routes: the main app (web) at the project's name, the
+	// others at <project>-<app>.
+	addr := func(app string) string {
+		if app == "web" {
+			return "starter"
+		}
+		return "starter-" + app
+	}
 	for _, ck := range checks {
 		var body io.Reader
 		if ck.body != "" {
 			body = strings.NewReader(ck.body)
 		}
-		code, _, got := b.get(c, ck.method, b.url(ck.app)+ck.path, body)
+		code, _, got := b.get(c, ck.method, b.url(addr(ck.app))+ck.path, body)
 		if code >= 300 || !strings.Contains(got, ck.want) {
 			t.Fatalf("%s %s%s: %d %s", ck.method, ck.app, ck.path, code, got)
 		}
@@ -154,7 +162,7 @@ func TestCreate(t *testing.T) {
 		if text := fmt.Sprint(log["text"]); !strings.Contains(text, "==> cloning "+gitRepo) || !strings.Contains(text, "==> cloned commit") {
 			t.Fatalf("build log:\n%s", text)
 		}
-		if code, _, body := b.get(c, "GET", b.url("spoon")+"/", nil); code != 200 || !strings.Contains(body, "Fork me?") {
+		if code, _, body := b.get(c, "GET", b.url(addr("spoon"))+"/", nil); code != 200 || !strings.Contains(body, "Fork me?") {
 			t.Fatalf("spoon: %d %s", code, body)
 		}
 		t.Logf("git deploy: commit %.12s, total %.1fs", live["commit"], live["durationSeconds"])

@@ -847,13 +847,14 @@ func TestPreviewSleepsAndWakes(t *testing.T) {
 	h := newHarness(t)
 	prod := h.deploy("api", "", map[string]string{"index.ts": "prod"})
 	pv := h.deploy("api", "feat-x", map[string]string{"index.ts": "preview"})
-	if pv.Status != StatusLive || pv.URL != "https://feat-x--api.tiffin.localhost:8443" {
+	// api serves a path (shop/api), so its previews use <project>-<app>.
+	if pv.Status != StatusLive || pv.URL != "https://feat-x--shop-api.tiffin.localhost:8443" {
 		t.Fatalf("preview %+v", pv)
 	}
 	if st := h.state("api", ""); st.Live != prod.ID {
 		t.Fatal("a preview must not touch production")
 	}
-	host := "feat-x--api.tiffin.localhost"
+	host := "feat-x--shop-api.tiffin.localhost"
 	code, body := h.get(host, "/")
 	if code != 200 || !strings.Contains(body, "preview=feat-x") {
 		t.Fatalf("preview via activator: %d %s", code, body)
@@ -982,20 +983,44 @@ func TestAppsDomainHosts(t *testing.T) {
 	if host, _ := h.r.splitRoute("example.com"); host != "example.com" {
 		t.Errorf("custom route = %s", host)
 	}
-	web := &manifest.App{}
-	if u := h.r.deployURL(&Deploy{App: "web", Preview: "pr-7"}, web); u != "https://pr-7--web.example.app:8443" {
+	web := &manifest.App{Routes: []string{"news"}}
+	if u := h.r.deployURL(&Deploy{Project: "news", App: "web", Preview: "pr-7"}, web); u != "https://pr-7--news.example.app:8443" {
 		t.Errorf("preview URL = %s", u)
 	}
-	if u := h.r.deployURL(&Deploy{App: "web"}, web); u != "https://web.example.app:8443" {
+	if u := h.r.deployURL(&Deploy{Project: "news", App: "web"}, web); u != "https://news.example.app:8443" {
 		t.Errorf("production URL = %s", u)
 	}
-	err := h.m.CheckPlan(context.Background(), h.p, "blog", map[string]change.Resource{"app/shop": {Address: "app/shop", Spec: json.RawMessage(`{}`)}})
+	err := h.m.CheckPlan(context.Background(), h.p, "blog", map[string]change.Resource{"app/shop": {Address: "app/shop", Spec: json.RawMessage(`{"routes":["shop"]}`)}})
 	var prob *api.Problem
-	if !errors.As(err, &prob) || !strings.Contains(prob.Hint, "<app name>.example.app") || !strings.Contains(prob.Hint, "blog.example.app") {
+	if !errors.As(err, &prob) || !strings.Contains(prob.Hint, "<project>.example.app") || !strings.Contains(prob.Hint, "blog-shop.example.app") {
 		t.Errorf("clash hint: %v", err)
 	}
 	if h.p.DashboardHost() != "dashboard.tiffin.localhost" {
 		t.Errorf("dashboard = %s", h.p.DashboardHost())
+	}
+}
+
+// TestPreviewHost: previews are named after the app's own address, and a
+// name too long for DNS is cut and made unique with a hash.
+func TestPreviewHost(t *testing.T) {
+	for _, c := range []struct {
+		routes []string
+		want   string
+	}{
+		{[]string{"shop"}, "pr-7--shop.x.test"},
+		{[]string{"shop-docs"}, "pr-7--shop-docs.x.test"},
+		{[]string{"example.com", "api"}, "pr-7--api.x.test"},
+		{[]string{"example.com", "shop/docs"}, "pr-7--shop-docs.x.test"},
+	} {
+		if got := previewHost("pr-7", "shop", "docs", &manifest.App{Routes: c.routes}, "x.test"); got != c.want {
+			t.Errorf("%v: %s, want %s", c.routes, got, c.want)
+		}
+	}
+	long := strings.Repeat("p", 40)
+	a := previewHost(strings.Repeat("b", 30), long, "one", &manifest.App{}, "x.test")
+	b := previewHost(strings.Repeat("b", 30), long, "two", &manifest.App{}, "x.test")
+	if label, _, _ := strings.Cut(a, "."); len(label) > 63 || a == b || !strings.HasPrefix(a, strings.Repeat("b", 30)+"--ppp") {
+		t.Errorf("long names: %s %s", a, b)
 	}
 }
 
@@ -1290,15 +1315,17 @@ func TestPlanRefusesAnotherProjectsRoute(t *testing.T) {
 	app := func(spec string) map[string]change.Resource {
 		return map[string]change.Resource{"app/shop": {Address: "app/shop", Spec: json.RawMessage(spec)}}
 	}
-	// "shop" (the default route of an app named shop) is site's in project shop.
-	err := h.m.CheckPlan(ctx, h.p, "blog", app(`{"framework":"bun"}`))
+	// "shop" (the address an app named shop had before addresses were named
+	// after the project) is site's in project shop.
+	err := h.m.CheckPlan(ctx, h.p, "blog", app(`{"framework":"bun","routes":["shop"]}`))
 	var prob *api.Problem
 	if !errors.As(err, &prob) || prob.Status != 422 || !strings.Contains(prob.Detail, "shop/site") ||
-		!strings.Contains(prob.Hint, `routes: ["blog"]`) || prob.Errors[0].Path != "/apps/shop/routes" {
+		!strings.Contains(prob.Hint, `routes: ["blog-shop"]`) || prob.Errors[0].Path != "/apps/shop/routes" {
 		t.Fatalf("clash: %v %+v", err, prob)
 	}
-	// A path under it is a different route; workers have none; own routes are fine.
-	for _, spec := range []string{`{"routes":["shop/blog"]}`, `{"role":"worker"}`, `{"routes":["blog"]}`} {
+	// A path under it is a different route; workers have none; own routes are
+	// fine, and so is a spec without routes (served at <project>-<app>).
+	for _, spec := range []string{`{"routes":["shop/blog"]}`, `{"role":"worker"}`, `{"routes":["blog"]}`, `{"framework":"bun"}`} {
 		if err := h.m.CheckPlan(ctx, h.p, "blog", app(spec)); err != nil {
 			t.Fatalf("%s: %v", spec, err)
 		}

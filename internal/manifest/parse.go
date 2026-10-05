@@ -15,6 +15,37 @@ import (
 // finally checked against the semantic rules. Any failure is a
 // *ValidationError listing every problem found.
 func Parse(raw []byte) (*Manifest, error) {
+	m, _, err := ParseOnBox(raw, nil)
+	return m, err
+}
+
+// OnBox returns each app's routes on the box now for a project (nil when
+// the box has no such project).
+type OnBox func(project string) (map[string][]string, error)
+
+// ParseOnBox is Parse for a manifest about to be planned on a box: apps that
+// set no routes keep the address a default already gave them there (see
+// NormalizeOnBox, which also says what older lists). onBox may be nil.
+func ParseOnBox(raw []byte, onBox OnBox) (m *Manifest, older []string, err error) {
+	m, err = decode(raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	var have map[string][]string
+	if onBox != nil {
+		if have, err = onBox(m.Project); err != nil {
+			return nil, nil, err
+		}
+	}
+	older = NormalizeOnBox(m, have)
+	if err := Validate(m); err != nil {
+		return nil, nil, err
+	}
+	return m, older, nil
+}
+
+// decode checks raw against the schema and decodes it strictly.
+func decode(raw []byte) (*Manifest, error) {
 	doc, err := decodeAny(raw)
 	if err != nil {
 		return nil, newValidationError([]FieldError{{Message: "invalid JSON: " + err.Error()}})
@@ -41,10 +72,6 @@ func Parse(raw []byte) (*Manifest, error) {
 	if err := dec.Decode(&m); err != nil {
 		// Reaching here means the schema and the Go types disagree.
 		return nil, newValidationError([]FieldError{{Message: err.Error()}})
-	}
-	Normalize(&m)
-	if err := Validate(&m); err != nil {
-		return nil, err
 	}
 	return &m, nil
 }

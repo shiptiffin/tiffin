@@ -160,7 +160,7 @@ func TestGitHub(t *testing.T) {
 		t.Fatalf("pull request delivery: %v", dl)
 	}
 	pv := b.waitPreview("ghshop", "site", "pr-3", 5*time.Minute)
-	pvURL := fmt.Sprintf("https://pr-3--site.tiffin.localhost:%d", b.port)
+	pvURL := fmt.Sprintf("https://pr-3--ghshop.tiffin.localhost:%d", b.port)
 	if pv["url"] != pvURL {
 		t.Fatalf("preview url: %v", pv["url"])
 	}

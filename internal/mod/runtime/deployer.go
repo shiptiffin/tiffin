@@ -49,14 +49,20 @@ func (r *rt) deployURL(d *Deploy, spec *manifest.App) string {
 		return ""
 	}
 	if d.Preview != "" {
-		return r.p.URL(previewHost(d.Preview, d.App, r.p.AppsDomain()))
+		return r.p.URL(previewHost(d.Preview, d.Project, d.App, spec, r.p.AppsDomain()))
 	}
-	routes := spec.Routes
-	if len(routes) == 0 {
-		routes = []string{d.App}
-	}
-	host, prefix := r.splitRoute(routes[0])
+	host, prefix := r.splitRoute(appRoutes(d.Project, d.App, spec)[0])
 	return r.p.URL(host) + prefix
+}
+
+// appRoutes is a web app's routes. Normalize gives every web app routes, so
+// the fallback only covers a spec stored without any: <project>-<app>, the
+// default of an app that is not its project's main app.
+func appRoutes(project, app string, spec *manifest.App) []string {
+	if len(spec.Routes) > 0 {
+		return spec.Routes
+	}
+	return []string{manifest.DefaultName(project, app, "")}
 }
 
 // splitRoute turns "shop" → shop.<domain>, "shop/api" → (shop.<domain>, /api),
@@ -72,7 +78,28 @@ func (r *rt) splitRoute(route string) (host, prefix string) {
 	return strings.ToLower(host), prefix
 }
 
-func previewHost(preview, app, domain string) string { return preview + "--" + app + "." + domain }
+// previewHost is where a preview of an app is served:
+// <preview>--<name>.<apps domain>, where name is the app's own name under the
+// apps domain (its first route that is a plain name, such as shop or
+// shop-docs) or, for an app served only on its own domains or paths,
+// <project>-<app>. Production names are unique on the box, so preview names
+// are too. A name longer than a DNS label (63) is cut and ends in a short
+// hash of the whole, which keeps it unique.
+func previewHost(preview, project, app string, spec *manifest.App, domain string) string {
+	name := project + "-" + app
+	for _, r := range spec.Routes {
+		if !strings.ContainsAny(r, "./") {
+			name = r
+			break
+		}
+	}
+	label := preview + "--" + name
+	if len(label) > 63 {
+		sum := sha256.Sum256([]byte(label))
+		label = strings.TrimRight(label[:63-7], "-") + "-" + hex.EncodeToString(sum[:])[:6]
+	}
+	return label + "." + domain
+}
 
 // start runs a queued deploy's pipeline in the background.
 func (r *rt) start(d *Deploy, src string, kind string) {

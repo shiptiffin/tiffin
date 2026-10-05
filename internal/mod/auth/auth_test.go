@@ -132,7 +132,7 @@ func TestEngineConfig(t *testing.T) {
 	if s == nil {
 		t.Fatalf("shop missing: %v", errs)
 	}
-	wantHosts := []string{"shop.tiffin.localhost", "shop.example.com", "admin.tiffin.localhost"}
+	wantHosts := []string{"shop.tiffin.localhost", "shop.example.com", "shop-admin.tiffin.localhost"}
 	if !slices.Equal(s.Hosts, wantHosts) {
 		t.Fatalf("hosts = %v, want %v (web first, workers excluded)", s.Hosts, wantHosts)
 	}
@@ -184,10 +184,10 @@ func TestEnvAndRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if env["TIFFIN_AUTH_URL"] != "https://admin.tiffin.localhost:8443/api/auth" {
+	if env["TIFFIN_AUTH_URL"] != "https://shop-admin.tiffin.localhost:8443/api/auth" {
 		t.Fatalf("admin app gets its own host: %v", env)
 	}
-	if env["TIFFIN_AUTH_INTERNAL_URL"] != "http://127.0.0.1:7393/api/auth" || env["TIFFIN_AUTH_HOST"] != "admin.tiffin.localhost" {
+	if env["TIFFIN_AUTH_INTERNAL_URL"] != "http://127.0.0.1:7393/api/auth" || env["TIFFIN_AUTH_HOST"] != "shop-admin.tiffin.localhost" {
 		t.Fatalf("internal: %v", env)
 	}
 	jobs, _ := (&Module{}).Env(ctx, p, "shop", "jobs")
@@ -224,8 +224,8 @@ func TestEngineBundleEmbedded(t *testing.T) {
 func TestDuplicateHostsDontBreakTheEdge(t *testing.T) {
 	p := newPlatform(t)
 	ctx := t.Context()
-	apply(t, p, `{"project":"aaa","apps":{"web":{}},"services":{"postgres":{},"auth":{}}}`)
-	apply(t, p, `{"project":"bbb","apps":{"web":{}},"services":{"postgres":{},"auth":{}}}`)
+	apply(t, p, `{"project":"aaa","apps":{"web":{"routes":["web"]}},"services":{"postgres":{},"auth":{}}}`)
+	apply(t, p, `{"project":"bbb","apps":{"web":{"routes":["web"]}},"services":{"postgres":{},"auth":{}}}`)
 	routes, err := (&Module{}).Routes(ctx, p)
 	if err != nil || len(routes) != 1 || routes[0].Host != "web.tiffin.localhost" {
 		t.Fatalf("routes: %+v %v", routes, err)

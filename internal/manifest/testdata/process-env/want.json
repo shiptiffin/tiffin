@@ -7,7 +7,7 @@
       "framework": "bun",
       "role": "web",
       "routes": [
-        "web"
+        "envy-prod"
       ],
       "instances": 1,
       "healthcheck": "/"

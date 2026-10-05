@@ -71,11 +71,7 @@ func webHosts(p *platform.Platform, res map[string]change.Resource) []AppHost {
 		if json.Unmarshal(res[change.KindApp+"/"+name].Spec, &app) != nil || app.Role == manifest.RoleWorker {
 			continue
 		}
-		routes := app.Routes
-		if len(routes) == 0 {
-			routes = []string{name}
-		}
-		for _, r := range routes {
+		for _, r := range app.Routes { // Normalize gives every web app routes
 			h, _ := ParseRoute(p, r)
 			if h == "" || seen[h] {
 				continue

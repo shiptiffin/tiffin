@@ -607,7 +607,7 @@ export interface paths {
         put?: never;
         /**
          * Use your own domain for the box
-         * @description Switches the box to <domain>: the dashboard moves to dashboard.<domain> (or <dashboard>.<domain>) and apps to <app>.<domain>, or with appsDomain to <app>.<appsDomain> (like vercel.com and vercel.app: app code on another registrable domain cannot set cookies on the dashboard's). First checks that <domain> and *.<domain> (with appsDomain: <dashboard>.<domain> and *.<appsDomain>) point at this box (A/AAAA records); if not, nothing changes and the answer (status 412) lists exactly the records to add. With createRecords, the box creates the ones in zones a connected DNS provider holds. The service restarts (a few seconds; apps keep running), new certificates are obtained, and the old names keep working until the new ones have certificates, then for another hour. Touch ID sign-ins belong to the dashboard's address: add them again on the new one. Box admins only.
+         * @description Switches the box to <domain>: the dashboard moves to dashboard.<domain> (or <dashboard>.<domain>) and apps to <project>.<domain>, or with appsDomain to <project>.<appsDomain> (like vercel.com and vercel.app: app code on another registrable domain cannot set cookies on the dashboard's). First checks that <domain> and *.<domain> (with appsDomain: <dashboard>.<domain> and *.<appsDomain>) point at this box (A/AAAA records); if not, nothing changes and the answer (status 412) lists exactly the records to add. With createRecords, the box creates the ones in zones a connected DNS provider holds. The service restarts (a few seconds; apps keep running), new certificates are obtained, and the old names keep working until the new ones have certificates, then for another hour. Touch ID sign-ins belong to the dashboard's address: add them again on the new one. Box admins only.
          */
         post: operations["domain-set"];
         /**
@@ -4954,7 +4954,7 @@ export interface components {
             summary: string;
         };
         "Domain-setRequest": {
-            /** @description Serve apps and previews at <app>.<appsDomain> instead of <app>.<domain>, e.g. example.app beside example.com. Default: domain itself. */
+            /** @description Serve apps and previews at <project>.<appsDomain> instead of <project>.<domain>, e.g. example.app beside example.com. Default: domain itself. */
             appsDomain?: string;
             /** @description Create the records through the connected DNS provider first (those in zones it holds). */
             createRecords?: boolean;
@@ -4984,7 +4984,7 @@ export interface components {
             www?: boolean;
         };
         DomainsBoxDomain: {
-            /** @description Apps and previews are at <app>.<appsDomain>: the box domain, or a separate one (tiffin domain set --apps-domain) so app code cannot set cookies on the dashboard's domain. */
+            /** @description Apps and previews are at <project>.<appsDomain>: the box domain, or a separate one (tiffin domain set --apps-domain) so app code cannot set cookies on the dashboard's domain. */
             appsDomain: string;
             /** @description The ACME directory, when it is not Let's Encrypt. */
             ca?: string;
@@ -14716,7 +14716,7 @@ export interface operations {
     "deploy-create": {
         parameters: {
             query?: {
-                /** @description Deploy as a preview with this name, served at <preview>--<app>.<domain>. Production is untouched. */
+                /** @description Deploy as a preview with this name, served at <preview>--<app address>.<domain> (pr-12--shop for the app at shop). Production is untouched. */
                 preview?: string;
                 /** @description The upload is an image tarball (docker save) instead of source */
                 prebuilt?: boolean;

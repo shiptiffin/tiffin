@@ -67,7 +67,7 @@ type BoxDomain struct {
 	Domain string `json:"domain,omitempty"`
 	// Dashboard is the dashboard's first-level name; empty means "dashboard".
 	Dashboard string `json:"dashboard,omitempty"`
-	// Apps is a separate domain for apps and previews (<app>.<apps>); empty
+	// Apps is a separate domain for apps and previews (<project>.<apps>); empty
 	// means Domain. A different registrable domain (example.app beside
 	// example.com) keeps app code from setting cookies on the dashboard's.
 	Apps string `json:"apps,omitempty"`

@@ -101,7 +101,7 @@ func configNode(m *Manifest) *node {
 	if len(m.Apps) > 0 {
 		apps := obj()
 		for _, name := range sortedKeys(m.Apps) {
-			apps.set(name, appNode(name, m.Apps[name]))
+			apps.set(name, appNode(name, m.Apps[name], impliedRoute(m, name)))
 		}
 		root.set("apps", apps)
 	}
@@ -157,7 +157,25 @@ func configNode(m *Manifest) *node {
 	return root
 }
 
-func appNode(name string, a App) *node {
+// impliedRoute is the route Normalize would give app name if it set no
+// routes, beside the other apps' routes as they are ("" for a worker).
+func impliedRoute(m *Manifest, name string) string {
+	c := &Manifest{Project: m.Project, Apps: make(map[string]App, len(m.Apps))}
+	for n, a := range m.Apps {
+		c.Apps[n] = a
+	}
+	a := c.Apps[name]
+	a.Routes = nil
+	c.Apps[name] = a
+	defaultRoutes(c, nil)
+	if r := c.Apps[name].Routes; len(r) == 1 {
+		return r[0]
+	}
+	return ""
+}
+
+// appNode renders app name; implied is the route it gets when it sets none.
+func appNode(name string, a App, implied string) *node {
 	n := obj()
 	if a.Framework != DefaultFramework {
 		n.set("framework", str(string(a.Framework)))
@@ -172,7 +190,7 @@ func appNode(name string, a App) *node {
 	var defRoutes []string
 	defHealth := ""
 	if a.Role == RoleWeb {
-		defRoutes = []string{name}
+		defRoutes = []string{implied}
 		if a.Framework != FrameworkStatic {
 			defHealth = DefaultHealthcheck
 		}
