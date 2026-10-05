@@ -54,5 +54,5 @@ func RecentlyDeleted(ctx context.Context, p *platform.Platform, project string) 
 		return false
 	}
 	var rec deletedRecord
-	return json.Unmarshal(raw, &rec) == nil && !rec.Failed && time.Since(rec.At) < SnapshotKeep
+	return json.Unmarshal(raw, &rec) != nil || time.Since(rec.At) < SnapshotKeep
 }

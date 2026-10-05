@@ -596,6 +596,57 @@ func TestImportFailureLeavesNothing(t *testing.T) {
 	}
 }
 
+// TestImportTrustsNoArchive: an archive cannot plant links, set-id files,
+// git hooks or config, or reach another project's images.
+func TestImportTrustsNoArchive(t *testing.T) {
+	x := newTestBox(t, "a.example")
+	x.shop("shop")
+	media := x.b.bucketDir("shop", "media")
+	if err := os.Symlink("/etc/passwd", filepath.Join(media, "passwd")); err != nil {
+		t.Fatal(err)
+	}
+	site := x.b.releases["shop/site"].StaticRoot
+	_ = os.WriteFile(filepath.Join(site, "run.sh"), []byte("#!/bin/sh"), 0o755)
+	_ = os.Chmod(filepath.Join(site, "run.sh"), 0o755|os.ModeSetuid)
+	git := x.b.gitDir("shop")
+	_ = os.MkdirAll(filepath.Join(git, "hooks"), 0o755)
+	_ = os.WriteFile(filepath.Join(git, "hooks", "pre-receive"), []byte("#!/bin/sh\nevil"), 0o755)
+	_ = os.WriteFile(filepath.Join(git, "config"), []byte("[core]\n\thooksPath = /tmp/evil\n"), 0o644)
+	_ = os.MkdirAll(filepath.Join(git, "refs", "heads"), 0o755)
+	_ = os.WriteFile(filepath.Join(git, "refs", "heads", "main"), []byte(strings.Repeat("a", 40)+"\n"), 0o644)
+
+	if _, err := x.importArchive(x.export("shop", exportOptions{}), importOptions{name: "shop-2"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(x.b.bucketDir("shop-2", "media"), "passwd")); err == nil {
+		t.Fatal("a symlink came in")
+	}
+	fi, err := os.Stat(filepath.Join(x.b.releases["shop-2/site"].StaticRoot, "run.sh"))
+	if err != nil || fi.Mode()&os.ModeSetuid != 0 {
+		t.Fatalf("set-id bit kept: %v %v", fi.Mode(), err)
+	}
+	g2 := x.b.gitDir("shop-2")
+	if _, err := os.Stat(filepath.Join(g2, "hooks", "pre-receive")); err == nil {
+		t.Fatal("a git hook came in")
+	}
+	if cfg := readFile(t, filepath.Join(g2, "config")); strings.Contains(cfg, "hooksPath") || !strings.Contains(cfg, "receivepack = true") {
+		t.Fatalf("git config: %s", cfg)
+	}
+	if readFile(t, filepath.Join(g2, "refs", "heads", "main")) != strings.Repeat("a", 40)+"\n" {
+		t.Fatal("refs not copied")
+	}
+
+	// A release.json naming an image (no image.tar) only works for a
+	// duplicate: an import cannot pick up any image the box has.
+	res, err := x.importArchive(x.export("shop", exportOptions{sameBox: true}), importOptions{name: "shop-3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x.b.releases["shop-3/web"] != nil || !strings.Contains(strings.Join(res.notes, " "), "web's release was not in the archive") {
+		t.Fatalf("an import tagged a box image: %+v", res)
+	}
+}
+
 func TestRenamed(t *testing.T) {
 	m := &manifest.Manifest{Project: "shop", Apps: map[string]manifest.App{
 		"web":    {Role: manifest.RoleWeb, Routes: []string{"shop", "shop/api", "shop-admin", "www.example.com", "example.com/x"}},

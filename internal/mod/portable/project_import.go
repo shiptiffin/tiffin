@@ -1,6 +1,7 @@
 package portable
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
 	"context"
@@ -12,8 +13,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
+	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"filippo.io/age"
@@ -33,8 +35,52 @@ type importOptions struct {
 	intent      string              // its first History entry
 	sourceKey   *age.X25519Identity // the source box's key, for secrets sealed to another box
 	skipSecrets bool
+	sameBox     bool   // a duplicate: images named in release.json are this box's own
 	stage       string // a scratch directory
 	principal   *tokens.Principal
+}
+
+// fileOwner owns what an import writes.
+type fileOwner struct{ uid, gid int }
+
+func ownerOf(fi os.FileInfo) fileOwner {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return fileOwner{int(st.Uid), int(st.Gid)}
+	}
+	return fileOwner{os.Geteuid(), os.Getegid()}
+}
+
+// addPlain writes a tree entry the way an import may: directories and
+// regular files only (no links, which could point anywhere on the box),
+// without set-id bits, owned by o rather than whoever the archive names.
+// Archives are not trusted: anyone who may create a project can import one.
+func addPlain(ex *boxfile.Extractor, rel string, e *boxfile.Entry, o fileOwner) error {
+	if e.Header.Typeflag != tar.TypeDir && e.Header.Typeflag != tar.TypeReg {
+		return nil
+	}
+	hd := *e.Header
+	hd.Mode &= 0o777
+	hd.Uname, hd.Gname, hd.Uid, hd.Gid = "", "", o.uid, o.gid
+	return ex.Add(rel, &hd, e.Body)
+}
+
+var headRef = regexp.MustCompile(`^(ref: refs/heads/[A-Za-z0-9._/-]{1,200}|[0-9a-f]{40}|[0-9a-f]{64})\n?$`)
+
+// finishRepo gives an imported repository (objects, refs and HEAD only) the
+// box's own config; the runtime adds its hook on the next push.
+func finishRepo(dir string) error {
+	head, err := os.ReadFile(filepath.Join(dir, "HEAD"))
+	if err != nil || !headRef.Match(head) {
+		if err := os.WriteFile(filepath.Join(dir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+			return err
+		}
+	}
+	for _, d := range []string{"objects", "refs/heads", "refs/tags"} {
+		if err := os.MkdirAll(filepath.Join(dir, d), 0o755); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(filepath.Join(dir, "config"), []byte("[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = true\n[http]\n\treceivepack = true\n"), 0o644)
 }
 
 // AppResult is how an app came across.
@@ -87,6 +133,8 @@ func importProject(ctx context.Context, p *platform.Platform, b backend, r io.Re
 		exKey    string
 		gitStage = filepath.Join(o.stage, "git")
 		apps     = map[string]*stagedApp{}
+		self     = fileOwner{os.Geteuid(), os.Getegid()}
+		owner    = self
 	)
 	defer func() {
 		if err != nil && prepared && !out.created {
@@ -294,8 +342,11 @@ func importProject(ctx context.Context, p *platform.Platform, b backend, r io.Re
 			}
 		case strings.HasPrefix(entry, "files/"):
 			parts := strings.SplitN(entry, "/", 3)
-			if len(parts) < 3 || parts[2] == "" || !slices.ContainsFunc(info.Buckets, func(bk BucketInfo) bool { return bk.Name == parts[1] }) {
-				continue // a bucket's own directory, or one the project does not have
+			if len(parts) < 3 || parts[2] == "" || mf.Services.Storage == nil {
+				continue // a bucket's own directory
+			}
+			if _, ok := mf.Services.Storage.Buckets[parts[1]]; !ok {
+				continue // a bucket the project does not have
 			}
 			if err := create(); err != nil {
 				return out, err
@@ -303,14 +354,16 @@ func importProject(ctx context.Context, p *platform.Platform, b backend, r io.Re
 			dir := b.bucketDir(name, parts[1])
 			if exKey != "files/"+parts[1] {
 				rep.say("copying bucket "+parts[1], 60)
-				if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+				fi, err := os.Stat(dir)
+				if err != nil || !fi.IsDir() {
 					return out, fmt.Errorf("bucket %s was not created (tiffin projects get %s says why)", parts[1], name)
 				}
+				owner = ownerOf(fi) // the object store's
 			}
 			if err := openEx("files/"+parts[1], dir); err != nil {
 				return out, err
 			}
-			if err := ex.Add(parts[2], e.Header, e.Body); err != nil {
+			if err := addPlain(ex, parts[2], e, owner); err != nil {
 				return out, fmt.Errorf("%s: %w", entry, err)
 			}
 		case entry == "source.git" || strings.HasPrefix(entry, "source.git/"):
@@ -318,8 +371,9 @@ func importProject(ctx context.Context, p *platform.Platform, b backend, r io.Re
 			if err := openEx("git", gitStage); err != nil {
 				return out, err
 			}
-			if rel != "" {
-				if err := ex.Add(rel, e.Header, e.Body); err != nil {
+			// Only the repository's data: never its config or hooks, which git runs.
+			if rel == "HEAD" || rel == "packed-refs" || strings.HasPrefix(rel, "objects/") || strings.HasPrefix(rel, "refs/") {
+				if err := addPlain(ex, rel, e, self); err != nil {
 					return out, fmt.Errorf("%s: %w", entry, err)
 				}
 			}
@@ -353,7 +407,7 @@ func importProject(ctx context.Context, p *platform.Platform, b backend, r io.Re
 					return out, err
 				}
 				if len(parts) == 4 && parts[3] != "" {
-					if err := ex.Add(parts[3], e.Header, e.Body); err != nil {
+					if err := addPlain(ex, parts[3], e, self); err != nil {
 						return out, fmt.Errorf("%s: %w", entry, err)
 					}
 				}
@@ -369,6 +423,9 @@ func importProject(ctx context.Context, p *platform.Platform, b backend, r io.Re
 	if fi, err := os.Stat(filepath.Join(gitStage, "HEAD")); err == nil && !fi.IsDir() {
 		if dst := b.gitDir(name); dst != "" {
 			if _, err := os.Stat(dst); errors.Is(err, os.ErrNotExist) {
+				if err := finishRepo(gitStage); err != nil {
+					return out, fmt.Errorf("git: %w", err)
+				}
 				_ = os.MkdirAll(filepath.Dir(dst), 0o755)
 				if err := os.Rename(gitStage, dst); err != nil {
 					return out, fmt.Errorf("git: %w", err)
@@ -393,13 +450,19 @@ func importProject(ctx context.Context, p *platform.Platform, b backend, r io.Re
 				src.StaticDir = sa.siteDir
 			case sa.imageTar != "":
 				src.ImageTar = sa.imageTar
-			default:
-				src.Image = sa.rel.Image
+			case o.sameBox:
+				src.Image = sa.rel.Image // a duplicate tags the original's image
 			}
-			d, err := b.release(ctx, name, ai.Name, src, by)
+			var d *runtime.Deploy
+			var rerr error
+			if src.StaticDir != "" || src.ImageTar != "" || src.Image != "" {
+				d, rerr = b.release(ctx, name, ai.Name, src, by)
+			}
 			switch {
-			case err != nil:
-				res.Status, res.Error = runtime.StatusFailed, err.Error()
+			case d == nil && rerr == nil:
+				out.notes = append(out.notes, "App "+ai.Name+"'s release was not in the archive: deploy it again.")
+			case rerr != nil:
+				res.Status, res.Error = runtime.StatusFailed, rerr.Error()
 			default:
 				res.Deploy, res.Status, res.URL, res.Error = d.ID, d.Status, d.URL, d.Error
 			}

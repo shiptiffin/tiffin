@@ -219,15 +219,22 @@ func (m *Module) duplicate(ctx context.Context, p *platform.Platform, pr *tokens
 	stage := filepath.Join(dir(p), "staging", ids.New("dup"))
 	defer os.RemoveAll(stage)
 	r, w := io.Pipe()
+	wctx, stop := context.WithCancel(ctx)
+	defer stop()
 	werr := make(chan error, 1)
 	go func() {
-		_, err := writeProject(ctx, p, b, from, exportOptions{sameBox: true, stage: filepath.Join(stage, "out")}, reporter{}, w)
+		_, err := writeProject(wctx, p, b, from, exportOptions{sameBox: true, stage: filepath.Join(stage, "out")}, reporter{}, w)
 		_ = w.CloseWithError(err)
 		werr <- err
 	}()
-	res, err := importProject(ctx, p, b, r, importOptions{name: name, intent: "Duplicated from " + from, stage: filepath.Join(stage, "in"), principal: pr}, rep)
+	res, err := importProject(ctx, p, b, r, importOptions{name: name, intent: "Duplicated from " + from, sameBox: true,
+		stage: filepath.Join(stage, "in"), principal: pr}, rep)
 	_ = r.CloseWithError(errStopped)
-	if e := <-werr; e != nil && !errors.Is(e, errStopped) && (err == nil || res == nil || !res.created) {
+	if err != nil {
+		stop() // the import gave up: so does the export
+	}
+	e := <-werr
+	if e != nil && !errors.Is(e, errStopped) && !errors.Is(e, context.Canceled) && (err == nil || res == nil || !res.created) {
 		err = e // the export's own failure says more than the import's view of it
 	}
 	return res, err

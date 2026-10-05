@@ -233,6 +233,9 @@ func writeProject(ctx context.Context, p *platform.Platform, b backend, project 
 		if err := aw.WriteBytes("database-setup.sql", []byte(databaseSetup(info.Postgres)), 0o644); err != nil {
 			return nil, err
 		}
+		if free := freeBytes(o.stage); free >= 0 && free < info.Postgres.SizeBytes+info.Postgres.SizeBytes/5+256<<20 {
+			return nil, fmt.Errorf("not enough disk space to stage the database dump: %s free, the database is %s", human(free), human(info.Postgres.SizeBytes))
+		}
 		path, err := spool(o.stage, "database", func(w io.Writer) error { return b.dumpDatabase(ctx, project, w) })
 		if err != nil {
 			return nil, fmt.Errorf("postgres: %w", err)
