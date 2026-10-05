@@ -235,7 +235,19 @@ export default defineConfig({ project: "data", services: {` + services + `} });
 
 	// ---- backup → destroy → restore → data back ----
 	p = time.Now()
-	bk := ok("backup")
+	// The box may be taking its own first backup: wait for it, as a person would.
+	var bk map[string]any
+	for i := 0; ; i++ {
+		code, out := run("backup")
+		if code == 0 {
+			_ = json.Unmarshal([]byte(out), &bk)
+			break
+		}
+		if i == 60 || !strings.Contains(out, "another backup") {
+			t.Fatalf("tiffin backup: exit %d\n%s", code, out)
+		}
+		time.Sleep(5 * time.Second)
+	}
 	if bk["status"] != "ok" {
 		t.Fatalf("backup: %v", bk)
 	}
