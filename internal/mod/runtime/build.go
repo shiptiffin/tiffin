@@ -160,6 +160,9 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 	for k, v := range req.Env {
 		env[k] = v
 	}
+	if req.Spec.Command != "" {
+		env["RAILPACK_START_CMD"] = req.Spec.Command // the manifest's command wins over any default
+	}
 	args := []string{"prepare", req.SrcDir,
 		"--plan-out", filepath.Join(planDir, "railpack-plan.json"),
 		"--info-out", filepath.Join(req.WorkDir, "railpack-info.json")}

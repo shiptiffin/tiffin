@@ -228,6 +228,12 @@ CREATE TABLE tq_stopped (
 	since   timestamptz NOT NULL DEFAULT now()
 );
 `,
+	// 4: cron time zones, and ticks skipped while the previous run was going.
+	`
+ALTER TABLE tq_crons ADD COLUMN timezone text NOT NULL DEFAULT '',
+	ADD COLUMN overlap bool NOT NULL DEFAULT false,
+	ADD COLUMN skipped_at timestamptz;
+`,
 }
 
 // migrate brings River's schema and ours up to date. Concurrent callers are

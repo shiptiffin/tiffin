@@ -97,6 +97,11 @@ type App struct {
 	// Healthcheck path. Default "/", which passes on any status below 500;
 	// a path set here must answer 2xx or 3xx. Ignored for workers and static apps.
 	Healthcheck string `json:"healthcheck,omitempty"`
+	// Command starts the app instead of the start command the build
+	// detects (package.json "start"), e.g. "bun run worker.ts": one source
+	// folder can run a web app and a worker. Applies from the next deploy.
+	// Not for static apps.
+	Command string `json:"command,omitempty"`
 	// Env holds app-specific plain environment variables (merged over Manifest.Env).
 	Env map[string]string `json:"env,omitempty"`
 	// Git connects the app to a GitHub repository (through the box's GitHub
@@ -265,6 +270,13 @@ type Cron struct {
 	// Path is the request path on the app. Must start with "/".
 	// Default "/cron/<cron name>".
 	Path string `json:"path"`
+	// Timezone is the IANA time zone the schedule is read in, e.g.
+	// "America/New_York". Default "" (UTC). When clocks change, a time that
+	// happens twice runs once and a time that is skipped runs at the change.
+	Timezone string `json:"timezone,omitempty"`
+	// Overlap lets a tick run while the previous one is still queued or
+	// running. Default false: such a tick is skipped (cron list shows when).
+	Overlap bool `json:"overlap,omitempty"`
 }
 
 // Queue is a named job queue. The box pushes each job sent to the queue to
@@ -291,7 +303,7 @@ type Queue struct {
 	// when RateLimit is set; 0 when it is not.
 	RatePeriodSeconds int `json:"ratePeriodSeconds"`
 	// MaxAttempts is how many times a job is tried before it goes to the
-	// dead-letter queue, 1-100. Default 8.
+	// dead-letter queue, 1-100. Default 10.
 	MaxAttempts int `json:"maxAttempts"`
 	// LeaseSeconds is how long one attempt may run without a response or
 	// heartbeat before it counts as failed, 5-3600. Default 60.

@@ -9,7 +9,7 @@ const sample = {
   apps: {
     web: { framework: "next", routes: ["shop"], instances: 2, memoryMB: 1024 },
     api: { framework: "hono", healthcheck: "/healthz" },
-    jobs: { role: "worker", memoryMB: 256 },
+    jobs: { role: "worker", memoryMB: 256, command: "bun run worker.ts" },
   },
   services: {
     postgres: { extensions: ["vector"] },
@@ -22,6 +22,7 @@ const sample = {
   crons: {
     nightly: { schedule: "0 3 * * *", app: "jobs", path: "/jobs/nightly" },
     tick: { schedule: "@hourly", app: "jobs" },
+    morning: { schedule: "0 9 * * mon-fri", app: "jobs", timezone: "America/New_York", overlap: true },
   },
   queues: {
     emails: { app: "jobs" },
@@ -83,7 +84,11 @@ describe("tiffin-sdk", () => {
     // @ts-expect-error a cron needs a schedule and an app
     defineConfig({ project: "x", crons: { tick: {} } });
     // @ts-expect-error unknown cron field
-    defineConfig({ project: "x", crons: { tick: { schedule: "@daily", app: "web", timezone: "UTC" } } });
+    defineConfig({ project: "x", crons: { tick: { schedule: "@daily", app: "web", tz: "UTC" } } });
+    // @ts-expect-error overlap is a boolean
+    defineConfig({ project: "x", crons: { tick: { schedule: "@daily", app: "web", overlap: "yes" } } });
+    // @ts-expect-error command is a string
+    defineConfig({ project: "x", apps: { w: { command: ["bun", "worker.ts"] } } });
     // @ts-expect-error a queue needs an app
     defineConfig({ project: "x", queues: { work: {} } });
     // @ts-expect-error unknown queue field

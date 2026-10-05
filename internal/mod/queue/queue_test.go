@@ -596,6 +596,106 @@ func TestCron(t *testing.T) {
 	}
 }
 
+// Schedules follow the wall clock of their zone: clock changes neither
+// repeat nor drop a tick.
+func TestCronScheduleTimezones(t *testing.T) {
+	at := func(s string) time.Time {
+		v, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	for _, c := range []struct{ expr, tz, from, want string }{
+		{"0 3 * * *", "", "2026-03-07T12:00:00Z", "2026-03-08T03:00:00Z"},
+		{"@daily", "Asia/Tokyo", "2026-03-07T12:00:00Z", "2026-03-07T15:00:00Z"},
+		// New York springs forward at 02:00 on 8 March: 02:30 runs at the change (03:00 EDT).
+		{"30 2 * * *", "America/New_York", "2026-03-07T12:00:00Z", "2026-03-08T07:00:00Z"},
+		{"30 2 * * *", "America/New_York", "2026-03-08T07:00:00Z", "2026-03-09T06:30:00Z"},
+		// Berlin springs forward at 02:00 on 29 March (01:00 UTC).
+		{"30 2 * * *", "Europe/Berlin", "2026-03-28T12:00:00Z", "2026-03-29T01:00:00Z"},
+		// New York falls back at 02:00 on 1 November: 01:30 happens twice and runs once.
+		{"30 1 * * *", "America/New_York", "2026-10-31T12:00:00Z", "2026-11-01T05:30:00Z"},
+		{"30 1 * * *", "America/New_York", "2026-11-01T05:30:00Z", "2026-11-02T06:30:00Z"},
+		{"30 1 * * *", "America/New_York", "2026-11-01T06:10:00Z", "2026-11-02T06:30:00Z"},
+		// Berlin falls back at 03:00 on 25 October: 02:30 runs once.
+		{"30 2 * * *", "Europe/Berlin", "2026-10-24T12:00:00Z", "2026-10-25T01:30:00Z"},
+		{"30 2 * * *", "Europe/Berlin", "2026-10-25T00:40:00Z", "2026-10-26T01:30:00Z"},
+		{"30 2 * * *", "Europe/Berlin", "2026-10-25T01:30:00Z", "2026-10-26T01:30:00Z"},
+		{"*/15 * * * *", "America/New_York", "2026-11-01T05:50:00Z", "2026-11-01T07:00:00Z"},
+	} {
+		s, err := parseSchedule(c.expr, c.tz)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := s.Next(at(c.from)); !got.Equal(at(c.want)) {
+			t.Errorf("%q in %q after %s: %s, want %s", c.expr, c.tz, c.from, got.Format(time.RFC3339), c.want)
+		}
+	}
+	for _, tz := range []string{"Mars/Olympus_Mons", "Local"} {
+		if _, err := parseSchedule("@daily", tz); err == nil {
+			t.Errorf("time zone %q accepted", tz)
+		}
+	}
+}
+
+// A tick is skipped while the previous run is still going, unless the cron
+// allows overlap.
+func TestCronOverlap(t *testing.T) {
+	var a *app
+	e := newEngine(t, func(c *Config) {
+		c.Endpoint = func(ctx context.Context, project, name, release string) (string, error) { return a.srv.URL, nil }
+	})
+	a = newApp(t, e.Engine, proj)
+	release := make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	a.handle("/cron/slow", func(w http.ResponseWriter, r *http.Request) { <-release })
+	ctx := context.Background()
+	cron := func() CronInfo {
+		cs, err := e.Crons(ctx, proj)
+		if err != nil || len(cs) != 1 {
+			t.Fatalf("crons %+v %v", cs, err)
+		}
+		return cs[0]
+	}
+	tick := func() {
+		if _, err := e.pool.Exec(ctx, `UPDATE tq_crons SET next_at = now() - interval '1 second'`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.ReconcileCron(ctx, proj, "slow", json.RawMessage(`{"schedule":"0 9 * * *","app":"jobs","path":"/cron/slow","timezone":"Europe/London"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if c := cron(); c.Timezone != "Europe/London" || c.LastSkippedAt != nil {
+		t.Fatalf("cron %+v", c)
+	}
+	tick()
+	eventually(t, 5*time.Second, "first run", func() bool { return cron().LastState == stateRunning })
+	first := cron().LastJob
+	tick()
+	eventually(t, 5*time.Second, "skipped tick", func() bool { return cron().LastSkippedAt != nil })
+	if c := cron(); c.LastJob != first || c.NextAt.Before(time.Now()) {
+		t.Fatalf("a skipped tick must not run or stay due: %+v", c)
+	}
+	// overlap: true runs the next tick beside the one still going.
+	if err := e.ReconcileCron(ctx, proj, "slow", json.RawMessage(`{"schedule":"0 9 * * *","app":"jobs","path":"/cron/slow","timezone":"Europe/London","overlap":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	tick()
+	eventually(t, 5*time.Second, "overlapping run", func() bool { return cron().LastJob != first })
+	if j := e.job(proj, first); j.State != stateRunning {
+		t.Fatalf("first run %s, want still running", j.State)
+	}
+	close(release)
+	e.waitState(proj, first, stateCompleted, 10*time.Second)
+}
+
 // sendTx: rows committed with the app's transaction become jobs; rolled
 // back ones never do; a crash between enqueue and delete never duplicates.
 func TestOutbox(t *testing.T) {

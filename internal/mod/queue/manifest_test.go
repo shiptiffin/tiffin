@@ -61,7 +61,7 @@ func TestReconcileQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, _ = e.queueConfig(ctx, e.pool, proj, "plain")
-	if c.Path != "/queues/plain" || c.MaxAttempts != 8 || c.LeaseS != 60 || c.RateLimit != 0 || c.RatePeriodS != 0 {
+	if c.Path != "/queues/plain" || c.MaxAttempts != 10 || c.LeaseS != 60 || c.RateLimit != 0 || c.RatePeriodS != 0 {
 		t.Errorf("defaults %+v", c)
 	}
 	// Pause is the operator's: a changed spec keeps it, other fields follow the manifest.

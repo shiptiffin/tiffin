@@ -782,6 +782,10 @@ func (r *rt) rollback(ctx context.Context, project, app, id string) (*Deploy, er
 		return d, nil
 	}
 	if !d.Rollbackable() {
+		if d.Preview != "" && d.Status != StatusFailed && d.Status != StatusSkipped {
+			return nil, &stateError{fmt.Sprintf("deploy %s was an earlier build of preview %s, and previews keep only their latest build", d.ID, d.Preview),
+				"Deploy that version to the preview again: tiffin deploy --app " + app + " --preview " + d.Preview}
+		}
 		return nil, &stateError{fmt.Sprintf("deploy %s is %s and cannot be rolled back to", d.ID, d.Status),
 			"Pick a deploy whose status is superseded or rolled_back: tiffin deploys list " + project + " " + app}
 	}
@@ -811,20 +815,39 @@ type stateError struct{ msg, hint string }
 
 func (e *stateError) Error() string { return e.msg }
 
-// gc removes images, static files and work dirs of old deploys, keeping the
-// live deploy and the newest KeepImages rollback targets per environment.
+// gc removes images, static files and work dirs of old deploys. It keeps
+// the live deploy, production's newest KeepImages rollback targets (a
+// preview keeps only its live build) and any release still running or
+// pinned for workflow runs.
 func (r *rt) gc(ctx context.Context, project, app, preview string) {
 	ds, err := r.st.listDeploys(ctx, project, app, preview)
 	if err != nil {
 		return
+	}
+	keep, busy := r.opt.KeepImages, map[string]bool{}
+	if preview != "" {
+		keep = 0
+	} else {
+		if st, err := r.st.getState(ctx, project, app, ""); err == nil {
+			for _, dr := range st.Draining {
+				busy[dr.Release] = true
+			}
+		}
+		rels, _ := r.pinnedReleases(ctx, project, app)
+		for _, rel := range rels {
+			busy[rel] = true
+		}
 	}
 	kept := 0
 	for i, d := range ds {
 		if !d.Terminal() || d.Status == StatusLive {
 			continue
 		}
-		if d.Rollbackable() && kept < r.opt.KeepImages {
+		if d.Rollbackable() && kept < keep {
 			kept++
+			continue
+		}
+		if busy[d.ID] {
 			continue
 		}
 		if d.Image != "" {

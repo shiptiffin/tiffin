@@ -20,7 +20,8 @@ import (
 //	hey (keep-alive) and a curl loop (a new HTTP/1.1 or HTTP/2 connection per request) hammer the app (zero failed requests) → logs show
 //	the requests → a deploy that crashes on boot fails while the live version
 //	serves, and the next deploy works → a secret restarts the app with the new env → a preview
-//	sleeps and wakes → git push deploys → deleting the app stops it.
+//	sleeps and wakes, keeping only its latest build → git push deploys → a worker runs its
+//	manifest command and a workflow finishes on its release → deleting the app stops it.
 func TestRuntime(t *testing.T) {
 	start := time.Now()
 	phase := phaseLogger(t)
@@ -171,6 +172,11 @@ echo started`)
 		t.Fatalf("wake: %d %s", code, body)
 	}
 	t.Logf("sleeping preview answered its first request in %s", time.Since(wake).Round(10*time.Millisecond))
+	// A preview keeps only its latest build: the earlier one cannot be rolled back to.
+	deployArgs(t, b, app, "--preview", "pr-1")
+	if code, out := b.run("deploys", "rollback", "hello", "api", pv.ID); code == 0 || !strings.Contains(out, "previews keep only their latest build") {
+		t.Fatalf("rollback to an earlier preview build: exit %d\n%s", code, out)
+	}
 	phase("preview", p)
 
 	// ---- git push deploys ----
@@ -208,7 +214,7 @@ echo started`)
 	if out, err := exec.Command("rsync", "-a", "--exclude", "node_modules", filepath.Join(RepoRoot(), "templates", "queues-worker")+"/", worker+"/").CombinedOutput(); err != nil {
 		t.Fatalf("copy queues-worker: %v %s", err, out)
 	}
-	b.apply("jobs", `{"project":"jobs","apps":{"worker":{"role":"worker"}}}`)
+	b.apply("jobs", `{"project":"jobs","apps":{"worker":{"role":"worker","command":"bun ./index.ts"}}}`)
 	b.project = "jobs"
 	b.waitReady("app/worker")
 	b.project = "hello"
@@ -228,6 +234,9 @@ echo started`)
 		time.Sleep(3 * time.Second)
 	}
 	runID, _ := run["id"].(string)
+	if cmd := b.inBox(`sudo nerdctl -n tiffin ps --no-trunc --filter label=tiffin.project=jobs --format '{{.Command}}'`); !strings.Contains(cmd, "bun ./index.ts") {
+		t.Fatalf("the worker must run its manifest command, runs: %s", cmd)
+	}
 	if run["release"] != w1.ID {
 		t.Fatalf("run not pinned to the current release %s: %v", w1.ID, run)
 	}

@@ -1070,6 +1070,98 @@ func TestGCKeepsRollbackTargets(t *testing.T) {
 	}
 }
 
+// A preview keeps only its live build; deleting it removes that one too.
+func TestPreviewKeepsOnlyItsLatestBuild(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	image := func(id string) string {
+		d, _ := h.r.st.getDeploy(ctx, "shop", "api", id)
+		return d.Image
+	}
+	pv1 := h.deploy("api", "feat-x", map[string]string{"index.ts": "1"})
+	pv2 := h.deploy("api", "feat-x", map[string]string{"index.ts": "2"})
+	if image(pv1.ID) != "" || image(pv2.ID) == "" {
+		t.Fatalf("images: earlier build %q, live build %q", image(pv1.ID), image(pv2.ID))
+	}
+	if _, err := h.r.rollback(ctx, "shop", "api", pv1.ID); err == nil || !strings.Contains(err.Error(), "previews keep only their latest build") {
+		t.Fatalf("rollback of a preview: %v", err)
+	}
+	if err := h.r.deletePreview(ctx, "shop", "api", "feat-x"); err != nil {
+		t.Fatal(err)
+	}
+	if image(pv2.ID) != "" || h.imageCount() != 0 {
+		t.Fatalf("a deleted preview keeps its image: %q, %d images", image(pv2.ID), h.imageCount())
+	}
+}
+
+func (h *harness) imageCount() int {
+	h.eng.mu.Lock()
+	defer h.eng.mu.Unlock()
+	n := 0
+	for _, c := range h.eng.images {
+		if c != "" {
+			n++
+		}
+	}
+	return n
+}
+
+// gc never removes the image of a release that workflow runs are pinned to,
+// however many deploys come after it.
+func TestGCKeepsPinnedReleases(t *testing.T) {
+	h := newHarness(t)
+	defer pins.set()
+	ctx := context.Background()
+	v1 := h.deploy("api", "", map[string]string{"index.ts": "v1"})
+	pins.set(v1.ID)
+	for i := range 4 {
+		h.deploy("api", "", map[string]string{"index.ts": fmt.Sprint(i)})
+	}
+	if d, _ := h.r.st.getDeploy(ctx, "shop", "api", v1.ID); d.Image == "" {
+		t.Fatal("the image of a pinned release was removed")
+	}
+	pins.set()
+	h.r.reapDrained(ctx)
+	h.deploy("api", "", map[string]string{"index.ts": "last"})
+	if d, _ := h.r.st.getDeploy(ctx, "shop", "api", v1.ID); d.Image != "" {
+		t.Fatal("an unpinned old release keeps its image")
+	}
+}
+
+// Previews nobody requested or deployed to for PreviewExpire are deleted.
+func TestUnusedPreviewsAreDeleted(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	h.deploy("api", "", map[string]string{"index.ts": "prod"})
+	pv := h.deploy("api", "feat-x", map[string]string{"index.ts": "preview"})
+	h.r.opt.PreviewExpire = time.Hour
+	h.r.sleep(ctx, "shop", "api", "feat-x")
+	h.r.expirePreviews(ctx)
+	if h.state("api", "feat-x").Live != pv.ID {
+		t.Fatal("a preview used within PreviewExpire was deleted")
+	}
+	// The clock is the sleeping state's last write, so it outlives a restart
+	// (the in-memory last request is gone).
+	h.r.mu.Lock()
+	h.r.lastSeen = map[string]time.Time{}
+	h.r.mu.Unlock()
+	h.r.opt.PreviewExpire = 50 * time.Millisecond
+	time.Sleep(60 * time.Millisecond)
+	h.r.expirePreviews(ctx)
+	if st := h.state("api", "feat-x"); st.Live != "" {
+		t.Fatalf("unused preview kept: %+v", st)
+	}
+	if code, _ := h.get("feat-x--shop-api.tiffin.localhost", "/"); code != 404 {
+		t.Fatalf("expired preview still served: %d", code)
+	}
+	if d, _ := h.r.st.getDeploy(ctx, "shop", "api", pv.ID); d.Status != StatusStopped || d.Image != "" {
+		t.Fatalf("expired preview's deploy: %s, image %q", d.Status, d.Image)
+	}
+	if st := h.state("api", ""); st.Live == "" || len(st.Instances) != 2 {
+		t.Fatalf("production touched: %+v", st)
+	}
+}
+
 func TestRecoverMarksInterruptedDeploysFailed(t *testing.T) {
 	h := newHarness(t)
 	spec, _ := h.r.appSpec(context.Background(), "shop", "api")

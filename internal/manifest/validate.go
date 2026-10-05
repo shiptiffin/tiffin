@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
+	_ "time/tzdata" // cron time zones validate the same on every machine
 )
 
 // FieldError is one thing wrong with a manifest.
@@ -89,6 +91,13 @@ func semanticErrors(m *Manifest) []FieldError {
 				}
 			}
 		}
+		switch {
+		case app.Command != "" && app.Framework == FrameworkStatic:
+			errs = append(errs, FieldError{Path: base + "/command",
+				Message: "static apps are files served by the edge and run no command; remove \"command\" or pick another framework"})
+		case app.Command != "" && strings.TrimSpace(app.Command) == "":
+			errs = append(errs, FieldError{Path: base + "/command", Message: "the command is blank; remove \"command\" to use the detected start command"})
+		}
 		if app.Role == RoleWorker && len(app.Routes) > 0 {
 			errs = append(errs, FieldError{
 				Path:    base + "/routes",
@@ -138,6 +147,12 @@ func semanticErrors(m *Manifest) []FieldError {
 				msg += "; add the app to \"apps\" first"
 			}
 			errs = append(errs, FieldError{Path: "/crons/" + escapePointer(name) + "/app", Message: msg})
+		}
+		if c.Timezone != "" {
+			if _, err := time.LoadLocation(c.Timezone); err != nil || c.Timezone == "Local" {
+				errs = append(errs, FieldError{Path: "/crons/" + escapePointer(name) + "/timezone",
+					Message: fmt.Sprintf("%q is not an IANA time zone name; use one such as \"America/New_York\", \"Europe/London\" or \"UTC\"", c.Timezone)})
+			}
 		}
 	}
 	errs = append(errs, queueErrors(m)...)

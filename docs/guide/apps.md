@@ -27,11 +27,18 @@ The box builds with Railpack and BuildKit, starts the new instances, waits for t
 health check, switches traffic with no dropped requests, then drains the old ones. A
 failed build or health check leaves the old version serving.
 
-- **Rollback:** `tiffin rollback <app> [deploy]`, to any earlier successful deploy.
+- **Rollback:** `tiffin rollback <app> [deploy]`, to one of the last 3 production deploys
+  before the live one (older builds are cleaned up; their records stay listed).
 - **Logs:** `tiffin logs <app> -f`.
 - **Previews** sleep when idle and wake on the first request. Previews use this
   project's live data: the same database, cache, files and secrets. Email goes to the
-  dev inbox.
+  dev inbox. A preview keeps only its latest build (no rollback), and one nobody
+  requested or deployed to for 7 days is deleted, as if its pull request had closed;
+  the next push or deploy builds it again.
+- **Start command:** an app runs its build's start command (package.json `start`); set
+  `command` to run something else. One folder can then hold a web app and a worker:
+  `web: { path: "app" }, worker: { path: "app", role: "worker", command: "bun run worker.ts" }`.
+  It applies from the next deploy; static apps have none.
 - **Prebuilt images:** `tiffin deploy --prebuilt image.tar` (one image, from `docker save`
   or `nerdctl save`). The tarball's own names are replaced by the deploy's as it loads:
   the image is kept under the deploy's name only, so it cannot replace another project's

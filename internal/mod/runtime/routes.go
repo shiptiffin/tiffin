@@ -323,6 +323,38 @@ func (r *rt) sleepIdlePreviews(ctx context.Context) {
 	}
 }
 
+// expirePreviews deletes the previews nobody requested or deployed to for
+// PreviewExpire, as closing their pull request would. Only sleeping
+// previews qualify: a preview's state is last written when it falls asleep,
+// after its last request, so the clock survives a restart. Static previews
+// never sleep (the edge serves them) and are kept.
+func (r *rt) expirePreviews(ctx context.Context) {
+	states, err := r.st.allStates(ctx)
+	if err != nil {
+		return
+	}
+	for _, s := range states {
+		if s.Preview == "" || !s.Sleeping || s.Stopped || time.Since(s.UpdatedAt) < r.opt.PreviewExpire {
+			continue
+		}
+		r.mu.Lock()
+		seen := r.lastSeen[envKey(s.Project, s.App, s.Preview)]
+		r.mu.Unlock()
+		ds, err := r.st.listDeploys(ctx, s.Project, s.App, s.Preview)
+		if err != nil || time.Since(seen) < r.opt.PreviewExpire || (len(ds) > 0 && time.Since(ds[0].CreatedAt) < r.opt.PreviewExpire) {
+			continue
+		}
+		if err := r.deletePreview(ctx, s.Project, s.App, s.Preview); err != nil {
+			r.p.Log.Warn("runtime: delete an unused preview", "project", s.Project, "app", s.App, "preview", s.Preview, "err", err)
+			continue
+		}
+		r.p.Log.Info("preview deleted: unused", "project", s.Project, "app", s.App, "preview", s.Preview, "after", r.opt.PreviewExpire)
+		if d, err := r.st.getDeploy(ctx, s.Project, s.App, s.Live); err == nil && d.PullRequest > 0 {
+			r.expireReport(ctx, s.Project, s.App, d.PullRequest)
+		}
+	}
+}
+
 func (r *rt) sleep(ctx context.Context, project, app, preview string) {
 	unlock := r.lock(envKey(project, app, preview))
 	defer unlock()

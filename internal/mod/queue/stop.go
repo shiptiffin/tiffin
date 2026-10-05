@@ -40,25 +40,25 @@ func (e *Engine) SetProjectStopped(ctx context.Context, project string, stopped 
 	if err := e.wake(ctx, tx, stopKey(project), 0); err != nil {
 		return err
 	}
-	rows, err := tx.Query(ctx, `SELECT name, schedule FROM tq_crons WHERE project = $1 AND next_at <= now() FOR UPDATE`, project)
+	rows, err := tx.Query(ctx, `SELECT name, schedule, timezone FROM tq_crons WHERE project = $1 AND next_at <= now() FOR UPDATE`, project)
 	if err != nil {
 		return err
 	}
-	type due struct{ name, schedule string }
+	type due struct{ name, schedule, tz string }
 	ds, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (due, error) {
 		var d due
-		return d, r.Scan(&d.name, &d.schedule)
+		return d, r.Scan(&d.name, &d.schedule, &d.tz)
 	})
 	if err != nil {
 		return err
 	}
 	for _, d := range ds {
-		sched, err := cronParser.Parse(d.schedule)
+		sched, err := parseSchedule(d.schedule, d.tz)
 		if err != nil {
 			continue
 		}
 		if _, err := tx.Exec(ctx, `UPDATE tq_crons SET next_at = $3 WHERE project = $1 AND name = $2`,
-			project, d.name, sched.Next(e.now().UTC())); err != nil {
+			project, d.name, sched.Next(e.now())); err != nil {
 			return err
 		}
 	}

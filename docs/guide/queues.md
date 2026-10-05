@@ -14,7 +14,8 @@ await queue.send("emails", { to: "sam@example.com" }, { delay: "10m", key: "user
 - **Topics** fan out to every subscriber; **dedupe** within 24 hours.
 - **`sendTx`:** enqueue inside your own database transaction (an outbox the box drains),
   so a job exists if and only if your write committed.
-- **Long jobs** extend their lease with heartbeats; nothing has a time limit.
+- **Long jobs** extend their lease with heartbeats, for up to 24 hours per attempt: an attempt
+  still running then counts as failed and is retried.
 
 ### Without the SDK
 
@@ -55,7 +56,7 @@ export default defineConfig({
 | `keyConcurrency` | 0 (no limit), max 1000 | Jobs running at once per `key` |
 | `rateLimit` | 0 (no limit), max 10000 | Jobs started per period, per `key` |
 | `ratePeriodSeconds` | 60 when `rateLimit` is set | The rate window, 1-86400 |
-| `maxAttempts` | 8 (1-100) | Tries before a job goes to the dead-letter queue |
+| `maxAttempts` | 10 (1-100) | Tries before a job goes to the dead-letter queue |
 | `leaseSeconds` | 60 (5-3600) | How long an attempt may run without a response or heartbeat |
 
 Queue names are slugs (lowercase letters, digits, dashes, at most 40). Topic names may also
@@ -72,8 +73,25 @@ queues.
 ## Crons
 
 ```ts
-crons: { nightly: { schedule: "0 3 * * *", app: "worker", path: "/cron/nightly" } }
+crons: {
+  nightly: { schedule: "0 3 * * *", app: "worker", path: "/cron/nightly" },
+  // 9:00 on weekdays in New York, summer and winter.
+  morning: { schedule: "0 9 * * mon-fri", app: "worker", timezone: "America/New_York" },
+}
 ```
+
+| Cron field | Default | Meaning |
+|---|---|---|
+| `schedule` | required | 5 cron fields (`minute hour day month weekday`) or `@hourly`, `@daily`, `@weekly`, `@monthly` |
+| `app` | required | App that receives the call (a worker is fine) |
+| `path` | `/cron/<name>` | Route the call is POSTed to |
+| `timezone` | UTC | IANA time zone the schedule is read in |
+| `overlap` | `false` | Run a tick even while the previous run is still going |
+
+When clocks change, a time that happens twice runs once and a time that is skipped runs at
+the change. A tick whose previous run is still queued or running is skipped, not stacked;
+`tiffin queue crons list` shows the time zone, the latest run and `lastSkippedAt`. Set
+`overlap: true` to run every tick regardless.
 
 ## Workflows
 

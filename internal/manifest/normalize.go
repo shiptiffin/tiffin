@@ -23,7 +23,7 @@ const (
 
 	DefaultQueuePathPrefix = "/queues/"
 	DefaultRatePeriodSecs  = 60
-	DefaultMaxAttempts     = 8
+	DefaultMaxAttempts     = 10
 	DefaultLeaseSeconds    = 60
 )
 
@@ -48,7 +48,7 @@ var DefaultAuthMethods = []string{AuthEmail, AuthMagicLink}
 //   - email from is left empty: the box resolves "<project>@<box domain>"
 //   - cron path "/cron/<name>"
 //   - queue path "/queues/<name>", ratePeriodSeconds 60 when rateLimit is
-//     set, maxAttempts 8, leaseSeconds 60
+//     set, maxAttempts 10, leaseSeconds 60
 //   - topic subscribers are sorted and de-duplicated
 //   - route hostnames are lowercased and path prefixes lose trailing slashes
 func Normalize(m *Manifest) *Manifest {

@@ -124,6 +124,12 @@
           "type": "string",
           "pattern": "^/"
         },
+        "command": {
+          "description": "Starts the app instead of the start command the build detects (package.json `start`), e.g. \"bun run worker.ts\", so one source folder can run a web app and a worker. Applies from the next deploy. Not for static apps.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
         "env": {
           "description": "App-specific plain environment variables, merged over the top-level `env`.",
           "$ref": "#/$defs/env"
@@ -184,6 +190,15 @@
           "description": "Request path on the app. Must start with \"/\". Default \"/cron/<cron name>\".",
           "type": "string",
           "pattern": "^/"
+        },
+        "timezone": {
+          "description": "IANA time zone the schedule is read in, e.g. \"America/New_York\" or \"Europe/London\". Default UTC. When clocks change, a time that happens twice runs once and a time that is skipped runs at the change.",
+          "type": "string",
+          "minLength": 1
+        },
+        "overlap": {
+          "description": "Run a tick even while the previous one is still queued or running. Default false: such a tick is skipped, and `queue crons list` shows when the last one was.",
+          "type": "boolean"
         }
       }
     },
@@ -228,7 +243,7 @@
           "maximum": 86400
         },
         "maxAttempts": {
-          "description": "How many times a job is tried before it goes to the dead-letter queue, 1-100. Default 8.",
+          "description": "How many times a job is tried before it goes to the dead-letter queue, 1-100. Default 10.",
           "type": "integer",
           "minimum": 1,
           "maximum": 100

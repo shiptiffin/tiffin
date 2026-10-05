@@ -364,6 +364,7 @@ const (
 	prLive     = "live"
 	prFailed   = "failed"
 	prRemoved  = "removed"
+	prExpired  = "expired"
 )
 
 type prComment struct {
@@ -394,6 +395,9 @@ func (r *rt) commentBody(d *Deploy, kind string) string {
 		}
 	case prRemoved:
 		fmt.Fprintf(&b, "**Preview** of `%s` was removed: the pull request is closed.", d.App)
+	case prExpired:
+		fmt.Fprintf(&b, "**Preview** of `%s` was removed after %s without visits or deploys. Push to the pull request to build it again.",
+			d.App, expireWords(r.opt.PreviewExpire))
 	}
 	fmt.Fprintf(&b, "\n\n<sub>Deployed by Tiffin on %s</sub>", r.p.Domain)
 	return b.String()
@@ -733,7 +737,7 @@ func (r *rt) onPullRequest(ctx context.Context, c *ghConn, body []byte) (int, st
 				failed = append(failed, a.Project+"/"+a.App+" ("+err.Error()+")")
 				continue
 			}
-			r.closeReport(ctx, c, a, repo, n)
+			r.closeReport(ctx, c, a.Project, a.App, repo, n, prRemoved)
 		}
 	default:
 		return http.StatusAccepted, "nothing to do for " + ev.Action
@@ -768,8 +772,8 @@ func (r *rt) onPullRequest(ctx context.Context, c *ghConn, body []byte) (int, st
 
 // closeReport updates the comment and retires the deployment of a closed
 // pull request's preview.
-func (r *rt) closeReport(ctx context.Context, c *ghConn, a connectedApp, repo string, n int) {
-	k := prKey(a.Project, a.App, n) + "@" + repo
+func (r *rt) closeReport(ctx context.Context, c *ghConn, project, app, repo string, n int, kind string) {
+	k := prKey(project, app, n) + "@" + repo
 	raw, ok, _ := r.p.DB.KVGet(ctx, nsGitHub, k)
 	if !ok {
 		return
@@ -780,14 +784,42 @@ func (r *rt) closeReport(ctx context.Context, c *ghConn, a connectedApp, repo st
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	d := &Deploy{Project: a.Project, App: a.App}
+	d := &Deploy{Project: project, App: app}
 	if pc.Comment != 0 {
-		_, _ = c.App.UpsertComment(ctx, pc.Install, repo, n, pc.Comment, r.commentBody(d, prRemoved))
+		_, _ = c.App.UpsertComment(ctx, pc.Install, repo, n, pc.Comment, r.commentBody(d, kind))
 	}
 	if pc.Deployment != 0 {
 		_ = c.App.SetDeploymentStatus(ctx, pc.Install, repo, pc.Deployment, ghapp.DeploymentStatus{State: "inactive", Description: "Preview removed"})
 	}
 	_ = r.p.DB.KVDelete(ctx, nsGitHub, k)
+}
+
+// expireReport tells the pull request its preview was deleted for lack of use.
+func (r *rt) expireReport(ctx context.Context, project, app string, n int) {
+	c, err := r.github(ctx)
+	if err != nil {
+		return
+	}
+	kv, err := r.p.DB.KVList(ctx, nsGitHub)
+	if err != nil {
+		return
+	}
+	for k := range kv {
+		if repo, ok := strings.CutPrefix(k, prKey(project, app, n)+"@"); ok {
+			r.closeReport(ctx, c, project, app, repo, n, prExpired)
+		}
+	}
+}
+
+// expireWords is a duration in days ("7 days"), or as Go writes it when shorter.
+func expireWords(d time.Duration) string {
+	if days := int(d.Hours() / 24); days >= 1 && d%(24*time.Hour) == 0 {
+		if days == 1 {
+			return "1 day"
+		}
+		return fmt.Sprintf("%d days", days)
+	}
+	return d.String()
 }
 
 // andList joins names for a sentence: "a", "a and b", "a, b and c".

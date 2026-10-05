@@ -28,7 +28,8 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    <owner> <repo>` (folders and framework), put `git: { repo, branch, path }` on the app, plan,
    apply, then `tiffin deploys github <project> <app>` (also Redeploy). Every push to the branch
    then deploys and pull requests get previews. Not connected? Ask the human to click Connect
-   GitHub in Settings › Git (it needs a browser).
+   GitHub in Settings › Git (it needs a browser). `tiffin rollback` reaches the last 3
+   production deploys; a preview keeps only its latest build and is deleted after 7 days unused.
 5. Secrets go in `tiffin secrets set`, never in the config or the repo. Starting a new project?
    Reuse keys the box already has instead of asking for them again:
    `tiffin secrets list <other>` shows names, `tiffin secrets copy <new> --from <other> [--names A,B]`

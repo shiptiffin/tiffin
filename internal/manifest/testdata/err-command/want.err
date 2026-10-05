@@ -1,0 +1,2 @@
+/apps/blank/command: the command is blank; remove "command" to use the detected start command
+/apps/site/command: static apps are files served by the edge and run no command; remove "command" or pick another framework
