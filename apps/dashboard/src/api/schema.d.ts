@@ -6101,7 +6101,10 @@ export interface components {
         PortableAppResult: {
             app: string;
             deploy?: string;
+            /** @description Why its deploy failed */
             error?: string;
+            /** @description What to do about it */
+            hint?: string;
             /** @description live, failed, or none (it had no release to bring) */
             status: string;
             /** @description Its address in the new project */
@@ -6339,7 +6342,7 @@ export interface components {
             /** Format: date-time */
             startedAt?: string;
             /**
-             * @description uploaded (an import waiting for apply) → running → done or failed
+             * @description uploaded (an import waiting for apply) → running → done or failed. A job whose project was created but an app of which did not start is failed: created is true, apps says which app and why
              * @enum {string}
              */
             status: "uploaded" | "running" | "done" | "failed";

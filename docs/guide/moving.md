@@ -70,6 +70,10 @@ duplicate. The database loads as the new project's own Postgres role, so an arch
 do nothing the project could not do itself. Then the apps start from the archive's images
 or files, and the project's History comes along if it was exported.
 
+If an app does not start, the import fails (the CLI exits non-zero) though the project
+is there with its data: the result names the app, why its deploy failed and what to do.
+Deploy that app again once fixed, or destroy the project and import again.
+
 Secrets sealed to another box need that box's key: `--secrets-key-file <file>` (its
 `/var/lib/tiffin/platform/secrets.key`). Or `--without-secrets` imports the rest and
 lists the secrets to set again (`tiffin secrets set`). Archives from the same box, and
@@ -91,7 +95,7 @@ Then it:
 - **stops** the project here: its apps go down, its data stays (`tiffin projects start
   <project>` brings it back). Destroy it here once you are happy with the move.
 
-If the import fails, nothing here changes. Agents get the same as the `project_move` tool
+If the import fails, an app of it not starting included, nothing here changes. Agents get the same as the `project_move` tool
 of `tiffin mcp`, when the CLI knows more than one box.
 
 ### Stop and start

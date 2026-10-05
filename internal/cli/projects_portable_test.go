@@ -44,6 +44,7 @@ type stubBoxes struct {
 	archive   []byte
 	received  []byte
 	failApply bool
+	unhealthy bool // an older box: done, but an app did not start
 	stopped   string
 	dnsSet    bool
 	applied   map[string]any
@@ -100,6 +101,11 @@ func (s *stubBoxes) dst() http.Handler {
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "pj_1", "status": "failed", "error": "postgres: boom"})
 			return
 		}
+		if s.unhealthy {
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "pj_1", "status": "done", "project": "shop", "healthy": false, "created": true,
+				"apps": []map[string]any{{"app": "web", "status": "failed", "error": "the tarball contained no image"}}})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": "pj_1", "status": "done", "project": "shop", "healthy": true,
 			"apps": []map[string]any{{"app": "web", "status": "live", "url": "https://shop.b.example"}}})
 	})
@@ -145,6 +151,14 @@ func TestMoveProject(t *testing.T) {
 	if s.stopped != "" {
 		t.Fatal("stopped on the old box after a failed import")
 	}
+	s.failApply, s.unhealthy = false, true
+	if _, err := moveProject(ctx, src, dst, moveOptions{project: "shop", fromName: "old", toName: "new"}); err == nil || !strings.Contains(err.Error(), "still runs on old") {
+		t.Fatalf("an import whose app did not start: %v", err)
+	}
+	if s.stopped != "" {
+		t.Fatal("stopped on the old box after an import whose app did not start")
+	}
+	s.unhealthy = false
 	// A name the new box already has is refused before anything moves.
 	if _, err := moveProject(ctx, src, dst, moveOptions{project: "blog", fromName: "old", toName: "new"}); err == nil || !strings.Contains(err.Error(), "already has") {
 		t.Fatalf("name taken: %v", err)

@@ -61,6 +61,7 @@ type appAddress struct {
 	Status string `json:"status"`
 	URL    string `json:"url,omitempty"`
 	Error  string `json:"error,omitempty"`
+	Hint   string `json:"hint,omitempty"`
 }
 
 // projectExport mirrors the API's project export.
@@ -154,10 +155,12 @@ func (a *app) waitProjectJob(ctx context.Context, c *client, job *projectJob) er
 
 // reportJob prints a finished duplicate or import.
 func (a *app) reportJob(job *projectJob, done string, start time.Time) error {
-	if job.Status == "failed" {
+	if job.Status == "failed" && !job.Created {
 		return &exitError{ExitError, job.Kind + " " + job.ID + " failed: " + job.Error + hintOf(job.Hint)}
 	}
-	if !job.Healthy {
+	// Failed with the project created (an app did not start, say): the
+	// project is there, so show what came across, and exit non-zero.
+	if !job.Healthy || job.Status == "failed" {
 		a.code = ExitError
 	}
 	if !a.tty() {
@@ -166,7 +169,10 @@ func (a *app) reportJob(job *projectJob, done string, start time.Time) error {
 	}
 	w := a.io.Out
 	mark := a.paint("✓", green)
-	if !job.Healthy {
+	switch {
+	case job.Status == "failed":
+		mark, done = a.paint("✗", red), done+", but not everything came across"
+	case !job.Healthy:
 		mark = a.paint("!", amber)
 	}
 	fmt.Fprintf(w, "%s %s %s\n", mark, done, a.paint("("+time.Since(start).Round(time.Second).String()+")", dim))
@@ -602,7 +608,9 @@ func moveProject(ctx context.Context, src, dst *client, o moveOptions) (*moveRes
 		say(fmt.Sprintf("%s on %s (%d%%)", orDefault(job.Phase, job.Status), o.toName, job.Percent))
 	}
 	res.Import = &job
-	if job.Status == "failed" {
+	// An app that did not start fails the import (older boxes said done but
+	// not healthy): the project keeps running here.
+	if job.Status == "failed" || !job.Healthy {
 		discard() // it holds the secrets in plain text
 		return res, &exitError{ExitError, "the import on " + o.toName + " failed: " + job.Error + hintOf(job.Hint) +
 			"\n  " + o.project + " still runs on " + o.fromName + ", untouched."}

@@ -33,8 +33,9 @@ failed build or health check leaves the old version serving.
   project's live data: the same database, cache, files and secrets. Email goes to the
   dev inbox.
 - **Prebuilt images:** `tiffin deploy --prebuilt image.tar` (one image, from `docker save`
-  or `nerdctl save`). The tarball's own tags are ignored: the image is kept under the
-  deploy's name only, so it cannot replace another project's or the box's images.
+  or `nerdctl save`). The tarball's own names are replaced by the deploy's as it loads:
+  the image is kept under the deploy's name only, so it cannot replace another project's
+  or the box's images.
 
 ## Without a checkout: templates and git URLs
 

@@ -131,6 +131,28 @@ func TestProjectAPI(t *testing.T) {
 		t.Fatalf("duplicate job: %+v", j)
 	}
 
+	// An app that does not start fails the job, saying which and why.
+	x.b.mu.Lock()
+	x.b.failApp = "web"
+	x.b.mu.Unlock()
+	if code := call(owner, "POST", "/v1/projects/shop/duplicate", strings.NewReader(`{"name":"shop-broken"}`), &job); code != 202 {
+		t.Fatalf("duplicate: %d %+v", code, job)
+	}
+	j := waitJob(job.ID)
+	x.b.mu.Lock()
+	x.b.failApp = ""
+	x.b.mu.Unlock()
+	if j.Status != JobFailed || j.Healthy || !j.Created || j.Project != "shop-broken" ||
+		!strings.Contains(j.Error, "app web did not start: the tarball contained no image") ||
+		!strings.Contains(j.Hint, "docker save") || !strings.Contains(j.Hint, "tiffin deploys build-log shop-broken web dep_") {
+		t.Fatalf("a duplicate with an app that did not start: %+v", j)
+	}
+	for _, a := range j.Apps {
+		if (a.App == "web") != (a.Status == "failed") || (a.App == "web" && a.Hint == "") {
+			t.Errorf("app result: %+v", a)
+		}
+	}
+
 	// Stop and start are changes in History.
 	var ar api.ApplyResult
 	if code := call(owner, "POST", "/v1/projects/shop/stop", strings.NewReader(`{"intent":"Moved to box b"}`), &ar); code != 200 || !ar.Applied || ar.Change.Intent != "Moved to box b" {

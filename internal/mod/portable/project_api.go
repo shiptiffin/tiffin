@@ -91,7 +91,7 @@ type ArchiveSummary struct {
 type ProjectJob struct {
 	ID             string          `json:"id" doc:"Job ID (pj_...)"`
 	Kind           string          `json:"kind" enum:"duplicate,import"`
-	Status         string          `json:"status" enum:"uploaded,running,done,failed" doc:"uploaded (an import waiting for apply) → running → done or failed"`
+	Status         string          `json:"status" enum:"uploaded,running,done,failed" doc:"uploaded (an import waiting for apply) → running → done or failed. A job whose project was created but an app of which did not start is failed: created is true, apps says which app and why"`
 	Phase          string          `json:"phase,omitempty" doc:"What it is doing now"`
 	Percent        int             `json:"percent"`
 	From           string          `json:"from" doc:"The project copied (duplicate) or the archive's project (import)"`
@@ -175,18 +175,45 @@ func (j *jobRun) finish(res *imported, err error) {
 			}
 			return
 		}
-		r.Status, r.Percent, r.Healthy = JobDone, 100, true
-		for _, a := range r.Apps {
+		r.Percent = 100
+		// An app that did not start fails the job: the project is there with
+		// its data, but it is not what was copied until that app runs.
+		var failed, why []string
+		var first *AppResult
+		for i, a := range r.Apps {
 			if a.Status != runtime.StatusLive && a.Status != "none" {
-				r.Healthy = false
-				r.Hint = fmt.Sprintf("App %s did not start: %s (tiffin deploys list %s %s)", a.App, a.Error, r.Project, a.App)
+				failed = append(failed, a.App)
+				msg := a.Error
+				if msg == "" {
+					msg = "its deploy is " + a.Status
+				}
+				why = append(why, fmt.Sprintf("app %s did not start: %s", a.App, msg))
+				if first == nil {
+					first = &r.Apps[i]
+				}
 			}
 		}
+		if first == nil {
+			r.Status, r.Healthy = JobDone, true
+			return
+		}
+		r.Status, r.Error = JobFailed, strings.Join(why, "; ")
+		r.Hint = fmt.Sprintf("Project %s was created with its data, but %s did not start.", r.Project, strings.Join(failed, " and "))
+		if first.Hint != "" {
+			r.Hint += " " + first.Hint
+		}
+		if first.Deploy != "" {
+			r.Hint += fmt.Sprintf(" Its build log: `tiffin deploys build-log %s %s %s`.", r.Project, first.App, first.Deploy)
+		}
+		r.Hint += fmt.Sprintf(" Deploy it again once fixed, or destroy the project (`tiffin projects destroy %s`) and import again.", r.Project)
 	}, true)
-	if err != nil {
-		j.p.Log.Error("project "+j.rec.Kind+" failed", "job", j.rec.ID, "err", err)
+	j.mu.Lock()
+	rec := *j.rec
+	j.mu.Unlock()
+	if rec.Status == JobFailed {
+		j.p.Log.Error("project "+rec.Kind+" failed", "job", rec.ID, "project", rec.Project, "err", rec.Error)
 	} else {
-		j.p.Log.Info("project "+j.rec.Kind+" done", "job", j.rec.ID, "project", j.rec.Project)
+		j.p.Log.Info("project "+rec.Kind+" done", "job", rec.ID, "project", rec.Project)
 	}
 }
 

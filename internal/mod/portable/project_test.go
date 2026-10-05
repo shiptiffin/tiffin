@@ -42,6 +42,7 @@ type fakeBackend struct {
 	releases map[string]*runtime.Deploy // project/app → live deploy
 	images   map[string]string          // ref → content
 	deleted  map[string]bool
+	failApp  string // releases of this app fail, as a load that is refused
 }
 
 func newFake(root string) *fakeBackend {
@@ -145,6 +146,10 @@ func (f *fakeBackend) release(_ context.Context, project, app string, src runtim
 	ref := "docker.io/tiffin/" + project + "-" + app + ":" + strings.ToLower(d.ID)
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if app == f.failApp {
+		d.Status, d.URL, d.Error, d.Hint = runtime.StatusFailed, "", "the tarball contained no image", "Pass a tarball from `docker save <image>`."
+		return d, nil
+	}
 	switch {
 	case src.StaticDir != "":
 		d.StaticRoot = filepath.Join(f.root, "static", project, app, d.ID)

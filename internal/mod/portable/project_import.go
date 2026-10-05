@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"filippo.io/age"
+	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/boxfile"
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/ids"
@@ -90,7 +91,8 @@ type AppResult struct {
 	Deploy string `json:"deploy,omitempty"`
 	Status string `json:"status" doc:"live, failed, or none (it had no release to bring)"`
 	URL    string `json:"url,omitempty" doc:"Its address in the new project"`
-	Error  string `json:"error,omitempty"`
+	Error  string `json:"error,omitempty" doc:"Why its deploy failed"`
+	Hint   string `json:"hint,omitempty" doc:"What to do about it"`
 }
 
 // imported is what an import made.
@@ -465,8 +467,12 @@ func importProject(ctx context.Context, p *platform.Platform, b backend, r io.Re
 				out.notes = append(out.notes, "App "+ai.Name+"'s release was not in the archive: deploy it again.")
 			case rerr != nil:
 				res.Status, res.Error = runtime.StatusFailed, rerr.Error()
+				var prob *api.Problem
+				if errors.As(rerr, &prob) {
+					res.Hint = prob.Hint
+				}
 			default:
-				res.Deploy, res.Status, res.URL, res.Error = d.ID, d.Status, d.URL, d.Error
+				res.Deploy, res.Status, res.URL, res.Error, res.Hint = d.ID, d.Status, d.URL, d.Error, d.Hint
 			}
 			if sa.imageTar != "" {
 				_ = os.Remove(sa.imageTar)
