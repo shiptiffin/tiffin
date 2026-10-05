@@ -245,9 +245,14 @@ function LimitAdvanced({ project, usage, services }: { project: string; usage: P
     mb: String(services?.valkey?.maxMemoryMB ?? DEFAULT_CACHE_MB),
     secs: String(services?.postgres?.statementTimeoutSeconds ?? DEFAULT_QUERY_SECONDS),
   };
-  const [gb, setGb] = useState(live.gb);
-  const [mb, setMb] = useState(live.mb);
-  const [secs, setSecs] = useState(live.secs);
+  // What the person typed; untouched fields follow the live values (the manifest may arrive after the page).
+  const [typed, setTyped] = useState<Partial<typeof live>>({});
+  const gb = typed.gb ?? live.gb;
+  const mb = typed.mb ?? live.mb;
+  const secs = typed.secs ?? live.secs;
+  const setGb = (v: string) => setTyped((t) => ({ ...t, gb: v }));
+  const setMb = (v: string) => setTyped((t) => ({ ...t, mb: v }));
+  const setSecs = (v: string) => setTyped((t) => ({ ...t, secs: v }));
   const quota = useMutation({
     mutationFn: (maxBytes: number) => request("PUT", `/v1/projects/${encodeURIComponent(project)}/storage/quota`, { maxBytes }),
     onSettled: () => {

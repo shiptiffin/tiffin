@@ -150,8 +150,12 @@ func (l *limiter) round(ctx context.Context, p *platform.Platform) error {
 		known[k] = v
 	}
 	l.mu.Unlock()
-	if len(todo) == 0 && len(known) == 0 {
-		return nil
+	busy := len(known) > 0
+	for _, w := range todo {
+		busy = busy || w.share > 0
+	}
+	if !busy {
+		return nil // no project with a limit has a cache: nothing to measure
 	}
 	c, err := Admin(ctx)
 	if err != nil {
