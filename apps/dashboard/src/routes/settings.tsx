@@ -16,7 +16,7 @@ import { Input, Label } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { roleCopy, useMe } from "@/lib/me";
 import { expiry, relative } from "@/lib/time";
-import { createCredential, passkeyError, webauthnSupported } from "@/lib/webauthn";
+import { createCredential, passkeyError, passkeyWords, webauthnSupported } from "@/lib/webauthn";
 import { NotOnBox, Page, PageHeader, Skeleton } from "@/components/page";
 import { accessCrumbs, Facts, Group, Rows } from "@/components/health-kit";
 import { countWords } from "@/lib/format";
@@ -25,7 +25,8 @@ import { StateSentence } from "@/components/jobs-words";
 // ---------------------------------------------------------------- passkeys
 
 export function PasskeysPage() {
-  useTitle("Touch ID / Face ID");
+  const words = passkeyWords();
+  useTitle(words.title);
   const qc = useQueryClient();
   const keys = useQuery(q.passkeys);
   const { name: me } = useMe();
@@ -56,8 +57,8 @@ export function PasskeysPage() {
   return (
     <Page>
       <PageHeader
-        title="Sign in with Touch ID / Face ID"
-        lede="Use your fingerprint or face instead of a sign-in link. It works on each device you set up (it’s a passkey kept on that device)."
+        title={`Sign in with ${words.name}`}
+        lede={`Use ${words.how} instead of a sign-in link. It works on each device you set up (it’s a passkey kept on that device).`}
       />
       {keys.isSuccess && (
         <StateSentence className="mt-6">
@@ -104,10 +105,10 @@ export function PasskeysPage() {
         >
           <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={defaultName()} maxLength={64} aria-label="Device name" />
           <Button type="submit" variant={list.length ? "secondary" : "primary"} size="lg" className="h-9" disabled={adding || !webauthnSupported()}>
-            {adding ? "Waiting for Touch ID…" : "Set up this device"}
+            {adding ? `Waiting for ${words.button}…` : "Set up this device"}
           </Button>
         </form>
-        <p className="mt-2 text-[0.8125rem] text-ink-3">Name it after the device, so you know which one to remove later. Your browser asks for your fingerprint or face.</p>
+        <p className="mt-2 text-[0.8125rem] text-ink-3">Name it after the device, so you know which one to remove later. Your browser asks for {words.how}.</p>
         {!webauthnSupported() && <p className="mt-2 text-[0.8125rem] text-warn-ink">This browser can’t do it here. It needs HTTPS (or localhost) and a recent browser.</p>}
         {error && (
           <p role="alert" className="mt-3 text-[0.875rem] text-danger">

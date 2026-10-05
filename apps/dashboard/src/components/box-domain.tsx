@@ -271,7 +271,7 @@ function UseOwn({ current, onCancel, onMoving }: { current: BoxDomain; onCancel:
                   The dashboard moves to <span className="ident text-[0.8125rem] text-ink">{dash}</span>, and apps to names like <span className="ident text-[0.8125rem] text-ink">web.{appsAt}</span>.
                 </li>
                 <li>The box restarts for a few seconds; apps keep running. This page reloads on the new address by itself.</li>
-                <li>Touch ID sign-ins belong to this address. Set them up again there; until then, sign in with a link from <code className="ident text-[0.8125rem] text-ink">tiffin login</code>.</li>
+                <li>Passkey sign-ins (Touch ID, Windows Hello…) belong to this address. Set them up again there; until then, sign in with a link from <code className="ident text-[0.8125rem] text-ink">tiffin login</code>.</li>
                 <li>{current.domain} keeps working until the new names have their certificates, then for another hour.</li>
               </ul>
               <Button variant="primary" size="lg" className="mt-4" onClick={() => sw.mutate()} disabled={sw.isPending}>

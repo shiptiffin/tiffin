@@ -604,7 +604,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			"First checks that <domain> and *.<domain> (with appsDomain: <dashboard>.<domain> and *.<appsDomain>) point at this box (A/AAAA records); if not, nothing changes and the answer (status 412) lists exactly the records to add. "+
 			"With createRecords, the box creates the ones in zones a connected DNS provider holds. "+
 			"The service restarts (a few seconds; apps keep running), new certificates are obtained, and the old names keep working until the new ones have certificates, then for another hour. "+
-			"Touch ID sign-ins belong to the dashboard's address: add them again on the new one. Box admins only.", tag))
+			"Passkey sign-ins belong to the dashboard's address: add them again on the new one. Box admins only.", tag))
 	set.Errors = append(set.Errors, 409, 412)
 	huma.Register(a, set, api.Wrap(func(ctx context.Context, in *struct {
 		Body struct {

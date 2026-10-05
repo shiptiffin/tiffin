@@ -27,6 +27,26 @@ export function webauthnSupported() {
   return typeof window !== "undefined" && !!window.PublicKeyCredential && window.isSecureContext;
 }
 
+/**
+ * Passkey sign-in in this device's own words. title: a page or menu title;
+ * name: after "Sign in with"; button: the same, shorter where the device has
+ * one way (a Mac's Touch ID); how: what the browser will ask for.
+ */
+export type PasskeyWords = { title: string; name: string; button: string; how: string };
+
+export function passkeyWords(): PasskeyWords {
+  const nav = typeof navigator === "undefined" ? undefined : (navigator as Navigator & { userAgentData?: { platform?: string } });
+  const p = [nav?.userAgentData?.platform, nav?.platform, nav?.userAgent].join(" ");
+  if (/android/i.test(p)) return { title: "Fingerprint or face", name: "fingerprint or face", button: "fingerprint or face", how: "your fingerprint or face" };
+  if (/mac|iphone|ipad|ipod/i.test(p)) {
+    // An iPad asking for the desktop site says Macintosh, but has a touch screen.
+    const mac = !/iphone|ipad|ipod/i.test(p) && (nav?.maxTouchPoints ?? 0) < 2;
+    return { title: "Touch ID / Face ID", name: "Touch ID / Face ID", button: mac ? "Touch ID" : "Touch ID / Face ID", how: "your fingerprint or face" };
+  }
+  if (/windows|win32|win64/i.test(p)) return { title: "Windows Hello", name: "Windows Hello", button: "Windows Hello", how: "your face, fingerprint or PIN" };
+  return { title: "Passkeys", name: "a passkey", button: "a passkey", how: "a passkey" };
+}
+
 /** Adds a passkey: creation options from the box → navigator.credentials.create() → JSON for the box. */
 export async function createCredential(options: unknown): Promise<Json> {
   const pk = (options as { publicKey: Json }).publicKey;

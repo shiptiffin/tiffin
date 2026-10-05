@@ -10,7 +10,7 @@ import { Mascot } from "@/components/mascot";
 import { Button } from "@/components/ui/button";
 import { ProblemNote } from "@/components/problem";
 import { cn } from "@/lib/cn";
-import { getAssertion, webauthnSupported } from "@/lib/webauthn";
+import { getAssertion, passkeyWords, webauthnSupported } from "@/lib/webauthn";
 import { Fingerprint } from "lucide-react";
 
 type State = "checking" | "signing-in" | "success" | "no-code" | "bad-link" | "already" | "offline";
@@ -60,7 +60,8 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
   const [passkeyBusy, setPasskeyBusy] = useState(false);
   const [passkeyErr, setPasskeyErr] = useState<unknown>(null);
   const canPasskey = webauthnSupported();
-  // With Touch ID on offer, the terminal link is the small fallback (open at once after a bad link).
+  const words = passkeyWords();
+  // With a passkey on offer, the terminal link is the small fallback (open at once after a bad link).
   const [linkOpen, setLinkOpen] = useState(false);
   if (state === "bad-link" && !linkOpen) setLinkOpen(true);
   const passkey = async () => {
@@ -131,11 +132,11 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
               {canPasskey && (
                 <>
                   <p className="mt-2.5 text-md text-ink-2">
-                    {state === "bad-link" ? "Use your fingerprint or face instead, or get a fresh link." : "Use your fingerprint or face, if you’ve set it up on this box."}
+                    {state === "bad-link" ? `Use ${words.how} instead, or get a fresh link.` : `Use ${words.how}, if you’ve set it up on this box.`}
                   </p>
                   <Button variant="primary" size="lg" className="mt-5" onClick={passkey} disabled={passkeyBusy}>
                     <Fingerprint />
-                    {passkeyBusy ? "Waiting for Touch ID…" : "Sign in with Touch ID"}
+                    {passkeyBusy ? `Waiting for ${words.button}…` : `Sign in with ${words.button}`}
                   </Button>
                   {!!passkeyErr && <ProblemNote className="mt-4" error={passkeyErr} />}
                   {!linkOpen && (

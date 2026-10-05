@@ -26,6 +26,7 @@ import { q } from "@/api/queries";
 import { asTier } from "@/lib/changes";
 import { copyText } from "@/lib/clipboard";
 import { setTheme } from "@/lib/theme";
+import { passkeyWords } from "@/lib/webauthn";
 import { RiskMark } from "./risk";
 import { useCurrentProject } from "@/lib/project";
 import { mcpCommand } from "@/lib/mcp";
@@ -159,8 +160,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 <Item icon={<Users />} onSelect={run(() => navigate({ to: "/settings/people" }))} keywords={["team", "invite", "roles"]}>
                   People
                 </Item>
-                <Item icon={<Fingerprint />} onSelect={run(() => navigate({ to: "/settings/passkeys" }))} keywords={["passkeys", "face id", "fingerprint", "webauthn", "sign in"]}>
-                  Sign in with Touch ID / Face ID
+                <Item icon={<Fingerprint />} onSelect={run(() => navigate({ to: "/settings/passkeys" }))} keywords={["passkeys", "touch id", "face id", "windows hello", "fingerprint", "webauthn", "sign in"]}>
+                  Sign in with {passkeyWords().name}
                 </Item>
                 {box.map(([label, to, kw]) => (
                   <Item key={to} icon={<Gauge />} onSelect={run(() => navigate({ to: to as "/" }))} keywords={kw}>

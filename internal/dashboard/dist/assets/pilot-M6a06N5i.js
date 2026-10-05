@@ -1,0 +1,1 @@
+import{W as e,n as t}from"./createLucideIcon-DNdF9PZq.js";var n=e();function r({state:e,label:r,className:i}){return(0,n.jsx)(`span`,{className:t(`pilot`,i),"data-state":e,role:r?`img`:void 0,"aria-label":r,"aria-hidden":!r||void 0})}export{r as t};

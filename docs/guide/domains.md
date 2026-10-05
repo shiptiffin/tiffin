@@ -141,7 +141,7 @@ itself. `tiffin dns disconnect cloudflare` forgets the token.
   only for certificates from a public CA.
 - A domain switch restarts the service for a few seconds (apps keep running). The old
   names keep working until the new ones have certificates, then for another hour.
-  Touch ID sign-ins belong to the dashboard's address: add them again on the new one.
+  Passkey sign-ins belong to the dashboard's address: add them again on the new one.
 
 ## In the dashboard
 

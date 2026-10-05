@@ -7,6 +7,7 @@ import { copyText } from "@/lib/clipboard";
 import { mcpCommand } from "@/lib/mcp";
 import { roleCopy, useMe } from "@/lib/me";
 import { relative } from "@/lib/time";
+import { passkeyWords } from "@/lib/webauthn";
 import { clickedEarly, WhoTrigger } from "./shell-triggers";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "./ui/dropdown";
 
@@ -71,8 +72,8 @@ export function WhoMenu() {
         <MenuItem onSelect={() => navigate({ to: "/settings/passkeys" })} className="h-auto py-1.5">
           <Fingerprint />
           <span className="flex flex-col leading-[1.15rem]">
-            <span>Sign in with Touch ID / Face ID</span>
-            <span className="text-xs text-ink-3">Your fingerprint or face instead of a link</span>
+            <span>Sign in with {passkeyWords().name}</span>
+            <span className="text-xs text-ink-3">{passkeyWords().how.replace(/^./, (c) => c.toUpperCase())} instead of a link</span>
           </span>
         </MenuItem>
         <MenuSeparator />

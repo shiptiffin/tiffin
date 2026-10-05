@@ -31,12 +31,16 @@ Plainly, so you can decide what to trust it with.
 - **Known gaps:** a person or agent with shell access to your Mac can read your local
   owner token in `~/.tiffin`. Backups stay on the box until off-site storage arrives.
 
-## Signing in with Touch ID / Face ID
+## Signing in with a passkey
 
 Set up a device once in **Sign in with Touch ID / Face ID** (your menu; sign in with a
 link first). From then on, choose **Sign in with Touch ID** on the login page: no
 username, no link. It is a passkey kept on that device, and every person can set up
 their own.
+
+The dashboard names it the way your device does: Touch ID / Face ID on a Mac, iPhone
+or iPad, Windows Hello on Windows, fingerprint or face on Android, and a passkey
+anywhere else.
 
 Passkeys added before passkey sign-in existed were not required to be *discoverable*
 (stored on the device so the browser can offer them without a username). Most phone and
