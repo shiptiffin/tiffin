@@ -39,6 +39,30 @@ func TestConfig(t *testing.T) {
 	}
 }
 
+// A box resized from 4 to 16 GB is retuned on its next provision.
+func TestConfigFollowsTheMachine(t *testing.T) {
+	small, big := Config(4096), Config(16384)
+	for _, tc := range []struct{ small, big string }{
+		{"shared_buffers = 512MB", "shared_buffers = 2048MB"},
+		{"effective_cache_size = 2048MB", "effective_cache_size = 8192MB"},
+		{"maintenance_work_mem = 256MB", "maintenance_work_mem = 1024MB"},
+		{"work_mem = 8MB", "work_mem = 32MB"},
+		{"max_connections = 100\n", "max_connections = 400\n"},
+		{"sized for a 4096 MB box", "sized for a 16384 MB box"},
+	} {
+		if !strings.Contains(small, tc.small) || !strings.Contains(big, tc.big) {
+			t.Errorf("want %q on 4 GB and %q on 16 GB", tc.small, tc.big)
+		}
+	}
+	if RoleConnLimit(4096) != 80 || RoleConnLimit(16384) != 320 || MaxConnections(1<<20) != 500 || MaxConnections(1024) != 100 {
+		t.Errorf("connection limits: %d %d %d %d", RoleConnLimit(4096), RoleConnLimit(16384), MaxConnections(1<<20), MaxConnections(1024))
+	}
+	// Existing project roles are brought to the new limit on provision.
+	if sql := retuneRoles(320); !strings.Contains(sql, `rolname LIKE 'p\_%'`) || !strings.Contains(sql, "rolconnlimit <> 320") || !strings.Contains(sql, "CONNECTION LIMIT 320") {
+		t.Errorf("retune: %s", sql)
+	}
+}
+
 func TestNames(t *testing.T) {
 	long := "a" + strings.Repeat("b-", 19) + "c" // 40 chars, the longest slug
 	if len(long) != 40 {

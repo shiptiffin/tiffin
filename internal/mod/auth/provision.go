@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/btahir/tiffin/internal/platform"
@@ -43,7 +44,11 @@ func EngineBundle() ([]byte, error) {
 
 // --no-install: never let Bun fetch packages at runtime (Better Auth imports
 // @opentelemetry/api optionally; without it, Bun would try to install it).
-func unitFile(bun, script, config string) string {
+// engineMemoryMB is the auth engine's memory cap on a box with memMB of
+// RAM: 384 MB up to 6 GB, a sixteenth of RAM above that, at most 1 GB.
+func engineMemoryMB(memMB int) int { return max(384, min(memMB/16, 1024)) }
+
+func unitFile(bun, script, config string, memMB int) string {
 	return `[Unit]
 Description=Tiffin auth engine (Better Auth for every project's apps)
 After=network-online.target postgresql.service
@@ -60,7 +65,7 @@ RuntimeDirectory=tiffin-auth
 RuntimeDirectoryMode=0700
 Restart=always
 RestartSec=2
-MemoryMax=384M
+MemoryMax=` + strconv.Itoa(engineMemoryMB(memMB)) + `M
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
@@ -136,7 +141,7 @@ func (*Module) Provision(ctx context.Context, s *platform.System) error {
 			return err
 		}
 	}
-	if err := s.Unit(ctx, Unit, unitFile(bun, script, ConfigPath(nil))); err != nil {
+	if err := s.Unit(ctx, Unit, unitFile(bun, script, ConfigPath(nil), platform.MemoryMB())); err != nil {
 		return err
 	}
 	if _, err := os.Stat(AdminSocket); err != nil && !changed {

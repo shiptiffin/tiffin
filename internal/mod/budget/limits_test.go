@@ -27,6 +27,10 @@ func TestReserve(t *testing.T) {
 	if r := ReserveFor(1024); r.TotalMB != 768 {
 		t.Fatalf("1 GB: %+v", r)
 	}
+	// The pool (and every share of it) follows a resized box: 4 GB → 16 GB.
+	if p4, p16 := (Box{MemoryMB: 4096, CPUs: 2}).PoolMB(), (Box{MemoryMB: 16384, CPUs: 4}).PoolMB(); p4 != 4096-640-512-512 || p16 != 16384-640-2048-2048 {
+		t.Fatalf("pool on 4 GB %d, on 16 GB %d", p4, p16)
+	}
 	if !strings.Contains(box3.Explain(), "1535 MB for apps") {
 		t.Fatalf("explain: %s", box3.Explain())
 	}

@@ -113,11 +113,22 @@ install -d -m 0755 `+ConfDir); err != nil {
 	}
 	// Box-level setup: project roles may not connect to the maintenance
 	// databases; pg_cron lives in "postgres" (cron.database_name).
+	// Project roles' connection limits follow max_connections (the box may
+	// have been resized since they were made).
 	_, err := s.Run(ctx, "runuser", "-u", "postgres", "--", BinDir+"/psql", "-h", SocketDir, "-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", "postgres", "-c",
 		`REVOKE CONNECT ON DATABASE postgres, template1 FROM PUBLIC;
 CREATE EXTENSION IF NOT EXISTS pg_cron;
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`)
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+`+retuneRoles(RoleConnLimit(memTotalMB())))
 	return err
+}
+
+// retuneRoles sets every project role's connection limit to n.
+func retuneRoles(n int) string {
+	return fmt.Sprintf(`DO $$DECLARE r record; BEGIN
+FOR r IN SELECT rolname FROM pg_roles WHERE rolname LIKE 'p\_%%' AND rolcanlogin AND NOT rolsuper AND rolconnlimit <> %[1]d LOOP
+  EXECUTE format('ALTER ROLE %%I CONNECTION LIMIT %[1]d', r.rolname);
+END LOOP; END$$;`, n)
 }
 
 func waitReady(ctx context.Context, d time.Duration) error {
@@ -166,13 +177,24 @@ func memTotalMB() int {
 
 func clamp(v, lo, hi int) int { return max(lo, min(v, hi)) }
 
+// MaxConnections is max_connections for a box with memMB of RAM: 100 up
+// to 4 GB, 25 more per GB above that, at most 500. Every connection is a
+// process of a few MB, plus work_mem while it sorts.
+func MaxConnections(memMB int) int { return clamp(memMB*25/1024, 100, 500) }
+
+// RoleConnLimit is how many connections one project's role may hold: four
+// fifths of max_connections, so no project can take them all.
+func RoleConnLimit(memMB int) int { return MaxConnections(memMB) * 4 / 5 }
+
 // Config renders postgresql.conf for a box with memMB of RAM. Postgres
 // shares the box with Valkey, apps and the platform, so it takes about an
-// eighth of RAM for shared buffers.
+// eighth of RAM for shared buffers. Provision re-reads the machine, so a
+// resized box is retuned (and Postgres restarted) on the next tiffin up.
 func Config(memMB int) string {
 	shared := clamp(memMB/8, 128, 4096)
 	cache := clamp(memMB/2, 256, 16384)
 	maint := clamp(memMB/16, 64, 1024)
+	work := clamp(memMB/512, 8, 32)
 	return fmt.Sprintf(`# Managed by Tiffin (tiffin provision). Edits are overwritten.
 data_directory = '%[1]s'
 hba_file = '%[2]s/pg_hba.conf'
@@ -183,14 +205,14 @@ listen_addresses = '127.0.0.1'
 port = %[3]d
 unix_socket_directories = '%[4]s'
 unix_socket_permissions = 0777
-max_connections = 100
+max_connections = %[9]d
 password_encryption = scram-sha-256
 
 # Memory, sized for a %[5]d MB box.
 shared_buffers = %[6]dMB
 effective_cache_size = %[7]dMB
 maintenance_work_mem = %[8]dMB
-work_mem = 8MB
+work_mem = %[10]dMB
 huge_pages = try
 
 # PG18: CREATE DATABASE ... STRATEGY FILE_COPY clones files with reflinks (XFS).
@@ -226,7 +248,7 @@ lc_monetary = 'C.UTF-8'
 lc_numeric = 'C.UTF-8'
 lc_time = 'C.UTF-8'
 idle_in_transaction_session_timeout = '10min'
-`, DataDir, ConfDir, Port, SocketDir, memMB, shared, cache, maint)
+`, DataDir, ConfDir, Port, SocketDir, memMB, shared, cache, maint, MaxConnections(memMB), work)
 }
 
 // The box itself (root, via the ident map) connects as the postgres
