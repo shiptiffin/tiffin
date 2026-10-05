@@ -37,7 +37,10 @@ const (
 	serviceCgroup = "/sys/fs/cgroup/system.slice/" + UnitName
 	sharedGroup   = "shared"
 	groupPrefix   = "p-"
-	cpuPeriod     = 100000 // cpu.max period, microseconds
+	// cpuPeriod is the cpu.max period in microseconds: short, so a throttled
+	// backend that holds a lock everyone needs (a buffer, the WAL) waits at
+	// most a few milliseconds before it runs again.
+	cpuPeriod = 20000
 )
 
 // GroupDir is the cgroup a project's backends run in while it has a limit

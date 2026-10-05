@@ -118,7 +118,7 @@ func TestCgroups(t *testing.T) {
 	if u := unit("x"); !strings.Contains(u, "\nDelegate=cpu io\nDelegateSubgroup=shared\n") {
 		t.Fatalf("the unit must delegate its cgroup:\n%s", u)
 	}
-	if cpuMax(0.5) != "50000 100000" || cpuMax(0.001) != "1000 100000" || cpuMax(1.75) != "175000 100000" {
+	if cpuMax(0.5) != "10000 20000" || cpuMax(0.001) != "1000 20000" || cpuMax(1.75) != "35000 20000" {
 		t.Fatal(cpuMax(0.5), cpuMax(0.001))
 	}
 	root := t.TempDir()
@@ -137,7 +137,7 @@ func TestCgroups(t *testing.T) {
 	if err := c.ensure("shop", 0.5, 25); err != nil {
 		t.Fatal(err)
 	}
-	for f, want := range map[string]string{"cpu.max": "50000 100000", "io.weight": "default 25"} {
+	for f, want := range map[string]string{"cpu.max": "10000 20000", "io.weight": "default 25"} {
 		if b, _ := os.ReadFile(filepath.Join(c.dir, "p-shop", f)); string(b) != want {
 			t.Fatalf("%s = %q", f, b)
 		}
