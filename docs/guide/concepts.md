@@ -47,7 +47,9 @@ export default defineConfig({
   memory for apps; the plan says so if they don't.
 - `cpus` caps its CPU, in steps of 0.25.
 - `maxSharePercent` caps it at a share of the box (memory for apps and CPUs). It is a
-  ceiling, not a reservation, and follows the box when you move to a bigger server.
+  ceiling, not a reservation, and follows the box when you move to a bigger server or
+  resize this one (`tiffin up --name <box> --type ...`; the memory for apps is re-read
+  within seconds, and Postgres and Valkey are retuned by that `up`).
 - If both `memoryMB` and `maxSharePercent` are set, the lower wins.
 
 A project at its cap is held there: an app that needs more is stopped for memory and

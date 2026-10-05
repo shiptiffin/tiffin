@@ -102,7 +102,23 @@ a `cax11` (ARM, 2 vCPU, 4 GB) in `fsn1` on Ubuntu 26.04; change them with `--typ
 makes, pass `--ssh-key ~/.ssh/id_ed25519` (or set `HCLOUD_SSH_KEY`); only the public
 half is uploaded, and a copy already in the project is reused.
 
-Run `tiffin up --name shop` again to update it. To delete it:
+Run `tiffin up --name shop` again to update it. To make it bigger in place:
+
+```bash
+tiffin up --name shop --type cax21 --dry-run   # old and new size, and the monthly price
+tiffin up --name shop --type cax21             # shows the same plan and asks; --yes skips the question
+tiffin up --name shop --volume-size 80         # grow the data volume
+```
+
+A new type restarts the box for about 2 minutes (Tiffin stops, the server shuts down,
+Hetzner changes it, it starts again and Postgres, Valkey and the app memory pool are
+retuned); `up` reports the downtime it measured. The server's own disk stays as it is,
+so a smaller type stays possible later. ARM (`cax`) and x86 (`cx`, `cpx`, `ccx`) types
+cannot be swapped: Tiffin says which types this box can take. Growing the volume has no
+downtime, and volumes never shrink. Delete protection does not get in the way. Settings ›
+This box in the dashboard lists the next sizes with prices and the command to run.
+
+To delete it:
 
 ```bash
 tiffin down --confirm shop                 # server, firewall, key; the data volume is kept
@@ -141,6 +157,10 @@ tiffin up --provider ssh --name shop --host root@203.0.113.5 --data-disk /dev/sd
 `--data-disk` is optional: a blank disk is formatted XFS for your data (one with a
 filesystem is used as it is). Without one, data lives on the root disk; that works, but
 database branches copy files instead of sharing them unless the disk is XFS.
+
+To make it bigger, resize it at your host (more memory or CPUs, a bigger data disk), then
+run `tiffin up --name shop`: it retunes Postgres, Valkey and the memory apps share to the
+new machine, and grows an XFS data disk to fill a disk that grew (a partition you grow yourself).
 
 ### What Tiffin does to the server
 
