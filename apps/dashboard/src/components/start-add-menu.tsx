@@ -5,6 +5,7 @@ import type { Manifest } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/dropdown";
+import { defaultAddress } from "@/lib/addresses";
 import { cn } from "@/lib/cn";
 import { PARTS } from "@/lib/names";
 import { cronWords } from "@/lib/format";
@@ -175,8 +176,10 @@ function AddApp({ project, manifest, routes, done }: { project: string; manifest
   const name = typed ?? suggestion;
   const nameErr = !name ? "Give it a name." : !slugOk(name) ? "Lowercase letters, digits and dashes, starting with a letter." : !free(name) ? `${project} already has an app called ${name}.` : false;
   const gitErr = pick === "git" ? (checkGitUrl(git.url).ok ? false : ((checkGitUrl(git.url) as { why: string }).why ?? false)) : false;
-  // An app answers at its name unless another project already does; then at project-name.
-  const route = routes.includes(name) ? `${project}-${name}` : undefined;
+  // A new app answers at <project>-<app> (or <project> if it is the main
+  // app); if another project already answers there, it gets a free name.
+  const addr = name ? defaultAddress(project, name, { ...manifest.apps, [name]: {} } as NonNullable<Manifest["apps"]>) : "";
+  const route = !routes.includes(addr) ? undefined : addr === `${project}-${name}` ? `${addr}-2` : `${project}-${name}`;
   const framework = pick === "git" ? git.framework : (starter?.framework ?? "bun");
   const needs = pick === "git" ? [] : (starter?.services ?? []).filter((s) => !((manifest.services ?? {}) as Record<string, unknown>)[s]);
   return (
@@ -230,7 +233,7 @@ function AddApp({ project, manifest, routes, done }: { project: string; manifest
         error={nameErr}
         note={
           <>
-            Answers at <span className="ident text-ink-2">{route ?? name}.…</span>
+            Answers at <span className="ident text-ink-2">{route ?? addr}.…</span>
             {needs.length > 0 && <> · also adds {needs.map((s) => serviceWords[s] ?? s).join(", ")}</>}
           </>
         }

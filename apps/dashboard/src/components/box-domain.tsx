@@ -114,9 +114,9 @@ function Current({ b }: { b: BoxDomain }) {
         {local
           ? `A box on your computer answers on names under ${b.domain}, with its own certificates your browser trusts. Your own domain needs a box on a server.`
           : apart
-            ? `The dashboard is at ${b.dashboard}. Each app answers at its own name under ${b.appsDomain}, like web.${b.appsDomain}: a domain of their own, so app code can’t set cookies on the dashboard’s.`
+            ? `The dashboard is at ${b.dashboard}. Apps answer at names under ${b.appsDomain} made from their project, like shop.${b.appsDomain}: a domain of their own, so app code can’t set cookies on the dashboard’s.`
             : b.source === "set"
-              ? `Each app answers at its own name under it, like web.${b.domain}; the dashboard is at ${b.dashboard}.`
+              ? `Apps answer at names under it made from their project, like shop.${b.domain}; the dashboard is at ${b.dashboard}.`
               : "The address your box uses until you set your own. It works with HTTPS already, with nothing to set up."}
       </p>
       {!local && (

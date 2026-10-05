@@ -13,6 +13,7 @@ import { ReadOnlyBanner } from "@/components/read-only";
 import { AddMenu } from "@/components/start-add-menu";
 import { Button } from "@/components/ui/button";
 import { Mascot, type MascotState } from "@/components/mascot";
+import { addressesOf } from "@/lib/addresses";
 import { cn } from "@/lib/cn";
 import { useEnamel } from "@/lib/enamel";
 import { bytes, count, cronWords, int } from "@/lib/format";
@@ -43,7 +44,7 @@ export function ProjectPage({ project }: { project: string }) {
   const others = (projects.data ?? []).map((x) => x.name).filter((n) => n !== project);
   const otherManifests = useQueries({ queries: others.map((n) => ({ ...q.manifest(n), staleTime: 60_000 })) });
   const routes = useMemo(
-    () => otherManifests.flatMap((x) => Object.entries(x.data?.manifest.apps ?? {}).flatMap(([n, a]) => (a.role === "worker" ? [] : (a.routes?.length ? a.routes : [n]).map((r) => r.split(".")[0])))),
+    () => otherManifests.flatMap((x) => (x.data ? addressesOf(x.data.project, x.data.manifest.apps) : [])),
     [otherManifests],
   );
 
