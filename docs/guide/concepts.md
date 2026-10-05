@@ -19,6 +19,11 @@ box's domain, or its separate apps domain: see [Domains](domains.md)). Addresses
 box-wide, so a second project's `web` app needs its own (`routes: ["blog"]`): the plan
 refuses an address another project already serves.
 
+A project can be duplicated on the box, exported to a file, imported as a new project or
+moved to another box ([copying and moving](moving.md)). A **stopped** project (a `stopped`
+resource, set by `tiffin projects stop` or a move) keeps its data but runs no apps, and
+refuses deploys until it is started again.
+
 ## Sharing the box
 Launch as many projects as you like: they divide the box between them on their own.
 Tiffin keeps memory for itself first (its services, plus Postgres's and Valkey's caches;
