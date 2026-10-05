@@ -49,7 +49,10 @@ func subgroup(parent *cobra.Command, name string) *cobra.Command {
 	if c := find(parent, name); c != nil {
 		return c
 	}
-	c := &cobra.Command{Use: name, Short: groupShort[name]}
+	c := &cobra.Command{Use: name, Short: groupShort[parent.Name()+" "+name]}
+	if c.Short == "" {
+		c.Short = groupShort[name]
+	}
 	if c.Short == "" {
 		c.Short = "Manage " + name
 	}
@@ -103,6 +106,10 @@ var groupShort = map[string]string{
 	"dns":       "DNS providers (Cloudflare) and records the box sets for you",
 	"exports":   "List, inspect and delete box exports",
 	"imports":   "List, inspect, apply and discard uploaded box exports",
+	// Groups of the same word under projects (parent + " " + word).
+	"projects exports": "Inspect project exports",
+	"projects imports": "Apply or discard an uploaded project export",
+	"projects jobs":    "Follow a duplicate or an import",
 }
 
 // switchFlags give a generated command a flag that sends the call to a

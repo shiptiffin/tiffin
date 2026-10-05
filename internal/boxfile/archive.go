@@ -1,6 +1,7 @@
-// Package boxfile reads and writes box export archives (.tiffin): the
-// format, its verification and safe extraction. The portable module
-// (internal/mod/portable) fills them; the CLI reads their manifest.
+// Package boxfile reads and writes Tiffin export archives (.tiffin, of a
+// whole box or of one project): the format, its verification and safe
+// extraction. The portable module (internal/mod/portable) fills them; the
+// CLI reads their manifest.
 package boxfile
 
 import (
@@ -383,7 +384,7 @@ func NewReader(r io.Reader) (*Reader, error) {
 	br := bufio.NewReaderSize(r, 1<<20)
 	magic, _ := br.Peek(4)
 	if !bytes.Equal(magic, []byte{0x28, 0xb5, 0x2f, 0xfd}) {
-		return nil, errors.New("not a Tiffin box export (it is not zstd-compressed)")
+		return nil, errors.New("not a Tiffin export (it is not zstd-compressed)")
 	}
 	zr, err := zstd.NewReader(br, zstd.WithDecoderConcurrency(2), zstd.WithDecoderMaxWindow(64<<20))
 	if err != nil {
@@ -397,7 +398,7 @@ func NewReader(r io.Reader) (*Reader, error) {
 	}
 	if hd.Name != ManifestName || hd.Size > 16<<20 {
 		zr.Close()
-		return nil, fmt.Errorf("not a Tiffin box export: first entry is %q, want %s", hd.Name, ManifestName)
+		return nil, fmt.Errorf("not a Tiffin export: first entry is %q, want %s", hd.Name, ManifestName)
 	}
 	entryDigest(ar.digest, hd)
 	ar.entries++
@@ -409,11 +410,11 @@ func NewReader(r io.Reader) (*Reader, error) {
 	ar.bytes += int64(len(raw))
 	if err := json.Unmarshal(raw, &ar.Manifest); err != nil {
 		zr.Close()
-		return nil, fmt.Errorf("not a Tiffin box export: manifest: %w", err)
+		return nil, fmt.Errorf("not a Tiffin export: manifest: %w", err)
 	}
-	if ar.Manifest.Kind != ManifestKind {
+	if ar.Manifest.Kind != ManifestKind && ar.Manifest.Kind != ProjectKind {
 		zr.Close()
-		return nil, fmt.Errorf("not a Tiffin box export (kind %q)", ar.Manifest.Kind)
+		return nil, fmt.Errorf("not a Tiffin export (kind %q)", ar.Manifest.Kind)
 	}
 	return ar, nil
 }

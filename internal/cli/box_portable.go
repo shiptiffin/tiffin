@@ -327,7 +327,13 @@ func (a *app) saveBoxKey(ctx context.Context, path string) (string, error) {
 // downloadExport streams the archive into path (via path.part), hashing as
 // it goes, and shows progress with the box's current phase.
 func (a *app) downloadExport(ctx context.Context, c *client, ex *boxExport, path string) (int64, string, error) {
-	res, err := c.stream(ctx, http.MethodGet, ex.Download, nil, "", "application/octet-stream")
+	return a.downloadArchive(ctx, c, ex.Download, "/v1/box/exports/"+ex.ID, path)
+}
+
+// downloadArchive streams an export's download into path; record is the
+// export's record (its phase and error).
+func (a *app) downloadArchive(ctx context.Context, c *client, download, record, path string) (int64, string, error) {
+	res, err := c.stream(ctx, http.MethodGet, download, nil, "", "application/octet-stream")
 	if err != nil {
 		return 0, "", &exitError{ExitError, err.Error()}
 	}
@@ -355,7 +361,7 @@ func (a *app) downloadExport(ctx context.Context, c *client, ex *boxExport, path
 			case <-time.After(2 * time.Second):
 			}
 			var cur boxExport
-			if a.getJSON(pollCtx, c, "/v1/box/exports/"+ex.ID, &cur) == nil {
+			if a.getJSON(pollCtx, c, record, &cur) == nil {
 				mu.Lock()
 				phase = cur.Phase
 				mu.Unlock()
@@ -399,7 +405,7 @@ func (a *app) downloadExport(ctx context.Context, c *client, ex *boxExport, path
 	if werr != nil {
 		_ = os.Remove(part)
 		var cur boxExport
-		if a.getJSON(ctx, c, "/v1/box/exports/"+ex.ID, &cur) == nil && cur.Error != "" {
+		if a.getJSON(ctx, c, record, &cur) == nil && cur.Error != "" {
 			werr = fmt.Errorf("%v (the box says: %s)", werr, cur.Error)
 		}
 		return 0, "", &exitError{ExitError, werr.Error()}
@@ -445,6 +451,9 @@ func (a *app) boxImportCmd() *cobra.Command {
 			}
 			man := ar.Manifest
 			ar.Close()
+			if man.Kind == boxfile.ProjectKind {
+				return &exitError{ExitInvalid, path + " is an export of project " + man.Project + ", not of a whole box: import it with `tiffin projects import`"}
+			}
 			if man.Format > boxfile.FormatVersion {
 				return &exitError{ExitInvalid, fmt.Sprintf("%s was made by a newer Tiffin (archive format %d); update this CLI and the box first", path, man.Format)}
 			}
@@ -636,8 +645,19 @@ func (a *app) needConfirm(detail, hint string) error {
 
 // uploadImport streams the archive to the box, which verifies it on arrival.
 func (a *app) uploadImport(ctx context.Context, c *client, f *os.File, size int64) (*boxImport, error) {
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
+	var im boxImport
+	if err := a.uploadArchive(ctx, c, "/v1/box/imports", f, size, &im); err != nil {
 		return nil, err
+	}
+	a.say("Uploaded and verified %s (sha256 %s)", humanSize(im.SizeBytes), im.SHA256)
+	return &im, nil
+}
+
+// uploadArchive streams an archive file to path on the box (which verifies
+// it on arrival) and decodes the answer into into.
+func (a *app) uploadArchive(ctx context.Context, c *client, path string, f *os.File, size int64, into any) error {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return err
 	}
 	var mu sync.Mutex
 	var sent int64
@@ -650,10 +670,10 @@ func (a *app) uploadImport(ctx context.Context, c *client, f *os.File, size int6
 		}
 		return fmt.Sprintf("uploading %s of %s", humanSize(sent), humanSize(size))
 	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/v1/box/imports", body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, body)
 	if err != nil {
 		pl.end()
-		return nil, err
+		return err
 	}
 	req.ContentLength = size
 	c.headers(req.Header, false)
@@ -661,19 +681,14 @@ func (a *app) uploadImport(ctx context.Context, c *client, f *os.File, size int6
 	res, err := (&http.Client{Transport: c.transport}).Do(req)
 	pl.end()
 	if err != nil {
-		return nil, &exitError{ExitError, "upload: " + err.Error()}
+		return &exitError{ExitError, "upload: " + err.Error()}
 	}
 	defer res.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(res.Body, 4<<20))
 	if res.StatusCode != http.StatusOK {
-		return nil, problemOf(res.StatusCode, raw)
+		return problemOf(res.StatusCode, raw)
 	}
-	var im boxImport
-	if err := json.Unmarshal(raw, &im); err != nil {
-		return nil, err
-	}
-	a.say("Uploaded and verified %s (sha256 %s)", humanSize(im.SizeBytes), im.SHA256)
-	return &im, nil
+	return json.Unmarshal(raw, into)
 }
 
 type countingReader struct {

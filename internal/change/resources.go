@@ -36,6 +36,12 @@ const (
 	// default applies. Manifests never list it, and every manifest plan
 	// keeps it.
 	KindStorageLimit = "storagelimit"
+	// KindStopped ("stopped", one per project) stops every app of the
+	// project and keeps them stopped (deploys and restarts are refused)
+	// until it is removed: a project moved to another box stays on the old
+	// one this way, its data intact. Undoing the change starts the apps
+	// again. Manifests never list it, and every manifest plan keeps it.
+	KindStopped = "stopped"
 )
 
 // Unmanaged reports whether resources of this address are outside the
@@ -43,7 +49,7 @@ const (
 // them as they are.
 func Unmanaged(address string) bool {
 	k := Kind(address)
-	return k == KindSecret || k == KindReadOnly || k == KindStorageLimit
+	return k == KindSecret || k == KindReadOnly || k == KindStorageLimit || k == KindStopped
 }
 
 // ProjectSpec is the spec of the "project" resource: project-wide settings.
@@ -188,7 +194,7 @@ func Diff(current, desired map[string]Resource) []Op {
 // order of kinds when creating; deletes run in reverse. Queues come after
 // apps (they push jobs into them), topics after the queues they fan out to,
 // and crons last.
-var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindSecret: 3, KindApp: 4, KindQueue: 5, KindTopic: 6, KindCron: 7, KindDomain: 8, KindStorageLimit: 9, KindReadOnly: 9}
+var kindOrder = map[string]int{KindProject: 0, KindService: 1, KindBucket: 2, KindEnv: 3, KindSecret: 3, KindApp: 4, KindQueue: 5, KindTopic: 6, KindCron: 7, KindDomain: 8, KindStorageLimit: 9, KindReadOnly: 9, KindStopped: 9}
 
 // SortOps orders ops: creates (containers first), updates, then deletes
 // (contents first).

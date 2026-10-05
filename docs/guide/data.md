@@ -47,6 +47,10 @@ tiffin restore <id>           # shows what it will overwrite; repeat with --conf
 
 Restore takes a safety backup first. Off-site copies are not supported yet.
 
+Backups are restore points of this box. To copy one project (on this box under a new
+name, to a file, or to another box), see [copying and moving](moving.md): Duplicate,
+Export, Import and Move.
+
 ### Restore drills
 
 A backup you have never restored is a hope, not a backup. A restore drill proves one

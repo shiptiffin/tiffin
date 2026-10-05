@@ -435,6 +435,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		_ = p.DB.Audit(ctx, pr.TokenID, "box.import.delete", rec.ID, map[string]any{"session": pr.Session})
 		return &struct{ Body *Import }{rec}, nil
 	}))
+
+	m.registerProjects(a, p)
 }
 
 // flushWriter flushes the response every few MiB so the download moves.

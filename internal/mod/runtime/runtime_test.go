@@ -186,6 +186,16 @@ func (e *fakeEngine) RemoveImage(ctx context.Context, ref string) error {
 	return nil
 }
 
+func (e *fakeEngine) TagImage(ctx context.Context, src, ref string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.images[src] {
+		return fmt.Errorf("no image %s", src)
+	}
+	e.images[ref] = true
+	return nil
+}
+
 func (e *fakeEngine) LoadImage(ctx context.Context, file, ref string, log io.Writer) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()

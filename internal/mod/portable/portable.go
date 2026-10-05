@@ -65,6 +65,8 @@ type Module struct {
 	p       *platform.Platform
 	cancels map[string]context.CancelFunc // running exports and imports
 	saveMu  sync.Mutex
+	projMu  sync.Mutex // one project duplicate or import at a time
+	be      backend    // tests' services; nil: the box's
 }
 
 func (*Module) Name() string { return "portable" }
@@ -322,9 +324,48 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 			}
 		}
 	}
+	m.sweepProjects(p, true)
 	go m.sweep(ctx, p)
 	return nil
 }
+
+// sweepProjects fails project exports and jobs a restart interrupted (at
+// start) and forgets uploads and exports nobody used.
+func (m *Module) sweepProjects(p *platform.Platform, restarted bool) {
+	if exps, err := list[ProjectExport](p, "project-exports"); err == nil {
+		for _, e := range exps {
+			switch {
+			case restarted && e.Status == ExportRunning:
+				e.Status, e.Phase, e.Error, e.Hint = ExportFailed, "", "interrupted: the box restarted during the export", "Start a new export."
+				_ = m.save(p, "project-exports", e.ID, e)
+			case e.Status == ExportPending && time.Since(e.CreatedAt) > pendingTTL:
+				e.Status, e.Phase, e.Hint = ExportExpired, "", "Nobody downloaded it within an hour. Start a new export."
+				_ = m.save(p, "project-exports", e.ID, e)
+			}
+		}
+	}
+	if jobs, err := list[ProjectJob](p, "project-jobs"); err == nil {
+		for _, j := range jobs {
+			switch {
+			case restarted && j.Status == JobRunning:
+				j.Status, j.Phase, j.FinishedAt, j.Error = JobFailed, "", now(), "interrupted: the box restarted during the "+j.Kind
+				j.Hint = "Start it again."
+				if j.Project != "" {
+					j.Hint = "If project " + j.Project + " was made, look at it (tiffin projects get " + j.Project + ") or destroy it, then start again under another name."
+				}
+				_ = m.save(p, "project-jobs", j.ID, j)
+			case (j.Status == JobUploaded || j.Status == JobFailed) && time.Since(j.CreatedAt) > uploadTTL:
+				if os.Remove(archivePath(p, "project-imports", j.ID)) == nil && j.Status == JobUploaded {
+					j.Status, j.Error, j.Hint = JobFailed, "expired: not imported within a day", "Upload the archive again."
+					_ = m.save(p, "project-jobs", j.ID, j)
+				}
+			}
+		}
+	}
+}
+
+// uploadTTL is how long an uploaded project archive waits to be imported.
+const uploadTTL = 24 * time.Hour
 
 // pendingTTL is how long a stream-mode export waits for its download.
 const pendingTTL = time.Hour
@@ -354,6 +395,7 @@ func (m *Module) sweep(ctx context.Context, p *platform.Platform) {
 				m.expire(p, e)
 			}
 		}
+		m.sweepProjects(p, false)
 	}
 }
 

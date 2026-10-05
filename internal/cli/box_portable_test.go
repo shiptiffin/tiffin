@@ -46,7 +46,7 @@ func TestBoxImportChecksLocally(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"not an archive", []string{"box", "import", keyFile(id)}, "not a Tiffin box export"},
+		{"not an archive", []string{"box", "import", keyFile(id)}, "not a Tiffin export"},
 		{"missing file", []string{"box", "import", filepath.Join(t.TempDir(), "nope.tiffin")}, "no such file"},
 		{"no key", []string{"box", "import", archive}, "--key-file"},
 		{"wrong key", []string{"box", "import", archive, "--key-file", keyFile(other)}, "is not the one"},

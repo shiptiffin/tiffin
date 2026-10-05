@@ -33,6 +33,9 @@ export type BoxServer = S["BoxServer"];
 export type ServerOffer = S["ServerOffer"];
 export type BoxService = S["BoxService"];
 export type BoxApp = S["BoxApp"];
+export type ProjectJob = S["PortableProjectJob"];
+export type ProjectExport = S["PortableProjectExport"];
+export type ArchiveSummary = S["PortableArchiveSummary"];
 
 /** An RFC 9457 problem from the API, as a throwable error. */
 export class ApiError extends Error {
@@ -129,7 +132,44 @@ export const api = {
   passkeyLogin: (credential: unknown) => request<Principal>("POST", "/v1/session/passkey", { credential }),
   login: (code: string) => request<Principal>("POST", "/v1/session", { code }),
   logout: () => request<void>("DELETE", "/v1/session"),
+  /** Copies a project under a new name; poll projectJob until done or failed. */
+  duplicate: (project: string, name: string) => request<ProjectJob>("POST", `/v1/projects/${encodeURIComponent(project)}/duplicate`, { name }),
+  projectJob: (id: string) => request<ProjectJob>("GET", `/v1/project-jobs/${encodeURIComponent(id)}`),
+  /** Records an export; GET its `download` path to make the file as it downloads. */
+  exportProject: (project: string, body: { includeSecrets: boolean; withHistory: boolean }) =>
+    request<ProjectExport>("POST", `/v1/projects/${encodeURIComponent(project)}/exports`, body),
+  projectExport: (project: string, id: string) => request<ProjectExport>("GET", `/v1/projects/${encodeURIComponent(project)}/exports/${encodeURIComponent(id)}`),
+  applyImport: (id: string, body: { name?: string; secretsKey?: string; withoutSecrets?: boolean }) =>
+    request<ProjectJob>("POST", `/v1/project-imports/${encodeURIComponent(id)}/apply`, body),
+  discardImport: (id: string) => request<ProjectJob>("DELETE", `/v1/project-imports/${encodeURIComponent(id)}`),
+  startProject: (project: string) => request<ApplyResult>("POST", `/v1/projects/${encodeURIComponent(project)}/start`, {}),
 };
+
+/** Uploads a file as the raw body, reporting progress (fetch can't report upload progress). */
+export function uploadFile<T>(path: string, file: File, onProgress: (sent: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open("POST", path);
+    x.setRequestHeader("Content-Type", "application/octet-stream");
+    x.setRequestHeader("Accept", "application/json");
+    x.upload.onprogress = (ev) => onProgress(ev.loaded);
+    x.onload = () => {
+      let data: unknown = {};
+      try {
+        data = JSON.parse(x.responseText || "{}");
+      } catch {
+        /* not JSON */
+      }
+      if (x.status >= 200 && x.status < 300) resolve(data as T);
+      else {
+        const p = data as Partial<Problem>;
+        reject(new ApiError({ ...p, status: x.status, code: p.code ?? "internal", title: p.title ?? x.statusText }));
+      }
+    };
+    x.onerror = () => reject(new ApiError({ status: 0, code: "internal", title: "Offline", detail: "The upload stopped: can't reach the box." }));
+    x.send(file);
+  });
+}
 
 export function isProblem(e: unknown, ...codes: Problem["code"][]): e is ApiError {
   return e instanceof ApiError && (codes.length === 0 || codes.includes(e.problem.code));

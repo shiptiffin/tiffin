@@ -1,6 +1,6 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { ArrowUpRight, Check, GitBranch, Plus } from "lucide-react";
+import { ArrowUpRight, Check, FileUp, GitBranch, Plus } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError, type Manifest, type Op } from "@/api/client";
 import { mod3, type Deploy } from "@/api/modules";
@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioItem } from "@/components/ui/choice";
 import { GitHubMark } from "@/components/github-mark";
 import { checkPick, emptyPick, GitHubImport, type GitHubPick } from "@/components/github-import";
+import { ImportFile, ImportPanel, ImportSteps, useProjectImport } from "@/components/project-import";
 import { deployGitHub, nameFromRepo, setSecret } from "@/lib/github";
 import { useMe } from "@/lib/me";
 import { boxDomainQuery } from "@/lib/domains";
@@ -92,6 +93,7 @@ export function NewProjectPage() {
   const [gh, setGh] = useState<GitHubPick>(emptyPick);
   const { admin } = useMe();
   const [typed, setTyped] = useState<string | null>(null);
+  const imp = useProjectImport(taken);
 
   const starter = list.find((s) => s.id === choice);
   const source: Source | null =
@@ -180,6 +182,7 @@ export function NewProjectPage() {
 
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
+    if (choice === "import") return imp.submit();
     const ops = plan.data?.ops ?? [];
     if (settled && plan.data?.project === name && ops.length > 0 && ops.every((o) => o.action === "create") && !create.isPending && phase === "compose") create.mutate();
   };
@@ -237,12 +240,23 @@ export function NewProjectPage() {
                   />
                   <OptionRow value="git" picked={choice === "git"} icon={<GitBranch />} title="From a public git URL" line={starterLine.git} />
                   <OptionRow value="empty" picked={choice === "empty"} icon={<Plus />} title="Empty project" line={starterLine.empty} />
+                  <OptionRow
+                    value="import"
+                    picked={choice === "import"}
+                    icon={<FileUp />}
+                    title="Import a .tiffin file"
+                    line="A project exported from this box or another one, with its data."
+                  />
                 </div>
               </RadioGroup>
               {choice === "git" && <GitFields git={git} setGit={setGit} check={gitCheck} />}
               {choice === "github" && <GitHubImport value={gh} onChange={setGh} admin={admin} />}
+              {choice === "import" && <ImportFile imp={imp} />}
             </Step>
 
+            {choice === "import" ? (
+              <ImportSteps imp={imp} />
+            ) : (
             <Step n={2} label="Name">
               <div className="flex flex-wrap items-start gap-x-5 gap-y-3">
                 <div className="min-w-0 flex-1 basis-64">
@@ -277,11 +291,15 @@ export function NewProjectPage() {
                 )}
               </p>
             </Step>
+            )}
             </div>
           </div>
 
           <div className="min-w-0">
             {hero}
+          {choice === "import" ? (
+            <ImportPanel imp={imp} />
+          ) : (
           <PlanPanel
             name={name}
             ready={settled && !!plan.data && plan.data.project === name}
@@ -295,6 +313,7 @@ export function NewProjectPage() {
             creating={create.isPending}
             source={source}
           />
+          )}
           </div>
         </form>
       ) : (

@@ -51,6 +51,8 @@ type Engine interface {
 	RemoveImage(ctx context.Context, ref string) error
 	// LoadImage imports a docker/OCI image tarball and tags it as ref.
 	LoadImage(ctx context.Context, file, ref string, log io.Writer) error
+	// TagImage gives an image in the store another name (no layers copied).
+	TagImage(ctx context.Context, src, ref string) error
 }
 
 // nerdctl drives containerd through the pinned nerdctl CLI.
@@ -220,6 +222,11 @@ func (n *nerdctl) ImageDigest(ctx context.Context, ref string) (string, error) {
 
 func (n *nerdctl) RemoveImage(ctx context.Context, ref string) error {
 	_, err := n.run(ctx, "rmi", ref)
+	return err
+}
+
+func (n *nerdctl) TagImage(ctx context.Context, src, ref string) error {
+	_, err := n.run(ctx, "tag", src, ref)
 	return err
 }
 
