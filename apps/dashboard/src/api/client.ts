@@ -51,14 +51,19 @@ export class ApiError extends Error {
 
 type Path = keyof paths;
 
+/** Sends body as JSON, or as it is when it's a Blob (a file or part of one). */
 export async function request<T>(method: string, path: Path | string, body?: unknown): Promise<T> {
+  const blob = body instanceof Blob;
   let res: Response;
   try {
     res = await fetch(path, {
       method,
       credentials: "same-origin",
-      headers: body === undefined ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers:
+        body === undefined
+          ? { Accept: "application/json" }
+          : { Accept: "application/json", "Content-Type": blob ? "application/octet-stream" : "application/json" },
+      body: body === undefined ? undefined : blob ? body : JSON.stringify(body),
     });
   } catch {
     throw new ApiError({
@@ -139,6 +144,9 @@ export const api = {
   exportProject: (project: string, body: { includeSecrets: boolean; withHistory: boolean }) =>
     request<ProjectExport>("POST", `/v1/projects/${encodeURIComponent(project)}/exports`, body),
   projectExport: (project: string, id: string) => request<ProjectExport>("GET", `/v1/projects/${encodeURIComponent(project)}/exports/${encodeURIComponent(id)}`),
+  /** Checks an import before the upload, storing nothing: `head` (a file's first megabyte) says what it holds and whether this box can import it; `name`, whether that name is free. */
+  checkImport: (o: { head?: Blob; name?: string }) =>
+    request<ProjectJob>("POST", `/v1/project-imports?check=true${o.name ? `&name=${encodeURIComponent(o.name)}` : ""}`, o.head),
   applyImport: (id: string, body: { name?: string; secretsKey?: string; withoutSecrets?: boolean }) =>
     request<ProjectJob>("POST", `/v1/project-imports/${encodeURIComponent(id)}/apply`, body),
   discardImport: (id: string) => request<ProjectJob>("DELETE", `/v1/project-imports/${encodeURIComponent(id)}`),

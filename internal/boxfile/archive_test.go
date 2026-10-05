@@ -338,3 +338,36 @@ func TestChunkNames(t *testing.T) {
 		}
 	}
 }
+
+// TestReadHead: the first megabyte of a large archive holds the manifest
+// and the next entry, so an import can be checked before the upload.
+func TestReadHead(t *testing.T) {
+	var buf bytes.Buffer
+	w, err := NewWriter(&buf, testManifest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.WriteJSON("project.json", map[string]string{"project": "shop"}); err != nil {
+		t.Fatal(err)
+	}
+	big := make([]byte, 16<<20)
+	_, _ = rand.Read(big)
+	if _, err := w.WriteStream("blob", bytes.NewReader(big)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ar, err := NewReader(bytes.NewReader(buf.Bytes()[:1<<20]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ar.Close()
+	e, err := ar.Next()
+	if err != nil || e.Name != "project.json" {
+		t.Fatalf("next: %v %+v", err, e)
+	}
+	if b, err := io.ReadAll(e.Body); err != nil || !strings.Contains(string(b), "shop") {
+		t.Fatalf("project.json: %v %q", err, b)
+	}
+}

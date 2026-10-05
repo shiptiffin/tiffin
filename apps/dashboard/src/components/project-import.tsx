@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { api, uploadFile, type ArchiveSummary, type ProjectJob } from "@/api/client";
+import { api, isProblem, uploadFile, type ArchiveSummary, type ProjectJob } from "@/api/client";
 import { q } from "@/api/queries";
 import { JobOutcome, JobProgress } from "@/components/project-copy";
 import { ProblemNote } from "@/components/problem";
@@ -11,16 +11,27 @@ import { Radio, RadioGroup } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
 import { bytes, countWords } from "@/lib/format";
 import { useMe } from "@/lib/me";
-import { checkName, slugify } from "@/lib/starters";
+import { useDebounced } from "@/lib/debounced";
+import { checkName, slugify, type NameCheck } from "@/lib/starters";
 import { relative } from "@/lib/time";
 
 /** Secrets sealed to another box's key: the import needs that key, or goes without them. */
 const sealedElsewhere = (s?: ArchiveSummary) => !!s && (s.secrets ?? []).length > 0 && !s.secretsPlain && !s.secretsHere;
 
+/** Why the box refused a name for the import. */
+function nameRefused(name: string, e: unknown): string {
+  if (isProblem(e) && e.status === 403) return `You can’t create a project called ${name}.`;
+  if (isProblem(e) && e.status === 409 && /destroyed/.test(e.problem.detail ?? ""))
+    return `A project called ${name} was deleted less than 7 days ago, and its old data would come back. Give this one another name.`;
+  if (isProblem(e) && e.status === 409) return `There’s already a project called ${name} here. Give this one another name.`;
+  return e instanceof Error ? e.message : "Couldn’t check the name.";
+}
+
 /**
- * New project › Import a .tiffin file: upload it (nothing changes yet), read
- * what's inside, pick a free name and what to do about secrets locked to the
- * old box, then Import makes the project beside the others and the page
+ * New project › Import a .tiffin file: the box reads its first megabyte (what's
+ * inside, and whether it can import it at all), then it uploads (nothing
+ * changes yet) while you pick a free name and what to do about secrets locked
+ * to the old box; Import makes the project beside the others and the page
  * follows the job until it's done.
  */
 export function useProjectImport(taken: { projects: string[]; routes: string[] }) {
@@ -31,34 +42,57 @@ export function useProjectImport(taken: { projects: string[]; routes: string[] }
   const [typed, setTyped] = useState<string | null>(null);
   const [secrets, setSecrets] = useState<"key" | "without">("key");
   const [key, setKey] = useState("");
+  // What the file's first megabyte says it holds, read before the upload.
+  const [head, setHead] = useState<ArchiveSummary | null>(null);
 
   const up = useMutation({
-    mutationFn: (f: File) => {
+    mutationFn: async (f: File) => {
+      setId(null);
       setSent({ file: f.name, size: f.size, at: 0 });
-      return uploadFile<ProjectJob>("/v1/project-imports", f, (n) => setSent({ file: f.name, size: f.size, at: n }));
-    },
-    onSuccess: (j, f) => {
-      qc.setQueryData(["project-job", j.id], j);
-      setId(j.id);
+      // A file this box would refuse (a whole-box export, a newer Tiffin's) is refused before the upload.
+      const c = await api.checkImport({ head: f.slice(0, 1 << 20) });
+      setHead(c.source ?? null);
       setFile({ name: f.name, size: f.size });
       setTyped(null);
       setKey("");
       setSecrets("key");
+      return uploadFile<ProjectJob>("/v1/project-imports", f, (n) => setSent({ file: f.name, size: f.size, at: n }));
+    },
+    onSuccess: (j) => {
+      qc.setQueryData(["project-job", j.id], j);
+      setId(j.id);
+    },
+    onError: () => {
+      setHead(null);
+      setFile(null);
     },
     onSettled: () => setSent(null),
   });
   const job = useQuery(q.projectJob(id ?? ""));
   const j = id ? job.data : undefined;
-  const s = j?.source;
+  const s = j?.source ?? head ?? undefined;
   const name = typed ?? s?.project ?? "";
-  const check = !s
-    ? ({ ok: false } as const)
-    : name === s.project && s.taken
-      ? ({ ok: false, why: `There’s already a project called ${name} here. Give this one another name.` } as const)
-      : checkName(name, taken);
+  // The box says whether the name is free: taken, or deleted less than 7 days ago (its old data would come back).
+  const asked = useDebounced(name, 250);
+  const free = useQuery({
+    queryKey: ["import-name", asked],
+    queryFn: () => api.checkImport({ name: asked }),
+    enabled: !!s && checkName(asked, taken).ok,
+    retry: false,
+    staleTime: 10_000,
+  });
+  const local: NameCheck = s ? checkName(name, taken) : { ok: false, why: "" };
+  const check: NameCheck = !local.ok
+    ? local
+    : asked !== name || free.isPending
+      ? { ok: false, why: "" }
+      : free.error
+        ? { ok: false, why: nameRefused(name, free.error) }
+        : { ok: true };
   const sealed = sealedElsewhere(s);
   const keyOk = !sealed || secrets === "without" || key.trim().startsWith("AGE-SECRET-KEY-1");
-  const editable = j?.status === "uploaded" || (j?.status === "failed" && !j.created);
+  // The name and secrets can be chosen while the file uploads.
+  const editable = j ? j.status === "uploaded" || (j.status === "failed" && !j.created) : !!head && up.isPending;
 
   const apply = useMutation({
     mutationFn: () => api.applyImport(id!, { name, ...(sealed ? (secrets === "without" ? { withoutSecrets: true } : { secretsKey: key.trim() }) : {}) }),
@@ -71,6 +105,7 @@ export function useProjectImport(taken: { projects: string[]; routes: string[] }
     mutationFn: () => api.discardImport(id!),
     onSuccess: () => {
       setId(null);
+      setHead(null);
       setFile(null);
       apply.reset();
       toast({ title: "Discarded the upload. Nothing on this box changed." });
@@ -84,7 +119,7 @@ export function useProjectImport(taken: { projects: string[]; routes: string[] }
     }
   }, [done, qc]);
 
-  const ready = !!editable && check.ok && keyOk && !apply.isPending;
+  const ready = !!j && editable && check.ok && keyOk && !apply.isPending;
   return {
     up,
     sent,

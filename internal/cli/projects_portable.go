@@ -10,13 +10,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"filippo.io/age"
+	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/boxfile"
 	"github.com/btahir/tiffin/internal/dnskit"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -375,18 +375,8 @@ func (a *app) projectImportCmd() *cobra.Command {
 			}
 			defer c.close()
 			target := orDefault(name, man.Project)
-			var projects []struct {
-				Name string `json:"name"`
-			}
-			if err := a.getJSON(ctx, c, "/v1/projects", &projects); err != nil {
+			if err := importNameFree(ctx, c, target, "an import never replaces a project; pass another name: tiffin projects import "+path+" --name "+target+"-2"); err != nil {
 				return err
-			}
-			if slices.ContainsFunc(projects, func(p struct {
-				Name string `json:"name"`
-			}) bool {
-				return p.Name == target
-			}) {
-				return &exitError{ExitInvalid, "project " + target + " already exists on this box; an import never replaces one" + hintOf("pass another name: tiffin projects import "+path+" --name "+target+"-2")}
 			}
 			a.say("Archive %s: project %s from %s (Tiffin %s, %s), %s", path, man.Project, orDefault(man.Source.Domain, "?"), man.TiffinVersion,
 				man.CreatedAt.Format("2006-01-02 15:04"), humanSize(fi.Size()))
@@ -434,6 +424,45 @@ func (a *app) projectImportCmd() *cobra.Command {
 	f.StringVar(&keyFile, "secrets-key-file", "", "the source box's key ("+boxKeyPath+" there), for secrets sealed to it")
 	f.BoolVar(&withoutSecrets, "without-secrets", false, "import without the secrets (they are listed, to set by hand)")
 	return cmd
+}
+
+// importNameFree asks the box, before anything is uploaded, whether a
+// project can be imported there as name. One that exists or was destroyed
+// less than 7 days ago is refused with hint; so is one beyond the token.
+func importNameFree(ctx context.Context, c *client, name, hint string) error {
+	status, raw, err := c.do(ctx, http.MethodPost, "/v1/project-imports", url.Values{"check": {"true"}, "name": {name}}, nil)
+	if err != nil {
+		return &exitError{ExitError, err.Error()}
+	}
+	switch {
+	case status == http.StatusOK:
+		return nil
+	case status == http.StatusConflict:
+		var p api.Problem
+		_ = json.Unmarshal(raw, &p)
+		return &exitError{ExitInvalid, p.Detail + hintOf(hint)}
+	case status == http.StatusUnprocessableEntity && strings.Contains(string(raw), "not a Tiffin export"):
+		// A box older than the check took it for an empty upload: it can
+		// only say which projects it has.
+		st, raw, err := c.do(ctx, http.MethodGet, "/v1/projects", nil, nil)
+		if err != nil {
+			return &exitError{ExitError, err.Error()}
+		}
+		if st != http.StatusOK {
+			return problemOf(st, raw)
+		}
+		var projects []struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(raw, &projects)
+		for _, p := range projects {
+			if p.Name == name {
+				return &exitError{ExitInvalid, "project " + name + " already exists on this box" + hintOf(hint)}
+			}
+		}
+		return nil
+	}
+	return problemOf(status, raw)
 }
 
 // ---- move ----
@@ -499,16 +528,8 @@ func moveProject(ctx context.Context, src, dst *client, o moveOptions) (*moveRes
 		}
 		return json.Unmarshal(raw, into)
 	}
-	var there []struct {
-		Name string `json:"name"`
-	}
-	if err := get(dst, "/v1/projects", &there); err != nil {
+	if err := importNameFree(ctx, dst, o.project, "a move keeps the project's name and never replaces a project, so the name must be free on "+o.toName); err != nil {
 		return nil, fmt.Errorf("%s: %w", o.toName, err)
-	}
-	for _, p := range there {
-		if p.Name == o.project {
-			return nil, &exitError{ExitInvalid, o.toName + " already has a project named " + o.project + "; a move never replaces one"}
-		}
 	}
 
 	// The export: secrets in plain text, since only this box could open

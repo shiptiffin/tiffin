@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -98,6 +99,47 @@ func TestProjectAPI(t *testing.T) {
 	}
 	if code := call(owner, "GET", ex.Download, nil, nil); code != 409 {
 		t.Fatalf("a second download: %d", code)
+	}
+
+	// The name and the archive's start are checked before any upload.
+	x.b.deleted["gone"] = true
+	for _, c := range []struct {
+		token, query string
+		body         []byte
+		code         int
+	}{
+		{owner, "?check=true&name=shop", nil, 409},
+		{owner, "?check=true&name=gone", nil, 409},
+		{owner, "?check=true&name=Shop", nil, 422},
+		{reader, "?check=true&name=fresh", nil, 403},
+		{owner, "?check=true", nil, 400},
+		{owner, "?check=true", []byte("not an archive"), 422},
+		{owner, "?name=shop", archive, 409}, // refused before the body is read
+		{owner, "?name=gone", archive, 409},
+	} {
+		var b io.Reader
+		if c.body != nil {
+			b = bytes.NewReader(c.body)
+		}
+		var prob api.Problem
+		if code := call(c.token, "POST", "/v1/project-imports"+c.query, b, &prob); code != c.code {
+			t.Errorf("%s: %d %+v, want %d", c.query, code, prob, c.code)
+		}
+	}
+	var chk ProjectJob
+	if code := call(owner, "POST", "/v1/project-imports?check=true&name=fresh", nil, &chk); code != 200 || chk.Status != JobChecked || chk.Project != "fresh" || chk.ID != "" {
+		t.Fatalf("check a free name: %d %+v", code, chk)
+	}
+	head := archive[:min(len(archive), 64<<10)]
+	if code := call(owner, "POST", "/v1/project-imports?check=true", bytes.NewReader(head), &chk); code != 200 || chk.Status != JobChecked ||
+		chk.Source == nil || chk.Source.Project != "shop" || !chk.Source.Taken || len(chk.Source.Apps) != 3 || chk.Project != "shop" {
+		t.Fatalf("check the archive's start (%d of %d bytes): %d %+v", len(head), len(archive), code, chk)
+	}
+	if code := call(owner, "POST", "/v1/project-imports?check=true&name=shop-2", bytes.NewReader(head), &chk); code != 200 || chk.Project != "shop-2" || chk.From != "shop" {
+		t.Fatalf("check the archive under another name: %d %+v", code, chk)
+	}
+	if jobs, _ := filepath.Glob(filepath.Join(dir(x.p), "project-imports", "*")); len(jobs) != 0 {
+		t.Fatalf("checks stored something: %v", jobs)
 	}
 
 	// Upload, then import under another name.

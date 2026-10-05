@@ -48,12 +48,17 @@ type stubBoxes struct {
 	stopped   string
 	dnsSet    bool
 	applied   map[string]any
+	oldBox    bool // a box without the import check
+	exported  bool
 }
 
 func (s *stubBoxes) src() http.Handler {
 	sum := sha256.Sum256(s.archive)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/projects/shop/exports", func(w http.ResponseWriter, r *http.Request) {
+		s.mu.Lock()
+		s.exported = true
+		s.mu.Unlock()
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		if body["includeSecrets"] != true || body["withHistory"] != true {
@@ -82,6 +87,19 @@ func (s *stubBoxes) dst() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/projects", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`[{"name":"blog"}]`)) })
 	mux.HandleFunc("POST /v1/project-imports", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("check") == "true" {
+			switch name := r.URL.Query().Get("name"); {
+			case s.oldBox:
+				http.Error(w, `{"detail":"not a Tiffin export (it is not zstd-compressed)"}`, 422)
+			case name == "blog":
+				http.Error(w, `{"detail":"project blog already exists on this box"}`, 409)
+			case name == "gone":
+				http.Error(w, `{"detail":"a project named gone was destroyed less than 7 days ago"}`, 409)
+			default:
+				_, _ = w.Write([]byte(`{"status":"checked","project":"` + name + `"}`))
+			}
+			return
+		}
 		b, _ := io.ReadAll(r.Body)
 		sum := sha256.Sum256(b)
 		s.mu.Lock()
@@ -159,9 +177,22 @@ func TestMoveProject(t *testing.T) {
 		t.Fatal("stopped on the old box after an import whose app did not start")
 	}
 	s.unhealthy = false
-	// A name the new box already has is refused before anything moves.
-	if _, err := moveProject(ctx, src, dst, moveOptions{project: "blog", fromName: "old", toName: "new"}); err == nil || !strings.Contains(err.Error(), "already has") {
-		t.Fatalf("name taken: %v", err)
+	// A name the new box has, or destroyed lately, is refused before anything moves.
+	s.exported = false
+	for project, want := range map[string]string{"blog": "new: project blog already exists", "gone": "destroyed less than 7 days ago"} {
+		if _, err := moveProject(ctx, src, dst, moveOptions{project: project, fromName: "old", toName: "new"}); err == nil || !strings.Contains(err.Error(), want) ||
+			!strings.Contains(err.Error(), "must be free on new") {
+			t.Fatalf("%s: %v", project, err)
+		}
+	}
+	// A box without the check says which projects it has.
+	s.oldBox = true
+	if _, err := moveProject(ctx, src, dst, moveOptions{project: "blog", fromName: "old", toName: "new"}); err == nil || !strings.Contains(err.Error(), "blog already exists") {
+		t.Fatalf("name taken on an older box: %v", err)
+	}
+	s.oldBox = false
+	if s.exported {
+		t.Fatal("exported before the name was checked")
 	}
 	if _, err := moveProject(ctx, src, src, moveOptions{project: "shop", fromName: "old", toName: "old"}); err == nil {
 		t.Fatal("a move onto the same box")

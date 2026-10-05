@@ -1,6 +1,7 @@
 package portable
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -40,6 +41,7 @@ const (
 	JobRunning  = "running"
 	JobDone     = "done"
 	JobFailed   = "failed"
+	JobChecked  = "checked" // an upload with check: nothing stored
 )
 
 // ProjectExport is one project export. The download makes the archive as
@@ -91,7 +93,7 @@ type ArchiveSummary struct {
 type ProjectJob struct {
 	ID             string          `json:"id" doc:"Job ID (pj_...)"`
 	Kind           string          `json:"kind" enum:"duplicate,import"`
-	Status         string          `json:"status" enum:"uploaded,running,done,failed" doc:"uploaded (an import waiting for apply) → running → done or failed. A job whose project was created but an app of which did not start is failed: created is true, apps says which app and why"`
+	Status         string          `json:"status" enum:"uploaded,running,done,failed,checked" doc:"uploaded (an import waiting for apply) → running → done or failed; checked answers an upload with check (nothing stored). A job whose project was created but an app of which did not start is failed: created is true, apps says which app and why"`
 	Phase          string          `json:"phase,omitempty" doc:"What it is doing now"`
 	Percent        int             `json:"percent"`
 	From           string          `json:"from" doc:"The project copied (duplicate) or the archive's project (import)"`
@@ -334,6 +336,12 @@ func summarizeProject(ctx context.Context, p *platform.Platform, b backend, path
 		return nil, err
 	}
 	defer ar.Close()
+	return summarizeArchive(ctx, p, b, ar)
+}
+
+// summarizeArchive reads project.json, the entry after the manifest (the
+// archive's first megabyte holds both).
+func summarizeArchive(ctx context.Context, p *platform.Platform, b backend, ar *boxfile.Reader) (*ArchiveSummary, error) {
 	e, err := ar.Next()
 	if err != nil || e.Name != "project.json" {
 		return nil, fmt.Errorf("%w: the archive does not start with project.json", ErrInvalid)
@@ -371,6 +379,51 @@ func fullAccess(ctx context.Context, project string) (*tokens.Principal, error) 
 		return nil, fmt.Errorf("%w (it hands out all of the project's data, secrets included, so it needs full access to %s)", err, project)
 	}
 	return pr, nil
+}
+
+// nameFree refuses a name pr may not create a project under, or that is
+// not free on this box.
+func (m *Module) nameFree(ctx context.Context, p *platform.Platform, pr *tokens.Principal, name string) error {
+	if err := pr.Require(tokens.ScopeApplyReversible, name); err != nil {
+		return err
+	}
+	existing, err := p.DB.ListProjects(ctx)
+	if err != nil {
+		return err
+	}
+	return checkNewName(ctx, m.backend(p), existing, name)
+}
+
+// checkImport answers an upload with check: whether name is free and, given
+// the archive's start, what it holds. Nothing is stored.
+func (m *Module) checkImport(ctx context.Context, p *platform.Platform, pr *tokens.Principal, name string, body io.Reader) (*struct{ Body *ProjectJob }, error) {
+	rec := &ProjectJob{Kind: JobImport, Status: JobChecked, Project: name, CreatedBy: pr.TokenID, CreatedAt: time.Now().UTC()}
+	if body != nil {
+		invalid := func(err error) error {
+			prob := api.NewProblem(422, "validation", err.Error())
+			prob.Hint = "make the archive with `tiffin projects export`, or update this box with `tiffin up` if it came from a newer Tiffin"
+			return prob
+		}
+		ar, err := boxfile.NewReader(io.LimitReader(body, 64<<20))
+		if err != nil {
+			return nil, invalid(err)
+		}
+		defer ar.Close()
+		if err := boxfile.CheckProject(&ar.Manifest, state.SchemaVersion(), p.Version); err != nil {
+			return nil, invalid(err)
+		}
+		if rec.Source, err = summarizeArchive(ctx, p, m.backend(p), ar); err != nil {
+			return nil, invalid(err)
+		}
+		rec.From = rec.Source.Project
+		if rec.Project == "" {
+			rec.Project = rec.From
+		}
+	}
+	if rec.Project == "" {
+		return nil, api.NewProblem(400, "validation", "pass name, or send the archive (its first megabyte is enough)")
+	}
+	return &struct{ Body *ProjectJob }{rec}, nil
 }
 
 func projectExists(ctx context.Context, p *platform.Platform, project string) error {
@@ -576,10 +629,13 @@ func (m *Module) registerProjects(a huma.API, p *platform.Platform) {
 	iu := api.Op("project-import-upload", http.MethodPost, "/v1/project-imports", "-", api.RiskWrite,
 		"Upload a project export to import",
 		"Send a .tiffin project archive as the raw request body (application/octet-stream). It is stored on the box and verified as it "+
-			"arrives; the job it returns says what the archive holds and whether its name is free here. Nothing changes until you apply it.", tag)
-	iu.Errors = append(iu.Errors, 413, 422, 507)
-	iu.RequestBody = &huma.RequestBody{Required: true, Description: "The archive", Content: binary("A .tiffin archive made by tiffin projects export")}
-	huma.Register(a, iu, api.Wrap(func(ctx context.Context, in *uploadInput) (*struct{ Body *ProjectJob }, error) {
+			"arrives; the job it returns says what the archive holds and whether its name is free here. Nothing changes until you apply it. "+
+			"name: the name it will be imported under, refused before anything is read if it is taken or was destroyed less than 7 days ago. "+
+			"check: store nothing and answer at once (status checked): with name alone, whether that name is free; with the archive, or just "+
+			"its first megabyte, what it holds and whether this box can import it.", tag)
+	iu.Errors = append(iu.Errors, 409, 413, 422, 507)
+	iu.RequestBody = &huma.RequestBody{Description: "The archive (with check, its first megabyte is enough)", Content: binary("A .tiffin archive made by tiffin projects export")}
+	huma.Register(a, iu, api.Wrap(func(ctx context.Context, in *importUploadInput) (*struct{ Body *ProjectJob }, error) {
 		pr := api.PrincipalFrom(ctx)
 		if err := pr.Require(tokens.ScopeApplyReversible, ""); err != nil {
 			return nil, err
@@ -587,7 +643,21 @@ func (m *Module) registerProjects(a huma.API, p *platform.Platform) {
 		if err := onBox(p); err != nil {
 			return nil, err
 		}
-		if in.body == nil {
+		if in.Name != "" {
+			if err := m.nameFree(ctx, p, pr, in.Name); err != nil {
+				return nil, err
+			}
+		}
+		var body io.Reader // nil when nothing was sent
+		if in.body != nil {
+			if br := bufio.NewReader(in.body); hasBytes(br) {
+				body = br
+			}
+		}
+		if in.Check {
+			return m.checkImport(ctx, p, pr, in.Name, body)
+		}
+		if body == nil {
 			return nil, api.NewProblem(400, "validation", "send the archive as the request body")
 		}
 		if in.ContentLength > 0 {
@@ -597,7 +667,7 @@ func (m *Module) registerProjects(a huma.API, p *platform.Platform) {
 		}
 		rec := &ProjectJob{ID: ids.New("pj"), Kind: JobImport, Status: JobUploaded, CreatedBy: pr.TokenID, CreatedAt: time.Now().UTC()}
 		path := archivePath(p, "project-imports", rec.ID)
-		st, err := storeArchive(path, in.body, func(man *boxfile.Manifest) error { return boxfile.CheckProject(man, state.SchemaVersion(), p.Version) })
+		st, err := storeArchive(path, body, func(man *boxfile.Manifest) error { return boxfile.CheckProject(man, state.SchemaVersion(), p.Version) })
 		if err != nil {
 			if errors.Is(err, ErrInvalid) {
 				prob := api.NewProblem(422, "validation", err.Error())

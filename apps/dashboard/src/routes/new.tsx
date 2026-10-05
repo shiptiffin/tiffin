@@ -25,6 +25,7 @@ import { boxDomainQuery } from "@/lib/domains";
 import { splitAddress } from "@/lib/changes";
 import { addressesOf } from "@/lib/addresses";
 import { cn } from "@/lib/cn";
+import { useDebounced } from "@/lib/debounced";
 import { partName, partSub } from "@/lib/names";
 import { countWords, dec, int, NNBSP } from "@/lib/format";
 import {
@@ -1045,17 +1046,6 @@ function shortRepo(url: string) {
   } catch {
     return url;
   }
-}
-
-function useDebounced<T>(value: T, ms: number): T {
-  const key = JSON.stringify(value);
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setV(value), ms);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, ms]);
-  return v;
 }
 
 function useNow(running: boolean) {
