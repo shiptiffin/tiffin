@@ -451,7 +451,9 @@ func LimitUsage(project string) Usage {
 		TimeoutsToday: w.timeouts[project]}
 	if sh := budget.SharedLimit(project); sh.Percent > 0 {
 		u.SharePercent = sh.Percent
-		if _, grouped := w.groups[project]; grouped {
+		// The cap holds whenever the service runs with delegation, even before
+		// the project's first connection makes its group.
+		if _, grouped := w.groups[project]; grouped || (w.cg != nil && w.cg.ready()) {
 			u.CPUs = sh.CPUs
 		}
 	}
