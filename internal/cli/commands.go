@@ -586,6 +586,10 @@ func (a *app) mcpCmd() *cobra.Command {
 				return &exitError{ExitAuth, "no token: set TIFFIN_TOKEN"}
 			}
 			srv := tmcp.NewServer(spec, h, version.Version, tmcp.Static(token), group)
+			if a.url == "" && bx != nil && !a.homeExplicit && a.token == "" {
+				name, _ := a.currentBox()
+				a.addMoveTool(srv, name, bx) // a move spans two of the CLI's boxes
+			}
 			return srv.Run(ctx, &sdk.StdioTransport{})
 		},
 	}

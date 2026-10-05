@@ -434,7 +434,7 @@ func (m *Module) registerProjects(a huma.API, p *platform.Platform) {
 
 	// ---- export ----
 
-	ec := api.Op("project-export-create", http.MethodPost, "/v1/projects/{project}/exports", "projects exports create", api.RiskWrite,
+	ec := api.Op("project-export-create", http.MethodPost, "/v1/projects/{project}/exports", "projects export", api.RiskWrite,
 		"Export a project",
 		"Starts an export of one project to a single .tiffin file of ordinary files: database.sql (pg_dump), files/<bucket>/..., "+
 			"the cache keys, the apps (image tarball or static files, and the git repository), tiffin.config.ts, project.json, and a "+
