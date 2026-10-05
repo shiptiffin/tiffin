@@ -109,6 +109,9 @@ table inet %[4]s {
 		tcp dport { %[2]s } ct state new add @syn6 { ip6 saddr limit rate over 100/second burst 200 packets } drop
 		tcp dport { %[2]s } accept
 
+		# HTTP/3 (QUIC) on a public box.
+		udp dport 443 accept
+
 		# Everything else on a public interface is dropped (policy).
 		counter comment "dropped inbound"
 	}
@@ -214,7 +217,8 @@ func provisionFirewall(ctx context.Context, s *platform.System) error {
 		return err
 	}
 	if _, err := s.WriteFile("/etc/sysctl.d/91-tiffin-protect.conf", []byte(
-		"net.ipv4.tcp_syncookies=1\nnet.ipv4.tcp_max_syn_backlog=4096\nnet.ipv4.icmp_echo_ignore_broadcasts=1\n"), 0o644); err != nil {
+		"net.ipv4.tcp_syncookies=1\nnet.ipv4.tcp_max_syn_backlog=4096\nnet.ipv4.icmp_echo_ignore_broadcasts=1\n"+
+			"net.core.rmem_max=7500000\nnet.core.wmem_max=7500000\n"), 0o644); err != nil { // UDP buffers QUIC asks for
 		return err
 	}
 	if _, err := s.Run(ctx, "sysctl", "--load=/etc/sysctl.d/91-tiffin-protect.conf"); err != nil {

@@ -581,10 +581,11 @@ func (m *Module) Env(ctx context.Context, p *platform.Platform, project, _ strin
 
 // ---- routes ----
 
-// Routes sends s3.<domain> and files.<domain> to the front server.
+// Routes sends s3.<domain> and files.<domain> to the front server. Objects
+// go out as stored, never re-encoded: S3 clients check lengths and ETags.
 func (*Module) Routes(_ context.Context, p *platform.Platform) ([]edge.Route, error) {
 	up := fmt.Sprintf("127.0.0.1:%d", FrontPort)
-	return []edge.Route{{Host: p.Host("s3"), Upstream: up}, {Host: p.Host("files"), Upstream: up}}, nil
+	return []edge.Route{{Host: p.Host("s3"), Upstream: up, NoCompress: true}, {Host: p.Host("files"), Upstream: up, NoCompress: true}}, nil
 }
 
 // ---- background work and health ----

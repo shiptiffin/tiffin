@@ -118,12 +118,14 @@ func TestEnsureCreatesOnceAndConverges(t *testing.T) {
 	}
 	fw := f.Firewall()
 	var ssh []string
+	var quic bool
 	for _, r := range fw.Rules {
 		if r.Port != nil && *r.Port == "22" {
 			ssh = r.SourceIPs
 		}
+		quic = quic || (r.Protocol == "udp" && r.Port != nil && *r.Port == "443")
 	}
-	if !slices.Equal(ssh, []string{"198.51.100.7/32"}) || len(fw.Rules) != 4 || len(fw.AppliedTo) != 1 {
+	if !slices.Equal(ssh, []string{"198.51.100.7/32"}) || !quic || len(fw.Rules) != 5 || len(fw.AppliedTo) != 1 {
 		t.Fatalf("firewall: ssh from %v, %d rules, applied to %v", ssh, len(fw.Rules), fw.AppliedTo)
 	}
 	v4, v6 := PublicIPs(p.Server)

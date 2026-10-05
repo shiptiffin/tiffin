@@ -94,6 +94,18 @@
             {
               "handle": [
                 {
+                  "encodings": {
+                    "gzip": {},
+                    "zstd": {}
+                  },
+                  "handler": "encode",
+                  "minimum_length": 1024,
+                  "prefer": [
+                    "zstd",
+                    "gzip"
+                  ]
+                },
+                {
                   "flush_interval": -1,
                   "handler": "reverse_proxy",
                   "headers": {
@@ -130,6 +142,18 @@
             {
               "handle": [
                 {
+                  "encodings": {
+                    "gzip": {},
+                    "zstd": {}
+                  },
+                  "handler": "encode",
+                  "minimum_length": 1024,
+                  "prefer": [
+                    "zstd",
+                    "gzip"
+                  ]
+                },
+                {
                   "flush_interval": -1,
                   "handler": "reverse_proxy",
                   "headers": {
@@ -165,6 +189,18 @@
             },
             {
               "handle": [
+                {
+                  "encodings": {
+                    "gzip": {},
+                    "zstd": {}
+                  },
+                  "handler": "encode",
+                  "minimum_length": 1024,
+                  "prefer": [
+                    "zstd",
+                    "gzip"
+                  ]
+                },
                 {
                   "flush_interval": -1,
                   "handler": "reverse_proxy",

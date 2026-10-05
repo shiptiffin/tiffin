@@ -91,6 +91,7 @@ func TestRenderFirewall(t *testing.T) {
 		"tcp dport { 80, 443, 8080, 8443 } accept",
 		"icmp type echo-request limit rate",
 		"udp dport { 68, 546 } accept",
+		"udp dport 443 accept",
 		"ct count over 256",
 	} {
 		if !strings.Contains(got, want) {

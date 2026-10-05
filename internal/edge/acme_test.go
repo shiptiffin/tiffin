@@ -22,6 +22,8 @@ import (
 	pdb "github.com/letsencrypt/pebble/v2/db"
 	pva "github.com/letsencrypt/pebble/v2/va"
 	pwfe "github.com/letsencrypt/pebble/v2/wfe"
+	"github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/http3"
 )
 
 // pebble is Let's Encrypt's test CA, in process. Its validation authority
@@ -154,6 +156,19 @@ func TestACMEIssuanceAndAskGate(t *testing.T) {
 	}
 	if h := res.Header.Get("Strict-Transport-Security"); h != "max-age=3600" {
 		t.Errorf("HSTS = %q", h)
+	}
+	// HTTP/3: advertised, and served over QUIC on the HTTPS port.
+	if h := res.Header.Get("Alt-Svc"); !strings.Contains(h, `h3=":`+strconv.Itoa(ports[1])+`"`) {
+		t.Errorf("Alt-Svc = %q", h)
+	}
+	h3 := &http3.Transport{TLSClientConfig: &tls.Config{RootCAs: pb.pool},
+		Dial: func(ctx context.Context, _ string, tc *tls.Config, qc *quic.Config) (*quic.Conn, error) {
+			return quic.DialAddrEarly(ctx, "127.0.0.1:"+strconv.Itoa(ports[1]), tc, qc)
+		}}
+	defer h3.Close()
+	res, body = get(t, &http.Client{Transport: h3, Timeout: 10 * time.Second}, "https://dashboard.box.test/h3")
+	if res.StatusCode != 200 || res.ProtoMajor != 3 || body != "hello from platform /h3" {
+		t.Errorf("HTTP/3: %d %s %q", res.StatusCode, res.Proto, body)
 	}
 	// On demand: the first visit gets the certificate (the gate allows it).
 	res, body = get(t, c, "https://app.box.test/hi")

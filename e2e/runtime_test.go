@@ -3,15 +3,22 @@
 package e2e
 
 import (
+	"bufio"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 // TestRuntime is the runtime acceptance test on a fresh box, through the CLI:
@@ -33,6 +40,22 @@ func TestRuntime(t *testing.T) {
 	if out, err := exec.Command("rsync", "-a", "--exclude", "node_modules", src+"/", app+"/").CombinedOutput(); err != nil {
 		t.Fatalf("copy template: %v %s", err, out)
 	}
+	// A large text response and a slow stream, for the edge's compression.
+	idx := filepath.Join(app, "index.ts")
+	raw, _ := os.ReadFile(idx)
+	if err := os.WriteFile(idx, []byte(strings.Replace(string(raw), "const port = ", `app.get("/e2e-big", (c) => c.text("compress me ".repeat(400)));
+app.get("/e2e-stream", () => new Response(new ReadableStream({
+  async start(ctl) {
+    ctl.enqueue(new TextEncoder().encode("first ".repeat(400) + "\n"));
+    await Bun.sleep(3000);
+    ctl.enqueue(new TextEncoder().encode("last\n"));
+    ctl.close();
+  },
+}), { headers: { "content-type": "text/plain; charset=utf-8" } }));
+
+const port = `, 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	applyDir := func(intent string) {
 		t.Helper()
 		plan := b.ok("plan", app)
@@ -51,6 +74,9 @@ func TestRuntime(t *testing.T) {
 	if code != 200 || !strings.Contains(body, `"hello":"world"`) || !strings.Contains(body, d1.ID) {
 		t.Fatalf("GET api: %d %s", code, body)
 	}
+	p = time.Now()
+	edgeEncoding(t, b, c)
+	phase("edge encoding", p)
 
 	// ---- redeploy + rollback under load: zero failed requests ----
 	p = time.Now()
@@ -65,8 +91,7 @@ nohup hey -z 50s -c 8 -host hello.tiffin.localhost https://hello.tiffin.localhos
 nohup bash -c 'end=$((SECONDS+50)); while [ $SECONDS -lt $end ]; do for v in --http1.1 --http2; do curl $v -s -o /dev/null -w "%{http_code} %{errormsg}\n" --max-time 10 --cacert /tmp/ca.crt https://hello.tiffin.localhost:8443/ | sed "s/^/$(date +%T.%N) /"; done; done > /tmp/curl.out' >/dev/null 2>&1 &
 echo started`)
 	time.Sleep(3 * time.Second)
-	idx := filepath.Join(app, "index.ts")
-	raw, _ := os.ReadFile(idx)
+	raw, _ = os.ReadFile(idx)
 	if err := os.WriteFile(idx, []byte(strings.Replace(string(raw), `hello: "world"`, `hello: "v2"`, 1)), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -368,4 +393,68 @@ func section(s, from, to string) string {
 		}
 	}
 	return s
+}
+
+// edgeEncoding checks the edge's compression and static caching: the
+// container app's text is compressed and its stream still arrives as it is
+// written; a static site's HTML is revalidated and its hashed asset kept.
+func edgeEncoding(t *testing.T, b *cliBox, c *http.Client) {
+	t.Helper()
+	open := func(u, ae string) (*http.Response, io.Reader) {
+		t.Helper()
+		req, _ := http.NewRequest("GET", u, nil)
+		req.Header.Set("Accept-Encoding", ae)
+		res, err := c.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s: %v", u, err)
+		}
+		t.Cleanup(func() { res.Body.Close() })
+		var r io.Reader = res.Body
+		switch enc := res.Header.Get("Content-Encoding"); enc {
+		case "gzip":
+			r, err = gzip.NewReader(r)
+		case "zstd":
+			var d *zstd.Decoder
+			d, err = zstd.NewReader(r)
+			r = d
+		case "":
+		default:
+			t.Fatalf("GET %s: Content-Encoding %q", u, enc)
+		}
+		if err != nil {
+			t.Fatalf("GET %s: %v", u, err)
+		}
+		return res, r
+	}
+	check := func(u, ae string, code int, enc, cache, want string) {
+		t.Helper()
+		res, r := open(u, ae)
+		body, err := io.ReadAll(r)
+		if err != nil || res.StatusCode != code || res.Header.Get("Content-Encoding") != enc || res.Header.Get("Cache-Control") != cache || string(body) != want {
+			t.Fatalf("GET %s (%s): %d, Content-Encoding %q, Cache-Control %q, %d bytes (%v); want %d %q %q %d bytes", u, ae,
+				res.StatusCode, res.Header.Get("Content-Encoding"), res.Header.Get("Cache-Control"), len(body), err, code, enc, cache, len(want))
+		}
+	}
+	check(b.url("hello")+"/e2e-big", "gzip, deflate, br, zstd", 200, "zstd", "", strings.Repeat("compress me ", 400))
+	check(b.url("hello")+"/e2e-big", "gzip", 200, "gzip", "", strings.Repeat("compress me ", 400))
+	start := time.Now()
+	res, r := open(b.url("hello")+"/e2e-stream", "gzip")
+	br := bufio.NewReader(r)
+	first, _ := br.ReadString('\n')
+	firstAt := time.Since(start)
+	rest, _ := io.ReadAll(br)
+	if res.Header.Get("Content-Encoding") != "gzip" || first != strings.Repeat("first ", 400)+"\n" || string(rest) != "last\n" || firstAt > 2*time.Second {
+		t.Fatalf("stream: Content-Encoding %q, first part (%d bytes) after %s, then %q", res.Header.Get("Content-Encoding"), len(first), firstAt, rest)
+	}
+	t.Logf("compressed stream: first part after %s, the rest after %s", firstAt.Round(time.Millisecond), time.Since(start).Round(time.Millisecond))
+
+	b.apply("site", `{"project":"site","apps":{"web":{"framework":"static","routes":["site"]}}}`)
+	page := "<!doctype html><title>Site</title>" + strings.Repeat("<p>static and compressed</p>", 100)
+	js := "console.log(" + strconv.Quote(strings.Repeat("hashed and kept ", 100)) + ");"
+	files, _ := json.Marshal(map[string]any{"files": map[string]string{"index.html": page, "assets/index-B1x9Qa2c.js": js}})
+	dep := b.ok("deploys", "create", "site", "web", "--body", string(files))
+	id, _ := dep["id"].(string)
+	waitDeploy(t, b, "site", "web", id, 3*time.Minute)
+	check(b.url("site")+"/", "gzip", 200, "gzip", "no-cache", page)
+	check(b.url("site")+"/assets/index-B1x9Qa2c.js", "zstd, gzip", 200, "zstd", "public, max-age=31536000, immutable", js)
 }

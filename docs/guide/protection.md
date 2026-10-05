@@ -6,8 +6,8 @@ On by default:
   generous one for the dashboard.
 - **CrowdSec** reads the edge's access log and bans scanners and brute-forcers; bans are
   enforced at the edge. `tiffin protect unban <ip>`.
-- **Firewall:** only SSH and the edge ports are open; everything else the box runs is
-  private.
+- **Firewall:** only SSH and the edge ports are open (plus UDP 443 for HTTP/3 on a
+  server); everything else the box runs is private.
 
 When you need them:
 

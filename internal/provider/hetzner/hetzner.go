@@ -759,6 +759,7 @@ func (p *Provider) firewallRules(a SSHAccess) []hcloud.FirewallRule {
 		sshRule(a),
 		{Direction: hcloud.FirewallRuleDirectionIn, Protocol: hcloud.FirewallRuleProtocolTCP, Port: hcloud.Ptr("80"), SourceIPs: all, Description: desc("HTTP (redirects to HTTPS)")},
 		{Direction: hcloud.FirewallRuleDirectionIn, Protocol: hcloud.FirewallRuleProtocolTCP, Port: hcloud.Ptr("443"), SourceIPs: all, Description: desc("HTTPS")},
+		{Direction: hcloud.FirewallRuleDirectionIn, Protocol: hcloud.FirewallRuleProtocolUDP, Port: hcloud.Ptr("443"), SourceIPs: all, Description: desc("HTTP/3 (QUIC)")},
 		{Direction: hcloud.FirewallRuleDirectionIn, Protocol: hcloud.FirewallRuleProtocolICMP, SourceIPs: all, Description: desc("ping")},
 	}
 }

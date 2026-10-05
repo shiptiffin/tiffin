@@ -424,6 +424,10 @@ func TestProtectEndToEnd(t *testing.T) {
 		if r, _ := get(t, c, shopURL+"/search?q=shoes"); r.StatusCode != 200 {
 			t.Errorf("ordinary request: %d", r.StatusCode)
 		}
+		long := "/" + strings.Repeat("a", 2000)
+		if r, body := fetch(t, c, shopURL+long, "gzip"); r.StatusCode != 200 || r.Header.Get("Content-Encoding") != "gzip" || body != "hello from shop "+long {
+			t.Errorf("compressed behind the WAF: %d %q, body of %d bytes", r.StatusCode, r.Header.Get("Content-Encoding"), len(body))
+		}
 		r, body := get(t, c, shopURL+"/search?q="+url.QueryEscape("<script>alert(1)</script>"))
 		if r.StatusCode != 403 || !strings.Contains(body, "firewall") {
 			t.Errorf("XSS probe: %d %q", r.StatusCode, body)

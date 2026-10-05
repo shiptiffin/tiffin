@@ -14,6 +14,12 @@ apps: {
 Bun is the only runtime. `next`, `hono` and any Bun server listening on `$PORT` run as
 containers; `static` sites are served straight from the edge.
 
+The edge compresses text responses (zstd or gzip) for every app; a response the app
+compressed itself is passed through. A static site's pages and files are revalidated on
+every visit, except fingerprinted build assets (`/assets/index-B1x9Qa2c.js`,
+`/_next/static/…`), which browsers keep for a year. `.br`, `.zst` or `.gz` files next to
+the originals are sent instead of compressing on the fly.
+
 ## Deploy
 
 ```bash

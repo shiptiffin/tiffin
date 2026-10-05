@@ -53,6 +53,11 @@ type Config struct {
 // Route sends requests for Host (and optionally a path prefix) somewhere:
 // one upstream, several (load-balanced, least connections) or a directory
 // of static files.
+//
+// Text responses are compressed (zstd or gzip) unless NoCompress is set.
+// Static files are revalidated on every use (Cache-Control: no-cache),
+// except fingerprinted build assets, which are cached for a year (see
+// hashedAsset).
 type Route struct {
 	Host       string
 	PathPrefix string   // e.g. "/api"; empty matches every path. Longer prefixes win.
@@ -60,7 +65,9 @@ type Route struct {
 	Upstreams  []string // several host:ports; overrides Upstream
 	FileRoot   string   // serve static files from this directory instead of proxying
 	SPA        bool     // with FileRoot: unknown paths serve index.html
-	Immutable  bool     // with FileRoot: long-lived cache headers
+	// NoCompress passes responses through as the upstream sent them: for
+	// the S3 gateway, whose clients check lengths and ETags.
+	NoCompress bool
 	// RedirectTo permanently redirects (308, path and query kept) to this
 	// host over HTTPS instead of serving: "www.example.com" → "example.com".
 	RedirectTo string
@@ -372,18 +379,59 @@ func routeFor(c Config, r Route, portSuffix string) obj {
 			"headers":     obj{"Location": []string{"https://" + r.RedirectTo + portSuffix + "{http.request.uri}"}},
 		}}
 	case r.FileRoot != "":
-		if r.Immutable {
-			handle = append(handle, obj{"handler": "headers", "response": obj{"set": obj{"Cache-Control": []string{"public, max-age=31536000, immutable"}}}})
-		}
 		if r.SPA {
 			handle = append(handle, obj{"handler": "rewrite", "uri": "{http.matchers.file.relative}"})
 			m["file"] = obj{"root": r.FileRoot, "try_files": []string{"{http.request.uri.path}", "{http.request.uri.path}/index.html", "/index.html"}}
 		}
-		handle = append(handle, obj{"handler": "file_server", "root": r.FileRoot})
+		// After the SPA rewrite, so a missing asset answered with index.html
+		// is never cached as the asset.
+		handle = append(handle, staticCache()...)
+		handle = append(handle, obj{
+			"handler":             "file_server",
+			"root":                r.FileRoot,
+			"precompressed":       obj{"br": obj{}, "zstd": obj{}, "gzip": obj{}},
+			"precompressed_order": []string{"br", "zstd", "gzip"},
+		})
 	default:
 		handle = []obj{proxyMany(r.upstreams())}
 	}
+	if r.RedirectTo == "" && !r.NoCompress {
+		handle = append([]obj{compress()}, handle...)
+	}
 	return obj{"match": []obj{m}, "handle": handle, "terminal": true}
+}
+
+// compress encodes text responses with zstd or gzip, as the client
+// prefers (zstd on a tie). Caddy leaves alone responses that already have
+// a Content-Encoding, partial ones (206), Cache-Control: no-transform and
+// types outside its list of text formats (images, video, archives and
+// woff2 are compressed already). Streams keep flowing: a response whose
+// first write is short is passed through, and every flush from the
+// upstream flushes the compressor too; text/event-stream headers go out at
+// once.
+func compress() obj {
+	return obj{
+		"handler":        "encode",
+		"encodings":      obj{"zstd": obj{}, "gzip": obj{}},
+		"prefer":         []string{"zstd", "gzip"},
+		"minimum_length": 1024, // smaller fits in a packet or two anyway
+	}
+}
+
+// staticCache sets Cache-Control on static files: fingerprinted assets
+// for a year (successful responses only, so a 404 during a deploy is not
+// kept), everything else revalidated with the ETag on every use.
+func staticCache() []obj {
+	return []obj{
+		{"handler": "headers", "response": obj{"set": obj{"Cache-Control": []string{"no-cache"}}}},
+		{"handler": "subroute", "routes": []obj{{
+			"match": []obj{{"tiffin_hashed_asset": obj{}}},
+			"handle": []obj{{"handler": "headers", "response": obj{
+				"set":     obj{"Cache-Control": []string{"public, max-age=31536000, immutable"}},
+				"require": obj{"status_code": []int{2, 304}},
+			}}},
+		}}},
+	}
 }
 
 func notFound(dashboardURL string) obj {
@@ -406,7 +454,7 @@ func (c Config) dashboardURL(portSuffix string) string {
 func hostRoute(hosts []string, upstream string) obj {
 	return obj{
 		"match":    []obj{{"host": hosts}},
-		"handle":   []obj{proxy(upstream)},
+		"handle":   []obj{compress(), proxy(upstream)},
 		"terminal": true,
 	}
 }
@@ -492,6 +540,11 @@ func buildConfig(c Config) obj {
 		// The automation policies below decide which names get certificates
 		// (and when); Caddy must not manage every route host on its own.
 		httpsServer["automatic_https"] = obj{"disable_redirects": true, "disable_certificates": true}
+		// HTTP/3 (QUIC: UDP on the HTTPS port) on a box with public
+		// certificates only; a local box's port is forwarded over TCP
+		// alone. Browsers learn of it from Alt-Svc and stay on TCP where
+		// UDP is blocked.
+		httpsServer["protocols"] = []string{"h1", "h2", "h3"}
 	}
 	if c.Protect != nil {
 		httpsServer["errors"] = obj{"routes": c.Protect.errorRoutes()}
