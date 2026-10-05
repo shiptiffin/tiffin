@@ -10,11 +10,9 @@ import { useTitle } from "@/components/favicon";
 import { NameAsk } from "@/components/name-ask";
 import { Page, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
-import { ProjectTin } from "@/components/mascot";
 import { EmptyBoxStart } from "@/components/start-empty-box";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { useEnamel } from "@/lib/enamel";
 import { words } from "@/lib/format";
 import { mcpCommand } from "@/lib/mcp";
 import { toneClass, useProjectPulse } from "@/lib/pulse";
@@ -242,7 +240,6 @@ function ProjectCard({ project, shares }: { project: string; shares?: Shares }) 
   const preview = usePreview(project, pulse.tone === "ok" && !!pulse.url);
   const share = shares ? (shares.projects[project] ?? 0) / shares.totalMB : undefined;
   const cap = shares?.caps[project];
-  const enamel = useEnamel(project);
   return (
     <li className="group relative flex min-h-[176px] flex-col overflow-hidden rounded-[12px] border border-rule-2 bg-paper-raised shadow-[var(--top-light)] transition-[border-color,box-shadow] duration-[var(--dur-state)] hover:border-rule-3 hover:shadow-raised">
       {preview && <img src={preview} alt="" className="aspect-[1200/630] w-full border-b border-rule object-cover" loading="lazy" />}
@@ -254,7 +251,6 @@ function ProjectCard({ project, shares }: { project: string; shares?: Shares }) 
               {project}
             </Link>
           </h2>
-          <ProjectTin enamel={enamel} size={40} className="-my-2 ml-auto" />
         </div>
         <div className="mt-1 min-h-5 pl-[32px] text-[0.8125rem]">
           {pulse.url ? (
