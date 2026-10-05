@@ -55,9 +55,33 @@ restarts, and the project's usage says `pressure: "oom"`. Budget changes apply l
 through plan and apply; nothing restarts. The box owner can also cap every project that
 sets no budget: `tiffin box settings set --default-max-share-percent 25`.
 
+A limit holds everything the project uses of the box, not only its apps. Its share is
+its `maxSharePercent`, the box default, or what its `memoryMB` and `cpus` come to. At 25%:
+
+- its database's queries get a quarter of the CPUs (past that they slow down; other
+  projects' queries are not affected) and a quarter of Postgres's 100 connections;
+- its cache is held to the smaller of its `maxMemoryMB` and a quarter of Valkey's memory:
+  keys with an expiry are cleared first, then new writes are refused until it is under it
+  (reads and deletes still work);
+- its builds get a quarter of the CPUs, and past its memory limit (at least 1 GB) they
+  slow down instead of failing;
+- its apps get a quarter of the weight when the disk is busy.
+
+Every project, limited or not, has database safety limits: a query is stopped after 30
+seconds (`services.postgres.statementTimeoutSeconds` changes it; one query can raise it
+for itself with `SET LOCAL statement_timeout`), a session idle inside a transaction is
+closed after 60 seconds, one query's temporary files are capped at a share of the disk,
+and a project opens at most 80 connections.
+
+When a limit holds a project back (an app restarted for memory, all its connections in
+use, its cache full) it shows on the project's Usage page and in its History, at most once
+an hour each. Queries stopped by the time limit are only counted ("3 queries stopped
+today"), on Usage.
+
 `tiffin projects usage <project>` shows what a project uses against its limits: memory,
-headroom (how much more it could take now), CPU, disk, each app's copies and its
-services.
+headroom (how much more it could take now), CPU, disk, its database, cache and builds
+(`sharePercent`, `database`, `cache`, `builds`), each app's copies, its services and its
+`limitEvents`.
 
 Disk is shared too: every project's database and files live on the data disk, so the box
 guards it. Past 85% full it warns (on Usage and Health), naming the project growing

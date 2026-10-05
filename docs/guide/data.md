@@ -18,6 +18,11 @@ Each project gets its own Postgres 18 database and role. Apps get `DATABASE_URL`
   snapshot for 7 days; `tiffin snapshots restore` brings it back.
 - **Org isolation:** `auth.enable_org_rls('table')` adds row-level security keyed on the
   signed-in user's organization.
+- **Safety limits:** a query is stopped after 30 seconds (`statementTimeoutSeconds: 120`
+  changes it; `SET LOCAL statement_timeout = '10min'` lets one long job run), a session
+  left idle inside a transaction is closed after 60 seconds, and a project opens at most
+  80 connections. A project with a limit gets its share of the connections and of the
+  CPU for its queries (see [Sharing the box](concepts.md#sharing-the-box)).
 
 ## Valkey
 
@@ -27,7 +32,9 @@ services: { valkey: { maxMemoryMB: 128 } }
 
 Each project gets a Valkey user limited to its own key prefix. Apps get `REDIS_URL` and
 `VALKEY_PREFIX`. `Bun.redis` works as is; `tiffin-sdk/kv` adds prefixed helpers, an
-atomic rate limiter and `cached()`.
+atomic rate limiter and `cached()`. `maxMemoryMB` (64 by default) is held while the
+project has a limit: over it, its keys with an expiry are cleared first, then new writes
+are refused until it is under it (reads and deletes keep working).
 
 ## Documents
 

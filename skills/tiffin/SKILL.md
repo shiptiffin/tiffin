@@ -16,6 +16,11 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    doesn't reach it: ask the human, don't work around it. "Read-only" errors (a database
    write refused, `QuotaExceeded` on upload) mean the box's disk is nearly full or the project
    reached its storage limit: pass on the fix the message names, don't work around it.
+   Limits hold every project's database and cache too: a query stopped by `statement timeout`
+   (30 s default), `too many connections for role` or a cache write refused with `NOPERM` mean
+   it hit one. `tiffin projects usage <project>` shows each limit; fix the cause (an index, a
+   smaller pool, keys with an expiry) or raise it (`services.postgres.statementTimeoutSeconds`,
+   `SET LOCAL statement_timeout` for one known long job, `maxMemoryMB`, `resources`).
 4. Deploy with `tiffin deploy`; check `tiffin logs <app>` and the app URL afterwards. Code on
    GitHub? If `tiffin github status` says connected: `tiffin github repos` / `tiffin github repo
    <owner> <repo>` (folders and framework), put `git: { repo, branch, path }` on the app, plan,
