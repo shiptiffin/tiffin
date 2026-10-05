@@ -16,6 +16,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/btahir/tiffin/internal/platform"
 )
 
 // Resources is the box view: the machine, its services and its apps.
@@ -31,6 +33,14 @@ type Resources struct {
 	Apps          []App          `json:"apps" doc:"Every app container (production and previews), biggest memory first"`
 	Projects      []ProjectTotal `json:"projects" doc:"Every project: its app copies' memory and CPU together (its slice), its data on disk and its limits, biggest memory first. Per-project detail: projects usage."`
 	Guard         *Guard         `json:"guard,omitempty" doc:"The disk guard: the data disk against its warning, stop and resume levels, the project growing fastest, and the projects held read-only (absent until its first round, 30 seconds after the box starts)"`
+	Server        *Server        `json:"server,omitempty" doc:"How the box was set up on a real server (absent on a local box): its provider and name, and on Hetzner its server type, volume and the bigger types it can change to"`
+}
+
+// Server is a box on a real server, as `tiffin up` recorded it.
+type Server struct {
+	Provider string                  `json:"provider" enum:"hetzner,ssh"`
+	Name     string                  `json:"name" doc:"The box's name on the owner's computer (tiffin up --name)"`
+	Machine  *platform.ServerMachine `json:"machine,omitempty" doc:"Hetzner only: the server type, the data volume and the next bigger types with monthly prices, as of the last tiffin up. Resize with: tiffin up --name <name> --type <type> (restarts the box for about 2 minutes) or --volume-size <GB> (no downtime)"`
 }
 
 // CPU is the machine's processors.
@@ -158,6 +168,9 @@ func (s *sampler) sample(ctx context.Context) *Resources {
 		r.WindowSeconds = round(now.Sub(s.prevAt).Seconds(), 2)
 	}
 	r.Hostname, _ = os.Hostname()
+	if c, _ := platform.LoadServerConfig(); c != nil {
+		r.Server = &Server{Provider: c.Provider, Name: c.Name, Machine: c.Machine}
+	}
 	s.cpu(r)
 	s.memory(r)
 	r.Disks.Data = disk(s.dataMount)

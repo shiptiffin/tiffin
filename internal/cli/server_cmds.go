@@ -19,6 +19,7 @@ import (
 
 	"github.com/btahir/tiffin/internal/install"
 	"github.com/btahir/tiffin/internal/platform"
+	"github.com/btahir/tiffin/internal/provider"
 	"github.com/btahir/tiffin/internal/provider/hetzner"
 	"github.com/btahir/tiffin/internal/provider/remote"
 	"github.com/btahir/tiffin/internal/version"
@@ -221,6 +222,9 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 	var data install.DataSpec
 	var plan *hetzner.Plan
 	var sshAccess *hetzner.SSHAccess
+	var resize *hetzner.Resize
+	var machine *platform.ServerMachine
+	var downSince time.Time // a type change: when the box stopped serving
 	switch prov {
 	case "hetzner":
 		sb.Location = pick(o.location, pick(prev.Location, a.io.Env("HCLOUD_LOCATION")))
@@ -250,7 +254,37 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 			return err
 		}
 		existing := bx != nil && bx.URL != ""
+		if existing && o.adopt == "" && (cmd.Flags().Changed("type") || cmd.Flags().Changed("volume-size")) {
+			wantType, wantGB := "", 0
+			if cmd.Flags().Changed("type") {
+				wantType = o.serverType
+			}
+			if cmd.Flags().Changed("volume-size") {
+				wantGB = o.volumeGB
+			}
+			if resize, err = hp.PlanResize(ctx, wantType, wantGB); err != nil {
+				return resizeErr(err)
+			}
+			if resize.Empty() {
+				resize = nil
+			}
+		}
 		switch {
+		case resize != nil && o.dryRun:
+			if !a.tty() {
+				writeJSON(a.io.Out, map[string]any{"dryRun": true, "provider": "hetzner", "resize": resize})
+				return nil
+			}
+			fmt.Fprintf(a.io.Out, "%s nothing was changed.\n", a.paint("Dry run:", bold))
+			a.printResize(name, resize)
+			fmt.Fprintf(a.io.Out, "\n%s run it again without --dry-run: %s\n", a.paint("→", amber), a.paint(resizeCommand(name, resize), bold))
+			return nil
+		case resize != nil:
+			if !o.yes && !a.confirmResize(name, resize) {
+				return nil
+			}
+			sb.Adopted = prev.Adopted
+			plan = &hetzner.Plan{Currency: resize.Currency, MonthlyNet: resize.MonthlyNetAfter, MonthlyGross: resize.MonthlyGrossAfter}
 		case o.adopt != "":
 			if !sb.OwnKey {
 				return &exitError{ExitInvalid, "--adopt needs the key that already logs in to the server as root: pass --ssh-key <private key> or set HCLOUD_SSH_KEY"}
@@ -289,9 +323,18 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return err
 		}
+		if resize != nil {
+			if resize.Downtime {
+				downSince = time.Now()
+			}
+			if err := a.resizeBox(ctx, hp, resize, func() (provider.Machine, error) { return hp.UpServer(ctx, a.progress) }); err != nil {
+				return &exitError{ExitError, err.Error()}
+			}
+		}
 		if m, err = hp.UpServer(ctx, a.progress); err != nil {
 			return &exitError{ExitError, err.Error()}
 		}
+		machine = machineInfo(ctx, hp)
 		sb.PublicIP, sb.PublicIPv6 = hetzner.PublicIPs(hp.Server)
 		sshAccess = &hp.SSH // the summary at the end says who may SSH in
 		if sb.Ubuntu, err = m.Check(ctx); err != nil {
@@ -390,7 +433,7 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 	}
 	ip := pick(sb.PublicIP, sb.PublicIPv6)
 	opts := install.Options{Domain: sslipDomain(ip), HTTPSPort: 443, HTTPPort: 80, PublicIP: sb.PublicIP, PublicIPv6: sb.PublicIPv6,
-		Server: &platform.ServerConfig{Provider: prov, Name: name, PublicIP: sb.PublicIP, PublicIPv6: sb.PublicIPv6, OwnerIPs: sb.OwnerIPs, RebootWindow: window}}
+		Server: &platform.ServerConfig{Provider: prov, Name: name, PublicIP: sb.PublicIP, PublicIPv6: sb.PublicIPv6, OwnerIPs: sb.OwnerIPs, RebootWindow: window, Machine: machine}}
 	res, err := install.Install(ctx, m, bin, opts, a.progress)
 	if err != nil {
 		return &exitError{ExitError, err.Error()}
@@ -420,6 +463,10 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 	if err := waitHTTPS(ctx, c, res.Build, 90*time.Second); err != nil {
 		return &exitError{ExitError, err.Error()}
 	}
+	var down time.Duration // measured: from stopping Tiffin to HTTPS answering again
+	if !downSince.IsZero() {
+		down = time.Since(downSince).Round(time.Second)
+	}
 	if changed, err := ensureAgentKey(ctx, a, c, bx); err != nil {
 		return &exitError{ExitError, err.Error()}
 	} else if changed {
@@ -445,6 +492,25 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 	if len(warnings) > 0 {
 		out["warnings"] = warnings
 	}
+	var resized string
+	if resize != nil {
+		rs := map[string]any{"from": resize.From.Name, "volumeFromGB": resize.VolumeFromGB, "volumeToGB": resize.VolumeToGB, "downtimeSeconds": int(down.Seconds())}
+		var parts []string
+		if resize.To != nil {
+			rs["to"] = resize.To.Name
+			parts = append(parts, fmt.Sprintf("%s → %s", resize.From.Name, resize.To.Name))
+		}
+		if resize.VolumeToGB != resize.VolumeFromGB {
+			parts = append(parts, fmt.Sprintf("volume %d → %d GB", resize.VolumeFromGB, resize.VolumeToGB))
+		}
+		resized = strings.Join(parts, ", ")
+		if resize.To != nil {
+			resized += fmt.Sprintf(" (down for %s)", down)
+		} else {
+			resized += " (no downtime)"
+		}
+		out["resized"] = rs
+	}
 	if !a.tty() {
 		writeJSON(a.io.Out, out)
 		return nil
@@ -456,6 +522,9 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 		fmt.Fprintf(w, "  %-10s %s %s\n", "Sign in", login, a.paint("(one-time, 10 min)", dim))
 	}
 	fmt.Fprintf(w, "  %-10s %s\n", "Server", strings.TrimSpace(sb.PublicIP+" "+sb.PublicIPv6))
+	if resized != "" {
+		fmt.Fprintf(w, "  %-10s %s\n", "Resized", resized)
+	}
 	fmt.Fprintf(w, "  %-10s %s\n", "SSH", sshCmd)
 	if sshAccess != nil {
 		fmt.Fprintf(w, "  %-10s %s\n", "", a.paint(sshAccess.Summary(), dim))
