@@ -35,7 +35,8 @@ tiffin domain set example.com
 
 `domain set` checks both records first. If they don't point at the box yet, nothing
 changes and you get the exact records to add. When they do, the dashboard moves to
-`dashboard.example.com` and apps to `<app>.example.com`. Want to keep `example.com`
+`dashboard.example.com` and apps to `<project>.example.com` (other apps of a project to
+`<project>-<app>.example.com`). Want to keep `example.com`
 itself for something else? Use a subdomain: `tiffin domain set apps.example.com`
 (the records are then `apps` and `*.apps`).
 
@@ -87,7 +88,7 @@ into your `tiffin.config.ts`:
 
 ```ts
 apps: {
-  web: { routes: ["web", "example.com"] },
+  web: { routes: ["shop", "example.com"] },
   api: { routes: ["example.com/api"] },   // only /api goes to the api app
 },
 domains: { "example.com": { www: "redirect" } },

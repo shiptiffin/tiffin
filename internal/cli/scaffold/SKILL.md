@@ -21,7 +21,9 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    it hit one. `tiffin projects usage <project>` shows each limit; fix the cause (an index, a
    smaller pool, keys with an expiry) or raise it (`services.postgres.statementTimeoutSeconds`,
    `SET LOCAL statement_timeout` for one known long job, `maxMemoryMB`, `resources`).
-4. Deploy with `tiffin deploy`; check `tiffin logs <app>` and the app URL afterwards. Code on
+4. Deploy with `tiffin deploy`; check `tiffin logs <app>` and the app URL afterwards. An app
+   without `routes` is served at `<project>.<domain>` (the main app) or `<project>-<app>.<domain>`,
+   previews at `<preview>--<that name>`. Code on
    GitHub? If `tiffin github status` says connected: `tiffin github repos` / `tiffin github repo
    <owner> <repo>` (folders and framework), put `git: { repo, branch, path }` on the app, plan,
    apply, then `tiffin deploys github <project> <app>` (also Redeploy). Every push to the branch

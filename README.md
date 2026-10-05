@@ -11,7 +11,7 @@ dashboard, all generated from one API.
 tiffin up                                   # a box on your Mac, about a minute
 tiffin init && tiffin plan                  # describe the project, see the plan
 tiffin apply --confirm <hash>               # apply exactly that plan
-tiffin deploy                               # https://web.tiffin.localhost:8443
+tiffin deploy                               # https://<project>.tiffin.localhost:8443
 claude mcp add tiffin -- tiffin mcp         # let your agent help, safely
 ```
 

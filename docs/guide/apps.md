@@ -19,7 +19,7 @@ containers; `static` sites are served straight from the edge.
 ```bash
 tiffin deploy                 # every app in tiffin.config.ts
 tiffin deploy --app api       # one app
-tiffin deploy --preview pr-12 # a preview at pr-12--web.tiffin.localhost
+tiffin deploy --preview pr-12 # a preview at pr-12--<project>.tiffin.localhost
 git push tiffin main          # after `tiffin git-remote --add`
 ```
 
@@ -105,8 +105,9 @@ apps: {
   *success* (linking the live address) or *failure* (linking the build log);
 - a GitHub deployment per deploy (`tiffin/<project>/<app>`, previews as transient
   environments `…/pr-12`);
-- a pull request's preview lives at `pr-12--web.<domain>`; one comment says
-  "Preview of `web`: https://pr-12--web.example.com · built in 34 s · logs".
+- a pull request's preview lives at `pr-12--<app address>.<domain>` (`pr-12--shop` for the app at
+  `shop`); one comment says
+  "Preview of `web`: https://pr-12--shop.example.com · built in 34 s · logs".
 
 Rapid pushes to one branch coalesce: while one builds, only the newest waiting push is
 built next (the ones in between show as *skipped*). A commit message with `[skip deploy]`

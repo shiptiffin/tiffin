@@ -28,8 +28,10 @@ Export, and the move command to copy), and **New project › Import a .tiffin fi
 A full copy on the same box: the database, buckets and files, cache keys, secrets,
 settings and apps (started again from the same images or files). The copy gets its own
 addresses: a box name that starts with the project's moves with it (`shop` →
-`shop-copy`, `shop-api` → `shop-copy-api`), any other gets the new name added
-(`web` → `web-shop-copy`). Custom domains and GitHub deploys stay with the original;
+`shop-copy`, `shop-api` → `shop-copy-api`); an app served at its own app name (the old
+default) or only at custom domains gets the copy's default (`shop-copy`,
+`shop-copy-<app>`); any other name gets the new name added (`www` → `www-shop-copy`).
+Custom domains and GitHub deploys stay with the original;
 the job's notes say which. The copy starts its own History, with one first entry,
 "Duplicated from shop". To undo a duplicate, destroy the copy.
 
