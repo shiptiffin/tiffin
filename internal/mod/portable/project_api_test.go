@@ -43,10 +43,13 @@ func TestProjectAPI(t *testing.T) {
 	}
 	srv := httptest.NewServer(api.New(api.Deps{DB: x.p.DB, Engine: x.p.Engine, Tokens: x.p.Tokens, Platform: x.p}).Handler())
 	defer srv.Close()
-	call := func(token, method, path string, body io.Reader, into any) int {
+	callKey := func(token, key, method, path string, body io.Reader, into any) int {
 		t.Helper()
 		req, _ := http.NewRequest(method, srv.URL+path, body)
 		req.Header.Set("Authorization", "Bearer "+token)
+		if key != "" {
+			req.Header.Set(api.IdempotencyHeader, key)
+		}
 		if body != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
@@ -64,6 +67,10 @@ func TestProjectAPI(t *testing.T) {
 			}
 		}
 		return res.StatusCode
+	}
+	call := func(token, method, path string, body io.Reader, into any) int {
+		t.Helper()
+		return callKey(token, "", method, path, body, into)
 	}
 	waitJob := func(id string) *ProjectJob {
 		t.Helper()
@@ -142,11 +149,19 @@ func TestProjectAPI(t *testing.T) {
 		t.Fatalf("checks stored something: %v", jobs)
 	}
 
-	// Upload, then import under another name.
-	var up ProjectJob
-	if code := call(owner, "POST", "/v1/project-imports", bytes.NewReader(archive), &up); code != 200 || up.Status != JobUploaded ||
+	// Upload, then import under another name. Sent again with its
+	// Idempotency-Key (the connection dropped before the answer), it is the
+	// same upload, and the archive is not read again.
+	var up, again ProjectJob
+	if code := callKey(owner, "upload-key-000000001", "POST", "/v1/project-imports", bytes.NewReader(archive), &up); code != 200 || up.Status != JobUploaded ||
 		up.Source == nil || !up.Source.Taken || !up.Source.SecretsHere || up.From != "shop" {
 		t.Fatalf("upload: %d %+v", code, up)
+	}
+	if code := callKey(owner, "upload-key-000000001", "POST", "/v1/project-imports", strings.NewReader("cut off"), &again); code != 200 || again.ID != up.ID {
+		t.Fatalf("upload sent again: %d %+v, want %s", code, again, up.ID)
+	}
+	if jobs, _ := filepath.Glob(filepath.Join(dir(x.p), "project-imports", "*")); len(jobs) != 1 {
+		t.Fatalf("uploads stored: %v", jobs)
 	}
 	if code := call(owner, "POST", "/v1/project-imports/"+up.ID+"/apply", strings.NewReader(`{}`), nil); code != 409 {
 		t.Fatalf("import over an existing project: %d", code)
@@ -155,8 +170,11 @@ func TestProjectAPI(t *testing.T) {
 		t.Fatalf("someone else's upload: %d", code)
 	}
 	var job ProjectJob
-	if code := call(owner, "POST", "/v1/project-imports/"+up.ID+"/apply", strings.NewReader(`{"name":"shop-2"}`), &job); code != 202 {
+	if code := callKey(owner, "apply-key-0000000001", "POST", "/v1/project-imports/"+up.ID+"/apply", strings.NewReader(`{"name":"shop-2"}`), &job); code != 202 {
 		t.Fatalf("apply: %d %+v", code, job)
+	}
+	if code := callKey(owner, "apply-key-0000000001", "POST", "/v1/project-imports/"+up.ID+"/apply", strings.NewReader(`{"name":"shop-2"}`), &again); code != 202 || again.ID != job.ID {
+		t.Fatalf("apply sent again: %d %+v", code, again) // without the key: 409, the import is running
 	}
 	if j := waitJob(job.ID); j.Status != JobDone || !j.Healthy || !j.Created || j.Project != "shop-2" || j.Change == "" {
 		t.Fatalf("import job: %+v", j)
@@ -166,8 +184,11 @@ func TestProjectAPI(t *testing.T) {
 	if code := call(owner, "POST", "/v1/projects/shop/duplicate", strings.NewReader(`{"name":"shop-2"}`), nil); code != 409 {
 		t.Fatalf("duplicate onto an existing name: %d", code)
 	}
-	if code := call(owner, "POST", "/v1/projects/shop/duplicate", strings.NewReader(`{"name":"shop-copy"}`), &job); code != 202 || job.Kind != JobDuplicate {
+	if code := callKey(owner, "dup-key-000000000001", "POST", "/v1/projects/shop/duplicate", strings.NewReader(`{"name":"shop-copy"}`), &job); code != 202 || job.Kind != JobDuplicate {
 		t.Fatalf("duplicate: %d %+v", code, job)
+	}
+	if code := callKey(owner, "dup-key-000000000001", "POST", "/v1/projects/shop/duplicate", strings.NewReader(`{"name":"shop-copy"}`), &again); code != 202 || again.ID != job.ID {
+		t.Fatalf("duplicate sent again: %d %+v", code, again)
 	}
 	if j := waitJob(job.ID); j.Status != JobDone || j.Project != "shop-copy" || len(j.Apps) != 3 {
 		t.Fatalf("duplicate job: %+v", j)

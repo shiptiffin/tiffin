@@ -356,6 +356,13 @@ func (t *Tool) call(ctx context.Context, h http.Handler, token string, req *sdk.
 	if m := os.Getenv("TIFFIN_MODEL"); m != "" {
 		hr.Header.Set(api.ModelHeader, m)
 	}
+	if api.IsIdempotent(t.op) {
+		// A create the proxy may have to send again (the box reloading its
+		// edge cut it off) is then done only once.
+		b := make([]byte, 16)
+		_, _ = rand.Read(b)
+		hr.Header.Set(api.IdempotencyHeader, "mcp-"+hex.EncodeToString(b))
+	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, hr)
 	res := toResult(rec.Code, rec.Body.Bytes())

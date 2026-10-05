@@ -105,7 +105,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			"App writes pause for a moment (usually under a second) while a consistent snapshot is taken.", tag)
 	ec.Extensions[ExtExposesAllData] = true
 	ec.Errors = append(ec.Errors, 409)
-	huma.Register(a, ec, api.Wrap(func(ctx context.Context, in *struct {
+	huma.Register(a, api.Idempotent(ec), api.Wrap(func(ctx context.Context, in *struct {
 		Body struct {
 			IncludeKey  bool `json:"includeKey,omitempty" doc:"Put the box key that decrypts every secret into the archive"`
 			WithHistory bool `json:"withHistory,omitempty" doc:"Also export logs, metrics, build logs and database snapshots"`
@@ -292,7 +292,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	iu.Extensions[ExtExposesAllData] = true
 	iu.Errors = append(iu.Errors, 409, 413, 507)
 	iu.RequestBody = &huma.RequestBody{Required: true, Description: "The archive", Content: binary("A .tiffin archive made by tiffin box export")}
-	huma.Register(a, iu, api.Wrap(func(ctx context.Context, in *uploadInput) (*struct{ Body *Import }, error) {
+	huma.Register(a, api.Idempotent(iu), api.Wrap(func(ctx context.Context, in *uploadInput) (*struct{ Body *Import }, error) {
 		pr, err := requireAdmin(ctx, "an import")
 		if err != nil {
 			return nil, err

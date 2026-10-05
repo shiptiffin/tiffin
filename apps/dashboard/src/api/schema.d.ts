@@ -848,6 +848,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/idempotency-keys/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Look up a request by its Idempotency-Key
+         * @description What became of a create request sent with an Idempotency-Key (deploys, project imports, duplicates and exports), for a client whose connection dropped before the answer came: the stored answer if it succeeded, whether it still runs, or none (then send it again with the same key). Only the key's own token sees it; answers are kept 24 hours.
+         */
+        get: operations["idempotency-key-get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/login-links": {
         parameters: {
             query?: never;
@@ -5422,6 +5442,25 @@ export interface components {
              */
             status: "ok" | "starting";
             version: string;
+        };
+        IdempotentRequest: {
+            /** Format: date-time */
+            createdAt?: string;
+            key: string;
+            method?: string;
+            path?: string;
+            /** @description The answer it got (JSON) */
+            response?: unknown;
+            /**
+             * Format: int64
+             * @description The HTTP status it got
+             */
+            responseStatus?: number;
+            /**
+             * @description none: no request with this key succeeded (it never arrived, or failed); send it again with the same key. running: it is still being handled. done: it succeeded; response is its answer
+             * @enum {string}
+             */
+            status: "none" | "running" | "done";
         };
         Invite: {
             /** Format: date-time */
@@ -12101,6 +12140,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "idempotency-key-get": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Idempotency-Key the request was sent with */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdempotentRequest"];
                 };
             };
             /** @description Bad Request */

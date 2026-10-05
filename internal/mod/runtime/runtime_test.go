@@ -1122,9 +1122,14 @@ func TestAPI(t *testing.T) {
 	a := api.New(api.Deps{DB: h.p.DB, Engine: h.p.Engine, Tokens: h.p.Tokens, Platform: h.p})
 	srv := httptest.NewServer(a.Handler())
 	defer srv.Close()
+	key := "" // Idempotency-Key for the next call
 	call := func(method, path, ct string, body io.Reader, accept string) (int, []byte) {
 		req, _ := http.NewRequest(method, srv.URL+path, body)
 		req.Header.Set("Authorization", "Bearer "+owner)
+		if key != "" {
+			req.Header.Set(api.IdempotencyHeader, key)
+			key = ""
+		}
 		if ct != "" {
 			req.Header.Set("Content-Type", ct)
 		}
@@ -1140,12 +1145,19 @@ func TestAPI(t *testing.T) {
 		return res.StatusCode, b
 	}
 	src, _ := os.ReadFile(h.source(map[string]string{"index.ts": "upload"}))
+	key = "deploy-key-000000001"
 	code, body := call("POST", "/v1/projects/shop/apps/api/deploys", "application/gzip", bytes.NewReader(src), "")
 	if code != 202 {
 		t.Fatalf("upload: %d %s", code, body)
 	}
 	var d Deploy
 	json.Unmarshal(body, &d)
+	// Sent again with its key (the connection dropped before the answer):
+	// the same deploy, not a second one (the list below has two, not three).
+	key = "deploy-key-000000001"
+	if code, again := call("POST", "/v1/projects/shop/apps/api/deploys", "application/gzip", strings.NewReader("cut off"), ""); code != 202 || !strings.Contains(string(again), `"id":"`+d.ID+`"`) {
+		t.Fatalf("upload sent again: %d %s, want deploy %s", code, again, d.ID)
+	}
 	if d.Status != StatusQueued || d.Source != SourceUpload || d.SourceBytes == 0 {
 		t.Fatalf("queued deploy: %s", body)
 	}

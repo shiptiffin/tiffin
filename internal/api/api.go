@@ -90,6 +90,7 @@ type API struct {
 	api  huma.API
 	mux  *http.ServeMux
 	deps Deps
+	idem idemState
 }
 
 // New builds the API. Deps may be zero-valued when only the OpenAPI
@@ -109,8 +110,9 @@ func New(d Deps) *API {
 	cfg.SchemasPath = "/v1/schemas"
 	cfg.CreateHooks = nil // no $schema links injected into responses
 	a := &API{api: humago.New(mux, cfg), mux: mux, deps: d}
-	a.api.UseMiddleware(a.authenticate)
+	a.api.UseMiddleware(a.authenticate, a.idempotent)
 	a.register()
+	a.registerIdempotency()
 	a.registerBox()
 	a.registerSecrets()
 	a.registerPasskeys()

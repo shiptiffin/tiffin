@@ -112,7 +112,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	create.MaxBodyBytes = maxFilesBody
 	create.Errors = append(create.Errors, 404, 413)
 	create.Middlewares = huma.Middlewares{m.uploadMiddleware(a)}
-	huma.Register(a, create, api.Wrap(func(ctx context.Context, in *struct {
+	huma.Register(a, api.Idempotent(create), api.Wrap(func(ctx context.Context, in *struct {
 		Project  string      `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		App      string      `path:"app" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"App name"`
 		Preview  string      `query:"preview" pattern:"^[a-z0-9][a-z0-9-]{0,29}$" doc:"Deploy as a preview with this name, served at <preview>--<app address>.<domain> (pr-12--shop for the app at shop). Production is untouched."`

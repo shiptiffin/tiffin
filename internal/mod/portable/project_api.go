@@ -460,7 +460,7 @@ func (m *Module) registerProjects(a huma.API, p *platform.Platform) {
 	dup.Extensions[ExtExposesProjectData] = true
 	dup.DefaultStatus = http.StatusAccepted
 	dup.Errors = append(dup.Errors, 404, 409)
-	huma.Register(a, dup, api.Wrap(func(ctx context.Context, in *struct {
+	huma.Register(a, api.Idempotent(dup), api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Body    struct {
 			Name string `json:"name" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"The copy's name, e.g. shop-copy"`
@@ -532,7 +532,7 @@ func (m *Module) registerProjects(a huma.API, p *platform.Platform) {
 			"plain text (.env). Needs full access to the project.", tag)
 	ec.Extensions[ExtExposesProjectData] = true
 	ec.Errors = append(ec.Errors, 404)
-	huma.Register(a, ec, api.Wrap(func(ctx context.Context, in *struct {
+	huma.Register(a, api.Idempotent(ec), api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Body    struct {
 			IncludeSecrets bool `json:"includeSecrets,omitempty" doc:"Put the secrets inside in plain text (.env): anyone with the file can read them"`
@@ -637,7 +637,7 @@ func (m *Module) registerProjects(a huma.API, p *platform.Platform) {
 			"its first megabyte, what it holds and whether this box can import it.", tag)
 	iu.Errors = append(iu.Errors, 409, 413, 422, 507)
 	iu.RequestBody = &huma.RequestBody{Description: "The archive (with check, its first megabyte is enough)", Content: binary("A .tiffin archive made by tiffin projects export")}
-	huma.Register(a, iu, api.Wrap(func(ctx context.Context, in *importUploadInput) (*struct{ Body *ProjectJob }, error) {
+	huma.Register(a, api.Idempotent(iu), api.Wrap(func(ctx context.Context, in *importUploadInput) (*struct{ Body *ProjectJob }, error) {
 		pr := api.PrincipalFrom(ctx)
 		if err := pr.Require(tokens.ScopeApplyReversible, ""); err != nil {
 			return nil, err
@@ -699,7 +699,7 @@ func (m *Module) registerProjects(a huma.API, p *platform.Platform) {
 			"lists them). Returns at once; poll projects jobs get until status is done. Needs permission to create the project.", tag)
 	ia.DefaultStatus = http.StatusAccepted
 	ia.Errors = append(ia.Errors, 404, 409, 422)
-	huma.Register(a, ia, api.Wrap(func(ctx context.Context, in *struct {
+	huma.Register(a, api.Idempotent(ia), api.Wrap(func(ctx context.Context, in *struct {
 		ID   string `path:"id" pattern:"^pj_[0-9A-Z]{26}$" doc:"Job ID of the upload"`
 		Body struct {
 			Name           string `json:"name,omitempty" pattern:"^([a-z][a-z0-9-]{0,39})?$" doc:"The new project's name; default the archive's"`
