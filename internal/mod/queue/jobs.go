@@ -552,7 +552,7 @@ type Attempt struct {
 	Attempt    int       `json:"attempt"`
 	StartedAt  time.Time `json:"startedAt"`
 	DurationMS int       `json:"durationMs"`
-	Outcome    string    `json:"outcome" enum:"ok,retry,dead,interrupted,cancelled" doc:"ok, retry (failed, retried later), dead, interrupted (box shut down; not counted) or cancelled"`
+	Outcome    string    `json:"outcome" enum:"ok,retry,dead,interrupted,cancelled" doc:"ok, retry (failed, retried later), dead, interrupted (box shut down or project stopped; not counted) or cancelled"`
 	Status     int       `json:"status,omitempty" doc:"HTTP status, 0 when there was no response"`
 	Error      string    `json:"error,omitempty"`
 	Release    string    `json:"release,omitempty"`
@@ -562,6 +562,8 @@ func waitingFor(key string) string {
 	kind, rest, _ := strings.Cut(key, ":")
 	_, rest, _ = strings.Cut(rest, "/")
 	switch kind {
+	case "s":
+		return "the project is stopped"
 	case "p":
 		return "the queue is paused"
 	case "q":
@@ -751,7 +753,11 @@ func (e *Engine) retryTx(ctx context.Context, tx pgx.Tx, project string, id int6
 		return conflict(jobID(id)+" is running now", "wait for the attempt to finish, or cancel it first")
 	case stateQueued:
 		if j.BlockedOn != nil {
-			return conflict(jobID(id)+" is waiting for "+waitingFor(*j.BlockedOn), "raise the limit with `tiffin queue configure`, or resume the queue")
+			hint := "raise the limit with `tiffin queue configure`, or resume the queue"
+			if *j.BlockedOn == stopKey(project) {
+				hint = "it runs once the project starts: tiffin projects start " + project
+			}
+			return conflict(jobID(id)+" is waiting for "+waitingFor(*j.BlockedOn), hint)
 		}
 		return conflict(jobID(id)+" is already queued", "")
 	}

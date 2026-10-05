@@ -221,6 +221,13 @@ CREATE TABLE wf_timeline (
 );
 CREATE INDEX wf_timeline_run ON wf_timeline (run_id, id);
 `,
+	// 3: stopped projects: their jobs wait and their crons do not fire.
+	`
+CREATE TABLE tq_stopped (
+	project text PRIMARY KEY,
+	since   timestamptz NOT NULL DEFAULT now()
+);
+`,
 }
 
 // migrate brings River's schema and ours up to date. Concurrent callers are

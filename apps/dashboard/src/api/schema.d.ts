@@ -6878,7 +6878,7 @@ export interface components {
             durationMs: number;
             error?: string;
             /**
-             * @description ok, retry (failed, retried later), dead, interrupted (box shut down; not counted) or cancelled
+             * @description ok, retry (failed, retried later), dead, interrupted (box shut down or project stopped; not counted) or cancelled
              * @enum {string}
              */
             outcome: "ok" | "retry" | "dead" | "interrupted" | "cancelled";

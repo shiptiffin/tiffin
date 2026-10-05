@@ -96,7 +96,10 @@ of `tiffin mcp`, when the CLI knows more than one box.
 
 `tiffin projects stop <project>` stops every app of a project and keeps them stopped:
 deploys, restarts and rollbacks are refused until `tiffin projects start <project>`. The
-data and settings stay. Both are changes in History, so undo works too.
+data and settings stay. Queued jobs and workflow turns wait without spending attempts, and
+crons do not fire; on start the jobs are delivered and each cron continues from its next
+tick (ticks that fell inside the stop are skipped). Both are changes in History, so undo
+works too.
 
 ### API
 

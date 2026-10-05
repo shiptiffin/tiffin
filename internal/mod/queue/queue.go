@@ -213,6 +213,18 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 	return e.ReconcileCron(ctx, project, name, spec)
 }
 
+var _ platform.ProjectStopper = (*Module)(nil)
+
+// ProjectStopped holds a stopped project's jobs and crons, and lets them go
+// when it starts (see stop.go).
+func (m *Module) ProjectStopped(ctx context.Context, p *platform.Platform, project string, stopped bool) error {
+	e := m.engine()
+	if e == nil {
+		return errors.New("the queue is not running yet; its jobs are held or let go as soon as it is")
+	}
+	return e.SetProjectStopped(ctx, project, stopped)
+}
+
 // Env gives apps what tiffin-sdk needs to send jobs and verify deliveries.
 func (m *Module) Env(ctx context.Context, p *platform.Platform, project, app string) (map[string]string, error) {
 	m.mu.RLock()

@@ -13,6 +13,7 @@
 //	Starter        runs background loops while the box serves
 //	Checker        contributes health checks to /v1/status
 //	LossEstimator  says what an irreversible op would destroy (rows, files, events)
+//	ProjectStopper holds a stopped project's background work (jobs, crons)
 //
 // Modules never edit each other's files; they meet here.
 package platform
@@ -20,6 +21,7 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -86,6 +88,27 @@ type Starter interface {
 // issues, analytics) once a project has been destroyed.
 type ProjectCleaner interface {
 	ProjectDeleted(ctx context.Context, p *Platform, project string) error
+}
+
+// ProjectStopper holds a project's background work (queued jobs, crons)
+// while the project is stopped (change.KindStopped) and lets it go when the
+// project starts. It must be idempotent: the runtime calls it on every
+// reconcile of the stop.
+type ProjectStopper interface {
+	ProjectStopped(ctx context.Context, p *Platform, project string, stopped bool) error
+}
+
+// ProjectStopped tells every ProjectStopper that project stopped or started.
+func (p *Platform) ProjectStopped(ctx context.Context, project string, stopped bool) error {
+	var errs []error
+	for _, m := range Modules() {
+		if s, ok := m.(ProjectStopper); ok {
+			if err := s.ProjectStopped(ctx, p, project, stopped); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", m.Name(), err))
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // LossEstimator measures what an irreversible op would destroy, so a plan

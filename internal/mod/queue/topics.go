@@ -146,7 +146,8 @@ func (e *Engine) ReconcileCron(ctx context.Context, project, name string, spec j
 }
 
 // cronLoop fires due crons. Ticks missed while the box was down fire once
-// when it comes back, then the schedule continues from now.
+// when it comes back, then the schedule continues from now. A stopped
+// project's crons wait (see stop.go).
 func (e *Engine) cronLoop(ctx context.Context) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
@@ -168,7 +169,8 @@ func (e *Engine) fireDueCrons(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT project, name, schedule, app, path, next_at FROM tq_crons WHERE next_at <= now() FOR UPDATE SKIP LOCKED LIMIT 100`)
+	rows, err := tx.Query(ctx, `SELECT project, name, schedule, app, path, next_at FROM tq_crons WHERE next_at <= now()
+		AND project NOT IN (SELECT project FROM tq_stopped) FOR UPDATE SKIP LOCKED LIMIT 100`)
 	if err != nil {
 		return err
 	}

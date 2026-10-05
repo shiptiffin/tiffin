@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,8 +50,9 @@ type Engine interface {
 	List(ctx context.Context) ([]Container, error)                // tiffin app containers
 	ImageDigest(ctx context.Context, ref string) (string, error)
 	RemoveImage(ctx context.Context, ref string) error
-	// LoadImage imports a docker/OCI image tarball and tags it as ref.
-	LoadImage(ctx context.Context, file, ref string, log io.Writer) error
+	// LoadImage imports the one image of a docker/OCI image tarball whose
+	// names were stripped (see loadImage) and names it ref, by digest.
+	LoadImage(ctx context.Context, tarball io.Reader, ref string, log io.Writer) error
 	// TagImage gives an image in the store another name (no layers copied).
 	TagImage(ctx context.Context, src, ref string) error
 }
@@ -230,22 +232,42 @@ func (n *nerdctl) TagImage(ctx context.Context, src, ref string) error {
 	return err
 }
 
-func (n *nerdctl) LoadImage(ctx context.Context, file, ref string, log io.Writer) error {
-	c := n.cmd(ctx, "load", "--input", file)
+// LoadImage reads an image tarball with its names stripped (see loadImage),
+// so containerd knows the image only by digest (import@sha256:...). It is
+// named ref by that digest, and the digest name is dropped.
+func (n *nerdctl) LoadImage(ctx context.Context, tarball io.Reader, ref string, log io.Writer) error {
+	c := n.cmd(ctx, "load")
+	c.Stdin = tarball
 	var out bytes.Buffer
 	c.Stdout = io.MultiWriter(&out, log)
 	c.Stderr = io.MultiWriter(&out, log)
 	if err := c.Run(); err != nil {
 		return fmt.Errorf("load image: %w", err)
 	}
-	loaded := pickLoaded(out.String())
-	if loaded == "" {
-		return fmt.Errorf("the tarball contained no image (nerdctl load said: %s)", strings.TrimSpace(lastLines(out.String(), 3)))
-	}
-	if _, err := n.run(ctx, "tag", loaded, ref); err != nil {
+	names, err := loadedImages(out.String())
+	if err != nil {
 		return err
 	}
-	fmt.Fprintf(log, "tagged %s as %s\n", loaded, ref)
+	drop := func() {
+		for _, name := range names {
+			if _, err := n.run(ctx, "rmi", name); err != nil {
+				fmt.Fprintf(log, "could not drop the loaded name %s: %v\n", name, err)
+			}
+		}
+	}
+	switch {
+	case len(names) == 0:
+		return fmt.Errorf("the tarball contained no image (nerdctl load said: %s)", strings.TrimSpace(lastLines(out.String(), 3)))
+	case len(names) > 1:
+		drop()
+		return fmt.Errorf("the tarball holds %d images; save only the app's image", len(names))
+	}
+	id := strings.TrimPrefix(names[0], loadedPrefix)[:12]
+	if _, err := n.run(ctx, "tag", id, ref); err != nil {
+		return err
+	}
+	drop()
+	fmt.Fprintf(log, "loaded image %s as %s\n", id, ref)
 	return nil
 }
 
@@ -257,23 +279,26 @@ func lastLines(s string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
-// pickLoaded chooses the image nerdctl load imported: a tagged name if any,
-// else the image ID of an untagged import ("import@sha256:<id>").
-func pickLoaded(out string) string {
-	var untagged string
+// loadedPrefix is how nerdctl load names an image the tarball does not.
+const loadedPrefix = "import@sha256:"
+
+// loadedImages lists the images nerdctl load imported, by their digest
+// names. Any other name means the tarball still named an image, which a
+// stripped one cannot: it is refused.
+func loadedImages(out string) ([]string, error) {
+	var names []string
 	for _, line := range strings.Split(out, "\n") {
 		_, name, ok := strings.Cut(line, "Loaded image: ")
 		if !ok {
 			continue
 		}
 		name = strings.TrimSpace(name)
-		if dg, isImport := strings.CutPrefix(name, "import@sha256:"); isImport {
-			if untagged == "" && len(dg) >= 12 {
-				untagged = dg[:12]
-			}
-			continue
+		if dg, ok := strings.CutPrefix(name, loadedPrefix); !ok || len(dg) < 12 {
+			return nil, fmt.Errorf("the tarball named an image (%s); images are loaded by digest only", name)
 		}
-		return name
+		if !slices.Contains(names, name) {
+			names = append(names, name)
+		}
 	}
-	return untagged
+	return names, nil
 }

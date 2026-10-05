@@ -366,7 +366,12 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 		return nil // not serving (spec build, CLI): nothing to converge
 	}
 	if address == change.KindStopped {
-		return r.reconcileStop(ctx, project, spec != nil)
+		// Jobs are held before the apps go down and let go after they are
+		// back, so no delivery meets a stopped app.
+		if spec != nil {
+			return errors.Join(p.ProjectStopped(ctx, project, true), r.reconcileStop(ctx, project, true))
+		}
+		return errors.Join(r.reconcileStop(ctx, project, false), p.ProjectStopped(ctx, project, false))
 	}
 	app := change.Name(address)
 	states, err := r.st.statesOf(ctx, project, app)

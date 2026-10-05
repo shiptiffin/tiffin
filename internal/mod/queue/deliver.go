@@ -154,10 +154,11 @@ func lockKey(ctx context.Context, tx pgx.Tx, key string) error {
 	return err
 }
 
-// admit moves a ready job to running if its queue is not paused and every
-// limit has room: queue concurrency, per-key concurrency, FIFO group order and
-// the rate limit. Otherwise it parks the job (blocked_on) with a fallback
-// wake-up; whoever frees the limit wakes it sooner.
+// admit moves a ready job to running if its project is not stopped, its
+// queue is not paused and every limit has room: queue concurrency, per-key
+// concurrency, FIFO group order and the rate limit. Otherwise it parks the
+// job (blocked_on) with a fallback wake-up; whoever frees the limit wakes it
+// sooner.
 func (e *Engine) admit(ctx context.Context, rj *river.Job[deliverArgs], j *jobRow, cfg QueueConfig) (bool, error) {
 	tx, err := e.pool.Begin(ctx)
 	if err != nil {
@@ -175,8 +176,11 @@ func (e *Engine) admit(ctx context.Context, rj *river.Job[deliverArgs], j *jobRo
 	if seq != rj.Args.Seq || !ready(state) {
 		return false, nil
 	}
-	blocked, wait := "", time.Duration(0)
-	if cfg.Paused {
+	blocked, wait, err := heldByStop(ctx, tx, j.Project)
+	if err != nil {
+		return false, err
+	}
+	if blocked == "" && cfg.Paused {
 		blocked, wait = pauseKey(j.Project, j.Queue), time.Minute
 		if err := lockKey(ctx, tx, blocked); err != nil {
 			return false, err
@@ -561,6 +565,17 @@ func (e *Engine) finishTx(ctx context.Context, tx pgx.Tx, id int64, attemptID in
 		return nil // an older attempt; the job has moved on
 	}
 	running := j.State == stateRunning
+	if running && oc.kind == outcomeRetry {
+		// The app went away because its project was stopped: not the job's
+		// fault, so the attempt does not count and the job waits.
+		stopped, err := projectStopped(ctx, tx, j.Project)
+		if err != nil {
+			return err
+		}
+		if stopped {
+			oc.kind, oc.err = outcomeInterrupted, "the project was stopped during this attempt; it runs again once the project starts ("+oc.err+")"
+		}
+	}
 	if oc.started.IsZero() {
 		oc.started = e.now()
 	}

@@ -3,14 +3,43 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/platform"
 )
+
+// stopSpy records what the runtime tells modules that hold a stopped
+// project's background work (the queue).
+type stopSpy struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (*stopSpy) Name() string { return "spy-stopper" }
+func (s *stopSpy) ProjectStopped(_ context.Context, _ *platform.Platform, project string, stopped bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls = append(s.calls, fmt.Sprintf("%s:%v", project, stopped))
+	return nil
+}
+
+func (s *stopSpy) got() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.calls)
+}
+
+var stopper = &stopSpy{}
+
+func init() { platform.Register(stopper) }
 
 // Release puts an app live from an existing image or a site's files with no
 // build (project duplicate and import); a stop keeps every app down until
@@ -70,7 +99,11 @@ func TestReleaseAndStop(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	before := len(stopper.got())
 	stop(true)
+	if got := stopper.got()[before:]; !slices.Equal(got, []string{"shop:true"}) {
+		t.Fatalf("modules told of the stop: %v", got)
+	}
 	time.Sleep(300 * time.Millisecond)
 	if n := len(h.eng.running()); n != 0 {
 		t.Fatalf("%d containers still run in a stopped project", n)
@@ -82,6 +115,9 @@ func TestReleaseAndStop(t *testing.T) {
 		t.Fatalf("deploy into a stopped project: %+v", dd)
 	}
 	stop(false)
+	if got := stopper.got()[before:]; !slices.Equal(got, []string{"shop:true", "shop:false"}) {
+		t.Fatalf("modules told of the start: %v", got)
+	}
 	if code, body := h.get("shop.tiffin.localhost", "/api/"); code != 200 || !strings.Contains(body, strings.ToLower(d.ID)) {
 		t.Fatalf("started again: %d %s", code, body)
 	}
