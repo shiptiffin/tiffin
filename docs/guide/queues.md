@@ -50,14 +50,15 @@ export default defineConfig({
 
 | Queue field | Default | Meaning |
 |---|---|---|
-| `app` | required | App that receives the jobs (a worker is fine) |
-| `path` | `/queues/<name>` | Route the job is POSTed to |
+| `app` | `app` or `url` | App that receives the jobs (a worker is fine) |
+| `url` | `app` or `url` | A web address outside the box to POST the jobs to instead (see below) |
+| `path` | `/queues/<name>` | Route on the app the job is POSTed to |
 | `concurrency` | 0 (no limit), max 1000 | Jobs of this queue running at once |
 | `keyConcurrency` | 0 (no limit), max 1000 | Jobs running at once per `key` |
 | `rateLimit` | 0 (no limit), max 10000 | Jobs started per period, per `key` |
 | `ratePeriodSeconds` | 60 when `rateLimit` is set | The rate window, 1-86400 |
 | `maxAttempts` | 10 (1-100) | Tries before a job goes to the dead-letter queue |
-| `leaseSeconds` | 60 (5-3600) | How long an attempt may run without a response or heartbeat |
+| `leaseSeconds` | 60 (5-3600) | How long an attempt may run without a response or heartbeat; for a `url`, each call's timeout |
 
 Queue names are slugs (lowercase letters, digits, dashes, at most 40). Topic names may also
 contain dots (`order.created`); a name cannot be both a queue and a topic. A topic lists
@@ -83,15 +84,24 @@ crons: {
 | Cron field | Default | Meaning |
 |---|---|---|
 | `schedule` | required | 5 cron fields (`minute hour day month weekday`) or `@hourly`, `@daily`, `@weekly`, `@monthly` |
-| `app` | required | App that receives the call (a worker is fine) |
-| `path` | `/cron/<name>` | Route the call is POSTed to |
+| `app` | `app` or `url` | App that receives the call (a worker is fine) |
+| `url` | `app` or `url` | A web address outside the box to POST to instead (see below) |
+| `path` | `/cron/<name>` | Route on the app the call is POSTed to |
 | `timezone` | UTC | IANA time zone the schedule is read in |
 | `overlap` | `false` | Run a tick even while the previous run is still going |
+| `timeoutSeconds` | 60 (5-3600) | How long one call may take before it counts as failed and is retried |
 
 When clocks change, a time that happens twice runs once and a time that is skipped runs at
 the change. A tick whose previous run is still queued or running is skipped, not stacked;
 `tiffin queue crons list` shows the time zone, the latest run and `lastSkippedAt`. Set
 `overlap: true` to run every tick regardless.
+
+**Pause** a cron with `tiffin queue crons pause <project> <name>` (or its switch in the
+dashboard's Jobs › Schedules): it stops ticking until `tiffin queue crons resume`, which
+carries on from the next tick (ones missed while paused don't run). The pause outlasts
+applies and restarts; `tiffin queue crons trigger` still runs a paused cron once.
+`tiffin queue crons preview <project> --schedule "0 9 * * 1-5" --timezone Europe/London`
+shows the next ticks the box will run, clock changes included.
 
 **Crons in vercel.json.** An app's `vercel.json` crons run too, with no change to the app:
 
@@ -107,6 +117,53 @@ production deploy: a deploy or rollback replaces the app's set, previews run non
 deleting the app removes them. One declared in `tiffin.config.ts` wins over one with the
 same name, or the same app and path. `tiffin queue crons list` shows where each comes from
 (`origin`: `tiffin.config.ts` or `vercel.json`) and how it is called (`method`).
+
+## Calling a web address
+
+A cron or queue can call any web address instead of an app: `url` in place of `app` and
+`path`. A project needs no app for it, which is what makes a schedule or a queue useful on
+its own (a morning digest, a webhook fan-out):
+
+```ts
+crons: {
+  digest: { schedule: "0 9 * * 1-5", timezone: "Europe/London", url: "https://hooks.example.com/digest" },
+},
+queues: {
+  orders: { url: "https://hooks.example.com/orders", concurrency: 4, maxAttempts: 8 },
+},
+```
+
+Each call is a `POST` with the same JSON body and `Tiffin-Signature` header apps get, retried
+with backoff on anything but 2xx (489 gives up), timed out per attempt (`timeoutSeconds` for a
+cron, `leaseSeconds` for a queue; 60 seconds by default) and recorded like any job. A project
+makes at most 600 such calls a minute across its crons and queues; more wait their turn
+(`TIFFIN_QUEUE_URL_RATE` on the box changes it).
+
+Calls go only to public addresses. The box looks the host up at every call, redirects
+included, and refuses its own addresses and private, loopback, link-local and other
+non-public ranges (`tiffin plan` already refuses an address like `http://10.0.0.5`); a refused
+call fails at once and says why. Up to three redirects to other public addresses are
+followed; the signature is not passed on to a different host. On a box whose receivers sit on
+its own network, `TIFFIN_QUEUE_ALLOW_NETS=192.168.1.0/24` lets calls reach that range.
+
+**Check the signature** where the call lands, with the project's signing secret
+(`tiffin queue signing-secret <project>`; apps on the box have it as
+`TIFFIN_QUEUE_SIGNING_SECRET`):
+
+```ts
+import { verifyRequest } from "tiffin-sdk/verify";
+
+export async function POST(req: Request) {
+  const call = await verifyRequest(req, process.env.TIFFIN_SIGNING_SECRET!);
+  if (!call) return new Response("bad signature", { status: 401 });
+  // call.id is the same on every retry of one job: use it to skip duplicates.
+  await sendDigest(call.payload);
+  return new Response(null, { status: 204 });
+}
+```
+
+Without the SDK, recompute HMAC-SHA256 of `<t>.<raw body>` with the secret, compare it in
+constant time with the header's `v1`, and reject a `t` more than five minutes away.
 
 ## Workflows
 

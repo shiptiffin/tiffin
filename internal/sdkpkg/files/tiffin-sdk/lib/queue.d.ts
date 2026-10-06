@@ -1,3 +1,4 @@
+import { verifySignature } from "./verify.js";
 export type Env = Record<string, string | undefined>;
 export type Duration = number | string;
 export interface SendOptions {
@@ -165,8 +166,7 @@ export interface Job<T = unknown> {
     /** Aborted when the box ends the attempt (lease lost, cancelled). */
     signal: AbortSignal;
 }
-/** Verifies a Tiffin-Signature header over the raw body. */
-export declare function verifySignature(secret: string, header: string | null, body: string, toleranceSeconds?: number, now?: number): boolean;
+export { verifySignature };
 /** Signs a body the way the box does (tests, local tools). */
 export declare function sign(secret: string, body: string, now?: number): string;
 /** @internal Reads and verifies a push. Returns a Response to send back on failure. */
