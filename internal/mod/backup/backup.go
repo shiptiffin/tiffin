@@ -39,7 +39,10 @@ const (
 	SetsPath = Root + "/sets"
 	LogPath  = "/var/lib/tiffin/logs/pgbackrest"
 	ConfPath = "/etc/pgbackrest/pgbackrest.conf"
-	Stanza   = "tiffin"
+	// localOnlyConf is an empty include directory: pgBackRest pointed at it
+	// sees only the local repository.
+	localOnlyConf = "/etc/pgbackrest/local.d"
+	Stanza        = "tiffin"
 	// MaxAge is how old the newest good backup may be before the box is unhealthy.
 	MaxAge = 26 * time.Hour
 )
@@ -106,8 +109,13 @@ install -d -m 0700 `+SetsPath); err != nil {
 		return err
 	}
 	// Idempotent: creates the stanza or checks it matches the cluster. Only
-	// in the local repository: the service manages the off-box one.
-	_, err := s.Run(ctx, "runuser", "-u", "postgres", "--", "pgbackrest", "--stanza="+Stanza, "--repo=1", "--log-level-console=warn", "stanza-create")
+	// in the local repository: stanza-create works on every repository it
+	// is configured with, so the off-box one (in conf.d, managed by the
+	// service) is left out with an empty include directory.
+	if _, err := s.Sh(ctx, `install -d -m 0755 `+localOnlyConf); err != nil {
+		return err
+	}
+	_, err := s.Run(ctx, "runuser", "-u", "postgres", "--", "pgbackrest", "--stanza="+Stanza, "--config-include-path="+localOnlyConf, "--log-level-console=warn", "stanza-create")
 	return err
 }
 

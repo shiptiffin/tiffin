@@ -437,10 +437,11 @@ func stanzaMismatch(err error) bool {
 	return strings.Contains(s, "does not match") || strings.Contains(s, "[028]") || strings.Contains(s, "[044]")
 }
 
-// activate creates (or checks) the stanza in repo2: it decides whether this
+// activate creates (or checks) the stanza in repo2 (stanza-create covers
+// every repository; the local one exists already): it decides whether this
 // box's cluster owns the destination.
 func activate(ctx context.Context) (string, error) {
-	_, err := pgbackrest(ctx, "--repo=2", "--log-level-console=warn", "stanza-create")
+	_, err := pgbackrest(ctx, "--log-level-console=warn", "stanza-create")
 	if stanzaMismatch(err) {
 		return OffsiteForeign, nil
 	}
@@ -522,10 +523,14 @@ func openVault(c *OffsiteConfig, s *offsiteSecrets) (*vault, error) {
 var ErrOffsiteOff = errors.New("copies off the box are off; set a destination with `tiffin backups offsite set`")
 
 // CopyOffsite copies a backup set off the box: Postgres to repo2, the rest
-// to the bucket. It waits for a running copy to finish first.
+// to the bucket. It waits for a running copy to finish first; a set copied
+// already returns that copy.
 func CopyOffsite(ctx context.Context, p *platform.Platform, b *Backup) (*BackupOffsiteCopy, error) {
 	work.Lock()
 	defer work.Unlock()
+	if cur, err := get(ctx, p, b.ID); err == nil && cur.Offsite != nil && cur.Offsite.Status == "ok" {
+		return cur.Offsite, nil
+	}
 	c, s := current()
 	if c == nil {
 		return nil, ErrOffsiteOff
@@ -570,6 +575,9 @@ func copyParts(ctx context.Context, p *platform.Platform, c *OffsiteConfig, s *o
 	if b.Status != "ok" {
 		return errors.New("only successful backups are copied")
 	}
+	if why := uncopyable(ctx, p, b, time.Now()); why != "" {
+		return errors.New(why)
+	}
 	if _, err := os.Stat(b.dir()); err != nil {
 		return fmt.Errorf("the set's files are gone from this box (%w)", err)
 	}
@@ -594,6 +602,10 @@ func copyParts(ctx context.Context, p *platform.Platform, c *OffsiteConfig, s *o
 	release, err := waitRun(ctx, 30*time.Minute)
 	if err != nil {
 		return err
+	}
+	if why := uncopyable(ctx, p, b, time.Now()); why != "" {
+		release() // a restore ran meanwhile
+		return errors.New(why)
 	}
 	_, err = pgbackrest(ctx, "--repo=2", "--type="+typ, "--log-level-console=warn", "backup")
 	release()
@@ -627,6 +639,28 @@ func copyParts(ctx context.Context, p *platform.Platform, c *OffsiteConfig, s *o
 	}
 	saveRefs(b.ID, treeChunks(entries))
 	return nil
+}
+
+// offsiteMaxLag is how old a set may be when it is copied: its Postgres
+// part is backed up to the bucket when the copy runs, so the set's other
+// parts must not be much older than that.
+const offsiteMaxLag = 6 * time.Hour
+
+// uncopyable says why set b cannot be copied now ("" when it can): it is
+// too old, or older than the newest restore (its files are from before it).
+func uncopyable(ctx context.Context, p *platform.Platform, b *Backup, now time.Time) string {
+	if b.Trigger == "pre-restore" {
+		return "backup " + b.ID + " is the safety backup of a restore; it stays on this box"
+	}
+	if now.Sub(b.StartedAt) > offsiteMaxLag {
+		return fmt.Sprintf("backup %s is %s old; a copy pairs a set with the database as it is when the copy runs, so only sets of the last 6 hours are copied (take a new one with `tiffin backup`)", b.ID, ago(now.Sub(b.StartedAt)))
+	}
+	if raw, ok, _ := p.DB.KVGet(ctx, nsOffsite, "notBefore"); ok {
+		if t, err := time.Parse(time.RFC3339Nano, string(raw)); err == nil && b.StartedAt.Before(t) {
+			return "backup " + b.ID + " was taken before the last restore; take a new one with `tiffin backup`"
+		}
+	}
+	return ""
 }
 
 func saveRefs(id string, refs []string) {
@@ -666,9 +700,6 @@ func repoInfoOf(ctx context.Context, repo int) ([]repoBackup, error) {
 	var stanzas []struct {
 		Name   string       `json:"name"`
 		Backup []repoBackup `json:"backup"`
-		DB     []struct {
-			SystemID int64 `json:"system-id"`
-		} `json:"db"`
 	}
 	if err := json.Unmarshal([]byte(out), &stanzas); err != nil {
 		return nil, fmt.Errorf("parse pgbackrest info: %w", err)
@@ -769,7 +800,8 @@ func offsiteLoop(ctx context.Context, p *platform.Platform) {
 		if err != nil {
 			continue
 		}
-		if b := lastOK(list, ""); b != nil && (b.Offsite == nil || (b.Offsite.Status == "failed" && time.Since(b.Offsite.FinishedAt) >= retryAfter)) {
+		if b := lastOK(list, ""); b != nil && uncopyable(ctx, p, b, time.Now()) == "" &&
+			(b.Offsite == nil || (b.Offsite.Status == "failed" && time.Since(b.Offsite.FinishedAt) >= retryAfter)) {
 			_, _ = CopyOffsite(ctx, p, b)
 		}
 		var last time.Time

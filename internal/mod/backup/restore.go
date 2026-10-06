@@ -212,6 +212,12 @@ func restore(ctx context.Context, p *platform.Platform, src restoreFrom, targets
 		return nil, err
 	}
 	out := &BackupRestored{Backup: src.b.ID, From: src.from, Targets: targets}
+	// Sets taken before now no longer match the database: they are not
+	// copied off the box any more (a copy pairs a set with the database of
+	// the moment; the safety backup below is never copied either).
+	if err := p.DB.KVPut(ctx, nsOffsite, "notBefore", []byte(time.Now().UTC().Format(time.RFC3339Nano))); err != nil {
+		return nil, err
+	}
 	if safety {
 		s, err := take(ctx, p, "incremental", "pre-restore")
 		if err != nil {
@@ -347,7 +353,7 @@ func adoptCluster(ctx context.Context, p *platform.Platform) (string, error) {
 		return "", err
 	}
 	if len(ids) > 0 && !slices.Contains(ids, sysID) {
-		for _, step := range [][]string{{"stop"}, {"--repo=1", "--force", "stanza-delete"}, {"start"}, {"--repo=1", "--no-online", "stanza-create"}} {
+		for _, step := range [][]string{{"stop"}, {"--repo=1", "--force", "stanza-delete"}, {"start"}, {"--no-online", "stanza-create"}} {
 			if _, err := pgbackrest(ctx, append([]string{"--log-level-console=warn"}, step...)...); err != nil {
 				_, _ = pgbackrest(ctx, "start")
 				return "", fmt.Errorf("starting the local backup repository again for the restored cluster: %s", clean(err))

@@ -120,6 +120,8 @@ Rules are checked every 15 seconds. Built in, and editable:
 | `memory-high` | memory is more than 90% used for 5 minutes |
 | `cert-expiring` | an HTTPS certificate expires within 72 hours and has not renewed |
 | `backup-stale` | the newest backup is more than 26 hours old |
+| `offsite-stale` | the newest copy of the backups off the box is more than 26 hours old (silent while copies are off) |
+| `restore-drill-failed` | the last restore drill, of the local or the off-box copy, failed |
 | `error-spike` | a project's apps report more than 20 errors in 5 minutes |
 | `service-restarts` | a box service restarted more than 3 times in 15 minutes |
 | `service-down` | a box service has not been running for a minute |

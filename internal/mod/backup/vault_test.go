@@ -175,7 +175,7 @@ func writeTree(t *testing.T, dir string) {
 
 func sameTree(t *testing.T, a, b string) {
 	t.Helper()
-	err := filepath.Walk(a, func(p string, fa os.FileInfo, err error) error {
+	err := filepath.Walk(a, func(p string, _ os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -186,7 +186,7 @@ func sameTree(t *testing.T, a, b string) {
 			t.Errorf("%s missing: %v", rel, err)
 			return nil
 		}
-		fa, _ = os.Lstat(p)
+		fa, _ := os.Lstat(p)
 		if fa.Mode() != fb.Mode() {
 			t.Errorf("%s: mode %v, want %v", rel, fb.Mode(), fa.Mode())
 		}

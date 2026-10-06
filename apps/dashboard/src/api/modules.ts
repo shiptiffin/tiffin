@@ -33,6 +33,9 @@ export type BackupOverview = S["BackupOverview"];
 export type Backup = S["Backup"];
 export type BackupRestored = S["BackupRestored"];
 export type BackupDrill = S["BackupDrill"];
+export type BackupOffsite = S["BackupOffsite"];
+export type BackupOffsiteTest = S["BackupOffsiteTest"];
+export type OffsiteInput = S["BackupOffsiteInput"];
 export type Overview = S["ObserveOverview"];
 export type Issue = S["ObserveIssue"];
 export type IssueDetail = S["ObserveIssueDetail"];
@@ -172,6 +175,11 @@ export const mod = {
   drill: (backup?: string) => request<BackupDrill>("POST", backup ? `/v1/backups/${e(backup)}/drill` : "/v1/backups/drill", {}),
   drillGet: (id: string) => request<BackupDrill>("GET", `/v1/backups/drills/${e(id)}`),
   drillCancel: (id: string) => request<BackupDrill>("POST", `/v1/backups/drills/${e(id)}/cancel`, {}),
+  /** Copies off the box: set (tested first; a new destination returns its passphrase once), test, copy now, off. */
+  offsiteSet: (body: OffsiteInput) => request<BackupOffsite>("PUT", "/v1/backups/offsite", body),
+  offsiteTest: () => request<BackupOffsiteTest>("POST", "/v1/backups/offsite/test", {}),
+  offsiteCopy: () => request<S["BackupOffsiteCopy"]>("POST", "/v1/backups/offsite/copy", {}),
+  offsiteOff: () => request<BackupOffsite>("DELETE", "/v1/backups/offsite"),
 
   // observe
   overview: () => request<Overview>("GET", "/v1/observe/overview"),

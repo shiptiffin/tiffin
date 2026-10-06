@@ -181,6 +181,31 @@ func TestOffsiteStatusAndCheck(t *testing.T) {
 	}
 }
 
+func TestUncopyable(t *testing.T) {
+	ctx := context.Background()
+	p := sealedPlatform(t)
+	now := time.Now()
+	set := func(trigger string, age time.Duration) *Backup {
+		return &Backup{ID: "bk_x", Trigger: trigger, Status: "ok", StartedAt: now.Add(-age)}
+	}
+	if why := uncopyable(ctx, p, set("schedule", time.Hour), now); why != "" {
+		t.Fatalf("a fresh set: %s", why)
+	}
+	if why := uncopyable(ctx, p, set("schedule", 7*time.Hour), now); !strings.Contains(why, "only sets of the last 6 hours") {
+		t.Fatalf("an old set: %q", why)
+	}
+	if why := uncopyable(ctx, p, set("pre-restore", time.Minute), now); !strings.Contains(why, "safety backup") {
+		t.Fatalf("a safety set: %q", why)
+	}
+	_ = p.DB.KVPut(ctx, nsOffsite, "notBefore", []byte(now.Add(-30*time.Minute).UTC().Format(time.RFC3339Nano)))
+	if why := uncopyable(ctx, p, set("schedule", time.Hour), now); !strings.Contains(why, "before the last restore") {
+		t.Fatalf("a set from before a restore: %q", why)
+	}
+	if why := uncopyable(ctx, p, set("manual", 10*time.Minute), now); why != "" {
+		t.Fatalf("a set after the restore: %s", why)
+	}
+}
+
 func TestAdoptState(t *testing.T) {
 	ctx := context.Background()
 	p := sealedPlatform(t) // the live box

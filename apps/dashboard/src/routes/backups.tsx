@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { TriangleAlert } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
-import { mod, mq, type Backup, type BackupDrill, type BackupRestored } from "@/api/modules";
+import { mod, mq, type Backup, type BackupDrill, type BackupOffsite, type BackupOffsiteTest, type BackupRestored, type OffsiteInput } from "@/api/modules";
 import { Throttle } from "@/components/throttle";
 import { cn } from "@/lib/cn";
 import { q } from "@/api/queries";
@@ -17,6 +17,9 @@ import { SegMeter } from "@/components/seg-meter";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/choice";
+import { Input, Label } from "@/components/ui/input";
+import { Confirm } from "@/components/confirm";
+import { CopyValue } from "@/components/copy";
 import { bytes, count, countWords, dec, duration, int, ms, pct, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { clock, dayLabel, full, relative } from "@/lib/time";
@@ -97,7 +100,6 @@ export function BackupsPage() {
   const next = Math.min(nextFull, nextInc);
   const nextKind = next === nextFull ? "a full one" : "changes only";
   const nextWords = next <= now + 60_000 ? `The next one, ${nextKind}, is due now.` : `The next one, ${nextKind}, runs at about ${clock(new Date(next).toISOString())}${dayLabel(new Date(next).toISOString()) === "Today" ? "" : ` ${dayLabel(new Date(next).toISOString()).toLowerCase()}`}.`;
-  const local = (d.destinations ?? []).every((x) => x.startsWith("local"));
   const restores = list.filter((b) => b.trigger === "pre-restore");
   const disk = res.data?.disks.data;
 
@@ -132,15 +134,6 @@ export function BackupsPage() {
         {line}
         {drillLine}
       </StateLine>
-      {local && (
-        <p className="mt-2 max-w-[44rem] text-[0.875rem] text-ink-2">
-          Kept on this box only, until off-site storage arrives. They undo mistakes, not the loss of the machine itself; for a copy that lives elsewhere,{" "}
-          <Link to="/settings" hash="move" className="text-brass-ink underline-offset-4 hover:underline">
-            export the box
-          </Link>{" "}
-          and keep the file somewhere safe.
-        </p>
-      )}
       {run.isError && <ProblemNote className="mt-6" error={run.error} />}
       {done && (
         <p className="mt-6 max-w-[48rem] text-[0.875rem] text-ink">
@@ -148,6 +141,8 @@ export function BackupsPage() {
           <code className="ident">{done.safetyBackup}</code>: it’s what was there a moment ago.
         </p>
       )}
+
+      <OffsiteBlock o={d.offsite} owner={owner} now={now} />
 
       <ScheduleLevers sch={sch} owner={owner} />
 
@@ -198,7 +193,10 @@ export function BackupsPage() {
                   <span className="flex flex-wrap items-center gap-x-2 text-[0.875rem] text-ink">
                     {b.status === "running" && <PilotLight state="busy" label="Running" />}
                     {b.kind === "full" ? "Full backup" : "Changes since the last one"}
-                    <span className="text-[0.8125rem] text-ink-3">{b.trigger === "pre-restore" ? "safety copy before a restore" : b.trigger === "manual" ? "taken by hand" : "on schedule"}</span>
+                    <span className="text-[0.8125rem] text-ink-3">
+                      {b.trigger === "pre-restore" ? "safety copy before a restore" : b.trigger === "manual" ? "taken by hand" : "on schedule"}
+                      {b.offsite?.status === "ok" ? " · copied off the box" : b.offsite?.status === "failed" ? " · not copied off the box" : ""}
+                    </span>
                   </span>
                   <span className="mt-0.5 block text-[0.8125rem] text-ink-3 sm:truncate">
                     {b.status === "running" ? (
@@ -505,7 +503,7 @@ function DrillReceipt({ d }: { d: BackupDrill }) {
         <p className={cn("text-[0.9375rem] font-[550]", passed ? "text-ink" : "text-danger")}>
           {passed ? "✓ The backup restores." : "× The drill failed."}{" "}
           <span className="font-[400] text-ink-3">
-            {d.trigger === "schedule" ? "On schedule" : "Run by hand"}, {relative(d.finishedAt ?? d.startedAt)}
+            {d.trigger === "schedule" ? "On schedule" : "Run by hand"}{d.source === "offsite" ? ", from the off-box copy" : ""}, {relative(d.finishedAt ?? d.startedAt)}
           </span>
         </p>
         <span className="ident text-[0.71875rem] text-ink-3">{d.backupLabel || d.backup}</span>
@@ -542,5 +540,206 @@ function DrillReceipt({ d }: { d: BackupDrill }) {
         </ul>
       )}
     </article>
+  );
+}
+
+/**
+ * Copies off the box: whether every backup also goes, encrypted, to a
+ * bucket elsewhere. Off, it says so plainly (the backups live and die with
+ * this server) and offers the form; on, the newest copy, Test, Copy now and
+ * Turn off. A new destination's passphrase is shown once, to keep.
+ */
+function OffsiteBlock({ o, owner, now }: { o?: BackupOffsite | null; owner: boolean; now: number }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [pass, setPass] = useState<string | null>(null);
+  const [tested, setTested] = useState<BackupOffsiteTest | null>(null);
+  const refresh = () => qc.invalidateQueries({ queryKey: ["backups"] });
+  const test = useMutation({ mutationFn: mod.offsiteTest, onSuccess: setTested });
+  const copy = useMutation({
+    mutationFn: mod.offsiteCopy,
+    onSuccess: (c) => toast({ title: c.status === "ok" ? `Copied off the box: ${bytes(c.sentBytes)} sent.` : "Copying off the box now. It shows here when it’s done." }),
+    onSettled: refresh,
+  });
+  const on = !!o?.enabled;
+  const last = o?.lastOk;
+  const failing = o?.lastCopy?.status === "failed" ? o.lastCopy : null;
+  const stale = on && (!o?.lastOkAt || now - new Date(o.lastOkAt).getTime() > 26 * H);
+
+  return (
+    <Group label="Copies off the box" id="offsite" aside={on ? (o?.state === "foreign" ? "paused" : "on") : "off"}>
+      {pass && (
+        <div className="mb-4 max-w-[46rem] rounded-[10px] border border-brass bg-paper-raised px-4 py-3.5" role="alert">
+          <p className="text-[0.9375rem] font-[550] text-ink">Keep this passphrase somewhere safe, off this server.</p>
+          <p className="mt-1 text-[0.84375rem] text-ink-2">
+            The copies are encrypted with it. If this server is lost, a new box needs it to restore them. It’s shown only now.
+          </p>
+          <div className="mt-2.5 flex flex-wrap items-center gap-3">
+            <CopyValue value={pass} className="text-[0.9375rem]" />
+            <Button size="sm" variant="ghost" onClick={() => setPass(null)}>
+              I’ve saved it
+            </Button>
+          </div>
+        </div>
+      )}
+      {!on ? (
+        <div className="border-y border-rule py-3.5">
+          <p className="flex items-start gap-2 text-[0.9375rem] font-[550] text-warn-ink">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+            Backups only on this server.
+          </p>
+          <p className="mt-1 max-w-[44rem] text-[0.84375rem] text-ink-2">
+            They undo mistakes, not the loss of the machine: if it goes, they go with it. Copy every backup, encrypted, to a bucket you own (Cloudflare R2, AWS
+            S3, Hetzner Object Storage, MinIO), and a new box can bring everything back.
+          </p>
+          {owner && !editing && (
+            <Button className="mt-3" size="md" variant="primary" onClick={() => setEditing(true)}>
+              Set a destination…
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="border-y border-rule py-3.5">
+          <p className={cn("text-[0.875rem]", stale || o?.state === "foreign" ? "text-danger" : "text-ink")}>
+            <span className="font-[550]">Copies off the box: on.</span>{" "}
+            {o?.state === "foreign"
+              ? "Paused: this folder holds another box’s backups. Restore them (tiffin restore latest --from offsite), or choose another folder."
+              : last
+                ? `Last copied ${relative(last.finishedAt ?? last.startedAt, now)}, ${bytes(last.sentBytes)} sent (${bytes((last.files?.bytes ?? 0) + (last.postgresBytes ?? 0))} in the set’s changes and files).`
+                : "The first copy runs after the next backup."}
+          </p>
+          <p className="ident mt-0.5 text-[0.71875rem] text-ink-3">
+            s3://{o?.bucket}/{o?.prefix} · {o?.endpoint?.replace(/^https:\/\//, "")} · kept {o?.retentionDays} days
+          </p>
+          {failing && <p className="mt-1.5 text-[0.8125rem] text-danger">The latest copy failed: {failing.error}</p>}
+          {o?.copying && <p className="mt-1.5 text-[0.8125rem] text-ink-2">Copying {o.copying} now…</p>}
+          {owner && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button size="sm" onClick={() => copy.mutate()} disabled={copy.isPending || !!o?.copying || o?.state !== "active"}>
+                {copy.isPending ? "Copying…" : "Copy now"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => test.mutate()} disabled={test.isPending}>
+                {test.isPending ? "Testing…" : "Test"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing((x) => !x)}>
+                Change…
+              </Button>
+              <Button size="sm" variant="danger-quiet" onClick={() => setLeaving(true)}>
+                Turn off…
+              </Button>
+            </div>
+          )}
+          {(test.isError || copy.isError) && <ProblemNote className="mt-3" error={test.error ?? copy.error} />}
+          {tested && (
+            <ul className="mt-3 max-w-[40rem] text-[0.8125rem]" aria-label="Destination test">
+              {(tested.steps ?? []).map((s) => (
+                <li key={s.name} className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] gap-x-2 py-0.5">
+                  <span className={s.ok ? "text-ok" : "text-danger"}>{s.ok ? "✓" : "×"}</span>
+                  <span className={cn("min-w-0 break-words", s.ok ? "text-ink-2" : "text-danger")}>
+                    {s.name}
+                    {s.detail ? `: ${s.detail}` : ""}
+                  </span>
+                  <span className="text-ink-3 tnum">{ms(s.ms)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {owner && editing && (
+        <OffsiteForm
+          o={on ? o : null}
+          onDone={(r) => {
+            setEditing(false);
+            if (r.passphrase) setPass(r.passphrase);
+            toast({ title: r.state === "foreign" ? "Connected. The folder holds another box’s backups: restore them, or choose another folder." : "Copies off the box are on." });
+            void refresh();
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      )}
+      <Confirm
+        open={leaving}
+        onClose={() => setLeaving(false)}
+        title="Stop copying backups off the box?"
+        body="The box forgets the bucket and its keys; backups stay on this server only. The copies already in the bucket stay there; keep the passphrase to restore them."
+        action="Turn off"
+        run={mod.offsiteOff}
+        done={() => {
+          void refresh();
+          toast({ title: "Copies off the box are off. Backups are only on this server." });
+        }}
+      />
+    </Group>
+  );
+}
+
+const offsiteFields: Array<{ k: keyof OffsiteInput; label: string; hint: string; type?: string }> = [
+  { k: "endpoint", label: "Endpoint", hint: "https://<account>.r2.cloudflarestorage.com" },
+  { k: "region", label: "Region", hint: "auto for R2, us-east-1, fsn1…" },
+  { k: "bucket", label: "Bucket", hint: "tiffin-backups (it must exist)" },
+  { k: "prefix", label: "Folder", hint: "tiffin (one per box)" },
+  { k: "accessKeyId", label: "Access key ID", hint: "" },
+  { k: "secretAccessKey", label: "Secret access key", hint: "", type: "password" },
+  { k: "passphrase", label: "Passphrase", hint: "only to use copies another box made", type: "password" },
+];
+
+function OffsiteForm({ o, onDone, onCancel }: { o: BackupOffsite | null; onDone: (r: BackupOffsite) => void; onCancel: () => void }) {
+  const [v, setV] = useState<Record<string, string>>({
+    endpoint: o?.endpoint ?? "",
+    region: o?.region ?? "",
+    bucket: o?.bucket ?? "",
+    prefix: o?.prefix ?? "",
+    accessKeyId: o?.accessKeyId ?? "",
+    secretAccessKey: "",
+    passphrase: "",
+  });
+  const save = useMutation({
+    mutationFn: () => {
+      const body: Record<string, string> = {};
+      for (const [k, x] of Object.entries(v)) if (x.trim()) body[k] = x.trim();
+      return mod.offsiteSet(body as unknown as OffsiteInput);
+    },
+    onSuccess: onDone,
+  });
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        save.mutate();
+      }}
+      className="mt-4 max-w-[46rem]"
+    >
+      <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
+        {offsiteFields.map((f) => (
+          <div key={f.k} className="flex min-w-0 flex-col gap-1">
+            <Label htmlFor={`off-${f.k}`}>{f.label}</Label>
+            <Input
+              id={`off-${f.k}`}
+              type={f.type ?? "text"}
+              value={v[f.k] ?? ""}
+              onChange={(e) => setV((x) => ({ ...x, [f.k]: e.target.value }))}
+              placeholder={f.k === "secretAccessKey" && o ? "unchanged" : f.hint}
+              autoComplete="off"
+              spellCheck={false}
+              className="ident text-[0.875rem]"
+            />
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-xs text-ink-3">
+        The box writes, reads and deletes a test object first, then keeps the keys encrypted. A new destination gets a passphrase, shown once.
+      </p>
+      {save.isError && <ProblemNote className="mt-3" error={save.error} />}
+      <div className="mt-3 flex gap-2">
+        <Button type="submit" variant="primary" size="md" disabled={save.isPending || !v.endpoint.trim() || !v.bucket.trim() || !v.accessKeyId.trim()}>
+          {save.isPending ? "Checking the bucket…" : o ? "Save" : "Check and turn on"}
+        </Button>
+        <Button type="button" variant="ghost" size="md" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }
