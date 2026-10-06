@@ -664,7 +664,7 @@ func firstBuildError(out string) string {
 }
 
 // configFiles are tiffin's own config: the box reads them, apps never import
-// them, and they import tiffin-sdk, which a type-checking build (next build)
+// them, and they import @shiptiffin/sdk, which a type-checking build (next build)
 // cannot resolve. Builds leave them out.
 var configFiles = []string{"tiffin.config.ts", "tiffin.config.mts", "tiffin.config.js", "tiffin.config.mjs"}
 

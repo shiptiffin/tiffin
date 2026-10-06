@@ -451,7 +451,7 @@ with Next.js 16.2 or later, the box adds its adapter to every build
 - `deploymentId`: the deploy's ID. A browser still on an older release reloads the page
   instead of mixing builds.
 - With Valkey in the project (`services: { valkey: {} }`): `cacheHandler` and
-  `cacheHandlers` (`default`, `remote`) from `tiffin-sdk/next`, and `cacheMaxMemorySize: 0`,
+  `cacheHandlers` (`default`, `remote`) from `@shiptiffin/sdk/next`, and `cacheMaxMemorySize: 0`,
   so the instances of an app share one cache and `revalidatePath`, `revalidateTag` and
   `updateTag` reach all of them (`revalidateTag(tag, "max")` serves the old page once
   while it regenerates, as in Next.js). Cached pages belong to their deploy: a new

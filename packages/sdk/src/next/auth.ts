@@ -1,5 +1,5 @@
 /**
- * `tiffin-sdk/next/auth`: sign-in for Next.js App Router apps on Tiffin, the
+ * `@shiptiffin/sdk/next/auth`: sign-in for Next.js App Router apps on Tiffin, the
  * way the Next.js authentication guide lays it out.
  *
  *   // proxy.ts: optimistic check, no network
@@ -15,7 +15,7 @@
  * getSession, verifySession, requireRole and currentUser work in Server
  * Components, Server Actions and Route Handlers, and run once per request.
  * They read the engine's signed session cookie locally; see getSession in
- * tiffin-sdk/auth for how fresh that is.
+ * @shiptiffin/sdk/auth for how fresh that is.
  */
 import "server-only";
 import { cookies, headers } from "next/headers";

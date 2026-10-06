@@ -16,7 +16,7 @@ import (
 	"github.com/riverqueue/river"
 )
 
-// Workflows are durable functions that run inside the app (tiffin-sdk).
+// Workflows are durable functions that run inside the app (@shiptiffin/sdk).
 // Each "turn" is a queue job that POSTs the run and its completed steps to
 // the app; the SDK replays the function, skipping finished steps, until it
 // completes or reaches something to wait for (a sleep, an event, an
@@ -48,7 +48,7 @@ const (
 	stepCancelled = "cancelled"
 )
 
-// DefaultWorkflowPath is where tiffin-sdk's workflow handler is mounted.
+// DefaultWorkflowPath is where @shiptiffin/sdk's workflow handler is mounted.
 const DefaultWorkflowPath = "/_tiffin/workflows"
 
 var errRunFinished = errors.New("run already finished")
@@ -105,7 +105,7 @@ type Run struct {
 	WaitingFor string          `json:"waitingFor,omitempty" doc:"What a waiting run waits for"`
 	Input      json.RawMessage `json:"input,omitempty"`
 	Output     json.RawMessage `json:"output,omitempty"`
-	Progress   json.RawMessage `json:"progress,omitempty" doc:"The latest progress the run reported (ctx.progress in tiffin-sdk)"`
+	Progress   json.RawMessage `json:"progress,omitempty" doc:"The latest progress the run reported (ctx.progress in @shiptiffin/sdk)"`
 	Error      string          `json:"error,omitempty"`
 	Turns      int             `json:"turns" doc:"Times the app has run the function"`
 	IdemKey    string          `json:"idempotencyKey,omitempty"`
@@ -186,7 +186,7 @@ func (e *Engine) StartRun(ctx context.Context, project string, r StartRequest) (
 		r.Path = DefaultWorkflowPath
 	}
 	if r.App == "" && r.URL == "" {
-		return nil, false, invalid("which app runs this workflow?", "pass app: the app whose code defines the workflow with tiffin-sdk")
+		return nil, false, invalid("which app runs this workflow?", "pass app: the app whose code defines the workflow with @shiptiffin/sdk")
 	}
 	if err := e.validTarget(r.App, r.Path, r.URL); err != nil {
 		return nil, false, err
@@ -277,7 +277,7 @@ func (e *Engine) timeline(ctx context.Context, q querier, runID, kind, msg, acto
 }
 
 // deliveryBody is what every push carries. Apps verify the signature, then
-// read it (tiffin-sdk does both).
+// read it (@shiptiffin/sdk does both).
 type deliveryBody struct {
 	Type         string          `json:"type"` // job | cron | workflow
 	ID           string          `json:"id"`
@@ -404,7 +404,7 @@ func (e *Engine) steps(ctx context.Context, runID string) ([]Step, error) {
 
 func approvalID(id int64) string { return "apr_" + strconv.FormatInt(id, 10) }
 
-// turnResult is what tiffin-sdk's workflow handler answers.
+// turnResult is what @shiptiffin/sdk's workflow handler answers.
 type turnResult struct {
 	Status string          `json:"status"` // completed | suspended
 	Output json.RawMessage `json:"output"`
@@ -430,7 +430,7 @@ func (e *Engine) turnFinished(ctx context.Context, tx pgx.Tx, j *jobRow, oc outc
 	case outcomeOK:
 		var tr turnResult
 		if err := json.Unmarshal(oc.output, &tr); err != nil || (tr.Status != "completed" && tr.Status != "suspended") {
-			msg := fmt.Sprintf("the app answered HTTP %d but not with a workflow result; is tiffin-sdk's workflow handler mounted at %s?", oc.status, run.Path)
+			msg := fmt.Sprintf("the app answered HTTP %d but not with a workflow result; is @shiptiffin/sdk's workflow handler mounted at %s?", oc.status, run.Path)
 			return e.failRun(ctx, tx, run.ID, msg)
 		}
 		if _, err := tx.Exec(ctx, `UPDATE wf_runs SET turns = turns + 1, updated_at = now() WHERE id = $1`, run.ID); err != nil {

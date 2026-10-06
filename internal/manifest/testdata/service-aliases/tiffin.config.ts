@@ -1,4 +1,4 @@
-import { defineConfig } from "tiffin-sdk";
+import { defineConfig } from "@shiptiffin/sdk";
 
 // The dashboard's names (Database, Cache, Files) work too; they are stored as postgres, valkey and storage.
 export default defineConfig({

@@ -19,7 +19,7 @@ import (
 // saved as tiffin.config.js or .mjs too.
 func RenderConfig(m *Manifest, note string) []byte {
 	var b bytes.Buffer
-	b.WriteString("import { defineConfig } from \"tiffin-sdk\";\n\n")
+	b.WriteString("import { defineConfig } from \"@shiptiffin/sdk\";\n\n")
 	for _, line := range strings.Split(strings.TrimSpace(note), "\n") {
 		if strings.TrimSpace(line) != "" {
 			b.WriteString("// " + strings.TrimSpace(line) + "\n")

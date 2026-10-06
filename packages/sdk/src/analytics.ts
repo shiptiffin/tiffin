@@ -1,9 +1,9 @@
 /**
- * `tiffin-sdk/analytics`: send custom events from server code to the box's
+ * `@shiptiffin/sdk/analytics`: send custom events from server code to the box's
  * first-party, cookieless analytics.
  *
  * ```ts
- * import { track } from "tiffin-sdk/analytics";
+ * import { track } from "@shiptiffin/sdk/analytics";
  *
  * // In a request handler: pass the request so the event joins the visitor's
  * // session (the box hashes IP + user agent with a daily salt; neither is stored).

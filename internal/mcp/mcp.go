@@ -37,7 +37,7 @@ Your client asks the person before destructive tools run (apply, change_undo, pr
 
 Database: "sql" runs one read-only statement and needs no confirmation; "sql_write" changes data or schema (destructive: a snapshot is taken first).
 
-App code: tiffin-sdk (tiffin-sdk/kv, /storage, /auth, /queue...) is not on npm. In the app's folder run "tiffin sdk add" (add --react for the sign-in components): it vendors the package into vendor/ with a file: dependency in package.json; commit vendor/ and run bun install.
+App code: @shiptiffin/sdk (/kv, /storage, /auth, /queue, /client for the browser...). Install it with "bun add @shiptiffin/sdk", or, with no npm registry, run "tiffin sdk add" in the app's folder: it vendors the copy inside tiffin into vendor/ with a file: dependency in package.json; commit vendor/ and run bun install. Sign-in forms use Better Auth's own client against the box's /api/auth.
 
 Your API key decides what you can reach: some projects or all of them, with full access (apply any change) or read access (read and plan only). Outside its reach you get 403 forbidden with a hint; ask the person to do it, or for a key that reaches it. whoami shows your key. Never guess a confirm hash; always use the one from the plan you reviewed. Tell the person what you changed and why (pass "intent").`
 

@@ -10,7 +10,7 @@ import (
 	"github.com/btahir/tiffin/internal/manifest"
 )
 
-const demoConfig = `import { defineConfig } from "tiffin-sdk";
+const demoConfig = `import { defineConfig } from "@shiptiffin/sdk";
 
 export default defineConfig({
   project: "demo",

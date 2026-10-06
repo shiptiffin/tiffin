@@ -91,7 +91,7 @@ func TestData(t *testing.T) {
 	}
 	writeConfig := func(name, services string) string {
 		path := filepath.Join(dir, name)
-		cfg := `import { defineConfig } from "tiffin-sdk";
+		cfg := `import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({ project: "data", services: {` + services + `} });
 `
 		if err := os.WriteFile(path, []byte(cfg), 0o644); err != nil {

@@ -1,5 +1,5 @@
 /**
- * The storage behind `tiffin-sdk/next`'s cache handlers: entries and tag
+ * The storage behind `@shiptiffin/sdk/next`'s cache handlers: entries and tag
  * revalidations in Valkey, shared by every instance of the app, with a
  * bounded in-process copy in front.
  *
@@ -22,7 +22,7 @@
 
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { ReplyError, RespClient, type Arg } from "./resp";
+import { ReplyError, RespClient, type Arg } from "../resp";
 
 /** The subset of a Redis client the handlers use: Bun's RedisClient as is. */
 export interface RedisLike {
@@ -48,7 +48,7 @@ export function toRedisLike(client: unknown): RedisLike {
   } else if (typeof c.sendCommand === "function") {
     w = { send: (cmd, args) => (c.sendCommand as (a: string[]) => Promise<unknown>).call(client, [cmd, ...args]) };
   } else {
-    throw new TypeError("tiffin-sdk/next: pass a Bun RedisClient, an ioredis client or a node-redis client");
+    throw new TypeError("@shiptiffin/sdk/next: pass a Bun RedisClient, an ioredis client or a node-redis client");
   }
   wrappers.set(c, w);
   return w;
@@ -139,7 +139,7 @@ const warned = new Set<string>();
 export function warnOnce(msg: string): void {
   if (warned.has(msg)) return;
   warned.add(msg);
-  console.warn("[tiffin-sdk/next] " + msg);
+  console.warn("[@shiptiffin/sdk/next] " + msg);
 }
 
 /** When a tag went stale and when it expires (ms since epoch), as Next.js keeps them. */

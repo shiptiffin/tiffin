@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -39,7 +40,7 @@ func TestTarball(t *testing.T) {
 		body, _ := io.ReadAll(tr)
 		seen[h.Name] = body
 	}
-	for _, want := range []string{"package/package.json", "package/lib/kv.js", "package/lib/kv.d.ts", "package/lib/next/cache-handler.js", "package/LICENSE"} {
+	for _, want := range []string{"package/package.json", "package/dist/kv.js", "package/dist/kv.d.ts", "package/dist/client/index.js", "package/dist/next/cache-handler.js", "package/LICENSE", "package/README.md"} {
 		if _, ok := seen[want]; !ok {
 			t.Errorf("tarball lacks %s", want)
 		}
@@ -49,7 +50,7 @@ func TestTarball(t *testing.T) {
 		Exports       map[string]any
 		Dependencies  map[string]string
 	}
-	if err := json.Unmarshal(seen["package/package.json"], &pkg); err != nil || pkg.Name != "tiffin-sdk" || pkg.Version != SDK.Version {
+	if err := json.Unmarshal(seen["package/package.json"], &pkg); err != nil || pkg.Name != "@shiptiffin/sdk" || pkg.Version != SDK.Version {
 		t.Fatalf("package.json: %+v %v", pkg, err)
 	}
 	for name, v := range pkg.Dependencies {
@@ -57,14 +58,14 @@ func TestTarball(t *testing.T) {
 			t.Errorf("workspace dependency %s in the vendored package", name)
 		}
 	}
-	if kv, _ := pkg.Exports["./kv"].(map[string]any); kv["default"] != "./lib/kv.js" || kv["types"] != "./lib/kv.d.ts" {
+	if kv, _ := pkg.Exports["./kv"].(map[string]any); kv["default"] != "./dist/kv.js" || kv["types"] != "./dist/kv.d.ts" {
 		t.Errorf("exports ./kv: %v", pkg.Exports["./kv"])
 	}
 	// Relative imports carry .js, so Node's ESM loader resolves them.
-	if js := string(seen["package/lib/next/index.js"]); !strings.Contains(js, `from "./store.js"`) {
+	if js := string(seen["package/dist/next/index.js"]); !strings.Contains(js, `from "./store.js"`) {
 		t.Errorf("next/index.js imports without extensions:\n%s", js)
 	}
-	if js := string(seen["package/lib/next/index.js"]); strings.Contains(js, "packages/") {
+	if js := string(seen["package/dist/next/index.js"]); strings.Contains(js, "packages/") {
 		t.Error("build paths leaked into the package")
 	}
 }
@@ -73,26 +74,26 @@ func TestTarball(t *testing.T) {
 // order), and replaces an older vendored version.
 func TestAdd(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := Add(dir, SDK); err != ErrNoPackageJSON {
+	if _, err := Add(dir); err != ErrNoPackageJSON {
 		t.Fatalf("without package.json: %v", err)
 	}
 	pj := filepath.Join(dir, "package.json")
 	_ = os.WriteFile(pj, []byte(`{"name":"web","private":true,"scripts":{"build":"next build"},"dependencies":{"next":"16.3.8","react":"19.3.0"}}`), 0o644)
 	_ = os.MkdirAll(filepath.Join(dir, "vendor"), 0o755)
-	_ = os.WriteFile(filepath.Join(dir, "vendor", "tiffin-sdk-0.0.1.tgz"), []byte("old"), 0o644)
-	_ = os.WriteFile(filepath.Join(dir, "vendor", "tiffin-sdk-extra-1.0.0.tgz"), []byte("someone else's"), 0o644)
-	res, err := Add(dir, SDK, React)
+	_ = os.WriteFile(filepath.Join(dir, "vendor", "shiptiffin-sdk-0.0.1.tgz"), []byte("old"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "vendor", "shiptiffin-sdk-extra-1.0.0.tgz"), []byte("someone else's"), 0o644)
+	res, err := Add(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(pj)
 	got := string(raw)
-	for _, want := range []string{`"tiffin-sdk": "file:./vendor/` + SDK.File() + `"`, `"@tiffin/react": "file:./vendor/` + React.File() + `"`} {
+	for _, want := range []string{`"@shiptiffin/sdk": "file:./vendor/` + SDK.File() + `"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("package.json lacks %s:\n%s", want, got)
 		}
 	}
-	if strings.Index(got, `"name"`) > strings.Index(got, `"scripts"`) || strings.Index(got, `"next"`) > strings.Index(got, `"tiffin-sdk"`) || !strings.HasPrefix(got, "{\n  \"name\": \"web\"") {
+	if strings.Index(got, `"name"`) > strings.Index(got, `"scripts"`) || strings.Index(got, `"next"`) > strings.Index(got, `"@shiptiffin/sdk"`) || !strings.HasPrefix(got, "{\n  \"name\": \"web\"") {
 		t.Errorf("key order or indentation changed:\n%s", got)
 	}
 	for _, f := range res.Files {
@@ -100,19 +101,57 @@ func TestAdd(t *testing.T) {
 			t.Errorf("%s not written", f)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dir, "vendor", "tiffin-sdk-0.0.1.tgz")); !os.IsNotExist(err) || len(res.Removed) != 1 {
+	if _, err := os.Stat(filepath.Join(dir, "vendor", "shiptiffin-sdk-0.0.1.tgz")); !os.IsNotExist(err) || len(res.Removed) != 1 {
 		t.Errorf("the old version should be removed: %v", res.Removed)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "vendor", "tiffin-sdk-extra-1.0.0.tgz")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "vendor", "shiptiffin-sdk-extra-1.0.0.tgz")); err != nil {
 		t.Error("an unrelated tarball was removed")
 	}
 	// Again: same bytes, nothing else changes.
 	before, _ := os.ReadFile(filepath.Join(dir, "vendor", SDK.File()))
-	if _, err := Add(dir, SDK); err != nil {
+	if _, err := Add(dir); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := os.ReadFile(filepath.Join(dir, "vendor", SDK.File()))
 	if raw2, _ := os.ReadFile(pj); !bytes.Equal(before, after) || string(raw2) != got {
 		t.Error("adding twice changed the tarball or package.json")
+	}
+}
+
+// An app that installs the SDK from npm keeps it: nothing is vendored.
+func TestAddKeepsNPM(t *testing.T) {
+	dir := t.TempDir()
+	pj := filepath.Join(dir, "package.json")
+	in := []byte(`{"name":"web","dependencies":{"@shiptiffin/sdk":"^0.1.0"}}`)
+	_ = os.WriteFile(pj, in, 0o644)
+	res, err := Add(dir)
+	if err != nil || res.FromNPM != "^0.1.0" || len(res.Files) != 0 {
+		t.Fatalf("Add: %+v %v", res, err)
+	}
+	if raw, _ := os.ReadFile(pj); !bytes.Equal(raw, in) {
+		t.Errorf("package.json changed: %s", raw)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "vendor")); !os.IsNotExist(err) {
+		t.Error("vendor/ was written")
+	}
+}
+
+// The cache handlers come out as one flat directory of ESM files whose
+// relative imports all resolve inside it.
+func TestNextCacheHandlers(t *testing.T) {
+	hs, err := NextCacheHandlers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"cache-handler.js", "use-cache.js", "store.js", "resp.js"} {
+		js, ok := hs[name]
+		if !ok {
+			t.Fatalf("%s missing", name)
+		}
+		for _, m := range regexp.MustCompile(`from "(\.{1,2}/[^"]+)"`).FindAllSubmatch(js, -1) {
+			if _, ok := hs[strings.TrimPrefix(string(m[1]), "./")]; !ok {
+				t.Errorf("%s imports %s, which is not next to it", name, m[1])
+			}
+		}
 	}
 }

@@ -1,6 +1,6 @@
 // A stand-in for the outside world and for an app, for the Jobs specs
 // (e2e/serve-jobs.sh starts it): web addresses that schedules and queues
-// call, checked with tiffin-sdk/verify, a job handler that reports progress
+// call, checked with @shiptiffin/sdk/verify, a job handler that reports progress
 // and output, and a workflow that steps, sleeps and renders pages. Every
 // call it receives is listed at GET /_calls.
 //

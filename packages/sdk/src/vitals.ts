@@ -1,5 +1,5 @@
 /**
- * `tiffin-sdk/vitals`: send Web Vitals (LCP, INP, CLS, FCP, TTFB) from real
+ * `@shiptiffin/sdk/vitals`: send Web Vitals (LCP, INP, CLS, FCP, TTFB) from real
  * visitors' browsers to the box. They go to `/_tiffin/vitals` on the page's
  * own origin (the box answers it on every app host), once per page load,
  * when the page is hidden, so they cost no request while the visitor is on
@@ -7,12 +7,12 @@
  * `tiffin analytics vitals` or on the dashboard's Analytics page.
  *
  * ```ts
- * import { reportWebVitals } from "tiffin-sdk/vitals";
+ * import { reportWebVitals } from "@shiptiffin/sdk/vitals";
  * reportWebVitals();                                    // any framework, in browser code
  * reportWebVitals({ path: () => "/products/[id]" });    // report a route instead of the path
  * ```
  *
- * In Next.js, render `<WebVitals />` from `tiffin-sdk/next/vitals` in the root
+ * In Next.js, render `<WebVitals />` from `@shiptiffin/sdk/next/vitals` in the root
  * layout instead: it uses Next's own measurements and reports routes such as
  * `/products/[id]`.
  */

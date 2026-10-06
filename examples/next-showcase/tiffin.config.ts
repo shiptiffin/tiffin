@@ -1,4 +1,4 @@
-import { defineConfig } from "tiffin-sdk";
+import { defineConfig } from "@shiptiffin/sdk";
 
 // A small store, blog and dashboard that uses most of what Next.js 16 offers:
 // static pages, ISR, Cache Components with a dynamic hole, streaming,

@@ -39,7 +39,7 @@ cp "$HERE/fixtures/web/index.ts" "$S/web/index.ts"
 cp -R "$ROOT/templates/static-site" "$S/docs"
 rm -f "$S/docs/tiffin.config.ts"
 cat >"$S/tiffin.config.ts" <<'TS'
-import { defineConfig } from "tiffin-sdk";
+import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({
   project: "shop",
   env: { LOG_LEVEL: "info" },

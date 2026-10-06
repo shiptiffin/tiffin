@@ -390,7 +390,7 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 	huma.Register(a, api.Untrusted(api.Op("analytics-vitals", http.MethodGet, "/v1/analytics/vitals", "analytics vitals", api.RiskRead,
 		"Show Web Vitals",
 		"How fast real visitors found the pages: p75 of LCP, INP, CLS, FCP and TTFB with Google's rating (good, needs-improvement, poor) and the share of good samples, "+
-			"per page and per day. Pages report them with tiffin-sdk/next/vitals (<WebVitals />) or reportWebVitals() from tiffin-sdk/vitals. "+
+			"per page and per day. Pages report them with @shiptiffin/sdk/next/vitals (<WebVitals />) or reportWebVitals() from @shiptiffin/sdk/vitals. "+
 			"Of the filters only page applies: vitals are kept per page, not per visit."+untrusted, "analytics")),
 		api.Wrap(func(ctx context.Context, in *rangeQuery) (*struct{ Body *VitalsView }, error) {
 			if err := m.ready(ctx, in.Project); err != nil {
@@ -432,9 +432,9 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 			}
 			s := Setup{Project: in.Project, Enabled: on, Hosts: hosts, ScriptURL: ScriptURL(m.p),
 				Snippet: `<script defer src="` + ScriptURL(m.p) + `"></script>`,
-				Track:   `import { track } from "tiffin-sdk/analytics"; await track("Signup", { plan: "pro" }, { request })`,
+				Track:   `import { track } from "@shiptiffin/sdk/analytics"; await track("Signup", { plan: "pro" }, { request })`,
 				Browser: `tiffin.track("Signup", { plan: "pro" })`,
-				Vitals:  `import { WebVitals } from "tiffin-sdk/next/vitals"; <WebVitals />`,
+				Vitals:  `import { WebVitals } from "@shiptiffin/sdk/next/vitals"; <WebVitals />`,
 				Env:     []string{"TIFFIN_ANALYTICS_URL", "TIFFIN_ANALYTICS_KEY", "TIFFIN_ANALYTICS_SCRIPT"},
 				Privacy: "No cookies or storage on the visitor's device. Visitors are a daily-salted hash of app, IP address and browser; the IP address and browser string are never stored, and each day's salt is deleted after 48 hours. " +
 					"Query strings are dropped except utm_* and ref, email addresses in paths become [email], and referrers keep only the site. Countries, never cities. " +

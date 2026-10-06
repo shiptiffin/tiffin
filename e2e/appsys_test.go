@@ -78,7 +78,7 @@ func TestAppSystem(t *testing.T) {
 	}
 	write("index.ts", appsysIndex)
 	write("data/count.txt", "41\n")
-	write("tiffin.config.ts", `import { defineConfig } from "tiffin-sdk";
+	write("tiffin.config.ts", `import { defineConfig } from "@shiptiffin/sdk";
 
 export default defineConfig({
   project: "hello",

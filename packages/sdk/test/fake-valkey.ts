@@ -1,7 +1,7 @@
 // A stand-in Valkey for tests: speaks RESP2 over TCP, keeps data with
-// tiffin-sdk/next's memoryRedis, and logs every command it receives.
+// @shiptiffin/sdk/next's memoryRedis, and logs every command it receives.
 import { createServer, type Server, type Socket } from "node:net";
-import { memoryRedis } from "tiffin-sdk/next";
+import { memoryRedis } from "../src/next";
 
 type Data = { send(cmd: string, args: (string | Uint8Array)[]): Promise<unknown> };
 

@@ -24,8 +24,8 @@ RELEASE_TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64
 dashboard:
 	cd apps/dashboard && bun install && bun run build
 
-# tiffin-sdk and @tiffin/react, built from packages/ into internal/sdkpkg/files
-# and embedded: `tiffin sdk add` vendors them into apps (they are not on npm).
+# @shiptiffin/sdk, built from packages/sdk into internal/sdkpkg/files and
+# embedded: `tiffin sdk add` vendors it into apps that don't install it from npm.
 # The output is committed, so without Bun the build uses what is there.
 sdk:
 	@if command -v bun >/dev/null 2>&1; then bun scripts/sdk-pack.ts; \

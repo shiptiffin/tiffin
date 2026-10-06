@@ -4,7 +4,7 @@
   "workspaces": ["packages/*", "apps/*"],
   "devDependencies": {
     "@types/bun": "latest",
-    "tiffin-sdk": "workspace:*",
+    "@shiptiffin/sdk": "workspace:*",
     "typescript": "^5.9.0"
   }
 }

@@ -1,9 +1,31 @@
 // @bun
-// Generated from tiffin-sdk/queue and tiffin-sdk/workflow by `bun run sync-sdk`; do not edit. Once tiffin-sdk is on npm, import from tiffin-sdk/queue and tiffin-sdk/workflow instead.
+// Generated from @shiptiffin/sdk/queue and @shiptiffin/sdk/workflow by `bun run sync-sdk`; do not edit. Once @shiptiffin/sdk is on npm, import from @shiptiffin/sdk/queue and @shiptiffin/sdk/workflow instead.
 
 // ../../packages/sdk/src/queue.ts
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac as createHmac2 } from "crypto";
 
+// ../../packages/sdk/src/verify.ts
+import { createHmac, timingSafeEqual } from "crypto";
+function verifySignature(secret, header, body, toleranceSeconds = 300, now = Date.now()) {
+  if (!secret || !header)
+    return false;
+  let ts = "";
+  let sig = "";
+  for (const part of header.split(",")) {
+    const [k, v] = part.trim().split("=", 2);
+    if (k === "t")
+      ts = v ?? "";
+    if (k === "v1")
+      sig = v ?? "";
+  }
+  const t = Number(ts);
+  if (!Number.isInteger(t) || !sig || Math.abs(now / 1000 - t) > toleranceSeconds)
+    return false;
+  const want = createHmac("sha256", secret).update(`${ts}.${body}`).digest("hex");
+  return want.length === sig.length && timingSafeEqual(Buffer.from(want), Buffer.from(sig));
+}
+
+// ../../packages/sdk/src/queue.ts
 class NonRetryableError extends Error {
   name = "NonRetryableError";
 }
@@ -129,7 +151,7 @@ function subscribeToken(id, opts = {}) {
   if (ttl < 1000 || ttl > 7 * 86400000)
     throw new TypeError("ttl must be between 1s and 7d");
   const exp = Math.floor((Date.now() + ttl) / 1000).toString();
-  const sig = createHmac("sha256", s.secret).update(`tiffin-live:${s.project}:${id}:${exp}`).digest("hex");
+  const sig = createHmac2("sha256", s.secret).update(`tiffin-live:${s.project}:${id}:${exp}`).digest("hex");
   return `live1.${s.project}.${id}.${exp}.${sig}`;
 }
 async function sendWithToken(name, payload, opts = {}) {
@@ -141,27 +163,9 @@ async function sendWithToken(name, payload, opts = {}) {
   return { id, token: subscribeToken(id, opts) };
 }
 var queue = { send, sendTx, sendWithToken, subscribeToken, flush, configure };
-function verifySignature(secret, header, body, toleranceSeconds = 300, now = Date.now()) {
-  if (!secret || !header)
-    return false;
-  let ts = "";
-  let sig = "";
-  for (const part of header.split(",")) {
-    const [k, v] = part.trim().split("=", 2);
-    if (k === "t")
-      ts = v ?? "";
-    if (k === "v1")
-      sig = v ?? "";
-  }
-  const t = Number(ts);
-  if (!Number.isInteger(t) || !sig || Math.abs(now / 1000 - t) > toleranceSeconds)
-    return false;
-  const want = createHmac("sha256", secret).update(`${ts}.${body}`).digest("hex");
-  return want.length === sig.length && timingSafeEqual(Buffer.from(want), Buffer.from(sig));
-}
 function sign(secret, body, now = Date.now()) {
   const ts = Math.floor(now / 1000).toString();
-  return `t=${ts},v1=${createHmac("sha256", secret).update(`${ts}.${body}`).digest("hex")}`;
+  return `t=${ts},v1=${createHmac2("sha256", secret).update(`${ts}.${body}`).digest("hex")}`;
 }
 async function readDelivery(req, secret) {
   if (req.method !== "POST")

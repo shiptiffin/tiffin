@@ -49,7 +49,7 @@ type nextBox struct {
 }
 
 // writeNextAdapter writes the adapter (and, for the shared cache, the
-// tiffin-sdk cache handlers) into the build context.
+// @shiptiffin/sdk cache handlers) into the build context.
 func writeNextAdapter(srcDir string, box nextBox) error {
 	dir := filepath.Join(srcDir, nextDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

@@ -429,7 +429,7 @@ export function GET() {
 }
 `
 
-const nextConfig = `import { defineConfig } from "tiffin-sdk";
+const nextConfig = `import { defineConfig } from "@shiptiffin/sdk";
 
 export default defineConfig({
   project: "hello-next",

@@ -44,7 +44,7 @@ func TestTracesAndVitals(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("tiffin.config.ts", `import { defineConfig } from "tiffin-sdk";
+	write("tiffin.config.ts", `import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({
   project: "hello-next",
   apps: { web: { framework: "next", memoryMB: 512, healthcheck: "/api/health" } },

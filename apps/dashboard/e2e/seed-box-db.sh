@@ -42,7 +42,7 @@ wait_ready() {
 
 for p in bookshop warehouse; do
   mkdir -p "$WORK/$p"
-  printf 'import { defineConfig } from "tiffin-sdk";\nexport default defineConfig({ project: "%s", services: { postgres: {} } });\n' "$p" >"$WORK/$p/tiffin.config.ts"
+  printf 'import { defineConfig } from "@shiptiffin/sdk";\nexport default defineConfig({ project: "%s", services: { postgres: {} } });\n' "$p" >"$WORK/$p/tiffin.config.ts"
   apply "$WORK/$p" "Start $p with a database"
 done
 wait_ready bookshop

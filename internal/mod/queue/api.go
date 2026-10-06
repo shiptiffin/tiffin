@@ -538,7 +538,7 @@ func (m *Module) registerQueueAPI(a huma.API, plat *platform.Platform) {
 	huma.Register(a, op("queue-signing-secret", http.MethodGet, "/v1/projects/{project}/queue/signing-secret", "queue signing-secret", api.RiskRead,
 		"Show the signing secret calls are signed with",
 		"Every call a cron or queue makes (to an app, or to a URL outside the box) carries a Tiffin-Signature header made with this "+
-			"secret. A receiver outside the box checks it with verifyRequest from tiffin-sdk/verify, or any HMAC-SHA256 library. "+
+			"secret. A receiver outside the box checks it with verifyRequest from @shiptiffin/sdk/verify, or any HMAC-SHA256 library. "+
 			"Apps on the box already have it as TIFFIN_QUEUE_SIGNING_SECRET. Needs a key that can change the project."),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
@@ -562,7 +562,7 @@ func (m *Module) registerQueueAPI(a huma.API, plat *platform.Platform) {
 
 	live := api.Untrusted(op("queue-live", http.MethodGet, "/v1/projects/{project}/queue/live/{id}", "queue live", api.RiskRead,
 		"Watch a job or workflow run",
-		"A job's or run's state, progress (job.progress / ctx.progress in tiffin-sdk), output and, for runs, steps. With "+
+		"A job's or run's state, progress (job.progress / ctx.progress in @shiptiffin/sdk), output and, for runs, steps. With "+
 			"Accept: text/event-stream it streams instead: output chunks (event: output), every change of state (event: state) "+
 			"and event: end when it finishes; reconnect with Last-Event-ID to resume.", 404, 429))
 	live.Middlewares = huma.Middlewares{m.followLive}
@@ -623,7 +623,7 @@ func (m *Module) registerWorkflowAPI(a huma.API, plat *platform.Platform) {
 
 	huma.Register(a, op("workflow-start", http.MethodPost, "/v1/projects/{project}/workflows/runs", "workflows start", api.RiskWrite,
 		"Start a workflow run",
-		"Starts a durable workflow defined in an app with tiffin-sdk (workflow.define). The run is pinned to the app's current release. "+
+		"Starts a durable workflow defined in an app with @shiptiffin/sdk (workflow.define). The run is pinned to the app's current release. "+
 			"Pass id to make it idempotent: the same id returns the existing run.", 409),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`

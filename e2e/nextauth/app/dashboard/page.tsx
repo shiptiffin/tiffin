@@ -1,4 +1,4 @@
-import { verifySession } from "tiffin-sdk/next/auth";
+import { verifySession } from "@shiptiffin/sdk/next/auth";
 import { signOutAction } from "../actions";
 
 export default async function Dashboard() {

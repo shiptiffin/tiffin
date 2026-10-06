@@ -23,7 +23,7 @@ export type {
  * editors and agents get types and completion:
  *
  * ```ts
- * import { defineConfig } from "tiffin-sdk";
+ * import { defineConfig } from "@shiptiffin/sdk";
  * export default defineConfig({ project: "hello", apps: { web: { framework: "next" } } });
  * ```
  *

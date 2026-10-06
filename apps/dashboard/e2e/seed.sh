@@ -25,7 +25,7 @@ last_change() { "$BIN" changes list --json | jq -r '.[0].id'; }
 mkdir -p "$WORK/hello" "$WORK/notes"
 H="$WORK/hello/tiffin.config.ts"
 cat > "$H" <<'TS'
-import { defineConfig } from "tiffin-sdk";
+import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({
   project: "hello",
   env: {
@@ -61,7 +61,7 @@ apply "$WORK/hello" "Set up the hello project from the example"
 
 # 2. A second, smaller project with a private bucket.
 cat > "$WORK/notes/tiffin.config.ts" <<'TS'
-import { defineConfig } from "tiffin-sdk";
+import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({
   project: "notes",
   apps: { site: { framework: "static", path: "site", routes: ["notes"] } },

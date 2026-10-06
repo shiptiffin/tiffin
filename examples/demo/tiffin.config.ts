@@ -1,4 +1,4 @@
-import { defineConfig } from "tiffin-sdk";
+import { defineConfig } from "@shiptiffin/sdk";
 
 // A guestbook: a static page, a Hono API on Postgres and Valkey, and
 // cookieless analytics. Deploy with `tiffin deploy` from this folder.

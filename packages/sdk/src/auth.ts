@@ -1,7 +1,7 @@
-// tiffin-sdk/auth: server-side helpers for apps on a Tiffin box with
+// @shiptiffin/sdk/auth: server-side helpers for apps on a Tiffin box with
 // services.auth turned on. No dependencies: plain fetch and WebCrypto.
 //
-//   import { getSession, requireRole, withOrg } from "tiffin-sdk/auth";
+//   import { getSession, requireRole, withOrg } from "@shiptiffin/sdk/auth";
 //
 //   export async function GET(request: Request) {
 //     const { user, organization } = await requireRole(request, "member");
@@ -76,7 +76,7 @@ const env = (k: string): string | undefined => (typeof process !== "undefined" ?
 
 function base(o: AuthOptions): string {
   const u = o.url ?? env("TIFFIN_AUTH_INTERNAL_URL") ?? env("TIFFIN_AUTH_URL");
-  if (!u) throw new Error("tiffin-sdk/auth: no auth endpoint. Turn on services.auth in tiffin.config.ts (the box sets TIFFIN_AUTH_URL), or pass { url }.");
+  if (!u) throw new Error("@shiptiffin/sdk/auth: no auth endpoint. Turn on services.auth in tiffin.config.ts (the box sets TIFFIN_AUTH_URL), or pass { url }.");
   return u.replace(/\/+$/, "");
 }
 
@@ -109,7 +109,7 @@ export async function getSession(request: Request, opts: SessionOptions = {}): P
 /**
  * getSession from any request headers, plus the engine's Set-Cookie headers
  * when it was asked (a refreshed session cookie, to pass on to the browser
- * when the framework can). For framework helpers such as tiffin-sdk/next/auth.
+ * when the framework can). For framework helpers such as @shiptiffin/sdk/next/auth.
  */
 export async function sessionFor(from: HeadersLike, opts: SessionOptions = {}): Promise<{ session: AuthSession | null; setCookie: string[] }> {
   const headers = forwardHeaders(from, opts);
@@ -130,7 +130,7 @@ export async function sessionFor(from: HeadersLike, opts: SessionOptions = {}): 
   const res = await (opts.fetch ?? fetch)(`${url}/tiffin/session${q}`, { headers });
   let session: AuthSession | null = null;
   if (res.status !== 401 && res.status !== 403) {
-    if (!res.ok) throw new Error(`tiffin-sdk/auth: the auth engine answered ${res.status}`);
+    if (!res.ok) throw new Error(`@shiptiffin/sdk/auth: the auth engine answered ${res.status}`);
     session = (await res.json()) as AuthSession | null;
   }
   recent.delete(cacheKey);
@@ -333,7 +333,7 @@ async function signingKey(url: string, host: string | null | undefined, kid: str
   const id = `${url}|${host ?? ""}`;
   const load = async (): Promise<KeySet> => {
     const r = await f(url, { headers: host ? { "x-tiffin-host": host } : {} });
-    if (!r.ok) throw new Error(`tiffin-sdk/auth: JWKS answered ${r.status}`);
+    if (!r.ok) throw new Error(`@shiptiffin/sdk/auth: JWKS answered ${r.status}`);
     const keys = new Map<string, CryptoKey>();
     for (const k of ((await r.json()) as { keys: Jwk[] }).keys) {
       if (k.crv === "Ed25519" && k.x) keys.set(k.kid, await crypto.subtle.importKey("jwk", { kty: "OKP", crv: "Ed25519", x: k.x }, { name: "Ed25519" }, false, ["verify"]));

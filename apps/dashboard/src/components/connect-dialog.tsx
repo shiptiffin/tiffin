@@ -134,6 +134,14 @@ with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
         reveal: async () => Object.fromEntries(((await mod.kvConnection(project, true)).env ?? []).map((e) => [e.name, e.value ?? ""])),
         snippets: [
           {
+            label: "@shiptiffin/sdk",
+            code: `import { kv } from "@shiptiffin/sdk/kv";
+
+const store = kv(); // REDIS_URL, with VALKEY_PREFIX added to every key
+await store.set("session:42", JSON.stringify({ user: 42 }), { ttl: 3600 }); // with an expiry: cache
+const rl = await store.rateLimit("login:" + ip, { limit: 5, windowSec: 60 });`,
+          },
+          {
             label: "ioredis",
             code: `import Redis from "ioredis";
 
@@ -149,10 +157,11 @@ await redis.set(key("flags"), JSON.stringify({ beta: true })); // no expiry: kep
 const flags = await redis.get(key("flags"));`,
           },
           {
-            label: "@upstash/redis",
+            label: "Moving from Upstash",
             code: `import { Redis } from "@upstash/redis";
 
-// Reads UPSTASH_REDIS_REST_URL and _TOKEN; the box adds the prefix for you.
+// Code from Upstash or Vercel KV runs unchanged: it reads UPSTASH_REDIS_REST_URL
+// and _TOKEN, and the box adds the prefix for you.
 export const redis = Redis.fromEnv();
 await redis.set("flags", { beta: true });`,
           },
@@ -208,8 +217,8 @@ const s3 = new S3Client({ forcePathStyle: true });
 await s3.send(new PutObjectCommand({ Bucket: process.env.${buckets.length === 1 ? "S3_BUCKET" : `S3_BUCKET_${envName(b)}`}, Key: "hello.txt", Body: "Hello" }));`,
           },
           {
-            label: "tiffin-sdk",
-            code: `import { signedUrl, upload } from "tiffin-sdk/storage";
+            label: "@shiptiffin/sdk",
+            code: `import { signedUrl, upload } from "@shiptiffin/sdk/storage";
 
 await upload("${b}", "avatars/ada.png", photo, { contentType: "image/png" });
 const src = signedUrl("${b}", "avatars/ada.png", { width: 256 }); // resized, works for an hour`,
@@ -244,14 +253,14 @@ const src = signedUrl("${b}", "avatars/ada.png", { width: 256 }); // resized, wo
         snippets: [
           {
             label: "Send",
-            code: `import { queue } from "tiffin-sdk/queue";
+            code: `import { queue } from "@shiptiffin/sdk/queue";
 
 await queue.send("emails", { to: "sam@example.com" }, { delay: "10m" });`,
           },
           {
             label: "Receive",
             code: `// The box POSTs each job to /queues/<name> on your app, signed, and retries until it answers 2xx.
-import { defineHandler } from "tiffin-sdk/queue";
+import { defineHandler } from "@shiptiffin/sdk/queue";
 
 export const POST = defineHandler(async (job) => {
   await sendWelcome(job.payload.to);
@@ -260,7 +269,7 @@ export const POST = defineHandler(async (job) => {
           {
             label: "A URL outside the box",
             code: `// Schedules and queues can call any web address, signed the same way (tiffin queue signing-secret ${project}).
-import { verifyRequest } from "tiffin-sdk/verify";
+import { verifyRequest } from "@shiptiffin/sdk/verify";
 
 export async function POST(req: Request) {
   const call = await verifyRequest(req, process.env.TIFFIN_SIGNING_SECRET!);

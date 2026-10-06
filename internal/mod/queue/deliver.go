@@ -47,7 +47,7 @@ const (
 	prioRetry  = 4
 )
 
-// Delivery protocol, shared with tiffin-sdk.
+// Delivery protocol, shared with @shiptiffin/sdk.
 const (
 	HeaderSignature   = "Tiffin-Signature"
 	HeaderJobID       = "Tiffin-Job-Id"
@@ -515,7 +515,7 @@ func Sign(secret string, at time.Time, body []byte) string {
 	return "t=" + ts + ",v1=" + hex.EncodeToString(m.Sum(nil))
 }
 
-// Verify checks a Tiffin-Signature header (used by tests; apps use tiffin-sdk).
+// Verify checks a Tiffin-Signature header (used by tests; apps use @shiptiffin/sdk).
 func Verify(secret, header string, body []byte, now time.Time, tolerance time.Duration) bool {
 	var ts, sig string
 	for _, part := range strings.Split(header, ",") {

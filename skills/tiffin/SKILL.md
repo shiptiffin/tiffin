@@ -62,7 +62,7 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    starts them ahead of visitors.
    Slow or failing requests: `tiffin traces list --project <p>` then `tiffin traces get <id> --project <p>`
    (apps already have the OTLP env; Next.js needs an `instrumentation.ts` calling `registerOTel()` from
-   `@vercel/otel`). Real visitors' page speed: `<WebVitals />` from `tiffin-sdk/next/vitals` in the root
+   `@vercel/otel`). Real visitors' page speed: `<WebVitals />` from `@shiptiffin/sdk/next/vitals` in the root
    layout (needs `services.analytics`), read with `tiffin analytics vitals --project <p>`.
 5. Secrets go in `tiffin secrets set`, never in the config or the repo. Starting a new project?
    Reuse keys the box already has instead of asking for them again:
@@ -80,25 +80,27 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    `NEXT_PUBLIC_*`, `VITE_*` and `PUBLIC_*` are built into browser code (public, even as
    secrets): changing one rebuilds the app. Next.js gets `NEXT_PUBLIC_TIFFIN_URL` and
    `NEXT_PUBLIC_SENTRY_DSN`.
-   Code written for Upstash or Vercel KV (`@upstash/redis`, `@upstash/ratelimit`, `@vercel/kv`)
-   runs unchanged on `services.valkey`: the box sets `UPSTASH_REDIS_REST_*` and `KV_REST_API_*`
-   (don't copy the old Upstash values into env or secrets; they would override the box's).
-   `tiffin-sdk` ships inside tiffin, not npm: `tiffin sdk add [--react]` vendors it
-   (`vendor/*.tgz` + a `file:` dependency; commit both), then `bun install`. Never install it from the npm registry.
+   App code uses `@shiptiffin/sdk`: `bun add @shiptiffin/sdk`, or `tiffin sdk add` to vendor the copy
+   inside tiffin with no registry (`vendor/*.tgz` + a `file:` dependency; commit both), then `bun install`.
+   KV on `services.valkey`: `kv()` from `@shiptiffin/sdk/kv`. Only when moving an app here: code written
+   for Upstash or Vercel KV (`@upstash/redis`, `@vercel/kv`) runs unchanged, as the box sets
+   `UPSTASH_REDIS_REST_*` and `KV_REST_API_*` (don't copy the old values in; they would override the box's).
    AGENTS.md has the plain-HTTP auth and queue protocols. Plans list `warnings`: fix them before applying.
    A page that should show background work as it runs: the server action returns
    `queue.sendWithToken(...)` or `workflow.startWithToken(...)` (`{ id, token }`), the work reports
-   with `job.progress()` / `ctx.progress()`, and the page renders `useRun(id, token)` from
-   `tiffin-sdk/react`. Don't poll or add your own SSE route.
+   with `job.progress()` / `ctx.progress()`, and the page watches with `subscribeRun(id, token, onChange)`
+   from `@shiptiffin/sdk/client`. Don't poll or add your own SSE route.
    Browser uploads go straight to the box, never through the app: `uploadRoute`/`createUpload`
-   (`tiffin-sdk/storage`) on the server, `uploadFile` (`tiffin-sdk/storage/client`) in the page. Limit
+   (`@shiptiffin/sdk/storage`) on the server, `uploadFile` (`@shiptiffin/sdk/client`) in the page. Limit
    them with the bucket's `maxFileSize`/`allowedTypes` (the box enforces them); react to uploads with
    a queue subscribed to the topic `storage.object.created`. Images resize at
    `files.<domain>/...?w=&q=&f=webp` (`publicUrl(b, key, { width })`, `signedUrl` for private buckets,
-   `tiffin-sdk/next/image-loader` for next/image) instead of sharp in the app.
-   Sign-in in Next.js: `tiffin-sdk/next/auth` (`authProxy` in proxy.ts; `verifySession` /
-   `requireRole` where data is read; `signIn` / `signUp` / `signOut` in Server Actions with
-   `<CaptchaField />`); no auth route of your own: the box owns `/api/auth/*` on every app host,
+   `@shiptiffin/sdk/next/image-loader` for next/image) instead of sharp in the app.
+   Sign-in in Next.js: `@shiptiffin/sdk/next/auth` (`authProxy` in proxy.ts; `verifySession` /
+   `requireRole` where data is read; `signIn` / `signUp` / `signOut` in Server Actions, the form's bot
+   check from `attachCaptcha(form)` in `@shiptiffin/sdk/client`). Forms in the browser use Better Auth's
+   own client (`createAuthClient` from `better-auth/react`, `basePath: "/api/auth"`; headers from
+   `prepareCaptcha()`). No UI kit, no auth route of your own: the box owns `/api/auth/*` on every app host,
    previews included (the project's users, host-only cookies, the preview's own passkeys).
 7. Copying a project: `tiffin projects duplicate <p> <new>` (same box, own addresses; undo =
    destroy the copy), `tiffin projects export <p> [-o file]` (a .tiffin of plain files with a

@@ -1,9 +1,9 @@
 /**
- * `tiffin-sdk/kv`: small helpers over the project's Valkey namespace, using
+ * `@shiptiffin/sdk/kv`: small helpers over the project's Valkey namespace, using
  * Bun's built-in Redis client.
  *
  * ```ts
- * import { kv } from "tiffin-sdk/kv";
+ * import { kv } from "@shiptiffin/sdk/kv";
  *
  * const store = kv();
  * await store.set("greeting", "hello", { ttl: 60 });   // seconds
@@ -139,7 +139,7 @@ export function kv(client?: RedisLike, prefix = process.env.VALKEY_PREFIX ?? "")
     const url = process.env.REDIS_URL;
     if (!url) throw new Error("REDIS_URL is not set: add services.valkey to tiffin.config.ts (the box sets it for your apps)");
     const B = globalThis.Bun as { RedisClient?: new (url: string) => RedisLike } | undefined;
-    if (!B?.RedisClient) throw new Error("tiffin-sdk/kv needs Bun.redis; on another runtime pass a client with send(command, args)");
+    if (!B?.RedisClient) throw new Error("@shiptiffin/sdk/kv needs Bun.redis; on another runtime pass a client with send(command, args)");
     shared = new KV(new B.RedisClient(url), prefix);
   }
   return shared;

@@ -1,4 +1,4 @@
-import { requireRole } from "tiffin-sdk/next/auth";
+import { requireRole } from "@shiptiffin/sdk/next/auth";
 
 export default async function Team({ params }: { params: Promise<{ org: string }> }) {
   const { org } = await params;

@@ -45,7 +45,7 @@ func TestNextBuildEnv(t *testing.T) {
 		}
 	}
 	pub, secret := fmt.Sprintf("pubmark%x", time.Now().UnixNano()), fmt.Sprintf("srvmark%x", time.Now().UnixNano())
-	write("tiffin.config.ts", `import { defineConfig } from "tiffin-sdk";
+	write("tiffin.config.ts", `import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({
   project: "bx",
   apps: { web: { framework: "next", healthcheck: "/api/health", env: { NEXT_PUBLIC_MARK: "`+pub+`" } } },

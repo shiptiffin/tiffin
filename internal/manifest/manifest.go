@@ -2,7 +2,7 @@
 // (tiffin.config.ts, evaluated to canonical JSON) that describes a project.
 //
 // The Go types in this file are the contract. The JSON Schema, the
-// TypeScript types in tiffin-sdk and the change engine all derive from them.
+// TypeScript types in @shiptiffin/sdk and the change engine all derive from them.
 package manifest
 
 import (

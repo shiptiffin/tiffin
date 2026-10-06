@@ -29,7 +29,7 @@ type Message struct {
 	ReplyTo     string            `json:"replyTo,omitempty"`
 	Subject     string            `json:"subject" maxLength:"998"`
 	Text        string            `json:"text,omitempty" doc:"Plain-text body"`
-	HTML        string            `json:"html,omitempty" doc:"HTML body (render react-email templates with tiffin-sdk/email render())"`
+	HTML        string            `json:"html,omitempty" doc:"HTML body (render react-email templates with @shiptiffin/sdk/email render())"`
 	Headers     map[string]string `json:"headers,omitempty" doc:"Extra headers, e.g. List-Unsubscribe. Structural headers (From, To, Subject, Content-*, ...) are refused"`
 	Attachments []Attachment      `json:"attachments,omitempty" maxItems:"20"`
 }

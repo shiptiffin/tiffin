@@ -10,9 +10,9 @@ import {
   sign,
   toMs,
   verifySignature,
-} from "tiffin-sdk/queue";
-import { verifyRequest } from "tiffin-sdk/verify";
-import { NonDeterminismError, workflow } from "tiffin-sdk/workflow";
+} from "../src/queue";
+import { verifyRequest } from "../src/verify";
+import { NonDeterminismError, workflow } from "../src/workflow";
 
 const SECRET = "tqs_test";
 const KEY = "tqk_shop_abc";
@@ -150,7 +150,7 @@ function push(handler: (r: Request) => Promise<Response>, delivery: Record<strin
   return handler(new Request("http://app/queues/emails", { method: "POST", body, headers: { "tiffin-signature": sign(secret, body) } }));
 }
 
-describe("tiffin-sdk/queue", () => {
+describe("@shiptiffin/sdk/queue", () => {
   test("durations", () => {
     expect(toMs(1500)).toBe(1500);
     expect(toMs("30s")).toBe(30000);
@@ -313,7 +313,7 @@ describe("tiffin-sdk/queue", () => {
   });
 });
 
-describe("tiffin-sdk/workflow", () => {
+describe("@shiptiffin/sdk/workflow", () => {
   test("checkpointed steps, sleep, events, approvals, webhooks and patches", async () => {
     const runs: Record<string, number> = {};
     const once = <V,>(name: string, v: V) => (): V => {

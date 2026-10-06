@@ -730,7 +730,7 @@ function SmtpSection({ project }: { project: string }) {
       <div className="border-t border-rule pt-4">
         <p className="text-base text-ink-2">
           Apps in <code className="ident text-ink">{project}</code> already get <code className="ident text-ink">SMTP_URL</code> and friends. Any SMTP
-          library works, or <code className="ident text-ink">send()</code> from tiffin-sdk/email.
+          library works, or <code className="ident text-ink">send()</code> from @shiptiffin/sdk/email.
         </p>
         {!env && (
           <Button

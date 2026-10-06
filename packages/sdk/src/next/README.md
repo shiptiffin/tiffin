@@ -1,4 +1,4 @@
-# tiffin-sdk/next
+# @shiptiffin/sdk/next
 
 Next.js on a Tiffin box: Railpack builds the app (`next build`), and it runs as a
 long-lived server on Bun (`bun --bun next start`, Bun 1.4.2+; Bun 1.3 cannot run
@@ -41,9 +41,9 @@ export default {
 
 ```js
 // cache-handler.mjs
-export { default } from "tiffin-sdk/next/cache-handler";
+export { default } from "@shiptiffin/sdk/next/cache-handler";
 // use-cache-handler.mjs
-export { default } from "tiffin-sdk/next/use-cache";
+export { default } from "@shiptiffin/sdk/next/use-cache";
 ```
 
 ## How it works

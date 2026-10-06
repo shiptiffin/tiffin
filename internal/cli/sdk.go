@@ -10,42 +10,35 @@ import (
 )
 
 func (a *app) sdkCmd() *cobra.Command {
-	sdk := &cobra.Command{Use: "sdk", Short: "Add tiffin-sdk to a project (it ships inside tiffin, not on npm)"}
-	var react bool
+	sdk := &cobra.Command{Use: "sdk", Short: "Add @shiptiffin/sdk to a project without the npm registry"}
 	add := &cobra.Command{
 		Use:   "add [dir]",
-		Short: "Vendor tiffin-sdk into a project and add it to package.json",
-		Long: "Writes vendor/" + sdkpkg.SDK.File() + " and sets \"tiffin-sdk\": \"" + sdkpkg.SDK.Spec() + "\" in package.json, " +
-			"so `bun install` / `npm install` get the SDK from the project itself (on your machine and in the box's builds). " +
-			"Commit vendor/ with the app. --react adds the sign-in components too (tiffin-sdk/react, @tiffin/react). " +
+		Short: "Vendor @shiptiffin/sdk into a project and add it to package.json",
+		Long: "Writes vendor/" + sdkpkg.SDK.File() + " (the copy that ships inside tiffin, the same files as on npm) and sets \"" +
+			sdkpkg.SDK.Name + "\": \"" + sdkpkg.SDK.Spec() + "\" in package.json, so `bun install` / `npm install` get the SDK " +
+			"from the project itself, on your machine and in the box's builds, with no registry. Commit vendor/ with the app. " +
+			"An app that already installs " + sdkpkg.SDK.Name + " from npm (bun add " + sdkpkg.SDK.Name + ") is left as it is. " +
 			"Run it again after updating tiffin to get the SDK that matches the box.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			res, err := addSDK(orDefault(first(args), "."), react)
+			res, err := sdkpkg.Add(orDefault(first(args), "."))
 			if errors.Is(err, sdkpkg.ErrNoPackageJSON) {
 				return &exitError{ExitInvalid, "no package.json in " + orDefault(first(args), ".") + ": create the app first (bun init, create-next-app...), then run tiffin sdk add"}
 			}
 			if err != nil {
 				return err
 			}
-			if a.tty() {
+			if !a.tty() {
+				writeJSON(a.io.Out, res)
+			} else if res.FromNPM != "" {
+				fmt.Fprintf(a.io.Out, "%s is already installed from npm (%s): nothing to vendor.\n", sdkpkg.SDK.Name, res.FromNPM)
+			} else {
 				fmt.Fprintf(a.io.Out, "Wrote %s and added %s to package.json. Next: bun install (or npm install), and commit vendor/.\n",
 					strings.Join(res.Files, ", "), strings.Join(res.Deps, ", "))
-			} else {
-				writeJSON(a.io.Out, res)
 			}
 			return nil
 		},
 	}
-	add.Flags().BoolVar(&react, "react", false, "also add the React sign-in components (@tiffin/react, imported as tiffin-sdk/react)")
 	sdk.AddCommand(add)
 	return sdk
-}
-
-func addSDK(dir string, react bool) (*sdkpkg.Added, error) {
-	pkgs := []sdkpkg.Package{sdkpkg.SDK}
-	if react {
-		pkgs = append(pkgs, sdkpkg.React)
-	}
-	return sdkpkg.Add(dir, pkgs...)
 }

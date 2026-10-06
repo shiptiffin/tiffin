@@ -17,7 +17,7 @@ import (
 // be read at files.<domain>/<project>/<bucket>/<key>?exp=<unix>&sig=<sig>.
 // The signature covers the path and the expiry, not w, q and f, so an image
 // loader can add those to a signed URL. The key is derived from the
-// project's S3 secret, which its apps already hold (tiffin-sdk's
+// project's S3 secret, which its apps already hold (@shiptiffin/sdk's
 // signedUrl computes the same).
 
 // filesSigningKey derives the files signing key from an S3 secret.

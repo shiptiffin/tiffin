@@ -1,8 +1,8 @@
 /**
- * `tiffin-sdk/storage`: the project's buckets from server code (Bun or Node).
+ * `@shiptiffin/sdk/storage`: the project's buckets from server code (Bun or Node).
  *
  * ```ts
- * import { upload, presign, publicUrl, signedUrl, createUpload, uploadRoute, onUploadCompleted } from "tiffin-sdk/storage";
+ * import { upload, presign, publicUrl, signedUrl, createUpload, uploadRoute, onUploadCompleted } from "@shiptiffin/sdk/storage";
  *
  * await upload("media", "avatars/42.png", file, { contentType: "image/png" });
  * presign("media", "avatars/42.png", { expiresIn: 600 });   // S3 download link
@@ -28,9 +28,9 @@
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { defineHandler, type HandlerOptions, type Job } from "./queue";
 import { presignUrl, signRequest, type S3Creds } from "./s3sign";
-import type { UploadTicket } from "./storage-client";
+import type { UploadTicket } from "./client/upload";
 
-export type { UploadTicket, UploadResult, UploadProgress, UploadFileOptions } from "./storage-client";
+export type { UploadTicket, UploadResult, UploadProgress, UploadFileOptions } from "./client/upload";
 
 /** Where settings come from; defaults to process.env. */
 export type Env = Record<string, string | undefined>;
@@ -283,7 +283,7 @@ const MiB = 1 << 20;
 
 /**
  * Makes an upload ticket: presigned URLs a browser (uploadFile from
- * tiffin-sdk/storage/client) sends a file to, straight to the box's storage.
+ * @shiptiffin/sdk/client) sends a file to, straight to the box's storage.
  * Call it from a route handler or a Server Action after checking who is
  * asking. A file over multipartThreshold gets a multipart upload: the
  * upload is created now, the ticket carries one URL per part.
