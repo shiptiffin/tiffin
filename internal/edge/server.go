@@ -55,7 +55,10 @@ func (s *Server) Start(ctx context.Context) error {
 		s.Log = slog.Default()
 	}
 	var err error
-	if s.fds, err = activationFDs(); err != nil {
+	if s.fds == nil {
+		s.fds, err = activationFDs()
+	}
+	if err != nil {
 		return err
 	}
 	s.ctl = newControlClient(s.Control)
@@ -121,9 +124,9 @@ func (s *Server) SwitchboardAddr() string { return s.sbAddr }
 // errStale refuses a snapshot older than the one served.
 var errStale = errors.New("edge: snapshot older than the one served")
 
-// apply serves snap: Caddy's config when it changed, then the switchboard
-// table, then saves it. All or nothing: a config Caddy refuses changes
-// nothing.
+// apply serves snap: the switchboard table, then Caddy's config when it
+// changed (so Caddy never routes to a table that lacks the hosts), then
+// saves it. All or nothing: a config Caddy refuses changes nothing.
 func (s *Server) apply(ctx context.Context, snap Snapshot) (Ack, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -132,34 +135,20 @@ func (s *Server) apply(ctx context.Context, snap Snapshot) (Ack, error) {
 	}
 	next := s.cur
 	next.Version = snap.Version
-	if snap.Caddy != nil {
-		raw, _ := json.Marshal(snap.Caddy)
-		sum := sha256.Sum256(raw)
-		if !s.caddyOn || sum != s.caddySum {
-			r := *snap.Caddy
-			var err error
-			if r.Config, err = s.listeners(r.Config); err != nil {
-				return Ack{}, err
-			}
-			if r.Fallback != nil {
-				if r.Fallback, err = s.listeners(r.Fallback); err != nil {
-					return Ack{}, err
-				}
-			}
-			fallback, err := r.load(ctx)
-			if err != nil {
-				return Ack{}, err
-			}
-			s.caddyOn, s.caddySum, s.fallback = true, sum, ""
-			if fallback != nil {
-				s.fallback = fallback.Error()
-			}
-		}
-		next.Caddy = snap.Caddy
-	}
 	if snap.Table != nil {
 		s.board.Set(*snap.Table)
 		next.Table = snap.Table
+	}
+	if snap.Caddy != nil {
+		if err := s.loadCaddy(ctx, *snap.Caddy); err != nil {
+			if s.cur.Table != nil {
+				s.board.Set(*s.cur.Table)
+			} else {
+				s.board.Set(switchboard.Table{})
+			}
+			return Ack{}, err
+		}
+		next.Caddy = snap.Caddy
 	}
 	s.cur = next
 	if s.State != "" {
@@ -168,6 +157,37 @@ func (s *Server) apply(ctx context.Context, snap Snapshot) (Ack, error) {
 		}
 	}
 	return Ack{Version: next.Version, Fallback: s.fallback}, nil
+}
+
+// loadCaddy loads r unless Caddy already runs it.
+func (s *Server) loadCaddy(ctx context.Context, r Rendered) error {
+	raw, _ := json.Marshal(r)
+	sum := sha256.Sum256(raw)
+	if s.caddyOn && sum == s.caddySum {
+		return nil
+	}
+	if !s.caddyOn && len(s.fds) > 0 {
+		if err := s.warm(ctx, r); err != nil {
+			s.Log.Warn("edge: load certificates before taking connections", "err", err)
+		}
+	}
+	var err error
+	if r.Config, err = s.listeners(r.Config); err != nil {
+		return err
+	}
+	if r.Fallback, err = s.listeners(r.Fallback); err != nil {
+		return err
+	}
+	fallback, err := r.load(ctx)
+	if err != nil {
+		return err
+	}
+	s.Log.Info("edge: caddy config loaded", "first", !s.caddyOn, "protection_fallback", fallback != nil)
+	s.caddyOn, s.caddySum, s.fallback = true, sum, ""
+	if fallback != nil {
+		s.fallback = fallback.Error()
+	}
+	return nil
 }
 
 func writeFileAtomic(path string, v any) error {

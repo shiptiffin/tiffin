@@ -2,7 +2,9 @@ package edge
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -78,9 +80,18 @@ type DNSChallenge struct {
 	PropagationTimeout time.Duration
 }
 
-// key names one provider instance in the config: a new instance (new
-// credentials) changes the config, so the edge reloads and uses it.
-func (d *DNSChallenge) key() string { return fmt.Sprintf("%s-%p", d.Name, d.Provider) }
+// key names one provider in the config by its settings (credentials
+// included, hashed): new credentials change the config, so the edge
+// reloads and uses them, while a restart of the control plane, with a new
+// instance of the same provider, does not.
+func (d *DNSChallenge) key() string {
+	raw, err := json.Marshal(d.Provider)
+	if err != nil || string(raw) == "{}" { // settings it does not show: by instance
+		return fmt.Sprintf("%s-%p", d.Name, d.Provider)
+	}
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("%s-%x", d.Name, sum[:8])
+}
 
 func (a *ACME) publicCA() bool {
 	switch strings.TrimRight(a.CA, "/") {
