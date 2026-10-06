@@ -3,8 +3,9 @@
 MODULE   := github.com/btahir/tiffin
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
-DATE     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-LDFLAGS  := -s -w \
+# The commit's date, not the build's: the same commit builds the same bytes.
+DATE     ?= $(shell TZ=UTC0 git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
+LDFLAGS  := -s -w -buildid= \
 	-X $(MODULE)/internal/version.Version=$(VERSION) \
 	-X $(MODULE)/internal/version.Commit=$(COMMIT) \
 	-X $(MODULE)/internal/version.Date=$(DATE)
@@ -15,9 +16,18 @@ GOFLAGS_BUILD := -trimpath -ldflags '$(LDFLAGS)'
 # Empty by default: the job runs directly.
 HEAVY ?=
 
-RELEASE_TARGETS := darwin/arm64 darwin/amd64 linux/arm64 linux/amd64
+RELEASE_TARGETS := linux/amd64 linux/arm64 darwin/arm64 darwin/amd64
 
-.PHONY: build release test lint golden-update e2e ci clean auth-engine dashboard sdk
+# Release manifest settings (make release-sign): see cmd/tiffin-release.
+CHANNELS     ?=
+MIN_VERSION  ?=
+ROLLOUT      ?= 100
+EDGE_RESTART ?= false
+NOTES        ?=
+BASE_URL     ?=
+RELEASE_KEY  ?=
+
+.PHONY: build release release-sign test lint golden-update e2e ci clean auth-engine dashboard sdk
 
 # The web dashboard, built into internal/dashboard/dist and embedded in the
 # binary. The build output is committed so `go build` works without Bun.
@@ -35,16 +45,26 @@ build: sdk
 	@mkdir -p bin
 	CGO_ENABLED=0 go build $(GOFLAGS_BUILD) -o bin/tiffin ./cmd/tiffin
 
-release: sdk
+# Reproducible builds for every target (trimmed paths, no build ID, the
+# commit's date, the committed SDK build), named as `tiffin up` looks for them:
+# dist/tiffin-<os>-<arch>.
+release:
 	@rm -rf dist && mkdir -p dist
 	@set -e; for t in $(RELEASE_TARGETS); do \
 		os=$${t%/*}; arch=$${t#*/}; \
-		out="dist/tiffin_$${os}_$${arch}"; \
+		out="dist/tiffin-$${os}-$${arch}"; \
 		echo "building $$out"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build $(GOFLAGS_BUILD) -o "$$out" ./cmd/tiffin; \
 	done
-	@cd dist && (command -v sha256sum >/dev/null 2>&1 && sha256sum tiffin_* || shasum -a 256 tiffin_*) > checksums.txt
+	@cd dist && (command -v sha256sum >/dev/null 2>&1 && sha256sum tiffin-* || shasum -a 256 tiffin-*) > checksums.txt
 	@cat dist/checksums.txt
+
+# The signed manifest per channel (dist/<channel>/manifest.json and
+# .minisig) for boxes' automatic updates. The key comes from
+# $$TIFFIN_RELEASE_KEY or RELEASE_KEY=<file>, never from the repository.
+release-sign:
+	go run ./cmd/tiffin-release manifest -dist dist -version $(VERSION) -channels "$(CHANNELS)" -min-version "$(MIN_VERSION)" \
+		-rollout $(ROLLOUT) -edge-restart=$(EDGE_RESTART) -notes "$(NOTES)" -base-url "$(BASE_URL)" -key "$(RELEASE_KEY)"
 
 test:
 	go test ./...

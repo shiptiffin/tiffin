@@ -47,7 +47,12 @@ type Updater struct {
 	// waiting out Timeout.
 	Restarts func(ctx context.Context) int
 	Logs     func(ctx context.Context) string // recent service logs, for error reports
-	Progress func(string)
+	// RestartEdge, when set, restarts the edge once the new build is
+	// healthy, so it runs the new build too; if the edge does not come
+	// back, the update rolls back (and the edge restarts on the previous
+	// build).
+	RestartEdge func(ctx context.Context) error
+	Progress    func(string)
 }
 
 // NewUpdater returns the updater for a real box (systemd).
@@ -213,18 +218,29 @@ func (u *Updater) Update(ctx context.Context, newBin string) error {
 		return err
 	}
 	u.Progress("switched to build " + sum[:12] + "; restarting")
-	if err := u.Restart(ctx); err == nil {
-		if err = u.waitHealthy(ctx, sum); err == nil {
-			if snap != "" {
-				_ = os.Remove(snap)
-			}
-			u.prune(target)
-			return nil
+	edgeRestarted := false
+	err = u.Restart(ctx)
+	if err == nil {
+		err = u.waitHealthy(ctx, sum)
+	}
+	if err == nil && u.RestartEdge != nil {
+		u.Progress("restarting the edge on build " + sum[:12])
+		edgeRestarted = true
+		err = u.RestartEdge(ctx)
+	}
+	if err == nil {
+		if snap != "" {
+			_ = os.Remove(snap)
 		}
+		u.prune(target)
+		return nil
 	}
 	logs := ""
 	if u.Logs != nil {
 		logs = u.Logs(ctx)
+	}
+	if edgeRestarted {
+		logs = err.Error() + "\n" + logs
 	}
 	if prev == "" {
 		return fmt.Errorf("new build %s did not become healthy and there is no previous build to roll back to\n%s", sum[:12], logs)
@@ -256,6 +272,9 @@ func (u *Updater) Update(ctx context.Context, newBin string) error {
 	restartErr := u.Restart(ctx)
 	prevSum, _ := FileSHA(prev)
 	err = u.waitHealthy(ctx, prevSum)
+	if edgeRestarted {
+		_ = u.RestartEdge(ctx)
+	}
 	if u.StopRemoved != nil {
 		u.StopRemoved(ctx)
 	}

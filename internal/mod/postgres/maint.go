@@ -721,6 +721,28 @@ func runUpdate(ctx context.Context, b updateBox, o runOpts) (*PGUpdate, updatePl
 	return u, plan, noteUpdate(u, plan)
 }
 
+// HoldUpdates keeps Postgres updates (the window's, --now, tiffin up's)
+// from starting until release is called, or this process exits: a Tiffin
+// update restarts the service the window's Postgres update runs in. It
+// returns ErrUpdating while one runs.
+func HoldUpdates() (release func(), err error) {
+	if err := os.MkdirAll(filepath.Dir(maintPath), 0o755); err != nil {
+		return nil, err
+	}
+	lock, err := os.OpenFile(maintPath+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		lock.Close()
+		return nil, ErrUpdating
+	}
+	return func() { lock.Close() }, nil
+}
+
+// ErrUpdating: a Postgres update is running.
+var ErrUpdating = errBusy
+
 // checkMinimum fails when an installed package is older than its minimum
 // even after an update (for the pooler, whose features the box relies on).
 func checkMinimum(ctx context.Context, pkg string) error {

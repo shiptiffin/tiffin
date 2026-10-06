@@ -616,6 +616,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/box/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show Tiffin updates
+         * @description The Tiffin version running, the channel it follows, whether new releases install by themselves, the maintenance window, a newer release if there is one (and whether this box is in its rollout yet) and recent updates. Box admins only.
+         */
+        get: operations["update-status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/box/update/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Install the newest Tiffin release now
+         * @description Installs the channel's newest release now, whatever the window or rollout: checks the manifest's signature, downloads the build and checks its sha256, takes a backup and waits for it, then switches to the new build. Apps keep serving; the API restarts, and if the new build is not healthy within 90 seconds the previous one comes back. Returns once the switch started; update status shows how it ended. Never installs an older or the same version. Box admins only.
+         */
+        post: operations["update-apply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/box/update/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check for a Tiffin update now
+         * @description Reads the channel's release manifest now and checks its signature against the keys this build trusts (the box also checks once a day). Installs nothing. Box admins only.
+         */
+        post: operations["update-check"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/box/update/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set how Tiffin updates
+         * @description Changes the settings it names and keeps the rest: auto (new releases install by themselves in the maintenance window), channel (stable or edge), source (where the signed manifest is read) and window (HH:MM, server time). Box admins only.
+         */
+        put: operations["update-settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/changes": {
         parameters: {
             query?: never;
@@ -5295,10 +5375,10 @@ export interface components {
             /** @enum {string} */
             status: "running" | "ok" | "failed";
             /**
-             * @description What started it
+             * @description What started it (pre-update: just before an automatic Tiffin update)
              * @enum {string}
              */
-            trigger: "schedule" | "manual" | "pre-restore";
+            trigger: "schedule" | "manual" | "pre-restore" | "pre-update";
             valkey: components["schemas"]["BackupPart"];
         };
         "Backup-createRequest": {
@@ -10497,6 +10577,96 @@ export interface components {
             /** @description Why you are undoing, in one sentence. */
             intent?: string;
         };
+        Update: {
+            /** Format: date-time */
+            at: string;
+            /** @description The backup taken just before it */
+            backup?: string;
+            /** @description The release changed the edge, so the edge restarted on it too */
+            edgeRestart?: boolean;
+            /**
+             * Format: int64
+             * @description How long the edge's restart took (its socket held the ports meanwhile)
+             */
+            edgeRestartMs?: number;
+            error?: string;
+            from: string;
+            id: string;
+            /** Format: double */
+            seconds?: number;
+            /** @enum {string} */
+            status: "running" | "ok" | "rolled-back" | "failed";
+            summary: string;
+            to: string;
+            /**
+             * @description The maintenance window, or someone (update apply)
+             * @enum {string}
+             */
+            trigger: "schedule" | "now";
+        };
+        UpdateAvailable: {
+            /** @description Why this box will not install it (it needs a release in between first, say) */
+            blocked?: string;
+            /** Format: date-time */
+            date: string;
+            edgeRestart?: boolean;
+            /** @description This box is among them */
+            inRollout: boolean;
+            /** @description Release notes URL */
+            notes?: string;
+            /**
+             * Format: int64
+             * @description Percentage of boxes it goes to automatically now
+             */
+            rollout: number;
+            version: string;
+        };
+        UpdateSettingsBody: {
+            /** @description Install new releases by themselves in the maintenance window (true), or only with update apply (false) */
+            auto?: boolean;
+            /**
+             * @description stable: releases; edge: pre-releases too
+             * @enum {string}
+             */
+            channel?: "stable" | "edge";
+            /** @description Where to read the channel's signed manifest, {channel} replaced; default resets it. Releases must still be signed by a key this build trusts. */
+            source?: string;
+            /** @description When updates may install (HH:MM, server time); box resets it to the box's maintenance window (tiffin up --reboot-window) */
+            window?: string;
+        };
+        UpdateStatus: {
+            /** @description New releases install by themselves in the maintenance window */
+            auto: boolean;
+            /** @description A newer release of the channel */
+            available?: components["schemas"]["UpdateAvailable"];
+            /** @enum {string} */
+            channel: "stable" | "edge";
+            /** @description Why the last check failed */
+            checkError?: string;
+            /**
+             * Format: date-time
+             * @description When the box last read the manifest
+             */
+            checkedAt?: string;
+            /**
+             * Format: date-time
+             * @description When the window next opens for an update
+             */
+            nextRun?: string;
+            /** @description It is a release build; a development build updates with tiffin up only */
+            release: boolean;
+            /** @description The update in progress */
+            running?: components["schemas"]["Update"];
+            /** @description Where the box reads the channel's signed manifest ({channel} is replaced) */
+            source: string;
+            summary: string;
+            /** @description Recent updates, newest first */
+            updates: components["schemas"]["Update"][] | null;
+            /** @description The Tiffin version running */
+            version: string;
+            /** @description When updates may install (HH:MM, server time; they start 30 minutes in). Empty: none, so updates wait for update apply */
+            window?: string;
+        };
         ValkeyCommandBody: {
             /** @description One command per line, e.g. HGETALL session:u_2041 */
             commands: string;
@@ -13807,6 +13977,279 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BudgetBoxSettings"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "update-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateStatus"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "update-apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateStatus"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "update-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateStatus"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "update-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSettingsBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateStatus"];
                 };
             };
             /** @description Bad Request */
