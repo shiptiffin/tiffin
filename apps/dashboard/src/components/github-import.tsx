@@ -17,11 +17,10 @@ export type GitHubPick = {
   branch: string;
   path: string;
   framework: string;
-  postgres: boolean;
   env: Array<{ k: string; v: string }>;
 };
 
-export const emptyPick: GitHubPick = { repo: "", branch: "", path: "", framework: "next", postgres: false, env: [] };
+export const emptyPick: GitHubPick = { repo: "", branch: "", path: "", framework: "next", env: [] };
 
 /** Whether a pick can be created: a repository, a branch, and env names the box accepts. */
 export function checkPick(p: GitHubPick): { ok: true } | { ok: false; why: string } {
@@ -316,10 +315,6 @@ function RepoSetup({ value, onChange }: { value: GitHubPick; onChange: (p: GitHu
 
       <EnvRows env={value.env} onChange={(env) => set({ env })} />
 
-      <label className="mt-4 flex items-center gap-2 text-sm text-ink-2">
-        <input type="checkbox" checked={value.postgres} onChange={(e) => set({ postgres: e.target.checked })} className="size-4 accent-[var(--brass)]" />
-        Give it a Postgres database; it reads <span className="ident text-[0.75rem]">DATABASE_URL</span>
-      </label>
     </div>
   );
 }

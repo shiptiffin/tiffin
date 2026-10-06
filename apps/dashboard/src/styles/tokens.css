@@ -41,6 +41,14 @@
   --rule-2: oklch(0.235 0.014 60 / 0.17);
   --rule-3: oklch(0.235 0.014 60 / 0.4);
   --steel: oklch(0.64 0.01 75);
+  /* the mark (logo): ink lines on flat steel */
+  --mark-line: var(--ink);
+  --mark-handle: var(--ink);
+  --mark-hand: var(--steel);
+  --mark-body-1: var(--steel);
+  --mark-body-2: var(--steel);
+  --mark-body-3: var(--steel);
+  --mark-body-4: var(--steel);
   /* brass: one accent, under 5 % of pixels */
   --brass: oklch(0.8 0.15 78); /* marigold: bright enough to read as sunny, not olive */
   --brass-ink: oklch(0.485 0.098 70);
@@ -96,6 +104,14 @@
     --rule-2: oklch(0.935 0.008 85 / 0.15);
     --rule-3: oklch(0.935 0.008 85 / 0.34);
     --steel: oklch(0.5 0.008 75);
+    /* the mark: polished steel with a soft outline, never glaring white */
+    --mark-line: oklch(0.41 0.008 60);
+    --mark-handle: oklch(0.84 0.007 250);
+    --mark-hand: oklch(0.83 0.007 250);
+    --mark-body-1: oklch(0.71 0.008 250);
+    --mark-body-2: oklch(0.92 0.003 250);
+    --mark-body-3: oklch(0.82 0.007 250);
+    --mark-body-4: oklch(0.66 0.01 250);
     --brass: oklch(0.82 0.15 80);
     --brass-ink: oklch(0.8 0.1 80);
     --brass-wash: oklch(0.82 0.15 80 / 0.13);
@@ -144,6 +160,14 @@
   --rule-2: oklch(0.935 0.008 85 / 0.15);
   --rule-3: oklch(0.935 0.008 85 / 0.34);
   --steel: oklch(0.5 0.008 75);
+  /* the mark: polished steel with a soft outline, never glaring white */
+  --mark-line: oklch(0.41 0.008 60);
+  --mark-handle: oklch(0.84 0.007 250);
+  --mark-hand: oklch(0.83 0.007 250);
+  --mark-body-1: oklch(0.71 0.008 250);
+  --mark-body-2: oklch(0.92 0.003 250);
+  --mark-body-3: oklch(0.82 0.007 250);
+  --mark-body-4: oklch(0.66 0.01 250);
   --brass: oklch(0.82 0.15 80);
   --brass-ink: oklch(0.8 0.1 80);
   --brass-wash: oklch(0.82 0.15 80 / 0.13);

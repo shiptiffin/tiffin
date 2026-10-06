@@ -10,6 +10,10 @@ largest display size.
 
 ## How they work in the dashboard
 
+- **Mark vs. mascot:** the logo (`components/logo.tsx`) is the mascot drawn small and marks the frame: sidebar, tab,
+  sign-in. The drawings are for moments (empty pages, a project going live or failing, errors). Never show the tin
+  twice on one screen.
+
 - **Light theme:** the drawings sit straight on the paper.
 - **Dark theme:** a graphite outline vanishes on the graphite ground, so every drawing sits on a paper plate
   (`styles/art.css`): `.art-plate` puts a paper-tone disc behind it (a rounded tile with
@@ -29,11 +33,11 @@ largest display size.
 
 | File | Pixels | Shown at (CSS px) | Used on |
 |---|---|---|---|
-| `mascot-base.webp` (+ `-band`) | 800x800 (mask 400) | up to 416 | Login (waiting); New project before Create |
-| `mascot-live.webp` (+ `-band`) | 800x800 | 64–416 | Login once the link works; New project when it's live; project header when live; Errors, none open |
-| `mascot-deploying.webp` (+ `-band`) | 800x800 | 64–212 | New project the moment it starts (lid up, packing); project header while building |
-| `mascot-failed.webp` (+ `-band`) | 800x800 | 64–212 | New project when the app didn't start; project header when something is down; the route error page |
-| `mascot-idle.webp` (+ `-band`) | 800x800 | 64 | Project header, not live yet (asleep) |
+| `mascot-base.webp` (+ `-band`) | 800x800 (mask 400) | up to 416 | Login (waiting) |
+| `mascot-live.webp` (+ `-band`) | 800x800 | 112–416 | Login once the link works; New project when it's live; Errors, none open |
+| `mascot-deploying.webp` (+ `-band`) | 800x800 | 112–212 | New project the moment it starts (lid up, packing) |
+| `mascot-failed.webp` (+ `-band`) | 800x800 | 112–212 | New project when the app didn't start; the route error page |
+| `mascot-idle.webp` (+ `-band`) | 800x800 | — | In `<Mascot>` (asleep); not placed now |
 | `mascot-preview.webp` (+ `-band`) | 800x800 | — | In `<Mascot>` for previews (tasting spoon); not placed yet |
 | `mascot-night.webp` | 800x800 | 128 | Jobs, nothing scheduled (asleep under a moon) |
 | `tin-plain.webp` (+ `-band`) | 800x800 | 40 | Project cards on Projects, in the project's colour |

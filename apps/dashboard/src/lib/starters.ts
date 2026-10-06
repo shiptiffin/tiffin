@@ -67,8 +67,8 @@ export const starterLine: Record<string, string> = {
   "hono-postgres": "Endpoints for your mobile app or frontend.",
   "static-site": "A landing page, docs or portfolio. Live instantly.",
   guestbook: "A page, an API, a database, a KV store and analytics in one app.",
-  git: "Your own code from GitHub or any git URL.",
-  empty: "Start with nothing and add pieces as you go.",
+  git: "A one-time copy of any public repository: GitLab, Codeberg, anywhere.",
+  none: "Just the parts below. Add an app whenever you’re ready.",
 };
 
 /** The file to change first in each starter's source (what tiffin pull writes). */
@@ -124,24 +124,41 @@ export function freeName(base: string, taken: { projects: string[]; routes: stri
 }
 
 /**
- * The standalone starters: a project with only one part, no app. Its sidebar
- * shows only that part, so it works like that part's console. A schedule
- * project starts empty and gets its first schedule on its Jobs page.
+ * The parts a new project can start with, in the order they are offered.
+ * Each one is added or removed later from the project's Add menu.
  */
-export type SoloPart = "postgres" | "valkey" | "storage" | "jobs";
-export const soloParts: Array<{ part: SoloPart; title: string; line: string; name: string; services?: Manifest["services"] }> = [
-  { part: "postgres", title: "Just a database", line: "Tables you can edit here, SQL, and a URL for your own tools.", name: "data", services: { postgres: {} } },
-  { part: "valkey", title: "Just KV", line: "A Redis-compatible key-value store, also a cache.", name: "kv", services: { valkey: { maxMemoryMB: 64 } } },
-  { part: "storage", title: "Just files", line: "S3-compatible buckets for uploads and assets.", name: "uploads", services: { storage: { buckets: { files: { public: false } } } } as Manifest["services"] },
-  { part: "jobs", title: "Just a schedule", line: "Call any web address on a timer, retried until it answers.", name: "schedules" },
+export type NewPart = "postgres" | "valkey" | "storage" | "auth" | "email" | "analytics";
+export const NEW_PARTS: NewPart[] = ["postgres", "valkey", "storage", "auth", "email", "analytics"];
+
+/** A part as the new project's manifest asks for it. Files start with one private bucket, so the page isn't empty. */
+const partSpec = (p: NewPart): unknown => (p === "storage" ? { buckets: { files: { public: false } } } : {});
+
+/**
+ * Standalone projects: no app and exactly one of these parts. The project
+ * opens straight on that part, like its console (sections.ts standalonePart).
+ */
+export type SoloPart = "postgres" | "valkey" | "storage";
+export const soloParts: Array<{ part: SoloPart; title: string; name: string }> = [
+  { part: "postgres", title: "Just a database", name: "data" },
+  { part: "valkey", title: "Just KV", name: "kv" },
+  { part: "storage", title: "Just files", name: "uploads" },
 ];
 
 export type Source =
   | { kind: "starter"; starter: Starter }
-  | { kind: "part"; part: SoloPart }
-  | { kind: "empty" }
-  | { kind: "git"; url: string; ref: string; path: string; framework: string; postgres: boolean }
-  | { kind: "github"; repo: string; branch: string; path: string; framework: string; postgres: boolean; env: Array<{ k: string; v: string }> };
+  | { kind: "none" }
+  | { kind: "git"; url: string; ref: string; path: string; framework: string }
+  | { kind: "github"; repo: string; branch: string; path: string; framework: string; env: Array<{ k: string; v: string }> };
+
+/** The parts a source can't do without: a starter's own services. */
+export function neededParts(source: Source): NewPart[] {
+  if (source.kind !== "starter") return [];
+  const s = Object.keys(source.starter.fragment.services ?? {});
+  return NEW_PARTS.filter((p) => s.includes(p));
+}
+
+/** The parts ticked when a source is picked: a starter's own, else a database (most apps want one). */
+export const defaultParts = (source: Source): NewPart[] => (source.kind === "starter" ? neededParts(source) : ["postgres"]);
 
 /** The app a source puts in the project (none for an empty project). */
 export function appFor(source: Source): { name: string; framework: string } | null {
@@ -151,12 +168,14 @@ export function appFor(source: Source): { name: string; framework: string } | nu
 }
 
 /**
- * The whole manifest for a new project: the starter’s fragment. Its app sets no
- * routes, so the box serves it at the project’s own name (guestbook.<domain>),
- * never on another project’s hostname.
+ * The whole manifest for a new project: its app (from the source) and the
+ * parts picked for it. A starter's app sets no routes, so the box serves it
+ * at the project's own name (guestbook.<domain>), never on another project's
+ * hostname.
  */
-export function newProjectManifest(project: string, source: Source): Manifest {
+export function newProjectManifest(project: string, source: Source, parts: NewPart[]): Manifest {
   const m: Manifest = { project, version: 1 };
+  const services: Record<string, unknown> = {};
   if (source.kind === "starter") {
     const f = source.starter.fragment;
     const apps: Record<string, Record<string, unknown>> = {};
@@ -164,20 +183,20 @@ export function newProjectManifest(project: string, source: Source): Manifest {
       apps[name] = { ...spec };
     }
     m.apps = apps as unknown as Manifest["apps"];
-    if (f.services && Object.keys(f.services).length) m.services = structuredClone(f.services) as Manifest["services"];
+    Object.assign(services, structuredClone(f.services ?? {}));
     if (f.env && Object.keys(f.env).length) m.env = { ...f.env };
-  } else if (source.kind === "part") {
-    const s = soloParts.find((x) => x.part === source.part)?.services;
-    if (s) m.services = structuredClone(s);
   } else if (source.kind === "git") {
     m.apps = { web: { framework: source.framework } } as unknown as Manifest["apps"];
-    if (source.postgres) m.services = { postgres: {} };
   } else if (source.kind === "github") {
     const path = source.path.trim().replace(/^\/+|\/+$/g, "");
     const git = { repo: source.repo, branch: source.branch, ...(path ? { path } : {}) };
     m.apps = { web: { framework: source.framework, git } } as unknown as Manifest["apps"];
-    if (source.postgres) m.services = { postgres: {} };
   }
+  for (const p of NEW_PARTS) {
+    if (!parts.includes(p)) delete services[p];
+    else services[p] ??= partSpec(p);
+  }
+  if (Object.keys(services).length) m.services = services as Manifest["services"];
   return m;
 }
 

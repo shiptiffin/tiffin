@@ -2,14 +2,15 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { signIn } from "./helpers";
 
-// New project › "Just a database": a project with only a database, which
+// New project › no code, only Database ticked: a project with only a database, which
 // opens on its Database page with a sidebar of just that part. It creates a
 // project on the throwaway box, so it runs after the specs that count them.
-test("Just a database makes a database-only project that reads like a console", async ({ page, baseURL }) => {
+test("No code and just a database makes a database-only project that reads like a console", async ({ page, baseURL }) => {
   page.setDefaultTimeout(20_000);
   await signIn(page, baseURL!);
   await page.goto("/new");
-  await page.getByRole("radio", { name: /Just a database/ }).click();
+  await page.getByRole("radio", { name: /No code yet/ }).click();
+  await expect(page.getByRole("checkbox", { name: /Database/ })).toBeChecked();
   const name = `solo${Date.now() % 100000}`;
   await page.locator("#pname").fill(name);
   const plan = page.getByRole("complementary", { name: "The plan" });

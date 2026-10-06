@@ -1,6 +1,6 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { ArrowUpRight, Check, Clock, Database, FileUp, FolderOpen, GitBranch, Plus, Zap } from "lucide-react";
+import { ArrowUpRight, BarChart3, Check, Database, FolderOpen, KeyRound, Mail, Plus, Zap } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError, type Manifest, type Op } from "@/api/client";
 import { mod3, type Deploy } from "@/api/modules";
@@ -26,9 +26,8 @@ import { splitAddress } from "@/lib/changes";
 import { addressesOf } from "@/lib/addresses";
 import { cn } from "@/lib/cn";
 import { useDebounced } from "@/lib/debounced";
-import { partA, partName, partSub } from "@/lib/names";
+import { PARTS, partA, partName, partSub } from "@/lib/names";
 import { PART_PAGE } from "@/lib/sections";
-import { requestCommand } from "@/lib/shortcuts";
 import { countWords, dec, int, NNBSP } from "@/lib/format";
 import {
   appFor,
@@ -50,7 +49,10 @@ import {
   suggestName,
   freeName,
   soloParts,
-  type SoloPart,
+  defaultParts,
+  neededParts,
+  NEW_PARTS,
+  type NewPart,
   type Source,
   type Starter,
 } from "@/lib/starters";
@@ -64,11 +66,13 @@ type Launched = { project: string; app?: string; started: number; source: Source
 type Phase = "compose" | "launching" | "live" | "failed";
 
 /**
- * Start a project: the first minute of Tiffin. Pick a starter (or empty, or a
- * public git URL), name it and give it a colour; the plan on the right is the
- * real plan from the API, exactly what gets created. Create applies it (a
- * signed, undoable change), sets the colour, deploys the starter, and the
- * build streams in on this page until the app answers at its own address.
+ * Start a project: the first minute of Tiffin. Three questions: what it's
+ * called, where its code comes from (a starter, a GitHub repository, a public
+ * git URL, or none yet), and which parts it needs. The plan on the right is
+ * the real plan from the API, exactly what gets created. Create applies it (a
+ * signed, undoable change), deploys the code, and the build streams in on
+ * this page until the app answers at its own address. A project with no app
+ * and one part opens straight on that part.
  */
 export function NewProjectPage() {
   useTitle("New project");
@@ -92,40 +96,56 @@ export function NewProjectPage() {
     .find((x) => x.app) as { project: string; app: string } | undefined;
   const dom = useBoxDomain(probe);
 
-  // The choice: a starter id, "empty" or "git". A ?starter= link from the Box preselects one.
+  // The code: a starter id, "github", "git", "none" or "import". A ?starter= link preselects one
+  // ("part:postgres" is no code and just that part; "empty" is no code and nothing ticked).
   const asked = typeof search.starter === "string" ? search.starter : undefined;
-  const [choice, setChoice] = useState<string>(asked ?? "next-postgres");
-  const [git, setGit] = useState({ url: "", ref: "", path: "", framework: "next", postgres: true });
+  const askedPart = asked?.startsWith("part:") ? (asked.slice(5) as NewPart) : undefined;
+  const [code, setCodeOnly] = useState<string>(askedPart || asked === "empty" ? "none" : (asked ?? "next-postgres"));
+  // The ticked parts; null until changed by hand, so picking other code resets them to its defaults.
+  const [ticked, setTicked] = useState<NewPart[] | null>(askedPart ? [askedPart] : asked === "empty" ? [] : null);
+  const setCode = (c: string) => {
+    setCodeOnly(c);
+    setTicked(null);
+  };
+  const [git, setGit] = useState({ url: "", ref: "", path: "", framework: "next" });
   const [gh, setGh] = useState<GitHubPick>(emptyPick);
   const { admin } = useMe();
   const [typed, setTyped] = useState<string | null>(null);
   const imp = useProjectImport(taken);
 
-  const starter = list.find((s) => s.id === choice);
-  const solo = soloParts.find((s) => `part:${s.part}` === choice);
+  const starter = list.find((s) => s.id === code);
   const source: Source | null =
-    solo
-      ? { kind: "part", part: solo.part }
-      : choice === "empty"
-      ? { kind: "empty" }
-      : choice === "git"
+    code === "none"
+      ? { kind: "none" }
+      : code === "git"
         ? { kind: "git", ...git }
-        : choice === "github"
+        : code === "github"
           ? { kind: "github", ...gh, env: gh.env.filter((e) => e.k && e.v) }
           : starter
             ? { kind: "starter", starter }
             : null;
-  const suggested = solo
-    ? freeName(solo.name, taken)
-    : choice === "git" ? nameFromGit(git.url) || "web" : choice === "github" ? nameFromRepo(gh.repo) || "web" : suggestName(starter, taken) || "project";
+  const needed = source ? neededParts(source) : [];
+  const parts = NEW_PARTS.filter((p) => needed.includes(p) || (ticked ?? (source ? defaultParts(source) : [])).includes(p));
+  const toggle = (p: NewPart, on: boolean) => setTicked(on ? [...parts, p] : parts.filter((x) => x !== p));
+  const app = source ? appFor(source) : null;
+  // No app and one part: a standalone project, named for that part.
+  const solo = !app && parts.length === 1 ? soloParts.find((s) => s.part === parts[0]) : undefined;
+  const suggested =
+    code === "git"
+      ? nameFromGit(git.url) || "web"
+      : code === "github"
+        ? nameFromRepo(gh.repo) || "web"
+        : code === "none"
+          ? freeName(solo?.name ?? "project", taken)
+          : suggestName(starter, taken) || "project";
   const name = typed ?? suggested;
   const check = checkName(name, taken);
-  const gitCheck = choice === "git" ? checkGitUrl(git.url) : choice === "github" ? checkPick(gh) : ({ ok: true } as const);
+  const gitCheck = code === "git" ? checkGitUrl(git.url) : code === "github" ? checkPick(gh) : ({ ok: true } as const);
 
   const [stage, setPhase] = useState<Phase>("compose");
   const [L, setL] = useState<Launched | null>(null);
 
-  const wanted = source && check.ok && gitCheck.ok ? newProjectManifest(name, source) : null;
+  const wanted = source && check.ok && gitCheck.ok ? newProjectManifest(name, source, parts) : null;
   const desired = useDebounced(wanted, 220);
   const key = JSON.stringify(desired);
   // Only what is on screen can be created: never a plan for an earlier name or starter.
@@ -140,7 +160,6 @@ export function NewProjectPage() {
       if (!desired || !settled || !plan.data || plan.data.project !== desired.project || !source) throw new Error("The plan isn’t ready yet. Try again in a moment.");
       const name = desired.project;
       const started = performance.now();
-      const app = appFor(source);
       setL({ project: name, app: app?.name, started, source });
       const intent =
         source.kind === "starter"
@@ -149,17 +168,16 @@ export function NewProjectPage() {
             ? `Start ${name} from ${shortRepo(git.url)}`
             : source.kind === "github"
               ? `Start ${name} from ${source.repo} on GitHub`
-              : source.kind === "part"
-                ? `Start ${name} with just ${source.part === "jobs" ? "schedules" : partA(source.part)}`
+              : parts.length
+                ? `Start ${name} with ${listWords(parts.map(partA))}`
                 : `Start ${name}`;
       await api.apply(desired, plan.data.hash, intent);
       void qc.invalidateQueries({ queryKey: ["projects"] });
       void qc.invalidateQueries({ queryKey: ["changes"] });
-      if (source.kind === "part") {
-        // A standalone project opens straight on its part, like a console; a schedule project asks for its first schedule.
-        if (source.part === "jobs") requestCommand("new-schedule");
+      if (solo) {
+        // A standalone project opens straight on its part, like a console.
         await qc.invalidateQueries({ queryKey: ["project", name] });
-        await navigate({ to: PART_PAGE[source.part].to as "/", params: { project: name } as never });
+        await navigate({ to: PART_PAGE[solo.part].to as "/", params: { project: name } as never });
         return null;
       }
       setPhase("launching");
@@ -202,7 +220,7 @@ export function NewProjectPage() {
 
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
-    if (choice === "import") return imp.submit();
+    if (code === "import") return imp.submit();
     const ops = plan.data?.ops ?? [];
     if (settled && plan.data?.project === name && ops.length > 0 && ops.every((o) => o.action === "create") && !create.isPending && phase === "compose") create.mutate();
   };
@@ -212,14 +230,14 @@ export function NewProjectPage() {
 
   const header = (
     <header className="min-w-0">
-      {(firstRun || phase !== "compose") && <Hero state={mood} small className="mb-1 -ml-3 lg:hidden" />}
+      {phase !== "compose" && <Hero state={mood} small className="mb-1 -ml-3 lg:hidden" />}
           {firstRun && phase === "compose" ? <p className="label mb-2">{new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long" }).format(new Date())}</p> : crumbs}
           <h1 className="sentence mt-2 text-ink" aria-live="polite">
             {phase === "compose" ? (firstRun ? "Your tiffin is packed. Nothing in it yet." : "Start a project.") : phase === "live" ? `${L?.project} is live.` : phase === "failed" ? `${L?.project} didn’t start.` : `Packing ${L?.project}…`}
           </h1>
           <p className="mt-2 max-w-[38rem] text-md text-ink-2">
             {phase === "compose"
-              ? "Pick what you’re making and give it a name. It gets its own address with HTTPS, and you can watch it go live."
+              ? "Name it, bring its code and pick what it needs. Its app gets its own address with HTTPS, and you can watch it go live."
               : phase === "live"
                 ? liveAfter !== undefined
                   ? `It answered its health check ${dec(liveAfter, 1)}${NNBSP}s after you pressed Create.`
@@ -239,110 +257,120 @@ export function NewProjectPage() {
           <div className="min-w-0">
             {header}
             <div className="mt-9">
-            <Step n={1} label="What are you making?">
-              <RadioGroup value={choice} onValueChange={setChoice} aria-label="What are you making?" loop>
-                {starters.isError ? (
-                  <ProblemNote error={starters.error} title="The starters can’t be listed right now." />
-                ) : (
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
-                    {(list.length ? list : placeholders).map((s) => (
-                      <StarterTile key={s.id} s={s} picked={choice === s.id} loading={!list.length} />
-                    ))}
-                  </div>
-                )}
-                <div className="mt-4 divide-y divide-rule border-y border-rule">
-                  <OptionRow
-                    value="github"
-                    picked={choice === "github"}
-                    icon={<GitHubMark />}
-                    title="Import from GitHub"
-                    line="Your repositories, private ones too. Every push deploys; each pull request gets a preview."
-                  />
-                  <OptionRow value="git" picked={choice === "git"} icon={<GitBranch />} title="From a public git URL" line={starterLine.git} />
-                  <OptionRow value="empty" picked={choice === "empty"} icon={<Plus />} title="Empty project" line={starterLine.empty} />
-                  <OptionRow
-                    value="import"
-                    picked={choice === "import"}
-                    icon={<FileUp />}
-                    title="Import a .tiffin file"
-                    line="A project exported from this box or another one, with its data."
-                  />
-                </div>
-                <h3 className="mt-7 mb-1 text-[0.875rem] font-[550] text-ink">Or just one part</h3>
-                <p className="mb-3 text-[0.8125rem] text-ink-3">No app and no address: the project opens straight on that part. Add more to it any time.</p>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
-                  {soloParts.map((s) => (
-                    <SoloTile key={s.part} part={s.part} title={s.title} line={s.line} picked={choice === `part:${s.part}`} />
-                  ))}
-                </div>
-              </RadioGroup>
-              {choice === "git" && <GitFields git={git} setGit={setGit} check={gitCheck} />}
-              {choice === "github" && <GitHubImport value={gh} onChange={setGh} admin={admin} />}
-              {choice === "import" && <ImportFile imp={imp} />}
-            </Step>
+              {code === "import" ? (
+                <>
+                  <Step n={1} label="Import a .tiffin file">
+                    <p className="text-sm text-ink-3">A project exported from this box or another one, with its data.</p>
+                    <ImportFile imp={imp} />
+                    <button type="button" onClick={() => setCode("next-postgres")} className="mt-3 text-sm text-ink-3 hover:text-ink">
+                      Start a new project instead
+                    </button>
+                  </Step>
+                  <ImportSteps imp={imp} />
+                </>
+              ) : (
+                <>
+                  <Step n={1} label="Name">
+                    <label htmlFor="pname" className="sr-only">
+                      Project name
+                    </label>
+                    <input
+                      id="pname"
+                      value={name}
+                      onChange={(e) => setTyped(slugify(e.target.value))}
+                      autoComplete="off"
+                      spellCheck={false}
+                      aria-invalid={!check.ok}
+                      aria-describedby="pname-note"
+                      className="ident h-10 w-full rounded-[8px] border border-rule-2 bg-paper-raised px-3 text-[0.9375rem] text-ink outline-none transition-[border-color,box-shadow] focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] aria-invalid:border-danger"
+                    />
+                    <p id="pname-note" className="mt-2 min-h-5 text-sm" aria-live="polite">
+                      {check.ok ? (
+                        app ? (
+                          <span className="text-ink-3">
+                            Lives at <span className="ident text-ink">https://{name}.{dom}</span>
+                          </span>
+                        ) : (
+                          <span className="text-ink-3">No public address until you add an app. Only you and your keys reach it.</span>
+                        )
+                      ) : (
+                        <span className="text-danger">{check.why}</span>
+                      )}
+                    </p>
+                  </Step>
 
-            {choice === "import" ? (
-              <ImportSteps imp={imp} />
-            ) : (
-            <Step n={2} label="Name">
-              <div className="flex flex-wrap items-start gap-x-5 gap-y-3">
-                <div className="min-w-0 flex-1 basis-64">
-                  <label htmlFor="pname" className="sr-only">
-                    Project name
-                  </label>
-                  <input
-                    id="pname"
-                    value={name}
-                    onChange={(e) => setTyped(slugify(e.target.value))}
-                    autoComplete="off"
-                    spellCheck={false}
-                    aria-invalid={!check.ok}
-                    aria-describedby="pname-note"
-                    className="ident h-10 w-full rounded-[8px] border border-rule-2 bg-paper-raised px-3 text-[0.9375rem] text-ink outline-none transition-[border-color,box-shadow] focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] aria-invalid:border-danger"
-                  />
-                </div>
-              </div>
-              <p id="pname-note" className="mt-2 min-h-5 text-sm" aria-live="polite">
-                {check.ok ? (
-                  solo ? (
-                    <span className="text-ink-3">Only you and your keys reach it; nothing is public.</span>
-                  ) : choice === "empty" ? (
-                    <span className="text-ink-3">
-                      Its apps will live at addresses like <span className="ident text-ink-2">{name}.{dom}</span>
-                    </span>
-                  ) : (
-                    <span className="text-ink-3">
-                      Lives at <span className="ident text-ink">https://{name}.{dom}</span>
-                    </span>
-                  )
-                ) : (
-                  <span className="text-danger">{check.why}</span>
-                )}
-              </p>
-            </Step>
-            )}
+                  <Step n={2} label="Code">
+                    <RadioGroup value={code === "git" ? "github" : code} onValueChange={setCode} aria-label="Where its code comes from" loop>
+                      {starters.isError ? (
+                        <ProblemNote error={starters.error} title="The starters can’t be listed right now." />
+                      ) : (
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
+                          {(list.length ? list : placeholders).map((s) => (
+                            <StarterTile key={s.id} s={s} picked={code === s.id} loading={!list.length} />
+                          ))}
+                        </div>
+                      )}
+                      <div className="mt-4 divide-y divide-rule border-y border-rule">
+                        <OptionRow
+                          value="github"
+                          picked={code === "github" || code === "git"}
+                          icon={<GitHubMark />}
+                          title="Your GitHub repository"
+                          line="Private ones too. Every push deploys; each pull request gets a preview."
+                        />
+                        <OptionRow value="none" picked={code === "none"} icon={<Plus />} title="No code yet" line={starterLine.none} />
+                      </div>
+                    </RadioGroup>
+                    {code === "github" && (
+                      <>
+                        <GitHubImport value={gh} onChange={setGh} admin={admin} />
+                        <SwitchLink onClick={() => setCodeOnly("git")}>Not on GitHub? Paste a public git URL</SwitchLink>
+                      </>
+                    )}
+                    {code === "git" && (
+                      <>
+                        <p className="mt-4 text-sm text-ink-3">{starterLine.git} It doesn’t redeploy when the repository changes.</p>
+                        <GitFields git={git} setGit={setGit} check={gitCheck} />
+                        <SwitchLink onClick={() => setCodeOnly("github")}>Use one of your GitHub repositories instead</SwitchLink>
+                      </>
+                    )}
+                  </Step>
+
+                  <Step n={3} label="What it needs">
+                    <PartChecklist parts={parts} needed={needed} neededBy={starter ? (starterTitle[starter.id] ?? starter.name) : ""} onToggle={toggle} />
+                    <p className="mt-3 text-sm text-ink-3">Add or remove any of these later from the project. Jobs and schedules are always there.</p>
+                  </Step>
+
+                  <p className="border-t border-rule pt-4 text-sm text-ink-3">
+                    Moving a project from another box?{" "}
+                    <button type="button" onClick={() => setCode("import")} className="font-[550] text-brass-ink hover:underline hover:underline-offset-4">
+                      Import a .tiffin file
+                    </button>
+                  </p>
+                </>
+              )}
             </div>
           </div>
 
           <div className="min-w-0">
-            {hero}
-          {choice === "import" ? (
-            <ImportPanel imp={imp} />
-          ) : (
-          <PlanPanel
-            name={name}
-            ready={settled && !!plan.data && plan.data.project === name}
-            plan={plan.data}
-            planError={plan.error}
-            pending={!settled || plan.isPending}
-            blocked={!check.ok || !gitCheck.ok || !source}
-            config={rendered.data?.config}
-            freeMB={res.data && res.data.memory.totalBytes > 0 ? res.data.memory.availableBytes / MB : undefined}
-            createError={create.error}
-            creating={create.isPending}
-            source={source}
-          />
-          )}
+            {code === "import" ? (
+              <ImportPanel imp={imp} />
+            ) : (
+              <PlanPanel
+                name={name}
+                ready={settled && !!plan.data && plan.data.project === name}
+                plan={plan.data}
+                planError={plan.error}
+                pending={!settled || plan.isPending}
+                blocked={!check.ok || !gitCheck.ok || !source}
+                config={rendered.data?.config}
+                freeMB={res.data && res.data.memory.totalBytes > 0 ? res.data.memory.availableBytes / MB : undefined}
+                createError={create.error}
+                creating={create.isPending}
+                source={source}
+                parts={parts}
+              />
+            )}
           </div>
         </form>
       ) : (
@@ -427,31 +455,66 @@ function StarterTile({ s, picked, loading }: { s: Starter; picked: boolean; load
   );
 }
 
-const soloIcon: Record<SoloPart, ReactNode> = { postgres: <Database />, valkey: <Zap />, storage: <FolderOpen />, jobs: <Clock /> };
+const partIcon: Record<NewPart, ReactNode> = {
+  postgres: <Database />,
+  valkey: <Zap />,
+  storage: <FolderOpen />,
+  auth: <KeyRound />,
+  email: <Mail />,
+  analytics: <BarChart3 />,
+};
 
-/** A standalone starter: one part, no app. */
-function SoloTile({ part, title, line, picked }: { part: SoloPart; title: string; line: string; picked: boolean }) {
+/** The parts a new project starts with, as a checklist; a starter's own are ticked and fixed. */
+function PartChecklist({ parts, needed, neededBy, onToggle }: { parts: NewPart[]; needed: NewPart[]; neededBy: string; onToggle: (p: NewPart, on: boolean) => void }) {
   return (
-    <RadioItem
-      value={`part:${part}`}
-      className={cn(
-        "grid grid-cols-[28px_minmax(0,1fr)_16px] items-start gap-x-3 rounded-[10px] border bg-paper-raised px-3 py-3 text-left transition-[border-color,box-shadow] duration-[var(--dur-state)]",
-        picked ? "border-brass shadow-[0_0_0_1px_var(--brass)]" : "border-rule-2 hover:border-rule-3",
-      )}
-    >
-      <span className="grid size-7 place-items-center rounded-[7px] bg-paper-sunk text-ink-2 [&_svg]:size-4" aria-hidden>
-        {soloIcon[part]}
-      </span>
-      <span className="min-w-0">
-        <span className="block text-[0.875rem] font-[550] text-ink">{title}</span>
-        <span className="block text-[0.78125rem] leading-[1.125rem] text-ink-3">{line}</span>
-      </span>
-      <span aria-hidden className={cn("mt-0.5 grid size-4 place-items-center rounded-full border", picked ? "border-brass bg-brass text-on-brass" : "border-rule-3 text-transparent")}>
-        <Check className="size-2.5" strokeWidth={3} />
-      </span>
-    </RadioItem>
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
+      {NEW_PARTS.map((p) => {
+        const on = parts.includes(p);
+        const fixed = needed.includes(p);
+        return (
+          <label
+            key={p}
+            className={cn(
+              "grid grid-cols-[28px_minmax(0,1fr)_16px] items-start gap-x-3 rounded-[10px] border bg-paper-raised px-3 py-3 transition-[border-color,box-shadow] duration-[var(--dur-state)]",
+              on ? "border-brass shadow-[0_0_0_1px_var(--brass)]" : "border-rule-2 hover:border-rule-3",
+              fixed ? "cursor-default" : "cursor-pointer",
+            )}
+          >
+            <span className="grid size-7 place-items-center rounded-[7px] bg-paper-sunk text-ink-2 [&_svg]:size-4" aria-hidden>
+              {partIcon[p]}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[0.875rem] font-[550] text-ink">{PARTS[p].name}</span>
+              <span className="block text-[0.78125rem] leading-[1.125rem] text-ink-3">{fixed ? `The ${neededBy} starter uses it` : PARTS[p].sub}</span>
+            </span>
+            <input type="checkbox" className="peer sr-only" checked={on} disabled={fixed} onChange={(e) => onToggle(p, e.target.checked)} />
+            <span
+              aria-hidden
+              className={cn(
+                "mt-0.5 grid size-4 place-items-center rounded-[4px] border transition-colors peer-focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]",
+                on ? "border-brass bg-brass text-on-brass" : "border-rule-3 text-transparent",
+                fixed && "opacity-60",
+              )}
+            >
+              <Check className="size-2.5" strokeWidth={3} />
+            </span>
+          </label>
+        );
+      })}
+    </div>
   );
 }
+
+function SwitchLink({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} className="mt-3 text-sm font-[550] text-brass-ink hover:underline hover:underline-offset-4">
+      {children}
+    </button>
+  );
+}
+
+/** "a database, files and email". */
+const listWords = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 
 function OptionRow({ value, picked, icon, title, line }: { value: string; picked: boolean; icon: ReactNode; title: string; line: string }) {
   return (
@@ -483,7 +546,7 @@ function GitFields({
   setGit,
   check,
 }: {
-  git: { url: string; ref: string; path: string; framework: string; postgres: boolean };
+  git: { url: string; ref: string; path: string; framework: string };
   setGit: (g: typeof git) => void;
   check: { ok: boolean; why?: string };
 }) {
@@ -521,10 +584,6 @@ function GitFields({
           ))}
         </select>
       </label>
-      <label className="flex items-center gap-2 text-sm text-ink-2 sm:col-span-3">
-        <input type="checkbox" checked={git.postgres} onChange={(e) => setGit({ ...git, postgres: e.target.checked })} className="size-4 accent-[var(--brass)]" />
-        Give it a Postgres database; it reads <span className="ident text-[0.75rem]">DATABASE_URL</span>
-      </label>
     </div>
   );
 }
@@ -543,6 +602,7 @@ function PlanPanel({
   createError,
   creating,
   source,
+  parts,
 }: {
   name: string;
   ready: boolean;
@@ -555,6 +615,7 @@ function PlanPanel({
   createError: unknown;
   creating: boolean;
   source: Source | null;
+  parts: NewPart[];
 }) {
   const ops = plan?.ops ?? [];
   const clash = !!plan && (ops.length === 0 || ops.some((o) => o.action !== "create"));
@@ -577,14 +638,16 @@ function PlanPanel({
           {blocked
             ? source?.kind === "github" && !source.repo
               ? "Pick a repository to see the plan."
-              : "Pick a starter and a free name to see the plan."
+              : source?.kind === "git"
+                ? "Paste a repository address to see the plan."
+                : "Pick a free name to see the plan."
             : clash
               ? `There’s already a project called ${name}. Pick another name.`
               : planError
               ? "The box can’t plan this yet."
               : !plan
               ? "Planning…"
-              : `${countWords(things, "thing", "things", true)}, ready in ${source?.kind === "part" || source?.kind === "empty" ? "seconds" : "about a minute"}.`}
+              : `${countWords(things, "thing", "things", true)}, ready in ${source?.kind === "none" ? "seconds" : "about a minute"}.`}
         </p>
       </div>
       <div className="px-5">
@@ -592,7 +655,7 @@ function PlanPanel({
           <ProblemNote error={planError} className="my-4" title="This can’t be planned." />
         ) : (
           <ol className={cn("divide-y divide-rule transition-opacity duration-[var(--dur-state)]", (pending || blocked) && "opacity-50")}>
-            {sortOps(plan ? ops : skeletonOps(source)).map((o, i) => (
+            {sortOps(plan ? ops : skeletonOps(source, parts)).map((o, i) => (
               <OpRow key={o.address + i} op={o} project={name} />
             ))}
           </ol>
@@ -647,12 +710,11 @@ const sortOps = (ops: Op[]) => {
 };
 
 /** Rows to hold the plan's place while it loads. */
-function skeletonOps(source: Source | null): Op[] {
+function skeletonOps(source: Source | null, parts: NewPart[]): Op[] {
   const ops: Op[] = [{ action: "create", address: "project", risk: "reversible", reason: "" }];
   const app = source ? appFor(source) : null;
   if (app) ops.push({ action: "create", address: `app/${app.name}`, risk: "reversible", reason: "", after: { framework: app.framework } });
-  if (source?.kind === "starter") for (const s of source.starter.services ?? []) ops.push({ action: "create", address: `service/${s}`, risk: "reversible", reason: "" });
-  if (source?.kind === "part" && source.part !== "jobs") ops.push({ action: "create", address: `service/${source.part}`, risk: "reversible", reason: "" });
+  for (const p of parts) ops.push({ action: "create", address: `service/${p}`, risk: "reversible", reason: "" });
   return ops;
 }
 

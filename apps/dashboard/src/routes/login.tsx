@@ -103,7 +103,7 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
 
   return (
     <div className="grid min-h-dvh bg-paper md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-      {/* The object on its own plate, the form on the page: the line mark leads the form, the drawing never sits beside it. */}
+      {/* The mascot on its own plate, the form on the page: the wordmark over the form is the name alone, so the tin shows once. */}
       <aside
         aria-hidden
         className="relative flex items-center justify-center overflow-hidden border-rule bg-paper-sunk max-md:h-[13.5rem] max-md:border-b md:border-r"
@@ -120,7 +120,7 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
       </aside>
       <div className="flex min-w-0 flex-col px-5 sm:px-12 lg:px-16">
         <header className="pt-6 md:pt-10">
-          <Wordmark />
+          <Wordmark bare />
         </header>
         <main className="flex w-full max-w-[25rem] flex-1 flex-col justify-start pt-8 pb-10 md:justify-center md:py-12">
           <h1 key={state} className="sentence animate-rise text-ink" aria-live="polite">

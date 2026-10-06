@@ -223,7 +223,7 @@ test("shell screens", async ({ page }) => {
       await shot("connect");
       await page.keyboard.press("Escape");
       await page.goto("/new?starter=part:postgres");
-      await page.getByText("Or just one part").scrollIntoViewIfNeeded();
+      await page.getByText("What it needs").scrollIntoViewIfNeeded();
       await shot("new-solo");
       await page.goto("/usage");
       await page.getByRole("region", { name: "Every project’s usage" }).waitFor();

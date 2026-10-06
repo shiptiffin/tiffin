@@ -117,7 +117,7 @@ export function KitPage() {
         <Both stacked>{() => <StackDemo />}</Both>
       </Section>
 
-      <Section id="mark" title="Mark" note="The carrier as one line on a 32-unit grid: every stroke centre on an odd unit, so it is crisp at 16 px. The favicon carries the box's state (brass dot: waiting; red dot: down).">
+      <Section id="mark" title="Mark" note="The mascot drawn small: a steel tin with a face, outline and face in ink, on a 32-unit grid. It marks the frame (sidebar, tab, sign-in); the mascot drawings are for moments, never on the same screen as the mark twice. The favicon carries the box's state (brass dot: waiting; red dot: down).">
         <Both>
           {() => (
             <div className="flex flex-wrap items-end gap-8 text-ink">

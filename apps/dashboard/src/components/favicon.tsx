@@ -2,25 +2,25 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { mq } from "@/api/modules";
 import { q } from "@/api/queries";
-import { MARK_PATHS } from "./logo";
+import { markSvg } from "./logo";
 
 // Colours are literal here: a favicon can't read the page's CSS variables.
 const INK = "#2b2620";
-const INK_DARK = "#ece8e0";
 const BRASS = "#b8862f";
 const RED = "#c8412f";
+const LIGHT = { line: INK, handle: INK, hand: "#a4a8ac", body: ["#a4a8ac", "#a4a8ac", "#a4a8ac", "#a4a8ac"] as [string, string, string, string] };
+const DARK = { line: "#4a4642", handle: "#c9cdd1", hand: "#c4c8cc", body: ["#9ea3a8", "#e4e6e8", "#c3c7cb", "#8f949a"] as [string, string, string, string] };
 
 function icon(state: "plain" | "waiting" | "down" | "alarm") {
-  const paths = MARK_PATHS.map((d) => `<path d='${d}'/>`).join("");
   const dot =
     state === "waiting" || state === "down"
-      ? `<circle cx='26' cy='6' r='5.5' fill='${state === "down" ? RED : BRASS}' stroke='none'/>`
+      ? `<circle cx='27' cy='5' r='4.5' fill='${state === "down" ? RED : BRASS}' stroke='none'/>`
       : "";
   if (state === "alarm") {
-    // Under attack: white mark on a red tile, hard to miss in a row of tabs.
-    return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='${RED}'/><g fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>${paths}</g></svg>`;
+    // Under attack: the mark on a red tile, hard to miss in a row of tabs.
+    return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='${RED}'/>${markSvg({ line: "white", handle: "white", hand: RED, body: [RED, RED, RED, RED] }, "a")}</svg>`;
   }
-  return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><style>g{stroke:${INK}}@media (prefers-color-scheme:dark){g{stroke:${INK_DARK}}}</style><g fill='none' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>${paths}</g>${dot}</svg>`;
+  return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><g class='l'>${markSvg(LIGHT, "l")}</g><g class='d'>${markSvg(DARK, "d")}</g><style>.d{display:none}@media (prefers-color-scheme:dark){.l{display:none}.d{display:inline}}</style>${dot}</svg>`;
 }
 
 /**
