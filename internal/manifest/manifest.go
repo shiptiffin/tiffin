@@ -102,6 +102,13 @@ type App struct {
 	// folder can run a web app and a worker. Applies from the next deploy.
 	// Not for static apps.
 	Command string `json:"command,omitempty"`
+	// Release runs once per deploy, after the build and before the new
+	// version takes traffic, in a one-off container of the new image with
+	// the app's env, e.g. "bunx drizzle-kit migrate". A failure stops the
+	// deploy and the running version keeps serving. Rollbacks do not run it.
+	// Previews run it only against their own database branch. Not for
+	// static apps.
+	Release string `json:"release,omitempty"`
 	// Packages are Debian (apt) packages installed in the app's image, e.g.
 	// "ffmpeg" or "chromium", for apps that run programs beside their own
 	// code. Applies from the next deploy. Not for static apps.
@@ -198,7 +205,20 @@ type Postgres struct {
 	// with a limit. A query can raise it
 	// for itself (SET LOCAL statement_timeout).
 	StatementTimeoutSeconds int `json:"statementTimeoutSeconds,omitempty"`
+	// Previews says which database app previews use: "branch" (the
+	// default, also when empty) gives each preview its own copy-on-write
+	// copy of the database, made on its first deploy and deleted with it;
+	// "shared" lets previews use the production database.
+	Previews PreviewDatabase `json:"previews,omitempty"`
 }
+
+// PreviewDatabase is the database app previews use.
+type PreviewDatabase string
+
+const (
+	PreviewDBBranch PreviewDatabase = "branch"
+	PreviewDBShared PreviewDatabase = "shared"
+)
 
 // Valkey gives the project a KV/cache namespace.
 type Valkey struct {

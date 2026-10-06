@@ -323,6 +323,7 @@ type dbMeta struct {
 	Project   string    `json:"project"`
 	Branch    string    `json:"branch,omitempty"`
 	From      string    `json:"from,omitempty"`
+	Preview   string    `json:"preview,omitempty"` // the app preview a branch was made for
 	CreatedAt time.Time `json:"createdAt"`
 }
 

@@ -26,6 +26,7 @@ import (
 	"github.com/btahir/tiffin/internal/change/changetest"
 	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/mod/postgres"
 	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/state"
@@ -59,6 +60,40 @@ type fakeEngine struct {
 	leaked map[string]bool
 	// trees: a copy of the source each built image came from (CopyOut).
 	trees map[string]string
+	// tasks: every RunTask (release command), in order.
+	tasks []fakeTask
+}
+
+// fakeTask is one RunTask call, and how many containers had run before it.
+type fakeTask struct {
+	spec   RunSpec
+	script string
+	runs   int
+}
+
+// RunTask "runs" a release command: it fails when the image's source has a
+// RELEASE_FAIL file and runs until stopped with RELEASE_HANG.
+func (e *fakeEngine) RunTask(ctx context.Context, s RunSpec, script string, log io.Writer) (int, error) {
+	e.mu.Lock()
+	e.tasks = append(e.tasks, fakeTask{spec: s, script: script, runs: e.runs})
+	tree := e.trees[dockerName(s.Image)]
+	e.mu.Unlock()
+	fmt.Fprintf(log, "migrating %s\n", s.Env["PGDATABASE"])
+	switch {
+	case exists(filepath.Join(tree, "RELEASE_FAIL")):
+		fmt.Fprintln(log, `error: relation "notes" already exists`)
+		return 1, nil
+	case exists(filepath.Join(tree, "RELEASE_HANG")):
+		<-ctx.Done()
+		return -1, ctx.Err()
+	}
+	return 0, nil
+}
+
+func (e *fakeEngine) taskList() []fakeTask {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]fakeTask(nil), e.tasks...)
 }
 
 func newFakeEngine() *fakeEngine {
@@ -298,10 +333,23 @@ type fakeBuilder struct {
 	builds atomic.Int32
 	// warmBlock makes warm-up builds run until they are stopped, once.
 	warmBlock atomic.Bool
+	// failAll fails every build.
+	failAll atomic.Bool
+	mu      sync.Mutex
+	envs    map[string]map[string]string // deploy ID → its build env
 }
 
 func (b *fakeBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult, error) {
 	b.builds.Add(1)
+	b.mu.Lock()
+	if b.envs == nil {
+		b.envs = map[string]map[string]string{}
+	}
+	b.envs[req.Deploy.ID] = req.Env
+	b.mu.Unlock()
+	if b.failAll.Load() {
+		return BuildResult{}, &BuildError{Msg: "the build failed", Hint: "read the log"}
+	}
 	if req.Deploy.ID == "warmup" && b.warmBlock.CompareAndSwap(true, false) {
 		<-ctx.Done()
 		return BuildResult{}, ctx.Err()
@@ -402,6 +450,7 @@ type harness struct {
 	p    *platform.Platform
 	eng  *fakeEngine
 	bld  *fakeBuilder
+	pgb  *fakeBranches
 	edge *fakeEdge
 	srv  *httptest.Server // the fake edge
 	mf   *manifest.Manifest
@@ -428,6 +477,8 @@ func newHarness(t *testing.T) *harness {
 		Drain: 2 * time.Second, StopGrace: time.Second, PreviewIdle: time.Hour, KeepImages: 2, Engine: eng}
 	bld := &fakeBuilder{eng: eng, static: &boxBuilder{eng: eng, staticDir: filepath.Join(opt.DataDir, "static")}}
 	opt.Builder = bld
+	pgb := &fakeBranches{made: map[string]postgres.PGBranch{}}
+	opt.Branches = pgb
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	// The registered module instance: the platform finds routes and the API
@@ -446,7 +497,7 @@ func newHarness(t *testing.T) *harness {
 			c.srv.Close()
 		}
 	})
-	h := &harness{t: t, m: m, r: m.r, p: p, eng: eng, bld: bld, edge: fe, srv: httptest.NewServer(fe)}
+	h := &harness{t: t, m: m, r: m.r, p: p, eng: eng, bld: bld, pgb: pgb, edge: fe, srv: httptest.NewServer(fe)}
 	t.Cleanup(h.srv.Close)
 	h.mf = changetest.M("shop", func(mf *manifest.Manifest) {
 		mf.Services = manifest.Services{}

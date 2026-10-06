@@ -112,6 +112,10 @@ func ConnEnv(ctx context.Context, p *platform.Platform, project, branch string, 
 		env["PGHOST"] = "127.0.0.1"
 	}
 	env["DATABASE_URL"] = u.String()
+	// For migration tools that want a connection without a pooler in
+	// between (Prisma's directUrl, drizzle-kit). There is no pooler, so it
+	// is the same URL.
+	env["DIRECT_DATABASE_URL"] = env["DATABASE_URL"]
 	return env, nil
 }
 

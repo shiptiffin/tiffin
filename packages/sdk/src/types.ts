@@ -59,6 +59,15 @@ export interface AppConfig {
    */
   command?: string;
   /**
+   * Runs once per deploy, after the build and before the new version takes
+   * traffic, in a one-off container of the new image with the app's env, e.g.
+   * "bunx drizzle-kit migrate". A failure stops the deploy and the running
+   * version keeps serving. Rollbacks do not run it, so migrations must work
+   * with the previous version too. Previews run it only against their own
+   * database branch. Not for static apps.
+   */
+  release?: string;
+  /**
    * Debian (apt) packages installed in the app's image, e.g. ["ffmpeg"] or
    * ["chromium"], for apps that run programs beside their own code. Applies
    * from the next deploy. Not for static apps.
@@ -122,6 +131,13 @@ export interface PostgresConfig {
    * can raise it for itself with SET LOCAL statement_timeout.
    */
   statementTimeoutSeconds?: number;
+  /**
+   * Which database app previews use. "branch" (default): each preview gets its
+   * own copy-on-write copy of the database, made on its first deploy and
+   * deleted with the preview. "shared": previews use the production database
+   * and skip apps' release commands.
+   */
+  previews?: "branch" | "shared";
 }
 
 /** Valkey gives the project a KV/cache namespace. */

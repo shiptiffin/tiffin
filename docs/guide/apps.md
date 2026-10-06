@@ -42,9 +42,9 @@ failed build or health check leaves the old version serving.
 - **Rollback:** `tiffin rollback <app> [deploy]`, to one of the last 3 production deploys
   before the live one (older builds are cleaned up; their records stay listed).
 - **Logs:** `tiffin logs <app> -f`.
-- **Previews** sleep when idle and wake on the first request. Previews use this
-  project's live data: the same database, cache, files and secrets. Email goes to the
-  dev inbox. A preview keeps only its latest build (no rollback), and one nobody
+- **Previews** sleep when idle and wake on the first request. Each preview gets its own
+  copy of the project's database (see below); it shares the cache, buckets and secrets
+  with production. Email goes to the dev inbox. A preview keeps only its latest build (no rollback), and one nobody
   requested or deployed to for 7 days is deleted, as if its pull request had closed;
   the next push or deploy builds it again.
 - **Start command:** an app runs its build's start command (package.json `start`); set
@@ -66,6 +66,50 @@ failed build or health check leaves the old version serving.
 - **Shutdown:** a replaced release finishes the requests it has (for up to 15 minutes,
   so a long render survives a deploy), gets SIGTERM once they are done, then 30 seconds
   before it is killed, for work it does after responding.
+
+## Migrations and preview databases
+
+```ts
+apps: { web: { framework: "next", release: "bunx drizzle-kit migrate" } }
+```
+
+`release` runs once per deploy, after the build and before the new version takes
+traffic: one container of the new image with the app's env (`DATABASE_URL`,
+`DIRECT_DATABASE_URL`, secrets), memory cap and disk folders, in the app's folder. Its
+output is in the deploy log (`tiffin deploys build-log`). If it exits non-zero, or runs
+over 10 minutes, the deploy fails and the running version keeps serving. Any command
+works (`bun run db:migrate`, `bunx prisma migrate deploy`); releases of one app run one
+at a time. Static apps have none.
+
+- **Old and new side by side.** The old version keeps serving while the release runs
+  and while the new one starts, and a rollback does not run it again (nor undo it). Write
+  migrations that the running version survives: add a column or table in one deploy,
+  start using it, and drop what the old code needs only in a later deploy
+  (expand, then contract).
+- **Partial runs.** A migration that stops part-way may have applied some steps. Keep
+  each one in a transaction (drizzle-kit and Prisma do) or safe to run again.
+- **Migrating on start instead** (the starters do it): fine for `create table if not
+  exists`, but every instance runs it and a failure only shows up as a failed health
+  check. `release` runs it once and says why it failed.
+
+**Preview databases.** With `services.postgres`, each preview gets its own branch of the
+database (`pv-<preview>`, e.g. `pv-pr-12`): a copy-on-write copy of production's made on
+the preview's first deploy (milliseconds, whatever the size), deleted with the preview
+(pull request closed, `tiffin previews delete`, or 7 days unused). The preview's
+`DATABASE_URL`, `DIRECT_DATABASE_URL` and `PG*` point at it, and its `release` migrates
+it, so a preview can change its schema and data without touching production's. Apps of
+the project that have a preview of the same name share it. While the copy is made,
+production's database refuses new connections and closes open ones for a moment
+(usually well under a second; pools reconnect). `tiffin sql <project> --branch pv-pr-12`
+reads it.
+
+```ts
+services: { postgres: { previews: "shared" } } // previews use the production database
+```
+
+With `"shared"`, previews read and write production's data and skip `release`; the plan
+warns about it. A value the app sets itself (`DATABASE_URL` in env or a secret) is never
+replaced.
 
 ## Programs, folders and long requests
 
@@ -306,7 +350,16 @@ its own and the usage says `pressure: "oom"`: raise the budget or find the leak.
 `PORT`, `NODE_ENV`, `TIFFIN_URL` (its public URL), plus each service's variables:
 `DATABASE_URL`, `REDIS_URL`, `S3_*`, `SMTP_URL`, `TIFFIN_AUTH_URL`, `SENTRY_DSN`,
 `OTEL_*`, `TIFFIN_QUEUE_*` and your secrets (`tiffin secrets set`). Changing env or
-secrets restarts the app with the new values. Setting, copying or deleting a secret is a
+secrets restarts the app with the new values.
+
+Variables that frameworks build into browser code (`NEXT_PUBLIC_*`, `VITE_*`,
+`PUBLIC_*`) are public by definition: builds get them from env and secrets alike, and
+changing one rebuilds the app from its live version's source instead of restarting it
+(the plan says so; the deploy's `trigger` is `env`). A version deployed with
+`--prebuilt` has no source to rebuild: it restarts and its browser code keeps the old
+value until the next deploy. Next.js apps also get `NEXT_PUBLIC_TIFFIN_URL` (the app's
+URL, a preview's own) and `NEXT_PUBLIC_SENTRY_DSN` (the box's error ingest for browsers),
+unless they set them. Setting, copying or deleting a secret is a
 change in History (`-m` gives the reason) that `tiffin undo <id>` reverts, putting back the
 old value: the change log keeps values only encrypted to the box key. Destroying a project
 deletes its secrets too (its plan lists them).

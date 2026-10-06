@@ -216,6 +216,9 @@ func appNode(name string, a App, implied string) *node {
 	if a.Command != "" {
 		n.set("command", str(a.Command))
 	}
+	if a.Release != "" {
+		n.set("release", str(a.Release))
+	}
 	if len(a.Packages) > 0 {
 		n.set("packages", strs(a.Packages))
 	}
@@ -259,6 +262,9 @@ func servicesNode(s Services) *node {
 		}
 		if pg.StatementTimeoutSeconds > 0 {
 			p.set("statementTimeoutSeconds", num(pg.StatementTimeoutSeconds))
+		}
+		if pg.Previews == PreviewDBShared {
+			p.set("previews", str(string(pg.Previews)))
 		}
 		n.set("postgres", p)
 	}

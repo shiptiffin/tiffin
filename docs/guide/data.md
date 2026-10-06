@@ -6,14 +6,22 @@
 services: { postgres: { extensions: ["vector", "pg_cron"] } }
 ```
 
-Each project gets its own Postgres 18 database and role. Apps get `DATABASE_URL`.
+Each project gets its own Postgres 18 database and role. Apps get `DATABASE_URL`,
+`DIRECT_DATABASE_URL` (the same URL, for migration tools that ask for a connection
+without a pooler, such as Prisma's `directUrl`; there is no pooler) and
+`DATABASE_POOL_MAX`.
 
 - **SQL:** `tiffin sql <project> "select ..."` runs one statement read-only (MCP `sql`;
   no confirmation). `tiffin sql write <project> "..."` (or `--write`; MCP `sql_write`)
   changes data and schema: it needs full access and takes a snapshot first.
 - **Branches:** `tiffin branches create <project> --name pr-12` clones the database with
-  copy-on-write in milliseconds, whatever its size. Previews don't use one: they share
-  the production database.
+  copy-on-write in milliseconds, whatever its size. Every app preview gets one of its
+  own (`pv-<preview>`, listed with `preview` set), made on its first deploy and deleted
+  with it; `services: { postgres: { previews: "shared" } }` puts previews on the
+  production database instead. See [Migrations and preview
+  databases](apps.md#migrations-and-preview-databases).
+- **Migrations:** an app's `release` command (`bunx drizzle-kit migrate`) runs once per
+  deploy before the new version takes traffic; a failure keeps the old version serving.
 - **Snapshots:** deleting the database (or writing through the console) keeps a
   snapshot for 7 days; `tiffin snapshots restore` brings it back.
 - **Org isolation:** `auth.enable_org_rls('table')` adds row-level security keyed on the
@@ -23,6 +31,17 @@ Each project gets its own Postgres 18 database and role. Apps get `DATABASE_URL`
   left idle inside a transaction is closed after 60 seconds, and a project opens at most
   80 connections. A project with a limit gets its share of the connections and of the
   CPU for its queries (see [Sharing the box](concepts.md#sharing-the-box)).
+- **Connection pools:** every instance of every app, the old instances a deploy is
+  draining, previews (their branches use the same role) and the SQL console share that
+  limit. `DATABASE_POOL_MAX` is how many connections one instance's pool should open to
+  stay inside it: the limit, less a few for the console and release commands and a fifth
+  for previews (2 each), divided by twice the production instances, at most 10. Clients
+  do not read it on their own: pass it as the pool's max, e.g.
+  `new SQL({ max: Number(process.env.DATABASE_POOL_MAX) || 10 })` (Bun.SQL),
+  `postgres(url, { max: ... })` (postgres.js), `new Pool({ max: ... })` (node-postgres, and
+  `PrismaPg` with Prisma 7). A value you set (env or secret) is kept. A new value applies
+  as instances start (a deploy or restart), and a plan warns when the apps' pools could
+  open more connections than the project may hold.
 
 ## Valkey
 

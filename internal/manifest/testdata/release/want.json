@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "project": "notes",
+  "apps": {
+    "web": {
+      "path": ".",
+      "framework": "next",
+      "role": "web",
+      "routes": [
+        "notes"
+      ],
+      "instances": 1,
+      "healthcheck": "/",
+      "release": "bunx drizzle-kit migrate"
+    }
+  },
+  "services": {
+    "postgres": {}
+  }
+}

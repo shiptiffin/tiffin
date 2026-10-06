@@ -138,6 +138,10 @@ func (r *rt) startFrom(d *Deploy, kind string, fetch func(ctx context.Context, l
 			if errors.As(err, &se) {
 				hint = startHint
 			}
+			var re *releaseError
+			if errors.As(err, &re) {
+				hint = releaseHint
+			}
 			r.fail(ctx, d, err, hint, log)
 		}
 	}()
@@ -166,9 +170,21 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 	began := time.Now()
 	req := BuildRequest{Deploy: d, Spec: *spec, WorkDir: r.workDir(d), Log: log}
 	req.Env, _ = r.plainEnv(ctx, d.Project, d.App)
+	all, err := r.p.ProjectEnv(ctx, d.Project, d.App)
+	if err == nil {
+		// Env built into browser code is public: the build gets it from
+		// every source, secrets included, and the deploy remembers it.
+		pub := r.publicEnv(d.Project, d.App, d.Preview, spec, all)
+		for k, v := range pub {
+			req.Env[k] = v
+		}
+		d.PublicEnv = publicEnvHash(pub)
+		if len(pub) > 0 {
+			fmt.Fprintf(log, "==> browser env: %s (built into the client code; a change rebuilds the app)\n", publicEnvNames(pub))
+		}
+	}
 	if spec.Framework == manifest.FrameworkNext {
 		// The same key at build and run time, deploy after deploy.
-		all, err := r.p.ProjectEnv(ctx, d.Project, d.App)
 		if err != nil {
 			return err
 		}
@@ -208,9 +224,13 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 	bctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	res, err := r.bld.Build(bctx, req)
 	cancel()
-	// Sources are not needed once built (static sites moved their output away).
+	// The unpacked sources are not needed once built (static sites moved
+	// their output away). The archive stays while the build is kept: a
+	// change to the env built into browser code rebuilds from it.
 	_ = os.RemoveAll(filepath.Join(r.workDir(d), "src"))
-	_ = os.Remove(src)
+	if keep := filepath.Join(r.workDir(d), sourceFile); kind == SourcePrebuilt || (src != keep && os.Rename(src, keep) != nil) {
+		_ = os.Remove(src)
+	}
 	if err != nil {
 		return err
 	}
@@ -226,6 +246,15 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 
 	d.Status = StatusStarting
 	_ = r.st.putDeploy(ctx, d)
+	if d.StaticRoot == "" {
+		branch, err := r.ensurePreviewBranch(ctx, d, log)
+		if err != nil {
+			return err
+		}
+		if err := r.runRelease(ctx, d, spec, branch, log); err != nil {
+			return err
+		}
+	}
 	if err := r.promote(ctx, d, spec, modeDeploy, log); err != nil {
 		return err
 	}
@@ -671,11 +700,18 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 		if u := env["SMTP_URL"]; u != "" {
 			env["SMTP_URL"] = email.PreviewSMTPURL(u, preview)
 		}
+		// Nor do they touch production's database, unless the project says so.
+		if b := r.previewBranch(ctx, project, preview); b != "" {
+			if err := r.useBranch(ctx, project, b, env); err != nil {
+				return nil, "", err
+			}
+		}
 	}
 	if spec.Role != manifest.RoleWorker {
 		d := &Deploy{App: app, Preview: preview}
 		env["TIFFIN_URL"] = r.deployURL(d, spec)
 	}
+	addNextAliases(env, spec)
 	if spec.Framework == manifest.FrameworkNext {
 		if env[nextKeyEnv], err = r.nextActionsKey(ctx, project, app, env); err != nil {
 			return nil, "", err
@@ -701,6 +737,9 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 	if len(spec.Disk) > 0 {
 		fmt.Fprintf(h, " disk=%q", spec.Disk) // a new folder mounts on a restart
 	}
+	// Outside the hash: a new budget (another app, a new limit) applies at
+	// the next start rather than restarting every app of the project.
+	r.setPoolMax(ctx, project, preview, env)
 	return env, hex.EncodeToString(h.Sum(nil))[:16], nil
 }
 
@@ -746,6 +785,9 @@ func (r *rt) converge(ctx context.Context, project, app, preview string, spec *m
 	}
 	if !d.Terminal() {
 		return nil
+	}
+	if !st.Stopped && !st.Sleeping && r.rebuildIfStale(ctx, d, spec) {
+		return nil // the rebuild goes live with the new env
 	}
 	if d.StaticRoot != "" {
 		if st.Stopped {
@@ -870,7 +912,8 @@ type stateError struct{ msg, hint string }
 
 func (e *stateError) Error() string { return e.msg }
 
-// gc removes images, static files and work dirs of old deploys. It keeps
+// gc removes images, source archives, static files and work dirs of old
+// deploys. It keeps
 // the live deploy, production's newest KeepImages rollback targets (a
 // preview keeps only its live build) and any release still running or
 // pinned for workflow runs.
@@ -905,6 +948,7 @@ func (r *rt) gc(ctx context.Context, project, app, preview string) {
 		if busy[d.ID] {
 			continue
 		}
+		_ = os.Remove(filepath.Join(r.workDir(d), sourceFile))
 		if d.Image != "" {
 			_ = r.eng.RemoveImage(ctx, d.Image)
 			d.Image = ""
