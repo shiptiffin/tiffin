@@ -19,7 +19,7 @@ import (
 )
 
 // Live progress in the browser. A server action starts a job or run and
-// mints a subscribe token for it (SubscribeToken; tiffin-sdk's
+// mints a subscribe token for it (SubscribeToken; @shiptiffin/sdk's
 // subscribeToken computes the same with the project's signing secret). The
 // browser opens GET /_tiffin/runs/{id}/events on the app's own host: the
 // runtime hands that path to ServeLive before it could reach the app.

@@ -1,8 +1,8 @@
 /**
- * `tiffin-sdk/queue`: background jobs pushed to your app.
+ * `@shiptiffin/sdk/queue`: background jobs pushed to your app.
  *
  * ```ts
- * import { queue, defineHandler, NonRetryableError } from "tiffin-sdk/queue";
+ * import { queue, defineHandler, NonRetryableError } from "@shiptiffin/sdk/queue";
  *
  * // Send (from any app of the project):
  * await queue.send("emails", { to: user.email }, { delay: "5m", key: user.id, dedupe: `welcome-${user.id}` });
@@ -26,7 +26,7 @@
  *
  * Live progress: `job.progress({ pct: 40 })` and `job.log(chunk)` inside a
  * handler; on the server, `sendWithToken()` returns `{ id, token }` for a
- * browser to watch with `useJob(id, token)` from tiffin-sdk/react.
+ * browser to watch with `subscribeRun(id, token, onChange)` from @shiptiffin/sdk/client.
  *
  * Durations are milliseconds (numbers) or strings like "30s", "5m", "2h", "1d".
  */
@@ -243,7 +243,7 @@ export interface TokenOptions {
 
 /**
  * Mints a token that lets a browser watch one job or workflow run
- * (`useJob` / `useRun` in tiffin-sdk/react). Call it on the server: it signs
+ * (`subscribeRun` in @shiptiffin/sdk/client). Call it on the server: it signs
  * with TIFFIN_QUEUE_SIGNING_SECRET, without a call to the box.
  */
 export function subscribeToken(id: string, opts: TokenOptions = {}): string {

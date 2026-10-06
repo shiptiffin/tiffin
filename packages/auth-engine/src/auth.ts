@@ -118,7 +118,7 @@ async function personalOrg(adapter: Adapter, userId: string): Promise<string> {
 
 /**
  * How long the signed session cookie cache (`tiffin.session_data`) lasts.
- * Apps verify it locally (tiffin-sdk/auth) instead of asking the engine, so a
+ * Apps verify it locally (@shiptiffin/sdk/auth) instead of asking the engine, so a
  * revoked session, a ban or a role change reaches app code within this long.
  * The engine itself never reads it (server.ts strips it).
  */

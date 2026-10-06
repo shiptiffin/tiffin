@@ -1,4 +1,4 @@
-import { defineConfig } from "tiffin-sdk";
+import { defineConfig } from "@shiptiffin/sdk";
 
 // A realistic Tiffin project: a Next.js storefront, a Hono API, a background
 // worker, Postgres with pgvector, Valkey and one public bucket.

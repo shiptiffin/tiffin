@@ -13,7 +13,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 )
 
-// App-facing endpoints, used by tiffin-sdk inside apps. They authenticate
+// App-facing endpoints, used by @shiptiffin/sdk inside apps. They authenticate
 // with their app key (TIFFIN_QUEUE_KEY, "Bearer tqk_...", see AppKey), not with
 // Tiffin tokens, and are not part of the OpenAPI document, so they are not
 // CLI commands or MCP tools. /v1/hooks/{token} is public: the token is the

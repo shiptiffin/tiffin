@@ -116,7 +116,7 @@ func TestEvaluateJSONFile(t *testing.T) {
 func TestEvaluateMJSAndEnvOption(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "tiffin.config.mjs")
-	src := `import { defineConfig } from "tiffin-sdk";
+	src := `import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({ project: process.env.NAME });`
 	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
@@ -133,6 +133,19 @@ export default defineConfig({ project: process.env.NAME });`
 	var ve *ValidationError
 	if !errors.As(err, &ve) {
 		t.Fatalf("want ValidationError, got %T: %v", err, err)
+	}
+}
+
+// Configs written before the rename import tiffin-sdk; they still evaluate.
+func TestEvaluateOldSDKName(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "tiffin.config.ts")
+	src := `import { defineConfig } from "tiffin-sdk/config";
+export default defineConfig({ project: "old" });`
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if m, err := Evaluate(p); err != nil || m.Project != "old" {
+		t.Fatalf("Evaluate: %v %v", m, err)
 	}
 }
 

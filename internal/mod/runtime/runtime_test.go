@@ -1685,7 +1685,7 @@ func TestPlanRefusesAnotherProjectsRoute(t *testing.T) {
 
 func TestFirstBuildErrorAndDropConfig(t *testing.T) {
 	out := "#26 0.123 $ next build\n#26 4.805   Running TypeScript ...\n" +
-		"#26 6.406 tiffin.config.ts(1,30): error TS2307: Cannot find module 'tiffin-sdk' or its corresponding type declarations.\n" +
+		"#26 6.406 tiffin.config.ts(1,30): error TS2307: Cannot find module '@shiptiffin/sdk' or its corresponding type declarations.\n" +
 		"#26 6.433 error: script \"build\" exited with code 1\n#26 ERROR: process \"bun run build\" did not complete successfully: exit code: 1\n"
 	if got := firstBuildError(out); !strings.HasPrefix(got, "tiffin.config.ts(1,30): error TS2307") {
 		t.Fatalf("first error = %q", got)

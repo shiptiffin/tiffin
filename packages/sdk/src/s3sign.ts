@@ -1,5 +1,5 @@
 /**
- * AWS Signature Version 4 for S3, just enough for tiffin-sdk/storage:
+ * AWS Signature Version 4 for S3, just enough for @shiptiffin/sdk/storage:
  * presigned URLs and header-signed requests. node:crypto only, so it runs
  * on Bun and Node alike. Internal: not a package export.
  */

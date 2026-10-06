@@ -286,11 +286,11 @@ function Resizer({ project, bucket, o }: { project: string; bucket: StorageBucke
   const link = bucket.public ? publicLink(bucket, o.key, qs) : signed.data?.url;
   const src = bucket.public ? `publicUrl("${bucket.name}", "${o.key}")` : `signedUrl("${bucket.name}", "${o.key}")`;
   const snippet = `// image-loader.ts
-export { default } from "tiffin-sdk/next/image-loader";
+export { default } from "@shiptiffin/sdk/next/image-loader";
 
 // next.config.ts: images: { loader: "custom", loaderFile: "./image-loader.ts" }
 
-import { ${bucket.public ? "publicUrl" : "signedUrl"} } from "tiffin-sdk/storage";
+import { ${bucket.public ? "publicUrl" : "signedUrl"} } from "@shiptiffin/sdk/storage";
 <Image src={${src}} width={${w || 1200}} height={…} alt="" />`;
   const saved = shown.data && o.size > 0 ? 1 - shown.data.size / o.size : 0;
 

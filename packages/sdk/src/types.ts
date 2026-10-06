@@ -244,7 +244,7 @@ export interface AnalyticsConfig {
  * app with no routes is a valid target), or an http(s) address outside the
  * box. Calls to a URL are signed (Tiffin-Signature, HMAC-SHA256 with the
  * project's signing secret; check them with verifyRequest from
- * tiffin-sdk/verify) and retried with backoff. Addresses of the box itself
+ * @shiptiffin/sdk/verify) and retried with backoff. Addresses of the box itself
  * and private, loopback or link-local ones are refused.
  */
 export type JobTarget =

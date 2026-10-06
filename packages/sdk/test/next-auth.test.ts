@@ -1,4 +1,4 @@
-// tiffin-sdk/next/auth with next/headers and next/navigation stubbed: what a
+// @shiptiffin/sdk/next/auth with next/headers and next/navigation stubbed: what a
 // page, a Server Action and proxy.ts see.
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";

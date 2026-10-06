@@ -243,7 +243,7 @@ test("file panel: previews, a private link with an expiry, the resized-link buil
   await expect(panel.getByText(/smaller than the original|no smaller/)).toBeVisible();
   await expect(panel.locator("code").filter({ hasText: "w=640" })).toBeVisible();
   await panel.getByText("Use it with next/image").click();
-  await expect(panel.getByText('export { default } from "tiffin-sdk/next/image-loader";')).toBeVisible();
+  await expect(panel.getByText('export { default } from "@shiptiffin/sdk/next/image-loader";')).toBeVisible();
   await axe(page, "image panel");
   // Text and PDF previews.
   await page.goto(bucketUrl("?file=notes.json"));
@@ -344,8 +344,8 @@ test("connect: the env apps get, values only on request", async ({ page }) => {
   await axe(page, "connect");
   await d.getByRole("button", { name: "Show values" }).click();
   await expect(d.getByLabel(/hidden/)).toHaveCount(0);
-  await d.getByRole("tab", { name: "tiffin-sdk" }).click();
-  await expect(d.getByText('from "tiffin-sdk/storage"')).toBeVisible();
+  await d.getByRole("tab", { name: "@shiptiffin/sdk" }).click();
+  await expect(d.getByText('from "@shiptiffin/sdk/storage"')).toBeVisible();
 });
 
 for (const theme of ["light", "dark"] as const) {

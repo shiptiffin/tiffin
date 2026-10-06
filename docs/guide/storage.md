@@ -37,7 +37,7 @@ prints the same variables for tools and local development (it needs a key with
 full access, because the key can delete every object).
 
 ```ts
-import { upload, presign, publicUrl, signedUrl } from "tiffin-sdk/storage";
+import { upload, presign, publicUrl, signedUrl } from "@shiptiffin/sdk/storage";
 
 await upload("uploads", `avatars/${user.id}.png`, file, { contentType: "image/png" });
 const link = presign("uploads", `avatars/${user.id}.png`, { expiresIn: 600 });
@@ -46,7 +46,7 @@ publicUrl("assets", "hero.jpg", { width: 1200 });   // resized to WebP by the bo
 signedUrl("uploads", `avatars/${user.id}.png`);     // a private file, for an hour
 ```
 
-`tiffin-sdk/storage` signs requests itself (it needs only `fetch` and `node:crypto`), so it
+`@shiptiffin/sdk/storage` signs requests itself (it needs only `fetch` and `node:crypto`), so it
 works on Bun and Node. `bucket(name)` returns a `Bun.S3Client` and is Bun only.
 
 ## Bucket rules
@@ -84,7 +84,7 @@ same ticket resumes, skipping parts already stored.
 A route handler (Next.js `app/api/upload/route.ts`, or any `(Request) => Response` server):
 
 ```ts
-import { uploadRoute } from "tiffin-sdk/storage";
+import { uploadRoute } from "@shiptiffin/sdk/storage";
 
 export const POST = uploadRoute({
   bucket: "uploads",
@@ -98,11 +98,12 @@ export const POST = uploadRoute({
 In the page:
 
 ```ts
-import { uploadFile } from "tiffin-sdk/storage/client";
+import { uploadFile } from "@shiptiffin/sdk/client";
 
 const done = await uploadFile(file, "/api/upload", {
   onProgress: (p) => setPercent(p.percent),
-  signal: controller.signal,      // cancel; the same ticket resumes later
+  signal: controller.signal,      // pause; uploadFile(file, ticket) resumes
+  onTicket: (t) => (ticket = t),  // keep the ticket to resume with
 });
 // done: { bucket, key, size, etag, url? }  url only for public buckets
 ```
@@ -111,7 +112,7 @@ Or a Server Action that returns a ticket:
 
 ```ts
 "use server";
-import { createUpload } from "tiffin-sdk/storage";
+import { createUpload } from "@shiptiffin/sdk/storage";
 
 export async function startUpload(name: string, size: number, type: string) {
   const user = await requireUser();
@@ -139,7 +140,7 @@ queues: { uploads: { app: "web" } },                                 // POST /qu
 topics: { "storage.object.created": { subscribers: ["uploads"] } },
 
 // app/queues/uploads/route.ts
-import { onUploadCompleted } from "tiffin-sdk/storage";
+import { onUploadCompleted } from "@shiptiffin/sdk/storage";
 export const POST = onUploadCompleted(async (e) => {
   // e: { event, project, bucket, key, size, contentType, etag, url?, at }
   await db.files.insert({ key: e.key, size: e.size });
@@ -180,7 +181,7 @@ links `files.<domain>` directly, which browsers and CDNs cache by URL.
 
 ```ts
 // image-loader.ts
-export { default } from "tiffin-sdk/next/image-loader";
+export { default } from "@shiptiffin/sdk/next/image-loader";
 // next.config.ts
 images: { loader: "custom", loaderFile: "./image-loader.ts" },
 // a page: src from publicUrl() or signedUrl()

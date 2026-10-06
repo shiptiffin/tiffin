@@ -1,0 +1,125 @@
+{
+  "name": "@shiptiffin/sdk",
+  "version": "0.1.0",
+  "description": "The SDK for apps on Tiffin, the agent-first app-in-a-box platform: config, KV, storage, queues, workflows, auth, email, analytics and Next.js helpers.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shiptiffin/tiffin.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/shiptiffin/tiffin/tree/main/docs/guide",
+  "keywords": [
+    "tiffin",
+    "self-hosting",
+    "nextjs",
+    "valkey",
+    "s3",
+    "better-auth"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
+    },
+    "./kv": {
+      "types": "./dist/kv.d.ts",
+      "default": "./dist/kv.js"
+    },
+    "./analytics": {
+      "types": "./dist/analytics.d.ts",
+      "default": "./dist/analytics.js"
+    },
+    "./vitals": {
+      "types": "./dist/vitals.d.ts",
+      "default": "./dist/vitals.js"
+    },
+    "./storage": {
+      "types": "./dist/storage.d.ts",
+      "default": "./dist/storage.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "default": "./dist/client/index.js"
+    },
+    "./email": {
+      "types": "./dist/email.d.ts",
+      "default": "./dist/email.js"
+    },
+    "./queue": {
+      "types": "./dist/queue.d.ts",
+      "default": "./dist/queue.js"
+    },
+    "./workflow": {
+      "types": "./dist/workflow.d.ts",
+      "default": "./dist/workflow.js"
+    },
+    "./verify": {
+      "types": "./dist/verify.d.ts",
+      "default": "./dist/verify.js"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "default": "./dist/auth.js"
+    },
+    "./next": {
+      "types": "./dist/next/index.d.ts",
+      "default": "./dist/next/index.js"
+    },
+    "./next/auth": {
+      "types": "./dist/next/auth.d.ts",
+      "default": "./dist/next/auth.js"
+    },
+    "./next/cache-handler": {
+      "types": "./dist/next/cache-handler.d.ts",
+      "default": "./dist/next/cache-handler.js"
+    },
+    "./next/use-cache": {
+      "types": "./dist/next/use-cache.d.ts",
+      "default": "./dist/next/use-cache.js"
+    },
+    "./next/image-loader": {
+      "types": "./dist/next/image-loader.d.ts",
+      "default": "./dist/next/image-loader.js"
+    },
+    "./next/vitals": {
+      "types": "./dist/next/vitals.d.ts",
+      "default": "./dist/next/vitals.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "altcha-lib": "^2.5.0",
+    "nodemailer": "^10.0.13"
+  },
+  "peerDependencies": {
+    "@react-email/render": ">=1",
+    "better-auth": ">=1.7",
+    "next": ">=15",
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "@react-email/render": {
+      "optional": true
+    },
+    "better-auth": {
+      "optional": true
+    },
+    "next": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  }
+}

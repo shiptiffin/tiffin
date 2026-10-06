@@ -16,7 +16,7 @@ import {
   uploadRoute,
   type ObjectCreated,
 } from "../src/storage";
-import { abortUpload, uploadFile, UploadError, type UploadProgress } from "../src/storage-client";
+import { abortUpload, uploadFile, UploadError, type UploadProgress } from "../src/client/upload";
 
 // A stand-in for the box's S3 endpoint (and the gateway's multipart calls)
 // that records what it receives.
@@ -223,6 +223,23 @@ describe("browser uploads", () => {
     for (let i = 1; i < progress.length; i++) expect(progress[i]!).toBeGreaterThanOrEqual(progress[i - 1]!);
     await abortUpload(t);
     expect(seen.at(-1)!.method).toBe("DELETE");
+  });
+
+  test("an upload from a route pauses and resumes with the ticket from onTicket", async () => {
+    const MiB = 1 << 20;
+    const size = 16 * MiB;
+    const t = await createUpload({ env, bucket: "media", key: "v/clip.mp4", size, multipartThreshold: 8 * MiB, partSize: 8 * MiB });
+    const f = ((input: string | URL | Request, init?: RequestInit) => (String(input) === "/api/upload" ? Promise.resolve(Response.json(t)) : fetch(input, init))) as typeof fetch;
+    const file = new Blob([new Uint8Array(size)]);
+    let kept: typeof t | undefined;
+    const pause = new AbortController();
+    const first = uploadFile(file, "/api/upload", { fetch: f, concurrency: 1, onTicket: (k) => (kept = k), onProgress: (p) => p.loaded >= 8 * MiB && pause.abort(), signal: pause.signal });
+    await expect(first).rejects.toThrow();
+    expect(kept?.multipart?.uploadId).toBe("UP-1");
+    const before = seen.filter((s) => s.method === "PUT").length;
+    const done = await uploadFile(file, kept!, { fetch: f });
+    expect(done.size).toBe(size);
+    expect(seen.filter((s) => s.method === "PUT").length - before).toBe(1); // only the part left
   });
 
   test("a refusal is not retried", async () => {

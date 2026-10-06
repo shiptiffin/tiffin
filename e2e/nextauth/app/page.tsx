@@ -1,4 +1,4 @@
-import { currentUser } from "tiffin-sdk/next/auth";
+import { currentUser } from "@shiptiffin/sdk/next/auth";
 
 export default async function Home() {
   const user = await currentUser();

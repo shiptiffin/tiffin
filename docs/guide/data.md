@@ -115,14 +115,24 @@ services: { valkey: { maxMemoryMB: 128 } }
 ```
 
 Each project gets a Valkey user limited to its own key prefix. Apps get `REDIS_URL` and
-`VALKEY_PREFIX`. `Bun.redis` works as is; `tiffin-sdk/kv` adds prefixed helpers, an
-atomic rate limiter and `cached()`. `maxMemoryMB` (64 by default) is held while the
-project has a limit: over it, its keys with an expiry are cleared first, then new writes
-are refused until it is under it (reads and deletes keep working).
+`VALKEY_PREFIX`. Use `@shiptiffin/sdk/kv`: it connects to `REDIS_URL` and adds the prefix
+for you.
 
-### Apps written for Upstash or Vercel KV
+```ts
+import { kv } from "@shiptiffin/sdk/kv";
+const store = kv();
+await store.set("greeting", "hello", { ttl: 60 });
+const rl = await store.rateLimit(`login:${ip}`, { limit: 5, windowSec: 60 });
+```
 
-Apps that use `@upstash/redis`, `@upstash/ratelimit` or `@vercel/kv` run unchanged: the
+`maxMemoryMB` (64 by default) is held while the project has a limit: over it, its keys
+with an expiry are cleared first, then new writes are refused until it is under it (reads
+and deletes keep working).
+
+### Moving an app here from Upstash or Vercel KV
+
+For moving an app with no code changes only (new code uses `@shiptiffin/sdk/kv`): apps
+that use `@upstash/redis`, `@upstash/ratelimit` or `@vercel/kv` run unchanged: the
 box serves an Upstash-compatible REST endpoint inside the box and gives apps
 `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `KV_REST_API_URL`, `KV_REST_API_TOKEN`
 and `KV_REST_API_READ_ONLY_TOKEN`. `Redis.fromEnv()` picks them up. Your own env or

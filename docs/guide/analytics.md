@@ -59,7 +59,7 @@ Apps of the project get `TIFFIN_ANALYTICS_URL`, `TIFFIN_ANALYTICS_KEY` and
 `TIFFIN_ANALYTICS_SCRIPT`:
 
 ```ts
-import { track } from "tiffin-sdk/analytics";
+import { track } from "@shiptiffin/sdk/analytics";
 
 await track("Signup", { plan: "pro" }, { request }); // joins the visitor's session
 await track("Invoice paid", { amount: 49 });        // an event without a visitor
@@ -77,7 +77,7 @@ root layout:
 
 ```tsx
 // app/layout.tsx
-import { WebVitals } from "tiffin-sdk/next/vitals";
+import { WebVitals } from "@shiptiffin/sdk/next/vitals";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -93,7 +93,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
 It takes Next's own measurements (`useReportWebVitals`) and reports each page
 under its route (`/products/[id]`, not `/products/42`). Anywhere else, call
-`reportWebVitals()` from `tiffin-sdk/vitals` in browser code; it measures with the
+`reportWebVitals()` from `@shiptiffin/sdk/vitals` in browser code; it measures with the
 browser's performance observers, no library needed.
 
 Both send one beacon per page load, when the page is hidden, to `/_tiffin/vitals`

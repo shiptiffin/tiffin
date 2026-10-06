@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// fakeSDK speaks the app side of the workflow protocol the way tiffin-sdk
+// fakeSDK speaks the app side of the workflow protocol the way @shiptiffin/sdk
 // does, through the app-facing endpoints: replay recorded steps, run new
 // ones, record each, suspend at waits.
 type fakeSDK struct {

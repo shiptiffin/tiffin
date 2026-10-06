@@ -10,7 +10,7 @@ import (
 )
 
 // sendTx: an app enqueues inside its own Postgres transaction by inserting a
-// row into tiffin.outbox in its own database (tiffin-sdk's queue.sendTx). The
+// row into tiffin.outbox in its own database (@shiptiffin/sdk's queue.sendTx). The
 // row commits or rolls back with the app's data; the box drains committed
 // rows into the queue. Each row carries a uuid used as the dedupe key, so a
 // crash between enqueue and delete never enqueues twice.
@@ -192,5 +192,5 @@ func (e *Engine) deadLetter(ctx context.Context, project, name string, payload [
 	return err
 }
 
-// outboxInsert is the statement tiffin-sdk runs (documented for other clients).
+// outboxInsert is the statement @shiptiffin/sdk runs (documented for other clients).
 const outboxInsert = `INSERT INTO tiffin.outbox (name, payload, options, app) VALUES ($1, $2, $3, $4)`

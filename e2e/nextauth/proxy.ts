@@ -1,4 +1,4 @@
-import { authProxy } from "tiffin-sdk/next/auth";
+import { authProxy } from "@shiptiffin/sdk/next/auth";
 
 export const proxy = authProxy({ protect: ["/dashboard/:path*"] });
 

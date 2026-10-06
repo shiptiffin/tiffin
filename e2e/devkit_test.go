@@ -31,7 +31,7 @@ func TestWorkflowDevKit(t *testing.T) {
 		filepath.Join(RepoRoot(), "e2e", "workflow-devkit")+"/", app+"/").CombinedOutput(); err != nil {
 		t.Fatalf("copy app: %v %s", err, out)
 	}
-	config := `import { defineConfig } from "tiffin-sdk";
+	config := `import { defineConfig } from "@shiptiffin/sdk";
 
 export default defineConfig({
   project: "devkit",

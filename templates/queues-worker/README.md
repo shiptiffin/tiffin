@@ -13,5 +13,5 @@ tiffin workflows runs get jobs <run id>              # steps and timeline
 tiffin queue crons list jobs                         # next tick of "tick"
 ```
 
-`tiffin-sdk.gen.js` is tiffin-sdk/queue + tiffin-sdk/workflow bundled
-(`bun run sync-sdk`) until tiffin-sdk is published.
+`tiffin-sdk.gen.js` is @shiptiffin/sdk/queue + @shiptiffin/sdk/workflow bundled
+(`bun run sync-sdk`) until @shiptiffin/sdk is published.

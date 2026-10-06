@@ -100,7 +100,7 @@ func TestObserve(t *testing.T) {
 	p := time.Now()
 	ok("up", "--binary", bin)
 	cfg := filepath.Join(dir, "tiffin.config.ts")
-	if err := os.WriteFile(cfg, []byte(`import { defineConfig } from "tiffin-sdk";
+	if err := os.WriteFile(cfg, []byte(`import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({
   project: "shop",
   apps: { web: { framework: "static", routes: ["shop"] } },

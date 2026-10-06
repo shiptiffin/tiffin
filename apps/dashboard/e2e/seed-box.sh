@@ -44,7 +44,7 @@ wait_ready() { # until every resource of a project is ready
 # ---- projects -------------------------------------------------------------
 mkdir -p "$WORK/shop" "$WORK/notes"
 cat >"$WORK/shop/tiffin.config.ts" <<'TS'
-import { defineConfig } from "tiffin-sdk";
+import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({
   project: "shop",
   env: { LOG_LEVEL: "info" },
@@ -58,7 +58,7 @@ export default defineConfig({
 TS
 apply "$WORK/shop" "Set up the shop: Postgres, Valkey, buckets and email"
 cat >"$WORK/notes/tiffin.config.ts" <<'TS'
-import { defineConfig } from "tiffin-sdk";
+import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({
   project: "notes",
   services: { postgres: {}, storage: { buckets: { exports: {} } }, email: {} },

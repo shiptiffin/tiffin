@@ -73,7 +73,7 @@ func TestRenderConfigReadable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `import { defineConfig } from "tiffin-sdk";
+	want := `import { defineConfig } from "@shiptiffin/sdk";
 
 // Pulled from the box.
 export default defineConfig({

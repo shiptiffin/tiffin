@@ -27,8 +27,8 @@ type EvalError struct {
 
 func (e *EvalError) Error() string { return e.Message }
 
-// sdkShim replaces `import ... from "tiffin-sdk"` so configs evaluate with no
-// node_modules present.
+// sdkShim replaces `import ... from "@shiptiffin/sdk"` so configs evaluate with no
+// node_modules present. The old name, tiffin-sdk, works too.
 const sdkShim = `export const defineConfig = (c) => c;
 export default defineConfig;
 `
@@ -71,7 +71,7 @@ func Evaluate(path string, opts ...Option) (*Manifest, error) {
 // JSON, with no validation or defaults applied.
 //
 // .ts/.js/.mjs files are bundled with esbuild (relative imports are followed;
-// `tiffin-sdk` and `tiffin-sdk/config` are provided by a built-in shim) and run
+// `@shiptiffin/sdk` and `@shiptiffin/sdk/config` are provided by a built-in shim) and run
 // in a goja interpreter with a 2 second limit and no filesystem, network or
 // module access. The only globals beyond the language are `process.env`
 // (populated from env) and a silent `console`. .json files are read as-is.
@@ -137,12 +137,12 @@ func bundle(abs string) (string, error) {
 
 func sdkPlugin() api.Plugin {
 	return api.Plugin{
-		Name: "tiffin-sdk-shim",
+		Name: "sdk-shim",
 		Setup: func(b api.PluginBuild) {
-			b.OnResolve(api.OnResolveOptions{Filter: `^tiffin-sdk(/config)?$`}, func(a api.OnResolveArgs) (api.OnResolveResult, error) {
-				return api.OnResolveResult{Path: a.Path, Namespace: "tiffin-sdk"}, nil
+			b.OnResolve(api.OnResolveOptions{Filter: `^(@shiptiffin/sdk|tiffin-sdk)(/config)?$`}, func(a api.OnResolveArgs) (api.OnResolveResult, error) {
+				return api.OnResolveResult{Path: a.Path, Namespace: "sdk-shim"}, nil
 			})
-			b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: "tiffin-sdk"}, func(api.OnLoadArgs) (api.OnLoadResult, error) {
+			b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: "sdk-shim"}, func(api.OnLoadArgs) (api.OnLoadResult, error) {
 				s := sdkShim
 				return api.OnLoadResult{Contents: &s, Loader: api.LoaderJS}, nil
 			})

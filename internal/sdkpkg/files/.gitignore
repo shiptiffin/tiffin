@@ -1,0 +1,2 @@
+# The built SDK is committed (go:embed needs it; the root ignores dist/).
+!dist/

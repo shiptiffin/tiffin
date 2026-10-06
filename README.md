@@ -68,7 +68,7 @@ make build      # bin/tiffin
 make test       # Go and Bun unit tests
 make lint       # gofmt, go vet, staticcheck
 make dashboard  # rebuild the embedded dashboard
-make sdk        # rebuild the embedded tiffin-sdk (make build runs it; bump the version in packages/sdk when its API changes)
+make sdk        # rebuild the embedded @shiptiffin/sdk (make build runs it; bump the version in packages/sdk when its API changes)
 make e2e        # every acceptance test, each on a fresh VM (slow)
 make release    # macOS and Linux binaries for arm64 and amd64
 ```

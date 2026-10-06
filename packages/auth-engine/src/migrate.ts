@@ -10,7 +10,7 @@ export const HELPERS_SQL = `
 CREATE SCHEMA IF NOT EXISTS ${SCHEMA};
 
 -- The organization (and user) the current transaction acts for. Apps set them
--- with set_config('app.org_id', <id>, true); tiffin-sdk/auth's withOrg does it.
+-- with set_config('app.org_id', <id>, true); @shiptiffin/sdk/auth's withOrg does it.
 CREATE OR REPLACE FUNCTION ${SCHEMA}.org_id() RETURNS text
   LANGUAGE sql STABLE PARALLEL SAFE
   AS $$ SELECT nullif(current_setting('app.org_id', true), '') $$;

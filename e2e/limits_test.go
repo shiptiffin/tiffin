@@ -79,7 +79,7 @@ func TestRequestAndDiskLimits(t *testing.T) {
 	}
 	config := func(size string) {
 		t.Helper()
-		cfg := fmt.Sprintf(`import { defineConfig } from "tiffin-sdk";
+		cfg := fmt.Sprintf(`import { defineConfig } from "@shiptiffin/sdk";
 
 export default defineConfig({
   project: "hello",

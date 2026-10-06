@@ -311,7 +311,7 @@ echo started`)
 	// ---- deleting the app stops it ----
 	p = time.Now()
 	cfg := filepath.Join(app, "tiffin.config.ts")
-	if err := os.WriteFile(cfg, []byte(`import { defineConfig } from "tiffin-sdk";
+	if err := os.WriteFile(cfg, []byte(`import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({ project: "hello" });
 `), 0o644); err != nil {
 		t.Fatal(err)
