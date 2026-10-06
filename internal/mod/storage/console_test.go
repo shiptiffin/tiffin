@@ -308,31 +308,4 @@ func TestFilesConsoleOps(t *testing.T) {
 	if code, out, _, _ := call("POST", b+"media/move", `{"keys":["old/a.txt"],"to":"new.txt"}`); code != 200 || out["undo"] == "" || !r.has("media", "new.txt") {
 		t.Fatalf("move: %d %v", code, out)
 	}
-
-	// Connect: names for everyone, the secret only when revealed (and recorded).
-	code, out, _, _ = call("GET", "/v1/projects/shop/storage/connection", "")
-	secret := func(out map[string]any) string {
-		for _, e := range out["env"].([]any) {
-			if e := e.(map[string]any); e["name"] == "S3_SECRET_ACCESS_KEY" {
-				return e["value"].(string)
-			}
-		}
-		return "missing"
-	}
-	if code != 200 || secret(out) != "" || out["env"].([]any)[0].(map[string]any)["name"] != "S3_ENDPOINT" {
-		t.Fatalf("connection: %d %v", code, out)
-	}
-	if code, out, _, _ = call("GET", "/v1/projects/shop/storage/connection?reveal=true", ""); code != 200 || secret(out) != r.user.Secret {
-		t.Fatalf("reveal: %d %v", code, out)
-	}
-	log, _ := r.p.DB.AuditLog(r.ctx, 50)
-	reveals := 0
-	for _, e := range log {
-		if e.Action == "storage.credentials.read" {
-			reveals++
-		}
-	}
-	if reveals != 1 {
-		t.Fatalf("reveal not recorded once: %d", reveals)
-	}
 }

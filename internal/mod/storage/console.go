@@ -3,7 +3,7 @@ package storage
 // The Files console's operations: read a file (thumbnails and previews),
 // links that work without signing in, renames, moves and deletes with
 // Undo, large uploads in parts through the API (so the dashboard needs no
-// CORS or DNS for s3.<domain>), and how apps connect.
+// CORS or DNS for s3.<domain>).
 
 import (
 	"context"
@@ -52,22 +52,6 @@ type UploadSession struct {
 	Parts    []UploadedPart `json:"parts" doc:"Parts already stored (when resuming): send only the others"`
 }
 
-// StorageEnv is one env var the project's apps get.
-type StorageEnv struct {
-	Name   string `json:"name"`
-	Value  string `json:"value" doc:"Empty for secrets unless revealed"`
-	Secret bool   `json:"secret"`
-}
-
-// StorageConnection is how apps and tools reach a project's buckets.
-type StorageConnection struct {
-	Endpoint string       `json:"endpoint" doc:"S3 endpoint for tools off the box (path-style)"`
-	Region   string       `json:"region"`
-	Revealed bool         `json:"revealed" doc:"The secret key is included"`
-	Env      []StorageEnv `json:"env" doc:"What every app in the project gets, already set"`
-}
-
-// BucketPath names one bucket of a project.
 type BucketPath struct {
 	Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 	Bucket  string `path:"bucket" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Bucket name"`
@@ -271,39 +255,6 @@ func (m *Module) registerConsole(a huma.API, p *platform.Platform, need func() (
 		return &struct{ Body *FilesResult }{res}, nil
 	}))
 
-	cn := api.Op("storage-connection", http.MethodGet, "/v1/projects/{project}/storage/connection", "storage connection", api.RiskRead,
-		"Show how to connect to a project's files", "The S3 env every app in the project already has (endpoint, region, a variable per bucket, the key). "+
-			"The secret key shows only with reveal=true, which needs full access to the project; every reveal is recorded.", tag)
-	cn.Errors = append(cn.Errors, 404)
-	huma.Register(a, cn, api.Wrap(func(ctx context.Context, in *struct {
-		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
-		Reveal  bool   `query:"reveal" doc:"Include the secret key"`
-	}) (*struct{ Body *StorageConnection }, error) {
-		pr := api.PrincipalFrom(ctx)
-		scope := tokens.ScopeRead
-		if in.Reveal {
-			scope = tokens.ScopeApplyIrreversible
-		}
-		if err := pr.Require(scope, in.Project); err != nil {
-			return nil, err
-		}
-		p, err := need()
-		if err != nil {
-			return nil, err
-		}
-		env, err := m.Env(ctx, p, in.Project, "")
-		if err != nil {
-			return nil, err
-		}
-		if env == nil {
-			return nil, noStorage(in.Project)
-		}
-		if in.Reveal {
-			_ = p.DB.Audit(ctx, pr.TokenID, "storage.credentials.read", in.Project, map[string]any{"session": pr.Session})
-		}
-		return &struct{ Body *StorageConnection }{connectionOf(env, p.URL(p.Host("s3")), in.Reveal)}, nil
-	}))
-
 	m.registerUploads(a, need, tag)
 }
 
@@ -438,43 +389,6 @@ func auditFiles(ctx context.Context, p *platform.Platform, pr *tokens.Principal,
 		target += "/" + bucket
 	}
 	_ = p.DB.Audit(ctx, pr.TokenID, what, target, map[string]any{"keys": keys, "files": res.Files, "bytes": res.Bytes, "undo": res.Undo, "session": pr.Session})
-}
-
-// connectionOf lists the env apps get, S3 first, the secret key hidden
-// unless revealed.
-func connectionOf(env map[string]string, endpoint string, reveal bool) *StorageConnection {
-	out := &StorageConnection{Endpoint: endpoint, Region: Region, Revealed: reveal, Env: []StorageEnv{}}
-	rank := func(k string) int {
-		switch {
-		case k == "S3_ENDPOINT" || k == "S3_REGION":
-			return 0
-		case strings.HasPrefix(k, "S3_BUCKET"):
-			return 1
-		case strings.HasPrefix(k, "S3_"):
-			return 2
-		case strings.HasPrefix(k, "TIFFIN_"):
-			return 3
-		}
-		return 4
-	}
-	names := make([]string, 0, len(env))
-	for k := range env {
-		names = append(names, k)
-	}
-	sort.Slice(names, func(i, j int) bool {
-		if a, b := rank(names[i]), rank(names[j]); a != b {
-			return a < b
-		}
-		return names[i] < names[j]
-	})
-	for _, k := range names {
-		e := StorageEnv{Name: k, Value: env[k], Secret: strings.HasSuffix(k, "_SECRET_ACCESS_KEY")}
-		if e.Secret && !reveal {
-			e.Value = ""
-		}
-		out.Env = append(out.Env, e)
-	}
-	return out
 }
 
 // ---- large uploads ----

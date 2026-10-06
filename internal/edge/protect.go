@@ -128,47 +128,6 @@ func ProtectionStatus() (*Protection, error) {
 	return protectActive, protectErr
 }
 
-// loadProtected loads c, with the registered protection layer when c has
-// none of its own. If Caddy refuses the protected config, it loads c
-// unprotected so the box stays reachable, and records the error for
-// ProtectionStatus.
-func loadProtected(c Config) error {
-	protectMu.Lock()
-	src := protectSource
-	protectMu.Unlock()
-	if c.Protect == nil && src != nil {
-		if p := src(); p != nil {
-			pc := c
-			pc.Protect = p
-			err := pc.Protect.validate()
-			if err == nil {
-				if err = safeLoad(pc); err == nil {
-					setProtectState(p, nil)
-					return nil
-				}
-			}
-			setProtectState(nil, fmt.Errorf("edge: protection not applied: %w", err))
-			return load(c)
-		}
-	}
-	err := load(c)
-	if err == nil {
-		setProtectState(c.Protect, nil)
-	}
-	return err
-}
-
-// safeLoad is load that turns a panic in a third-party Caddy module's
-// setup into an error instead of taking the box down.
-func safeLoad(c Config) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("edge: caddy module panicked while loading: %v", r)
-		}
-	}()
-	return load(c)
-}
-
 func setProtectState(p *Protection, err error) {
 	protectMu.Lock()
 	defer protectMu.Unlock()

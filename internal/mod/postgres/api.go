@@ -239,15 +239,16 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	cn := api.Op("db-connection", http.MethodGet, "/v1/projects/{project}/postgres/connection", "db connection", api.RiskRead,
 		"Show the database connection string",
-		"The project's DATABASE_URL, including its password, for connecting from inside the box or through an SSH tunnel. Box owner only; every reveal is audited.", tag)
+		"The project's DATABASE_URL, including its password, for connecting from inside the box or through an SSH tunnel (tiffin db tunnel). "+
+			"Needs full access to the project (apply:irreversible on it), since the password reaches all of its data; every reveal is audited.", tag)
 	cn.Errors = append(cn.Errors, 409)
 	huma.Register(a, cn, api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Branch  string `query:"branch" doc:"A preview branch instead of the main database"`
 	}) (*struct{ Body *PGConnection }, error) {
 		pr := api.PrincipalFrom(ctx)
-		if !pr.BoxAdmin() {
-			return nil, fmt.Errorf("%w: revealing database passwords needs the box owner's token", tokens.ErrForbidden)
+		if err := pr.Require(tokens.ScopeApplyIrreversible, in.Project); err != nil {
+			return nil, err
 		}
 		if err := onBox(p); err != nil {
 			return nil, err

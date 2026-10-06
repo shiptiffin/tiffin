@@ -7,6 +7,7 @@ import { Shell } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import type { ActivitySearch } from "@/routes/activity";
 import type { GitSearch } from "@/routes/git-settings";
+import { analyticsSearch, type AnalyticsSearch } from "@/routes/analytics-search";
 import { HomePage } from "@/routes/home";
 import { Page } from "@/components/page";
 import { q } from "@/api/queries";
@@ -58,7 +59,7 @@ const DomainsPage = lz<{ project: string }>(() => import("@/routes/domains"), "D
 const DnsSettingsPage = lz(() => import("@/routes/dns-settings"), "DnsSettingsPage");
 const PeoplePage = lz(() => import("@/routes/settings"), "PeoplePage");
 const PasskeysPage = lz(() => import("@/routes/settings"), "PasskeysPage");
-const FilesPage = lz<{ project: string; isNew?: boolean; connect?: boolean }>(() => import("@/routes/files"), "FilesPage");
+const FilesPage = lz<{ project: string; isNew?: boolean }>(() => import("@/routes/files"), "FilesPage");
 const BucketPage = lz<{ project: string; bucket: string; prefix?: string; file?: string }>(() => import("@/routes/files"), "BucketPage");
 const InboxPage = lz<{ project: string; q?: string; m?: string }>(() => import("@/routes/email"), "InboxPage");
 const EmailSettingsPage = lz<{ project: string }>(() => import("@/routes/email"), "EmailSettingsPage");
@@ -85,7 +86,7 @@ const JobsPage = lz<{ project: string; queue?: string; state?: string }>(() => i
 const JobPage = lz<{ project: string; id: string }>(() => import("@/routes/queues"), "JobPage");
 const WorkflowsPage = lz<{ project: string; state?: string }>(() => import("@/routes/queues"), "WorkflowsPage");
 const RunPage = lz<{ project: string; id: string }>(() => import("@/routes/queues"), "RunPage");
-const AnalyticsPage = lz<{ project: string; period?: string }>(() => import("@/routes/analytics"), "AnalyticsPage");
+const AnalyticsPage = lz<{ project: string; search: AnalyticsSearch }>(() => import("@/routes/analytics"), "AnalyticsPage");
 const ProtectPage = lz(() => import("@/routes/protect"), "ProtectPage");
 const AppsPage = lz<{ project: string }>(() => import("@/routes/apps"), "AppsPage");
 const AppPage = lz<{ project: string; app: string; deploy?: boolean }>(() => import("@/routes/apps"), "AppPage");
@@ -274,15 +275,12 @@ const domainsRoute = createRoute({
 const storage = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/storage",
-  validateSearch: (s: Record<string, unknown>): { new?: string; connect?: boolean } => ({
-    new: str(s.new),
-    ...(s.connect === true || s.connect === "1" || s.connect === "true" ? { connect: true } : {}),
-  }),
+  validateSearch: (s: Record<string, unknown>): { new?: string } => ({ new: str(s.new) }),
   loader: () => void FilesPage.preload(),
   component: function Storage() {
     const { project: p } = storage.useParams();
-    const { new: isNew, connect } = storage.useSearch();
-    return <FilesPage key={p} project={p} isNew={isNew === "bucket"} connect={connect} />;
+    const { new: isNew } = storage.useSearch();
+    return <FilesPage key={p} project={p} isNew={isNew === "bucket"} />;
   },
 });
 const bucket = createRoute({
@@ -511,11 +509,11 @@ const runRoute = createRoute({
 const analytics = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/analytics",
-  validateSearch: (s: Record<string, unknown>): { period?: string } => ({ period: str(s.period) }),
+  validateSearch: analyticsSearch,
   loader: () => void AnalyticsPage.preload(),
   component: function Analytics() {
     const { project: p } = analytics.useParams();
-    return <AnalyticsPage key={p} project={p} period={analytics.useSearch().period} />;
+    return <AnalyticsPage key={p} project={p} search={analytics.useSearch()} />;
   },
 });
 const appsRoute = createRoute({

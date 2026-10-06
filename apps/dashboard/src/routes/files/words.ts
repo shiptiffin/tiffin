@@ -144,9 +144,3 @@ export const byName = (a: string, b: string) => a.localeCompare(b, undefined, { 
 
 /** Valid S3 bucket names here: lowercase letters, digits and dashes, starting with a letter. */
 export const BUCKET_NAME = /^[a-z][a-z0-9-]{0,39}$/;
-
-/** Typing in a field shouldn't trigger page shortcuts. */
-export function typing(e: KeyboardEvent): boolean {
-  const t = e.target;
-  return e.metaKey || e.ctrlKey || e.altKey || (t instanceof Element && !!t.closest("input, textarea, select, [contenteditable], [role=dialog]"));
-}

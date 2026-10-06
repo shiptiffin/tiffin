@@ -16,7 +16,6 @@ export type TrashEntry = S["StorageTrashEntry"];
 export type Uploaded = S["StorageUploaded"];
 export type FileLink = S["StorageFileLink"];
 export type FilesResult = S["StorageFilesResult"];
-export type FilesConnection = S["StorageConnection"];
 export type UploadSession = S["StorageUploadSession"];
 /** The Files console's changes to files, by path under the bucket, with their bodies. */
 export type FilesWrites = {
@@ -68,6 +67,9 @@ export type BackupOverview = S["BackupOverview"];
 export type Backup = S["Backup"];
 export type BackupRestored = S["BackupRestored"];
 export type BackupDrill = S["BackupDrill"];
+export type BackupOffsite = S["BackupOffsite"];
+export type BackupOffsiteTest = S["BackupOffsiteTest"];
+export type OffsiteInput = S["BackupOffsiteInput"];
 export type Overview = S["ObserveOverview"];
 export type Issue = S["ObserveIssue"];
 export type IssueDetail = S["ObserveIssueDetail"];
@@ -97,6 +99,10 @@ export type AnalyticsCount = S["AnalyticsCount"];
 export type AnalyticsEvent = S["AnalyticsEventSummary"];
 export type AnalyticsVitals = S["AnalyticsVitalsView"];
 export type Period = NonNullable<NonNullable<import("./schema").operations["analytics-overview"]["parameters"]["query"]>["period"]>;
+/** What an analytics read can ask for: a period or days, one app, the step and filters. */
+export type AnalyticsQuery = Omit<NonNullable<import("./schema").operations["analytics-overview"]["parameters"]["query"]>, "project" | "limit">;
+export type AnalyticsFilters = S["AnalyticsFilters"];
+export type UsageHistory = S["ObserveUsageHistory"];
 export type ProtectStatus = S["ProtectStatus"];
 export type ProtectDecision = S["ProtectDecision"];
 export type ProtectAlert = S["ProtectAlert"];
@@ -135,7 +141,6 @@ export const mod = {
   filesWrite: <K extends keyof FilesWrites>(p: string, bucket: string, op: K, body: FilesWrites[K]) =>
     request<FilesResult>("POST", `${P(p)}/storage/buckets/${e(bucket)}/${op}`, body),
   filesUndo: (p: string, id: string) => request<FilesResult>("POST", `${P(p)}/storage/undo`, { id }),
-  filesConnection: (p: string, reveal = false) => request<FilesConnection>("GET", `${P(p)}/storage/connection${qs({ reveal })}`),
   uploadStart: (p: string, bucket: string, body: S["Storage-upload-startRequest"]) =>
     request<UploadSession>("POST", `${P(p)}/storage/buckets/${e(bucket)}/uploads`, body),
   uploadPartUrl: (p: string, bucket: string, uploadId: string, n: number, key: string) =>
@@ -231,6 +236,11 @@ export const mod = {
   drill: (backup?: string) => request<BackupDrill>("POST", backup ? `/v1/backups/${e(backup)}/drill` : "/v1/backups/drill", {}),
   drillGet: (id: string) => request<BackupDrill>("GET", `/v1/backups/drills/${e(id)}`),
   drillCancel: (id: string) => request<BackupDrill>("POST", `/v1/backups/drills/${e(id)}/cancel`, {}),
+  /** Copies off the box: set (tested first; a new destination returns its passphrase once), test, copy now, off. */
+  offsiteSet: (body: OffsiteInput) => request<BackupOffsite>("PUT", "/v1/backups/offsite", body),
+  offsiteTest: () => request<BackupOffsiteTest>("POST", "/v1/backups/offsite/test", {}),
+  offsiteCopy: () => request<S["BackupOffsiteCopy"]>("POST", "/v1/backups/offsite/copy", {}),
+  offsiteOff: () => request<BackupOffsite>("DELETE", "/v1/backups/offsite"),
 
   // observe
   overview: () => request<Overview>("GET", "/v1/observe/overview"),
@@ -281,9 +291,11 @@ export const mod2 = {
     request<WorkflowApproval>("POST", `${P(p)}/workflows/approvals/${e(id)}`, { decision, ...(comment ? { comment } : {}) }),
   // analytics
   analytics: (p: string, period: Period) => request<AnalyticsOverview>("GET", `/v1/analytics/overview${qs({ project: p, period, limit: 8 })}`),
-  realtime: (p: string) => request<AnalyticsRealtime>("GET", `/v1/analytics/realtime${qs({ project: p })}`),
-  events: (p: string, period: Period) => request<AnalyticsEvents>("GET", `/v1/analytics/events${qs({ project: p, period })}`),
-  vitals: (p: string, period: Period) => request<AnalyticsVitals>("GET", `/v1/analytics/vitals${qs({ project: p, period, limit: 8 })}`),
+  /** The overview for a period or day range, one app and filters (see AnalyticsQuery). */
+  analyticsView: (p: string, q: AnalyticsQuery, limit = 10) => request<AnalyticsOverview>("GET", `/v1/analytics/overview${qs({ project: p, ...q, limit })}`),
+  realtime: (p: string, app?: string) => request<AnalyticsRealtime>("GET", `/v1/analytics/realtime${qs({ project: p, app })}`),
+  events: (p: string, q: AnalyticsQuery) => request<AnalyticsEvents>("GET", `/v1/analytics/events${qs({ project: p, ...q, interval: undefined })}`),
+  vitals: (p: string, q: AnalyticsQuery) => request<AnalyticsVitals>("GET", `/v1/analytics/vitals${qs({ project: p, period: q.period, from: q.from, to: q.to, app: q.app, page: q.page, limit: 8 })}`),
   analyticsSetup: (p: string) => request<AnalyticsSetup>("GET", `/v1/analytics/setup${qs({ project: p })}`),
   // protection
   protect: () => request<ProtectStatus>("GET", "/v1/protect"),
@@ -296,6 +308,8 @@ export const mod2 = {
 };
 
 export const mod3 = {
+  /** Memory, CPU, traffic and data over time, for the project or one app. */
+  usageHistory: (p: string, range: "1h" | "24h" | "7d" | "30d", app?: string) => request<UsageHistory>("GET", `${P(p)}/usage/history${qs({ range, app })}`),
   // runtime
   runtime: (p: string, app: string) => request<AppRuntime>("GET", `${P(p)}/apps/${e(app)}/runtime`),
   deploys: (p: string, app: string, preview?: string) =>

@@ -23,6 +23,7 @@ import {
   waitingFor,
 } from "@/components/jobs-words";
 import { Crumbs, Page, PageHeader, Skeleton, Tabs, Untrusted, NotOnBox } from "@/components/page";
+import { ConnectButton } from "@/components/connect";
 import { PilotLight } from "@/components/pilot";
 import { ProblemNote, sentence } from "@/components/problem";
 import { Throttle } from "@/components/throttle";
@@ -44,7 +45,7 @@ function Header({ project, title, lede, actions, crumbs }: { project: string; ti
       eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params: { project } }, ...(crumbs ?? [])]} />}
       title={title}
       lede={lede}
-      actions={actions}
+      actions={<>{actions}<ConnectButton part="jobs" project={project} /></>}
     >
       <Tabs
         items={[

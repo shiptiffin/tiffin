@@ -4,12 +4,17 @@
 //
 //	/usr/local/lib/tiffin/versions/<sha12>/tiffin   every installed build
 //	/usr/local/bin/tiffin -> versions/<sha12>/tiffin the current one (atomic symlink)
-//	/etc/systemd/system/tiffin.service             runs `tiffin serve` as user tiffin
+//	/etc/systemd/system/tiffin.service             runs `tiffin serve`: the API, dashboard and modules
+//	/etc/systemd/system/tiffin-edge.service        runs `tiffin edge`: HTTPS for every site (Caddy, switchboard)
+//	/etc/systemd/system/tiffin-edge.socket         holds the edge's ports across its restarts
 //	/var/lib/tiffin/platform/                      platform state (XFS data disk)
 //
-// Installing and updating are the same operation: copy the new binary over,
-// then run `sudo <binary> self-update <binary>`, which switches the symlink,
-// restarts the service and rolls back if the new build is not healthy.
+// The edge is its own service so that restarting or updating Tiffin never
+// interrupts the apps: tiffin drives it over a socket, and its restarts do
+// not restart the edge. Installing and updating are the same operation:
+// copy the new binary over, then run `sudo <binary> self-update <binary>`,
+// which switches the symlink, restarts tiffin and rolls back if the new
+// build is not healthy. The edge picks the new build up when it restarts.
 package install
 
 import (
@@ -32,6 +37,7 @@ const (
 	VersionsDir = "/usr/local/lib/tiffin/versions"
 	BinLink     = "/usr/local/bin/tiffin"
 	UnitPath    = "/etc/systemd/system/tiffin.service"
+	EdgeUnits   = "/etc/systemd/system/tiffin-edge"
 	Home        = "/var/lib/tiffin/platform"
 	APIAddr     = "127.0.0.1:7070"
 	User        = "tiffin"
@@ -80,8 +86,8 @@ func Unit(o Options) string {
 	}
 	return fmt.Sprintf(`[Unit]
 Description=Tiffin box
-After=network-online.target local-fs.target
-Wants=network-online.target
+After=network-online.target local-fs.target tiffin-edge.service
+Wants=network-online.target tiffin-edge.service
 RequiresMountsFor=/var/lib/tiffin
 
 [Service]
@@ -89,7 +95,7 @@ RequiresMountsFor=/var/lib/tiffin
 # through system tools. The box itself is the isolation boundary; apps run
 # in containers.
 User=root
-ExecStart=%[2]s serve --box --home %[3]s --addr %[4]s --edge --domain %[5]s --https-port %[6]d --http-port %[7]d --public-url %[8]s%[9]s
+ExecStart=%[2]s serve --box --home %[3]s --addr %[4]s --edge-external --domain %[5]s --https-port %[6]d --http-port %[7]d --public-url %[8]s%[9]s
 Environment=XDG_DATA_HOME=/var/lib/tiffin/platform/xdg XDG_CONFIG_HOME=/var/lib/tiffin/platform/xdg
 Restart=always
 RestartSec=2
@@ -102,6 +108,52 @@ KillMode=mixed
 [Install]
 WantedBy=multi-user.target
 `, User, BinLink, Home, APIAddr, o.Domain, o.HTTPSPort, o.HTTPPort, o.PublicURL(), ips)
+}
+
+// EdgeSocketUnit renders the edge's socket unit: systemd holds the HTTPS
+// and HTTP ports (and UDP for HTTP/3), so an edge restart refuses no
+// connection; they wait for the next edge.
+func EdgeSocketUnit(o Options) string {
+	return fmt.Sprintf(`[Unit]
+Description=Tiffin edge ports (held across edge restarts)
+
+[Socket]
+ListenStream=%[1]d
+ListenStream=%[2]d
+ListenDatagram=%[1]d
+Backlog=4096
+NoDelay=yes
+Service=tiffin-edge.service
+
+[Install]
+WantedBy=sockets.target
+`, o.HTTPSPort, o.HTTPPort)
+}
+
+// EdgeUnit renders the edge's service unit. Restarting tiffin leaves it
+// running; restarting it hands its ports over through the socket unit.
+func EdgeUnit() string {
+	return fmt.Sprintf(`[Unit]
+Description=Tiffin edge: HTTPS for every site on the box (Caddy and the switchboard)
+Requires=tiffin-edge.socket
+After=tiffin-edge.socket network-online.target local-fs.target
+RequiresMountsFor=/var/lib/tiffin
+
+[Service]
+User=root
+ExecStart=%[1]s edge --home %[2]s
+Environment=XDG_DATA_HOME=/var/lib/tiffin/platform/xdg XDG_CONFIG_HOME=/var/lib/tiffin/platform/xdg
+Restart=always
+RestartSec=1
+NoNewPrivileges=yes
+ProtectHome=yes
+LimitNOFILE=1048576
+TimeoutStopSec=20
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target
+`, BinLink, Home)
 }
 
 // Result is what the installer learned from the box.
@@ -129,10 +181,14 @@ sudo install -d -m 0700 %[2]s
 sudo install -d -m 0755 %[3]s
 sudo tee %[4]s >/dev/null <<'UNIT'
 %[5]sUNIT
+sudo tee %[6]s.socket >/dev/null <<'UNIT'
+%[7]sUNIT
+sudo tee %[6]s.service >/dev/null <<'UNIT'
+%[8]sUNIT
 sudo systemctl daemon-reload
-sudo systemctl enable tiffin >/dev/null 2>&1
+sudo systemctl enable tiffin tiffin-edge.socket tiffin-edge.service >/dev/null 2>&1
 chmod 0755 /tmp/tiffin.new
-`, User, Home, VersionsDir, UnitPath, Unit(o))
+`, User, Home, VersionsDir, UnitPath, Unit(o), EdgeUnits, EdgeSocketUnit(o), EdgeUnit())
 	if _, stderr, err := m.Exec(ctx, setup); err != nil {
 		return nil, fmt.Errorf("set up the service: %w\n%s", err, stderr)
 	}

@@ -25,7 +25,7 @@ Export, and the move command to copy), and **New project › Import a .tiffin fi
 
 ### Duplicate
 
-A full copy on the same box: the database, buckets and files, cache keys, secrets,
+A full copy on the same box: the database, buckets and files, KV keys, secrets,
 settings and apps (started again from the same images or files). The copy gets its own
 addresses: a box name that starts with the project's moves with it (`shop` →
 `shop-copy`, `shop-api` → `shop-copy-api`); an app served at its own app name (the old

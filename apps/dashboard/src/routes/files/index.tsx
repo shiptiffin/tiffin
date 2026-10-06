@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ChevronRight, Plug, Plus, Settings2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ChevronRight, Plus, Settings2 } from "lucide-react";
+import { useState } from "react";
 import { ApiError, notOnBox } from "@/api/client";
 import { mod, mq, type StorageBucket, type StorageInfo, type TrashEntry } from "@/api/modules";
 import { Confirm } from "@/components/confirm";
+import { ConnectButton } from "@/components/connect";
 import { Reading, Readings, Rows, Section } from "@/components/data-parts";
 import { useTitle } from "@/components/favicon";
 import { Crumbs, Empty, NotOnBox, Page, PageHeader, Skeleton } from "@/components/page";
@@ -18,11 +19,11 @@ import { Input } from "@/components/ui/input";
 import { bytes, bytesParts, count, int, pct } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { PARTS } from "@/lib/names";
+import { requestCommand, useCommand } from "@/lib/shortcuts";
 import { change, pendingFor, usePending } from "@/lib/staged";
 import { full, relative } from "@/lib/time";
-import { FilesConnect } from "./connect";
 import { BucketSettings } from "./settings";
-import { BUCKET_NAME, typesWords, typing } from "./words";
+import { BUCKET_NAME, typesWords } from "./words";
 
 export { BucketPage } from "./bucket";
 
@@ -36,28 +37,33 @@ const LEDE = "S3-compatible buckets · public or private · image resizing built
  * changes to tiffin.config.ts like any other (deleting asks first, naming
  * what goes). Connect shows the env apps already have.
  */
-export function FilesPage({ project, isNew, connect: connectAtStart }: { project: string; isNew?: boolean; connect?: boolean }) {
+export function FilesPage({ project, isNew }: { project: string; isNew?: boolean }) {
   useTitle(`${project} · ${PARTS.storage.name}`);
   const info = useQuery(mq.storage(project));
   const trash = useQuery(mq.trash(project));
   const { can } = useMe();
   const [making, setMaking] = useState(!!isNew);
-  const [connect, setConnect] = useState(!!connectAtStart);
   const [settings, setSettings] = useState<string | null>(null);
   const writer = can("apply:reversible");
   const missing = info.error instanceof ApiError && info.error.status === 404;
 
-  useEffect(() => {
-    const on = (e: KeyboardEvent) => {
-      if (typing(e) || !writer) return;
-      if (e.key === "n") {
-        e.preventDefault();
-        setMaking(true);
-      }
-    };
-    window.addEventListener("keydown", on);
-    return () => window.removeEventListener("keydown", on);
-  }, [writer]);
+  const navigate = useNavigate();
+  useCommand(writer ? { id: "new-bucket", label: "New bucket", keys: "n", keywords: ["create", "files", "s3"], run: () => setMaking(true) } : null);
+  // ⌘K's "Upload a file" lands here: go to the bucket (the only one, or the first) and upload there.
+  useCommand(
+    writer
+      ? {
+          id: "upload-file",
+          label: "Upload files",
+          run: () => {
+            const first = info.data?.buckets?.[0];
+            if (!first) return setMaking(true);
+            requestCommand("upload-file");
+            void navigate({ to: "/projects/$project/storage/$bucket", params: { project, bucket: first.name } });
+          },
+        }
+      : null,
+  );
 
   if (info.isError && notOnBox(info.error)) return <NotOnBox what="Buckets" />;
   const s = info.data;
@@ -72,12 +78,7 @@ export function FilesPage({ project, isNew, connect: connectAtStart }: { project
         lede={LEDE}
         actions={
           <>
-            {!missing && (
-              <Button onClick={() => setConnect(true)}>
-                <Plug />
-                Connect
-              </Button>
-            )}
+            {!missing && <ConnectButton part="files" project={project} />}
             {writer && (
               <Button variant="primary" onClick={() => setMaking(true)} title="New bucket (N)">
                 <Plus />
@@ -134,7 +135,6 @@ export function FilesPage({ project, isNew, connect: connectAtStart }: { project
         <TrashList project={project} entries={trash.data ?? []} canPurge={can("apply:irreversible")} canRestore={writer} />
       )}
       <NewBucket project={project} taken={buckets.map((b) => b.name)} open={making} onOpenChange={setMaking} />
-      <FilesConnect project={project} buckets={buckets} open={connect} onOpenChange={setConnect} />
       {open && <BucketSettings project={project} b={open} open={!!open} onOpenChange={(o) => !o && setSettings(null)} />}
     </Page>
   );

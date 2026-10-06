@@ -98,6 +98,7 @@ type BackupDrillDatabase struct {
 type BackupDrill struct {
 	ID               string                `json:"id" doc:"Drill ID (dr_...)"`
 	Backup           string                `json:"backup" doc:"The backup set restored"`
+	Source           string                `json:"source" enum:"local,offsite," doc:"local: the copy on this box; offsite: the copy in the bucket (Postgres from pgBackRest repo2, every other part downloaded and checked)"`
 	BackupLabel      string                `json:"backupLabel" doc:"Its pgBackRest label"`
 	BackupTakenAt    time.Time             `json:"backupTakenAt"`
 	BackupAgeSeconds int64                 `json:"backupAgeSeconds" doc:"How old the backup was when the drill started"`
@@ -112,9 +113,21 @@ type BackupDrill struct {
 	Percent          int                   `json:"percent" doc:"Rough progress of the restore phase, 0-100"`
 	ComparedWith     string                `json:"comparedWith" enum:"backup,live" doc:"backup: the table list recorded when the backup was taken; live: the live cluster (older backups have no list)"`
 	Databases        []BackupDrillDatabase `json:"databases"`
+	Offsite          *BackupDrillOffsite   `json:"offsite,omitempty" doc:"An off-box drill's check of the set's other parts"`
 	Message          string                `json:"message" doc:"The outcome in plain words"`
 	Hint             string                `json:"hint,omitempty" doc:"What to do next"`
 	Scratch          string                `json:"scratch" doc:"Scratch directory (deleted when the drill ends)"`
+}
+
+// BackupDrillOffsite is what an off-box drill downloaded and checked
+// besides Postgres.
+type BackupDrillOffsite struct {
+	Files    int64    `json:"files" doc:"Files downloaded (every chunk decrypted and checked against its ID)"`
+	Bytes    int64    `json:"bytes"`
+	Chunks   int      `json:"chunks"`
+	Seconds  float64  `json:"seconds" doc:"Download and checks"`
+	Checks   []string `json:"checks" doc:"What was checked, in plain words"`
+	Problems []string `json:"problems,omitempty"`
 }
 
 // ErrDrillRunning is returned when a drill is already running.
@@ -152,9 +165,17 @@ var freeBytes = func(path string) (int64, error) {
 	}
 }
 
-// diskCheck refuses a drill that could fill the data disk.
-func diskCheck(b *Backup) error {
-	need := int64(float64(b.Postgres.SizeBytes) * diskHeadroom)
+// diskCheck refuses a drill that could fill the data disk. A drill of the
+// off-box copy also downloads the set's other parts.
+func diskCheck(b *Backup, source string) error {
+	size := b.Postgres.SizeBytes
+	if source == SourceOffsite {
+		size += b.Valkey.SizeBytes + b.Platform.SizeBytes
+		for _, f := range b.Files {
+			size += f.SizeBytes
+		}
+	}
+	need := int64(float64(size) * diskHeadroom)
 	free, err := freeBytes(drillRoot)
 	if err != nil {
 		return fmt.Errorf("checking free space: %w", err)
@@ -166,14 +187,24 @@ func diskCheck(b *Backup) error {
 }
 
 // drillable explains why a backup cannot be drilled ("" when it can).
-func drillable(b *Backup) string {
+func drillable(b *Backup, source string) string {
 	switch {
 	case b.Status != "ok":
 		return "backup " + b.ID + " did not succeed (" + b.Status + "); pick another from `tiffin backups list`"
 	case b.Postgres.Label == "":
 		return "backup " + b.ID + " has no Postgres part to restore"
+	case source == SourceOffsite && (b.Offsite == nil || b.Offsite.Status != "ok" || b.Offsite.PostgresLabel == ""):
+		return "backup " + b.ID + " has no off-box copy; drill one that has (`tiffin backups list` shows offsite.status ok), or copy it with `tiffin backups offsite copy --backup " + b.ID + "`"
 	}
 	return ""
+}
+
+// drillLabel is the pgBackRest backup a drill restores.
+func drillLabel(b *Backup, source string) string {
+	if source == SourceOffsite && b.Offsite != nil {
+		return b.Offsite.PostgresLabel
+	}
+	return b.Postgres.Label
 }
 
 func saveDrill(ctx context.Context, p *platform.Platform, d *BackupDrill) error {
@@ -260,21 +291,33 @@ func (r *drillRun) snapshot() *BackupDrill {
 // once (no record) when b cannot be drilled, a drill is running or the
 // data disk is too full.
 func StartDrill(ctx context.Context, p *platform.Platform, b *Backup, trigger string) (*BackupDrill, <-chan struct{}, error) {
-	if why := drillable(b); why != "" {
+	return StartDrillFrom(ctx, p, b, trigger, SourceLocal)
+}
+
+// StartDrillFrom is StartDrill of the local copy (source "local") or the
+// off-box copy ("offsite": Postgres from the bucket's repository, and every
+// other part downloaded and checked).
+func StartDrillFrom(ctx context.Context, p *platform.Platform, b *Backup, trigger, source string) (*BackupDrill, <-chan struct{}, error) {
+	if why := drillable(b, source); why != "" {
 		return nil, nil, errors.New(why)
+	}
+	if source == SourceOffsite {
+		if c, _ := current(); c == nil || c.State != OffsiteActive {
+			return nil, nil, ErrOffsiteOff
+		}
 	}
 	drillState.mu.Lock()
 	if drillState.running != nil {
 		drillState.mu.Unlock()
 		return nil, nil, ErrDrillRunning
 	}
-	if err := diskCheck(b); err != nil {
+	if err := diskCheck(b, source); err != nil {
 		drillState.mu.Unlock()
 		return nil, nil, err
 	}
 	now := time.Now().UTC()
 	id := ids.New("dr")
-	rec := &BackupDrill{ID: id, Backup: b.ID, BackupLabel: b.Postgres.Label, BackupTakenAt: b.StartedAt,
+	rec := &BackupDrill{ID: id, Backup: b.ID, Source: source, BackupLabel: drillLabel(b, source), BackupTakenAt: b.StartedAt,
 		BackupAgeSeconds: int64(now.Sub(b.StartedAt).Seconds()), Trigger: trigger, Status: DrillRunning, Phase: "starting",
 		StartedAt: now, BackupBytes: b.Postgres.SizeBytes, Databases: []BackupDrillDatabase{}, Scratch: filepath.Join(drillRoot, id)}
 	if err := saveDrill(ctx, p, rec); err != nil {
@@ -386,7 +429,7 @@ func (r *drillRun) steps(ctx context.Context, dir string, srv **scratchServer) e
 			release()
 		}
 	}()
-	if err := diskCheck(r.b); err != nil {
+	if err := diskCheck(r.b, r.rec.Source); err != nil {
 		r.set(func(d *BackupDrill) {
 			d.Hint = "free space on the data disk (`tiffin box` shows what uses it), then drill again"
 		}, false)
@@ -419,8 +462,17 @@ func (r *drillRun) steps(ctx context.Context, dir string, srv **scratchServer) e
 			}
 		}
 	}()
-	_, rerr := pgbackrest(ctx, "--pg1-path="+data, "--set="+r.b.Postgres.Label, "--type=immediate", "--target-action=promote",
-		"--no-delta", "--archive-mode=off", "--log-level-console=warn", "--log-level-file=off", "restore")
+	src, label := r.rec.Source, r.rec.BackupLabel
+	args := []string{"--repo=1", "--pg1-path=" + data, "--set=" + label, "--type=immediate", "--target-action=promote",
+		"--no-delta", "--archive-mode=off", "--log-level-console=warn", "--log-level-file=off"}
+	run := pgbackrest
+	if src == SourceOffsite {
+		// WAL from the bucket too: the drill proves the off-box copy alone
+		// restores. archive-get checks pg1-path against the server calling it.
+		run, args[0] = pgbackrestOff, "--repo=2"
+		args = append(args, `--recovery-option=restore_command=pgbackrest --config=`+offConfPath+` --stanza=`+Stanza+` --repo=2 --pg1-path=`+data+` archive-get %f "%p"`)
+	}
+	_, rerr := run(ctx, append(args, "restore")...)
 	close(stop)
 	n := datakit.DirSize(data)
 	r.set(func(d *BackupDrill) { d.Seconds.Restore, d.RestoredBytes = secs(time.Since(t)), n }, true)
@@ -428,7 +480,7 @@ func (r *drillRun) steps(ctx context.Context, dir string, srv **scratchServer) e
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return fmt.Errorf("restoring backup %s (pgBackRest set %s) into the scratch directory failed: %s", r.b.ID, r.b.Postgres.Label, clean(rerr))
+		return fmt.Errorf("restoring backup %s (pgBackRest set %s) into the scratch directory failed: %s", r.b.ID, label, clean(rerr))
 	}
 	r.set(func(d *BackupDrill) { d.Percent = 100 }, false)
 
@@ -461,6 +513,25 @@ func (r *drillRun) steps(ctx context.Context, dir string, srv **scratchServer) e
 			return ctx.Err()
 		}
 		return fmt.Errorf("verifying the restored copy: %w", err)
+	}
+
+	// 4. Off-box: the set's other parts restore too.
+	if src == SourceOffsite {
+		if s != nil {
+			// The scratch Postgres is done: free its memory before downloading.
+			_ = s.stop()
+		}
+		r.phase("downloading and checking the off-box copy of Valkey, the platform state and files")
+		t = time.Now()
+		res, err := checkOffsiteFiles(ctx, r.b, filepath.Join(dir, "files"))
+		res.Seconds = secs(time.Since(t))
+		r.set(func(d *BackupDrill) { d.Offsite = res }, true)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return err
+		}
 	}
 	return nil
 }
@@ -525,6 +596,12 @@ func verdict(d *BackupDrill) (status, msg, hint string) {
 	}
 	if d.ComparedWith == "live" {
 		msg += " This backup predates table lists in backups, so the restore was compared with the live cluster only."
+	}
+	if d.Source == SourceOffsite {
+		msg = "From the off-box copy: " + msg
+		if o := d.Offsite; o != nil {
+			msg += fmt.Sprintf(" Its other parts downloaded and checked in %s: %s (%s); %s.", fmtSecs(o.Seconds), plural64(o.Files, "file"), human(o.Bytes), strings.Join(o.Checks, "; "))
+		}
 	}
 	return DrillPassed, msg, ""
 }
@@ -836,15 +913,23 @@ func drillCheck(list []BackupDrill, s BackupSchedule, since, now time.Time) plat
 	when := ago(now.Sub(lastDone.FinishedAt)) + " ago"
 	if lastDone.Status == DrillFailed {
 		c.OK = false
-		c.Detail = "restore drill failed " + when + ": " + clipText(lastDone.Message, 300) + "; see `tiffin backups drills get " + lastDone.ID + "`" + running + off
+		c.Detail = "restore drill" + ofCopy(lastDone) + " failed " + when + ": " + clipText(lastDone.Message, 300) + "; see `tiffin backups drills get " + lastDone.ID + "`" + running + off
 		return c
 	}
-	c.Detail = fmt.Sprintf("restore drill passed %s (restored in %s)", when, fmtSecs(lastDone.Seconds.Restore)) + running + off
+	c.Detail = fmt.Sprintf("restore drill%s passed %s (restored in %s)", ofCopy(lastDone), when, fmtSecs(lastDone.Seconds.Restore)) + running + off
 	if now.Sub(lastDone.StartedAt) > DrillStale {
 		c.OK = false
 		c.Detail += "; that is more than 14 days ago: run `tiffin backups drill`"
 	}
 	return c
+}
+
+// ofCopy names an off-box drill's copy in the check.
+func ofCopy(d *BackupDrill) string {
+	if d.Source == SourceOffsite {
+		return " of the off-box copy"
+	}
+	return ""
 }
 
 // ---- words ----

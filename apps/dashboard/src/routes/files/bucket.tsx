@@ -17,12 +17,13 @@ import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
 import { bytes, count, int } from "@/lib/format";
 import { PARTS } from "@/lib/names";
+import { useCommand, useKeyHelp, useShortcut } from "@/lib/shortcuts";
 import { Segmented } from "@/routes/kv/parts";
 import { Browser, type BrowserHandle, type Entry, type Sort, type View } from "./browser";
 import { FilePanel, publicLink } from "./panel";
 import { BucketSettings } from "./settings";
 import { addUploads, droppedFiles, UploadTray } from "./uploads";
-import { baseName, byName, EXPIRIES, resizable, typing } from "./words";
+import { baseName, byName, EXPIRIES, resizable } from "./words";
 import { FilesWrites, useFiles } from "./write";
 
 const PAGE = 1000;
@@ -142,7 +143,6 @@ function BucketView({ project, bucket, prefix, file }: { project: string; bucket
   const [linking, setLinking] = useState<StorageObject | null>(null);
   const [newFolder, setNewFolder] = useState(false);
   const [settings, setSettings] = useState(false);
-  const [help, setHelp] = useState(false);
   const [replacing, setReplacing] = useState<Array<{ file: File; key: string }> | null>(null);
 
   const byId = (ids: string[]) => entries.filter((x) => ids.includes(x.id));
@@ -180,33 +180,13 @@ function BucketView({ project, bucket, prefix, file }: { project: string; bucket
   };
   const fromInput = (fl: FileList | null) => queue([...(fl ?? [])].map((f) => ({ file: f, path: f.webkitRelativePath || f.name })));
 
-  // ---- page shortcuts
-  useEffect(() => {
-    const on = (e: KeyboardEvent) => {
-      if (
-        (e.altKey || e.metaKey) &&
-        e.key === "ArrowUp" &&
-        up &&
-        !(e.target instanceof Element && e.target.closest("input, textarea, [role=dialog]"))
-      ) {
-        e.preventDefault();
-        up();
-        return;
-      }
-      if (typing(e)) return;
-      const k = e.key;
-      if (k === "/") searchRef.current?.focus();
-      else if (k === "u" && canWrite) filesInput.current?.click();
-      else if (k === "n" && canWrite) setNewFolder(true);
-      else if (k === "v") setView(view === "list" ? "grid" : "list");
-      else if (k === "?") setHelp(true);
-      else if (k === "Escape" && file) go({ prefix });
-      else return;
-      e.preventDefault();
-    };
-    window.addEventListener("keydown", on);
-    return () => window.removeEventListener("keydown", on);
-  });
+  // ---- shortcuts: in the shell's ? sheet, and ⌘K's "Upload a file" runs ours
+  useShortcut("/", "Find files by name", () => searchRef.current?.focus());
+  useShortcut("v", "List or grid", () => setView(view === "list" ? "grid" : "list"));
+  useCommand(canWrite ? { id: "upload-file", label: "Upload files", keys: "u", keywords: ["files", "put", "add"], run: () => filesInput.current?.click() } : null);
+  useCommand(canWrite ? { id: "new-folder", label: "New folder", keys: "n", keywords: ["folder", "directory", "make"], run: () => setNewFolder(true) } : null);
+  useShortcut("Escape", "Close the file", () => go({ prefix }), "On this page", !!file);
+  useKeyHelp("Files", KEYS);
 
   // ---- drag and drop
   const [dragging, setDragging] = useState(false);
@@ -458,6 +438,7 @@ function BucketView({ project, bucket, prefix, file }: { project: string; bucket
                   active={file}
                   onOpen={(x) => (x.kind === "folder" ? go({ prefix: x.prefix }) : go({ prefix, file: x.o.key === file ? undefined : x.o.key }))}
                   onUp={up}
+                  onEscape={file ? () => go({ prefix }) : undefined}
                   onDelete={canWrite ? (ids) => void remove(ids) : undefined}
                   onRename={canWrite ? setRenaming : undefined}
                   onLink={(x) => x.kind === "file" && void copyLink(x.o)}
@@ -626,7 +607,6 @@ function BucketView({ project, bucket, prefix, file }: { project: string; bucket
           setReplacing(null);
         }}
       />
-      <Shortcuts open={help} onOpenChange={setHelp} />
     </div>
   );
 }
@@ -820,47 +800,15 @@ function ReplaceDialog({
   );
 }
 
-const SHORTCUTS: Array<[string, string]> = [
-  ["/", "Find files by name"],
-  ["U", "Upload files"],
-  ["N", "New folder"],
-  ["V", "List or grid"],
+/** Keys the file list handles itself, for the ? sheet. */
+const KEYS: Array<[string, string]> = [
   ["↑ ↓ ← →", "Move through files"],
   ["Enter", "Open a file or folder"],
   ["Space", "Select"],
-  ["Shift ↑ ↓", "Select a run of files"],
+  ["⇧ ↑ ↓", "Select a run of files"],
   ["⌘ A", "Select everything here"],
   ["F2", "Rename"],
   ["Delete", "Delete (with Undo)"],
-  ["Alt ↑", "Up a folder"],
-  ["Esc", "Close the file, or clear the selection"],
-  ["?", "These shortcuts"],
+  ["⌥ ↑", "Up a folder"],
+  ["Esc", "Clear the selection, then close the file"],
 ];
-
-function Shortcuts({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Keyboard shortcuts</DialogTitle>
-        </DialogHeader>
-        <DialogBody>
-          <dl className="divide-y divide-rule border-y border-rule">
-            {SHORTCUTS.map(([keys, what]) => (
-              <div key={keys} className="flex items-center justify-between gap-4 py-2">
-                <dt className="text-base text-ink-2">{what}</dt>
-                <dd className="flex shrink-0 gap-1">
-                  {keys.split(" ").map((x) => (
-                    <kbd key={x} className="kbd">
-                      {x}
-                    </kbd>
-                  ))}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </DialogBody>
-      </DialogContent>
-    </Dialog>
-  );
-}

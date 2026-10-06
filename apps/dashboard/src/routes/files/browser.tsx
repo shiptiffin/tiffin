@@ -45,6 +45,8 @@ export const Browser = forwardRef<
     active?: string;
     onOpen: (e: Entry) => void;
     onUp?: () => void;
+    /** Escape with nothing selected (closes the open file). */
+    onEscape?: () => void;
     onDelete?: (ids: string[]) => void;
     onRename?: (e: Entry) => void;
     onLink: (e: Entry) => void;
@@ -65,6 +67,7 @@ export const Browser = forwardRef<
     active,
     onOpen,
     onUp,
+    onEscape,
     onDelete,
     onRename,
     onLink,
@@ -179,8 +182,9 @@ export const Browser = forwardRef<
         onSelect(new Set(entries.map((y) => y.id)));
         break;
       case "Escape":
-        if (selected.size === 0) return;
-        onSelect(new Set());
+        if (selected.size > 0) onSelect(new Set());
+        else if (onEscape) onEscape();
+        else return;
         break;
       case "Delete":
       case "Backspace":

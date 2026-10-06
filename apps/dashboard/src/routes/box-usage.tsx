@@ -1,7 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import { ChevronRight } from "lucide-react";
-import type { ReactNode } from "react";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { ArrowDown, ArrowUp } from "lucide-react";
+import { Fragment, useState, type ReactNode } from "react";
 import type { BoxResources } from "@/api/client";
 import { q } from "@/api/queries";
 import { BoxBar } from "@/components/box-bar";
@@ -12,7 +12,7 @@ import { SegMeter } from "@/components/seg-meter";
 import { cn } from "@/lib/cn";
 import { bytes, dec } from "@/lib/format";
 import { useMe } from "@/lib/me";
-import { cpuWords, fullWords, memWords, useBoxShares } from "@/lib/usage";
+import { cpuWords, fullWords, memWords, usageQuery, useBoxShares, type ProjectUsage } from "@/lib/usage";
 import { ShareLimit } from "./box-settings";
 
 const MB = 1048576;
@@ -29,7 +29,6 @@ export function BoxUsagePage() {
   const names = (projects.data ?? []).map((p) => p.name);
   const { admin } = useMe();
   const byProject = new Map((res?.projects ?? []).map((p) => [p.project, p]));
-  const sorted = [...names].sort((a, b) => (shares?.projects[b] ?? 0) - (shares?.projects[a] ?? 0));
   const disk = res?.disks.data;
   const guard = res?.guard;
   const held = new Set((guard?.readOnly ?? []).map((h) => h.project));
@@ -64,40 +63,7 @@ export function BoxUsagePage() {
           </div>
           {guard && (guard.level !== "ok" || held.size > 0) && <DiskNote guard={guard} />}
 
-          <section className="mt-10 max-w-[46rem]" aria-label="By project">
-            <h2 className="text-[0.9375rem] font-[550] text-ink">By project</h2>
-            <ul className="mt-3 divide-y divide-rule border-y border-rule">
-              {sorted.map((p) => {
-                const t = byProject.get(p);
-                const used = shares.projects[p] ?? 0;
-                const limit =
-                  !t || t.limitSource === "automatic"
-                    ? "No limit"
-                    : t.budget.maxSharePercent
-                      ? `Limited to ${t.budget.maxSharePercent}% of the box`
-                      : t.limitSource === "box default"
-                        ? `Up to ${memWords(t.limitBytes / MB)} (the box’s default)`
-                        : `Limited to ${memWords(t.limitBytes / MB)}`;
-                return (
-                  <li key={p} className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 py-3 hover:bg-paper-sunk sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_7rem_1rem] sm:px-2">
-                    <span className="flex min-w-0 items-center gap-2.5">
-                      <ProjectIcon project={p} size={18} />
-                      <Link to="/projects/$project/usage" params={{ project: p }} className="truncate text-[0.9375rem] font-[550] text-ink outline-none after:absolute after:inset-0">
-                        {p}
-                      </Link>
-                    </span>
-                    <span className="col-span-2 row-start-2 text-[0.8125rem] text-ink-3 sm:col-span-1 sm:row-start-auto">
-                      {limit}
-                      {t?.pressure === "oom" && <span className="text-danger"> · ran out of memory</span>}
-                      {held.has(p) && <span className="text-danger"> · read-only</span>}
-                    </span>
-                    <span className="text-right text-[0.8125rem] text-ink-2 tnum">{used > 0 ? memWords(used) : "nothing running"}</span>
-                    <ChevronRight className="size-4 text-ink-4 max-sm:hidden" aria-hidden />
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
+          <ByProject names={names} totals={byProject} held={held} />
 
           <div className="max-w-[46rem]">
             <ShareLimit admin={admin} Wrap={Plain} />
@@ -113,6 +79,123 @@ export function BoxUsagePage() {
         </>
       )}
     </Page>
+  );
+}
+
+/** Apps' memory and CPU: nothing running is a dash, like a part the project doesn't have. */
+const some = (n: number | undefined) => (n && n > 0 ? n : undefined);
+
+type Total = NonNullable<BoxResources["projects"]>[number];
+type Col = { key: string; label: string; of: (u: ProjectUsage | undefined, t: Total | undefined) => number | undefined; show: (n: number) => string };
+
+/** What each column reads: undefined when the project doesn't have that part (shown as a dash). */
+const cols: Col[] = [
+  { key: "db", label: "Database", of: (u) => (u?.database || u?.services.postgres ? u.disk.databaseBytes : undefined), show: (n) => bytes(n) },
+  { key: "kv", label: "KV", of: (u) => u?.cache?.usedBytes ?? u?.services.valkey?.memoryBytes, show: (n) => bytes(n) },
+  { key: "files", label: "Files", of: (u) => u?.services.storage?.bytes, show: (n) => bytes(n) },
+  { key: "folders", label: "Folders", of: (u) => (u?.disk.folders?.length ? u.disk.folders.reduce((t, f) => t + f.usedBytes, 0) : undefined), show: (n) => bytes(n) },
+  { key: "memory", label: "Memory", of: (u, t) => some(u ? u.memory.usedBytes - u.memory.cacheBytes : t ? t.memoryBytes - t.cacheBytes : undefined), show: (n) => bytes(n) },
+  { key: "cpu", label: "CPU", of: (u, t) => some(u ? u.cpu.percent : t?.cpuPercent), show: (n) => `${dec(n / 100, n < 100 ? 2 : 1)} CPU` },
+];
+
+/**
+ * Every project's sizes in one table: its database, KV, files, its apps'
+ * folders, and its apps' memory and CPU, sortable by any of them. Each row
+ * opens the project's own Usage page. Read-only: limits live there.
+ */
+function ByProject({ names, totals, held }: { names: string[]; totals: Map<string, Total>; held: Set<string> }) {
+  const [sort, setSort] = useState<{ key: string; desc: boolean }>({ key: "memory", desc: true });
+  const navigate = useNavigate();
+  const usage = useQueries({ queries: names.map((n) => ({ ...usageQuery(n), refetchInterval: 15_000 })) });
+  const rows = names.map((n, i) => {
+    const u = usage[i]?.data;
+    const t = totals.get(n);
+    return { name: n, t, v: Object.fromEntries(cols.map((c) => [c.key, c.of(u, t)])) as Record<string, number | undefined> };
+  });
+  const sorted = [...rows].sort((a, b) => {
+    if (sort.key === "name") return sort.desc ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name);
+    const x = a.v[sort.key] ?? -1;
+    const y = b.v[sort.key] ?? -1;
+    return (sort.desc ? y - x : x - y) || a.name.localeCompare(b.name);
+  });
+  const head = (key: string, label: string, right = true) => {
+    const on = sort.key === key;
+    // The arrow sits on the side away from the numbers, so labels line up with their column.
+    const arrow = on ? sort.desc ? <ArrowDown className="size-3" aria-hidden /> : <ArrowUp className="size-3" aria-hidden /> : <span className="size-3" aria-hidden />;
+    return (
+      <th scope="col" aria-sort={on ? (sort.desc ? "descending" : "ascending") : undefined} className={cn("border-b border-rule-2 py-2 font-[450] whitespace-nowrap", right ? "px-3 text-right" : "sticky left-0 z-[1] bg-paper pr-3 text-left")}>
+        <button
+          type="button"
+          onClick={() => setSort({ key, desc: on ? !sort.desc : key !== "name" })}
+          className={cn("inline-flex items-center gap-1 rounded-[5px] text-[0.8125rem] transition-colors hover:text-ink", on ? "text-ink" : "text-ink-3")}
+        >
+          {right && arrow}
+          {label}
+          {!right && arrow}
+        </button>
+      </th>
+    );
+  };
+  return (
+    <section className="mt-10" aria-labelledby="by-project">
+      <h2 id="by-project" className="text-[0.9375rem] font-[550] text-ink">
+        By project
+      </h2>
+      <p className="mt-0.5 text-[0.8125rem] text-ink-3">What each one holds and uses. Open a project for its limits and details.</p>
+      <div className="mt-3 overflow-x-auto [scrollbar-width:thin]" role="region" aria-label="Every project’s usage" tabIndex={0}>
+        <table className="w-full min-w-[46rem] border-separate border-spacing-0 text-[0.875rem]">
+          <thead>
+            <tr>
+              {head("name", "Project", false)}
+              {cols.map((c) => (
+                <Fragment key={c.key}>{head(c.key, c.label)}</Fragment>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((r) => {
+              const t = r.t;
+              const limit =
+                !t || t.limitSource === "automatic"
+                  ? "No limit"
+                  : t.budget.maxSharePercent
+                    ? `Limited to ${t.budget.maxSharePercent}% of the box`
+                    : t.limitSource === "box default"
+                      ? `Up to ${memWords(t.limitBytes / MB)} (the box’s default)`
+                      : `Limited to ${memWords(t.limitBytes / MB)}`;
+              return (
+                // The whole row opens the project (the name is the link for keyboards and screen readers).
+                <tr key={r.name} className="group cursor-pointer" onClick={() => void navigate({ to: "/projects/$project/usage", params: { project: r.name } })}>
+                  <td className="sticky left-0 z-[1] border-b border-rule bg-paper py-2.5 pr-3 group-hover:bg-paper-sunk">
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <ProjectIcon project={r.name} size={18} />
+                      <span className="min-w-0">
+                        <Link to="/projects/$project/usage" params={{ project: r.name }} className="block truncate font-[550] text-ink outline-none focus-visible:underline">
+                          {r.name}
+                        </Link>
+                        <span className="block truncate text-xs text-ink-3">
+                          {limit}
+                          {t?.pressure === "oom" && <span className="text-danger"> · ran out of memory</span>}
+                          {held.has(r.name) && <span className="text-danger"> · read-only</span>}
+                        </span>
+                      </span>
+                    </span>
+                  </td>
+                  {cols.map((c) => {
+                    const v = r.v[c.key];
+                    return (
+                      <td key={c.key} className="border-b border-rule px-3 py-2.5 text-right whitespace-nowrap text-ink-2 tnum group-hover:bg-paper-sunk">
+                        {v === undefined ? <span className="text-ink-4">–</span> : c.show(v)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

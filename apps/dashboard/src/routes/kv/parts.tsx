@@ -35,9 +35,3 @@ export function Segmented<T extends string>({
     </RadioGroup>
   );
 }
-
-/** Typing in a field shouldn't trigger page shortcuts. */
-export function typing(e: KeyboardEvent): boolean {
-  const t = e.target;
-  return e.metaKey || e.ctrlKey || e.altKey || (t instanceof Element && !!t.closest("input, textarea, select, [contenteditable], [role=dialog]"));
-}

@@ -5,7 +5,8 @@
 // state database (plus the box key that decrypts its secrets) and any files
 // other modules register with Include. Sets are taken on a schedule (daily
 // full, hourly incremental by default) and on demand, and restored with a
-// confirm step. Off-box copies are not supported yet.
+// confirm step. With a destination set, each set is also copied off the box
+// to an S3-compatible bucket, encrypted (offsite.go).
 package backup
 
 import (
@@ -177,6 +178,8 @@ type Backup struct {
 	Valkey   BackupPart            `json:"valkey"`
 	Platform BackupPart            `json:"platform"`
 	Files    map[string]BackupPart `json:"files,omitempty" doc:"Paths registered by other modules"`
+	// Offsite is its copy off the box (null when none was made).
+	Offsite *BackupOffsiteCopy `json:"offsite,omitempty" doc:"Its copy off the box, when one was made"`
 }
 
 func (b *Backup) dir() string { return filepath.Join(SetsPath, b.ID) }
@@ -223,7 +226,7 @@ func get(ctx context.Context, p *platform.Platform, id string) (*Backup, error) 
 }
 
 // ErrBusy is returned when another backup or restore is running.
-var ErrBusy = errors.New("another backup, restore or restore drill is running; try again when it finishes")
+var ErrBusy = errors.New("another backup, restore, restore drill or off-box copy is running; try again when it finishes")
 
 // Exclusive holds the lock backups and restores take, so none runs until
 // release is called (box exports and imports use it). It returns ErrBusy
@@ -263,6 +266,7 @@ func take(ctx context.Context, p *platform.Platform, kind, trigger string) (*Bac
 	}
 	if err == nil {
 		prune(context.WithoutCancel(ctx), p)
+		pokeOffsite()
 	}
 	return b, err
 }
@@ -410,7 +414,9 @@ func valkeySnapshot(ctx context.Context, dst string) (int64, error) {
 	return fi.Size(), nil
 }
 
-// pgbackrest runs pgBackRest as the postgres user.
+// pgbackrest runs pgBackRest as the postgres user, on the local repository
+// (pgbackrest.conf; the off-box one has a config file of its own,
+// pgbackrestOff).
 func pgbackrest(ctx context.Context, args ...string) (string, error) {
 	args = append([]string{"--stanza=" + Stanza}, args...)
 	return asUser(ctx, "postgres", "pgbackrest", args...)
@@ -465,27 +471,15 @@ type repoBackup struct {
 		Start int64 `json:"start"`
 		Stop  int64 `json:"stop"`
 	} `json:"timestamp"`
+	// Archive is the WAL the backup needs to be consistent.
+	Archive struct {
+		Start string `json:"start"`
+		Stop  string `json:"stop"`
+	} `json:"archive"`
 }
 
-func repoInfo(ctx context.Context) ([]repoBackup, error) {
-	out, err := pgbackrest(ctx, "--output=json", "info")
-	if err != nil {
-		return nil, err
-	}
-	var stanzas []struct {
-		Name   string       `json:"name"`
-		Backup []repoBackup `json:"backup"`
-	}
-	if err := json.Unmarshal([]byte(out), &stanzas); err != nil {
-		return nil, fmt.Errorf("parse pgbackrest info: %w", err)
-	}
-	for _, s := range stanzas {
-		if s.Name == Stanza {
-			return s.Backup, nil
-		}
-	}
-	return nil, nil
-}
+// repoInfo lists the backups in the local repository.
+func repoInfo(ctx context.Context) ([]repoBackup, error) { return repoInfoOf(ctx, 1) }
 
 // prune drops sets whose pgBackRest backup has expired, and failed sets
 // older than a week.
@@ -559,6 +553,7 @@ func (*Module) Start(ctx context.Context, p *platform.Platform) error {
 	drillState.mu.Unlock()
 	cleanupScratch(ctx, p)
 	finishFilesRestore(p)
+	startOffsite(ctx, p)
 	go func() {
 		var lastFail time.Time
 		timer := time.NewTimer(20 * time.Second)
@@ -590,14 +585,11 @@ func (*Module) Start(ctx context.Context, p *platform.Platform) error {
 	return nil
 }
 
-// scheduledDrill starts a drill of the newest good backup when one is due.
-// A drill the box refuses (a full disk) is recorded as failed, so the
-// restore-drill check says why.
+// scheduledDrill starts a drill of the newest good backup when one is due:
+// of its local copy and of the newest off-box copy in turn (a failed drill
+// is retried from the same copy). A drill the box refuses (a full disk) is
+// recorded as failed, so the restore-drill check says why.
 func scheduledDrill(ctx context.Context, p *platform.Platform, sched BackupSchedule, list []Backup) {
-	b := lastOK(list, "")
-	if b == nil {
-		return
-	}
 	drills, err := ListDrills(ctx, p)
 	if err != nil {
 		return
@@ -609,11 +601,21 @@ func scheduledDrill(ctx context.Context, p *platform.Platform, sched BackupSched
 	if !drillDue(sched, last, since(ctx, p), time.Now()) {
 		return
 	}
-	_, _, err = StartDrill(ctx, p, b, "schedule")
+	c, _ := current()
+	copied := lastCopied(list)
+	source := nextDrillSource(last, c != nil && c.State == OffsiteActive && copied != nil)
+	b := lastOK(list, "")
+	if source == SourceOffsite {
+		b = copied
+	}
+	if b == nil {
+		return
+	}
+	_, _, err = StartDrillFrom(ctx, p, b, "schedule", source)
 	var de *DiskError
 	if errors.As(err, &de) {
 		now := time.Now().UTC()
-		d := &BackupDrill{ID: ids.New("dr"), Backup: b.ID, BackupLabel: b.Postgres.Label, BackupTakenAt: b.StartedAt,
+		d := &BackupDrill{ID: ids.New("dr"), Backup: b.ID, Source: source, BackupLabel: drillLabel(b, source), BackupTakenAt: b.StartedAt,
 			BackupAgeSeconds: int64(now.Sub(b.StartedAt).Seconds()), Trigger: "schedule", Status: DrillFailed, StartedAt: now, FinishedAt: now,
 			BackupBytes: b.Postgres.SizeBytes, Databases: []BackupDrillDatabase{}, Message: "not started: " + err.Error(),
 			Hint: "free space on the data disk (`tiffin box` shows what uses it), then run `tiffin backups drill`"}
@@ -621,10 +623,24 @@ func scheduledDrill(ctx context.Context, p *platform.Platform, sched BackupSched
 	}
 }
 
+// nextDrillSource picks the copy a scheduled drill restores: local and
+// off-box in turn, the same one again after a failure.
+func nextDrillSource(last *BackupDrill, offsite bool) string {
+	switch {
+	case !offsite || last == nil:
+		return SourceLocal
+	case last.Status == DrillFailed:
+		return orLocal(last.Source)
+	case last.Source == SourceOffsite:
+		return SourceLocal
+	}
+	return SourceOffsite
+}
+
 // Checks reports the age of the newest good backup and how the last
 // restore drill went.
 func (*Module) Checks(ctx context.Context, p *platform.Platform) []platform.Check {
-	out := backupChecks(ctx, p)
+	out := append(backupChecks(ctx, p), offsiteCheck(ctx, p, time.Now()))
 	drills, err := ListDrills(ctx, p)
 	if err != nil {
 		return append(out, platform.Check{Name: "restore-drill", OK: false, Detail: err.Error()})
@@ -649,7 +665,11 @@ func backupChecks(ctx context.Context, p *platform.Platform) []platform.Check {
 		return []platform.Check{{Name: "backups", OK: false, Detail: "no successful backup yet; run `tiffin backup` and check `tiffin backups list` for errors"}}
 	}
 	age := time.Since(last.StartedAt)
-	detail := fmt.Sprintf("last backup %s ago (%s, %s); local repository only (off-box copies come later)", age.Round(time.Minute), last.Kind, last.ID)
+	where := "on this server only (no off-box copies)"
+	if c, _ := current(); c != nil {
+		where = "on this server and copied off the box"
+	}
+	detail := fmt.Sprintf("last backup %s ago (%s, %s); %s", age.Round(time.Minute), last.Kind, last.ID, where)
 	if age > MaxAge {
 		return []platform.Check{{Name: "backups", OK: false, Detail: detail + "; older than 26h: run `tiffin backup` and check `tiffin backups list` for errors"}}
 	}

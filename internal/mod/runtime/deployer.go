@@ -570,7 +570,6 @@ func (r *rt) removeInstancesGrace(ctx context.Context, ins []Instance, grace tim
 				r.p.Log.Error("remove container", "name", in.Name, "err", err)
 			}
 			r.freePort(in.Port)
-			r.st.cache.forget([]Instance{in})
 		}()
 	}
 	wg.Wait()

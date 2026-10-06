@@ -178,7 +178,7 @@ const platformRows: Array<{ key: string; name: string; sub: string; units: strin
     to: "/backups",
     say: (s) => checkWords(detail(s, "postgres").replace(/^Postgres [\d.]+(?: \([^)]*\))? up, /, "")),
   },
-  { key: "valkey", name: "Cache", sub: "Valkey, Redis-compatible", units: ["valkey"], check: ["valkey"], say: (s) => checkWords(detail(s, "valkey").replace(/^Valkey [\d.]+ up, /, "").replace(/\.0 MB/g, " MB")) },
+  { key: "valkey", name: "KV", sub: "Valkey, Redis-compatible", units: ["valkey"], check: ["valkey"], say: (s) => checkWords(detail(s, "valkey").replace(/^Valkey [\d.]+ up, /, "").replace(/\.0 MB/g, " MB")) },
   { key: "auth", name: "Auth", sub: "Users, passkeys, sign-in", units: ["auth"], check: ["auth"] },
   { key: "storage", name: "Files", sub: "S3-compatible", units: ["storage"], check: ["storage"], say: (s) => checkWords(detail(s, "storage").replace(/^versitygw v[\d.]+ on [\d.:]+,\s*/i, "")) },
   { key: "observe", name: "Health", sub: "Metrics, logs, errors", units: ["victoria-metrics", "victoria-logs"], check: ["observe.metrics"], to: "/metrics", say: () => "Every app’s metrics and logs, stored here. Nothing leaves the box." },

@@ -127,10 +127,14 @@ func TestSQLiteFilesBackupAndRestore(t *testing.T) {
 	restoreStage, restoreAside = filepath.Join(root, "staged"), filepath.Join(root, "aside")
 	b := &Backup{ID: "bk_test", Files: map[string]BackupPart{"observe": {Detail: obsPath}, "analytics": {Detail: anaDir}}}
 	dataRoot := filepath.Join(root, "data")
-	if err := stageFiles(ctx, dataRoot, set, b); err != nil {
+	plan := platform.PendingImport{Import: "backup " + b.ID, Aside: restoreAside}
+	if err := stageFiles(ctx, set, b, &plan); err != nil {
 		t.Fatal(err)
 	}
-	if err := stageFiles(ctx, dataRoot, set, b); err == nil {
+	if err := writePlan(dataRoot, plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePlan(dataRoot, plan); err == nil {
 		t.Fatal("a second plan must not replace a waiting one")
 	}
 	if got := marks(t, obsPath); len(got) != 2 {

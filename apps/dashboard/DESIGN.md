@@ -13,7 +13,10 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
 | Fonts (self-hosted) | `src/styles/fonts.css` |
 | Drawings that aren't layout (toggle, spinner, pilot light, diff, the carrier on Settings › Machine) | `src/styles/fusion.css` |
 | Tailwind theme + type roles (`sentence`, `title`, `label`, `ident`, …) | `src/styles.css` |
-| What the parts are called (Database, Cache, Files, Email, Auth, Jobs, Analytics, Health, Shield) | `src/lib/names.ts` |
+| What the parts are called (Database, KV, Files, Email, Auth, Jobs, Analytics, Health, Shield) | `src/lib/names.ts` |
+| Which parts a project has, its standalone part, where switching projects lands | `src/lib/sections.ts`, `src/lib/switch.ts` |
+| Keyboard shortcuts and ⌘K commands a page adds (`useShortcut`, `useCommand`) | `src/lib/shortcuts.ts` |
+| Connect (env, code, tunnel) for a part's page header | `src/components/connect.tsx` (`<ConnectButton part project>`) |
 | Numbers and units | `src/lib/format.ts`; shares of the box in words: `src/lib/usage.ts` (`fullWords`, `shareWords`, `memWords`, `cpuWords`) |
 | A project's status line and live address | `src/lib/pulse.ts` (`useProjectPulse`) |
 | A project's icon | `src/components/project-icon.tsx` (`<ProjectIcon project size>`) |
@@ -26,9 +29,11 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
   projects; search, five recent, All projects, New project; ⌘K and `g p` reach it). Outside a project:
   Projects, Usage (the box, divided by project, and its default limit), Activity (every project's changes),
   Health, Backups, API keys; Settings at the bottom (Your box, Machine, People, Shield). Inside a project:
-  "← All projects", then only that project's sections: Overview, the parts it has (App(s), Database, Cache,
+  "← All projects", then only that project's sections: Overview, the parts it has (App(s), Database, KV,
   Files, Email, Auth, Analytics, Jobs), then Usage, History, Settings; and a small "Your box" group at the
-  bottom (Usage, Activity, Health) so nothing is a dead end.
+  bottom (Usage, Activity, Health) so nothing is a dead end. A standalone project (just a database, KV,
+  files or schedules; no app) shows only that part and opens on it. Switching projects keeps your section
+  when the other project has it, else lands on its Overview, which says why.
 - **Account menu** (your name, bottom left): API keys, "Sign in with Touch ID / Face ID", sign out. The word
   "passkey" is never a heading; at most a subtitle. Login offers "Sign in with Touch ID" with "or use a
   sign-in link" as the fallback.

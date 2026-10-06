@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -32,6 +33,8 @@ const (
 	KindMemory       = "memory"        // memory used, percent
 	KindCertExpiry   = "cert_expiry"   // hours until an edge certificate expires
 	KindBackupAge    = "backup_age"    // hours since the newest file in /var/lib/tiffin/backups
+	KindOffsiteAge   = "offsite_age"   // hours since the newest copy of the backups off the box
+	KindDrillFailed  = "drill_failed"  // 1 when the last restore drill failed
 	KindErrorSpike   = "error_spike"   // error events (Sentry protocol) per project in the last 5 minutes
 	KindUnitRestarts = "unit_restarts" // restarts of a box service in the last 15 minutes
 	KindUnitDown     = "unit_down"     // a box service is not active
@@ -39,12 +42,12 @@ const (
 )
 
 // RuleKinds lists every rule kind.
-var RuleKinds = []string{KindDisk, KindMemory, KindCertExpiry, KindBackupAge, KindErrorSpike, KindUnitRestarts, KindUnitDown, KindPromQL}
+var RuleKinds = []string{KindDisk, KindMemory, KindCertExpiry, KindBackupAge, KindOffsiteAge, KindDrillFailed, KindErrorSpike, KindUnitRestarts, KindUnitDown, KindPromQL}
 
 // Rule is one alert rule.
 type Rule struct {
 	Name        string  `json:"name" doc:"Rule name (lowercase slug)"`
-	Kind        string  `json:"kind" enum:"disk,memory,cert_expiry,backup_age,error_spike,unit_restarts,unit_down,promql" doc:"What to watch. disk/memory: percent used. cert_expiry: hours left (short-lived internal certificates fire when past 80% of their lifetime). backup_age: hours since the newest backup file. error_spike: error events per project in 5 minutes. unit_restarts: restarts of a box service in 15 minutes. unit_down: a box service is not running. promql: any expression, fires per series above the threshold."`
+	Kind        string  `json:"kind" enum:"disk,memory,cert_expiry,backup_age,offsite_age,drill_failed,error_spike,unit_restarts,unit_down,promql" doc:"What to watch. disk/memory: percent used. cert_expiry: hours left (short-lived internal certificates fire when past 80% of their lifetime). backup_age: hours since the newest backup file. offsite_age: hours since the newest copy of the backups off the box (silent while copies are off). drill_failed: 1 when the last restore drill failed. error_spike: error events per project in 5 minutes. unit_restarts: restarts of a box service in 15 minutes. unit_down: a box service is not running. promql: any expression, fires per series above the threshold."`
 	Threshold   float64 `json:"threshold" doc:"Fires when the value is above this (below, for cert_expiry)"`
 	ForSeconds  int     `json:"forSeconds,omitempty" minimum:"0" maximum:"86400" doc:"The condition must hold this long before the alert fires. Default 0."`
 	Project     string  `json:"project,omitempty" doc:"error_spike only: watch one project (default every project)"`
@@ -59,6 +62,8 @@ var DefaultRules = []Rule{
 	{Name: "memory-high", Kind: KindMemory, Threshold: 90, ForSeconds: 300, Enabled: true, Description: "Memory has been more than 90% used for 5 minutes"},
 	{Name: "cert-expiring", Kind: KindCertExpiry, Threshold: 72, Enabled: true, Description: "An HTTPS certificate expires within 72 hours and has not renewed"},
 	{Name: "backup-stale", Kind: KindBackupAge, Threshold: 26, Enabled: true, Description: "The newest backup is more than 26 hours old (silent until the first backup exists)"},
+	{Name: "offsite-stale", Kind: KindOffsiteAge, Threshold: 26, Enabled: true, Description: "The newest copy of the backups off the box is more than 26 hours old (silent while copies are off)"},
+	{Name: "restore-drill-failed", Kind: KindDrillFailed, Threshold: 0, Enabled: true, Description: "The last restore drill, of the local or the off-box copy, failed"},
 	{Name: "error-spike", Kind: KindErrorSpike, Threshold: 20, Enabled: true, Description: "More than 20 errors reported by a project's apps in 5 minutes"},
 	{Name: "service-restarts", Kind: KindUnitRestarts, Threshold: 3, Enabled: true, Description: "A box service restarted more than 3 times in 15 minutes"},
 	{Name: "service-down", Kind: KindUnitDown, Threshold: 0, ForSeconds: 60, Enabled: true, Description: "A box service has not been running for a minute"},
@@ -136,15 +141,30 @@ func (s *Store) DeleteRule(ctx context.Context, name string) (bool, error) {
 	return n > 0, nil
 }
 
-// EnsureDefaultRules installs the default rules once.
+// laterRules are default rules added after boxes were first seeded: each is
+// installed once on those boxes too.
+var laterRules = []string{"offsite-stale", "restore-drill-failed"}
+
+// EnsureDefaultRules installs the default rules once (and each of
+// laterRules once on boxes seeded before it existed).
 func (s *Store) EnsureDefaultRules(ctx context.Context) error {
-	if s.Setting(ctx, "rules.seeded") != "" {
-		return nil
-	}
+	first := s.Setting(ctx, "rules.seeded") == ""
 	for _, r := range DefaultRules {
+		later := slices.Contains(laterRules, r.Name)
+		if !first && (!later || s.Setting(ctx, "rules.seeded."+r.Name) != "") {
+			continue
+		}
 		if err := s.PutRule(ctx, r); err != nil {
 			return err
 		}
+		if later {
+			if err := s.SetSetting(ctx, "rules.seeded."+r.Name, now()); err != nil {
+				return err
+			}
+		}
+	}
+	if !first {
+		return nil
 	}
 	return s.SetSetting(ctx, "rules.seeded", now())
 }
@@ -369,6 +389,23 @@ func (a *Alerter) eval(ctx context.Context, r Rule, snap *Snapshot) ([]finding, 
 		return a.certs(r)
 	case KindBackupAge:
 		return a.backups(ctx, r)
+	case KindOffsiteAge:
+		h, on, sum := backup.OffsiteAge(ctx, a.Platform)
+		if !on {
+			return nil, nil // copies off the box are off: the backups page says so
+		}
+		h = math.Round(h*10) / 10
+		return []finding{{Subject: "offsite", Value: h, Bad: h > r.Threshold, Summary: fmt.Sprintf("the newest off-box copy is %.1f hours old: %s", h, sum)}}, nil
+	case KindDrillFailed:
+		failed, any, sum := backup.LastDrillFailed(ctx, a.Platform)
+		if !any {
+			return nil, nil
+		}
+		v := 0.0
+		if failed {
+			v = 1
+		}
+		return []finding{{Subject: "restore-drill", Value: v, Bad: v > r.Threshold, Summary: sum}}, nil
 	case KindErrorSpike:
 		counts, err := a.Store.ErrorCount(ctx, 5*time.Minute)
 		if err != nil {

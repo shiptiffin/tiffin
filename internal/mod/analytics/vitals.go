@@ -257,6 +257,7 @@ type PageVitals struct {
 	Path    string             `json:"path" doc:"The page, as the page reported it (a route like /products/[id] with the SDK), with IDs folded into [id]"`
 	Samples int64              `json:"samples"`
 	P75     map[string]float64 `json:"p75"`
+	Ratings map[string]string  `json:"ratings" doc:"Google's rating of each p75: good, needs-improvement or poor"`
 }
 
 // DayVitals is the p75 of each metric for one day.
@@ -390,7 +391,11 @@ func (m *Module) VitalsFor(ctx context.Context, q Query, limit int) (*VitalsView
 	}
 	for path, hs := range pages {
 		p, n := p75s(hs)
-		v.Pages = append(v.Pages, PageVitals{Path: path, Samples: n, P75: p})
+		r := map[string]string{}
+		for name, x := range p {
+			r[name] = rating(name, x)
+		}
+		v.Pages = append(v.Pages, PageVitals{Path: path, Samples: n, P75: p, Ratings: r})
 	}
 	sort.Slice(v.Pages, func(i, j int) bool {
 		if v.Pages[i].Samples != v.Pages[j].Samples {

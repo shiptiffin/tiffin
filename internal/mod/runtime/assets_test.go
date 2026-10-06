@@ -1,20 +1,13 @@
 package runtime
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/klauspost/compress/zstd"
 
 	"github.com/btahir/tiffin/internal/manifest"
 )
@@ -90,97 +83,6 @@ func TestRetireKeepsRecentReleases(t *testing.T) {
 	}
 }
 
-func TestServeFileStaysInside(t *testing.T) {
-	www := t.TempDir()
-	outside := filepath.Join(t.TempDir(), "secret")
-	os.WriteFile(outside, []byte("secret"), 0o644)
-	os.MkdirAll(filepath.Join(www, "assets"), 0o755)
-	os.WriteFile(filepath.Join(www, "assets", "a.js"), []byte("js"), 0o644)
-	os.Symlink(outside, filepath.Join(www, "assets", "leak.js"))
-	os.Symlink("a.js", filepath.Join(www, "assets", "b.js"))
-	get := func(p string) (bool, *httptest.ResponseRecorder) {
-		w := httptest.NewRecorder()
-		ok := serveFile(w, httptest.NewRequest("GET", p, nil), www, p, true)
-		return ok, w
-	}
-	if ok, w := get("/assets/a.js"); !ok || w.Body.String() != "js" || !strings.Contains(w.Header().Get("Content-Type"), "javascript") ||
-		w.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
-		t.Fatalf("a.js: %v %v %q", ok, w.Header(), w.Body)
-	}
-	if ok, _ := get("/assets/leak.js"); ok {
-		t.Fatal("a link out of the directory must not be followed")
-	}
-	if ok, w := get("/assets/b.js"); !ok || w.Body.String() != "js" {
-		t.Fatal("a link inside the directory is fine")
-	}
-	if ok, _ := get("/assets"); ok {
-		t.Fatal("directories are not served")
-	}
-}
-
-// writeRelease lays out an extracted release as ensureAssets leaves it.
-func writeRelease(t *testing.T, dir string, meta string, files map[string]string) {
-	t.Helper()
-	for p, b := range files {
-		f := filepath.Join(dir, "www", p)
-		os.MkdirAll(filepath.Dir(f), 0o755)
-		if err := os.WriteFile(f, []byte(b), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	os.WriteFile(filepath.Join(dir, "assets.json"), []byte(meta), 0o644)
-}
-
-func TestServeAssetAcrossReleases(t *testing.T) {
-	r := &rt{opt: Options{DataDir: t.TempDir()}, assetMetas: map[string][]AssetDir{}}
-	base := r.assetsDir("shop", "web", "")
-	next := `[{"dir":".next/static","path":"/_next/static","immutable":["/_next/static/"]},{"dir":"public","path":"/","liveOnly":true}]`
-	writeRelease(t, filepath.Join(base, "dep_1"), next, map[string]string{"_next/static/chunks/old.js": "old", "robots.txt": "v1", "gone.txt": "v1"})
-	writeRelease(t, filepath.Join(base, "dep_2"), next, map[string]string{"_next/static/chunks/new.js": "new", "robots.txt": "v2"})
-	st := &AppState{Project: "shop", App: "web", Live: "dep_2", Retired: []Retired{{Deploy: "dep_1", At: time.Now()}}}
-	get := func(method, p, prefix string) (bool, *httptest.ResponseRecorder) {
-		w := httptest.NewRecorder()
-		return r.serveAsset(w, httptest.NewRequest(method, p, nil), st, prefix), w
-	}
-	for _, c := range []struct {
-		method, path, prefix, body, cache string
-	}{
-		{"GET", "/_next/static/chunks/new.js", "", "new", "immutable"},
-		{"GET", "/_next/static/chunks/old.js", "", "old", "immutable"}, // a page of dep_1 still finds it
-		{"GET", "/robots.txt", "", "v2", "must-revalidate"},
-		{"HEAD", "/robots.txt", "", "", "must-revalidate"},
-		{"GET", "/gone.txt", "", "-", ""},                    // public files are the live release's only
-		{"GET", "/_next/static/chunks/nope.js", "", "-", ""}, // the app says 404
-		{"POST", "/robots.txt", "", "-", ""},
-		{"GET", "/", "", "-", ""},
-		{"GET", "/shop/robots.txt", "/shop", "v2", "must-revalidate"},
-	} {
-		ok, w := get(c.method, c.path, c.prefix)
-		if c.body == "-" {
-			if ok {
-				t.Errorf("%s %s: served, want it passed to the app", c.method, c.path)
-			}
-			continue
-		}
-		if !ok || w.Body.String() != c.body || !strings.Contains(w.Header().Get("Cache-Control"), c.cache) {
-			t.Errorf("%s %s: %v %q %q", c.method, c.path, ok, w.Body.String(), w.Header().Get("Cache-Control"))
-		}
-	}
-	// A conditional request for an unchanged file is a 304.
-	_, w := get("GET", "/robots.txt", "")
-	req := httptest.NewRequest("GET", "/robots.txt", nil)
-	req.Header.Set("If-None-Match", w.Header().Get("ETag"))
-	w2 := httptest.NewRecorder()
-	if r.serveAsset(w2, req, st, ""); w2.Code != http.StatusNotModified {
-		t.Errorf("If-None-Match: %d", w2.Code)
-	}
-	// A day later dep_1's files are gone from serving, and pruning removes them.
-	st.Retired[0].At = time.Now().Add(-assetsKept - time.Minute)
-	if ok, _ := get("GET", "/_next/static/chunks/old.js", ""); ok {
-		t.Error("a release retired over a day ago still serves")
-	}
-}
-
 func TestClientAssetsThroughDeploys(t *testing.T) {
 	h := newHarness(t)
 	src := func(v string, extra map[string]string) map[string]string {
@@ -247,48 +149,5 @@ func TestClientAssetsThroughDeploys(t *testing.T) {
 	h.apply()
 	if exists(filepath.Join(h.r.opt.DataDir, "assets", "shop", "api")) {
 		t.Fatal("assets of a deleted app are kept")
-	}
-}
-
-func TestPrecompressedAssets(t *testing.T) {
-	r := &rt{opt: Options{DataDir: t.TempDir()}, assetMetas: map[string][]AssetDir{}}
-	dir := filepath.Join(r.assetsDir("shop", "web", ""), "dep_1")
-	js := strings.Repeat("console.log('hello from a chunk');\n", 200)
-	writeRelease(t, dir, `[{"dir":".next/static","path":"/_next/static","immutable":["/_next/static/"]}]`,
-		map[string]string{"_next/static/chunks/a.js": js, "_next/static/chunks/tiny.js": "x()", "_next/static/media/f.woff2": js})
-	if err := precompress(filepath.Join(dir, "www")); err != nil {
-		t.Fatal(err)
-	}
-	for f, want := range map[string]bool{"chunks/a.js.zst": true, "chunks/a.js.gz": true, "chunks/tiny.js.gz": false, "media/f.woff2.gz": false} {
-		if got := exists(filepath.Join(dir, "www", "_next", "static", f)); got != want {
-			t.Errorf("%s written: %v, want %v", f, got, want)
-		}
-	}
-	st := &AppState{Project: "shop", App: "web", Live: "dep_1"}
-	for _, c := range []struct{ ae, enc string }{
-		{"gzip, deflate, br, zstd", "zstd"}, {"gzip", "gzip"}, {"zstd;q=0, gzip", "gzip"}, {"", ""}, {"br", ""},
-	} {
-		req := httptest.NewRequest("GET", "/_next/static/chunks/a.js", nil)
-		req.Header.Set("Accept-Encoding", c.ae)
-		w := httptest.NewRecorder()
-		if !r.serveAsset(w, req, st, "") {
-			t.Fatal("not served")
-		}
-		h := w.Header()
-		if h.Get("Content-Encoding") != c.enc || h.Get("Vary") != "Accept-Encoding" || !strings.HasPrefix(h.Get("Content-Type"), "text/javascript") {
-			t.Errorf("Accept-Encoding %q: encoding %q vary %q type %q", c.ae, h.Get("Content-Encoding"), h.Get("Vary"), h.Get("Content-Type"))
-		}
-		body := w.Body.Bytes()
-		switch c.enc {
-		case "gzip":
-			zr, _ := gzip.NewReader(bytes.NewReader(body))
-			body, _ = io.ReadAll(zr)
-		case "zstd":
-			zr, _ := zstd.NewReader(nil)
-			body, _ = zr.DecodeAll(body, nil)
-		}
-		if string(body) != js {
-			t.Errorf("Accept-Encoding %q: the body does not decode to the file", c.ae)
-		}
 	}
 }

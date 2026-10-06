@@ -207,7 +207,8 @@ test("browse: folders, search by name, sort, grid with thumbnails, keyboard", as
   await axe(page, "grid view");
   await page.getByRole("radio", { name: "List" }).click();
   await page.keyboard.press("?");
-  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toContainText("Up a folder");
+  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toContainText("Upload files");
   await axe(page, "shortcuts");
   await page.keyboard.press("Escape");
 });
@@ -322,17 +323,16 @@ test("10,000 files scroll smoothly", async ({ page, request, baseURL }) => {
   await expect(toast(page, /Deleted the many folder: 10,000 files/)).toBeVisible({ timeout: 60_000 });
 });
 
-test("connect: names for everyone, the key only on request", async ({ page }) => {
+test("connect: the env apps get, values only on request", async ({ page }) => {
   await page.goto(filesUrl());
   await page.getByRole("button", { name: "Connect" }).click();
-  const d = page.getByRole("dialog", { name: "Connect to the files" });
-  await expect(d.getByText("S3_ENDPOINT")).toBeVisible();
-  await expect(d.getByText("S3_SECRET_ACCESS_KEY")).toBeVisible();
-  await expect(d.getByText("hidden").first()).toBeVisible();
+  const d = page.getByRole("dialog", { name: "Connect to files" });
+  await expect(d.getByText("S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY")).toBeVisible();
+  await expect(d.getByLabel(/S3_SECRET_ACCESS_KEY, hidden/)).toBeVisible();
   await axe(page, "connect");
-  await d.getByRole("button", { name: "Show the key" }).click();
-  await expect(d.getByText("hidden")).toHaveCount(0);
-  await d.getByRole("radio", { name: "tiffin-sdk" }).click();
+  await d.getByRole("button", { name: "Show values" }).click();
+  await expect(d.getByLabel(/hidden/)).toHaveCount(0);
+  await d.getByRole("tab", { name: "tiffin-sdk" }).click();
   await expect(d.getByText('from "tiffin-sdk/storage"')).toBeVisible();
 });
 

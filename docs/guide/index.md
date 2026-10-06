@@ -9,7 +9,7 @@ online this weekend without stitching six services together.
 
 ## What you get
 
-- **One box, everything in it.** No accounts to create for the database, the cache,
+- **One box, everything in it.** No accounts to create for the database, the KV store,
   storage, email or analytics. They are all on the box, set up for you.
 - **Safe for agents by design.** Every change is planned first, shows how risky each
   step is, and is applied only with that plan's hash. Your agent's client asks you
@@ -20,8 +20,8 @@ online this weekend without stitching six services together.
 
 Honesty matters more than a big claim:
 
-- **One machine.** If the box is down, your app is down. Backups stay on the box;
-  off-site storage is not supported yet. That is fine for side projects; it is not a bank.
+- **One machine.** If the box is down, your app is down. Backups stay on the box unless
+  you [copy them off it](data.md#copies-off-the-box) to a bucket. That is fine for side projects; it is not a bank.
 - **Pre-1.0.** Interfaces may still change between versions.
 - **Local first.** A box runs as a VM on your Mac, or on a Hetzner or any Ubuntu server
   (see the [quickstart](quickstart.md#run-it-on-a-server)).

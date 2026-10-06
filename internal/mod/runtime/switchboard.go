@@ -2,60 +2,45 @@ package runtime
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/btahir/tiffin/internal/edge"
+	"github.com/btahir/tiffin/internal/edge/switchboard"
 	"github.com/btahir/tiffin/internal/manifest"
 )
 
-// The switchboard is the runtime's own reverse proxy between the edge and
-// app instances. The edge routes every container app's hosts to it, once;
-// deploys, rollbacks and restarts then switch instances here, in memory,
-// without reloading the edge. That makes the switch atomic (each request is
-// counted in on exactly one instance), lets old instances drain precisely
-// (they stop once their in-flight requests finish), and avoids edge reloads,
-// which can reset connections that arrive mid-reload.
+// The switchboard (internal/edge/switchboard) runs in the edge process,
+// between Caddy and app instances. The runtime is its control plane: it
+// sends the switchboard a new table (routes to environments, each
+// environment's instances) on every change and waits for the edge to serve
+// it, so deploys, rollbacks and restarts switch instances without reloading
+// Caddy. The switchboard calls back for what needs the runtime: waking a
+// sleeping app, live progress and bucket images (Module.Wake, Forward).
 
-// stateCache mirrors app states for the request path (the database stays
-// the source of truth) and counts in-flight requests per instance.
+// stateCache mirrors app states for the switchboard table (the database
+// stays the source of truth).
 type stateCache struct {
-	mu       sync.RWMutex
-	m        map[string]*AppState
-	inflight map[string]*atomic.Int64 // container name → requests in flight
+	mu sync.RWMutex
+	m  map[string]*AppState
 }
 
-func newStateCache() *stateCache {
-	return &stateCache{m: map[string]*AppState{}, inflight: map[string]*atomic.Int64{}}
-}
+func newStateCache() *stateCache { return &stateCache{m: map[string]*AppState{}} }
 
 func (c *stateCache) put(st *AppState) {
 	cp := *st
 	cp.Instances = append([]Instance(nil), st.Instances...)
 	cp.Retired = append([]Retired(nil), st.Retired...)
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.m[envKey(st.Project, st.App, st.Preview)] = &cp
-	for _, in := range cp.Instances {
-		if c.inflight[in.Name] == nil {
-			c.inflight[in.Name] = &atomic.Int64{}
-		}
-	}
+	c.mu.Unlock()
 }
 
 func (c *stateCache) del(key string) {
@@ -70,90 +55,104 @@ func (c *stateCache) get(key string) *AppState {
 	return c.m[key]
 }
 
-// acquire counts a request in on the least busy instance of an environment.
-// Selection and counting happen under the same lock a switch takes, so after
-// a switch no new request can land on an old instance.
-func (c *stateCache) acquire(key string) (Instance, func(), bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	st := c.m[key]
-	if st == nil || st.Stopped || st.Sleeping || len(st.Instances) == 0 {
-		return Instance{}, nil, false
+// table is the switchboard's table as the runtime sees it now.
+func (r *rt) table() switchboard.Table {
+	r.mu.Lock()
+	hosts := make(map[string][]switchboard.Route, len(r.dispatch))
+	for h, rs := range r.dispatch {
+		hosts[h] = append([]switchboard.Route(nil), rs...)
 	}
-	best, bestN := -1, int64(0)
-	start := int(rrCounter.Add(1)) // rotate ties
-	for i := range st.Instances {
-		j := (start + i) % len(st.Instances)
-		n := c.inflight[st.Instances[j].Name].Load()
-		if best < 0 || n < bestN {
-			best, bestN = j, n
+	r.mu.Unlock()
+	r.st.cache.mu.RLock()
+	states := make([]*AppState, 0, len(r.st.cache.m))
+	for _, st := range r.st.cache.m {
+		states = append(states, st)
+	}
+	r.st.cache.mu.RUnlock()
+	t := switchboard.Table{Hosts: hosts, Envs: make(map[string]*switchboard.Env, len(states)), Files: r.p.URL(r.p.Host("files"))}
+	for _, st := range states {
+		e := &switchboard.Env{Project: st.Project, App: st.App, Preview: st.Preview, Live: st.Live, Stopped: st.Stopped, Sleeping: st.Sleeping,
+			Assets: r.assetsDir(st.Project, st.App, st.Preview), Timeout: r.requestTimeout(r.ctx, st.Project, st.App)}
+		for _, in := range st.Instances {
+			e.Instances = append(e.Instances, switchboard.Instance{Name: in.Name, Port: in.Port})
 		}
+		for _, rt := range st.Retired {
+			e.Retired = append(e.Retired, switchboard.Retired{Deploy: rt.Deploy, At: rt.At})
+		}
+		t.Envs[envKey(st.Project, st.App, st.Preview)] = e
 	}
-	in := st.Instances[best]
-	cnt := c.inflight[in.Name]
-	cnt.Add(1)
-	return in, func() { cnt.Add(-1) }, true
+	return t
 }
 
-func (c *stateCache) busy(ins []Instance) int64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	var n int64
-	for _, in := range ins {
-		if cnt := c.inflight[in.Name]; cnt != nil {
-			n += cnt.Load()
-		}
+// syncEdge sends the switchboard table to the edge and returns once the
+// edge serves it. Without an edge (off-box) there is nothing to do.
+func (r *rt) syncEdge() error {
+	if r.p.Edge == nil {
+		return nil
+	}
+	return r.p.Edge.SyncTable()
+}
+
+// switchboardAddr is where routes to app instances point.
+func (r *rt) switchboardAddr() string {
+	if r.p.Edge != nil {
+		return r.p.Edge.Switchboard()
+	}
+	return r.actAddr // off-box nothing routes to it
+}
+
+// busy counts the requests in flight on instances. When the edge cannot
+// say, they count as busy.
+func (r *rt) busy(ins []Instance) int64 {
+	if r.p.Edge == nil || len(ins) == 0 {
+		return 0
+	}
+	names := make([]string, len(ins))
+	for i, in := range ins {
+		names[i] = in.Name
+	}
+	n, err := r.p.Edge.Busy(names)
+	if err != nil {
+		return 1
 	}
 	return n
 }
 
-func (c *stateCache) forget(ins []Instance) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for _, in := range ins {
-		delete(c.inflight, in.Name)
+// pullActivity merges in the requests the switchboard saw. The edge keeps
+// them while the control plane is down, so a restart loses none.
+func (r *rt) pullActivity() {
+	if r.p.Edge == nil {
+		return
+	}
+	seen, err := r.p.Edge.Activity()
+	if err != nil {
+		return
+	}
+	for k, t := range seen {
+		r.touchAt(k, t)
 	}
 }
 
-// drainThenRemove stops old instances once they have no requests in flight
-// (at most Drain later), giving them RetireGrace to finish work they do
-// after responding.
+// drainThenRemove stops old instances once the edge has switched away from
+// them and they have no requests in flight (at most Drain later), giving
+// them RetireGrace to finish work they do after responding. While the edge
+// is out of reach they keep running: it may still send them requests.
 func (r *rt) drainThenRemove(old []Instance) {
 	deadline := time.Now().Add(r.opt.Drain)
+	for r.syncEdge() != nil && time.Now().Before(deadline) {
+		time.Sleep(time.Second)
+	}
 	time.Sleep(50 * time.Millisecond) // let responses being written finish flushing
-	for r.st.cache.busy(old) > 0 && time.Now().Before(deadline) {
+	for r.busy(old) > 0 && time.Now().Before(deadline) {
 		time.Sleep(25 * time.Millisecond)
 	}
 	r.removeInstancesGrace(r.ctx, old, max(r.opt.RetireGrace, r.opt.StopGrace))
 }
 
-// dispatch maps edge routes to app environments.
-type dispatchEntry struct {
-	prefix string
-	env    string
-}
-
-func (r *rt) setDispatch(t map[string][]dispatchEntry) {
-	for _, es := range t {
-		sort.Slice(es, func(i, j int) bool { return len(es[i].prefix) > len(es[j].prefix) })
-	}
+func (r *rt) setDispatch(t map[string][]switchboard.Route) {
 	r.mu.Lock()
 	r.dispatch = t
 	r.mu.Unlock()
-}
-
-// lookup finds the app environment serving host and path, and the route's
-// path prefix.
-func (r *rt) lookup(host, path string) (env, prefix string, ok bool) {
-	r.mu.Lock()
-	es := r.dispatch[host]
-	r.mu.Unlock()
-	for _, e := range es {
-		if e.prefix == "" || path == e.prefix || strings.HasPrefix(path, e.prefix+"/") {
-			return e.env, e.prefix, true
-		}
-	}
-	return "", "", false
 }
 
 // routesChanged reports whether the edge needs new routes (hosts, paths,
@@ -172,30 +171,23 @@ func routesHash(rs []edge.Route) string {
 	return hex.EncodeToString(s[:])
 }
 
-// refreshIfNeeded reloads the edge only when the runtime's routes changed.
+// refreshIfNeeded reloads the edge's routes only when the runtime's routes
+// changed; otherwise it sends the switchboard table alone.
 func (r *rt) refreshIfNeeded(ctx context.Context) error {
 	if !r.routesChanged(ctx) {
-		return nil
+		return r.syncEdge()
 	}
 	return r.p.RefreshRoutes(ctx)
 }
 
-var proxyTransport = &http.Transport{
-	DialContext:           (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-	MaxIdleConns:          1024,
-	MaxIdleConnsPerHost:   128,
-	IdleConnTimeout:       60 * time.Second,
-	ResponseHeaderTimeout: 0, // apps may stream
-	ForceAttemptHTTP2:     false,
-}
-
-// errTooLong ends a request that reached its app's time limit.
-var errTooLong = errors.New("the request reached its time limit")
-
 func (r *rt) setTimeout(project, app string, d time.Duration) {
 	r.mu.Lock()
+	old, had := r.timeouts[project+"/"+app]
 	r.timeouts[project+"/"+app] = d
 	r.mu.Unlock()
+	if had && old != d {
+		_ = r.syncEdge() // the next request gets the new limit
+	}
 }
 
 // requestTimeout is how long one request to the app may take: its
@@ -211,80 +203,53 @@ func (r *rt) requestTimeout(ctx context.Context, project, app string) time.Durat
 	if err != nil {
 		return manifest.DefaultTimeout
 	}
-	r.setTimeout(project, app, spec.Timeout())
+	r.mu.Lock()
+	r.timeouts[project+"/"+app] = spec.Timeout()
+	r.mu.Unlock()
 	return spec.Timeout()
 }
 
-// serveApp proxies one request to an instance of the app environment. A
-// request that reaches the app's time limit is answered 504, or cut if the
-// response has begun (the client sees the stream end early).
-func (r *rt) serveApp(w http.ResponseWriter, req *http.Request, key string) {
-	in, done, ok := r.st.cache.acquire(key)
-	if !ok {
-		http.Error(w, "this app has no running instances right now", http.StatusServiceUnavailable)
+// Wake starts a sleeping app environment for the switchboard ("project/app"
+// or "project/app@preview"). It returns once the edge has its instances.
+func (m *Module) Wake(ctx context.Context, env string) (bool, error) {
+	r, err := m.rt()
+	if err != nil {
+		return false, err
+	}
+	project, app, preview := splitEnvKey(env)
+	_, woke, err := r.wake(ctx, project, app, preview, wakeRequest)
+	return woke, err
+}
+
+// WokeFirstByte records how long a request that woke its app waited for
+// its first byte.
+func (m *Module) WokeFirstByte(env string, secs float64) {
+	if r, err := m.rt(); err == nil {
+		project, app, preview := splitEnvKey(env)
+		r.wokeFirstByte(project, app, preview, secs)
+	}
+}
+
+// Forward answers what the switchboard hands over: live progress and
+// images in the project's own buckets.
+func (m *Module) Forward(w http.ResponseWriter, req *http.Request, env, prefix string) {
+	if strings.HasPrefix(req.URL.Path, switchboard.LivePrefix+"/") {
+		serveLive(w, req)
 		return
 	}
-	defer done()
-	var limit time.Duration
-	if st := r.st.cache.get(key); st != nil {
-		limit = r.requestTimeout(req.Context(), st.Project, st.App)
-		ctx, cancel := context.WithTimeoutCause(req.Context(), limit, errTooLong)
-		defer cancel()
-		req = req.WithContext(ctx)
-	}
-	target := &url.URL{Scheme: "http", Host: fmt.Sprintf("127.0.0.1:%d", in.Port)}
-	rp := &httputil.ReverseProxy{
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.SetURL(target)
-			pr.Out.Host = pr.In.Host
-			// The edge already set the client's forwarding headers: pass them on as they are.
-			for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Forwarded-Port"} {
-				if v := pr.In.Header.Values(h); len(v) > 0 {
-					pr.Out.Header[h] = v
-				}
-			}
-			if tp := traceparent(pr.In.Header); tp != "" {
-				pr.Out.Header.Set("Traceparent", tp)
-			}
-		},
-		Transport:     proxyTransport,
-		FlushInterval: -1,
-		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
-			if errors.Is(context.Cause(req.Context()), errTooLong) {
-				http.Error(w, tooLong(limit), http.StatusGatewayTimeout)
-				return
-			}
-			http.Error(w, "the app did not answer: "+err.Error(), http.StatusBadGateway)
-		},
-	}
-	defer func() { // also when a response under way is cut (a panic that aborts it)
-		if errors.Is(context.Cause(req.Context()), errTooLong) {
-			r.p.Log.Info("runtime: request reached its time limit", "host", req.Host, "path", req.URL.Path, "limit", limit, "request_id", req.Header.Get("X-Request-Id"))
+	if r, err := m.rt(); err == nil {
+		if st := r.st.cache.get(env); st != nil && r.serveBucketImage(w, req, st, prefix) {
+			return
 		}
-	}()
-	rp.ServeHTTP(w, req)
+	}
+	http.NotFound(w, req)
 }
 
-func tooLong(limit time.Duration) string {
-	return fmt.Sprintf("the app took longer than its time limit for one request (%s), so the box stopped waiting. "+
-		"Make the request shorter (a queue job or a workflow can run longer), or raise the limit in tiffin.config.ts: timeoutSeconds (up to 86400).\n", limit)
-}
-
-// traceparent starts the request's trace with the edge's request ID as its
-// trace ID (W3C trace context), so an app's OpenTelemetry spans and the
-// request's access log line share one ID. A request that carries its own
-// trace context keeps it.
-func traceparent(h http.Header) string {
-	if h.Get("Traceparent") != "" {
-		return ""
-	}
-	id := strings.ReplaceAll(h.Get("X-Request-Id"), "-", "")
-	if len(id) != 32 || strings.Trim(strings.ToLower(id), "0123456789abcdef") != "" || strings.Trim(id, "0") == "" {
-		return ""
-	}
-	var b [8]byte
-	_, _ = rand.Read(b[:])
-	return "00-" + strings.ToLower(id) + "-" + hex.EncodeToString(b[:]) + "-01"
+// splitEnvKey is envKey's inverse.
+func splitEnvKey(k string) (project, app, preview string) {
+	project, rest, _ := strings.Cut(k, "/")
+	app, preview, _ = strings.Cut(rest, "@")
+	return project, app, preview
 }
 
 // staticLink is the stable path the edge serves a static environment from;

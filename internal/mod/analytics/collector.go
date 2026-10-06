@@ -60,7 +60,7 @@ func (m *Module) handleEdge(ctx context.Context, line []byte) {
 		return
 	}
 	m.pipe.Add(ctx, Hit{At: e.Time, Project: site.Project, App: site.App, Kind: "pageview", URL: e.URI, Host: e.Host,
-		Referrer: e.Header("Referer"), IP: e.ClientIP, UA: e.Header("User-Agent"), Src: "edge"})
+		Referrer: e.Header("Referer"), IP: e.ClientIP, UA: e.Header("User-Agent"), Src: "edge", GPC: e.Header("Sec-GPC") == "1"})
 }
 
 func (m *Module) collectorHandler() http.Handler {
@@ -140,7 +140,7 @@ func (m *Module) beacon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h := Hit{Project: site.Project, App: site.App, Kind: "event", Name: name, URL: b.U, Referrer: b.R,
-		IP: clientIP(r), UA: r.Header.Get("User-Agent"), Props: b.P, Src: "script"}
+		IP: clientIP(r), UA: r.Header.Get("User-Agent"), Props: b.P, Src: "script", GPC: r.Header.Get("Sec-GPC") == "1"}
 	if name == "pageview" {
 		h.Kind = "pageview"
 	}
@@ -158,6 +158,7 @@ type trackBody struct {
 	Referrer string         `json:"referrer"`
 	IP       string         `json:"ip"`
 	UA       string         `json:"ua"`
+	GPC      bool           `json:"gpc"`
 	At       *time.Time     `json:"at"`
 }
 
@@ -187,7 +188,7 @@ func (m *Module) serverTrack(w http.ResponseWriter, r *http.Request) {
 		reply(w, http.StatusConflict, map[string]string{"error": "analytics is not enabled for project " + project})
 		return
 	}
-	h := Hit{Project: project, App: app, Kind: "event", Name: b.Name, URL: b.URL, Referrer: b.Referrer, IP: b.IP, UA: b.UA, Props: b.Props, Src: "server"}
+	h := Hit{Project: project, App: app, Kind: "event", Name: b.Name, URL: b.URL, Referrer: b.Referrer, IP: b.IP, UA: b.UA, Props: b.Props, Src: "server", GPC: b.GPC}
 	if b.URL == "" {
 		h.URL = "/"
 	}

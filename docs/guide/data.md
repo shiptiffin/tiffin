@@ -1,4 +1,4 @@
-# Postgres, Valkey and backups
+# Postgres, KV and backups
 
 ## Postgres
 
@@ -98,7 +98,17 @@ order, Postgres with the pause. PgBouncer itself restarts only when asked
 (`--restart-pooler`), because that closes every app's client connections; otherwise a new
 version of it runs from the next reboot.
 
-## Valkey
+### From your computer
+
+Postgres and KV listen only inside the box. `tiffin db tunnel <project>` forwards
+`localhost:15432` to the project's database over SSH (the box's own SSH access, or the
+Lima VM's for a local box) and prints a `postgresql://` URL for psql, TablePlus or a local
+app; `--branch pr-12` reaches a branch instead, `--port` picks another local port.
+`tiffin kv tunnel <project>` does the same for KV on `localhost:16379`. The URL carries the
+project's password, so it needs a key with full access to the project, and every reveal
+is recorded. It stays open until you press Ctrl-C.
+
+## KV (Valkey)
 
 ```ts
 services: { valkey: { maxMemoryMB: 128 } }
@@ -126,7 +136,7 @@ secrets with these names win, so delete the old Upstash values from them when yo
   script gets prefixed `KEYS`; one that builds key names itself is refused.
 - Every command runs as the project's own Valkey user, with the same limits as
   `REDIS_URL`: no `KEYS` or `SCAN` (so `@upstash/ratelimit`'s `resetUsedTokens` does not
-  work), and the cache limit above.
+  work), and the KV limit above.
 - The endpoint is only reachable from apps on the box, not from the internet.
 
 ## Flexible JSON
@@ -151,19 +161,111 @@ often.
 ## Backups
 
 Daily full and hourly incremental backups of Postgres (pgBackRest), Valkey, files,
-email, analytics and the box's own state, kept on the box.
+email, analytics and the box's own state, kept on the box, and copied off it when you
+set a destination (below).
 
 ```bash
 tiffin backup                 # now
 tiffin backups list
 tiffin restore <id>           # shows what it will overwrite; repeat with --confirm
+tiffin restore latest         # the newest successful one
 ```
 
-Restore takes a safety backup first. Off-site copies are not supported yet.
+Restore takes a safety backup first. Targets are `postgres` and `valkey` by default;
+add `--targets files` for buckets, mail and app disk folders, or `--targets all`.
 
 Backups are restore points of this box. To copy one project (on this box under a new
 name, to a file, or to another box), see [copying and moving](moving.md): Duplicate,
 Export, Import and Move.
+
+### Copies off the box
+
+Backups on the box undo mistakes; they do not survive losing the server. Set an
+S3-compatible bucket and every backup set is copied there, encrypted: Cloudflare R2,
+AWS S3, Hetzner Object Storage or MinIO. The bucket must exist; the key needs to read,
+write, list and delete objects in it.
+
+```bash
+tiffin backups offsite set --endpoint https://<account>.r2.cloudflarestorage.com \
+  --region auto --bucket tiffin-backups --prefix shop-box \
+  --access-key-id <id> --secret-access-key <secret>
+tiffin backups offsite show          # on or off, the newest copy, what it sent
+tiffin backups offsite test          # write, read and delete a test object; pgBackRest lists its repository
+tiffin backups offsite copy          # copy the newest backup now (they also run after every backup)
+tiffin backups offsite list          # the sets in the bucket
+tiffin backups offsite off           # stop; the copies in the bucket stay
+```
+
+Other endpoints: `https://s3.<region>.amazonaws.com` (`--region <region>`),
+`https://<location>.your-objectstorage.com` (`--region <location>`), or your MinIO's
+HTTPS address (`--ca-cert "$(cat ca.pem)"` when a private CA signs it). Use one
+`--prefix` per box. `set` tests the destination before it saves anything, and keeps the
+secret sealed with the box key; `show` never returns it.
+
+**The passphrase.** A new destination gets a generated passphrase, returned once by
+`set` (the dashboard shows it once too). Everything in the bucket is encrypted with it,
+so keep it off the server, in a password manager. Without it the copies cannot be read:
+if the server is lost, a new box needs it to restore them. To use a passphrase of your
+own, pass `--passphrase` (12 characters or more) the first time. The copies include the
+box key that decrypts the projects' secrets, so the passphrase guards those too; the box
+keeps it sealed with that key, and anyone with the bucket's keys but not the passphrase
+sees only ciphertext with meaningless names.
+
+What is copied, and how:
+
+- **Postgres** goes to a second pgBackRest repository in the bucket (`<prefix>/pgbackrest`),
+  encrypted with aes-256-cbc. After each backup, an incremental backup goes there (a full
+  one each week). Postgres keeps archiving WAL to the local repository only; the box ships
+  every archived segment on to the bucket every few minutes, and a copy counts as done
+  only once the WAL its backup needs is there. A slow or unreachable bucket therefore
+  never holds up Postgres or local backups: shipping catches up when it is back, from
+  the WAL the local repository keeps. The bucket's Postgres part is a few minutes newer
+  than the rest of its set (it is taken when the copy runs), so only sets from the last 6
+  hours are copied, and never the safety backup of a restore.
+- **Everything else** in the set (the Valkey snapshot, the platform state and box key, and
+  registered files: buckets, mail, analytics, issues, apps' disk folders) goes to
+  `<prefix>/tiffin/` as compressed, encrypted chunks of up to 4 MiB, named by a keyed
+  hash of their content. A chunk the bucket already has is not sent again, and a file
+  whose size and time have not changed is not even read, so a copy sends only what
+  changed since the last one.
+- Copies keep **30 days** by default (`--retention-days`); older sets, and chunks no
+  remaining set uses, are deleted once a day. The newest copy is never deleted.
+
+Copies run after the local backup, never inside it: a failing bucket does not stop local
+backups. It shows instead: the `offsite-backups` status check fails, and the
+`offsite-stale` alert fires, when the newest copy is more than 26 hours old. While copies
+are off, the check and the dashboard say "Backups only on this server".
+
+**Restoring from the bucket.** On the same box, `tiffin restore <id> --from offsite`
+works like a local restore (Postgres from the bucket's repository, WAL from there too).
+After losing the server, on a new one:
+
+```bash
+tiffin up                                         # a new box
+tiffin backups offsite set ... --passphrase <the passphrase>
+tiffin backups offsite list                       # the lost box's sets
+tiffin restore latest --from offsite              # the preview: every target, no safety backup
+tiffin restore latest --from offsite --confirm <hash> --timeout-seconds 1800
+```
+
+On a box with no projects every target is restored by default: Postgres, Valkey, the
+files and the platform state (projects, settings, secrets, deploy records, tokens,
+people, and the box key). The new box keeps its own owner token, domain and backup
+settings, and its service restarts once to swap the state in. Until the restore, `set`
+reports the destination as `foreign` (it holds another cluster's backups) and copies
+are paused; afterwards the new box carries on copying into the same prefix. App images
+are not in backups: deploy the apps again (`tiffin deploy`).
+
+| Operation | What it does |
+|---|---|
+| `GET /v1/backups/offsite` | the destination (never its secret), `state` (off, active, foreign), `lastCopy`, `lastOk`, `message` |
+| `PUT /v1/backups/offsite` | sets it (tested first) → the same, with `passphrase` once for a new destination |
+| `POST /v1/backups/offsite/test` | → `ok` and each step with its time |
+| `POST /v1/backups/offsite/copy` | copies a set (`backup`, default the newest), waits up to `timeoutSeconds` → copy |
+| `GET /v1/backups/offsite/sets` | the sets in the bucket, newest first, with `restorable` |
+| `DELETE /v1/backups/offsite` | stops copying |
+| `POST /v1/backups/{id}/restore` | `from: "offsite"`; `id` may be `latest`; `targets` may be `platform` or `all` |
+| `GET /v1/backups` | also has `offsite`; each set has `offsite` (its copy) |
 
 ### Restore drills
 
@@ -189,9 +291,17 @@ and fails when the last drill failed or none passed in 14 days. A drill is refus
 the data disk has less free space than the backup's size plus 20%. If the box restarts
 mid-drill, the scratch copy is deleted when it comes back.
 
+With copies off the box, scheduled drills take turns between the local copy and the
+off-box one (`tiffin backups drill --from offsite --wait` runs one by hand). An off-box
+drill restores Postgres from the bucket's repository, WAL included, then downloads every
+other part of the set into the scratch directory, decrypting each chunk and checking it
+against its ID, opens the platform state, checks the box key, the Valkey snapshot and
+every SQLite database, and deletes it all. A failed drill is retried from the same copy a
+day later; the `restore-drill-failed` alert fires meanwhile.
+
 | Operation | What it returns |
 |---|---|
-| `POST /v1/backups/drill?wait=true` | starts a drill of the newest good backup → drill |
+| `POST /v1/backups/drill?wait=true` | starts a drill of the newest good backup → drill (`&from=offsite`: its off-box copy) |
 | `POST /v1/backups/{id}/drill?wait=true` | starts a drill of backup `bk_...` → drill |
 | `GET /v1/backups/drills` | drills, newest first (last 30 kept) |
 | `GET /v1/backups/drills/{id}` | one drill |

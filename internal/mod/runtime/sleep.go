@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net/http"
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
@@ -162,6 +161,7 @@ func (r *rt) sleepAfter(ctx context.Context, project string) time.Duration {
 // project's sleepAfter. It wakes production apps whose project stopped
 // letting them sleep.
 func (r *rt) sleepIdle(ctx context.Context) {
+	r.pullActivity()
 	states, err := r.st.allStates(ctx)
 	if err != nil {
 		return
@@ -191,7 +191,7 @@ func (r *rt) sleepIdle(ctx context.Context) {
 		if s.Sleeping || len(s.Instances) == 0 {
 			continue
 		}
-		if time.Since(r.lastActive(s)) < idle || r.st.cache.busy(s.Instances) > 0 {
+		if time.Since(r.lastActive(s)) < idle || r.busy(s.Instances) > 0 {
 			continue // a request still under way keeps the app awake, however long it runs
 		}
 		if s.Preview == "" && r.delivering(ctx, s.Project, s.App) {
@@ -246,6 +246,10 @@ func (r *rt) sleep(ctx context.Context, project, app, preview string, idle time.
 	if err != nil || st.Sleeping || len(st.Instances) == 0 || (idle > 0 && time.Since(r.lastActive(st)) < idle) {
 		return
 	}
+	// Only while the edge answers: one out of reach may still send requests to the instances.
+	if r.syncEdge() != nil {
+		return
+	}
 	ins := st.Instances
 	now := time.Now().UTC()
 	st.Instances, st.Sleeping, st.SleptAt = nil, true, &now
@@ -254,7 +258,7 @@ func (r *rt) sleep(ctx context.Context, project, app, preview string, idle time.
 	}
 	// From here new requests wait for a wake; one that got in just before
 	// finishes first.
-	for i := 0; i < 200 && r.st.cache.busy(ins) > 0; i++ {
+	for i := 0; i < 200 && r.busy(ins) > 0; i++ {
 		time.Sleep(25 * time.Millisecond)
 	}
 	r.removeInstances(ctx, ins)
@@ -376,27 +380,5 @@ func SleepingApps(ctx context.Context, db *state.DB, project string) map[string]
 	}
 	return out
 }
-
-// firstByte notes when a response's first byte went out.
-type firstByte struct {
-	http.ResponseWriter
-	at time.Time
-}
-
-func (f *firstByte) WriteHeader(code int) {
-	if f.at.IsZero() {
-		f.at = time.Now()
-	}
-	f.ResponseWriter.WriteHeader(code)
-}
-
-func (f *firstByte) Write(b []byte) (int, error) {
-	if f.at.IsZero() {
-		f.at = time.Now()
-	}
-	return f.ResponseWriter.Write(b)
-}
-
-func (f *firstByte) Unwrap() http.ResponseWriter { return f.ResponseWriter }
 
 func roundMs(f float64) float64 { return math.Round(f*1000) / 1000 }

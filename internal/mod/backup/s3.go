@@ -1,0 +1,284 @@
+package backup
+
+import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/xml"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// objectStore is what off-box copies need from a bucket. s3Client is the
+// real one; tests use a map.
+type objectStore interface {
+	Put(ctx context.Context, key string, body []byte) error
+	// Get returns errNoObject when key does not exist.
+	Get(ctx context.Context, key string) ([]byte, error)
+	Delete(ctx context.Context, key string) error
+	// List calls fn for every key under prefix, in key order.
+	List(ctx context.Context, prefix string, fn func(key string, size int64) error) error
+}
+
+var errNoObject = errors.New("no such object")
+
+// s3Client is a small S3 client (SigV4, path- or host-style requests):
+// enough for R2, AWS S3, Hetzner Object Storage, MinIO and versitygw.
+type s3Client struct {
+	base      *url.URL // scheme://host[:port]
+	region    string
+	bucket    string
+	access    string
+	secret    string
+	hostStyle bool
+	hc        *http.Client
+	now       func() time.Time
+}
+
+func newS3(c *OffsiteConfig, secret string) (*s3Client, error) {
+	u, err := url.Parse(c.Endpoint)
+	if err != nil {
+		return nil, err
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.ResponseHeaderTimeout = time.Minute
+	if c.CACert != "" {
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM([]byte(c.CACert)) {
+			return nil, errors.New("caCert holds no PEM certificate")
+		}
+		tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	}
+	return &s3Client{base: &url.URL{Scheme: u.Scheme, Host: u.Host}, region: c.Region, bucket: c.Bucket,
+		access: c.AccessKeyID, secret: secret, hostStyle: c.URIStyle == "host", hc: &http.Client{Transport: tr}, now: time.Now}, nil
+}
+
+// s3Error is an error response from the store.
+type s3Error struct {
+	Status  int
+	Code    string `xml:"Code"`
+	Message string `xml:"Message"`
+}
+
+func (e *s3Error) Error() string {
+	msg := strings.TrimSpace(e.Code + ": " + e.Message)
+	if e.Code == "" {
+		msg = http.StatusText(e.Status)
+	}
+	return fmt.Sprintf("%s (HTTP %d)", msg, e.Status)
+}
+
+func (c *s3Client) Put(ctx context.Context, key string, body []byte) error {
+	resp, err := c.do(ctx, http.MethodPut, key, nil, body)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
+func (c *s3Client) Get(ctx context.Context, key string) ([]byte, error) {
+	resp, err := c.do(ctx, http.MethodGet, key, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
+
+func (c *s3Client) Delete(ctx context.Context, key string) error {
+	resp, err := c.do(ctx, http.MethodDelete, key, nil, nil)
+	if errors.Is(err, errNoObject) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
+func (c *s3Client) List(ctx context.Context, prefix string, fn func(key string, size int64) error) error {
+	token := ""
+	for {
+		q := url.Values{"list-type": {"2"}, "prefix": {prefix}, "max-keys": {"1000"}}
+		if token != "" {
+			q.Set("continuation-token", token)
+		}
+		resp, err := c.do(ctx, http.MethodGet, "", q, nil)
+		if err != nil {
+			return err
+		}
+		var out struct {
+			Contents []struct {
+				Key  string `xml:"Key"`
+				Size int64  `xml:"Size"`
+			} `xml:"Contents"`
+			IsTruncated bool   `xml:"IsTruncated"`
+			Next        string `xml:"NextContinuationToken"`
+		}
+		err = xml.NewDecoder(resp.Body).Decode(&out)
+		resp.Body.Close()
+		if err != nil {
+			return fmt.Errorf("list %s: %w", prefix, err)
+		}
+		for _, o := range out.Contents {
+			if err := fn(o.Key, o.Size); err != nil {
+				return err
+			}
+		}
+		if !out.IsTruncated || out.Next == "" {
+			return nil
+		}
+		token = out.Next
+	}
+}
+
+// do sends a signed request, retrying network errors and 5xx/429 answers.
+// A 404 on an object is errNoObject; other failures are *s3Error.
+func (c *s3Client) do(ctx context.Context, method, key string, q url.Values, body []byte) (*http.Response, error) {
+	var last error
+	for attempt := 0; attempt < 4; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(attempt*attempt) * 500 * time.Millisecond):
+			}
+		}
+		req, err := c.request(ctx, method, key, q, body)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := c.hc.Do(req)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			last = err
+			continue
+		}
+		if resp.StatusCode < 300 {
+			return resp, nil
+		}
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		resp.Body.Close()
+		e := &s3Error{Status: resp.StatusCode}
+		_ = xml.Unmarshal(raw, e)
+		if resp.StatusCode == http.StatusNotFound && key != "" && e.Code != "NoSuchBucket" {
+			return nil, errNoObject
+		}
+		last = e
+		if resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests {
+			break
+		}
+	}
+	return nil, last
+}
+
+func (c *s3Client) request(ctx context.Context, method, key string, q url.Values, body []byte) (*http.Request, error) {
+	u := *c.base
+	host := u.Host
+	path := "/" + c.bucket
+	if c.hostStyle {
+		host = c.bucket + "." + u.Host
+		path = ""
+	}
+	if key != "" {
+		path += "/" + s3Escape(key, true)
+	} else if path == "" {
+		path = "/"
+	}
+	u.Host, u.RawPath, u.Path = host, path, path
+	if p, err := url.PathUnescape(path); err == nil {
+		u.Path = p
+	}
+	u.RawQuery = canonicalQuery(q)
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.ContentLength = int64(len(body))
+	if body == nil {
+		req.Body = http.NoBody
+	}
+	sum := sha256.Sum256(body)
+	payload := hex.EncodeToString(sum[:])
+	now := c.now().UTC()
+	amzDate := now.Format("20060102T150405Z")
+	day := now.Format("20060102")
+	req.Header.Set("x-amz-date", amzDate)
+	req.Header.Set("x-amz-content-sha256", payload)
+	signed := []string{"host", "x-amz-content-sha256", "x-amz-date"}
+	headers := map[string]string{"host": host, "x-amz-content-sha256": payload, "x-amz-date": amzDate}
+	var ch strings.Builder
+	for _, h := range signed {
+		ch.WriteString(h + ":" + headers[h] + "\n")
+	}
+	canonical := strings.Join([]string{method, path, u.RawQuery, ch.String(), strings.Join(signed, ";"), payload}, "\n")
+	scope := day + "/" + c.region + "/s3/aws4_request"
+	cs := sha256.Sum256([]byte(canonical))
+	toSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + hex.EncodeToString(cs[:])
+	k := hmacSHA([]byte("AWS4"+c.secret), day)
+	k = hmacSHA(k, c.region)
+	k = hmacSHA(k, "s3")
+	k = hmacSHA(k, "aws4_request")
+	sig := hex.EncodeToString(hmacSHA(k, toSign))
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+c.access+"/"+scope+", SignedHeaders="+strings.Join(signed, ";")+", Signature="+sig)
+	return req, nil
+}
+
+func hmacSHA(key []byte, s string) []byte {
+	m := hmac.New(sha256.New, key)
+	m.Write([]byte(s))
+	return m.Sum(nil)
+}
+
+// s3Escape URI-encodes s the way SigV4 wants: every byte except the
+// unreserved characters, and '/' too unless keepSlash.
+func s3Escape(s string, keepSlash bool) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '-', c == '.', c == '_', c == '~':
+			b.WriteByte(c)
+		case c == '/' && keepSlash:
+			b.WriteByte(c)
+		default:
+			b.WriteString("%" + strings.ToUpper(strconv.FormatUint(uint64(c)>>4, 16)+strconv.FormatUint(uint64(c)&15, 16)))
+		}
+	}
+	return b.String()
+}
+
+func canonicalQuery(q url.Values) string {
+	keys := make([]string, 0, len(q))
+	for k := range q {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var parts []string
+	for _, k := range keys {
+		vs := append([]string(nil), q[k]...)
+		sort.Strings(vs)
+		for _, v := range vs {
+			parts = append(parts, s3Escape(k, false)+"="+s3Escape(v, false))
+		}
+	}
+	return strings.Join(parts, "&")
+}

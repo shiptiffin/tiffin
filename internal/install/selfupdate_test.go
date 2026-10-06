@@ -164,10 +164,22 @@ func TestUnitAndURL(t *testing.T) {
 		t.Fatal("443 must be implicit")
 	}
 	unit := Unit(o)
-	for _, want := range []string{"User=root", "--box", "--edge", "--https-port 8443", "NoNewPrivileges=yes", "ProtectHome=yes"} {
+	for _, want := range []string{"User=root", "--box", "--edge-external", "--https-port 8443", "NoNewPrivileges=yes", "ProtectHome=yes", "Wants=network-online.target tiffin-edge.service"} {
 		if !strings.Contains(unit, want) {
 			t.Errorf("unit lacks %q", want)
 		}
+	}
+	// Restarting tiffin must not restart the edge: no Requires/BindsTo/PartOf on it.
+	for _, bad := range []string{"Requires=tiffin-edge", "BindsTo=", "PartOf="} {
+		if strings.Contains(unit, bad) {
+			t.Errorf("unit has %q", bad)
+		}
+	}
+	if s := EdgeSocketUnit(o); !strings.Contains(s, "ListenStream=8443\nListenStream=8080\nListenDatagram=8443") {
+		t.Errorf("socket unit: %s", s)
+	}
+	if s := EdgeUnit(); !strings.Contains(s, "ExecStart=/usr/local/bin/tiffin edge --home /var/lib/tiffin/platform") || !strings.Contains(s, "Requires=tiffin-edge.socket") {
+		t.Errorf("edge unit: %s", s)
 	}
 }
 

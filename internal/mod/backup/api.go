@@ -23,6 +23,7 @@ type BackupOverview struct {
 	LastOKAt     *time.Time     `json:"lastOkAt" doc:"When the newest successful backup started"`
 	RepoBytes    int64          `json:"repoBytes" doc:"Disk used by the local backup repository and sets"`
 	Destinations []string       `json:"destinations" doc:"Where backups are stored"`
+	Offsite      *BackupOffsite `json:"offsite" doc:"Copies off the box: on or off, the newest copy and its size (see GET /v1/backups/offsite)"`
 	LastDrill    *BackupDrill   `json:"lastDrill" doc:"The newest restore drill (null when none ran); see GET /v1/backups/drills"`
 }
 
@@ -59,7 +60,11 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if err != nil {
 			return nil, err
 		}
-		out := &BackupOverview{Backups: list, Schedule: getSchedule(ctx, p), RepoBytes: datakit.DirSize(Root), Destinations: []string{"local: " + Root}}
+		out := &BackupOverview{Backups: list, Schedule: getSchedule(ctx, p), RepoBytes: datakit.DirSize(Root), Destinations: []string{"local: " + Root},
+			Offsite: offsiteView(ctx, p)}
+		if c, _ := current(); c != nil {
+			out.Destinations = append(out.Destinations, "off-box: "+c.where())
+		}
 		if last := lastOK(list, ""); last != nil {
 			t := last.StartedAt
 			out.LastOKAt = &t
@@ -97,7 +102,8 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if kind == "" {
 			kind = "incremental"
 		}
-		b, err := Take(ctx, p, kind, "manual")
+		// Not tied to the call: a client that stops waiting must not kill pgBackRest mid-backup.
+		b, err := Take(context.WithoutCancel(ctx), p, kind, "manual")
 		if err != nil {
 			if b != nil {
 				return nil, api.NewProblem(500, "internal", "backup "+b.ID+" failed: "+err.Error())
@@ -110,16 +116,22 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	rs := api.Op("backup-restore", http.MethodPost, "/v1/backups/{id}/restore", "restore", api.RiskDestructive,
 		"Restore a backup",
-		"Puts a backup back: by default the whole Postgres cluster and all Valkey data (targets: postgres, valkey, files). "+
+		"Puts a backup back: by default the whole Postgres cluster and all Valkey data (targets: postgres, valkey, files, platform, or all). "+
 			"Everything changed since the backup is lost, so a safety backup of the current state is taken first. "+
-			"Without confirm nothing changes: you get status 428 with what would be overwritten and the confirm value. Box owner only.", tag)
-	rs.Errors = append(rs.Errors, 404, 409, 428)
+			"id is a backup ID or latest. from=offsite restores the copy in the bucket (`tiffin backups offsite list`), which works on a new box "+
+			"after `tiffin backups offsite set ... --passphrase`: on a box with no projects every target is restored by default (platform: "+
+			"projects, settings, secrets, tokens, the box key; this box's owner token, domain and backup settings are kept), and no safety backup is taken. "+
+			"Without confirm nothing changes: you get status 428 with what would be overwritten and the confirm value. "+
+			"A restore from the bucket goes on if the call gives up waiting (pass timeoutSeconds to wait longer). Box owner only.", tag)
+	rs.Errors = append(rs.Errors, 404, 409, 422, 428)
 	rs.Extensions[api.ExtConfirm] = true
 	huma.Register(a, rs, api.Wrap(func(ctx context.Context, in *struct {
-		ID   string `path:"id" pattern:"^bk_[0-9A-Z]{26}$" doc:"Backup ID"`
+		ID   string `path:"id" pattern:"^(bk_[0-9A-Z]{26}|latest)$" doc:"Backup ID, or latest (the newest successful one)"`
 		Body struct {
-			Targets []string `json:"targets,omitempty" doc:"What to restore: postgres, valkey, files (default postgres and valkey)"`
-			Confirm string   `json:"confirm,omitempty" doc:"The confirm value from the preview (status 428)"`
+			Targets        []string `json:"targets,omitempty" doc:"What to restore: postgres, valkey, files, platform, all (default postgres and valkey; all on a box with no projects)"`
+			From           string   `json:"from,omitempty" enum:"local,offsite," doc:"local (default): this box's copy; offsite: the copy in the bucket"`
+			Confirm        string   `json:"confirm,omitempty" doc:"The confirm value from the preview (status 428)"`
+			TimeoutSeconds int      `json:"timeoutSeconds,omitempty" minimum:"0" maximum:"7200" doc:"How long the call waits for a restore from the bucket (default 60 s; it goes on after)"`
 		}
 	}) (*struct{ Body *BackupRestored }, error) {
 		pr := api.PrincipalFrom(ctx)
@@ -129,33 +141,93 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if err := onBox(p); err != nil {
 			return nil, err
 		}
-		b, err := get(ctx, p, in.ID)
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, api.NewProblem(404, "not_found", "no backup "+in.ID)
+		from := in.Body.From
+		if from == "" {
+			from = SourceLocal
 		}
-		if err != nil {
-			return nil, err
+		var b *Backup
+		var rec *offsiteSet
+		if from == SourceOffsite {
+			got, err := pickOffsite(ctx, in.ID)
+			switch {
+			case errors.Is(err, ErrOffsiteOff):
+				return nil, offsiteProblem(409, "precondition", err, "on a new box: `tiffin backups offsite set ... --passphrase <the passphrase>`")
+			case errors.Is(err, os.ErrNotExist):
+				pb := api.NewProblem(404, "not_found", "no backup "+in.ID+" in the bucket")
+				pb.Hint = "list them with `tiffin backups offsite list`"
+				return nil, pb
+			case err != nil:
+				return nil, api.NewProblem(409, "precondition", err.Error())
+			}
+			rec, b = got, &got.Backup
+		} else {
+			if in.ID == "latest" {
+				list, err := List(ctx, p)
+				if err != nil {
+					return nil, err
+				}
+				b = lastOK(list, "")
+				if b == nil {
+					return nil, api.NewProblem(404, "not_found", "this box has no successful backup; to restore from the bucket pass from=offsite")
+				}
+			} else {
+				got, err := get(ctx, p, in.ID)
+				if errors.Is(err, os.ErrNotExist) {
+					return nil, api.NewProblem(404, "not_found", "no backup "+in.ID+" on this box (for one in the bucket, pass from=offsite)")
+				}
+				if err != nil {
+					return nil, err
+				}
+				b = got
+			}
+			if b.Status != "ok" {
+				return nil, api.NewProblem(409, "precondition", "backup "+b.ID+" did not succeed ("+b.Status+"); pick another from `tiffin backups list`")
+			}
 		}
-		if b.Status != "ok" {
-			return nil, api.NewProblem(409, "precondition", "backup "+b.ID+" did not succeed ("+b.Status+"); pick another from `tiffin backups list`")
-		}
-		targets, err := normalizeTargets(in.Body.Targets)
+		targets, err := normalizeTargets(in.Body.Targets, defaultTargets(ctx, p))
 		if err != nil {
 			return nil, api.NewProblem(422, "validation", err.Error())
 		}
-		preview, err := Preview(ctx, p, b, targets)
+		if err := checkTargets(ctx, p, targets); err != nil {
+			return nil, api.NewProblem(422, "validation", err.Error())
+		}
+		preview, err := Preview(ctx, p, b, from, targets)
 		if err != nil {
 			return nil, err
 		}
 		if err := datakit.RequireConfirm(in.Body.Confirm, preview.Key(), preview); err != nil {
 			return nil, err
 		}
-		_ = p.DB.Audit(ctx, pr.TokenID, "backup.restore", b.ID, map[string]any{"session": pr.Session, "targets": targets})
-		out, err := Restore(ctx, p, b, targets)
-		if err != nil {
-			return nil, busy(err)
+		_ = p.DB.Audit(ctx, pr.TokenID, "backup.restore", b.ID, map[string]any{"session": pr.Session, "targets": targets, "from": from})
+		if from == SourceLocal {
+			out, err := Restore(ctx, p, b, targets)
+			if err != nil {
+				return nil, busy(err)
+			}
+			return &struct{ Body *BackupRestored }{out}, nil
 		}
-		return &struct{ Body *BackupRestored }{out}, nil
+		// From the bucket: it can take a while, so it is not tied to the call.
+		type result struct {
+			out *BackupRestored
+			err error
+		}
+		done := make(chan result, 1)
+		go func() {
+			out, err := RestoreOffsite(context.WithoutCancel(ctx), p, rec, targets)
+			done <- result{out, err}
+		}()
+		wait := time.Duration(max(in.Body.TimeoutSeconds, 60)) * time.Second
+		select {
+		case r := <-done:
+			if r.err != nil {
+				return nil, busy(r.err)
+			}
+			return &struct{ Body *BackupRestored }{r.out}, nil
+		case <-time.After(wait):
+			pb := api.NewProblem(409, "conflict", "the restore from the bucket is still running; it goes on without this call")
+			pb.Hint = "follow it with `tiffin status` and `journalctl -u tiffin` on the box; pass a longer timeoutSeconds next time"
+			return nil, pb
+		}
 	}))
 
 	ss := api.Op("backups-schedule-set", http.MethodPut, "/v1/backups/schedule", "backups schedule", api.RiskWrite,
@@ -206,4 +278,5 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}))
 
 	registerDrills(a, p, tag)
+	registerOffsite(a, p, tag)
 }
