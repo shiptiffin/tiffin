@@ -722,6 +722,9 @@ func (e *Engine) wake(ctx context.Context, tx pgx.Tx, key string, n int) error {
 		ps = append(ps, p)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	for _, p := range ps {
 		if err := e.unpark(ctx, tx, p.id, p.rid); err != nil {
 			return err

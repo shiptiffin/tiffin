@@ -413,6 +413,9 @@ func (e *Engine) sendTx(ctx context.Context, tx pgx.Tx, project string, r SendRe
 			targets = append(targets, t)
 		}
 		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
 	} else {
 		t := target{app: cfg.App, path: cfg.Path, url: cfg.URL}
 		if r.App != "" {
@@ -712,7 +715,9 @@ func (e *Engine) CancelJob(ctx context.Context, project string, id int64) (*Job,
 	}
 	if j.Kind == kindWorkflow && j.RunID != nil {
 		// Cancelling a turn does not cancel the run; it can be retried.
-		_ = e.timeline(ctx, tx, *j.RunID, "turn", "a turn ("+jobID(id)+") was cancelled", "", nil)
+		if err := e.timeline(ctx, tx, *j.RunID, "turn", "a turn ("+jobID(id)+") was cancelled", "", nil); err != nil {
+			return nil, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -896,6 +901,9 @@ func (e *Engine) Purge(ctx context.Context, project, queue string, dead bool, co
 		}
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	for g := range groups {
 		if err := e.wakeGroupHead(ctx, tx, project, g); err != nil {
 			return nil, err

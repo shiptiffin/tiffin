@@ -787,6 +787,9 @@ func (e *Engine) emitTx(ctx context.Context, tx pgx.Tx, project, name string, pa
 		ws = append(ws, x)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	for _, x := range ws {
 		label := "event " + strconv.Quote(name)
 		if strings.HasPrefix(name, "hook:") {
@@ -934,6 +937,19 @@ func (e *Engine) CancelRun(ctx context.Context, project, id, by string) (*Run, e
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+	if _, err := e.loadRun(ctx, tx, project, id, false); err != nil {
+		return nil, err
+	}
+	// Lock in the order everyone else does: the run's jobs (a finishing turn
+	// holds its job, then locks the run), then its waiting steps (an event or
+	// approval holds the step, then locks the run), then the run. Taking the
+	// run first deadlocks with either.
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM tq_jobs WHERE run_id = $1 AND state IN ('scheduled', 'queued', 'retrying', 'running') ORDER BY id FOR UPDATE`, id); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM wf_steps WHERE run_id = $1 AND state = 'waiting' ORDER BY seq FOR UPDATE`, id); err != nil {
+		return nil, err
+	}
 	run, err := e.loadRun(ctx, tx, project, id, true)
 	if err != nil {
 		return nil, err
@@ -963,6 +979,9 @@ func (e *Engine) CancelRun(ctx context.Context, project, id, by string) (*Run, e
 		running = append(running, jid)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	if err := e.timeline(ctx, tx, id, "cancelled", "cancelled", by, nil); err != nil {
 		return nil, err
 	}

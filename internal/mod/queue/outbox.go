@@ -147,6 +147,9 @@ func (e *Engine) DrainOutbox(ctx context.Context, project string, app *pgxpool.P
 			rs = append(rs, r)
 		}
 		rows.Close()
+		if err := rows.Err(); err != nil {
+			return total, err
+		}
 		if len(rs) == 0 {
 			return total, nil
 		}

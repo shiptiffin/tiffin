@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // fakeSDK speaks the app side of the workflow protocol the way tiffin-sdk
@@ -512,4 +514,108 @@ func TestWebhookAndInternalAuth(t *testing.T) {
 	if code := sdk.call("POST", "/v1/queue-internal/send", map[string]any{"name": "Bad Name"}, &prob); code != 422 {
 		t.Errorf("bad name: %d", code)
 	}
+}
+
+// CancelRun takes its locks in the engine's order (the run's jobs, then its
+// steps, then the run), so cancelling while a turn finishes (finishTx: job,
+// then run) or an event arrives (emitTx: step, then run) waits instead of
+// deadlocking. Each case holds the other side's first lock, lets CancelRun
+// queue behind it, then takes the other side's second lock.
+func TestCancelRunLockOrder(t *testing.T) {
+	e := newEngine(t, nil)
+	sdk := newFakeSDK(t, e.Engine)
+	app := httptest.NewServer(sdk.handler("", nil))
+	defer app.Close()
+	ctx := context.Background()
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	sdk.defs["slow"] = func(c *wctx) (any, error) {
+		if _, err := c.step("work", func() (any, error) {
+			entered <- struct{}{}
+			<-release
+			return 1, nil
+		}); err != nil {
+			return nil, err
+		}
+		c.wait(WaitRequest{Name: "go", Kind: stepEvent, Event: "go"})
+		return nil, nil
+	}
+	sdk.defs["idle"] = func(c *wctx) (any, error) {
+		c.wait(WaitRequest{Name: "go", Kind: stepEvent, Event: "idle-go"})
+		return nil, nil
+	}
+	// race takes first, starts CancelRun, waits until CancelRun is blocked
+	// on a lock, then runs second in the same transaction.
+	race := func(t *testing.T, runID, first string, second func(pgx.Tx) error) {
+		tx, err := e.pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if _, err := tx.Exec(ctx, first, runID); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() {
+			_, err := e.CancelRun(ctx, proj, runID, "test")
+			done <- err
+		}()
+		eventually(t, 5*time.Second, "CancelRun to wait for a lock", func() bool {
+			var n int
+			_ = e.pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&n)
+			return n > 0
+		})
+		if err := second(tx); err != nil {
+			t.Fatalf("other side: %v", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatalf("other side commit: %v", err)
+		}
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("CancelRun: %v", err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("CancelRun hung")
+		}
+		waitRun(t, e.Engine, runID, runCancelled, 5*time.Second)
+		var active int
+		_ = e.pool.QueryRow(ctx, `SELECT count(*) FROM tq_jobs WHERE run_id = $1 AND state IN ('scheduled', 'queued', 'retrying', 'running')`, runID).Scan(&active)
+		if active != 0 {
+			t.Errorf("%d turn(s) of cancelled run %s still active", active, runID)
+		}
+	}
+
+	t.Run("turn finishing", func(t *testing.T) {
+		run, _, err := e.StartRun(ctx, proj, StartRequest{Workflow: "slow", URL: app.URL + "/wf", By: "test"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		<-entered
+		defer close(release)
+		var jid int64
+		var attempt int
+		if err := e.pool.QueryRow(ctx, `SELECT id, total_attempts FROM tq_jobs WHERE run_id = $1 AND state = 'running'`, run.ID).Scan(&jid, &attempt); err != nil {
+			t.Fatal(err)
+		}
+		race(t, run.ID, `SELECT 1 FROM tq_jobs WHERE run_id = $1 AND state = 'running' FOR UPDATE`, func(tx pgx.Tx) error {
+			return e.finishTx(ctx, tx, jid, attempt, outcome{kind: outcomeOK, status: 200, output: json.RawMessage(`{"status":"suspended"}`)})
+		})
+	})
+
+	t.Run("event arriving", func(t *testing.T) {
+		run, _, err := e.StartRun(ctx, proj, StartRequest{Workflow: "idle", URL: app.URL + "/wf", By: "test"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitRun(t, e.Engine, run.ID, runWaiting, 10*time.Second)
+		race(t, run.ID, `SELECT 1 FROM wf_steps WHERE run_id = $1 AND state = 'waiting' FOR UPDATE`, func(tx pgx.Tx) error {
+			res, err := e.emitTx(ctx, tx, proj, "idle-go", json.RawMessage("null"), "test")
+			if err == nil && len(res.Woke) != 1 {
+				err = fmt.Errorf("woke %v", res.Woke)
+			}
+			return err
+		})
+	})
 }
