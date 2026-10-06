@@ -11,6 +11,7 @@ import (
 
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/change/changetest"
 	"github.com/btahir/tiffin/internal/manifest"
 )
 
@@ -214,6 +215,37 @@ func TestDiskSizes(t *testing.T) {
 		if f.Preview != "" {
 			t.Fatalf("a deleted preview's folder is still counted: %+v", f)
 		}
+	}
+}
+
+// TestDiskGrowsAsApplyCommits: a bigger folder is in force once the change
+// commits (apply returns then; the reconciler's pass comes later), and a
+// pass that started before the change does not put the older size back.
+func TestDiskGrowsAsApplyCommits(t *testing.T) {
+	fq := newFakeQuota()
+	h := newHarnessQuota(t, fq)
+	web := h.mf.Apps["api"]
+	web.Disk = manifest.Disk{{Path: "data", Size: "10MB"}}
+	h.mf.Apps["api"] = web
+	h.apply()
+	if d := h.deploy("api", "", map[string]string{"index.ts": "v1"}); d.Status != StatusLive {
+		t.Fatalf("deploy: %s %s", d.Status, d.Error)
+	}
+	data := filepath.Join(h.r.diskDir("shop", "api", ""), "data")
+	_, res, _ := h.p.DB.Load(context.Background(), "shop")
+	older := res["app/api"].Spec
+
+	web.Disk = manifest.Disk{{Path: "data", Size: "20MB"}}
+	h.mf.Apps["api"] = web
+	h.p.AfterApply(changetest.Converge(t, h.p.Engine, h.mf)) // what the apply API does, with no reconciler running
+	if n := fq.limitOf(t, data); n != 20<<20 {
+		t.Fatalf("limit once the change committed: %d, want 20 MB", n)
+	}
+	if err := h.m.Reconcile(context.Background(), h.p, "shop", "app/api", older); err != nil {
+		t.Fatal(err)
+	}
+	if n := fq.limitOf(t, data); n != 20<<20 {
+		t.Fatalf("a pass that started before the change set %d, want 20 MB", n)
 	}
 }
 
