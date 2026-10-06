@@ -19,6 +19,7 @@ import { rememberProject } from "@/lib/recent";
 import { change, changeMany, pendingFor, usePending, type StagedEdit } from "@/lib/staged";
 import { partName, partSub } from "@/lib/names";
 import { Button } from "@/components/ui/button";
+import { UsageCharts } from "@/components/usage-charts";
 import { boxSettingsQuery, cpuWords, memWords, missing, shareMeans, shareWords, useBoxShares, usageQuery, type ProjectResources, type ProjectUsage } from "@/lib/usage";
 
 const MB = 1048576;
@@ -125,6 +126,8 @@ export function ProjectUsagePage({ project }: { project: string }) {
           {usage.data && <LimitAdvanced project={project} usage={usage.data} services={m.data?.manifest.services as Services | undefined} />}
         </Limit>
       )}
+
+      <UsageCharts project={project} apps={Object.keys(m.data?.manifest.apps ?? {}).sort()} usage={usage.data} />
 
       <Details
         project={project}

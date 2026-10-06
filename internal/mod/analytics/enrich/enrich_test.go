@@ -63,6 +63,19 @@ func TestPageAndReferrer(t *testing.T) {
 	if s, _ := Referrer("", "a.com", map[string]string{"utm_source": "launch"}); s != "launch" {
 		t.Fatal(s)
 	}
+	for in, want := range map[string]string{
+		"/confirm/ada@example.com":        "/confirm/[email]",
+		"/u/ada%40example.co.uk/settings": "/u/[email]/settings",
+		"/@ada":                           "/@ada",
+		"/@ada.dev":                       "/@ada.dev",
+	} {
+		if p := ParsePage("https://a.com"+in, ""); p.Path != want {
+			t.Errorf("%s → %s, want %s", in, p.Path, want)
+		}
+	}
+	if s := StripQuery("https://user:pw@partner.example/x?invite=1#t"); s != "https://partner.example/x" {
+		t.Fatal(s)
+	}
 }
 
 func TestGeo(t *testing.T) {

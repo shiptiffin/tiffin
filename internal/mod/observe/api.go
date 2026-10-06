@@ -198,6 +198,7 @@ var slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
 
 // RegisterAPI adds the observe operations.
 func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
+	m.registerHistory(a)
 	huma.Register(a, api.Untrusted(api.Op("logs-query", http.MethodPost, "/v1/observe/logs/query", "logs query", api.RiskRead,
 		"Search logs",
 		"Searches a project's logs with LogsQL: its apps' output (source:app), its edge requests (source:edge), errors its apps reported (source:errors) and OTLP logs (source:otlp). "+

@@ -73,6 +73,8 @@ export async function track(name: string, props?: Props, opts: TrackOptions = {}
     if (ua) body.ua = ua;
     const ref = req.headers.get("referer");
     if (ref) body.referrer = ref;
+    // The visitor's browser sent Global Privacy Control: the box won't count it.
+    if (req.headers.get("sec-gpc") === "1") body.gpc = true;
   }
   if (opts.url) body.url = opts.url;
   if (opts.at) body.at = opts.at.toISOString();

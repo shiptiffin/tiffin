@@ -30,6 +30,7 @@ fi
 
 export TIFFIN_HOME="$DIR/box"
 SEED_SPREAD=1 bash "$HERE/seed.sh" "$BIN" >&2
+bun "$HERE/seed-analytics.ts" "$DIR" >&2
 # --box turns on passkeys and secrets. The public URL must be the
 # origin the browser uses: passkeys are bound to it.
 "$BIN" serve --box --public-url "${E2E_PUBLIC_URL:-http://localhost:$PORT}" --addr "127.0.0.1:$PORT" &

@@ -7,6 +7,7 @@ import { Shell } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import type { ActivitySearch } from "@/routes/activity";
 import type { GitSearch } from "@/routes/git-settings";
+import { analyticsSearch, type AnalyticsSearch } from "@/routes/analytics-search";
 import { HomePage } from "@/routes/home";
 import { Page } from "@/components/page";
 import { q } from "@/api/queries";
@@ -85,7 +86,7 @@ const JobsPage = lz<{ project: string; queue?: string; state?: string }>(() => i
 const JobPage = lz<{ project: string; id: string }>(() => import("@/routes/queues"), "JobPage");
 const WorkflowsPage = lz<{ project: string; state?: string }>(() => import("@/routes/queues"), "WorkflowsPage");
 const RunPage = lz<{ project: string; id: string }>(() => import("@/routes/queues"), "RunPage");
-const AnalyticsPage = lz<{ project: string; period?: string }>(() => import("@/routes/analytics"), "AnalyticsPage");
+const AnalyticsPage = lz<{ project: string; search: AnalyticsSearch }>(() => import("@/routes/analytics"), "AnalyticsPage");
 const ProtectPage = lz(() => import("@/routes/protect"), "ProtectPage");
 const AppsPage = lz<{ project: string }>(() => import("@/routes/apps"), "AppsPage");
 const AppPage = lz<{ project: string; app: string; deploy?: boolean }>(() => import("@/routes/apps"), "AppPage");
@@ -506,11 +507,11 @@ const runRoute = createRoute({
 const analytics = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/analytics",
-  validateSearch: (s: Record<string, unknown>): { period?: string } => ({ period: str(s.period) }),
+  validateSearch: analyticsSearch,
   loader: () => void AnalyticsPage.preload(),
   component: function Analytics() {
     const { project: p } = analytics.useParams();
-    return <AnalyticsPage key={p} project={p} period={analytics.useSearch().period} />;
+    return <AnalyticsPage key={p} project={p} search={analytics.useSearch()} />;
   },
 });
 const appsRoute = createRoute({

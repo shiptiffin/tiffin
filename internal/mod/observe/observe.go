@@ -45,6 +45,7 @@ type Module struct {
 	red       *RED
 	traces    *TraceStore
 	sampler   *Sampler
+	history   historyCache
 
 	pushErr    atomic.Value // string: last metrics push error
 	journalErr atomic.Value // string
@@ -130,6 +131,11 @@ func (m *Module) pushMetrics(ctx context.Context) error {
 	var buf bytes.Buffer
 	snap.Prometheus(&buf)
 	m.red.Prometheus(&buf)
+	for _, mod := range platform.Modules() {
+		if r, ok := mod.(platform.MetricsReporter); ok {
+			r.Metrics(ctx, &buf)
+		}
+	}
 	sent, dropped := m.batch.Stats()
 	fmt.Fprintf(&buf, "tiffin_observe_logs_shipped_total %d\ntiffin_observe_logs_dropped_total %d\n", sent, dropped)
 	err := m.vic.PushPrometheus(ctx, buf.Bytes())
