@@ -131,10 +131,22 @@ function BucketView({ project, bucket, prefix, file }: { project: string; bucket
   );
   const parts = prefix.split("/").filter(Boolean);
   const parent = parts.length > 1 ? `${parts.slice(0, -1).join("/")}/` : "";
-  const up = prefix ? () => go({ prefix: parent }) : undefined;
+  // Keyboard moves between folders keep the keyboard in the list: up lands on the folder you left, in on its first entry.
+  const [focusNext, setFocusNext] = useState<{ at: string; id?: string } | null>(null);
+  const up = prefix
+    ? () => {
+        setFocusNext({ at: parent, id: prefix });
+        go({ prefix: parent });
+      }
+    : undefined;
 
   // ---- actions
   const browser = useRef<BrowserHandle>(null);
+  useEffect(() => {
+    if (!focusNext || focusNext.at !== prefix || !list.isSuccess || entries.length === 0) return;
+    browser.current?.focus(focusNext.id);
+    setFocusNext(null); // eslint-disable-line react-hooks/set-state-in-effect
+  }, [focusNext, prefix, list.isSuccess, entries]);
   const searchRef = useRef<HTMLInputElement>(null);
   const filesInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -235,8 +247,7 @@ function BucketView({ project, bucket, prefix, file }: { project: string; bucket
           lede={
             b ? (
               <>
-                {b.public ? "Anyone with a link can read these files." : "Private: files open only with a link that expires."}{" "}
-                {total !== undefined && `${count(total, "file")}, ${bytes(b.bytes)}.`}
+                {total !== undefined && `${count(total, "file")}, ${bytes(b.bytes)}.`} {b.public ? "Anyone with a link can open them." : "They open only with links that expire."}
               </>
             ) : undefined
           }
@@ -436,9 +447,14 @@ function BucketView({ project, bucket, prefix, file }: { project: string; bucket
                   selected={selected}
                   onSelect={setSelected}
                   active={file}
-                  onOpen={(x) => (x.kind === "folder" ? go({ prefix: x.prefix }) : go({ prefix, file: x.o.key === file ? undefined : x.o.key }))}
+                  onOpen={(x) => {
+                    if (x.kind === "file") return go({ prefix, file: x.o.key === file ? undefined : x.o.key });
+                    setFocusNext({ at: x.prefix });
+                    go({ prefix: x.prefix });
+                  }}
                   onUp={up}
                   onEscape={file ? () => go({ prefix }) : undefined}
+                  onFind={() => searchRef.current?.focus()}
                   onDelete={canWrite ? (ids) => void remove(ids) : undefined}
                   onRename={canWrite ? setRenaming : undefined}
                   onLink={(x) => x.kind === "file" && void copyLink(x.o)}

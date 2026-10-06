@@ -31,7 +31,7 @@ export function KeysSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
           <DialogTitle>Keyboard shortcuts</DialogTitle>
           <DialogDescription>Press a letter, or G then a letter. They’re off while you type in a field.</DialogDescription>
         </DialogHeader>
-        <DialogBody className="grid gap-6">
+        <DialogBody className="grid gap-6" tabIndex={0} aria-label="Shortcuts">
           {page.map(([g, l]) => (
             <Group key={g} title={g} rows={l.map((s) => [s.keys, s.label, caps(s.keys)])} />
           ))}

@@ -12,7 +12,8 @@ export type Entry = { id: string; kind: "folder"; prefix: string; name: string }
 export type SortBy = "name" | "size" | "modified";
 export type Sort = { by: SortBy; dir: "asc" | "desc" };
 export type View = "list" | "grid";
-export type BrowserHandle = { focus: () => void };
+/** focus(id) puts the keyboard on that entry (the folder you came up from, say); focus() on the last one. */
+export type BrowserHandle = { focus: (id?: string) => void };
 
 const ICONS: Record<Kind, typeof File> = { image: FileImage, video: FileVideo, audio: FileAudio, pdf: FileText, text: FileText, file: File };
 
@@ -47,6 +48,8 @@ export const Browser = forwardRef<
     onUp?: () => void;
     /** Escape with nothing selected (closes the open file). */
     onEscape?: () => void;
+    /** "/" from the list: the page's search. */
+    onFind?: () => void;
     onDelete?: (ids: string[]) => void;
     onRename?: (e: Entry) => void;
     onLink: (e: Entry) => void;
@@ -68,6 +71,7 @@ export const Browser = forwardRef<
     onOpen,
     onUp,
     onEscape,
+    onFind,
     onDelete,
     onRename,
     onLink,
@@ -100,7 +104,7 @@ export const Browser = forwardRef<
   const [focus, setFocus] = useState(0);
   const [anchor, setAnchor] = useState<number | null>(null);
   const at = Math.min(focus, Math.max(0, entries.length - 1));
-  useImperativeHandle(ref, () => ({ focus: () => move(at) }));
+  useImperativeHandle(ref, () => ({ focus: (id?: string) => move(id ? Math.max(0, entries.findIndex((x) => x.id === id)) : at) }));
 
   const move = (i: number, extend = false) => {
     const n = Math.max(0, Math.min(entries.length - 1, i));
@@ -112,7 +116,11 @@ export const Browser = forwardRef<
     } else setAnchor(null);
     setFocus(n);
     v.scrollToIndex(Math.floor(n / cols));
-    requestAnimationFrame(() => scroller.current?.querySelector<HTMLElement>(`[data-cell="${n}"]`)?.focus());
+    // Focus now when the cell is rendered (keys typed quickly land on it), else once it scrolls in.
+    const cellAt = () => scroller.current?.querySelector<HTMLElement>(`[data-cell="${n}"]`);
+    const now = cellAt();
+    if (now) now.focus();
+    else requestAnimationFrame(() => cellAt()?.focus());
   };
   const toggle = (id: string) => {
     const s = new Set(selected);
@@ -191,6 +199,10 @@ export const Browser = forwardRef<
         if (!onDelete) return;
         onDelete(selected.size > 0 && selected.has(x.id) ? [...selected] : [x.id]);
         break;
+      case "/":
+        if (!onFind) return;
+        onFind();
+        break;
       case "F2":
         if (!onRename) return;
         onRename(x);
@@ -246,7 +258,7 @@ export const Browser = forwardRef<
       </span>
     );
     const actions = x.kind === "file" && (
-      <span className="relative z-[1] hidden shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 @lg:flex">
+      <span className="absolute top-1/2 right-0 z-[1] hidden -translate-y-1/2 items-center gap-0.5 rounded-[6px] bg-paper-sunk pl-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 @lg:flex">
         <a
           href={download(x.o.key)}
           download={x.name}
@@ -339,7 +351,7 @@ export const Browser = forwardRef<
         <span
           {...common}
           title={x.kind === "file" ? x.o.key : x.prefix}
-          className="flex min-w-0 items-center gap-2 self-stretch rounded-[5px] outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--focus)]"
+          className="relative flex min-w-0 items-center gap-2 self-stretch rounded-[5px] outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--focus)]"
         >
           {check}
           {x.kind === "folder" ? (

@@ -80,7 +80,7 @@ const recall = (u: Upload) => {
 export function refusal(b: StorageBucket | undefined, file: File): string {
   if (!b) return "";
   if (b.maxFileSize && file.size > b.maxFileSize)
-    return `Too big: ${b.name} takes files up to ${bytes(b.maxFileSize)}, and this one is ${bytes(file.size)}.`;
+    return `Too big: ${b.name} takes files up to ${bytes(b.maxFileSize)}, and this one is ${bytes(file.size) === bytes(b.maxFileSize) ? bytes(file.size, 2) : bytes(file.size)}.`;
   const type = mimeOf(file.name, file.type);
   if (!typeAllowed(b.allowedTypes, type)) return `${b.name} takes ${typesWords(b.allowedTypes).toLowerCase()} only; this is ${type}.`;
   return "";

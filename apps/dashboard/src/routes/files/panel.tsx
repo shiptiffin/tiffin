@@ -122,7 +122,7 @@ export function FilePanel({
         {kind === "pdf" && <iframe src={url()} title={`PDF ${name}`} className="block h-96 w-full bg-paper" />}
         {kind === "text" && small && text.data && (
           <Untrusted className="rounded-none border-0" label="File contents, shown as plain text">
-            <pre className="max-h-80 overflow-auto px-3.5 py-3 font-mono text-[0.75rem] leading-5 whitespace-pre-wrap text-ink-2">
+            <pre tabIndex={0} aria-label="File contents" className="max-h-80 overflow-auto px-3.5 py-3 font-mono text-[0.75rem] leading-5 whitespace-pre-wrap text-ink-2">
               {text.data.text != null ? prettyText(o.key, text.data.text) : "This file isn’t text."}
             </pre>
           </Untrusted>
@@ -265,10 +265,12 @@ function Resizer({ project, bucket, o }: { project: string; bucket: StorageBucke
   const shown = useQuery({
     queryKey: ["file-resized", project, bucket.name, o.key, o.etag, w, q, f],
     queryFn: async () => {
-      const r = await fetch(mod.fileUrl(project, bucket.name, o.key, params), { credentials: "same-origin" });
+      // Fetched once for its size; the preview then comes from the browser's cache (the page's CSP has no blob: images).
+      const src = mod.fileUrl(project, bucket.name, o.key, params);
+      const r = await fetch(src, { credentials: "same-origin" });
       if (!r.ok) throw new Error((await r.text()).trim() || `HTTP ${r.status}`);
       const blob = await r.blob();
-      return { size: blob.size, src: URL.createObjectURL(blob), type: blob.type };
+      return { size: blob.size, src, type: blob.type };
     },
     staleTime: Infinity,
     gcTime: 60_000,
@@ -380,7 +382,7 @@ import { ${bucket.public ? "publicUrl" : "signedUrl"} } from "tiffin-sdk/storage
             <span className="ident text-ink-3">image-loader.ts</span>
             <CopyButton value={snippet} label="Copy the snippet" className="size-7" />
           </div>
-          <pre className="overflow-x-auto px-3 py-2.5 font-mono text-[0.71875rem] leading-5 text-ink-2">
+          <pre tabIndex={0} aria-label="next/image snippet" className="overflow-x-auto px-3 py-2.5 font-mono text-[0.71875rem] leading-5 text-ink-2">
             <code>{snippet}</code>
           </pre>
         </div>

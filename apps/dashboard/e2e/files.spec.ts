@@ -23,8 +23,15 @@ const bucketUrl = (q = "") => `/projects/${project}/storage/${bucket}${q}`;
 const auth = () => ({ Authorization: `Bearer ${ownerToken()}` });
 
 async function put(request: APIRequestContext, baseURL: string, key: string, text: string) {
-  const res = await request.put(`${baseURL}/v1/projects/${project}/storage/buckets/${bucket}/objects`, { headers: auth(), data: { key, text } });
-  expect(res.ok(), await res.text()).toBeTruthy();
+  for (let i = 0; ; i++) {
+    const res = await request.put(`${baseURL}/v1/projects/${project}/storage/buckets/${bucket}/objects`, { headers: auth(), data: { key, text } });
+    if (res.status() === 429 && i < 30) {
+      await new Promise((r) => setTimeout(r, 1000)); // the box's rate limit: wait it out
+      continue;
+    }
+    expect(res.ok(), await res.text()).toBeTruthy();
+    return;
+  }
 }
 
 /** Zero serious or critical accessibility problems on what is on screen. */
@@ -48,15 +55,20 @@ async function settle(page: Page) {
 async function removeBucket(request: APIRequestContext, baseURL: string) {
   const m = await (await request.get(`${baseURL}/v1/projects/${project}/manifest`, { headers: auth() })).json();
   const buckets = m.manifest?.services?.storage?.buckets;
-  if (buckets?.[bucket]) {
+  const had = !!buckets?.[bucket];
+  if (had) {
     delete buckets[bucket];
     const plan = await (await request.post(`${baseURL}/v1/plan`, { headers: auth(), data: { manifest: m.manifest } })).json();
     const res = await request.post(`${baseURL}/v1/apply`, { headers: auth(), data: { manifest: m.manifest, confirm: plan.hash, intent: "Remove the e2e bucket" } });
     expect(res.ok(), await res.text()).toBeTruthy();
   }
-  const trash = await (await request.get(`${baseURL}/v1/storage/trash?project=${project}`, { headers: auth() })).json();
-  for (const t of (trash ?? []) as Array<{ id: string; bucket: string }>) {
-    if (t.bucket === bucket) await request.delete(`${baseURL}/v1/storage/trash/${t.id}`, { headers: auth() });
+  // The box moves it to the trash as it converges: wait for that, then empty it (else making it again brings it back).
+  for (let i = 0; i < 60; i++) {
+    const trash = (await (await request.get(`${baseURL}/v1/storage/trash?project=${project}`, { headers: auth() })).json()) as Array<{ id: string; bucket: string }> | null;
+    const mine = (trash ?? []).filter((t) => t.bucket === bucket);
+    for (const t of mine) await request.delete(`${baseURL}/v1/storage/trash/${t.id}`, { headers: auth() });
+    if (mine.length > 0 || (!had && i > 0)) return;
+    await new Promise((r) => setTimeout(r, 500));
   }
 }
 
@@ -124,7 +136,7 @@ test("upload files and a folder, with the bucket's rules checked first", async (
     { name: "big.png", mimeType: "image/png", buffer: Buffer.alloc(1_100_000, 1) },
     { name: "song.mp3", mimeType: "audio/mpeg", buffer: Buffer.from("ID3") },
   ]);
-  await expect(tray.getByText(/Too big: e2e-media takes files up to 1 MB/)).toBeVisible();
+  await expect(tray.getByText(/Too big: e2e-media takes files up to 1\sMB/)).toBeVisible();
   await expect(tray.getByText(/takes images only; this is audio\/mpeg/)).toBeVisible();
   // The API says the same to anyone who skips the console.
   const res = await request.post(`${baseURL}/v1/projects/${project}/storage/buckets/${bucket}/uploads`, {
@@ -186,7 +198,7 @@ test("browse: folders, search by name, sort, grid with thumbnails, keyboard", as
 
   // Sort by size, largest first.
   await page.getByRole("columnheader", { name: "Size" }).getByRole("button").click();
-  await page.getByRole("columnheader", { name: "Size" }).getByRole("button").click();
+  await expect(page.getByRole("columnheader", { name: "Size" })).toHaveAttribute("aria-sort", "descending");
   const names = await grid(page).getByRole("row").allInnerTexts();
   expect(names.findIndex((t) => t.includes("launch-video.mp4"))).toBeLessThan(names.findIndex((t) => t.includes("notes.json")));
 
@@ -203,7 +215,7 @@ test("browse: folders, search by name, sort, grid with thumbnails, keyboard", as
   await page.getByRole("radio", { name: "Grid" }).click();
   const thumb = grid(page).locator('img[src*="w=256"]').first();
   await expect(thumb).toBeVisible();
-  expect(await thumb.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBeTruthy();
+  await expect.poll(() => thumb.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0), { timeout: 15_000 }).toBeTruthy();
   await axe(page, "grid view");
   await page.getByRole("radio", { name: "List" }).click();
   await page.keyboard.press("?");
@@ -217,9 +229,9 @@ test("file panel: previews, a private link with an expiry, the resized-link buil
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto(bucketUrl("?file=bowl.png"));
   const panel = page.getByRole("complementary", { name: "File" });
-  await expect(panel.getByRole("img", { name: "Preview of bowl.png" })).toBeVisible();
+  await expect(panel.getByRole("img", { name: "Preview of bowl.png", exact: true })).toBeVisible();
   await expect(panel.getByText("image/png")).toBeVisible();
-  await expect(panel.getByText(/×/)).toBeVisible(); // pixel size
+  await expect(panel.getByText(/\d×\d/).first()).toBeVisible(); // pixel size
   // Private bucket: a signed link that works for a day.
   await panel.getByRole("combobox", { name: "How long the link works" }).selectOption({ label: "1 day" });
   await panel.getByRole("button", { name: "Copy private link" }).click();
@@ -291,9 +303,9 @@ test("rename, move and delete, each with Undo; a folder delete names what goes",
 });
 
 test("10,000 files scroll smoothly", async ({ page, request, baseURL }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(900_000);
   const keys = Array.from({ length: 10_000 }, (_, i) => `many/file-${String(i).padStart(5, "0")}.txt`);
-  for (let i = 0; i < keys.length; i += 100) await Promise.all(keys.slice(i, i + 100).map((k) => put(request, baseURL!, k, k)));
+  for (let i = 0; i < keys.length; i += 25) await Promise.all(keys.slice(i, i + 25).map((k) => put(request, baseURL!, k, k)));
   await page.goto(bucketUrl("?prefix=many%2F"));
   const t0 = Date.now();
   await expect(page.getByText("10,000 files")).toBeVisible({ timeout: 60_000 });
