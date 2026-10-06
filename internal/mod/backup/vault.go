@@ -433,11 +433,16 @@ func (v *vault) getTree(ctx context.Context, entries []treeEntry, dest string, o
 		return false
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	// On return, stop and wait for every fetch still running, so none
+	// outlives the call (a failed download returns early).
+	var wg sync.WaitGroup
+	defer func() { cancel(); wg.Wait() }()
 	// Fetch every chunk in order, getWorkers at a time; the writer below
 	// takes them in the same order.
 	queue := make(chan chan fetched, getWorkers)
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		defer close(queue)
 		sem := make(chan struct{}, getWorkers)
 		for i := range entries {
@@ -456,7 +461,9 @@ func (v *vault) getTree(ctx context.Context, entries []treeEntry, dest string, o
 				case <-ctx.Done():
 					return
 				}
+				wg.Add(1)
 				go func(id string) {
+					defer wg.Done()
 					defer func() { <-sem }()
 					ch <- v.fetchChunk(ctx, id)
 				}(id)
