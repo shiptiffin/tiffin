@@ -56,7 +56,7 @@ func TestRepo2Settings(t *testing.T) {
 	for _, want := range []string{"[global]\n", "repo2-type=s3\n", "repo2-path=/boxes/a/pgbackrest\n", "repo2-s3-endpoint=host.lima.internal\n",
 		"repo2-storage-port=9443\n", "repo2-s3-key-secret=s3cret\n", "repo2-cipher-type=aes-256-cbc\n", "repo2-cipher-pass=pass-phrase\n",
 		"repo2-retention-full-type=time\n", "repo2-retention-full=30\n", "repo2-storage-ca-file=" + offsiteCAPath + "\n", "repo2-s3-uri-style=path\n",
-		"[tiffin]\npg1-path=/var/lib/tiffin/postgres/"} {
+		"repo2-bundle-size=2MiB\n", "[global:restore]\nprocess-max=8\n\n", "[tiffin]\npg1-path=/var/lib/tiffin/postgres/"} {
 		if !strings.Contains(conf, want) {
 			t.Errorf("conf lacks %q:\n%s", want, conf)
 		}

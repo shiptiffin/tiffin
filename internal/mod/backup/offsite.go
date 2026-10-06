@@ -339,6 +339,11 @@ func repo2Options(c *OffsiteConfig, s *offsiteSecrets) [][2]string {
 		{"repo2-retention-full-type", "time"},
 		{"repo2-retention-full", strconv.Itoa(c.RetentionDays)},
 		{"repo2-bundle", "y"},
+		// A restore reads each bundled file with a request of its own, and a
+		// bundle is one worker's job: small bundles spread those requests
+		// over the restore's workers (the default 20MiB put a cluster's
+		// ~600 small files in one, 46 s of serial requests to R2).
+		{"repo2-bundle-size", "2MiB"},
 		{"repo2-block", "y"},
 	}
 	if port != "" && port != "443" {
@@ -360,6 +365,8 @@ func offConf(c *OffsiteConfig, s *offsiteSecrets) string {
 		b.WriteString(kv[0] + "=" + kv[1] + "\n")
 	}
 	b.WriteString("start-fast=y\ncompress-type=zst\ncompress-level=3\nprocess-max=2\nlog-level-console=warn\nlog-level-file=info\nlog-path=" + LogPath + "\n\n")
+	// Restores (and drills) from the bucket wait on requests, not the CPU.
+	b.WriteString("[global:restore]\nprocess-max=8\n\n")
 	b.WriteString("[" + Stanza + "]\npg1-path=" + postgres.DataDir + "\npg1-socket-path=" + postgres.SocketDir + "\npg1-port=5432\n")
 	return b.String()
 }
