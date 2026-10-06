@@ -662,15 +662,33 @@ func (v *vault) prune(ctx context.Context, drop func(id string) bool, refs func(
 	if err != nil {
 		return res, err
 	}
+	var garbage []string
 	for c := range all {
 		if !used[c] {
-			if err := v.st.Delete(ctx, v.chunkKey(c)); err != nil {
-				return res, err
-			}
-			res.Chunks++
+			garbage = append(garbage, v.chunkKey(c))
 		}
 	}
+	if err := deleteKeys(ctx, v.st, garbage); err != nil {
+		return res, err
+	}
+	res.Chunks = len(garbage)
 	return res, nil
+}
+
+// deleteKeys deletes keys: in batches when the store can (one request per
+// 1000 keys instead of one each, which counts on a store across the internet).
+func deleteKeys(ctx context.Context, st objectStore, keys []string) error {
+	if m, ok := st.(interface {
+		DeleteMany(context.Context, []string) error
+	}); ok {
+		return m.DeleteMany(ctx, keys)
+	}
+	for _, k := range keys {
+		if err := st.Delete(ctx, k); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // treeChunks is every chunk ID a tree uses.

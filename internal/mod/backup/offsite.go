@@ -208,7 +208,7 @@ func putStatus(ctx context.Context, p *platform.Platform, s offsiteStatus) {
 // OffsiteInput is what `tiffin backups offsite set` sends.
 type OffsiteInput struct {
 	Endpoint        string `json:"endpoint" maxLength:"300" doc:"The S3 endpoint, e.g. https://<account>.r2.cloudflarestorage.com, https://s3.eu-central-1.amazonaws.com, https://fsn1.your-objectstorage.com (HTTPS)"`
-	Region          string `json:"region,omitempty" maxLength:"64" doc:"Signing region (default us-east-1; R2: auto)"`
+	Region          string `json:"region,omitempty" maxLength:"64" doc:"Signing region (default: auto for an R2 endpoint, us-east-1 otherwise)"`
 	Bucket          string `json:"bucket" maxLength:"63" doc:"Bucket name (it must exist)"`
 	Prefix          string `json:"prefix,omitempty" maxLength:"200" doc:"Folder in the bucket for this box (default tiffin); one prefix per box"`
 	AccessKeyID     string `json:"accessKeyId" maxLength:"200" doc:"Access key ID"`
@@ -242,6 +242,9 @@ func normalize(in OffsiteInput, prev *OffsiteConfig) (*OffsiteConfig, error) {
 		CACert: strings.TrimSpace(in.CACert), RetentionDays: in.RetentionDays}
 	if c.Region == "" {
 		c.Region = "us-east-1"
+		if strings.HasSuffix(u.Hostname(), ".r2.cloudflarestorage.com") {
+			c.Region = "auto" // R2 signs for "auto"
+		}
 	}
 	if c.Prefix == "" {
 		c.Prefix = "tiffin"

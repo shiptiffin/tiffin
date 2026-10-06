@@ -21,7 +21,7 @@ func TestNormalizeOffsite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Endpoint != "https://acct.r2.cloudflarestorage.com" || c.Region != "us-east-1" || c.Prefix != "tiffin" || c.URIStyle != "path" || c.RetentionDays != 30 {
+	if c.Endpoint != "https://acct.r2.cloudflarestorage.com" || c.Region != "auto" || c.Prefix != "tiffin" || c.URIStyle != "path" || c.RetentionDays != 30 {
 		t.Fatalf("defaults: %+v", c)
 	}
 	for _, bad := range []OffsiteInput{
@@ -39,6 +39,12 @@ func TestNormalizeOffsite(t *testing.T) {
 	c, _ = normalize(OffsiteInput{Endpoint: "https://fsn1.your-objectstorage.com:8443/", Bucket: "b", AccessKeyID: "k", Prefix: "/boxes/shop/", Region: "fsn1"}, &OffsiteConfig{RetentionDays: 90})
 	if c.Endpoint != "https://fsn1.your-objectstorage.com:8443" || c.Prefix != "boxes/shop" || c.RetentionDays != 90 || c.Region != "fsn1" {
 		t.Fatalf("normalized: %+v", c)
+	}
+	// Region: R2 signs for "auto" (an EU jurisdiction endpoint too), others default to us-east-1.
+	for ep, want := range map[string]string{"https://acct.eu.r2.cloudflarestorage.com": "auto", "https://s3.example.com": "us-east-1", "https://r2.cloudflarestorage.com.example.com": "us-east-1"} {
+		if c, _ := normalize(OffsiteInput{Endpoint: ep, Bucket: "b", AccessKeyID: "k"}, nil); c.Region != want {
+			t.Errorf("%s: region %q, want %q", ep, c.Region, want)
+		}
 	}
 }
 

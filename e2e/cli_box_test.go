@@ -29,6 +29,17 @@ type cliBox struct {
 	port     int
 	env      []string
 	project  string
+	hide     func(string) string // masks values that must not show in failure messages
+}
+
+// fatalf fails the test, with hide applied to the message.
+func (b *cliBox) fatalf(format string, a ...any) {
+	b.t.Helper()
+	msg := fmt.Sprintf(format, a...)
+	if b.hide != nil {
+		msg = b.hide(msg)
+	}
+	b.t.Fatal(msg)
 }
 
 func newCLIBox(t *testing.T, label, project string) *cliBox {
@@ -56,15 +67,25 @@ func newCLIBox(t *testing.T, label, project string) *cliBox {
 
 func (b *cliBox) run(args ...string) (int, string) {
 	b.t.Helper()
+	return b.runWith("", args...)
+}
+
+// runWith runs a CLI command with stdin (for a --body-file - that holds a
+// secret, which must not show in the arguments or in failure messages).
+func (b *cliBox) runWith(stdin string, args ...string) (int, string) {
+	b.t.Helper()
 	cmd := exec.Command(b.cli, args...)
 	cmd.Env, cmd.Dir = b.env, b.dir
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	out, err := cmd.Output()
 	code := 0
 	if ee, ok := err.(*exec.ExitError); ok {
 		code = ee.ExitCode()
 		out = append(out, ee.Stderr...)
 	} else if err != nil {
-		b.t.Fatalf("tiffin %v: %v", args, err)
+		b.fatalf("tiffin %v: %v", args, err)
 	}
 	return code, string(out)
 }
@@ -74,7 +95,7 @@ func (b *cliBox) ok(args ...string) map[string]any {
 	b.t.Helper()
 	code, out := b.run(args...)
 	if code != 0 {
-		b.t.Fatalf("tiffin %s: exit %d\n%s", strings.Join(args, " "), code, out)
+		b.fatalf("tiffin %s: exit %d\n%s", strings.Join(args, " "), code, out)
 	}
 	var m map[string]any
 	_ = json.Unmarshal([]byte(out), &m)
@@ -86,11 +107,11 @@ func (b *cliBox) list(args ...string) []map[string]any {
 	b.t.Helper()
 	code, out := b.run(args...)
 	if code != 0 {
-		b.t.Fatalf("tiffin %s: exit %d\n%s", strings.Join(args, " "), code, out)
+		b.fatalf("tiffin %s: exit %d\n%s", strings.Join(args, " "), code, out)
 	}
 	var l []map[string]any
 	if err := json.Unmarshal([]byte(out), &l); err != nil {
-		b.t.Fatalf("tiffin %s: not a JSON array: %s", strings.Join(args, " "), out)
+		b.fatalf("tiffin %s: not a JSON array: %s", strings.Join(args, " "), out)
 	}
 	return l
 }
@@ -100,7 +121,7 @@ func (b *cliBox) inBox(script string) string {
 	b.t.Helper()
 	out, err := exec.Command("limactl", "shell", "--workdir", "/", b.instance, "--", "bash", "-c", script).CombinedOutput()
 	if err != nil {
-		b.t.Fatalf("in box %q: %v\n%s", script, err, out)
+		b.fatalf("in box %q: %v\n%s", script, err, out)
 	}
 	return strings.TrimSpace(string(out))
 }
@@ -115,7 +136,7 @@ func (b *cliBox) apply(name, manifest string) string {
 	plan := b.ok("plan", path)
 	hash, _ := plan["hash"].(string)
 	if len(hash) < 12 {
-		b.t.Fatalf("plan: %v", plan)
+		b.fatalf("plan: %v", plan)
 	}
 	res := b.ok("apply", path, "--confirm", hash[:12], "-m", "e2e "+name)
 	ch, _ := res["change"].(map[string]any)
@@ -140,7 +161,7 @@ func (b *cliBox) waitReady(addrs ...string) {
 		for _, a := range addrs {
 			s := st.Status[a]
 			if s.State == "failed" {
-				b.t.Fatalf("%s failed: %s", a, s.Message)
+				b.fatalf("%s failed: %s", a, s.Message)
 			}
 			done = done && s.State == "ready"
 		}
@@ -148,7 +169,7 @@ func (b *cliBox) waitReady(addrs ...string) {
 			return
 		}
 		if time.Now().After(deadline) {
-			b.t.Fatalf("not ready in time: %s", out)
+			b.fatalf("not ready in time: %s", out)
 		}
 		time.Sleep(time.Second)
 	}
@@ -187,7 +208,7 @@ func (b *cliBox) get(c *http.Client, method, u string, body io.Reader) (int, htt
 	}
 	res, err := c.Do(req)
 	if err != nil {
-		b.t.Fatalf("%s %s: %v", method, u, err)
+		b.fatalf("%s %s: %v", method, u, err)
 	}
 	defer res.Body.Close()
 	raw, _ := io.ReadAll(res.Body)
