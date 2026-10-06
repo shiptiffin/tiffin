@@ -135,35 +135,28 @@ with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
         snippets: [
           {
             label: "@shiptiffin/sdk",
-            code: `import { kv } from "@shiptiffin/sdk/kv";
+            code: `import { kv } from "@shiptiffin/sdk/kv"; // reads REDIS_URL and VALKEY_PREFIX
 
-const store = kv(); // REDIS_URL, with VALKEY_PREFIX added to every key
-await store.set("session:42", JSON.stringify({ user: 42 }), { ttl: 3600 }); // with an expiry: cache
-const rl = await store.rateLimit("login:" + ip, { limit: 5, windowSec: 60 });`,
+const store = kv();
+await store.set("session:42", { user: 42 }, { ex: 3600 }); // with an expiry: cache
+const session = await store.get<{ user: number }>("session:42");
+const rl = await store.rateLimit(\`login:\${ip}\`, { limit: 5, window: "1 m" });`,
           },
           {
-            label: "ioredis",
-            code: `import Redis from "ioredis";
+            label: "iovalkey",
+            code: `import Valkey from "iovalkey"; // or ioredis: the same API
 
-export const redis = new Redis(process.env.REDIS_URL!, { keyPrefix: process.env.VALKEY_PREFIX });
-await redis.set("session:42", JSON.stringify({ user: 42 }), "EX", 3600); // with an expiry: cache`,
+// keyPrefix covers commands and script KEYS, not SCAN (which apps may not run here anyway).
+export const valkey = new Valkey(process.env.REDIS_URL!, { keyPrefix: process.env.VALKEY_PREFIX });
+await valkey.set("flags", JSON.stringify({ beta: true })); // no expiry: kept`,
           },
           {
-            label: "Bun.redis",
-            code: `import { redis } from "bun"; // reads REDIS_URL
-
-const key = (k: string) => process.env.VALKEY_PREFIX + k;
-await redis.set(key("flags"), JSON.stringify({ beta: true })); // no expiry: kept
-const flags = await redis.get(key("flags"));`,
-          },
-          {
-            label: "Moving from Upstash",
+            label: "From Vercel KV",
             code: `import { Redis } from "@upstash/redis";
 
-// Code from Upstash or Vercel KV runs unchanged: it reads UPSTASH_REDIS_REST_URL
-// and _TOKEN, and the box adds the prefix for you.
-export const redis = Redis.fromEnv();
-await redis.set("flags", { beta: true });`,
+// An app moving from Vercel KV or Upstash runs unchanged: the box sets
+// UPSTASH_REDIS_REST_* and KV_REST_API_* and adds the prefix for you.
+export const redis = Redis.fromEnv();`,
           },
         ],
         computer: (

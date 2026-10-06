@@ -26,6 +26,7 @@ export class RespClient {
     have = 0;
     need = 0;
     downUntil = 0;
+    fails = 0;
     timer;
     constructor(url, 
     /** A command with no reply after this long fails, and the connection is reset. */
@@ -54,6 +55,10 @@ export class RespClient {
     }
     enqueue(cmd) {
         return new Promise((resolve, reject) => {
+            // The socket keeps the process alive only while a reply is due, so a
+            // script that is done exits without close().
+            if (this.waiters.length === 0)
+                this.sock?.ref();
             this.waiters.push({ resolve, reject });
             this.out.push(encode(cmd));
             if (!this.timer)
@@ -98,6 +103,7 @@ export class RespClient {
             if (this.sock !== sock)
                 return;
             this.ready = true;
+            this.fails = 0;
             this.flush();
         });
         sock.on("data", (d) => {
@@ -131,9 +137,10 @@ export class RespClient {
         if (this.timer)
             clearTimeout(this.timer);
         this.timer = undefined;
-        // After a failure, fail fast for a moment instead of queueing behind a dead server.
+        // After a failure, fail fast for a moment instead of queueing behind a
+        // dead server: 0.2 s, doubling to 5 s while it stays down.
         if (down)
-            this.downUntil = Date.now() + 1000;
+            this.downUntil = Date.now() + Math.min(5000, 100 * 2 ** ++this.fails);
         const ws = this.waiters;
         this.waiters = [];
         for (const w of ws)
@@ -170,6 +177,8 @@ export class RespClient {
         this.timer = undefined;
         if (this.waiters.length > 0)
             this.arm();
+        else
+            this.sock?.unref();
     }
 }
 /** Parses a connection URL. redis+unix://user:pass@/path is not a WHATWG URL, so unix ones are split by hand. */
