@@ -22,7 +22,8 @@ export default defineConfig({
 });
 ```
 
-Revalidate as usual: `revalidateTag("posts", { expire: 0 })`, `revalidatePath("/blog")`.
+Revalidate as usual: `revalidatePath("/blog")`, `revalidateTag("posts", "max")`,
+`updateTag("posts")` in a Server Action.
 
 Elsewhere (a prebuilt image, or your own next.config), wire them by hand:
 
@@ -33,7 +34,6 @@ const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 
 export default {
   cacheHandler: here("./cache-handler.mjs"),   // ISR, route handlers, fetch, unstable_cache
-  cacheMaxMemorySize: 0,                       // Valkey holds the cache
   // With cacheComponents ("use cache"), also:
   // cacheHandlers: { default: here("./use-cache-handler.mjs"), remote: here("./use-cache-handler.mjs") },
 };
@@ -48,14 +48,32 @@ export { default } from "tiffin-sdk/next/use-cache";
 
 ## How it works
 
-- Entries live under `<VALKEY_PREFIX>next:<app>:<BUILD_ID>:`, so a new deploy never serves
-  HTML rendered against another build's assets, and a rollback finds its own cache again.
-- Tag revalidation times live in one hash, `<VALKEY_PREFIX>next:<app>:tags`, shared by all
-  builds and instances. A cached entry older than any of its tags (or its path's soft tags)
-  is a miss.
-- Without `REDIS_URL` (local `next dev`, `next build`, or a project without Valkey) the
-  handlers fall back to an in-memory store: correct for one process, not shared.
-- Valkey errors never break a page: a failed read is a miss, a failed write is skipped.
-- Not on Bun? Pass a client: `configure({ client: new Redis(process.env.REDIS_URL) })`
-  (ioredis or node-redis) in the handler file before re-exporting.
-- `revalidateTag(tag, "max")` (stale-while-revalidate) is treated as an immediate expiry.
+- Entries live under `<VALKEY_PREFIX>next:<app>:<env>:<deploy>:`, where `<env>` is `prod` or
+  `pr-<preview>` and `<deploy>` is `TIFFIN_DEPLOY`. (With `deploymentId` set, Next.js gives
+  every build the same BUILD_ID, so it cannot tell releases apart.) A new release or a
+  preview never serves pages another one rendered, and a rollback finds its own entries again.
+- Tag revalidations live in `<VALKEY_PREFIX>next:<app>:<env>:tags`, shared by every
+  deploy and instance of the environment; a preview's revalidations never reach
+  production. Fields older than the longest entry lifetime (30 days) are pruned.
+- Pages and route handlers are checked against the tags in their `x-next-cache-tags`
+  header, which includes the implicit path tags, so `revalidatePath` and `revalidateTag`
+  reach ISR pages and cached GET route handlers, as with Next.js's own file-system cache.
+- Revalidation works as in Next.js 16: `revalidatePath`, `updateTag` and
+  `revalidateTag(tag, { expire: 0 })` expire entries now; `revalidateTag(tag, "max")` (or
+  another profile) marks them stale, so the next request gets the old entry once while Next.js
+  regenerates it, and they expire after the profile's `expire`. `updateTag` reads its own
+  write: the Server Action's response and every later request see fresh data.
+- Each process keeps a bounded copy of recent entries (32 MB; `configure({ memoryBytes })`),
+  checked against the tags on every use and read again from Valkey once past `revalidate`
+  (or after 10 s), so instances converge on one rendering. A request costs one small read
+  of a revalidation counter, sent together with the entry read on a miss; the tag hash is
+  read only when the counter moved. Page bodies are stored as bytes, not base64 JSON.
+- The handlers talk to Valkey with a small built-in client, on Bun or Node (`next start`
+  under plain Node keeps the shared cache). Without `REDIS_URL` (local `next dev`,
+  `next build`, or a project without Valkey) they use an in-memory store: correct for one
+  process, not shared.
+- Valkey errors never break a page: a failed read is a miss, a failed write is skipped. A
+  Valkey that does not answer within 2 s counts as failed.
+- Your own client: `configure({ client: new Redis(process.env.REDIS_URL) })` (ioredis,
+  node-redis or Bun's RedisClient) in the handler file before re-exporting. Entries are then
+  stored base64-encoded, since those clients return text.

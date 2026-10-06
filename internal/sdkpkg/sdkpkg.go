@@ -266,11 +266,12 @@ func (o *ordered) marshal() ([]byte, error) {
 
 // NextCacheHandlers returns tiffin-sdk's Next.js cache handlers as plain ESM
 // files (name → contents): cache-handler.js and use-cache.js, which import
-// ./store.js. The box writes them into Next.js builds next to its adapter, so
-// an app gets the shared cache without depending on tiffin-sdk.
+// ./store.js, which imports ./resp.js. The box writes them into Next.js builds
+// next to its adapter, so an app gets the shared cache without depending on
+// tiffin-sdk.
 func NextCacheHandlers() (map[string][]byte, error) {
 	out := map[string][]byte{}
-	for _, name := range []string{"store.js", "cache-handler.js", "use-cache.js"} {
+	for _, name := range []string{"resp.js", "store.js", "cache-handler.js", "use-cache.js"} {
 		b, err := files.ReadFile("files/tiffin-sdk/lib/next/" + name)
 		if err != nil {
 			return nil, err

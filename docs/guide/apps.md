@@ -322,8 +322,12 @@ with Next.js 16.2 or later, the box adds its adapter to every build
   instead of mixing builds.
 - With Valkey in the project (`services: { valkey: {} }`): `cacheHandler` and
   `cacheHandlers` (`default`, `remote`) from `tiffin-sdk/next`, and `cacheMaxMemorySize: 0`,
-  so every instance and preview shares one cache and `revalidateTag` reaches all of
-  them. It takes effect on the next deploy after adding Valkey.
+  so the instances of an app share one cache and `revalidatePath`, `revalidateTag` and
+  `updateTag` reach all of them (`revalidateTag(tag, "max")` serves the old page once
+  while it regenerates, as in Next.js). Cached pages belong to their deploy: a new
+  release renders afresh and a rollback finds its old ones. Production and each preview
+  have their own cache and revalidations. It takes effect on the next deploy after adding
+  Valkey.
 - `compress: false`: the edge compresses.
 - `images.maximumDiskCacheSize`: 512 MB. Optimized images live in a directory per app
   environment, shared by its instances and kept across deploys (deleted with the

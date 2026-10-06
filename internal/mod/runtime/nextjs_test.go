@@ -22,7 +22,7 @@ func TestPrepareNextWritesTheAdapter(t *testing.T) {
 	if env[nextAdapterEnv] != nextAdapterPath || img[nextAdapterEnv] != nextAdapterPath {
 		t.Fatalf("env %v, image env %v", env, img)
 	}
-	for _, f := range []string{"adapter.js", "package.json", "cache-handler.js", "use-cache.js", "store.js"} {
+	for _, f := range []string{"adapter.js", "package.json", "cache-handler.js", "use-cache.js", "store.js", "resp.js"} {
 		if !exists(filepath.Join(src, nextDir, f)) {
 			t.Errorf("%s not written", f)
 		}

@@ -28,14 +28,7 @@ export interface CacheEntry {
   revalidate: number;
 }
 
-interface Stored {
-  value: Uint8Array;
-  tags: string[];
-  stale: number;
-  timestamp: number;
-  expire: number;
-  revalidate: number;
-}
+type Meta = Omit<CacheEntry, "value">;
 
 export interface UseCacheHandler {
   get(cacheKey: string, softTags: string[]): Promise<CacheEntry | undefined>;
@@ -48,19 +41,31 @@ export interface UseCacheHandler {
 /** Creates a handler; the default export is one with default options. */
 export function createUseCacheHandler(o: StoreOptions = {}): UseCacheHandler {
   let store: Store | undefined;
-  const s = () => (store ??= new Store(o));
+  const s = () => (store ??= Store.open(o));
   const pending = new Map<string, Promise<void>>();
 
   return {
+    // Like Next.js's own handlers, with stale-while-revalidate kept: an entry
+    // past `revalidate` (or with a tag marked stale, revalidate -1) is served
+    // while Next.js regenerates it in the background; past `expire`, or with
+    // an expired tag (its own or the page's implicit ones), it is a miss.
     async get(cacheKey, softTags) {
       await pending.get(cacheKey);
       try {
-        const e = await s().getJSON<Stored>(s().entryKey("u", cacheKey));
-        if (!e) return undefined;
-        if (Date.now() > e.timestamp + e.revalidate * 1000) return undefined;
-        const tags = [...e.tags, ...softTags];
-        if (tags.length > 0 && (await s().tagsExpiredAt(tags)) > e.timestamp) return undefined;
-        const bytes = e.value;
+        // refreshTags() ran for this request, so the tag state is current.
+        let item = await s().read<Meta>("u", cacheKey);
+        if (!item) return undefined;
+        const tagsOf = (m: Meta) => (softTags.length > 0 ? [...m.tags, ...softTags] : m.tags);
+        if (s().expired(tagsOf(item.meta), item.meta.timestamp) || s().stale(tagsOf(item.meta), item.meta.timestamp)) {
+          // Outdated copy: another instance may have regenerated it already.
+          item = await s().read<Meta>("u", cacheKey, true);
+          if (!item) return undefined;
+        }
+        const m = item.meta;
+        const tags = tagsOf(m);
+        if (Date.now() > m.timestamp + m.expire * 1000) return undefined;
+        if (s().expired(tags, m.timestamp)) return undefined;
+        const bytes = item.value as Uint8Array;
         return {
           value: new ReadableStream<Uint8Array>({
             start(c) {
@@ -68,11 +73,11 @@ export function createUseCacheHandler(o: StoreOptions = {}): UseCacheHandler {
               c.close();
             },
           }),
-          tags: e.tags,
-          stale: e.stale,
-          timestamp: e.timestamp,
-          expire: e.expire,
-          revalidate: e.revalidate,
+          tags: m.tags,
+          stale: m.stale,
+          timestamp: m.timestamp,
+          expire: m.expire,
+          revalidate: s().stale(tags, m.timestamp) ? -1 : m.revalidate,
         };
       } catch (err) {
         warnOnce(`"use cache" get failed, treating as a miss: ${String(err)}`);
@@ -92,13 +97,19 @@ export function createUseCacheHandler(o: StoreOptions = {}): UseCacheHandler {
           if (end) break;
           chunks.push(value);
         }
-        const value = Buffer.concat(chunks.map((c) => Buffer.from(c)));
+        // expire 0 is dynamic: Next.js regenerates it on every read anyway.
+        if (entry.expire === 0) return;
+        const value = Buffer.concat(chunks);
+        const meta = {
+          tags: entry.tags,
+          stale: entry.stale,
+          timestamp: entry.timestamp,
+          expire: entry.expire,
+          revalidate: entry.revalidate,
+          fresh: entry.timestamp + entry.revalidate * 1000,
+        };
         const ttl = Number.isFinite(entry.expire) && entry.expire > 0 ? entry.expire : s().maxTtl;
-        await s().setJSON(
-          s().entryKey("u", cacheKey),
-          { value, tags: entry.tags, stale: entry.stale, timestamp: entry.timestamp, expire: entry.expire, revalidate: entry.revalidate },
-          ttl,
-        );
+        await s().write("u", cacheKey, meta, value, ttl);
       } catch (err) {
         // A failed render or store just means a miss next time.
         warnOnce(`"use cache" set failed: ${String(err)}`);
@@ -110,21 +121,20 @@ export function createUseCacheHandler(o: StoreOptions = {}): UseCacheHandler {
 
     async refreshTags() {
       try {
-        await s().refreshTags();
+        await s().sync();
       } catch (err) {
         warnOnce(`refreshing tags failed: ${String(err)}`);
       }
     },
 
-    async getExpiration(tags) {
-      let max = 0;
-      for (const t of tags) max = Math.max(max, s().tagTimes.get(t) ?? 0);
-      return max;
+    // Infinity tells Next.js that get() checks the implicit (path) tags itself.
+    async getExpiration() {
+      return Infinity;
     },
 
-    async updateTags(tags) {
+    async updateTags(tags, durations) {
       try {
-        await s().revalidate(tags);
+        await s().updateTags(tags, durations);
       } catch (err) {
         warnOnce(`revalidating tags failed: ${String(err)}`);
       }
