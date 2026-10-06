@@ -255,6 +255,7 @@ for (const driver of ["bun", "resp"] as const) {
         expect(e.message).toMatch(/over this project's memory limit, so writes are refused/);
         const rl = (await s.rateLimit("x", { limit: 1, window: 1 }).catch((x: unknown) => x)) as KVError;
         expect(rl.message).toMatch(/memory limit/);
+        expect(((await s.lpop("before").catch((x: unknown) => x)) as KVError).message).toMatch(/memory limit/);
         expect(await s.get<any>("before")).toBe("x");
         expect(await s.del("before")).toBe(1);
       } finally {
@@ -284,6 +285,7 @@ for (const driver of ["bun", "resp"] as const) {
       // As the project's user: SCAN is refused; without the box's endpoint, say so.
       const e = (await s.keys("scan:*").catch((x: unknown) => x)) as KVError;
       expect(e.code).toBe("NOPERM");
+      expect(e.message).toMatch(/SCAN is not available to apps/);
       // With it (its token names this project), the endpoint lists the keys.
       const calls: unknown[] = [];
       const box = Bun.serve({

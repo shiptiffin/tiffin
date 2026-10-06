@@ -32,12 +32,10 @@ export interface RedisLike {
   close?(): void;
 }
 
-// Commands that Tiffin's cache limit refuses while a project is over it.
-const WRITES = new Set(
-  "SET MSET INCR INCRBY INCRBYFLOAT DECR DECRBY HSET HINCRBY LPUSH RPUSH LTRIM SADD ZADD ZINCRBY EVAL EVALSHA APPEND SETRANGE LSET HSETNX SETNX SETEX PSETEX".split(
-    " ",
-  ),
-);
+// Commands a project's Valkey user never may run on Tiffin (they reach past
+// its prefix or the server). Any other refused command is a write refused
+// because the project is over its memory limit (or a build's read-only user).
+const NEVER = new Set("SCAN KEYS RANDOMKEY SELECT MOVE SWAPDB FLUSHDB FLUSHALL CONFIG DEBUG SHUTDOWN MONITOR ACL SAVE BGSAVE BGREWRITEAOF REPLICAOF SLAVEOF FAILOVER CLUSTER MIGRATE SORT SORT_RO".split(" "));
 
 /** Turns a server or connection error into a KVError with a plain message. */
 export function kvError(e: unknown, cmd = ""): KVError {
@@ -51,12 +49,13 @@ export function kvError(e: unknown, cmd = ""): KVError {
   if (code === "OOM")
     return new KVError(`KV is full: the box's Valkey is over its memory limit, so ${c} was refused. Delete keys or give them an expiry. (${msg})`, code);
   if (code === "NOPERM") {
-    if (/to run the '/.test(msg) && WRITES.has(c))
+    if (/to run the '/.test(msg) && NEVER.has(c))
+      return new KVError(`KV: ${c} is not available to apps on Tiffin (one Valkey is shared by every project). (${msg})`, code);
+    if (/to run the '/.test(msg))
       return new KVError(
-        `KV is over this project's memory limit, so writes are refused until it is back under it (reads and deletes still work). Delete keys, give them an expiry, or raise services.valkey.maxMemoryMB. (${msg})`,
+        `KV is over this project's memory limit, so writes are refused until it is back under it (reads and deletes still work). Delete keys, give them an expiry, or raise services.valkey.maxMemoryMB. During a build, KV is read-only. (${msg})`,
         code,
       );
-    if (/to run the '/.test(msg)) return new KVError(`KV: ${c} is not available to apps on Tiffin (one Valkey is shared by every project). (${msg})`, code);
     return new KVError(`KV: that key or channel is outside this project's prefix. Pass plain names; the SDK adds VALKEY_PREFIX. (${msg})`, code);
   }
   if (code === "WRONGPASS" || code === "NOAUTH")
