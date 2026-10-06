@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/ids"
+	"github.com/btahir/tiffin/internal/platform"
 )
 
 // Minor updates. The PGDG packages are outside unattended-upgrades'
@@ -510,17 +512,54 @@ func (b sysBox) Refresh(ctx context.Context) error {
 	if _, err := os.Stat(list); err != nil {
 		return err
 	}
-	_, err := b.run(ctx, "apt-get", append(aptOpts, "-o", "Dir::Etc::sourcelist="+list, "-o", "Dir::Etc::sourceparts=-",
-		"-o", "APT::Get::List-Cleanup=0", "update", "-q")...)
+	_, err := retryApt(ctx, func() (string, error) {
+		return b.run(ctx, "apt-get", append(aptOpts, "-o", "Dir::Etc::sourcelist="+list, "-o", "Dir::Etc::sourceparts=-",
+			"-o", "APT::Get::List-Cleanup=0", "update", "-q")...)
+	})
 	return err
 }
 
+// Policy reads the installed and candidate versions.
 func (b sysBox) Policy(ctx context.Context, pkgs []string) (map[string]aptState, error) {
-	out, err := b.run(ctx, "apt-cache", append([]string{"policy"}, pkgs...)...)
+	out, err := retryApt(ctx, func() (string, error) { return b.run(ctx, "apt-cache", append([]string{"policy"}, pkgs...)...) })
 	if err != nil {
 		return nil, err
 	}
 	return parsePolicy(out), nil
+}
+
+// apt-cache takes no lock: it fails ("Cache is out of sync") while an
+// apt-get update rewrites the package index, which the daily apt timer or
+// a provisioner may run at any time; an update fails while another holds
+// the index's lock. retryApt tries again for a minute.
+var (
+	aptTries = 20
+	aptWait  = 3 * time.Second
+)
+
+func retryApt(ctx context.Context, f func() (string, error)) (string, error) {
+	for try := 1; ; try++ {
+		out, err := f()
+		if err == nil || try == aptTries {
+			return out, err
+		}
+		select {
+		case <-ctx.Done():
+			return out, err
+		case <-time.After(aptWait):
+		}
+	}
+}
+
+// installedStates reads installed versions from dpkg, which never fails
+// while apt rewrites its index (apt-cache can).
+func installedStates(ctx context.Context, pkgs []string) map[string]aptState {
+	sys := platform.NewSystem(nil)
+	states := map[string]aptState{}
+	for _, p := range pkgs {
+		states[p] = aptState{Installed: sys.InstalledVersion(ctx, p)}
+	}
+	return states
 }
 
 // parsePolicy reads `apt-cache policy` output.
@@ -721,15 +760,33 @@ func runUpdate(ctx context.Context, b updateBox, o runOpts) (*PGUpdate, updatePl
 	return u, plan, noteUpdate(u, plan)
 }
 
+// HoldUpdates keeps Postgres updates (the window's, --now, tiffin up's)
+// from starting until release is called, or this process exits: a Tiffin
+// update restarts the service the window's Postgres update runs in. It
+// returns ErrUpdating while one runs.
+func HoldUpdates() (release func(), err error) {
+	if err := os.MkdirAll(filepath.Dir(maintPath), 0o755); err != nil {
+		return nil, err
+	}
+	lock, err := os.OpenFile(maintPath+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		lock.Close()
+		return nil, ErrUpdating
+	}
+	return func() { lock.Close() }, nil
+}
+
+// ErrUpdating: a Postgres update is running.
+var ErrUpdating = errBusy
+
 // checkMinimum fails when an installed package is older than its minimum
 // even after an update (for the pooler, whose features the box relies on).
-func checkMinimum(ctx context.Context, pkg string) error {
-	states, err := sysBox{}.Policy(ctx, []string{pkg})
-	if err != nil {
-		return err
-	}
-	if st := states[pkg]; st.Installed != "" && olderThan(st.Installed, minimums[pkg]) {
-		return fmt.Errorf("%s %s is older than %s, which the box needs; the PGDG repository should have a newer one", pkg, upstream(st.Installed), minimums[pkg])
+func checkMinimum(pkg, installed string) error {
+	if installed != "" && olderThan(installed, minimums[pkg]) {
+		return fmt.Errorf("%s %s is older than %s, which the box needs; the PGDG repository should have a newer one", pkg, upstream(installed), minimums[pkg])
 	}
 	return nil
 }
@@ -738,11 +795,7 @@ func checkMinimum(ctx context.Context, pkg string) error {
 // `tiffin up` after a Tiffin release raised one.
 func raiseMinimums(ctx context.Context, log func(string)) error {
 	b := sysBox{log: log}
-	states, err := b.Policy(ctx, updatePackages)
-	if err != nil {
-		return err
-	}
-	low := belowMinimum(states)
+	low := belowMinimum(installedStates(ctx, slices.Collect(maps.Keys(minimums))))
 	if len(low) == 0 {
 		return nil
 	}
@@ -757,10 +810,8 @@ func raiseMinimums(ctx context.Context, log func(string)) error {
 			return errors.New(u.Summary)
 		}
 	}
-	if states, err = b.Policy(ctx, updatePackages); err == nil {
-		if low := belowMinimum(states); len(low) > 0 {
-			return fmt.Errorf("%s still older than the minimum this Tiffin needs: the PGDG repository has no newer version yet", strings.Join(low, ", "))
-		}
+	if low := belowMinimum(installedStates(ctx, low)); len(low) > 0 {
+		return fmt.Errorf("%s still older than the minimum this Tiffin needs: the PGDG repository has no newer version yet", strings.Join(low, ", "))
 	}
 	return nil
 }

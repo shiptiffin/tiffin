@@ -463,7 +463,7 @@ func TestEditLog(t *testing.T) {
 		}
 	}
 	list, _ := listEdits(ctx, p, "shop")
-	if len(list) != editKeep || !list[0].Undoable || list[0].ID <= list[1].ID {
+	if len(list) != editKeep || !list[0].Undoable || list[0].At.Before(list[1].At) { // IDs made in the same millisecond are not ordered
 		t.Fatalf("%d edits kept, newest first", len(list))
 	}
 	e, rec, err := getEdit(ctx, p, "shop", list[0].ID)

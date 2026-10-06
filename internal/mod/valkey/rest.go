@@ -427,6 +427,9 @@ func isClosed(err error) bool {
 
 // run runs one command; a Valkey error reply comes back as a RedisError value.
 func (h *rest) run(ctx context.Context, project string, readOnly bool, args []string) (any, error) {
+	if strings.EqualFold(args[0], "SCAN") && h.admin != nil {
+		return h.scan(ctx, project, args[1:])
+	}
 	var out any
 	err := h.with(ctx, project, func(c *Client) error {
 		cmds, err := h.commands(ctx, c)
@@ -444,6 +447,61 @@ func (h *rest) run(ctx context.Context, project string, readOnly bool, args []st
 }
 
 // batch runs /pipeline (one after another) or /multi-exec (MULTI ... EXEC).
+// scan runs SCAN for the project's own keys. Its ACL user may not (SCAN
+// would name other projects' keys), so it runs as the admin with MATCH held
+// to the project's prefix, and the prefix is stripped from the reply.
+func (h *rest) scan(ctx context.Context, project string, args []string) (any, error) {
+	if len(args) == 0 {
+		return nil, badRequest("ERR wrong number of arguments for 'scan' command")
+	}
+	if _, err := strconv.ParseUint(args[0], 10, 64); err != nil {
+		return nil, badRequest("ERR invalid cursor")
+	}
+	match, count, typ := "*", "100", ""
+	for i := 1; i < len(args); i += 2 {
+		if i+1 >= len(args) {
+			return nil, badRequest("ERR syntax error")
+		}
+		switch v := args[i+1]; strings.ToUpper(args[i]) {
+		case "MATCH":
+			match = v
+		case "COUNT":
+			if n, err := strconv.Atoi(v); err != nil || n < 1 {
+				return nil, badRequest("ERR value is not an integer or out of range")
+			}
+			count = v
+		case "TYPE":
+			typ = v
+		default:
+			return nil, badRequest("ERR syntax error")
+		}
+	}
+	c, err := h.admin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	prefix := Prefix(project)
+	cmd := []string{"SCAN", args[0], "MATCH", globEscape(prefix) + match, "COUNT", count}
+	if typ != "" {
+		cmd = append(cmd, "TYPE", typ)
+	}
+	v, err := c.Do(ctx, cmd...)
+	var re RedisError
+	if errors.As(err, &re) {
+		return nil, badRequest("%s", string(re))
+	}
+	if err != nil {
+		return nil, err
+	}
+	cursor, keys := scanReply(v)
+	out := make([]any, len(keys))
+	for i, k := range keys {
+		out[i] = strings.TrimPrefix(k, prefix)
+	}
+	return []any{cursor, out}, nil
+}
+
 func (h *rest) batch(ctx context.Context, project string, readOnly bool, all [][]string, tx, b64 bool) (any, error) {
 	results := make([]map[string]any, len(all))
 	item := func(i int, v any) {

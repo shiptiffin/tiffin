@@ -30,6 +30,9 @@ type fileSet struct {
 	SQLite bool
 	// Units are stopped while the set is swapped in.
 	Units func(withHistory bool) []string
+	// Restart are units restarted once the set is swapped in: they keep
+	// what they read in memory, but stay up for the swap.
+	Restart []string
 }
 
 func under(rel string) func(*platform.Platform) string {
@@ -57,7 +60,10 @@ func sets() []fileSet {
 				return filepath.Join(home, "edge")
 			},
 			Skip: func(rel string, _ fs.DirEntry, _ bool) bool { return rel == "locks" },
-			Keep: func(bool) []string { return []string{"locks"} }},
+			Keep: func(bool) []string { return []string{"locks"} },
+			// The edge process holds this box's CA and certificates in
+			// memory; its socket keeps connections waiting while it restarts.
+			Restart: []string{"tiffin-edge.service"}},
 		{Name: "storage", Path: under("storage"), Detail: "buckets, objects, S3 accounts, audit manifests",
 			Units: func(bool) []string { return []string{"tiffin-storage.service"} }},
 		{Name: "storage-trash", Path: under("trash/storage"), Detail: "deleted buckets, restorable for 7 days"},

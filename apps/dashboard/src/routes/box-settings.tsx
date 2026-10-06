@@ -15,6 +15,8 @@ import { BoxSize } from "@/components/box-size";
 import { boxDomainQuery } from "@/lib/domains";
 import { boxName, boxUp, tiffinStarted, versionLabel, whereItRuns } from "@/lib/box";
 import { useMe } from "@/lib/me";
+import { Breaker } from "@/components/breaker";
+import { lastUpdate, nextWindow, setUpdateSettings, updateStatusQuery } from "@/lib/updates";
 import { setTheme, useTheme, type ThemePref } from "@/lib/theme";
 
 const SOUNDS = "tiffin.sounds";
@@ -99,14 +101,66 @@ export function SettingsPage() {
         <Command cmd={`tiffin box import ${name}.tiffin --key-file ${name}.key`} className="mt-2" />
       </Section>
 
-      <Section title="Updates" note="Brings the box to the Tiffin you have installed. Apps keep serving while it restarts.">
-        <p className="text-[0.875rem] text-ink">
-          {versionLabel(status.data) ?? "…"}
-          {build && <span className="ident ml-2 text-ink-3">build {build.slice(0, 12)}</span>}
-        </p>
-        <Command className="mt-3" cmd="tiffin up" />
-      </Section>
+      <Updates admin={admin} version={versionLabel(status.data)} build={build} />
     </Page>
+  );
+}
+
+/**
+ * Updates: what runs, the last update, the next window and the automatic
+ * switch. A box without the endpoint (older, or not an admin) shows how to
+ * update by hand.
+ */
+function Updates({ admin, version, build }: { admin: boolean; version?: string; build?: string }) {
+  const qc = useQueryClient();
+  const st = useQuery({ ...updateStatusQuery, enabled: admin });
+  const save = useMutation({
+    mutationFn: (auto: boolean) => setUpdateSettings({ auto }),
+    onSuccess: (r) => {
+      qc.setQueryData(updateStatusQuery.queryKey, r);
+      toast({ title: r.auto ? "New releases install by themselves in the maintenance window." : "Automatic updates are off. Releases wait for you." });
+    },
+  });
+  const s = st.data;
+  const last = s && lastUpdate(s);
+  const auto = s && (save.isPending ? save.variables : s.auto);
+  const rows: Array<[string, ReactNode] | false | undefined> = [
+    ["Version", <>{version ?? "…"}{build && <span className="ident ml-2 text-ink-3">build {build.slice(0, 12)}</span>}</>],
+    s?.running && ["Now", <span className="text-ink">Updating to Tiffin {s.running.to}…</span>],
+    s && s.release && ["Last update", last ? <span className={last.bad ? "text-warn-ink" : undefined}>{last.words}</span> : "None yet"],
+    s?.available && ["Available", <>
+      Tiffin {s.available.version}
+      {s.available.notes && <a className="ml-2 text-ink-3 underline underline-offset-2" href={s.available.notes} target="_blank" rel="noreferrer">What’s new</a>}
+      {s.available.blocked && <span className="block text-[0.8125rem] text-ink-3">Needs an update by hand first: run tiffin up.</span>}
+    </>],
+    s && s.release && ["Next window", s.nextRun ? nextWindow(s.nextRun) : "No maintenance window yet"],
+  ];
+  return (
+    <Section title="Updates" note="New releases install by themselves in the maintenance window, after a backup. Apps keep serving while Tiffin restarts.">
+      <dl className="grid grid-cols-[8rem_minmax(0,1fr)] text-[0.875rem]">
+        {(rows.filter(Boolean) as Array<[string, ReactNode]>).map(([k, v]) => (
+          <div key={k} className="col-span-2 grid grid-cols-subgrid border-b border-rule py-2.5 first:border-t">
+            <dt className="text-ink-3">{k}</dt>
+            <dd className="min-w-0 text-ink">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      {s && s.release ? (
+        <div className="mt-4">
+          <Row label="Install updates by themselves" note={s.nextRun ? undefined : "They wait for a maintenance window: tiffin update settings --window 04:00"}>
+            <Breaker label="Install updates by themselves" state={auto ? "on" : "off"} disabled={save.isPending} onFlip={(v) => save.mutate(v === "on")} />
+          </Row>
+          {save.isError && <ProblemNote className="mt-3" error={save.error} />}
+          <p className="mt-5 text-[0.8125rem] text-ink-3">To install the newest release now:</p>
+          <Command className="mt-2" cmd="tiffin update apply" />
+        </div>
+      ) : (
+        <>
+          <p className="mt-4 text-[0.8125rem] text-ink-3">{s ? "This is a development build. Update it from your computer:" : "Update it from your computer:"}</p>
+          <Command className="mt-2" cmd="tiffin up" />
+        </>
+      )}
+    </Section>
   );
 }
 

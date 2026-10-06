@@ -34,6 +34,7 @@ export class RespClient {
   private have = 0;
   private need = 0;
   private downUntil = 0;
+  private fails = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
@@ -63,6 +64,9 @@ export class RespClient {
 
   private enqueue(cmd: Arg[]): Promise<Reply> {
     return new Promise<Reply>((resolve, reject) => {
+      // The socket keeps the process alive only while a reply is due, so a
+      // script that is done exits without close().
+      if (this.waiters.length === 0) this.sock?.ref();
       this.waiters.push({ resolve, reject });
       this.out.push(encode(cmd));
       if (!this.timer) this.arm();
@@ -104,6 +108,7 @@ export class RespClient {
     sock.once(t.tls ? "secureConnect" : "connect", () => {
       if (this.sock !== sock) return;
       this.ready = true;
+      this.fails = 0;
       this.flush();
     });
     sock.on("data", (d: Buffer) => {
@@ -135,8 +140,9 @@ export class RespClient {
     this.have = this.need = 0;
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
-    // After a failure, fail fast for a moment instead of queueing behind a dead server.
-    if (down) this.downUntil = Date.now() + 1000;
+    // After a failure, fail fast for a moment instead of queueing behind a
+    // dead server: 0.2 s, doubling to 5 s while it stays down.
+    if (down) this.downUntil = Date.now() + Math.min(5000, 100 * 2 ** ++this.fails);
     const ws = this.waiters;
     this.waiters = [];
     for (const w of ws) w.reject(err);
@@ -168,6 +174,7 @@ export class RespClient {
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     if (this.waiters.length > 0) this.arm();
+    else this.sock?.unref();
   }
 }
 

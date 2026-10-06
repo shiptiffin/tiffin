@@ -5,15 +5,21 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/md5"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -94,9 +100,8 @@ func versity(t *testing.T) (*OffsiteConfig, string) {
 	}
 	ctx := context.Background()
 	for i := 0; ; i++ {
-		resp, err := cl.do(ctx, http.MethodPut, "", nil, nil) // CreateBucket
+		err := cl.CreateBucket(ctx)
 		if err == nil {
-			resp.Body.Close()
 			break
 		}
 		if i > 50 {
@@ -107,51 +112,68 @@ func versity(t *testing.T) (*OffsiteConfig, string) {
 	return c, secret
 }
 
-func TestS3Versitygw(t *testing.T) {
-	c, secret := versity(t)
+// storeRoundTrip drives a real store under prefix: the probe, odd keys,
+// missing objects, listing past 1000 keys, and sets with dedup.
+func storeRoundTrip(t *testing.T, cl *s3Client, prefix string) {
+	t.Helper()
 	ctx := context.Background()
-	cl, _ := newS3(c, secret)
-
-	steps, err := probe(ctx, cl, c.Prefix)
+	steps, err := probe(ctx, cl, prefix)
 	if err != nil || len(steps) != 3 {
-		t.Fatalf("probe: %v %+v", err, steps)
+		fatalR2(t, "probe: %v %+v", err, steps)
 	}
-	for _, key := range []string{"boxes/a/plain", "boxes/a/odd name+=&é.txt"} {
+	for _, key := range []string{prefix + "/plain", prefix + "/odd name+=&é.txt"} {
 		if err := cl.Put(ctx, key, []byte("v:"+key)); err != nil {
-			t.Fatalf("put %q: %v", key, err)
+			fatalR2(t, "put %q: %v", key, err)
 		}
 		if got, err := cl.Get(ctx, key); err != nil || string(got) != "v:"+key {
-			t.Fatalf("get %q: %q %v", key, got, err)
+			fatalR2(t, "get %q: %q %v", key, got, err)
 		}
 	}
-	if _, err := cl.Get(ctx, "boxes/a/nope"); !errors.Is(err, errNoObject) {
-		t.Fatalf("missing object: %v", err)
+	if _, err := cl.Get(ctx, prefix+"/nope"); !errors.Is(err, errNoObject) {
+		fatalR2(t, "missing object: %v", err)
 	}
-	if err := cl.Delete(ctx, "boxes/a/nope"); err != nil {
-		t.Fatalf("deleting a missing object: %v", err)
+	if err := cl.Delete(ctx, prefix+"/nope"); err != nil {
+		fatalR2(t, "deleting a missing object: %v", err)
 	}
 	// Listing pages through more than 1000 keys.
+	many := make(chan int)
+	errs := make(chan error, 16)
+	for range 16 {
+		go func() {
+			var first error
+			for i := range many {
+				if err := cl.Put(ctx, fmt.Sprintf("%s/many/%04d", prefix, i), []byte{byte(i)}); err != nil && first == nil {
+					first = err
+				}
+			}
+			errs <- first
+		}()
+	}
 	for i := range 1010 {
-		if err := cl.Put(ctx, fmt.Sprintf("boxes/a/many/%04d", i), []byte{byte(i)}); err != nil {
-			t.Fatal(err)
+		many <- i
+	}
+	close(many)
+	for range 16 {
+		if err := <-errs; err != nil {
+			fatalR2(t, "%v", err)
 		}
 	}
 	n := 0
-	if err := cl.List(ctx, "boxes/a/many/", func(k string, size int64) error {
-		if size != 1 || k != fmt.Sprintf("boxes/a/many/%04d", n) {
+	if err := cl.List(ctx, prefix+"/many/", func(k string, size int64) error {
+		if size != 1 || k != fmt.Sprintf("%s/many/%04d", prefix, n) {
 			return fmt.Errorf("listed %s (%d) at %d", k, size, n)
 		}
 		n++
 		return nil
 	}); err != nil || n != 1010 {
-		t.Fatalf("list: %d %v", n, err)
+		fatalR2(t, "list: %d %v", n, err)
 	}
 
 	// Sets through the real store: round trip and dedup.
 	k, _ := newKeys("box-a")
-	v, err := newVault(cl, c.Prefix, k)
+	v, err := newVault(cl, prefix, k)
 	if err != nil {
-		t.Fatal(err)
+		fatalR2(t, "%v", err)
 	}
 	src := t.TempDir()
 	writeTree(t, src)
@@ -159,35 +181,164 @@ func TestS3Versitygw(t *testing.T) {
 	rec := &offsiteSet{Backup: Backup{ID: ids.New("bk"), Status: "ok"}}
 	entries, err := v.putSet(ctx, rec, src, known, memo)
 	if err != nil {
-		t.Fatal(err)
+		fatalR2(t, "%v", err)
 	}
 	rec2 := &offsiteSet{Backup: Backup{ID: ids.New("bk"), Status: "ok"}}
 	if _, err := v.putSet(ctx, rec2, src, known, memo); err != nil || rec2.Upload.NewChunks != 0 {
-		t.Fatalf("second upload: %+v %v", rec2.Upload, err)
+		fatalR2(t, "second upload: %+v %v", rec2.Upload, err)
 	}
 	listed, err := v.chunkIDs(ctx)
 	if err != nil || len(listed) != rec.Upload.NewChunks {
-		t.Fatalf("chunks listed %d, uploaded %d: %v", len(listed), rec.Upload.NewChunks, err)
+		fatalR2(t, "chunks listed %d, uploaded %d: %v", len(listed), rec.Upload.NewChunks, err)
 	}
 	dst := filepath.Join(t.TempDir(), "restore")
 	if _, err := v.getTree(ctx, entries, dst); err != nil {
-		t.Fatal(err)
+		fatalR2(t, "%v", err)
 	}
 	sameTree(t, src, dst)
 	ids2, _ := v.setIDs(ctx)
 	if len(ids2) != 2 {
-		t.Fatalf("sets: %v", ids2)
+		fatalR2(t, "sets: %v", ids2)
 	}
+}
+
+func TestS3Versitygw(t *testing.T) {
+	c, secret := versity(t)
+	ctx := context.Background()
+	cl, _ := newS3(c, secret)
+	storeRoundTrip(t, cl, c.Prefix)
 
 	// Wrong secret, and no CA: refused.
 	bad, _ := newS3(c, "wrong")
-	if err := bad.Put(ctx, "boxes/a/x", []byte("x")); err == nil || !strings.Contains(err.Error(), "403") {
-		t.Fatalf("wrong secret: %v", err)
+	if err := bad.Put(ctx, c.Prefix+"/x", []byte("x")); err == nil || !strings.Contains(err.Error(), "403") {
+		fatalR2(t, "wrong secret: %v", err)
 	}
 	noCA := *c
 	noCA.CACert = ""
 	plain, _ := newS3(&noCA, secret)
-	if _, err := plain.Get(ctx, "boxes/a/plain"); err == nil || !strings.Contains(err.Error(), "certificate") {
-		t.Fatalf("without the CA: %v", err)
+	if _, err := plain.Get(ctx, c.Prefix+"/plain"); err == nil || !strings.Contains(err.Error(), "certificate") {
+		fatalR2(t, "without the CA: %v", err)
+	}
+	emptied(t, cl, c.Prefix)
+}
+
+// emptied deletes everything under prefix and checks nothing is left.
+func emptied(t *testing.T, cl *s3Client, prefix string) {
+	t.Helper()
+	ctx := context.Background()
+	if n, err := cl.DeletePrefix(ctx, prefix+"/"); err != nil || n == 0 {
+		errorR2(t, "emptying %s: %d deleted, %v", prefix, n, err)
+	}
+	left := 0
+	_ = cl.List(ctx, prefix+"/", func(string, int64) error { left++; return nil })
+	if left > 0 {
+		errorR2(t, "%d objects left under %s", left, prefix)
+	}
+}
+
+// r2 is a fresh prefix in a real Cloudflare R2 bucket (TIFFIN_TEST_R2=1 with
+// R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, CLOUDFLARE_ACCOUNT_ID),
+// emptied when the test ends.
+func r2(t *testing.T) (*OffsiteConfig, string) {
+	t.Helper()
+	if os.Getenv("TIFFIN_TEST_R2") != "1" {
+		t.Skip("TIFFIN_TEST_R2 not set")
+	}
+	c, err := normalize(OffsiteInput{Endpoint: os.Getenv("CLOUDFLARE_ACCOUNT_ID") + ".r2.cloudflarestorage.com", Bucket: os.Getenv("R2_BUCKET"),
+		Prefix: "test/" + strings.ToLower(ids.New("s3")), AccessKeyID: os.Getenv("R2_ACCESS_KEY_ID")}, nil)
+	if err != nil {
+		fatalR2(t, "%v", err)
+	}
+	secret := os.Getenv("R2_SECRET_ACCESS_KEY")
+	cl, _ := newS3(c, secret)
+	t.Cleanup(func() { emptied(t, cl, c.Prefix) })
+	return c, secret
+}
+
+func TestS3R2(t *testing.T) {
+	c, secret := r2(t)
+	if c.Region != "auto" {
+		fatalR2(t, "an R2 endpoint signs for region auto, got %q", c.Region)
+	}
+	cl, _ := newS3(c, secret)
+	storeRoundTrip(t, cl, c.Prefix)
+	bad, _ := newS3(c, "wrong")
+	if err := bad.Put(context.Background(), c.Prefix+"/x", []byte("x")); err == nil || !strings.Contains(err.Error(), "403") {
+		fatalR2(t, "wrong secret: %v", err)
+	}
+}
+
+// fatalR2 and errorR2 fail the test with the R2 account, keys and bucket
+// masked: errors may hold the endpoint's URL.
+func fatalR2(t *testing.T, format string, a ...any) {
+	t.Helper()
+	t.Fatal(hideR2(fmt.Sprintf(format, a...)))
+}
+
+func errorR2(t *testing.T, format string, a ...any) {
+	t.Helper()
+	t.Error(hideR2(fmt.Sprintf(format, a...)))
+}
+
+func hideR2(s string) string {
+	for _, k := range []string{"R2_SECRET_ACCESS_KEY", "R2_ACCESS_KEY_ID", "CLOUDFLARE_ACCOUNT_ID", "R2_BUCKET"} {
+		if v := os.Getenv(k); v != "" {
+			s = strings.ReplaceAll(s, v, "<"+k+">")
+		}
+	}
+	return s
+}
+
+// TestS3DeleteMany checks the DeleteObjects requests: at most 1000 keys
+// each, XML-escaped, with the Content-MD5 that S3 and R2 require, and a
+// 200 answer that lists keys it could not delete is a failure.
+func TestS3DeleteMany(t *testing.T) {
+	var batches []int
+	var seen []string
+	fail := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		sum := md5.Sum(body)
+		if r.Method != http.MethodPost || r.URL.RawQuery != "delete=" || r.Header.Get("Content-MD5") != base64.StdEncoding.EncodeToString(sum[:]) {
+			http.Error(w, "<Error><Code>InvalidRequest</Code></Error>", http.StatusBadRequest)
+			return
+		}
+		var in struct {
+			Objects []struct{ Key string } `xml:"Object"`
+		}
+		if err := xml.Unmarshal(body, &in); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		batches = append(batches, len(in.Objects))
+		for _, o := range in.Objects {
+			seen = append(seen, o.Key)
+		}
+		if fail {
+			fmt.Fprint(w, `<DeleteResult><Error><Key>p/1</Key><Code>AccessDenied</Code><Message>Access Denied</Message></Error></DeleteResult>`)
+			return
+		}
+		fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><DeleteResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></DeleteResult>`)
+	}))
+	defer srv.Close()
+	u, _ := url.Parse(srv.URL)
+	cl := &s3Client{base: u, region: "auto", bucket: "b", access: "k", secret: "s", hc: srv.Client(), now: time.Now}
+	keys := []string{"p/a&b<c> d"}
+	for i := range 2000 {
+		keys = append(keys, fmt.Sprintf("p/%d", i))
+	}
+	ctx := context.Background()
+	if err := cl.DeleteMany(ctx, keys); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(batches) != "[1000 1000 1]" || len(seen) != len(keys) || seen[0] != keys[0] {
+		t.Fatalf("batches %v, %d keys, first %q", batches, len(seen), seen[0])
+	}
+	if err := cl.DeleteMany(ctx, nil); err != nil || len(batches) != 3 {
+		t.Fatalf("no keys: %v, %d requests", err, len(batches))
+	}
+	fail = true
+	if err := cl.DeleteMany(ctx, keys[:5]); err == nil || !strings.Contains(err.Error(), "AccessDenied") {
+		t.Fatalf("a key that was not deleted: %v", err)
 	}
 }

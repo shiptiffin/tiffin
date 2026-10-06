@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/md5"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/xml"
 	"errors"
@@ -67,6 +69,20 @@ func newS3(c *OffsiteConfig, secret string) (*s3Client, error) {
 		access: c.AccessKeyID, secret: secret, hostStyle: c.URIStyle == "host", hc: &http.Client{Transport: tr}, now: time.Now}, nil
 }
 
+// Bucket is the S3 client for code outside the package (the e2e tests):
+// Put, Get, Delete, DeleteMany, DeletePrefix and List.
+type Bucket = s3Client
+
+// NewBucket is a client for in's endpoint and bucket, with the same
+// defaults as a destination (in.Prefix is ignored).
+func NewBucket(in OffsiteInput) (*Bucket, error) {
+	c, err := normalize(in, nil)
+	if err != nil {
+		return nil, err
+	}
+	return newS3(c, in.SecretAccessKey)
+}
+
 // s3Error is an error response from the store.
 type s3Error struct {
 	Status  int
@@ -110,6 +126,63 @@ func (c *s3Client) Delete(ctx context.Context, key string) error {
 	}
 	resp.Body.Close()
 	return nil
+}
+
+// DeleteMany deletes keys, up to 1000 per request (DeleteObjects).
+func (c *s3Client) DeleteMany(ctx context.Context, keys []string) error {
+	for len(keys) > 0 {
+		n := min(len(keys), 1000)
+		var body bytes.Buffer
+		body.WriteString(`<Delete xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Quiet>true</Quiet>`)
+		for _, k := range keys[:n] {
+			body.WriteString("<Object><Key>")
+			_ = xml.EscapeText(&body, []byte(k))
+			body.WriteString("</Key></Object>")
+		}
+		body.WriteString("</Delete>")
+		resp, err := c.do(ctx, http.MethodPost, "", url.Values{"delete": {""}}, body.Bytes())
+		if err != nil {
+			return err
+		}
+		// A 200 answer can still list keys that were not deleted.
+		var out struct {
+			Errors []struct {
+				Key     string `xml:"Key"`
+				Code    string `xml:"Code"`
+				Message string `xml:"Message"`
+			} `xml:"Error"`
+		}
+		err = xml.NewDecoder(resp.Body).Decode(&out)
+		resp.Body.Close()
+		if err != nil && !errors.Is(err, io.EOF) {
+			return fmt.Errorf("delete: %w", err)
+		}
+		if len(out.Errors) > 0 {
+			e := out.Errors[0]
+			return fmt.Errorf("delete %s: %s: %s (%d keys failed)", e.Key, e.Code, e.Message, len(out.Errors))
+		}
+		keys = keys[n:]
+	}
+	return nil
+}
+
+// CreateBucket creates the bucket (for tests against a local store).
+func (c *s3Client) CreateBucket(ctx context.Context) error {
+	resp, err := c.do(ctx, http.MethodPut, "", nil, nil)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
+// DeletePrefix deletes every object under prefix and returns how many.
+func (c *s3Client) DeletePrefix(ctx context.Context, prefix string) (int, error) {
+	var keys []string
+	if err := c.List(ctx, prefix, func(k string, _ int64) error { keys = append(keys, k); return nil }); err != nil {
+		return 0, err
+	}
+	return len(keys), c.DeleteMany(ctx, keys)
 }
 
 func (c *s3Client) List(ctx context.Context, prefix string, fn func(key string, size int64) error) error {
@@ -215,6 +288,11 @@ func (c *s3Client) request(ctx context.Context, method, key string, q url.Values
 	req.ContentLength = int64(len(body))
 	if body == nil {
 		req.Body = http.NoBody
+	}
+	if len(body) > 0 {
+		// DeleteObjects requires it; on a PUT the store checks the body with it.
+		m := md5.Sum(body)
+		req.Header.Set("Content-MD5", base64.StdEncoding.EncodeToString(m[:]))
 	}
 	sum := sha256.Sum256(body)
 	payload := hex.EncodeToString(sum[:])

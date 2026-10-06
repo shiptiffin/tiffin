@@ -77,14 +77,21 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    (also Prisma's `directUrl` and drizzle-kit; release commands get it as `DATABASE_URL`).
    With node-postgres add `pool.on("error", ...)`. Postgres minor updates: `tiffin maintenance
    show` / `tiffin maintenance postgres-update [--now]` (queries wait a fraction of a second, none fail).
+   Tiffin itself installs signed releases in the maintenance window after a backup:
+   `tiffin update status|check|apply`, `tiffin update settings --auto=false` (box admins).
    `NEXT_PUBLIC_*`, `VITE_*` and `PUBLIC_*` are built into browser code (public, even as
    secrets): changing one rebuilds the app. Next.js gets `NEXT_PUBLIC_TIFFIN_URL` and
    `NEXT_PUBLIC_SENTRY_DSN`.
    App code uses `@shiptiffin/sdk`: `bun add @shiptiffin/sdk`, or `tiffin sdk add` to vendor the copy
    inside tiffin with no registry (`vendor/*.tgz` + a `file:` dependency; commit both), then `bun install`.
-   KV on `services.valkey`: `kv()` from `@shiptiffin/sdk/kv`. Only when moving an app here: code written
-   for Upstash or Vercel KV (`@upstash/redis`, `@vercel/kv`) runs unchanged, as the box sets
-   `UPSTASH_REDIS_REST_*` and `KV_REST_API_*` (don't copy the old values in; they would override the box's).
+   KV on `services.valkey`: `kv()` from `@shiptiffin/sdk/kv`. It reads `REDIS_URL` and `VALKEY_PREFIX`
+   and prefixes every key; `@upstash/redis` method names, objects stored as JSON, hashes, lists, sets,
+   sorted sets, `pipeline()`/`multi()`, `scan()`, `rateLimit(key, { limit, window: "1 m" })` (atomic,
+   shared by instances) and `cached(key, ttlSec, fn)`. Don't hand-roll rate limits or caches with
+   GET/SET. Another client (iovalkey) needs `keyPrefix: VALKEY_PREFIX`; apps may not run `SCAN`/`KEYS`
+   directly. Only when moving an app here: code written for Upstash or Vercel KV (`@upstash/redis`,
+   `@vercel/kv`) runs unchanged, as the box sets `UPSTASH_REDIS_REST_*` and `KV_REST_API_*` (don't
+   copy the old values in; they would override the box's).
    AGENTS.md has the plain-HTTP auth and queue protocols. Plans list `warnings`: fix them before applying.
    A page that should show background work as it runs: the server action returns
    `queue.sendWithToken(...)` or `workflow.startWithToken(...)` (`{ id, token }`), the work reports

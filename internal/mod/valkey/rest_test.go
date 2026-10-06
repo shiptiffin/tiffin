@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -210,7 +211,7 @@ func (f *fakeValkey) serve(t *testing.T) string {
 				defer c.Close()
 				r := bufio.NewReader(c)
 				var queue [][]string
-				inTx := false
+				inTx, admin := false, false
 				for {
 					args, err := readCommand(r)
 					if err != nil {
@@ -221,8 +222,20 @@ func (f *fakeValkey) serve(t *testing.T) string {
 					switch strings.ToLower(args[0]) {
 					case "auth":
 						reply = "OK"
-						if args[2] != "pw" && args[2] != "pw2" {
+						if args[2] != "pw" && args[2] != "pw2" && args[2] != "adminpw" {
 							reply = RedisError("WRONGPASS")
+						}
+						admin = args[1] == "tiffin"
+					case "scan": // only the admin may; MATCH is the 4th argument
+						reply = RedisError("NOPERM User has no permissions to run the 'scan' command")
+						if admin {
+							keys := []any{}
+							for k := range f.data {
+								if globMatch(args[3], k) {
+									keys = append(keys, k)
+								}
+							}
+							reply = []any{"0", keys}
 						}
 					case "multi":
 						inTx, queue, reply = true, nil, "OK"
@@ -447,6 +460,44 @@ func TestRESTPipelineAndMulti(t *testing.T) {
 	// The connection is clean afterwards.
 	if r := call(t, h, "POST", "/", tok, `["GET","b"]`, false); r.body["result"] != "x" {
 		t.Fatalf("after abort: %v", r.body)
+	}
+}
+
+// TestRESTScan lists the project's own keys: SCAN runs as the admin with
+// MATCH held to the prefix, and the prefix is stripped.
+func TestRESTScan(t *testing.T) {
+	h, f := newTestREST(t)
+	tok, ro := restTokens("app", "pw")
+	sock := f.serve(t)
+	h.admin = func(ctx context.Context) (*Client, error) { return Dial(ctx, "unix", sock, "tiffin", "adminpw") }
+	f.data["p_app:user:1"], f.data["p_app:user:2"], f.data["p_app:post:1"], f.data["p_other:user:9"] = "a", "b", "c", "d"
+
+	for _, tc := range []struct {
+		tok, body string
+		want      []string
+	}{
+		{tok, `["SCAN","0"]`, []string{"post:1", "user:1", "user:2"}},
+		{ro, `["SCAN","0","MATCH","user:*","COUNT","50"]`, []string{"user:1", "user:2"}},
+		{tok, `["scan","0","MATCH","*9"]`, nil},
+	} {
+		r := call(t, h, "POST", "/", tc.tok, tc.body, false)
+		res, _ := r.body["result"].([]any)
+		if r.code != 200 || len(res) != 2 || res[0] != "0" {
+			t.Fatalf("%s: %d %v", tc.body, r.code, r.body)
+		}
+		var got []string
+		for _, k := range res[1].([]any) {
+			got = append(got, k.(string))
+		}
+		sort.Strings(got)
+		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+			t.Fatalf("%s: keys %v, want %v", tc.body, got, tc.want)
+		}
+	}
+	for _, bad := range []string{`["SCAN"]`, `["SCAN","x"]`, `["SCAN","0","MATCH"]`, `["SCAN","0","COUNT","0"]`, `["SCAN","0","NOPE","1"]`} {
+		if r := call(t, h, "POST", "/", tok, bad, false); r.code != 400 {
+			t.Fatalf("%s: %d %v", bad, r.code, r.body)
+		}
 	}
 }
 

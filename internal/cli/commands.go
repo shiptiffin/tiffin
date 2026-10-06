@@ -564,6 +564,12 @@ func (a *app) provisionCmd() *cobra.Command {
 			if os.Geteuid() != 0 {
 				return &exitError{ExitAuth, "provision must run as root on the box"}
 			}
+			// One run at a time: the box runs it again after a failure while
+			// `tiffin up` may start one.
+			if lock, err := os.OpenFile(platform.ProvisionReportPath+".lock", os.O_CREATE|os.O_RDWR, 0o600); err == nil {
+				defer lock.Close()
+				_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX)
+			}
 			sys := platform.NewSystem(func(s string) { fmt.Fprintln(a.io.Err, s) })
 			// One broken service must not block updating Tiffin itself (the
 			// update may be the fix): provision every module, record failures

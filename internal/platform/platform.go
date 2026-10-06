@@ -463,6 +463,9 @@ func (p *Platform) Start(ctx context.Context) error {
 	for _, pr := range projects {
 		p.ReconcileProject(pr)
 	}
+	if p.Restart != nil { // on a box
+		go p.retryProvision(ctx)
+	}
 	p.started.Store(true)
 	return nil
 }

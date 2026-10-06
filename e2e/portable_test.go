@@ -95,7 +95,7 @@ func TestPortable(t *testing.T) {
 	}
 	sql(a, `{"write":true,"sql":"create table notes(id int primary key, body text); insert into notes values (1,'moved with the box'),(2,'still here')"}`)
 	a.ok("storage", "objects", "put", "shop", "media", "--key", "notes/a.txt", "--text", "written on box A")
-	kvURL := a.ok("kv", "connection", "shop")["redisUrl"].(string)
+	kvURL := a.ok("kv", "connection", "shop", "--reveal")["redisUrl"].(string)
 	if got := a.inBox(`valkey-cli -u '` + kvURL + `' --no-auth-warning set p_shop:greeting hello`); got != "OK" {
 		t.Fatalf("valkey set: %s", got)
 	}
@@ -200,7 +200,7 @@ func TestPortable(t *testing.T) {
 	if g := b.ok("storage", "objects", "get", "shop", "media", "--key", "notes/a.txt"); g["text"] != "written on box A" {
 		t.Fatalf("object: %v", g)
 	}
-	kvB := b.ok("kv", "connection", "shop")["redisUrl"].(string)
+	kvB := b.ok("kv", "connection", "shop", "--reveal")["redisUrl"].(string)
 	if got := b.inBox(`valkey-cli -u '` + kvB + `' --no-auth-warning get p_shop:greeting`); got != "hello" {
 		t.Fatalf("valkey get: %s", got)
 	}
@@ -303,7 +303,7 @@ func projectCopies(t *testing.T, b *cliBox, dir string) {
 		if g := b.ok("storage", "objects", "get", project, "media", "--key", "notes/a.txt"); g["text"] != "written on box A" {
 			t.Fatalf("%s object: %v", project, g)
 		}
-		kv := b.ok("kv", "connection", project)["redisUrl"].(string)
+		kv := b.ok("kv", "connection", project, "--reveal")["redisUrl"].(string)
 		prefix := "p_" + strings.ReplaceAll(project, "-", "_") + ":"
 		if got := b.inBox(`valkey-cli -u '` + kv + `' --no-auth-warning get ` + prefix + `greeting`); got != "hello" {
 			t.Fatalf("%s cache key: %q", project, got)

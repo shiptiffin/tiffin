@@ -10,7 +10,7 @@ bun add @shiptiffin/sdk     # or npm install @shiptiffin/sdk
 | Import | What it is |
 | --- | --- |
 | `@shiptiffin/sdk` | `defineConfig` and the types for `tiffin.config.ts` |
-| `@shiptiffin/sdk/kv` | the project's Valkey namespace: get/set, JSON, counters, rate limits |
+| `@shiptiffin/sdk/kv` | the project's KV (Valkey): JSON values, hashes, lists, sets, sorted sets, pipelines, scan, rate limits, a cache helper |
 | `@shiptiffin/sdk/storage` | buckets: upload, signed and public URLs, upload tickets and routes |
 | `@shiptiffin/sdk/queue`, `/workflow` | background jobs and durable workflows |
 | `@shiptiffin/sdk/verify` | check that a delivery came from the box |

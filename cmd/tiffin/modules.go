@@ -18,5 +18,6 @@ import (
 	_ "github.com/btahir/tiffin/internal/mod/queue"
 	_ "github.com/btahir/tiffin/internal/mod/runtime"
 	_ "github.com/btahir/tiffin/internal/mod/storage"
+	_ "github.com/btahir/tiffin/internal/mod/update"
 	_ "github.com/btahir/tiffin/internal/mod/valkey"
 )

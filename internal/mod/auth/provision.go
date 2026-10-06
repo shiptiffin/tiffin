@@ -23,13 +23,14 @@ import (
 //go:embed engine/tiffin-auth.js.gz
 var engineBundle []byte
 
-// BunVersion is the Bun release that runs the engine.
-const BunVersion = "1.3.13"
+// BunVersion is the Bun release that runs the engine: the one app builds
+// use (runtime.BunVersion), so one Bun is tested and patched.
+const BunVersion = "1.4.2"
 
 // bunRelease is the pinned Bun download for each architecture.
 var bunRelease = map[string]struct{ asset, sha256 string }{
-	"arm64": {"bun-linux-aarch64", "70bae41b3908b0a120e1e58c5c8af30e74afae3b8d11b0d3fdd8e787ddfb4b22"},
-	"amd64": {"bun-linux-x64", "79c0771fa8b92c33aae41e15a0e0d307ea99d0e2f00317c71c6c53237a78e25a"},
+	"arm64": {"bun-linux-aarch64", "54328bbc2d9c8e0c9f892c544d66c57a83b84139e34909e5ee81758f1ac8fda7"},
+	"amd64": {"bun-linux-x64", "36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913"},
 }
 
 // EngineBundle returns the engine JavaScript.
@@ -143,6 +144,13 @@ func (*Module) Provision(ctx context.Context, s *platform.System) error {
 	}
 	if err := s.Unit(ctx, Unit, unitFile(bun, script, ConfigPath(nil), platform.MemoryMB())); err != nil {
 		return err
+	}
+	// The unit runs this Bun now: drop the ones earlier versions pinned.
+	old, _ := filepath.Glob(filepath.Join(dir, "bun-*"))
+	for _, d := range old {
+		if d != bunDir {
+			_ = os.RemoveAll(d)
+		}
 	}
 	if _, err := os.Stat(AdminSocket); err != nil && !changed {
 		changed = true // running but its admin socket is gone: restart it

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -329,7 +330,7 @@ func (a *app) linuxBinary(ctx context.Context, flag, arch string) (string, error
 	if root := repoRoot(); root != "" {
 		a.progress("building tiffin for linux/" + arch + " from " + root)
 		out := filepath.Join(os.TempDir(), "tiffin-linux-"+arch)
-		cmd := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", out, "./cmd/tiffin")
+		cmd := exec.CommandContext(ctx, "go", buildArgs(out, gitStamp(ctx, root))...)
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+arch)
 		if o, err := cmd.CombinedOutput(); err != nil {
@@ -338,6 +339,34 @@ func (a *app) linuxBinary(ctx context.Context, flag, arch string) (string, error
 		return out, nil
 	}
 	return "", &exitError{ExitInvalid, "no linux build of tiffin found: pass --binary, or put tiffin-linux-" + arch + " next to this binary"}
+}
+
+// stamp is what a build says about itself (tiffin version, /v1/health).
+type stamp struct{ version, commit, date string }
+
+// gitStamp reads the stamp for a build of the source tree at root from git,
+// as the Makefile does: `git describe`, the short commit and its date.
+func gitStamp(ctx context.Context, root string) stamp {
+	git := func(def string, args ...string) string {
+		c := exec.CommandContext(ctx, "git", args...)
+		c.Dir, c.Env = root, append(os.Environ(), "TZ=UTC0")
+		if out, err := c.Output(); err == nil && strings.TrimSpace(string(out)) != "" {
+			return strings.TrimSpace(string(out))
+		}
+		return def
+	}
+	return stamp{
+		version: git("dev", "describe", "--tags", "--always", "--dirty"),
+		commit:  git("none", "rev-parse", "--short", "HEAD"),
+		date:    git("unknown", "log", "-1", "--format=%cd", "--date=format-local:%Y-%m-%dT%H:%M:%SZ"),
+	}
+}
+
+// buildArgs are `go build`'s arguments for tiffin, stamped like `make build`.
+func buildArgs(out string, s stamp) []string {
+	const v = "github.com/btahir/tiffin/internal/version."
+	return []string{"build", "-trimpath", "-ldflags", "-s -w -X " + v + "Version=" + s.version + " -X " + v + "Commit=" + s.commit + " -X " + v + "Date=" + s.date,
+		"-o", out, "./cmd/tiffin"}
 }
 
 // elfArch is the Go architecture of a Linux executable ("" when the file
@@ -517,22 +546,97 @@ func (a *app) trustCmd() *cobra.Command {
 }
 
 func (a *app) selfUpdateCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:    "self-update <binary>",
-		Short:  "Switch this box to another tiffin build (rolls back if unhealthy)",
-		Long:   "Runs on the box as root. `tiffin up` calls it for you.",
+	var staged string
+	var restartEdge bool
+	cmd := &cobra.Command{
+		Use:   "self-update <binary>",
+		Short: "Switch this box to another tiffin build (rolls back if unhealthy)",
+		Long: "Runs on the box as root. `tiffin up` calls it for you. With --staged, the box's automatic update runs it: " +
+			"the new build provisions and writes its unit files first, and the outcome goes to " + install.UpdatesDir + "/<id>.result.json.",
 		Args:   cobra.ExactArgs(1),
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if os.Geteuid() != 0 {
 				return &exitError{ExitAuth, "self-update must run as root on the box"}
 			}
+			ctx := cmd.Context()
 			u := install.NewUpdater()
 			u.Progress = func(s string) { fmt.Fprintln(a.io.Err, s) }
-			if err := u.Update(cmd.Context(), args[0]); err != nil {
+			var edgeTook time.Duration
+			if restartEdge {
+				u.RestartEdge = func(ctx context.Context) (err error) {
+					edgeTook, err = install.RestartEdge(ctx)
+					return err
+				}
+			}
+			if staged == "" {
+				if err := u.Update(ctx, args[0]); err != nil {
+					return &exitError{ExitError, err.Error()}
+				}
+				fmt.Fprintln(a.io.Err, "updated")
+				return nil
+			}
+			start := time.Now()
+			err := stagedUpdate(ctx, u, args[0], a.io.Err)
+			r := install.StagedResult{ID: staged, Status: "ok", EdgeRestartMs: edgeTook.Milliseconds(),
+				Seconds: time.Since(start).Round(100 * time.Millisecond).Seconds(), FinishedAt: time.Now().UTC()}
+			switch {
+			case errors.Is(err, install.ErrRolledBack):
+				r.Status, r.Error = "rolled-back", err.Error()
+			case err != nil:
+				r.Status, r.Error = "failed", err.Error()
+			}
+			if werr := install.WriteResult(install.UpdatesDir, r); werr != nil {
+				fmt.Fprintln(a.io.Err, "could not record the outcome:", werr)
+			}
+			if err != nil {
 				return &exitError{ExitError, err.Error()}
 			}
 			fmt.Fprintln(a.io.Err, "updated")
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&staged, "staged", "", "an automatic update's ID: provision with the new build and write its unit files first, and record the outcome")
+	cmd.Flags().BoolVar(&restartEdge, "restart-edge", false, "restart tiffin-edge on the new build once it is healthy")
+	return cmd
+}
+
+// stagedUpdate is `tiffin up` on the box itself: the new build provisions
+// what it needs and writes its unit files, then the installed build
+// switches to it (and back, with the unit files, if it is unhealthy).
+func stagedUpdate(ctx context.Context, u *install.Updater, bin string, log io.Writer) error {
+	for _, step := range []string{"provision", "install-units"} {
+		c := exec.CommandContext(ctx, bin, step)
+		c.Stdout, c.Stderr = log, log
+		if err := c.Run(); err != nil {
+			if step == "install-units" {
+				// It may have written some: the previous ones go back.
+				_ = u.RestoreUnits(ctx)
+				_ = u.Restart(ctx)
+			}
+			return fmt.Errorf("the new build's %s failed: %w; nothing was switched", step, err)
+		}
+	}
+	if err := u.Update(ctx, bin); err != nil {
+		return err
+	}
+	return os.RemoveAll(install.UnitsBackup)
+}
+
+func (a *app) installUnitsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "install-units",
+		Short:  "Write this build's systemd units for the box (root)",
+		Long:   "Runs on the box as root during an automatic update: keeps the box's options, saves the current unit files for a rollback.",
+		Args:   cobra.NoArgs,
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if os.Geteuid() != 0 {
+				return &exitError{ExitAuth, "install-units must run as root on the box"}
+			}
+			if err := install.WriteUnits(cmd.Context()); err != nil {
+				return &exitError{ExitError, err.Error()}
+			}
 			return nil
 		},
 	}
