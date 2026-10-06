@@ -11,8 +11,24 @@ apps: {
 }
 ```
 
-Bun is the only runtime. `next`, `hono` and any Bun server listening on `$PORT` run as
-containers; `static` sites are served straight from the edge.
+`next`, `hono` and any server listening on `$PORT` run as containers; `static` sites are
+served straight from the edge.
+
+Apps build and run on Bun: `next build` and `next start`, or your `build` and `start`
+scripts, run under `bun --bun`, so tools that ask for Node.js run on Bun too. It starts
+faster and uses less memory. For an app that needs Node.js (a native module built for it, a
+library that leans on Node internals), set `runtime: "node"` (or pick Node.js under the
+app's Runtime in the dashboard): it then builds and runs on Node.js, from the next deploy. A
+build or start that fails on Bun says so, and the version that was serving keeps serving.
+
+After a Next.js app passes its health check, the box also asks it for `/` and for a page that
+doesn't exist; a 5xx on either stops the deploy before it takes traffic.
+
+A static build whose `package.json` uses a client-side router (react-router, vue-router,
+TanStack Router, wouter…) serves `index.html` for paths without a file, so a refresh on
+`/about` works; `index_fallback: false` in a Staticfile turns that off. SvelteKit, Nuxt,
+React Router's framework mode, Remix, TanStack Start, SolidStart and Astro with a server
+adapter aren't supported yet: importing one says so.
 
 The edge compresses text responses (zstd or gzip) for every app; a response the app
 compressed itself is passed through. A static site's pages and files are revalidated on

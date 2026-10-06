@@ -3,7 +3,8 @@
 # CI for now). It
 #   1. scans our dependencies for known vulnerabilities (Go and JS),
 #   2. tests each open Renovate pull request locally and merges the ones that
-#      pass: security fixes always, every other update with --all,
+#      pass: security fixes always, every other update with --all (a Bun
+#      release waits for scripts/bun-canary.sh, which runs the demo apps),
 #   3. with --deploy, updates the box (HCLOUD_TOKEN from .env) once anything
 #      was merged.
 #
@@ -44,14 +45,18 @@ if ! go run golang.org/x/vuln/cmd/govulncheck@latest ./...; then found=1; fi
 if ! bun audit --audit-level=high; then found=1; fi
 
 step "Renovate pull requests"
-prs=$(gh pr list -R "$REPO" --author app/renovate --state open --json number,title \
-  --jq '.[] | "\(.number)\t\(.title)"')
-while IFS=$'\t' read -r n title; do
+prs=$(gh pr list -R "$REPO" --author app/renovate --state open --json number,title,labels \
+  --jq '.[] | "\(.number)\t\(.title)\t\([.labels[].name] | join(","))"')
+while IFS=$'\t' read -r n title labels; do
   [ -z "$n" ] && continue
+  if [[ ,$labels, == *,bun,* ]]; then
+    skipped+=("#$n $title (Bun: run scripts/bun-canary.sh on its branch, then merge by hand)")
+    continue
+  fi
   security=0
   [[ $title == *"[SECURITY]"* ]] && security=1
   if [ "$security" = 0 ] && [ "$ALL" = 0 ]; then
-    skipped+=("#$n $title")
+    skipped+=("#$n $title (not a security fix; runs with --all)")
     continue
   fi
   echo "#$n $title"
@@ -82,6 +87,6 @@ step "summary"
 [ "$found" = 1 ] && echo "! known vulnerabilities reported above; fix them or wait for Renovate's pull request"
 for x in ${merged[@]+"${merged[@]}"}; do echo "merged   $x"; done
 for x in ${failed[@]+"${failed[@]}"}; do echo "FAILED   $x"; done
-for x in ${skipped[@]+"${skipped[@]}"}; do echo "waiting  $x (not a security fix; runs with --all)"; done
+for x in ${skipped[@]+"${skipped[@]}"}; do echo "waiting  $x"; done
 [ ${#merged[@]} -eq 0 ] && [ ${#failed[@]} -eq 0 ] && echo "nothing to merge"
 [ ${#failed[@]} -eq 0 ] && [ "$found" = 0 ]

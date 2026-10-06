@@ -1,10 +1,18 @@
 package runtime
 
 import (
+	"context"
+	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
+
+	"github.com/btahir/tiffin/internal/manifest"
 )
 
 func TestGuessFramework(t *testing.T) {
@@ -50,5 +58,32 @@ func TestSPAFallback(t *testing.T) {
 	write("package.json", `{"dependencies":{"react":"19"}}`)
 	if spaFallback(req, readStaticfile(dir)) {
 		t.Error("no router, no Staticfile: no fallback")
+	}
+}
+
+func TestSmokeNext(t *testing.T) {
+	notFound := http.StatusNotFound
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			return
+		}
+		w.WriteHeader(notFound)
+	}))
+	defer srv.Close()
+	port, _ := strconv.Atoi(srv.URL[strings.LastIndexByte(srv.URL, ':')+1:])
+	in := Instance{Name: "web-1", Port: port}
+	spec := &manifest.App{Framework: manifest.FrameworkNext}
+	if err := smokeNext(context.Background(), in, spec, filepath.Join(t.TempDir(), "log")); err != nil {
+		t.Fatalf("a healthy app failed the smoke test: %v", err)
+	}
+	notFound = http.StatusInternalServerError
+	err := smokeNext(context.Background(), in, spec, filepath.Join(t.TempDir(), "log"))
+	var he *healthError
+	if !errors.As(err, &he) || !strings.Contains(he.msg, "doesn't exist") || !strings.Contains(he.hint, "Node.js") {
+		t.Fatalf("a broken not-found page should fail with the Node.js hint, got %v", err)
+	}
+	spec.Runtime = manifest.RuntimeNode
+	if err := smokeNext(context.Background(), in, spec, filepath.Join(t.TempDir(), "log")); err == nil || strings.Contains(err.(*healthError).hint, "switch the app to Node.js") {
+		t.Fatalf("an app already on Node gets no Node.js hint, got %v", err)
 	}
 }

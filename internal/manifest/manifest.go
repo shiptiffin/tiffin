@@ -62,7 +62,7 @@ type Manifest struct {
 	appOrder []string
 }
 
-// Framework is how an app is built and run. Bun is the only runtime.
+// Framework is how an app is built and run.
 type Framework string
 
 const (
@@ -78,6 +78,14 @@ type Role string
 const (
 	RoleWeb    Role = "web"    // serves HTTP on routes
 	RoleWorker Role = "worker" // receives queue and workflow pushes only
+)
+
+// Runtime is the JavaScript runtime an app builds and runs on.
+type Runtime string
+
+const (
+	RuntimeBun  Runtime = "bun" // the default ("" means bun)
+	RuntimeNode Runtime = "node"
 )
 
 // App is one deployable unit.
@@ -103,6 +111,12 @@ type App struct {
 	// Healthcheck path. Default "/", which passes on any status below 500;
 	// a path set here must answer 2xx or 3xx. Ignored for workers and static apps.
 	Healthcheck string `json:"healthcheck,omitempty"`
+	// Runtime builds and runs the app: "bun" (the default) or "node", for an
+	// app that needs Node.js (a native module built for it, a library that
+	// leans on Node internals). Bun runs scripts under --bun, so a package's
+	// node shebang runs on Bun too. Applies from the next deploy. Not for
+	// static apps.
+	Runtime Runtime `json:"runtime,omitempty"`
 	// Command starts the app instead of the start command the build
 	// detects (package.json "start"), e.g. "bun run worker.ts": one source
 	// folder can run a web app and a worker. Applies from the next deploy.

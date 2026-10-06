@@ -444,7 +444,11 @@ func (r *rt) startInstances(ctx context.Context, st *AppState, d *Deploy, spec *
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs[i] = r.waitHealthy(ctx, in, spec, r.logFile(d.Project, d.App, d.Preview, d.ID, serialOf(in.Name)))
+			logPath := r.logFile(d.Project, d.App, d.Preview, d.ID, serialOf(in.Name))
+			errs[i] = r.waitHealthy(ctx, in, spec, logPath)
+			if errs[i] == nil && i == 0 && spec.Framework == manifest.FrameworkNext && spec.Role != manifest.RoleWorker {
+				errs[i] = smokeNext(ctx, in, spec, logPath)
+			}
 		}()
 	}
 	wg.Wait()
@@ -618,7 +622,7 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 			lastInspect = time.Now()
 			c, err := r.eng.Inspect(ctx, in.Name)
 			if err == nil && (c == nil || (!c.Running && c.Status != "restarting" && c.Status != "created")) {
-				return exitedError(in.Name, c, logPath)
+				return exitedError(in.Name, c, logPath, spec)
 			}
 			if err == nil && c.Status == "restarting" {
 				exited = c
@@ -652,11 +656,11 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 		}
 		if time.Now().After(deadline) {
 			if exited != nil {
-				return exitedError(in.Name, exited, logPath)
+				return exitedError(in.Name, exited, logPath, spec)
 			}
 			return &healthError{msg: fmt.Sprintf("instance %s did not pass its health check (GET %s: %s) within %s. Last log lines:\n%s",
 				in.Name, path, lastStatus, r.opt.HealthTimeout, tailLog(logPath, 15)),
-				hint: "Make sure the app listens on the port in $PORT and answers " + path + healthWant(path) + " (set healthcheck in tiffin.config.ts)."}
+				hint: "Make sure the app listens on the port in $PORT and answers " + path + healthWant(path) + " (set healthcheck in tiffin.config.ts)." + onNodeHint(*spec)}
 		}
 		select {
 		case <-ctx.Done():
@@ -666,15 +670,44 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 	}
 }
 
+// smokeNext asks a Next.js instance that passed its health check for two
+// pages that take different paths through Next.js: the home page and a page
+// that doesn't exist (its not-found render). A 5xx on either stops the
+// deploy, which is how a runtime incompatibility (a Bun release, a library
+// leaning on Node internals) shows before the new version takes traffic.
+func smokeNext(ctx context.Context, in Instance, spec *manifest.App, logPath string) error {
+	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	for _, p := range []string{"/", "/_tiffin/smoke-" + strconv.FormatInt(time.Now().UnixNano(), 36)} {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s", in.Port, p), nil)
+		req.Header.Set("User-Agent", "tiffin-healthcheck")
+		res, err := client.Do(req)
+		if err != nil {
+			return &healthError{msg: fmt.Sprintf("instance %s passed its health check but GET %s failed: %v. Last log lines:\n%s", in.Name, p, err, tailLog(logPath, 15)),
+				hint: "The app stopped answering after it started." + onNodeHint(*spec)}
+		}
+		_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<20))
+		res.Body.Close()
+		if res.StatusCode >= 500 {
+			what := "the home page"
+			if p != "/" {
+				what = "a page that doesn't exist (Next.js's not-found page)"
+			}
+			return &healthError{msg: fmt.Sprintf("instance %s passed its health check but %s answered HTTP %d. Last log lines:\n%s", in.Name, what, res.StatusCode, tailLog(logPath, 15)),
+				hint: "The new version keeps the old one serving until this works; the log lines usually say why." + onNodeHint(*spec)}
+		}
+	}
+	return nil
+}
+
 // exitedError explains an instance whose process exited on start (a syntax
 // error, a missing module or env var): its exit code and last log lines.
-func exitedError(name string, c *Container, logPath string) *healthError {
+func exitedError(name string, c *Container, logPath string, spec *manifest.App) *healthError {
 	how := "exited"
 	if c != nil && c.ExitCode != 0 {
 		how = fmt.Sprintf("exited with code %d", c.ExitCode)
 	}
 	return &healthError{msg: fmt.Sprintf("instance %s %s before it was healthy. Last log lines:\n%s", name, how, tailLog(logPath, 15)),
-		hint: "The app " + how + " on start: its last log lines say why (a syntax error, a missing module, env var or secret). Fix that and deploy again."}
+		hint: "The app " + how + " on start: its last log lines say why (a syntax error, a missing module, env var or secret). Fix that and deploy again." + onNodeHint(*spec)}
 }
 
 // healthOK reports whether a health check's status counts as healthy. The

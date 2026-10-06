@@ -20,6 +20,7 @@ import { deployGitHub } from "@/lib/github";
 import { INSTANCE_STOPS, Throttle } from "@/components/throttle";
 import { useAppStatus } from "@/components/tier-status";
 import { toast } from "@/components/toast";
+import { Segmented } from "@/components/segmented";
 import { Button } from "@/components/ui/button";
 import { addressesOf } from "@/lib/addresses";
 import { cn } from "@/lib/cn";
@@ -454,6 +455,7 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
           {spec && !isStatic && (
             <Scale project={project} app={app} spec={spec} free={free} instances={pendingFor(edits, `instances:${app}`)} memory={edits.find((e: StagedEdit) => e.kind === "set" && e.path.join("/") === `apps/${app}/memoryMB`)} writer={writer} />
           )}
+          {spec && !isStatic && spec.framework !== "hono" && <RuntimeSetting project={project} app={app} spec={spec} writer={writer} />}
           {!isStatic && instances.length > 0 && (
             <section aria-label="Instances">
               <h2 className="label mb-1.5">Instances</h2>
@@ -626,6 +628,45 @@ function Scale({
         )}
       </p>
       <p className="mt-1 text-xs text-ink-3">Changes apply as you click, and History can undo them.</p>
+    </section>
+  );
+}
+
+/**
+ * Bun or Node.js: what the app builds and runs on. Bun is the default
+ * (faster starts, less memory); Node.js is the way out for an app that
+ * needs it. It applies from the next deploy.
+ */
+function RuntimeSetting({ project, app, spec, writer }: { project: string; app: string; spec: ManifestApp; writer: boolean }) {
+  const now = spec.runtime === "node" ? "node" : "bun";
+  return (
+    <section aria-label="Runtime">
+      <h2 className="label">Runtime</h2>
+      <div className={cn("mt-3", !writer && "pointer-events-none opacity-60")}>
+        <Segmented
+          label={`${app} runtime`}
+          value={now}
+          options={[
+            { value: "bun", label: "Bun" },
+            { value: "node", label: "Node.js" },
+          ]}
+          onChange={(to) =>
+            to !== now &&
+            change(project, {
+              kind: "set",
+              path: ["apps", app, "runtime"],
+              from: spec.runtime,
+              to: to === "node" ? "node" : undefined,
+              what: to === "node" ? `Build and run ${app} on Node.js` : `Build and run ${app} on Bun`,
+              undo: `${app} goes back to ${now === "node" ? "Node.js" : "Bun"}`,
+            })
+          }
+        />
+      </div>
+      <p className="mt-3 text-sm text-ink-2">
+        {now === "bun" ? "Builds and runs on Bun: quicker starts, less memory. Switch to Node.js if a library needs it." : "Builds and runs on Node.js. Bun is the default: quicker starts, less memory."}
+      </p>
+      <p className="mt-1 text-xs text-ink-3">Takes effect with the next deploy.</p>
     </section>
   );
 }

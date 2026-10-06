@@ -75,6 +75,25 @@
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "next and react",
       "groupSlug": "next-react"
+    },
+    {
+      "description": "A Bun release is proven on the demo apps before it merges: run scripts/bun-canary.sh <version> on the branch, commit, then merge by hand.",
+      "matchDepNames": ["oven-sh/bun"],
+      "groupName": "bun",
+      "groupSlug": "bun",
+      "labels": ["bun"],
+      "automerge": false
+    }
+  ],
+  "customManagers": [
+    {
+      "description": "Bun, pinned in Go. Renovate only opens the pull request; scripts/bun-canary.sh sets the image digest and runs the apps (maintain.sh never merges it).",
+      "customType": "regex",
+      "managerFilePatterns": ["/internal/mod/runtime/versions\\.go$/"],
+      "matchStrings": ["BunVersion\\s+= \"(?<currentValue>[0-9.]+)\""],
+      "depNameTemplate": "oven-sh/bun",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^bun-v(?<version>.+)$"
     }
   ]
 }

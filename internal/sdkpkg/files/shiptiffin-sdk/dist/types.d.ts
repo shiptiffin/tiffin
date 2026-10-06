@@ -7,7 +7,7 @@
 /** Slug rule shared by project, app and bucket names: `^[a-z][a-z0-9-]{0,39}$`. */
 export type Slug = string;
 /**
- * How an app is built and run. Bun is the only runtime.
+ * How an app is built and run (on Bun unless the app sets runtime: "node").
  *
  * - `"next"`: Next.js
  * - `"hono"`: Hono on Bun
@@ -50,6 +50,12 @@ export interface AppConfig {
     memoryMB?: number;
     /** Healthcheck path. Default "/". Ignored for workers and static apps. */
     healthcheck?: string;
+    /**
+     * Builds and runs the app: "bun" (the default) or "node", for an app that
+     * needs Node.js (a native module built for it, a library that leans on Node
+     * internals). Applies from the next deploy. Not for static apps.
+     */
+    runtime?: "bun" | "node";
     /**
      * Starts the app instead of the start command the build detects
      * (package.json "start"), e.g. "bun run worker.ts", so one source folder can

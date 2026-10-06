@@ -130,6 +130,10 @@
           "type": "string",
           "pattern": "^/"
         },
+        "runtime": {
+          "description": "Builds and runs the app: \"bun\" (the default) or \"node\", for an app that needs Node.js (a native module built for it, a library that leans on Node internals). On Bun, package scripts run under --bun, so tools that ask for node run on Bun too. Applies from the next deploy. Not for static apps.",
+          "enum": ["bun", "node"]
+        },
         "command": {
           "description": "Starts the app instead of the start command the build detects (package.json `start`), e.g. \"bun run worker.ts\", so one source folder can run a web app and a worker. Applies from the next deploy. Not for static apps.",
           "type": "string",

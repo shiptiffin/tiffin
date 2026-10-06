@@ -1,10 +1,15 @@
-// Next.js runs on Bun on the box (`bun --bun next start`), so Bun's built-in
-// Postgres client is there: no driver to install. It reads DATABASE_URL,
-// which Tiffin sets. Locally, run `bun run dev` with DATABASE_URL set.
+// On the box Next.js runs on Bun, which has a Postgres client built in
+// (Bun.sql). An app switched to Node.js (runtime: "node") gets the same
+// queries through postgres.js, whose API Bun.sql follows. Both read
+// DATABASE_URL, which Tiffin sets. Locally, run `bun run dev` with it set.
+import postgres from "postgres";
+
+let pg;
+
 export function db() {
-  const sql = globalThis.Bun?.sql;
-  if (!sql) throw new Error("Postgres needs the Bun runtime: start Next.js with `bun --bun next ...`");
-  return sql;
+  if (globalThis.Bun?.sql) return globalThis.Bun.sql;
+  pg ??= postgres(process.env.DATABASE_URL);
+  return pg;
 }
 
 let ready;

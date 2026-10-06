@@ -98,6 +98,14 @@ func semanticErrors(m *Manifest) []FieldError {
 			}
 		}
 		switch {
+		case app.Runtime == RuntimeNode && app.Framework == FrameworkStatic:
+			errs = append(errs, FieldError{Path: base + "/runtime",
+				Message: "static apps are files served by the edge and run on no runtime; remove \"runtime\" or pick another framework"})
+		case app.Runtime == RuntimeNode && app.Framework == FrameworkHono:
+			errs = append(errs, FieldError{Path: base + "/runtime",
+				Message: "framework \"hono\" is Hono on Bun; for Hono on Node.js use framework \"bun\" with @hono/node-server and a start script"})
+		}
+		switch {
 		case app.Command != "" && app.Framework == FrameworkStatic:
 			errs = append(errs, FieldError{Path: base + "/command",
 				Message: "static apps are files served by the edge and run no command; remove \"command\" or pick another framework"})

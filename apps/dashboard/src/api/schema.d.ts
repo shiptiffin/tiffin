@@ -7253,6 +7253,7 @@ export interface components {
             release?: string;
             role: string;
             routes?: string[] | null;
+            runtime?: string;
             /** Format: int64 */
             timeoutSeconds?: number;
         };

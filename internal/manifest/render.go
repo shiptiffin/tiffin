@@ -224,6 +224,9 @@ func appNode(name string, a App, implied string) *node {
 	if a.Healthcheck != defHealth {
 		n.set("healthcheck", str(a.Healthcheck))
 	}
+	if a.Runtime != "" && a.Runtime != RuntimeBun {
+		n.set("runtime", str(string(a.Runtime)))
+	}
 	if a.Command != "" {
 		n.set("command", str(a.Command))
 	}

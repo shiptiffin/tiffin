@@ -202,18 +202,45 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 	}
 	var imageEnv map[string]string
 	appDir := req.appDir()
-	if req.Spec.Framework == manifest.FrameworkNext && !req.Export {
-		// Next.js runs on Bun as a long-lived server, unless the app chose its own start command.
-		if args, ok := nextStartArgs(packageScript(appDir, "start")); ok {
-			// Bun runs a package's bin by name in a child process; a path, in its
-			// own. A workspace may keep next at its top, so it goes by name there.
+	pm := packageManager(req.SrcDir)
+	onNode := req.Spec.Runtime == manifest.RuntimeNode
+	// The app builds and runs on one runtime. On Bun, scripts run under
+	// --bun, so a tool whose bin asks for node (next build, vite) runs on
+	// Bun too; runtime: node keeps both on Node (Railpack installs it either
+	// way). Static sites and exports only run a build here.
+	if packageScript(appDir, "build") != "" {
+		if onNode {
+			env["RAILPACK_BUILD_CMD"] = req.inApp(pm + " run build")
+		} else {
+			env["RAILPACK_BUILD_CMD"] = req.inApp("bun --bun run build")
+		}
+	}
+	start := packageScript(appDir, "start")
+	switch {
+	case req.Spec.Framework == manifest.FrameworkNext && !req.Export:
+		// Next.js runs as a long-lived server, unless the app chose its own start command.
+		if args, ok := nextStartArgs(start); ok {
+			// A path runs next in the runtime's own process, so SIGTERM reaches it
+			// (after() work finishes); a workspace may keep next at its top, so
+			// it goes by name there.
 			next := "./node_modules/next/dist/bin/next"
-			if req.Dir != "" {
-				next = "next"
+			switch {
+			case onNode && req.Dir != "":
+				env["RAILPACK_START_CMD"] = req.inApp("npx --no-install next start" + args)
+			case onNode:
+				env["RAILPACK_START_CMD"] = req.inApp("node " + next + " start" + args)
+			default:
+				if req.Dir != "" {
+					next = "next"
+				}
+				env["RAILPACK_START_CMD"] = req.inApp("bun --bun " + next + " start" + args)
 			}
-			env["RAILPACK_START_CMD"] = req.inApp("bun --bun " + next + " start" + args)
+		} else if !onNode {
+			env["RAILPACK_START_CMD"] = req.inApp("bun --bun run start")
 		}
 		imageEnv = prepareNext(req, env)
+	case start != "" && !onNode:
+		env["RAILPACK_START_CMD"] = req.inApp("bun --bun run start")
 	}
 	wfEnv, wfInstall, err := prepareWorkflow(req)
 	if err != nil {
@@ -225,16 +252,9 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 		}
 		imageEnv[k] = v
 	}
-	if req.Dir != "" {
-		// A workspace: Railpack installs at its top; the app builds and
-		// starts in its own folder.
-		pm := packageManager(req.SrcDir)
-		if packageScript(appDir, "build") != "" {
-			env["RAILPACK_BUILD_CMD"] = req.inApp(pm + " run build")
-		}
-		if env["RAILPACK_START_CMD"] == "" && packageScript(appDir, "start") != "" {
-			env["RAILPACK_START_CMD"] = req.inApp(pm + " run start")
-		}
+	if req.Dir != "" && env["RAILPACK_START_CMD"] == "" && start != "" {
+		// A workspace: Railpack installs at its top; the app starts in its own folder.
+		env["RAILPACK_START_CMD"] = req.inApp(pm + " run start")
 	}
 	if v := req.Vercel; v != nil {
 		if v.InstallCommand != "" {
@@ -335,6 +355,8 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 		}
 		if strings.Contains(out.String(), "exit code: 137") || strings.Contains(out.String(), "Killed") {
 			hint = "The build ran out of memory. Build elsewhere and deploy with --prebuilt, or give the box more memory."
+		} else {
+			hint += onNodeHint(req.Spec)
 		}
 		return BuildResult{}, &BuildError{Msg: msg, Hint: hint}
 	}
@@ -544,6 +566,15 @@ func readStaticfile(dir string) staticfile {
 		}
 	}
 	return sf
+}
+
+// onNodeHint is the way out for an app that fails on Bun: Node.js. None
+// for apps already on Node or served as files.
+func onNodeHint(spec manifest.App) string {
+	if spec.Runtime == manifest.RuntimeNode || spec.Framework == manifest.FrameworkStatic {
+		return ""
+	}
+	return " If it works on Node.js, switch the app to Node.js (its Runtime setting, or runtime: \"node\" in tiffin.config.ts) and deploy again."
 }
 
 // clientRouters are routers that draw pages in the browser: a site built
