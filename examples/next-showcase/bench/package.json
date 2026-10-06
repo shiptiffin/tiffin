@@ -1,0 +1,15 @@
+{
+  "name": "next-showcase-bench",
+  "private": true,
+  "type": "module",
+  "//": "Runs on your computer with Node.js 24 (TypeScript by type stripping). Needs oha on PATH (brew install oha).",
+  "scripts": {
+    "setup": "playwright install chromium chromium-headless-shell",
+    "bench": "node run.ts"
+  },
+  "dependencies": {
+    "lighthouse": "13.5.0",
+    "playwright": "1.63.0",
+    "undici": "8.11.2"
+  }
+}
