@@ -156,6 +156,31 @@ func TestVersions(t *testing.T) {
 	if !slices.Equal(low, []string{"postgresql-18"}) {
 		t.Fatalf("below minimum: %v", low)
 	}
+	if checkMinimum("pgbouncer", "1.26.0-4.pgdg26.04+1") != nil || checkMinimum("pgbouncer", "") != nil || checkMinimum("pgbouncer", "1.20.1-1") == nil {
+		t.Fatal("checkMinimum")
+	}
+}
+
+// apt-cache fails while an apt-get update rewrites the index: it is tried
+// again, a bounded number of times.
+func TestRetryApt(t *testing.T) {
+	defer func(n int, w time.Duration) { aptTries, aptWait = n, w }(aptTries, aptWait)
+	aptTries, aptWait = 4, time.Millisecond
+	calls := 0
+	flaky := func() (string, error) {
+		calls++
+		if calls < 3 {
+			return "", errors.New("apt-cache policy pgbouncer: exit status 100: E: Cache is out of sync")
+		}
+		return "pgbouncer:", nil
+	}
+	if out, err := retryApt(context.Background(), flaky); err != nil || out != "pgbouncer:" || calls != 3 {
+		t.Fatalf("out %q, err %v, calls %d", out, err, calls)
+	}
+	calls = 0
+	if _, err := retryApt(context.Background(), func() (string, error) { calls++; return "", errors.New("broken") }); err == nil || calls != 4 {
+		t.Fatalf("err %v after %d calls", err, calls)
+	}
 }
 
 // An update installs while the old server runs, then holds queries only for

@@ -419,6 +419,54 @@ func TestRootCAPersistsAcrossRestarts(t *testing.T) {
 	}
 }
 
+// A box import swaps another box's CA into the data directory under a
+// running edge: it keeps serving certificates of its old CA, even after a
+// reload, until it restarts. VerifyCA (the status check) sees it.
+func TestVerifyCAAfterTheDataDirIsReplaced(t *testing.T) {
+	isolate(t)
+	up := upstreamServer(t, "platform")
+	cfg := testConfig(t, addr(up))
+	other := cfg
+	other.DataDir = filepath.Join(t.TempDir(), "other")
+	e, err := Start(context.Background(), other) // the box the archive came from
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if e, err = Start(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyCA(cfg); err != nil {
+		t.Fatalf("own CA: %v", err)
+	}
+	if err := os.Rename(cfg.DataDir, cfg.DataDir+".aside"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(other.DataDir, cfg.DataDir); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := cfg
+	reloaded.Routes = []Route{{Host: "shop.tiffin.localhost", Upstream: addr(up)}}
+	if err := e.Reload(reloaded); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyCA(cfg); err == nil {
+		t.Fatal("an edge still serving its old CA must fail the check")
+	}
+	if err := e.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if e, err = Start(context.Background(), reloaded); err != nil {
+		t.Fatal(err)
+	}
+	defer e.Stop()
+	if err := VerifyCA(cfg); err != nil {
+		t.Fatalf("after the restart: %v", err)
+	}
+}
+
 func TestStartRejectsPublicACME(t *testing.T) {
 	cfg := Config{Domain: "example.com", Upstream: "127.0.0.1:1", DataDir: t.TempDir()}
 	if _, err := Start(context.Background(), cfg); err != ErrACMERequired {

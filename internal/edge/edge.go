@@ -7,6 +7,7 @@ package edge
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -132,6 +133,32 @@ func RootCAPEM(dataDir string) ([]byte, error) {
 		return nil, fmt.Errorf("edge: root CA not available: %w", err)
 	}
 	return pem, nil
+}
+
+// VerifyCA checks that the edge serves the dashboard with a certificate
+// the internal CA in cfg.DataDir signed: the CA clients are given. An edge
+// process that kept another CA in memory (its data directory replaced
+// under it) fails.
+func VerifyCA(cfg Config) error {
+	pem, err := RootCAPEM(cfg.DataDir)
+	if err != nil {
+		return err
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pem) {
+		return errors.New("edge: the root CA certificate is unreadable")
+	}
+	port := cfg.HTTPSPort
+	if port == 0 {
+		port = 443
+	}
+	d := net.Dialer{Timeout: 2 * time.Second}
+	conn, err := tls.DialWithDialer(&d, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
+		&tls.Config{ServerName: cfg.DashboardHost(), RootCAs: pool, MinVersion: tls.VersionTLS12})
+	if err != nil {
+		return fmt.Errorf("edge: the dashboard's certificate does not verify with the box's CA (sudo systemctl restart tiffin-edge loads it): %w", err)
+	}
+	return conn.Close()
 }
 
 // Rendered is the edge's configuration as Caddy loads it. The control
