@@ -125,7 +125,7 @@ func newHarness(t *testing.T, vic *Victoria) *harness {
 	if err := m.setup(context.Background(), p, root, vic); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { m.store.Close() })
+	t.Cleanup(func() { m.store.Close(); m.traces.Close() })
 	a := api.New(api.Deps{DB: db, Engine: p.Engine, Tokens: tm, Version: "test", Platform: p})
 	h := &harness{t: t, m: m, db: db, tm: tm, owner: owner,
 		api: httptest.NewServer(a.Handler()), ingest: httptest.NewServer(m.ingestHandler())}

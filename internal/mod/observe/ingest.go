@@ -33,12 +33,7 @@ func (m *Module) ingestHandler() http.Handler {
 	mux.HandleFunc("/api/", m.sentryHTTP)
 	mux.HandleFunc("/v1/metrics", m.otlpHTTP("metrics"))
 	mux.HandleFunc("/v1/logs", m.otlpHTTP("logs"))
-	mux.HandleFunc("/v1/traces", func(w http.ResponseWriter, r *http.Request) {
-		cors(w)
-		writeJSON(w, http.StatusNotImplemented, map[string]string{
-			"error": "this box stores OTLP metrics and logs, not traces yet; set OTEL_TRACES_EXPORTER=none (Tiffin sets it for your apps)",
-		})
-	})
+	mux.HandleFunc("/v1/traces", m.otlpTraces)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		cors(w)
 		if r.Method == http.MethodOptions {
@@ -50,7 +45,7 @@ func (m *Module) ingestHandler() http.Handler {
 			"endpoints": []string{
 				"POST /api/<id>/envelope/  (Sentry SDKs; use the app's SENTRY_DSN)",
 				"POST /api/<id>/store/     (legacy Sentry SDKs)",
-				"POST /v1/metrics, /v1/logs (OTLP/HTTP protobuf or JSON; Authorization: Bearer <key>)",
+				"POST /v1/metrics, /v1/logs, /v1/traces (OTLP/HTTP protobuf or JSON; Authorization: Bearer <key>)",
 			},
 		})
 	})
@@ -242,6 +237,48 @@ func (m *Module) otlpHTTP(signal string) http.HandlerFunc {
 		w.WriteHeader(res.StatusCode)
 		_, _ = io.Copy(w, io.LimitReader(res.Body, 1<<20))
 	}
+}
+
+// otlpTraces takes OTLP/HTTP trace exports. Spans are decoded here (not
+// forwarded): the sampler keeps errors, slow requests and a share of the
+// rest, and the trace store keeps those for a few days.
+func (m *Module) otlpTraces(w http.ResponseWriter, r *http.Request) {
+	cors(w)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST only"})
+		return
+	}
+	k, ok := m.store.LookupKey(r.Context(), otlpKey(r))
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unknown key: send Authorization: Bearer <key> (Tiffin sets OTEL_EXPORTER_OTLP_HEADERS for your apps)"})
+		return
+	}
+	raw, err := body(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	ct := r.Header.Get("Content-Type")
+	byTrace, _, err := decodeTraces(raw, ct, k.App)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not an OTLP trace export: " + err.Error()})
+		return
+	}
+	if err := m.keepTraces(r.Context(), k.Project, byTrace); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "the trace store is busy; try again shortly"})
+		return
+	}
+	// An empty ExportTraceServiceResponse: no bytes in protobuf, {} in JSON.
+	if strings.Contains(ct, "json") {
+		writeJSON(w, http.StatusOK, map[string]any{})
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	w.WriteHeader(http.StatusOK)
 }
 
 func forward(ctx context.Context, target string, in, extra http.Header, body []byte) (*http.Response, error) {
