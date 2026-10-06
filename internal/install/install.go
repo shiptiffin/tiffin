@@ -236,12 +236,12 @@ chmod 0755 /tmp/tiffin.new
 	// unit files go back too (the build that did it restored them already,
 	// unless it could not run at all).
 	script := `set -o pipefail
-if [ -x ` + BinLink + ` ] && [ -e ` + UnitsBackup + `/tiffin-edge.service ]; then sudo ` + BinLink + ` self-update /tmp/tiffin.new; else sudo /tmp/tiffin.new self-update /tmp/tiffin.new; fi
+if [ -x ` + BinLink + ` ] && sudo test -e ` + UnitsBackup + `/tiffin-edge.service; then sudo ` + BinLink + ` self-update /tmp/tiffin.new; else sudo /tmp/tiffin.new self-update /tmp/tiffin.new; fi
 rc=$?; rm -f /tmp/tiffin.new
 if [ $rc -eq 0 ]; then sudo rm -rf ` + UnitsBackup + `
-elif [ -e ` + UnitsBackup + `/tiffin.service ]; then
+elif sudo test -e ` + UnitsBackup + `/tiffin.service; then
   for u in ` + strings.Join(Units, " ") + `; do
-    if [ -e ` + UnitsBackup + `/$u ]; then sudo cp ` + UnitsBackup + `/$u ` + UnitDir + `/$u; else sudo systemctl disable --now $u >/dev/null 2>&1; sudo rm -f ` + UnitDir + `/$u; fi
+    if sudo test -e ` + UnitsBackup + `/$u; then sudo cp ` + UnitsBackup + `/$u ` + UnitDir + `/$u; else sudo systemctl disable --now $u >/dev/null 2>&1; sudo rm -f ` + UnitDir + `/$u; fi
   done
   sudo systemctl daemon-reload
 fi
