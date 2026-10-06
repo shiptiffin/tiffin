@@ -1,0 +1,364 @@
+{
+  "label": "a-bun-x2-repeat",
+  "date": "2026-10-06 01:42 UTC",
+  "base": "https://next-showcase.tiffin.localhost:49581",
+  "directIp": "192.168.64.3",
+  "vm": "tiffin-bench-1791247088",
+  "notes": [
+    "Repeat of (a) after redeploying the same source, to show run-to-run noise (other VMs shared the Mac).",
+    "Per-IP app rate limit raised to 1,000,000/10 s for the load generator."
+  ],
+  "deploy": {
+    "runtime": "bun",
+    "instances": "2",
+    "deploy": "dep_01M47E0K60HN9N0Q2WE0HBX7FV",
+    "tiffin": "{\"commit\":\"none\",\"date\":\"unknown\",\"name\":\"tiffin\",\"version\":\"0.0.1-bench\"}",
+    "box": "2 vCPU, 3896 MB, 7.0.0-34-generic"
+  },
+  "memory": {
+    "idle": [
+      {
+        "name": "tf.next-showcase.web.prod.11",
+        "instance": "0",
+        "runtime": "bun",
+        "currentMB": 211,
+        "peakMB": 215,
+        "anonMB": 71,
+        "rssMB": 142
+      },
+      {
+        "name": "tf.next-showcase.web.prod.12",
+        "instance": "1",
+        "runtime": "bun",
+        "currentMB": 77,
+        "peakMB": 85,
+        "anonMB": 66,
+        "rssMB": 137
+      }
+    ],
+    "boxIdle": {
+      "used": 1788,
+      "available": 2108,
+      "postgres": 425,
+      "valkey-server": 12,
+      "tiffin": 177,
+      "buildkitd": 469,
+      "containerd": 55
+    },
+    "peakDuringLoad": {
+      "0": 396,
+      "1": 249
+    },
+    "after": [
+      {
+        "name": "tf.next-showcase.web.prod.11",
+        "instance": "0",
+        "runtime": "bun",
+        "currentMB": 374,
+        "peakMB": 413,
+        "anonMB": 207,
+        "rssMB": 290
+      },
+      {
+        "name": "tf.next-showcase.web.prod.12",
+        "instance": "1",
+        "runtime": "bun",
+        "currentMB": 229,
+        "peakMB": 259,
+        "anonMB": 201,
+        "rssMB": 284
+      }
+    ],
+    "boxAfter": {
+      "used": 1939,
+      "available": 1957,
+      "postgres": 379,
+      "valkey-server": 12,
+      "tiffin": 217,
+      "buildkitd": 315,
+      "containerd": 50
+    }
+  },
+  "checks": [
+    {
+      "id": "F01",
+      "name": "home: static, proxy header, compressed",
+      "ok": true,
+      "detail": "cache-control=s-maxage=31536000 x-nextjs-cache=HIT x-nextjs-prerender=1 encoding=zstd 18349→4635 B (20 ms)"
+    },
+    {
+      "id": "F02",
+      "name": "next/font: woff2 preloaded and served immutable",
+      "ok": true,
+      "detail": "Geist_Variable-s.p.03oqkqkevsckn.woff2?dpl=dep_01M47AHN1XD8BZ5KKFEJ995DC0 font/woff2 public, max-age=31536000, immutable (3 ms)"
+    },
+    {
+      "id": "F03",
+      "name": "client chunk: immutable, compressed by the edge",
+      "ok": true,
+      "detail": "cache-control=public, max-age=31536000, immutable content-encoding=zstd (3 ms)"
+    },
+    {
+      "id": "F04",
+      "name": "next/image local: every srcset candidate loads",
+      "ok": true,
+      "detail": "8 widths, image/webp, browser picked 1080w (62 ms)"
+    },
+    {
+      "id": "F05",
+      "name": "next/image remote: the bucket's featured image loads",
+      "ok": false,
+      "detail": "optimizer → 400 \"\"url\" parameter is not allowed\"; the file itself (https://files.tiffin.localhost:49581/next-showcase/media/featured.jpg) → 200 image/jpeg"
+    },
+    {
+      "id": "F06",
+      "name": "Open Graph: og:image is an absolute URL on this site",
+      "ok": false,
+      "detail": "og:image is http://localhost:20001/opengraph-image?3f305df0986b521c (no metadataBase: Next.js falls back to localhost)"
+    },
+    {
+      "id": "F07",
+      "name": "Open Graph image decodes (1200×630 PNG)",
+      "ok": true,
+      "detail": "71533 B, cache-control=public, max-age=0, must-revalidate (18 ms)"
+    },
+    {
+      "id": "F08",
+      "name": "client navigation (RSC) from / to /products",
+      "ok": false,
+      "detail": "full page load instead of a client navigation"
+    },
+    {
+      "id": "F09",
+      "name": "blog: prerendered at build, served from cache (ISR)",
+      "ok": true,
+      "detail": "cache-control=s-maxage=60, stale-while-revalidate=3540 x-nextjs-cache=STALE x-nextjs-prerender=1 (9 ms)"
+    },
+    {
+      "id": "F10",
+      "name": "proxy: /dashboard without a session redirects to /login on this site",
+      "ok": true,
+      "detail": "307 → /login (16 ms)"
+    },
+    {
+      "id": "F11",
+      "name": "login: form Server Action sets the session, redirects to /dashboard",
+      "ok": true,
+      "detail": "cookie secure=false httpOnly=true (1190 ms)"
+    },
+    {
+      "id": "F12",
+      "name": "streaming: dashboard shell arrives before the slow section (edge, browser encoding)",
+      "ok": true,
+      "detail": "zstd: shell 9 ms, slow section 1017 ms, 7 chunks; uncompressed: shell 7 ms (2040 ms)"
+    },
+    {
+      "id": "F13",
+      "name": "streaming in Chromium: shell painted before the slow section",
+      "ok": true,
+      "detail": "shell 52 ms, slow section 1350 ms (1392 ms)"
+    },
+    {
+      "id": "F14",
+      "name": "Server Action: useActionState + useOptimistic note, then saved",
+      "ok": true,
+      "detail": "optimistic 27 ms, saved 822 ms (400 ms of it is the action's own wait), kept after reload (1655 ms)"
+    },
+    {
+      "id": "F15",
+      "name": "Server Action: useOptimistic like, round trip",
+      "ok": true,
+      "detail": "optimistic 18 ms, server round trip 29 ms (42 ms)"
+    },
+    {
+      "id": "F16",
+      "name": "Server Action over fetch (Next-Action header, as in the load test)",
+      "ok": true,
+      "detail": "200 45 B in 9 ms (9 ms)"
+    },
+    {
+      "id": "F17",
+      "name": "ISR on demand: revalidatePath from the dashboard reaches every instance",
+      "ok": false,
+      "detail": "still serving rev 6 after 10 s"
+    },
+    {
+      "id": "F18",
+      "name": "use cache + updateTag: restock refreshes /products everywhere, one shared entry",
+      "ok": false,
+      "detail": "old cache entry still served: before 2026-10-06T00:44:28.929Z, after 2026-10-06T00:44:28.929Z"
+    },
+    {
+      "id": "F19",
+      "name": "PPR: /products static shell first, cart count streamed from the cookie",
+      "ok": false,
+      "detail": "page.waitForFunction: Timeout 10000ms exceeded."
+    },
+    {
+      "id": "F20",
+      "name": "route handler /api/items: JSON from Postgres on every instance",
+      "ok": true,
+      "detail": "12 items, instances 0,1, encoding=none (61 ms)"
+    },
+    {
+      "id": "F21",
+      "name": "SSE /api/stream: events arrive as sent (browser encoding)",
+      "ok": true,
+      "detail": "zstd: 10 events, first 5 ms, last 1823 ms; identity: first 7 ms (3642 ms)"
+    },
+    {
+      "id": "F22",
+      "name": "next/image: a new image is optimized, then served from the image cache",
+      "ok": true,
+      "detail": "cold 95 ms (image/webp, 24212 B), warm 5 ms HIT (100 ms)"
+    },
+    {
+      "id": "F23",
+      "name": "no console errors, failed requests or 4xx/5xx in the browser",
+      "ok": false,
+      "detail": "HTTP 400 /_next/image?url=https%3A%2F%2Ffiles.tiffin.localhost%3A49581%2Fnext-showcase%2Fmedia%2Ffeatured.jpg&w=640&q=75 | console: Failed to load resource: the server responded with a status of 400 () (https://next-showcase.tiffin.localhost:49581/) | pageerror: Minified React error #418; visit https://react.dev/errors/418?args[]=text&args[]= for the full message or use the non-minified dev enviro"
+    }
+  ],
+  "load": [
+    {
+      "name": "static chunk",
+      "path": "/_next/static/chunks/3t785h_9t5l15.js?dpl=dep_01M47AHN1XD8BZ5KKFEJ995DC0",
+      "via": "vzNAT",
+      "rate": 1000,
+      "rps": 999.9,
+      "ok": 100,
+      "p50": 0.5,
+      "p95": 0.9,
+      "p99": 2.4,
+      "max": 13.1,
+      "codes": "200×19999",
+      "errors": ""
+    },
+    {
+      "name": "home (static)",
+      "path": "/",
+      "via": "vzNAT",
+      "rate": 400,
+      "rps": 400,
+      "ok": 100,
+      "p50": 1.2,
+      "p95": 2.5,
+      "p99": 5.2,
+      "max": 19.3,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "home (static)",
+      "path": "/",
+      "via": "forwarder",
+      "rate": 400,
+      "rps": 400,
+      "ok": 100,
+      "p50": 1.4,
+      "p95": 3.3,
+      "p99": 8.4,
+      "max": 32.3,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "blog (ISR)",
+      "path": "/blog/hello-box",
+      "via": "vzNAT",
+      "rate": 400,
+      "rps": 400,
+      "ok": 100,
+      "p50": 1.4,
+      "p95": 19.9,
+      "p99": 56.6,
+      "max": 164.8,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "products (PPR)",
+      "path": "/products",
+      "via": "vzNAT",
+      "rate": 200,
+      "rps": 200,
+      "ok": 100,
+      "p50": 4.5,
+      "p95": 10,
+      "p99": 20.6,
+      "max": 48,
+      "codes": "200×4000",
+      "errors": ""
+    },
+    {
+      "name": "dashboard (dynamic)",
+      "path": "/dashboard?delay=0",
+      "via": "vzNAT",
+      "rate": 50,
+      "rps": 50,
+      "ok": 100,
+      "p50": 5.5,
+      "p95": 8.3,
+      "p99": 13.6,
+      "max": 27.9,
+      "codes": "200×1000",
+      "errors": ""
+    },
+    {
+      "name": "api/items (JSON)",
+      "path": "/api/items",
+      "via": "vzNAT",
+      "rate": 400,
+      "rps": 400,
+      "ok": 100,
+      "p50": 1.1,
+      "p95": 2.2,
+      "p99": 4.2,
+      "max": 16.6,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "next/image warm",
+      "path": "/_next/image?url=%2Fhero.jpg&w=828&q=75",
+      "via": "vzNAT",
+      "rate": 300,
+      "rps": 300,
+      "ok": 100,
+      "p50": 0.9,
+      "p95": 1.9,
+      "p99": 3.5,
+      "max": 21.6,
+      "codes": "200×6000",
+      "errors": ""
+    },
+    {
+      "name": "next/image cold",
+      "path": "/_next/image\\?url=%2Fapi%2Fswatch%2F[0-9]{12}&w=640&q=75",
+      "via": "vzNAT",
+      "rate": 10,
+      "rps": 10,
+      "ok": 100,
+      "p50": 30.8,
+      "p95": 38.8,
+      "p99": 47.8,
+      "max": 76,
+      "codes": "200×200",
+      "errors": ""
+    },
+    {
+      "name": "server action POST",
+      "path": "/dashboard",
+      "via": "vzNAT",
+      "rate": 100,
+      "rps": 100,
+      "ok": 100,
+      "p50": 2.4,
+      "p95": 4.2,
+      "p99": 6.7,
+      "max": 24.7,
+      "codes": "200×2000",
+      "errors": ""
+    }
+  ]
+}
