@@ -41,6 +41,11 @@ type KVConsole struct {
 
 const consoleMax = 100
 
+type commandBody struct {
+	Commands string `json:"commands" minLength:"1" maxLength:"8388608" doc:"One command per line, e.g. HGETALL session:u_2041"`
+	Write    bool   `json:"write,omitempty" doc:"Allow commands that change data"`
+}
+
 func registerConsole(a huma.API, p *platform.Platform, tag string) {
 	o := api.Op("kv-command", http.MethodPost, "/v1/projects/{project}/kv/command", "kv run", api.RiskWrite,
 		"Run KV commands",
@@ -49,10 +54,7 @@ func registerConsole(a huma.API, p *platform.Platform, tag string) {
 			"reply carries an undo id. Administrative and dangerous commands are refused.", tag)
 	o.Errors = append(o.Errors, 409)
 	o.MaxBodyBytes = 8 << 20
-	huma.Register(a, api.Untrusted(o), api.Wrap(func(ctx context.Context, in *writeIn[struct {
-		Commands string `json:"commands" minLength:"1" maxLength:"8388608" doc:"One command per line, e.g. HGETALL session:u_2041"`
-		Write    bool   `json:"write,omitempty" doc:"Allow commands that change data"`
-	}]) (*struct{ Body *KVConsole }, error) {
+	huma.Register(a, api.Untrusted(o), api.Wrap(func(ctx context.Context, in *writeIn[commandBody]) (*struct{ Body *KVConsole }, error) {
 		pr := api.PrincipalFrom(ctx)
 		if err := pr.Require(tokens.ScopeRead, in.Project); err != nil {
 			return nil, err

@@ -66,7 +66,7 @@ const DataPage = lz<{ project: string }>(() => import("@/routes/data"), "DataPag
 const TablePage = lz<{ project: string; table: string; page?: number }>(() => import("@/routes/data"), "TablePage");
 const SqlPage = lz<{ project: string }>(() => import("@/routes/data"), "SqlPage");
 const BranchesPage = lz<{ project: string }>(() => import("@/routes/data"), "BranchesPage");
-const KvPage = lz<{ project: string; match?: string; k?: string }>(() => import("@/routes/kv"), "KvPage");
+const KvPage = lz<{ project: string; match?: string; k?: string; tab?: "keys" | "console"; isNew?: boolean }>(() => import("@/routes/kv"), "KvPage");
 const MetricsPage = lz(() => import("@/routes/observe"), "MetricsPage");
 const LogsPage = lz<LogsSearch>(() => import("@/routes/observe"), "LogsPage");
 const ErrorsPage = lz<{ project?: string; status?: string }>(() => import("@/routes/observe"), "ErrorsPage");
@@ -346,12 +346,25 @@ const branches = createRoute({
 const kv = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/data/kv",
-  validateSearch: (s: Record<string, unknown>): { match?: string; key?: string } => ({ match: str(s.match), key: str(s.key) }),
+  validateSearch: (s: Record<string, unknown>): { match?: string; key?: string; new?: boolean } => ({
+    match: str(s.match),
+    key: str(s.key),
+    ...(s.new === true || s.new === "true" ? { new: true } : {}),
+  }),
   loader: () => void KvPage.preload(),
   component: function Kv() {
     const { project: p } = kv.useParams();
-    const { match, key } = kv.useSearch();
-    return <KvPage key={p} project={p} match={match} k={key} />;
+    const { match, key, new: isNew } = kv.useSearch();
+    return <KvPage key={p} project={p} match={match} k={key} isNew={isNew} />;
+  },
+});
+const kvConsole = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/data/kv/console",
+  loader: () => void KvPage.preload(),
+  component: function KvConsole() {
+    const { project: p } = kvConsole.useParams();
+    return <KvPage key={p} project={p} tab="console" />;
   },
 });
 const metrics = createRoute({ getParentRoute: () => app, path: "/metrics", loader: () => void MetricsPage.preload(),
@@ -637,6 +650,7 @@ const tree = root.addChildren([
     sqlRoute,
     branches,
     kv,
+    kvConsole,
     metrics,
     logs,
     errors,

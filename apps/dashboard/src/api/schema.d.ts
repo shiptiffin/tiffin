@@ -8970,13 +8970,25 @@ export interface components {
             /** @description Why you are undoing, in one sentence. */
             intent?: string;
         };
-        ValkeyDel: {
+        ValkeyCommandBody: {
+            /** @description One command per line, e.g. HGETALL session:u_2041 */
+            commands: string;
+            /** @description Allow commands that change data */
+            write?: boolean;
+        };
+        ValkeyDelBody: {
             /** @description Only for a delete too big to undo: the confirm value from its 428 reply */
             confirm?: string;
             /** @description Keys to delete, as your apps name them */
             keys: string[] | null;
         };
-        ValkeyExpire: {
+        ValkeyDeletePrefixBody: {
+            /** @description The confirm value from the 428 reply */
+            confirm?: string;
+            /** @description Keys starting with this, as your apps name them */
+            prefix: string;
+        };
+        ValkeyExpireBody: {
             /** @description Only for a write too big to undo: the confirm value from its 428 reply */
             confirm?: string;
             /** @description The key, as your apps name it (without the project prefix) */
@@ -8987,7 +8999,7 @@ export interface components {
              */
             ttlSeconds: number;
         };
-        ValkeyHashDel: {
+        ValkeyHashDelBody: {
             /** @description Only for a write too big to undo: the confirm value from its 428 reply */
             confirm?: string;
             /** @description Fields to delete */
@@ -8995,7 +9007,7 @@ export interface components {
             /** @description The key, as your apps name it (without the project prefix) */
             key: string;
         };
-        ValkeyHashSet: {
+        ValkeyHashSetBody: {
             /** @description Only for a write too big to undo: the confirm value from its 428 reply */
             confirm?: string;
             /** @description Make a new key: refused when one with this name exists */
@@ -9183,7 +9195,7 @@ export interface components {
             /** @description Pass to kv-undo within an hour to put back what this write changed. Empty when the value was too big to keep a copy of. */
             undo?: string;
         };
-        ValkeyListPush: {
+        ValkeyListPushBody: {
             /** @description Only for a write too big to undo: the confirm value from its 428 reply */
             confirm?: string;
             /** @description Make a new key: refused when one with this name exists */
@@ -9200,7 +9212,7 @@ export interface components {
             /** @description Items to add, in order */
             values: string[] | null;
         };
-        ValkeyListRemove: {
+        ValkeyListRemoveBody: {
             /** @description Only for a write too big to undo: the confirm value from its 428 reply */
             confirm?: string;
             /**
@@ -9211,7 +9223,7 @@ export interface components {
             /** @description The key, as your apps name it (without the project prefix) */
             key: string;
         };
-        ValkeyListSet: {
+        ValkeyListSetBody: {
             /** @description Only for a write too big to undo: the confirm value from its 428 reply */
             confirm?: string;
             /**
@@ -9223,7 +9235,7 @@ export interface components {
             key: string;
             value: string;
         };
-        ValkeyRename: {
+        ValkeyRenameBody: {
             /** @description Only for a write too big to undo: the confirm value from its 428 reply */
             confirm?: string;
             /** @description The key, as your apps name it (without the project prefix) */
@@ -9231,7 +9243,7 @@ export interface components {
             /** @description The new name, as your apps name keys; refused when that key exists */
             to: string;
         };
-        ValkeySetAdd: {
+        ValkeySetAddBody: {
             /** @description Only for a write too big to undo: the confirm value from its 428 reply */
             confirm?: string;
             /** @description Make a new key: refused when one with this name exists */
@@ -9260,14 +9272,14 @@ export interface components {
             /** @description The text (JSON is text too) */
             value: string;
         };
-        ValkeySetRemove: {
+        ValkeySetRemoveBody: {
             /** @description Only for a write too big to undo: the confirm value from its 428 reply */
             confirm?: string;
             /** @description The key, as your apps name it (without the project prefix) */
             key: string;
             members: string[] | null;
         };
-        ValkeyStreamAdd: {
+        ValkeyStreamAddBody: {
             /** @description Only for a write too big to undo: the confirm value from its 428 reply */
             confirm?: string;
             /** @description Make a new key: refused when one with this name exists */
@@ -9284,7 +9296,7 @@ export interface components {
              */
             ttlSeconds?: number;
         };
-        ValkeyStreamDel: {
+        ValkeyStreamDelBody: {
             /** @description Only for a write too big to undo: the confirm value from its 428 reply */
             confirm?: string;
             /** @description Entry ids to delete */
@@ -9292,7 +9304,7 @@ export interface components {
             /** @description The key, as your apps name it (without the project prefix) */
             key: string;
         };
-        ValkeyStreamTrim: {
+        ValkeyStreamTrimBody: {
             /** @description Only for a write too big to undo: the confirm value from its 428 reply */
             confirm?: string;
             /** @description The key, as your apps name it (without the project prefix) */
@@ -9303,7 +9315,13 @@ export interface components {
              */
             maxLen: number;
         };
-        ValkeyZsetAdd: {
+        ValkeyUndoBody: {
+            /** @description Only when the keys are now too big to keep a copy of: the confirm value from the 428 reply */
+            confirm?: string;
+            /** @description The undo id from the write */
+            id: string;
+        };
+        ValkeyZsetAddBody: {
             /** @description Only for a write too big to undo: the confirm value from its 428 reply */
             confirm?: string;
             /** @description Make a new key: refused when one with this name exists */
@@ -9318,7 +9336,7 @@ export interface components {
              */
             ttlSeconds?: number;
         };
-        ValkeyZsetIncr: {
+        ValkeyZsetIncrBody: {
             /**
              * Format: double
              * @description Added to the score (negative subtracts)
@@ -9330,7 +9348,7 @@ export interface components {
             key: string;
             member: string;
         };
-        ValkeyZsetRemove: {
+        ValkeyZsetRemoveBody: {
             /** @description Only for a write too big to undo: the confirm value from its 428 reply */
             confirm?: string;
             /** @description The key, as your apps name it (without the project prefix) */
@@ -9381,24 +9399,6 @@ export interface components {
             url?: string;
             /** @description Workflow name as defined in the app */
             workflow: string;
-        };
-        "WriteInStruct { Commands string \"json:\\\"commands\\\" minLength:\\\"1\\\" maxLength:\\\"8388608\\\" doc:\\\"One command per line HGETALL session:u_2041\\\"\"; Write bool \"json:\\\"writeOmitempty\\\" doc:\\\"Allow commands that change data\\\"\" }Body": {
-            /** @description One command per line, e.g. HGETALL session:u_2041 */
-            commands: string;
-            /** @description Allow commands that change data */
-            write?: boolean;
-        };
-        "WriteInStruct { ID string \"json:\\\"id\\\" pattern:\\\"^kvu_0-9a-f{20}$\\\" doc:\\\"The undo id from the write\\\"\"; Confirm string \"json:\\\"confirmOmitempty\\\" doc:\\\"Only when the keys are now too big to keep a copy of: the confirm value from the 428 reply\\\"\" }Body": {
-            /** @description Only when the keys are now too big to keep a copy of: the confirm value from the 428 reply */
-            confirm?: string;
-            /** @description The undo id from the write */
-            id: string;
-        };
-        "WriteInStruct { Prefix string \"json:\\\"prefix\\\" minLength:\\\"1\\\" maxLength:\\\"1024\\\" doc:\\\"Keys starting with this as your apps name them\\\"\"; Confirm string \"json:\\\"confirmOmitempty\\\" doc:\\\"The confirm value from the 428 reply\\\"\" }Body": {
-            /** @description The confirm value from the 428 reply */
-            confirm?: string;
-            /** @description Keys starting with this, as your apps name them */
-            prefix: string;
         };
     };
     responses: never;
@@ -19875,7 +19875,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["WriteInStruct { Commands string \"json:\\\"commands\\\" minLength:\\\"1\\\" maxLength:\\\"8388608\\\" doc:\\\"One command per line HGETALL session:u_2041\\\"\"; Write bool \"json:\\\"writeOmitempty\\\" doc:\\\"Allow commands that change data\\\"\" }Body"];
+                "application/json": components["schemas"]["ValkeyCommandBody"];
             };
         };
         responses: {
@@ -20036,7 +20036,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeyDel"];
+                "application/json": components["schemas"]["ValkeyDelBody"];
             };
         };
         responses: {
@@ -20135,7 +20135,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["WriteInStruct { Prefix string \"json:\\\"prefix\\\" minLength:\\\"1\\\" maxLength:\\\"1024\\\" doc:\\\"Keys starting with this as your apps name them\\\"\"; Confirm string \"json:\\\"confirmOmitempty\\\" doc:\\\"The confirm value from the 428 reply\\\"\" }Body"];
+                "application/json": components["schemas"]["ValkeyDeletePrefixBody"];
             };
         };
         responses: {
@@ -20234,7 +20234,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeyExpire"];
+                "application/json": components["schemas"]["ValkeyExpireBody"];
             };
         };
         responses: {
@@ -20333,7 +20333,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeyHashDel"];
+                "application/json": components["schemas"]["ValkeyHashDelBody"];
             };
         };
         responses: {
@@ -20432,7 +20432,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeyHashSet"];
+                "application/json": components["schemas"]["ValkeyHashSetBody"];
             };
         };
         responses: {
@@ -20710,7 +20710,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeyListPush"];
+                "application/json": components["schemas"]["ValkeyListPushBody"];
             };
         };
         responses: {
@@ -20809,7 +20809,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeyListRemove"];
+                "application/json": components["schemas"]["ValkeyListRemoveBody"];
             };
         };
         responses: {
@@ -20908,7 +20908,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeyListSet"];
+                "application/json": components["schemas"]["ValkeyListSetBody"];
             };
         };
         responses: {
@@ -21007,7 +21007,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeyRename"];
+                "application/json": components["schemas"]["ValkeyRenameBody"];
             };
         };
         responses: {
@@ -21205,7 +21205,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeySetAdd"];
+                "application/json": components["schemas"]["ValkeySetAddBody"];
             };
         };
         responses: {
@@ -21304,7 +21304,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeySetRemove"];
+                "application/json": components["schemas"]["ValkeySetRemoveBody"];
             };
         };
         responses: {
@@ -21480,7 +21480,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeyStreamAdd"];
+                "application/json": components["schemas"]["ValkeyStreamAddBody"];
             };
         };
         responses: {
@@ -21579,7 +21579,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeyStreamDel"];
+                "application/json": components["schemas"]["ValkeyStreamDelBody"];
             };
         };
         responses: {
@@ -21678,7 +21678,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeyStreamTrim"];
+                "application/json": components["schemas"]["ValkeyStreamTrimBody"];
             };
         };
         responses: {
@@ -21869,7 +21869,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["WriteInStruct { ID string \"json:\\\"id\\\" pattern:\\\"^kvu_0-9a-f{20}$\\\" doc:\\\"The undo id from the write\\\"\"; Confirm string \"json:\\\"confirmOmitempty\\\" doc:\\\"Only when the keys are now too big to keep a copy of: the confirm value from the 428 reply\\\"\" }Body"];
+                "application/json": components["schemas"]["ValkeyUndoBody"];
             };
         };
         responses: {
@@ -21968,7 +21968,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeyZsetAdd"];
+                "application/json": components["schemas"]["ValkeyZsetAddBody"];
             };
         };
         responses: {
@@ -22067,7 +22067,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeyZsetIncr"];
+                "application/json": components["schemas"]["ValkeyZsetIncrBody"];
             };
         };
         responses: {
@@ -22166,7 +22166,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ValkeyZsetRemove"];
+                "application/json": components["schemas"]["ValkeyZsetRemoveBody"];
             };
         };
         responses: {

@@ -2,7 +2,6 @@ package valkey
 
 import (
 	"context"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -255,11 +254,6 @@ func connection(ctx context.Context, p *platform.Platform, project string, revea
 	}
 	out := &KVConnection{Prefix: Prefix(project), User: User(project), Host: "127.0.0.1", Port: Port, Revealed: reveal,
 		RedisURL: hide(tcp["REDIS_URL"]), SocketURL: hide(sock["REDIS_URL"]), RestURL: rest["UPSTASH_REDIS_REST_URL"]}
-	if u, err := url.Parse(out.RestURL); err == nil {
-		if h, _, err := net.SplitHostPort(u.Host); err == nil && h != "127.0.0.1" {
-			out.Host = h // apps in containers reach the box on its host address
-		}
-	}
 	secret := map[string]bool{"REDIS_URL": true, "VALKEY_URL": true, "UPSTASH_REDIS_REST_TOKEN": true, "KV_REST_API_TOKEN": true, "KV_REST_API_READ_ONLY_TOKEN": true}
 	all := map[string]string{}
 	for k, v := range tcp {

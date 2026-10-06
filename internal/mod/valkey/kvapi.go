@@ -38,6 +38,16 @@ type KVField struct {
 	Value string `json:"value"`
 }
 
+type deletePrefixBody struct {
+	Prefix  string `json:"prefix" minLength:"1" maxLength:"1024" doc:"Keys starting with this, as your apps name them"`
+	Confirm string `json:"confirm,omitempty" doc:"The confirm value from the 428 reply"`
+}
+
+type undoBody struct {
+	ID      string `json:"id" pattern:"^kvu_[0-9a-f]{20}$" doc:"The undo id from the write"`
+	Confirm string `json:"confirm,omitempty" doc:"Only when the keys are now too big to keep a copy of: the confirm value from the 428 reply"`
+}
+
 type writeIn[B any] struct {
 	Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 	Body    B
@@ -251,10 +261,7 @@ func registerWrites(a huma.API, p *platform.Platform, tag string) {
 			"a few of the keys and whether it can be undone; repeat with the confirm value to delete. Up to 1 MB and 5,000 keys can be undone; more needs full access.", tag)
 	dp.Errors = append(dp.Errors, 404, 409, 428)
 	dp.Extensions[api.ExtConfirm] = true
-	huma.Register(a, dp, api.Wrap(func(ctx context.Context, in *writeIn[struct {
-		Prefix  string `json:"prefix" minLength:"1" maxLength:"1024" doc:"Keys starting with this, as your apps name them"`
-		Confirm string `json:"confirm,omitempty" doc:"The confirm value from the 428 reply"`
-	}]) (*struct{ Body *KVWriteResult }, error) {
+	huma.Register(a, dp, api.Wrap(func(ctx context.Context, in *writeIn[deletePrefixBody]) (*struct{ Body *KVWriteResult }, error) {
 		pr := api.PrincipalFrom(ctx)
 		if err := pr.Require(tokens.ScopeApplyReversible, in.Project); err != nil {
 			return nil, err
@@ -275,10 +282,7 @@ func registerWrites(a huma.API, p *platform.Platform, tag string) {
 		"Puts back what a write changed, from the copy taken before it (for an hour, once). Refused when one of its keys changed since. "+
 			"The reply has its own undo id, to redo.", tag)
 	un.Errors = append(un.Errors, 404, 409, 428)
-	huma.Register(a, un, api.Wrap(func(ctx context.Context, in *writeIn[struct {
-		ID      string `json:"id" pattern:"^kvu_[0-9a-f]{20}$" doc:"The undo id from the write"`
-		Confirm string `json:"confirm,omitempty" doc:"Only when the keys are now too big to keep a copy of: the confirm value from the 428 reply"`
-	}]) (*struct{ Body *KVWriteResult }, error) {
+	huma.Register(a, un, api.Wrap(func(ctx context.Context, in *writeIn[undoBody]) (*struct{ Body *KVWriteResult }, error) {
 		pr := api.PrincipalFrom(ctx)
 		if err := pr.Require(tokens.ScopeApplyReversible, in.Project); err != nil {
 			return nil, err
