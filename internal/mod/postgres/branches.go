@@ -114,7 +114,7 @@ func createBranch(ctx context.Context, p *platform.Platform, project, name, from
 			}
 		}
 	}()
-	if _, err := admin.Exec(ctx, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, src); err != nil {
+	if err := drainSessions(ctx, admin, src, branchDrain); err != nil {
 		return nil, err
 	}
 	clone := time.Now()
@@ -262,4 +262,37 @@ func errNoService(project string) error {
 	p := api.NewProblem(409, "precondition", "project "+project+" has no postgres service (or it is still being set up)")
 	p.Hint = "add services.postgres to tiffin.config.ts and apply, then check `tiffin projects get " + project + "` until service/postgres is ready"
 	return p
+}
+
+// branchDrain is how long a branch waits for queries running on its source
+// to finish before ending them.
+var branchDrain = 5 * time.Second
+
+// drainSessions empties db (already closed to new connections) for CREATE
+// DATABASE ... TEMPLATE: idle sessions end at once, so pools just reconnect;
+// running queries get up to wait to finish before they are ended too.
+func drainSessions(ctx context.Context, admin *pgx.Conn, db string, wait time.Duration) error {
+	const others = `FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`
+	deadline := time.Now().Add(wait)
+	for {
+		cond := ` AND state = 'idle'`
+		if !time.Now().Before(deadline) {
+			cond = ""
+		}
+		if _, err := admin.Exec(ctx, `SELECT pg_terminate_backend(pid) `+others+cond, db); err != nil {
+			return err
+		}
+		var left int
+		if err := admin.QueryRow(ctx, `SELECT count(*) `+others, db).Scan(&left); err != nil {
+			return err
+		}
+		if left == 0 || cond == "" {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }

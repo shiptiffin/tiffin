@@ -99,8 +99,9 @@ the preview's first deploy (milliseconds, whatever the size), deleted with the p
 `DATABASE_URL`, `DIRECT_DATABASE_URL` and `PG*` point at it, and its `release` migrates
 it, so a preview can change its schema and data without touching production's. Apps of
 the project that have a preview of the same name share it. While the copy is made,
-production's database refuses new connections and closes open ones for a moment
-(usually well under a second; pools reconnect). `tiffin sql <project> --branch pv-pr-12`
+production's database refuses new connections for a moment: idle ones close at once
+(pools reconnect) and running queries get up to 5 seconds to finish. It is usually well
+under a second, once per preview. `tiffin sql <project> --branch pv-pr-12`
 reads it.
 
 ```ts
