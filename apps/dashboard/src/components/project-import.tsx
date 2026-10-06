@@ -305,7 +305,7 @@ export function ImportPanel({ imp }: { imp: ProjectImport }) {
         ["Apps", s.apps?.length ? s.apps.join(", ") : "None"],
         ...(s.postgres ? ([["Database", "Yes", "Postgres"]] as Array<[string, string, string]>) : []),
         ...(s.buckets?.length ? ([["Files", s.buckets.join(", ")]] as Array<[string, string]>) : []),
-        ...(s.valkey ? ([["Cache", "Yes", "Valkey"]] as Array<[string, string, string]>) : []),
+        ...(s.valkey ? ([["KV", "Yes", "Valkey"]] as Array<[string, string, string]>) : []),
         ...(n
           ? ([[n === 1 ? "Secret" : "Secrets", `${n}, ${s.secretsPlain ? "in plain text" : s.secretsHere ? "readable on this box" : "locked to the old box"}`]] as Array<[string, string]>)
           : []),

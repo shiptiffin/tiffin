@@ -66,7 +66,7 @@ export const starterLine: Record<string, string> = {
   "next-postgres": "A website with pages and a database.",
   "hono-postgres": "Endpoints for your mobile app or frontend.",
   "static-site": "A landing page, docs or portfolio. Live instantly.",
-  guestbook: "A page, an API, a database, a cache and analytics in one app.",
+  guestbook: "A page, an API, a database, a KV store and analytics in one app.",
   git: "Your own code from GitHub or any git URL.",
   empty: "Start with nothing and add pieces as you go.",
 };
@@ -110,7 +110,11 @@ export function slugify(s: string): string {
 
 /** A first name to suggest for a starter, free on this box. */
 export function suggestName(starter: Starter | undefined, taken: { projects: string[]; routes: string[] }): string {
-  const base = starter ? ({ "static-site": "site", "hono-postgres": "notes", guestbook: "guestbook", "next-postgres": "web" }[starter.id] ?? starter.app) : "project";
+  return freeName(starter ? ({ "static-site": "site", "hono-postgres": "notes", guestbook: "guestbook", "next-postgres": "web" }[starter.id] ?? starter.app) : "project", taken);
+}
+
+/** base, or the first free variant of it (base-app, base-2…). */
+export function freeName(base: string, taken: { projects: string[]; routes: string[] }): string {
   const ok = (n: string) => checkName(n, taken).ok;
   if (ok(base)) return base;
   for (const extra of ["app", "box", "live", "one", "two"]) if (ok(`${base}-${extra}`)) return `${base}-${extra}`;
@@ -118,8 +122,22 @@ export function suggestName(starter: Starter | undefined, taken: { projects: str
   return "";
 }
 
+/**
+ * The standalone starters: a project with only one part, no app. Its sidebar
+ * shows only that part, so it works like that part's console. A schedule
+ * project starts empty and gets its first schedule on its Jobs page.
+ */
+export type SoloPart = "postgres" | "valkey" | "storage" | "jobs";
+export const soloParts: Array<{ part: SoloPart; title: string; line: string; name: string; services?: Manifest["services"] }> = [
+  { part: "postgres", title: "Just a database", line: "Tables you can edit here, SQL, and a URL for your own tools.", name: "data", services: { postgres: {} } },
+  { part: "valkey", title: "Just KV", line: "A Redis-compatible key-value store, also a cache.", name: "kv", services: { valkey: { maxMemoryMB: 64 } } },
+  { part: "storage", title: "Just files", line: "S3-compatible buckets for uploads and assets.", name: "uploads", services: { storage: { buckets: { files: { public: false } } } } as Manifest["services"] },
+  { part: "jobs", title: "Just a schedule", line: "Call any web address on a timer, retried until it answers.", name: "schedules" },
+];
+
 export type Source =
   | { kind: "starter"; starter: Starter }
+  | { kind: "part"; part: SoloPart }
   | { kind: "empty" }
   | { kind: "git"; url: string; ref: string; path: string; framework: string; postgres: boolean }
   | { kind: "github"; repo: string; branch: string; path: string; framework: string; postgres: boolean; env: Array<{ k: string; v: string }> };
@@ -147,6 +165,9 @@ export function newProjectManifest(project: string, source: Source): Manifest {
     m.apps = apps as unknown as Manifest["apps"];
     if (f.services && Object.keys(f.services).length) m.services = structuredClone(f.services) as Manifest["services"];
     if (f.env && Object.keys(f.env).length) m.env = { ...f.env };
+  } else if (source.kind === "part") {
+    const s = soloParts.find((x) => x.part === source.part)?.services;
+    if (s) m.services = structuredClone(s);
   } else if (source.kind === "git") {
     m.apps = { web: { framework: source.framework } } as unknown as Manifest["apps"];
     if (source.postgres) m.services = { postgres: {} };

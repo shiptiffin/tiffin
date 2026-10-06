@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Plug, Plus } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Plus } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 import { ApiError, notOnBox } from "@/api/client";
 import { mq, type KVStats } from "@/api/modules";
 import { Reading, Readings } from "@/components/data-parts";
@@ -10,15 +10,14 @@ import { Crumbs, Empty, NotOnBox, Page, PageHeader, Tabs } from "@/components/pa
 import { ProblemNote } from "@/components/problem";
 import { SegMeter } from "@/components/seg-meter";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { bytes, bytesParts, int } from "@/lib/format";
 import { PARTS } from "@/lib/names";
 import { relative } from "@/lib/time";
-import { KvConnect } from "./connect";
+import { ConnectButton } from "@/components/connect";
+import { useCommand, useKeyHelp, useShortcut } from "@/lib/shortcuts";
 import { KvConsole } from "./console";
 import { KeyPanel } from "./key";
 import { NewKeyDialog } from "./new-key";
-import { typing } from "./parts";
 import { KeyBrowser, type BrowserHandle, type Filters } from "./tree";
 import { KvWrites } from "./write";
 
@@ -35,8 +34,6 @@ export function KvPage({ project, match, k, tab = "keys", isNew }: { project: st
   const stats = useQuery(mq.kvStats(project));
   const [filters, setFilters] = useState<Filters>({ search: match ?? "", type: "", expiry: "" });
   const [making, setMaking] = useState(!!isNew);
-  const [connect, setConnect] = useState(false);
-  const [help, setHelp] = useState(false);
   const browser = useRef<BrowserHandle>(null);
 
   const go = useCallback(
@@ -51,23 +48,10 @@ export function KvPage({ project, match, k, tab = "keys", isNew }: { project: st
     },
     [go, match, k],
   );
-  useEffect(() => {
-    const on = (e: KeyboardEvent) => {
-      if (typing(e)) return;
-      if (e.key === "/" && tab === "keys") {
-        e.preventDefault();
-        browser.current?.focusSearch();
-      } else if (e.key === "n") {
-        e.preventDefault();
-        setMaking(true);
-      } else if (e.key === "?") {
-        e.preventDefault();
-        setHelp(true);
-      }
-    };
-    window.addEventListener("keydown", on);
-    return () => window.removeEventListener("keydown", on);
-  }, [tab]);
+  // Shortcuts go through the shell's registry, so `?` lists them with everything else.
+  useShortcut("/", "Find keys", () => browser.current?.focusSearch(), "On this page", tab === "keys");
+  useCommand({ id: "new-key", label: "New key", keys: "n", keywords: ["create", "kv", "set"], run: () => setMaking(true) });
+  useKeyHelp("KV", KEYS);
 
   if (stats.isError && notOnBox(stats.error)) return <NotOnBox what="Key-value stores" />;
   const missing = stats.error instanceof ApiError && stats.error.status === 409;
@@ -84,10 +68,7 @@ export function KvPage({ project, match, k, tab = "keys", isNew }: { project: st
           actions={
             !missing && (
               <>
-                <Button onClick={() => setConnect(true)}>
-                  <Plug />
-                  Connect
-                </Button>
+                <ConnectButton part="kv" project={project} />
                 <Button variant="primary" onClick={() => setMaking(true)} title="New key (N)">
                   <Plus />
                   New key
@@ -145,8 +126,6 @@ export function KvPage({ project, match, k, tab = "keys", isNew }: { project: st
         )}
       </Page>
       <NewKeyDialog open={making} onOpenChange={setMaking} prefix={groupOf(k)} onMade={(key) => go({ key, match: undefined })} />
-      <KvConnect project={project} open={connect} onOpenChange={setConnect} />
-      <Shortcuts open={help} onOpenChange={setHelp} />
     </KvWrites>
   );
 }
@@ -199,42 +178,12 @@ function Meters({ s }: { s: KVStats }) {
   );
 }
 
-const SHORTCUTS: Array<[string, string]> = [
-  ["/", "Find keys"],
-  ["N", "New key"],
+/** The keys the browser and editors handle themselves, for the `?` sheet. */
+const KEYS: Array<[string, string]> = [
   ["↑ ↓", "Move through keys, fields or items"],
   ["→ ←", "Open or close a group"],
   ["Enter", "Open a key, or edit the value in a cell"],
   ["Esc", "Cancel an edit"],
   ["Delete", "Delete the key, group, field or item (with Undo)"],
   ["⌘ Enter", "Save a text value"],
-  ["?", "These shortcuts"],
 ];
-
-function Shortcuts({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Keyboard shortcuts</DialogTitle>
-        </DialogHeader>
-        <DialogBody>
-          <dl className="divide-y divide-rule border-y border-rule">
-            {SHORTCUTS.map(([keys, what]) => (
-              <div key={keys} className="flex items-center justify-between gap-4 py-2">
-                <dt className="text-base text-ink-2">{what}</dt>
-                <dd className="flex shrink-0 gap-1">
-                  {keys.split(" ").map((x) => (
-                    <kbd key={x} className="kbd">
-                      {x}
-                    </kbd>
-                  ))}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </DialogBody>
-      </DialogContent>
-    </Dialog>
-  );
-}

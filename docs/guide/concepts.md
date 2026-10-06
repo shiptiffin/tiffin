@@ -9,9 +9,9 @@ A project is described by `tiffin.config.ts`. Tiffin turns it into **resources**
 `app/web`, `service/postgres`, `bucket/uploads`, `env/LOG_LEVEL`, `cron/nightly` and so
 on. Each resource has a live state on the machine: *pending*, *ready* or *failed*.
 
-The dashboard's names map to services: Database is `postgres`, Cache is `valkey`, Files
-is `storage`, then `auth`, `email` and `analytics`; Jobs are the top-level `queues` and
-`crons`. `database`, `cache` and `files` also work in `tiffin.config.ts` and are stored
+The dashboard's names map to services: Database is `postgres`, KV (key-value,
+Redis-compatible, also a cache) is `valkey`, Files is `storage`, then `auth`, `email` and
+`analytics`; Jobs are the top-level `queues` and `crons`. `database`, `cache` and `files` also work in `tiffin.config.ts` and are stored
 under the first name (which is what `tiffin pull` writes back).
 
 A web app that sets no `routes` is served at a name made from its project (`<domain>` is
@@ -79,7 +79,7 @@ its `maxSharePercent`, the box default, or what its `memoryMB` and `cpus` come t
 
 - its database's queries get a quarter of the CPUs (past that they slow down; other
   projects' queries are not affected) and a quarter of Postgres's 100 connections;
-- its cache is held to the smaller of its `maxMemoryMB` and a quarter of Valkey's memory:
+- its KV store is held to the smaller of its `maxMemoryMB` and a quarter of Valkey's memory:
   keys with an expiry are cleared first, then new writes are refused until it is under it
   (reads and deletes still work);
 - its builds get a quarter of the CPUs, and past its memory limit (at least 1 GB) they
@@ -93,12 +93,12 @@ closed after 60 seconds, one query's temporary files are capped at a share of th
 and a project opens at most 80 connections.
 
 When a limit holds a project back (an app restarted for memory, all its connections in
-use, its cache full) it shows on the project's Usage page and in its History, at most once
+use, its KV store full) it shows on the project's Usage page and in its History, at most once
 an hour each. Queries stopped by the time limit are only counted ("3 queries stopped
 today"), on Usage.
 
 `tiffin projects usage <project>` shows what a project uses against its limits: memory,
-headroom (how much more it could take now), CPU, disk, its database, cache and builds
+headroom (how much more it could take now), CPU, disk, its database, KV store and builds
 (`sharePercent`, `database`, `cache`, `builds`), each app's copies, its services and its
 `limitEvents`.
 

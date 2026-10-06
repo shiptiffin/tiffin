@@ -202,7 +202,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	cn := api.Op("kv-connection", http.MethodGet, "/v1/projects/{project}/kv/connection", "kv connection", api.RiskRead,
 		"Show how to connect to a project's KV",
 		"The env every app in the project already has (REDIS_URL, VALKEY_PREFIX, the Upstash REST URL and tokens), the project's user and key prefix. "+
-			"Secrets show only with reveal=true, which needs full access to the project; every reveal is audited.", tag)
+			"Secrets show only with reveal=true, which needs full access to the project; every reveal is audited. From your computer: tiffin kv tunnel.", tag)
 	cn.Errors = append(cn.Errors, 409)
 	huma.Register(a, cn, api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`

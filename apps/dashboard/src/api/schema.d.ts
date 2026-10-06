@@ -2405,7 +2405,7 @@ export interface paths {
         };
         /**
          * Show how to connect to a project's KV
-         * @description The env every app in the project already has (REDIS_URL, VALKEY_PREFIX, the Upstash REST URL and tokens), the project's user and key prefix. Secrets show only with reveal=true, which needs full access to the project; every reveal is audited.
+         * @description The env every app in the project already has (REDIS_URL, VALKEY_PREFIX, the Upstash REST URL and tokens), the project's user and key prefix. Secrets show only with reveal=true, which needs full access to the project; every reveal is audited. From your computer: tiffin kv tunnel.
          */
         get: operations["kv-connection"];
         put?: never;
@@ -2925,7 +2925,7 @@ export interface paths {
         };
         /**
          * Show the database connection string
-         * @description The project's DATABASE_URL, including its password, for connecting from inside the box or through an SSH tunnel. Box owner only; every reveal is audited.
+         * @description The project's DATABASE_URL, including its password, for connecting from inside the box or through an SSH tunnel (tiffin db tunnel). Needs full access to the project (apply:irreversible on it), since the password reaches all of its data; every reveal is audited.
          */
         get: operations["db-connection"];
         put?: never;

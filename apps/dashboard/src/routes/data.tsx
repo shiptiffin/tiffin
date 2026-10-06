@@ -1,21 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Check, ChevronDown, ChevronRight, Eye, GitBranch, Lock, Plug, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, GitBranch, Lock, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
 import { q as core } from "@/api/queries";
 import { mod, mq, type PgBranchCreated, type PgSnapshot, type PgTable } from "@/api/modules";
 import { Confirm } from "@/components/confirm";
-import { Command } from "@/components/copy";
 import { MiniSelect, Rows, Section } from "@/components/data-parts";
 import { useTitle } from "@/components/favicon";
 import { HazardDialog } from "@/components/hazard";
 import { Crumbs, Empty, Page, PageHeader, Skeleton, NotOnBox } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/dropdown";
 import { Input } from "@/components/ui/input";
+import { ConnectButton } from "@/components/connect";
+import { useCommand, useKeyHelp } from "@/lib/shortcuts";
 import { cn } from "@/lib/cn";
 import { bytes, count, int, ms, NNBSP, num, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
@@ -92,7 +92,7 @@ export function DataHeader({
   lede?: ReactNode;
   actions?: ReactNode;
   sub?: string;
-  /** The Database tabs (Tables, SQL, Schema, Copies, Restore points); the Cache page has none. */
+  /** The Database tabs (Tables, SQL, Schema, Copies, Restore points); the KV page has none. */
   tabs?: boolean;
 }) {
   const branch = useBranch();
@@ -156,52 +156,6 @@ function CopyPicker({ project }: { project: string }) {
   );
 }
 
-function ConnectButton({ project }: { project: string }) {
-  const [open, setOpen] = useState(false);
-  const [url, setUrl] = useState<string | null>(null);
-  const [err, setErr] = useState<unknown>(null);
-  const branch = useBranch();
-  return (
-    <>
-      <Button variant="secondary" onClick={() => setOpen(true)}>
-        <Plug />
-        Connect
-      </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Connect to the database</DialogTitle>
-            <DialogDescription>
-              Your apps on this box already have <code className="ident text-ink">DATABASE_URL</code>; nothing to set. For psql or a database app, reveal the URL.
-              It carries the password, so mind who's watching.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogBody className="flex flex-col gap-3">
-            {!url && (
-              <Button
-                className="self-start"
-                onClick={async () => {
-                  setErr(null);
-                  try {
-                    setUrl((await mod.pgConnection(project)).databaseUrl);
-                  } catch (e) {
-                    setErr(e);
-                  }
-                }}
-              >
-                <Eye />
-                Show the URL{branch ? ` of production` : ""}
-              </Button>
-            )}
-            {err ? <ProblemNote error={err} /> : null}
-            {url && <Command cmd={`psql "${url}"`} />}
-          </DialogBody>
-        </DialogContent>
-      </Dialog>
-    </>
-  );
-}
-
 /** Every Database page: the head, a note when looking at a copy, and the page; or why there's no database. */
 function DataShell({ project, children, wide }: { project: string; children: ReactNode; wide?: boolean }) {
   const info = useQuery(mq.pg(project));
@@ -211,17 +165,11 @@ function DataShell({ project, children, wide }: { project: string; children: Rea
   const { can } = useMe();
   const search = useDataSearch();
   const setSearch = useSetSearch();
-  const [keys, setKeys] = useState(false);
-  useEffect(() => {
-    const on = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (e.key !== "?" || e.metaKey || e.ctrlKey || t?.closest?.("input,textarea,select,[contenteditable],.cm-editor")) return;
-      e.preventDefault();
-      setKeys(true);
-    };
-    window.addEventListener("keydown", on);
-    return () => window.removeEventListener("keydown", on);
-  }, []);
+  const canMake = can("apply:irreversible");
+  useCommand(canMake ? { id: "new-table", label: "New table", keywords: ["create", "database"], run: () => setSearch({ new: "table" }, false) } : null);
+  useKeyHelp("Database: table", TABLE_KEYS);
+  useKeyHelp("Database: SQL", SQL_KEYS);
+  useKeyHelp("Database: schema", SCHEMA_KEYS);
 
   if (info.isError && notOnBox(info.error)) return <NotOnBox what="Databases" />;
   if (s.loaded && !s.postgres)
@@ -250,8 +198,8 @@ function DataShell({ project, children, wide }: { project: string; children: Rea
         actions={
           <>
             <CopyPicker project={project} />
-            <ConnectButton project={project} />
-            {can("apply:irreversible") && (
+            <ConnectButton part="database" project={project} />
+            {canMake && (
               <Button variant="primary" onClick={() => setSearch({ new: "table" }, false)}>
                 <Plus />
                 New table
@@ -271,77 +219,32 @@ function DataShell({ project, children, wide }: { project: string; children: Rea
       {info.isError && <ProblemNote className="mt-6" error={info.error} />}
       <div className="mt-6">{children}</div>
       {search.new === "table" && <TableForm project={project} branch={branch} onClose={() => setSearch({ new: undefined })} />}
-      <KeysDialog open={keys} onOpenChange={setKeys} />
     </Page>
   );
 }
 
-function KeysDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-  const groups: Array<[string, Array<[string, string]>]> = [
-    [
-      "Table",
-      [
-        ["↑ ↓ ← →", "Move between cells"],
-        ["↵", "Edit the cell; ↵ again saves"],
-        ["esc", "Cancel the edit, or clear the selection"],
-        ["⇥", "While editing: save and move right"],
-        ["⌥ ↵", "Open the linked row"],
-        ["Space", "Select the row (on its checkbox), or flip true/false"],
-        ["⌘ A", "Select every loaded row"],
-        ["⌘ C", "Copy the cell, or the selected rows"],
-        ["⌘ V", "Paste cells from a spreadsheet (a summary comes first)"],
-        ["⌫", "Delete the selected rows"],
-        ["Home End", "First or last column; with ⌘, first or last row"],
-      ],
-    ],
-    [
-      "SQL",
-      [
-        ["⌘ ↵", "Run"],
-        ["Ctrl Space", "Suggest tables and columns"],
-      ],
-    ],
-    [
-      "Schema",
-      [
-        ["+ −", "Zoom"],
-        ["0", "Fit the diagram"],
-      ],
-    ],
-    ["Anywhere", [["⌘ K", "Jump to any page or action"], ["?", "These keys"]]],
-  ];
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Keyboard</DialogTitle>
-          <DialogDescription>In the Database pages.</DialogDescription>
-        </DialogHeader>
-        <DialogBody className="flex flex-col gap-5">
-          {groups.map(([g, list]) => (
-            <section key={g}>
-              <h3 className="label mb-1.5">{g}</h3>
-              <dl className="divide-y divide-rule border-y border-rule">
-                {list.map(([k, v]) => (
-                  <div key={k} className="flex items-baseline gap-4 py-1.5">
-                    <dt className="w-24 shrink-0">
-                      {k.split(" ").map((x) => (
-                        <kbd key={x} className="kbd mr-1">
-                          {x}
-                        </kbd>
-                      ))}
-                    </dt>
-                    <dd className="text-base text-ink-2">{v}</dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-          ))}
-        </DialogBody>
-      </DialogContent>
-    </Dialog>
-  );
-}
+// The keys the Database pages handle themselves, for the `?` sheet.
+const TABLE_KEYS: Array<[string, string]> = [
+  ["↑ ↓ ← →", "Move between cells"],
+  ["↵", "Edit the cell; ↵ again saves"],
+  ["esc", "Cancel the edit, or clear the selection"],
+  ["⇥", "While editing: save and move right"],
+  ["⌥ ↵", "Open the linked row"],
+  ["Space", "Select the row (on its checkbox), or flip true/false"],
+  ["⌘ A", "Select every loaded row"],
+  ["⌘ C", "Copy the cell, or the selected rows"],
+  ["⌘ V", "Paste cells from a spreadsheet (a summary comes first)"],
+  ["⌫", "Delete the selected rows"],
+  ["Home End", "First or last column; with ⌘, first or last row"],
+];
+const SQL_KEYS: Array<[string, string]> = [
+  ["⌘ ↵", "Run"],
+  ["Ctrl Space", "Suggest tables and columns"],
+];
+const SCHEMA_KEYS: Array<[string, string]> = [
+  ["+ −", "Zoom"],
+  ["0", "Fit the diagram"],
+];
 
 // ------------------------------------------------------------------ tables
 

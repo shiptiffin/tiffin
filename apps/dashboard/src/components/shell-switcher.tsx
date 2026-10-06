@@ -6,21 +6,26 @@ import { Popover as P } from "radix-ui";
 import { useState, type ReactNode } from "react";
 import { q } from "@/api/queries";
 import { useRecentProjects } from "@/lib/recent";
+import { useSwitchToProject } from "@/lib/switch";
 import { ProjectIcon } from "@/components/project-icon";
 
 /**
  * The project switcher's popover: search, the five projects you opened last,
- * All projects and New project. The trigger (shell.tsx) renders on the first
- * paint; this part loads a moment later. ⌘K and "g p" reach it too.
+ * All projects and New project. Picking a project keeps your place: from
+ * bookshop › Database › SQL to blog › Database › SQL when blog has a
+ * database, else blog's Overview with a quiet note. The trigger (shell.tsx)
+ * renders on the first paint; this part loads a moment later. ⌘K and "g p"
+ * reach it too.
  */
 export function SwitcherPopover({ open, onOpenChange, trigger, current }: { open: boolean; onOpenChange: (o: boolean) => void; trigger: ReactNode; current?: string }) {
   const projects = useQuery(q.projects);
   const recent = useRecentProjects();
   const names = (projects.data ?? []).map((p) => p.name);
   const navigate = useNavigate();
+  const switchTo = useSwitchToProject();
   const [query, setQuery] = useState("");
   const shortList = [...recent.filter((p) => names.includes(p)), ...names.filter((p) => !recent.includes(p))].slice(0, 5);
-  const list = query ? names : shortList;
+  const list = query ? [...recent.filter((p) => names.includes(p)), ...names.filter((p) => !recent.includes(p))] : shortList;
   const go = (to: () => void) => {
     onOpenChange(false);
     setQuery("");
@@ -46,7 +51,7 @@ export function SwitcherPopover({ open, onOpenChange, trigger, current }: { open
               <Command.Empty className="px-2.5 py-3 text-sm text-ink-3">No project called that.</Command.Empty>
               <Command.Group heading={query ? undefined : "Recent"} className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-1 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-ink-3">
                 {list.map((p) => (
-                  <Row key={p} value={p} onSelect={() => go(() => navigate({ to: "/projects/$project", params: { project: p } }))}>
+                  <Row key={p} value={p} onSelect={() => go(() => switchTo(p))}>
                     <ProjectIcon project={p} size={14} />
                     <span className="truncate">{p}</span>
                     {p === current && <span className="ml-auto text-xs text-ink-3">here</span>}
@@ -61,6 +66,10 @@ export function SwitcherPopover({ open, onOpenChange, trigger, current }: { open
               <Row value="new project" onSelect={() => go(() => navigate({ to: "/new" }))}>
                 <Plus className="size-4 text-ink-3" />
                 New project
+                <span className="ml-auto flex gap-0.5" aria-hidden>
+                  <kbd className="kbd">G</kbd>
+                  <kbd className="kbd">N</kbd>
+                </span>
               </Row>
             </Command.List>
           </Command>
@@ -81,3 +90,4 @@ function Row({ value, onSelect, children }: { value: string; onSelect: () => voi
     </Command.Item>
   );
 }
+
