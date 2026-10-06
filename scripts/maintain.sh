@@ -80,8 +80,8 @@ fi
 
 step "summary"
 [ "$found" = 1 ] && echo "! known vulnerabilities reported above; fix them or wait for Renovate's pull request"
-for x in "${merged[@]}"; do echo "merged   $x"; done
-for x in "${failed[@]}"; do echo "FAILED   $x"; done
-for x in "${skipped[@]}"; do echo "waiting  $x (not a security fix; runs with --all)"; done
+for x in ${merged[@]+"${merged[@]}"}; do echo "merged   $x"; done
+for x in ${failed[@]+"${failed[@]}"}; do echo "FAILED   $x"; done
+for x in ${skipped[@]+"${skipped[@]}"}; do echo "waiting  $x (not a security fix; runs with --all)"; done
 [ ${#merged[@]} -eq 0 ] && [ ${#failed[@]} -eq 0 ] && echo "nothing to merge"
 [ ${#failed[@]} -eq 0 ] && [ "$found" = 0 ]
