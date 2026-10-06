@@ -1,0 +1,15 @@
+{
+  "project": "shop",
+  "apps": { "web": { "framework": "bun" } },
+  "services": {
+    "storage": {
+      "buckets": {
+        "media": { "maxFileSize": 314572800, "allowedTypes": ["image/*", "video/*"] },
+        "small": { "maxFileSize": 1048576 },
+        "pics": { "public": true }
+      }
+    }
+  },
+  "queues": { "uploads": { "app": "web" } },
+  "topics": { "storage.object.created": { "subscribers": ["uploads"] } }
+}

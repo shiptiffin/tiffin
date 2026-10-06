@@ -97,6 +97,14 @@ func signature(c Creds, region string, now time.Time, canonicalRequest string) s
 // Presign returns a presigned URL for method on endpoint (scheme://host[:port])
 // + path-style bucket/key, valid for expires (1s–7 days).
 func Presign(method, endpoint, bucket, key string, c Creds, region string, expires time.Duration, now time.Time) (string, error) {
+	return PresignWith(method, endpoint, bucket, key, nil, nil, c, region, expires, now)
+}
+
+// PresignWith is Presign with extra query parameters (an S3 subresource
+// such as uploadId, or the front's x-tiffin-* upload limits) and extra
+// signed headers (content-type, content-length). The signature covers all
+// of them, so whoever holds the URL cannot change them.
+func PresignWith(method, endpoint, bucket, key string, extra url.Values, headers map[string]string, c Creds, region string, expires time.Duration, now time.Time) (string, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil {
 		return "", err
@@ -104,12 +112,29 @@ func Presign(method, endpoint, bucket, key string, c Creds, region string, expir
 	path := objectPath(bucket, key)
 	date := now.UTC().Format("20060102")
 	q := url.Values{}
+	for k, vs := range extra {
+		q[k] = append([]string(nil), vs...)
+	}
+	hs := map[string]string{"host": u.Host}
+	for k, v := range headers {
+		hs[strings.ToLower(k)] = strings.TrimSpace(v)
+	}
+	names := make([]string, 0, len(hs))
+	for k := range hs {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	var ch strings.Builder
+	for _, k := range names {
+		ch.WriteString(k + ":" + hs[k] + "\n")
+	}
+	signed := strings.Join(names, ";")
 	q.Set("X-Amz-Algorithm", sigAlgorithm)
 	q.Set("X-Amz-Credential", c.AccessKey+"/"+date+"/"+region+"/s3/aws4_request")
 	q.Set("X-Amz-Date", now.UTC().Format(amzDateFormat))
 	q.Set("X-Amz-Expires", strconv.Itoa(int(expires/time.Second)))
-	q.Set("X-Amz-SignedHeaders", "host")
-	cr := method + "\n" + path + "\n" + canonicalQuery(q) + "\nhost:" + u.Host + "\n\nhost\n" + unsignedPayload
+	q.Set("X-Amz-SignedHeaders", signed)
+	cr := method + "\n" + path + "\n" + canonicalQuery(q) + "\n" + ch.String() + "\n" + signed + "\n" + unsignedPayload
 	q.Set("X-Amz-Signature", signature(c, region, now, cr))
 	return u.Scheme + "://" + u.Host + path + "?" + canonicalQuery(q), nil
 }

@@ -286,6 +286,46 @@ func (g *gateway) deleteObject(ctx context.Context, bucket, key string) error {
 	return g.call(ctx, http.MethodDelete, bucket, key, nil, nil, nil)
 }
 
+// partsSize adds up the parts uploaded so far to a multipart upload.
+func (g *gateway) partsSize(ctx context.Context, bucket, key, uploadID string) (int64, error) {
+	var total int64
+	marker := ""
+	for range 100 {
+		q := url.Values{"uploadId": {uploadID}, "max-parts": {"1000"}}
+		if marker != "" {
+			q.Set("part-number-marker", marker)
+		}
+		res, err := g.do(ctx, http.MethodGet, bucket, key, q, nil, nil)
+		if err != nil {
+			return 0, err
+		}
+		var v struct {
+			Parts []struct {
+				Size int64 `xml:"Size"`
+			} `xml:"Part"`
+			IsTruncated          bool   `xml:"IsTruncated"`
+			NextPartNumberMarker string `xml:"NextPartNumberMarker"`
+		}
+		err = xml.NewDecoder(res.Body).Decode(&v)
+		res.Body.Close()
+		if err != nil {
+			return 0, fmt.Errorf("storage gateway: bad part listing: %w", err)
+		}
+		for _, p := range v.Parts {
+			total += p.Size
+		}
+		if !v.IsTruncated || v.NextPartNumberMarker == "" {
+			break
+		}
+		marker = v.NextPartNumberMarker
+	}
+	return total, nil
+}
+
+func (g *gateway) abortUpload(ctx context.Context, bucket, key, uploadID string) error {
+	return g.call(ctx, http.MethodDelete, bucket, key, url.Values{"uploadId": {uploadID}}, nil, nil)
+}
+
 func (g *gateway) headObject(ctx context.Context, bucket, key string) (http.Header, error) {
 	res, err := g.do(ctx, http.MethodHead, bucket, key, nil, nil, nil)
 	if err != nil {

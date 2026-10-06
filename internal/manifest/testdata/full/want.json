@@ -60,7 +60,15 @@
           "public": true
         },
         "uploads": {
-          "public": false
+          "public": false,
+          "cors": [
+            "https://example.com"
+          ],
+          "maxFileSize": 10485760,
+          "allowedTypes": [
+            "image/*",
+            "application/pdf"
+          ]
         }
       }
     }

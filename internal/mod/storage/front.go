@@ -25,6 +25,9 @@ type frontServer struct {
 	m     *Module
 	p     *platform.Platform
 	proxy *httputil.ReverseProxy
+	hosts hostCache  // app hosts per project, for CORS
+	keys  filesKeys  // signing keys per project, for signed file URLs
+	img   *imageWork // on-the-fly image transforms
 
 	mu        sync.Mutex
 	listeners map[string]net.Listener
@@ -36,6 +39,14 @@ func (f *frontServer) start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	engine, cacheMax := f.m.imgEngine, f.m.cacheMax
+	if engine == nil {
+		engine = vipsTransform
+	}
+	if cacheMax <= 0 {
+		cacheMax = imageCacheMax
+	}
+	f.img = newImageWork(engine, imageCacheDir(f.p.DataRoot), cacheMax)
 	target := &url.URL{Scheme: "http", Host: gw.addr}
 	f.proxy = &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -126,50 +137,6 @@ func writeS3Error(w http.ResponseWriter, status int, code, msg string) {
 	}{Code: code, Message: msg})
 }
 
-// bucketOf returns the path-style bucket of an S3 request.
-func bucketOf(r *http.Request) string {
-	b, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
-	return b
-}
-
-func (f *frontServer) serveS3(w http.ResponseWriter, r *http.Request) {
-	bucket := bucketOf(r)
-	if (r.Method == http.MethodPut || r.Method == http.MethodPost) && bucket != "" && strings.Contains(strings.TrimPrefix(r.URL.Path, "/"), "/") {
-		size := r.ContentLength
-		if d, err := strconv.ParseInt(r.Header.Get("X-Amz-Decoded-Content-Length"), 10, 64); err == nil {
-			size = d // aws-chunked: the body carries chunk signatures too
-		}
-		if msg := f.overQuota(r.Context(), bucket, size); msg != "" {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20))
-			writeS3Error(w, http.StatusForbidden, "QuotaExceeded", msg)
-			return
-		}
-		rec := &statusRecorder{ResponseWriter: w}
-		f.proxy.ServeHTTP(rec, r)
-		if rec.status < 300 {
-			f.m.tracker().add(bucket, size)
-		}
-		return
-	}
-	f.proxy.ServeHTTP(w, r)
-}
-
-// overQuota returns a message when writing n more bytes to bucket is
-// refused (its project is read-only or would go over its storage limit),
-// else "".
-func (f *frontServer) overQuota(ctx context.Context, bucket string, n int64) string {
-	meta, err := allMeta(ctx, f.p)
-	if err != nil {
-		return ""
-	}
-	b, ok := meta[bucket]
-	if !ok {
-		return "" // not ours to judge; the gateway decides
-	}
-	what, fix := f.m.refusal(ctx, f.p, meta, b.Project, n)
-	return strings.TrimSpace(what + " " + fix)
-}
-
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
@@ -251,8 +218,21 @@ func (f *frontServer) serveFile(w http.ResponseWriter, r *http.Request) {
 		plain(w, http.StatusNotFound, "not found: no bucket "+bucket+" in project "+project)
 		return
 	}
+	cacheControl := CacheControl(key)
 	if !meta.Public {
-		plain(w, http.StatusForbidden, "forbidden: this file is not public")
+		left, err := f.checkSigned(r.Context(), project, bucket, key, r.URL.Query(), time.Now())
+		if err != nil {
+			plain(w, http.StatusForbidden, "forbidden: "+err.Error())
+			return
+		}
+		cacheControl = "private, max-age=" + strconv.FormatInt(min(left, 3600), 10)
+	}
+	ip, transform, err := parseImageParams(r.URL.Query())
+	if err != nil {
+		plain(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if transform && f.serveImage(w, r, meta, s3name, key, ip, cacheControl) {
 		return
 	}
 	gw, err := f.m.gateway(f.p)
@@ -260,11 +240,14 @@ func (f *frontServer) serveFile(w http.ResponseWriter, r *http.Request) {
 		plain(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
-	// Anonymous on purpose: the bucket policy is the authority for public reads.
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, gw.endpoint()+objectPath(s3name, key), nil)
 	if err != nil {
 		plain(w, http.StatusBadRequest, "bad key")
 		return
+	}
+	if !meta.Public {
+		// Public reads stay anonymous: the bucket policy is their authority.
+		signRequest(req, gw.root, gw.region, emptySHA256, time.Now())
 	}
 	for _, h := range []string{"Range", "If-None-Match", "If-Modified-Since", "If-Match", "If-Unmodified-Since", "If-Range"} {
 		if v := r.Header.Get(h); v != "" {
@@ -294,7 +277,7 @@ func (f *frontServer) serveFile(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set(h, v)
 		}
 	}
-	w.Header().Set("Cache-Control", CacheControl(key))
+	w.Header().Set("Cache-Control", cacheControl)
 	w.Header().Set("Content-Security-Policy", filesCSP)
 	w.WriteHeader(res.StatusCode)
 	if r.Method != http.MethodHead {

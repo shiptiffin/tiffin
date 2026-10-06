@@ -217,6 +217,17 @@ type Storage struct {
 type Bucket struct {
 	// Public buckets are readable without a signature.
 	Public bool `json:"public"`
+	// CORS lists the browser origins that may call the bucket's S3 API
+	// (presigned uploads and downloads): "https://example.com", a wildcard
+	// such as "https://*.example.com", or "*". Absent: the project's own app
+	// hosts (previews and custom domains included) and http://localhost.
+	CORS []string `json:"cors,omitempty"`
+	// MaxFileSize is the largest object an upload may create, in bytes.
+	// 0: no limit beyond the project's storage limit.
+	MaxFileSize int64 `json:"maxFileSize,omitempty"`
+	// AllowedTypes limits uploads to these MIME types; "image/*" matches a
+	// whole family. Absent: any type.
+	AllowedTypes []string `json:"allowedTypes,omitempty"`
 }
 
 // Auth Method values.

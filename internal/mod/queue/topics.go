@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/platform"
 	"github.com/jackc/pgx/v5"
 	"github.com/robfig/cron/v3"
 )
@@ -435,4 +436,19 @@ func (e *Engine) TriggerCron(ctx context.Context, project, name, by string) (str
 		return "", err
 	}
 	return jobID(id), tx.Commit(ctx)
+}
+
+// PublishEvent sends a box event (such as storage.object.created) to the
+// project's topic of that name. A project that has not declared the topic
+// gets nothing: sent reports whether it was published.
+func (m *Module) PublishEvent(ctx context.Context, _ *platform.Platform, project, topic string, payload json.RawMessage, dedupe string) (sent bool, err error) {
+	e := m.engine()
+	if e == nil {
+		return false, errors.New("the queue is not running yet")
+	}
+	if err := e.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM tq_topics WHERE project = $1 AND name = $2)`, project, topic).Scan(&sent); err != nil || !sent {
+		return false, err
+	}
+	_, err = e.Send(ctx, project, SendRequest{Name: topic, Payload: payload, Dedupe: dedupe, By: "box"})
+	return err == nil, err
 }

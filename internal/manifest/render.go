@@ -274,9 +274,18 @@ func servicesNode(s Services) *node {
 		if len(st.Buckets) > 0 {
 			bs := obj()
 			for _, name := range sortedKeys(st.Buckets) {
-				b := obj()
-				if st.Buckets[name].Public {
+				b, spec := obj(), st.Buckets[name]
+				if spec.Public {
 					b.set("public", boolean(true))
+				}
+				if len(spec.CORS) > 0 {
+					b.set("cors", strs(spec.CORS))
+				}
+				if spec.MaxFileSize > 0 {
+					b.set("maxFileSize", &node{lit: strconv.FormatInt(spec.MaxFileSize, 10)})
+				}
+				if len(spec.AllowedTypes) > 0 {
+					b.set("allowedTypes", strs(spec.AllowedTypes))
 				}
 				bs.set(name, b)
 			}

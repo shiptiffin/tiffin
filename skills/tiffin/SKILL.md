@@ -64,6 +64,12 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    `queue.sendWithToken(...)` or `workflow.startWithToken(...)` (`{ id, token }`), the work reports
    with `job.progress()` / `ctx.progress()`, and the page renders `useRun(id, token)` from
    `tiffin-sdk/react`. Don't poll or add your own SSE route.
+   Browser uploads go straight to the box, never through the app: `uploadRoute`/`createUpload`
+   (`tiffin-sdk/storage`) on the server, `uploadFile` (`tiffin-sdk/storage/client`) in the page. Limit
+   them with the bucket's `maxFileSize`/`allowedTypes` (the box enforces them); react to uploads with
+   a queue subscribed to the topic `storage.object.created`. Images resize at
+   `files.<domain>/...?w=&q=&f=webp` (`publicUrl(b, key, { width })`, `signedUrl` for private buckets,
+   `tiffin-sdk/next/image-loader` for next/image) instead of sharp in the app.
 7. Copying a project: `tiffin projects duplicate <p> <new>` (same box, own addresses; undo =
    destroy the copy), `tiffin projects export <p> [-o file]` (a .tiffin of plain files with a
    docker-compose.yml; `--include-secrets` puts them in plain text: ask first), `tiffin projects

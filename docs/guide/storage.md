@@ -37,13 +37,155 @@ prints the same variables for tools and local development (it needs a key with
 full access, because the key can delete every object).
 
 ```ts
-import { upload, presign, publicUrl } from "tiffin-sdk/storage";
+import { upload, presign, publicUrl, signedUrl } from "tiffin-sdk/storage";
 
 await upload("uploads", `avatars/${user.id}.png`, file, { contentType: "image/png" });
 const link = presign("uploads", `avatars/${user.id}.png`, { expiresIn: 600 });
-const putUrl = presign("uploads", "incoming/big.mov", { method: "PUT" }); // browser uploads
-publicUrl("assets", "logo.png"); // https://files.<domain>/shop/assets/logo.png
+publicUrl("assets", "logo.png");                    // https://files.<domain>/shop/assets/logo.png
+publicUrl("assets", "hero.jpg", { width: 1200 });   // resized to WebP by the box (see Images)
+signedUrl("uploads", `avatars/${user.id}.png`);     // a private file, for an hour
 ```
+
+`tiffin-sdk/storage` signs requests itself (it needs only `fetch` and `node:crypto`), so it
+works on Bun and Node. `bucket(name)` returns a `Bun.S3Client` and is Bun only.
+
+## Bucket rules
+
+```ts
+buckets: {
+  uploads: {
+    maxFileSize: 50 * 1024 * 1024,              // bytes
+    allowedTypes: ["image/*", "application/pdf"],
+    cors: ["https://example.com", "https://*.example.com"],
+  },
+},
+```
+
+The box checks every upload before it is stored: a file over `maxFileSize` is refused with
+`EntityTooLarge` (HTTP 413), a `Content-Type` outside `allowedTypes` with `InvalidContentType`
+(415). Multipart uploads are checked part by part and again at completion (an upload whose
+parts add up to too much is refused and aborted). Server-side copies (`CopyObject`) are not
+checked. Form (POST policy) uploads cannot be checked, so a bucket with rules refuses them: use
+a presigned PUT.
+
+`cors` lists the browser origins that may call the bucket's S3 API at `s3.<domain>`. Without
+it, the project's own app hosts may (previews and custom domains included), and so may
+`http://localhost` for local development. `"*"` allows any origin; the presigned URL is what
+grants access, CORS only lets a page read the answer. `files.<domain>` answers every origin.
+
+## Uploads from the browser
+
+The bytes go from the browser straight to `s3.<domain>`; your app only hands out a ticket of
+presigned URLs. The type, the exact size and a size cap are signed into the URLs, so a ticket
+cannot be used for anything else. Files over 64 MiB go up in parts (8 MiB or more, at most
+1,000), four at a time; a part that fails is retried, and calling `uploadFile` again with the
+same ticket resumes, skipping parts already stored.
+
+A route handler (Next.js `app/api/upload/route.ts`, or any `(Request) => Response` server):
+
+```ts
+import { uploadRoute } from "tiffin-sdk/storage";
+
+export const POST = uploadRoute({
+  bucket: "uploads",
+  maxSize: 50 << 20,
+  allowedTypes: ["image/*"],
+  authorize: async (file, req) => !!(await getSession(req)),  // false or a throw refuses
+  key: (file) => `avatars/${crypto.randomUUID()}.png`,        // default: uploads/<id>/<file name>
+});
+```
+
+In the page:
+
+```ts
+import { uploadFile } from "tiffin-sdk/storage/client";
+
+const done = await uploadFile(file, "/api/upload", {
+  onProgress: (p) => setPercent(p.percent),
+  signal: controller.signal,      // cancel; the same ticket resumes later
+});
+// done: { bucket, key, size, etag, url? }  url only for public buckets
+```
+
+Or a Server Action that returns a ticket:
+
+```ts
+"use server";
+import { createUpload } from "tiffin-sdk/storage";
+
+export async function startUpload(name: string, size: number, type: string) {
+  const user = await requireUser();
+  return createUpload({ bucket: "uploads", key: `${user.id}/${name}`, contentType: type, size, maxSize: 2 << 30 });
+}
+// client: await uploadFile(file, await startUpload(file.name, file.size, file.type), { onProgress })
+```
+
+A refused upload throws `UploadError` with the box's `code` (`EntityTooLarge`,
+`InvalidContentType`, `QuotaExceeded`). `abortUpload(ticket)` gives up a multipart upload and
+frees its parts. `presign(bucket, key, { method: "PUT", contentType, maxSize })` and
+`tiffin storage presign <project> <bucket> --key k --method PUT --content-type T --max-size N`
+make a single upload URL with the same checks.
+
+## Upload events
+
+After each upload through the box (a PUT, a completed multipart upload, a copy, or
+`tiffin storage objects put`) the box publishes an `object.created` event to the project's
+queue topic `storage.object.created`. Declare the topic with a subscriber queue to receive
+them like any other job, retried until your handler answers 2xx:
+
+```ts
+// tiffin.config.ts
+queues: { uploads: { app: "web" } },                                 // POST /queues/uploads
+topics: { "storage.object.created": { subscribers: ["uploads"] } },
+
+// app/queues/uploads/route.ts
+import { onUploadCompleted } from "tiffin-sdk/storage";
+export const POST = onUploadCompleted(async (e) => {
+  // e: { event, project, bucket, key, size, contentType, etag, url?, at }
+  await db.files.insert({ key: e.key, size: e.size });
+});
+```
+
+A project without the topic gets no events.
+
+## Images
+
+Images in a bucket can be resized and converted on the way out:
+
+```
+https://files.<domain>/<project>/<bucket>/<key>?w=640&q=75&f=webp
+```
+
+| Parameter | Values |
+|---|---|
+| `w` | 16, 32, 48, 64, 96, 128, 256, 384, 640, 750, 828, 1080, 1200, 1920, 2048, 3840 (Next.js's sizes); never enlarges |
+| `q` | 50, 75 (default), 90, 100 |
+| `f` | `webp`, `avif` or `original` (the default) |
+
+Other values answer 400. JPEG, PNG, WebP, AVIF and GIF (animations kept) are transformed; any
+other file is served as stored. Each result is made once per version of the object (its
+ETag) and kept in a disk cache (`/var/lib/tiffin/cache/images`, 2 GiB, least recently used
+files go first); the `X-Tiffin-Cache` header says `HIT` or `MISS`. Transforms run with
+libvips as an unprivileged, low-priority process with a 30 second limit, on images up to
+50 MiB; at most half the box's CPUs transform at once, and one project gets at most half of
+those.
+
+Private buckets need a signed link: `signedUrl("uploads", key, { width: 256, expiresIn: 3600 })`.
+The signature covers the file and the expiry, not `w`, `q` and `f`, so they can be added to it.
+
+With next/image the box does the resizing instead of sharp in your app:
+
+```ts
+// image-loader.ts
+export { default } from "tiffin-sdk/next/image-loader";
+// next.config.ts
+images: { loader: "custom", loaderFile: "./image-loader.ts" },
+// a page: src from publicUrl() or signedUrl()
+<Image src={publicUrl("assets", "hero.jpg")} width={1200} height={600} alt="" />
+```
+
+The loader rounds widths up to the box's sizes and leaves images that are not on
+`files.<domain>` alone.
 
 ## Public files
 
@@ -93,6 +235,9 @@ Every backup set (`tiffin backups list`) includes the whole storage tree.
 [versitygw](https://github.com/versity/versitygw) (Apache-2.0, pinned release,
 checksum-verified) runs as `tiffin-storage.service` on `127.0.0.1:7480` with its
 POSIX backend on `/var/lib/tiffin/storage/data`. A small front server in Tiffin
-(`127.0.0.1:7481`) enforces storage limits and read-only holds, serves public files and passes S3 requests
-through unchanged, so signatures and presigned URLs verify. The edge serves it as
-`s3.<domain>` and `files.<domain>`.
+(`127.0.0.1:7481`) enforces storage limits, read-only holds and bucket rules, answers CORS,
+publishes upload events, serves (and transforms) files and passes S3 requests through
+unchanged, so signatures and presigned URLs verify. The edge serves it as `s3.<domain>` and
+`files.<domain>`. Image transforms run libvips' command-line tool (`libvips-tools`, installed
+by `tiffin up`): Tiffin is a static binary without cgo, so it drives the tool rather than
+linking the library.
