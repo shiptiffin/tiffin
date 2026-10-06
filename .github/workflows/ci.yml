@@ -1,0 +1,109 @@
+# CI for pull requests and main: build, lint and unit tests for Go, the
+# dashboard and the SDK, and a check that the committed builds
+# (internal/dashboard/dist, internal/sdkpkg/files) match their sources.
+#
+# The end-to-end suite (e2e/, `make e2e`) boots Lima VMs and needs nested
+# virtualisation, which GitHub-hosted runners do not have. It stays local for
+# now: run `make e2e` (or one test: go test -tags e2e ./e2e -run TestX
+# -count=1) before merging anything that touches the box, provisioning or
+# the edge.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: go (build, lint, test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Tests that run without -race only (see the test step).
+      NORACE: ^(TestACMEIssuanceAndAskGate|TestACMEWildcardDNS01|TestACMERenewal|TestACMEAppsDomain|TestTreeRoundTripAndDedup|TestEdgeServesAloneFromItsSavedSnapshot)$
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: build
+        run: CGO_ENABLED=0 go build -trimpath -o bin/tiffin ./cmd/tiffin
+      - name: lint (gofmt, go vet incl. -tags e2e, staticcheck)
+        run: make lint
+      - name: test (race detector)
+        # Run without -race, in the next step, until fixed:
+        #   internal/mod/runtime, the whole package: its test harnesses read
+        #     state their fake servers write (TestGitHubConnectPushAndPreviews,
+        #     TestDeployTemplate, TestGC*), so -race fails a different test
+        #     each run.
+        #   TestACME* (internal/edge): the race is inside Caddy's caddytls
+        #     event handler (upstream), not in Tiffin.
+        #   TestTreeRoundTripAndDedup (internal/mod/backup): the vault's
+        #     parallel chunk fetch races.
+        #   TestEdgeServesAloneFromItsSavedSnapshot (internal/edge): timing;
+        #     flaky under load, worse with -race's slowdown.
+        run: go test -race -count=1 -skip "$NORACE" $(go list ./... | grep -v '/internal/mod/runtime$')
+      - name: test (the rest, without -race)
+        run: |
+          go test -count=1 ./internal/mod/runtime
+          go test -count=1 -run "$NORACE" ./internal/edge ./internal/mod/backup
+      - name: release builds compile
+        run: |
+          for t in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
+            CGO_ENABLED=0 GOOS="${t%/*}" GOARCH="${t#*/}" go build -trimpath -o /dev/null ./cmd/tiffin
+          done
+
+  web:
+    name: dashboard and SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.13 # the Bun the committed builds and bun.lock are made with
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - name: install
+        run: bun install --frozen-lockfile
+      - name: dashboard typecheck
+        working-directory: apps/dashboard
+        run: bun run typecheck
+      - name: dashboard lint
+        working-directory: apps/dashboard
+        run: bun run lint
+      - name: dashboard build
+        working-directory: apps/dashboard
+        run: bun run build
+      - name: SDK build
+        run: bun scripts/sdk-pack.ts
+      - name: committed builds match the sources
+        run: |
+          # dist/ is in .gitignore, so new files there only show with --ignored.
+          changed="$(git status --porcelain --ignored=matching --untracked-files=all -- internal/dashboard/dist internal/sdkpkg/files)"
+          if [ -n "$changed" ]; then
+            echo "::error::The committed dashboard or SDK build is out of date. Run 'make dashboard sdk' and commit internal/dashboard/dist and internal/sdkpkg/files."
+            echo "$changed"
+            exit 1
+          fi
+      - name: SDK and package tests
+        run: |
+          for d in packages/*/; do
+            if [ -n "$(find "$d" -name '*.test.*' -not -path '*/node_modules/*' | head -1)" ]; then
+              echo "::group::bun test $d"
+              (cd "$d" && bun test) || exit 1
+              echo "::endgroup::"
+            fi
+          done
