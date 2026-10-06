@@ -67,11 +67,11 @@ func TestLongRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := "https://shop.tiffin.localhost:" + strconv.Itoa(cfg.HTTPSPort)
-	// A browser's file upload, 21 MB: past the WAF's 12.5 MB inspection limit.
+	// A browser's file upload, 15 MB: past the WAF's 12.5 MB inspection limit.
 	var form bytes.Buffer
 	mw := multipart.NewWriter(&form)
 	fw, _ := mw.CreateFormFile("file", "big.bin")
-	fw.Write(bytes.Repeat([]byte("upload "), 3<<20))
+	fw.Write(bytes.Repeat([]byte("upload "), 15<<17))
 	mw.Close()
 	body := form.Bytes()
 

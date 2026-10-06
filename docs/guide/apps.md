@@ -97,6 +97,10 @@ apps: {
   minutes or more, streamed or all at once, and nothing cuts a stream for pausing. Only a
   client that closes the connection ends it (browsers and proxies in front of the box may
   have limits of their own). A preview with a request under way does not fall asleep.
+  Bun's own server (`export default { fetch }`, Hono, Elysia) closes a request that
+  sends nothing for 10 seconds unless it sets `idleTimeout: 0` (`export default { port,
+  fetch, idleTimeout: 0 }`, or `server.timeout(req, 0)` for one route); Next.js has no
+  such limit.
 - **Uploads:** no size limit on request bodies; they stream to the app as they arrive.
   With the WAF on (see [Protection](protection.md)), it inspects the first 12.5 MB of a body and passes
   the rest through, and its rules refuse some content types (a raw
