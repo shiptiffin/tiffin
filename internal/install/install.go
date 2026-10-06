@@ -36,8 +36,12 @@ import (
 const (
 	VersionsDir = "/usr/local/lib/tiffin/versions"
 	BinLink     = "/usr/local/bin/tiffin"
-	UnitPath    = "/etc/systemd/system/tiffin.service"
-	EdgeUnits   = "/etc/systemd/system/tiffin-edge"
+	UnitDir     = "/etc/systemd/system"
+	UnitPath    = UnitDir + "/tiffin.service"
+	EdgeUnits   = UnitDir + "/tiffin-edge"
+	// UnitsBackup holds the unit files as they were before an update wrote
+	// new ones, until the new build is healthy: a rollback puts them back.
+	UnitsBackup = Home + "/units-before"
 	Home        = "/var/lib/tiffin/platform"
 	APIAddr     = "127.0.0.1:7070"
 	User        = "tiffin"
@@ -110,9 +114,13 @@ WantedBy=multi-user.target
 `, User, BinLink, Home, APIAddr, o.Domain, o.HTTPSPort, o.HTTPPort, o.PublicURL(), ips)
 }
 
+// Units are the unit files Install writes, the main one first.
+var Units = []string{"tiffin.service", "tiffin-edge.service", "tiffin-edge.socket"}
+
 // EdgeSocketUnit renders the edge's socket unit: systemd holds the HTTPS
 // and HTTP ports (and UDP for HTTP/3), so an edge restart refuses no
-// connection; they wait for the next edge.
+// connection; they wait for the next edge. ReusePort lets it bind them
+// while the tiffin of the old layout still serves on them (see startEdge).
 func EdgeSocketUnit(o Options) string {
 	return fmt.Sprintf(`[Unit]
 Description=Tiffin edge ports (held across edge restarts)
@@ -123,6 +131,7 @@ ListenStream=%[2]d
 ListenDatagram=%[1]d
 Backlog=4096
 NoDelay=yes
+ReusePort=yes
 Service=tiffin-edge.service
 
 [Install]
@@ -179,6 +188,8 @@ func Install(ctx context.Context, m provider.Machine, bin string, o Options, pro
 id %[1]s >/dev/null 2>&1 || sudo useradd --system --home-dir /var/lib/tiffin --no-create-home --shell /usr/sbin/nologin %[1]s
 sudo install -d -m 0700 %[2]s
 sudo install -d -m 0755 %[3]s
+sudo rm -rf %[9]s && sudo install -d -m 0700 %[9]s
+for u in %[10]s; do if [ -e %[11]s/$u ]; then sudo cp %[11]s/$u %[9]s/; fi; done
 sudo tee %[4]s >/dev/null <<'UNIT'
 %[5]sUNIT
 sudo tee %[6]s.socket >/dev/null <<'UNIT'
@@ -188,7 +199,7 @@ sudo tee %[6]s.service >/dev/null <<'UNIT'
 sudo systemctl daemon-reload
 sudo systemctl enable tiffin tiffin-edge.socket tiffin-edge.service >/dev/null 2>&1
 chmod 0755 /tmp/tiffin.new
-`, User, Home, VersionsDir, UnitPath, Unit(o), EdgeUnits, EdgeSocketUnit(o), EdgeUnit())
+`, User, Home, VersionsDir, UnitPath, Unit(o), EdgeUnits, EdgeSocketUnit(o), EdgeUnit(), UnitsBackup, strings.Join(Units, " "), UnitDir)
 	if _, stderr, err := m.Exec(ctx, setup); err != nil {
 		return nil, fmt.Errorf("set up the service: %w\n%s", err, stderr)
 	}
@@ -221,9 +232,22 @@ chmod 0755 /tmp/tiffin.new
 		}
 	}
 	progress("starting tiffin (rolls back automatically if unhealthy)")
+	// The installed build performs the update, unless it predates the
+	// service layout being installed (the edge's own units): only the new
+	// build knows how to move to it and back. If the update fails, the
+	// unit files go back too (the build that did it restored them already,
+	// unless it could not run at all).
 	script := `set -o pipefail
-if [ -x ` + BinLink + ` ]; then sudo ` + BinLink + ` self-update /tmp/tiffin.new; else sudo /tmp/tiffin.new self-update /tmp/tiffin.new; fi
-rc=$?; rm -f /tmp/tiffin.new; exit $rc`
+if [ -x ` + BinLink + ` ] && sudo test -e ` + UnitsBackup + `/tiffin-edge.service; then sudo ` + BinLink + ` self-update /tmp/tiffin.new; else sudo /tmp/tiffin.new self-update /tmp/tiffin.new; fi
+rc=$?; rm -f /tmp/tiffin.new
+if [ $rc -eq 0 ]; then sudo rm -rf ` + UnitsBackup + `
+elif sudo test -e ` + UnitsBackup + `/tiffin.service; then
+  for u in ` + strings.Join(Units, " ") + `; do
+    if sudo test -e ` + UnitsBackup + `/$u; then sudo cp ` + UnitsBackup + `/$u ` + UnitDir + `/$u; else sudo systemctl disable --now $u >/dev/null 2>&1; sudo rm -f ` + UnitDir + `/$u; fi
+  done
+  sudo systemctl daemon-reload
+fi
+exit $rc`
 	if out, stderr, err := m.Exec(ctx, script); err != nil {
 		var p struct {
 			Detail string `json:"detail"`

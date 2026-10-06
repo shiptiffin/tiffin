@@ -35,9 +35,14 @@ func newCLIBox(t *testing.T, label, project string) *cliBox {
 	t.Helper()
 	RequireLima(t)
 	dir := t.TempDir()
-	b := &cliBox{t: t, dir: dir, project: project}
-	b.cli = buildTiffin(t, dir, "", "")
-	bin := buildTiffin(t, dir, "linux", "0.0.1-"+label)
+	return newCLIBoxFrom(t, dir, project, buildTiffin(t, dir, "", ""), buildTiffin(t, dir, "linux", "0.0.1-"+label))
+}
+
+// newCLIBoxFrom is newCLIBox with the given host CLI and box build.
+func newCLIBoxFrom(t *testing.T, dir, project, cli, bin string) *cliBox {
+	t.Helper()
+	RequireLima(t)
+	b := &cliBox{t: t, dir: dir, project: project, cli: cli}
 	disk := newDiskName()
 	b.instance, b.port = newName(), freePort(t)
 	b.env = append(os.Environ(),

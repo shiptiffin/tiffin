@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,10 +32,20 @@ type Updater struct {
 	// StateDB is the platform state database, snapshotted before a switch
 	// and put back on rollback (a new build may migrate it past what the
 	// previous one opens). Empty: not touched.
-	StateDB  string
-	Timeout  time.Duration // how long a new build has to become healthy
-	Restart  func(ctx context.Context) error
-	Stop     func(ctx context.Context) error
+	StateDB string
+	Timeout time.Duration // how long a new build has to become healthy
+	Restart func(ctx context.Context) error
+	Stop    func(ctx context.Context) error
+	// RestoreUnits puts the unit files of the build before back when the
+	// update changed them (see UnitsBackup), before that build starts again.
+	// StopRemoved then stops the units it removed (the edge's) once that
+	// build serves: until then their sockets hold connections for it.
+	RestoreUnits func(ctx context.Context) error
+	StopRemoved  func(ctx context.Context)
+	// Restarts counts the times systemd restarted the service after a
+	// crash: a new build that keeps crashing is rolled back without
+	// waiting out Timeout.
+	Restarts func(ctx context.Context) int
 	Logs     func(ctx context.Context) string // recent service logs, for error reports
 	Progress func(string)
 }
@@ -77,6 +88,21 @@ func NewUpdater() *Updater {
 			}
 			return last
 		},
+		RestoreUnits: func(ctx context.Context) error {
+			return restoreUnits(ctx, systemctl, UnitsBackup, UnitDir)
+		},
+		StopRemoved: func(ctx context.Context) {
+			for _, u := range Units {
+				if !fileExists(filepath.Join(UnitDir, u)) {
+					_ = systemctl(ctx, "stop", u)
+				}
+			}
+		},
+		Restarts: func(ctx context.Context) int {
+			out, _ := exec.CommandContext(ctx, "systemctl", "show", "-p", "NRestarts", "--value", "tiffin").Output()
+			n, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+			return n
+		},
 		Logs: func(ctx context.Context) string {
 			out, _ := exec.CommandContext(ctx, "journalctl", "-u", "tiffin", "-n", "20", "--no-pager", "-o", "cat").CombinedOutput()
 			return string(out)
@@ -85,9 +111,49 @@ func NewUpdater() *Updater {
 	}
 }
 
+func systemctl(ctx context.Context, args ...string) error {
+	if out, err := exec.CommandContext(ctx, "systemctl", args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("systemctl %s: %w: %s", strings.Join(args, " "), err, out)
+	}
+	return nil
+}
+
+// restoreUnits puts back the unit files saved in backup (by Install, before
+// it wrote new ones) with tiffin stopped; the units the backup lacks, which
+// the update added, are disabled and removed (StopRemoved stops them once
+// the previous build serves). A backup without the main unit (a first
+// install) restores nothing.
+func restoreUnits(ctx context.Context, sysctl func(context.Context, ...string) error, backup, unitDir string) error {
+	if _, err := os.Stat(filepath.Join(backup, Units[0])); err != nil {
+		return nil
+	}
+	_ = sysctl(ctx, "stop", "tiffin")
+	for _, u := range Units {
+		if src := filepath.Join(backup, u); fileExists(src) {
+			if err := copyFile(src, filepath.Join(unitDir, u), 0o644); err != nil {
+				return err
+			}
+			continue
+		}
+		_ = sysctl(ctx, "disable", u)
+		if err := os.Remove(filepath.Join(unitDir, u)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return sysctl(ctx, "daemon-reload")
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
 // startEdge starts the edge's units the first time, on a box whose tiffin
-// still ran the edge itself: the ports are tiffin's until it stops. Later
-// restarts of tiffin leave the edge running.
+// still ran the edge itself, and stops that tiffin. The socket shares the
+// ports with it (SO_REUSEPORT, as Caddy listens), so it binds them first:
+// from then on new connections that reach it wait for the new edge rather
+// than being refused while the old tiffin stops. If it cannot, tiffin
+// stops first. Later restarts of tiffin leave the edge running.
 func startEdge(ctx context.Context) error {
 	if _, err := os.Stat(EdgeUnits + ".service"); err != nil {
 		return nil
@@ -95,9 +161,14 @@ func startEdge(ctx context.Context) error {
 	if exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", "tiffin-edge.socket").Run() == nil {
 		return nil
 	}
-	_ = exec.CommandContext(ctx, "systemctl", "stop", "tiffin").Run()
-	if out, err := exec.CommandContext(ctx, "systemctl", "start", "tiffin-edge.socket", "tiffin-edge.service").CombinedOutput(); err != nil {
-		return fmt.Errorf("systemctl start tiffin-edge: %w: %s", err, out)
+	start := func() error {
+		return systemctl(ctx, "start", "tiffin-edge.socket", "tiffin-edge.service")
+	}
+	err := start()
+	_ = systemctl(ctx, "stop", "tiffin")
+	if err != nil {
+		_ = systemctl(ctx, "reset-failed", "tiffin-edge.socket", "tiffin-edge.service")
+		return start()
 	}
 	return nil
 }
@@ -162,6 +233,11 @@ func (u *Updater) Update(ctx context.Context, newBin string) error {
 	if err := swapLink(u.BinLink, prev); err != nil {
 		return fmt.Errorf("rollback failed: %w", err)
 	}
+	if u.RestoreUnits != nil {
+		if err := u.RestoreUnits(ctx); err != nil {
+			return fmt.Errorf("rollback: restore the unit files: %w", err)
+		}
+	}
 	if snap != "" {
 		// Stopped first, so the new build cannot write the state again; the
 		// link already points back, so systemd only ever starts the previous
@@ -179,7 +255,11 @@ func (u *Updater) Update(ctx context.Context, newBin string) error {
 	// starts the previous build on its own even if this call was refused.
 	restartErr := u.Restart(ctx)
 	prevSum, _ := FileSHA(prev)
-	if err := u.waitHealthy(ctx, prevSum); err != nil {
+	err = u.waitHealthy(ctx, prevSum)
+	if u.StopRemoved != nil {
+		u.StopRemoved(ctx)
+	}
+	if err != nil {
 		if restartErr != nil {
 			return fmt.Errorf("rollback restart failed: %w; and the previous build is not healthy: %v", restartErr, err)
 		}
@@ -193,7 +273,16 @@ func (u *Updater) waitHealthy(ctx context.Context, sum string) error {
 	deadline := time.Now().Add(u.Timeout)
 	client := &http.Client{Timeout: 2 * time.Second}
 	var last string
+	base := -1
 	for time.Now().Before(deadline) {
+		if u.Restarts != nil {
+			n := u.Restarts(ctx)
+			if base < 0 {
+				base = n
+			} else if n-base >= 3 {
+				return fmt.Errorf("it crashed %d times while starting (last: %s)", n-base, last)
+			}
+		}
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.HealthURL, nil)
 		if res, err := client.Do(req); err == nil {
 			body, _ := io.ReadAll(io.LimitReader(res.Body, 4096))

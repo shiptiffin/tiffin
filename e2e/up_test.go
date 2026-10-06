@@ -164,6 +164,12 @@ func TestUpDown(t *testing.T) {
 
 func buildTiffin(t *testing.T, dir, goos, version string) string {
 	t.Helper()
+	return buildTiffinFrom(t, RepoRoot(), dir, goos, version)
+}
+
+// buildTiffinFrom builds the tiffin source tree at src.
+func buildTiffinFrom(t *testing.T, src, dir, goos, version string) string {
+	t.Helper()
 	name := "tiffin-host"
 	env := os.Environ()
 	if goos != "" {
@@ -176,7 +182,7 @@ func buildTiffin(t *testing.T, dir, goos, version string) string {
 		args = append(args, "-ldflags", "-X github.com/btahir/tiffin/internal/version.Version="+version)
 	}
 	cmd := exec.Command("go", append(args, "./cmd/tiffin")...)
-	cmd.Dir, cmd.Env = RepoRoot(), env
+	cmd.Dir, cmd.Env = src, env
 	if o, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build %s: %v\n%s", name, err, o)
 	}

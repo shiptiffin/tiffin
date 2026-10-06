@@ -46,8 +46,7 @@ func TestEdgeProcess(t *testing.T) {
 	start := time.Now()
 	phase := phaseLogger(t)
 	b := newCLIBox(t, "edge", "steady")
-	healthy := `up=; for i in $(seq 1 300); do curl -s http://127.0.0.1:7070/v1/health | grep -q '"status":"ok"' && { up=1; break; }; sleep 0.2; done
-[ -n "$up" ] || { echo "tiffin not healthy" >&2; exit 1; }`
+	healthy := healthyScript
 	// Opted-in apps sleep after 20 s here (as in TestSleep).
 	b.inBox(`sudo install -d /etc/systemd/system/tiffin.service.d
 printf '[Service]\nEnvironment=TIFFIN_SLEEP_AFTER=20s\n' | sudo tee /etc/systemd/system/tiffin.service.d/e2e-sleep.conf >/dev/null
@@ -88,50 +87,12 @@ sudo cp /var/lib/tiffin/platform/ca.crt /tmp/ca.crt && sudo chmod 644 /tmp/ca.cr
 
 	// ---- the load generator and the next build ----
 	p = time.Now()
-	gen := filepath.Join(b.dir, "loadgen")
-	build := exec.Command("go", "build", "-tags", "e2e", "-o", gen, "./e2e/loadgen")
-	build.Dir, build.Env = RepoRoot(), append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+HostArch())
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build loadgen: %v\n%s", err, out)
-	}
-	if out, err := exec.Command("limactl", "copy", gen, b.instance+":/tmp/loadgen").CombinedOutput(); err != nil {
-		t.Fatalf("copy loadgen: %v\n%s", err, out)
-	}
-	b.inBox("chmod 755 /tmp/loadgen")
-	// One client IP sends ~1,000 requests a second: past the per-IP app limit.
-	b.ok("protect", "set", "--body", `{"limits":{"app":{"requests":0,"windowSeconds":10}}}`)
+	installLoadgen(t, b)
 	next := buildTiffin(t, b.dir, "linux", "0.0.2-edge")
 	phase("tools", p)
 
-	var report []string
-	load := func(name string, disrupt func()) loadResult {
-		t.Helper()
-		p := time.Now()
-		id := strings.NewReplacer(" ", "-", "(", "", ")", "", "+", "").Replace(name)
-		b.inBox(fmt.Sprintf(`sudo rm -f /tmp/load-%[1]s.*
-sudo systemd-run --unit e2e-load-%[1]s /tmp/loadgen -url https://steady.tiffin.localhost:8443/ -ca /tmp/ca.crt -want steady -stop /tmp/load-%[1]s.stop -out /tmp/load-%[1]s.json >/dev/null 2>&1`, id))
-		time.Sleep(3 * time.Second)
-		disrupt()
-		time.Sleep(5 * time.Second)
-		b.inBox("sudo touch /tmp/load-" + id + ".stop")
-		raw := b.inBox(`for i in $(seq 1 300); do [ -s /tmp/load-` + id + `.json ] && break; sleep 0.2; done
-cat /tmp/load-` + id + `.json 2>/dev/null || { systemctl status --no-pager e2e-load-` + id + `; sudo journalctl --no-pager -u e2e-load-` + id + ` | tail -20; } 2>&1`)
-		var r loadResult
-		if err := json.Unmarshal([]byte(raw), &r); err != nil {
-			t.Fatalf("%s: load result: %v\n%s", name, err, raw)
-		}
-		line := fmt.Sprintf("%-28s %6d requests  %3d failed  max latency %7.1f ms  max gap %7.1f ms  (%4.1fs)", name, r.Requests, r.Failed, r.MaxLatencyMs, r.MaxGapMs, r.Seconds)
-		report = append(report, line)
-		t.Logf("LOAD %s", line)
-		for _, e := range r.Errors {
-			t.Logf("  %s: %s", name, e)
-		}
-		if r.OK == 0 {
-			t.Fatalf("%s: no request succeeded", name)
-		}
-		phase(name, p)
-		return r
-	}
+	loads := &steadyLoads{t: t, b: b, phase: phase}
+	load := loads.run
 	noFailures := func(name string, r loadResult) {
 		t.Helper()
 		if r.Failed > 0 {
@@ -244,8 +205,69 @@ cat /tmp/load-` + id + `.json 2>/dev/null || { systemctl status --no-pager e2e-l
 	if r.Failed > r.Requests/100 {
 		t.Errorf("restart tiffin-edge: %d of %d requests failed", r.Failed, r.Requests)
 	}
-	for _, l := range report {
+	for _, l := range loads.report {
 		t.Logf("SUMMARY %s", l)
 	}
 	t.Logf("TOTAL %s", time.Since(start).Round(time.Second))
+}
+
+// healthyScript waits until tiffin answers health with ok.
+const healthyScript = `up=; for i in $(seq 1 300); do curl -s http://127.0.0.1:7070/v1/health | grep -q '"status":"ok"' && { up=1; break; }; sleep 0.2; done
+[ -n "$up" ] || { echo "tiffin not healthy" >&2; exit 1; }`
+
+// installLoadgen builds e2e/loadgen for the box, copies it to /tmp/loadgen
+// and turns the per-IP app limit off: one client IP sends ~1,000 requests a
+// second.
+func installLoadgen(t *testing.T, b *cliBox) {
+	t.Helper()
+	gen := filepath.Join(b.dir, "loadgen")
+	build := exec.Command("go", "build", "-tags", "e2e", "-o", gen, "./e2e/loadgen")
+	build.Dir, build.Env = RepoRoot(), append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+HostArch())
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build loadgen: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("limactl", "copy", gen, b.instance+":/tmp/loadgen").CombinedOutput(); err != nil {
+		t.Fatalf("copy loadgen: %v\n%s", err, out)
+	}
+	b.inBox("chmod 755 /tmp/loadgen")
+	b.ok("protect", "set", "--body", `{"limits":{"app":{"requests":0,"windowSeconds":10}}}`)
+}
+
+// steadyLoads runs the load generator in the box against steady.<domain>
+// around a disruption and keeps a line per run for the summary.
+type steadyLoads struct {
+	t      *testing.T
+	b      *cliBox
+	phase  func(string, time.Time)
+	report []string
+}
+
+func (l *steadyLoads) run(name string, disrupt func()) loadResult {
+	t, b := l.t, l.b
+	t.Helper()
+	p := time.Now()
+	id := strings.NewReplacer(" ", "-", "(", "", ")", "", "+", "").Replace(name)
+	b.inBox(fmt.Sprintf(`sudo rm -f /tmp/load-%[1]s.*
+sudo systemd-run --unit e2e-load-%[1]s /tmp/loadgen -url https://steady.tiffin.localhost:8443/ -ca /tmp/ca.crt -want steady -stop /tmp/load-%[1]s.stop -out /tmp/load-%[1]s.json >/dev/null 2>&1`, id))
+	time.Sleep(3 * time.Second)
+	disrupt()
+	time.Sleep(5 * time.Second)
+	b.inBox("sudo touch /tmp/load-" + id + ".stop")
+	raw := b.inBox(`for i in $(seq 1 300); do [ -s /tmp/load-` + id + `.json ] && break; sleep 0.2; done
+cat /tmp/load-` + id + `.json 2>/dev/null || { systemctl status --no-pager e2e-load-` + id + `; sudo journalctl --no-pager -u e2e-load-` + id + ` | tail -20; } 2>&1`)
+	var r loadResult
+	if err := json.Unmarshal([]byte(raw), &r); err != nil {
+		t.Fatalf("%s: load result: %v\n%s", name, err, raw)
+	}
+	line := fmt.Sprintf("%-28s %6d requests  %3d failed  max latency %7.1f ms  max gap %7.1f ms  (%4.1fs)", name, r.Requests, r.Failed, r.MaxLatencyMs, r.MaxGapMs, r.Seconds)
+	l.report = append(l.report, line)
+	t.Logf("LOAD %s", line)
+	for _, e := range r.Errors {
+		t.Logf("  %s: %s", name, e)
+	}
+	if r.OK == 0 {
+		t.Fatalf("%s: no request succeeded", name)
+	}
+	l.phase(name, p)
+	return r
 }

@@ -21,10 +21,11 @@ func TestUsage(t *testing.T) {
 	f.write(slice+"nerdctl-"+idWeb+".scope/memory.current", "104857600\n")
 	f.write(slice+"nerdctl-"+idWeb+".scope/cpu.stat", "usage_usec 1000000\n")
 	tr := newTracker(f.root, nil)
-	tr.markAll(time.Now().Add(-2 * time.Second))
+	now := time.Now() // one clock: the CPU window is exactly 2 s however slow the test runs
+	tr.markAll(now.Add(-2 * time.Second))
 	f.write(slice+"cpu.stat", "usage_usec 2000000\n") // 1 CPU-second in 2 s
 	f.write(slice+"nerdctl-"+idWeb+".scope/cpu.stat", "usage_usec 1500000\n")
-	s.now = time.Now
+	s.now = func() time.Time { return now }
 
 	u := s.usage(context.Background(), tr, "shop", []string{"api", "web"}, 1<<30)
 	// limit 256 - (200 used - 50 cache) = 106 MB of headroom.
