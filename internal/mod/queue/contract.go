@@ -38,6 +38,18 @@ import (
 // every 10-30 s is fine. Plain queue jobs are not pinned: they go to the
 // current release.
 //
+// # The queue module implements SetAppCrons for the runtime
+//
+// An app's own files can declare crons (vercel.json). When an app's
+// production release changes (a deploy, a rollback, a converge) the runtime
+// hands over that release's whole set:
+//
+//	queue.SetAppCrons(ctx, p, project, app, "vercel.json", crons)
+//
+// They replace the app's earlier set from that file, are called with GET as
+// Vercel calls them, and a manifest cron with the same name (or app and
+// path) wins. `queue crons list` shows each cron's origin.
+//
 // # Postgres (internal/mod/postgres) implements SystemDatabase
 //
 //	SystemDatabase(ctx, p, "tiffin_queue") → DSN of a platform-owned

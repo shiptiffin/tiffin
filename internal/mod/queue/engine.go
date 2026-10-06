@@ -49,6 +49,9 @@ type Config struct {
 	RetryBase time.Duration
 	// Outbox resolves a project's app DATABASE_URL for sendTx ("" = none).
 	Outbox func(ctx context.Context) (map[string]string, error)
+	// AppEnv is an app's environment (env and secrets): GET crons send its
+	// CRON_SECRET. Nil: none.
+	AppEnv func(ctx context.Context, project, app string) (map[string]string, error)
 }
 
 // Engine is the queue and workflow engine on one Postgres database.

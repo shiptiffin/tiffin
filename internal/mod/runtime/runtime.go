@@ -402,6 +402,9 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 			// Caches only: an undo copies the assets out of the image again.
 			r.forgetFiles(project, app, "", true)
 		}
+		// The app's vercel.json crons go with it. A queue that is not
+		// running yet converges every project once it is, which comes back here.
+		_ = r.syncCrons(ctx, project, app, nil)
 		return nil
 	}
 	var a manifest.App
@@ -414,6 +417,7 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 			errs = append(errs, err)
 		}
 	}
+	_ = r.syncCrons(ctx, project, app, nil)
 	return errors.Join(errs...)
 }
 

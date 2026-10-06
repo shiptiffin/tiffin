@@ -446,7 +446,7 @@ func importProject(ctx context.Context, p *platform.Platform, b backend, r io.Re
 		sa := apps[ai.Name]
 		if sa != nil && sa.rel != nil {
 			rep.say("starting app "+ai.Name, 80)
-			src := runtime.ReleaseSource{Framework: sa.rel.Framework, Commit: sa.rel.Commit, Repo: sa.rel.Repo,
+			src := runtime.ReleaseSource{Framework: sa.rel.Framework, Commit: sa.rel.Commit, Repo: sa.rel.Repo, Dir: sa.rel.Dir, Vercel: sa.rel.Vercel,
 				Note: fmt.Sprintf("%s of %s/%s, from %s", sa.rel.Deploy, info.Project, ai.Name, orDash(info.Source.Domain))}
 			switch {
 			case sa.siteDir != "":

@@ -93,6 +93,21 @@ the change. A tick whose previous run is still queued or running is skipped, not
 `tiffin queue crons list` shows the time zone, the latest run and `lastSkippedAt`. Set
 `overlap: true` to run every tick regardless.
 
+**Crons in vercel.json.** An app's `vercel.json` crons run too, with no change to the app:
+
+```json
+{ "crons": [{ "path": "/api/cron/digest", "schedule": "0 5 * * *" }] }
+```
+
+Each is called the way Vercel calls it: a `GET` to the path, with `user-agent: vercel-cron/1.0`
+and, when the app has a `CRON_SECRET` (env or `tiffin secrets set`), `Authorization: Bearer
+<CRON_SECRET>`. The schedule is read in UTC; ticks, retries and skipping work as above. A
+cron is named after its path (`api-cron-digest`) and comes and goes with the app's live
+production deploy: a deploy or rollback replaces the app's set, previews run none, and
+deleting the app removes them. One declared in `tiffin.config.ts` wins over one with the
+same name, or the same app and path. `tiffin queue crons list` shows where each comes from
+(`origin`: `tiffin.config.ts` or `vercel.json`) and how it is called (`method`).
+
 ## Workflows
 
 Durable, checkpointed code in your app:

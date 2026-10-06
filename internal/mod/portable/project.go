@@ -43,6 +43,7 @@ import (
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/mod/runtime"
+	"github.com/btahir/tiffin/internal/mod/runtime/vercelcfg"
 	"github.com/btahir/tiffin/internal/mod/storage"
 )
 
@@ -120,6 +121,10 @@ type appRelease struct {
 	Image     string `json:"image,omitempty"`
 	Commit    string `json:"commit,omitempty"`
 	Repo      string `json:"repo,omitempty"`
+	// Dir and Vercel: the app's folder in its workspace, and what the
+	// build took from its vercel.json (edge rules, crons).
+	Dir    string            `json:"dir,omitempty"`
+	Vercel *vercelcfg.Config `json:"vercel,omitempty"`
 }
 
 // cacheEntry is one line of cache.jsonl.

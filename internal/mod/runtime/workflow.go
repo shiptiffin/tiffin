@@ -66,7 +66,7 @@ var majorVersion = regexp.MustCompile(`^[\^~=v<>\s]*(\d+)\.`)
 // the command that installs the world in the build ("" when the app brings
 // its own).
 func prepareWorkflow(req BuildRequest) (map[string]string, string, error) {
-	version, own := workflowDeps(req.SrcDir)
+	version, own := workflowDeps(req.appDir())
 	switch {
 	case version == "":
 		return nil, "", nil
@@ -109,7 +109,7 @@ func prepareWorkflow(req BuildRequest) (map[string]string, string, error) {
 	if err := os.WriteFile(filepath.Join(dir, "setup.mjs"), []byte(workflowSetupJS), 0o644); err != nil {
 		return nil, "", err
 	}
-	if err := writeWorkflowInstrumentation(req.SrcDir, world); err != nil {
+	if err := writeWorkflowInstrumentation(req.appDir(), world); err != nil {
 		return nil, "", err
 	}
 	if err := keepInBuild(req.SrcDir, workflowDir); err != nil {

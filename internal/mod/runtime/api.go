@@ -117,6 +117,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		App      string      `path:"app" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"App name"`
 		Preview  string      `query:"preview" pattern:"^[a-z0-9][a-z0-9-]{0,29}$" doc:"Deploy as a preview with this name, served at <preview>--<app address>.<domain> (pr-12--shop for the app at shop). Production is untouched."`
 		Prebuilt bool        `query:"prebuilt" doc:"The upload is an image tarball (docker save) instead of source"`
+		Dir      string      `query:"dir" doc:"With an uploaded source: the app's folder inside it, when the upload is the whole workspace (monorepo) the app builds in, e.g. apps/web. tiffin deploy sets it for apps in a workspace."`
 		Body     *deployBody `required:"false"`
 	}) (*struct{ Body *Deploy }, error) {
 		r, err := m.rt()
@@ -507,6 +508,11 @@ func (m *Module) uploadMiddleware(a huma.API) func(huma.Context, func(huma.Conte
 			writeProblem(hctx, perr)
 			return
 		}
+		dir, ok := cleanDir(hctx.Query("dir"))
+		if !ok {
+			writeProblem(hctx, problem(422, "validation", "dir must be a folder inside the upload (relative, without '..')", ""))
+			return
+		}
 		source := SourceUpload
 		file := "source.tgz"
 		if prebuilt {
@@ -530,6 +536,9 @@ func (m *Module) uploadMiddleware(a huma.API) func(huma.Context, func(huma.Conte
 			return
 		}
 		d.SourceBytes = n
+		if !prebuilt {
+			d.Dir = dir
+		}
 		_ = r.st.putDeploy(ctx, d)
 		r.start(d, dest, source)
 		_ = r.p.DB.Audit(ctx, pr.TokenID, "deploy.create", project+"/"+app, map[string]any{"deploy": d.ID, "preview": preview, "source": source, "bytes": n, "session": pr.Session})
@@ -561,6 +570,19 @@ func saveBody(body io.Reader, dest string, limit int64) (int64, error) {
 		return 0, errors.New("empty body")
 	}
 	return n, nil
+}
+
+// cleanDir checks an app's folder inside a source tree: "" (the top) or a
+// clean relative slash path that stays inside.
+func cleanDir(dir string) (string, bool) {
+	dir = strings.Trim(dir, "/")
+	if dir == "" || dir == "." {
+		return "", true
+	}
+	if c := path.Clean(dir); c != dir || c == ".." || strings.HasPrefix(c, "../") || strings.Contains(c, `\`) {
+		return "", false
+	}
+	return dir, true
 }
 
 // packFiles writes inline files into dir and packs them as a source archive.

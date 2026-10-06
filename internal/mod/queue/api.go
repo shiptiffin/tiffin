@@ -429,8 +429,9 @@ func (m *Module) registerQueueAPI(a huma.API, plat *platform.Platform) {
 
 	huma.Register(a, op("queue-crons-list", http.MethodGet, "/v1/projects/{project}/queue/crons", "queue crons list", api.RiskRead,
 		"List crons",
-		"The manifest's crons with their time zone, next tick (UTC), the job and state of the latest tick, and when a tick was last skipped "+
-			"because the previous run was still queued or running. Change crons in tiffin.config.ts."),
+		"The project's crons with their origin (tiffin.config.ts, or an app's vercel.json), time zone, next tick (UTC), the job and state of the latest tick, "+
+			"and when a tick was last skipped because the previous run was still queued or running. Change crons in tiffin.config.ts; "+
+			"vercel.json crons change with their app's next production deploy."),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		}) (*out[[]CronInfo], error) {

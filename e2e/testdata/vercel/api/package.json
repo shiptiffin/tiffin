@@ -1,0 +1,7 @@
+{
+  "name": "vx-api",
+  "private": true,
+  "scripts": {
+    "start": "bun index.ts"
+  }
+}

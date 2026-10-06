@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/platform"
 )
 
@@ -149,6 +150,9 @@ func (m *Module) config(p *platform.Platform, dsn string) Config {
 			return st.Live, nil
 		},
 		Outbox: func(ctx context.Context) (map[string]string, error) { return projectDatabases(ctx, p) },
+		AppEnv: func(ctx context.Context, project, app string) (map[string]string, error) {
+			return p.ProjectEnv(ctx, project, app)
+		},
 	}
 }
 
@@ -211,6 +215,18 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 		return e.ReconcileTopic(ctx, project, name, spec)
 	}
 	return e.ReconcileCron(ctx, project, name, spec)
+}
+
+// SetAppCrons replaces the crons an app's own files declare (origin names
+// the file, e.g. vercel.json), for the runtime. They are called with GET,
+// as Vercel calls them; a manifest cron of the same name or app and path
+// wins.
+func (m *Module) SetAppCrons(ctx context.Context, p *platform.Platform, project, app, origin string, crons map[string]manifest.Cron) error {
+	e := m.engine()
+	if e == nil {
+		return errors.New("the queue is not running yet")
+	}
+	return e.SetFileCrons(ctx, project, app, origin, crons)
 }
 
 var _ platform.ProjectStopper = (*Module)(nil)

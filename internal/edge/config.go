@@ -71,6 +71,9 @@ type Route struct {
 	// RedirectTo permanently redirects (308, path and query kept) to this
 	// host over HTTPS instead of serving: "www.example.com" → "example.com".
 	RedirectTo string
+	// Rules are the site's own headers, redirects and rewrites (rewrites,
+	// cleanUrls and trailingSlash apply to file roots only).
+	Rules *Rules `json:",omitempty"`
 }
 
 func (r Route) upstreams() []string {
@@ -271,6 +274,9 @@ func (c Config) normalized() (Config, error) {
 				}
 			}
 		}
+		if err := r.Rules.Validate(); err != nil {
+			return c, fmt.Errorf("edge: route %q: %w", r.Host+r.PathPrefix, err)
+		}
 		key := r.Host + r.PathPrefix
 		if seen[key] {
 			return c, fmt.Errorf("edge: duplicate route %q", key)
@@ -379,12 +385,12 @@ func routeFor(c Config, r Route, portSuffix string) obj {
 			"headers":     obj{"Location": []string{"https://" + r.RedirectTo + portSuffix + "{http.request.uri}"}},
 		}}
 	case r.FileRoot != "":
-		if r.SPA {
-			handle = append(handle, obj{"handler": "rewrite", "uri": "{http.matchers.file.relative}"})
-			m["file"] = obj{"root": r.FileRoot, "try_files": []string{"{http.request.uri.path}", "{http.request.uri.path}/index.html", "/index.html"}}
-		}
-		// After the SPA rewrite, so a missing asset answered with index.html
-		// is never cached as the asset.
+		handle = append(handle, r.Rules.headerHandlers()...)
+		handle = append(handle, r.Rules.redirectHandlers(true)...)
+		handle = append(handle, fileHandlers(r)...)
+		// After the rewrites, so a missing asset answered with index.html
+		// is never cached as the asset. The site's own headers (above)
+		// still override these.
 		handle = append(handle, staticCache()...)
 		handle = append(handle, obj{
 			"handler":             "file_server",
@@ -393,7 +399,9 @@ func routeFor(c Config, r Route, portSuffix string) obj {
 			"precompressed_order": []string{"br", "zstd", "gzip"},
 		})
 	default:
-		handle = []obj{proxyMany(r.upstreams())}
+		handle = append(handle, r.Rules.headerHandlers()...)
+		handle = append(handle, r.Rules.redirectHandlers(false)...)
+		handle = append(handle, proxyMany(r.upstreams()))
 	}
 	if r.RedirectTo == "" && !r.NoCompress {
 		handle = append([]obj{compress()}, handle...)
@@ -467,35 +475,36 @@ func buildConfig(c Config) obj {
 		portSuffix = ":" + httpsPort
 	}
 
-	security := obj{
-		"X-Content-Type-Options": []string{"nosniff"},
-		"X-Frame-Options":        []string{"DENY"},
-		"Referrer-Policy":        []string{"strict-origin-when-cross-origin"},
-	}
+	security := obj{}
 	if age := c.hstsMaxAge(); age > 0 {
 		security["Strict-Transport-Security"] = []string{"max-age=" + strconv.Itoa(int(age/time.Second))}
 	}
-	routes := []obj{
-		// Non-terminal: security headers on every response, including 404s.
-		{"handle": []obj{
-			{
-				"handler": "headers",
-				"response": obj{
-					"deferred": true, // after the upstream, so ours win rather than duplicate
-					"set":      security,
-					"delete":   []string{"Server"},
-				},
+	// Non-terminal: security headers on every response, including 404s.
+	// HSTS is the box's (it owns TLS); the others are defaults an app or a
+	// site's own headers replace.
+	secure := []obj{{
+		"handler": "headers",
+		"response": obj{
+			"deferred": true, // after the upstream, so ours win rather than duplicate
+			"set":      security,
+			"delete":   []string{"Server"},
+		},
+	}}
+	for _, h := range [][2]string{
+		{"X-Content-Type-Options", "nosniff"},
+		{"X-Frame-Options", "DENY"},
+		{"Referrer-Policy", "strict-origin-when-cross-origin"},
+		{"Content-Security-Policy", cspValue},
+	} {
+		secure = append(secure, obj{
+			"handler": "headers",
+			"response": obj{
+				"set":     obj{h[0]: []string{h[1]}},
+				"require": obj{"headers": obj{h[0]: nil}}, // only when the response has none
 			},
-			{
-				// Only when the upstream sent no CSP of its own.
-				"handler": "headers",
-				"response": obj{
-					"set":     obj{"Content-Security-Policy": []string{cspValue}},
-					"require": obj{"headers": obj{"Content-Security-Policy": nil}},
-				},
-			},
-		}},
+		})
 	}
+	routes := []obj{{"handle": secure}}
 	if c.Protect != nil {
 		routes = append(routes, c.Protect.protectRoutes(c)...)
 	}

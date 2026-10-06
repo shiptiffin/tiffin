@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/mod/datakit"
+	"github.com/btahir/tiffin/internal/mod/runtime/vercelcfg"
 )
 
 // ReleaseSource is what Release puts live without a build: an image
@@ -25,6 +27,10 @@ type ReleaseSource struct {
 	Commit    string
 	Repo      string
 	Note      string // what it is, for the build log ("duplicated from shop/web dep_...")
+	// Dir and Vercel carry the source deploy's workspace folder and
+	// vercel.json (edge rules, crons).
+	Dir    string
+	Vercel *vercelcfg.Config
 }
 
 // Release puts an app of project live from an exported or copied release
@@ -102,9 +108,14 @@ func (r *rt) release(ctx context.Context, d *Deploy, spec *manifest.App, src Rel
 	default:
 		return errors.New("nothing to release: no image and no site")
 	}
+	d.Dir, d.Vercel = src.Dir, src.Vercel
 	if d.Image != "" {
 		d.Digest, _ = r.eng.ImageDigest(ctx, d.Image)
-		d.Assets = clientAssets("", spec) // no source to look at: the app's setting or Next.js's
+		// No source to look at: the app's setting or Next.js's.
+		for _, a := range clientAssets("", spec) {
+			a.Dir = path.Join(d.Dir, a.Dir)
+			d.Assets = append(d.Assets, a)
+		}
 	}
 	now := time.Now().UTC()
 	d.BuiltAt = &now
@@ -115,6 +126,7 @@ func (r *rt) release(ctx context.Context, d *Deploy, spec *manifest.App, src Rel
 		return err
 	}
 	fmt.Fprintf(log, "==> live in %.1fs total%s\n", d.TotalSecs, urlNote(d.URL))
+	_ = r.syncCrons(ctx, d.Project, d.App, log)
 	return nil
 }
 

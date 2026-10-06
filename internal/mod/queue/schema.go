@@ -234,6 +234,12 @@ ALTER TABLE tq_crons ADD COLUMN timezone text NOT NULL DEFAULT '',
 	ADD COLUMN overlap bool NOT NULL DEFAULT false,
 	ADD COLUMN skipped_at timestamptz;
 `,
+	// 5: crons an app's own files declare (vercel.json): where they come
+	// from ('' is the manifest) and how they are called.
+	`
+ALTER TABLE tq_crons ADD COLUMN origin text NOT NULL DEFAULT '',
+	ADD COLUMN method text NOT NULL DEFAULT 'POST';
+`,
 }
 
 // migrate brings River's schema and ours up to date. Concurrent callers are

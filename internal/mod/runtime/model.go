@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btahir/tiffin/internal/mod/runtime/vercelcfg"
 	"github.com/btahir/tiffin/internal/state"
 )
 
@@ -67,6 +68,11 @@ type Deploy struct {
 	StaticRoot string `json:"staticRoot,omitempty"`
 	// Assets are the build's client-asset directories the box serves itself.
 	Assets []AssetDir `json:"assets,omitempty" doc:"Client-asset directories of the build that the box serves itself (hashed files stay served for pages of earlier releases for a day)"`
+	// Dir is the app's folder in its source when the source is a whole
+	// workspace (a monorepo whose packages the app uses).
+	Dir string `json:"dir,omitempty" doc:"The app's folder inside the uploaded source, when the source is the whole workspace (monorepo) the app builds in"`
+	// Vercel is what the build took from the app's vercel.json.
+	Vercel *vercelcfg.Config `json:"vercel,omitempty" doc:"What the deploy took from the app's vercel.json (build settings, crons, headers, redirects, rewrites) and what it ignored"`
 }
 
 // Terminal reports whether the deploy finished its pipeline.

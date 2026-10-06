@@ -345,13 +345,25 @@ func (e *Engine) deliver(ctx context.Context, j *jobRow, d *delivery) outcome {
 			}
 		}
 	}()
-	req, err := http.NewRequestWithContext(rctx, http.MethodPost, target, bytes.NewReader(body))
+	method := http.MethodPost
+	vercel := j.Kind == kindCron && e.cronMethod(ctx, j) == http.MethodGet
+	if vercel {
+		method, body = http.MethodGet, nil // as Vercel calls cron paths
+	}
+	req, err := http.NewRequestWithContext(rctx, method, target, bytes.NewReader(body))
 	if err != nil {
 		oc.kind, oc.err = outcomeDead, "bad target URL: "+err.Error()
 		return oc
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "tiffin-queue/1")
+	if vercel {
+		req.Header.Set("User-Agent", "vercel-cron/1.0")
+		if auth := e.cronSecret(ctx, j); auth != "" {
+			req.Header.Set("Authorization", "Bearer "+auth)
+		}
+	} else {
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "tiffin-queue/1")
+	}
 	req.Header.Set(HeaderSignature, Sign(secret, e.now(), body))
 	req.Header.Set(HeaderJobID, jobID(j.ID))
 	req.Header.Set(HeaderAttempt, strconv.Itoa(j.TotalAttempts))

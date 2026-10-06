@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -184,12 +186,99 @@ func (e *Engine) ReconcileCron(ctx context.Context, project, name string, spec j
 		return fmt.Errorf("cron %s: schedule %q: %w", name, c.Schedule, err)
 	}
 	next := sched.Next(e.now())
-	// A changed schedule or time zone restarts from now; an unchanged one keeps its next tick.
+	// A changed schedule or time zone restarts from now; an unchanged one
+	// keeps its next tick. The manifest takes over a cron of the same name
+	// an app's files declared.
 	_, err = e.pool.Exec(ctx, `INSERT INTO tq_crons (project, name, schedule, timezone, overlap, app, path, next_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		ON CONFLICT (project, name) DO UPDATE SET app = $6, path = $7, overlap = $5,
+		ON CONFLICT (project, name) DO UPDATE SET app = $6, path = $7, overlap = $5, origin = '', method = 'POST',
 		next_at = CASE WHEN tq_crons.schedule = $3 AND tq_crons.timezone = $4 THEN tq_crons.next_at ELSE $8 END, schedule = $3, timezone = $4`,
 		project, name, c.Schedule, c.Timezone, c.Overlap, c.App, c.Path, next)
 	return err
+}
+
+// SetFileCrons replaces the crons app's own files declare (origin is the
+// file, such as vercel.json) with crons, read in UTC and called with GET. A
+// manifest cron wins over one of the same name, or the same app and path.
+func (e *Engine) SetFileCrons(ctx context.Context, project, app, origin string, crons map[string]manifest.Cron) error {
+	tx, err := e.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	rows, err := tx.Query(ctx, `SELECT name, app, path, origin FROM tq_crons WHERE project = $1 FOR UPDATE`, project)
+	if err != nil {
+		return err
+	}
+	type row struct{ app, path, origin string }
+	have := map[string]row{}
+	manifestPaths := map[string]bool{}
+	for rows.Next() {
+		var name string
+		var r row
+		if err := rows.Scan(&name, &r.app, &r.path, &r.origin); err != nil {
+			rows.Close()
+			return err
+		}
+		have[name] = r
+		if r.origin == "" {
+			manifestPaths[r.app+" "+r.path] = true
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	names := make([]string, 0, len(crons))
+	for n := range crons {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	keep := []string{}
+	for _, name := range names {
+		c := crons[name]
+		if h, ok := have[name]; (ok && (h.origin == "" || h.app != app)) || manifestPaths[app+" "+c.Path] {
+			continue // the manifest's (or another app's) cron
+		}
+		sched, err := parseSchedule(c.Schedule, "")
+		if err != nil {
+			e.log.Warn("queue: cron from "+origin+" skipped", "project", project, "app", app, "cron", name, "err", err)
+			continue
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO tq_crons (project, name, schedule, app, path, next_at, origin, method) VALUES ($1, $2, $3, $4, $5, $6, $7, 'GET')
+			ON CONFLICT (project, name) DO UPDATE SET path = $5, origin = $7, method = 'GET',
+			next_at = CASE WHEN tq_crons.schedule = $3 THEN tq_crons.next_at ELSE $6 END, schedule = $3`,
+			project, name, c.Schedule, app, c.Path, sched.Next(e.now()), origin); err != nil {
+			return err
+		}
+		keep = append(keep, name)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM tq_crons WHERE project = $1 AND app = $2 AND origin = $3 AND NOT (name = ANY($4))`, project, app, origin, keep); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// cronMethod is how a cron job's app is called: POST, or GET for a cron an
+// app's vercel.json declares.
+func (e *Engine) cronMethod(ctx context.Context, j *jobRow) string {
+	var m string
+	if j.Cron == nil || e.pool.QueryRow(ctx, `SELECT method FROM tq_crons WHERE project = $1 AND name = $2`, j.Project, *j.Cron).Scan(&m) != nil {
+		return http.MethodPost
+	}
+	return m
+}
+
+// cronSecret is the app's CRON_SECRET (env or secret), sent to GET crons as
+// a bearer token the way Vercel sends it ("" when the app has none).
+func (e *Engine) cronSecret(ctx context.Context, j *jobRow) string {
+	if e.cfg.AppEnv == nil {
+		return ""
+	}
+	env, err := e.cfg.AppEnv(ctx, j.Project, j.App)
+	if err != nil {
+		return ""
+	}
+	return env["CRON_SECRET"]
 }
 
 // cronLoop fires due crons. Ticks missed while the box was down fire once
@@ -281,6 +370,8 @@ type CronInfo struct {
 	Timezone      string     `json:"timezone" doc:"IANA time zone of the schedule"`
 	Overlap       bool       `json:"overlap,omitempty" doc:"Ticks run even while the previous run is still going"`
 	Target        string     `json:"target" doc:"app:path it calls"`
+	Origin        string     `json:"origin" enum:"tiffin.config.ts,vercel.json" doc:"Where it is declared: tiffin.config.ts, or the app's vercel.json (it comes and goes with the app's live production deploy)"`
+	Method        string     `json:"method" enum:"POST,GET" doc:"POST: a signed job delivery; GET: as Vercel calls cron paths (user-agent vercel-cron/1.0, Authorization: Bearer $CRON_SECRET when the app has CRON_SECRET)"`
 	NextAt        time.Time  `json:"nextAt"`
 	LastAt        *time.Time `json:"lastAt,omitempty"`
 	LastJob       string     `json:"lastJob,omitempty" doc:"Job of the latest tick (see queue jobs get)"`
@@ -290,7 +381,7 @@ type CronInfo struct {
 
 // Crons lists a project's crons.
 func (e *Engine) Crons(ctx context.Context, project string) ([]CronInfo, error) {
-	rows, err := e.pool.Query(ctx, `SELECT c.name, c.schedule, c.timezone, c.overlap, c.app, c.path, c.next_at, c.last_at, c.last_job, j.state, c.skipped_at
+	rows, err := e.pool.Query(ctx, `SELECT c.name, c.schedule, c.timezone, c.overlap, c.app, c.path, c.next_at, c.last_at, c.last_job, j.state, c.skipped_at, c.origin, c.method
 		FROM tq_crons c LEFT JOIN tq_jobs j ON j.id = c.last_job WHERE c.project = $1 ORDER BY c.name`, project)
 	if err != nil {
 		return nil, err
@@ -302,8 +393,11 @@ func (e *Engine) Crons(ctx context.Context, project string) ([]CronInfo, error) 
 		var app, path string
 		var last *int64
 		var st *string
-		if err := rows.Scan(&c.Name, &c.Schedule, &c.Timezone, &c.Overlap, &app, &path, &c.NextAt, &c.LastAt, &last, &st, &c.LastSkippedAt); err != nil {
+		if err := rows.Scan(&c.Name, &c.Schedule, &c.Timezone, &c.Overlap, &app, &path, &c.NextAt, &c.LastAt, &last, &st, &c.LastSkippedAt, &c.Origin, &c.Method); err != nil {
 			return nil, err
+		}
+		if c.Origin == "" {
+			c.Origin = "tiffin.config.ts"
 		}
 		if c.Timezone == "" {
 			c.Timezone = "UTC"

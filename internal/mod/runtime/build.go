@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	goruntime "runtime"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/mod/budget"
+	"github.com/btahir/tiffin/internal/mod/runtime/vercelcfg"
 )
 
 // BuildRequest is one build.
@@ -37,8 +39,31 @@ type BuildRequest struct {
 	// Postgres: the project has Postgres, which apps that use the Workflow
 	// DevKit run on.
 	Postgres bool
-	Log      io.Writer
+	// Dir is the app's folder in SrcDir when SrcDir is its whole workspace
+	// (a monorepo): installs run at the top, the app builds in Dir.
+	Dir string
+	// Vercel is the app's vercel.json (build settings), nil without one.
+	Vercel *vercelcfg.Config
+	// Export: a Next.js static export (output: "export"), served as files.
+	Export bool
+	Log    io.Writer
 }
+
+// appDir is the app's own folder in the source.
+func (req BuildRequest) appDir() string {
+	return filepath.Join(req.SrcDir, filepath.FromSlash(req.Dir))
+}
+
+// inApp runs a shell command in the app's folder (the top, unless the
+// source is a workspace).
+func (req BuildRequest) inApp(cmd string) string {
+	if req.Dir == "" {
+		return cmd
+	}
+	return "cd " + shellQuote(req.Dir) + " && " + cmd
+}
+
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 // BuildResult is what a build produced: an image for container apps or a
 // directory of files for static sites.
@@ -134,6 +159,16 @@ func (b *boxBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult, 
 		}
 		dg, _ := b.eng.ImageDigest(ctx, ref)
 		return BuildResult{Image: ref, Digest: dg}, nil
+	case req.Export:
+		fmt.Fprintf(req.Log, "==> Next.js static export (output: \"export\" in next.config): next build, then the edge serves the files (no container)\n")
+		return b.buildFiles(ctx, req, ref, []string{orDefaultStr(vercelOut(req.Vercel), "out")})
+	case req.Spec.Framework == manifest.FrameworkStatic && railpackSite(req):
+		fmt.Fprintf(req.Log, "==> the site builds with npm, pnpm or yarn: building with Railpack, then serving the files\n")
+		dirs := []string{"dist", "build", "out", "public"}
+		if out := orDefaultStr(vercelOut(req.Vercel), readStaticfile(req.appDir()).root); out != "" {
+			dirs = []string{out}
+		}
+		return b.buildFiles(ctx, req, ref, dirs)
 	case req.Spec.Framework == manifest.FrameworkStatic:
 		return b.buildStatic(ctx, req)
 	default:
@@ -158,10 +193,11 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 		env["RAILPACK_BUN_VERSION"] = BunVersion
 	}
 	var imageEnv map[string]string
-	if req.Spec.Framework == manifest.FrameworkNext {
+	appDir := req.appDir()
+	if req.Spec.Framework == manifest.FrameworkNext && !req.Export {
 		// Next.js runs on Bun as a long-lived server, unless the app chose its own start command.
-		if start := packageScript(req.SrcDir, "start"); start == "" || start == "next start" {
-			env["RAILPACK_START_CMD"] = "bun --bun next start"
+		if start := packageScript(appDir, "start"); start == "" || start == "next start" {
+			env["RAILPACK_START_CMD"] = req.inApp("bun --bun next start")
 		}
 		imageEnv = prepareNext(req, env)
 	}
@@ -175,11 +211,33 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 		}
 		imageEnv[k] = v
 	}
+	if req.Dir != "" {
+		// A workspace: Railpack installs at its top; the app builds and
+		// starts in its own folder.
+		pm := packageManager(req.SrcDir)
+		if packageScript(appDir, "build") != "" {
+			env["RAILPACK_BUILD_CMD"] = req.inApp(pm + " run build")
+		}
+		if env["RAILPACK_START_CMD"] == "" && packageScript(appDir, "start") != "" {
+			env["RAILPACK_START_CMD"] = req.inApp(pm + " run start")
+		}
+	}
+	if v := req.Vercel; v != nil {
+		if v.InstallCommand != "" {
+			env["RAILPACK_INSTALL_CMD"] = v.InstallCommand
+		}
+		if v.BuildCommand != "" {
+			env["RAILPACK_BUILD_CMD"] = req.inApp(v.BuildCommand)
+		}
+	}
+	if req.Export || req.Spec.Framework == manifest.FrameworkStatic {
+		env["RAILPACK_START_CMD"] = "true" // the image only carries the built files: it never runs
+	}
 	for k, v := range req.Env {
 		env[k] = v
 	}
-	if req.Spec.Command != "" {
-		env["RAILPACK_START_CMD"] = req.Spec.Command // the manifest's command wins over any default
+	if req.Spec.Command != "" && !req.Export {
+		env["RAILPACK_START_CMD"] = req.inApp(req.Spec.Command) // the manifest's command wins over any default
 	}
 	planPath := filepath.Join(planDir, "railpack-plan.json")
 	args := []string{"prepare", req.SrcDir,
@@ -270,9 +328,25 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 // when package.json has a build script, then serves the output directory.
 func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildResult, error) {
 	d := req.Deploy
-	sf := readStaticfile(req.SrcDir)
-	if packageScript(req.SrcDir, "build") != "" {
-		fmt.Fprintf(req.Log, "==> building the site (bun install && bun run build, Bun %s)\n", BunVersion)
+	appDir := req.appDir()
+	sf := readStaticfile(appDir)
+	install, build := "", ""
+	if exists(filepath.Join(req.SrcDir, "package.json")) {
+		install = "bun install"
+	}
+	if packageScript(appDir, "build") != "" {
+		build = "bun run build"
+	}
+	if v := req.Vercel; v != nil {
+		install, build = orDefaultStr(v.InstallCommand, install), orDefaultStr(v.BuildCommand, build)
+		sf.root = orDefaultStr(v.OutputDirectory, sf.root)
+	}
+	if build != "" {
+		script := req.inApp(build)
+		if install != "" {
+			script = install + " && " + script
+		}
+		fmt.Fprintf(req.Log, "==> building the site (%s, Bun %s)\n", script, BunVersion)
 		args := []string{"--namespace", Namespace, "run", "--rm", "--network", "host",
 			"--memory", strconv.Itoa(b.memoryMB) + "m",
 			"--volume", req.SrcDir + ":/app", "--workdir", "/app",
@@ -289,26 +363,124 @@ func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildRe
 		for _, k := range keys {
 			args = append(args, "--env", k+"="+req.Env[k])
 		}
-		args = append(args, BunImage, "sh", "-c", "bun install && bun run build")
+		args = append(args, BunImage, "sh", "-c", script)
 		if err := runLogged(ctx, req.Log, req.SrcDir, "/usr/local/bin/nerdctl", args...); err != nil {
-			return BuildResult{}, &BuildError{Msg: "the static build failed: " + err.Error(), Hint: "Run `bun install && bun run build` locally to reproduce."}
+			return BuildResult{}, &BuildError{Msg: "the static build failed: " + err.Error(), Hint: "Run `" + script + "` locally to reproduce."}
 		}
 	}
-	rootRel := staticRootOf(req.SrcDir, sf.root)
+	rootRel := staticRootOf(appDir, sf.root)
 	if rootRel == "" {
 		return BuildResult{}, &BuildError{Msg: "no index.html found to serve",
-			Hint: "Put index.html at the top of the app, in public/, dist/, build/ or out/, or name the folder in a Staticfile (root: <dir>)."}
+			Hint: "Put index.html at the top of the app, in public/, dist/, build/ or out/, or name the folder in a Staticfile (root: <dir>) or vercel.json (outputDirectory)."}
 	}
+	if rootRel == "." {
+		_ = os.Remove(filepath.Join(appDir, vercelcfg.File)) // config, not content (as on Vercel)
+	}
+	return b.serveFiles(req, filepath.Join(appDir, rootRel), rootRel, sf.spa)
+}
+
+// serveFiles moves a build's output to where the edge serves it.
+func (b *boxBuilder) serveFiles(req BuildRequest, from, name string, spa bool) (BuildResult, error) {
+	d := req.Deploy
 	dest := filepath.Join(b.staticDir, d.Project, d.App, d.ID)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return BuildResult{}, err
 	}
-	if err := os.Rename(filepath.Join(req.SrcDir, rootRel), dest); err != nil {
+	if err := os.Rename(from, dest); err != nil {
 		return BuildResult{}, err
 	}
 	n, size := countFiles(dest)
-	fmt.Fprintf(req.Log, "==> serving %d files (%s) from %s/\n", n, humanBytes(size), rootRel)
-	return BuildResult{StaticRoot: dest, SPA: sf.spa}, nil
+	fmt.Fprintf(req.Log, "==> serving %d files (%s) from %s/\n", n, humanBytes(size), name)
+	return BuildResult{StaticRoot: dest, SPA: spa}, nil
+}
+
+// buildFiles builds with Railpack (the app's package manager and Node.js),
+// copies the first of dirs (relative to the app) that has an index.html out
+// of the image, and serves it as files. The image is removed: nothing runs.
+func (b *boxBuilder) buildFiles(ctx context.Context, req BuildRequest, ref string, dirs []string) (BuildResult, error) {
+	if _, err := b.buildRailpack(ctx, req, ref); err != nil {
+		return BuildResult{}, err
+	}
+	defer func() { _ = b.eng.RemoveImage(context.WithoutCancel(ctx), ref) }()
+	tmp := filepath.Join(req.WorkDir, "files")
+	if err := os.MkdirAll(tmp, 0o755); err != nil {
+		return BuildResult{}, err
+	}
+	in := make([]string, len(dirs))
+	for i, dir := range dirs {
+		in[i] = path.Join(req.Dir, dir)
+	}
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	if err := b.eng.CopyOut(cctx, ref, in, tmp); err != nil {
+		return BuildResult{}, fmt.Errorf("copy the built files out of the image: %w", err)
+	}
+	for i, dir := range dirs {
+		if from := filepath.Join(tmp, strconv.Itoa(i)); exists(filepath.Join(from, "index.html")) {
+			return b.serveFiles(req, from, dir, false)
+		}
+	}
+	return BuildResult{}, &BuildError{Msg: "the build wrote no index.html in " + strings.Join(dirs, ", "),
+		Hint: "A Next.js static export writes out/ (or distDir); name another folder with outputDirectory in vercel.json."}
+}
+
+// vercelOut is vercel.json's outputDirectory ("" without one).
+func vercelOut(v *vercelcfg.Config) string {
+	if v == nil {
+		return ""
+	}
+	return v.OutputDirectory
+}
+
+var otherPMs = regexp.MustCompile(`\b(npm|npx|pnpm|yarn)\b`)
+
+// railpackSite reports whether a static site's build needs npm, pnpm or
+// yarn, which the Bun image that builds static sites does not have: its
+// vercel.json commands use one, or it builds in a workspace managed by one.
+func railpackSite(req BuildRequest) bool {
+	if v := req.Vercel; v != nil && otherPMs.MatchString(v.InstallCommand+" "+v.BuildCommand) {
+		return true
+	}
+	return req.Dir != "" && packageManager(req.SrcDir) != "bun" && packageScript(req.appDir(), "build") != ""
+}
+
+// packageManager is the command that runs a workspace's scripts, by its
+// lockfile or package.json "packageManager".
+func packageManager(dir string) string {
+	for _, l := range [][2]string{{"pnpm-lock.yaml", "pnpm"}, {"yarn.lock", "yarn"}, {"package-lock.json", "npm"}, {"bun.lock", "bun"}, {"bun.lockb", "bun"}} {
+		if exists(filepath.Join(dir, l[0])) {
+			return l[1]
+		}
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "package.json"))
+	var pkg struct {
+		PackageManager string `json:"packageManager"`
+	}
+	_ = json.Unmarshal(raw, &pkg)
+	if pm, _, _ := strings.Cut(pkg.PackageManager, "@"); pm == "pnpm" || pm == "yarn" || pm == "npm" {
+		return pm
+	}
+	return "bun"
+}
+
+var (
+	nextConfigs = []string{"next.config.js", "next.config.mjs", "next.config.ts", "next.config.mts", "next.config.cjs"}
+	exportRe    = regexp.MustCompile("\\boutput\\s*:\\s*[\"'`]export[\"'`]")
+	jsComments  = regexp.MustCompile(`(?s)/\*.*?\*/|(^|[^:])//[^\n]*`)
+)
+
+// nextExport reports whether the Next.js app in dir builds a static export:
+// its next.config sets output: "export".
+func nextExport(dir string) bool {
+	if !packageDeps(dir)["next"] {
+		return false
+	}
+	for _, n := range nextConfigs {
+		if raw, err := os.ReadFile(filepath.Join(dir, n)); err == nil {
+			return exportRe.Match(jsComments.ReplaceAll(raw, []byte("$1")))
+		}
+	}
+	return false
 }
 
 type staticfile struct {
