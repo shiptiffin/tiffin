@@ -108,6 +108,7 @@ var patternHints = map[string]string{
 	"^[a-z][a-z0-9.-]{0,63}$":     "must be a topic name: a lowercase letter followed by up to 63 lowercase letters, digits, dots or dashes, such as \"order.created\"",
 	"^[A-Z_][A-Z0-9_]*$":          "must be UPPER_SNAKE_CASE: letters A-Z, digits and underscores, not starting with a digit",
 	"^/":                          "must start with \"/\"",
+	"^https?://":                  "must be a web address starting with \"https://\" (or \"http://\"), such as \"https://hooks.example.com/digest\"",
 	"^[a-z][a-z0-9_-]*$":          "must be a lowercase extension name such as \"vector\" or \"pg_cron\"",
 	cronPattern:                   "must be 5 space-separated cron fields (minute hour day-of-month month day-of-week, using digits and * , - / ? or month/day names) such as \"*/15 * * * *\", or one of @hourly, @daily, @weekly, @monthly",
 	"^[1-9][0-9]{0,5}(MB|GB|TB)$": "must be a size such as \"500MB\", \"5GB\" or \"1TB\"",

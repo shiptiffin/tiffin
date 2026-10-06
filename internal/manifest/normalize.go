@@ -151,13 +151,13 @@ func normalize(m *Manifest, onBox map[string][]string) []string {
 		a.RetentionDays = DefaultAnalyticsRetentionDays
 	}
 	for name, c := range m.Crons {
-		if c.Path == "" {
+		if c.Path == "" && c.URL == "" {
 			c.Path = DefaultCronPathPrefix + name
 		}
 		m.Crons[name] = c
 	}
 	for name, q := range m.Queues {
-		if q.Path == "" {
+		if q.Path == "" && q.URL == "" {
 			q.Path = DefaultQueuePathPrefix + name
 		}
 		if q.RateLimit > 0 && q.RatePeriodSeconds == 0 {

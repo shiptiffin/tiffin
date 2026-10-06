@@ -2,8 +2,8 @@ import { mkdirSync } from "node:fs";
 import { test, type Page } from "@playwright/test";
 import { signIn } from "./helpers";
 
-// Visual review of the jobs, people and audience pages (Queues, Jobs, a job,
-// Workflows, a run, Users, a user, Organizations, an organization, Analytics)
+// Visual review of the jobs, people and audience pages (Jobs: queues, runs, a
+// job, workflow runs, a run, Users, a user, Organizations, an organization, Analytics)
 // against the seeded dev box:
 //   SCREENS=1 E2E_BASE_URL=http://localhost:5404 E2E_OWNER_TOKEN=... bunx playwright test screens-jobs
 // SHOTS=queues,run limits it to some pages. Nothing is changed on the box.
@@ -23,14 +23,14 @@ async function shot(page: Page, name: string, fullPage = true) {
 const h1 = (p: Page) => p.getByRole("heading", { level: 1 }).first().waitFor();
 
 const pages: Array<{ name: string; url: string | ((p: Page) => Promise<string>); wait: (p: Page) => Promise<unknown>; act?: (p: Page) => Promise<unknown>; full?: boolean }> = [
-  { name: "queues", url: "/projects/shop/queues", wait: (p) => p.getByRole("heading", { name: "Schedules" }).waitFor() },
-  { name: "jobs", url: "/projects/shop/queues/jobs", wait: (p) => p.locator("main ol li a").first().waitFor() },
-  { name: "job-dead", url: "/projects/shop/queues/jobs/job_87", wait: (p) => p.getByRole("heading", { name: "Tries" }).waitFor() },
-  { name: "job-done", url: "/projects/shop/queues/jobs/job_41", wait: (p) => p.getByRole("heading", { name: "Tries" }).waitFor() },
-  { name: "workflows", url: "/projects/shop/workflows", wait: (p) => p.getByRole("heading", { name: "Runs" }).waitFor() },
-  { name: "run-waiting", url: "/projects/shop/workflows/run_01M41HBY11EJZM7NVG7DKPWKS3", wait: (p) => p.getByRole("heading", { name: "Steps" }).waitFor() },
-  { name: "run-failed", url: "/projects/shop/workflows/run_01M41HBY2B35PQTTBK65PJ8T3C", wait: (p) => p.getByRole("heading", { name: "Steps" }).waitFor() },
-  { name: "run-done", url: "/projects/shop/workflows/run_01M41HBY0MC99YBKTRQJYHVJCW", wait: (p) => p.getByRole("heading", { name: "Steps" }).waitFor() },
+  { name: "queues", url: "/projects/shop/jobs/queues", wait: (p) => p.getByRole("heading", { name: "Topics" }).waitFor() },
+  { name: "jobs", url: "/projects/shop/jobs", wait: (p) => p.locator("main ol li a").first().waitFor() },
+  { name: "job-dead", url: "/projects/shop/jobs/job_87", wait: (p) => p.getByRole("heading", { name: "Tries" }).waitFor() },
+  { name: "job-done", url: "/projects/shop/jobs/job_41", wait: (p) => p.getByRole("heading", { name: "Tries" }).waitFor() },
+  { name: "workflows", url: "/projects/shop/jobs?kind=workflow", wait: (p) => p.getByText("Latest runs").waitFor() },
+  { name: "run-waiting", url: "/projects/shop/jobs/run_01M41HBY11EJZM7NVG7DKPWKS3", wait: (p) => p.getByRole("heading", { name: "Steps" }).waitFor() },
+  { name: "run-failed", url: "/projects/shop/jobs/run_01M41HBY2B35PQTTBK65PJ8T3C", wait: (p) => p.getByRole("heading", { name: "Steps" }).waitFor() },
+  { name: "run-done", url: "/projects/shop/jobs/run_01M41HBY0MC99YBKTRQJYHVJCW", wait: (p) => p.getByRole("heading", { name: "Steps" }).waitFor() },
   { name: "users", url: "/projects/shop/users", wait: (p) => p.getByText("ada.lovelace@example.com").waitFor() },
   { name: "user", url: "/projects/shop/users/usr_36eaf4aab6fcbb86a24a", wait: h1 },
   { name: "user-suspended", url: "/projects/shop/users/usr_506b0ba2448291de02e0", wait: h1 },
@@ -50,8 +50,8 @@ const pages: Array<{ name: string; url: string | ((p: Page) => Promise<string>);
     },
     full: false,
   },
-  { name: "queues-empty", url: "/projects/notes/queues", wait: (p) => p.getByRole("heading", { name: "Schedules" }).waitFor() },
-  { name: "workflows-empty", url: "/projects/notes/workflows", wait: (p) => p.getByRole("heading", { name: "Runs" }).waitFor() },
+  { name: "queues-empty", url: "/projects/notes/jobs/queues", wait: (p) => p.getByRole("heading", { name: "Topics" }).waitFor() },
+  { name: "workflows-empty", url: "/projects/notes/jobs", wait: (p) => p.getByRole("heading", { level: 1, name: "Jobs" }).waitFor() },
   { name: "analytics-24h", url: "/projects/shop/analytics?period=24h", wait: (p) => p.getByText("IP Geolocation by DB-IP").first().waitFor() },
 ];
 

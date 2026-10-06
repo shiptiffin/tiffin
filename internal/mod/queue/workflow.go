@@ -188,7 +188,7 @@ func (e *Engine) StartRun(ctx context.Context, project string, r StartRequest) (
 	if r.App == "" && r.URL == "" {
 		return nil, false, invalid("which app runs this workflow?", "pass app: the app whose code defines the workflow with tiffin-sdk")
 	}
-	if err := validTarget(r.App, r.Path, r.URL); err != nil {
+	if err := e.validTarget(r.App, r.Path, r.URL); err != nil {
 		return nil, false, err
 	}
 	release := ""

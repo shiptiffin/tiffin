@@ -16,7 +16,7 @@ export const PART_PAGE: Record<Part, { to: string; label: string }> = {
   email: { to: "/projects/$project/email", label: PARTS.email.name },
   auth: { to: "/projects/$project/users", label: PARTS.auth.name },
   analytics: { to: "/projects/$project/analytics", label: PARTS.analytics.name },
-  jobs: { to: "/projects/$project/queues", label: PARTS.jobs.name },
+  jobs: { to: "/projects/$project/jobs", label: PARTS.jobs.name },
 };
 
 /** The part a page under /projects/<p>/ belongs to, by its first path segments (none: Overview, Usage, History, Settings). */

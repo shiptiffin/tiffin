@@ -62,6 +62,10 @@
       "types": "./lib/next/vitals.d.ts",
       "default": "./lib/next/vitals.js"
     },
+    "./verify": {
+      "types": "./lib/verify.d.ts",
+      "default": "./lib/verify.js"
+    },
     "./queue": {
       "types": "./lib/queue.d.ts",
       "default": "./lib/queue.js"

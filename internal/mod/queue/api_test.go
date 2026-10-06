@@ -3,11 +3,13 @@ package queue
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -85,8 +87,8 @@ func TestAPI(t *testing.T) {
 	if code != 200 || cfg["keyConcurrency"].(float64) != 2 || cfg["maxAttempts"].(float64) != 10 {
 		t.Fatalf("configure %d %v", code, cfg)
 	}
-	if code, body, _ := call(owner, "PUT", "/v1/projects/shop/queue/queues/emails", map[string]any{"url": "http://example.com/x"}); code != 422 || body["hint"] == nil {
-		t.Errorf("non-loopback url: %d %v", code, body)
+	if code, body, _ := call(owner, "PUT", "/v1/projects/shop/queue/queues/emails", map[string]any{"url": "http://10.0.0.5/x"}); code != 422 || !strings.Contains(fmt.Sprint(body["detail"]), "a private address") {
+		t.Errorf("private url: %d %v", code, body)
 	}
 	code, sent, _ := call(owner, "POST", "/v1/projects/shop/queue/send", map[string]any{"name": "emails", "payload": map[string]string{"to": "x"}, "key": "c1"})
 	if code != 200 {
@@ -156,6 +158,71 @@ func TestAPI(t *testing.T) {
 	if !found {
 		t.Error("approval not audited")
 	}
+	// The dashboard watches a job over the box API: state, progress and
+	// output as server-sent events until it ends.
+	release := make(chan struct{})
+	var once sync.Once
+	free := func() { once.Do(func() { close(release) }) }
+	defer free()
+	ap.handle("/watched", func(w http.ResponseWriter, r *http.Request) {
+		var b deliveryBody
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		n, _ := ParseJobID(b.ID)
+		_ = e.JobProgress(r.Context(), "shop", n, b.AttemptID, json.RawMessage(`{"pct":40}`))
+		_, _ = e.JobOutput(r.Context(), "shop", n, b.AttemptID, json.RawMessage(`"rendering page 2"`))
+		<-release
+		_, _ = w.Write([]byte(`{"pages":3}`))
+	})
+	e.configure("shop", QueueConfig{Name: "watched", URL: ap.url("/watched")})
+	wid := e.send("shop", SendRequest{Name: "watched"}).Jobs[0]
+	if code, st, _ := call(owner, "GET", "/v1/projects/shop/queue/live/"+wid, nil); code != 200 || st["type"] != "job" {
+		t.Fatalf("live state %d %v", code, st)
+	}
+	req, _ := http.NewRequest("GET", srv.URL+"/v1/projects/shop/queue/live/"+wid, nil)
+	req.Header.Set("Authorization", "Bearer "+owner)
+	req.Header.Set("Accept", "text/event-stream")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil || res.StatusCode != 200 || !strings.HasPrefix(res.Header.Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("stream: %v %v", err, res)
+	}
+	stream := make(chan string, 1)
+	go func() { raw, _ := io.ReadAll(res.Body); stream <- string(raw) }()
+	eventually(t, 10*time.Second, "progress reported", func() bool { return strings.ReplaceAll(string(e.job("shop", wid).Progress), " ", "") == `{"pct":40}` })
+	free()
+	select {
+	case s := <-stream:
+		for _, want := range []string{`event: output` + "\n" + `data: "rendering page 2"`, `"progress":{"pct":40}`, `"status":"completed"`, "event: end"} {
+			if !strings.Contains(s, want) {
+				t.Errorf("stream lacks %q:\n%s", want, s)
+			}
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stream did not end with the job")
+	}
+	if code, _, _ := call(owner, "GET", "/v1/projects/other/queue/live/"+wid, nil); code != 404 {
+		t.Errorf("another project's job: %d", code)
+	}
+
+	// Crons: preview a schedule, pause and resume.
+	if code, pv, _ := call(owner, "GET", "/v1/projects/shop/queue/schedule-preview?schedule=0+9+*+*+1-5&timezone=Europe/London", nil); code != 200 || len(pv["next"].([]any)) != 5 {
+		t.Errorf("preview %d %v", code, pv)
+	}
+	if code, pv, _ := call(owner, "GET", "/v1/projects/shop/queue/schedule-preview?schedule=61+*+*+*+*", nil); code != 422 || pv["hint"] == nil {
+		t.Errorf("bad preview %d %v", code, pv)
+	}
+	if err := e.ReconcileCron(t.Context(), "shop", "nightly", json.RawMessage(`{"schedule":"0 2 * * *","url":"`+ap.url("/n")+`"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if code, c, _ := call(owner, "POST", "/v1/projects/shop/queue/crons/nightly/pause", nil); code != 200 || c["paused"] != true {
+		t.Errorf("pause %d %v", code, c)
+	}
+	if code, c, _ := call(owner, "POST", "/v1/projects/shop/queue/crons/nightly/resume", nil); code != 200 || c["paused"] != false {
+		t.Errorf("resume %d %v", code, c)
+	}
+	if code, s, _ := call(owner, "GET", "/v1/projects/shop/queue/signing-secret", nil); code != 200 || !strings.HasPrefix(fmt.Sprint(s["secret"]), "tqs_") {
+		t.Errorf("signing secret %d %v", code, s)
+	}
+
 	// Spec: every operation has a CLI path under queue or workflows.
 	n := 0
 	for _, o := range a.Operations() {
@@ -169,7 +236,7 @@ func TestAPI(t *testing.T) {
 			t.Errorf("internal endpoint %s leaked into the spec", o.Path)
 		}
 	}
-	if n != 24 {
+	if n != 29 {
 		t.Errorf("%d queue/workflow operations", n)
 	}
 }

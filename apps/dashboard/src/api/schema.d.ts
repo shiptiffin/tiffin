@@ -3117,11 +3117,51 @@ export interface paths {
         };
         /**
          * List crons
-         * @description The project's crons with their origin (tiffin.config.ts, or an app's vercel.json), time zone, next tick (UTC), the job and state of the latest tick, and when a tick was last skipped because the previous run was still queued or running. Change crons in tiffin.config.ts; vercel.json crons change with their app's next production deploy.
+         * @description The project's crons with their origin (tiffin.config.ts, or an app's vercel.json), time zone, next tick (UTC), the job and state of the latest tick, when a tick was last skipped because the previous run was still queued or running, whether it is paused, and its recent runs with their failure rate. Create, change and delete crons in tiffin.config.ts (plan and apply); pause them with queue crons pause; vercel.json crons change with their app's next production deploy.
          */
         get: operations["queue-crons-list"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/queue/crons/{name}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause a cron
+         * @description Stops a cron's ticks until it is resumed; the pause outlasts applies and restarts. Run now still works. The cron itself stays in tiffin.config.ts.
+         */
+        post: operations["queue-cron-pause"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/queue/crons/{name}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume a paused cron
+         * @description Starts a paused cron's ticks again from the next one after now; ticks missed while it was paused do not run.
+         */
+        post: operations["queue-cron-resume"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3139,7 +3179,7 @@ export interface paths {
         put?: never;
         /**
          * Run a cron now
-         * @description Calls the cron's app route now, outside its schedule (the schedule is unchanged). Returns the job to follow.
+         * @description Calls the cron's app route or URL now, outside its schedule (the schedule is unchanged; a paused cron runs too). Returns the job to follow.
          */
         post: operations["queue-cron-trigger"];
         delete?: never;
@@ -3248,6 +3288,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/queue/live/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Watch a job or workflow run
+         * @description A job's or run's state, progress (job.progress / ctx.progress in tiffin-sdk), output and, for runs, steps. With Accept: text/event-stream it streams instead: output chunks (event: output), every change of state (event: state) and event: end when it finishes; reconnect with Last-Event-ID to resume.
+         */
+        get: operations["queue-live"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/queue/queues/{queue}": {
         parameters: {
             query?: never;
@@ -3328,6 +3388,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/queue/schedule-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview a cron schedule
+         * @description The next ticks of a cron expression read in a time zone, the way the box will run them (clock changes included), or a plain error saying what is wrong with it. Nothing is saved.
+         */
+        get: operations["queue-cron-preview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/queue/send": {
         parameters: {
             query?: never;
@@ -3342,6 +3422,26 @@ export interface paths {
          * @description Enqueues a job. The box pushes it (HTTP POST, signed) to the app route that handles the queue, retries failures with exponential backoff, and moves it to the dead-letter queue after maxAttempts. A topic name fans out one job per subscriber. Use delaySeconds/runAt to schedule, key for per-key limits, groupKey for FIFO order and dedupe for idempotency.
          */
         post: operations["queue-send"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/queue/signing-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show the signing secret calls are signed with
+         * @description Every call a cron or queue makes (to an app, or to a URL outside the box) carries a Tiffin-Signature header made with this secret. A receiver outside the box checks it with verifyRequest from tiffin-sdk/verify, or any HMAC-SHA256 library. Apps on the box already have it as TIFFIN_QUEUE_SIGNING_SECRET. Needs a key that can change the project.
+         */
+        get: operations["queue-signing-secret"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7025,11 +7125,14 @@ export interface components {
             public: boolean;
         };
         ManifestCron: {
-            app: string;
+            app?: string;
             overlap?: boolean;
-            path: string;
+            path?: string;
             schedule: string;
+            /** Format: int64 */
+            timeoutSeconds?: number;
             timezone?: string;
+            url?: string;
         };
         ManifestDiskFolder: {
             Path: string;
@@ -7069,7 +7172,7 @@ export interface components {
             statementTimeoutSeconds?: number;
         };
         ManifestQueue: {
-            app: string;
+            app?: string;
             /** Format: int64 */
             concurrency: number;
             /** Format: int64 */
@@ -7078,11 +7181,12 @@ export interface components {
             leaseSeconds: number;
             /** Format: int64 */
             maxAttempts: number;
-            path: string;
+            path?: string;
             /** Format: int64 */
             rateLimit: number;
             /** Format: int64 */
             ratePeriodSeconds: number;
+            url?: string;
         };
         ManifestResources: {
             /** Format: double */
@@ -8772,7 +8876,7 @@ export interface components {
             app?: string;
             /** @description Path on the app (default /topics/<topic>) */
             path?: string;
-            /** @description Development only: a loopback URL instead of an app */
+            /** @description An http(s) address outside the box instead of an app */
             url?: string;
         };
         QueueApproval: {
@@ -8855,7 +8959,7 @@ export interface components {
              * @description Rate limit window in seconds
              */
             ratePeriodSeconds: number;
-            /** @description Explicit loopback URL to push to instead of an app (development) */
+            /** @description Address outside the box jobs are POSTed to instead of an app */
             url?: string;
         };
         QueueConfigBody: {
@@ -8895,10 +8999,17 @@ export interface components {
              * @description The rate limit window
              */
             ratePeriodSeconds?: number;
-            /** @description Development only: a loopback URL (http://127.0.0.1:PORT/...) to push to instead of an app */
+            /** @description An http(s) address outside the box to POST jobs to instead of an app (signed; private and box addresses are refused) */
             url?: string;
         };
         QueueCronInfo: {
+            /** @description App it calls */
+            app?: string;
+            /**
+             * Format: double
+             * @description Share of the recent finished runs that gave up (dead), 0-1
+             */
+            failureRate: number;
             /** Format: date-time */
             lastAt?: string;
             /** @description Job of the latest tick (see queue jobs get) */
@@ -8915,7 +9026,10 @@ export interface components {
              */
             method: "POST" | "GET";
             name: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Next tick (UTC); while paused, the tick it would run next
+             */
             nextAt: string;
             /**
              * @description Where it is declared: tiffin.config.ts, or the app's vercel.json (it comes and goes with the app's live production deploy)
@@ -8924,12 +9038,44 @@ export interface components {
             origin: "tiffin.config.ts" | "vercel.json";
             /** @description Ticks run even while the previous run is still going */
             overlap?: boolean;
+            /** @description Path on the app */
+            path?: string;
+            /** @description A paused cron does not tick until it is resumed (Run now still works) */
+            paused: boolean;
+            /** Format: date-time */
+            pausedAt?: string;
+            pausedBy?: string;
+            /** @description The latest runs (up to 20), newest first */
+            recent: components["schemas"]["QueueCronRun"][] | null;
             /** @description Cron expression, read in timezone */
             schedule: string;
-            /** @description app:path it calls */
+            /** @description What it calls: app:path, or a URL */
             target: string;
+            /**
+             * Format: int64
+             * @description Each call's timeout (0: the default, 60 s)
+             */
+            timeoutSeconds?: number;
             /** @description IANA time zone of the schedule */
             timezone: string;
+            /** @description Address outside the box it calls instead of an app */
+            url?: string;
+        };
+        QueueCronRun: {
+            /**
+             * Format: date-time
+             * @description When it was queued
+             */
+            at: string;
+            /**
+             * Format: int64
+             * @description Latest attempt, start to finish
+             */
+            durationMs?: number;
+            /** Format: date-time */
+            finishedAt?: string;
+            job: string;
+            state: string;
         };
         QueueEmitResult: {
             /** @description False when the event was already emitted: the first emit wins and later ones are ignored */
@@ -9009,6 +9155,37 @@ export interface components {
             topic?: string;
             /** @description Why a queued job is not running yet */
             waitingFor?: string;
+        };
+        QueueLiveState: {
+            /** Format: int64 */
+            attempt?: number;
+            done: boolean;
+            error?: string;
+            id: string;
+            name: string;
+            output: unknown;
+            progress: unknown;
+            status: string;
+            steps?: components["schemas"]["QueueLiveStep"][] | null;
+            type: string;
+            waitingFor?: string;
+        };
+        QueueLiveStep: {
+            /** Format: date-time */
+            finishedAt?: string;
+            kind: string;
+            name: string;
+            /** Format: date-time */
+            startedAt: string;
+            state: string;
+            /** Format: date-time */
+            waitUntil?: string;
+        };
+        QueuePreview: {
+            /** @description The next ticks, in UTC */
+            next: string[] | null;
+            schedule: string;
+            timezone: string;
         };
         QueuePurgeResult: {
             /** @description Send this back as confirm to purge */
@@ -9118,6 +9295,14 @@ export interface components {
             /** @description True when the name is a topic and the job fanned out to its subscribers */
             topic: boolean;
         };
+        QueueSigning: {
+            format: string;
+            /** @description The header every call carries */
+            header: string;
+            message: string;
+            /** @description The project's signing secret */
+            secret: string;
+        };
         QueueStats: {
             /** @description App that receives the jobs (default: the app that sends them) */
             app?: string;
@@ -9149,6 +9334,11 @@ export interface components {
              * @description Most jobs running at once per key (the send option key; 0 = no limit)
              */
             keyConcurrency: number;
+            /**
+             * Format: date-time
+             * @description When its latest attempt finished
+             */
+            lastRunAt?: string;
             /**
              * Format: int64
              * @description How long an attempt may run without a response or heartbeat
@@ -9200,7 +9390,7 @@ export interface components {
             scheduled: number;
             /** @description True for topics (fan-out to subscribers) */
             topic: boolean;
-            /** @description Explicit loopback URL to push to instead of an app (development) */
+            /** @description Address outside the box jobs are POSTed to instead of an app */
             url?: string;
         };
         QueueStep: {
@@ -9249,9 +9439,9 @@ export interface components {
             createdAt: string;
             /** @description Subscription name, unique within the topic */
             name: string;
-            /** @description Path messages are POSTed to */
-            path: string;
-            /** @description Explicit loopback URL instead of an app (development) */
+            /** @description Path on the app messages are POSTed to */
+            path?: string;
+            /** @description Address outside the box messages are POSTed to instead of an app */
             url?: string;
         };
         QueueTimelineEntry: {
@@ -10732,7 +10922,7 @@ export interface components {
             input?: unknown;
             /** @description Where the app mounts the workflow handler (default /_tiffin/workflows) */
             path?: string;
-            /** @description Development only: loopback URL of the workflow handler instead of an app */
+            /** @description Address of the workflow handler instead of an app (it must be able to reach the box; tests and development) */
             url?: string;
             /** @description Workflow name as defined in the app */
             workflow: string;
@@ -24963,6 +25153,182 @@ export interface operations {
             };
         };
     };
+    "queue-cron-pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Cron name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueCronInfo"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "queue-cron-resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Cron name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueCronInfo"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "queue-cron-trigger": {
         parameters: {
             query?: never;
@@ -25501,6 +25867,103 @@ export interface operations {
             };
         };
     };
+    "queue-live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Job ID (job_42) or run ID (run_...) */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueLiveState"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "queue-configure": {
         parameters: {
             query?: never;
@@ -25825,6 +26288,89 @@ export interface operations {
             };
         };
     };
+    "queue-cron-preview": {
+        parameters: {
+            query: {
+                /** @description Cron expression, e.g. 0 9 * * 1-5 */
+                schedule: string;
+                /** @description IANA time zone (default UTC) */
+                timezone?: string;
+                count?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueuePreview"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "queue-send": {
         parameters: {
             query?: never;
@@ -25888,6 +26434,83 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "queue-signing-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueSigning"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

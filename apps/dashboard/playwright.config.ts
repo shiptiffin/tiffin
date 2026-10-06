@@ -27,7 +27,8 @@ export default defineConfig({
   webServer: external
     ? undefined
     : {
-        command: `bash e2e/serve.sh ${port}`,
+        // E2E_SERVE=e2e/serve-jobs.sh starts a box whose Jobs module runs (jobs.spec.ts).
+        command: `bash ${process.env.E2E_SERVE ?? "e2e/serve.sh"} ${port}`,
         url: `http://127.0.0.1:${port}/v1/health`, // signIn() also waits for seed-live.sh to finish
         timeout: 180_000,
         reuseExistingServer: false,

@@ -35,7 +35,7 @@
       "$ref": "#/$defs/services"
     },
     "crons": {
-      "description": "Scheduled calls into apps, keyed by name. Cron names follow the same slug rules as `project`. Each cron sends an HTTP request to its app's path on the schedule; the call is pushed to the app internally, so worker apps (which have no routes) are valid targets.",
+      "description": "Scheduled calls, keyed by name. Cron names follow the same slug rules as `project`. Each cron sends an HTTP request on the schedule to its app's path (pushed internally, so worker apps, which have no routes, are valid targets) or to a `url` outside the box.",
       "type": "object",
       "propertyNames": { "$ref": "#/$defs/slug" },
       "additionalProperties": { "$ref": "#/$defs/cron" }
@@ -244,10 +244,10 @@
       }
     },
     "cron": {
-      "description": "One scheduled call into an app.",
+      "description": "One scheduled call into an app, or to an address outside the box (`url`). Set `app` or `url`.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["schedule", "app"],
+      "required": ["schedule"],
       "properties": {
         "schedule": {
           "description": "A 5-field cron expression (minute hour day-of-month month day-of-week, fields separated by single spaces, e.g. \"0 3 * * *\") or one of @hourly, @daily, @weekly, @monthly.",
@@ -255,12 +255,18 @@
           "pattern": "^(@(hourly|daily|weekly|monthly)|[A-Za-z0-9*,/?-]+( [A-Za-z0-9*,/?-]+){4})$"
         },
         "app": {
-          "description": "Name of the app to call. Must be an app defined in `apps`.",
+          "description": "Name of the app to call. Must be an app defined in `apps`. Set `app` or `url`, not both.",
           "type": "string",
           "minLength": 1
         },
+        "url": {
+          "description": "An http(s) address outside the box to POST to instead of an app, e.g. \"https://hooks.example.com/digest\". Calls are signed (Tiffin-Signature, HMAC-SHA256 with the project's signing secret) and retried with backoff. Addresses of the box itself and private, loopback or link-local ones are refused.",
+          "type": "string",
+          "pattern": "^https?://",
+          "maxLength": 2048
+        },
         "path": {
-          "description": "Request path on the app. Must start with \"/\". Default \"/cron/<cron name>\".",
+          "description": "Request path on the app. Must start with \"/\". Default \"/cron/<cron name>\". App targets only.",
           "type": "string",
           "pattern": "^/"
         },
@@ -272,22 +278,33 @@
         "overlap": {
           "description": "Run a tick even while the previous one is still queued or running. Default false: such a tick is skipped, and `queue crons list` shows when the last one was.",
           "type": "boolean"
+        },
+        "timeoutSeconds": {
+          "description": "How long one call may take before it counts as failed and is retried, 5-3600 seconds. Default 60 (an app may extend it with heartbeats).",
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 3600
         }
       }
     },
     "queue": {
-      "description": "One named job queue. Jobs sent to it are POSTed to `path` on `app`.",
+      "description": "One named job queue. Jobs sent to it are POSTed to `path` on `app`, or to `url` outside the box. Set `app` or `url`.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["app"],
       "properties": {
         "app": {
-          "description": "Name of the app that receives the jobs. Must be an app defined in `apps`.",
+          "description": "Name of the app that receives the jobs. Must be an app defined in `apps`. Set `app` or `url`, not both.",
           "type": "string",
           "minLength": 1
         },
+        "url": {
+          "description": "An http(s) address outside the box that jobs are POSTed to instead of an app, e.g. \"https://hooks.example.com/orders\". Each call is signed (Tiffin-Signature, HMAC-SHA256 with the project's signing secret). Addresses of the box itself and private, loopback or link-local ones are refused.",
+          "type": "string",
+          "pattern": "^https?://",
+          "maxLength": 2048
+        },
         "path": {
-          "description": "Request path jobs are POSTed to. Must start with \"/\". Default \"/queues/<queue name>\".",
+          "description": "Request path jobs are POSTed to. Must start with \"/\". Default \"/queues/<queue name>\". App targets only.",
           "type": "string",
           "pattern": "^/"
         },
@@ -322,7 +339,7 @@
           "maximum": 100
         },
         "leaseSeconds": {
-          "description": "How long one attempt may run without a response or heartbeat before it counts as failed, 5-3600. Default 60. Long jobs extend their lease with heartbeats.",
+          "description": "How long one attempt may run without a response or heartbeat before it counts as failed, 5-3600. Default 60. Long jobs extend their lease with heartbeats. For a `url` target it is each call's timeout.",
           "type": "integer",
           "minimum": 5,
           "maximum": 3600

@@ -421,7 +421,7 @@ function AnalyticsTile({ project }: { project: string }) {
 
 function JobsTile({ project, crons, queues }: { project: string; crons: Array<{ schedule?: string }>; queues: number }) {
   const bits = [crons.length === 1 && crons[0].schedule ? `Runs ${cronWords(crons[0].schedule)}` : crons.length > 1 ? count(crons.length, "schedule") : "", queues > 0 ? count(queues, "queue") : ""].filter(Boolean);
-  return <Tile icon={<Clock />} title={PARTS.jobs.name} kind={PARTS.jobs.sub} to="/projects/$project/queues" params={{ project }} fact={bits.join(" · ")} />;
+  return <Tile icon={<Clock />} title={PARTS.jobs.name} kind={PARTS.jobs.sub} to="/projects/$project/jobs" params={{ project }} fact={bits.join(" · ")} />;
 }
 
 /** Something being added right now: where its tile will be, with a spinner. */

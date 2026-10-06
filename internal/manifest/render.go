@@ -139,8 +139,12 @@ func configNode(m *Manifest) *node {
 			c := m.Crons[name]
 			n := obj()
 			n.set("schedule", str(c.Schedule))
-			n.set("app", str(c.App))
-			if c.Path != DefaultCronPathPrefix+name {
+			if c.URL != "" {
+				n.set("url", str(c.URL))
+			} else {
+				n.set("app", str(c.App))
+			}
+			if c.Path != "" && c.Path != DefaultCronPathPrefix+name {
 				n.set("path", str(c.Path))
 			}
 			if c.Timezone != "" {
@@ -148,6 +152,9 @@ func configNode(m *Manifest) *node {
 			}
 			if c.Overlap {
 				n.set("overlap", boolean(true))
+			}
+			if c.TimeoutSeconds != 0 {
+				n.set("timeoutSeconds", num(c.TimeoutSeconds))
 			}
 			cs.set(name, n)
 		}
@@ -346,8 +353,12 @@ func servicesNode(s Services) *node {
 
 func queueNode(name string, q Queue) *node {
 	n := obj()
-	n.set("app", str(q.App))
-	if q.Path != DefaultQueuePathPrefix+name {
+	if q.URL != "" {
+		n.set("url", str(q.URL))
+	} else {
+		n.set("app", str(q.App))
+	}
+	if q.Path != "" && q.Path != DefaultQueuePathPrefix+name {
 		n.set("path", str(q.Path))
 	}
 	for _, f := range []struct {

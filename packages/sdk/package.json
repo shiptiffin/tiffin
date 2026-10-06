@@ -64,6 +64,10 @@
       "types": "./src/next/vitals.ts",
       "default": "./src/next/vitals.ts"
     },
+    "./verify": {
+      "types": "./src/verify.ts",
+      "default": "./src/verify.ts"
+    },
     "./queue": {
       "types": "./src/queue.ts",
       "default": "./src/queue.ts"

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -160,7 +159,7 @@ type QueueConfig struct {
 	Name           string `json:"name" doc:"Queue (or topic) name"`
 	App            string `json:"app,omitempty" doc:"App that receives the jobs (default: the app that sends them)"`
 	Path           string `json:"path,omitempty" doc:"Path jobs are POSTed to on the app (default /queues/<name>)"`
-	URL            string `json:"url,omitempty" doc:"Explicit loopback URL to push to instead of an app (development)"`
+	URL            string `json:"url,omitempty" doc:"Address outside the box jobs are POSTed to instead of an app"`
 	Concurrency    int    `json:"concurrency" doc:"Most jobs of this queue running at once (0 = no limit)"`
 	KeyConcurrency int    `json:"keyConcurrency" doc:"Most jobs running at once per key (the send option key; 0 = no limit)"`
 	RateLimit      int    `json:"rateLimit" doc:"Most jobs started per rate period, per key (0 = no limit)"`
@@ -206,7 +205,7 @@ func (e *Engine) ConfigureQueue(ctx context.Context, project string, c QueueConf
 	if !nameRE.MatchString(c.Name) && c.Name != queueWorkflows && c.Name != queueCron {
 		return c, invalid("queue names are 1-64 lowercase letters, digits, dots, dashes or underscores", "")
 	}
-	if err := validTarget(c.App, c.Path, c.URL); err != nil {
+	if err := e.validTarget(c.App, c.Path, c.URL); err != nil {
 		return c, err
 	}
 	switch {
@@ -273,23 +272,24 @@ func (e *Engine) SetPaused(ctx context.Context, project, name string, paused boo
 	return e.ConfigureQueue(ctx, project, c)
 }
 
-func validTarget(app, path, rawURL string) error {
-	if app != "" && !regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`).MatchString(app) {
+var appRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
+
+// validTarget checks an app and path, or a URL outside the box.
+func (e *Engine) validTarget(app, path, rawURL string) error {
+	if app != "" && !appRE.MatchString(app) {
 		return invalid("app must be an app name from the manifest", "")
 	}
 	if path != "" && !strings.HasPrefix(path, "/") {
 		return invalid("path must start with /", "")
 	}
 	if rawURL != "" {
-		u, err := url.Parse(rawURL)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-			return invalid("url must be an http(s) URL", "")
+		if app != "" {
+			return invalid("set an app or a url, not both", "")
 		}
-		switch u.Hostname() {
-		case "127.0.0.1", "localhost", "::1":
-		default:
-			return invalid("url must point at this box (127.0.0.1 or localhost)", "the queue pushes to apps on the box; use app and path for deployed apps")
+		if len(rawURL) > 2048 {
+			return invalid("the url is longer than 2048 characters", "")
 		}
+		return e.guard.checkURL(rawURL)
 	}
 	return nil
 }
@@ -365,7 +365,7 @@ func (e *Engine) sendTx(ctx context.Context, tx pgx.Tx, project string, r SendRe
 	if r.MaxAttempts < 0 || r.MaxAttempts > 100 {
 		return nil, invalid("maxAttempts must be 1-100", "")
 	}
-	if err := validTarget(r.App, r.Path, ""); err != nil {
+	if err := e.validTarget(r.App, r.Path, ""); err != nil {
 		return nil, err
 	}
 	runAt := e.now()
@@ -579,6 +579,8 @@ func waitingFor(key string) string {
 		return "earlier jobs in FIFO group " + strconv.Quote(rest)
 	case "r":
 		return "the rate limit"
+	case "x":
+		return "the project's limit on calls outside the box"
 	}
 	return key
 }
@@ -920,19 +922,20 @@ func (e *Engine) Purge(ctx context.Context, project, queue string, dead bool, co
 // QueueStats is a queue's health.
 type QueueStats struct {
 	QueueConfig
-	Topic         bool    `json:"topic" doc:"True for topics (fan-out to subscribers)"`
-	Scheduled     int     `json:"scheduled"`
-	Queued        int     `json:"queued" doc:"Due and waiting (the depth)"`
-	Running       int     `json:"running"`
-	Retrying      int     `json:"retrying"`
-	Dead          int     `json:"dead" doc:"In the dead-letter queue"`
-	OldestQueuedS int     `json:"oldestQueuedSeconds" doc:"Age of the oldest due job"`
-	Completed1h   int     `json:"completedLastHour"`
-	Failed1h      int     `json:"failedAttemptsLastHour"`
-	Throughput1m  int     `json:"completedLastMinute"`
-	FailureRate   float64 `json:"failureRate" doc:"Failed attempts / all attempts, last hour"`
-	P50MS         int     `json:"p50Ms" doc:"Median attempt duration, last hour"`
-	P95MS         int     `json:"p95Ms"`
+	Topic         bool       `json:"topic" doc:"True for topics (fan-out to subscribers)"`
+	Scheduled     int        `json:"scheduled"`
+	Queued        int        `json:"queued" doc:"Due and waiting (the depth)"`
+	Running       int        `json:"running"`
+	Retrying      int        `json:"retrying"`
+	Dead          int        `json:"dead" doc:"In the dead-letter queue"`
+	OldestQueuedS int        `json:"oldestQueuedSeconds" doc:"Age of the oldest due job"`
+	Completed1h   int        `json:"completedLastHour"`
+	Failed1h      int        `json:"failedAttemptsLastHour"`
+	Throughput1m  int        `json:"completedLastMinute"`
+	FailureRate   float64    `json:"failureRate" doc:"Failed attempts / all attempts, last hour"`
+	P50MS         int        `json:"p50Ms" doc:"Median attempt duration, last hour"`
+	P95MS         int        `json:"p95Ms"`
+	LastRunAt     *time.Time `json:"lastRunAt,omitempty" doc:"When its latest attempt finished"`
 }
 
 // Stats returns per-queue depth, throughput, failures and durations.
@@ -995,6 +998,20 @@ func (e *Engine) Stats(ctx context.Context, project, only string) ([]QueueStats,
 		if ok+failed > 0 {
 			s.FailureRate = float64(failed) / float64(ok+failed)
 		}
+	}
+	rows.Close()
+	rows, err = e.pool.Query(ctx, `SELECT queue, max(finished_at) FROM tq_attempts WHERE project = $1 GROUP BY queue`, project)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var q string
+		var at time.Time
+		if err := rows.Scan(&q, &at); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		get(q).LastRunAt = &at
 	}
 	rows.Close()
 	rows, err = e.pool.Query(ctx, `SELECT name FROM tq_queues WHERE project = $1 UNION SELECT name FROM tq_topics WHERE project = $1`, project)

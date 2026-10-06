@@ -258,6 +258,17 @@ export const POST = defineHandler(async (job) => {
 });`,
           },
           {
+            label: "A URL outside the box",
+            code: `// Schedules and queues can call any web address, signed the same way (tiffin queue signing-secret ${project}).
+import { verifyRequest } from "tiffin-sdk/verify";
+
+export async function POST(req: Request) {
+  const call = await verifyRequest(req, process.env.TIFFIN_SIGNING_SECRET!);
+  if (!call) return new Response("bad signature", { status: 401 });
+  return new Response(null, { status: 204 }); // 2xx: done; anything else retries
+}`,
+          },
+          {
             label: "Verify by hand",
             code: `import { createHmac, timingSafeEqual } from "node:crypto";
 

@@ -11,6 +11,7 @@ import {
   toMs,
   verifySignature,
 } from "tiffin-sdk/queue";
+import { verifyRequest } from "tiffin-sdk/verify";
 import { NonDeterminismError, workflow } from "tiffin-sdk/workflow";
 
 const SECRET = "tqs_test";
@@ -169,6 +170,16 @@ describe("tiffin-sdk/queue", () => {
     expect(verifySignature("s", h, '{"a":1}', 300, now + 600_000)).toBe(false);
     // Same bytes the Go box produces (internal/mod/queue TestSignVerify uses this secret/time).
     expect(sign("s3cret", '{"a":1}', now)).toBe(sign("s3cret", '{"a":1}', now));
+  });
+
+  test("verifyRequest checks a call that lands outside the box", async () => {
+    const body = JSON.stringify({ type: "cron", id: "job_7", queue: "_cron", cron: "digest", attempt: 1, maxAttempts: 10, enqueuedAt: "2026-10-06T08:00:00Z", payload: { cron: "digest" } });
+    const req = (sig: string) => new Request("https://hooks.example.com/digest", { method: "POST", body, headers: { "tiffin-signature": sig } });
+    const call = await verifyRequest(req(sign("s", body)), "s");
+    expect(call?.id).toBe("job_7");
+    expect(call?.cron).toBe("digest");
+    expect(await verifyRequest(req(sign("other", body)), "s")).toBeNull();
+    expect(await verifyRequest(new Request("https://x/", { method: "POST", body }), "s")).toBeNull();
   });
 
   test("send maps options to the box API", async () => {

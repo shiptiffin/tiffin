@@ -3,6 +3,7 @@ package manifest
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -169,6 +170,7 @@ func semanticErrors(m *Manifest) []FieldError {
 	}
 	for _, name := range sortedKeys(m.Crons) {
 		c := m.Crons[name]
+		errs = append(errs, targetErrors("cron", "/crons/"+escapePointer(name), name, c.App, c.URL, c.Path)...)
 		if _, ok := m.Apps[c.App]; !ok && c.App != "" {
 			msg := fmt.Sprintf("cron %q targets app %q, which is not defined in \"apps\"", name, c.App)
 			if len(m.Apps) > 0 {
@@ -199,6 +201,7 @@ func queueErrors(m *Manifest) []FieldError {
 	for _, name := range sortedKeys(m.Queues) {
 		q := m.Queues[name]
 		base := "/queues/" + escapePointer(name)
+		errs = append(errs, targetErrors("queue", base, name, q.App, q.URL, q.Path)...)
 		if _, ok := m.Apps[q.App]; !ok && q.App != "" {
 			msg := fmt.Sprintf("queue %q targets app %q, which is not defined in \"apps\"", name, q.App)
 			if len(m.Apps) > 0 {
@@ -230,6 +233,27 @@ func queueErrors(m *Manifest) []FieldError {
 			}
 			errs = append(errs, FieldError{Path: fmt.Sprintf("/topics/%s/subscribers/%d", escapePointer(name), i), Message: msg})
 		}
+	}
+	return errs
+}
+
+// targetErrors checks that a cron or queue calls exactly one thing: an app
+// (with an optional path) or a web address outside the box.
+func targetErrors(kind, base, name, app, rawURL, path string) []FieldError {
+	switch {
+	case app == "" && rawURL == "":
+		return []FieldError{{Path: base, Message: fmt.Sprintf("%s %q needs \"app\" (an app of this project) or \"url\" (a web address to call, such as \"https://hooks.example.com/digest\")", kind, name)}}
+	case app != "" && rawURL != "":
+		return []FieldError{{Path: base + "/url", Message: fmt.Sprintf("%s %q sets both \"app\" and \"url\"; keep one: the app to call, or the address outside the box", kind, name)}}
+	case rawURL == "":
+		return nil
+	}
+	var errs []FieldError
+	if u, err := url.Parse(rawURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Fragment != "" {
+		errs = append(errs, FieldError{Path: base + "/url", Message: fmt.Sprintf("%q is not a web address a %s can call; use a full address such as \"https://hooks.example.com/digest\" (no user name, password or #fragment)", rawURL, kind)})
+	}
+	if path != "" {
+		errs = append(errs, FieldError{Path: base + "/path", Message: fmt.Sprintf("%s %q has a \"url\", so \"path\" has nothing to apply to; put the whole address in \"url\"", kind, name)})
 	}
 	return errs
 }

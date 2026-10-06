@@ -1,0 +1,6 @@
+/crons/both/url: cron "both" sets both "app" and "url"; keep one: the app to call, or the address outside the box
+/crons/neither: cron "neither" needs "app" (an app of this project) or "url" (a web address to call, such as "https://hooks.example.com/digest")
+/crons/pathed/path: cron "pathed" has a "url", so "path" has nothing to apply to; put the whole address in "url"
+/crons/secret/url: "https://user:pw@hooks.example.com/x" is not a web address a cron can call; use a full address such as "https://hooks.example.com/digest" (no user name, password or #fragment)
+/queues/hashed/url: "https://hooks.example.com/orders#top" is not a web address a queue can call; use a full address such as "https://hooks.example.com/digest" (no user name, password or #fragment)
+/queues/nothing: queue "nothing" needs "app" (an app of this project) or "url" (a web address to call, such as "https://hooks.example.com/digest")

@@ -20,13 +20,18 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/dnskit"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/platform"
 )
@@ -127,12 +132,62 @@ func (m *Module) connect(ctx context.Context, p *platform.Platform) {
 	}
 }
 
+// selfIPs are the box's own public addresses, which URL targets may not call.
+func selfIPs(p *platform.Platform) func() []netip.Addr {
+	return func() []netip.Addr {
+		return append(slices.Clone(p.Reach.PublicIPs), dnskit.LocalPublicIPs()...)
+	}
+}
+
+// urlRate is the cap on one project's calls to URLs outside the box per
+// minute: TIFFIN_QUEUE_URL_RATE, default 600.
+func urlRate() int {
+	if n, err := strconv.Atoi(os.Getenv("TIFFIN_QUEUE_URL_RATE")); err == nil && n >= 0 {
+		return n
+	}
+	return 600
+}
+
+// CheckPlan refuses crons and queues whose url is plainly inside the box or
+// a private network (an address literal or localhost); host names are
+// checked against what they resolve to when each call is made.
+func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project string, desired map[string]change.Resource) error {
+	g := &guard{allow: allowNets(), self: selfIPs(p)}
+	addrs := make([]string, 0, len(desired))
+	for a := range desired {
+		addrs = append(addrs, a)
+	}
+	sort.Strings(addrs)
+	for _, a := range addrs {
+		kind := change.Kind(a)
+		if kind != change.KindCron && kind != change.KindQueue {
+			continue
+		}
+		var t struct {
+			URL string `json:"url"`
+		}
+		if json.Unmarshal(desired[a].Spec, &t) != nil || t.URL == "" {
+			continue
+		}
+		if err := g.checkURL(t.URL); err != nil {
+			prob := api.NewProblem(422, "validation", kind+" "+change.Name(a)+": "+err.Error())
+			prob.Hint = "point it at a public address (https://…), or at an app of the project with app and path"
+			prob.Errors = append(prob.Errors, api.FieldError{Path: "/" + kind + "s/" + change.Name(a) + "/url", Message: err.Error()})
+			return prob
+		}
+	}
+	return nil
+}
+
 func (m *Module) config(p *platform.Platform, dsn string) Config {
 	return Config{
-		DSN:       dsn,
-		Keys:      m.keys,
-		PublicURL: p.PublicURL,
-		Log:       p.Log,
+		DSN:              dsn,
+		Keys:             m.keys,
+		PublicURL:        p.PublicURL,
+		Log:              p.Log,
+		AllowNets:        allowNets(),
+		SelfIPs:          selfIPs(p),
+		URLRatePerMinute: urlRate(),
 		Endpoint: func(ctx context.Context, project, app, release string) (string, error) {
 			if up, ok := findModule[AppUpstreams](); ok {
 				return up.AppEndpoint(ctx, p, project, app, release)

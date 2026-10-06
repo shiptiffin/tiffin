@@ -323,19 +323,25 @@ type Analytics struct {
 	RetentionDays int `json:"retentionDays"`
 }
 
-// Cron is one scheduled call into an app. The box sends an HTTP request to the
-// app's Path on every tick. The call is pushed to the app internally, so a
-// worker app (which has no routes) is a valid target.
+// Cron is one scheduled call into an app, or to an address outside the box.
+// The box sends an HTTP request to the app's Path (or to URL) on every tick.
+// An app is called internally, so a worker app (which has no routes) is a
+// valid target. Exactly one of App and URL is set.
 type Cron struct {
 	// Schedule is a 5-field cron expression ("minute hour day-of-month month
 	// day-of-week", fields separated by single spaces, e.g. "0 3 * * *") or
 	// one of @hourly, @daily, @weekly, @monthly.
 	Schedule string `json:"schedule"`
 	// App is the name of the app to call. It must be an app in this manifest.
-	App string `json:"app"`
+	App string `json:"app,omitempty"`
+	// URL is an http(s) address outside the box to POST to instead of an
+	// app, e.g. "https://hooks.example.com/digest". Calls are signed
+	// (Tiffin-Signature) with the project's signing secret. Addresses of the
+	// box itself and private, loopback or link-local ones are refused.
+	URL string `json:"url,omitempty"`
 	// Path is the request path on the app. Must start with "/".
-	// Default "/cron/<cron name>".
-	Path string `json:"path"`
+	// Default "/cron/<cron name>". App targets only.
+	Path string `json:"path,omitempty"`
 	// Timezone is the IANA time zone the schedule is read in, e.g.
 	// "America/New_York". Default "" (UTC). When clocks change, a time that
 	// happens twice runs once and a time that is skipped runs at the change.
@@ -343,19 +349,29 @@ type Cron struct {
 	// Overlap lets a tick run while the previous one is still queued or
 	// running. Default false: such a tick is skipped (cron list shows when).
 	Overlap bool `json:"overlap,omitempty"`
+	// TimeoutSeconds is how long one call may take before it counts as
+	// failed and is retried, 5-3600. Default 0: 60 seconds (an app may
+	// extend it with heartbeats).
+	TimeoutSeconds int `json:"timeoutSeconds,omitempty"`
 }
 
 // Queue is a named job queue. The box pushes each job sent to the queue to
-// Path on App as a signed HTTP request, retrying failures with backoff. The
-// call is pushed internally, so a worker app (which has no routes) is a valid
-// target. Zero limits mean "no limit".
+// Path on App (or to URL, outside the box) as a signed HTTP request,
+// retrying failures with backoff. An app is called internally, so a worker
+// app (which has no routes) is a valid target. Exactly one of App and URL
+// is set. Zero limits mean "no limit".
 type Queue struct {
 	// App is the name of the app that receives the jobs. It must be an app in
 	// this manifest.
-	App string `json:"app"`
+	App string `json:"app,omitempty"`
+	// URL is an http(s) address outside the box that jobs are POSTed to
+	// instead of an app, signed (Tiffin-Signature) with the project's
+	// signing secret. Addresses of the box itself and private, loopback or
+	// link-local ones are refused.
+	URL string `json:"url,omitempty"`
 	// Path is the request path jobs are POSTed to. Must start with "/".
-	// Default "/queues/<queue name>".
-	Path string `json:"path"`
+	// Default "/queues/<queue name>". App targets only.
+	Path string `json:"path,omitempty"`
 	// Concurrency is the most jobs of this queue running at once, 0-1000.
 	// Default 0: no limit.
 	Concurrency int `json:"concurrency"`
@@ -372,7 +388,8 @@ type Queue struct {
 	// dead-letter queue, 1-100. Default 10.
 	MaxAttempts int `json:"maxAttempts"`
 	// LeaseSeconds is how long one attempt may run without a response or
-	// heartbeat before it counts as failed, 5-3600. Default 60.
+	// heartbeat before it counts as failed, 5-3600. Default 60. For a URL
+	// target it is each call's timeout.
 	LeaseSeconds int `json:"leaseSeconds"`
 }
 

@@ -1,5 +1,4 @@
 /queues/Bad_Name: name "Bad_Name" must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or dashes
-/queues/noapp: missing required field(s): app
 /queues/ranges/concurrency: must be at least 0 (got -1)
 /queues/ranges/keyConcurrency: must be at most 1000 (got 1001)
 /queues/ranges/leaseSeconds: must be at least 5 (got 4)

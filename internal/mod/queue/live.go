@@ -455,12 +455,20 @@ func (e *Engine) ServeLive(w http.ResponseWriter, r *http.Request) {
 	if token == "" {
 		token = strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 	}
-	ctx := r.Context()
-	project, err := e.checkToken(ctx, token, id, e.now())
+	project, err := e.checkToken(r.Context(), token, id, e.now())
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
+	e.StreamLive(w, r, project, id)
+}
+
+// StreamLive streams one job or run of project as server-sent events, for a
+// caller already allowed to see it: a subscribe token's holder (ServeLive)
+// or a dashboard session (the queue-live operation). It resumes after the
+// Last-Event-ID header's chunk.
+func (e *Engine) StreamLive(w http.ResponseWriter, r *http.Request, project, id string) {
+	ctx := r.Context()
 	if _, err := e.liveState(ctx, project, id); err != nil {
 		writeErr(w, err)
 		return

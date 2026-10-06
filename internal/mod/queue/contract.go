@@ -100,7 +100,10 @@ type PinnedReleaser interface {
 	PinnedReleases(ctx context.Context, p *platform.Platform, project, app string) ([]string, error)
 }
 
-var _ PinnedReleaser = (*Module)(nil)
+var (
+	_ PinnedReleaser       = (*Module)(nil)
+	_ platform.PlanChecker = (*Module)(nil)
+)
 
 // DeliveryReporter is what this module offers the runtime (see above).
 type DeliveryReporter interface {

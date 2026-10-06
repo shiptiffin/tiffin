@@ -43,7 +43,7 @@ func TestAllModulesRegister(t *testing.T) {
 		t.Fatalf("%d tools for %d operations", len(tools), len(a.Operations()))
 	}
 	// Adding or removing an operation is a deliberate API change: update this.
-	const wantOps = 261
+	const wantOps = 266
 	if n := len(a.Operations()); n != wantOps {
 		t.Errorf("%d operations, want %d", n, wantOps)
 	}

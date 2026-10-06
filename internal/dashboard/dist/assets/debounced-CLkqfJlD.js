@@ -1,0 +1,1 @@
+import{i as e,n as t}from"./jsx-runtime-Dk72oS4N.js";var n=e(t(),1);function r(e,t){let r=JSON.stringify(e),[i,a]=(0,n.useState)(e);return(0,n.useEffect)(()=>{let n=setTimeout(()=>a(e),t);return()=>clearTimeout(n)},[r,t]),i}export{r as t};
