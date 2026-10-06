@@ -189,6 +189,7 @@ export function StatusPage() {
             }
             amount={open.length > 0 ? int(open.length) : undefined}
           />
+          <Area to="/requests" name="Requests" status="Slow and failed requests, step by step, from apps that send traces." />
           <Area
             to="/alerts"
             name="Alerts"

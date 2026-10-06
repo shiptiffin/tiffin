@@ -72,6 +72,8 @@ const LogsPage = lz<LogsSearch>(() => import("@/routes/observe"), "LogsPage");
 const ErrorsPage = lz<{ project?: string; status?: string }>(() => import("@/routes/observe"), "ErrorsPage");
 const IssuePage = lz<{ id: string }>(() => import("@/routes/observe"), "IssuePage");
 const AlertsPage = lz(() => import("@/routes/observe"), "AlertsPage");
+const TracesPage = lz<{ project?: string; since?: string; errors?: boolean }>(() => import("@/routes/observe"), "TracesPage");
+const TracePage = lz<{ project: string; id: string }>(() => import("@/routes/observe"), "TracePage");
 const BackupsPage = lz(() => import("@/routes/backups"), "BackupsPage");
 const QueuesPage = lz<{ project: string }>(() => import("@/routes/queues"), "QueuesPage");
 const JobsPage = lz<{ project: string; queue?: string; state?: string }>(() => import("@/routes/queues"), "JobsPage");
@@ -386,6 +388,28 @@ const issue = createRoute({
     return <IssuePage key={id} id={id} />;
   },
 });
+const requests = createRoute({
+  getParentRoute: () => app,
+  path: "/requests",
+  validateSearch: (s: Record<string, unknown>): { project?: string; since?: string; errors?: boolean } => ({
+    project: str(s.project),
+    since: str(s.since),
+    errors: s.errors === true || s.errors === "true" ? true : undefined,
+  }),
+  loader: () => void TracesPage.preload(),
+  component: function Requests() {
+    return <TracesPage {...requests.useSearch()} />;
+  },
+});
+const trace = createRoute({
+  getParentRoute: () => app,
+  path: "/requests/$project/$id",
+  loader: () => void TracePage.preload(),
+  component: function Trace() {
+    const { project: p, id } = trace.useParams();
+    return <TracePage key={id} project={p} id={id} />;
+  },
+});
 const alerts = createRoute({ getParentRoute: () => app, path: "/alerts", loader: () => void AlertsPage.preload(),
   component: AlertsPage });
 const backups = createRoute({ getParentRoute: () => app, path: "/backups", loader: () => void BackupsPage.preload(),
@@ -617,6 +641,8 @@ const tree = root.addChildren([
     logs,
     errors,
     issue,
+    requests,
+    trace,
     alerts,
     backups,
     queues,

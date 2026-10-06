@@ -42,6 +42,7 @@ const box: Array<[string, string, string[]]> = [
   ["Metrics", "/metrics", ["cpu", "memory", "disk", "charts"]],
   ["Logs", "/logs", ["logsql", "search", "tail"]],
   ["Errors", "/errors", ["issues", "exceptions", "sentry"]],
+  ["Requests", "/requests", ["traces", "tracing", "slow", "spans", "opentelemetry", "waterfall"]],
   ["Alerts", "/alerts", ["rules", "notify"]],
   ["Backups", "/backups", ["restore", "snapshot"]],
   ["Connect DNS", "/settings/dns", ["cloudflare", "dns", "records", "token", "wildcard", "certificate"]],

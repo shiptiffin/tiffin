@@ -207,7 +207,7 @@ function MobileBar({ onMenu, onSearch, switcher }: { onMenu: () => void; onSearc
 // ───────────────────────── sidebar ─────────────────────────
 
 const settingsPaths = ["/settings", "/settings/box", "/settings/git", "/settings/dns", "/settings/people", "/settings/passkeys", "/protect"];
-const healthPaths = ["/status", "/metrics", "/logs", "/errors", "/alerts"];
+const healthPaths = ["/status", "/metrics", "/logs", "/errors", "/requests", "/alerts"];
 const activityPaths = ["/ledger", "/changes"];
 
 function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: ReactNode }) {

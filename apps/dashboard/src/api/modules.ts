@@ -41,6 +41,9 @@ export type AlertRule = S["ObserveRule"];
 export type AppMetrics = S["ObserveAppMetrics"];
 export type LogsResult = S["ObserveLogsResult"];
 export type ObserveSettings = S["ObserveSettings"];
+export type TraceSummary = S["ObserveTraceSummary"];
+export type TraceDetail = S["ObserveTraceDetail"];
+export type TraceSpan = S["ObserveSpan"];
 export type QueueStats = S["QueueStats"];
 export type QueueJob = S["QueueJob"];
 export type QueueAttempt = S["QueueAttempt"];
@@ -57,6 +60,7 @@ export type AnalyticsEvents = S["AnalyticsEventsView"];
 export type AnalyticsSetup = S["AnalyticsSetup"];
 export type AnalyticsCount = S["AnalyticsCount"];
 export type AnalyticsEvent = S["AnalyticsEventSummary"];
+export type AnalyticsVitals = S["AnalyticsVitalsView"];
 export type Period = NonNullable<NonNullable<import("./schema").operations["analytics-overview"]["parameters"]["query"]>["period"]>;
 export type ProtectStatus = S["ProtectStatus"];
 export type ProtectDecision = S["ProtectDecision"];
@@ -177,6 +181,9 @@ export const mod = {
   logs: (body: S["ObserveLogsQueryBody"]) => request<LogsResult>("POST", "/v1/observe/logs/query", body),
   issues: (o: { project?: string; status?: Issue["status"] }) => arr(request<Issue[] | null>("GET", `/v1/observe/issues${qs({ ...o, limit: 100 })}`)),
   issue: (id: string) => request<IssueDetail>("GET", `/v1/observe/issues/${e(id)}`),
+  traces: (project: string, o: { since?: string; errors?: boolean; sort?: "slowest" | "recent" }) =>
+    arr(request<TraceSummary[] | null>("GET", `/v1/observe/traces${qs({ project, ...o, limit: 100 })}`)),
+  trace: (project: string, id: string) => request<TraceDetail>("GET", `/v1/observe/traces/${e(id)}${qs({ project })}`),
   resolveIssue: (id: string, status: Issue["status"]) => request<Issue>("POST", `/v1/observe/issues/${e(id)}/resolve`, { status }),
   alerts: () => request<AlertsView>("GET", "/v1/observe/alerts?limit=100"),
   rules: () => arr(request<AlertRule[] | null>("GET", "/v1/observe/alert-rules")),
@@ -217,6 +224,7 @@ export const mod2 = {
   analytics: (p: string, period: Period) => request<AnalyticsOverview>("GET", `/v1/analytics/overview${qs({ project: p, period, limit: 8 })}`),
   realtime: (p: string) => request<AnalyticsRealtime>("GET", `/v1/analytics/realtime${qs({ project: p })}`),
   events: (p: string, period: Period) => request<AnalyticsEvents>("GET", `/v1/analytics/events${qs({ project: p, period })}`),
+  vitals: (p: string, period: Period) => request<AnalyticsVitals>("GET", `/v1/analytics/vitals${qs({ project: p, period, limit: 8 })}`),
   analyticsSetup: (p: string) => request<AnalyticsSetup>("GET", `/v1/analytics/setup${qs({ project: p })}`),
   // protection
   protect: () => request<ProtectStatus>("GET", "/v1/protect"),
@@ -276,6 +284,9 @@ export const mq = {
   issues: (project?: string, status?: Issue["status"]) =>
     queryOptions({ queryKey: ["issues", project ?? "", status ?? ""], queryFn: () => mod.issues({ project, status }), refetchInterval: 30_000 }),
   issue: (id: string) => queryOptions({ queryKey: ["issue", id], queryFn: () => mod.issue(id) }),
+  traces: (project: string, since: string, errors: boolean) =>
+    queryOptions({ queryKey: ["traces", project, since, errors], queryFn: () => mod.traces(project, { since, errors: errors || undefined }), enabled: !!project, refetchInterval: 30_000 }),
+  trace: (project: string, id: string) => queryOptions({ queryKey: ["trace", project, id], queryFn: () => mod.trace(project, id), staleTime: Infinity }),
   alerts: queryOptions({ queryKey: ["alerts"], queryFn: mod.alerts, refetchInterval: 30_000 }),
   rules: queryOptions({ queryKey: ["rules"], queryFn: mod.rules }),
   // Polled by the shell for the alarm state; stops when the box has no protection module.
