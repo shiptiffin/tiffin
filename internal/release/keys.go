@@ -7,7 +7,9 @@ import "strings"
 // new key, ship a release signed with the old one, then sign with the new
 // one; drop the old key once every box runs a build that trusts the new.
 // Empty: the build checks no releases (boxes update with tiffin up).
-var trustedKeys = []string{}
+var trustedKeys = []string{
+	"RWRGIoWQXtESNT2JTrrXUaPvYEST9ZGtgPmozFnqWvs5DhUojgetwlz0", // 2026-10-06, ~/tiffin-release.key on the owner's Mac
+}
 
 // extraKeys adds keys at link time, for test builds:
 //
