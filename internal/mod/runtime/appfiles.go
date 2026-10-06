@@ -27,7 +27,7 @@ func (r *rt) readApp(d *Deploy, spec *manifest.App, req *BuildRequest, log io.Wr
 				Hint: "dir names the app's folder inside the upload, e.g. apps/web."}
 		}
 		req.Dir = d.Dir
-		fmt.Fprintf(log, "==> workspace: the app is %s/ in a workspace whose packages it uses: dependencies install at the top, the app builds in its folder\n", d.Dir)
+		fmt.Fprintf(log, "==> workspace: the app is %s/ in a workspace (monorepo): dependencies install at its top, the app builds in its folder\n", d.Dir)
 	}
 	appDir := req.appDir()
 	req.Export = spec.Role != manifest.RoleWorker && nextExport(appDir)

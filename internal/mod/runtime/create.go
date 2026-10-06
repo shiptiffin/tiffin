@@ -212,7 +212,7 @@ func (r *rt) cloneSource(ctx context.Context, d *Deploy, gs *gitSource, log io.W
 	if err != nil {
 		return "", &BuildError{Msg: fmt.Sprintf("path %q is not a directory in the repository", gs.Path), Hint: "Set path to the app's folder, relative to the repository's top."}
 	}
-	// An app that uses its workspace's packages builds from the workspace's top.
+	// An app in a workspace (monorepo) builds from the workspace's top.
 	if root, rel, ok := srcpack.WorkspaceRoot(app, dir); ok {
 		app, d.Dir = root, rel
 	}

@@ -8,6 +8,12 @@ importers:
 
   .: {}
 
+  apps/api:
+    dependencies:
+      '@vx/words':
+        specifier: workspace:*
+        version: link:../../packages/words
+
   apps/web:
     dependencies:
       '@vx/words':

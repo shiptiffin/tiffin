@@ -33,7 +33,10 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    no box-specific next.config: the box's adapter sets `deploymentId`, the Valkey cache handlers
    (when the project has Valkey) and a stable Server Actions key at build. Another server framework
    whose client files the box does not find (deploy log: "client assets") can name them:
-   `assets: { dir: "dist/client" }`.
+   `assets: { dir: "dist/client" }`. Apps from Vercel need no changes: a Next.js `output: "export"`
+   app is served as files (no container), an app in a pnpm/npm/yarn/bun workspace builds from its
+   monorepo's top, and vercel.json's build settings, crons (GET + `CRON_SECRET`), headers,
+   redirects and rewrites apply; the build log lists what was used and what was not.
 5. Secrets go in `tiffin secrets set`, never in the config or the repo. Starting a new project?
    Reuse keys the box already has instead of asking for them again:
    `tiffin secrets list <other>` shows names, `tiffin secrets copy <new> --from <other> [--names A,B]`

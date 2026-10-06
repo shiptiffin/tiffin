@@ -117,7 +117,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		App      string      `path:"app" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"App name"`
 		Preview  string      `query:"preview" pattern:"^[a-z0-9][a-z0-9-]{0,29}$" doc:"Deploy as a preview with this name, served at <preview>--<app address>.<domain> (pr-12--shop for the app at shop). Production is untouched."`
 		Prebuilt bool        `query:"prebuilt" doc:"The upload is an image tarball (docker save) instead of source"`
-		Dir      string      `query:"dir" doc:"With an uploaded source: the app's folder inside it, when the upload is the whole workspace (monorepo) the app builds in, e.g. apps/web. tiffin deploy sets it for apps that use workspace packages."`
+		Dir      string      `query:"dir" doc:"With an uploaded source: the app's folder inside it, when the upload is the whole workspace (monorepo) the app builds in, e.g. apps/web. tiffin deploy sets it for apps in a workspace."`
 		Body     *deployBody `required:"false"`
 	}) (*struct{ Body *Deploy }, error) {
 		r, err := m.rt()

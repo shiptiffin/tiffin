@@ -20,6 +20,8 @@ import (
 //   - web: a Next.js static export (output: "export") in a pnpm workspace,
 //     using a workspace package → built with next build at the workspace's
 //     top, served by the edge with no container; clean URLs and 404.html
+//   - mapi: a server app in the same workspace, using the same package →
+//     installed at the top, started in its folder
 //   - docs: a static site with a vercel.json → its headers win over the
 //     edge's defaults, redirects keep the query, rewrites, cleanUrls
 //   - api: a Bun app with a vercel.json cron → listed with its origin, and
@@ -37,6 +39,7 @@ func TestVercel(t *testing.T) {
 	}
 	cfg := `{"project":"vx","apps":{
 	  "web":{"framework":"next","path":"mono/apps/web","routes":["vx-web"]},
+	  "mapi":{"framework":"bun","path":"mono/apps/api","routes":["vx-mapi"]},
 	  "docs":{"framework":"static","path":"docs","routes":["vx-docs"]},
 	  "api":{"framework":"bun","path":"api","routes":["vx-api"]}}}`
 	if err := os.WriteFile(filepath.Join(root, "tiffin.config.json"), []byte(cfg), 0o644); err != nil {
@@ -45,7 +48,7 @@ func TestVercel(t *testing.T) {
 	plan := b.ok("plan", root)
 	hash, _ := plan["hash"].(string)
 	b.ok("apply", root, "--confirm", hash, "-m", "e2e: vercel apps")
-	b.waitReady("app/web", "app/docs", "app/api")
+	b.waitReady("app/web", "app/mapi", "app/docs", "app/api")
 	b.ok("secrets", "set", "vx", "CRON_SECRET", "--value", "e2e-cron-secret")
 
 	c := b.https()
@@ -96,6 +99,15 @@ func TestVercel(t *testing.T) {
 		{path: "/legacy", code: "200", body: "vx-legacy"},
 		{path: "/nope", code: "404", body: "vx-missing"},
 	})
+
+	// ---- mapi: a server app in the same workspace ----
+	p = time.Now()
+	d = deployArgs(t, b, root, "--app", "mapi")
+	phase("mapi deploy", p)
+	if log = buildLog("mapi", d.ID); !strings.Contains(log, "==> workspace: the app is apps/api/") {
+		t.Errorf("mapi build log lacks the workspace:\n%s", log)
+	}
+	check("vx-mapi", []want{{path: "/x", code: "200", body: "vx-mono-api /x hello from a workspace package"}})
 
 	// ---- docs: a static site with vercel.json ----
 	p = time.Now()

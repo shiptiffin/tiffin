@@ -295,10 +295,10 @@ func (a *app) upload(ctx context.Context, c *client, project, appName, dir, prev
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 			return nil, &exitError{ExitInvalid, fmt.Sprintf("app %s: %s is not a directory", appName, dir)}
 		}
-		// An app that uses its workspace's packages goes up with the whole
+		// An app in a JavaScript workspace (a monorepo) goes up with the whole
 		// workspace; the box builds it in its folder.
 		if root, rel, ok := srcpack.WorkspaceRoot(dir, ""); ok {
-			a.say("%s uses packages of the workspace at %s: uploading the workspace, building %s", appName, root, rel)
+			a.say("%s is in the workspace at %s: uploading the workspace, building %s", appName, root, rel)
 			dir = root
 			q.Set("dir", rel)
 		}

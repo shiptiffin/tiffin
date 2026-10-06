@@ -298,7 +298,7 @@ func (r *rt) deployPush(ctx context.Context, say func(string, ...any), g hookGra
 		}
 		d.Commit = rev
 		if top, rel, ok := srcpack.WorkspaceRoot(dir, root); ok {
-			dir, d.Dir = top, rel // it uses its workspace's packages: build from the top
+			dir, d.Dir = top, rel // in a workspace (monorepo): build from its top
 		}
 		src := filepath.Join(r.workDir(d), "source.tgz")
 		f, err := os.Create(src)

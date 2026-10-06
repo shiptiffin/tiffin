@@ -47,7 +47,9 @@ type BuildRequest struct {
 }
 
 // appDir is the app's own folder in the source.
-func (req BuildRequest) appDir() string { return filepath.Join(req.SrcDir, filepath.FromSlash(req.Dir)) }
+func (req BuildRequest) appDir() string {
+	return filepath.Join(req.SrcDir, filepath.FromSlash(req.Dir))
+}
 
 // inApp runs a shell command in the app's folder (the top, unless the
 // source is a workspace).
@@ -157,9 +159,8 @@ func (b *boxBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult, 
 	case req.Export:
 		fmt.Fprintf(req.Log, "==> Next.js static export (output: \"export\" in next.config): next build, then the edge serves the files (no container)\n")
 		return b.buildFiles(ctx, req, ref, []string{orDefaultStr(vercelOut(req.Vercel), "out")})
-	case req.Spec.Framework == manifest.FrameworkStatic && otherPM(req.Vercel):
-		// Its own commands need npm, pnpm or yarn: Railpack has them.
-		fmt.Fprintf(req.Log, "==> the site's build commands use npm, pnpm or yarn: building with Railpack, then serving the files\n")
+	case req.Spec.Framework == manifest.FrameworkStatic && railpackSite(req):
+		fmt.Fprintf(req.Log, "==> the site builds with npm, pnpm or yarn: building with Railpack, then serving the files\n")
 		dirs := []string{"dist", "build", "out", "public"}
 		if out := orDefaultStr(vercelOut(req.Vercel), readStaticfile(req.appDir()).root); out != "" {
 			dirs = []string{out}
@@ -415,10 +416,14 @@ func vercelOut(v *vercelcfg.Config) string {
 
 var otherPMs = regexp.MustCompile(`\b(npm|npx|pnpm|yarn)\b`)
 
-// otherPM reports whether vercel.json's commands need npm, pnpm or yarn,
-// which the Bun image that builds static sites does not have.
-func otherPM(v *vercelcfg.Config) bool {
-	return v != nil && otherPMs.MatchString(v.InstallCommand+" "+v.BuildCommand)
+// railpackSite reports whether a static site's build needs npm, pnpm or
+// yarn, which the Bun image that builds static sites does not have: its
+// vercel.json commands use one, or it builds in a workspace managed by one.
+func railpackSite(req BuildRequest) bool {
+	if v := req.Vercel; v != nil && otherPMs.MatchString(v.InstallCommand+" "+v.BuildCommand) {
+		return true
+	}
+	return req.Dir != "" && packageManager(req.SrcDir) != "bun" && packageScript(req.appDir(), "build") != ""
 }
 
 // packageManager is the command that runs a workspace's scripts, by its

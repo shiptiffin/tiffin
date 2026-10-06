@@ -18,7 +18,13 @@ The edge compresses text responses (zstd or gzip) for every app; a response the 
 compressed itself is passed through. A static site's pages and files are revalidated on
 every visit, except fingerprinted build assets (`/assets/index-B1x9Qa2c.js`,
 `/_next/static/…`), which browsers keep for a year. `.br`, `.zst` or `.gz` files next to
-the originals are sent instead of compressing on the fly.
+the originals are sent instead of compressing on the fly. A static site answers `/about` from
+`about.html`, and a folder from its `index.html` (asked for without its slash, it redirects
+there); a path with no file gets the site's `404.html` with status 404 when it has one.
+
+The edge adds `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy:
+strict-origin-when-cross-origin` and `Content-Security-Policy: frame-ancestors 'none'` to
+responses that do not set them; an app's own headers (or its vercel.json's) win.
 
 ## Deploy
 
@@ -59,6 +65,45 @@ failed build or health check leaves the old version serving.
   (path defaults to `/`; files there are kept for old pages too, revalidated).
 - **Shutdown:** a replaced release gets SIGTERM once its requests finish, then 30
   seconds before it is killed, for work it does after responding.
+
+## Coming from Vercel
+
+The box reads what an app already has, so an app that deploys on Vercel deploys here
+unchanged.
+
+- **Next.js static export.** A Next.js app whose `next.config` (`.js`, `.mjs`, `.ts`) sets
+  `output: "export"` builds with its own `next build` and package manager (Railpack), then
+  the edge serves `out/` as a static site, with no container, whatever its `framework`. The
+  build log says "Next.js static export"; the deploy's framework is `next+export`.
+- **Monorepos.** An app in a JavaScript workspace goes up with the whole workspace, as on
+  Vercel: the nearest folder above it with a `pnpm-workspace.yaml` or a `package.json`
+  `workspaces` field (inside its repository), when that lists the app's folder among its
+  packages or the app uses a workspace package (`"@acme/ui": "workspace:*"`). Dependencies
+  install at the top with the workspace's package manager (by its lockfile), then the app
+  builds and starts in its own folder (the deploy's `dir`, e.g. `apps/web`). `tiffin
+  deploy`, git pushes and GitHub deploys all do this. Any other app goes up alone.
+- **vercel.json** in the app's folder is read at every deploy. The build log lists what was
+  taken and what was not used (`tiffin plan` says the same on a terminal), and the deploy
+  record keeps it (`vercel`):
+
+| vercel.json | On the box |
+|---|---|
+| `buildCommand`, `installCommand` | Replace the build's own: build in the app's folder, install at the top of its workspace |
+| `outputDirectory` | The folder a static site or export serves |
+| `crons` | Crons that call the app with `GET` and its `CRON_SECRET`, as Vercel does ([queues](queues.md#crons)) |
+| `headers` | Set at the edge on matching responses; they win over the app's own and the edge's defaults (CSP, `X-Frame-Options`) |
+| `redirects` | Answered at the edge, query string kept; `permanent: false` is 307, `statusCode` is kept |
+| `rewrites` | Static sites: another path of the site answers when no file matches |
+| `cleanUrls`, `trailingSlash` | Static sites: `/page.html` redirects to `/page`; paths get (or lose) their trailing slash |
+
+Sources use Vercel's patterns (`/blog/:slug`, `/docs/:path*`, `/(.*)`, `/post/:id(\d+)`), and
+destinations `:slug` or `$1`. Not used, and listed as such: rules with `has` or `missing`,
+rewrites to another site, and every other key (`functions`, `regions`, `framework`...). For a
+server app, rewrites, `cleanUrls` and `trailingSlash` stay with the app: Next.js's own
+`next.config` redirects, rewrites and headers run inside it as before. A static site's build
+runs `bun install` and `bun run build`; when vercel.json's commands use npm, pnpm or yarn, or
+its workspace does, it builds with Railpack instead. A broken vercel.json fails the deploy, saying why; the live
+version keeps serving.
 
 ## Without a checkout: templates and git URLs
 
