@@ -23,6 +23,16 @@ const (
 	TargetPostgres = "postgres"
 	TargetValkey   = "valkey"
 	TargetFiles    = "files"
+	// TargetPlatform is the platform state (projects, settings, secrets,
+	// tokens, people, deploy records) and the box key: for recovering onto
+	// a box with no projects.
+	TargetPlatform = "platform"
+)
+
+// Restore sources.
+const (
+	SourceLocal   = "local"
+	SourceOffsite = "offsite"
 )
 
 // Overwrite is one thing a restore replaces.
@@ -35,6 +45,7 @@ type BackupOverwrite struct {
 // RestorePreview is what a restore would do. Its hash is the confirm value.
 type BackupRestorePreview struct {
 	Backup     string            `json:"backup"`
+	From       string            `json:"from" enum:"local,offsite" doc:"local: this box's copy; offsite: the copy in the bucket"`
 	TakenAt    time.Time         `json:"takenAt"`
 	Targets    []string          `json:"targets"`
 	Overwrites []BackupOverwrite `json:"overwrites"`
@@ -45,35 +56,50 @@ type BackupRestorePreview struct {
 // Restored is the outcome of a restore.
 type BackupRestored struct {
 	Backup     string   `json:"backup"`
+	From       string   `json:"from" enum:"local,offsite"`
 	Targets    []string `json:"targets"`
-	SafetyID   string   `json:"safetyBackup" doc:"Backup of the state just before the restore; restore it to go back"`
+	SafetyID   string   `json:"safetyBackup" doc:"Backup of the state just before the restore; restore it to go back (empty on a box with no projects)"`
 	DurationMs int64    `json:"durationMs"`
-	Restarting bool     `json:"restarting,omitempty" doc:"The box's service restarts now to swap in the restored files (seconds)"`
+	Restarting bool     `json:"restarting,omitempty" doc:"The box's service restarts now to swap in the restored files or state (seconds)"`
+	Notes      []string `json:"notes,omitempty" doc:"What else happened, in plain words"`
 }
 
-func normalizeTargets(t []string) ([]string, error) {
+func normalizeTargets(t, def []string) ([]string, error) {
 	if len(t) == 0 {
-		t = []string{TargetPostgres, TargetValkey}
+		t = def
 	}
 	out := []string{}
 	for _, x := range t {
+		if x == "all" {
+			out = []string{TargetFiles, TargetPlatform, TargetPostgres, TargetValkey}
+			continue
+		}
 		switch x {
-		case TargetPostgres, TargetValkey, TargetFiles:
+		case TargetPostgres, TargetValkey, TargetFiles, TargetPlatform:
 			if !slices.Contains(out, x) {
 				out = append(out, x)
 			}
 		default:
-			return nil, fmt.Errorf("unknown restore target %q (postgres, valkey, files)", x)
+			return nil, fmt.Errorf("unknown restore target %q (postgres, valkey, files, platform, all)", x)
 		}
 	}
 	slices.Sort(out)
 	return out, nil
 }
 
+// defaultTargets: Postgres and Valkey; everything on a box with no
+// projects (recovering a lost box onto a new one).
+func defaultTargets(ctx context.Context, p *platform.Platform) []string {
+	if projects, err := p.DB.ListProjects(ctx); err == nil && len(projects) == 0 {
+		return []string{TargetFiles, TargetPlatform, TargetPostgres, TargetValkey}
+	}
+	return []string{TargetPostgres, TargetValkey}
+}
+
 // Key is what the confirm value covers: the backup, the targets and which
 // databases would be replaced. Live counts in the preview may drift.
 func (pv *BackupRestorePreview) Key() any {
-	k := []string{pv.Backup}
+	k := []string{pv.Backup, pv.From}
 	k = append(k, pv.Targets...)
 	for _, o := range pv.Overwrites {
 		k = append(k, o.Items...)
@@ -82,10 +108,15 @@ func (pv *BackupRestorePreview) Key() any {
 }
 
 // Preview describes what restoring b would overwrite.
-func Preview(ctx context.Context, p *platform.Platform, b *Backup, targets []string) (*BackupRestorePreview, error) {
-	pv := &BackupRestorePreview{Backup: b.ID, TakenAt: b.StartedAt, Targets: targets,
+func Preview(ctx context.Context, p *platform.Platform, b *Backup, from string, targets []string) (*BackupRestorePreview, error) {
+	pv := &BackupRestorePreview{Backup: b.ID, From: from, TakenAt: b.StartedAt, Targets: targets,
 		Safety:   "a backup of the current state is taken first; its ID is returned so you can restore back",
 		Downtime: "Postgres and Valkey are stopped while their data is replaced (usually seconds); apps lose their connections and reconnect"}
+	projects, _ := p.DB.ListProjects(ctx)
+	if from == SourceOffsite && len(projects) == 0 {
+		pv.Safety = "none: this box has no projects to lose"
+	}
+	restart := false
 	for _, t := range targets {
 		switch t {
 		case TargetPostgres:
@@ -105,8 +136,11 @@ func Preview(ctx context.Context, p *platform.Platform, b *Backup, targets []str
 				rows.Close()
 			}
 			admin.Close(ctx)
-			pv.Overwrites = append(pv.Overwrites, BackupOverwrite{Target: t, Items: dbs,
-				What: fmt.Sprintf("the whole Postgres cluster: every database (%d now) goes back to its state at %s; changes since then are lost and databases created since are removed", len(dbs), b.StartedAt.Format(time.RFC3339))})
+			what := fmt.Sprintf("the whole Postgres cluster: every database (%d now) goes back to its state at %s; changes since then are lost and databases created since are removed", len(dbs), b.StartedAt.Format(time.RFC3339))
+			if from == SourceOffsite {
+				what += "; it is restored from the off-box copy (pgBackRest repo2)"
+			}
+			pv.Overwrites = append(pv.Overwrites, BackupOverwrite{Target: t, Items: dbs, What: what})
 		case TargetValkey:
 			c, err := valkey.Admin(ctx)
 			if err != nil {
@@ -123,55 +157,126 @@ func Preview(ctx context.Context, p *platform.Platform, b *Backup, targets []str
 			}
 			slices.Sort(items)
 			pv.Overwrites = append(pv.Overwrites, BackupOverwrite{Target: t, Items: items, What: "registered files and directories are replaced by their copies in the backup"})
-			pv.Downtime += "; the box's service restarts once to swap the files in (seconds)"
+			restart = true
+		case TargetPlatform:
+			pv.Overwrites = append(pv.Overwrites, BackupOverwrite{Target: t, Items: projects,
+				What: "the platform state becomes the backup's: projects, their settings, secrets and deploy records, tokens, people and passkeys, and the box key; " +
+					"this box's owner token, domain, backup settings and off-box destination are kept. Apps are not in backups: deploy them again afterwards"})
+			restart = true
 		}
+	}
+	if restart {
+		pv.Downtime += "; the box's service restarts once to swap the files and state in (seconds)"
 	}
 	return pv, nil
 }
 
-// Restore puts a backup back. It takes a safety backup first.
+// restoreFrom is where a restore reads a set from.
+type restoreFrom struct {
+	b     *Backup
+	from  string
+	dir   string // the set's files: its local directory, or a download of the off-box copy
+	repo  int    // pgBackRest repository: 1 local, 2 off-box
+	label string // its Postgres backup in that repository
+}
+
+// checkTargets refuses what the box cannot do.
+func checkTargets(ctx context.Context, p *platform.Platform, targets []string) error {
+	if slices.Contains(targets, TargetPlatform) {
+		if projects, err := p.DB.ListProjects(ctx); err != nil || len(projects) > 0 {
+			return fmt.Errorf("the platform target replaces every project's settings, so it is only for a box with no projects (recovering a lost box onto a new one); this box has %d", len(projects))
+		}
+	}
+	if (slices.Contains(targets, TargetPlatform) || slices.Contains(targets, TargetFiles)) && p.Restart == nil {
+		return errors.New("files and the platform state are swapped in by a restart of the box's service, and this process is not it")
+	}
+	return nil
+}
+
+// Restore puts a backup back from this box. It takes a safety backup first.
 func Restore(ctx context.Context, p *platform.Platform, b *Backup, targets []string) (*BackupRestored, error) {
 	if !run.TryLock() {
 		return nil, ErrBusy
 	}
 	defer run.Unlock()
-	start := time.Now()
 	if b.Status != "ok" {
 		return nil, errors.New("only successful backups can be restored")
 	}
-	safety, err := take(ctx, p, "incremental", "pre-restore")
-	if err != nil {
-		return nil, fmt.Errorf("safety backup before restoring failed, nothing was changed: %w", err)
+	return restore(ctx, p, restoreFrom{b: b, from: SourceLocal, dir: b.dir(), repo: 1, label: b.Postgres.Label}, targets, true)
+}
+
+// restore puts a set back; the caller holds run.
+func restore(ctx context.Context, p *platform.Platform, src restoreFrom, targets []string, safety bool) (*BackupRestored, error) {
+	start := time.Now()
+	if err := checkTargets(ctx, p, targets); err != nil {
+		return nil, err
 	}
-	out := &BackupRestored{Backup: b.ID, Targets: targets, SafetyID: safety.ID}
+	out := &BackupRestored{Backup: src.b.ID, From: src.from, Targets: targets}
+	if safety {
+		s, err := take(ctx, p, "incremental", "pre-restore")
+		if err != nil {
+			return nil, fmt.Errorf("safety backup before restoring failed, nothing was changed: %w", err)
+		}
+		out.SafetyID = s.ID
+	}
+	failed := func(t string, err error) error {
+		if out.SafetyID != "" {
+			return fmt.Errorf("restore %s: %w (safety backup %s holds the state from before)", t, err, out.SafetyID)
+		}
+		return fmt.Errorf("restore %s: %w", t, err)
+	}
+	// Files and the state are staged first (nothing live changes), and
+	// swapped in by the restart at the end.
+	plan := platform.PendingImport{Import: "backup " + src.b.ID, Aside: restoreAside}
+	staged := false
+	if slices.Contains(targets, TargetFiles) || slices.Contains(targets, TargetPlatform) {
+		if _, err := os.Stat(platform.PendingImportPath(p.DataRoot)); err == nil {
+			return out, errors.New("a box import is waiting for the service to restart; restore after it")
+		}
+		_ = os.RemoveAll(restoreStage)
+		_ = os.RemoveAll(restoreAside)
+		staged = true
+	}
+	for _, t := range targets {
+		var err error
+		switch t {
+		case TargetFiles:
+			err = stageFiles(ctx, src.dir, src.b, &plan)
+		case TargetPlatform:
+			err = stagePlatform(ctx, p, src.dir, &plan)
+		}
+		if err != nil {
+			return out, failed(t, err)
+		}
+	}
 	for _, t := range targets {
 		var err error
 		switch t {
 		case TargetPostgres:
-			err = restorePostgres(ctx, b)
-		case TargetValkey:
-			err = restoreValkey(ctx, b)
-		case TargetFiles:
-			if p.Restart == nil {
-				err = errors.New("files are swapped in by a restart of the box's service, and this process is not it")
-			} else {
-				err = stageFiles(ctx, p.DataRoot, b.dir(), b)
-				out.Restarting = err == nil
+			var note string
+			note, err = restorePostgres(ctx, p, src)
+			if note != "" {
+				out.Notes = append(out.Notes, note)
 			}
+		case TargetValkey:
+			err = restoreValkey(ctx, src.dir)
+		default:
+			continue
 		}
 		if err != nil {
-			if out.Restarting {
-				_ = os.Remove(platform.PendingImportPath(p.DataRoot))
-			}
-			return out, fmt.Errorf("restore %s: %w (safety backup %s holds the state from before)", t, err, safety.ID)
+			return out, failed(t, err)
 		}
-		p.Log.Info("backup: restored", "backup", b.ID, "target", t)
+		p.Log.Info("backup: restored", "backup", src.b.ID, "from", src.from, "target", t)
 	}
-	if out.Restarting {
-		// The files are swapped in by the next start, before any module
-		// opens them (platform.ApplyPendingImport).
+	if staged {
+		if err := writePlan(p.DataRoot, plan); err != nil {
+			return out, err
+		}
+		// Swapped in by the next start, before any module opens them
+		// (platform.ApplyPendingImport); every project reconciles then.
+		out.Restarting = true
 		out.DurationMs = time.Since(start).Milliseconds()
-		p.Restart("swap in the files of backup " + b.ID)
+		p.Restart("swap in the files and state of backup " + src.b.ID)
 		return out, nil
 	}
 	// Re-converge every project: roles, ACL users and extensions created
@@ -190,14 +295,26 @@ func systemctl(ctx context.Context, args ...string) error {
 	return err
 }
 
-func restorePostgres(ctx context.Context, b *Backup) error {
-	if b.Postgres.Label == "" {
-		return errors.New("this backup has no Postgres part")
+// restorePostgres restores the cluster from the set's Postgres backup. From
+// the off-box repository, WAL comes from there too, and a cluster that is
+// not this box's (a lost box's, restored onto a new one) takes over the
+// local repository and the off-box copies.
+func restorePostgres(ctx context.Context, p *platform.Platform, src restoreFrom) (string, error) {
+	if src.label == "" {
+		return "", errors.New("this backup has no Postgres part")
 	}
 	if err := systemctl(ctx, "stop", postgres.UnitName); err != nil {
-		return err
+		return "", err
 	}
-	_, rerr := pgbackrest(ctx, "--delta", "--set="+b.Postgres.Label, "--type=immediate", "--target-action=promote", "--log-level-console=warn", "restore")
+	args := []string{"--repo=" + strconv.Itoa(src.repo), "--delta", "--set=" + src.label, "--type=immediate", "--target-action=promote", "--log-level-console=warn"}
+	if src.repo == 2 {
+		args = append(args, `--recovery-option=restore_command=pgbackrest --stanza=`+Stanza+` --repo=2 archive-get %f "%p"`)
+	}
+	_, rerr := pgbackrest(ctx, append(args, "restore")...)
+	note := ""
+	if rerr == nil && src.repo == 2 {
+		note, rerr = adoptCluster(ctx, p)
+	}
 	// Start again whatever happened: after a failed restore the old data is still there (--delta only rewrites what differs).
 	if err := systemctl(ctx, "start", postgres.UnitName); err != nil && rerr == nil {
 		rerr = err
@@ -205,12 +322,60 @@ func restorePostgres(ctx context.Context, b *Backup) error {
 	if err := postgres.WaitReady(ctx, 5*time.Minute); err != nil && rerr == nil {
 		rerr = err
 	}
-	return rerr
+	return note, rerr
 }
 
-// restoreValkey replaces the dataset with the backup's RDB.
-func restoreValkey(ctx context.Context, b *Backup) error {
-	src := filepath.Join(b.dir(), "valkey.rdb")
+// adoptCluster runs after a restore from the bucket, Postgres stopped: when
+// the local repository belongs to another cluster (this box's own, before
+// it took on a lost box's), it is started again for the restored one, and
+// the off-box copies resume (the bucket's backups are the restored
+// cluster's own).
+func adoptCluster(ctx context.Context, p *platform.Platform) (string, error) {
+	note := ""
+	out, err := datakit.Run(ctx, postgres.BinDir+"/pg_controldata", "-D", postgres.DataDir)
+	if err != nil {
+		return "", err
+	}
+	var sysID string
+	for _, l := range strings.Split(out, "\n") {
+		if k, v, ok := strings.Cut(l, ":"); ok && strings.TrimSpace(k) == "Database system identifier" {
+			sysID = strings.TrimSpace(v)
+		}
+	}
+	ids, err := stanzaSystemIDs(ctx, 1)
+	if err != nil {
+		return "", err
+	}
+	if len(ids) > 0 && !slices.Contains(ids, sysID) {
+		for _, step := range [][]string{{"stop"}, {"--repo=1", "--force", "stanza-delete"}, {"start"}, {"--repo=1", "--no-online", "stanza-create"}} {
+			if _, err := pgbackrest(ctx, append([]string{"--log-level-console=warn"}, step...)...); err != nil {
+				_, _ = pgbackrest(ctx, "start")
+				return "", fmt.Errorf("starting the local backup repository again for the restored cluster: %s", clean(err))
+			}
+		}
+		note = "the local backup repository held this box's earlier cluster; it was emptied and started again for the restored one (its old sets are gone)"
+		p.Log.Info("backup: local repository started again for the restored cluster")
+	}
+	c, s := current()
+	if c != nil && c.State != OffsiteActive {
+		c.State = OffsiteActive
+		if err := writeRepo2Conf(c, s); err != nil {
+			return note, err
+		}
+		if err := saveOffsite(ctx, p, c, s); err != nil {
+			return note, err
+		}
+	} else if c != nil {
+		if err := writeRepo2Conf(c, s); err != nil {
+			return note, err
+		}
+	}
+	return note, nil
+}
+
+// restoreValkey replaces the dataset with the set's RDB.
+func restoreValkey(ctx context.Context, dir string) error {
+	src := filepath.Join(dir, "valkey.rdb")
 	if _, err := os.Stat(src); err != nil {
 		return fmt.Errorf("this backup has no Valkey snapshot: %w", err)
 	}
@@ -322,19 +487,12 @@ var (
 	restoreAside = Root + "/pre-restore"
 )
 
-// stageFiles copies the backup's files next to the live ones and leaves a
-// plan for the next start of the service to swap them in, before any
-// module opens them: observe and analytics hold their SQLite databases open
-// in this process, so replacing them under it would keep it reading (and
+// stageFiles copies the backup's files next to the live ones and adds them
+// to the plan the next start of the service swaps in, before any module
+// opens them: observe and analytics hold their SQLite databases open in
+// this process, so replacing them under it would keep it reading (and
 // writing) the old ones. The units that write a set are stopped meanwhile.
-func stageFiles(ctx context.Context, dataRoot, setDir string, b *Backup) error {
-	planPath := platform.PendingImportPath(dataRoot)
-	if _, err := os.Stat(planPath); err == nil {
-		return errors.New("a box import is waiting for the service to restart; restore the files after it")
-	}
-	_ = os.RemoveAll(restoreStage)
-	_ = os.RemoveAll(restoreAside)
-	plan := platform.PendingImport{Import: "backup " + b.ID, Aside: restoreAside}
+func stageFiles(ctx context.Context, setDir string, b *Backup, plan *platform.PendingImport) error {
 	inc := included()
 	for name, part := range b.Files {
 		src := filepath.Join(setDir, "files", name)
@@ -360,11 +518,50 @@ func stageFiles(ctx context.Context, dataRoot, setDir string, b *Backup) error {
 			}
 		}
 	}
+	return nil
+}
+
+// writePlan leaves the plan for the next start of the service; it refuses
+// when another (a box import's) is waiting.
+func writePlan(dataRoot string, plan platform.PendingImport) error {
+	path := platform.PendingImportPath(dataRoot)
+	if _, err := os.Stat(path); err == nil {
+		return errors.New("a box import is waiting for the service to restart; restore after it")
+	}
 	raw, _ := json.MarshalIndent(plan, "", "  ")
-	if err := os.MkdirAll(filepath.Dir(planPath), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(planPath, raw, 0o600)
+	return os.WriteFile(path, raw, 0o600)
+}
+
+// stagePlatform prepares the set's platform state and box key for the swap
+// (adoptState keeps what belongs to this box) and adds them to the plan.
+func stagePlatform(ctx context.Context, p *platform.Platform, setDir string, plan *platform.PendingImport) error {
+	src := filepath.Join(setDir, "platform")
+	for _, f := range []string{"state.db", "secrets.key"} {
+		if _, err := os.Stat(filepath.Join(src, f)); err != nil {
+			return fmt.Errorf("this backup has no platform state: %w", err)
+		}
+	}
+	dir := filepath.Join(restoreStage, "platform")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	for _, f := range []string{"state.db", "secrets.key"} {
+		if _, err := datakit.Run(ctx, "cp", "--reflink=auto", filepath.Join(src, f), filepath.Join(dir, f)); err != nil {
+			return err
+		}
+	}
+	if err := adoptState(ctx, p, filepath.Join(dir, "state.db"), filepath.Join(dir, "secrets.key")); err != nil {
+		return fmt.Errorf("preparing the state: %w", err)
+	}
+	plan.Swaps = append(plan.Swaps,
+		platform.PendingSwap{From: filepath.Join(dir, "state.db"), To: filepath.Join(p.Home, "state.db")},
+		platform.PendingSwap{To: filepath.Join(p.Home, "state.db-wal")},
+		platform.PendingSwap{To: filepath.Join(p.Home, "state.db-shm")},
+		platform.PendingSwap{From: filepath.Join(dir, "secrets.key"), To: filepath.Join(p.Home, "secrets.key")})
+	return nil
 }
 
 // finishFilesRestore reports how the swap of a files restore went and
@@ -382,4 +579,5 @@ func finishFilesRestore(p *platform.Platform) {
 	}
 	_ = os.RemoveAll(restoreStage)
 	_ = os.RemoveAll(restoreAside)
+	_ = os.RemoveAll(offsiteStage)
 }

@@ -111,6 +111,7 @@ var groupShort = map[string]string{
 	"projects exports": "Inspect project exports",
 	"projects imports": "Apply or discard an uploaded project export",
 	"projects jobs":    "Follow a duplicate or an import",
+	"backups offsite":  "Copy backups off the box to an S3-compatible bucket, encrypted",
 }
 
 // switchFlags give a generated command a flag that sends the call to a
