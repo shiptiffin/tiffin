@@ -99,6 +99,9 @@ func configNode(m *Manifest) *node {
 		}
 		root.set("resources", n)
 	}
+	if m.SleepAfter != "" {
+		root.set("sleepAfter", str(m.SleepAfter))
+	}
 	if len(m.Apps) > 0 {
 		apps := obj()
 		for _, name := range sortedKeys(m.Apps) {

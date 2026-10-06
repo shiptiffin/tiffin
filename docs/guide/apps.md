@@ -369,6 +369,41 @@ apps: { web: { instances: 2, memoryMB: 384 } } // each web copy, within that
 take, and whether it ran out lately. When an app is stopped for memory, it restarts on
 its own and the usage says `pressure: "oom"`: raise the budget or find the leak.
 
+## Letting apps sleep
+
+Production apps never sleep unless you say so. A side project that gets a few visits a
+week can give its memory back to the box between them:
+
+```ts
+sleepAfter: "7d", // at the top of tiffin.config.ts: hours or days, "1h" to "30d"
+```
+
+After that long with no requests and no job, cron or workflow deliveries, the project's
+production apps sleep: their containers stop, freeing their memory and CPU (usage counts
+them as using none). Their images, data, routes, env and secrets stay. In the dashboard,
+the project's Settings › When nobody visits offers Never (the default), 24 hours, 7 days
+or 14 days, and the project says "Asleep since …" with a Wake button.
+
+- **Waking:** the next request is held while the app starts and passes its health check,
+  then answered; if it cannot start, the visitor gets `503` with `Retry-After`. A job,
+  cron tick or workflow turn for a sleeping app wakes it first and is then delivered, so
+  no attempt is spent on it. Workers wake on deliveries only. A deploy starts the app as
+  usual. `tiffin projects wake shop` (or Wake in the dashboard) starts them ahead of
+  visitors.
+- **Cold start:** well under a second for small apps: about 0.3 s for a small Bun app and
+  0.5 s for a Hello World Next.js app, from the request arriving to its first byte (a
+  2-CPU box). A larger app takes as long as it needs to start and pass its health check.
+  `tiffin apps status <project> <app>` shows `lastWake` with its timing, `sleepingSince`
+  and `lastActive`.
+- **What counts as use:** every request to the app's addresses, including the files the
+  box serves for it, and every delivery. A request or a job still under way keeps the
+  app awake, however long it runs. The clock is kept across restarts of the box.
+- **What stops:** anything the app does on its own between requests (timers,
+  `setInterval`, in-memory caches) stops while it sleeps. Put recurring work in a cron:
+  it wakes the app, so a cron that runs every hour keeps an app with `sleepAfter: "24h"`
+  awake.
+- Previews sleep after 15 idle minutes whatever this says.
+
 ## What your app gets
 
 `PORT`, `NODE_ENV`, `TIFFIN_URL` (its public URL), plus each service's variables:

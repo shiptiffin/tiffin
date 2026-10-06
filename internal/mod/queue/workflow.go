@@ -1153,6 +1153,13 @@ func (e *Engine) GetRun(ctx context.Context, project, id string, full bool) (*Ru
 }
 
 // PinnedReleases lists releases of an app that unfinished runs are pinned to.
+// Delivering reports whether a delivery to the app is under way.
+func (e *Engine) Delivering(ctx context.Context, project, app string) (bool, error) {
+	var busy bool
+	err := e.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM tq_jobs WHERE state = 'running' AND project = $1 AND app = $2)`, project, app).Scan(&busy)
+	return busy, err
+}
+
 func (e *Engine) PinnedReleases(ctx context.Context, project, app string) ([]string, error) {
 	rows, err := e.pool.Query(ctx, `SELECT DISTINCT release FROM wf_runs WHERE project = $1 AND app = $2 AND release <> ''
 		AND state IN ('running', 'waiting') ORDER BY release`, project, app)

@@ -57,6 +57,8 @@ func Unmanaged(address string) bool {
 type ProjectSpec struct {
 	// Resources is the project's budget (nil: automatic).
 	Resources *manifest.Resources `json:"resources,omitempty"`
+	// SleepAfter is when idle production apps sleep ("": never).
+	SleepAfter string `json:"sleepAfter,omitempty"`
 }
 
 // Kind returns the kind part of an address ("app/web" → "app").
@@ -83,7 +85,7 @@ func Resources(m *manifest.Manifest) (map[string]Resource, error) {
 		out[addr] = Resource{Address: addr, Spec: b}
 		return nil
 	}
-	if err := add(KindProject, ProjectSpec{Resources: m.Resources}); err != nil {
+	if err := add(KindProject, ProjectSpec{Resources: m.Resources, SleepAfter: m.SleepAfter}); err != nil {
 		return nil, err
 	}
 	for name, app := range m.Apps {

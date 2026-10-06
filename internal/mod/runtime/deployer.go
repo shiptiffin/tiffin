@@ -350,7 +350,9 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 	}
 	// The switch: from here on new requests go to the new instances.
 	st.Retired = retire(st.Retired, prev.Live, d.ID, time.Now().UTC())
-	st.Live, st.Instances, st.Hash, st.Stopped, st.Sleeping = d.ID, started, hash, false, false
+	st.Live, st.Instances, st.Hash, st.Stopped, st.Sleeping, st.SleptAt = d.ID, started, hash, false, false, nil
+	// Deploys, rollbacks, restarts and wakes count as activity.
+	r.touch(envKey(d.Project, d.App, d.Preview))
 	if err := r.st.putState(ctx, st); err != nil {
 		r.removeInstances(ctx, started)
 		return err
@@ -790,7 +792,9 @@ func (r *rt) converge(ctx context.Context, project, app, preview string, spec *m
 	if !d.Terminal() {
 		return nil
 	}
-	if !st.Stopped && !st.Sleeping && r.rebuildIfStale(ctx, d, spec) {
+	// A sleeping production app is rebuilt too (the deploy wakes it); a
+	// sleeping preview picks the change up at its next deploy.
+	if !st.Stopped && (!st.Sleeping || preview == "") && r.rebuildIfStale(ctx, d, spec) {
 		return nil // the rebuild goes live with the new env
 	}
 	if d.StaticRoot != "" {
@@ -800,7 +804,7 @@ func (r *rt) converge(ctx context.Context, project, app, preview string, spec *m
 		return nil
 	}
 	if st.Sleeping {
-		return nil // a sleeping preview starts with the current config when it wakes
+		return nil // a sleeping app starts with the current config when it wakes
 	}
 	_, hash, err := r.instanceEnv(ctx, project, app, preview, spec)
 	if err != nil {
@@ -853,7 +857,8 @@ func (r *rt) stopEnv(ctx context.Context, st *AppState) error {
 	for _, ds := range st.Draining {
 		ins = append(ins, ds.Instances...)
 	}
-	st.Instances, st.Draining, st.Stopped = nil, nil, true
+	// Not asleep: a start brings it back awake.
+	st.Instances, st.Draining, st.Stopped, st.Sleeping, st.SleptAt = nil, nil, true, false, nil
 	if err := r.st.putState(ctx, st); err != nil {
 		return err
 	}

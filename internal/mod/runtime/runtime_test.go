@@ -1032,7 +1032,7 @@ func TestPreviewSleepsAndWakes(t *testing.T) {
 	// Idle → asleep.
 	h.r.opt.PreviewIdle = time.Millisecond
 	time.Sleep(5 * time.Millisecond)
-	h.r.sleepIdlePreviews(context.Background())
+	h.r.sleepIdle(context.Background())
 	st := h.state("api", "feat-x")
 	if !st.Sleeping || len(st.Instances) != 0 {
 		t.Fatalf("not asleep: %+v", st)
@@ -1278,7 +1278,7 @@ func TestUnusedPreviewsAreDeleted(t *testing.T) {
 	h.deploy("api", "", map[string]string{"index.ts": "prod"})
 	pv := h.deploy("api", "feat-x", map[string]string{"index.ts": "preview"})
 	h.r.opt.PreviewExpire = time.Hour
-	h.r.sleep(ctx, "shop", "api", "feat-x")
+	h.r.sleep(ctx, "shop", "api", "feat-x", 0)
 	h.r.expirePreviews(ctx)
 	if h.state("api", "feat-x").Live != pv.ID {
 		t.Fatal("a preview used within PreviewExpire was deleted")

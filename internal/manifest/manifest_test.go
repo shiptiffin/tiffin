@@ -436,6 +436,9 @@ func randomManifest(r *rand.Rand) *Manifest {
 			m.Resources.MaxSharePercent = 5 + r.IntN(96)
 		}
 	}
+	if r.IntN(3) == 0 {
+		m.SleepAfter = pick("1h", "24h", "7d", "14d", "30d")
+	}
 	names := []string{"web", "api", "jobs", "docs", "admin", "x1"}
 	r.Shuffle(len(names), func(i, j int) { names[i], names[j] = names[j], names[i] })
 	m.Apps = map[string]App{}
