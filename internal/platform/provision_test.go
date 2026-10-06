@@ -3,10 +3,52 @@ package platform
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 )
+
+// A failed provisioning runs again from the box, backing off, until the
+// report is clean.
+func TestRetryProvision(t *testing.T) {
+	defer func(path string, first time.Duration, launch func(context.Context) error) {
+		ProvisionReportPath, provisionRetryFirst, launchProvision = path, first, launch
+	}(ProvisionReportPath, provisionRetryFirst, launchProvision)
+	ProvisionReportPath = filepath.Join(t.TempDir(), "provision.json")
+	provisionRetryFirst = time.Millisecond
+	failing := ProvisionReport{Results: []ProvisionResult{{Module: "base"}, {Module: "pgbouncer", Error: "apt-cache policy pgbouncer: exit status 100"}}}
+	if err := SaveProvisionReport(failing); err != nil {
+		t.Fatal(err)
+	}
+	if c := provisionChecks(context.Background()); len(c) != 1 || c[0].OK {
+		t.Fatalf("checks: %+v", c)
+	}
+	runs := 0
+	launchProvision = func(context.Context) error {
+		runs++
+		if runs < 3 {
+			return SaveProvisionReport(failing)
+		}
+		return SaveProvisionReport(ProvisionReport{Results: []ProvisionResult{{Module: "base"}, {Module: "pgbouncer"}}})
+	}
+	p := &Platform{Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	done := make(chan struct{})
+	go func() { p.retryProvision(context.Background()); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("retryProvision did not return once the report was clean")
+	}
+	if runs != 3 {
+		t.Fatalf("runs: %d", runs)
+	}
+	if c := provisionChecks(context.Background()); len(c) != 1 || !c[0].OK {
+		t.Fatalf("checks after the retry: %+v", c)
+	}
+}
 
 type fakeProv struct {
 	name  string

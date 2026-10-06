@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -197,6 +198,24 @@ func TestSets(t *testing.T) {
 	edge, _ := setByName("edge")
 	if edge.Path(p) != "/srv/box/platform/edge" || storage.Path(p) != "/srv/box/storage" {
 		t.Errorf("paths: %s %s", edge.Path(p), storage.Path(p))
+	}
+	// The edge process keeps the CA it read: a swapped-in edge directory
+	// (or a cleared one) restarts it, without stopping it for the swap.
+	for _, tc := range []struct {
+		got     map[string]bool
+		replace bool
+	}{{map[string]bool{"edge": true, "storage": true}, false}, {map[string]bool{"storage": true}, true}} {
+		var plan platform.PendingImport
+		addSetSwaps(&plan, p, "/srv/box/portable/pending", tc.got, tc.replace, false)
+		if strings.Join(plan.RestartUnits, ",") != "tiffin-edge.service" || slices.Contains(plan.StopUnits, "tiffin-edge.service") ||
+			!slices.Contains(plan.StopUnits, "tiffin-storage.service") {
+			t.Errorf("units for %v (replace %v): stop %v, restart %v", tc.got, tc.replace, plan.StopUnits, plan.RestartUnits)
+		}
+	}
+	var plan platform.PendingImport
+	addSetSwaps(&plan, p, "/srv/box/portable/pending", map[string]bool{"storage": true}, false, false)
+	if len(plan.RestartUnits) != 0 || len(plan.Swaps) != 1 {
+		t.Errorf("an archive without the edge leaves it alone: %+v", plan)
 	}
 	names := map[string]bool{}
 	for _, s := range sets() {

@@ -536,21 +536,7 @@ func (m *Module) runImport(ctx context.Context, r *importRun, o applyOptions) er
 		platform.PendingSwap{To: filepath.Join(p.Home, "state.db-wal")},
 		platform.PendingSwap{To: filepath.Join(p.Home, "state.db-shm")},
 		platform.PendingSwap{From: keyPath, To: filepath.Join(p.Home, "secrets.key")})
-	for _, s := range sets() {
-		if !got[s.Name] {
-			if o.replace && !s.History {
-				plan.Swaps = append(plan.Swaps, platform.PendingSwap{To: s.Path(p)}) // the archive has none: clear this box's
-			}
-			continue
-		}
-		plan.Swaps = append(plan.Swaps, platform.PendingSwap{From: filepath.Join(pend, "files", s.Name), To: s.Path(p), Keep: s.keep(man.WithHistory)})
-		for _, u := range s.units(man.WithHistory) {
-			if !slices.Contains(plan.StopUnits, u) {
-				plan.StopUnits = append(plan.StopUnits, u)
-				plan.StartUnits = append(plan.StartUnits, u)
-			}
-		}
-	}
+	addSetSwaps(&plan, p, pend, got, o.replace, man.WithHistory)
 	b, _ := json.MarshalIndent(plan, "", "  ")
 	if err := os.WriteFile(platform.PendingImportPath(p.DataRoot), b, 0o600); err != nil {
 		return err
@@ -568,6 +554,32 @@ func (m *Module) runImport(ctx context.Context, r *importRun, o applyOptions) er
 		return fmt.Errorf("restart the service: %w", err)
 	}
 	return nil
+}
+
+// addSetSwaps adds the file sets to a pending import: those the archive
+// has (got) replace this box's, and with replace the others are cleared.
+func addSetSwaps(plan *platform.PendingImport, p *platform.Platform, pend string, got map[string]bool, replace, withHistory bool) {
+	for _, s := range sets() {
+		if !got[s.Name] {
+			if !replace || s.History {
+				continue
+			}
+			plan.Swaps = append(plan.Swaps, platform.PendingSwap{To: s.Path(p)}) // the archive has none: clear this box's
+		} else {
+			plan.Swaps = append(plan.Swaps, platform.PendingSwap{From: filepath.Join(pend, "files", s.Name), To: s.Path(p), Keep: s.keep(withHistory)})
+			for _, u := range s.units(withHistory) {
+				if !slices.Contains(plan.StopUnits, u) {
+					plan.StopUnits = append(plan.StopUnits, u)
+					plan.StartUnits = append(plan.StartUnits, u)
+				}
+			}
+		}
+		for _, u := range s.Restart {
+			if !slices.Contains(plan.RestartUnits, u) {
+				plan.RestartUnits = append(plan.RestartUnits, u)
+			}
+		}
+	}
 }
 
 // dropOtherDatabases removes this box's databases the archive does not

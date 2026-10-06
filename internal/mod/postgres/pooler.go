@@ -229,7 +229,7 @@ func provisionPooler(ctx context.Context, s *platform.System) error {
 			return err
 		}
 	}
-	if err := checkMinimum(ctx, "pgbouncer"); err != nil {
+	if err := checkMinimum("pgbouncer", s.InstalledVersion(ctx, "pgbouncer")); err != nil {
 		return err
 	}
 	if _, err := s.Run(ctx, "runuser", "-u", "postgres", "--", BinDir+"/psql", "-h", SocketDir, "-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", "postgres", "-c", poolerAuthSQL); err != nil {

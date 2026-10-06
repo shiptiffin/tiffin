@@ -57,7 +57,7 @@ func TestApplyPendingImport(t *testing.T) {
 		t.Fatalf("no plan: ran=%v err=%v", ran, err)
 	}
 	writePlan(t, root, PendingImport{Import: "im_1", Aside: filepath.Join(root, "portable", "pre-import-im_1"),
-		StopUnits: []string{"tiffin-storage.service"}, StartUnits: []string{"tiffin-storage.service"},
+		StopUnits: []string{"tiffin-storage.service"}, StartUnits: []string{"tiffin-storage.service"}, RestartUnits: []string{"tiffin-edge.service"},
 		Swaps: []PendingSwap{
 			{From: filepath.Join(pend, "state.db"), To: filepath.Join(home, "state.db")},
 			{To: filepath.Join(home, "state.db-wal")},
@@ -84,7 +84,7 @@ func TestApplyPendingImport(t *testing.T) {
 	if read(t, filepath.Join(root, "portable", "pre-import-im_1", "0-state.db")) != "old state" {
 		t.Fatal("the old state must be kept aside")
 	}
-	if strings.Join(units, ",") != "stop tiffin-storage.service,start tiffin-storage.service" {
+	if strings.Join(units, ",") != "stop tiffin-storage.service,start tiffin-storage.service,restart tiffin-edge.service" {
 		t.Fatalf("units: %v", units)
 	}
 	var res PendingResult
@@ -101,7 +101,8 @@ func TestApplyPendingImport(t *testing.T) {
 func TestApplyPendingImportRollsBack(t *testing.T) {
 	root := t.TempDir()
 	defer func(orig func(string, string) error) { runUnit = orig }(runUnit)
-	runUnit = func(string, string) error { return nil }
+	var units []string
+	runUnit = func(verb, unit string) error { units = append(units, verb+" "+unit); return nil }
 	home := filepath.Join(root, "platform")
 	pend := filepath.Join(root, "portable", "pending")
 	put(t, filepath.Join(home, "state.db"), "old state")
@@ -109,7 +110,7 @@ func TestApplyPendingImportRollsBack(t *testing.T) {
 	put(t, filepath.Join(pend, "state.db"), "new state")
 	put(t, filepath.Join(root, "analytics", "dbip.mmdb"), "geo")
 	put(t, filepath.Join(pend, "files", "analytics", "analytics.db"), "new")
-	writePlan(t, root, PendingImport{Import: "im_2", Aside: filepath.Join(root, "portable", "pre-import-im_2"),
+	writePlan(t, root, PendingImport{Import: "im_2", Aside: filepath.Join(root, "portable", "pre-import-im_2"), RestartUnits: []string{"tiffin-edge.service"},
 		Swaps: []PendingSwap{
 			{From: filepath.Join(pend, "state.db"), To: filepath.Join(home, "state.db")},
 			{From: filepath.Join(pend, "files", "analytics"), To: filepath.Join(root, "analytics"), Keep: []string{"*.mmdb"}},
@@ -127,6 +128,9 @@ func TestApplyPendingImportRollsBack(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "analytics", "analytics.db")); err == nil {
 		t.Fatal("the staged analytics must not stay in place")
+	}
+	if len(units) != 0 {
+		t.Fatalf("nothing changed, so nothing restarts: %v", units)
 	}
 	var res PendingResult
 	_ = json.Unmarshal([]byte(read(t, PendingResultPath(root))), &res)

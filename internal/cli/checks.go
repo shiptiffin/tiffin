@@ -31,7 +31,7 @@ func boxChecks(home string, ed *edge.Client, started time.Time) []api.Check {
 		} else if cfg := ed.Config(); !cfg.Internal && cfg.ACME != nil {
 			out = append(out, api.Check{Name: "edge", OK: true, Detail: "HTTPS edge serving certificates from " + caName(cfg.ACME)})
 		} else {
-			_, err := edge.RootCAPEM(cfg.DataDir)
+			err := edge.VerifyCA(cfg)
 			out = append(out, api.Check{Name: "edge", OK: err == nil, Detail: errOr(err, "HTTPS edge serving with the box's CA")})
 		}
 	}

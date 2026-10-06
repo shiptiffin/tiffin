@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -43,14 +44,62 @@ func SaveProvisionReport(r ProvisionReport) error {
 	return os.WriteFile(ProvisionReportPath, b, 0o644)
 }
 
-// provisionChecks turns the last report's failures into status checks.
-func provisionChecks(context.Context) []Check {
+// loadProvisionReport reads the last report (false: none).
+func loadProvisionReport() (ProvisionReport, bool) {
+	var r ProvisionReport
 	raw, err := os.ReadFile(ProvisionReportPath)
-	if err != nil {
+	if err != nil || json.Unmarshal(raw, &r) != nil {
+		return r, false
+	}
+	return r, true
+}
+
+// A module whose provisioning failed for a moment (apt's index rewritten
+// under it, a download cut off) would stay failed until the next `tiffin
+// up`. The box runs `tiffin provision` again instead, in a unit of its own
+// (it may restart services, this one's helpers included), backing off
+// while it keeps failing.
+var (
+	provisionRetryFirst = 2 * time.Minute
+	provisionRetryMax   = 6 * time.Hour
+	launchProvision     = func(ctx context.Context) error {
+		bin, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		out, err := exec.CommandContext(ctx, "systemd-run", "--unit", "tiffin-provision-retry", "--collect", "--quiet", "--wait", bin, "provision").CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("systemd-run: %w: %s", err, strings.TrimSpace(string(out)))
+		}
 		return nil
 	}
-	var r ProvisionReport
-	if json.Unmarshal(raw, &r) != nil {
+)
+
+// retryProvision provisions again until the report has no failures.
+func (p *Platform) retryProvision(ctx context.Context) {
+	wait := provisionRetryFirst
+	for {
+		r, ok := loadProvisionReport()
+		if !ok || len(r.Failed()) == 0 {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		p.Log.Info("provisioning again", "failed", strings.Join(r.Failed(), ", "))
+		if err := launchProvision(ctx); err != nil {
+			p.Log.Warn("provisioning again", "err", err)
+		}
+		wait = min(2*wait, provisionRetryMax)
+	}
+}
+
+// provisionChecks turns the last report's failures into status checks.
+func provisionChecks(context.Context) []Check {
+	r, ok := loadProvisionReport()
+	if !ok {
 		return nil
 	}
 	failed := r.Failed()

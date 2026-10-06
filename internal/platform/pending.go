@@ -21,10 +21,14 @@ import (
 type PendingImport struct {
 	Import string `json:"import"`
 	// Aside is where replaced files and directories are moved (same disk).
-	Aside      string        `json:"aside"`
-	StopUnits  []string      `json:"stopUnits,omitempty"`
-	StartUnits []string      `json:"startUnits,omitempty"`
-	Swaps      []PendingSwap `json:"swaps"`
+	Aside      string   `json:"aside"`
+	StopUnits  []string `json:"stopUnits,omitempty"`
+	StartUnits []string `json:"startUnits,omitempty"`
+	// RestartUnits are restarted once everything is swapped in: services
+	// that keep what they read in memory but must not stop for the swap
+	// (the edge, whose socket holds connections while it restarts).
+	RestartUnits []string      `json:"restartUnits,omitempty"`
+	Swaps        []PendingSwap `json:"swaps"`
 }
 
 // PendingSwap replaces To with From. With From empty, To is only moved
@@ -123,6 +127,16 @@ func ApplyPendingImport(dataRoot string, log func(string)) (bool, error) {
 	for _, u := range plan.StartUnits {
 		if err := runUnit("start", u); err != nil {
 			log("import: " + err.Error())
+		}
+	}
+	if ferr == nil {
+		for _, u := range plan.RestartUnits {
+			start := time.Now()
+			if err := runUnit("restart", u); err != nil {
+				log("import: " + err.Error())
+				continue
+			}
+			log(fmt.Sprintf("import: restarted %s in %d ms", u, time.Since(start).Milliseconds()))
 		}
 	}
 	finishPending(dataRoot, planPath, res)
