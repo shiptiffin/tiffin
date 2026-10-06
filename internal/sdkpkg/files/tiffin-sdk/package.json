@@ -14,10 +14,6 @@
       "types": "./lib/config.d.ts",
       "default": "./lib/config.js"
     },
-    "./db": {
-      "types": "./lib/db.d.ts",
-      "default": "./lib/db.js"
-    },
     "./kv": {
       "types": "./lib/kv.d.ts",
       "default": "./lib/kv.js"

@@ -16,10 +16,6 @@
       "types": "./src/config.ts",
       "default": "./src/config.ts"
     },
-    "./db": {
-      "types": "./src/db.ts",
-      "default": "./src/db.ts"
-    },
     "./kv": {
       "types": "./src/kv.ts",
       "default": "./src/kv.ts"

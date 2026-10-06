@@ -39,7 +39,7 @@ func TestTarball(t *testing.T) {
 		body, _ := io.ReadAll(tr)
 		seen[h.Name] = body
 	}
-	for _, want := range []string{"package/package.json", "package/lib/db.js", "package/lib/db.d.ts", "package/lib/next/cache-handler.js", "package/LICENSE"} {
+	for _, want := range []string{"package/package.json", "package/lib/kv.js", "package/lib/kv.d.ts", "package/lib/next/cache-handler.js", "package/LICENSE"} {
 		if _, ok := seen[want]; !ok {
 			t.Errorf("tarball lacks %s", want)
 		}
@@ -57,8 +57,8 @@ func TestTarball(t *testing.T) {
 			t.Errorf("workspace dependency %s in the vendored package", name)
 		}
 	}
-	if db, _ := pkg.Exports["./db"].(map[string]any); db["default"] != "./lib/db.js" || db["types"] != "./lib/db.d.ts" {
-		t.Errorf("exports ./db: %v", pkg.Exports["./db"])
+	if kv, _ := pkg.Exports["./kv"].(map[string]any); kv["default"] != "./lib/kv.js" || kv["types"] != "./lib/kv.d.ts" {
+		t.Errorf("exports ./kv: %v", pkg.Exports["./kv"])
 	}
 	// Relative imports carry .js, so Node's ESM loader resolves them.
 	if js := string(seen["package/lib/next/index.js"]); !strings.Contains(js, `from "./store.js"`) {

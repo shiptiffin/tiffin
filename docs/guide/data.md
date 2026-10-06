@@ -74,10 +74,24 @@ secrets with these names win, so delete the old Upstash values from them when yo
   work), and the cache limit above.
 - The endpoint is only reachable from apps on the box, not from the internet.
 
-## Documents
+## Flexible JSON
 
-`tiffin-sdk/db` gives typed JSONB collections on your Postgres database, for data you
-don't want to model as tables yet.
+For data you don't want to model as columns yet, add a `jsonb` column to a table. It
+stores any JSON, can be indexed and queried by field, and joins and transactions keep
+working. With Drizzle:
+
+```ts
+export const events = pgTable("events", {
+  id: serial("id").primaryKey(),
+  kind: text("kind").notNull(),
+  data: jsonb("data").$type<Record<string, unknown>>().notNull(),
+});
+// where data->>'plan' = 'pro'
+db.select().from(events).where(sql`${events.data}->>'plan' = 'pro'`);
+```
+
+Add `CREATE INDEX ON events USING gin (data jsonb_path_ops)` when you filter by fields
+often.
 
 ## Backups
 
