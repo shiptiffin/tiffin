@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { int, pct } from "@/lib/format";
 
@@ -17,6 +17,7 @@ export function BarList({
   mono,
   empty = "Nothing yet.",
   selectLabel = (r) => `Show only ${r.title ?? r.key}`,
+  show = 10,
 }: {
   rows: BarRow[];
   total: number;
@@ -25,12 +26,16 @@ export function BarList({
   mono?: boolean;
   empty?: ReactNode;
   selectLabel?: (r: BarRow) => string;
+  /** Rows shown before "Show all". */
+  show?: number;
 }) {
+  const [all, setAll] = useState(false);
   if (rows.length === 0) return <p className="py-6 text-[0.84375rem] text-ink-3">{empty}</p>;
   const most = Math.max(...rows.map((r) => r.value), 1);
   return (
-    <ul className="flex flex-col gap-0.5 py-1.5">
-      {rows.map((r) => {
+    <>
+      <ul className="flex flex-col gap-0.5 py-1.5">
+      {(all ? rows : rows.slice(0, show)).map((r) => {
         const on = selected === r.key;
         const inner = (
           <>
@@ -69,6 +74,12 @@ export function BarList({
           </li>
         );
       })}
-    </ul>
+      </ul>
+      {rows.length > show && (
+        <button type="button" onClick={() => setAll((x) => !x)} aria-expanded={all} className="h-7 rounded-[6px] px-2.5 text-[0.8125rem] text-ink-3 hover:bg-paper-sunk hover:text-ink">
+          {all ? "Show fewer" : `Show all ${rows.length}`}
+        </button>
+      )}
+    </>
   );
 }

@@ -35,7 +35,7 @@ test("analytics: period, comparison, filters in the URL, readout by keyboard", a
   await page.goto("/projects/hello/analytics?period=30d");
   const sentence = page.getByText(/visitors in the last 30 days, \d+\s?% (more|fewer) than the 30 days before\./);
   await expect(sentence).toBeVisible();
-  await expect(page.getByRole("radio", { name: "30 days" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("radio", { name: "30 days", exact: true })).toHaveAttribute("aria-checked", "true");
 
   // The headline numbers choose the chart.
   const visitors = Number((await page.getByRole("radio", { name: /^Visitors/ }).innerText()).match(/[\d,]+/)![0].replace(/,/g, ""));
@@ -51,9 +51,9 @@ test("analytics: period, comparison, filters in the URL, readout by keyboard", a
   await page.keyboard.press("ArrowLeft");
   await expect(page.locator("[aria-live=polite]").filter({ hasText: /Bounce rate \d+\s?%, Before/ })).toHaveCount(1);
   // The table view has every day.
-  await page.getByRole("button", { name: "Table" }).click();
+  await page.getByRole("button", { name: "Table", exact: true }).click();
   await expect(page.getByRole("table", { name: "Bounce rate per day" }).locator("tbody tr")).toHaveCount(30);
-  await page.getByRole("button", { name: "Table" }).click();
+  await page.getByRole("button", { name: "Table", exact: true }).click();
 
   // A country filters the whole page and lands in the URL; the chip takes it off.
   await page.getByRole("button", { name: /^Filter by country Germany/ }).click();
@@ -75,14 +75,14 @@ test("analytics: period, comparison, filters in the URL, readout by keyboard", a
   await page.getByRole("button", { name: "Choose days" }).click();
   const today = new Date().toISOString().slice(0, 10);
   const weekAgo = new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10);
-  await page.getByLabel("From").fill(weekAgo);
-  await page.getByLabel("To").fill(today);
+  await page.getByLabel("From", { exact: true }).fill(weekAgo);
+  await page.getByLabel("To", { exact: true }).fill(today);
   await page.getByRole("button", { name: "Show these days" }).click();
   await expect(page).toHaveURL(new RegExp(`from=${weekAgo}`));
   await expect(page.getByText(/visitors from \d+ \w+ to \d+ \w+/)).toBeVisible();
 
   // Custom events and page speed, coloured by rating.
-  await expect(page.getByText("Signup", { exact: true })).toBeVisible();
+  await expect(page.getByText("Signup", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("img", { name: "slow" }).first()).toBeVisible();
   expect(problems).toEqual([]);
 });
@@ -123,15 +123,15 @@ test("usage: charts over time against limits, ranges, tables", async ({ page, ba
   await page.goto("/projects/hello/usage");
   await expect(page.getByRole("heading", { name: "Over time" })).toBeVisible();
   for (const name of ["Memory", "CPU", "Requests", "Response time", "Errors"]) await expect(page.getByRole("figure", { name: new RegExp(`^${name}`) })).toBeVisible();
-  await expect(page.getByText("Limit 512 MB")).toBeVisible();
+  await expect(page.getByText(/^Limit 512\s?MB$/).first()).toBeVisible();
   const asked = page.waitForRequest((r) => r.url().includes("/usage/history") && r.url().includes("range=7d"));
-  await page.getByRole("radio", { name: "7 days" }).click();
+  await page.getByRole("radio", { name: "7 days", exact: true }).click();
   await asked;
-  await page.getByRole("button", { name: "Tables" }).click();
+  await page.getByRole("button", { name: "Tables", exact: true }).click();
   await expect(page.getByRole("table", { name: /^Memory, the last 7 days/ }).locator("tbody tr")).toHaveCount(168);
-  await page.getByRole("button", { name: "Tables" }).click();
-  // The limit controls are still there.
-  await expect(page.getByRole("radiogroup", { name: /How much of the box hello may use/ })).toBeVisible();
+  await page.getByRole("button", { name: "Tables", exact: true }).click();
+  // The page's own controls are still there.
+  await expect(page.getByRole("button", { name: "Details" })).toBeVisible();
 });
 
 test("analytics and usage: no serious accessibility problems, screenshots", async ({ page, baseURL }) => {
@@ -145,7 +145,7 @@ test("analytics and usage: no serious accessibility problems, screenshots", asyn
       await page.setViewportSize({ width, height: width > 400 ? 900 : 844 });
       await page.goto("/projects/hello/analytics?period=30d");
       await page.getByRole("heading", { name: "Visitors per day" }).waitFor();
-      await page.locator("svg path[d]").first().waitFor();
+      await page.getByRole("group", { name: /^Visitors per day/ }).locator("path").first().waitFor();
       await page.waitForTimeout(800); // the map's chunk
       await noSeriousA11y(page, `analytics ${scheme} ${width}`);
       await page.screenshot({ path: `${out}/analytics-${width}-${scheme}.png`, fullPage: true });
@@ -153,6 +153,7 @@ test("analytics and usage: no serious accessibility problems, screenshots", asyn
 
       await page.goto("/projects/hello/analytics?period=30d&country=US&source=Google");
       await page.getByRole("button", { name: "Remove filter: Country is United States" }).waitFor();
+      await page.getByText(/matching visitors in the last 30 days/).waitFor();
       await page.waitForTimeout(500);
       await noSeriousA11y(page, `analytics filtered ${scheme} ${width}`);
       if (width === 1440) await page.screenshot({ path: `${out}/analytics-filtered-${width}-${scheme}.png`, fullPage: false });

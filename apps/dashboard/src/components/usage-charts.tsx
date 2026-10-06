@@ -1,6 +1,6 @@
 import { useQueries, useQuery, keepPreviousData } from "@tanstack/react-query";
 import { ChevronDown, Table2 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { mod3, type UsageHistory } from "@/api/modules";
 import { Legend, StackedBars, type Bucket } from "@/components/charts/bars";
 import type { XY } from "@/components/charts/core";
@@ -170,13 +170,16 @@ function Chart({ c, step, tables, range }: { c: ChartSpec; step: number; tables:
   const main = c.series[0];
   const now = main.points.length ? main.points[main.points.length - 1][1] : undefined;
   const span = ranges.find((r) => r.value === range)!.label;
+  const id = useId();
   return (
-    <figure className="min-w-0">
+    <figure className="min-w-0" aria-labelledby={id}>
       <div className="flex items-baseline justify-between gap-3 border-b border-rule pb-1.5">
-        <figcaption className="min-w-0">
-          <span className="block text-[0.875rem] text-ink">{c.title}</span>
+        <div className="min-w-0">
+          <span id={id} className="block text-[0.875rem] text-ink">
+            {c.title}
+          </span>
           {c.note && <span className="block truncate text-[0.75rem] text-ink-3">{c.note}</span>}
-        </figcaption>
+        </div>
         {now !== undefined && Number.isFinite(now) && <span className="shrink-0 text-[0.9375rem] font-[500] text-ink tnum">{c.format(now)}</span>}
       </div>
       {c.legend && main.points.length > 0 && <Legend className="mt-2" items={c.legend} />}
@@ -215,6 +218,7 @@ function Builds({ project, apps, range, tables }: { project: string; apps: strin
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, range, now]);
+  const id = useId();
   if (apps.length === 0) return null;
   const total = buckets.reduce((s, b) => s + b.values.ok + b.values.failed, 0);
   const failed = buckets.reduce((s, b) => s + b.values.failed, 0);
@@ -223,12 +227,14 @@ function Builds({ project, apps, range, tables }: { project: string; apps: strin
     { id: "failed", label: "Failed", color: "var(--danger)" },
   ];
   return (
-    <figure className="min-w-0">
+    <figure className="min-w-0" aria-labelledby={id}>
       <div className="flex items-baseline justify-between gap-3 border-b border-rule pb-1.5">
-        <figcaption>
-          <span className="block text-[0.875rem] text-ink">Builds</span>
+        <div>
+          <span id={id} className="block text-[0.875rem] text-ink">
+            Builds
+          </span>
           <span className="block text-[0.75rem] text-ink-3">per {step === 86_400_000 ? "day" : step === 3_600_000 ? "hour" : "5 minutes"}</span>
-        </figcaption>
+        </div>
         <span className="shrink-0 text-[0.9375rem] font-[500] text-ink tnum">
           {int(total)}
           {failed > 0 && <span className="ml-1.5 text-[0.75rem] font-[400] text-danger">{int(failed)} failed</span>}

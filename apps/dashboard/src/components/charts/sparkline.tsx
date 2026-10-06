@@ -13,24 +13,22 @@ export function Sparkline({
   before,
   className,
   height = 28,
-  zero = true,
+  fill = true,
 }: {
   values: number[];
   before?: number[];
   className?: string;
   height?: number;
-  /** Counts start at zero and get a wash; rates and lengths span their own range, as a line. */
-  zero?: boolean;
+  /** A wash under counts; rates and lengths are a line alone. Both start at zero, so a small change looks small. */
+  fill?: boolean;
 }) {
   const W = 120;
   const d = useMemo(() => {
     const all = [...values, ...(before ?? [])].filter(Number.isFinite);
     const top = Math.max(...all, 0) || 1;
-    const lo = zero ? 0 : Math.min(...all, top);
-    const span = top - lo || 1;
     const n = Math.max(values.length, 2);
     const x = (i: number) => (i / (n - 1)) * W;
-    const y = (v: number) => 2 + (1 - (v - lo) / span) * (height - 4);
+    const y = (v: number) => 2 + (1 - v / top) * (height - 4);
     const ok = (arr: number[]) => (i: number) => Number.isFinite(arr[i]);
     const idx = (arr: number[]) => arr.map((_, i) => i).slice(0, n);
     const line = (arr: number[]) =>
@@ -39,15 +37,15 @@ export function Sparkline({
         .x(x)
         .y((i) => y(arr[i]))
         .curve(curveMonotoneX)(idx(arr)) ?? "";
-    const fill =
+    const area =
       d3area<number>()
         .defined(ok(values))
         .x(x)
         .y0(height)
         .y1((i) => y(values[i]))
         .curve(curveMonotoneX)(idx(values)) ?? "";
-    return { now: line(values), before: before ? line(before) : "", fill: zero ? fill : "" };
-  }, [values, before, height, zero]);
+    return { now: line(values), before: before ? line(before) : "", fill: fill ? area : "" };
+  }, [values, before, height, fill]);
   if (values.length < 2) return <span aria-hidden className={cn("block", className)} style={{ height }} />;
   return (
     <svg viewBox={`0 0 ${W} ${height}`} preserveAspectRatio="none" className={cn("block w-full overflow-visible", className)} style={{ height }} aria-hidden>

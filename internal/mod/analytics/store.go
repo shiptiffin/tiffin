@@ -159,8 +159,10 @@ type PropCount struct {
 
 // sqliteStore implements Store on one SQLite file.
 type sqliteStore struct {
-	db *sql.DB
-	mu sync.Mutex
+	db    *sql.DB
+	mu    sync.Mutex
+	selMu sync.Mutex
+	sel   map[string]selection
 }
 
 var sqliteSchema = []string{
@@ -296,14 +298,46 @@ func (s *sqliteStore) Daily(ctx context.Context, q Query) ([]DayRow, error) {
 // scope is the WHERE clause for a query's events: project (and app), the
 // range and, with filters, only the visits they select. A page filter also
 // keeps only that page's rows, unless whole visits are asked for.
-func scope(q Query, visits bool) (string, []any) {
+func (s *sqliteStore) scope(ctx context.Context, q Query, visits bool) (string, []any, error) {
 	where, args := appFilter(q)
 	where += ` AND ts >= ? AND ts < ?`
 	args = append(args, q.From.UnixMilli(), q.To.UnixMilli())
-	f := q.Filters
-	if !f.Any() {
-		return where, args
+	if !q.Filters.Any() {
+		return where, args, nil
 	}
+	ids, err := s.visits(ctx, q)
+	if err != nil {
+		return "", nil, err
+	}
+	where += ` AND session IN (SELECT value FROM json_each(?))`
+	args = append(args, ids)
+	if q.Filters.Page != "" && !visits {
+		where += ` AND path = ?`
+		args = append(args, q.Filters.Page)
+	}
+	return where, args, nil
+}
+
+// selectionFresh is how long a filter's visits are reused: an overview
+// asks a dozen questions of the same visits.
+const selectionFresh = 10 * time.Second
+
+type selection struct {
+	at  time.Time
+	ids string // JSON array of session ids
+}
+
+// visits returns the sessions a query's filters select, as a JSON array,
+// computed once per query and reused for a few seconds.
+func (s *sqliteStore) visits(ctx context.Context, q Query) (string, error) {
+	key := fmt.Sprintf("%s|%s|%d|%d|%+v", q.Project, q.App, q.From.UnixMilli(), q.To.UnixMilli(), q.Filters)
+	s.selMu.Lock()
+	if e, ok := s.sel[key]; ok && time.Since(e.at) < selectionFresh {
+		s.selMu.Unlock()
+		return e.ids, nil
+	}
+	s.selMu.Unlock()
+	f := q.Filters
 	// Values computed over each visit, and the conditions on them.
 	var cols, conds []string
 	var cargs []any
@@ -321,11 +355,11 @@ func scope(q Query, visits bool) (string, []any) {
 	over("f_us", `FIRST_VALUE(utm_source)`+first, f.UTMSource)
 	over("f_um", `FIRST_VALUE(utm_medium)`+first, f.UTMMedium)
 	over("f_uc", `FIRST_VALUE(utm_campaign)`+first, f.UTMCampaign)
-	var sargs []any
+	var args []any
 	if f.Page != "" {
 		cols = append(cols, `MAX(path = ?) OVER (PARTITION BY session) AS f_page`)
 		conds = append(conds, `f_page = 1`)
-		sargs = append(sargs, f.Page) // the select list's parameter comes first
+		args = append(args, f.Page) // the select list's parameter comes first
 	}
 	for _, c := range [][2]string{{"country", f.Country}, {"browser", f.Browser}, {"os", f.OS}, {"device", f.Device}} {
 		if c[1] != "" {
@@ -334,15 +368,21 @@ func scope(q Query, visits bool) (string, []any) {
 		}
 	}
 	inner, iargs := appFilter(q)
-	sargs = append(append(sargs, iargs...), q.From.UnixMilli(), q.To.UnixMilli())
-	where += ` AND session IN (SELECT session FROM (SELECT session, country, browser, os, device` + prefixed(", ", cols) +
-		` FROM events WHERE ` + inner + ` AND kind = 'pageview' AND session != 0 AND ts >= ? AND ts < ?) WHERE ` + strings.Join(conds, ` AND `) + `)`
-	args = append(append(args, sargs...), cargs...)
-	if f.Page != "" && !visits {
-		where += ` AND path = ?`
-		args = append(args, f.Page)
+	args = append(append(args, iargs...), q.From.UnixMilli(), q.To.UnixMilli())
+	args = append(args, cargs...)
+	var ids string
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(json_group_array(DISTINCT session), '[]') FROM (SELECT session, country, browser, os, device`+prefixed(", ", cols)+
+		` FROM events WHERE `+inner+` AND kind = 'pageview' AND session != 0 AND ts >= ? AND ts < ?) WHERE `+strings.Join(conds, ` AND `), args...).Scan(&ids)
+	if err != nil {
+		return "", err
 	}
-	return where, args
+	s.selMu.Lock()
+	if s.sel == nil || len(s.sel) > 64 {
+		s.sel = map[string]selection{}
+	}
+	s.sel[key] = selection{time.Now(), ids}
+	s.selMu.Unlock()
+	return ids, nil
 }
 
 func prefixed(sep string, xs []string) string {
@@ -363,7 +403,10 @@ func (s *sqliteStore) Series(ctx context.Context, q Query, step time.Duration) (
 		return byT[b]
 	}
 	// Visitors are distinct within the step (and the day: hashes rotate daily).
-	where, args := scope(q, false)
+	where, args, err := s.scope(ctx, q, false)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT ts / ? AS b, COUNT(DISTINCT visitor), COUNT(*) FROM events
 		WHERE `+where+` AND kind = 'pageview' GROUP BY b`, append([]any{ms}, args...)...)
 	if err != nil {
@@ -379,7 +422,9 @@ func (s *sqliteStore) Series(ctx context.Context, q Query, step time.Duration) (
 		p.Visitors, p.Pageviews = v, pv
 	}
 	rows.Close()
-	where, args = scope(q, true)
+	if where, args, err = s.scope(ctx, q, true); err != nil {
+		return nil, err
+	}
 	rows, err = s.db.QueryContext(ctx, `SELECT start / ? AS b, COUNT(*), COALESCE(SUM(pv = 1), 0), COALESCE(SUM(dur), 0) FROM
 		(SELECT MIN(ts) AS start, COUNT(*) AS pv, MAX(ts) - MIN(ts) AS dur FROM events
 		 WHERE `+where+` AND kind = 'pageview' GROUP BY session) GROUP BY b`, append([]any{ms}, args...)...)
@@ -432,15 +477,21 @@ func (s *sqliteStore) Top(ctx context.Context, q Query, dim string, limit int) (
 		if dim == "exit" {
 			order = "ts DESC, id DESC"
 		}
-		var where string
-		where, args = scope(q, true)
+		where, a, err := s.scope(ctx, q, true)
+		if err != nil {
+			return nil, err
+		}
+		args = a
 		query = `SELECT path, COUNT(DISTINCT day || ':' || visitor), COUNT(*) FROM (
 			SELECT path, day, visitor, ROW_NUMBER() OVER (PARTITION BY session ORDER BY ` + order + `) AS rn FROM events
 			WHERE ` + where + ` AND kind = 'pageview') WHERE rn = 1
 			GROUP BY path ORDER BY 3 DESC, 1 LIMIT ?`
 	} else {
-		var where string
-		where, args = scope(q, false)
+		where, a, err := s.scope(ctx, q, false)
+		if err != nil {
+			return nil, err
+		}
+		args = a
 		query = `SELECT ` + col + `, COUNT(DISTINCT day || ':' || visitor), COUNT(*) FROM events
 			WHERE ` + where + ` AND kind = 'pageview' AND ` + col + ` != ''
 			GROUP BY 1 ORDER BY 2 DESC, 3 DESC, 1 LIMIT ?`
@@ -463,16 +514,22 @@ func (s *sqliteStore) Top(ctx context.Context, q Query, dim string, limit int) (
 }
 
 func (s *sqliteStore) Sessions(ctx context.Context, q Query) (SessionStats, error) {
-	where, args := scope(q, true)
 	var st SessionStats
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(pv = 1), 0), COALESCE(SUM(dur), 0) FROM
+	where, args, err := s.scope(ctx, q, true)
+	if err != nil {
+		return st, err
+	}
+	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(pv = 1), 0), COALESCE(SUM(dur), 0) FROM
 		(SELECT session, COUNT(*) AS pv, MAX(ts) - MIN(ts) AS dur FROM events
 		 WHERE `+where+` AND kind = 'pageview' GROUP BY session)`, args...).Scan(&st.Sessions, &st.Bounces, &st.DurationMS)
 	return st, err
 }
 
 func (s *sqliteStore) Counts(ctx context.Context, q Query) (visitors, pageviews, events int64, err error) {
-	where, args := scope(q, false)
+	where, args, err := s.scope(ctx, q, false)
+	if err != nil {
+		return 0, 0, 0, err
+	}
 	err = s.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT CASE WHEN kind = 'pageview' THEN day || ':' || visitor END),
 		COALESCE(SUM(kind = 'pageview'), 0), COALESCE(SUM(kind = 'event'), 0)
 		FROM events WHERE `+where, args...).Scan(&visitors, &pageviews, &events)
@@ -480,7 +537,10 @@ func (s *sqliteStore) Counts(ctx context.Context, q Query) (visitors, pageviews,
 }
 
 func (s *sqliteStore) CustomEvents(ctx context.Context, q Query, limit int) ([]EventSummary, error) {
-	where, args := scope(q, false)
+	where, args, err := s.scope(ctx, q, false)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT name, COUNT(*), COUNT(DISTINCT day || ':' || visitor) FROM events
 		WHERE `+where+` AND kind = 'event' GROUP BY name ORDER BY 2 DESC, 1 LIMIT ?`, append(args, limit)...)
 	if err != nil {
@@ -497,7 +557,10 @@ func (s *sqliteStore) CustomEvents(ctx context.Context, q Query, limit int) ([]E
 	}
 	rows.Close()
 	for i := range out {
-		where, args := scope(q, false)
+		where, args, err := s.scope(ctx, q, false)
+		if err != nil {
+			return nil, err
+		}
 		pr, err := s.db.QueryContext(ctx, `SELECT j.key, CAST(j.value AS TEXT), COUNT(*) FROM events, json_each(events.props) AS j
 			WHERE `+where+` AND kind = 'event' AND name = ? AND props != ''
 			GROUP BY 1, 2 ORDER BY 1, 3 DESC`, append(args, out[i].Name)...)

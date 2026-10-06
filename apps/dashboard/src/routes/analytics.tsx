@@ -125,7 +125,7 @@ export function AnalyticsPage({ project, search }: { project: string; search: An
     } as never);
   const setFilter = (key: FilterKey, v: string | undefined) => go({ [key]: v } as Partial<AnalyticsSearch>);
 
-  const o = useQuery({ queryKey: ["analytics", project, query], queryFn: () => mod2.analyticsView(project, query), refetchInterval: 60_000, placeholderData: keepPreviousData });
+  const o = useQuery({ queryKey: ["analytics", project, query], queryFn: () => mod2.analyticsView(project, query, 50), refetchInterval: 60_000, placeholderData: keepPreviousData });
   const rt = useQuery({ queryKey: ["analytics-rt", project, search.app], queryFn: () => mod2.realtime(project, search.app), refetchInterval: 15_000 });
   const ev = useQuery({ queryKey: ["analytics-ev", project, query], queryFn: () => mod2.events(project, query), placeholderData: keepPreviousData });
   const setup = useQuery({ queryKey: ["analytics-setup", project], queryFn: () => mod2.analyticsSetup(project), staleTime: Infinity });
@@ -153,7 +153,7 @@ export function AnalyticsPage({ project, search }: { project: string; search: An
         <Off project={project} />
       ) : (
         <>
-          <div className="mt-3 min-h-8">{d ? <StateSentence>{sentenceFor(d, per, partial ? since : undefined, anyFilter)}</StateSentence> : <Skeleton className="h-8 w-[28rem] max-w-full" />}</div>
+          <div className="mt-3 min-h-8">{d ? <StateSentence>{sentenceFor(d, per, partial ? since : undefined, Object.values(d.filters ?? {}).some(Boolean))}</StateSentence> : <Skeleton className="h-8 w-[28rem] max-w-full" />}</div>
 
           <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-3">
             {apps.length > 1 && <AppPicker apps={apps} app={search.app} onChange={(a) => go({ app: a })} />}
@@ -436,7 +436,7 @@ function Headline({ d, metric, onMetric, partial, per }: { d: AnalyticsOverview;
             <span className={cn("label block", on && "text-ink!")}>{metrics[x.m].label}</span>
             <span className={cn("v mt-1.5 block text-[1.625rem] leading-8 font-[500] tracking-[-0.02em]", on ? "text-ink" : "text-ink-2")}>{x.value}</span>
             <span className="mt-0.5 block h-4 text-[0.75rem] text-ink-3 tnum">{x.delta ? `${x.delta}${/before/.test(x.delta) ? "" : ` vs ${per.before.replace(/^the /, "")}`}` : ""}</span>
-            <Sparkline {...spark(x.m)} zero={x.m === "visitors" || x.m === "pageviews"} className="mt-2.5 pr-2" />
+            <Sparkline {...spark(x.m)} fill={x.m === "visitors" || x.m === "pageviews"} className="mt-2.5 pr-2" />
           </button>
         );
       })}
@@ -603,7 +603,9 @@ function Countries({ d, selected, onFilter }: { d: AnalyticsOverview; selected?:
       <PanelHead id="countries" title="Countries" tabs={[]} i={0} onTab={() => {}} />
       <div className="grid gap-x-12 gap-y-4 pt-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
         <WorldMap values={values} name={countryName} selected={selected} onSelect={onFilter} className="max-lg:hidden" />
-        <BarList rows={rows} total={d.totals.visitors} selected={selected} onSelect={onFilter} selectLabel={(r) => `Filter by country ${r.title}`} empty="No countries yet. Countries need the box’s country database." />
+        <div className="min-w-0">
+          <BarList rows={rows} total={d.totals.visitors} selected={selected} onSelect={onFilter} selectLabel={(r) => `Filter by country ${r.title}`} empty="No countries yet. Countries need the box’s country database." />
+        </div>
       </div>
     </section>
   );
@@ -663,7 +665,7 @@ function Realtime({ project, app }: { project: string; app?: string }) {
         tabs={[]}
         i={0}
         onTab={() => {}}
-        right={d ? `${int(d.visitors30m)} ${d.visitors30m === 1 ? "visitor" : "visitors"} · ${int(d.pageviews30m)} ${d.pageviews30m === 1 ? "view" : "views"} in 30 min` : ""}
+        right={d && d.pageviews30m > 0 ? `${int(d.visitors30m)} ${d.visitors30m === 1 ? "visitor" : "visitors"} · ${int(d.pageviews30m)} ${d.pageviews30m === 1 ? "view" : "views"} in 30 min` : ""}
       />
       <div className="pt-4">
         {!d ? (
@@ -825,7 +827,7 @@ function Off({ project }: { project: string }) {
   return (
     <Empty className="mt-10" title={`Analytics is off for ${project}`}>
       <p>Add it in the project’s config and every app’s page views are counted at the box’s edge, without cookies and without a script.</p>
-      <pre className="mt-4 overflow-x-auto rounded-[8px] bg-paper-sunk px-4 py-3 text-left font-mono text-[0.78rem] text-ink-2">{`// tiffin.config.ts\nservices: { analytics: {} }`}</pre>
+      <pre tabIndex={0} className="mt-4 overflow-x-auto rounded-[8px] bg-paper-sunk px-4 py-3 text-left font-mono text-[0.78rem] text-ink-2">{`// tiffin.config.ts\nservices: { analytics: {} }`}</pre>
     </Empty>
   );
 }
@@ -866,7 +868,7 @@ function SetupNotes({ snippet, browser, track, privacy }: { snippet: string; bro
         <p className="mt-2 text-[0.875rem] text-ink-2">{privacy}</p>
         <p className="mt-4 text-[0.8125rem] text-ink-3">
           Countries come from{" "}
-          <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer" className="text-brass-ink hover:underline hover:underline-offset-4">
+          <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer" className="text-brass-ink underline decoration-brass-ink/40 underline-offset-4 hover:decoration-brass-ink">
             IP Geolocation by DB-IP
           </a>{" "}
           (CC BY 4.0). Days are UTC.
@@ -883,7 +885,7 @@ function CodeBox({ code, name, className }: { code: string; name: string; classN
         <span className="font-mono text-[0.75rem] text-ink-3">{name}</span>
         <CopyButton value={code} label={`Copy ${name}`} />
       </div>
-      <pre className="overflow-x-auto px-4 py-3 font-mono text-[0.78rem] leading-5 text-ink-2">
+      <pre tabIndex={0} aria-label={name} className="overflow-x-auto px-4 py-3 font-mono text-[0.78rem] leading-5 text-ink-2">
         <code>{code}</code>
       </pre>
     </div>

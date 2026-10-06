@@ -8779,13 +8779,19 @@ export interface operations {
                 exit?: string;
                 /** @description Only visits from this source (as listed in sources: Google, news.ycombinator.com, a utm_source) */
                 source?: string;
+                /** @description Only visits whose first page view had this utm_source */
                 utmSource?: string;
+                /** @description Only visits whose first page view had this utm_medium */
                 utmMedium?: string;
+                /** @description Only visits whose first page view had this utm_campaign */
                 utmCampaign?: string;
                 /** @description ISO country code */
                 country?: string;
+                /** @description Only visitors on this browser, as listed in browsers (Chrome, Mobile Safari) */
                 browser?: string;
+                /** @description Only visitors on this system, as listed in os (Mac OS X, Android) */
                 os?: string;
+                /** @description Only visitors on this kind of device */
                 device?: "desktop" | "mobile" | "tablet";
             };
             header?: never;
@@ -8875,13 +8881,19 @@ export interface operations {
                 exit?: string;
                 /** @description Only visits from this source (as listed in sources: Google, news.ycombinator.com, a utm_source) */
                 source?: string;
+                /** @description Only visits whose first page view had this utm_source */
                 utmSource?: string;
+                /** @description Only visits whose first page view had this utm_medium */
                 utmMedium?: string;
+                /** @description Only visits whose first page view had this utm_campaign */
                 utmCampaign?: string;
                 /** @description ISO country code */
                 country?: string;
+                /** @description Only visitors on this browser, as listed in browsers (Chrome, Mobile Safari) */
                 browser?: string;
+                /** @description Only visitors on this system, as listed in os (Mac OS X, Android) */
                 os?: string;
+                /** @description Only visitors on this kind of device */
                 device?: "desktop" | "mobile" | "tablet";
             };
             header?: never;
@@ -9109,13 +9121,19 @@ export interface operations {
                 exit?: string;
                 /** @description Only visits from this source (as listed in sources: Google, news.ycombinator.com, a utm_source) */
                 source?: string;
+                /** @description Only visits whose first page view had this utm_source */
                 utmSource?: string;
+                /** @description Only visits whose first page view had this utm_medium */
                 utmMedium?: string;
+                /** @description Only visits whose first page view had this utm_campaign */
                 utmCampaign?: string;
                 /** @description ISO country code */
                 country?: string;
+                /** @description Only visitors on this browser, as listed in browsers (Chrome, Mobile Safari) */
                 browser?: string;
+                /** @description Only visitors on this system, as listed in os (Mac OS X, Android) */
                 os?: string;
+                /** @description Only visitors on this kind of device */
                 device?: "desktop" | "mobile" | "tablet";
             };
             header?: never;
