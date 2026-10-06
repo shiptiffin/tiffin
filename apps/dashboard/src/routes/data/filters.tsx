@@ -43,7 +43,7 @@ export function FilterBar({ columns, view, onView }: { columns: ColumnDetail[]; 
               type="button"
               aria-label={`Remove the filter on ${f.column}`}
               onClick={() => set(view.filters.filter((_, j) => j !== i))}
-              className="grid h-full w-6 shrink-0 place-items-center rounded-r-[6px] text-ink-3 hover:bg-paper-sunk hover:text-ink"
+              className="grid h-full w-6 shrink-0 place-items-center rounded-r-[6px] text-ink-3 hover:bg-paper-hover hover:text-ink"
             >
               <X className="size-3.5" />
             </button>
@@ -77,7 +77,7 @@ export function FilterBar({ columns, view, onView }: { columns: ColumnDetail[]; 
             type="button"
             aria-label={`Stop sorting by ${s.column}`}
             onClick={() => onView({ ...view, sort: view.sort.filter((_, j) => j !== i) })}
-            className="grid h-full w-6 place-items-center rounded-r-[6px] text-ink-3 hover:bg-paper-sunk hover:text-ink"
+            className="grid h-full w-6 place-items-center rounded-r-[6px] text-ink-3 hover:bg-paper-hover hover:text-ink"
           >
             <X className="size-3.5" />
           </button>
@@ -106,7 +106,7 @@ function ColumnsMenu({ columns, hidden, onHidden }: { columns: ColumnDetail[]; h
               checked={!hidden.includes(c.name)}
               onCheckedChange={(on) => onHidden(on ? hidden.filter((h) => h !== c.name) : [...hidden, c.name])}
               onSelect={(e) => e.preventDefault()}
-              className="relative flex h-8 cursor-default items-center gap-2 rounded-md pr-2 pl-7 font-mono text-[0.8125rem] text-ink-2 outline-none select-none data-[highlighted]:bg-paper-sunk data-[highlighted]:text-ink"
+              className="relative flex h-8 cursor-default items-center gap-2 rounded-md pr-2 pl-7 font-mono text-[0.8125rem] text-ink-2 outline-none select-none data-[highlighted]:bg-paper-hover data-[highlighted]:text-ink"
             >
               <M.ItemIndicator className="absolute left-2 text-ink">✓</M.ItemIndicator>
               {c.name}
@@ -115,7 +115,7 @@ function ColumnsMenu({ columns, hidden, onHidden }: { columns: ColumnDetail[]; h
           {hidden.length > 0 && (
             <>
               <M.Separator className="-mx-1 my-1 h-px bg-rule" />
-              <M.Item onSelect={() => onHidden([])} className="flex h-8 cursor-default items-center rounded-md px-2 text-base text-ink-2 outline-none data-[highlighted]:bg-paper-sunk">
+              <M.Item onSelect={() => onHidden([])} className="flex h-8 cursor-default items-center rounded-md px-2 text-base text-ink-2 outline-none data-[highlighted]:bg-paper-hover">
                 Show all
               </M.Item>
             </>

@@ -189,7 +189,7 @@ function BucketRow({ project, b, onSettings }: { project: string; b: StorageBuck
   ].filter(Boolean);
   return (
     <li>
-      <div className="group relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-5 gap-y-1 py-3 transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk sm:-mx-3 sm:grid-cols-[minmax(0,1fr)_9rem_6rem_6rem_7rem_2rem] sm:px-3">
+      <div className="group relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-5 gap-y-1 py-3 transition-colors duration-[var(--dur-state)] hover:bg-paper-hover sm:-mx-3 sm:grid-cols-[minmax(0,1fr)_9rem_6rem_6rem_7rem_2rem] sm:px-3">
         <span className="min-w-0">
           <Link
             to="/projects/$project/storage/$bucket"

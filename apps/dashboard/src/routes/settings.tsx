@@ -215,7 +215,7 @@ export function PeoplePage() {
                 </div>
                 {admin && p.role !== "owner" && !you ? (
                   <Menu>
-                    <MenuTrigger className="flex h-8 items-center gap-1.5 rounded-[7px] border border-rule-2 bg-paper-raised px-2.5 text-[0.84375rem] text-ink transition-colors hover:bg-paper-sunk">
+                    <MenuTrigger className="flex h-8 items-center gap-1.5 rounded-[7px] border border-rule-2 bg-paper-raised px-2.5 text-[0.84375rem] text-ink transition-colors hover:bg-paper-hover">
                       {roleCopy[p.role].label}
                       <span aria-hidden className="text-ink-3">
                         ▾
@@ -342,8 +342,8 @@ function InviteForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
               <label
                 key={r}
                 className={cn(
-                  "flex cursor-pointer gap-3 px-2 py-2.5 hover:bg-paper-sunk",
-                  role === r && "bg-paper-sunk",
+                  "flex cursor-pointer gap-3 px-2 py-2.5 hover:bg-paper-hover",
+                  role === r && "bg-paper-select",
                 )}
               >
                 <Radio value={r} className="mt-0.5" />

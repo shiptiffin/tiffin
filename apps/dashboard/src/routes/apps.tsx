@@ -165,7 +165,7 @@ function AppListRow({ project, app, spec, rt }: { project: string; app: string; 
   const running = (prod?.instances ?? []).filter((i) => i.running).length;
   const url = prod?.url;
   return (
-    <li className="group relative grid grid-cols-[20px_minmax(0,11rem)_minmax(0,1fr)_auto] items-center gap-x-4 py-3 pr-1 hover:bg-paper-sunk max-sm:grid-cols-[20px_minmax(0,1fr)_auto]">
+    <li className="group relative grid grid-cols-[20px_minmax(0,11rem)_minmax(0,1fr)_auto] items-center gap-x-4 py-3 pr-1 hover:bg-paper-hover max-sm:grid-cols-[20px_minmax(0,1fr)_auto]">
       <span className="grid place-items-center">{live.pilot ? <PilotLight state={live.pilot} label={live.pilot === "busy" ? "Building" : "Last deploy failed"} /> : null}</span>
       <div className="min-w-0">
         <Link to="/projects/$project/apps/$app" params={{ project, app }} className="block truncate text-[0.875rem] text-ink after:absolute after:inset-0">
@@ -523,7 +523,7 @@ function VersionRow({
   const st: PilotState | null = inFlight(d.status) ? "busy" : d.status === "failed" ? "fault" : d.status === "live" ? "on" : null;
   const reason = d.status === "failed" ? (d.hint ?? d.error?.split("\n")[0]) : undefined;
   return (
-    <li className="group relative grid grid-cols-[3.25rem_minmax(0,1fr)_auto] items-center gap-x-4 py-2.5 hover:bg-paper-sunk">
+    <li className="group relative grid grid-cols-[3.25rem_minmax(0,1fr)_auto] items-center gap-x-4 py-2.5 hover:bg-paper-hover">
       <span className="flex items-center gap-2 pl-1">
         <span className={cn("text-[0.875rem] font-[550] tnum", d.status === "live" ? "text-ink" : "text-ink-2")}>v{v}</span>
       </span>

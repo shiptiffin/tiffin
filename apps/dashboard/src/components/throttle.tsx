@@ -84,7 +84,7 @@ export function Throttle({
   };
   const full = idx >= lastFit && lastFit < n - 1;
   const btn =
-    "grid h-full w-8 place-items-center text-ink-2 transition-colors hover:bg-paper-sunk hover:text-ink disabled:pointer-events-none disabled:text-ink-4 [&_svg]:size-3.5";
+    "grid h-full w-8 place-items-center text-ink-2 transition-colors hover:bg-paper-hover hover:text-ink disabled:pointer-events-none disabled:text-ink-4 [&_svg]:size-3.5";
   return (
     <div className={cn("inline-flex flex-col items-start gap-1", className)} onClick={(e) => e.stopPropagation()}>
       <div className={cn("inline-flex items-stretch overflow-hidden rounded-[8px] border border-rule-2 bg-paper-raised shadow-[var(--top-light)]", size === "mini" ? "h-7" : "h-8")}>

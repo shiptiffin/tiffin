@@ -100,7 +100,7 @@ export function ProjectHistoryPage({ project }: { project: string }) {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="opacity-70 group-hover:opacity-100 focus-visible:opacity-100"
+                          
                           onClick={async () => {
                             try {
                               await db.undo(project, e.id);
@@ -152,7 +152,7 @@ export function ProjectHistoryPage({ project }: { project: string }) {
                       </p>
                     </div>
                     {undoable && (
-                      <Button variant="ghost" size="sm" className="relative z-10 opacity-70 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => void undoChange(c.id)}>
+                      <Button variant="ghost" size="sm" className="relative z-10" onClick={() => void undoChange(c.id)}>
                         Undo
                       </Button>
                     )}

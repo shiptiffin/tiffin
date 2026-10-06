@@ -74,7 +74,7 @@ export function BoxSize({ server }: { server?: BoxServer }) {
                   onClick={() => setType(o.name)}
                   className={cn(
                     "flex items-baseline justify-between gap-4 rounded-[8px] border px-3 py-2 text-left transition-colors duration-[var(--dur-state)]",
-                    o.soldOut ? "border-rule text-ink-3 opacity-70" : o.name === pick.name ? "border-brass bg-paper-sunk" : "border-rule hover:bg-paper-sunk",
+                    o.soldOut ? "border-rule text-ink-3 opacity-70" : o.name === pick.name ? "border-brass bg-paper-select" : "border-rule hover:bg-paper-hover",
                   )}
                 >
                   <span className="min-w-0">

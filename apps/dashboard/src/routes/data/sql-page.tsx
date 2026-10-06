@@ -287,7 +287,7 @@ export function SqlPanel({ project, branch, handed }: { project: string; branch:
                     type="button"
                     aria-label={`Delete the saved query ${q.name}`}
                     onClick={() => void forget(q.name, q.sql)}
-                    className="grid size-6 shrink-0 place-items-center rounded-[5px] text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-paper-sunk hover:text-ink focus-visible:opacity-100 max-sm:opacity-100"
+                    className="grid size-6 shrink-0 place-items-center rounded-[5px] text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-paper-hover hover:text-ink focus-visible:opacity-100 max-sm:opacity-100"
                   >
                     <X className="size-3.5" />
                   </button>

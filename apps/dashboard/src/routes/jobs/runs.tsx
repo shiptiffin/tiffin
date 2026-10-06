@@ -169,8 +169,8 @@ export function RunsTab({ project, search }: { project: string; search: JobsSear
                     replace
                     aria-current={it.id === selected ? "true" : undefined}
                     className={cn(
-                      "grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 border-b border-rule px-2 py-2.5 transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk/60",
-                      it.id === selected && "bg-paper-sunk",
+                      "grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 border-b border-rule px-2 py-2.5 transition-colors duration-[var(--dur-state)] hover:bg-paper-hover/60",
+                      it.id === selected && "bg-paper-select",
                     )}
                   >
                     <span className="min-w-0">

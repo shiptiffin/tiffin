@@ -81,7 +81,7 @@ export function LinkPicker({
           <Command.List className="mt-2 max-h-[min(22rem,50vh)] overflow-y-auto px-3 pb-3">
             <Command.Empty className="px-3 py-6 text-center text-base text-ink-3">{rows.isFetching ? "Looking…" : "No rows match."}</Command.Empty>
             {nullable && (
-              <Command.Item value="__none" onSelect={() => onPick(null)} className="flex h-9 cursor-default items-center gap-3 rounded-md px-3 text-base text-ink-3 data-[selected=true]:bg-paper-sunk data-[selected=true]:text-ink">
+              <Command.Item value="__none" onSelect={() => onPick(null)} className="flex h-9 cursor-default items-center gap-3 rounded-md px-3 text-base text-ink-3 data-[selected=true]:bg-paper-select data-[selected=true]:text-ink">
                 No link (empty)
               </Command.Item>
             )}
@@ -92,7 +92,7 @@ export function LinkPicker({
                   key={rawText(k)}
                   value={rawText(k)}
                   onSelect={() => onPick(k, li >= 0 ? rawText(r[li]) : undefined)}
-                  className="group flex h-9 cursor-default items-center gap-3 rounded-md px-3 text-base text-ink data-[selected=true]:bg-paper-sunk"
+                  className="group flex h-9 cursor-default items-center gap-3 rounded-md px-3 text-base text-ink data-[selected=true]:bg-paper-select"
                 >
                   <span className="min-w-0 flex-1 truncate">{li >= 0 ? rawText(r[li]) || <span className="text-ink-3">empty</span> : rawText(k)}</span>
                   <span className="shrink-0 font-mono text-xs text-ink-3">{rawText(k).slice(0, 13)}</span>

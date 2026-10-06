@@ -82,7 +82,7 @@ const pages: Array<{
     full: false,
   },
   { name: "passkeys", url: "/settings/passkeys", wait: (p) => p.getByRole("heading", { name: "Sign in with Touch ID / Face ID" }).waitFor() },
-  { name: "home-empty", url: "/", stub: asEmptyBox, wait: (p) => p.getByRole("heading", { name: "Start a project" }).waitFor() },
+  { name: "home-empty", url: "/", stub: asEmptyBox, wait: (p) => p.getByText("Your tiffin is packed. Nothing in it yet.").waitFor() },
   { name: "project", url: "/projects/shop", wait: (p) => p.getByRole("heading", { name: "Database" }).waitFor() },
   {
     name: "project-add",

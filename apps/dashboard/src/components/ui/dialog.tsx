@@ -28,7 +28,7 @@ export function DialogContent({
         {children}
         {!hideClose && (
           <D.Close
-            className="absolute right-3 top-3 grid size-7 place-items-center rounded-md text-ink-3 transition-colors hover:bg-paper-sunk hover:text-ink"
+            className="absolute right-3 top-3 grid size-7 place-items-center rounded-md text-ink-3 transition-colors hover:bg-paper-hover hover:text-ink"
             aria-label="Close"
           >
             <X className="size-4" />

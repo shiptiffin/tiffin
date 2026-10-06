@@ -23,7 +23,7 @@ export function WhoTrigger(props: ComponentProps<"button">) {
     <button
       type="button"
       aria-label="Account"
-      className="flex h-8 w-full items-center gap-2.5 rounded-[7px] px-1 text-[0.8125rem] text-ink transition-colors hover:bg-paper-sunk data-[state=open]:bg-paper-sunk"
+      className="flex h-8 w-full items-center gap-2.5 rounded-[7px] px-1 text-[0.8125rem] text-ink transition-colors hover:bg-paper-hover data-[state=open]:bg-paper-select"
       {...props}
     >
       <span aria-hidden className="grid size-6 shrink-0 place-items-center rounded-full bg-ink text-[0.6875rem] font-[550] text-paper">

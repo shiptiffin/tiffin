@@ -70,7 +70,7 @@ export function Select({
               <S.Item
                 key={o.value}
                 value={o.value}
-                className="relative flex h-8 cursor-default items-center rounded-md pr-8 pl-2 text-base text-ink-2 outline-none select-none data-[highlighted]:bg-paper-sunk data-[highlighted]:text-ink"
+                className="relative flex h-8 cursor-default items-center rounded-md pr-8 pl-2 text-base text-ink-2 outline-none select-none data-[highlighted]:bg-paper-hover data-[highlighted]:text-ink"
               >
                 <S.ItemText>{o.label}</S.ItemText>
                 <S.ItemIndicator className="absolute right-2">

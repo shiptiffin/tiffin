@@ -434,7 +434,7 @@ function FromApps({ spec: s, project }: { spec: Spec; project: string }) {
               <T.Trigger
                 key={x.label}
                 value={x.label}
-                className="h-7 shrink-0 rounded-[6px] px-2.5 text-[0.8125rem] whitespace-nowrap text-ink-3 transition-colors hover:text-ink data-[state=active]:bg-paper-raised data-[state=active]:font-[550] data-[state=active]:text-ink data-[state=active]:shadow-[var(--top-light)]"
+                className="h-7 shrink-0 rounded-[6px] px-2.5 text-[0.8125rem] whitespace-nowrap text-ink-3 transition-colors hover:text-ink data-[state=active]:bg-paper-lift data-[state=active]:font-[550] data-[state=active]:text-ink data-[state=active]:shadow-[var(--top-light)]"
               >
                 {x.label}
               </T.Trigger>

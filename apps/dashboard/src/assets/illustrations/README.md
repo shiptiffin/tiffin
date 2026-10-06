@@ -44,7 +44,7 @@ largest display size.
 | `starter-next.webp` | 640x400 | 320x200 | New project and starter pickers, "Next.js app" (three open tins: rice, soup, bread rolls) |
 | `starter-api.webp` | 640x400 | 320x200 | "API" (a closed tin with an order slip) |
 | `starter-static.webp` | 640x400 | 320x200 | "Static site" (one open tin of round cookies) |
-| `empty-projects.webp` | 640x320 | 300x150 | Projects, first run with nothing in the box (the mascot alone on an empty hand cart) |
+| `empty-projects.webp` | 640x320 | — | Not placed now (an empty box opens on New project); the mascot alone on an empty hand cart |
 | `empty-inbox.webp` | 400x400 | 160 | Email dev inbox, nothing caught; the 404 page (lid up, an empty dashed slot above) |
 | `empty-backups.webp` | 480x280 | 240x140 | Backups, none yet (the mascot beside a pantry shelf of jars) |
 | `og-card.png` | 1200x630 | social card | README / social preview: flat paper (#F3EDE1), the cart with five tins on the right, the left ~50 % empty for a headline. No text. 96-colour PNG. |

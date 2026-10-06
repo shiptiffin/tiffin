@@ -310,7 +310,7 @@ function BucketView({ project, bucket, prefix, file }: { project: string; bucket
                     onClick={() => go({ prefix: i === 0 ? "" : `${parts.slice(0, i).join("/")}/` })}
                     aria-current={here ? "location" : undefined}
                     className={cn(
-                      "rounded-[5px] px-1.5 py-0.5 transition-colors hover:bg-paper-sunk",
+                      "rounded-[5px] px-1.5 py-0.5 transition-colors hover:bg-paper-hover",
                       here ? "text-ink" : "text-ink-3 hover:text-ink",
                     )}
                   >
@@ -344,7 +344,7 @@ function BucketView({ project, bucket, prefix, file }: { project: string; bucket
                   type="button"
                   onClick={() => setSearch("")}
                   aria-label="Clear the search"
-                  className="absolute right-1 grid size-6 place-items-center rounded-[5px] text-ink-3 hover:bg-paper-sunk"
+                  className="absolute right-1 grid size-6 place-items-center rounded-[5px] text-ink-3 hover:bg-paper-hover"
                 >
                   <X className="size-3.5" />
                 </button>

@@ -78,7 +78,7 @@ export function FilePanel({
           type="button"
           onClick={onClose}
           aria-label="Back to the files"
-          className="grid size-7 place-items-center rounded-[6px] text-ink-3 hover:bg-paper-sunk hover:text-ink lg:hidden"
+          className="grid size-7 place-items-center rounded-[6px] text-ink-3 hover:bg-paper-hover hover:text-ink lg:hidden"
         >
           <ArrowLeft className="size-4" />
         </button>
@@ -92,7 +92,7 @@ export function FilePanel({
           onClick={onClose}
           aria-label="Close (Esc)"
           title="Close (Esc)"
-          className="grid size-7 place-items-center rounded-[6px] text-ink-3 hover:bg-paper-sunk hover:text-ink max-lg:hidden"
+          className="grid size-7 place-items-center rounded-[6px] text-ink-3 hover:bg-paper-hover hover:text-ink max-lg:hidden"
         >
           <X className="size-4" />
         </button>

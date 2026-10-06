@@ -322,7 +322,7 @@ function TableNav({ project, list, loaded, current, branch }: { project: string;
           aria-current={on ? "page" : undefined}
           className={cn(
             "flex h-8 items-center gap-2 rounded-[6px] px-2.5 text-[0.84375rem] transition-colors",
-            on ? "bg-paper-press font-[550] text-ink" : "text-ink-2 hover:bg-paper-sunk hover:text-ink",
+            on ? "bg-paper-press font-[550] text-ink" : "text-ink-2 hover:bg-paper-hover hover:text-ink",
           )}
         >
           <span className="min-w-0 flex-1 truncate font-mono text-[0.8125rem]">{t.managed ? s : t.name}</span>

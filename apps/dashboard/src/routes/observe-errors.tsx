@@ -89,8 +89,8 @@ export function ErrorsPage({ project, status = "unresolved" }: { project?: strin
             onClick={() => set({ status: s.v === "unresolved" ? undefined : s.v })}
             aria-current={st === s.v ? "page" : undefined}
             className={cn(
-              "relative flex h-10 items-center gap-2 px-3 text-[0.875rem] text-ink-3 transition-colors hover:text-ink",
-              st === s.v && "font-[550] text-ink after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full after:bg-ink",
+              "relative flex h-10 items-center gap-2 px-3 text-[0.875rem] transition-colors hover:text-ink",
+              st === s.v ? "font-[550] text-ink after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full after:bg-ink" : "text-ink-3",
             )}
           >
             {s.label}
@@ -119,7 +119,7 @@ export function ErrorsPage({ project, status = "unresolved" }: { project?: strin
                   <Link
                     to="/errors/$id"
                     params={{ id: i.id }}
-                    className="group -mx-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-6 rounded-[6px] px-2 py-3.5 transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk sm:grid-cols-[3.25rem_minmax(0,1fr)_7rem]"
+                    className="group -mx-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-6 rounded-[6px] px-2 py-3.5 transition-colors duration-[var(--dur-state)] hover:bg-paper-hover sm:grid-cols-[3.25rem_minmax(0,1fr)_7rem]"
                   >
                     <LevelWord level={i.level} className="hidden pt-px text-[0.8125rem] sm:block" />
                     <span className="min-w-0">

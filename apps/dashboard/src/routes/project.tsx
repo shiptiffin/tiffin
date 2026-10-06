@@ -194,7 +194,7 @@ function Tile({
 }
 
 function TileAction({ children, ...rest }: { children: ReactNode } & ({ href: string } | { to: string; params: Record<string, string>; search?: Record<string, unknown> })) {
-  const cls = "inline-flex h-7 items-center gap-1 rounded-[6px] px-2 text-[0.8125rem] font-[550] text-ink-2 transition-colors hover:bg-paper-sunk hover:text-ink [&_svg]:size-3.5";
+  const cls = "inline-flex h-7 items-center gap-1 rounded-[6px] px-2 text-[0.8125rem] font-[550] text-ink-2 transition-colors hover:bg-paper-hover hover:text-ink [&_svg]:size-3.5";
   if ("href" in rest)
     return (
       <a href={rest.href} target="_blank" rel="noopener noreferrer" className={cls}>
@@ -436,7 +436,7 @@ function AddTile({ project, manifest, routes, empty }: { project: string; manife
         trigger={
           <button
             disabled={!manifest}
-            className="flex w-full flex-col items-center justify-center gap-1.5 rounded-[12px] border border-dashed border-rule-3 px-4 text-center text-ink-3 transition-colors duration-[var(--dur-state)] hover:border-ink-4 hover:bg-paper-sunk hover:text-ink disabled:opacity-50"
+            className="flex w-full flex-col items-center justify-center gap-1.5 rounded-[12px] border border-dashed border-rule-3 px-4 text-center text-ink-3 transition-colors duration-[var(--dur-state)] hover:border-ink-4 hover:bg-paper-hover hover:text-ink disabled:opacity-50"
           >
             <Plus className="size-5" />
             <span className="text-[0.9375rem] font-[550]">{empty ? "Add the first part" : "Add"}</span>

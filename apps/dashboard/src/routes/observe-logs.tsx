@@ -228,7 +228,7 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
             type="button"
             onClick={() => (setText(p.q === "*" ? "" : p.q), set({ q: p.q }))}
             aria-pressed={q === p.q}
-            className={cn("text-ink-3 transition-colors hover:text-ink", q === p.q && "font-[550] text-ink underline decoration-brass decoration-2 underline-offset-[6px]")}
+            className={cn(" transition-colors hover:text-ink", q === p.q ? "font-[550] text-ink underline decoration-brass decoration-2 underline-offset-[6px]" : "text-ink-3")}
           >
             {p.label}
           </button>
@@ -283,8 +283,8 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
                       onClick={() => setOpen(isOpen ? null : l.key)}
                       aria-expanded={isOpen}
                       className={cn(
-                        "grid w-full grid-cols-[4.5rem_2.75rem_minmax(0,1fr)] items-baseline gap-x-3 px-3 text-left hover:bg-paper-sunk sm:grid-cols-[4.5rem_2.75rem_7.5rem_minmax(0,1fr)]",
-                        isOpen && "bg-paper-sunk",
+                        "grid w-full grid-cols-[4.5rem_2.75rem_minmax(0,1fr)] items-baseline gap-x-3 px-3 text-left hover:bg-paper-hover sm:grid-cols-[4.5rem_2.75rem_7.5rem_minmax(0,1fr)]",
+                        isOpen && "bg-paper-select",
                       )}
                     >
                       <time className="text-ink-3 tnum" dateTime={String(l.row._time)} title={full(String(l.row._time))}>
@@ -327,7 +327,7 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
           <button
             type="button"
             onClick={jump}
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-rule-2 bg-paper-raised px-3.5 py-1.5 text-[0.8125rem] font-[550] text-ink shadow-raised transition-colors hover:bg-paper-sunk"
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-rule-2 bg-paper-raised px-3.5 py-1.5 text-[0.8125rem] font-[550] text-ink shadow-raised transition-colors hover:bg-paper-hover"
           >
             {behind > 0 ? `${int(behind)} new ${behind === 1 ? "line" : "lines"} ↓` : "Back to the newest ↓"}
           </button>

@@ -108,7 +108,7 @@ function ToastCard({ t }: { t: Item }) {
       <button
         type="button"
         aria-label="Dismiss"
-        className="grid size-7 shrink-0 place-items-center rounded-[6px] text-ink-3 transition-colors hover:bg-paper-sunk hover:text-ink"
+        className="grid size-7 shrink-0 place-items-center rounded-[6px] text-ink-3 transition-colors hover:bg-paper-hover hover:text-ink"
         onClick={() => dismiss(t.id)}
       >
         <X className="size-3.5" />

@@ -27,7 +27,7 @@ export function Segmented<T extends string>({
         <RadioItem
           key={o.value}
           value={o.value}
-          className="h-6 rounded-[5px] px-2.5 text-[0.8125rem] text-ink-2 transition-colors hover:text-ink data-[state=checked]:bg-paper-raised data-[state=checked]:text-ink data-[state=checked]:shadow-[0_1px_2px_oklch(0.3_0.02_60/0.12)]"
+          className="h-6 rounded-[5px] px-2.5 text-[0.8125rem] text-ink-2 transition-colors hover:text-ink data-[state=checked]:bg-paper-lift data-[state=checked]:text-ink data-[state=checked]:shadow-[0_1px_2px_oklch(0.3_0.02_60/0.12)]"
         >
           {o.label}
         </RadioItem>

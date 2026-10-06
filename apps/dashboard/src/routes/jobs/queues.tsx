@@ -377,7 +377,7 @@ function Topics({ project, list, stats, declared }: { project: string; list?: Qu
                     <li key={s} className="inline-flex h-7 items-center gap-1 rounded-full border border-rule-2 pr-1 pl-2.5 text-[0.8125rem] text-ink-2">
                       <span className="ident text-[0.75rem]">{s}</span>
                       {can("apply:reversible") && (
-                        <button type="button" onClick={() => remove(t, s)} aria-label={`Remove ${s} from ${t.name}`} className="grid size-5 place-items-center rounded-full text-ink-3 hover:bg-paper-sunk hover:text-ink">
+                        <button type="button" onClick={() => remove(t, s)} aria-label={`Remove ${s} from ${t.name}`} className="grid size-5 place-items-center rounded-full text-ink-3 hover:bg-paper-hover hover:text-ink">
                           <X className="size-3" />
                         </button>
                       )}

@@ -192,7 +192,7 @@ export function ValueGrid({
                         "min-w-0 px-3 py-[7px] font-mono text-[0.78125rem] leading-5 text-ink outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--focus)] focus-visible:[border-radius:0]",
                         c.quiet && "text-ink-3",
                         c.align === "right" && "text-right",
-                        editable && "cursor-text hover:bg-paper-sunk/60",
+                        editable && "cursor-text hover:bg-paper-hover/60",
                         isEditing && "p-1",
                       )}
                     >

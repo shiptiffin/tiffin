@@ -176,7 +176,7 @@ export function InboxPage({ project, q = "", m }: { project: string; q?: string;
                 <button
                   onClick={() => setQuery("")}
                   aria-label="Clear search"
-                  className="grid size-6 place-items-center rounded-[5px] text-ink-3 hover:bg-paper-sunk"
+                  className="grid size-6 place-items-center rounded-[5px] text-ink-3 hover:bg-paper-hover"
                 >
                   <X className="size-3.5" />
                 </button>
@@ -197,8 +197,8 @@ export function InboxPage({ project, q = "", m }: { project: string; q?: string;
                     <button
                       onClick={() => go({ q, m: s.id })}
                       className={cn(
-                        "relative block w-full py-3 text-left transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk lg:pr-4 lg:pl-3",
-                        active && "bg-paper-sunk",
+                        "relative block w-full py-3 text-left transition-colors duration-[var(--dur-state)] hover:bg-paper-hover lg:pr-4 lg:pl-3",
+                        active && "bg-paper-select",
                         fresh.has(s.id) && "animate-rise",
                       )}
                       aria-current={active}
@@ -334,7 +334,7 @@ function Message({ project, id, onBack, onDeleted }: { project: string; id: stri
         <div className="flex items-start gap-2">
           <button
             onClick={onBack}
-            className="-ml-1.5 grid size-8 shrink-0 place-items-center rounded-[6px] text-ink-3 hover:bg-paper-sunk lg:hidden"
+            className="-ml-1.5 grid size-8 shrink-0 place-items-center rounded-[6px] text-ink-3 hover:bg-paper-hover lg:hidden"
             aria-label="Back to the list"
           >
             <ArrowLeft className="size-4" />
@@ -344,7 +344,7 @@ function Message({ project, id, onBack, onDeleted }: { project: string; id: stri
             <a
               href={msg.rawUrl}
               download
-              className="grid size-8 place-items-center rounded-[6px] text-ink-3 hover:bg-paper-sunk hover:text-ink"
+              className="grid size-8 place-items-center rounded-[6px] text-ink-3 hover:bg-paper-hover hover:text-ink"
               title="Download the raw message (.eml)"
               aria-label="Download the raw message"
             >
@@ -427,9 +427,8 @@ function Message({ project, id, onBack, onDeleted }: { project: string; id: stri
               onClick={() => setTab(k)}
               aria-pressed={t === k}
               className={cn(
-                "relative h-10 px-2.5 text-sm text-ink-3 transition-colors hover:text-ink first:max-lg:pl-0",
-                t === k &&
-                  "font-[550] text-ink after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-ink first:max-lg:after:left-0",
+                "relative h-10 px-2.5 text-sm transition-colors hover:text-ink first:max-lg:pl-0",
+                t === k ? "font-[550] text-ink after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-ink first:max-lg:after:left-0" : "text-ink-3",
               )}
             >
               {label}

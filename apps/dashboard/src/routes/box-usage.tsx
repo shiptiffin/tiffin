@@ -166,7 +166,7 @@ function ByProject({ names, totals, held }: { names: string[]; totals: Map<strin
               return (
                 // The whole row opens the project (the name is the link for keyboards and screen readers).
                 <tr key={r.name} className="group cursor-pointer" onClick={() => void navigate({ to: "/projects/$project/usage", params: { project: r.name } })}>
-                  <td className="sticky left-0 z-[1] border-b border-rule bg-paper py-2.5 pr-3 group-hover:bg-paper-sunk">
+                  <td className="sticky left-0 z-[1] border-b border-rule bg-paper py-2.5 pr-3 group-hover:bg-paper-hover">
                     <span className="flex min-w-0 items-center gap-2.5">
                       <ProjectIcon project={r.name} size={18} />
                       <span className="min-w-0">
@@ -184,7 +184,7 @@ function ByProject({ names, totals, held }: { names: string[]; totals: Map<strin
                   {cols.map((c) => {
                     const v = r.v[c.key];
                     return (
-                      <td key={c.key} className="border-b border-rule px-3 py-2.5 text-right whitespace-nowrap text-ink-2 tnum group-hover:bg-paper-sunk">
+                      <td key={c.key} className="border-b border-rule px-3 py-2.5 text-right whitespace-nowrap text-ink-2 tnum group-hover:bg-paper-hover">
                         {v === undefined ? <span className="text-ink-4">–</span> : c.show(v)}
                       </td>
                     );

@@ -141,9 +141,9 @@ function JobsTabs({ project, tab }: { project: string; tab: JobsTab }) {
           params={{ project } as never}
           aria-current={t.tab === tab ? "page" : undefined}
           className={cn(
-            "relative flex h-10 shrink-0 items-center gap-2 px-3 text-[0.875rem] text-ink-3 transition-colors first:pl-0 hover:text-ink",
+            "relative flex h-10 shrink-0 items-center gap-2 px-3 text-[0.875rem] transition-colors first:pl-0 hover:text-ink",
             "after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full first:after:left-0",
-            t.tab === tab ? "font-[550] text-ink after:bg-ink" : "after:bg-transparent",
+            t.tab === tab ? "font-[550] text-ink after:bg-ink" : "after:bg-transparent text-ink-3",
           )}
         >
           {t.label}

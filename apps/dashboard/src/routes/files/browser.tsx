@@ -341,9 +341,9 @@ export const Browser = forwardRef<
         aria-selected={isOn}
         onClick={(e) => click(e, i)}
         className={cn(
-          "group absolute inset-x-0 top-0 grid h-10 cursor-default items-center gap-x-4 rounded-[6px] pr-1 pl-1 transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk",
+          "group absolute inset-x-0 top-0 grid h-10 cursor-default items-center gap-x-4 rounded-[6px] pr-1 pl-1 transition-colors duration-[var(--dur-state)] hover:bg-paper-hover",
           listCols,
-          (isOn || isActive) && "bg-paper-sunk",
+          (isOn || isActive) && "bg-paper-select",
         )}
         style={{ transform: `translateY(${start}px)` }}
       >

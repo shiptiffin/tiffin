@@ -185,7 +185,7 @@ const SwitcherButton = forwardRef<HTMLButtonElement, ComponentProps<"button"> & 
       type="button"
       aria-label={project ? `Project ${project}. Switch project` : "Switch project"}
       className={cn(
-        "flex min-w-0 items-center gap-2.5 rounded-[8px] text-left transition-colors hover:bg-paper-sunk data-[state=open]:bg-paper-sunk",
+        "flex min-w-0 items-center gap-2.5 rounded-[8px] text-left transition-colors hover:bg-paper-hover data-[state=open]:bg-paper-select",
         compact ? "h-9 px-2" : "h-11 w-full px-2",
       )}
       {...props}
@@ -227,13 +227,13 @@ function OwnSwitcher() {
 function MobileBar({ onMenu, onSearch, switcher }: { onMenu: () => void; onSearch: () => void; switcher: ReactNode }) {
   return (
     <header className="sticky top-0 z-30 flex h-[52px] items-center gap-1 border-b border-rule bg-paper px-2 sm:px-4 lg:hidden">
-      <button onClick={onMenu} className="grid size-10 shrink-0 place-items-center rounded-[8px] text-ink-2 hover:bg-paper-sunk" aria-label="Open navigation">
+      <button onClick={onMenu} className="grid size-10 shrink-0 place-items-center rounded-[8px] text-ink-2 hover:bg-paper-hover" aria-label="Open navigation">
         <MenuIcon className="size-[18px]" />
       </button>
       <div className="min-w-0">{switcher}</div>
       <button
         onClick={onSearch}
-        className="ml-auto grid size-10 shrink-0 place-items-center rounded-[8px] text-ink-2 hover:bg-paper-sunk"
+        className="ml-auto grid size-10 shrink-0 place-items-center rounded-[8px] text-ink-2 hover:bg-paper-hover"
         aria-label="Search and commands"
       >
         <Search className="size-[18px]" />
@@ -278,7 +278,7 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
         <div className="flex flex-col gap-px pl-1">
           <Link
             to="/"
-            className="mb-1.5 flex h-7 items-center gap-1.5 rounded-[7px] px-2.5 text-[0.8125rem] text-ink-3 transition-colors hover:bg-paper-sunk hover:text-ink"
+            className="mb-1.5 flex h-7 items-center gap-1.5 rounded-[7px] px-2.5 text-[0.8125rem] text-ink-3 transition-colors hover:bg-paper-hover hover:text-ink"
           >
             <ArrowLeft className="size-3.5" />
             All projects
@@ -388,10 +388,10 @@ function NavItem({
       activeOptions={{ exact: !!exact, includeSearch: false }}
       data-force={active ? "" : undefined}
       className={cn(
-        "group relative flex items-center gap-2 rounded-[7px] text-ink-2 transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk hover:text-ink",
+        "group relative flex items-center gap-2 rounded-[7px] text-ink-2 transition-colors duration-[var(--dur-state)] hover:bg-paper-hover hover:text-ink",
         sub ? "h-7 pr-2 pl-[26px] text-[0.8125rem]" : "h-[30px] px-2.5 text-[0.875rem]",
-        active === false ? "" : "data-[status=active]:bg-paper-sunk data-[status=active]:text-ink",
-        "data-[force]:bg-paper-sunk data-[force]:text-ink",
+        active === false ? "" : "data-[status=active]:bg-paper-select data-[status=active]:text-ink",
+        "data-[force]:bg-paper-select data-[force]:text-ink",
         !sub && "data-[force]:font-[550]",
         !sub && active !== false && "data-[status=active]:font-[550]",
       )}

@@ -96,7 +96,7 @@ export function UsageCharts({ project, apps, usage }: { project: string; apps: s
           type="button"
           aria-pressed={tables}
           onClick={() => setTables((x) => !x)}
-          className={cn("inline-flex h-8 items-center gap-1.5 rounded-[8px] px-2 text-[0.8125rem] text-ink-3 hover:text-ink", tables && "text-ink")}
+          className={cn("inline-flex h-8 items-center gap-1.5 rounded-[8px] px-2 text-[0.8125rem] hover:text-ink", tables ? "text-ink" : "text-ink-3")}
         >
           <Table2 aria-hidden className="size-4" />
           <span className="max-sm:sr-only">Tables</span>

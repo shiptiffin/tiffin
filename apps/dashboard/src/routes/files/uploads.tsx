@@ -416,7 +416,7 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="grid size-6 shrink-0 place-items-center rounded-[5px] text-ink-3 hover:bg-paper-sunk hover:text-ink [&_svg]:size-3.5"
+      className="grid size-6 shrink-0 place-items-center rounded-[5px] text-ink-3 hover:bg-paper-hover hover:text-ink [&_svg]:size-3.5"
     >
       {children}
     </button>

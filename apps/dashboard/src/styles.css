@@ -13,6 +13,9 @@
   --color-paper-sunk: var(--paper-sunk);
   --color-paper-raised: var(--paper-raised);
   --color-paper-press: var(--paper-press);
+  --color-paper-hover: var(--paper-hover);
+  --color-paper-select: var(--paper-select);
+  --color-paper-lift: var(--paper-lift);
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
   --color-ink-3: var(--ink-3);

@@ -477,7 +477,7 @@ const GridRow = memo(function GridRow({
       role="row"
       aria-rowindex={i + 2}
       aria-selected={selectable ? selected : undefined}
-      className={cn("group/r absolute top-0 left-0 grid border-b border-rule", selected ? "bg-brass-wash/60" : "bg-paper-raised hover:bg-paper-sunk/70")}
+      className={cn("group/r absolute top-0 left-0 grid border-b border-rule", selected ? "bg-brass-wash/60" : "bg-paper-raised hover:bg-paper-hover/70")}
       style={{ transform: `translateY(${top}px)`, gridTemplateColumns: template, height: ROW, minWidth: width, width: "100%" }}
     >
       {selectable && (

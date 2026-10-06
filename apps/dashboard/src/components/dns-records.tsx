@@ -78,8 +78,8 @@ export function HostHints({ className }: { className?: string }) {
             aria-pressed={at === h.name}
             onClick={() => setAt(at === h.name ? null : h.name)}
             className={cn(
-              "h-6 rounded-[6px] px-2 text-ink-2 transition-colors hover:bg-paper-sunk hover:text-ink",
-              at === h.name && "bg-paper-sunk font-[550] text-ink",
+              "h-6 rounded-[6px] px-2 transition-colors hover:bg-paper-hover hover:text-ink",
+              at === h.name ? "bg-paper-select font-[550] text-ink" : "text-ink-2",
             )}
           >
             {h.name}

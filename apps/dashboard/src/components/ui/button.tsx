@@ -12,8 +12,8 @@ import { cn } from "@/lib/cn";
 const variants = {
   primary:
     "bg-brass text-on-brass shadow-[inset_0_1px_0_oklch(1_0_0/0.2),0_1px_1px_oklch(0.3_0.05_70/0.2)] hover:bg-[color-mix(in_oklch,var(--brass)_92%,var(--ink))] disabled:bg-paper-press disabled:text-ink-3 disabled:shadow-none disabled:opacity-100",
-  secondary: "bg-paper-raised text-ink border border-rule-2 shadow-[var(--top-light),0_1px_0_oklch(0.235_0.014_60/0.04)] hover:bg-paper-sunk",
-  ghost: "text-ink-2 hover:text-ink hover:bg-paper-sunk",
+  secondary: "bg-paper-raised text-ink border border-rule-2 shadow-[var(--top-light),0_1px_0_oklch(0.235_0.014_60/0.04)] hover:bg-paper-hover",
+  ghost: "text-ink-2 hover:text-ink hover:bg-paper-hover",
   danger: "bg-danger text-on-danger shadow-[inset_0_1px_0_oklch(1_0_0/0.16)] hover:bg-[color-mix(in_oklch,var(--danger)_90%,var(--ink))]",
   "danger-quiet": "text-danger hover:bg-danger-wash",
 } as const;

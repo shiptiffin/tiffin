@@ -41,6 +41,10 @@
   --rule-2: oklch(0.235 0.014 60 / 0.17);
   --rule-3: oklch(0.235 0.014 60 / 0.4);
   --steel: oklch(0.64 0.01 75);
+  /* interactive states: hover, selected, and a chip lifted out of a track */
+  --paper-hover: var(--paper-sunk);
+  --paper-select: var(--paper-sunk);
+  --paper-lift: var(--paper-raised);
   /* the mark (logo): ink lines on flat steel */
   --mark-line: var(--ink);
   --mark-handle: var(--ink);
@@ -98,12 +102,16 @@
     --ink: oklch(0.935 0.008 85);
     --ink-2: oklch(0.775 0.009 80);
     --ink-3: oklch(0.665 0.009 78);
-    --ink-4: oklch(0.55 0.008 75);
+    --ink-4: oklch(0.62 0.008 75); /* 4.7:1 on raised paper */
     --graphite: oklch(0.76 0.035 245);
     --rule: oklch(0.935 0.008 85 / 0.085);
     --rule-2: oklch(0.935 0.008 85 / 0.15);
     --rule-3: oklch(0.935 0.008 85 / 0.34);
     --steel: oklch(0.5 0.008 75);
+    /* states go lighter on a dark ground; sunk would vanish */
+    --paper-hover: oklch(0.255 0.006 65);
+    --paper-select: oklch(0.29 0.007 65);
+    --paper-lift: oklch(0.32 0.007 65);
     /* the mark: polished steel with a soft outline, never glaring white */
     --mark-line: oklch(0.41 0.008 60);
     --mark-handle: oklch(0.84 0.007 250);
@@ -154,12 +162,16 @@
   --ink: oklch(0.935 0.008 85);
   --ink-2: oklch(0.775 0.009 80);
   --ink-3: oklch(0.665 0.009 78);
-  --ink-4: oklch(0.55 0.008 75);
+  --ink-4: oklch(0.62 0.008 75); /* 4.7:1 on raised paper */
   --graphite: oklch(0.76 0.035 245);
   --rule: oklch(0.935 0.008 85 / 0.085);
   --rule-2: oklch(0.935 0.008 85 / 0.15);
   --rule-3: oklch(0.935 0.008 85 / 0.34);
   --steel: oklch(0.5 0.008 75);
+  /* states go lighter on a dark ground; sunk would vanish */
+  --paper-hover: oklch(0.255 0.006 65);
+  --paper-select: oklch(0.29 0.007 65);
+  --paper-lift: oklch(0.32 0.007 65);
   /* the mark: polished steel with a soft outline, never glaring white */
   --mark-line: oklch(0.41 0.008 60);
   --mark-handle: oklch(0.84 0.007 250);

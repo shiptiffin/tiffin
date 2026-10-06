@@ -50,7 +50,7 @@ export function Sheet({
               <D.Title className="truncate text-lg font-[550] tracking-[-0.01em] text-ink">{title}</D.Title>
               {sub && <div className="mt-0.5 text-sm text-ink-3">{sub}</div>}
             </div>
-            <D.Close aria-label="Close" className="grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-paper-sunk hover:text-ink">
+            <D.Close aria-label="Close" className="grid size-7 shrink-0 place-items-center rounded-md text-ink-3 transition-colors hover:bg-paper-hover hover:text-ink">
               <X className="size-4" />
             </D.Close>
           </div>

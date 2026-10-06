@@ -1,20 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, Navigate } from "@tanstack/react-router";
 import { ArrowUpRight, LayoutGrid, List, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
-import emptyCart from "@/assets/illustrations/empty-projects.webp";
 import { q } from "@/api/queries";
 import { BoxBar } from "@/components/box-bar";
-import { Command } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
 import { NameAsk } from "@/components/name-ask";
 import { Page, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
-import { EmptyBoxStart } from "@/components/start-empty-box";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { words } from "@/lib/format";
-import { mcpCommand } from "@/lib/mcp";
 import { toneClass, useProjectPulse } from "@/lib/pulse";
 import { fullWords, memWords, useBoxShares, type Shares } from "@/lib/usage";
 import { useRecentProjects } from "@/lib/recent";
@@ -62,7 +58,8 @@ export function HomePage() {
       </Page>
     );
   }
-  if (projects.data && names.length === 0) return <FirstRun />;
+  // An empty box has nothing to list: it opens on New project, which says so in its own heading.
+  if (projects.data && names.length === 0) return <Navigate to="/new" replace />;
 
   return (
     <Page wide>
@@ -119,7 +116,7 @@ export function HomePage() {
                   aria-label={label}
                   title={label}
                   onClick={() => setView(v)}
-                  className={cn("grid size-7 place-items-center rounded-[5px] text-ink-3 [&_svg]:size-3.5", view === v && "bg-paper-sunk text-ink")}
+                  className={cn("grid size-7 place-items-center rounded-[5px] [&_svg]:size-3.5", view === v ? "bg-paper-select text-ink" : "text-ink-3")}
                 >
                   {icon}
                 </button>
@@ -266,7 +263,7 @@ function ProjectCard({ project, shares }: { project: string; shares?: Shares }) 
               <ArrowUpRight className="size-3 shrink-0" />
             </a>
           ) : (
-            <span className="text-ink-4">{pulse.loading ? " " : "No address yet"}</span>
+            <span className="text-ink-3">{pulse.loading ? " " : "No address yet"}</span>
           )}
         </div>
         <div className="mt-4 flex min-h-5 items-center gap-2 text-[0.875rem] text-ink-2">
@@ -291,7 +288,7 @@ function ProjectRow({ project, shares }: { project: string; shares?: Shares }) {
   const home = useProjectHome(project);
   const share = shares ? (shares.projects[project] ?? 0) / shares.totalMB : undefined;
   return (
-    <li className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 py-3 transition-colors hover:bg-paper-sunk sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto_5rem] sm:px-2">
+    <li className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 py-3 transition-colors hover:bg-paper-hover sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto_5rem] sm:px-2">
       <span className="flex min-w-0 items-center gap-2.5">
         <ProjectIcon project={project} size={18} />
         <Link to={home.to as "/projects/$project"} params={home.params} className="truncate text-[0.9375rem] font-[550] text-ink outline-none after:absolute after:inset-0 focus-visible:underline">
@@ -312,32 +309,4 @@ function shareOfBox(f: number) {
   if (f <= 0) return "nothing running";
   if (f < 0.01) return "under 1% of your box";
   return `${Math.round(f * 100)}% of your box`;
-}
-
-/** The first visit: the empty cart (the mascot riding alone), one sentence, the starters and the agent line. */
-function FirstRun() {
-  return (
-    <Page wide>
-      <NameAsk />
-      <header className="grid items-center gap-x-10 gap-y-2 sm:grid-cols-[minmax(0,1fr)_260px] lg:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="min-w-0">
-          <h1 className="sentence text-ink">Your tiffin is packed. Nothing in it yet.</h1>
-          <p className="mt-2 max-w-[36rem] text-[0.9375rem] leading-[1.375rem] text-ink-2">
-            Start a project and it gets its own address, and a database and sign-in if it wants them. It’s live in under a minute.
-          </p>
-        </div>
-        <span className="art-plate mx-auto block w-[260px] max-sm:hidden lg:w-[300px]" data-plate="tile">
-          <img src={emptyCart} alt="" width={300} height={150} className="block w-full select-none" draggable={false} />
-        </span>
-      </header>
-      <div className="mt-6 rounded-[12px] border border-rule-2 bg-paper-raised">
-        <EmptyBoxStart headline={false} />
-      </div>
-      <section aria-label="Hand it to your agent" className="mt-10 max-w-[40rem]">
-        <h2 className="text-[0.9375rem] font-[550] text-ink">Or hand it to your agent</h2>
-        <p className="mt-1 mb-3 text-sm text-ink-2">Claude Code can set up projects for you. It asks you before anything destructive, and every change can be undone in History.</p>
-        <Command cmd={mcpCommand()} />
-      </section>
-    </Page>
-  );
 }

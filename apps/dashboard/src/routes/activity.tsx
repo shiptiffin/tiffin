@@ -181,7 +181,7 @@ function Controls({ search, all, projects }: { search: ActivitySearch; all: Chan
   const navigate = useNavigate();
   const set = (patch: Partial<ActivitySearch>) => navigate({ to: "/ledger", search: { ...search, ...patch }, replace: true });
   const tierCount = (t: Tier) => all.filter((c) => asTier(c.plan.risk) === t).length;
-  const toggle = "inline-flex h-7 items-center gap-1.5 rounded-[6px] px-2 text-[0.8125rem] text-ink-3 transition-colors duration-[var(--dur-state)] hover:text-ink aria-pressed:bg-paper-sunk aria-pressed:text-ink disabled:pointer-events-none disabled:opacity-40";
+  const toggle = "inline-flex h-7 items-center gap-1.5 rounded-[6px] px-2 text-[0.8125rem] text-ink-3 transition-colors duration-[var(--dur-state)] hover:text-ink aria-pressed:bg-paper-select aria-pressed:text-ink disabled:pointer-events-none disabled:opacity-40";
   return (
     <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-rule py-1.5" role="toolbar" aria-label="Filter Activity">
       <div className="flex items-center" role="group" aria-label="Who">
@@ -223,7 +223,7 @@ function Controls({ search, all, projects }: { search: ActivitySearch; all: Chan
       {projects.length > 1 || search.project ? (
         <Menu>
           <MenuTrigger asChild>
-            <button type="button" className={cn(toggle, "data-[state=open]:bg-paper-sunk")} aria-label={`Project: ${search.project ?? "all"}`}>
+            <button type="button" className={cn(toggle, "data-[state=open]:bg-paper-select")} aria-label={`Project: ${search.project ?? "all"}`}>
               {search.project ? (
                 <>
                   <ProjectIcon project={search.project} size={14} />
@@ -429,7 +429,7 @@ function Entry({
       data-entry={index}
       data-sel={selected ? "" : undefined}
       onFocusCapture={onPick}
-      className="relative transition-colors duration-[var(--dur-state)] data-[sel]:bg-paper-sunk/70 before:absolute before:top-3.5 before:bottom-3.5 before:-left-3 before:w-[2px] before:rounded-full before:bg-transparent data-[sel]:before:bg-brass"
+      className="relative transition-colors duration-[var(--dur-state)] data-[sel]:bg-paper-select/70 before:absolute before:top-3.5 before:bottom-3.5 before:-left-3 before:w-[2px] before:rounded-full before:bg-transparent data-[sel]:before:bg-brass"
     >
       <SignedEntry
         time={clock(c.at)}

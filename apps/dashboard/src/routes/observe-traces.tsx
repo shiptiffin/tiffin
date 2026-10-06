@@ -103,7 +103,7 @@ export function TracesPage({ project, since = "24h", errors }: { project?: strin
                 <Link
                   to="/requests/$project/$id"
                   params={{ project: t.project, id: t.traceId }}
-                  className="-mx-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-6 rounded-[6px] px-2 py-3 transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk sm:grid-cols-[minmax(0,1fr)_6rem_5.5rem]"
+                  className="-mx-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-6 rounded-[6px] px-2 py-3 transition-colors duration-[var(--dur-state)] hover:bg-paper-hover sm:grid-cols-[minmax(0,1fr)_6rem_5.5rem]"
                 >
                   <span className="min-w-0">
                     <span className="block font-mono text-[0.84375rem] leading-[1.375rem] text-ink [overflow-wrap:anywhere]">{t.name}</span>
@@ -236,7 +236,7 @@ function SpanRow({ s, total, open, onToggle }: { s: TraceSpan; total: number; op
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className="grid w-full grid-cols-[minmax(0,1fr)_4.5rem] items-center gap-x-4 gap-y-1.5 py-2 text-left transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)_4.5rem]"
+        className="grid w-full grid-cols-[minmax(0,1fr)_4.5rem] items-center gap-x-4 gap-y-1.5 py-2 text-left transition-colors duration-[var(--dur-state)] hover:bg-paper-hover sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)_4.5rem]"
       >
         <span className="min-w-0 truncate text-[0.8125rem]" style={{ paddingLeft: `${Math.min(s.depth, 8) * 0.875}rem` }} title={s.name}>
           <span className={cn("font-mono", s.error ? "text-danger" : "text-ink")}>{s.name}</span>

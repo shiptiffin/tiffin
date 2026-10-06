@@ -233,7 +233,7 @@ export function FilterWords<T extends string | undefined>({
             onClick={() => onPick(it.state)}
             className={cn(
               "relative inline-flex h-8 items-center gap-1.5 rounded-[6px] px-2.5 text-[0.84375rem] transition-colors duration-[var(--dur-state)]",
-              on ? "bg-paper-sunk font-[550] text-ink" : "text-ink-3 hover:text-ink",
+              on ? "bg-paper-select font-[550] text-ink" : "text-ink-3 hover:text-ink",
             )}
           >
             {it.label}

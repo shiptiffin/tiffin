@@ -269,7 +269,7 @@ function UserRow({ project, u }: { project: string; u: AuthUser }) {
       <Link
         to="/projects/$project/users/$id"
         params={{ project, id: u.id }}
-        className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-4 py-2.5 transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk/60 sm:grid-cols-[1.75rem_minmax(0,1fr)_10rem_6.5rem]"
+        className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-4 py-2.5 transition-colors duration-[var(--dur-state)] hover:bg-paper-hover/60 sm:grid-cols-[1.75rem_minmax(0,1fr)_10rem_6.5rem]"
       >
         <Avatar name={u.name} />
         <span className="min-w-0">
@@ -520,7 +520,7 @@ export function UserPage({ project, id }: { project: string; id: string }) {
                     <Link
                       to="/projects/$project/orgs/$id"
                       params={{ project, id: m.organizationId }}
-                      className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 py-2.5 transition-colors hover:bg-paper-sunk/60"
+                      className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 py-2.5 transition-colors hover:bg-paper-hover/60"
                     >
                       <Avatar name={m.name} square />
                       <span className="truncate text-[0.9375rem] text-ink">{m.name}</span>
@@ -587,7 +587,7 @@ export function OrgsPage({ project, search = "" }: { project: string; search?: s
               <Link
                 to="/projects/$project/orgs/$id"
                 params={{ project, id: o.id }}
-                className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-4 py-2.5 transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk/60 sm:grid-cols-[1.75rem_minmax(0,1fr)_7rem_7rem_6.5rem]"
+                className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-4 py-2.5 transition-colors duration-[var(--dur-state)] hover:bg-paper-hover/60 sm:grid-cols-[1.75rem_minmax(0,1fr)_7rem_7rem_6.5rem]"
               >
                 <Avatar name={o.name} square />
                 <span className="min-w-0">
@@ -671,7 +671,7 @@ export function OrgPage({ project, id }: { project: string; id: string }) {
               <Link
                 to="/projects/$project/users/$id"
                 params={{ project, id: m.userId }}
-                className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-4 py-2.5 transition-colors hover:bg-paper-sunk/60 sm:grid-cols-[1.75rem_minmax(0,1fr)_6rem_8rem]"
+                className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-4 py-2.5 transition-colors hover:bg-paper-hover/60 sm:grid-cols-[1.75rem_minmax(0,1fr)_6rem_8rem]"
               >
                 <Avatar name={m.name} />
                 <span className="min-w-0">

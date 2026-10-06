@@ -23,7 +23,7 @@ export function MenuContent({ className, sideOffset = 6, ...props }: ComponentPr
 }
 
 const item =
-  "relative flex h-8 cursor-default select-none items-center gap-2 rounded-md px-2 text-base text-ink-2 outline-none data-[highlighted]:bg-paper-sunk data-[highlighted]:text-ink data-[disabled]:opacity-50 [&_svg]:size-4 [&_svg]:text-ink-3";
+  "relative flex h-8 cursor-default select-none items-center gap-2 rounded-md px-2 text-base text-ink-2 outline-none data-[highlighted]:bg-paper-hover data-[highlighted]:text-ink data-[disabled]:opacity-50 [&_svg]:size-4 [&_svg]:text-ink-3";
 
 export function MenuItem({ className, ...props }: ComponentProps<typeof M.Item>) {
   return <M.Item className={cn(item, className)} {...props} />;

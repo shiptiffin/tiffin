@@ -58,7 +58,7 @@ function Recent({ project, runs }: { project: string; runs: CronRun[] }) {
           role="listitem"
           to="/projects/$project/jobs/$id"
           params={{ project, id: r.job }}
-          className="grid size-4 place-items-center rounded-[3px] hover:bg-paper-sunk"
+          className="grid size-4 place-items-center rounded-[3px] hover:bg-paper-hover"
           title={`${runWord[r.state] ?? r.state}, ${relative(r.at)}${r.durationMs !== undefined ? `, ${ms(r.durationMs)}` : ""}`}
           aria-label={`${r.job}: ${runWord[r.state] ?? r.state} ${relative(r.at)}`}
         >

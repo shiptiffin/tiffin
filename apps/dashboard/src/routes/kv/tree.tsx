@@ -191,7 +191,7 @@ export const KeyBrowser = forwardRef<BrowserHandle, {
           className="h-8 min-w-0 flex-1 bg-transparent font-mono text-[0.8125rem] text-ink outline-none placeholder:font-sans placeholder:text-ink-4"
         />
         {search ? (
-          <button type="button" onClick={() => setSearch("")} aria-label="Clear search" className="grid size-6 place-items-center rounded-[5px] text-ink-3 hover:bg-paper-sunk">
+          <button type="button" onClick={() => setSearch("")} aria-label="Clear search" className="grid size-6 place-items-center rounded-[5px] text-ink-3 hover:bg-paper-hover">
             <X className="size-3.5" />
           </button>
         ) : (
@@ -257,7 +257,7 @@ export const KeyBrowser = forwardRef<BrowserHandle, {
               onFocus: () => setFocus(i),
               style: { transform: `translateY(${it.start}px)`, paddingLeft: `${r.depth * 14 + 6}px` },
               className:
-                "group absolute inset-x-0 top-0 flex h-8 items-center gap-2 rounded-[6px] pr-1.5 text-left outline-none transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk focus-visible:bg-paper-sunk focus-visible:shadow-[inset_0_0_0_2px_var(--focus)]",
+                "group absolute inset-x-0 top-0 flex h-8 items-center gap-2 rounded-[6px] pr-1.5 text-left outline-none transition-colors duration-[var(--dur-state)] hover:bg-paper-hover focus-visible:bg-paper-hover focus-visible:shadow-[inset_0_0_0_2px_var(--focus)]",
             };
             if (r.kind === "loading" || r.kind === "more")
               return (
@@ -314,7 +314,7 @@ export const KeyBrowser = forwardRef<BrowserHandle, {
                   setFocus(i);
                   onOpen(r.key);
                 }}
-                className={cn(common.className, active && "bg-paper-sunk")}
+                className={cn(common.className, active && "bg-paper-select")}
               >
                 {active && <span aria-hidden className="absolute inset-y-1.5 left-0 w-[2px] rounded-full bg-brass" />}
                 <span aria-hidden className="w-3.5 shrink-0" />

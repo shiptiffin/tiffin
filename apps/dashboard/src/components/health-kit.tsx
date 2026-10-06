@@ -104,8 +104,8 @@ export function Segmented<T extends string>({
           disabled={disabled}
           onClick={() => onChange(o.v)}
           className={cn(
-            "h-7 rounded-[6px] px-2.5 text-[0.8125rem] whitespace-nowrap text-ink-3 transition-colors duration-[var(--dur-state)] hover:text-ink",
-            value === o.v && "bg-paper-sunk font-[550] text-ink",
+            "h-7 rounded-[6px] px-2.5 text-[0.8125rem] whitespace-nowrap transition-colors duration-[var(--dur-state)] hover:text-ink",
+            value === o.v ? "bg-paper-select font-[550] text-ink" : "text-ink-3",
           )}
         >
           {o.label}
@@ -177,7 +177,7 @@ export function Alarm({
   return (
     <li className="flex items-start gap-3">
       {to ? (
-        <Link to={to as "/"} search={search as never} className="group flex flex-1 items-start gap-3 py-3 -mx-2 px-2 rounded-[6px] transition-colors hover:bg-paper-sunk">
+        <Link to={to as "/"} search={search as never} className="group flex flex-1 items-start gap-3 py-3 -mx-2 px-2 rounded-[6px] transition-colors hover:bg-paper-hover">
           {body}
         </Link>
       ) : (

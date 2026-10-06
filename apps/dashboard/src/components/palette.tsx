@@ -487,7 +487,7 @@ function Item({
       value={value}
       keywords={keywords}
       onSelect={onSelect}
-      className="flex h-10 cursor-default items-center gap-3 rounded-[7px] px-2.5 text-base text-ink-2 select-none data-[selected=true]:bg-paper-sunk data-[selected=true]:text-ink [&_svg]:size-4 [&>svg]:text-ink-3"
+      className="flex h-10 cursor-default items-center gap-3 rounded-[7px] px-2.5 text-base text-ink-2 select-none data-[selected=true]:bg-paper-select data-[selected=true]:text-ink [&_svg]:size-4 [&>svg]:text-ink-3"
     >
       {icon}
       <span className="flex min-w-0 flex-1 items-center truncate">{children}</span>

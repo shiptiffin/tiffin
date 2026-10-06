@@ -303,7 +303,7 @@ function CheckGroup({ name, about, checks }: { name: string; about: string; chec
         aria-expanded={shown}
         disabled={bad.length > 0}
         onClick={() => setOpen(!open)}
-        className="group -mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-6 rounded-[6px] px-2 py-2.5 text-left transition-colors duration-[var(--dur-state)] enabled:hover:bg-paper-sunk sm:grid-cols-[11rem_minmax(0,1fr)_auto]"
+        className="group -mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-6 rounded-[6px] px-2 py-2.5 text-left transition-colors duration-[var(--dur-state)] enabled:hover:bg-paper-hover sm:grid-cols-[11rem_minmax(0,1fr)_auto]"
       >
         <span className={cn("text-[0.875rem]", bad.length ? "font-[550] text-danger" : "text-ink")}>{name}</span>
         <span className={cn("col-span-2 row-start-2 text-[0.84375rem] sm:col-span-1 sm:row-start-auto", bad.length ? "text-danger" : "text-ink-3")}>
@@ -457,7 +457,7 @@ function Area({ to, name, status, amount }: { to: string; name: string; status: 
       <Link
         to={to as "/"}
         search={{} as never}
-        className="group -mx-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 rounded-[6px] px-2 py-2.5 transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk sm:grid-cols-[11rem_minmax(0,1fr)_7rem_1.5rem]"
+        className="group -mx-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 rounded-[6px] px-2 py-2.5 transition-colors duration-[var(--dur-state)] hover:bg-paper-hover sm:grid-cols-[11rem_minmax(0,1fr)_7rem_1.5rem]"
       >
         <span className="text-[0.875rem] font-[550] text-ink">{name}</span>
         <span className="col-span-2 row-start-2 text-[0.84375rem] text-ink-2 sm:col-span-1 sm:row-start-auto">{status}</span>

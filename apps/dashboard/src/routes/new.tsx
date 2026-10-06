@@ -21,6 +21,7 @@ import { checkPick, emptyPick, GitHubImport, type GitHubPick } from "@/component
 import { ImportFile, ImportPanel, ImportSteps, useProjectImport } from "@/components/project-import";
 import { deployGitHub, nameFromRepo, setSecret } from "@/lib/github";
 import { useMe } from "@/lib/me";
+import { mcpCommand } from "@/lib/mcp";
 import { boxDomainQuery } from "@/lib/domains";
 import { splitAddress } from "@/lib/changes";
 import { addressesOf } from "@/lib/addresses";
@@ -347,6 +348,13 @@ export function NewProjectPage() {
                       Import a .tiffin file
                     </button>
                   </p>
+                  {firstRun && (
+                    <section aria-label="Hand it to your agent" className="mt-10">
+                      <h2 className="text-[0.9375rem] font-[550] text-ink">Or hand it to your agent</h2>
+                      <p className="mt-1 mb-3 text-sm text-ink-2">Claude Code can set up projects for you. It asks you before anything destructive, and every change can be undone in History.</p>
+                      <Command cmd={mcpCommand()} />
+                    </section>
+                  )}
                 </>
               )}
             </div>

@@ -64,7 +64,7 @@ export function BarList({
                 onClick={() => onSelect(r.key)}
                 aria-pressed={on}
                 aria-label={`${selectLabel(r)}: ${int(r.value)}`}
-                className="group flex w-full items-center gap-3 rounded-[6px] pr-1 text-left hover:bg-paper-sunk"
+                className="group flex w-full items-center gap-3 rounded-[6px] pr-1 text-left hover:bg-paper-hover"
               >
                 {inner}
               </button>
@@ -76,7 +76,7 @@ export function BarList({
       })}
       </ul>
       {rows.length > show && (
-        <button type="button" onClick={() => setAll((x) => !x)} aria-expanded={all} className="h-7 rounded-[6px] px-2.5 text-[0.8125rem] text-ink-3 hover:bg-paper-sunk hover:text-ink">
+        <button type="button" onClick={() => setAll((x) => !x)} aria-expanded={all} className="h-7 rounded-[6px] px-2.5 text-[0.8125rem] text-ink-3 hover:bg-paper-hover hover:text-ink">
           {all ? "Show fewer" : `Show all ${rows.length}`}
         </button>
       )}

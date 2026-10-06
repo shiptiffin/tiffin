@@ -84,7 +84,7 @@ function Row({ value, onSelect, children }: { value: string; onSelect: () => voi
     <Command.Item
       value={value}
       onSelect={onSelect}
-      className="flex h-8 cursor-pointer items-center gap-2.5 rounded-[6px] px-2.5 text-[0.875rem] text-ink-2 data-[selected=true]:bg-paper-sunk data-[selected=true]:text-ink"
+      className="flex h-8 cursor-pointer items-center gap-2.5 rounded-[6px] px-2.5 text-[0.875rem] text-ink-2 data-[selected=true]:bg-paper-select data-[selected=true]:text-ink"
     >
       {children}
     </Command.Item>

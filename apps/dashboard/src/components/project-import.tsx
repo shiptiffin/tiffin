@@ -258,7 +258,7 @@ export function ImportSteps({ imp }: { imp: ProjectImport }) {
             Its {countWords((s.secrets ?? []).length, "secret")} are locked to the box it came from{s.domain ? ` (${s.domain})` : ""}. That box’s key unlocks them.
           </p>
           <RadioGroup value={imp.secrets} onValueChange={(v) => imp.setSecrets(v as "key" | "without")} className="divide-y divide-rule border-y border-rule">
-            <label className={cn("flex cursor-pointer gap-3 px-2 py-2.5 hover:bg-paper-sunk", imp.secrets === "key" && "bg-paper-sunk")}>
+            <label className={cn("flex cursor-pointer gap-3 px-2 py-2.5 hover:bg-paper-hover", imp.secrets === "key" && "bg-paper-select")}>
               <Radio value="key" className="mt-0.5" />
               <span>
                 <span className="block text-[0.875rem] font-[550] text-ink">Paste the old box’s key</span>
@@ -267,7 +267,7 @@ export function ImportSteps({ imp }: { imp: ProjectImport }) {
                 </span>
               </span>
             </label>
-            <label className={cn("flex cursor-pointer gap-3 px-2 py-2.5 hover:bg-paper-sunk", imp.secrets === "without" && "bg-paper-sunk")}>
+            <label className={cn("flex cursor-pointer gap-3 px-2 py-2.5 hover:bg-paper-hover", imp.secrets === "without" && "bg-paper-select")}>
               <Radio value="without" className="mt-0.5" />
               <span>
                 <span className="block text-[0.875rem] font-[550] text-ink">Import without secrets</span>
