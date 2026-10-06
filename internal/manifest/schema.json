@@ -130,6 +130,29 @@
           "minLength": 1,
           "maxLength": 1000
         },
+        "packages": {
+          "description": "Debian (apt) packages installed in the app's image, e.g. [\"ffmpeg\"] or [\"chromium\"], for apps that run programs beside their own code. Applies from the next deploy. Not for static apps.",
+          "type": "array",
+          "maxItems": 50,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9+.-]{1,62}$",
+            "description": "A Debian package name, e.g. \"ffmpeg\"."
+          }
+        },
+        "disk": {
+          "description": "Folders, relative to the app's working directory (e.g. \"data\", \"uploads/tmp\"), that persist across deploys and restarts. Every production instance shares them; each preview gets its own. A folder starts with what the image has at that path. They count toward the project's storage limit. Not for static apps.",
+          "type": "array",
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$",
+            "maxLength": 200,
+            "description": "A folder inside the app's working directory, e.g. \"data\"."
+          }
+        },
         "env": {
           "description": "App-specific plain environment variables, merged over the top-level `env`.",
           "$ref": "#/$defs/env"

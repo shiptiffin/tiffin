@@ -20,6 +20,7 @@ import (
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/mod/budget"
 	"github.com/btahir/tiffin/internal/mod/postgres"
+	"github.com/btahir/tiffin/internal/mod/runtime"
 	"github.com/btahir/tiffin/internal/mod/storage"
 	"github.com/btahir/tiffin/internal/platform"
 )
@@ -101,6 +102,13 @@ func newGuard(p *platform.Platform, mount string) *guard {
 			files, err := storage.FilesBytes(ctx, p)
 			if err != nil {
 				p.Log.Debug("disk guard: files", "err", err)
+			} else {
+				// Apps' disk folders count as the project's files.
+				for _, pr := range projects {
+					n := runtime.DiskBytes(pr)
+					storage.SetDiskBytes(pr, n)
+					files[pr] += n
+				}
 			}
 			return db, files
 		},

@@ -216,6 +216,12 @@ func appNode(name string, a App, implied string) *node {
 	if a.Command != "" {
 		n.set("command", str(a.Command))
 	}
+	if len(a.Packages) > 0 {
+		n.set("packages", strs(a.Packages))
+	}
+	if len(a.Disk) > 0 {
+		n.set("disk", strs(a.Disk))
+	}
 	if len(a.Env) > 0 {
 		n.set("env", strMap(a.Env))
 	}

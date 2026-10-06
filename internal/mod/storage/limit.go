@@ -11,7 +11,7 @@ import (
 )
 
 // A project's storage limit (its quota) counts its database and its files
-// together. The box's disk guard measures the database and keeps this
+// (bucket files and its apps' disk folders) together. The box's disk guard measures the database and keeps this
 // package told (SetDatabaseBytes), and holds a project read-only when it is
 // over its limit or the data disk is nearly full (SetReadOnly). Uploads are
 // refused with QuotaExceeded in both cases.
@@ -20,8 +20,9 @@ var limits = struct {
 	sync.Mutex
 	held    map[string][2]string // project → reason ("disk", "limit") and why its uploads are held
 	db      map[string]int64     // project → database bytes, last measured
+	disk    map[string]int64     // project → app disk folder bytes, last measured
 	changed chan struct{}
-}{held: map[string][2]string{}, db: map[string]int64{}, changed: make(chan struct{}, 1)}
+}{held: map[string][2]string{}, db: map[string]int64{}, disk: map[string]int64{}, changed: make(chan struct{}, 1)}
 
 // SetReadOnly holds a project's uploads for reason ("disk" or "limit"; why
 // says which limit and how to fix it) or, with why "", lifts the hold.
@@ -48,6 +49,20 @@ func SetDatabaseBytes(project string, n int64) {
 	limits.Lock()
 	defer limits.Unlock()
 	limits.db[project] = n
+}
+
+// SetDiskBytes records the size of a project's app disk folders, which count
+// toward its storage limit as files.
+func SetDiskBytes(project string, n int64) {
+	limits.Lock()
+	defer limits.Unlock()
+	limits.disk[project] = n
+}
+
+func diskBytes(project string) int64 {
+	limits.Lock()
+	defer limits.Unlock()
+	return limits.disk[project]
 }
 
 func databaseBytes(project string) int64 {
@@ -143,7 +158,7 @@ func (m *Module) refusal(ctx context.Context, p *platform.Platform, meta map[str
 	if err != nil || limit <= 0 {
 		return "", ""
 	}
-	files, db := m.tracker().project(meta, project), databaseBytes(project)
+	files, db := m.tracker().project(meta, project)+diskBytes(project), databaseBytes(project)
 	if used := files + db; used+max(n, 0) > limit {
 		return fmt.Sprintf("project %s is over its storage limit: %s used of %s (database %s, files %s).", project, HumanBytes(used), HumanBytes(limit), HumanBytes(db), HumanBytes(files)),
 			fmt.Sprintf("%s, or ask the box owner to raise the limit (tiffin storage quota set %s --max-bytes N).", FreeUp(db, files), project)

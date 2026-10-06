@@ -1,0 +1,3 @@
+/apps/api/disk/0: '/abs' does not match pattern '^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$'
+/apps/api/packages/0: 'FFmpeg' does not match pattern '^[a-z0-9][a-z0-9+.-]{1,62}$'
+/apps/api/packages/1: 'ok; rm' does not match pattern '^[a-z0-9][a-z0-9+.-]{1,62}$'

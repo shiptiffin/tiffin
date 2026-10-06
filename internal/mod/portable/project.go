@@ -19,6 +19,7 @@ package portable
 //	database.sql            pg_dump of the database: plain SQL, no owners or grants
 //	cache.jsonl             the project's Valkey keys (DUMP payloads, base64)
 //	files/<bucket>/...      every object, one file each (content types in xattrs)
+//	disk/<app>/<path>/...   the app's disk folders (production's), as the app left them
 //	source.git/             the push-to-deploy git repository, if the project has one
 //	apps/<app>/release.json what the app runs (image, framework, commit)
 //	apps/<app>/image.tar    the live image (docker load -i), for container apps
@@ -94,6 +95,7 @@ type AppInfo struct {
 	Image     string `json:"image,omitempty" doc:"The image reference (apps/<app>/image.tar holds it unless the archive stayed on the box)"`
 	ImageFile bool   `json:"imageFile,omitempty"`
 	Site      bool   `json:"site,omitempty" doc:"apps/<app>/site holds the static files"`
+	Disk      bool   `json:"disk,omitempty" doc:"disk/<app> holds its disk folders (production's), each at its path"`
 	Commit    string `json:"commit,omitempty"`
 	Repo      string `json:"repo,omitempty"`
 }
@@ -145,6 +147,8 @@ type backend interface {
 	release(ctx context.Context, project, app string, src runtime.ReleaseSource, by string) (*runtime.Deploy, error)
 	gitDir(project string) string
 	bucketDir(project, bucket string) string
+	// diskDir is where an app keeps its production disk folders.
+	diskDir(project, app string) string
 	// converged waits until the project's resources have converged.
 	converged(ctx context.Context, project string) error
 	// recentlyDeleted: a project of this name was destroyed lately, and

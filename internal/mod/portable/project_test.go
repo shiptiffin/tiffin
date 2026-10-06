@@ -179,6 +179,10 @@ func (f *fakeBackend) gitDir(project string) string {
 	return filepath.Join(f.root, "git", project+".git")
 }
 
+func (f *fakeBackend) diskDir(project, app string) string {
+	return filepath.Join(f.root, "disks", project, app, "prod")
+}
+
 func (f *fakeBackend) bucketDir(project, bucket string) string {
 	return filepath.Join(f.root, "buckets", storage.S3Name(project, bucket))
 }
@@ -240,7 +244,7 @@ func (x *testBox) shop(name string) {
 		m.Services = manifest.Services{Postgres: &manifest.Postgres{Extensions: []string{"vector"}}, Valkey: &manifest.Valkey{MaxMemoryMB: 32},
 			Storage: &manifest.Storage{Buckets: map[string]manifest.Bucket{"media": {Public: true}, "docs": {}}}}
 		m.Apps = map[string]manifest.App{
-			"web":  {Path: ".", Framework: manifest.FrameworkBun, Role: manifest.RoleWeb, Routes: []string{name, "example.com"}, Instances: 1, Git: &manifest.Git{Repo: "acme/shop", Branch: "main", Previews: manifest.PreviewsSameRepo}},
+			"web":  {Path: ".", Framework: manifest.FrameworkBun, Role: manifest.RoleWeb, Routes: []string{name, "example.com"}, Instances: 1, Git: &manifest.Git{Repo: "acme/shop", Branch: "main", Previews: manifest.PreviewsSameRepo}, Disk: []string{"data"}},
 			"site": {Path: ".", Framework: manifest.FrameworkStatic, Role: manifest.RoleWeb, Routes: []string{name + "-docs"}, Instances: 1},
 			"jobs": {Path: ".", Framework: manifest.FrameworkBun, Role: manifest.RoleWorker, Instances: 1},
 		}
@@ -271,6 +275,8 @@ func (x *testBox) shop(name string) {
 			}
 		}
 	}
+	_ = os.MkdirAll(filepath.Join(b.diskDir(name, "web"), "data", "db"), 0o755)
+	_ = os.WriteFile(filepath.Join(b.diskDir(name, "web"), "data", "db", "app.sqlite"), []byte("rows of "+name), 0o644)
 	_ = os.MkdirAll(filepath.Join(b.bucketDir(name, "media"), ".sgwtmp", "multipart"), 0o755)
 	_ = os.WriteFile(filepath.Join(b.bucketDir(name, "media"), ".sgwtmp", "multipart", "part"), []byte("half an upload"), 0o644)
 	ref := "docker.io/tiffin/" + name + "-web:dep_1"
@@ -340,6 +346,7 @@ func TestProjectExport(t *testing.T) {
 	}
 	want := []string{"project.json", "README.md", "tiffin.config.ts", "docker-compose.yml", "secrets.json", "database-setup.sql", "database.sql", "cache.jsonl",
 		"files/docs/", "files/docs/readme.md", "files/media/", "files/media/logo.png", "files/media/notes/", "files/media/notes/a.txt",
+		"disk/web/", "disk/web/data/", "disk/web/data/db/", "disk/web/data/db/app.sqlite",
 		"source.git/", "source.git/HEAD", "apps/site/release.json", "apps/site/site/", "apps/site/site/index.html", "apps/web/release.json", "apps/web/image.tar"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("entries:\n got %v\nwant %v", names, want)
@@ -450,6 +457,9 @@ func TestProjectImportAlongside(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(x.b.gitDir("shop-2"), "HEAD")); err != nil {
 		t.Fatal("git repository not copied")
 	}
+	if b, _ := os.ReadFile(filepath.Join(x.b.diskDir("shop-2", "web"), "data", "db", "app.sqlite")); string(b) != "rows of shop" {
+		t.Fatalf("disk folder: %q", b)
+	}
 	if len(res.apps) != 3 || res.apps[0].App != "jobs" || res.apps[0].Status != "none" {
 		t.Fatalf("apps: %+v", res.apps)
 	}
@@ -498,8 +508,10 @@ func TestDuplicate(t *testing.T) {
 	x.b.dbs["shop"] += "DELETE FROM notes;\n"
 	x.b.keys["shop"]["greeting"] = cacheEntry{Key: "greeting", Dump: []byte("changed")}
 	_ = os.WriteFile(filepath.Join(x.b.bucketDir("shop", "media"), "notes", "a.txt"), []byte("changed"), 0o644)
+	_ = os.WriteFile(filepath.Join(x.b.diskDir("shop", "web"), "data", "db", "app.sqlite"), []byte("changed"), 0o644)
 	if strings.Contains(x.b.dbs["shop-copy"], "DELETE") || string(x.b.keys["shop-copy"]["greeting"].Dump) == "changed" ||
-		readFile(t, filepath.Join(x.b.bucketDir("shop-copy", "media"), "notes", "a.txt")) != "written in shop" {
+		readFile(t, filepath.Join(x.b.bucketDir("shop-copy", "media"), "notes", "a.txt")) != "written in shop" ||
+		readFile(t, filepath.Join(x.b.diskDir("shop-copy", "web"), "data", "db", "app.sqlite")) != "rows of shop" {
 		t.Fatal("the copy follows the original")
 	}
 	if _, err := x.m.duplicate(ctx, x.p, x.pr, "shop", "shop-copy", reporter{}); err == nil {

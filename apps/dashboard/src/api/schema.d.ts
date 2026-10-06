@@ -4729,7 +4729,7 @@ export interface components {
             databaseBytes: number;
             /**
              * Format: int64
-             * @description Bucket files
+             * @description Bucket files and apps' disk folders
              */
             filesBytes: number;
             /**

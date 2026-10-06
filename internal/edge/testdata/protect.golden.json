@@ -147,6 +147,7 @@
             "h1",
             "h2"
           ],
+          "read_idle_timeout": -1,
           "routes": [
             {
               "handle": [
@@ -311,7 +312,7 @@
             {
               "handle": [
                 {
-                  "directives": "Include @coraza.conf-recommended\nInclude @crs-setup.conf.example\nInclude @owasp_crs/*.conf\nSecRuleEngine On\nSecResponseBodyAccess Off\nSecRequestBodyLimit 13107200\nSecRequestBodyNoFilesLimit 1048576",
+                  "directives": "Include @coraza.conf-recommended\nInclude @crs-setup.conf.example\nInclude @owasp_crs/*.conf\nSecRuleEngine On\nSecResponseBodyAccess Off\nSecRequestBodyLimit 13107200\nSecRequestBodyLimitAction ProcessPartial\nSecRequestBodyNoFilesLimit 1048576",
                   "handler": "waf",
                   "load_owasp_crs": true
                 }
@@ -463,7 +464,8 @@
           ],
           "tls_connection_policies": [
             {}
-          ]
+          ],
+          "write_idle_timeout": -1
         }
       }
     },

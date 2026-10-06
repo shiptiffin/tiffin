@@ -33,7 +33,12 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    no box-specific next.config: the box's adapter sets `deploymentId`, the Valkey cache handlers
    (when the project has Valkey) and a stable Server Actions key at build. Another server framework
    whose client files the box does not find (deploy log: "client assets") can name them:
-   `assets: { dir: "dist/client" }`.
+   `assets: { dir: "dist/client" }`. An app that runs programs (`ffmpeg`, headless `chromium`) lists
+   their Debian names in `packages: ["ffmpeg"]`; one that writes files it must keep (SQLite, renders)
+   lists the folders in `disk: ["data"]` (relative to the app; kept across deploys, shared by its
+   instances, a preview gets its own, counted in the storage limit). Never keep data in other folders:
+   each deploy starts from the image. Requests have no time or size limit (15-minute renders and
+   GB uploads work); user files still belong in a bucket.
 5. Secrets go in `tiffin secrets set`, never in the config or the repo. Starting a new project?
    Reuse keys the box already has instead of asking for them again:
    `tiffin secrets list <other>` shows names, `tiffin secrets copy <new> --from <other> [--names A,B]`

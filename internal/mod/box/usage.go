@@ -93,7 +93,7 @@ type UsageCPU struct {
 // UsageDisk is the project's data on disk.
 type UsageDisk struct {
 	DatabaseBytes int64      `json:"databaseBytes" doc:"Postgres databases, branches included"`
-	FilesBytes    int64      `json:"filesBytes" doc:"Bucket files"`
+	FilesBytes    int64      `json:"filesBytes" doc:"Bucket files and apps' disk folders"`
 	KVBytes       int64      `json:"kvBytes" doc:"Valkey keys (held in memory, snapshotted to disk)"`
 	TotalBytes    int64      `json:"totalBytes"`
 	MeasuredAt    *time.Time `json:"measuredAt,omitempty" doc:"When disk use was measured (refreshed every 30 seconds while asked for); absent until the first measurement finishes"`

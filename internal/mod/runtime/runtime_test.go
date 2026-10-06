@@ -107,6 +107,13 @@ func (e *fakeEngine) Run(ctx context.Context, s RunSpec) error {
 	c.running = true
 	c.srv = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		appendLog(s.LogPath, "stdout", "GET "+r.URL.Path)
+		if r.Method == http.MethodPost { // an upload: say how much came
+			n, _ := io.Copy(io.Discard, r.Body)
+			fmt.Fprintf(w, "read %d ", n)
+		}
+		if d, err := time.ParseDuration(r.URL.Query().Get("sleep")); err == nil { // a long request
+			time.Sleep(d)
+		}
 		fmt.Fprintf(w, "%s greeting=%s preview=%s", s.Image, s.Env["GREETING"], s.Env["TIFFIN_PREVIEW"])
 	})}
 	appendLog(s.LogPath, "stdout", "listening on "+s.Env["PORT"])
@@ -233,6 +240,28 @@ func (e *fakeEngine) CopyOut(ctx context.Context, image string, dirs []string, d
 			if err := os.CopyFS(filepath.Join(dest, strconv.Itoa(i)), os.DirFS(src)); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func (e *fakeEngine) ImageConfig(ctx context.Context, ref string) (string, string, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if _, ok := e.image(ref); !ok {
+		return "", "", fmt.Errorf("no image %s", ref)
+	}
+	return "/app", "", nil
+}
+
+// SeedDirs copies directories of the source an image was built from.
+func (e *fakeEngine) SeedDirs(ctx context.Context, image, user string, dirs []string, dest string) error {
+	if err := e.CopyOut(ctx, image, dirs, dest); err != nil {
+		return err
+	}
+	for i := range dirs {
+		if err := os.MkdirAll(filepath.Join(dest, strconv.Itoa(i)), 0o755); err != nil {
+			return err
 		}
 	}
 	return nil

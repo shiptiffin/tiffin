@@ -98,6 +98,11 @@ func semanticErrors(m *Manifest) []FieldError {
 		case app.Command != "" && strings.TrimSpace(app.Command) == "":
 			errs = append(errs, FieldError{Path: base + "/command", Message: "the command is blank; remove \"command\" to use the detected start command"})
 		}
+		if len(app.Packages) > 0 && app.Framework == FrameworkStatic {
+			errs = append(errs, FieldError{Path: base + "/packages",
+				Message: "static apps are files served by the edge and run no programs; remove \"packages\" or pick another framework"})
+		}
+		errs = append(errs, diskErrors(base, app)...)
 		if a := app.Assets; a != nil {
 			for _, seg := range strings.Split(a.Dir, "/") {
 				if seg == ".." || seg == "" {
@@ -366,4 +371,31 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	slices.Sort(keys)
 	return keys
+}
+
+// diskErrors checks an app's persistent folders: plain relative paths
+// (no "." or ".." parts), none inside another, and no static apps.
+func diskErrors(base string, app App) []FieldError {
+	if len(app.Disk) == 0 {
+		return nil
+	}
+	if app.Framework == FrameworkStatic {
+		return []FieldError{{Path: base + "/disk",
+			Message: "static apps are files served by the edge and write nothing; remove \"disk\" or pick another framework"}}
+	}
+	var errs []FieldError
+	for i, p := range app.Disk {
+		at := fmt.Sprintf("%s/disk/%d", base, i)
+		if slices.ContainsFunc(strings.Split(p, "/"), func(s string) bool { return s == "." || s == ".." || s == "" }) {
+			errs = append(errs, FieldError{Path: at,
+				Message: fmt.Sprintf("%q must be a folder inside the app's working directory, like \"data\" (no \"..\", \".\" or empty parts)", p)})
+			continue
+		}
+		for _, q := range app.Disk[:i] {
+			if p != q && (strings.HasPrefix(p, q+"/") || strings.HasPrefix(q, p+"/")) {
+				errs = append(errs, FieldError{Path: at, Message: fmt.Sprintf("%q and %q overlap; list only the outer folder", q, p)})
+			}
+		}
+	}
+	return errs
 }

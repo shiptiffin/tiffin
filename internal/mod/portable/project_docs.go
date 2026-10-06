@@ -178,6 +178,12 @@ func compose(info *ProjectInfo, m *manifest.Manifest) string {
 		} else if len(info.Secrets.Names) > 0 {
 			w("    # secrets to set: %s", strings.Join(info.Secrets.Names, ", "))
 		}
+		if a.Disk {
+			w("    volumes: # its disk folders (the box builds apps in /app)")
+			for _, p := range spec.Disk {
+				w("      - ./disk/%s/%s:/app/%s", a.Name, p, p)
+			}
+		}
 		if listen > 0 {
 			w("    ports: [\"%d:%d\"]", port, listen)
 			port++

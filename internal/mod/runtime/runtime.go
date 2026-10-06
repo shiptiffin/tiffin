@@ -54,7 +54,10 @@ func defaultOptions() Options {
 	if v, err := time.ParseDuration(os.Getenv("TIFFIN_PREVIEW_EXPIRE")); err == nil && v > 0 {
 		expire = v
 	}
-	return Options{DataDir: DataDir, LogDir: LogDir, HealthTimeout: 120 * time.Second, Drain: 30 * time.Second,
+	// Drain lets a request that was under way when a new version took over
+	// finish, however long it takes (renders, transcodes: up to 15 minutes).
+	// Old instances with no request in flight stop at once.
+	return Options{DataDir: DataDir, LogDir: LogDir, HealthTimeout: 120 * time.Second, Drain: 15 * time.Minute,
 		StopGrace: 10 * time.Second, RetireGrace: 30 * time.Second, PreviewIdle: idle, PreviewExpire: expire, KeepImages: 3}
 }
 
@@ -125,6 +128,7 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 			return err
 		}
 	}
+	setDiskRoot(filepath.Join(opt.DataDir, "disks"))
 	if err := r.recover(ctx); err != nil {
 		return err
 	}
@@ -287,6 +291,7 @@ func (m *Module) ProjectDeleted(ctx context.Context, p *platform.Platform, proje
 	}
 	r.sweep(ctx, func(c Container, _ bool) bool { return c.Labels["tiffin.project"] == project })
 	r.forgetFiles(project, "", "", true)
+	r.trashDisks(project, "")
 	errs = append(errs, r.forgetNextKeys(ctx, project))
 	return errors.Join(errs...)
 }
@@ -308,6 +313,7 @@ func (r *rt) loop(ctx context.Context) {
 			if tick%20 == 0 {
 				r.removeOrphans(ctx)
 				r.pruneAssets(ctx)
+				r.emptyDiskTrash()
 			}
 		}
 	}
@@ -401,6 +407,7 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 		if spec == nil {
 			// Caches only: an undo copies the assets out of the image again.
 			r.forgetFiles(project, app, "", true)
+			r.trashDisks(project, app)
 		}
 		return nil
 	}
