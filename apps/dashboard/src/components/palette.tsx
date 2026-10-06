@@ -49,6 +49,13 @@ const box: Array<[string, string, string[]]> = [
   ["Your box’s domain", "/settings", ["domain", "address", "sslip", "dashboard address", "own domain"]],
   ["Shield", "/protect", ["protection", "under attack", "ban", "crowdsec", "firewall", "waf", "rate limit", "bots"]],
 ];
+/** The Jobs area's actions (they open its dialogs). */
+const jobActions: Array<[string, "schedule" | "queue" | "send" | "run", string[]]> = [
+  ["New schedule", "schedule", ["cron", "create", "every", "timer"]],
+  ["New queue", "queue", ["create", "jobs"]],
+  ["Send a test job", "send", ["queue", "job", "try"]],
+  ["Start a workflow run", "run", ["workflow", "run"]],
+];
 const projectPages: Array<[string, string, string[]]> = [
   ["Overview", "/projects/$project", ["resources"]],
   ["Apps and deploys", "/projects/$project/apps", ["deploy", "rollback", "preview", "restart"]],
@@ -58,12 +65,14 @@ const projectPages: Array<[string, string, string[]]> = [
   ["Cache", "/projects/$project/data/kv", ["valkey", "redis", "key-value"]],
   ["Files", "/projects/$project/storage", ["buckets", "storage", "s3", "upload"]],
   ["Email", "/projects/$project/email", ["mail", "inbox", "relay"]],
-  ["Jobs", "/projects/$project/queues", ["queues", "dead letter", "cron"]],
+  ["Jobs: runs", "/projects/$project/jobs", ["jobs", "runs", "workflows", "progress", "live"]],
+  ["Jobs: schedules", "/projects/$project/jobs/schedules", ["cron", "schedule", "timer", "pause"]],
+  ["Jobs: queues", "/projects/$project/jobs/queues", ["queues", "topics", "concurrency", "rate limit"]],
+  ["Jobs: failed", "/projects/$project/jobs/failed", ["dead letter", "dlq", "retry", "failed"]],
   ["Usage", "/projects/$project/usage", ["memory", "cpu", "limit", "resources", "copies", "scale"]],
   ["History", "/projects/$project/history", ["changes", "undo", "ledger"]],
   ["Settings", "/projects/$project/settings", ["env", "colour", "addresses"]],
   ["Domains", "/projects/$project/domains", ["domain", "dns", "https", "certificate", "www", "custom domain"]],
-  ["Workflows", "/projects/$project/workflows", ["runs", "durable"]],
   ["Auth: users", "/projects/$project/users", ["users", "sign in", "passkeys", "ban"]],
   ["Organizations", "/projects/$project/orgs", ["teams", "members"]],
   ["Analytics", "/projects/$project/analytics", ["visitors", "pageviews", "traffic"]],
@@ -174,6 +183,11 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 <Command.Group heading={`In ${current}`}>
                   {projectPages.map(([label, to, kw]) => (
                     <Item key={to} value={`${current} ${label}`} icon={<FolderClosed />} keywords={kw} onSelect={run(() => navigate({ to: to as "/", params: { project: current } as never }))}>
+                      {label}
+                    </Item>
+                  ))}
+                  {jobActions.map(([label, d, kw]) => (
+                    <Item key={d} value={`${current} ${label}`} icon={<Plus />} keywords={kw} onSelect={run(() => navigate({ to: "/projects/$project/jobs", params: { project: current }, search: { do: d } }))}>
                       {label}
                     </Item>
                   ))}

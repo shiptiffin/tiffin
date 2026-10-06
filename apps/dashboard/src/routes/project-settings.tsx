@@ -114,10 +114,10 @@ export function ProjectSettingsPage({ project }: { project: string }) {
         <Section title="Jobs" note="Schedules and queues, as the config declares them.">
           <div className="divide-y divide-rule border-y border-rule">
             {crons.map(([name, c]) => (
-              <ConfigRow key={name} project={project} path={["crons", name]} name={name} sub="Schedule" status={<>Calls {c.app} at <span className="ident text-[0.75rem]">{c.path}</span> {cronWords(c.schedule)}.</>} value={c} staged={pendingSet(["crons", name])} to="/projects/$project/queues" />
+              <ConfigRow key={name} project={project} path={["crons", name]} name={name} sub="Schedule" status={<>Calls {c.url ? <span className="ident text-[0.75rem]">{c.url}</span> : <>{c.app} at <span className="ident text-[0.75rem]">{c.path}</span></>} {cronWords(c.schedule)}.</>} value={c} staged={pendingSet(["crons", name])} to="/projects/$project/jobs/schedules" />
             ))}
             {queues.map(([name, qq]) => (
-              <ConfigRow key={name} project={project} path={["queues", name]} name={name} sub="Queue" status={<>Delivers to {qq.app} at <span className="ident text-[0.75rem]">{qq.path}</span>, up to {count(qq.maxAttempts || 8, "attempt")}.</>} value={qq} staged={pendingSet(["queues", name])} to="/projects/$project/queues" />
+              <ConfigRow key={name} project={project} path={["queues", name]} name={name} sub="Queue" status={<>Delivers to {qq.url ? <span className="ident text-[0.75rem]">{qq.url}</span> : <>{qq.app} at <span className="ident text-[0.75rem]">{qq.path}</span></>}, up to {count(qq.maxAttempts || 8, "attempt")}.</>} value={qq} staged={pendingSet(["queues", name])} to="/projects/$project/jobs/queues" />
             ))}
           </div>
         </Section>

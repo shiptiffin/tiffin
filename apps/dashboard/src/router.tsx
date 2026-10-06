@@ -7,6 +7,7 @@ import { Shell } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import type { ActivitySearch } from "@/routes/activity";
 import type { GitSearch } from "@/routes/git-settings";
+import { jobsSearch, type JobsSearch } from "@/lib/jobs-search";
 import { HomePage } from "@/routes/home";
 import { Page } from "@/components/page";
 import { q } from "@/api/queries";
@@ -75,11 +76,11 @@ const AlertsPage = lz(() => import("@/routes/observe"), "AlertsPage");
 const TracesPage = lz<{ project?: string; since?: string; errors?: boolean }>(() => import("@/routes/observe"), "TracesPage");
 const TracePage = lz<{ project: string; id: string }>(() => import("@/routes/observe"), "TracePage");
 const BackupsPage = lz(() => import("@/routes/backups"), "BackupsPage");
-const QueuesPage = lz<{ project: string }>(() => import("@/routes/queues"), "QueuesPage");
-const JobsPage = lz<{ project: string; queue?: string; state?: string }>(() => import("@/routes/queues"), "JobsPage");
-const JobPage = lz<{ project: string; id: string }>(() => import("@/routes/queues"), "JobPage");
-const WorkflowsPage = lz<{ project: string; state?: string }>(() => import("@/routes/queues"), "WorkflowsPage");
-const RunPage = lz<{ project: string; id: string }>(() => import("@/routes/queues"), "RunPage");
+const RunsTab = lz<{ project: string; search: JobsSearch }>(() => import("@/routes/jobs"), "RunsTab");
+const SchedulesTab = lz<{ project: string; search: JobsSearch }>(() => import("@/routes/jobs"), "SchedulesTab");
+const QueuesTab = lz<{ project: string; search: JobsSearch }>(() => import("@/routes/jobs"), "QueuesTab");
+const FailedTab = lz<{ project: string; search: JobsSearch }>(() => import("@/routes/jobs"), "FailedTab");
+const JobOrRunPage = lz<{ project: string; id: string }>(() => import("@/routes/jobs"), "JobOrRunPage");
 const AnalyticsPage = lz<{ project: string; period?: string }>(() => import("@/routes/analytics"), "AnalyticsPage");
 const ProtectPage = lz(() => import("@/routes/protect"), "ProtectPage");
 const AppsPage = lz<{ project: string }>(() => import("@/routes/apps"), "AppsPage");
@@ -414,52 +415,69 @@ const alerts = createRoute({ getParentRoute: () => app, path: "/alerts", loader:
   component: AlertsPage });
 const backups = createRoute({ getParentRoute: () => app, path: "/backups", loader: () => void BackupsPage.preload(),
   component: BackupsPage });
-const queues = createRoute({
+/** The Jobs area: one route per tab, all reading the same search (dialogs, the selected run, filters). */
+const jobsTab = (path: "/projects/$project/jobs" | "/projects/$project/jobs/schedules" | "/projects/$project/jobs/queues" | "/projects/$project/jobs/failed", Comp: typeof RunsTab) => {
+  const r = createRoute({
+    getParentRoute: () => app,
+    path,
+    validateSearch: jobsSearch,
+    loader: () => void Comp.preload(),
+    component: function JobsTabPage() {
+      const { project: p } = r.useParams() as { project: string };
+      return <Comp key={p} project={p} search={r.useSearch() as JobsSearch} />;
+    },
+  });
+  return r;
+};
+const jobsRuns = jobsTab("/projects/$project/jobs", RunsTab);
+const jobsSchedules = jobsTab("/projects/$project/jobs/schedules", SchedulesTab);
+const jobsQueues = jobsTab("/projects/$project/jobs/queues", QueuesTab);
+const jobsFailed = jobsTab("/projects/$project/jobs/failed", FailedTab);
+const jobDetail = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/jobs/$id",
+  loader: () => void JobOrRunPage.preload(),
+  component: function JobOrRun() {
+    const { project: p, id } = jobDetail.useParams();
+    return <JobOrRunPage key={id} project={p} id={id} />;
+  },
+});
+// The Jobs area's earlier addresses (Queues, Jobs, Workflows) open their new places.
+const oldQueues = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/queues",
-  loader: () => void QueuesPage.preload(),
-  component: function Queues() {
-    const { project: p } = queues.useParams();
-    return <QueuesPage key={p} project={p} />;
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: "/projects/$project/jobs/queues", params });
   },
 });
-const jobs = createRoute({
+const oldJobs = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/queues/jobs",
-  validateSearch: (s: Record<string, unknown>): { queue?: string; state?: string } => ({ queue: str(s.queue), state: str(s.state) }),
-  loader: () => void JobsPage.preload(),
-  component: function Jobs() {
-    const { project: p } = jobs.useParams();
-    const { queue, state } = jobs.useSearch();
-    return <JobsPage key={p} project={p} queue={queue} state={state} />;
+  beforeLoad: ({ params, search }) => {
+    const s = search as Record<string, unknown>;
+    if (s.state === "dead") throw redirect({ to: "/projects/$project/jobs/failed", params });
+    throw redirect({ to: "/projects/$project/jobs", params, search: str(s.queue) ? { queue: str(s.queue) } : {} });
   },
 });
-const job = createRoute({
+const oldJob = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/queues/jobs/$id",
-  loader: () => void JobPage.preload(),
-  component: function Job() {
-    const { project: p, id } = job.useParams();
-    return <JobPage key={id} project={p} id={id} />;
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: "/projects/$project/jobs/$id", params });
   },
 });
-const workflows = createRoute({
+const oldWorkflows = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/workflows",
-  validateSearch: (s: Record<string, unknown>): { state?: string } => ({ state: str(s.state) }),
-  loader: () => void WorkflowsPage.preload(),
-  component: function Workflows() {
-    const { project: p } = workflows.useParams();
-    return <WorkflowsPage key={p} project={p} state={workflows.useSearch().state} />;
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: "/projects/$project/jobs", params, search: { kind: "workflow" } });
   },
 });
-const runRoute = createRoute({
+const oldRun = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/workflows/$id",
-  loader: () => void RunPage.preload(),
-  component: function Run() {
-    const { project: p, id } = runRoute.useParams();
-    return <RunPage key={id} project={p} id={id} />;
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: "/projects/$project/jobs/$id", params });
   },
 });
 const analytics = createRoute({
@@ -645,11 +663,16 @@ const tree = root.addChildren([
     trace,
     alerts,
     backups,
-    queues,
-    jobs,
-    job,
-    workflows,
-    runRoute,
+    jobsRuns,
+    jobsSchedules,
+    jobsQueues,
+    jobsFailed,
+    jobDetail,
+    oldQueues,
+    oldJobs,
+    oldJob,
+    oldWorkflows,
+    oldRun,
     analytics,
     protect,
     appsRoute,

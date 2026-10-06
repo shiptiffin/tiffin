@@ -44,7 +44,7 @@ export function WorkflowRow({ w, compact }: { w: WorkflowApproval & { project: s
         <div className="min-w-0 flex-1">
           <p className="truncate text-[0.78125rem] leading-[1.125rem] text-ink-2">
             Workflow{" "}
-            <Link to="/projects/$project/workflows/$id" params={{ project: w.project, id: w.runId }} className="ident text-[0.71875rem] text-ink-2 hover:text-ink">
+            <Link to="/projects/$project/jobs/$id" params={{ project: w.project, id: w.runId }} className="ident text-[0.71875rem] text-ink-2 hover:text-ink">
               {w.workflow}
             </Link>{" "}
             in {w.project} · step “{w.step}”

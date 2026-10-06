@@ -295,7 +295,7 @@ function ProjectNav({ project, path }: { project: string; path: string }) {
   const res = p.data?.resources ?? [];
   const has = (a: string) => res.some((r) => r.address === a);
   const apps = res.filter((r) => r.address.startsWith("app/"));
-  const jobs = res.some((r) => r.address.startsWith("cron/") || r.address.startsWith("queue/")) || apps.some((a) => (a.spec as { role?: string })?.role === "worker");
+  const jobs = res.some((r) => /^(cron|queue|topic)\//.test(r.address)) || apps.some((a) => (a.spec as { role?: string })?.role === "worker");
   const params = { project };
   const base = `/projects/${project}`;
   const at = (s: string) => path === `${base}/${s}` || path.startsWith(`${base}/${s}/`);
@@ -311,7 +311,7 @@ function ProjectNav({ project, path }: { project: string; path: string }) {
       {has("service/email") && <NavItem to="/projects/$project/email" params={params} label="Email" />}
       {has("service/auth") && <NavItem to="/projects/$project/users" params={params} label="Auth" active={at("users") || at("orgs")} />}
       {has("service/analytics") && <NavItem to="/projects/$project/analytics" params={params} label="Analytics" />}
-      {jobs && <NavItem to="/projects/$project/queues" params={params} label="Jobs" active={at("queues") || at("workflows")} />}
+      {jobs && <NavItem to="/projects/$project/jobs" params={params} label="Jobs" active={at("jobs")} />}
       <div className="my-2 h-px bg-rule" aria-hidden />
       <NavItem to="/projects/$project/usage" params={params} label="Usage" />
       <NavItem to="/projects/$project/history" params={params} label="History" />

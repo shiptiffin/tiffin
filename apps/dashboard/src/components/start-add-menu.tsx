@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, ChevronDown, Clock, Database, FolderPlus, GitBranch, Inbox, KeyRound, LayoutTemplate, Mail, Zap } from "lucide-react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { lazy, Suspense, useState, type FormEvent, type ReactNode } from "react";
 import type { Manifest } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -8,11 +8,14 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } fr
 import { defaultAddress } from "@/lib/addresses";
 import { cn } from "@/lib/cn";
 import { PARTS } from "@/lib/names";
-import { cronWords } from "@/lib/format";
 import { change, serviceWords, type StagedEdit } from "@/lib/staged";
 import { checkGitUrl, frameworkName, rememberNextDeploy, slugify, starterLine, pickable, startersQuery, starterThumb, type Starter } from "@/lib/starters";
 
 export type Kind = "app" | "bucket" | "queue" | "cron" | "env";
+
+// A schedule or a queue: the Jobs area's own forms (they call apps or web addresses), loaded when opened.
+const ScheduleForm = lazy(() => import("@/routes/jobs/forms").then((m) => ({ default: m.ScheduleForm })));
+const QueueForm = lazy(() => import("@/routes/jobs/forms").then((m) => ({ default: m.QueueForm })));
 
 const FRIENDLY: Record<string, { label: string; icon: ReactNode }> = {
   postgres: { label: PARTS.postgres.name, icon: <Database /> },
@@ -35,11 +38,14 @@ export function AddMenu({ project, manifest, routes, className, trigger, only }:
   const off = ["postgres", "storage", "auth", "email", "analytics", "valkey"].filter((s) => !(s in services));
   const dialog = (
     <Dialog open={!!open} onOpenChange={(o) => !o && setOpen(null)}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className={open === "cron" || open === "queue" ? "sm:max-w-2xl" : "max-w-lg"}>
         {open === "app" && manifest && <AddApp project={project} manifest={manifest} routes={routes} done={() => setOpen(null)} />}
         {open === "bucket" && manifest && <AddBucket project={project} manifest={manifest} done={() => setOpen(null)} />}
-        {open === "queue" && manifest && <AddQueue project={project} manifest={manifest} done={() => setOpen(null)} />}
-        {open === "cron" && manifest && <AddCron project={project} manifest={manifest} done={() => setOpen(null)} />}
+        {(open === "queue" || open === "cron") && (
+          <Suspense fallback={<div className="h-96" />}>
+            {open === "queue" ? <QueueForm project={project} done={() => setOpen(null)} /> : <ScheduleForm project={project} done={() => setOpen(null)} />}
+          </Suspense>
+        )}
         {open === "env" && manifest && <AddEnv project={project} manifest={manifest} done={() => setOpen(null)} />}
       </DialogContent>
     </Dialog>
@@ -265,7 +271,7 @@ function PickTile({ picked, onPick, thumb, icon, title, line }: { picked: boolea
   );
 }
 
-// ───────────────────────── bucket, queue, schedule, env ─────────────────────────
+// ───────────────────────── bucket, env ─────────────────────────
 
 function AddBucket({ project, manifest, done }: { project: string; manifest: Manifest; done: () => void }) {
   const [name, setName] = useState("");
@@ -293,124 +299,6 @@ function AddBucket({ project, manifest, done }: { project: string; manifest: Man
           <b className="font-[550] text-ink">Public.</b> Anyone with a file’s address can read it. Use it for images and downloads, never for people’s uploads.
         </span>
       </label>
-    </Shell>
-  );
-}
-
-function AppSelect({ manifest, value, onChange }: { manifest: Manifest; value: string; onChange: (v: string) => void }) {
-  const apps = Object.keys(manifest.apps ?? {});
-  return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className={field}>
-      {apps.map((a) => (
-        <option key={a} value={a}>
-          {a}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-const workerFirst = (m: Manifest) => Object.entries(m.apps ?? {}).find(([, a]) => a.role === "worker")?.[0] ?? Object.keys(m.apps ?? {})[0] ?? "";
-
-function AddQueue({ project, manifest, done }: { project: string; manifest: Manifest; done: () => void }) {
-  const [name, setName] = useState("");
-  const [app, setApp] = useState(workerFirst(manifest));
-  const [path, setPath] = useState("");
-  const existing = Object.keys(manifest.queues ?? {});
-  const err = !name ? false : !slugOk(name) ? "Lowercase letters, digits and dashes, starting with a letter." : existing.includes(name) ? `There’s already a queue called ${name}.` : false;
-  const p = path || (name ? `/jobs/${name}` : "");
-  const noApps = Object.keys(manifest.apps ?? {}).length === 0;
-  return (
-    <Shell
-      title={`Add a queue to ${project}`}
-      lede="Jobs you send are delivered to an app as HTTP requests, retried with backoff, and kept when they keep failing."
-      submit={name ? `Add ${name}` : "Add the queue"}
-      ok={!!name && !err && !!app && p.startsWith("/")}
-      done={done}
-      onSubmit={() => {
-        set(project, { path: ["queues", name], to: { app, path: p }, what: `Add the ${name} queue, delivered to ${app} at ${p}`, undo: `the ${name} queue is removed` });
-        say(`add the ${name} queue`);
-      }}
-    >
-      {noApps && <p className="text-sm text-warn-ink">A queue delivers to an app. Add an app first.</p>}
-      <Field label="Name" error={err}>
-        <input autoFocus value={name} onChange={(e) => setName(slugify(e.target.value))} placeholder="emails" spellCheck={false} className={cn(field, "ident")} />
-      </Field>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Delivered to">
-          <AppSelect manifest={manifest} value={app} onChange={setApp} />
-        </Field>
-        <Field label="At the path">
-          <input value={p} onChange={(e) => setPath(e.target.value)} spellCheck={false} className={cn(field, "ident")} />
-        </Field>
-      </div>
-    </Shell>
-  );
-}
-
-const schedules = [
-  { v: "*/10 * * * *", l: "Every 10 minutes" },
-  { v: "0 * * * *", l: "Every hour" },
-  { v: "0 2 * * *", l: "Every day at 02:00 UTC" },
-  { v: "0 9 * * 1", l: "Mondays at 09:00 UTC" },
-];
-
-/** "every hour", "on Mondays at 09:00 UTC", or the expression itself. */
-function whenWords(expr: string) {
-  const preset = schedules.find((s) => s.v === expr);
-  if (preset) return preset.l.charAt(0).toLowerCase() + preset.l.slice(1).replace(/^mondays/, "on Mondays");
-  const w = cronWords(expr);
-  return w === expr ? `on the schedule “${expr}”` : w;
-}
-
-function AddCron({ project, manifest, done }: { project: string; manifest: Manifest; done: () => void }) {
-  const [name, setName] = useState("");
-  const [app, setApp] = useState(workerFirst(manifest));
-  const [schedule, setSchedule] = useState("0 2 * * *");
-  const [path, setPath] = useState("");
-  const existing = Object.keys(manifest.crons ?? {});
-  const err = !name ? false : !slugOk(name) ? "Lowercase letters, digits and dashes, starting with a letter." : existing.includes(name) ? `There’s already a schedule called ${name}.` : false;
-  const fields = schedule.trim().split(/\s+/).length === 5;
-  const p = path || (name ? `/cron/${name}` : "");
-  return (
-    <Shell
-      title={`Add a schedule to ${project}`}
-      lede="The box calls an app’s path on a schedule, like cron, and keeps every run in the queue’s history."
-      submit={name ? `Add ${name}` : "Add the schedule"}
-      ok={!!name && !err && !!app && fields && p.startsWith("/")}
-      done={done}
-      onSubmit={() => {
-        const when = whenWords(schedule.trim());
-        set(project, { path: ["crons", name], to: { schedule: schedule.trim(), app, path: p }, what: `Call ${app} at ${p} ${when}`, undo: `the ${name} schedule is removed` });
-        say(`call ${app} at ${p} ${when}`);
-      }}
-    >
-      <Field label="Name" error={err}>
-        <input autoFocus value={name} onChange={(e) => setName(slugify(e.target.value))} placeholder="nightly" spellCheck={false} className={cn(field, "ident")} />
-      </Field>
-      <Field group label="When" note={fields ? whenWords(schedule.trim()) : undefined} error={!fields && "Five fields: minute hour day month weekday."}>
-        <div className="flex flex-wrap gap-1.5">
-          {schedules.map((s) => (
-            <button
-              key={s.v}
-              type="button"
-              onClick={() => setSchedule(s.v)}
-              className={cn("h-7 rounded-full border px-2.5 text-xs", schedule === s.v ? "border-brass bg-brass-wash text-ink" : "border-rule-2 text-ink-2 hover:border-rule-3")}
-            >
-              {s.l}
-            </button>
-          ))}
-        </div>
-        <input value={schedule} onChange={(e) => setSchedule(e.target.value)} spellCheck={false} className={cn(field, "ident mt-2")} aria-label="Cron expression" />
-      </Field>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Calls">
-          <AppSelect manifest={manifest} value={app} onChange={setApp} />
-        </Field>
-        <Field label="At the path">
-          <input value={p} onChange={(e) => setPath(e.target.value)} spellCheck={false} className={cn(field, "ident")} />
-        </Field>
-      </div>
     </Shell>
   );
 }
