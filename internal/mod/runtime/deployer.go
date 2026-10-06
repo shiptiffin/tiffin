@@ -174,7 +174,8 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 		if req.Env[nextKeyEnv], err = r.nextActionsKey(ctx, d.Project, d.App, all); err != nil {
 			return err
 		}
-		req.NextCache = r.hasValkey(ctx, d.Project)
+		req.NextCache = r.hasService(ctx, d.Project, "valkey")
+		req.Postgres = r.hasService(ctx, d.Project, "postgres")
 	}
 	switch kind {
 	case SourcePrebuilt:

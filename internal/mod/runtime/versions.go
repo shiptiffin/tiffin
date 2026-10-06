@@ -34,6 +34,11 @@ const (
 	BunImage = "docker.io/oven/bun:" + BunVersion + "-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61"
 )
 
+// WorkflowPostgresWorld is the Workflow DevKit's Postgres world (Apache-2.0)
+// the box adds to apps that use the DevKit, by the major version of the
+// app's `workflow` package, which it must match.
+var WorkflowPostgresWorld = map[string]string{"4": "4.3.9", "5": "5.0.1"}
+
 func nerdctlURL(arch string) string {
 	return "https://github.com/containerd/nerdctl/releases/download/v" + NerdctlVersion +
 		"/nerdctl-full-" + NerdctlVersion + "-linux-" + arch + ".tar.gz"

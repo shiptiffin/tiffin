@@ -242,6 +242,9 @@ after a deploy. Previews share it; a duplicated or imported project gets its own
 the variable (or `NEXT_ADAPTER_PATH`) yourself to use your own. Older Next.js versions
 ignore the adapter and build as before.
 
+Apps that use Vercel's Workflow DevKit (`workflow`) run unchanged on the project's
+Postgres: see [Already using Vercel Workflow?](queues.md#already-using-vercel-workflow).
+
 `templates/hello-next` is an example with two instances and Valkey.
 
 Templates: `templates/hello-hono`, `hello-next`, `static-site`, `queues-worker`.

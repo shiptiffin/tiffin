@@ -34,7 +34,10 @@ type BuildRequest struct {
 	// NextCache: the project has Valkey, so a Next.js app's adapter wires
 	// the shared cache handlers.
 	NextCache bool
-	Log       io.Writer
+	// Postgres: the project has Postgres, which apps that use the Workflow
+	// DevKit run on.
+	Postgres bool
+	Log      io.Writer
 }
 
 // BuildResult is what a build produced: an image for container apps or a
@@ -162,6 +165,16 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 		}
 		imageEnv = prepareNext(req, env)
 	}
+	wfEnv, wfInstall, err := prepareWorkflow(req)
+	if err != nil {
+		return BuildResult{}, err
+	}
+	for k, v := range wfEnv {
+		if imageEnv == nil {
+			imageEnv = map[string]string{}
+		}
+		imageEnv[k] = v
+	}
 	for k, v := range req.Env {
 		env[k] = v
 	}
@@ -196,6 +209,11 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 			return BuildResult{}, fmt.Errorf("add the adapter to the build plan: %w", err)
 		}
 	}
+	if wfInstall != "" {
+		if err := addBuildCommand(planPath, wfInstall); err != nil {
+			return BuildResult{}, fmt.Errorf("add the Workflow DevKit's world to the build plan: %w", err)
+		}
+	}
 	// A limited project's build counts against its share. Builds run one at
 	// a time, so the shared build cgroup is this build's while it runs.
 	if lim := buildLimitFor(d.Project); lim.cpus > 0 {
@@ -226,7 +244,7 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 	}
 	var out strings.Builder
 	w := io.MultiWriter(req.Log, &out)
-	err := runLoggedEnv(ctx, w, req.SrcDir, extra, "/usr/local/bin/buildctl", bargs...)
+	err = runLoggedEnv(ctx, w, req.SrcDir, extra, "/usr/local/bin/buildctl", bargs...)
 	if err != nil {
 		hint := "Read the build log (deploys build-log): the first error is usually the cause."
 		msg := "the build failed: " + err.Error()

@@ -31,9 +31,10 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    GitHub in Settings › Git (it needs a browser). `tiffin rollback` reaches the last 3 production
    deploys; a preview keeps only its latest build and is deleted after 7 days unused. Next.js needs
    no box-specific next.config: the box's adapter sets `deploymentId`, the Valkey cache handlers
-   (when the project has Valkey) and a stable Server Actions key at build. Another server framework
-   whose client files the box does not find (deploy log: "client assets") can name them:
-   `assets: { dir: "dist/client" }`.
+   (when the project has Valkey) and a stable Server Actions key at build. Apps on Vercel's Workflow
+   DevKit (`workflow`) run unchanged on its Postgres world: give the project `postgres: {}`. Another
+   server framework whose client files the box does not find (deploy log: "client assets") can name
+   them: `assets: { dir: "dist/client" }`.
 5. Secrets go in `tiffin secrets set`, never in the config or the repo. Starting a new project?
    Reuse keys the box already has instead of asking for them again:
    `tiffin secrets list <other>` shows names, `tiffin secrets copy <new> --from <other> [--names A,B]`
