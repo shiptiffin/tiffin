@@ -230,6 +230,11 @@ function Status({ project, pulse }: { project: string; pulse: ReturnType<typeof 
           Retry
         </button>
       )}
+      {pulse.wake && (
+        <button type="button" onClick={pulse.wake} className="relative z-10 shrink-0 font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink">
+          Wake
+        </button>
+      )}
     </>
   );
 }

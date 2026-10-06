@@ -7,8 +7,10 @@ const here = (file) => new URL(file, import.meta.url).pathname;
 export default {
   name: "tiffin",
   modifyConfig(config) {
-    // The edge compresses responses.
-    const c = { ...config, compress: false };
+    // The edge compresses responses. No X-Powered-By: Next.js (the config
+    // arrives with defaults filled in, so an explicit true looks the same as
+    // unset; an app that wants the header sets it with headers()).
+    const c = { ...config, compress: false, poweredByHeader: false };
     // Pages and assets of this build carry its id: a browser on an older
     // release reloads instead of mixing builds.
     if (!c.deploymentId) c.deploymentId = box.deploymentId;

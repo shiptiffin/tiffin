@@ -59,7 +59,7 @@ func TestConnectionRevealNeedsFullAccess(t *testing.T) {
 		{"read key on shop", key(tokens.LevelRead, "shop"), 403},
 		{"full key on blog", key(tokens.LevelFull, "blog"), 403},
 	} {
-		req, _ := http.NewRequest("GET", srv.URL+"/v1/projects/shop/kv/connection", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/v1/projects/shop/kv/connection?reveal=true", nil)
 		req.Header.Set("Authorization", "Bearer "+c.token)
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {

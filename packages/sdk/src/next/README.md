@@ -52,6 +52,12 @@ export { default } from "tiffin-sdk/next/use-cache";
   `pr-<preview>` and `<deploy>` is `TIFFIN_DEPLOY`. (With `deploymentId` set, Next.js gives
   every build the same BUILD_ID, so it cannot tell releases apart.) A new release or a
   preview never serves pages another one rendered, and a rollback finds its own entries again.
+- Prerendered output survives the build: `next build` renders into an in-memory store,
+  but writes every prerendered page and route handler to `.next/server` as well. On a miss
+  the handler reads those files with Next.js's own file-system cache (the same files, PPR
+  shells and segments, with the files' time as `lastModified`) and copies the entry into
+  Valkey unless an instance already stored a newer one, so the first request after a
+  deploy is served, not rendered, and ISR ages count from the build.
 - Tag revalidations live in `<VALKEY_PREFIX>next:<app>:<env>:tags`, shared by every
   deploy and instance of the environment; a preview's revalidations never reach
   production. Fields older than the longest entry lifetime (30 days) are pruned.

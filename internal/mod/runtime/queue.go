@@ -43,6 +43,16 @@ func (m *Module) AppEndpoint(ctx context.Context, p *platform.Platform, project,
 		}
 		return "", fmt.Errorf("app %s/%s is not deployed", project, app)
 	}
+	// A delivery is activity, and a sleeping app wakes before it is sent.
+	r.touch(envKey(project, app, ""))
+	if st.Sleeping && (release == "" || release == st.Live) {
+		if _, _, err := r.wake(ctx, project, app, "", wakeDelivery); err != nil {
+			return "", fmt.Errorf("app %s/%s was asleep and could not start: %w", project, app, err)
+		}
+		if st, err = r.st.getState(ctx, project, app, ""); err != nil {
+			return "", err
+		}
+	}
 	pick := func(ins []Instance) (string, error) {
 		if len(ins) == 0 {
 			return "", fmt.Errorf("app %s/%s has no running instances", project, app)

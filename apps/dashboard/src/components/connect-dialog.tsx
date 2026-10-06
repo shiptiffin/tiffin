@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { Eye } from "lucide-react";
 import { Tabs as T } from "radix-ui";
 import { useState, type ReactNode } from "react";
-import { mod, mq, type StorageInfo } from "@/api/modules";
+import { mod, mq, type KVConnection, type StorageInfo } from "@/api/modules";
 import { Command, CopyButton } from "@/components/copy";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,18 @@ const DOTS = "••••••••";
 const ident = (p: string) => `p_${p.replace(/-/g, "_")}`;
 const envName = (b: string) => b.toUpperCase().replace(/-/g, "_");
 
-function spec(part: ConnectPart, project: string, st?: StorageInfo): Spec {
+const kvWhat: Record<string, string> = {
+  REDIS_URL: "The connection, password included",
+  VALKEY_URL: "The same, for Valkey clients",
+  VALKEY_PREFIX: "Every key starts with this; the project can’t reach other keys",
+  UPSTASH_REDIS_REST_URL: "For @upstash/redis and @vercel/kv; keys need no prefix",
+  UPSTASH_REDIS_REST_TOKEN: "Its token",
+  KV_REST_API_URL: "The same, by Vercel KV’s names",
+  KV_REST_API_TOKEN: "Its token",
+  KV_REST_API_READ_ONLY_TOKEN: "A token that can only read",
+};
+
+function spec(part: ConnectPart, project: string, st?: StorageInfo, kv?: KVConnection): Spec {
   const buckets = (st?.buckets ?? []).map((b) => b.name);
   const id = ident(project);
   const origin = typeof location === "undefined" ? "" : location.origin;
@@ -113,15 +124,14 @@ with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
       return {
         title: "Connect to KV",
         sub: PARTS.valkey.sub,
-        env: [
-          { name: "REDIS_URL", what: "The connection, password included (VALKEY_URL is the same)", value: `redis://${id}:${DOTS}@127.0.0.1:6379`, secret: true },
-          { name: "VALKEY_PREFIX", what: "Every key starts with this; the project can’t reach other keys", value: `${id}:` },
-          { name: "UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN", what: "For @upstash/redis and @vercel/kv (KV_REST_API_* too); keys need no prefix", secret: true },
-        ],
-        reveal: async () => {
-          const c = await mod.kvConnection(project);
-          return { REDIS_URL: c.redisUrl };
-        },
+        // What the box sets, from kv-connection (read access; secrets only with reveal).
+        env: (kv?.env ?? [{ name: "REDIS_URL", secret: true }, { name: "VALKEY_PREFIX", value: `${id}:`, secret: false }]).map((e) => ({
+          name: e.name,
+          what: kvWhat[e.name] ?? "",
+          value: e.value || (e.secret ? undefined : ""),
+          secret: e.secret,
+        })),
+        reveal: async () => Object.fromEntries(((await mod.kvConnection(project, true)).env ?? []).map((e) => [e.name, e.value ?? ""])),
         snippets: [
           {
             label: "ioredis",
@@ -286,7 +296,8 @@ if (!fresh || sig.v1?.length !== want.length || !timingSafeEqual(Buffer.from(sig
  */
 export function ConnectDialog({ part, project, open, onOpenChange }: { part: ConnectPart; project: string; open: boolean; onOpenChange: (o: boolean) => void }) {
   const storage = useQuery({ ...mq.storage(project), enabled: part === "files" });
-  const s = spec(part, project, storage.data);
+  const kv = useQuery({ queryKey: ["kv-connection", project, false], queryFn: () => mod.kvConnection(project), enabled: part === "kv", staleTime: 60_000 });
+  const s = spec(part, project, storage.data, kv.data);
   const [tab, setTab] = useState("apps");
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

@@ -1,1 +1,0 @@
-import{n as e,r as t}from"./createLucideIcon-Bjh2s6A5.js";import"./index-sqRjsVPw.js";var n=t();function r({value:t,unit:r,of:i,className:a}){return(0,n.jsxs)(`span`,{className:e(`tnum whitespace-nowrap`,a),children:[t,r&&(0,n.jsxs)(`span`,{className:`u`,children:[` `,r]}),i&&(0,n.jsxs)(`span`,{className:`u`,children:[` `,i]})]})}export{r as t};

@@ -6,6 +6,7 @@
     "cpus": 1.5,
     "maxSharePercent": 25
   },
+  "sleepAfter": "7d",
   "apps": {
     "jobs": {
       "path": ".",

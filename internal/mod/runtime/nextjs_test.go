@@ -5,6 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,7 +64,7 @@ console.log(JSON.stringify({ name: a.name, out }));`
 	here := filepath.Join(real, nextDir)
 	plain, mine := res.Out[0], res.Out[1]
 	hs, _ := plain["cacheHandlers"].(map[string]any)
-	if res.Name != "tiffin" || plain["compress"] != false || plain["deploymentId"] != "dep_01TEST" ||
+	if res.Name != "tiffin" || plain["compress"] != false || plain["poweredByHeader"] != false || plain["deploymentId"] != "dep_01TEST" ||
 		plain["cacheHandler"] != filepath.Join(here, "cache-handler.js") || plain["cacheMaxMemorySize"] != 0.0 ||
 		hs["default"] != filepath.Join(here, "use-cache.js") || hs["remote"] != filepath.Join(here, "use-cache.js") ||
 		plain["images"].(map[string]any)["maximumDiskCacheSize"] != float64(nextImageCacheBytes) {
@@ -155,5 +158,108 @@ func TestNextAppsGetAStableKeyAndAnImageCache(t *testing.T) {
 	}
 	if kv, _ := h.p.DB.KVList(ctx, nsNextKeys); len(kv) != 0 {
 		t.Fatalf("keys left: %v", kv)
+	}
+}
+
+func TestNextStartCommand(t *testing.T) {
+	for script, want := range map[string]string{
+		"":                                     "",
+		"next start":                           "",
+		"bun --bun next start":                 "",
+		"bunx next start -p $PORT":             " -p $PORT",
+		"next start --port=${PORT} -H 0.0.0.0": " --port=${PORT} -H 0.0.0.0",
+	} {
+		if got, ok := nextStartArgs(script); !ok || got != want {
+			t.Errorf("%q: %q %v, want %q", script, got, ok, want)
+		}
+	}
+	for _, script := range []string{"node server.js", "next start && echo hi", "NODE_ENV=x next start", "next build && next start"} {
+		if _, ok := nextStartArgs(script); ok {
+			t.Errorf("%q taken for a plain next start", script)
+		}
+	}
+	for cmd, want := range map[string]string{
+		"bun --bun next start":                                "exec bun --bun next start",
+		"cd 'web' && bun --bun next start":                    "cd 'web' && exec bun --bun next start",
+		"node node_modules/next/dist/bin/next start -p $PORT": "exec node node_modules/next/dist/bin/next start -p $PORT",
+		"true":                           "true",
+		"exec bun x.ts":                  "exec bun x.ts",
+		"bun migrate.ts && bun start.ts": "bun migrate.ts && bun start.ts",
+		"PORT=1 bun x.ts":                "PORT=1 bun x.ts",
+		"bun x.ts | tee log":             "bun x.ts | tee log",
+	} {
+		if got := execLast(cmd); got != want {
+			t.Errorf("execLast(%q) = %q, want %q", cmd, got, want)
+		}
+	}
+}
+
+func TestNextOrigin(t *testing.T) {
+	prod := map[string]string{}
+	nextOrigin(prod, "https://shop.example.com/store", "https://shop.example.com/store", false)
+	if prod["VERCEL_PROJECT_PRODUCTION_URL"] != "shop.example.com" || prod["VERCEL_ENV"] != "" || prod["VERCEL_BRANCH_URL"] != "" {
+		t.Errorf("production: %v", prod)
+	}
+	pv := map[string]string{}
+	nextOrigin(pv, "https://shop.tiffin.localhost:8443", "https://pr-1--shop.tiffin.localhost:8443", true)
+	if pv["VERCEL_PROJECT_PRODUCTION_URL"] != "shop.tiffin.localhost:8443" || pv["VERCEL_ENV"] != "preview" || pv["VERCEL_BRANCH_URL"] != "pr-1--shop.tiffin.localhost:8443" {
+		t.Errorf("preview: %v", pv)
+	}
+	for _, k := range []string{"VERCEL", "VERCEL_URL"} {
+		if _, ok := pv[k]; ok {
+			t.Errorf("%s set: libraries take it to mean the app runs on Vercel", k)
+		}
+	}
+	own := map[string]string{"VERCEL_PROJECT_PRODUCTION_URL": "mine.example", "VERCEL_ENV": "production"}
+	nextOrigin(own, "https://shop.example.com", "https://pr-1--shop.example.com", true)
+	if own["VERCEL_PROJECT_PRODUCTION_URL"] != "mine.example" || own["VERCEL_ENV"] != "production" || own["VERCEL_BRANCH_URL"] != "" {
+		t.Errorf("the app's own values must win: %v", own)
+	}
+}
+
+// fakeFiles stands in for the storage module's files host.
+type fakeFiles struct{ got *http.Request }
+
+func (f *fakeFiles) ServeFile(w http.ResponseWriter, r *http.Request) {
+	f.got = r
+	w.Header().Set("Content-Type", "image/webp")
+	_, _ = io.WriteString(w, "webp")
+}
+
+func TestServeBucketImage(t *testing.T) {
+	h := newHarness(t)
+	ff := &fakeFiles{}
+	defer func(f func() fileServer) { findFileServer = f }(findFileServer)
+	findFileServer = func() fileServer { return ff }
+	files := h.p.URL(h.p.Host("files"))
+	st := &AppState{Project: "shop", App: "web", Live: "dep_1"}
+	get := func(target, accept string) (bool, *httptest.ResponseRecorder) {
+		ff.got = nil
+		req := httptest.NewRequest("GET", target, nil)
+		req.Header.Set("Accept", accept)
+		w := httptest.NewRecorder()
+		return h.r.serveBucketImage(w, req, st, ""), w
+	}
+	ok, w := get("/_next/image?url="+url.QueryEscape(files+"/shop/media/a.jpg?X-Sig=1")+"&w=700&q=80", "image/avif,image/webp,*/*")
+	if !ok || ff.got == nil || w.Body.String() != "webp" || w.Header().Get("Vary") != "Accept" {
+		t.Fatalf("a bucket image: served %v, %q", ok, w.Body.String())
+	}
+	q := ff.got.URL.Query()
+	if ff.got.URL.Path != "/shop/media/a.jpg" || ff.got.Host != strings.TrimPrefix(files, "https://") ||
+		q.Get("w") != "750" || q.Get("q") != "75" || q.Get("f") != "webp" || q.Get("X-Sig") != "1" {
+		t.Errorf("transform request: %s %s", ff.got.Host, ff.got.URL)
+	}
+	if get("/_next/image?url="+url.QueryEscape(files+"/shop/media/a.jpg")+"&w=64&q=75", "image/jpeg"); ff.got.URL.Query().Get("f") != "original" {
+		t.Errorf("without image/webp in Accept: %s", ff.got.URL)
+	}
+	for _, target := range []string{
+		"/_next/image?url=" + url.QueryEscape(files+"/other/media/a.jpg") + "&w=64&q=75", // another project's files
+		"/_next/image?url=" + url.QueryEscape("https://example.com/a.jpg") + "&w=64&q=75",
+		"/_next/image?url=%2Fhero.jpg&w=64&q=75",
+		"/next/image?url=" + url.QueryEscape(files+"/shop/media/a.jpg"),
+	} {
+		if ok, _ := get(target, "image/webp"); ok {
+			t.Errorf("%s: served, want it passed to the app", target)
+		}
 	}
 }

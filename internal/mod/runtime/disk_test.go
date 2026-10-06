@@ -190,7 +190,7 @@ func TestLongRequests(t *testing.T) {
 	h.r.mu.Lock()
 	h.r.lastSeen[envKey("shop", "api", "feat-x")] = time.Now().Add(-time.Hour) // as if it began long ago
 	h.r.mu.Unlock()
-	h.r.sleepIdlePreviews(context.Background())
+	h.r.sleepIdle(context.Background())
 	if h.state("api", "feat-x").Sleeping {
 		t.Fatal("a preview fell asleep with a request under way")
 	}
@@ -198,7 +198,7 @@ func TestLongRequests(t *testing.T) {
 		t.Fatalf("long preview request: %d %s", code, out)
 	}
 	time.Sleep(5 * time.Millisecond)
-	h.r.sleepIdlePreviews(context.Background())
+	h.r.sleepIdle(context.Background())
 	if !h.state("api", "feat-x").Sleeping {
 		t.Fatal("an idle preview must still fall asleep")
 	}

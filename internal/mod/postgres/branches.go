@@ -96,6 +96,11 @@ func createBranch(ctx context.Context, p *platform.Platform, project, name, from
 	if _, err := admin.Exec(ctx, `CHECKPOINT`); err != nil {
 		return nil, err
 	}
+	// Queries through the pooler wait while the source is cloned instead of
+	// failing (only direct sessions are closed below). A transaction that
+	// outlasts the drain is ended by it.
+	resume, _ := pausePooler(ctx, src, branchDrain)
+	defer func() { _ = resume() }()
 	blocked := time.Now()
 	if _, err := admin.Exec(ctx, fmt.Sprintf(`ALTER DATABASE %s WITH ALLOW_CONNECTIONS false`, quoteIdent(src))); err != nil {
 		return nil, err
@@ -134,6 +139,7 @@ func createBranch(ctx context.Context, p *platform.Platform, project, name, from
 	if _, err := admin.Exec(ctx, fmt.Sprintf(`REVOKE ALL ON DATABASE %[1]s FROM PUBLIC; GRANT ALL ON DATABASE %[1]s TO %[2]s`, quoteIdent(dst), quoteIdent(Role(project)))); err != nil {
 		return nil, err
 	}
+	poolsChanged()
 	var size int64
 	_ = admin.QueryRow(ctx, `SELECT pg_database_size($1)`, dst).Scan(&size)
 	return &PGBranchCreated{
@@ -188,6 +194,7 @@ func DeleteBranch(ctx context.Context, p *platform.Platform, project, name strin
 		return api.NewProblem(404, "not_found", fmt.Sprintf("branch %q does not exist in project %s", name, project))
 	}
 	_, err = admin.Exec(ctx, fmt.Sprintf(`DROP DATABASE %s WITH (FORCE)`, quoteIdent(dst)))
+	poolsChanged()
 	return err
 }
 

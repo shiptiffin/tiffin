@@ -27,7 +27,7 @@ type tunnelKind struct {
 var tunnelKinds = map[string]tunnelKind{
 	"db": {what: "database", op: "postgres/connection", field: "databaseUrl", port: 15432,
 		flagNote: "psql, TablePlus or a local app"},
-	"kv": {what: "KV store", op: "kv/connection", field: "redisUrl", port: 16379,
+	"kv": {what: "KV store", op: "kv/connection?reveal=true", field: "redisUrl", port: 16379,
 		flagNote: "redis-cli, a GUI or a local app"},
 }
 

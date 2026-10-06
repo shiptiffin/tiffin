@@ -1,0 +1,9 @@
+{
+  "project": "poolx",
+  "services": { "postgres": {} },
+  "apps": {
+    "api": { "framework": "bun", "path": "api", "routes": ["poolx"], "release": "bun migrate.ts" },
+    "p6": { "framework": "bun", "path": "p6", "routes": ["poolx-p6"] }
+  },
+  "queues": { "ping": { "app": "api" } }
+}

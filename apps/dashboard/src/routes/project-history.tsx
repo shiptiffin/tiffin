@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -17,10 +17,12 @@ import { rememberProject } from "@/lib/recent";
 import { undoChange } from "@/lib/staged";
 import { dayKey, dayLabel, relative } from "@/lib/time";
 import { usageQuery, type ProjectUsage } from "@/lib/usage";
+import { db, dq, editWords, problemToast, type Edit } from "@/routes/data/api";
+import { toast } from "@/components/toast";
 import { actorShown } from "@/lib/who";
 
 type LimitEvent = NonNullable<ProjectUsage["limitEvents"]>[number];
-type Entry = { change: Change; at: string } | { event: LimitEvent; at: string };
+type Entry = { change: Change; at: string } | { event: LimitEvent; at: string } | { edit: Edit; at: string };
 
 /**
  * History: every change to the project as a plain sentence, who made it
@@ -34,6 +36,9 @@ export function ProjectHistoryPage({ project }: { project: string }) {
   useEffect(() => rememberProject(project), [project]);
   const changes = useQuery({ ...q.changes(project), placeholderData: (p) => p });
   const usage = useQuery({ ...usageQuery(project), refetchInterval: false });
+  // Row edits from the table editor (each with its own Undo); none when the project has no database.
+  const edits = useQuery(dq.edits(project));
+  const qc = useQueryClient();
   const names = useQuery({ ...q.tokenNames, retry: false });
   const { name: me } = useMe();
   const [showUndone, setShowUndone] = useState(false);
@@ -42,8 +47,9 @@ export function ProjectHistoryPage({ project }: { project: string }) {
   const ids = new Set(all.map((c) => c.id));
   const cancelled = (c: Change) => (!!c.undoneBy && ids.has(c.undoneBy)) || (!!c.undoOf && ids.has(c.undoOf));
   const list = showUndone ? all : all.filter((c) => !cancelled(c));
-  const hidden = all.length - all.filter((c) => !cancelled(c)).length;
-  const entries: Entry[] = [...list.map((c) => ({ change: c, at: c.at })), ...events.map((e) => ({ event: e, at: e.at }))];
+  const hidden = all.length - all.filter((c) => !cancelled(c)).length + (edits.data ?? []).filter((e) => e.undoneBy || e.undoOf).length;
+  const rowEdits = (edits.data ?? []).filter((e) => showUndone || (!e.undoneBy && !e.undoOf));
+  const entries: Entry[] = [...list.map((c) => ({ change: c, at: c.at })), ...events.map((e) => ({ event: e, at: e.at })), ...rowEdits.map((e) => ({ edit: e, at: e.at }))];
   entries.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
   const days: Array<{ day: string; items: Entry[] }> = [];
   for (const e of entries) {
@@ -71,6 +77,47 @@ export function ProjectHistoryPage({ project }: { project: string }) {
             <h2 className="label mb-1.5">{dayLabel(d.items[0].at)}</h2>
             <ul className="divide-y divide-rule border-y border-rule">
               {d.items.map((item) => {
+                if ("edit" in item) {
+                  const e = item.edit;
+                  const n = actorShown(e.actor, names.data);
+                  return (
+                    <li key={e.id} className="group flex items-center gap-3 py-3">
+                      <div className="min-w-0 flex-1">
+                        <Link
+                          to="/projects/$project/data/tables/$table"
+                          params={{ project, table: e.schema === "public" ? e.table : `${e.schema}.${e.table}` }}
+                          search={(e.branch ? { branch: e.branch } : {}) as never}
+                          className={cn("block text-[0.9375rem] leading-[1.375rem] hover:underline", e.undoneBy ? "text-ink-3" : "text-ink")}
+                        >
+                          {editWords(e)}
+                        </Link>
+                        <p className="mt-0.5 text-[0.8125rem] text-ink-3">
+                          <span className={cn(e.actor.kind === "agent" && "text-graphite")}>{me && n === me ? "You" : n}</span> · {relative(e.at)} · Database
+                          {e.undoneBy && " · undone"}
+                        </p>
+                      </div>
+                      {e.undoable && !e.undoneBy && !e.undoOf && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="opacity-70 group-hover:opacity-100 focus-visible:opacity-100"
+                          onClick={async () => {
+                            try {
+                              await db.undo(project, e.id);
+                              toast({ title: `Undone: ${editWords(e).charAt(0).toLowerCase()}${editWords(e).slice(1)}` });
+                            } catch (err) {
+                              problemToast(err);
+                            }
+                            void qc.invalidateQueries({ queryKey: ["pg-edits", project] });
+                            void qc.invalidateQueries({ queryKey: ["pg-rows", project] });
+                          }}
+                        >
+                          Undo
+                        </Button>
+                      )}
+                    </li>
+                  );
+                }
                 if ("event" in item) {
                   const e = item.event;
                   return (

@@ -18,6 +18,35 @@ const DefaultDiskSize = "1GB"
 // timeoutSeconds is unset.
 const DefaultTimeout = 15 * time.Minute
 
+// SleepAfter bounds.
+const (
+	MinSleepAfter = time.Hour
+	MaxSleepAfter = 30 * 24 * time.Hour
+)
+
+var sleepRe = regexp.MustCompile(`^([1-9][0-9]{0,3})(h|d)$`)
+
+// ParseSleepAfter returns how long a project's production apps go unused
+// before they sleep: 0 for "" (never).
+func ParseSleepAfter(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
+	}
+	m := sleepRe.FindStringSubmatch(s)
+	if m == nil {
+		return 0, fmt.Errorf("%q is not a time like \"24h\", \"7d\" or \"14d\"", s)
+	}
+	n, _ := strconv.Atoi(m[1])
+	d := time.Duration(n) * time.Hour
+	if m[2] == "d" {
+		d *= 24
+	}
+	if d < MinSleepAfter || d > MaxSleepAfter {
+		return 0, fmt.Errorf("%q is outside 1h to 30d", s)
+	}
+	return d, nil
+}
+
 // Timeout is the most one request to the app may take.
 func (a *App) Timeout() time.Duration {
 	if a.TimeoutSeconds > 0 {

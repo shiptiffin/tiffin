@@ -58,12 +58,7 @@ func (c *Client) Do(ctx context.Context, args ...string) (any, error) {
 		dl = d
 	}
 	_ = c.c.SetDeadline(dl)
-	var b strings.Builder
-	b.WriteString("*" + strconv.Itoa(len(args)) + "\r\n")
-	for _, a := range args {
-		b.WriteString("$" + strconv.Itoa(len(a)) + "\r\n" + a + "\r\n")
-	}
-	if _, err := io.WriteString(c.c, b.String()); err != nil {
+	if _, err := io.WriteString(c.c, encodeCommand(args)); err != nil {
 		return nil, err
 	}
 	v, err := c.read()
@@ -74,6 +69,44 @@ func (c *Client) Do(ctx context.Context, args ...string) (any, error) {
 		return nil, e
 	}
 	return v, nil
+}
+
+// Pipe sends several commands at once and reads their replies in order, one
+// round trip for all of them. Error replies come back as RedisError values.
+func (c *Client) Pipe(ctx context.Context, cmds ...[]string) ([]any, error) {
+	if len(cmds) == 0 {
+		return nil, nil
+	}
+	dl := time.Now().Add(30 * time.Second)
+	if d, ok := ctx.Deadline(); ok && d.Before(dl) {
+		dl = d
+	}
+	_ = c.c.SetDeadline(dl)
+	var b strings.Builder
+	for _, args := range cmds {
+		b.WriteString(encodeCommand(args))
+	}
+	if _, err := io.WriteString(c.c, b.String()); err != nil {
+		return nil, err
+	}
+	out := make([]any, len(cmds))
+	for i := range out {
+		v, err := c.read()
+		if err != nil {
+			return nil, err
+		}
+		out[i] = v
+	}
+	return out, nil
+}
+
+func encodeCommand(args []string) string {
+	var b strings.Builder
+	b.WriteString("*" + strconv.Itoa(len(args)) + "\r\n")
+	for _, a := range args {
+		b.WriteString("$" + strconv.Itoa(len(a)) + "\r\n" + a + "\r\n")
+	}
+	return b.String()
 }
 
 // String runs a command expecting a string reply.

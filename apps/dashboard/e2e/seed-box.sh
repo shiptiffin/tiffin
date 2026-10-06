@@ -85,7 +85,7 @@ sql notes "INSERT INTO notes (title, body, pinned) VALUES ('Groceries','Rice, le
 api POST /v1/projects/shop/branches '{"name":"checkout-v2"}' >/dev/null
 
 # ---- Valkey (keys under the project's prefix, set from inside the box) ------
-KV="$(api GET /v1/projects/shop/kv/connection)"
+KV="$(api GET "/v1/projects/shop/kv/connection?reveal=true")"
 REDIS="$(jq -r .redisUrl <<<"$KV")"
 PREFIX="$(jq -r .prefix <<<"$KV")"
 {

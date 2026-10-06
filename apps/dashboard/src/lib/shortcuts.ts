@@ -72,6 +72,26 @@ export function useCommand(c: Command | null) {
 export const useShortcuts = () => useSyncExternalStore(subscribe, () => shortcuts);
 export const useCommands = () => useSyncExternalStore(subscribe, () => commands);
 
+/**
+ * Keys a page handles itself (a grid's arrows, an editor's ⌘↵), listed in
+ * the `?` sheet under the page's own heading while it is mounted:
+ *   useKeyHelp("Table", KEYS)   with KEYS a constant [["↑ ↓ ← →", "Move between cells"], …]
+ */
+export type KeyHelp = { group: string; keys: Array<[string, string]> };
+let help: KeyHelp[] = [];
+export function useKeyHelp(group: string, keys: Array<[string, string]>) {
+  useEffect(() => {
+    const h = { group, keys };
+    help = [...help, h];
+    emit();
+    return () => {
+      help = help.filter((x) => x !== h);
+      emit();
+    };
+  }, [group, keys]);
+}
+export const useKeyHelpList = () => useSyncExternalStore(subscribe, () => help);
+
 let pending: { id: string; at: number } | null = null;
 /** Runs the command `id` now if a page has it, else as soon as the page you are going to registers it. */
 export function requestCommand(id: string) {

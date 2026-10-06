@@ -85,6 +85,7 @@ export function memoryRedis(): RedisLike {
         let exp = 0;
         const i = args.findIndex((x) => x.toUpperCase() === "EX");
         if (i >= 0) exp = Date.now() + Number(args[i + 1]) * 1000;
+        if (args.some((x) => x.toUpperCase() === "NX") && live(args[0]!)) return null;
         const v = a[1]!;
         strings.set(args[0]!, { v: typeof v === "string" ? v : Buffer.from(v), exp });
         return "OK";
@@ -367,13 +368,18 @@ export class Store {
     return (await p) as Item<M> | undefined;
   }
 
-  /** Stores an entry in Valkey. `meta.fresh` (ms) is when it goes stale; until then a local copy needs no check. */
-  async write(kind: "e" | "u", key: string, meta: Record<string, unknown>, value: unknown, ttlSeconds: number): Promise<void> {
+  /**
+   * Stores an entry in Valkey. `meta.fresh` (ms) is when it goes stale; until then a local copy needs no check.
+   * `ifAbsent` leaves an entry already there alone (SET NX).
+   */
+  async write(kind: "e" | "u", key: string, meta: Record<string, unknown>, value: unknown, ttlSeconds: number, ifAbsent = false): Promise<void> {
     const k = this.entryKey(kind, key);
     this.lru.delete(k);
     const frame = encode(meta, value);
     const ttl = Math.max(1, Math.min(Math.floor(ttlSeconds) || this.maxTtl, this.maxTtl));
-    const p = this.send("SET", [k, this.binary ? frame : frame.toString("base64"), "EX", String(ttl)]).then(() => {});
+    const args: Arg[] = [k, this.binary ? frame : frame.toString("base64"), "EX", String(ttl)];
+    if (ifAbsent) args.push("NX");
+    const p = this.send("SET", args).then(() => {});
     // Reads of this key in this process wait for the write.
     const done: Promise<void> = p.catch(() => {}).finally(() => {
       if (this.writes.get(k) === done) this.writes.delete(k);

@@ -27,12 +27,12 @@ import (
 //
 //	the page renders with the deploy's deploymentId and is not compressed by
 //	Next.js → its chunks are served immutable → revalidateTag reaches both
-//	instances (Valkey) → an ISR page is one copy for both instances and
-//	revalidatePath from a Server Action renews it on both → so does
-//	revalidateTag for a cached GET route handler, and with "max" the old copy
-//	is served once while it regenerates → next/image optimizes (sharp on Bun)
-//	into the box's image cache → a redeploy: the ISR page is rendered by the
-//	new deploy, a chunk only the old release had still loads, a Server Action
+//	instances (Valkey) → an ISR page is one copy for both instances (first the
+//	one next build prerendered) and revalidatePath from a Server Action renews
+//	it on both → so does revalidateTag for a cached GET route handler, and
+//	with "max" the old copy is served once while it regenerates → next/image
+//	optimizes (sharp on Bun) into the box's image cache → a redeploy: the ISR
+//	page is the new build's, a chunk only the old release had still loads, a Server Action
 //	posted from a page of the old release runs on the new one (stable key),
 //	the image cache survives, and the old release's after() callback finishes
 //	during its shutdown → a preview has its own cache: production's ISR page
@@ -189,8 +189,9 @@ func TestNext(t *testing.T) {
 	// ---- ISR page: one copy; revalidatePath from a Server Action renews it everywhere ----
 	p = time.Now()
 	const rendered, deployRe = `id="rendered">([^<]*)<`, `id="deploy">([^<]*)<`
-	if dep := one("ISR deploy", fromEach("web", "/isr", deployRe)); dep != d1.ID {
-		t.Fatalf("ISR page rendered by %q, want %s", dep, d1.ID)
+	// The first copy is the one next build prerendered (TIFFIN_DEPLOY is unset there).
+	if dep := one("ISR deploy", fromEach("web", "/isr", deployRe)); dep != "build" {
+		t.Fatalf("ISR page rendered by %q, want the build's prerender", dep)
 	}
 	isr1 := one("ISR page", fromEach("web", "/isr", rendered))
 	_, _, isrHTML := b.get(c, "GET", site+"/isr", nil)
@@ -200,6 +201,9 @@ func TestNext(t *testing.T) {
 	isr2 := one("ISR page after revalidatePath", fromEach("web", "/isr", rendered))
 	if isr2 == isr1 {
 		t.Fatalf("revalidatePath did not renew the ISR page (still %s)", isr1)
+	}
+	if dep := one("ISR deploy after revalidatePath", fromEach("web", "/isr", deployRe)); dep != d1.ID {
+		t.Fatalf("the renewed ISR page was rendered by %q, want %s", dep, d1.ID)
 	}
 
 	// ---- cached GET route handler: revalidateTag, then "max" (stale once) ----
@@ -268,9 +272,10 @@ func TestNext(t *testing.T) {
 	if !strings.Contains(home2, `data-dpl-id="`+d2.ID+`"`) || !strings.Contains(home2, "Hello again") {
 		t.Fatalf("after the redeploy: %s", head(home2))
 	}
-	// Next.js gives both builds the same BUILD_ID: the ISR page must still be the new deploy's.
-	if dep := one("ISR deploy after the redeploy", fromEach("web", "/isr", deployRe)); dep != d2.ID {
-		t.Fatalf("after the redeploy the ISR page was rendered by %q, want %s", dep, d2.ID)
+	// Next.js gives both builds the same BUILD_ID: the ISR page must be the new
+	// build's prerender, not the copy release 1 rendered.
+	if dep := one("ISR deploy after the redeploy", fromEach("web", "/isr", deployRe)); dep != "build" {
+		t.Fatalf("after the redeploy the ISR page was rendered by %q, want the new build's prerender", dep)
 	}
 
 	// A chunk only release 1 had: the app no longer has it, the box still serves it.
@@ -324,11 +329,11 @@ func TestNext(t *testing.T) {
 	// ---- a preview has its own cache and revalidations ----
 	p = time.Now()
 	prodISR := one("ISR page", fromEach("web", "/isr", rendered))
-	pv := deployArgs(t, b, app, "--app", "web", "--preview", "pr-1")
+	deployArgs(t, b, app, "--app", "web", "--preview", "pr-1")
 	pvSite := b.url("pr-1--hello-next")
 	_, _, pvISR := b.get(c, "GET", pvSite+"/isr", nil)
-	if dep := match(pvISR, deployRe); dep != pv.ID {
-		t.Fatalf("preview ISR page rendered by %q, want %s", dep, pv.ID)
+	if dep := match(pvISR, deployRe); dep != "build" {
+		t.Fatalf("preview ISR page rendered by %q, want its build's prerender", dep)
 	}
 	if code := postForm(t, c, pvSite+"/isr", pvISR, nil); code != 200 {
 		t.Fatalf("revalidatePath in the preview: %d", code)

@@ -1,11 +1,13 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { mod3, type Deploy } from "@/api/modules";
 import { q } from "@/api/queries";
-import { liveSince, relative } from "./time";
+import { toast } from "@/components/toast";
+import { liveSince, relative, sinceWhen } from "./time";
 
 /**
  * One plain status line per project and per app, from real data only:
  *   "Live · updated 2 hours ago"   "Last deploy failed · See why"   "Building…"
+ *   "Asleep since 14:05 · wakes on the next visit" (with Wake)
  * Shared by the home cards and the project header, through the same query
  * keys the deeper pages use (so moving between them doesn't refetch).
  * When a check fails (500, 403, offline) the line says so, with Retry: missing
@@ -24,6 +26,7 @@ export const runtimeQuery = (project: string, app: string) => ({
   queryFn: () => mod3.runtime(project, app),
   ...quiet,
   staleTime: 60_000,
+  refetchInterval: 60_000, // apps of a project that lets them sleep fall asleep on their own
 });
 
 export type Tone = "ok" | "busy" | "bad" | "quiet" | "unknown";
@@ -64,6 +67,9 @@ export type ProjectPulse = {
   loading: boolean;
   /** Asks again, when a check failed (tone "unknown"). */
   retry?: () => void;
+  /** Starts its sleeping apps, when every app it has live is asleep. */
+  wake?: () => void;
+  waking: boolean;
 };
 
 /** A project's one-line state and live link. */
@@ -73,11 +79,23 @@ export function useProjectPulse(project: string): ProjectPulse {
   const apps = res.filter((r) => r.address.startsWith("app/")).map((r) => ({ name: r.address.slice(4), spec: r.spec as { role?: string; framework?: string } }));
   const services = res.filter((r) => r.address.startsWith("service/")).map((r) => r.address.slice(8));
   const deploys = useQueries({ queries: apps.map((a) => deploysQuery(project, a.name)) });
-  const web = apps.filter((a) => a.spec?.role !== "worker");
-  const rts = useQueries({ queries: web.map((a) => runtimeQuery(project, a.name)) });
+  const rts = useQueries({ queries: apps.map((a) => runtimeQuery(project, a.name)) });
+  const qc = useQueryClient();
+  const wake = useMutation({
+    mutationFn: () => mod3.wake(project),
+    onSuccess: (r) => {
+      const failed = r.find((x) => x.error);
+      if (failed) toast({ title: `${failed.app} couldn’t start.`, detail: failed.error });
+    },
+    onError: (e) => toast({ title: `${project} couldn’t wake.`, detail: e instanceof Error ? e.message : undefined }),
+    onSettled: () => Promise.all(apps.map((a) => qc.invalidateQueries({ queryKey: ["runtime", project, a.name] }))),
+  });
   // The app at the project's own name first (shop.<domain> over shop-docs), then
   // one at web, www or app, else the first that's live.
-  const urls = rts.map((r) => r.data?.production?.url).filter((u): u is string => !!u);
+  const urls = rts
+    .filter((_, i) => apps[i].spec?.role !== "worker")
+    .map((r) => r.data?.production?.url)
+    .filter((u): u is string => !!u);
   const url = urls.find((u) => u.includes(`//${project}.`)) ?? urls.find((u) => /\/\/(web|www|app)\./.test(u)) ?? urls[0];
 
   // An app whose last deploy failed with none live reads failed too: its deploys say that more exactly, below.
@@ -86,7 +104,15 @@ export function useProjectPulse(project: string): ProjectPulse {
   const loading = p.isPending || deploys.some((d) => d.isPending);
   const failedChecks = [p, ...deploys].filter((x) => x.isError);
 
+  // Asleep: every app it has live sleeps (a project that lets its apps sleep, unused for a while).
+  const live = rts.map((r, i) => ({ env: r.data?.production, web: apps[i].spec?.role !== "worker" })).filter((x) => x.env?.live);
+  const asleep =
+    live.length > 0 && live.every((x) => x.env?.sleeping)
+      ? { since: live.map((x) => x.env?.sleepingSince ?? "").sort().pop() || undefined, web: live.some((x) => x.web) }
+      : undefined;
+
   let tone: Tone = "ok";
+  let canWake = false;
   let words: string;
   let why: { app: string } | undefined;
   const bad = pulses.find((x) => x.pulse?.tone === "bad");
@@ -117,13 +143,21 @@ export function useProjectPulse(project: string): ProjectPulse {
     words = "Not live yet";
   } else if (apps.length === 0) {
     words = "Ready, no app yet";
+  } else if (wake.isPending) {
+    tone = "busy";
+    words = "Waking up…";
+  } else if (asleep) {
+    tone = "quiet";
+    canWake = true;
+    words = asleep.since ? `Asleep since ${sinceWhen(asleep.since)}` : "Asleep";
+    words += asleep.web ? " · wakes on the next visit" : " · wakes on its next job";
   } else {
     words = "Live";
     const since = pulses.map((x) => x.pulse?.since).filter(Boolean).sort().pop();
     if (since) words += ` · updated ${relative(since)}`;
   }
   const retry = tone === "unknown" ? () => failedChecks.forEach((x) => void x.refetch()) : undefined;
-  return { tone, words, why, url, apps: apps.map((a) => a.name), services, loading, retry };
+  return { tone, words, why, url, apps: apps.map((a) => a.name), services, loading, retry, wake: canWake ? () => wake.mutate() : undefined, waking: wake.isPending };
 }
 
 export const toneClass: Record<Tone, string> = {

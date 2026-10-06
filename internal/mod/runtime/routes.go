@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"path"
@@ -308,18 +307,23 @@ func (r *rt) serveInternal(ctx context.Context, ln net.Listener) {
 }
 
 // activate is the switchboard's front door: it finds the app environment a
-// request belongs to (by host and path, as the edge routed it), wakes a
-// sleeping preview, and proxies to the least busy instance.
+// request belongs to (by host and path, as the edge routed it), wakes it if
+// it sleeps, and proxies to the least busy instance. Every request counts
+// as activity, those the box answers itself included.
 func (r *rt) activate(w http.ResponseWriter, req *http.Request) {
-	if strings.HasPrefix(req.URL.Path, livePrefix+"/") {
-		serveLive(w, req)
-		return
-	}
+	began := time.Now()
 	host := strings.ToLower(req.Host)
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
 	key, prefix, ok := r.lookup(host, req.URL.Path)
+	if strings.HasPrefix(req.URL.Path, livePrefix+"/") {
+		if ok {
+			r.touch(key)
+		}
+		serveLive(w, req)
+		return
+	}
 	if !ok {
 		r.routes(req.Context()) // rebuild the table (first request after a start)
 		if key, prefix, ok = r.lookup(host, req.URL.Path); !ok {
@@ -331,91 +335,31 @@ func (r *rt) activate(w http.ResponseWriter, req *http.Request) {
 		http.NotFound(w, req)
 		return
 	}
+	r.touch(key)
+	defer r.touch(key) // a long request keeps it awake until it ends
 	st := r.st.cache.get(key)
-	if st != nil && st.Preview != "" {
-		r.mu.Lock()
-		r.lastSeen[key] = time.Now()
-		r.mu.Unlock()
-		defer func() {
-			r.mu.Lock()
-			r.lastSeen[key] = time.Now()
-			r.mu.Unlock()
-		}()
-	}
-	// Client assets come from the box's copy of them; a sleeping preview
-	// need not wake for them.
-	if st != nil && !st.Stopped && r.serveAsset(w, req, st, prefix) {
+	// Client assets come from the box's copy of them; a sleeping app need
+	// not wake for them.
+	if st != nil && !st.Stopped && (r.serveAsset(w, req, st, prefix) || r.serveBucketImage(w, req, st, prefix)) {
 		return
 	}
-	if st != nil && st.Preview != "" {
-		if st.Sleeping || len(st.Instances) == 0 {
-			if _, err := r.wake(req.Context(), st.Project, st.App, st.Preview); err != nil {
-				w.Header().Set("Retry-After", "5")
-				http.Error(w, "the preview could not start: "+err.Error(), http.StatusServiceUnavailable)
-				return
+	if st != nil && !st.Stopped && (st.Sleeping || (st.Preview != "" && len(st.Instances) == 0)) {
+		_, woke, err := r.wake(req.Context(), st.Project, st.App, st.Preview, wakeRequest)
+		if err != nil {
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, "the app could not start: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		if woke {
+			fb := &firstByte{ResponseWriter: w}
+			r.serveApp(fb, req, key)
+			if !fb.at.IsZero() {
+				r.wokeFirstByte(st.Project, st.App, st.Preview, roundMs(fb.at.Sub(began).Seconds()))
 			}
+			return
 		}
 	}
 	r.serveApp(w, req, key)
-}
-
-// wake returns a running instance's port for a preview, starting it first if
-// it sleeps.
-func (r *rt) wake(ctx context.Context, project, app, preview string) (int, error) {
-	unlock := r.lock(envKey(project, app, preview))
-	defer unlock()
-	st, err := r.st.getState(ctx, project, app, preview)
-	if err != nil {
-		return 0, err
-	}
-	if len(st.Instances) > 0 && !st.Sleeping {
-		return st.Instances[0].Port, nil
-	}
-	d, err := r.st.getDeploy(ctx, project, app, st.Live)
-	if err != nil {
-		return 0, err
-	}
-	spec, err := r.appSpec(ctx, project, app)
-	if err != nil {
-		return 0, err
-	}
-	began := time.Now()
-	// Detach from the request: a client giving up must not abort the start.
-	if err := r.promoteLocked(r.ctx, d, spec, modeWake, io.Discard); err != nil {
-		return 0, err
-	}
-	st, _ = r.st.getState(ctx, project, app, preview)
-	r.p.Log.Info("preview woke", "project", project, "app", app, "preview", preview, "seconds", round1(time.Since(began).Seconds()))
-	if len(st.Instances) == 0 {
-		return 0, fmt.Errorf("no instance")
-	}
-	return st.Instances[0].Port, nil
-}
-
-// sleepIdlePreviews stops previews nobody requested for PreviewIdle.
-func (r *rt) sleepIdlePreviews(ctx context.Context) {
-	states, err := r.st.allStates(ctx)
-	if err != nil {
-		return
-	}
-	for _, s := range states {
-		if s.Preview == "" || s.Sleeping || len(s.Instances) == 0 {
-			continue
-		}
-		key := envKey(s.Project, s.App, s.Preview)
-		r.mu.Lock()
-		seen, ok := r.lastSeen[key]
-		if !ok {
-			// Unknown since the box started: count from its last change.
-			seen = s.UpdatedAt
-			r.lastSeen[key] = seen
-		}
-		r.mu.Unlock()
-		if time.Since(seen) < r.opt.PreviewIdle || r.st.cache.busy(s.Instances) > 0 {
-			continue // a request still under way keeps the preview awake, however long it runs
-		}
-		r.sleep(ctx, s.Project, s.App, s.Preview)
-	}
 }
 
 // expirePreviews deletes the previews nobody requested or deployed to for
@@ -448,22 +392,6 @@ func (r *rt) expirePreviews(ctx context.Context) {
 			r.expireReport(ctx, s.Project, s.App, d.PullRequest)
 		}
 	}
-}
-
-func (r *rt) sleep(ctx context.Context, project, app, preview string) {
-	unlock := r.lock(envKey(project, app, preview))
-	defer unlock()
-	st, err := r.st.getState(ctx, project, app, preview)
-	if err != nil || st.Sleeping || len(st.Instances) == 0 {
-		return
-	}
-	ins := st.Instances
-	st.Instances, st.Sleeping = nil, true
-	if r.st.putState(ctx, st) != nil {
-		return
-	}
-	r.removeInstances(ctx, ins)
-	r.p.Log.Info("preview asleep", "project", project, "app", app, "preview", preview)
 }
 
 // checks reports the container runtime and each app environment.

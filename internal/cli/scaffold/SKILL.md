@@ -33,9 +33,13 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    changes go in `release: "bunx drizzle-kit migrate"` (any command): it runs once per deploy
    before the new version takes traffic, a failure keeps the old one serving, and rollbacks do
    not undo it, so add first and drop only in a later deploy. Each preview gets its own
-   copy-on-write database branch (`pv-<preview>`) and migrates that, never production's. Next.js needs
+   copy-on-write database branch (`pv-<preview>`) and migrates that, never production's. Builds get
+   the app's env and secrets like Vercel's, with the database and Valkey read-only (a preview's build
+   reads its branch); the build runs before `release`, so it sees the old schema (a first deploy has
+   no tables yet). Next.js needs
    no box-specific next.config: the box's adapter sets `deploymentId`, the Valkey cache handlers
-   (when the project has Valkey) and a stable Server Actions key at build. Apps on Vercel's Workflow
+   (when the project has Valkey) and a stable Server Actions key at build; prerendered pages serve
+   from the build, next/image of bucket files and og:image URLs work without `metadataBase` or a loader. Apps on Vercel's Workflow
    DevKit (`workflow`) run unchanged on its Postgres world: give the project `postgres: {}`. Another
    server framework whose client files the box does not find (deploy log: "client assets") can name
    them: `assets: { dir: "dist/client" }`. Apps from Vercel need no changes: a Next.js `output: "export"`
@@ -52,7 +56,10 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    86400) for longer renders, or use a queue job. Bodies have no size limit (GB uploads work), but a
    Bun server needs `idleTimeout: 0` and a `maxRequestBodySize` in its `export default { ... }` (Bun
    cuts a silent request after 10 s and refuses bodies over 128 MB); user files still belong in a
-   bucket.
+   bucket. Production never sleeps unless the project sets `sleepAfter: "7d"` ("1h" to "30d"): then
+   apps unused that long stop, and the next request or job wakes them in a few seconds (timers
+   inside the app stop meanwhile; recurring work belongs in a cron). `tiffin projects wake <project>`
+   starts them ahead of visitors.
    Slow or failing requests: `tiffin traces list --project <p>` then `tiffin traces get <id> --project <p>`
    (apps already have the OTLP env; Next.js needs an `instrumentation.ts` calling `registerOTel()` from
    `@vercel/otel`). Real visitors' page speed: `<WebVitals />` from `tiffin-sdk/next/vitals` in the root
@@ -65,6 +72,11 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
 6. App code reads services from env vars (`DATABASE_URL`, `S3_*`, `TIFFIN_AUTH_INTERNAL_URL`...),
    its own address from `TIFFIN_URL` and the domain apps live under from `TIFFIN_DOMAIN` (it can
    differ from the dashboard's: `tiffin domain` shows both); never hardcode either.
+   `DATABASE_URL` goes through a transaction pooler (PgBouncer): prepared statements work, but
+   `LISTEN`, session advisory locks, plain `SET` and temp tables need `DIRECT_DATABASE_URL`
+   (also Prisma's `directUrl` and drizzle-kit; release commands get it as `DATABASE_URL`).
+   With node-postgres add `pool.on("error", ...)`. Postgres minor updates: `tiffin maintenance
+   show` / `tiffin maintenance postgres-update [--now]` (queries wait a fraction of a second, none fail).
    `NEXT_PUBLIC_*`, `VITE_*` and `PUBLIC_*` are built into browser code (public, even as
    secrets): changing one rebuilds the app. Next.js gets `NEXT_PUBLIC_TIFFIN_URL` and
    `NEXT_PUBLIC_SENTRY_DSN`.
