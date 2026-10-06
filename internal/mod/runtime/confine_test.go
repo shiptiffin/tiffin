@@ -53,3 +53,22 @@ func must(t *testing.T, err error) {
 		t.Fatal(err)
 	}
 }
+
+func TestNoLinks(t *testing.T) {
+	root := t.TempDir()
+	must(t, os.MkdirAll(filepath.Join(root, "data", "uploads"), 0o755))
+	if err := noLinks(root, "data/uploads"); err != nil {
+		t.Fatal(err)
+	}
+	if err := noLinks(root, "data/new/deeper"); err != nil {
+		t.Fatalf("a folder not made yet: %v", err)
+	}
+	// The app planted a link in its folder; a later deploy declares a folder through it.
+	must(t, os.Symlink("/", filepath.Join(root, "data", "escape")))
+	if err := noLinks(root, "data/escape"); err == nil {
+		t.Fatal("a link as the folder was accepted")
+	}
+	if err := noLinks(root, "data/escape/etc"); err == nil {
+		t.Fatal("a folder through a link was accepted")
+	}
+}

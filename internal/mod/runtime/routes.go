@@ -56,7 +56,13 @@ func (m *Module) PreviewHosts(ctx context.Context, p *platform.Platform, project
 			continue
 		}
 		spec, err := r.appSpec(ctx, project, st.App)
-		if err != nil || spec.Role == manifest.RoleWorker {
+		if errors.Is(err, errNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if spec.Role == manifest.RoleWorker {
 			continue
 		}
 		out[previewHost(st.Preview, project, st.App, spec, p.AppsDomain())] = st.App

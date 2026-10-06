@@ -165,14 +165,29 @@ func sdkPlugin() api.Plugin {
 	}
 }
 
-// confinePlugin refuses to load files outside root.
+// confinePlugin refuses imports that lead outside root, before esbuild's
+// resolver reads anything there (a package.json it parses can surface in
+// an error), and refuses to load files outside it. Links inside root stay
+// inside it (srcpack checks them), so a path that stays lexically inside
+// does too.
 func confinePlugin(root string) api.Plugin {
+	inside := func(p string) bool { return p == root || strings.HasPrefix(p, root+string(filepath.Separator)) }
 	return api.Plugin{
 		Name: "confine",
 		Setup: func(b api.PluginBuild) {
+			b.OnResolve(api.OnResolveOptions{Filter: `^(/|\.|[A-Za-z]:)`}, func(a api.OnResolveArgs) (api.OnResolveResult, error) {
+				p := a.Path
+				if !filepath.IsAbs(p) {
+					p = filepath.Join(a.ResolveDir, p)
+				}
+				if !inside(filepath.Clean(p)) {
+					return api.OnResolveResult{}, errors.New("imports only files of the repository")
+				}
+				return api.OnResolveResult{}, nil // resolve it as usual
+			})
 			b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: "file"}, func(a api.OnLoadArgs) (api.OnLoadResult, error) {
 				real, err := filepath.EvalSymlinks(a.Path)
-				if err != nil || (real != root && !strings.HasPrefix(real, root+string(filepath.Separator))) {
+				if err != nil || !inside(real) {
 					return api.OnLoadResult{}, errors.New("imports only files of the repository")
 				}
 				return api.OnLoadResult{}, nil // load it as usual

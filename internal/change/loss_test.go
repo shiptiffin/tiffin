@@ -92,3 +92,16 @@ func TestEngineAttachesLosses(t *testing.T) {
 		t.Fatalf("the change keeps what was lost: %+v %v", c, err)
 	}
 }
+
+func TestNewProjectNames(t *testing.T) {
+	e := NewEngine(NewMemStore())
+	desired := map[string]Resource{KindProject: {Address: KindProject, Spec: []byte(`{}`)}}
+	for _, name := range []string{"shop--read", "shop-", "Shop", "a-very-long-project-name-that-goes-past-forty"} {
+		if _, err := e.Plan(context.Background(), name, desired); err == nil {
+			t.Errorf("%q planned as a new project", name)
+		}
+	}
+	if _, err := e.Plan(context.Background(), "my-shop-2", desired); err != nil {
+		t.Fatal(err)
+	}
+}

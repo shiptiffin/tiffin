@@ -34,7 +34,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -161,12 +160,10 @@ type backend interface {
 	recentlyDeleted(ctx context.Context, project string) bool
 }
 
-var projectName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
-
 // checkNewName says why name cannot be a new project here, or nil.
 func checkNewName(ctx context.Context, b backend, existing []string, name string) error {
-	if !projectName.MatchString(name) {
-		return api.NewProblem(422, "validation", fmt.Sprintf("%q is not a project name: 1-40 lowercase letters, digits and dashes, starting with a letter", name))
+	if !change.ValidProjectName(name) {
+		return api.NewProblem(422, "validation", fmt.Sprintf("%q is not a project name: 1-40 lowercase letters, digits and single dashes, starting with a letter and not ending in a dash", name))
 	}
 	if slices.Contains(existing, name) {
 		prob := api.NewProblem(409, "conflict", "project "+name+" already exists on this box")

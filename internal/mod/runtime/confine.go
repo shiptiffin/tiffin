@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -61,4 +62,27 @@ func confinedDir(root, dir string) (string, error) {
 
 func within(root, p string) bool {
 	return p == root || strings.HasPrefix(p, root+string(filepath.Separator))
+}
+
+// noLinks refuses rel (a path under root) if it, or a folder on the way to
+// it, is a link: the host would follow it wherever it points.
+func noLinks(root, rel string) error {
+	p := root
+	for _, part := range strings.Split(filepath.ToSlash(filepath.Clean(rel)), "/") {
+		if part == "" || part == "." {
+			continue
+		}
+		p = filepath.Join(p, part)
+		fi, err := os.Lstat(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if fi.Mode()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("%s is a link, which a disk folder may not be or be inside", strings.TrimPrefix(p, root+string(filepath.Separator)))
+		}
+	}
+	return nil
 }

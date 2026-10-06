@@ -609,7 +609,10 @@ func knownChunks(ctx context.Context, v *vault, fc *fileCache) (map[string]bool,
 
 // refsPath keeps the chunk IDs of a set this box uploaded, so pruning does
 // not download trees.
-func refsPath(id string) string { return filepath.Join(offsiteRoot, "refs", id) }
+// refsPath is a set's cached chunk list. "refs2": lists written before they
+// were written atomically may be cut short, so they are read again from the
+// bucket rather than trusted.
+func refsPath(id string) string { return filepath.Join(offsiteRoot, "refs2", id) }
 
 func openVault(c *OffsiteConfig, s *offsiteSecrets) (*vault, error) {
 	st, err := newS3(c, s.SecretAccessKey)

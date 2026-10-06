@@ -96,7 +96,11 @@ func (*Module) Routes(ctx context.Context, p *platform.Platform) ([]edge.Route, 
 			continue
 		}
 		rs := routesFor(p, res)
-		for _, h := range previewHosts(ctx, p, project) {
+		previewed, err := previewHosts(ctx, p, project)
+		if err != nil {
+			return nil, err
+		}
+		for _, h := range previewed {
 			rs = append(rs, edge.Route{Host: h.Host, PathPrefix: PathPrefix, Upstream: EngineAddr})
 			previews = append(previews, project+" "+h.Host)
 		}

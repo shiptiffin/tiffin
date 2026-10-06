@@ -463,7 +463,7 @@ func (m *Module) registerProjects(a huma.API, p *platform.Platform) {
 	huma.Register(a, api.Idempotent(dup), api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Body    struct {
-			Name string `json:"name" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"The copy's name, e.g. shop-copy"`
+			Name string `json:"name" pattern:"^[a-z](-?[a-z0-9]){0,39}$" maxLength:"40" doc:"The copy's name, e.g. shop-copy"`
 		}
 	}) (*struct{ Body *ProjectJob }, error) {
 		pr, err := fullAccess(ctx, in.Project)

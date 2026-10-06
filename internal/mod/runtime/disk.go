@@ -53,6 +53,11 @@ func (r *rt) diskMounts(ctx context.Context, d *Deploy, spec *manifest.App, log 
 	var missing []string
 	made := map[string]bool{}
 	for _, p := range spec.Disk.Paths() {
+		// The app writes what it likes in its folders: a link it made there
+		// must not become the mount of a folder declared inside it later.
+		if err := noLinks(root, p); err != nil {
+			return nil, &startError{msg: fmt.Sprintf("disk folder %s: %v", p, err)}
+		}
 		if !exists(filepath.Join(root, p)) {
 			missing = append(missing, p)
 			made[p] = true
@@ -70,6 +75,9 @@ func (r *rt) diskMounts(ctx context.Context, d *Deploy, spec *manifest.App, log 
 	}
 	mounts := make([]string, len(spec.Disk))
 	for i, p := range spec.Disk.Paths() {
+		if err := noLinks(root, p); err != nil {
+			return nil, &startError{msg: fmt.Sprintf("disk folder %s: %v", p, err)}
+		}
 		mounts[i] = filepath.Join(root, p) + ":" + path.Join(workDir, p)
 	}
 	return mounts, nil

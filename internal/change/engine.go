@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -88,6 +89,9 @@ func (e *Engine) PlanEdit(ctx context.Context, project string, edit func(current
 	ver, current, err := e.Store.Load(ctx, project)
 	if err != nil {
 		return nil, err
+	}
+	if len(current) == 0 && !ValidProjectName(project) {
+		return nil, fmt.Errorf("%q is not a project name: 1-40 lowercase letters, digits and single dashes, starting with a letter and not ending in a dash", project)
 	}
 	cp := make(map[string]Resource, len(current))
 	for k, v := range current {
@@ -306,3 +310,11 @@ func canon(r json.RawMessage) json.RawMessage {
 	c, _ := compact(v)
 	return c
 }
+
+var projectNameRe = regexp.MustCompile(`^[a-z](-?[a-z0-9]){0,39}$`)
+
+// ValidProjectName reports whether name may be a new project's. Names join
+// with "__" in database, role and key names, so no double dash: "shop--read"
+// would be shop's read-only role. Every way a project is made (apply,
+// duplicate, import) plans it here.
+func ValidProjectName(name string) bool { return len(name) <= 40 && projectNameRe.MatchString(name) }

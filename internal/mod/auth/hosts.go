@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -93,7 +94,9 @@ type previewHoster interface {
 
 // previewHosts lists a project's preview hosts, sorted. Previews share the
 // project's users: a tester signs in on a preview with their real account.
-func previewHosts(ctx context.Context, p *platform.Platform, project string) []AppHost {
+// It fails rather than leave out a preview it could not read: the routes
+// built from it would take that preview's sign-in off the edge.
+func previewHosts(ctx context.Context, p *platform.Platform, project string) ([]AppHost, error) {
 	var out []AppHost
 	for _, m := range platform.Modules() {
 		ph, ok := m.(previewHoster)
@@ -102,15 +105,12 @@ func previewHosts(ctx context.Context, p *platform.Platform, project string) []A
 		}
 		hosts, err := ph.PreviewHosts(ctx, p, project)
 		if err != nil {
-			if p.Log != nil {
-				p.Log.Warn("auth: preview hosts", "project", project, "err", err)
-			}
-			continue
+			return nil, fmt.Errorf("auth: preview hosts of %s: %w", project, err)
 		}
 		for h, app := range hosts {
 			out = append(out, AppHost{App: app, Host: strings.ToLower(h)})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Host < out[j].Host })
-	return out
+	return out, nil
 }

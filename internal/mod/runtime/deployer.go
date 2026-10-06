@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -811,16 +812,24 @@ func (r *rt) buildRunEnv(ctx context.Context, d *Deploy, spec *manifest.App, own
 		}
 	}
 	if r.hasService(ctx, d.Project, "valkey") {
+		// Each of the box's credentials (the URL, the REST tokens) is swapped
+		// for its read-only twin on its own: an app that set one of them
+		// itself keeps its own, and the others are still read-only.
 		box, err := valkey.ConnEnv(ctx, r.p, d.Project, false)
 		if err != nil {
 			return nil, err
 		}
-		if env["REDIS_URL"] == box["REDIS_URL"] {
-			ro, err := r.opt.ReadAccess.ValkeyReadEnv(ctx, r.p, d.Project)
-			if err != nil {
-				return nil, err
-			}
-			for k, v := range ro {
+		rest, err := valkey.RESTEnv(ctx, r.p, d.Project)
+		if err != nil {
+			return nil, err
+		}
+		maps.Copy(box, rest)
+		ro, err := r.opt.ReadAccess.ValkeyReadEnv(ctx, r.p, d.Project)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range ro {
+			if env[k] == box[k] {
 				env[k] = v
 			}
 		}

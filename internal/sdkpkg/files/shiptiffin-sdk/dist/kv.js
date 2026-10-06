@@ -625,11 +625,12 @@ export function kv(opts) {
     return store;
 }
 /**
- * Ends a cached() refresh: stores the value (when there is one) unless
- * another caller holds the lock now, and lets go of the lock only if it is
- * still this caller's. KEYS: value, lock. ARGV: token, value, PX.
+ * Ends a cached() refresh: only while the lock is still this caller's, it
+ * stores the value (when there is one) and lets go of the lock. A refresh
+ * that outlived its lock stores nothing: a newer one may have run since.
+ * KEYS: value, lock. ARGV: token, value, PX.
  */
-const CACHED_FINISH_LUA = `local l = redis.call("GET", KEYS[2])
-if ARGV[2] ~= "" and (l == ARGV[1] or not l) then redis.call("SET", KEYS[1], ARGV[2], "PX", ARGV[3]) end
-if l == ARGV[1] then redis.call("DEL", KEYS[2]) end
-return 0`;
+const CACHED_FINISH_LUA = `if redis.call("GET", KEYS[2]) ~= ARGV[1] then return 0 end
+if ARGV[2] ~= "" then redis.call("SET", KEYS[1], ARGV[2], "PX", ARGV[3]) end
+redis.call("DEL", KEYS[2])
+return 1`;
