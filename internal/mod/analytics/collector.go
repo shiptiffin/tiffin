@@ -73,10 +73,12 @@ func (m *Module) collectorHandler() http.Handler {
 	})
 	mux.HandleFunc("/e", m.beacon)
 	mux.HandleFunc("/track", m.serverTrack)
+	mux.HandleFunc(VitalsPath, m.vitalsBeacon)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusNotFound)
-		_, _ = io.WriteString(w, "Tiffin analytics collector.\n\nGET /script.js   the tracker; add <script defer src=\"/script.js on this host\"></script> to your pages\nPOST /e          browser beacons\nPOST /track      server-side track() (Authorization: Bearer $TIFFIN_ANALYTICS_KEY)\n")
+		_, _ = io.WriteString(w, "Tiffin analytics collector.\n\nGET /script.js   the tracker; add <script defer src=\"/script.js on this host\"></script> to your pages\nPOST /e          browser beacons\nPOST /track      server-side track() (Authorization: Bearer $TIFFIN_ANALYTICS_KEY)\n"+
+			"POST "+VitalsPath+" on an app's own host: Web Vitals {\"path\": \"/\", \"metrics\": {\"LCP\": 1840}}\n")
 	})
 	return mux
 }

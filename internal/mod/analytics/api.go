@@ -266,6 +266,7 @@ type Setup struct {
 	Snippet   string   `json:"snippet" doc:"Optional: add to pages for SPA navigations, custom events, outbound clicks and downloads"`
 	Track     string   `json:"track" doc:"Server-side custom events"`
 	Browser   string   `json:"browser" doc:"Browser-side custom events (with the snippet)"`
+	Vitals    string   `json:"vitals" doc:"Web Vitals from a Next.js app: render this once in the root layout"`
 	Env       []string `json:"env" doc:"Env vars apps of this project receive"`
 	Privacy   string   `json:"privacy"`
 }
@@ -335,6 +336,33 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 			return &struct{ Body EventsView }{EventsView{Project: in.Project, App: in.App, From: from, To: to, Events: ev}}, nil
 		}))
 
+	huma.Register(a, api.Untrusted(api.Op("analytics-vitals", http.MethodGet, "/v1/analytics/vitals", "analytics vitals", api.RiskRead,
+		"Show Web Vitals",
+		"How fast real visitors found the pages: p75 of LCP, INP, CLS, FCP and TTFB with Google's rating (good, needs-improvement, poor) and the share of good samples, "+
+			"per page and per day. Pages report them with tiffin-sdk/next/vitals (<WebVitals />) or reportWebVitals() from tiffin-sdk/vitals."+untrusted, "analytics")),
+		api.Wrap(func(ctx context.Context, in *rangeQuery) (*struct{ Body *VitalsView }, error) {
+			if err := m.ready(ctx, in.Project); err != nil {
+				return nil, err
+			}
+			if err := m.enabledHint(ctx, in.Project); err != nil {
+				return nil, err
+			}
+			from, to, label, _, err := resolve(in.Period, in.From, in.To, time.Now())
+			if err != nil {
+				return nil, err
+			}
+			limit := in.Limit
+			if limit == 0 {
+				limit = 10
+			}
+			v, err := m.VitalsFor(ctx, Query{Project: in.Project, App: in.App, From: from, To: to}, limit)
+			if err != nil {
+				return nil, err
+			}
+			v.Period = label
+			return &struct{ Body *VitalsView }{v}, nil
+		}))
+
 	huma.Register(a, api.Op("analytics-setup", http.MethodGet, "/v1/analytics/setup", "analytics setup", api.RiskRead,
 		"Show how to add analytics",
 		"Whether analytics is on for the project, which hosts are counted automatically, and the script tag and track() calls for more.", "analytics"),
@@ -354,6 +382,7 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 				Snippet: `<script defer src="` + ScriptURL(m.p) + `"></script>`,
 				Track:   `import { track } from "tiffin-sdk/analytics"; await track("Signup", { plan: "pro" }, { request })`,
 				Browser: `tiffin.track("Signup", { plan: "pro" })`,
+				Vitals:  `import { WebVitals } from "tiffin-sdk/next/vitals"; <WebVitals />`,
 				Env:     []string{"TIFFIN_ANALYTICS_URL", "TIFFIN_ANALYTICS_KEY", "TIFFIN_ANALYTICS_SCRIPT"},
 				Privacy: "No cookies or storage. Visitors are a daily-salted hash of app, IP and user agent; raw IPs and user agents are never stored; salts are deleted after 48 hours. Query strings are dropped except utm_* and ref."}
 			if !on {

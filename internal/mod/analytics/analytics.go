@@ -48,6 +48,7 @@ type Module struct {
 	rt      *Realtime
 	sites   *edgelog.Sites
 	geo     *enrich.Geo
+	vit     *Vitals
 	started atomic.Bool
 	listErr atomic.Value
 }
@@ -124,6 +125,7 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 		go func() { <-ctx.Done(); _ = srv.Close() }()
 	}
 	go m.pipe.Run(ctx)
+	go m.vit.Run(ctx)
 	tl := &logtail.Tailer{Path: filepath.Join(root, "logs", "access.log"), FromStart: true,
 		Load: func() (logtail.Position, bool) {
 			b, ok, err := p.DB.KVGet(ctx, "analytics", "access-log")
@@ -149,6 +151,7 @@ func (m *Module) setup(p *platform.Platform, st Store, geo *enrich.Geo) {
 	m.rt = &Realtime{}
 	m.sites = &edgelog.Sites{DB: p.DB, Domain: p.AppsDomain()}
 	m.pipe = &Pipeline{Store: st, Bots: enrich.NewBots(), Agents: enrich.NewAgents(), Geo: geo, RT: m.rt}
+	m.vit = &Vitals{Store: st}
 }
 
 // retentionLoop deletes raw events past each project's retention daily.
@@ -220,9 +223,10 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 	return err
 }
 
-// Routes publishes the collector (script, beacons) at t.<domain>.
+// Routes publishes the collector (script, beacons) at t.<domain>, and
+// VitalsPath on every app host.
 func (m *Module) Routes(ctx context.Context, p *platform.Platform) ([]edge.Route, error) {
-	return []edge.Route{{Host: p.Host("t"), Upstream: CollectorAddr}}, nil
+	return []edge.Route{{Host: p.Host("t"), Upstream: CollectorAddr}, {PathPrefix: VitalsPath, Upstream: CollectorAddr}}, nil
 }
 
 // ScriptURL is the public URL of the tracker.
