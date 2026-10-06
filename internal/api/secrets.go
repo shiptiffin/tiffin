@@ -122,6 +122,9 @@ func (a *API) registerSecrets() {
 		if manifest.SetByBox(in.Name) {
 			out.Note = "The box already gives apps " + in.Name + "; this secret replaces that value. Delete the secret to go back to the box's. " + out.Note
 		}
+		if c != nil && manifest.BuildInlined(in.Name) {
+			out.Note += " " + in.Name + " is built into browser code, so it is public, and web apps rebuild from their live source to pick it up."
+		}
 		return &struct{ Body SecretSet }{out}, nil
 	}))
 

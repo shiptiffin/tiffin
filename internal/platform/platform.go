@@ -182,6 +182,24 @@ func (p *Platform) CheckPlan(ctx context.Context, project string, desired map[st
 	return nil
 }
 
+// PlanWarner adds to a plan's warnings what only a module can tell from the
+// box (apps that would rebuild, a connection budget the apps would
+// overrun). It runs on every plan, so it must be fast and read-only.
+type PlanWarner interface {
+	PlanWarnings(ctx context.Context, p *Platform, project string, plan *change.Plan, desired map[string]change.Resource) []string
+}
+
+// PlanWarnings asks every PlanWarner about a plan.
+func (p *Platform) PlanWarnings(ctx context.Context, plan *change.Plan, desired map[string]change.Resource) []string {
+	var out []string
+	for _, m := range Modules() {
+		if pw, ok := m.(PlanWarner); ok {
+			out = append(out, pw.PlanWarnings(ctx, p, plan.Project, plan, desired)...)
+		}
+	}
+	return out
+}
+
 // ServiceUsage is what one project holds in one service.
 type ServiceUsage struct {
 	Service string // "postgres", "valkey", "storage"

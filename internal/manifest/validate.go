@@ -98,6 +98,13 @@ func semanticErrors(m *Manifest) []FieldError {
 		case app.Command != "" && strings.TrimSpace(app.Command) == "":
 			errs = append(errs, FieldError{Path: base + "/command", Message: "the command is blank; remove \"command\" to use the detected start command"})
 		}
+		switch {
+		case app.Release != "" && app.Framework == FrameworkStatic:
+			errs = append(errs, FieldError{Path: base + "/release",
+				Message: "static apps are files served by the edge and run no release command; remove \"release\" or pick another framework"})
+		case app.Release != "" && strings.TrimSpace(app.Release) == "":
+			errs = append(errs, FieldError{Path: base + "/release", Message: "the release command is blank; remove \"release\" or name a command"})
+		}
 		if len(app.Packages) > 0 && app.Framework == FrameworkStatic {
 			errs = append(errs, FieldError{Path: base + "/packages",
 				Message: "static apps are files served by the edge and run no programs; remove \"packages\" or pick another framework"})
@@ -319,8 +326,24 @@ func quoteList(ss []string) string {
 }
 
 // boxEnv are variables the box sets for apps; prefixes end in "_".
-var boxEnv = []string{"PORT", "DATABASE_URL", "REDIS_URL", "VALKEY_PREFIX", "SMTP_URL", "EMAIL_FROM", "SENTRY_DSN",
-	"S3_", "AWS_", "TIFFIN_", "OTEL_", "UPSTASH_REDIS_REST_", "KV_REST_API_"}
+var boxEnv = []string{"PORT", "DATABASE_URL", "DIRECT_DATABASE_URL", "DATABASE_POOL_MAX", "REDIS_URL", "VALKEY_PREFIX", "SMTP_URL", "EMAIL_FROM", "SENTRY_DSN",
+	"S3_", "AWS_", "TIFFIN_", "OTEL_", "UPSTASH_REDIS_REST_", "KV_REST_API_", "NEXT_PUBLIC_SENTRY_DSN", "NEXT_PUBLIC_TIFFIN_"}
+
+// buildInlined are prefixes of env names that frameworks write into an
+// app's browser code at build time: Next.js (NEXT_PUBLIC_), Vite (VITE_),
+// SvelteKit and Astro (PUBLIC_).
+var buildInlined = []string{"NEXT_PUBLIC_", "VITE_", "PUBLIC_"}
+
+// BuildInlined reports whether frameworks build an env var of this name
+// into browser code, so a new value needs a new build, not a restart.
+func BuildInlined(name string) bool {
+	for _, p := range buildInlined {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
 
 // SetByBox reports whether the box gives apps an env var of this name, so
 // a value of the project's own (env or a secret) would replace it.
@@ -360,6 +383,14 @@ func Warnings(m *Manifest) []string {
 	over("env", m.Env)
 	for _, name := range sortedKeys(m.Apps) {
 		over("apps."+name+".env", m.Apps[name].Env)
+	}
+	if pg := m.Services.Postgres; pg != nil && pg.Previews == PreviewDBShared {
+		for _, name := range sortedKeys(m.Apps) {
+			if m.Apps[name].Release != "" {
+				out = append(out, fmt.Sprintf("services.postgres.previews is \"shared\": previews use the production database, so they skip apps.%s.release, "+
+					"and a preview whose code changes the schema on start still changes production's. Remove it (each preview then gets its own branch) unless previews need live data", name))
+			}
+		}
 	}
 	return out
 }

@@ -881,7 +881,8 @@ func (r *rt) restart(ctx context.Context, project, app, preview string) (*Deploy
 	return d, nil
 }
 
-// deletePreview stops a preview, forgets it and removes its builds.
+// deletePreview stops a preview, forgets it and removes its builds, and
+// its database branch once no other app of the project has the preview.
 func (r *rt) deletePreview(ctx context.Context, project, app, name string) error {
 	unlock := r.lock(envKey(project, app, name))
 	defer unlock()
@@ -890,6 +891,7 @@ func (r *rt) deletePreview(ctx context.Context, project, app, name string) error
 		return err
 	}
 	if st.Live == "" {
+		r.dropPreviewBranch(ctx, project, name) // a first deploy that never went live may have made one
 		return errNotFound
 	}
 	if err := r.st.deleteState(ctx, st); err != nil {
@@ -906,5 +908,6 @@ func (r *rt) deletePreview(ctx context.Context, project, app, name string) error
 	r.removeDir(r.diskDir(project, app, name))
 	forgetDiskBytes(project)
 	r.gc(ctx, project, app, name)
+	r.dropPreviewBranch(ctx, project, name)
 	return nil
 }

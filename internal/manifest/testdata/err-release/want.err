@@ -1,0 +1,2 @@
+/apps/blank/release: the release command is blank; remove "release" or name a command
+/apps/site/release: static apps are files served by the edge and run no release command; remove "release" or pick another framework

@@ -19,7 +19,7 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    Limits hold every project's database and cache too: a query stopped by `statement timeout`
    (5 min default, 30 s with a limit), `too many connections for role` or a cache write refused with `NOPERM` mean
    it hit one. `tiffin projects usage <project>` shows each limit; fix the cause (an index, a
-   smaller pool, keys with an expiry) or raise it (`services.postgres.statementTimeoutSeconds`,
+   smaller pool: pass `DATABASE_POOL_MAX` as the Postgres client's pool max, keys with an expiry) or raise it (`services.postgres.statementTimeoutSeconds`,
    `SET LOCAL statement_timeout` for one known long job, `maxMemoryMB`, `resources`).
 4. Deploy with `tiffin deploy`; check `tiffin logs <app>` and the app URL afterwards. An app
    without `routes` is served at `<project>.<domain>` (the main app) or `<project>-<app>.<domain>`,
@@ -29,7 +29,11 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    apply, then `tiffin deploys github <project> <app>` (also Redeploy). Every push to the branch
    then deploys and pull requests get previews. Not connected? Ask the human to click Connect
    GitHub in Settings › Git (it needs a browser). `tiffin rollback` reaches the last 3 production
-   deploys; a preview keeps only its latest build and is deleted after 7 days unused. Next.js needs
+   deploys; a preview keeps only its latest build and is deleted after 7 days unused. Schema
+   changes go in `release: "bunx drizzle-kit migrate"` (any command): it runs once per deploy
+   before the new version takes traffic, a failure keeps the old one serving, and rollbacks do
+   not undo it, so add first and drop only in a later deploy. Each preview gets its own
+   copy-on-write database branch (`pv-<preview>`) and migrates that, never production's. Next.js needs
    no box-specific next.config: the box's adapter sets `deploymentId`, the Valkey cache handlers
    (when the project has Valkey) and a stable Server Actions key at build. Apps on Vercel's Workflow
    DevKit (`workflow`) run unchanged on its Postgres world: give the project `postgres: {}`. Another
@@ -54,6 +58,9 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
 6. App code reads services from env vars (`DATABASE_URL`, `S3_*`, `TIFFIN_AUTH_INTERNAL_URL`...),
    its own address from `TIFFIN_URL` and the domain apps live under from `TIFFIN_DOMAIN` (it can
    differ from the dashboard's: `tiffin domain` shows both); never hardcode either.
+   `NEXT_PUBLIC_*`, `VITE_*` and `PUBLIC_*` are built into browser code (public, even as
+   secrets): changing one rebuilds the app. Next.js gets `NEXT_PUBLIC_TIFFIN_URL` and
+   `NEXT_PUBLIC_SENTRY_DSN`.
    Code written for Upstash or Vercel KV (`@upstash/redis`, `@upstash/ratelimit`, `@vercel/kv`)
    runs unchanged on `services.valkey`: the box sets `UPSTASH_REDIS_REST_*` and `KV_REST_API_*`
    (don't copy the old Upstash values into env or secrets; they would override the box's).

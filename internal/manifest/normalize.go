@@ -127,6 +127,9 @@ func normalize(m *Manifest, onBox map[string][]string) []string {
 			exts = nil
 		}
 		pg.Extensions = exts
+		if pg.Previews == PreviewDBBranch {
+			pg.Previews = "" // the default, stored as absent
+		}
 	}
 	if a := m.Services.Auth; a != nil {
 		methods := slices.Clone(a.Methods)

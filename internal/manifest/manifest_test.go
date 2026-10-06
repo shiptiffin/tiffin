@@ -586,6 +586,18 @@ func TestWarnings(t *testing.T) {
 	if w := Warnings(m); len(w) != 0 {
 		t.Fatalf("clean manifest warned: %q", w)
 	}
+	// Previews on production's database skip release commands.
+	m, _ = Parse([]byte(`{"project":"p","apps":{"web":{"release":"bun run migrate.ts"}},"services":{"postgres":{"previews":"shared"}}}`))
+	if w := Warnings(m); len(w) != 1 || !strings.Contains(w[0], "skip apps.web.release") {
+		t.Fatalf("shared previews: %q", w)
+	}
+	m, _ = Parse([]byte(`{"project":"p","apps":{"web":{"release":"bun run migrate.ts"}},"services":{"postgres":{"previews":"branch"}}}`))
+	if w := Warnings(m); len(w) != 0 || m.Services.Postgres.Previews != "" {
+		t.Fatalf("branch previews (the default, stored as absent): %q %q", w, m.Services.Postgres.Previews)
+	}
+	if !BuildInlined("NEXT_PUBLIC_API") || !BuildInlined("VITE_KEY") || !BuildInlined("PUBLIC_X") || BuildInlined("S3_PUBLIC_ENDPOINT") {
+		t.Fatal("BuildInlined")
+	}
 }
 
 // auth.emailVerification: unset means automatic (kept unset), an explicit

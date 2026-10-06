@@ -42,8 +42,13 @@ type Options struct {
 	PreviewIdle   time.Duration // previews sleep after this long without requests
 	PreviewExpire time.Duration // previews are deleted after this long without requests or deploys
 	KeepImages    int           // rollback targets kept per production environment (previews keep none)
-	Engine        Engine
-	Builder       Builder
+	// ReleaseTimeout is how long an app's release command may run.
+	ReleaseTimeout time.Duration
+	Engine         Engine
+	Builder        Builder
+	// Branches makes and drops previews' database branches (nil: the
+	// postgres module's).
+	Branches BranchStore
 }
 
 func defaultOptions() Options {
@@ -58,7 +63,7 @@ func defaultOptions() Options {
 	// finish, however long it takes (renders, transcodes: up to 15 minutes).
 	// Old instances with no request in flight stop at once.
 	return Options{DataDir: DataDir, LogDir: LogDir, HealthTimeout: 120 * time.Second, Drain: 15 * time.Minute,
-		StopGrace: 10 * time.Second, RetireGrace: 30 * time.Second, PreviewIdle: idle, PreviewExpire: expire, KeepImages: 3}
+		StopGrace: 10 * time.Second, RetireGrace: 30 * time.Second, PreviewIdle: idle, PreviewExpire: expire, KeepImages: 3, ReleaseTimeout: 10 * time.Minute}
 }
 
 // rt is the running runtime.
@@ -119,6 +124,12 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) error {
 	if opt.Builder == nil {
 		opt.Builder = &boxBuilder{eng: opt.Engine, staticDir: filepath.Join(opt.DataDir, "static"), memoryMB: buildMemoryMB(memTotalMB())}
+	}
+	if opt.Branches == nil {
+		opt.Branches = pgBranches{}
+	}
+	if opt.ReleaseTimeout <= 0 {
+		opt.ReleaseTimeout = 10 * time.Minute
 	}
 	r := &rt{p: p, opt: opt, st: store{db: p.DB, cache: newStateCache()}, eng: opt.Engine, bld: opt.Builder, ctx: ctx,
 		build: make(chan struct{}, 1), locks: map[string]*sync.Mutex{}, ports: map[int]string{},
@@ -298,7 +309,7 @@ func (m *Module) ProjectDeleted(ctx context.Context, p *platform.Platform, proje
 
 // loop runs housekeeping: sleeping idle previews, deleting long-unused
 // ones, stopping drained releases and, every 5 minutes, removing orphaned
-// containers.
+// containers and database branches of previews that are gone.
 func (r *rt) loop(ctx context.Context) {
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
@@ -314,6 +325,7 @@ func (r *rt) loop(ctx context.Context) {
 				r.removeOrphans(ctx)
 				r.pruneAssets(ctx)
 				r.emptyDiskTrash()
+				r.sweepPreviewBranches(ctx)
 			}
 		}
 	}

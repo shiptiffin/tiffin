@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -43,6 +44,10 @@ type Container struct {
 // use a fake that serves HTTP in-process.
 type Engine interface {
 	Run(ctx context.Context, spec RunSpec) error
+	// RunTask runs script (/bin/sh -c) once in a new container of the
+	// spec's image, waits for it and returns its exit code; output goes to
+	// log. The spec's port, restart policy and log file do not apply.
+	RunTask(ctx context.Context, spec RunSpec, script string, log io.Writer) (int, error)
 	// Remove stops (SIGTERM, then SIGKILL after grace) and deletes a container.
 	Remove(ctx context.Context, name string, grace time.Duration) error
 	Inspect(ctx context.Context, name string) (*Container, error) // nil if missing
@@ -111,6 +116,21 @@ func (n *nerdctl) Run(ctx context.Context, s RunSpec) error {
 		"--log-opt", "max-size=5m",
 		"--log-opt", "max-file=3",
 	}
+	c := n.withSpec(ctx, args, s)
+	c.Args = append(c.Args, s.Image)
+	var out bytes.Buffer
+	c.Stdout, c.Stderr = &out, &out
+	if err := c.Run(); err != nil {
+		return fmt.Errorf("start container %s: %w: %s", s.Name, err, strings.TrimSpace(lastLines(out.String(), 5)))
+	}
+	return nil
+}
+
+// withSpec is a nerdctl command of args plus the spec's memory cap, cgroup,
+// labels, mounts and env. Env values travel in nerdctl's own environment
+// (`--env NAME` reads it), never on the command line where `ps` would show
+// them. The caller appends the image and what follows it.
+func (n *nerdctl) withSpec(ctx context.Context, args []string, s RunSpec) *exec.Cmd {
 	if s.MemoryMB > 0 {
 		args = append(args, "--memory", strconv.Itoa(s.MemoryMB)+"m", "--memory-swap", strconv.Itoa(s.MemoryMB)+"m")
 	}
@@ -128,8 +148,6 @@ func (n *nerdctl) Run(ctx context.Context, s RunSpec) error {
 	for _, m := range s.Mounts {
 		args = append(args, "--volume", m)
 	}
-	// Values travel in nerdctl's own environment (`-e NAME` reads it), never
-	// on the command line where `ps` would show them.
 	c := n.cmd(ctx)
 	envKeys := make([]string, 0, len(s.Env))
 	for k := range s.Env {
@@ -140,14 +158,29 @@ func (n *nerdctl) Run(ctx context.Context, s RunSpec) error {
 		args = append(args, "--env", k)
 		c.Env = append(c.Env, k+"="+s.Env[k])
 	}
-	args = append(args, s.Image)
 	c.Args = append(c.Args, args...)
-	var out bytes.Buffer
-	c.Stdout, c.Stderr = &out, &out
-	if err := c.Run(); err != nil {
-		return fmt.Errorf("start container %s: %w: %s", s.Name, err, strings.TrimSpace(lastLines(out.String(), 5)))
+	return c
+}
+
+// RunTask runs script with /bin/sh in a new container of the spec's image
+// and waits for it, writing its output to log. It reports the script's exit
+// code. A task cut short by ctx is removed.
+func (n *nerdctl) RunTask(ctx context.Context, s RunSpec, script string, log io.Writer) (int, error) {
+	c := n.withSpec(ctx, []string{"run", "--rm", "--name", s.Name, "--network", "host", "--init", "--entrypoint", "/bin/sh"}, s)
+	c.Args = append(c.Args, s.Image, "-c", script)
+	c.Stdout, c.Stderr = log, log
+	err := c.Run()
+	if ctx.Err() != nil {
+		rctx, cancel := cleanupContext(ctx)
+		defer cancel()
+		_ = n.Remove(rctx, s.Name, time.Second)
+		return -1, ctx.Err()
 	}
-	return nil
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode(), nil
+	}
+	return 0, err
 }
 
 // Remove stops and deletes a container. An inspect that fails is no proof

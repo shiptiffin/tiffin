@@ -542,6 +542,7 @@ func (a *API) register() {
 				return nil, err
 			}
 			p.Warnings = append(manifest.Warnings(m), older...)
+			a.boxWarnings(ctx, p, desired)
 			a.failedWarning(ctx, p)
 			return &struct{ Body *change.Plan }{p}, nil
 		}))
@@ -570,6 +571,7 @@ func (a *API) register() {
 				return nil, err
 			}
 			plan.Warnings = append(manifest.Warnings(m), older...)
+			a.boxWarnings(ctx, plan, desired)
 			return a.apply(ctx, p, plan, in.Body.Confirm, in.Body.Intent)
 		}))
 
@@ -919,6 +921,14 @@ func (a *API) apply(ctx context.Context, p *tokens.Principal, plan *change.Plan,
 
 // failedWarning tells a plan with nothing to change about resources that
 // failed to converge, which an apply retries.
+// boxWarnings adds what the box's modules see in a plan (see
+// platform.PlanWarner).
+func (a *API) boxWarnings(ctx context.Context, plan *change.Plan, desired map[string]change.Resource) {
+	if a.deps.Platform != nil {
+		plan.Warnings = append(plan.Warnings, a.deps.Platform.PlanWarnings(ctx, plan, desired)...)
+	}
+}
+
 func (a *API) failedWarning(ctx context.Context, plan *change.Plan) {
 	if a.deps.Platform == nil || !plan.Empty() {
 		return

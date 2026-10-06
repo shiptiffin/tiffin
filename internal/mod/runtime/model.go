@@ -49,7 +49,7 @@ type Deploy struct {
 	Message     string     `json:"message,omitempty" doc:"The commit's message (first line), for deploys from GitHub"`
 	Author      string     `json:"author,omitempty" doc:"Who made the commit (GitHub login or git author name), for deploys from GitHub"`
 	PullRequest int        `json:"pullRequest,omitempty" doc:"The pull request a preview deploy is for, for deploys from GitHub"`
-	Trigger     string     `json:"trigger,omitempty" enum:"push,pull_request,redeploy," doc:"What started a deploy from GitHub: a push to the production branch, a pull request, or a redeploy asked for on the box"`
+	Trigger     string     `json:"trigger,omitempty" enum:"push,pull_request,redeploy,env," doc:"What started a deploy from GitHub (a push to the production branch, a pull request, or a redeploy asked for on the box), or env: the box rebuilt the live version because env it builds into browser code changed"`
 	Template    string     `json:"template,omitempty" doc:"Starter template, for template deploys"`
 	Image       string     `json:"image,omitempty" doc:"Image reference in the box's containerd store"`
 	Digest      string     `json:"digest,omitempty" doc:"Image manifest digest"`
@@ -73,6 +73,9 @@ type Deploy struct {
 	Dir string `json:"dir,omitempty" doc:"The app's folder inside the uploaded source, when the source is the whole workspace (monorepo) the app builds in"`
 	// Vercel is what the build took from the app's vercel.json.
 	Vercel *vercelcfg.Config `json:"vercel,omitempty" doc:"What the deploy took from the app's vercel.json (build settings, crons, headers, redirects, rewrites) and what it ignored"`
+	// PublicEnv identifies the browser-visible env the build had.
+	PublicEnv   string  `json:"publicEnv,omitempty" doc:"Hash of the env the build wrote into browser code (NEXT_PUBLIC_*, VITE_*, PUBLIC_*). When it changes, the box rebuilds the app from this deploy's source."`
+	ReleaseSecs float64 `json:"releaseSeconds,omitempty" doc:"Time the app's release command took"`
 }
 
 // Terminal reports whether the deploy finished its pipeline.

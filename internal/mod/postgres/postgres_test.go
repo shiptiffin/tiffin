@@ -198,8 +198,11 @@ func TestEnvAndBranchEnv(t *testing.T) {
 	if env["PGHOST"] != "127.0.0.1" || env["PGDATABASE"] != "p_my_shop" || env["PGUSER"] != "p_my_shop" || env["PGPORT"] != "5432" {
 		t.Fatalf("PG* vars: %v", env)
 	}
+	if env["DIRECT_DATABASE_URL"] != env["DATABASE_URL"] {
+		t.Fatalf("DIRECT_DATABASE_URL %s", env["DIRECT_DATABASE_URL"])
+	}
 	b, err := BranchEnv(ctx, p, "my-shop", "pr-7")
-	if err != nil || !strings.Contains(b["DATABASE_URL"], "/p_my_shop__pr_7?") || b["PGPASSWORD"] != pw {
+	if err != nil || !strings.Contains(b["DATABASE_URL"], "/p_my_shop__pr_7?") || b["DIRECT_DATABASE_URL"] != b["DATABASE_URL"] || b["PGPASSWORD"] != pw {
 		t.Fatalf("branch env: %v %v", b, err)
 	}
 	if _, err := BranchEnv(ctx, p, "my-shop", "Bad_Name"); err == nil {

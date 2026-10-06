@@ -19,6 +19,7 @@ type PGBranch struct {
 	From      string    `json:"from" doc:"What it was cloned from: \"main\" or another branch"`
 	CreatedAt time.Time `json:"createdAt"`
 	SizeBytes int64     `json:"sizeBytes" doc:"Logical size. Clones share unchanged blocks with their source on disk (reflinks), so this overstates real disk use."`
+	Preview   string    `json:"preview,omitempty" doc:"The app preview this branch was made for: it is deleted with the preview"`
 }
 
 // CreatedBranch is a new branch and how long the clone took.
@@ -35,6 +36,17 @@ type PGBranchCreated struct {
 // refused and existing ones are closed for that moment (usually well under a
 // second); apps reconnect through their pool.
 func CreateBranch(ctx context.Context, p *platform.Platform, project, name, from string) (*PGBranchCreated, error) {
+	return createBranch(ctx, p, project, name, from, "")
+}
+
+// CreatePreviewBranch clones a project's main database for an app preview
+// (named preview): the runtime gives the preview's apps its DATABASE_URL
+// and deletes it with the preview.
+func CreatePreviewBranch(ctx context.Context, p *platform.Platform, project, name, preview string) (*PGBranchCreated, error) {
+	return createBranch(ctx, p, project, name, "main", preview)
+}
+
+func createBranch(ctx context.Context, p *platform.Platform, project, name, from, preview string) (*PGBranchCreated, error) {
 	start := time.Now()
 	if !BranchPattern.MatchString(name) || name == "main" {
 		return nil, api.NewProblem(422, "validation", "branch names are 1-19 characters: lowercase letters, digits and hyphens, starting with a letter (not \"main\")")
@@ -115,7 +127,7 @@ func CreateBranch(ctx context.Context, p *platform.Platform, project, name, from
 		return nil, err
 	}
 	blockedMs := time.Since(blocked).Milliseconds()
-	meta := dbMeta{Tiffin: "branch", Project: project, Branch: name, From: from, CreatedAt: time.Now().UTC()}
+	meta := dbMeta{Tiffin: "branch", Project: project, Branch: name, From: from, Preview: preview, CreatedAt: time.Now().UTC()}
 	if err := setMeta(ctx, admin, dst, meta); err != nil {
 		return nil, err
 	}
@@ -125,7 +137,7 @@ func CreateBranch(ctx context.Context, p *platform.Platform, project, name, from
 	var size int64
 	_ = admin.QueryRow(ctx, `SELECT pg_database_size($1)`, dst).Scan(&size)
 	return &PGBranchCreated{
-		PGBranch: PGBranch{Name: name, Database: dst, From: from, CreatedAt: meta.CreatedAt, SizeBytes: size},
+		PGBranch: PGBranch{Name: name, Database: dst, From: from, CreatedAt: meta.CreatedAt, SizeBytes: size, Preview: preview},
 		CloneMs:  cloneMs, BlockedMs: blockedMs, TotalMs: time.Since(start).Milliseconds(),
 	}, nil
 }
@@ -204,7 +216,7 @@ func ListBranches(ctx context.Context, p *platform.Platform, project string) ([]
 		if !ok || m.Tiffin != "branch" || m.Project != project {
 			continue
 		}
-		b.Name, b.From, b.CreatedAt = m.Branch, m.From, m.CreatedAt
+		b.Name, b.From, b.CreatedAt, b.Preview = m.Branch, m.From, m.CreatedAt, m.Preview
 		out = append(out, b)
 	}
 	return out, rows.Err()
