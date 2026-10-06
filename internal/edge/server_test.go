@@ -52,6 +52,7 @@ type fakeControl struct {
 	cl      *Client
 	port    int
 	firstMs float64
+	woke    bool // a first byte was reported (it can round to 0 ms)
 }
 
 func (f *fakeControl) get() switchboard.Table {
@@ -73,7 +74,7 @@ func (f *fakeControl) Wake(ctx context.Context, env string) (bool, error) {
 
 func (f *fakeControl) WokeFirstByte(env string, secs float64) {
 	f.mu.Lock()
-	f.firstMs = secs * 1000
+	f.firstMs, f.woke = secs*1000, true
 	f.mu.Unlock()
 }
 
@@ -254,9 +255,9 @@ func TestEdgeServesAloneFromItsSavedSnapshot(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		ctl.mu.Lock()
-		ms := ctl.firstMs
+		woke, ms := ctl.woke, ctl.firstMs
 		ctl.mu.Unlock()
-		if ms > 0 {
+		if woke && ms >= 0 {
 			break
 		}
 		if time.Now().After(deadline) {
