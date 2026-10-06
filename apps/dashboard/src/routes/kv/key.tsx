@@ -271,7 +271,7 @@ function Expiry({ k, ttlMs, at }: { k: string; ttlMs: number; at: number }) {
           <span className="label mr-2.5">Expiry</span>
           {kept ? (
             <>
-              Kept until deleted <span className="text-ink-3">(never dropped to make room)</span>
+              <span className="text-ink">Kept until deleted</span> <span className="text-ink-3">(never dropped to make room)</span>
             </>
           ) : (
             <>

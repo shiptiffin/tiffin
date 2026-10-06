@@ -31,8 +31,8 @@ export function KvConnect({ project, open, onOpenChange }: { project: string; op
               {(c.data.env ?? []).map((e) => (
                 <div key={e.name} className="grid grid-cols-[minmax(0,13rem)_minmax(0,1fr)_auto] items-center gap-3 border-b border-rule px-3 py-1.5 last:border-b-0">
                   <code className="truncate font-mono text-[0.78125rem] text-ink">{e.name}</code>
-                  <code className="truncate font-mono text-[0.78125rem] text-ink-2" title={e.value || undefined}>
-                    {e.value || (e.secret ? "secret" : "")}
+                  <code className={e.value ? "truncate font-mono text-[0.78125rem] text-ink-2" : "font-sans text-sm text-ink-3"} title={e.value || undefined}>
+                    {e.value || (e.secret ? "hidden" : "")}
                   </code>
                   {e.value ? <CopyButton value={e.value} label={`Copy ${e.name}`} className="size-6" /> : <span className="size-6" />}
                 </div>

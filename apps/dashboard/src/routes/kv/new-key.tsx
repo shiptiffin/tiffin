@@ -96,10 +96,10 @@ function NewKey({ prefix, onMade, close }: { prefix: string; onMade: (key: strin
             <RadioItem
               key={t.type}
               value={t.type}
-              className="flex flex-col items-start rounded-[8px] border border-rule-2 bg-paper-raised px-3 py-2 text-left transition-colors hover:border-rule-3 data-[state=checked]:border-brass data-[state=checked]:bg-brass-wash"
+              className="group flex flex-col items-start rounded-[8px] border border-rule-2 bg-paper-raised px-3 py-2 text-left transition-colors hover:border-rule-3 data-[state=checked]:border-brass data-[state=checked]:bg-brass-wash"
             >
               <span className="text-[0.875rem] font-[550] text-ink">{t.name}</span>
-              <span className="text-xs text-ink-3">{t.sub}</span>
+              <span className="text-xs text-ink-3 group-data-[state=checked]:text-ink-2">{t.sub}</span>
             </RadioItem>
           ))}
         </RadioGroup>

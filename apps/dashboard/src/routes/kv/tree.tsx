@@ -281,7 +281,7 @@ export const KeyBrowser = forwardRef<BrowserHandle, {
                 >
                   <ChevronRight aria-hidden className={cn("size-3.5 shrink-0 text-ink-3 transition-transform duration-[var(--dur-state)]", r.open && "rotate-90")} />
                   <span className="min-w-0 flex-1 truncate font-mono text-[0.8125rem] text-ink">{r.prefix.slice(r.prefix.lastIndexOf(":", r.prefix.length - 2) + 1)}</span>
-                  <span className="text-xs text-ink-3 tnum">{int(r.count)}</span>
+                  <span className="w-16 shrink-0 text-right text-xs text-ink-3 tnum">{int(r.count)}</span>
                   {canWrite && (
                     <button
                       type="button"
@@ -292,7 +292,7 @@ export const KeyBrowser = forwardRef<BrowserHandle, {
                         e.stopPropagation();
                         removeRow(r);
                       }}
-                      className="grid size-6 place-items-center rounded-[5px] text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 hover:bg-danger-wash hover:text-danger"
+                      className="absolute right-1 grid size-6 place-items-center rounded-[5px] bg-paper-sunk text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 hover:bg-danger-wash hover:text-danger"
                     >
                       <Trash2 className="size-3.5" />
                     </button>

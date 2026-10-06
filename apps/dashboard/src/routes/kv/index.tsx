@@ -11,7 +11,7 @@ import { ProblemNote } from "@/components/problem";
 import { SegMeter } from "@/components/seg-meter";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { bytes, bytesParts, int, mb } from "@/lib/format";
+import { bytes, bytesParts, int } from "@/lib/format";
 import { PARTS } from "@/lib/names";
 import { relative } from "@/lib/time";
 import { KvConnect } from "./connect";
@@ -159,7 +159,7 @@ function Meters({ s }: { s: KVStats }) {
   return (
     <>
       <Readings className="grid-cols-1 sm:grid-cols-3">
-        <Reading label="Memory" value={mem.value} unit={cap > 0 ? `${mem.unit} of ${mb(cap)}` : mem.unit} sub={cap > 0 ? undefined : "No limit set for this project"}>
+        <Reading label="Memory" value={mem.value} unit={cap > 0 ? `${mem.unit} of ${bytes(cap, 0)}` : mem.unit} sub={cap > 0 ? (s.approximate ? "Estimated from a sample of keys" : undefined) : "No limit set for this project"}>
           {cap > 0 && (
             <SegMeter
               className="mt-2.5"
@@ -168,11 +168,11 @@ function Meters({ s }: { s: KVStats }) {
               max={cap}
               warnAt={0.8}
               fullAt={0.95}
-              valueText={`${bytes(s.memoryBytes)} of ${mb(cap)}`}
+              valueText={`${bytes(s.memoryBytes)} of ${bytes(cap, 0)}`}
             />
           )}
         </Reading>
-        <Reading label="Kept · cache" value={int(s.keptKeys)} unit={`kept · ${int(s.cacheKeys)} cache${s.approximate ? ", about" : ""}`}>
+        <Reading label="Kept · cache" value={int(s.keptKeys)} unit={`kept · ${int(s.cacheKeys)} cache`}>
           <div
             className="mt-2.5 flex h-2 gap-0.5 overflow-hidden rounded-full bg-paper-sunk"
             role="img"
@@ -190,7 +190,7 @@ function Meters({ s }: { s: KVStats }) {
       </Readings>
       {s.writesRefused && (
         <p role="alert" className="mt-4 rounded-[10px] border border-warn bg-warn-wash px-4 py-2.5 text-base text-ink">
-          New writes are refused: the KV is over its {mb(cap)} limit with keys that never expire. Reads and deletes still work. Delete keys or give them an
+          New writes are refused: the KV is over its {bytes(cap, 0)} limit with keys that never expire. Reads and deletes still work. Delete keys or give them an
           expiry.
         </p>
       )}

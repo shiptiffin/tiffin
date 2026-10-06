@@ -1238,10 +1238,10 @@ func TestKVConsole(t *testing.T) {
 
 	for in, want := range map[string][][]string{
 		`set k "a\"b\n" 'it\'s'`: {{"set", "k", "a\"b\n", "it's"}},
-		"get a\n\n  get b  \n":    {{"get", "a"}, {"get", "b"}},
-		`set k "\x41"`:            {{"set", "k", "A"}},
-		"set k \"two\nlines\"":    {{"set", "k", "two\nlines"}},
-		`set k ""`:                {{"set", "k", ""}},
+		"get a\n\n  get b  \n":   {{"get", "a"}, {"get", "b"}},
+		`set k "\x41"`:           {{"set", "k", "A"}},
+		"set k \"two\nlines\"":   {{"set", "k", "two\nlines"}},
+		`set k ""`:               {{"set", "k", ""}},
 	} {
 		got, err := splitCommands(in)
 		if err != nil || !reflect.DeepEqual(got, want) {

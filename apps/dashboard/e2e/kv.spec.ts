@@ -33,6 +33,7 @@ async function wipe(request: APIRequestContext, baseURL: string, prefix: string)
 
 /** Zero serious or critical accessibility problems on what is on screen. */
 async function axe(page: Page, what: string) {
+  await page.waitForTimeout(400); // let toasts and dialogs finish fading in
   const r = await new AxeBuilder({ page }).analyze();
   const bad = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
   expect(bad.map((v) => `${what}: ${v.id} ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
@@ -55,6 +56,7 @@ test.afterAll(async ({ request, baseURL }) => {
 
 test.beforeEach(async ({ page, baseURL }) => {
   page.setDefaultTimeout(15_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
   page.on("pageerror", (e) => console.log(`PAGEERROR ${e.message}`));
   await signIn(page, baseURL!);
 });
@@ -65,42 +67,42 @@ test("make a key of every type with New key", async ({ page }) => {
     await page.getByRole("button", { name: "New key" }).click();
     const d = page.getByRole("dialog", { name: "New key" });
     await d.getByRole("radio", { name: new RegExp(`^${type}`) }).click();
-    await d.getByLabel("Name").fill(name);
+    await d.getByRole("textbox", { name: "Name", exact: true }).fill(name);
     await fill();
     await d.getByRole("button", { name: "Make key" }).click();
     await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
   };
   const d = () => page.getByRole("dialog", { name: "New key" });
   await make("Text", "e2e:settings", async () => {
-    await d().getByLabel("Value").fill('{"theme":"dark","beta":true}');
+    await d().getByRole("textbox", { name: "Value", exact: true }).fill('{"theme":"dark","beta":true}');
   });
-  await expect(page.getByLabel("Value of e2e:settings")).toHaveValue('{"theme":"dark","beta":true}');
+  await expect(page.getByLabel("Value of e2e:settings", { exact: true })).toHaveValue('{"theme":"dark","beta":true}');
   await axe(page, "text key");
 
   await make("Hash", "e2e:session:u_2041", async () => {
-    await d().getByLabel("field 1").fill("plan");
-    await d().getByLabel("value 1").fill("pro");
+    await d().getByLabel("field 1", { exact: true }).fill("plan");
+    await d().getByLabel("value 1", { exact: true }).fill("pro");
     await d().getByRole("button", { name: "Another field" }).click();
-    await d().getByLabel("field 2").fill("theme");
-    await d().getByLabel("value 2").fill("dark");
+    await d().getByLabel("field 2", { exact: true }).fill("theme");
+    await d().getByLabel("value 2", { exact: true }).fill("dark");
   });
-  await expect(page.getByRole("gridcell", { name: "pro" })).toBeVisible();
+  await expect(page.getByRole("gridcell", { name: "pro", exact: true })).toBeVisible();
 
   await make("List", "e2e:recent", async () => {
-    await d().getByLabel("Items, one per line").fill("1042\n1041\n1040");
+    await d().getByRole("textbox", { name: "Items, one per line" }).fill("1042\n1041\n1040");
   });
-  await expect(page.getByRole("gridcell", { name: "1041" })).toBeVisible();
+  await expect(page.getByRole("gridcell", { name: "1041", exact: true })).toBeVisible();
 
   await make("Set", "e2e:tags", async () => {
-    await d().getByLabel("Members, one per line").fill("kitchen\nceramic");
+    await d().getByRole("textbox", { name: "Members, one per line" }).fill("kitchen\nceramic");
   });
-  await expect(page.getByRole("gridcell", { name: "ceramic" })).toBeVisible();
+  await expect(page.getByRole("gridcell", { name: "ceramic", exact: true })).toBeVisible();
 
   await make("Sorted set", "e2e:leaderboard", async () => {
     for (const [i, [m, s]] of [["BWL-01", "12"], ["CUP-07", "48"], ["TIF-03", "31"]].entries()) {
       if (i > 0) await d().getByRole("button", { name: "Another member" }).click();
-      await d().getByLabel(`member ${i + 1}`).fill(m);
-      await d().getByLabel(`score ${i + 1}`).fill(s);
+      await d().getByLabel(`member ${i + 1}`, { exact: true }).fill(m);
+      await d().getByLabel(`score ${i + 1}`, { exact: true }).fill(s);
     }
   });
   // Highest score first, ranked.
@@ -109,15 +111,15 @@ test("make a key of every type with New key", async ({ page }) => {
   await expect(first).toContainText("48");
 
   await make("Stream", "e2e:events", async () => {
-    await d().getByLabel("field 1").fill("type");
-    await d().getByLabel("value 1").fill("signup");
+    await d().getByLabel("field 1", { exact: true }).fill("type");
+    await d().getByLabel("value 1", { exact: true }).fill("signup");
   });
-  await expect(page.getByRole("gridcell", { name: "type=signup" })).toBeVisible();
+  await expect(page.getByRole("gridcell", { name: "type=signup", exact: true })).toBeVisible();
 
   // An existing name is refused.
   await page.getByRole("button", { name: "New key" }).click();
   await d().getByRole("radio", { name: /^Text/ }).click();
-  await d().getByLabel("Name").fill("e2e:settings");
+  await d().getByRole("textbox", { name: "Name", exact: true }).fill("e2e:settings");
   await d().getByRole("button", { name: "Make key" }).click();
   await expect(toast(page, "already exists")).toBeVisible();
   await page.keyboard.press("Escape");
@@ -126,7 +128,7 @@ test("make a key of every type with New key", async ({ page }) => {
 test("edit values, with Undo", async ({ page }) => {
   // Text: save, then Undo puts it back.
   await openKey(page, "e2e:settings");
-  const box = page.getByLabel("Value of e2e:settings");
+  const box = page.getByLabel("Value of e2e:settings", { exact: true });
   await page.getByRole("button", { name: "Format" }).click();
   await expect(box).toHaveValue(/\n {2}"theme": "dark"/);
   await box.fill('{"theme":"light"}');
@@ -138,15 +140,15 @@ test("edit values, with Undo", async ({ page }) => {
 
   // Hash: Enter edits a cell, Enter saves; add a field; Delete removes one.
   await openKey(page, "e2e:session:u_2041");
-  const plan = page.getByRole("gridcell", { name: "pro" });
+  const plan = page.getByRole("gridcell", { name: "pro", exact: true });
   await plan.click();
   await plan.press("Enter");
-  await page.getByLabel("Edit Value").fill("team");
-  await page.getByLabel("Edit Value").press("Enter");
+  await page.getByLabel("Edit Value", { exact: true }).fill("team");
+  await page.getByLabel("Edit Value", { exact: true }).press("Enter");
   await expect(toast(page, "Saved plan on e2e:session:u_2041")).toBeVisible();
-  await expect(page.getByRole("gridcell", { name: "team" })).toBeVisible();
-  await page.getByLabel("New field").fill("lastSeen");
-  await page.getByLabel("Its value").fill("1759741964");
+  await expect(page.getByRole("gridcell", { name: "team", exact: true })).toBeVisible();
+  await page.getByLabel("New field", { exact: true }).fill("lastSeen");
+  await page.getByLabel("Its value", { exact: true }).fill("1759741964");
   await page.getByRole("button", { name: "Add field" }).click();
   await expect(page.getByRole("gridcell", { name: /1759741964/ })).toBeVisible();
   await page.getByRole("gridcell", { name: "theme", exact: true }).click();
@@ -157,46 +159,46 @@ test("edit values, with Undo", async ({ page }) => {
 
   // Sorted set: a new score reorders it.
   await openKey(page, "e2e:leaderboard");
-  const score = page.getByRole("row").filter({ hasText: "BWL-01" }).getByRole("gridcell").last();
+  const score = page.getByRole("row").filter({ hasText: "BWL-01" }).getByRole("gridcell").nth(2);
   await score.dblclick();
-  await page.getByLabel("Edit Score").fill("99");
-  await page.getByLabel("Edit Score").press("Enter");
+  await page.getByLabel("Edit Score", { exact: true }).fill("99");
+  await page.getByLabel("Edit Score", { exact: true }).press("Enter");
   await expect(page.getByRole("row").nth(1)).toContainText("BWL-01");
 
   // List: add to the end, remove the first.
   await openKey(page, "e2e:recent");
-  await page.getByLabel("New item").fill("1043");
+  await page.getByLabel("New item", { exact: true }).fill("1043");
   await page.getByRole("button", { name: "Add to end" }).click();
-  await expect(page.getByRole("gridcell", { name: "1043" })).toBeVisible();
-  await page.getByRole("gridcell", { name: "1042" }).click();
+  await expect(page.getByRole("gridcell", { name: "1043", exact: true })).toBeVisible();
+  await page.getByRole("gridcell", { name: "1042", exact: true }).click();
   await page.keyboard.press("Delete");
-  await expect(page.getByRole("gridcell", { name: "1042" })).toHaveCount(0);
+  await expect(page.getByRole("gridcell", { name: "1042", exact: true })).toHaveCount(0);
 
   // Stream: add an entry; newest first.
   await openKey(page, "e2e:events");
-  await page.getByLabel("Field 1").fill("type");
-  await page.getByLabel("Value 1").fill("order");
+  await page.getByLabel("Field 1", { exact: true }).fill("type");
+  await page.getByLabel("Value 1", { exact: true }).fill("order");
   await page.getByRole("button", { name: "Add entry" }).click();
   await expect(page.getByRole("row").nth(1)).toContainText("type=order");
 });
 
 test("expiry: add one, keep forever", async ({ page }) => {
   await openKey(page, "e2e:tags");
-  await expect(page.getByText("Kept until deleted")).toBeVisible();
+  await expect(page.getByText("Kept until deleted", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Add an expiry" }).click();
-  await page.getByLabel("Expire in").fill("2");
-  await page.getByLabel("Unit").selectOption("hours");
+  await page.getByLabel("Expire in", { exact: true }).fill("2");
+  await page.getByLabel("Unit", { exact: true }).selectOption("hours");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText(/in (1 h 59 min|2 h)/)).toBeVisible();
   await page.getByRole("button", { name: "Keep forever" }).click();
-  await expect(page.getByText("Kept until deleted")).toBeVisible();
+  await expect(page.getByText("Kept until deleted", { exact: true })).toBeVisible();
 });
 
 test("rename and delete a key, with Undo", async ({ page }) => {
   await openKey(page, "e2e:tags");
   await page.getByRole("button", { name: "Rename" }).click();
-  await page.getByLabel("New name").fill("e2e:labels");
-  await page.getByLabel("New name").press("Enter");
+  await page.getByLabel("New name", { exact: true }).fill("e2e:labels");
+  await page.getByLabel("New name", { exact: true }).press("Enter");
   await expect(page.getByRole("heading", { name: "e2e:labels", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Delete key" }).click();
   await expect(toast(page, "Deleted e2e:labels")).toBeVisible();
@@ -224,7 +226,7 @@ test("delete a prefix: count first, then Undo", async ({ page, request, baseURL 
 
 test("console: read, then write only with Allow changes", async ({ page }) => {
   await page.goto(kvUrl("/console"));
-  const cmd = page.getByLabel("Command");
+  const cmd = page.getByLabel("Command", { exact: true });
   await cmd.fill('SET e2e:hello "hello world"');
   await cmd.press("Enter");
   await expect(page.getByRole("log")).toContainText("turn on Allow changes");
@@ -301,8 +303,8 @@ for (const theme of ["light", "dark"] as const) {
       await axe(page, `new key ${theme} ${w}`);
       await page.keyboard.press("Escape");
       await page.goto(kvUrl("/console"));
-      await page.getByLabel("Command").fill("HGETALL e2e:session:u_2041");
-      await page.getByLabel("Command").press("Enter");
+      await page.getByLabel("Command", { exact: true }).fill("HGETALL e2e:session:u_2041");
+      await page.getByLabel("Command", { exact: true }).press("Enter");
       await page.getByRole("log").getByText("1) ").first().waitFor();
       await shot("console");
       await axe(page, `console ${theme} ${w}`);
