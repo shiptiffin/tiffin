@@ -105,12 +105,14 @@
       "peerDependencies": {
         "@react-email/render": ">=1",
         "@tiffin/react": "0.1.0",
+        "next": ">=15",
         "react": ">=18",
         "react-dom": ">=18",
       },
       "optionalPeers": [
         "@react-email/render",
         "@tiffin/react",
+        "next",
         "react",
         "react-dom",
       ],

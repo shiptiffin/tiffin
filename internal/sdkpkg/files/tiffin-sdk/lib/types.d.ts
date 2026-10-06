@@ -54,6 +54,20 @@ export interface AppConfig {
      * run a web app and a worker. Applies from the next deploy. Not for static apps.
      */
     command?: string;
+    /**
+     * Debian (apt) packages installed in the app's image, e.g. ["ffmpeg"] or
+     * ["chromium"], for apps that run programs beside their own code. Applies
+     * from the next deploy. Not for static apps.
+     */
+    packages?: string[];
+    /**
+     * Folders, relative to the app's working directory (e.g. "data"), that
+     * persist across deploys and restarts. Every production instance shares
+     * them; each preview gets its own. A folder starts with what the image has
+     * at that path. They count toward the project's storage limit. Not for
+     * static apps.
+     */
+    disk?: string[];
     /** App-specific plain environment variables (merged over the top-level `env`). */
     env?: Record<string, string>;
     /**

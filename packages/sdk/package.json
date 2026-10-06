@@ -28,6 +28,10 @@
       "types": "./src/analytics.ts",
       "default": "./src/analytics.ts"
     },
+    "./vitals": {
+      "types": "./src/vitals.ts",
+      "default": "./src/vitals.ts"
+    },
     "./storage": {
       "types": "./src/storage.ts",
       "default": "./src/storage.ts"
@@ -47,6 +51,10 @@
     "./next/use-cache": {
       "types": "./src/next/use-cache.ts",
       "default": "./src/next/use-cache.ts"
+    },
+    "./next/vitals": {
+      "types": "./src/next/vitals.ts",
+      "default": "./src/next/vitals.ts"
     },
     "./queue": {
       "types": "./src/queue.ts",
@@ -86,6 +94,7 @@
   "peerDependencies": {
     "@tiffin/react": "0.1.0",
     "@react-email/render": ">=1",
+    "next": ">=15",
     "react": ">=18",
     "react-dom": ">=18"
   },
@@ -94,6 +103,9 @@
       "optional": true
     },
     "@react-email/render": {
+      "optional": true
+    },
+    "next": {
       "optional": true
     },
     "react": {
