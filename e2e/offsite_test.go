@@ -173,7 +173,7 @@ func TestOffsite(t *testing.T) {
 	}
 	sql(a, `{"write":true,"sql":"create table notes(id int primary key, body text); insert into notes values (1,'offbox-row-7f3a'),(2,'still here'); insert into notes select g, repeat('filler ', 40) from generate_series(3, 20000) g"}`)
 	a.ok("storage", "objects", "put", "shop", "media", "--key", "notes/a.txt", "--text", "offbox-object-91c2")
-	kvURL := a.ok("kv", "connection", "shop")["redisUrl"].(string)
+	kvURL := a.ok("kv", "connection", "shop", "--reveal")["redisUrl"].(string)
 	if got := a.inBox(`valkey-cli -u '` + kvURL + `' --no-auth-warning set p_shop:greeting offbox-valkey-55d1`); got != "OK" {
 		t.Fatalf("valkey set: %s", got)
 	}
@@ -368,7 +368,7 @@ func TestOffsite(t *testing.T) {
 	if g := b.ok("storage", "objects", "get", "shop", "media", "--key", "notes/a.txt"); g["text"] != "offbox-object-91c2" {
 		t.Fatalf("object on B: %v", g)
 	}
-	kvB := b.ok("kv", "connection", "shop")["redisUrl"].(string)
+	kvB := b.ok("kv", "connection", "shop", "--reveal")["redisUrl"].(string)
 	if got := b.inBox(`valkey-cli -u '` + kvB + `' --no-auth-warning get p_shop:greeting`); got != "offbox-valkey-55d1" {
 		t.Fatalf("valkey on B: %s", got)
 	}

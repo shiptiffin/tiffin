@@ -218,7 +218,7 @@ export default defineConfig({ project: "data", services: {` + services + `} });
 
 	// ---- Valkey through REDIS_URL inside the box ----
 	p = time.Now()
-	url := ok("kv", "connection", "data")["redisUrl"].(string)
+	url := ok("kv", "connection", "data", "--reveal")["redisUrl"].(string)
 	if got := inBox("valkey-cli", "-u", url, "--no-auth-warning", "set", "p_data:greeting", "hello"); got != "OK" {
 		t.Fatalf("set: %s", got)
 	}
