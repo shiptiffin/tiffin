@@ -60,20 +60,40 @@ func (s *System) Sh(ctx context.Context, script string) (string, error) {
 
 // Installed reports whether a Debian package is installed.
 func (s *System) Installed(ctx context.Context, pkg string) bool {
-	out, err := exec.CommandContext(ctx, "dpkg-query", "-W", "-f=${Status}", pkg).Output()
-	return err == nil && strings.Contains(string(out), "install ok installed")
+	return s.InstalledVersion(ctx, pkg) != ""
 }
 
-// Apt installs Debian packages that are missing.
+// InstalledVersion is an installed Debian package's version, "" if it is
+// not installed.
+func (s *System) InstalledVersion(ctx context.Context, pkg string) string {
+	out, err := exec.CommandContext(ctx, "dpkg-query", "-W", "-f=${Status}\t${Version}", pkg).Output()
+	status, version, _ := strings.Cut(string(out), "\t")
+	if err != nil || !strings.Contains(status, "install ok installed") {
+		return ""
+	}
+	return strings.TrimSpace(version)
+}
+
+// aptWanted picks the packages Apt must install: missing ones, and pinned
+// ones ("name=version") whose installed version is not the pin.
+func aptWanted(pkgs []string, installed func(string) string) []string {
+	var out []string
+	for _, p := range pkgs {
+		name, pin, pinned := strings.Cut(p, "=")
+		if cur := installed(name); cur == "" || pinned && cur != pin {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// Apt installs Debian packages that are missing. A pinned package
+// ("name=version") whose installed version differs is installed at the
+// pin, so a release that moves a pin updates the box on its next tiffin up.
 func (s *System) Apt(ctx context.Context, pkgs ...string) error {
 	s.aptMu.Lock()
 	defer s.aptMu.Unlock()
-	var missing []string
-	for _, p := range pkgs {
-		if !s.Installed(ctx, strings.SplitN(p, "=", 2)[0]) {
-			missing = append(missing, p)
-		}
-	}
+	missing := aptWanted(pkgs, func(name string) string { return s.InstalledVersion(ctx, name) })
 	if len(missing) == 0 {
 		return nil
 	}

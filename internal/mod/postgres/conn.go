@@ -85,15 +85,18 @@ func HasService(ctx context.Context, p *platform.Platform, project string) (bool
 }
 
 // ConnEnv returns the connection env for a project's database, or for one
-// of its branches when branch is set. With viaSocket the URL and PGHOST
-// point at the unix socket directory (bind-mount /var/run/postgresql into
-// the container); otherwise at 127.0.0.1:5432.
+// of its branches when branch is set. DATABASE_URL and PG* go through the
+// pooler (transaction pooling); DIRECT_DATABASE_URL goes straight to
+// Postgres, for migrations, LISTEN/NOTIFY and session locks. With
+// viaSocket the URLs and PGHOST point at the unix socket directory
+// (bind-mount /var/run/postgresql into the container); otherwise at
+// 127.0.0.1.
 func ConnEnv(ctx context.Context, p *platform.Platform, project, branch string, viaSocket bool) (map[string]string, error) {
 	pw, err := datakit.EnsureSecret(ctx, p, nsPassword, project)
 	if err != nil {
 		return nil, err
 	}
-	return connEnv(Role(project), pw, dbOf(project, branch), viaSocket), nil
+	return connEnv(Role(project), pw, dbOf(project, branch), viaSocket, true), nil
 }
 
 func dbOf(project, branch string) string {
@@ -140,7 +143,7 @@ GRANT pg_read_all_data TO %[2]s;
 GRANT CONNECT ON DATABASE %[4]s TO %[2]s`, verb, quoteIdent(role), quoteLiteral(pw), quoteIdent(db))); err != nil {
 		return nil, fmt.Errorf("read-only role: %w", err)
 	}
-	return connEnv(role, pw, db, false), nil
+	return connEnv(role, pw, db, false, false), nil // builds are short; they connect directly
 }
 
 // dropReadRole drops a project's read-only role, if it has one.
@@ -159,26 +162,34 @@ func dropReadRole(ctx context.Context, admin *pgx.Conn, p *platform.Platform, pr
 	return p.DB.KVDelete(ctx, nsReadPassword, project)
 }
 
-func connEnv(user, pw, db string, viaSocket bool) map[string]string {
-	u := url.URL{Scheme: "postgresql", User: url.UserPassword(user, pw), Path: "/" + db}
+// connEnv is the env for a role and database. DATABASE_URL and PG* go
+// through the pooler (transaction pooling) when pooled; DIRECT_DATABASE_URL
+// always goes straight to Postgres, for migrations, LISTEN/NOTIFY and
+// session locks.
+func connEnv(user, pw, db string, viaSocket, pooled bool) map[string]string {
+	connURL := func(port int) string {
+		u := url.URL{Scheme: "postgresql", User: url.UserPassword(user, pw), Path: "/" + db, RawQuery: "sslmode=disable"}
+		if viaSocket {
+			u.Host = "localhost:" + strconv.Itoa(port)
+			u.RawQuery = "host=" + SocketDir + "&sslmode=disable"
+		} else {
+			u.Host = "127.0.0.1:" + strconv.Itoa(port)
+		}
+		return u.String()
+	}
+	port := Port
+	if pooled {
+		port = PoolerPort
+	}
 	env := map[string]string{
-		"PGUSER": user, "PGPASSWORD": pw, "PGDATABASE": db, "PGPORT": strconv.Itoa(Port),
+		"PGUSER": user, "PGPASSWORD": pw, "PGDATABASE": db, "PGPORT": strconv.Itoa(port), "PGHOST": "127.0.0.1",
 		"DATABASE_SOCKET_DIR": SocketDir,
+		"DATABASE_URL":        connURL(port),
+		"DIRECT_DATABASE_URL": connURL(Port),
 	}
 	if viaSocket {
-		u.Host = "localhost"
-		u.RawQuery = "host=" + SocketDir + "&sslmode=disable"
 		env["PGHOST"] = SocketDir
-	} else {
-		u.Host = "127.0.0.1:" + strconv.Itoa(Port)
-		u.RawQuery = "sslmode=disable"
-		env["PGHOST"] = "127.0.0.1"
 	}
-	env["DATABASE_URL"] = u.String()
-	// For migration tools that want a connection without a pooler in
-	// between (Prisma's directUrl, drizzle-kit). There is no pooler, so it
-	// is the same URL.
-	env["DIRECT_DATABASE_URL"] = env["DATABASE_URL"]
 	return env
 }
 

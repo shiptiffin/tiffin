@@ -10,7 +10,9 @@ if (!process.env.WORKFLOW_POSTGRES_URL && !process.env.DATABASE_URL) {
     "This app uses the Workflow DevKit, which runs on the project's Postgres, and the project has none: add `postgres: {}` to services in tiffin.config.ts, apply, and deploy again.",
   );
 }
-process.env.WORKFLOW_POSTGRES_URL ||= process.env.DATABASE_URL;
+// Straight to Postgres, not through the pooler: the world's queue
+// (graphile-worker) uses LISTEN/NOTIFY and session advisory locks.
+process.env.WORKFLOW_POSTGRES_URL ||= process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL;
 
 const req = createRequire(join(process.cwd(), "index.js"));
 const entry = req.resolve(process.env.WORKFLOW_TARGET_WORLD);

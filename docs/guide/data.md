@@ -6,10 +6,9 @@
 services: { postgres: { extensions: ["vector", "pg_cron"] } }
 ```
 
-Each project gets its own Postgres 18 database and role. Apps get `DATABASE_URL`,
-`DIRECT_DATABASE_URL` (the same URL, for migration tools that ask for a connection
-without a pooler, such as Prisma's `directUrl`; there is no pooler) and
-`DATABASE_POOL_MAX`.
+Each project gets its own Postgres 18 database and role. Apps get `DATABASE_URL`
+(and `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`) through the box's connection
+pooler, `DIRECT_DATABASE_URL` straight to Postgres, and `DATABASE_POOL_MAX`.
 
 - **SQL:** `tiffin sql <project> "select ..."` runs one statement read-only (MCP `sql`;
   no confirmation). `tiffin sql write <project> "..."` (or `--write`; MCP `sql_write`)
@@ -21,7 +20,8 @@ without a pooler, such as Prisma's `directUrl`; there is no pooler) and
   production database instead. See [Migrations and preview
   databases](apps.md#migrations-and-preview-databases).
 - **Migrations:** an app's `release` command (`bunx drizzle-kit migrate`) runs once per
-  deploy before the new version takes traffic; a failure keeps the old version serving.
+  deploy before the new version takes traffic, with `DATABASE_URL` set straight to
+  Postgres (migration tools hold session locks); a failure keeps the old version serving.
 - **Snapshots:** deleting the database (or writing through the console) keeps a
   snapshot for 7 days; `tiffin snapshots restore` brings it back.
 - **Org isolation:** `auth.enable_org_rls('table')` adds row-level security keyed on the
@@ -31,17 +31,72 @@ without a pooler, such as Prisma's `directUrl`; there is no pooler) and
   left idle inside a transaction is closed after 60 seconds, and a project opens at most
   80 connections. A project with a limit gets its share of the connections and of the
   CPU for its queries (see [Sharing the box](concepts.md#sharing-the-box)).
-- **Connection pools:** every instance of every app, the old instances a deploy is
-  draining, previews (their branches use the same role) and the SQL console share that
-  limit. `DATABASE_POOL_MAX` is how many connections one instance's pool should open to
-  stay inside it: the limit, less a few for the console and release commands and a fifth
-  for previews (2 each), divided by twice the production instances, at most 10. Clients
-  do not read it on their own: pass it as the pool's max, e.g.
-  `new SQL({ max: Number(process.env.DATABASE_POOL_MAX) || 10 })` (Bun.SQL),
+- **Connection pools:** see the pooler below. `DATABASE_POOL_MAX` (20 per production
+  instance, 5 per preview instance) is how many client connections one instance's pool
+  should open to the pooler. Clients do not read it on their own: pass it as the pool's
+  max, e.g. `new SQL({ max: Number(process.env.DATABASE_POOL_MAX) || 10 })` (Bun.SQL),
   `postgres(url, { max: ... })` (postgres.js), `new Pool({ max: ... })` (node-postgres, and
   `PrismaPg` with Prisma 7). A value you set (env or secret) is kept. A new value applies
   as instances start (a deploy or restart), and a plan warns when the apps' pools could
-  open more connections than the project may hold.
+  open more client connections than the pooler lets a project hold (1,000).
+
+### The connection pooler
+
+PgBouncer runs in front of Postgres in transaction mode (127.0.0.1:6432, and its socket
+in `/var/run/postgresql`). Apps hold as many client connections as they like (cheap: no
+Postgres process each); a server connection is theirs only for the length of a
+transaction. A project's server connections through the pooler stop at three quarters of
+its connection limit (60 of 80), so a quarter stays free for direct connections; a
+preview branch gets a fifth of that (12). Backends still run as the project's own role,
+so its limits and its share of the CPU hold as before.
+
+| Client | Through the pooler (`DATABASE_URL`) |
+|---|---|
+| Bun.SQL, postgres.js, node-postgres, Drizzle (either driver) | works as is, prepared statements included |
+| Prisma 7 (`@prisma/adapter-pg`) | works as is |
+| Prisma 6 (Rust engine) | works as is; `?pgbouncer=true` is not needed (it also works) |
+
+Prepared statements work because the pooler re-prepares them on whichever server
+connection runs them. Settings sent when connecting carry over for `search_path`,
+`timezone`, `application_name`, `statement_timeout`, `lock_timeout` and
+`idle_in_transaction_session_timeout`; the pooler refuses a connection that sends others
+(set them with `SET LOCAL` inside a transaction instead). What does not survive transaction
+pooling is state kept in the session between transactions: `LISTEN`, session advisory
+locks, `SET` without `LOCAL`, temporary tables and `WITH HOLD` cursors. Use `DIRECT_DATABASE_URL` for those (Prisma's
+`directUrl`, drizzle-kit, a LISTEN connection); release commands get it as `DATABASE_URL`
+already. With node-postgres, give the pool an error listener
+(`pool.on("error", ...)`): without one, a connection the server closes while idle ends
+the process.
+
+### Minor updates
+
+Postgres, pgvector, pg_cron and PgBouncer come from the PostgreSQL project's apt
+repository, which the box's automatic security updates do not cover, so the box updates
+them itself:
+
+```bash
+tiffin maintenance show                        # versions, what waits, recent updates
+tiffin maintenance postgres-update             # check now; says when it installs
+tiffin maintenance postgres-update --now       # install now
+```
+
+An update downloads and installs the new packages while the old server runs, then pauses
+the pooler (transactions in flight finish; new queries wait), restarts Postgres and
+resumes. On a 2-CPU, 3 GB box the pause was 0.1–0.4 s and the slowest query under
+constant load took under half a second; none failed.
+Direct connections are closed by the restart and reconnect. If the new version does not
+start, the old packages go back. With a maintenance window (`tiffin up --reboot-window
+04:00`) updates install a quarter of an hour into it, once a day; without one the box
+checks daily and `tiffin status` (`postgres-updates`) says what waits. Each update is in
+the audit log (`tiffin audit list`, `postgres.update`), and one the box ran on its own
+that failed sends an alert. `tiffin up` updates the packages the same way when this
+Tiffin needs a newer version than the box runs.
+
+Unattended upgrades never restart the box's services on their own (needrestart is told
+to leave them); a maintenance run restarts those running on replaced libraries, in
+order, Postgres with the pause. PgBouncer itself restarts only when asked
+(`--restart-pooler`), because that closes every app's client connections; otherwise a new
+version of it runs from the next reboot.
 
 ## Valkey
 

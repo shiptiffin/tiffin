@@ -306,6 +306,7 @@ func disk(mount string) Disk {
 var known = map[string][2]string{
 	"tiffin.service":                  {"tiffin", "Tiffin itself: the API, dashboard, HTTPS edge, email, queues, workflows and analytics"},
 	"tiffin-postgres.service":         {"postgres", "PostgreSQL: every project's database"},
+	"tiffin-pgbouncer.service":        {"pgbouncer", "PgBouncer: pools apps' database connections"},
 	"tiffin-valkey.service":           {"valkey", "Valkey: caches, sessions and KV for every project"},
 	"tiffin-storage.service":          {"storage", "S3-compatible object storage for buckets"},
 	"tiffin-auth.service":             {"auth", "The auth engine: users, sessions and organizations"},

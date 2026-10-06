@@ -25,6 +25,7 @@ func (*Module) Kinds() []string { return []string{"service/postgres"} }
 func (*Module) Reconcile(ctx context.Context, p *platform.Platform, project, address string, spec json.RawMessage) error {
 	mu.Lock()
 	defer mu.Unlock()
+	defer poolsChanged()
 	if spec == nil {
 		return remove(ctx, p, project)
 	}

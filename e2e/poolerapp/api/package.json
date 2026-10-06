@@ -1,0 +1,19 @@
+{
+  "name": "poolx-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "prisma generate",
+    "start": "bun index.ts"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "drizzle-orm": "0.45.3",
+    "pg": "8.23.1",
+    "postgres": "3.4.9"
+  },
+  "devDependencies": {
+    "prisma": "7.10.0"
+  }
+}

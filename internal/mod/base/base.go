@@ -48,6 +48,9 @@ func (*Module) Provision(ctx context.Context, s *platform.System) error {
 	if _, err = s.Run(ctx, "sysctl", "--system"); err != nil {
 		return err
 	}
+	if _, err := s.WriteFile(needrestartFile, []byte(needrestartConfig), 0o644); err != nil {
+		return err
+	}
 	srv, err := platform.LoadServerConfig()
 	if err != nil {
 		return err
@@ -57,6 +60,20 @@ func (*Module) Provision(ctx context.Context, s *platform.System) error {
 	}
 	return nil
 }
+
+// needrestart (on Ubuntu servers by default) restarts services after
+// unattended upgrades replace their libraries. Never the box's own: a bare
+// restart of Postgres fails every query in flight, and the box restarts
+// them itself, in order, with the pooler paused (`tiffin maintenance`).
+const (
+	needrestartFile   = "/etc/needrestart/conf.d/50-tiffin.conf"
+	needrestartConfig = `# Managed by tiffin provision: the box restarts its own services (tiffin maintenance show).
+$nrconf{override_rc}->{qr(^tiffin)} = 0;
+$nrconf{override_rc}->{qr(^valkey)} = 0;
+$nrconf{override_rc}->{qr(^containerd)} = 0;
+$nrconf{override_rc}->{qr(^buildkit)} = 0;
+`
+)
 
 // Checks reports the server hardening (real servers only).
 func (*Module) Checks(ctx context.Context, _ *platform.Platform) []platform.Check {

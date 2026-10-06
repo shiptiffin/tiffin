@@ -141,15 +141,18 @@ the box brings the world's tables (schemas `workflow`, `workflow_drizzle`,
 `graphile_worker`) up to date and starts its worker in every instance; all running
 releases share one queue, so a sleep or a retry that comes due during a deploy runs on
 whichever release is up, and on the new one once the old has stopped. Runs survive
-redeploys and box restarts. Your app's own `instrumentation.ts` still runs.
+redeploys and box restarts. The world connects with `DIRECT_DATABASE_URL` (its worker
+uses LISTEN/NOTIFY, which the connection pooler does not carry). Your app's own
+`instrumentation.ts` still runs.
 
 - **Previews** use the DevKit's local world: their runs stay inside the instance, apart
   from production's, and do not survive a redeploy.
 - **Queue routes** (`/.well-known/workflow/v1/flow` and `/step`) answer only the world
   inside the box; webhook routes stay public.
 - **Seeing runs:** `npx workflow inspect runs --backend @workflow/world-postgres` (or
-  `npx workflow web`) with `WORKFLOW_POSTGRES_URL` set to the project's `DATABASE_URL`
-  (`tiffin db connection <project>`; from your machine, through an SSH tunnel).
+  `npx workflow web`) with `WORKFLOW_POSTGRES_URL` set to the project's database URL
+  (`tiffin db connection <project>`, with port 5432 for a direct connection; from your
+  machine, through an SSH tunnel).
 - **Your own world:** set `WORKFLOW_TARGET_WORLD` and the box leaves the DevKit alone.
 
 Tiffin's own workflows (above) remain the native option: runs finish on the release they

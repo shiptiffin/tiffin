@@ -52,6 +52,7 @@ func appEnv(info *ProjectInfo, m *manifest.Manifest, app string, port int) map[s
 	}
 	if info.Postgres != nil || m.Services.Postgres != nil {
 		env["DATABASE_URL"] = "postgresql://" + composePGUser + ":" + composePGPass + "@postgres:5432/app?sslmode=disable"
+		env["DIRECT_DATABASE_URL"] = env["DATABASE_URL"] // no pooler under compose
 		env["PGHOST"], env["PGPORT"], env["PGUSER"], env["PGPASSWORD"], env["PGDATABASE"] = "postgres", "5432", composePGUser, composePGPass, "app"
 	}
 	if info.Valkey != nil {

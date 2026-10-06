@@ -74,8 +74,9 @@ apps: { web: { framework: "next", release: "bunx drizzle-kit migrate" } }
 ```
 
 `release` runs once per deploy, after the build and before the new version takes
-traffic: one container of the new image with the app's env (`DATABASE_URL`,
-`DIRECT_DATABASE_URL`, secrets), memory cap and disk folders, in the app's folder. Its
+traffic: one container of the new image with the app's env (secrets too; `DATABASE_URL`
+goes straight to Postgres here, not through the pooler, so migration locks work), memory
+cap and disk folders, in the app's folder. Its
 output is in the deploy log (`tiffin deploys build-log`). If it exits non-zero, or runs
 over 10 minutes, the deploy fails and the running version keeps serving. Any command
 works (`bun run db:migrate`, `bunx prisma migrate deploy`); releases of one app run one
@@ -99,9 +100,9 @@ the preview's first deploy (milliseconds, whatever the size), deleted with the p
 `DATABASE_URL`, `DIRECT_DATABASE_URL` and `PG*` point at it, and its `release` migrates
 it, so a preview can change its schema and data without touching production's. Apps of
 the project that have a preview of the same name share it. While the copy is made,
-production's database refuses new connections for a moment: idle ones close at once
-(pools reconnect) and running queries get up to 5 seconds to finish. It is usually well
-under a second, once per preview. `tiffin sql <project> --branch pv-pr-12`
+queries through the pooler wait (usually well under a second, once per preview) and
+direct connections close (pools reconnect); a transaction still running after 5 seconds
+is ended. `tiffin sql <project> --branch pv-pr-12`
 reads it.
 
 ```ts

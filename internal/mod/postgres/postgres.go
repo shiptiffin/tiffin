@@ -6,11 +6,14 @@
 //
 // How apps reach it. The cluster listens on 127.0.0.1:5432 (scram-sha-256)
 // and on the unix socket directory /var/run/postgresql (scram for project
-// roles; peer for the box itself). Apps get DATABASE_URL in the TCP form
-// postgresql://p_<project>:<password>@127.0.0.1:5432/p_<project>?sslmode=disable
-// plus the libpq PG* variables. A runtime whose containers do not share the
-// host network can bind-mount /var/run/postgresql into the container and use
-// ConnEnv(..., viaSocket=true), which points PGHOST and DATABASE_URL at the socket.
+// roles; peer for the box itself). In front of it PgBouncer (pooler.go)
+// listens on 127.0.0.1:6432 and the same socket directory. Apps get
+// DATABASE_URL through the pooler,
+// postgresql://p_<project>:<password>@127.0.0.1:6432/p_<project>?sslmode=disable,
+// the libpq PG* variables to match, and DIRECT_DATABASE_URL straight to
+// 5432 for sessions the pooler cannot carry. A runtime whose containers do
+// not share the host network can bind-mount /var/run/postgresql into the
+// container and use ConnEnv(..., viaSocket=true).
 package postgres
 
 import (
@@ -68,6 +71,9 @@ func (*Module) Provision(ctx context.Context, s *platform.System) error {
 	if _, err := s.WriteFile("/etc/postgresql-common/createcluster.d/tiffin.conf", []byte("# Tiffin runs its own cluster on the data disk.\ncreate_main_cluster = false\n"), 0o644); err != nil {
 		return err
 	}
+	if _, err := s.WriteFile(pgdgPrefs, []byte(pgdgPin), 0o644); err != nil {
+		return err
+	}
 	if err := s.Apt(ctx, "postgresql-"+Major, "postgresql-client-"+Major, "postgresql-"+Major+"-pgvector", "postgresql-"+Major+"-cron"); err != nil {
 		return err
 	}
@@ -90,32 +96,44 @@ install -d -m 0755 `+ConfDir); err != nil {
 			return err
 		}
 	}
+	// A new postgresql.conf restarts the server (with the pooler paused, so
+	// apps' queries wait); new access rules only reload it.
 	conf := Config(memTotalMB())
-	files := map[string]string{
-		ConfDir + "/postgresql.conf": conf,
-		ConfDir + "/pg_hba.conf":     hba,
-		ConfDir + "/pg_ident.conf":   ident,
+	if _, err := s.WriteFile(ConfDir+"/postgresql.conf", []byte(conf), 0o644); err != nil {
+		return err
 	}
-	sum := sha256.New()
-	for _, name := range []string{"postgresql.conf", "pg_hba.conf", "pg_ident.conf"} {
-		path := ConfDir + "/" + name
-		if _, err := s.WriteFile(path, []byte(files[path]), 0o644); err != nil {
+	reload := false
+	for name, body := range map[string]string{"pg_hba.conf": hba, "pg_ident.conf": ident} {
+		changed, err := s.WriteFile(ConfDir+"/"+name, []byte(body), 0o644)
+		if err != nil {
 			return err
 		}
-		sum.Write([]byte(files[path]))
+		reload = reload || changed
 	}
-	if err := s.Unit(ctx, UnitName, unit(hex.EncodeToString(sum.Sum(nil))[:16])); err != nil {
+	sum := sha256.Sum256([]byte(conf))
+	restarted, err := unitPaused(ctx, s, unit(hex.EncodeToString(sum[:])[:16]))
+	if err != nil {
 		return err
 	}
 	if err := waitReady(ctx, 90*time.Second); err != nil {
 		out, _ := s.Run(ctx, "journalctl", "-u", UnitName, "-n", "40", "--no-pager")
 		return fmt.Errorf("%w\n%s", err, out)
 	}
+	if reload && !restarted {
+		if _, err := s.Run(ctx, "systemctl", "reload", UnitName); err != nil {
+			return err
+		}
+	}
+	// A Tiffin release may raise the minimum versions (maint.go): update the
+	// packages the way the maintenance window does.
+	if err := raiseMinimums(ctx, s.Log); err != nil {
+		return err
+	}
 	// Box-level setup: project roles may not connect to the maintenance
 	// databases; pg_cron lives in "postgres" (cron.database_name).
 	// Project roles' connection limits follow max_connections (the box may
 	// have been resized since they were made).
-	_, err := s.Run(ctx, "runuser", "-u", "postgres", "--", BinDir+"/psql", "-h", SocketDir, "-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", "postgres", "-c",
+	_, err = s.Run(ctx, "runuser", "-u", "postgres", "--", BinDir+"/psql", "-h", SocketDir, "-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", "postgres", "-c",
 		`REVOKE CONNECT ON DATABASE postgres, template1 FROM PUBLIC;
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
@@ -253,8 +271,11 @@ idle_in_transaction_session_timeout = '10min'
 
 // The box itself (root, via the ident map) connects as the postgres
 // superuser over the socket; everything else authenticates with a password.
+// The pooler looks project passwords up as tiffin_pgbouncer (pooler.go),
+// over the socket as the postgres system user.
 const hba = `# Managed by Tiffin. TYPE DATABASE USER ADDRESS METHOD
 local   all             postgres                                peer map=tiffin
+local   postgres        tiffin_pgbouncer                        peer map=tiffin
 local   all             all                                     scram-sha-256
 host    all             all             127.0.0.1/32            scram-sha-256
 host    all             all             ::1/128                 scram-sha-256
@@ -263,7 +284,20 @@ host    all             all             ::1/128                 scram-sha-256
 const ident = `# Managed by Tiffin. MAPNAME SYSTEM-USER PG-USER
 tiffin  root      postgres
 tiffin  postgres  postgres
+tiffin  postgres  tiffin_pgbouncer
 `
+
+// The PGDG repository wins over Ubuntu's own builds of the same packages,
+// so one source updates them (Ubuntu's security pocket carries Postgres
+// too, at other times and with other version numbers).
+const (
+	pgdgPrefs = "/etc/apt/preferences.d/tiffin-pgdg.pref"
+	pgdgPin   = `# Managed by tiffin provision: Postgres, its extensions and PgBouncer come from PGDG.
+Package: postgresql-` + Major + ` postgresql-` + Major + `-* postgresql-client-` + Major + ` libpq5 postgresql-common postgresql-client-common pgbouncer
+Pin: release o=apt.postgresql.org
+Pin-Priority: 600
+`
+)
 
 func unit(confSum string) string {
 	return `[Unit]
