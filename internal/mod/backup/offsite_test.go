@@ -46,29 +46,31 @@ func TestRepo2Settings(t *testing.T) {
 	c := &OffsiteConfig{Endpoint: "https://host.lima.internal:9443", Region: "us-east-1", Bucket: "offsite", Prefix: "boxes/a",
 		AccessKeyID: "AKID", URIStyle: "path", CACert: "-----BEGIN CERTIFICATE-----", RetentionDays: 30}
 	s := &offsiteSecrets{SecretAccessKey: "s3cret", Passphrase: "pass-phrase"}
-	env := strings.Join(repo2Env(c, s), "\n")
-	for _, want := range []string{"PGBACKREST_REPO2_TYPE=s3", "PGBACKREST_REPO2_PATH=/boxes/a/pgbackrest", "PGBACKREST_REPO2_S3_ENDPOINT=host.lima.internal",
-		"PGBACKREST_REPO2_STORAGE_PORT=9443", "PGBACKREST_REPO2_S3_KEY_SECRET=s3cret", "PGBACKREST_REPO2_CIPHER_TYPE=aes-256-cbc",
-		"PGBACKREST_REPO2_CIPHER_PASS=pass-phrase", "PGBACKREST_REPO2_RETENTION_FULL_TYPE=time", "PGBACKREST_REPO2_RETENTION_FULL=30",
-		"PGBACKREST_REPO2_STORAGE_CA_FILE=" + offsiteCAPath, "PGBACKREST_REPO2_S3_URI_STYLE=path"} {
-		if !strings.Contains(env, want+"\n") && !strings.HasSuffix(env, want) {
-			t.Errorf("env lacks %s", want)
-		}
-	}
-	conf := repo2Conf(c, s, 1<<30)
-	for _, want := range []string{"[global]\n", "repo2-type=s3\n", "repo2-s3-key-secret=s3cret\n", "repo2-storage-port=9443\n", "repo2-cipher-pass=pass-phrase\n",
-		"archive-async=y\n", "spool-path=/var/spool/pgbackrest\n", "archive-push-queue-max=1073741824\n"} {
+	conf := offConf(c, s)
+	for _, want := range []string{"[global]\n", "repo2-type=s3\n", "repo2-path=/boxes/a/pgbackrest\n", "repo2-s3-endpoint=host.lima.internal\n",
+		"repo2-storage-port=9443\n", "repo2-s3-key-secret=s3cret\n", "repo2-cipher-type=aes-256-cbc\n", "repo2-cipher-pass=pass-phrase\n",
+		"repo2-retention-full-type=time\n", "repo2-retention-full=30\n", "repo2-storage-ca-file=" + offsiteCAPath + "\n", "repo2-s3-uri-style=path\n",
+		"[tiffin]\npg1-path=/var/lib/tiffin/postgres/"} {
 		if !strings.Contains(conf, want) {
 			t.Errorf("conf lacks %q:\n%s", want, conf)
 		}
 	}
-	c.Endpoint, c.CACert = "https://acct.r2.cloudflarestorage.com", ""
-	env = strings.Join(repo2Env(c, s), "\n")
-	if strings.Contains(env, "STORAGE_PORT") || strings.Contains(env, "CA_FILE") {
-		t.Fatalf("default port and CA must not be set:\n%s", env)
+	// Only repo2: the local repository and archiving stay in pgbackrest.conf.
+	if strings.Contains(conf, "repo1-") || strings.Contains(conf, "archive-async") {
+		t.Fatalf("the off-box config must hold repo2 only:\n%s", conf)
 	}
-	if repo2Env(nil, nil) != nil {
-		t.Fatal("no destination, no env")
+	c.Endpoint, c.CACert = "https://acct.r2.cloudflarestorage.com", ""
+	if conf = offConf(c, s); strings.Contains(conf, "storage-port") || strings.Contains(conf, "ca-file") {
+		t.Fatalf("default port and CA must not be set:\n%s", conf)
+	}
+	for in, want := range map[string]string{
+		"000000010000000000000009-2108165b4da099ffb3a974911d2aad5e89de8f8a.zst": "000000010000000000000009",
+		"00000002.history": "00000002.history", "000000010000000000000008.00000028.backup": "",
+		"000000010000000000000005.partial-abc.zst": "", "archive.info": "", "00000002000000000000000A": "00000002000000000000000A",
+	} {
+		if got, _ := walName(in); got != want {
+			t.Errorf("walName(%s) = %q, want %q", in, got, want)
+		}
 	}
 	if !stanzaMismatch(errString("ERROR: [028]: backup and archive info files exist but do not match the database")) || stanzaMismatch(errString("ERROR: [039]: HTTP request failed")) {
 		t.Fatal("stanzaMismatch")

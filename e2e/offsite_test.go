@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -28,6 +29,7 @@ import (
 // the boxes reach at host.lima.internal.
 type localS3 struct {
 	endpoint, ca, access, secret, data string
+	stop                               func()
 }
 
 // startS3 runs versitygw (TIFFIN_TEST_VERSITYGW: a build for this OS) on
@@ -69,9 +71,15 @@ func startS3(t *testing.T, dir string) *localS3 {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	var once sync.Once
+	s.stop = func() {
+		once.Do(func() {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		})
+	}
 	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
+		s.stop()
 		if t.Failed() {
 			t.Logf("versitygw:\n%s", tail(logs.String(), 4000))
 		}
@@ -194,8 +202,12 @@ func TestOffsite(t *testing.T) {
 	if tst["ok"] != true || len(tst["steps"].([]any)) != 4 {
 		t.Fatalf("offsite test: %v", tst)
 	}
-	if got := a.inBox("sudo stat -c '%a %U:%G' /etc/pgbackrest/conf.d/tiffin-offsite.conf"); got != "640 root:postgres" {
+	if got := a.inBox("sudo stat -c '%a %U:%G' /etc/pgbackrest/tiffin-offsite.conf"); got != "640 root:postgres" {
 		t.Fatalf("repo2 config file: %s", got)
+	}
+	// Postgres archives to the local repository only: the bucket never holds it up.
+	if got := a.inBox("sudo cat /etc/pgbackrest/pgbackrest.conf; sudo ls /etc/pgbackrest/conf.d 2>/dev/null || true"); strings.Contains(got, "repo2") {
+		t.Fatalf("the archive_command's config mentions repo2: %s", got)
 	}
 	phase("offsite set", p)
 
@@ -392,5 +404,28 @@ func TestOffsite(t *testing.T) {
 		t.Fatalf("sets after B's copy: %v", l)
 	}
 	phase("B copies", p)
+
+	// ---- the bucket goes away: local backups carry on, the copy fails and says so ----
+	p = time.Now()
+	s3.stop()
+	sql(b, `{"write":true,"sql":"insert into notes select g, 'while the bucket is down' from generate_series(40001, 41000) g"}`)
+	bk4 := backup(b, "incremental")
+	if bk4["status"] != "ok" {
+		t.Fatalf("a local backup with the bucket down: %v", bk4)
+	}
+	code, out = b.run("backups", "offsite", "copy", "--backup", bk4["id"].(string), "--timeout-seconds", "600")
+	if !strings.Contains(out, `"status": "failed"`) {
+		t.Fatalf("a copy with the bucket down: exit %d %s", code, out)
+	}
+	for _, c := range b.ok("status")["checks"].([]any) {
+		if c := c.(map[string]any); c["name"] == "backups" && c["ok"] != true {
+			t.Fatalf("local backups check with the bucket down: %v", c)
+		}
+	}
+	if got := sql(b, `{"sql":"select count(*) from notes"}`); got != "[[21002]]" {
+		t.Fatalf("Postgres keeps working with the bucket down: %s", got)
+	}
+	t.Logf("BUCKET DOWN: local backup %s ok in %vms; copy: %s", bk4["id"], bk4["durationMs"], tail(out, 400))
+	phase("bucket down", p)
 	t.Logf("OFFSITE total %s", time.Since(start).Round(time.Second))
 }

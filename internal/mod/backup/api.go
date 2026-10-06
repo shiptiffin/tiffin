@@ -102,7 +102,8 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if kind == "" {
 			kind = "incremental"
 		}
-		b, err := Take(ctx, p, kind, "manual")
+		// Not tied to the call: a client that stops waiting must not kill pgBackRest mid-backup.
+		b, err := Take(context.WithoutCancel(ctx), p, kind, "manual")
 		if err != nil {
 			if b != nil {
 				return nil, api.NewProblem(500, "internal", "backup "+b.ID+" failed: "+err.Error())

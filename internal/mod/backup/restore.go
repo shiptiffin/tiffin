@@ -313,10 +313,12 @@ func restorePostgres(ctx context.Context, p *platform.Platform, src restoreFrom)
 		return "", err
 	}
 	args := []string{"--repo=" + strconv.Itoa(src.repo), "--delta", "--set=" + src.label, "--type=immediate", "--target-action=promote", "--log-level-console=warn"}
+	run := pgbackrest
 	if src.repo == 2 {
-		args = append(args, `--recovery-option=restore_command=pgbackrest --stanza=`+Stanza+` --repo=2 archive-get %f "%p"`)
+		run = pgbackrestOff
+		args = append(args, `--recovery-option=restore_command=pgbackrest --config=`+offConfPath+` --stanza=`+Stanza+` --repo=2 archive-get %f "%p"`)
 	}
-	_, rerr := pgbackrest(ctx, append(args, "restore")...)
+	_, rerr := run(ctx, append(args, "restore")...)
 	note := ""
 	if rerr == nil && src.repo == 2 {
 		note, rerr = adoptCluster(ctx, p)
@@ -362,17 +364,10 @@ func adoptCluster(ctx context.Context, p *platform.Platform) (string, error) {
 		note = "the local backup repository held this box's earlier cluster; it was emptied and started again for the restored one (its old sets are gone)"
 		p.Log.Info("backup: local repository started again for the restored cluster")
 	}
-	c, s := current()
-	if c != nil && c.State != OffsiteActive {
-		c.State = OffsiteActive
-		if err := writeRepo2Conf(c, s); err != nil {
-			return note, err
-		}
-		if err := saveOffsite(ctx, p, c, s); err != nil {
-			return note, err
-		}
-	} else if c != nil {
-		if err := writeRepo2Conf(c, s); err != nil {
+	if c, s := current(); c != nil && c.State != OffsiteActive {
+		n := *c
+		n.State = OffsiteActive
+		if err := saveOffsite(ctx, p, &n, s); err != nil {
 			return note, err
 		}
 	}

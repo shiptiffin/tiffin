@@ -149,11 +149,14 @@ sees only ciphertext with meaningless names.
 What is copied, and how:
 
 - **Postgres** goes to a second pgBackRest repository in the bucket (`<prefix>/pgbackrest`),
-  encrypted with aes-256-cbc. WAL is archived to both repositories through a local queue,
-  so a slow or unreachable bucket never holds Postgres up; if the queue passes a quarter
-  of the data disk (8 GiB at most), the bucket's copy of the oldest WAL is dropped rather
-  than filling the disk. After each backup, an incremental backup goes to the bucket (a
-  full one each week).
+  encrypted with aes-256-cbc. After each backup, an incremental backup goes there (a full
+  one each week). Postgres keeps archiving WAL to the local repository only; the box ships
+  every archived segment on to the bucket every few minutes, and a copy counts as done
+  only once the WAL its backup needs is there. A slow or unreachable bucket therefore
+  never holds up Postgres or local backups: shipping catches up when it is back, from
+  the WAL the local repository keeps. The bucket's Postgres part is a few minutes newer
+  than the rest of its set (it is taken when the copy runs), so only sets from the last 6
+  hours are copied, and never the safety backup of a restore.
 - **Everything else** in the set (the Valkey snapshot, the platform state and box key, and
   registered files: buckets, mail, analytics, issues, apps' disk folders) goes to
   `<prefix>/tiffin/` as compressed, encrypted chunks of up to 4 MiB, named by a keyed

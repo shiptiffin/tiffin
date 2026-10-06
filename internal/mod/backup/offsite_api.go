@@ -98,7 +98,7 @@ func registerOffsite(a huma.API, p *platform.Platform, tag string) {
 		}
 		if err == nil {
 			t := time.Now()
-			_, perr := asUserEnv(ctx, "postgres", repo2Env(c, s), "pgbackrest", "--repo=2", "--log-level-console=warn", "repo-ls")
+			_, perr := asUser(ctx, "postgres", "pgbackrest", "--config="+offConfPath, "--repo=2", "--log-level-console=warn", "repo-ls")
 			step := ProbeStep{Name: "pgBackRest lists its repository (repo2)", OK: perr == nil, Ms: time.Since(t).Milliseconds()}
 			if perr != nil {
 				step.Detail, err = clean(perr), perr
@@ -127,7 +127,7 @@ func registerOffsite(a huma.API, p *platform.Platform, tag string) {
 		}
 		defer work.Unlock()
 		prev, _ := current()
-		if err := writeRepo2Conf(nil, nil); err != nil {
+		if err := writeOffConf(nil, nil); err != nil {
 			return nil, err
 		}
 		for _, k := range []string{"config", "status", "pruned"} {
@@ -311,30 +311,23 @@ func setOffsite(ctx context.Context, p *platform.Platform, in OffsiteInput) (*Ba
 		c.SetAt = prev.SetAt
 	}
 	// pgBackRest: create (or check) the stanza in repo2 with these settings.
-	if err := writeCA(c); err != nil {
+	undo := func() {
+		remember(prev, prevSec)
+		_ = writeOffConf(prev, prevSec)
+	}
+	if err := writeOffConf(c, sec); err != nil {
+		undo()
 		return nil, err
 	}
 	remember(c, sec)
 	state, err := activate(ctx)
 	if err != nil {
-		remember(prev, prevSec)
+		undo()
 		return nil, offsiteProblem(422, "validation", err, "the objects test passed, so check region and uriStyle (pgBackRest signs requests itself)")
 	}
 	c.State = state
-	if state == OffsiteActive {
-		err = writeRepo2Conf(c, sec)
-	} else {
-		err = os.Remove(offsiteConfPath)
-		if errors.Is(err, os.ErrNotExist) {
-			err = nil
-		}
-	}
-	if err != nil {
-		remember(prev, prevSec)
-		return nil, err
-	}
 	if err := saveOffsite(ctx, p, c, sec); err != nil {
-		remember(prev, prevSec)
+		undo()
 		return nil, err
 	}
 	if !same {

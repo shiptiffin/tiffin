@@ -465,12 +465,14 @@ func (r *drillRun) steps(ctx context.Context, dir string, srv **scratchServer) e
 	src, label := r.rec.Source, r.rec.BackupLabel
 	args := []string{"--repo=1", "--pg1-path=" + data, "--set=" + label, "--type=immediate", "--target-action=promote",
 		"--no-delta", "--archive-mode=off", "--log-level-console=warn", "--log-level-file=off"}
+	run := pgbackrest
 	if src == SourceOffsite {
-		// WAL from the bucket too: the drill proves the off-box copy alone restores.
-		args[0] = "--repo=2"
-		args = append(args, `--recovery-option=restore_command=pgbackrest --stanza=`+Stanza+` --repo=2 archive-get %f "%p"`)
+		// WAL from the bucket too: the drill proves the off-box copy alone
+		// restores. archive-get checks pg1-path against the server calling it.
+		run, args[0] = pgbackrestOff, "--repo=2"
+		args = append(args, `--recovery-option=restore_command=pgbackrest --config=`+offConfPath+` --stanza=`+Stanza+` --repo=2 --pg1-path=`+data+` archive-get %f "%p"`)
 	}
-	_, rerr := pgbackrest(ctx, append(args, "restore")...)
+	_, rerr := run(ctx, append(args, "restore")...)
 	close(stop)
 	n := datakit.DirSize(data)
 	r.set(func(d *BackupDrill) { d.Seconds.Restore, d.RestoredBytes = secs(time.Since(t)), n }, true)

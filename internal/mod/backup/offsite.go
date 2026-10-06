@@ -7,18 +7,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/url"
 	"os"
-	"os/user"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
+	"github.com/btahir/tiffin/internal/mod/postgres"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/version"
 )
@@ -29,11 +30,14 @@ import (
 //
 //   - Postgres: a second pgBackRest repository (repo2, type s3) under
 //     <prefix>/pgbackrest, encrypted (aes-256-cbc) with the owner's
-//     passphrase. WAL is archived to both repositories (asynchronously, so a
-//     slow or failing bucket never holds Postgres up; past a queue limit the
-//     copy for the bucket is dropped rather than filling the disk). After each
-//     local set, an incremental (a full one each week) goes to repo2, with
-//     time-based retention.
+//     passphrase, in a config file of its own (offConfPath). Postgres
+//     archives WAL to the local repository only, as before; Tiffin ships
+//     every archived segment on to repo2 (shipWAL) every few minutes and
+//     before a copy counts as done. pgBackRest's own multi-repository
+//     archive-push stops pushing to every repository while one fails, so a
+//     bucket that is down would hold up local archiving and backups; this
+//     way it never touches them. After each local set, an incremental (a
+//     full one each week) goes to repo2, with time-based retention.
 //   - Everything else in the set (Valkey snapshot, platform state and box
 //     key, registered files: buckets, mail, app disk folders...) is uploaded
 //     to <prefix>/tiffin/ as encrypted, content-addressed chunks (vault.go).
@@ -44,10 +48,11 @@ import (
 // restore them. Copies run after the local set, never inside it: a failing
 // bucket shows in the status and alerts, while local backups carry on.
 const (
-	nsOffsite       = "backup.offsite" // "config", "status", "pruned"
-	offsiteConfPath = "/etc/pgbackrest/conf.d/tiffin-offsite.conf"
-	offsiteCAPath   = "/etc/pgbackrest/tiffin-offsite-ca.pem"
-	spoolPath       = "/var/spool/pgbackrest"
+	nsOffsite     = "backup.offsite" // "config", "status", "pruned", "notBefore"
+	offConfPath   = "/etc/pgbackrest/tiffin-offsite.conf"
+	offsiteCAPath = "/etc/pgbackrest/tiffin-offsite-ca.pem"
+	// shipPath is where WAL segments wait between the two repositories.
+	shipPath = Root + "/wal-ship"
 	// OffsiteMaxAge is how old the newest off-box copy may be before the box
 	// warns (and the offsite-stale alert fires).
 	OffsiteMaxAge = 26 * time.Hour
@@ -132,6 +137,7 @@ var off struct {
 	sec     *offsiteSecrets
 	poke    chan struct{}
 	running string // set being copied
+	walErr  string // why the last WAL shipping failed
 }
 
 // work serialises off-box operations (copies, prunes, restores from the bucket).
@@ -309,98 +315,71 @@ func probe(ctx context.Context, st objectStore, prefix string) ([]ProbeStep, err
 
 // ---- pgBackRest repo2 ----
 
-// repo2Env is pgBackRest's repo2 settings as environment variables, for
-// the commands Tiffin runs (the config file carries them for archive-push).
-func repo2Env(c *OffsiteConfig, s *offsiteSecrets) []string {
-	if c == nil || s == nil {
-		return nil
-	}
+// repo2Options are pgBackRest's settings for the off-box repository.
+func repo2Options(c *OffsiteConfig, s *offsiteSecrets) [][2]string {
 	u, _ := url.Parse(c.Endpoint)
 	host, port := u.Host, ""
 	if h, pt, err := net.SplitHostPort(u.Host); err == nil {
 		host, port = h, pt
 	}
 	kv := [][2]string{
-		{"REPO2_TYPE", "s3"},
-		{"REPO2_PATH", "/" + strings.Trim(c.Prefix, "/") + "/pgbackrest"},
-		{"REPO2_S3_BUCKET", c.Bucket},
-		{"REPO2_S3_ENDPOINT", host},
-		{"REPO2_S3_REGION", c.Region},
-		{"REPO2_S3_KEY", c.AccessKeyID},
-		{"REPO2_S3_KEY_SECRET", s.SecretAccessKey},
-		{"REPO2_S3_URI_STYLE", c.URIStyle},
-		{"REPO2_CIPHER_TYPE", "aes-256-cbc"},
-		{"REPO2_CIPHER_PASS", s.Passphrase},
-		{"REPO2_RETENTION_FULL_TYPE", "time"},
-		{"REPO2_RETENTION_FULL", strconv.Itoa(c.RetentionDays)},
-		{"REPO2_BUNDLE", "y"},
-		{"REPO2_BLOCK", "y"},
+		{"repo2-type", "s3"},
+		{"repo2-path", "/" + strings.Trim(c.Prefix, "/") + "/pgbackrest"},
+		{"repo2-s3-bucket", c.Bucket},
+		{"repo2-s3-endpoint", host},
+		{"repo2-s3-region", c.Region},
+		{"repo2-s3-key", c.AccessKeyID},
+		{"repo2-s3-key-secret", s.SecretAccessKey},
+		{"repo2-s3-uri-style", c.URIStyle},
+		{"repo2-cipher-type", "aes-256-cbc"},
+		{"repo2-cipher-pass", s.Passphrase},
+		{"repo2-retention-full-type", "time"},
+		{"repo2-retention-full", strconv.Itoa(c.RetentionDays)},
+		{"repo2-bundle", "y"},
+		{"repo2-block", "y"},
 	}
 	if port != "" && port != "443" {
-		kv = append(kv, [2]string{"REPO2_STORAGE_PORT", port})
+		kv = append(kv, [2]string{"repo2-storage-port", port})
 	}
 	if c.CACert != "" {
-		kv = append(kv, [2]string{"REPO2_STORAGE_CA_FILE", offsiteCAPath})
+		kv = append(kv, [2]string{"repo2-storage-ca-file", offsiteCAPath})
 	}
-	out := make([]string, 0, len(kv))
-	for _, x := range kv {
-		out = append(out, "PGBACKREST_"+x[0]+"="+x[1])
-	}
-	return out
+	return kv
 }
 
-// repo2Conf is the config file that adds repo2 for archive-push and
-// archive-get (run by Postgres, outside Tiffin's environment).
-func repo2Conf(c *OffsiteConfig, s *offsiteSecrets, queueMax int64) string {
+// offConf is the off-box repository's own config file. Only Tiffin's
+// commands read it (pgbackrestOff); Postgres's archive_command reads
+// pgbackrest.conf, so archiving never waits on the bucket.
+func offConf(c *OffsiteConfig, s *offsiteSecrets) string {
 	var b strings.Builder
-	b.WriteString("# Managed by Tiffin (tiffin backups offsite set). Holds credentials: root and postgres only.\n[global]\n")
-	for _, kv := range repo2Env(c, s) {
-		k, v, _ := strings.Cut(strings.TrimPrefix(kv, "PGBACKREST_"), "=")
-		b.WriteString(strings.ReplaceAll(strings.ToLower(k), "_", "-") + "=" + v + "\n")
+	b.WriteString("# Managed by Tiffin (tiffin backups offsite set): the off-box repository.\n# Holds credentials: root and postgres only.\n[global]\n")
+	for _, kv := range repo2Options(c, s) {
+		b.WriteString(kv[0] + "=" + kv[1] + "\n")
 	}
-	// WAL goes to both repositories from a local queue: a slow or failing
-	// bucket never holds Postgres up, and past queueMax the bucket's copy of
-	// the oldest WAL is dropped instead of filling the disk.
-	fmt.Fprintf(&b, "archive-async=y\nspool-path=%s\narchive-push-queue-max=%d\n", spoolPath, queueMax)
+	b.WriteString("start-fast=y\ncompress-type=zst\ncompress-level=3\nprocess-max=2\nlog-level-console=warn\nlog-level-file=info\nlog-path=" + LogPath + "\n\n")
+	b.WriteString("[" + Stanza + "]\npg1-path=" + postgres.DataDir + "\npg1-socket-path=" + postgres.SocketDir + "\npg1-port=5432\n")
 	return b.String()
 }
 
-// queueMax is the WAL queue allowed for the bucket: a quarter of the data
-// disk, at most 8 GiB.
-func queueMax() int64 {
-	var st syscall.Statfs_t
-	n := int64(8 << 30)
-	if syscall.Statfs("/var/lib/tiffin", &st) == nil {
-		if q := int64(st.Blocks) * int64(st.Bsize) / 4; q < n {
-			n = q
-		}
-	}
-	return max(n, 256<<20)
-}
-
-// writeRepo2Conf installs (or, with c nil, removes) the repo2 config file.
-func writeRepo2Conf(c *OffsiteConfig, s *offsiteSecrets) error {
+// writeOffConf installs the off-box repository's config file (and the CA
+// that signs the endpoint, if any), or with c nil removes them.
+func writeOffConf(c *OffsiteConfig, s *offsiteSecrets) error {
 	if c == nil {
-		err := os.Remove(offsiteConfPath)
-		if errors.Is(err, os.ErrNotExist) {
-			err = nil
+		for _, f := range []string{offConfPath, offsiteCAPath} {
+			if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
 		}
-		_ = os.Remove(offsiteCAPath)
-		return err
+		return nil
 	}
-	u, err := user.Lookup("postgres")
+	uid, gid, err := pgIDs()
 	if err != nil {
 		return err
 	}
-	uid, _ := strconv.Atoi(u.Uid)
-	gid, _ := strconv.Atoi(u.Gid)
-	if err := os.MkdirAll(filepath.Dir(offsiteConfPath), 0o755); err != nil {
+	if err := os.MkdirAll(shipPath, 0o700); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(spoolPath, 0o750); err != nil {
-		return err
-	}
-	if err := os.Chown(spoolPath, uid, gid); err != nil {
+	if err := os.Chown(shipPath, uid, gid); err != nil {
 		return err
 	}
 	if c.CACert != "" {
@@ -408,23 +387,19 @@ func writeRepo2Conf(c *OffsiteConfig, s *offsiteSecrets) error {
 			return err
 		}
 	}
-	tmp := offsiteConfPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(repo2Conf(c, s, queueMax())), 0o640); err != nil {
+	tmp := offConfPath + ".tmp"
+	if err := os.WriteFile(tmp, []byte(offConf(c, s)), 0o640); err != nil {
 		return err
 	}
 	if err := os.Chown(tmp, 0, gid); err != nil {
 		return err
 	}
-	return os.Rename(tmp, offsiteConfPath)
+	return os.Rename(tmp, offConfPath)
 }
 
-// writeCA puts the CA file in place for commands run before the config
-// file exists (a foreign destination).
-func writeCA(c *OffsiteConfig) error {
-	if c.CACert == "" {
-		return nil
-	}
-	return os.WriteFile(offsiteCAPath, []byte(c.CACert+"\n"), 0o644)
+// pgbackrestOff runs pgBackRest on the off-box repository.
+func pgbackrestOff(ctx context.Context, args ...string) (string, error) {
+	return asUser(ctx, "postgres", "pgbackrest", append([]string{"--config=" + offConfPath, "--stanza=" + Stanza}, args...)...)
 }
 
 // stanzaMismatch reports a pgBackRest error saying the repository belongs
@@ -434,14 +409,13 @@ func stanzaMismatch(err error) bool {
 		return false
 	}
 	s := err.Error()
-	return strings.Contains(s, "does not match") || strings.Contains(s, "[028]") || strings.Contains(s, "[044]")
+	return strings.Contains(s, "do not match") || strings.Contains(s, "[028]")
 }
 
-// activate creates (or checks) the stanza in repo2 (stanza-create covers
-// every repository; the local one exists already): it decides whether this
+// activate creates (or checks) the stanza in repo2: it decides whether this
 // box's cluster owns the destination.
 func activate(ctx context.Context) (string, error) {
-	_, err := pgbackrest(ctx, "--log-level-console=warn", "stanza-create")
+	_, err := pgbackrestOff(ctx, "--log-level-console=warn", "stanza-create")
 	if stanzaMismatch(err) {
 		return OffsiteForeign, nil
 	}
@@ -449,6 +423,122 @@ func activate(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("pgBackRest could not use the bucket: %s", clean(err))
 	}
 	return OffsiteActive, nil
+}
+
+// walName is the WAL file a file in a pgBackRest archive holds: a segment
+// ("000000010000000000000009-<sha1>.zst") or a timeline history
+// ("00000002.history"). Backup labels and partial segments are not shipped.
+func walName(file string) (string, bool) {
+	hex := func(s string) bool {
+		for _, r := range s {
+			if !(r >= '0' && r <= '9' || r >= 'A' && r <= 'F') {
+				return false
+			}
+		}
+		return true
+	}
+	if len(file) == 16 && strings.HasSuffix(file, ".history") && hex(file[:8]) {
+		return file, true
+	}
+	if len(file) >= 24 && hex(file[:24]) && (len(file) == 24 || file[24] == '-') {
+		return file[:24], true
+	}
+	return "", false
+}
+
+// localWAL lists the WAL in the local repository's archive, sorted.
+func localWAL() []string {
+	var out []string
+	seen := map[string]bool{}
+	_ = filepath.WalkDir(filepath.Join(RepoPath, "archive", Stanza), func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			if n, ok := walName(d.Name()); ok && !seen[n] {
+				seen[n] = true
+				out = append(out, n)
+			}
+		}
+		return nil
+	})
+	slices.Sort(out)
+	return out
+}
+
+// remoteWAL lists the WAL in the off-box repository's archive.
+func remoteWAL(ctx context.Context) (map[string]bool, error) {
+	out, err := asUser(ctx, "postgres", "pgbackrest", "--config="+offConfPath, "--repo=2", "--recurse", "repo-ls", "archive/"+Stanza)
+	if err != nil {
+		return nil, err
+	}
+	have := map[string]bool{}
+	for _, l := range strings.Split(out, "\n") {
+		if n, ok := walName(path.Base(strings.TrimSpace(l))); ok {
+			have[n] = true
+		}
+	}
+	return have, nil
+}
+
+// shipWAL copies the archived WAL the bucket's repository lacks to it,
+// oldest first, from the first segment its oldest backup needs (timeline
+// histories always). It stops at the first failure.
+func shipWAL(ctx context.Context) (int, error) {
+	info, err := repoInfoOf(ctx, 2)
+	if err != nil || len(info) == 0 {
+		return 0, err
+	}
+	from := info[0].Archive.Start
+	have, err := remoteWAL(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, name := range localWAL() {
+		if have[name] || (!strings.HasSuffix(name, ".history") && name < from) {
+			continue
+		}
+		tmp := filepath.Join(shipPath, name)
+		_ = os.Remove(tmp)
+		if _, err := pgbackrest(ctx, "--repo=1", "--log-level-console=warn", "archive-get", name, tmp); err != nil {
+			return n, fmt.Errorf("reading WAL %s from the local repository: %s", name, clean(err))
+		}
+		_, err := pgbackrestOff(ctx, "--log-level-console=error", "archive-push", tmp)
+		_ = os.Remove(tmp)
+		if err != nil {
+			return n, fmt.Errorf("shipping WAL %s to the bucket: %s", name, clean(err))
+		}
+		n++
+	}
+	return n, nil
+}
+
+// ensureWAL waits until the local archive has segment stop, ships WAL, and
+// checks the bucket's repository has every segment from start to stop: a
+// backup there restores only with them.
+func ensureWAL(ctx context.Context, start, stop string) error {
+	deadline := time.Now().Add(5 * time.Minute)
+	for !slices.Contains(localWAL(), stop) {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("WAL segment %s did not reach the local archive in 5 minutes (is archiving working? `tiffin status`)", stop)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+	if _, err := shipWAL(ctx); err != nil {
+		return err
+	}
+	have, err := remoteWAL(ctx)
+	if err != nil {
+		return err
+	}
+	for _, name := range localWAL() {
+		if len(name) == 24 && name >= start && name <= stop && !have[name] {
+			return fmt.Errorf("WAL segment %s, which the backup needs, is not in the bucket", name)
+		}
+	}
+	return nil
 }
 
 // ---- copies ----
@@ -585,6 +675,10 @@ func copyParts(ctx context.Context, p *platform.Platform, c *OffsiteConfig, s *o
 	if err != nil {
 		return err
 	}
+	// A quick look first: pgBackRest takes minutes to give up on a bucket it cannot reach.
+	if _, err := v.st.Get(ctx, v.keyKey()); err != nil {
+		return fmt.Errorf("the bucket cannot be read: %w", err)
+	}
 	// 1. Postgres: a backup to repo2, between local backups (pgBackRest
 	// runs one backup of a cluster at a time).
 	typ := "incr"
@@ -607,7 +701,9 @@ func copyParts(ctx context.Context, p *platform.Platform, c *OffsiteConfig, s *o
 		release() // a restore ran meanwhile
 		return errors.New(why)
 	}
-	_, err = pgbackrest(ctx, "--repo=2", "--type="+typ, "--log-level-console=warn", "backup")
+	// No archive check: the backup's WAL reaches the bucket through
+	// shipWAL, checked below, not through Postgres's archive_command.
+	_, err = pgbackrestOff(ctx, "--repo=2", "--type="+typ, "--no-archive-check", "--log-level-console=warn", "backup")
 	release()
 	if err != nil {
 		return fmt.Errorf("postgres: %s", clean(err))
@@ -617,6 +713,9 @@ func copyParts(ctx context.Context, p *platform.Platform, c *OffsiteConfig, s *o
 		return fmt.Errorf("postgres: pgBackRest lists no backup in the bucket after backing up (%v)", err)
 	}
 	last := info[len(info)-1]
+	if err := ensureWAL(ctx, last.Archive.Start, last.Archive.Stop); err != nil {
+		return fmt.Errorf("postgres: %w", err)
+	}
 	cp.PostgresLabel, cp.PostgresType, cp.PostgresBytes = last.Label, last.Type, last.Info.Repository.Delta
 	cp.SentBytes = cp.PostgresBytes
 
@@ -693,7 +792,11 @@ func hostname() string {
 
 // repoInfoOf is `pgbackrest info` for one repository.
 func repoInfoOf(ctx context.Context, repo int) ([]repoBackup, error) {
-	out, err := pgbackrest(ctx, "--repo="+strconv.Itoa(repo), "--output=json", "info")
+	run := pgbackrest
+	if repo == 2 {
+		run = pgbackrestOff
+	}
+	out, err := run(ctx, "--repo="+strconv.Itoa(repo), "--output=json", "info")
 	if err != nil {
 		return nil, err
 	}
@@ -804,6 +907,25 @@ func offsiteLoop(ctx context.Context, p *platform.Platform) {
 			(b.Offsite == nil || (b.Offsite.Status == "failed" && time.Since(b.Offsite.FinishedAt) >= retryAfter)) {
 			_, _ = CopyOffsite(ctx, p, b)
 		}
+		// WAL archived since the last copy follows it to the bucket.
+		if work.TryLock() {
+			n, err := 0, reachable(ctx)
+			if err == nil {
+				n, err = shipWAL(ctx)
+			}
+			work.Unlock()
+			off.mu.Lock()
+			off.walErr = ""
+			if err != nil {
+				off.walErr = err.Error()
+			}
+			off.mu.Unlock()
+			if err != nil {
+				p.Log.Warn("backup: shipping WAL off the box", "err", err)
+			} else if n > 0 {
+				p.Log.Info("backup: shipped WAL off the box", "files", n)
+			}
+		}
 		var last time.Time
 		if raw, ok, _ := p.DB.KVGet(ctx, nsOffsite, "pruned"); ok {
 			last, _ = time.Parse(time.RFC3339, string(raw))
@@ -814,6 +936,23 @@ func offsiteLoop(ctx context.Context, p *platform.Platform) {
 			}
 		}
 	}
+}
+
+// reachable reads the destination's key bundle: a quick check before
+// pgBackRest, which takes minutes to give up on a bucket it cannot reach.
+func reachable(ctx context.Context) error {
+	c, s := current()
+	if c == nil {
+		return ErrOffsiteOff
+	}
+	v, err := openVault(c, s)
+	if err == nil {
+		_, err = v.st.Get(ctx, v.keyKey())
+	}
+	if err != nil {
+		return fmt.Errorf("the bucket cannot be read: %w", err)
+	}
+	return nil
 }
 
 // recheck asks pgBackRest again whether a foreign destination's stanza
@@ -833,10 +972,6 @@ func recheck(ctx context.Context, p *platform.Platform) {
 	}
 	n := *c
 	n.State = OffsiteActive
-	if err := writeRepo2Conf(&n, s); err != nil {
-		p.Log.Error("backup: writing pgBackRest's off-box settings", "err", err)
-		return
-	}
 	if err := saveOffsite(ctx, p, &n, s); err == nil {
 		p.Log.Info("backup: the off-box destination holds this cluster's backups now; copies resume")
 	}
@@ -862,17 +997,10 @@ func startOffsite(ctx context.Context, p *platform.Platform) {
 		p.Log.Error("backup: reading the off-box settings", "err", err)
 	}
 	remember(c, s)
-	if c != nil {
-		// The config file follows the stored settings (a restore may have
-		// swapped the state in).
-		if c.State == OffsiteActive {
-			err = writeRepo2Conf(c, s)
-		} else {
-			err = writeCA(c)
-		}
-		if err != nil {
-			p.Log.Error("backup: writing pgBackRest's off-box settings", "err", err)
-		}
+	// The config file follows the stored settings (a restore may have
+	// swapped the state in).
+	if err := writeOffConf(c, s); err != nil {
+		p.Log.Error("backup: writing pgBackRest's off-box settings", "err", err)
 	}
 	go offsiteLoop(ctx, p)
 }
@@ -939,6 +1067,12 @@ func offsiteWords(c *OffsiteConfig, st offsiteStatus, now time.Time) string {
 	msg := fmt.Sprintf("On: copied to %s %s ago (%s sent).", where, ago(now.Sub(st.LastOK.FinishedAt)), human(st.LastOK.SentBytes))
 	if st.Last != nil && st.Last.Status == "failed" && st.Last.StartedAt.After(st.LastOK.StartedAt) {
 		msg += " The latest copy failed: " + st.Last.Error
+	}
+	off.mu.Lock()
+	walErr := off.walErr
+	off.mu.Unlock()
+	if walErr != "" {
+		msg += " Shipping WAL fails (it catches up later): " + walErr
 	}
 	return msg
 }

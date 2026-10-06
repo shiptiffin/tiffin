@@ -39,10 +39,7 @@ const (
 	SetsPath = Root + "/sets"
 	LogPath  = "/var/lib/tiffin/logs/pgbackrest"
 	ConfPath = "/etc/pgbackrest/pgbackrest.conf"
-	// localOnlyConf is an empty include directory: pgBackRest pointed at it
-	// sees only the local repository.
-	localOnlyConf = "/etc/pgbackrest/local.d"
-	Stanza        = "tiffin"
+	Stanza   = "tiffin"
 	// MaxAge is how old the newest good backup may be before the box is unhealthy.
 	MaxAge = 26 * time.Hour
 )
@@ -108,14 +105,8 @@ install -d -m 0700 `+SetsPath); err != nil {
 	if _, err := s.WriteFile(ConfPath, []byte(pgbackrestConf), 0o644); err != nil {
 		return err
 	}
-	// Idempotent: creates the stanza or checks it matches the cluster. Only
-	// in the local repository: stanza-create works on every repository it
-	// is configured with, so the off-box one (in conf.d, managed by the
-	// service) is left out with an empty include directory.
-	if _, err := s.Sh(ctx, `install -d -m 0755 `+localOnlyConf); err != nil {
-		return err
-	}
-	_, err := s.Run(ctx, "runuser", "-u", "postgres", "--", "pgbackrest", "--stanza="+Stanza, "--config-include-path="+localOnlyConf, "--log-level-console=warn", "stanza-create")
+	// Idempotent: creates the stanza or checks it matches the cluster.
+	_, err := s.Run(ctx, "runuser", "-u", "postgres", "--", "pgbackrest", "--stanza="+Stanza, "--log-level-console=warn", "stanza-create")
 	return err
 }
 
@@ -291,7 +282,7 @@ func takeParts(ctx context.Context, p *platform.Platform, b *Backup) error {
 	if b.Kind == "full" {
 		typ = "full"
 	}
-	if _, err := pgbackrest(ctx, "--repo=1", "--type="+typ, "--repo1-retention-full="+strconv.Itoa(sched.RetainFull), "backup"); err != nil {
+	if _, err := pgbackrest(ctx, "--type="+typ, "--repo1-retention-full="+strconv.Itoa(sched.RetainFull), "backup"); err != nil {
 		return fmt.Errorf("postgres: %w", err)
 	}
 	info, err := repoInfo(ctx)
@@ -423,18 +414,15 @@ func valkeySnapshot(ctx context.Context, dst string) (int64, error) {
 	return fi.Size(), nil
 }
 
-// pgbackrest runs pgBackRest as the postgres user, with the off-box
-// repository (repo2) in its environment when a destination is set.
+// pgbackrest runs pgBackRest as the postgres user, on the local repository
+// (pgbackrest.conf; the off-box one has a config file of its own,
+// pgbackrestOff).
 func pgbackrest(ctx context.Context, args ...string) (string, error) {
 	args = append([]string{"--stanza=" + Stanza}, args...)
-	return asUserEnv(ctx, "postgres", repo2Env(current()), "pgbackrest", args...)
+	return asUser(ctx, "postgres", "pgbackrest", args...)
 }
 
 func asUser(ctx context.Context, username, name string, args ...string) (string, error) {
-	return asUserEnv(ctx, username, nil, name, args...)
-}
-
-func asUserEnv(ctx context.Context, username string, env []string, name string, args ...string) (string, error) {
 	u, err := user.Lookup(username)
 	if err != nil {
 		return "", err
@@ -443,7 +431,7 @@ func asUserEnv(ctx context.Context, username string, env []string, name string, 
 	gid, _ := strconv.ParseUint(u.Gid, 10, 32)
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = "/"
-	cmd.Env = append([]string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=" + u.HomeDir, "USER=" + username}, env...)
+	cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=" + u.HomeDir, "USER=" + username}
 	// Its own process group, so cancelling kills pgBackRest's worker
 	// processes too (they would otherwise linger, orphaned).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}}
@@ -483,6 +471,11 @@ type repoBackup struct {
 		Start int64 `json:"start"`
 		Stop  int64 `json:"stop"`
 	} `json:"timestamp"`
+	// Archive is the WAL the backup needs to be consistent.
+	Archive struct {
+		Start string `json:"start"`
+		Stop  string `json:"stop"`
+	} `json:"archive"`
 }
 
 // repoInfo lists the backups in the local repository.
