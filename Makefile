@@ -96,5 +96,9 @@ e2e:
 ci:
 	./scripts/ci.sh
 
+# The routine update pass: vulnerability scan + tested Renovate merges.
+maintain:
+	./scripts/maintain.sh $(ARGS)
+
 clean:
 	rm -rf bin dist
