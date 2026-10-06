@@ -13,9 +13,12 @@
 //   - Bucket "media" of project "shop" is the S3 bucket "shop-media". Public
 //     buckets carry an anonymous-read bucket policy.
 //   - A small front server inside tiffin (127.0.0.1:7481) sits before the
-//     gateway: it enforces storage limits and read-only holds on uploads, proxies every other
+//     gateway: it enforces storage limits, read-only holds and bucket rules
+//     (maxFileSize, allowedTypes) on uploads, answers CORS for browsers
+//     (cors.go), publishes object.created events (events.go), proxies every
 //     S3 call untouched (Host preserved, so signatures and presigned URLs
-//     verify), and serves public files at files.<domain>/<project>/<bucket>/<key>.
+//     verify), and serves files at files.<domain>/<project>/<bucket>/<key>:
+//     public ones, signed private ones (files.go), resized images (image.go).
 //   - The edge routes s3.<domain> and files.<domain> to the front server.
 //   - Deleting a bucket moves its directory into /var/lib/tiffin/trash/storage
 //     for 7 days; re-creating it (which is what undo does) brings it back.
@@ -108,18 +111,26 @@ func rootEnv(root string) string    { return filepath.Join(root, "storage", "roo
 func auditDir(root string) string   { return filepath.Join(root, "storage", "audit") }
 func trashDir(root string) string   { return filepath.Join(root, "trash", "storage") }
 
+// imageCacheDir holds transformed images: outside the storage tree, so
+// backups skip it (it is rebuilt on demand).
+func imageCacheDir(root string) string { return filepath.Join(root, "cache", "images") }
+
 // Module implements the storage module.
 type Module struct {
-	mu    sync.Mutex
-	gw    *gateway
-	usage *usageTracker
-	front *frontServer
+	mu     sync.Mutex
+	gw     *gateway
+	usage  *usageTracker
+	front  *frontServer
+	events chan createdEvent
 
 	// Tests override these; empty means the box defaults.
 	bin       string
 	gwAddr    string
 	frontAddr string
 	extraIP   func(ctx context.Context, p *platform.Platform) string
+	publisher eventPublisher // else the queue module
+	imgEngine imageEngine    // else libvips
+	cacheMax  int64          // image cache cap; else imageCacheMax
 }
 
 func (*Module) Name() string { return "storage" }
@@ -170,6 +181,12 @@ func (*Module) Provision(ctx context.Context, s *platform.System) error {
 	}
 	if err := s.WaitTCP(ctx, GatewayAddr, 30*time.Second); err != nil {
 		return unitError(ctx, s, err)
+	}
+	// Image transforms (files.<domain>/...?w=640) run libvips' command-line
+	// tool, with the AV1 encoder for AVIF. Without them files are still
+	// served; transforms answer 501.
+	if err := s.Apt(ctx, "libvips-tools", "libheif-plugin-aomenc"); err != nil {
+		s.Log("storage: image transforms are unavailable, libvips did not install: " + err.Error())
 	}
 	return nil
 }
@@ -342,6 +359,10 @@ type bucketMeta struct {
 	Name      string    `json:"name"`
 	Public    bool      `json:"public"`
 	CreatedAt time.Time `json:"createdAt"`
+	// Upload rules from tiffin.config.ts, enforced by the front.
+	CORS         []string `json:"cors,omitempty"`
+	MaxFileSize  int64    `json:"maxFileSize,omitempty"`
+	AllowedTypes []string `json:"allowedTypes,omitempty"`
 }
 
 func getMeta(ctx context.Context, p *platform.Platform, s3name string) (*bucketMeta, error) {
@@ -507,7 +528,8 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 	if meta != nil {
 		created = meta.CreatedAt
 	}
-	return putMeta(ctx, p, s3name, &bucketMeta{Project: project, Name: name, Public: b.Public, CreatedAt: created})
+	return putMeta(ctx, p, s3name, &bucketMeta{Project: project, Name: name, Public: b.Public, CreatedAt: created,
+		CORS: b.CORS, MaxFileSize: b.MaxFileSize, AllowedTypes: b.AllowedTypes})
 }
 
 // ---- env ----
@@ -603,6 +625,7 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 	m.mu.Lock()
 	m.front = f
 	m.mu.Unlock()
+	go m.runEvents(ctx, p)
 	go func() {
 		t := time.NewTicker(time.Minute)
 		defer t.Stop()

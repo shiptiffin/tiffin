@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -326,6 +327,9 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 				Key       string `json:"key" minLength:"1" maxLength:"1024" doc:"Object key"`
 				Method    string `json:"method,omitempty" enum:"GET,PUT" default:"GET" doc:"GET to download, PUT to upload"`
 				ExpiresIn int    `json:"expiresIn,omitempty" minimum:"0" maximum:"604800" doc:"Seconds the URL stays valid (default 3600, max 7 days)"`
+				// PUT only: bound into the signature.
+				ContentType string `json:"contentType,omitempty" maxLength:"255" doc:"PUT only: the Content-Type the upload must send (signed into the URL)"`
+				MaxSize     int64  `json:"maxSize,omitempty" minimum:"0" doc:"PUT only: the largest file the URL accepts, in bytes (signed into the URL; the bucket's maxFileSize applies too)"`
 			}
 		}) (*struct{ Body Presigned }, error) {
 			method := in.Body.Method
@@ -343,7 +347,10 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			if err != nil {
 				return nil, err
 			}
-			out, err := m.presign(ctx, p, in.Project, in.Bucket, in.Body.Key, method, time.Duration(in.Body.ExpiresIn)*time.Second)
+			if method != http.MethodPut && (in.Body.ContentType != "" || in.Body.MaxSize != 0) {
+				return nil, api.NewProblem(422, "validation", "contentType and maxSize are for PUT URLs")
+			}
+			out, err := m.presign(ctx, p, in.Project, in.Bucket, in.Body.Key, method, time.Duration(in.Body.ExpiresIn)*time.Second, in.Body.ContentType, in.Body.MaxSize)
 			if err != nil {
 				return nil, err
 			}
@@ -682,12 +689,19 @@ func (m *Module) upload(ctx context.Context, p *platform.Platform, project, buck
 	if contentType == "" {
 		contentType = http.DetectContentType(data)
 	}
+	if meta.MaxFileSize > 0 && int64(len(data)) > meta.MaxFileSize {
+		return nil, api.NewProblem(413, "validation", fmt.Sprintf("bucket %s takes files up to %s; this one is %s", bucket, HumanBytes(meta.MaxFileSize), HumanBytes(int64(len(data)))))
+	}
+	if !typeAllowed(meta.AllowedTypes, contentType) {
+		return nil, api.NewProblem(422, "validation", fmt.Sprintf("bucket %s takes %s; this file is %s", bucket, strings.Join(meta.AllowedTypes, ", "), contentType))
+	}
 	gw, _ := m.gateway(p)
 	etag, err := gw.putObject(ctx, s3name, key, contentType, data)
 	if err != nil {
 		return nil, gwProblem(err)
 	}
 	m.tracker().add(s3name, int64(len(data)))
+	m.objectCreated(meta, s3name, key, "")
 	out := &Uploaded{Bucket: bucket, Key: key, Size: int64(len(data)), ETag: etag}
 	if meta.Public {
 		out.URL = p.URL(p.Host("files")) + "/" + project + "/" + bucket + "/" + s3Escape(key, true)
@@ -695,7 +709,7 @@ func (m *Module) upload(ctx context.Context, p *platform.Platform, project, buck
 	return out, nil
 }
 
-func (m *Module) presign(ctx context.Context, p *platform.Platform, project, bucket, key, method string, expires time.Duration) (*Presigned, error) {
+func (m *Module) presign(ctx context.Context, p *platform.Platform, project, bucket, key, method string, expires time.Duration, contentType string, maxSize int64) (*Presigned, error) {
 	s3name, _, err := m.readyBucket(ctx, p, project, bucket)
 	if err != nil {
 		return nil, err
@@ -711,9 +725,21 @@ func (m *Module) presign(ctx context.Context, p *platform.Platform, project, buc
 		expires = time.Hour
 	}
 	now := time.Now().UTC()
-	u, err := Presign(method, p.URL(p.Host("s3")), s3name, key, c, Region, expires, now)
+	var q url.Values
+	var hdr map[string]string
+	if maxSize > 0 {
+		q = url.Values{MaxSizeParam: {strconv.FormatInt(maxSize, 10)}}
+	}
+	if contentType != "" {
+		hdr = map[string]string{"content-type": contentType}
+	}
+	u, err := PresignWith(method, p.URL(p.Host("s3")), s3name, key, q, hdr, c, Region, expires, now)
 	if err != nil {
 		return nil, err
 	}
-	return &Presigned{URL: u, Method: method, ExpiresAt: now.Add(expires)}, nil
+	out := &Presigned{URL: u, Method: method, ExpiresAt: now.Add(expires)}
+	if contentType != "" {
+		out.Headers = map[string]string{"Content-Type": contentType}
+	}
+	return out, nil
 }

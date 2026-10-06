@@ -26,7 +26,7 @@ export default defineConfig({
     valkey: {},
     storage: {
       buckets: {
-        uploads: {},
+        uploads: { maxFileSize: 10485760, allowedTypes: ["image/*", "application/pdf"], cors: ["https://example.com"] },
         public: { public: true },
       },
     },

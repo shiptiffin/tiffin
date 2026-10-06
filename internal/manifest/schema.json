@@ -392,6 +392,21 @@
                   "public": {
                     "description": "Public buckets are readable without a signature. Default false.",
                     "type": "boolean"
+                  },
+                  "cors": {
+                    "description": "Browser origins allowed to call the bucket's S3 API (presigned uploads and downloads): \"https://example.com\", a wildcard such as \"https://*.example.com\", or \"*\". Default: the project's own app hosts (previews and custom domains included) and http://localhost.",
+                    "type": "array",
+                    "items": { "type": "string", "pattern": "^(\\*|https?://(\\*\\.)?[a-z0-9.-]+(:[0-9]{1,5})?)$" }
+                  },
+                  "maxFileSize": {
+                    "description": "Largest object an upload may create, in bytes. Default: no limit beyond the project's storage limit.",
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "allowedTypes": {
+                    "description": "MIME types uploads may have, e.g. [\"image/*\", \"application/pdf\"]. Default: any.",
+                    "type": "array",
+                    "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]*/(\\*|[a-z0-9][a-z0-9!#$&^_.+-]*)$" }
                   }
                 }
               }

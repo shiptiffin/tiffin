@@ -211,7 +211,7 @@ func TestStorageEndToEnd(t *testing.T) {
 		t.Fatalf("private anonymous: %d", res.StatusCode)
 	}
 	// Presigned GET on the public endpoint verifies through the front (Host kept).
-	pre, err := r.m.presign(r.ctx, r.p, "shop", "media", "private/doc.txt", "GET", time.Minute)
+	pre, err := r.m.presign(r.ctx, r.p, "shop", "media", "private/doc.txt", "GET", time.Minute, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestStorageEndToEnd(t *testing.T) {
 		t.Fatalf("tampered presign: %d", res.StatusCode)
 	}
 	// Presigned PUT.
-	pre, err = r.m.presign(r.ctx, r.p, "shop", "media", "uploads/a.bin", "PUT", time.Minute)
+	pre, err = r.m.presign(r.ctx, r.p, "shop", "media", "uploads/a.bin", "PUT", time.Minute, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
