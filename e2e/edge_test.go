@@ -46,7 +46,8 @@ func TestEdgeProcess(t *testing.T) {
 	start := time.Now()
 	phase := phaseLogger(t)
 	b := newCLIBox(t, "edge", "steady")
-	healthy := `for i in $(seq 1 300); do curl -s http://127.0.0.1:7070/v1/health | grep -q '"status":"ok"' && exit 0; sleep 0.2; done; echo "tiffin not healthy" >&2; exit 1`
+	healthy := `up=; for i in $(seq 1 300); do curl -s http://127.0.0.1:7070/v1/health | grep -q '"status":"ok"' && { up=1; break; }; sleep 0.2; done
+[ -n "$up" ] || { echo "tiffin not healthy" >&2; exit 1; }`
 	// Opted-in apps sleep after 20 s here (as in TestSleep).
 	b.inBox(`sudo install -d /etc/systemd/system/tiffin.service.d
 printf '[Service]\nEnvironment=TIFFIN_SLEEP_AFTER=20s\n' | sudo tee /etc/systemd/system/tiffin.service.d/e2e-sleep.conf >/dev/null
@@ -96,6 +97,9 @@ sudo cp /var/lib/tiffin/platform/ca.crt /tmp/ca.crt && sudo chmod 644 /tmp/ca.cr
 	if out, err := exec.Command("limactl", "copy", gen, b.instance+":/tmp/loadgen").CombinedOutput(); err != nil {
 		t.Fatalf("copy loadgen: %v\n%s", err, out)
 	}
+	b.inBox("chmod 755 /tmp/loadgen")
+	// One client IP sends ~1,000 requests a second: past the per-IP app limit.
+	b.ok("protect", "set", "--body", `{"limits":{"app":{"requests":0,"windowSeconds":10}}}`)
 	next := buildTiffin(t, b.dir, "linux", "0.0.2-edge")
 	phase("tools", p)
 
@@ -103,13 +107,15 @@ sudo cp /var/lib/tiffin/platform/ca.crt /tmp/ca.crt && sudo chmod 644 /tmp/ca.cr
 	load := func(name string, disrupt func()) loadResult {
 		t.Helper()
 		p := time.Now()
+		id := strings.NewReplacer(" ", "-", "(", "", ")", "", "+", "").Replace(name)
 		b.inBox(fmt.Sprintf(`sudo rm -f /tmp/load-%[1]s.*
-sudo systemd-run --unit e2e-load-%[1]s /tmp/loadgen -url https://steady.tiffin.localhost:8443/ -ca /tmp/ca.crt -want steady -stop /tmp/load-%[1]s.stop -out /tmp/load-%[1]s.json >/dev/null 2>&1`, name))
+sudo systemd-run --unit e2e-load-%[1]s /tmp/loadgen -url https://steady.tiffin.localhost:8443/ -ca /tmp/ca.crt -want steady -stop /tmp/load-%[1]s.stop -out /tmp/load-%[1]s.json >/dev/null 2>&1`, id))
 		time.Sleep(3 * time.Second)
 		disrupt()
 		time.Sleep(5 * time.Second)
-		b.inBox("sudo touch /tmp/load-" + name + ".stop")
-		raw := b.inBox(`for i in $(seq 1 100); do [ -s /tmp/load-` + name + `.json ] && break; sleep 0.2; done; cat /tmp/load-` + name + `.json`)
+		b.inBox("sudo touch /tmp/load-" + id + ".stop")
+		raw := b.inBox(`for i in $(seq 1 300); do [ -s /tmp/load-` + id + `.json ] && break; sleep 0.2; done
+cat /tmp/load-` + id + `.json 2>/dev/null || { systemctl status --no-pager e2e-load-` + id + `; sudo journalctl --no-pager -u e2e-load-` + id + ` | tail -20; } 2>&1`)
 		var r loadResult
 		if err := json.Unmarshal([]byte(raw), &r); err != nil {
 			t.Fatalf("%s: load result: %v\n%s", name, err, raw)
