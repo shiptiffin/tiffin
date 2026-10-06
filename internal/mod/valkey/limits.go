@@ -242,6 +242,18 @@ func setHold(ctx context.Context, c *Client, project string, on bool) error {
 // prefixUsage counts the keys under prefix and estimates their memory from
 // a sample of up to 2000 keys, for at most 5 seconds.
 func prefixUsage(ctx context.Context, c *Client, prefix string) (keys, bytes int64, approx bool, err error) {
+	u, err := measure(ctx, c, prefix, false)
+	return u.keys, u.bytes, u.approx, err
+}
+
+type usage struct {
+	keys, bytes, kept int64
+	approx            bool
+}
+
+// measure is prefixUsage, and with ttls it also counts the keys that never
+// expire (kept). Each SCAN page's lookups go in one round trip.
+func measure(ctx context.Context, c *Client, prefix string, ttls bool) (u usage, err error) {
 	const sampleMax = 2000
 	cursor := "0"
 	var sampled, sampledBytes int64
@@ -249,31 +261,50 @@ func prefixUsage(ctx context.Context, c *Client, prefix string) (keys, bytes int
 	for {
 		v, err := c.Do(ctx, "SCAN", cursor, "MATCH", prefix+"*", "COUNT", "1000")
 		if err != nil {
-			return 0, 0, false, err
+			return u, err
 		}
 		next, ks := scanReply(v)
 		cursor = next
+		var cmds [][]string
 		for _, k := range ks {
-			keys++
-			if sampled < sampleMax {
-				if n, err := c.Int(ctx, "MEMORY", "USAGE", k, "SAMPLES", "5"); err == nil {
-					sampledBytes += n
-					sampled++
-				}
+			if sampled+int64(len(cmds)) < sampleMax {
+				cmds = append(cmds, []string{"MEMORY", "USAGE", k, "SAMPLES", "5"})
 			}
 		}
+		nMem := len(cmds)
+		if ttls {
+			for _, k := range ks {
+				cmds = append(cmds, []string{"PTTL", k})
+			}
+		}
+		r, err := c.Pipe(ctx, cmds...)
+		if err != nil {
+			return u, err
+		}
+		for i, x := range r {
+			n, ok := x.(int64)
+			switch {
+			case i < nMem && ok:
+				sampledBytes += n
+				sampled++
+			case i >= nMem && ok && n == -1:
+				u.kept++
+			}
+		}
+		u.keys += int64(len(ks))
 		if cursor == "0" {
 			break
 		}
 		if time.Now().After(deadline) {
-			approx = true // stopped counting early
+			u.approx = true // stopped counting early
 			break
 		}
 	}
 	if sampled > 0 {
-		bytes = sampledBytes * keys / sampled
+		u.bytes = sampledBytes * u.keys / sampled
 	}
-	return keys, bytes, approx || sampled < keys, nil
+	u.approx = u.approx || sampled < u.keys
+	return u, nil
 }
 
 // freeExpiring clears the prefix's keys that have an expiry, soonest to

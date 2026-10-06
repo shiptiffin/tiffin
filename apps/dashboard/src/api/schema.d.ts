@@ -2336,6 +2336,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/kv/command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run KV commands
+         * @description Runs commands written as in valkey-cli (one per line, "quotes" for spaces), as the project's own user: keys are given and shown without the project prefix. Reading needs read access; commands that change data run only with write=true, need write access, and each reply carries an undo id. Administrative and dangerous commands are refused.
+         */
+        post: operations["kv-command"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/kv/connection": {
         parameters: {
             query?: never;
@@ -2344,12 +2364,112 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Show the KV connection URL
-         * @description The project's REDIS_URL, including its password, for valkey-cli or a client inside the box. Box owner only; every reveal is audited.
+         * Show how to connect to a project's KV
+         * @description The env every app in the project already has (REDIS_URL, VALKEY_PREFIX, the Upstash REST URL and tokens), the project's user and key prefix. Secrets show only with reveal=true, which needs full access to the project; every reveal is audited.
          */
         get: operations["kv-connection"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete keys
+         * @description Deletes keys and their values. Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-delete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/delete-prefix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete every key under a prefix
+         * @description Deletes every key whose name starts with prefix ("session:"). Two steps: without confirm nothing changes and the reply is 428 with the count, a few of the keys and whether it can be undone; repeat with the confirm value to delete. Up to 1 MB and 5,000 keys can be undone; more needs full access.
+         */
+        post: operations["kv-delete-prefix"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/expire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set or clear a key's expiry
+         * @description Gives a key an expiry (it becomes cache, dropped first when memory runs short) or, with ttlSeconds 0, keeps it until deleted. Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-expire"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/hash/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete fields of a hash
+         * @description Deletes fields from a hash key (the key goes with its last field). Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-hash-delete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/hash/set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set fields of a hash
+         * @description Sets one or more fields of a hash key, making it if needed. Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-hash-set"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2365,7 +2485,7 @@ export interface paths {
         };
         /**
          * Show a key's value
-         * @description A key's type, TTL, size and a preview of its value. The key may be given with or without the project prefix.
+         * @description A key's type, TTL, size and one page of its value: sorted sets highest score first, streams newest first, lists from the head. Pass the returned cursor for the next page. The key may be given with or without the project prefix.
          */
         get: operations["kv-get"];
         put?: never;
@@ -2396,6 +2516,146 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/kv/list/push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add items to a list
+         * @description Adds items to the tail of a list key (or the head), making it if needed. Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-list-push"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/list/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove a list item
+         * @description Removes the item at a position of a list key. Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-list-remove"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/list/set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change a list item
+         * @description Replaces the item at a position of a list key. Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-list-set"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/rename": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rename a key
+         * @description Renames a key within the project, keeping its value and expiry. Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-rename"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set a key's text value
+         * @description Sets a string key (text or JSON). Changing an existing key keeps its expiry unless ttlSeconds is given. Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-set"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/set/add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add members to a set
+         * @description Adds members to a set key, making it if needed. Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-set-add"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/set/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove members of a set
+         * @description Removes members from a set key. Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-set-remove"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/kv/stats": {
         parameters: {
             query?: never;
@@ -2405,11 +2665,171 @@ export interface paths {
         };
         /**
          * Show a project's KV usage
-         * @description Keys and memory under the project's prefix, against its maxMemoryMB, plus server-wide numbers.
+         * @description Keys (kept and cache) and memory under the project's prefix, against its maxMemoryMB, plus server-wide numbers.
          */
         get: operations["kv-stats"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/stream/add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a stream entry
+         * @description Appends an entry to a stream key, making it if needed. Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-stream-add"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/stream/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete stream entries
+         * @description Deletes entries from a stream key. Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-stream-delete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/stream/trim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trim a stream
+         * @description Drops a stream key's oldest entries, keeping the newest maxLen. Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-stream-trim"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/tree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Browse a project's keys like folders
+         * @description One level of the project's keys: the branches below it (keys grouped by their next ":" part, with counts) and a page of the keys at this level with type and TTL, in natural order. Filter by a glob, a type, or kept (no expiry) versus cache (with one).
+         */
+        get: operations["kv-tree"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo a KV write
+         * @description Puts back what a write changed, from the copy taken before it (for an hour, once). Refused when one of its keys changed since. The reply has its own undo id, to redo.
+         */
+        post: operations["kv-undo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/zset/add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add or rescore sorted-set members
+         * @description Adds members to a sorted set key, or sets their score. Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-zset-add"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/zset/incr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add to a member's score
+         * @description Adds to a sorted-set member's score (a new member starts at 0). Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-zset-incr"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/kv/zset/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove sorted-set members
+         * @description Removes members from a sorted set key. Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value.
+         */
+        post: operations["kv-zset-remove"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5599,6 +6019,7 @@ export interface components {
             status?: "resolved" | "ignored" | "unresolved";
         };
         KVStatsServerStruct: {
+            /** @description Every write is appended to disk (fsync every second) */
             aofEnabled: boolean;
             /** Format: int64 */
             clients: number;
@@ -5733,7 +6154,7 @@ export interface components {
         ManifestApp: {
             assets?: components["schemas"]["ManifestAssets"];
             command?: string;
-            disk?: string[] | null;
+            disk?: components["schemas"]["ManifestDiskFolder"][] | null;
             env?: {
                 [key: string]: string;
             };
@@ -5746,8 +6167,11 @@ export interface components {
             memoryMB?: number;
             packages?: string[] | null;
             path: string;
+            release?: string;
             role: string;
             routes?: string[] | null;
+            /** Format: int64 */
+            timeoutSeconds?: number;
         };
         ManifestAssets: {
             dir: string;
@@ -5759,6 +6183,10 @@ export interface components {
             organizations: boolean;
         };
         ManifestBucket: {
+            allowedTypes?: string[] | null;
+            cors?: string[] | null;
+            /** Format: int64 */
+            maxFileSize?: number;
             public: boolean;
         };
         ManifestCron: {
@@ -5767,6 +6195,10 @@ export interface components {
             path: string;
             schedule: string;
             timezone?: string;
+        };
+        ManifestDiskFolder: {
+            Path: string;
+            Size: string;
         };
         ManifestDomain: {
             www?: string;
@@ -5797,6 +6229,7 @@ export interface components {
         };
         ManifestPostgres: {
             extensions?: string[] | null;
+            previews?: string;
             /** Format: int64 */
             statementTimeoutSeconds?: number;
         };
@@ -6666,6 +7099,8 @@ export interface components {
             from: string;
             /** @description Branch name */
             name: string;
+            /** @description The app preview this branch was made for: it is deleted with the preview */
+            preview?: string;
             /**
              * Format: int64
              * @description Logical size. Clones share unchanged blocks with their source on disk (reflinks), so this overstates real disk use.
@@ -6691,6 +7126,8 @@ export interface components {
             from: string;
             /** @description Branch name */
             name: string;
+            /** @description The app preview this branch was made for: it is deleted with the preview */
+            preview?: string;
             /**
              * Format: int64
              * @description Logical size. Clones share unchanged blocks with their source on disk (reflinks), so this overstates real disk use.
@@ -7357,6 +7794,8 @@ export interface components {
             payload?: unknown;
             /** @enum {string} */
             priority: "high" | "normal" | "low";
+            /** @description The latest progress the app reported (job.progress in tiffin-sdk) */
+            progress?: unknown;
             /** @description Queue or topic name (_workflows and _cron are the box's own) */
             queue: string;
             /** @description Pinned app release (workflow turns) */
@@ -7415,6 +7854,8 @@ export interface components {
             idempotencyKey?: string;
             input?: unknown;
             output?: unknown;
+            /** @description The latest progress the run reported (ctx.progress in tiffin-sdk) */
+            progress?: unknown;
             /** @description The app release this run is pinned to */
             release?: string;
             startedBy?: string;
@@ -7777,6 +8218,8 @@ export interface components {
             /** @description Preview name, empty for production */
             preview?: string;
             project: string;
+            /** @description Hash of the env the build wrote into browser code (NEXT_PUBLIC_*, VITE_*, PUBLIC_*). When it changes, the box rebuilds the app from this deploy's source. */
+            publicEnv?: string;
             /**
              * Format: int64
              * @description The pull request a preview deploy is for, for deploys from GitHub
@@ -7784,6 +8227,11 @@ export interface components {
             pullRequest?: number;
             /** @description Branch, tag or commit asked for, for deploys from a git URL or GitHub */
             ref?: string;
+            /**
+             * Format: double
+             * @description Time the app's release command took
+             */
+            releaseSeconds?: number;
             /** @description Repository URL, for deploys from a git URL or GitHub */
             repo?: string;
             /** @enum {string} */
@@ -7799,10 +8247,10 @@ export interface components {
             /** @description Starter template, for template deploys */
             template?: string;
             /**
-             * @description What started a deploy from GitHub: a push to the production branch, a pull request, or a redeploy asked for on the box
+             * @description What started a deploy from GitHub (a push to the production branch, a pull request, or a redeploy asked for on the box), or env: the box rebuilt the live version because env it builds into browser code changed
              * @enum {string}
              */
-            trigger?: "push" | "pull_request" | "redeploy" | "";
+            trigger?: "push" | "pull_request" | "redeploy" | "env" | "";
             /** @description Where the deploy is served (web apps) */
             url?: string;
             /** @description What the deploy took from the app's vercel.json (build settings, crons, headers, redirects, rewrites) and what it ignored */
@@ -8317,6 +8765,8 @@ export interface components {
             text?: string;
         };
         "Storage-presignRequest": {
+            /** @description PUT only: the Content-Type the upload must send (signed into the URL) */
+            contentType?: string;
             /**
              * Format: int64
              * @description Seconds the URL stays valid (default 3600, max 7 days)
@@ -8324,6 +8774,11 @@ export interface components {
             expiresIn?: number;
             /** @description Object key */
             key: string;
+            /**
+             * Format: int64
+             * @description PUT only: the largest file the URL accepts, in bytes (signed into the URL; the bucket's maxFileSize applies too)
+             */
+            maxSize?: number;
             /**
              * @description GET to download, PUT to upload
              * @default GET
@@ -8515,12 +8970,101 @@ export interface components {
             /** @description Why you are undoing, in one sentence. */
             intent?: string;
         };
+        ValkeyDel: {
+            /** @description Only for a delete too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /** @description Keys to delete, as your apps name them */
+            keys: string[] | null;
+        };
+        ValkeyExpire: {
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+            /**
+             * Format: int64
+             * @description Expire after this many seconds (cache); 0 keeps the key until it is deleted
+             */
+            ttlSeconds: number;
+        };
+        ValkeyHashDel: {
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /** @description Fields to delete */
+            fields: string[] | null;
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+        };
+        ValkeyHashSet: {
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /** @description Make a new key: refused when one with this name exists */
+            create?: boolean;
+            /** @description Fields to set, with their values */
+            fields: {
+                [key: string]: string;
+            };
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+            /**
+             * Format: int64
+             * @description Also expire the key after this many seconds (it becomes cache). 0 leaves its expiry as it is; a new key is then kept until deleted.
+             */
+            ttlSeconds?: number;
+        };
+        ValkeyKVCommandResult: {
+            /** @description The command's words, as parsed */
+            command: string[] | null;
+            error?: string;
+            /** Format: double */
+            ms: number;
+            /** @description Valkey's reply: text, a number, a list or null */
+            reply: unknown;
+            /** @description For a write: pass to kv-undo to put its keys back */
+            undo?: string;
+            /** @description It changes data */
+            write: boolean;
+        };
         ValkeyKVConnection: {
+            /** @description What every app in the project gets, already set */
+            env: components["schemas"]["ValkeyKVEnv"][] | null;
+            host: string;
+            /** Format: int64 */
+            port: number;
+            /** @description Every key of the project starts with this on REDIS_URL; the REST endpoint adds it for you */
             prefix: string;
-            /** @description redis:// URL with the project's password (127.0.0.1, inside the box) */
+            /** @description redis:// URL (127.0.0.1, inside the box); the password shows as *** unless revealed */
             redisUrl: string;
+            /** @description The Upstash-compatible REST endpoint, for @upstash/redis and @vercel/kv */
+            restUrl: string;
+            /** @description Passwords and tokens are included */
+            revealed: boolean;
             /** @description The same over the unix socket */
             socketUrl: string;
+            /** @description The project's own user on the server */
+            user: string;
+        };
+        ValkeyKVConsole: {
+            results: components["schemas"]["ValkeyKVCommandResult"][] | null;
+        };
+        ValkeyKVEnv: {
+            name: string;
+            secret: boolean;
+            /** @description Absent for a secret unless revealed */
+            value?: string;
+        };
+        ValkeyKVField: {
+            field: string;
+            value: string;
+        };
+        ValkeyKVGroup: {
+            /**
+             * Format: int64
+             * @description Keys under it, at every depth
+             */
+            keys: number;
+            /** @description The branch, as apps name keys, ending in the delimiter ("session:") */
+            prefix: string;
         };
         ValkeyKVKeyInfo: {
             key: string;
@@ -8538,6 +9082,8 @@ export interface components {
             keys: components["schemas"]["ValkeyKVKeyInfo"][] | null;
         };
         ValkeyKVKeyValue: {
+            /** @description Pass back as cursor for the next page; absent on the last */
+            cursor?: string;
             key: string;
             /**
              * Format: int64
@@ -8546,7 +9092,7 @@ export interface components {
             length: number;
             /** Format: int64 */
             memoryBytes: number;
-            /** @description The preview shows only part of the value */
+            /** @description This page is not the whole value */
             truncated: boolean;
             /**
              * Format: int64
@@ -8555,17 +9101,32 @@ export interface components {
             ttlMs: number;
             /** @description string, hash, list, set, zset, stream */
             type: string;
-            /** @description Preview: a string (first 4 KB), an object of fields, an array of elements, or an array of [member, score] / [id, fields] */
+            /** @description One page: a string (up to 1 MB), an object of fields, an array of elements, [member, score] pairs (highest score first) or [id, fields] entries (newest first) */
             value: unknown;
+        };
+        ValkeyKVScored: {
+            member: string;
+            /** Format: double */
+            score: number;
         };
         ValkeyKVStats: {
             /** @description True when there were too many keys to measure each; memory is extrapolated from a sample */
             approximate: boolean;
             /**
              * Format: int64
+             * @description Of those, keys with an expiry: cache, dropped first when memory runs short
+             */
+            cacheKeys: number;
+            /**
+             * Format: int64
              * @description While the project has a limit: the cache limit the box holds it to (the smaller of maxMemoryMB and its share of Valkey's memory). Over it, keys with an expiry are cleared first, then writes are refused.
              */
             enforcedBytes?: number;
+            /**
+             * Format: int64
+             * @description Of those, keys without an expiry: kept until deleted, never dropped to make room
+             */
+            keptKeys: number;
             /**
              * Format: int64
              * @description Keys under the prefix
@@ -8588,6 +9149,193 @@ export interface components {
             server: components["schemas"]["KVStatsServerStruct"];
             /** @description True while its cache is over that limit and writes (but not deletes) are refused */
             writesRefused?: boolean;
+        };
+        ValkeyKVTree: {
+            /** @description Branches below this level, by name */
+            groups: components["schemas"]["ValkeyKVGroup"][] | null;
+            /** @description One page of the keys at this level, by name (key includes the project prefix) */
+            keys: components["schemas"]["ValkeyKVKeyInfo"][] | null;
+            /**
+             * Format: int64
+             * @description Offset of the next page; absent on the last
+             */
+            next?: number;
+            /** @description There were too many keys to look at them all in time: counts are at least these */
+            partial: boolean;
+            /** @description The level shown ("" for the top) */
+            prefix: string;
+            /**
+             * Format: int64
+             * @description Keys under this level that matched
+             */
+            scanned: number;
+            /**
+             * Format: int64
+             * @description Keys at this level, on every page
+             */
+            total: number;
+        };
+        ValkeyKVWriteResult: {
+            /** @description The keys it touched, as your apps name them (without the project prefix) */
+            keys: string[] | null;
+            /** @description Valkey's reply to each command it ran */
+            replies?: unknown[] | null;
+            /** @description Pass to kv-undo within an hour to put back what this write changed. Empty when the value was too big to keep a copy of. */
+            undo?: string;
+        };
+        ValkeyListPush: {
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /** @description Make a new key: refused when one with this name exists */
+            create?: boolean;
+            /** @description Add at the head (left) instead of the tail */
+            head?: boolean;
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+            /**
+             * Format: int64
+             * @description Also expire the key after this many seconds (it becomes cache). 0 leaves its expiry as it is; a new key is then kept until deleted.
+             */
+            ttlSeconds?: number;
+            /** @description Items to add, in order */
+            values: string[] | null;
+        };
+        ValkeyListRemove: {
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /**
+             * Format: int64
+             * @description Position from the head, 0 first (negative counts from the tail)
+             */
+            index: number;
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+        };
+        ValkeyListSet: {
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /**
+             * Format: int64
+             * @description Position from the head, 0 first (negative counts from the tail)
+             */
+            index: number;
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+            value: string;
+        };
+        ValkeyRename: {
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+            /** @description The new name, as your apps name keys; refused when that key exists */
+            to: string;
+        };
+        ValkeySetAdd: {
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /** @description Make a new key: refused when one with this name exists */
+            create?: boolean;
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+            members: string[] | null;
+            /**
+             * Format: int64
+             * @description Also expire the key after this many seconds (it becomes cache). 0 leaves its expiry as it is; a new key is then kept until deleted.
+             */
+            ttlSeconds?: number;
+        };
+        ValkeySetBody: {
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /** @description Make a new key: refused when one with this name exists */
+            create?: boolean;
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+            /**
+             * Format: int64
+             * @description Also expire the key after this many seconds (it becomes cache). 0 leaves its expiry as it is; a new key is then kept until deleted.
+             */
+            ttlSeconds?: number;
+            /** @description The text (JSON is text too) */
+            value: string;
+        };
+        ValkeySetRemove: {
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+            members: string[] | null;
+        };
+        ValkeyStreamAdd: {
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /** @description Make a new key: refused when one with this name exists */
+            create?: boolean;
+            /** @description The entry's fields, in order */
+            fields: components["schemas"]["ValkeyKVField"][] | null;
+            /** @description Entry id; * (the default) lets the server pick the next one */
+            id?: string;
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+            /**
+             * Format: int64
+             * @description Also expire the key after this many seconds (it becomes cache). 0 leaves its expiry as it is; a new key is then kept until deleted.
+             */
+            ttlSeconds?: number;
+        };
+        ValkeyStreamDel: {
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /** @description Entry ids to delete */
+            ids: string[] | null;
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+        };
+        ValkeyStreamTrim: {
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+            /**
+             * Format: int64
+             * @description Keep this many newest entries
+             */
+            maxLen: number;
+        };
+        ValkeyZsetAdd: {
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /** @description Make a new key: refused when one with this name exists */
+            create?: boolean;
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+            /** @description Members with their scores; an existing member gets the new score */
+            members: components["schemas"]["ValkeyKVScored"][] | null;
+            /**
+             * Format: int64
+             * @description Also expire the key after this many seconds (it becomes cache). 0 leaves its expiry as it is; a new key is then kept until deleted.
+             */
+            ttlSeconds?: number;
+        };
+        ValkeyZsetIncr: {
+            /**
+             * Format: double
+             * @description Added to the score (negative subtracts)
+             */
+            by: number;
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+            member: string;
+        };
+        ValkeyZsetRemove: {
+            /** @description Only for a write too big to undo: the confirm value from its 428 reply */
+            confirm?: string;
+            /** @description The key, as your apps name it (without the project prefix) */
+            key: string;
+            members: string[] | null;
         };
         VercelcfgConfig: {
             buildCommand?: string;
@@ -8633,6 +9381,24 @@ export interface components {
             url?: string;
             /** @description Workflow name as defined in the app */
             workflow: string;
+        };
+        "WriteInStruct { Commands string \"json:\\\"commands\\\" minLength:\\\"1\\\" maxLength:\\\"8388608\\\" doc:\\\"One command per line HGETALL session:u_2041\\\"\"; Write bool \"json:\\\"writeOmitempty\\\" doc:\\\"Allow commands that change data\\\"\" }Body": {
+            /** @description One command per line, e.g. HGETALL session:u_2041 */
+            commands: string;
+            /** @description Allow commands that change data */
+            write?: boolean;
+        };
+        "WriteInStruct { ID string \"json:\\\"id\\\" pattern:\\\"^kvu_0-9a-f{20}$\\\" doc:\\\"The undo id from the write\\\"\"; Confirm string \"json:\\\"confirmOmitempty\\\" doc:\\\"Only when the keys are now too big to keep a copy of: the confirm value from the 428 reply\\\"\" }Body": {
+            /** @description Only when the keys are now too big to keep a copy of: the confirm value from the 428 reply */
+            confirm?: string;
+            /** @description The undo id from the write */
+            id: string;
+        };
+        "WriteInStruct { Prefix string \"json:\\\"prefix\\\" minLength:\\\"1\\\" maxLength:\\\"1024\\\" doc:\\\"Keys starting with this as your apps name them\\\"\"; Confirm string \"json:\\\"confirmOmitempty\\\" doc:\\\"The confirm value from the 428 reply\\\"\" }Body": {
+            /** @description The confirm value from the 428 reply */
+            confirm?: string;
+            /** @description Keys starting with this, as your apps name them */
+            prefix: string;
         };
     };
     responses: never;
@@ -19097,9 +19863,93 @@ export interface operations {
             };
         };
     };
-    "kv-connection": {
+    "kv-command": {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WriteInStruct { Commands string \"json:\\\"commands\\\" minLength:\\\"1\\\" maxLength:\\\"8388608\\\" doc:\\\"One command per line HGETALL session:u_2041\\\"\"; Write bool \"json:\\\"writeOmitempty\\\" doc:\\\"Allow commands that change data\\\"\" }Body"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVConsole"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-connection": {
+        parameters: {
+            query?: {
+                /** @description Include the password and tokens */
+                reveal?: boolean;
+            };
             header?: never;
             path: {
                 /** @description Project slug */
@@ -19174,11 +20024,512 @@ export interface operations {
             };
         };
     };
+    "kv-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeyDel"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-delete-prefix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WriteInStruct { Prefix string \"json:\\\"prefix\\\" minLength:\\\"1\\\" maxLength:\\\"1024\\\" doc:\\\"Keys starting with this as your apps name them\\\"\"; Confirm string \"json:\\\"confirmOmitempty\\\" doc:\\\"The confirm value from the 428 reply\\\"\" }Body"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-expire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeyExpire"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-hash-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeyHashDel"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-hash-set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeyHashSet"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "kv-get": {
         parameters: {
             query: {
                 /** @description The key */
                 key: string;
+                /** @description From the previous page */
+                cursor?: string;
+                /** @description Items per page */
+                count?: number;
+                /** @description Hashes, sets and sorted sets: only fields or members matching this glob */
+                match?: string;
             };
             header?: never;
             path: {
@@ -19347,6 +20698,699 @@ export interface operations {
             };
         };
     };
+    "kv-list-push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeyListPush"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-list-remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeyListRemove"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-list-set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeyListSet"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-rename": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeyRename"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeySetBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-set-add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeySetAdd"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-set-remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeySetRemove"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "kv-stats": {
         parameters: {
             query?: never;
@@ -19406,6 +21450,791 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-stream-add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeyStreamAdd"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-stream-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeyStreamDel"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-stream-trim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeyStreamTrim"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-tree": {
+        parameters: {
+            query?: {
+                /** @description The level to list, as apps name keys ("session:"); empty for the top */
+                prefix?: string;
+                /** @description What separates levels; "none" lists every key flat */
+                delimiter?: string;
+                /** @description Only keys matching this glob (whole key, e.g. *u_20*) */
+                match?: string;
+                /** @description Only keys of this type */
+                type?: "string" | "hash" | "list" | "set" | "zset" | "stream" | "";
+                /** @description kept: only keys without an expiry; cache: only keys with one */
+                expiry?: "kept" | "cache" | "";
+                /** @description Where this page of keys starts */
+                offset?: number;
+                /** @description Keys per page */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVTree"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WriteInStruct { ID string \"json:\\\"id\\\" pattern:\\\"^kvu_0-9a-f{20}$\\\" doc:\\\"The undo id from the write\\\"\"; Confirm string \"json:\\\"confirmOmitempty\\\" doc:\\\"Only when the keys are now too big to keep a copy of: the confirm value from the 428 reply\\\"\" }Body"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-zset-add": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeyZsetAdd"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-zset-incr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeyZsetIncr"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "kv-zset-remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValkeyZsetRemove"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValkeyKVWriteResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
                 headers: {
                     [name: string]: unknown;
                 };
