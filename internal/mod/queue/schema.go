@@ -280,6 +280,15 @@ CREATE TRIGGER wf_steps_live_update AFTER UPDATE ON wf_steps FOR EACH ROW
 	WHEN (OLD.state IS DISTINCT FROM NEW.state) EXECUTE FUNCTION tq_live_notify();
 CREATE TRIGGER tq_output_live AFTER INSERT ON tq_output FOR EACH ROW EXECUTE FUNCTION tq_live_notify();
 `,
+	// 7: crons that call a URL outside the box, their timeout, and pausing.
+	`
+ALTER TABLE tq_crons ADD COLUMN url text NOT NULL DEFAULT '',
+	ADD COLUMN timeout_s int NOT NULL DEFAULT 0,
+	ADD COLUMN paused bool NOT NULL DEFAULT false,
+	ADD COLUMN paused_at timestamptz,
+	ADD COLUMN paused_by text NOT NULL DEFAULT '';
+CREATE INDEX tq_jobs_cron ON tq_jobs (project, cron, id DESC) WHERE cron IS NOT NULL;
+`,
 }
 
 // migrate brings River's schema and ours up to date. Concurrent callers are

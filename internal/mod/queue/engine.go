@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -52,6 +53,17 @@ type Config struct {
 	// AppEnv is an app's environment (env and secrets): GET crons send its
 	// CRON_SECRET. Nil: none.
 	AppEnv func(ctx context.Context, project, app string) (map[string]string, error)
+	// AllowNets are non-public ranges URL targets may call anyway (tests, a
+	// receiver on the LAN). Default none (outside.go).
+	AllowNets []netip.Prefix
+	// SelfIPs are the box's own public addresses, which URL targets may not
+	// call. Nil: none known.
+	SelfIPs func() []netip.Addr
+	// URLRatePerMinute caps the calls one project makes to URLs outside the
+	// box per minute, across its queues and crons (0 = no cap).
+	URLRatePerMinute int
+	// Resolve looks up the hosts of URL targets (tests; nil: the system resolver).
+	Resolve func(ctx context.Context, host string) ([]netip.Addr, error)
 }
 
 // Engine is the queue and workflow engine on one Postgres database.
@@ -61,7 +73,10 @@ type Engine struct {
 	river *river.Client[pgx.Tx]
 	log   *slog.Logger
 	http  *http.Client
-	now   func() time.Time
+	guard *guard
+	// outside calls URL targets (outside.go).
+	outside *http.Client
+	now     func() time.Time
 
 	lockConn *pgx.Conn
 	active   sync.Map // job id → *delivery
@@ -116,8 +131,10 @@ func Open(ctx context.Context, cfg Config) (*Engine, error) {
 	}
 	e := &Engine{cfg: cfg, pool: pool, log: cfg.Log, now: time.Now,
 		http:       &http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 64, IdleConnTimeout: 90 * time.Second}},
+		guard:      &guard{allow: cfg.AllowNets, self: cfg.SelfIPs, lookup: cfg.Resolve},
 		ready:      make(chan struct{}),
 		outboxKick: make(chan struct{}, 1)}
+	e.outside = e.guard.client()
 	var hctx context.Context
 	hctx, e.hubCancel = context.WithCancel(context.Background())
 	e.hub = newHub(hctx, e)

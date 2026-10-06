@@ -30,7 +30,8 @@
  *
  * Durations are milliseconds (numbers) or strings like "30s", "5m", "2h", "1d".
  */
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
+import { verifySignature } from "./verify";
 
 export type Env = Record<string, string | undefined>;
 export type Duration = number | string;
@@ -319,21 +320,7 @@ export interface Job<T = unknown> {
   signal: AbortSignal;
 }
 
-/** Verifies a Tiffin-Signature header over the raw body. */
-export function verifySignature(secret: string, header: string | null, body: string, toleranceSeconds = 300, now = Date.now()): boolean {
-  if (!secret || !header) return false;
-  let ts = "";
-  let sig = "";
-  for (const part of header.split(",")) {
-    const [k, v] = part.trim().split("=", 2);
-    if (k === "t") ts = v ?? "";
-    if (k === "v1") sig = v ?? "";
-  }
-  const t = Number(ts);
-  if (!Number.isInteger(t) || !sig || Math.abs(now / 1000 - t) > toleranceSeconds) return false;
-  const want = createHmac("sha256", secret).update(`${ts}.${body}`).digest("hex");
-  return want.length === sig.length && timingSafeEqual(Buffer.from(want), Buffer.from(sig));
-}
+export { verifySignature };
 
 /** Signs a body the way the box does (tests, local tools). */
 export function sign(secret: string, body: string, now = Date.now()): string {

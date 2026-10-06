@@ -239,18 +239,37 @@ export interface AnalyticsConfig {
   retentionDays?: number;
 }
 
-/** One scheduled call into an app. */
-export interface CronConfig {
+/**
+ * What a cron or queue calls: an app of the project (internally, so a worker
+ * app with no routes is a valid target), or an http(s) address outside the
+ * box. Calls to a URL are signed (Tiffin-Signature, HMAC-SHA256 with the
+ * project's signing secret; check them with verifyRequest from
+ * tiffin-sdk/verify) and retried with backoff. Addresses of the box itself
+ * and private, loopback or link-local ones are refused.
+ */
+export type JobTarget =
+  | {
+      /** Name of the app to call. Must be an app defined in `apps`. */
+      app: string;
+      /** Request path on the app. Must start with "/". Default "/cron/<name>" or "/queues/<name>". */
+      path?: string;
+      url?: never;
+    }
+  | {
+      /** An http(s) address outside the box to POST to, e.g. "https://hooks.example.com/digest". */
+      url: string;
+      app?: never;
+      path?: never;
+    };
+
+/** One scheduled call into an app, or to an address outside the box. */
+export type CronConfig = JobTarget & {
   /**
    * A 5-field cron expression ("minute hour day-of-month month day-of-week",
    * fields separated by single spaces, e.g. "0 3 * * *") or one of
    * "@hourly", "@daily", "@weekly", "@monthly".
    */
   schedule: string;
-  /** Name of the app to call. Must be an app defined in `apps`. */
-  app: string;
-  /** Request path on the app. Must start with "/". Default "/cron/<cron name>". */
-  path?: string;
   /**
    * IANA time zone the schedule is read in, e.g. "America/New_York". Default
    * UTC. When clocks change, a time that happens twice runs once and a time
@@ -262,19 +281,19 @@ export interface CronConfig {
    * Default false: such a tick is skipped.
    */
   overlap?: boolean;
-}
+  /**
+   * How long one call may take before it counts as failed and is retried,
+   * 5-3600 seconds. Default 60 (an app may extend it with heartbeats).
+   */
+  timeoutSeconds?: number;
+};
 
 /**
  * One named job queue. The box POSTs each job sent to the queue to `path` on
- * `app` as a signed HTTP request and retries failures with backoff. The call is
- * pushed internally, so a worker app (which has no routes) is a valid target.
- * Zero limits mean "no limit".
+ * `app` (or to `url`, outside the box) as a signed HTTP request and retries
+ * failures with backoff. Zero limits mean "no limit".
  */
-export interface QueueConfig {
-  /** Name of the app that receives the jobs. Must be an app defined in `apps`. */
-  app: string;
-  /** Request path jobs are POSTed to. Must start with "/". Default "/queues/<queue name>". */
-  path?: string;
+export type QueueConfig = JobTarget & {
   /** Most jobs of this queue running at once, 0-1000. Default 0: no limit. */
   concurrency?: number;
   /**
@@ -297,10 +316,10 @@ export interface QueueConfig {
   /**
    * How long one attempt may run without a response or heartbeat before it
    * counts as failed, 5-3600. Default 60. Long jobs extend their lease with
-   * heartbeats.
+   * heartbeats. For a `url` target it is each call's timeout.
    */
   leaseSeconds?: number;
-}
+};
 
 /**
  * A fan-out name: every message sent to the topic becomes one job for each

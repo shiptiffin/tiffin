@@ -221,7 +221,7 @@ func TestLeaseAndHeartbeat(t *testing.T) {
 	slow := e.send(proj, SendRequest{Name: "slow"}).Jobs[0]
 	beat := e.send(proj, SendRequest{Name: "beat"}).Jobs[0]
 	j := e.waitState(proj, slow, stateCompleted, 10*time.Second)
-	if len(j.Attempts) != 2 || !strings.Contains(j.Attempts[0].Error, "within the 1s lease") {
+	if len(j.Attempts) != 2 || !strings.Contains(j.Attempts[0].Error, "no response within the 1s timeout") {
 		t.Errorf("slow attempts %+v", j.Attempts)
 	}
 	j = e.waitState(proj, beat, stateCompleted, 10*time.Second)

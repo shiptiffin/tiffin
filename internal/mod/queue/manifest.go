@@ -24,10 +24,10 @@ func (e *Engine) ReconcileQueue(ctx context.Context, project, name string, spec 
 	if err := json.Unmarshal(spec, &q); err != nil {
 		return fmt.Errorf("queue %s: %w", name, err)
 	}
-	if q.App == "" {
-		return fmt.Errorf("queue %s: no app", name)
+	if q.App == "" && q.URL == "" {
+		return fmt.Errorf("queue %s: no app or url", name)
 	}
-	if q.Path == "" {
+	if q.Path == "" && q.App != "" {
 		q.Path = manifest.DefaultQueuePathPrefix + name
 	}
 	if q.RateLimit > 0 && q.RatePeriodSeconds == 0 {
@@ -43,7 +43,7 @@ func (e *Engine) ReconcileQueue(ctx context.Context, project, name string, spec 
 	if err != nil {
 		return err
 	}
-	want := QueueConfig{Name: name, App: q.App, Path: q.Path, Concurrency: q.Concurrency, KeyConcurrency: q.KeyConcurrency,
+	want := QueueConfig{Name: name, App: q.App, Path: q.Path, URL: q.URL, Concurrency: q.Concurrency, KeyConcurrency: q.KeyConcurrency,
 		RateLimit: q.RateLimit, RatePeriodS: q.RatePeriodSeconds, MaxAttempts: q.MaxAttempts, LeaseS: q.LeaseSeconds,
 		Paused: have.Paused, Configured: true}
 	if have == want {
@@ -101,14 +101,14 @@ func (e *Engine) ReconcileTopic(ctx context.Context, project, name string, spec 
 		if err != nil {
 			return err
 		}
-		if !cfg.Configured || cfg.App == "" {
+		if !cfg.Configured || (cfg.App == "" && cfg.URL == "") {
 			return fmt.Errorf("topic %s: subscriber queue %q is not configured yet; it is set up by the same apply, so this retries", name, sub)
 		}
 		path := cfg.Path
-		if path == "" {
+		if path == "" && cfg.App != "" {
 			path = manifest.DefaultQueuePathPrefix + sub
 		}
-		if _, err := e.Subscribe(ctx, project, name, Subscription{Name: sub, App: cfg.App, Path: path}); err != nil {
+		if _, err := e.Subscribe(ctx, project, name, Subscription{Name: sub, App: cfg.App, Path: path, URL: cfg.URL}); err != nil {
 			return err
 		}
 		keep = append(keep, sub)

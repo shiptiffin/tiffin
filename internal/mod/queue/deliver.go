@@ -225,6 +225,17 @@ func (e *Engine) admit(ctx context.Context, rj *river.Job[deliverArgs], j *jobRo
 			wait = w + time.Duration(rand.Int64N(int64(time.Duration(cfg.RatePeriodS)*time.Second/time.Duration(cfg.RateLimit))+1))
 		}
 	}
+	if blocked == "" && j.URL != "" && e.cfg.URLRatePerMinute > 0 {
+		// The project's cap on calls outside the box, across its queues and crons.
+		bucket := outsideKey(j.Project)
+		w, err := takeToken(ctx, tx, bucket, e.cfg.URLRatePerMinute, time.Minute)
+		if err != nil {
+			return false, err
+		}
+		if w > 0 {
+			blocked, wait = bucket, w+time.Duration(rand.Int64N(int64(time.Minute/time.Duration(e.cfg.URLRatePerMinute))+1))
+		}
+	}
 	if blocked != "" {
 		rid, err := e.insertRiver(ctx, tx, j.ID, seq, j.Priority, e.now().Add(wait))
 		if err != nil {
@@ -252,6 +263,8 @@ func (e *Engine) admit(ctx context.Context, rj *river.Job[deliverArgs], j *jobRo
 }
 
 func pauseKey(project, queue string) string { return "p:" + project + "/" + queue }
+
+func outsideKey(project string) string { return "x:" + project + "/" }
 
 // takeToken is a sliding-window rate limiter: at most limit starts in any
 // window of length period. It returns how long to wait, or 0 when it took a
@@ -340,7 +353,11 @@ func (e *Engine) deliver(ctx context.Context, j *jobRow, d *delivery) outcome {
 				}
 				t.Reset(time.Until(until))
 			case <-t.C:
-				cancel(fmt.Errorf("no response or heartbeat within the %ds lease", j.LeaseS))
+				if j.URL != "" {
+					cancel(fmt.Errorf("no response within the %ds timeout", j.LeaseS))
+				} else {
+					cancel(fmt.Errorf("no response or heartbeat within the %ds lease", j.LeaseS))
+				}
 				return
 			}
 		}
@@ -367,7 +384,11 @@ func (e *Engine) deliver(ctx context.Context, j *jobRow, d *delivery) outcome {
 	req.Header.Set(HeaderSignature, Sign(secret, e.now(), body))
 	req.Header.Set(HeaderJobID, jobID(j.ID))
 	req.Header.Set(HeaderAttempt, strconv.Itoa(j.TotalAttempts))
-	res, err := e.http.Do(req)
+	client := e.http
+	if j.URL != "" {
+		client = e.outside
+	}
+	res, err := client.Do(req)
 	if err != nil {
 		if c := context.Cause(rctx); c != nil && rctx.Err() != nil {
 			if errors.Is(c, errCancelled) {
@@ -377,7 +398,11 @@ func (e *Engine) deliver(ctx context.Context, j *jobRow, d *delivery) outcome {
 			oc.kind, oc.err = outcomeRetry, c.Error()
 			return oc
 		}
-		oc.kind, oc.err = outcomeRetry, describeTransport(err, target)
+		if r, ok := refusal(err); ok {
+			oc.kind, oc.err = outcomeDead, r.Error()
+			return oc
+		}
+		oc.kind, oc.err = outcomeRetry, describeTransport(err, target, j.URL != "")
 		return oc
 	}
 	defer res.Body.Close()
@@ -463,9 +488,15 @@ func clip(s string, n int) string {
 	return s[:n] + "…"
 }
 
-func describeTransport(err error, target string) string {
+func describeTransport(err error, target string, outside bool) string {
 	msg := err.Error()
 	switch {
+	case outside && strings.Contains(msg, "no such host"):
+		return "the address " + target + " does not resolve (check the host name)"
+	case outside && strings.Contains(msg, "connection refused"):
+		return "connection refused at " + target + ": nothing is listening there"
+	case outside && (strings.Contains(msg, "EOF") || strings.Contains(msg, "connection reset")):
+		return target + " closed the connection without a response"
 	case strings.Contains(msg, "connection refused"):
 		return "connection refused at " + target + ": the app is not listening (stopped, crashed or still starting)"
 	case strings.Contains(msg, "EOF"), strings.Contains(msg, "connection reset"):

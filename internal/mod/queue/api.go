@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humago"
 )
 
 // toProblem turns engine errors into API problems with hints.
@@ -97,7 +99,7 @@ func (b sendBody) request(by, fromApp string) SendRequest {
 type configBody struct {
 	App               string `json:"app,omitempty" doc:"App that receives this queue's jobs"`
 	Path              string `json:"path,omitempty" doc:"Path on the app (default /queues/<name>)"`
-	URL               string `json:"url,omitempty" doc:"Development only: a loopback URL (http://127.0.0.1:PORT/...) to push to instead of an app"`
+	URL               string `json:"url,omitempty" doc:"An http(s) address outside the box to POST jobs to instead of an app (signed; private and box addresses are refused)"`
 	Concurrency       int    `json:"concurrency,omitempty" minimum:"0" maximum:"10000" doc:"Most jobs of this queue running at once (0 = no limit)"`
 	KeyConcurrency    int    `json:"keyConcurrency,omitempty" minimum:"0" maximum:"10000" doc:"Most jobs running at once per send key (0 = no limit)"`
 	RateLimit         int    `json:"rateLimit,omitempty" minimum:"0" maximum:"10000" doc:"Most jobs started per period, per send key (0 = no limit)"`
@@ -390,7 +392,7 @@ func (m *Module) registerQueueAPI(a huma.API, plat *platform.Platform) {
 			Body    struct {
 				App  string `json:"app,omitempty" doc:"App that receives the messages"`
 				Path string `json:"path,omitempty" doc:"Path on the app (default /topics/<topic>)"`
-				URL  string `json:"url,omitempty" doc:"Development only: a loopback URL instead of an app"`
+				URL  string `json:"url,omitempty" doc:"An http(s) address outside the box instead of an app"`
 			}
 		}) (*out[*Topic], error) {
 			p := api.PrincipalFrom(ctx)
@@ -430,7 +432,8 @@ func (m *Module) registerQueueAPI(a huma.API, plat *platform.Platform) {
 	huma.Register(a, op("queue-crons-list", http.MethodGet, "/v1/projects/{project}/queue/crons", "queue crons list", api.RiskRead,
 		"List crons",
 		"The project's crons with their origin (tiffin.config.ts, or an app's vercel.json), time zone, next tick (UTC), the job and state of the latest tick, "+
-			"and when a tick was last skipped because the previous run was still queued or running. Change crons in tiffin.config.ts; "+
+			"when a tick was last skipped because the previous run was still queued or running, whether it is paused, and its recent runs "+
+			"with their failure rate. Create, change and delete crons in tiffin.config.ts (plan and apply); pause them with queue crons pause; "+
 			"vercel.json crons change with their app's next production deploy."),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
@@ -448,7 +451,7 @@ func (m *Module) registerQueueAPI(a huma.API, plat *platform.Platform) {
 
 	huma.Register(a, op("queue-cron-trigger", http.MethodPost, "/v1/projects/{project}/queue/crons/{name}/trigger", "queue crons trigger", api.RiskWrite,
 		"Run a cron now",
-		"Calls the cron's app route now, outside its schedule (the schedule is unchanged). Returns the job to follow.", 404),
+		"Calls the cron's app route or URL now, outside its schedule (the schedule is unchanged; a paused cron runs too). Returns the job to follow.", 404),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 			Name    string `path:"name" doc:"Cron name"`
@@ -468,6 +471,141 @@ func (m *Module) registerQueueAPI(a huma.API, plat *platform.Platform) {
 			audit(ctx, plat, p, "queue.cron.trigger", in.Project+"/"+in.Name, nil)
 			return ok(map[string]string{"job": id, "message": "cron " + in.Name + " queued as " + id}), nil
 		}))
+
+	for _, pause := range []bool{true, false} {
+		id, word, summary, desc := "queue-cron-pause", "pause", "Pause a cron",
+			"Stops a cron's ticks until it is resumed; the pause outlasts applies and restarts. Run now still works. The cron itself stays in tiffin.config.ts."
+		if !pause {
+			id, word, summary, desc = "queue-cron-resume", "resume", "Resume a paused cron",
+				"Starts a paused cron's ticks again from the next one after now; ticks missed while it was paused do not run."
+		}
+		huma.Register(a, op(id, http.MethodPost, "/v1/projects/{project}/queue/crons/{name}/"+word, "queue crons "+word, api.RiskWrite, summary, desc, 404),
+			api.Wrap(func(ctx context.Context, in *struct {
+				Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+				Name    string `path:"name" doc:"Cron name"`
+			}) (*out[*CronInfo], error) {
+				p := api.PrincipalFrom(ctx)
+				if err := p.Require(tokens.ScopeApplyReversible, in.Project); err != nil {
+					return nil, err
+				}
+				e, err := m.ready()
+				if err != nil {
+					return nil, err
+				}
+				c, err := e.SetCronPaused(ctx, in.Project, in.Name, pause, actor(p))
+				if err == nil {
+					audit(ctx, plat, p, "queue.cron."+word, in.Project+"/"+in.Name, nil)
+				}
+				return ok(c), toProblem(err)
+			}))
+	}
+
+	type preview struct {
+		Schedule string      `json:"schedule"`
+		Timezone string      `json:"timezone"`
+		Next     []time.Time `json:"next" doc:"The next ticks, in UTC"`
+	}
+	huma.Register(a, op("queue-cron-preview", http.MethodGet, "/v1/projects/{project}/queue/schedule-preview", "queue crons preview", api.RiskRead,
+		"Preview a cron schedule",
+		"The next ticks of a cron expression read in a time zone, the way the box will run them (clock changes included), "+
+			"or a plain error saying what is wrong with it. Nothing is saved.", 422),
+		api.Wrap(func(ctx context.Context, in *struct {
+			Project  string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+			Schedule string `query:"schedule" required:"true" maxLength:"200" doc:"Cron expression, e.g. 0 9 * * 1-5"`
+			Timezone string `query:"timezone" maxLength:"64" doc:"IANA time zone (default UTC)"`
+			Count    int    `query:"count" minimum:"1" maximum:"20" default:"5"`
+		}) (*out[preview], error) {
+			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
+				return nil, err
+			}
+			next, err := NextRuns(in.Schedule, in.Timezone, in.Count, time.Now())
+			if err != nil {
+				return nil, toProblem(err)
+			}
+			tz := in.Timezone
+			if tz == "" {
+				tz = "UTC"
+			}
+			return ok(preview{Schedule: in.Schedule, Timezone: tz, Next: next}), nil
+		}))
+
+	type signing struct {
+		Secret  string `json:"secret" doc:"The project's signing secret"`
+		Header  string `json:"header" doc:"The header every call carries"`
+		Format  string `json:"format"`
+		Message string `json:"message"`
+	}
+	huma.Register(a, op("queue-signing-secret", http.MethodGet, "/v1/projects/{project}/queue/signing-secret", "queue signing-secret", api.RiskRead,
+		"Show the signing secret calls are signed with",
+		"Every call a cron or queue makes (to an app, or to a URL outside the box) carries a Tiffin-Signature header made with this "+
+			"secret. A receiver outside the box checks it with verifyRequest from tiffin-sdk/verify, or any HMAC-SHA256 library. "+
+			"Apps on the box already have it as TIFFIN_QUEUE_SIGNING_SECRET. Needs a key that can change the project."),
+		api.Wrap(func(ctx context.Context, in *struct {
+			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		}) (*out[signing], error) {
+			p := api.PrincipalFrom(ctx)
+			if err := p.Require(tokens.ScopeApplyReversible, in.Project); err != nil {
+				return nil, err
+			}
+			e, err := m.ready()
+			if err != nil {
+				return nil, err
+			}
+			_, secret, err := e.cfg.Keys.Get(ctx, in.Project)
+			if err != nil {
+				return nil, err
+			}
+			audit(ctx, plat, p, "queue.signing-secret.read", in.Project, nil)
+			return ok(signing{Secret: secret, Header: HeaderSignature, Format: "t=<unix seconds>,v1=<hex HMAC-SHA256 of \"<t>.<raw body>\">",
+				Message: "recompute the HMAC over the raw body and compare in constant time; reject timestamps more than 5 minutes away"}), nil
+		}))
+
+	live := api.Untrusted(op("queue-live", http.MethodGet, "/v1/projects/{project}/queue/live/{id}", "queue live", api.RiskRead,
+		"Watch a job or workflow run",
+		"A job's or run's state, progress (job.progress / ctx.progress in tiffin-sdk), output and, for runs, steps. With "+
+			"Accept: text/event-stream it streams instead: output chunks (event: output), every change of state (event: state) "+
+			"and event: end when it finishes; reconnect with Last-Event-ID to resume.", 404, 429))
+	live.Middlewares = huma.Middlewares{m.followLive}
+	huma.Register(a, live, api.Wrap(func(ctx context.Context, in *struct {
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		ID      string `path:"id" maxLength:"64" doc:"Job ID (job_42) or run ID (run_...)"`
+	}) (*out[*LiveState], error) {
+		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
+			return nil, err
+		}
+		e, err := m.ready()
+		if err != nil {
+			return nil, err
+		}
+		st, err := e.liveState(ctx, in.Project, in.ID)
+		return ok(st), toProblem(err)
+	}))
+}
+
+// followLive streams queue-live as server-sent events when the caller asks
+// for them, through the same hub as the app-host streams (live.go).
+func (m *Module) followLive(hctx huma.Context, next func(huma.Context)) {
+	if !strings.Contains(hctx.Header("Accept"), "text/event-stream") {
+		next(hctx)
+		return
+	}
+	r, w := humago.Unwrap(hctx)
+	project, id := hctx.Param("project"), hctx.Param("id")
+	if err := api.PrincipalFrom(hctx.Context()).Require(tokens.ScopeRead, project); err != nil {
+		writeErr(w, &Error{Status: 403, Code: "forbidden", Msg: err.Error()})
+		return
+	}
+	e := m.engine()
+	if e == nil {
+		w.Header().Set("Retry-After", "5")
+		writeErr(w, &Error{Status: 503, Code: "precondition", Msg: "the queue is not running yet", Hint: "retry shortly"})
+		return
+	}
+	if _, ok := liveID(LivePath + id + "/events"); !ok {
+		writeErr(w, notFound("no job or run "+id))
+		return
+	}
+	e.StreamLive(w, r.WithContext(hctx.Context()), project, id)
 }
 
 func (m *Module) registerWorkflowAPI(a huma.API, plat *platform.Platform) {
@@ -495,7 +633,7 @@ func (m *Module) registerWorkflowAPI(a huma.API, plat *platform.Platform) {
 				Input    json.RawMessage `json:"input,omitempty" doc:"Input passed to the workflow (JSON)"`
 				ID       string          `json:"id,omitempty" maxLength:"200" doc:"Idempotency key"`
 				Path     string          `json:"path,omitempty" doc:"Where the app mounts the workflow handler (default /_tiffin/workflows)"`
-				URL      string          `json:"url,omitempty" doc:"Development only: loopback URL of the workflow handler instead of an app"`
+				URL      string          `json:"url,omitempty" doc:"Address of the workflow handler instead of an app (it must be able to reach the box; tests and development)"`
 			}
 		}) (*out[*Run], error) {
 			p := api.PrincipalFrom(ctx)
