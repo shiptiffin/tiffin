@@ -586,6 +586,11 @@ func TestWarnings(t *testing.T) {
 	if w := Warnings(m); len(w) != 0 {
 		t.Fatalf("clean manifest warned: %q", w)
 	}
+	// /api/auth belongs to the auth service on every app host.
+	m, _ = Parse([]byte(`{"project":"p","apps":{"web":{"routes":["shop"]},"api":{"routes":["shop.example.com/api/auth/v2","shop/api"]}},"services":{"postgres":{},"email":{},"auth":{}}}`))
+	if w := Warnings(m); len(w) != 1 || !strings.Contains(w[0], `apps.api route "shop.example.com/api/auth/v2" is under /api/auth`) {
+		t.Fatalf("warnings = %q", w)
+	}
 }
 
 // auth.emailVerification: unset means automatic (kept unset), an explicit

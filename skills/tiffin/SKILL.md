@@ -45,6 +45,9 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    `tiffin-sdk` ships inside tiffin, not npm: `tiffin sdk add [--react]` vendors it
    (`vendor/*.tgz` + a `file:` dependency; commit both), then `bun install`. Never install it from the npm registry.
    AGENTS.md has the plain-HTTP auth and queue protocols. Plans list `warnings`: fix them before applying.
+   Sign-in in Next.js: `tiffin-sdk/next/auth` (`authProxy` in proxy.ts; `verifySession` /
+   `requireRole` where data is read; `signIn` / `signUp` / `signOut` in Server Actions with
+   `<CaptchaField />`); no auth route of your own: the box owns `/api/auth/*` on every app host.
 7. Copying a project: `tiffin projects duplicate <p> <new>` (same box, own addresses; undo =
    destroy the copy), `tiffin projects export <p> [-o file]` (a .tiffin of plain files with a
    docker-compose.yml; `--include-secrets` puts them in plain text: ask first), `tiffin projects

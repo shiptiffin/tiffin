@@ -56,6 +56,17 @@ export declare function useTiffinAuth(): Ctx;
  * Each solution is good for one request.
  */
 export declare function useCaptcha(baseURL: string, enabled: boolean): () => Promise<Record<string, string>>;
+/**
+ * The bot check for your own sign-in and sign-up forms that post to a Server
+ * Action (signIn / signUp from tiffin-sdk/next/auth): a hidden `captcha`
+ * field, solved in the background once the form mounts. Submitting before
+ * it is ready waits for it; each submit gets a fresh one for the next try.
+ *
+ *   <form action={signInAction}><CaptchaField /> ...</form>
+ */
+export declare function CaptchaField({ name }: {
+    name?: string;
+}): import("react").JSX.Element;
 /** Turns a Better Auth client error into words for people. */
 export declare function errorText(e: unknown, fallback?: string): string;
 export {};

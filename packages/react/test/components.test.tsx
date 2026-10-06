@@ -8,7 +8,7 @@ import { Registry } from "../../auth-engine/src/registry";
 import { publicHandler } from "../../auth-engine/src/server";
 import { projectConfig } from "../../auth-engine/test/helpers";
 import { freshDatabase, stopCluster } from "../../auth-engine/test/pg";
-import { AcceptInvite, Invite, OrgSwitcher, SignIn, SignUp, TiffinAuthProvider, UserButton, createTiffinAuth } from "../src";
+import { AcceptInvite, CaptchaField, Invite, OrgSwitcher, SignIn, SignUp, TiffinAuthProvider, UserButton, createTiffinAuth } from "../src";
 
 const ORIGIN = "https://shop.tiffin.localhost:8443";
 let reg: Registry;
@@ -207,6 +207,43 @@ describe("organizations", () => {
     // As a viewer, Invite explains instead of offering a form.
     render(withClient(<Invite />));
     await screen.findByText(/Only owners and admins can invite people/, {}, { timeout: 10_000 });
+    cleanup();
+  }, 30_000);
+});
+
+describe("CaptchaField", () => {
+  test("a form posting to a Server Action waits for the bot check, and each submit gets a fresh one", async () => {
+    use(new Browser());
+    const sent: string[] = [];
+    render(
+      withClient(
+        <form
+          aria-label="sign in"
+          onSubmit={(e) => {
+            e.preventDefault();
+            sent.push((e.currentTarget.elements.namedItem("captcha") as HTMLInputElement).value); // what the browser posts
+          }}
+        >
+          <CaptchaField />
+          <button type="submit">Go</button>
+        </form>,
+      ),
+    );
+    const form = screen.getByRole("form", { name: "sign in" }) as HTMLFormElement;
+    await waitFor(() => expect(form.elements.namedItem("captcha")).toBeTruthy());
+    fireEvent.submit(form); // likely before it is solved: held, then sent
+    await waitFor(() => expect(sent.length).toBe(1), { timeout: 10_000 });
+    expect(sent[0]).not.toBe("");
+    const tried = await browser.fetch(`${ORIGIN}/api/auth/sign-in/email`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-captcha-response": sent[0]! },
+      body: JSON.stringify({ email: "nobody@example.com", password: "wrong password!" }),
+    });
+    expect(tried.status).toBe(401); // the check passed; the password didn't
+    await waitFor(() => expect((form.elements.namedItem("captcha") as HTMLInputElement).value).not.toBe(""), { timeout: 10_000 });
+    fireEvent.submit(form);
+    await waitFor(() => expect(sent.length).toBe(2));
+    expect(sent[1]).not.toBe(sent[0]);
     cleanup();
   }, 30_000);
 });

@@ -52,18 +52,50 @@ export type AuthOptions = {
     host?: string;
     fetch?: typeof fetch;
 };
+type HeadersLike = {
+    get(name: string): string | null;
+};
+export type SessionOptions = AuthOptions & {
+    /** Check this organization instead of the active one (API keys have no active organization). */
+    organizationId?: string;
+    /** Ask the engine, skipping the signed cookie and the in-process cache (for sensitive actions). */
+    fresh?: boolean;
+};
 /**
  * The signed-in user for a request (cookie or x-api-key), with their role in
  * the active organization, or null. Pass organizationId to check another
  * organization the user belongs to (API keys have no active organization).
+ *
+ * Fast: a browser session is read from the engine's signed session cookie
+ * (verified here with the engine's public key, no request), else asked of the
+ * engine and remembered for 5 seconds. So a revoked session or a changed role
+ * can take up to 60 seconds to reach this; pass { fresh: true } where that
+ * matters.
  */
-export declare function getSession(request: Request, opts?: AuthOptions & {
-    organizationId?: string;
-}): Promise<AuthSession | null>;
+export declare function getSession(request: Request, opts?: SessionOptions): Promise<AuthSession | null>;
+/**
+ * getSession from any request headers, plus the engine's Set-Cookie headers
+ * when it was asked (a refreshed session cookie, to pass on to the browser
+ * when the framework can). For framework helpers such as tiffin-sdk/next/auth.
+ */
+export declare function sessionFor(from: HeadersLike, opts?: SessionOptions): Promise<{
+    session: AuthSession | null;
+    setCookie: string[];
+}>;
+/** Drops what this process remembers about a session token (after signing out). */
+export declare function forgetSession(token: string): void;
+/**
+ * Headers for a server-side call to the engine on behalf of a request: its
+ * credentials, client address and user agent, and the app host it came to.
+ */
+export declare function forwardHeaders(from: HeadersLike, opts?: AuthOptions): Headers;
+/** The engine's base URL (TIFFIN_AUTH_INTERNAL_URL unless opts.url). */
+export declare function authBase(opts?: AuthOptions): string;
+/** Better Auth's cookies on a Tiffin box (cookiePrefix "tiffin"). */
+export declare const TOKEN = "tiffin.session_token";
+export declare function parseCookies(header: string | null): Map<string, string>;
 /** The signed-in user, or an AuthError(401). */
-export declare function requireUser(request: Request, opts?: AuthOptions & {
-    organizationId?: string;
-}): Promise<AuthSession>;
+export declare function requireUser(request: Request, opts?: SessionOptions): Promise<AuthSession>;
 /** Whether `have` is at least `need` (viewer < member < admin < owner). */
 export declare function roleAtLeast(have: string | null | undefined, need: Role): boolean;
 /**
@@ -72,9 +104,7 @@ export declare function roleAtLeast(have: string | null | undefined, need: Role)
  * role too low). API keys count at most as their owner's role, lower if the
  * key is capped.
  */
-export declare function requireRole(request: Request, role: Role, opts?: AuthOptions & {
-    organizationId?: string;
-}): Promise<AuthSession & {
+export declare function requireRole(request: Request, role: Role, opts?: SessionOptions): Promise<AuthSession & {
     organization: AuthOrganization;
 }>;
 type BeginSQL<T> = {

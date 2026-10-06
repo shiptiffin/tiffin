@@ -3,6 +3,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 export type RequestFacts = {
+  /** The app host the request is for (no port): its Host, or x-tiffin-host on internal calls. */
+  host?: string;
+  /** Set while the request creates an account. */
+  newUser?: boolean;
   /** Set when the request authenticates with an API key (x-api-key). */
   apiKey?: { id: string; userId: string; maxRole: string | null };
 };

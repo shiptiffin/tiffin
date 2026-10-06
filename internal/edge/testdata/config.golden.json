@@ -67,9 +67,6 @@
                       ],
                       "X-Content-Type-Options": [
                         "nosniff"
-                      ],
-                      "X-Frame-Options": [
-                        "DENY"
                       ]
                     }
                   }
@@ -79,12 +76,48 @@
                   "response": {
                     "require": {
                       "headers": {
-                        "Content-Security-Policy": null
+                        "Content-Security-Policy": null,
+                        "X-Frame-Options": [
+                          "DENY"
+                        ]
                       }
                     },
                     "set": {
                       "Content-Security-Policy": [
                         "frame-ancestors 'none'"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "handler": "headers",
+                  "response": {
+                    "delete": [
+                      "X-Frame-Options"
+                    ],
+                    "require": {
+                      "headers": {
+                        "Content-Security-Policy": [
+                          "*frame-ancestors*"
+                        ],
+                        "X-Frame-Options": [
+                          "DENY"
+                        ]
+                      }
+                    }
+                  }
+                },
+                {
+                  "handler": "headers",
+                  "response": {
+                    "require": {
+                      "headers": {
+                        "X-Frame-Options": null
+                      }
+                    },
+                    "set": {
+                      "X-Frame-Options": [
+                        "DENY"
                       ]
                     }
                   }

@@ -257,8 +257,28 @@ func (p *Protection) protectRoutes(c Config) []obj {
 		zones[zoneName(zoneApp, p.App)] = zone([]obj{notDash}, p.App)
 	}
 	if p.Auth.Events > 0 {
-		m := obj{"method": []string{"POST", "PUT", "PATCH"}, "path": p.authPaths(), "not": notDash["not"]}
-		zones[zoneName(zoneAuth, p.Auth)] = zone([]obj{m}, p.Auth)
+		// A Next.js Server Action posts to the page it is on (Next-Action
+		// header), so actions on a /sign-in page would count as sign-in
+		// attempts. They count only under /api/auth/, the engine's own
+		// endpoints; the engine limits the sign-ins an action makes.
+		var engine, pages []string
+		for _, path := range p.authPaths() {
+			if strings.HasPrefix(path, "/api/auth/") {
+				engine = append(engine, path)
+			} else {
+				pages = append(pages, path)
+			}
+		}
+		write := []string{"POST", "PUT", "PATCH"}
+		var match []obj
+		if len(engine) > 0 {
+			match = append(match, obj{"method": write, "path": engine, "not": notDash["not"]})
+		}
+		if len(pages) > 0 {
+			not := []obj{{"host": dash}, {"header": obj{"Next-Action": []string{}}}}
+			match = append(match, obj{"method": write, "path": pages, "not": not})
+		}
+		zones[zoneName(zoneAuth, p.Auth)] = zone(match, p.Auth)
 	}
 	if len(zones) > 0 {
 		routes = append(routes, obj{"handle": []obj{{"handler": "rate_limit", "rate_limits": zones}}})

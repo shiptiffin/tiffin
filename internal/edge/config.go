@@ -469,7 +469,6 @@ func buildConfig(c Config) obj {
 
 	security := obj{
 		"X-Content-Type-Options": []string{"nosniff"},
-		"X-Frame-Options":        []string{"DENY"},
 		"Referrer-Policy":        []string{"strict-origin-when-cross-origin"},
 	}
 	if age := c.hstsMaxAge(); age > 0 {
@@ -486,12 +485,31 @@ func buildConfig(c Config) obj {
 					"delete":   []string{"Server"},
 				},
 			},
+			// No framing unless the app decides, with its own
+			// X-Frame-Options or a CSP with frame-ancestors (which browsers
+			// prefer). Inner handlers see the response first, so these run
+			// bottom to top: DENY when the app sent no X-Frame-Options;
+			// none when its CSP has frame-ancestors; then, when the app sent
+			// neither a CSP nor an X-Frame-Options of its own, our CSP.
 			{
-				// Only when the upstream sent no CSP of its own.
 				"handler": "headers",
 				"response": obj{
 					"set":     obj{"Content-Security-Policy": []string{cspValue}},
-					"require": obj{"headers": obj{"Content-Security-Policy": nil}},
+					"require": obj{"headers": obj{"Content-Security-Policy": nil, "X-Frame-Options": []string{"DENY"}}},
+				},
+			},
+			{
+				"handler": "headers",
+				"response": obj{
+					"delete":  []string{"X-Frame-Options"},
+					"require": obj{"headers": obj{"Content-Security-Policy": []string{"*frame-ancestors*"}, "X-Frame-Options": []string{"DENY"}}},
+				},
+			},
+			{
+				"handler": "headers",
+				"response": obj{
+					"set":     obj{"X-Frame-Options": []string{"DENY"}},
+					"require": obj{"headers": obj{"X-Frame-Options": nil}},
 				},
 			},
 		}},

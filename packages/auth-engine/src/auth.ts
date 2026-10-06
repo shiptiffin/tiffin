@@ -1,12 +1,13 @@
 // Builds one project's Better Auth instance from its config. Every project on
 // the box gets its own instance (own secret, own database, own settings)
 // inside the one engine process.
-import { betterAuth } from "better-auth";
+import { betterAuth, getCurrentAdapter } from "better-auth";
 import type { BetterAuthOptions, BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthEndpoint, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { emailOTP, jwt, magicLink, organization, twoFactor } from "better-auth/plugins";
 import { apiKey } from "@better-auth/api-key";
 import { passkey } from "@better-auth/passkey";
+import { setCookieCache } from "better-auth/cookies";
 import { PostgresDialect } from "kysely";
 import pg from "pg";
 import { z } from "zod";
@@ -66,6 +67,156 @@ export type Instance = {
   pool: pg.Pool;
 };
 
+type OrgView = { id: string; name: string; slug: string; role: string | null; memberRole: string | null };
+
+/** A user's view of one organization: its name and their role, lowered to `cap`. Null if not a member. */
+async function orgView(adapter: Adapter, userId: string, orgId: string, cap: string): Promise<OrgView | null> {
+  const [o, m] = await Promise.all([
+    adapter.findOne<{ id: string; name: string; slug: string }>({ model: "organization", where: [{ field: "id", value: orgId }] }),
+    adapter.findOne<{ role: string }>({
+      model: "member",
+      where: [
+        { field: "userId", value: userId },
+        { field: "organizationId", value: orgId },
+      ],
+    }),
+  ]);
+  return o && m ? { id: o.id, name: o.name, slug: o.slug, memberRole: m.role, role: weaker(m.role, cap) } : null;
+}
+
+/** The adapter of the transaction the caller runs in, if any (so rows it made but hasn't committed are seen). */
+const txAdapter = async (fallback: Adapter): Promise<Adapter> => (await getCurrentAdapter(fallback as never)) as unknown as Adapter;
+
+/** The organization a user joined first, if any. */
+async function firstOrg(adapter: Adapter, userId: string): Promise<string | undefined> {
+  const ms = await adapter.findMany<{ organizationId: string }>({
+    model: "member",
+    where: [{ field: "userId", value: userId }],
+    sortBy: { field: "createdAt", direction: "asc" },
+    limit: 1,
+  });
+  return ms[0]?.organizationId;
+}
+
+/** Everyone is an org: each person gets a personal one to own things in. Returns its id. */
+async function personalOrg(adapter: Adapter, userId: string): Promise<string> {
+  const existing = await firstOrg(adapter, userId);
+  if (existing) return existing;
+  const now = new Date();
+  const org = await adapter.create<{ id: string }>({
+    model: "organization",
+    data: {
+      name: "Personal",
+      slug: `personal-${userId.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 24)}`,
+      createdAt: now,
+      metadata: JSON.stringify({ personal: true }),
+    },
+  });
+  await adapter.create({ model: "member", data: { organizationId: org.id, userId, role: "owner", createdAt: now } });
+  return org.id;
+}
+
+/**
+ * How long the signed session cookie cache (`tiffin.session_data`) lasts.
+ * Apps verify it locally (tiffin-sdk/auth) instead of asking the engine, so a
+ * revoked session, a ban or a role change reaches app code within this long.
+ * The engine itself never reads it (server.ts strips it).
+ */
+export const SESSION_CACHE_SECONDS = 60;
+
+/**
+ * The passkey rpID for a request to `host`: the shortest of the app's hosts
+ * that is `host` or a parent of it (so www.example.com and example.com share
+ * passkeys), else the primary host.
+ */
+export function rpIDFor(hosts: string[], host: string | undefined): string {
+  const h = host?.split(":")[0]?.toLowerCase();
+  let best: string | undefined;
+  if (h) for (const a of hosts) if ((h === a || h.endsWith("." + a)) && (!best || a.length < best.length)) best = a;
+  return best ?? hosts[0]!;
+}
+
+/**
+ * Passkeys on every host of the app. WebAuthn ties a passkey to one rpID and
+ * Better Auth's plugin takes a fixed one, so each endpoint runs the plugin
+ * built for the request's host.
+ */
+function passkeys(c: ProjectConfig): BetterAuthPlugin {
+  const byRP = new Map<string, BetterAuthPlugin>();
+  const forHost = (host: string | undefined) => {
+    const rpID = rpIDFor(c.hosts, host);
+    let p = byRP.get(rpID);
+    if (!p) {
+      p = passkey({ rpID, rpName: c.appName, origin: c.origins.length ? c.origins : [c.primaryUrl.replace(/\/+$/, "")] }) as unknown as BetterAuthPlugin;
+      byRP.set(rpID, p);
+    }
+    return p;
+  };
+  const base = forHost(undefined);
+  const endpoints: Record<string, unknown> = {};
+  for (const [name, ep] of Object.entries(base.endpoints ?? {})) {
+    const run = (ctx: unknown) => (forHost(currentFacts().host).endpoints as Record<string, (c: unknown) => unknown>)[name]!(ctx);
+    endpoints[name] = Object.assign(run, ep);
+  }
+  return { ...base, endpoints } as BetterAuthPlugin;
+}
+
+type CacheSigner = {
+  sign: (ctx: { context: { adapter: unknown } }, payload: Record<string, unknown>, expiresIn: number) => Promise<string>;
+  verify: (...a: never[]) => unknown;
+};
+
+/**
+ * Adds the active organization and the user's role in it to the signed
+ * session cookie cache, so apps check roles without asking the engine. Goes
+ * after jwt({ sessionCookieCache: true }), which makes the signer.
+ */
+function sessionCacheOrg(c: ProjectConfig): BetterAuthPlugin {
+  return {
+    id: "tiffin-session-cache",
+    init(ctx) {
+      const sc = ctx.sessionConfig as typeof ctx.sessionConfig & { cookieCacheSigner?: CacheSigner };
+      const signer = sc.cookieCacheSigner;
+      if (!signer) return;
+      const sign: CacheSigner["sign"] = async (ectx, payload, expiresIn) => {
+        const p = payload as { session: { activeOrganizationId?: string | null }; user: { id: string } };
+        const orgId = p.session.activeOrganizationId;
+        const organization = c.organizations && orgId ? await orgView(await txAdapter(ectx.context.adapter as Adapter), p.user.id, orgId, "owner") : null;
+        return signer.sign(ectx, { ...payload, tiffin: { organization } }, expiresIn);
+      };
+      return { context: { sessionConfig: { ...sc, cookieCacheSigner: { ...signer, sign } } } } as never;
+    },
+    hooks: {
+      after: [
+        {
+          // These change the caller's active organization, its name or their
+          // role in it without re-signing the cookie: re-sign it.
+          matcher: (ctx) => !!ctx.path && ORG_CHANGES.has(ctx.path),
+          handler: createAuthMiddleware(async (ctx) => {
+            if (currentFacts().apiKey) return;
+            const token = await ctx.getSignedCookie(ctx.context.authCookies.sessionToken.name, ctx.context.secret);
+            const s = token ? await ctx.context.internalAdapter.findSession(token) : null;
+            if (!s) return;
+            const dontRemember = await ctx.getSignedCookie(ctx.context.authCookies.dontRememberToken.name, ctx.context.secret);
+            await setCookieCache(ctx, s, !!dontRemember);
+          }),
+        },
+      ],
+    },
+  } satisfies BetterAuthPlugin;
+}
+
+const ORG_CHANGES = new Set([
+  "/organization/create",
+  "/organization/update",
+  "/organization/delete",
+  "/organization/leave",
+  "/organization/accept-invitation",
+  "/organization/remove-member",
+  "/organization/update-member-role",
+  "/invite-link/accept",
+]);
+
 /** The Better Auth options for a project; also what migrations are computed from. */
 export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): BetterAuthOptions {
   const methods = new Set(c.methods);
@@ -106,21 +257,9 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
           if (!s) return ctx.json(null);
           const facts = currentFacts();
           const orgId = ctx.query?.organizationId ?? (s.session as { activeOrganizationId?: string | null }).activeOrganizationId ?? null;
-          let org: { id: string; name: string; slug: string; role: string | null; memberRole: string | null } | null = null;
+          let org: OrgView | null = null;
           if (orgId && c.organizations) {
-            const adapter = ctx.context.adapter as unknown as Adapter;
-            const o = await adapter.findOne<{ id: string; name: string; slug: string }>({ model: "organization", where: [{ field: "id", value: orgId }] });
-            const m = await adapter.findOne<{ role: string }>({
-              model: "member",
-              where: [
-                { field: "userId", value: s.user.id },
-                { field: "organizationId", value: orgId },
-              ],
-            });
-            if (o && m) {
-              const cap = facts.apiKey?.maxRole ?? "owner";
-              org = { id: o.id, name: o.name, slug: o.slug, memberRole: m.role, role: weaker(m.role, cap) };
-            }
+            org = await orgView(ctx.context.adapter as unknown as Adapter, s.user.id, orgId, facts.apiKey?.maxRole ?? "owner");
           }
           const { banned: _b, banReason: _r, banExpires: _e, ...user } = s.user as Record<string, unknown>;
           return ctx.json({
@@ -234,15 +373,7 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
       }),
     );
   }
-  if (methods.has("passkey")) {
-    plugins.push(
-      passkey({
-        rpID: c.hosts[0],
-        rpName: c.appName,
-        origin: c.origins.length ? c.origins : [c.primaryUrl.replace(/\/+$/, "")],
-      }) as unknown as BetterAuthPlugin,
-    );
-  }
+  if (methods.has("passkey")) plugins.push(passkeys(c));
   plugins.push(twoFactor({ issuer: c.appName }));
   if (c.organizations) {
     plugins.push(
@@ -274,6 +405,8 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
   }
   plugins.push(
     jwt({
+      // Also signs the session cookie cache, so apps verify it with the public JWKS.
+      sessionCookieCache: true,
       jwks: { keyPairConfig: { alg: "EdDSA", crv: "Ed25519" } },
       jwt: {
         issuer: c.primaryUrl.replace(/\/+$/, ""),
@@ -288,6 +421,7 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
       },
     }),
   );
+  plugins.push(sessionCacheOrg(c));
 
   const hosts = c.hosts.flatMap((h) => [h, `${h}:*`]);
   const social: NonNullable<BetterAuthOptions["socialProviders"]> = {};
@@ -306,13 +440,23 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
       level: "warn",
       log: (level, message) => console.log(JSON.stringify({ level, msg: message, project, source: "better-auth" })),
     },
-    rateLimit: { enabled: c.rateLimit, storage: "memory" },
+    rateLimit: {
+      enabled: c.rateLimit,
+      storage: "memory",
+      // Reading the session isn't an attempt at anything, and apps read it
+      // server-side for every page their visitors load.
+      customRules: { "/tiffin/session": false, "/get-session": false, "/jwks": false },
+    },
     advanced: {
       cookiePrefix: "tiffin",
       useSecureCookies: !c.primaryUrl.startsWith("http://"),
       ipAddress: { ipAddressHeaders: ["x-forwarded-for"] },
     },
-    session: { expiresIn: 30 * 86_400, updateAge: 86_400 },
+    session: {
+      expiresIn: 30 * 86_400,
+      updateAge: 86_400,
+      cookieCache: { enabled: true, strategy: "jwt", maxAge: SESSION_CACHE_SECONDS },
+    },
     user: {
       additionalFields: {
         banned: { type: "boolean", required: false, defaultValue: false, input: false },
@@ -341,20 +485,12 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
     databaseHooks: {
       user: {
         create: {
+          before: async () => {
+            currentFacts().newUser = true;
+          },
           after: async (user) => {
             if (!c.organizations || !holder.adapter) return;
-            // Everyone is an org: each person gets a personal one to own things in.
-            const now = new Date();
-            const org = await holder.adapter.create<{ id: string }>({
-              model: "organization",
-              data: {
-                name: "Personal",
-                slug: `personal-${user.id.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 24)}`,
-                createdAt: now,
-                metadata: JSON.stringify({ personal: true }),
-              },
-            });
-            await holder.adapter.create({ model: "member", data: { organizationId: org.id, userId: user.id, role: "owner", createdAt: now } });
+            await personalOrg(await txAdapter(holder.adapter), user.id);
           },
         },
       },
@@ -368,13 +504,13 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
             }
             const s = session as typeof session & { activeOrganizationId?: string | null };
             if (!c.organizations || s.activeOrganizationId) return;
-            const ms = await holder.adapter.findMany<{ organizationId: string; createdAt: Date }>({
-              model: "member",
-              where: [{ field: "userId", value: session.userId }],
-              sortBy: { field: "createdAt", direction: "asc" },
-              limit: 1,
-            });
-            if (ms[0]) return { data: { ...session, activeOrganizationId: ms[0].organizationId } };
+            const adapter = await txAdapter(holder.adapter);
+            const first = await firstOrg(adapter, session.userId);
+            if (first) return { data: { ...session, activeOrganizationId: first } };
+            // Signed in as the account is made (no email confirmation): the
+            // personal org would only come once the account is saved, after
+            // this session. Make it now, so the session starts in it.
+            if (currentFacts().newUser) return { data: { ...session, activeOrganizationId: await personalOrg(adapter, session.userId) } };
           },
         },
       },

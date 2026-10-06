@@ -71,9 +71,14 @@ func upstreamServer(t *testing.T, name string) *httptest.Server {
 		w.Header().Set("X-Seen-Host", r.Host)
 		w.Header().Set("X-Seen-Fwd-Host", r.Header.Get("X-Forwarded-Host"))
 		w.Header().Set("X-Seen-Fwd-For", r.Header.Get("X-Forwarded-For"))
-		if r.URL.Path == "/own-headers" {
+		switch r.URL.Path {
+		case "/own-headers":
 			w.Header().Set("Content-Security-Policy", "default-src 'self'")
 			w.Header().Set("Strict-Transport-Security", "max-age=1")
+		case "/framed-by-csp":
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors https://partner.example")
+		case "/framed-by-xfo":
+			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		}
 		io.WriteString(w, "hello from "+name+" "+r.URL.Path)
 	}))
@@ -247,6 +252,19 @@ func TestEdgeEndToEnd(t *testing.T) {
 	}
 	if got := resp.Header.Values("Strict-Transport-Security"); len(got) != 1 || got[0] != "max-age=300" {
 		t.Errorf("HSTS = %q", got)
+	}
+	if got := resp.Header.Get("X-Frame-Options"); got != "DENY" {
+		t.Errorf("a CSP without frame-ancestors keeps X-Frame-Options DENY, got %q", got)
+	}
+	// Framing is the app's call once it says who may frame it.
+	for path, want := range map[string][2]string{
+		"/framed-by-csp": {"default-src 'self'; frame-ancestors https://partner.example", ""},
+		"/framed-by-xfo": {"", "SAMEORIGIN"},
+	} {
+		resp, _ = get(t, c, base+path)
+		if csp, xfo := resp.Header.Get("Content-Security-Policy"), resp.Header.Values("X-Frame-Options"); csp != want[0] || strings.Join(xfo, ",") != want[1] {
+			t.Errorf("%s: CSP %q, X-Frame-Options %q; want %q, %q", path, csp, xfo, want[0], want[1])
+		}
 	}
 
 	// Unknown host: friendly 404 with security headers, not Caddy's default.

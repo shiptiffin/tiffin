@@ -5,7 +5,9 @@ services: { auth: { methods: ["email", "magic-link", "passkey", "google"], organ
 ```
 
 The box runs Better Auth for your apps at `/api/auth/*` on each app's own hosts. Users
-and sessions live in the project's own Postgres (schema `auth`).
+and sessions live in the project's own Postgres (schema `auth`). That path is reserved:
+requests under `/api/auth/` never reach your app, so don't put routes there (plans warn
+about app routes under it).
 
 - **Methods:** email + password (with verification), magic links, one-time codes,
   passkeys, Google and GitHub (set `GOOGLE_CLIENT_ID`/`SECRET` etc. as secrets; until
@@ -17,6 +19,9 @@ and sessions live in the project's own Postgres (schema `auth`).
 - **Organizations:** every user gets a personal org; teams have roles owner, admin,
   member and viewer, email and link invites. Nobody can grant a role above their own.
 - **API keys** act as their user, capped by a role.
+- **Passkeys** work on every host of the app (box subdomain and custom domains). A passkey
+  belongs to the host it was made on, or to a parent host the app also serves (one made on
+  `example.com` works on `www.example.com`).
 - **Bots:** a proof-of-work check (ALTCHA) protects sign-up, sign-in and reset.
 
 ## In your app
@@ -32,11 +37,103 @@ const rows = await withOrg(sql, orgId, tx => tx`select * from projects`); // RLS
 import { SignIn, UserButton, OrgSwitcher } from "tiffin-sdk/react";
 ```
 
+`getSession` doesn't ask the engine on every request. Each sign-in also sets a short-lived
+cookie the engine signs with the project's key (the user, the active organization and
+your role in it); the SDK checks the signature itself, with the public key, and asks the
+engine only when that cookie is missing or expired, remembering the answer for 5 seconds.
+So a signed-out session, a ban or a lowered role can keep working in your server code for
+up to **60 seconds** (the engine's own endpoints see it at once). For a sensitive action,
+check now: `getSession(request, { fresh: true })`.
+
 Mail (verification, links, invites) goes through the project's email service, so add
 `email: {}` next to `auth` (the plan warns when it is missing). It lands in the dev inbox
 until you set up a relay. Email + password sign-up needs a confirmed address: sign-up
 answers `{"token": null}` and no session until the user opens the link in the mail.
 Testing it yourself? The link is in `tiffin email messages list <project>` / `get`.
+
+### Next.js
+
+`tiffin-sdk/next/auth` follows the Next.js authentication guide: an optimistic check in
+`proxy.ts`, the real check next to the data, and Server Actions that sign in. The box
+sets everything it needs; there is no auth route or config to write.
+
+```ts
+// proxy.ts: only looks for the session cookie (no network)
+import { authProxy } from "tiffin-sdk/next/auth";
+export const proxy = authProxy({ protect: ["/dashboard/:path*"], signIn: "/sign-in" });
+```
+
+Signed out on a protected page: a redirect to `/sign-in?next=/dashboard/...`; under
+`/api/`: 401. Then check for real where the data is read, in a data access layer:
+
+```ts
+// app/lib/dal.ts
+import "server-only";
+export { getSession, verifySession, requireRole, currentUser } from "tiffin-sdk/next/auth";
+
+// app/dashboard/page.tsx
+const { user, organization } = await verifySession(); // signed out: to /sign-in?next=...
+// app/settings/page.tsx
+const { organization } = await requireRole("admin");  // role too low: 403
+```
+
+They work in Server Components, Server Actions and Route Handlers, run once per request,
+and return plain data (`user`, `organization` with your `role`; no tokens), safe to pass
+to Client Components. `requireRole`, and `verifySession({ signIn: false })` for a 401,
+use `forbidden()` and `unauthorized()`: turn on `experimental: { authInterrupts: true }`
+in next.config.
+
+Server Actions call the engine for the browser and set its cookies:
+
+```ts
+// app/actions.ts
+"use server";
+import { requireRole, signIn, signOut } from "tiffin-sdk/next/auth";
+
+export async function signInAction(_: unknown, form: FormData) {
+  // email, password, captcha and next from the form; { ok: false, code, message } on failure
+  return signIn(form, { redirectTo: "/dashboard" });
+}
+export async function signOutAction() {
+  await signOut({ redirectTo: "/" });
+}
+export async function deleteProject(id: string) {
+  const { organization } = await requireRole("admin", { fresh: true }); // now, not up to 60 s old
+  await withOrg(sql, organization.id, (tx) => tx`delete from projects where id = ${id}`);
+}
+```
+
+```tsx
+// app/sign-in/form.tsx
+"use client";
+import { useActionState } from "react";
+import { CaptchaField } from "tiffin-sdk/react";
+import { signInAction } from "../actions";
+
+export function SignInForm({ next = "" }: { next?: string }) {
+  const [state, action, pending] = useActionState(signInAction, null);
+  return (
+    <form action={action}>
+      <input name="email" type="email" />
+      <input name="password" type="password" />
+      <input name="next" type="hidden" value={next} />
+      <CaptchaField />
+      {state?.ok === false && <p>{state.message}</p>}
+      <button disabled={pending}>Sign in</button>
+    </form>
+  );
+}
+```
+
+`signUp` works the same (`name`, `email`, `password`); it answers `signedIn: false` when
+the user must confirm their email first. `<CaptchaField />` solves the bot check in the
+browser (from `tiffin sdk add --react`). Or skip the actions and drop in `<SignIn />`.
+
+With Cache Components: a `"use cache"` function can't read cookies, so never call
+`getSession` inside one. Check the session outside and pass in what the cached work
+needs (`getProjects(user.id)`, with a `cacheTag` per user), or use `"use cache: private"`
+for per-user results that must not be shared. A page that reads the session renders per
+request: keep that part inside `<Suspense>`.
 
 ### Without the SDK
 

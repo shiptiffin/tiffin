@@ -104,6 +104,68 @@ export function useCaptcha(baseURL, enabled) {
         return { "x-captcha-response": await p };
     };
 }
+/**
+ * The bot check for your own sign-in and sign-up forms that post to a Server
+ * Action (signIn / signUp from tiffin-sdk/next/auth): a hidden `captcha`
+ * field, solved in the background once the form mounts. Submitting before
+ * it is ready waits for it; each submit gets a fresh one for the next try.
+ *
+ *   <form action={signInAction}><CaptchaField /> ...</form>
+ */
+export function CaptchaField({ name = "captcha" }) {
+    const { baseURL, config } = useTiffinAuth();
+    const take = useCaptcha(baseURL, config?.captcha ?? false);
+    const input = useRef(null);
+    // A submit held until the check is ready (kept while the app's config loads).
+    const held = useRef(null);
+    useEffect(() => {
+        const el = input.current;
+        const form = el?.form;
+        if (!el || !form)
+            return;
+        const resubmit = () => {
+            const h = held.current;
+            held.current = null;
+            if (h)
+                form.requestSubmit(h.by ?? undefined);
+        };
+        if (config && !config.captcha)
+            return resubmit();
+        let state = "waiting";
+        let pending = Promise.resolve();
+        const fill = () => {
+            state = "solving";
+            el.value = "";
+            pending = take().then((h) => {
+                el.value = h["x-captcha-response"] ?? "";
+                state = "ready";
+            }, () => {
+                state = "failed";
+            });
+        };
+        const whenReady = () => void pending.then(() => state === "ready" && resubmit());
+        if (config) {
+            fill();
+            whenReady();
+        }
+        const onSubmit = (e) => {
+            if (state === "ready") {
+                setTimeout(fill); // after the form's data is read
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation(); // React handles submits at the root: it never sees this one
+            held.current = { by: e.submitter };
+            if (state === "failed")
+                fill();
+            if (state !== "waiting")
+                whenReady();
+        };
+        form.addEventListener("submit", onSubmit, true);
+        return () => form.removeEventListener("submit", onSubmit, true);
+    }, [config, baseURL]);
+    return _jsx("input", { ref: input, type: "hidden", name: name, defaultValue: "" });
+}
 /** Turns a Better Auth client error into words for people. */
 export function errorText(e, fallback = "Something went wrong. Try again.") {
     const err = e;
