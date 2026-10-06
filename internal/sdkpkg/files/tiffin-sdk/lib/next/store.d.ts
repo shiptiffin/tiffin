@@ -109,8 +109,11 @@ export declare class Store {
      * outdated by a revalidation (another instance may have rendered anew).
      */
     read<M>(kind: "e" | "u", key: string, fromValkey?: boolean): Promise<Item<M> | undefined>;
-    /** Stores an entry in Valkey. `meta.fresh` (ms) is when it goes stale; until then a local copy needs no check. */
-    write(kind: "e" | "u", key: string, meta: Record<string, unknown>, value: unknown, ttlSeconds: number): Promise<void>;
+    /**
+     * Stores an entry in Valkey. `meta.fresh` (ms) is when it goes stale; until then a local copy needs no check.
+     * `ifAbsent` leaves an entry already there alone (SET NX).
+     */
+    write(kind: "e" | "u", key: string, meta: Record<string, unknown>, value: unknown, ttlSeconds: number, ifAbsent?: boolean): Promise<void>;
     del(kind: "e" | "u", key: string): Promise<void>;
     /** Mirrors Next.js's areTagsExpired: a tag expired (by now) after the entry was made. */
     expired(tags: Iterable<string>, at: number): boolean;

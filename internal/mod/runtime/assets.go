@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 
 	"github.com/btahir/tiffin/internal/manifest"
 )
@@ -200,6 +204,9 @@ func (r *rt) extractAssets(ctx context.Context, d *Deploy, dir string) (int, int
 		return 0, 0, err
 	}
 	n, size := countFiles(www)
+	if err := precompress(www); err != nil {
+		return 0, 0, err
+	}
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return 0, 0, err
 	}
@@ -293,18 +300,79 @@ func assetClass(meta []AssetDir, p string) (hashed, bridged bool) {
 	return false, bridged
 }
 
-var extraTypes = map[string]string{".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf", ".otf": "font/otf",
+// Text assets are compressed once, when they are copied out, at the highest
+// levels (too slow for the edge to do per response): a zstd and a gzip copy
+// next to each file (.zst, .gz). There is no Brotli encoder in the box.
+var (
+	compressible   = map[string]bool{".js": true, ".mjs": true, ".cjs": true, ".css": true, ".html": true, ".htm": true, ".json": true, ".map": true, ".svg": true, ".txt": true, ".xml": true, ".webmanifest": true, ".wasm": true, ".ttf": true, ".otf": true, ".ico": true}
+	encodings      = []struct{ name, ext string }{{"zstd", ".zst"}, {"gzip", ".gz"}}
+	minCompressLen = int64(1024)
+)
+
+// precompress writes the compressed copies of the text files in dir. A copy
+// that saves less than a tenth is not kept.
+func precompress(dir string) error {
+	zw, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedBestCompression))
+	if err != nil {
+		return err
+	}
+	defer zw.Close()
+	return filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
+		if err != nil || !e.Type().IsRegular() || !compressible[strings.ToLower(filepath.Ext(p))] {
+			return err
+		}
+		raw, err := os.ReadFile(p)
+		if err != nil || int64(len(raw)) <= minCompressLen {
+			return err
+		}
+		var gz bytes.Buffer
+		gw, _ := gzip.NewWriterLevel(&gz, gzip.BestCompression)
+		_, _ = gw.Write(raw)
+		_ = gw.Close()
+		for _, out := range []struct {
+			ext string
+			b   []byte
+		}{{".zst", zw.EncodeAll(raw, nil)}, {".gz", gz.Bytes()}} {
+			if len(out.b) < len(raw)*9/10 {
+				if err := os.WriteFile(p+out.ext, out.b, 0o644); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+// accepts reports whether an Accept-Encoding header allows coding.
+func accepts(header, coding string) bool {
+	for _, part := range strings.Split(header, ",") {
+		name, params, _ := strings.Cut(part, ";")
+		if !strings.EqualFold(strings.TrimSpace(name), coding) {
+			continue
+		}
+		q := strings.TrimSpace(params)
+		if v, ok := strings.CutPrefix(q, "q="); ok {
+			f, err := strconv.ParseFloat(v, 64)
+			return err == nil && f > 0
+		}
+		return true
+	}
+	return false
+}
+
+var extraTypes = map[string]string{".cjs": "text/javascript; charset=utf-8", ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf", ".otf": "font/otf",
 	".map": "application/json", ".ico": "image/x-icon", ".txt": "text/plain; charset=utf-8", ".webmanifest": "application/manifest+json"}
 
 // serveFile serves www/p if it is a regular file inside www (symlinks may
-// not leave it).
+// not leave it), as its compressed copy when the client takes one.
 func serveFile(w http.ResponseWriter, req *http.Request, www, p string, hashed bool) bool {
 	root, err := os.OpenRoot(www)
 	if err != nil {
 		return false
 	}
 	defer root.Close()
-	f, err := root.Open(strings.TrimPrefix(p, "/"))
+	name := strings.TrimPrefix(p, "/")
+	f, err := root.Open(name)
 	if err != nil {
 		return false
 	}
@@ -320,7 +388,27 @@ func serveFile(w http.ResponseWriter, req *http.Request, www, p string, hashed b
 	} else if t := mime.TypeByExtension(ext); t != "" {
 		h.Set("Content-Type", t)
 	}
-	h.Set("ETag", fmt.Sprintf(`"%x-%x"`, fi.ModTime().UnixNano(), fi.Size()))
+	tag := ""
+	if compressible[ext] && fi.Size() > minCompressLen {
+		h.Add("Vary", "Accept-Encoding")
+		for _, enc := range encodings {
+			if !accepts(req.Header.Get("Accept-Encoding"), enc.name) {
+				continue
+			}
+			cf, err := root.Open(name + enc.ext)
+			if err != nil {
+				continue
+			}
+			defer cf.Close()
+			if cfi, err := cf.Stat(); err == nil && cfi.Mode().IsRegular() {
+				// The edge leaves a response with a Content-Encoding as it is.
+				h.Set("Content-Encoding", enc.name)
+				f, fi, tag = cf, cfi, "-"+enc.name
+				break
+			}
+		}
+	}
+	h.Set("ETag", fmt.Sprintf(`"%x-%x%s"`, fi.ModTime().UnixNano(), fi.Size(), tag))
 	if hashed {
 		h.Set("Cache-Control", "public, max-age=31536000, immutable")
 	} else {

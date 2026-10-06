@@ -340,7 +340,7 @@ func (r *rt) activate(w http.ResponseWriter, req *http.Request) {
 	st := r.st.cache.get(key)
 	// Client assets come from the box's copy of them; a sleeping app need
 	// not wake for them.
-	if st != nil && !st.Stopped && r.serveAsset(w, req, st, prefix) {
+	if st != nil && !st.Stopped && (r.serveAsset(w, req, st, prefix) || r.serveBucketImage(w, req, st, prefix)) {
 		return
 	}
 	if st != nil && !st.Stopped && (st.Sleeping || (st.Preview != "" && len(st.Instances) == 0)) {

@@ -277,6 +277,9 @@ func remove(ctx context.Context, p *platform.Platform, project string) error {
 			return fmt.Errorf("drop role: %w", err)
 		}
 	}
+	if err := dropReadRole(ctx, admin, p, project); err != nil {
+		return err
+	}
 	forgetApplied(project)
 	_ = p.DB.KVDelete(ctx, nsExtensions, project)
 	return p.DB.KVDelete(ctx, nsPassword, project)

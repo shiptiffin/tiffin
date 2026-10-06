@@ -54,6 +54,9 @@ type Options struct {
 	// Branches makes and drops previews' database branches (nil: the
 	// postgres module's).
 	Branches BranchStore
+	// ReadAccess gives builds read-only database and Valkey users (nil:
+	// the postgres and valkey modules').
+	ReadAccess ReadAccess
 }
 
 func defaultOptions() Options {
@@ -142,6 +145,9 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	}
 	if opt.Branches == nil {
 		opt.Branches = pgBranches{}
+	}
+	if opt.ReadAccess == nil {
+		opt.ReadAccess = boxReadAccess{}
 	}
 	if opt.ReleaseTimeout <= 0 {
 		opt.ReleaseTimeout = 10 * time.Minute

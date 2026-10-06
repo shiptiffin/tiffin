@@ -1,5 +1,5 @@
-// The seed data: written to Postgres on first start, and used while
-// prerendering when `next build` cannot reach the database.
+// The seed data: written to Postgres by the release command, and what the
+// first build prerenders, before the release has created the tables.
 
 export type Product = { id: number; slug: string; name: string; price: number; stock: number; likes: number };
 export type Post = { slug: string; title: string; body: string; rev: number };

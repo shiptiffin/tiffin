@@ -1,0 +1,223 @@
+{
+  "label": "mem-bun-smol",
+  "date": "2026-10-06 03:09 UTC",
+  "base": "https://next-showcase.tiffin.localhost:54686",
+  "directIp": "192.168.64.4",
+  "vm": "tiffin-bench-1791254123",
+  "notes": [
+    "Memory knob test: bun --smol (and the box default BUN_JSC_forceRAMSize = 512 MiB)"
+  ],
+  "deploy": {
+    "runtime": "bun",
+    "instances": "2",
+    "deploy": "dep_01M47JZ4DKQ745VR8Q4VXS5GE1",
+    "tiffin": "{\"commit\":\"9f6d584+\",\"date\":\"unknown\",\"name\":\"tiffin\",\"version\":\"0.0.1-bench\"}",
+    "box": "2 vCPU, 3896 MB, 7.0.0-34-generic"
+  },
+  "memory": {
+    "idle": [
+      {
+        "name": "tf.next-showcase.web.prod.7",
+        "instance": "0",
+        "runtime": "bun",
+        "currentMB": 169,
+        "peakMB": 176,
+        "anonMB": 64,
+        "rssMB": 123
+      },
+      {
+        "name": "tf.next-showcase.web.prod.8",
+        "instance": "1",
+        "runtime": "bun",
+        "currentMB": 93,
+        "peakMB": 107,
+        "anonMB": 65,
+        "rssMB": 123
+      }
+    ],
+    "boxIdle": {
+      "used": 1872,
+      "available": 2024,
+      "postgres": 359,
+      "valkey-server": 13,
+      "tiffin": 241,
+      "buildkitd": 485,
+      "containerd": 50
+    },
+    "peakDuringLoad": {
+      "0": 316,
+      "1": 253
+    },
+    "after": [
+      {
+        "name": "tf.next-showcase.web.prod.7",
+        "instance": "0",
+        "runtime": "bun",
+        "currentMB": 307,
+        "peakMB": 317,
+        "anonMB": 198,
+        "rssMB": 269
+      },
+      {
+        "name": "tf.next-showcase.web.prod.8",
+        "instance": "1",
+        "runtime": "bun",
+        "currentMB": 243,
+        "peakMB": 254,
+        "anonMB": 196,
+        "rssMB": 267
+      }
+    ],
+    "boxAfter": {
+      "used": 1934,
+      "available": 1962,
+      "postgres": 404,
+      "valkey-server": 13,
+      "tiffin": 204,
+      "buildkitd": 306,
+      "containerd": 50
+    }
+  },
+  "load": [
+    {
+      "name": "static chunk",
+      "path": "/_next/static/chunks/3t785h_9t5l15.js?dpl=dep_01M47JZ4DKQ745VR8Q4VXS5GE1",
+      "via": "vzNAT",
+      "rate": 1000,
+      "rps": 999.9,
+      "ok": 100,
+      "p50": 0.4,
+      "p95": 0.6,
+      "p99": 1.6,
+      "max": 12.1,
+      "codes": "200×20000",
+      "errors": ""
+    },
+    {
+      "name": "home (static)",
+      "path": "/",
+      "via": "vzNAT",
+      "rate": 400,
+      "rps": 400,
+      "ok": 100,
+      "p50": 1.2,
+      "p95": 2.3,
+      "p99": 4.1,
+      "max": 29.3,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "home (static)",
+      "path": "/",
+      "via": "forwarder",
+      "rate": 400,
+      "rps": 400,
+      "ok": 100,
+      "p50": 1.6,
+      "p95": 3.4,
+      "p99": 8.3,
+      "max": 41.8,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "blog (ISR)",
+      "path": "/blog/hello-box",
+      "via": "vzNAT",
+      "rate": 400,
+      "rps": 400,
+      "ok": 100,
+      "p50": 1.2,
+      "p95": 2.4,
+      "p99": 4.3,
+      "max": 15.6,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "products (PPR)",
+      "path": "/products",
+      "via": "vzNAT",
+      "rate": 200,
+      "rps": 200,
+      "ok": 100,
+      "p50": 4.5,
+      "p95": 9.6,
+      "p99": 23.4,
+      "max": 58.6,
+      "codes": "200×4000",
+      "errors": ""
+    },
+    {
+      "name": "dashboard (dynamic)",
+      "path": "/dashboard?delay=0",
+      "via": "vzNAT",
+      "rate": 50,
+      "rps": 50,
+      "ok": 100,
+      "p50": 5.7,
+      "p95": 7.7,
+      "p99": 10.5,
+      "max": 20.9,
+      "codes": "200×1000",
+      "errors": ""
+    },
+    {
+      "name": "api/items (JSON)",
+      "path": "/api/items",
+      "via": "vzNAT",
+      "rate": 400,
+      "rps": 400,
+      "ok": 100,
+      "p50": 1,
+      "p95": 2.2,
+      "p99": 4.6,
+      "max": 16.2,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "next/image warm",
+      "path": "/_next/image?url=%2Fhero.jpg&w=828&q=75",
+      "via": "vzNAT",
+      "rate": 300,
+      "rps": 300,
+      "ok": 100,
+      "p50": 0.9,
+      "p95": 1.9,
+      "p99": 4,
+      "max": 23.8,
+      "codes": "200×6000",
+      "errors": ""
+    },
+    {
+      "name": "next/image cold",
+      "path": "/_next/image\\?url=%2Fapi%2Fswatch%2F[0-9]{12}&w=640&q=75",
+      "via": "vzNAT",
+      "rate": 10,
+      "rps": 10,
+      "ok": 100,
+      "p50": 28.5,
+      "p95": 35.6,
+      "p99": 39.5,
+      "max": 43.6,
+      "codes": "200×200",
+      "errors": ""
+    },
+    {
+      "name": "server action POST",
+      "path": "/dashboard",
+      "via": "vzNAT",
+      "rate": 100,
+      "rps": 100,
+      "ok": 100,
+      "p50": 2.8,
+      "p95": 4.5,
+      "p99": 6.9,
+      "max": 11.3,
+      "codes": "200×2000",
+      "errors": ""
+    }
+  ]
+}

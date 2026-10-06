@@ -158,9 +158,15 @@ export async function functional(t: Target, o: { instances: number; actions: Act
   const b0 = await blog();
   await check("F09", "blog: prerendered at build, served from cache (ISR)", async () => {
     must(b0.status === 200 && b0.rev > 0, `GET /blog/hello-box → ${b0.status}`);
-    const again = await blog();
-    must(again.at === b0.at, `rendered again on a plain GET (${b0.at} → ${again.at})`);
-    return pick(b0.headers, "cache-control", "x-nextjs-cache", "x-nextjs-prerender");
+    // The first request after a deploy gets the build's prerender: fresh (HIT),
+    // or past its revalidate time (STALE, and Next.js renders it anew once).
+    const first = b0.headers["x-nextjs-cache"] ?? "-";
+    must(first === "HIT" || first === "STALE", `the first request was rendered (x-nextjs-cache=${first}), not the build's prerender`);
+    if (first === "STALE") await sleep(1000);
+    const [a, b] = [await blog(), await blog()];
+    must(a.at === b.at, `rendered again on a plain GET (${a.at} → ${b.at})`);
+    const age = ((Date.now() - Date.parse(b0.at)) / 1000).toFixed(0);
+    return `${pick(b0.headers, "cache-control", "x-nextjs-cache", "x-nextjs-prerender")}, first copy rendered ${age} s ago`;
   });
 
   await check("F10", "proxy: /dashboard without a session redirects to /login on this site", async () => {

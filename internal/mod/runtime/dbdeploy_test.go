@@ -70,6 +70,23 @@ func (f *fakeBranches) has(name string) bool {
 	return ok
 }
 
+// fakeReadAccess stands in for the read-only users the postgres and valkey
+// modules make.
+type fakeReadAccess struct{}
+
+func (fakeReadAccess) PostgresReadEnv(ctx context.Context, p *platform.Platform, project, branch string) (map[string]string, error) {
+	db := postgres.Database(project)
+	if branch != "" {
+		db = postgres.BranchDatabase(project, branch)
+	}
+	u := "postgresql://" + postgres.ReadRole(project) + ":ro@127.0.0.1:5432/" + db + "?sslmode=disable"
+	return map[string]string{"DATABASE_URL": u, "DIRECT_DATABASE_URL": u, "PGUSER": postgres.ReadRole(project), "PGDATABASE": db}, nil
+}
+
+func (fakeReadAccess) ValkeyReadEnv(ctx context.Context, p *platform.Platform, project string) (map[string]string, error) {
+	return map[string]string{"REDIS_URL": "redis://reader@127.0.0.1:6379"}, nil
+}
+
 // withPostgres gives the harness project a database, and api a release
 // command.
 func (h *harness) withPostgres(previews manifest.PreviewDatabase) {
@@ -191,6 +208,20 @@ func TestPreviewDatabaseBranch(t *testing.T) {
 	}
 	if log := h.buildLogText(pv); !strings.Contains(log, "gets branch pv-pr-7") {
 		t.Errorf("build log:\n%s", log)
+	}
+	// Builds read the environment's database as its read-only role: the
+	// preview's build reads its branch, which exists before it builds.
+	h.bld.mu.Lock()
+	pb, prb := h.bld.runEnvs[prod.ID], h.bld.runEnvs[pv.ID]
+	h.bld.mu.Unlock()
+	if !strings.Contains(pb["DATABASE_URL"], "p_shop__read:") || !strings.Contains(pb["DATABASE_URL"], "/p_shop?") || pb["PGUSER"] != "p_shop__read" {
+		t.Errorf("production build: %s %s", pb["DATABASE_URL"], pb["PGUSER"])
+	}
+	if !strings.Contains(prb["DATABASE_URL"], "p_shop__read:") || !strings.Contains(prb["DATABASE_URL"], "/p_shop__pv_pr_7?") || prb["TIFFIN_URL"] == "" || prb["TIFFIN_PREVIEW"] != "pr-7" {
+		t.Errorf("preview build: %s TIFFIN_URL %q", prb["DATABASE_URL"], prb["TIFFIN_URL"])
+	}
+	if prb["NODE_ENV"] != "" || prb["NODE_OPTIONS"] != "" {
+		t.Errorf("instance-only defaults in the build env: %q %q", prb["NODE_ENV"], prb["NODE_OPTIONS"])
 	}
 	// The next deploy and another app's preview of the same name use it.
 	h.deploy("api", "pr-7", map[string]string{"index.ts": "feature 2"})

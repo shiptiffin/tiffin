@@ -1,7 +1,10 @@
 package runtime
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 
 	"github.com/btahir/tiffin/internal/manifest"
 )
@@ -242,5 +247,48 @@ func TestClientAssetsThroughDeploys(t *testing.T) {
 	h.apply()
 	if exists(filepath.Join(h.r.opt.DataDir, "assets", "shop", "api")) {
 		t.Fatal("assets of a deleted app are kept")
+	}
+}
+
+func TestPrecompressedAssets(t *testing.T) {
+	r := &rt{opt: Options{DataDir: t.TempDir()}, assetMetas: map[string][]AssetDir{}}
+	dir := filepath.Join(r.assetsDir("shop", "web", ""), "dep_1")
+	js := strings.Repeat("console.log('hello from a chunk');\n", 200)
+	writeRelease(t, dir, `[{"dir":".next/static","path":"/_next/static","immutable":["/_next/static/"]}]`,
+		map[string]string{"_next/static/chunks/a.js": js, "_next/static/chunks/tiny.js": "x()", "_next/static/media/f.woff2": js})
+	if err := precompress(filepath.Join(dir, "www")); err != nil {
+		t.Fatal(err)
+	}
+	for f, want := range map[string]bool{"chunks/a.js.zst": true, "chunks/a.js.gz": true, "chunks/tiny.js.gz": false, "media/f.woff2.gz": false} {
+		if got := exists(filepath.Join(dir, "www", "_next", "static", f)); got != want {
+			t.Errorf("%s written: %v, want %v", f, got, want)
+		}
+	}
+	st := &AppState{Project: "shop", App: "web", Live: "dep_1"}
+	for _, c := range []struct{ ae, enc string }{
+		{"gzip, deflate, br, zstd", "zstd"}, {"gzip", "gzip"}, {"zstd;q=0, gzip", "gzip"}, {"", ""}, {"br", ""},
+	} {
+		req := httptest.NewRequest("GET", "/_next/static/chunks/a.js", nil)
+		req.Header.Set("Accept-Encoding", c.ae)
+		w := httptest.NewRecorder()
+		if !r.serveAsset(w, req, st, "") {
+			t.Fatal("not served")
+		}
+		h := w.Header()
+		if h.Get("Content-Encoding") != c.enc || h.Get("Vary") != "Accept-Encoding" || !strings.HasPrefix(h.Get("Content-Type"), "text/javascript") {
+			t.Errorf("Accept-Encoding %q: encoding %q vary %q type %q", c.ae, h.Get("Content-Encoding"), h.Get("Vary"), h.Get("Content-Type"))
+		}
+		body := w.Body.Bytes()
+		switch c.enc {
+		case "gzip":
+			zr, _ := gzip.NewReader(bytes.NewReader(body))
+			body, _ = io.ReadAll(zr)
+		case "zstd":
+			zr, _ := zstd.NewReader(nil)
+			body, _ = zr.DecodeAll(body, nil)
+		}
+		if string(body) != js {
+			t.Errorf("Accept-Encoding %q: the body does not decode to the file", c.ae)
+		}
 	}
 }

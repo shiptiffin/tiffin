@@ -33,9 +33,13 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    changes go in `release: "bunx drizzle-kit migrate"` (any command): it runs once per deploy
    before the new version takes traffic, a failure keeps the old one serving, and rollbacks do
    not undo it, so add first and drop only in a later deploy. Each preview gets its own
-   copy-on-write database branch (`pv-<preview>`) and migrates that, never production's. Next.js needs
+   copy-on-write database branch (`pv-<preview>`) and migrates that, never production's. Builds get
+   the app's env and secrets like Vercel's, with the database and Valkey read-only (a preview's build
+   reads its branch); the build runs before `release`, so it sees the old schema (a first deploy has
+   no tables yet). Next.js needs
    no box-specific next.config: the box's adapter sets `deploymentId`, the Valkey cache handlers
-   (when the project has Valkey) and a stable Server Actions key at build. Apps on Vercel's Workflow
+   (when the project has Valkey) and a stable Server Actions key at build; prerendered pages serve
+   from the build, next/image of bucket files and og:image URLs work without `metadataBase` or a loader. Apps on Vercel's Workflow
    DevKit (`workflow`) run unchanged on its Postgres world: give the project `postgres: {}`. Another
    server framework whose client files the box does not find (deploy log: "client assets") can name
    them: `assets: { dir: "dist/client" }`. Apps from Vercel need no changes: a Next.js `output: "export"`

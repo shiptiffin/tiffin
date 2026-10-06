@@ -9,9 +9,9 @@ export const metadata: Metadata = {
   openGraph: { title: "Showcase on Tiffin", description: "Next.js 16 on one box." },
 };
 
-// The featured image lives in the project's public bucket (seeded on first
-// start); TIFFIN_FILES_URL is where the box serves public files.
-const files = process.env.TIFFIN_FILES_URL ?? "https://files.tiffin.localhost:8443/next-showcase";
+// The featured image lives in the project's public bucket (the release puts
+// it there); TIFFIN_FILES_URL, set at build too, is where the box serves them.
+const files = process.env.TIFFIN_FILES_URL;
 
 export default function Home() {
   return (

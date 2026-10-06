@@ -173,7 +173,10 @@ those.
 Private buckets need a signed link: `signedUrl("uploads", key, { width: 256, expiresIn: 3600 })`.
 The signature covers the file and the expiry, not `w`, `q` and `f`, so they can be added to it.
 
-With next/image the box does the resizing instead of sharp in your app:
+With next/image and its default loader, `/_next/image` requests for the project's own
+bucket files are answered with these transforms, with no setup (see
+[Next.js](apps.md#nextjs)). The loader below skips `/_next/image` altogether: the page
+links `files.<domain>` directly, which browsers and CDNs cache by URL.
 
 ```ts
 // image-loader.ts
