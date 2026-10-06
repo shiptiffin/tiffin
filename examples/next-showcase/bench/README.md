@@ -10,7 +10,7 @@ Needs Node.js 24, Lima, `brew install oha`, and in this folder `npm install && n
 
 ```bash
 bench/box.sh up                      # a fresh box from this checkout (2 vCPU / 4 GiB), ~3 min
-bench/box.sh deploy bun 2            # as Tiffin deploys it: bun --bun next start, 2 instances
+bench/box.sh deploy bun 2            # as Tiffin deploys it: Next.js on Bun, 2 instances
 eval "$(bench/box.sh env)"           # BASE, VM, DIRECT_IP
 cd bench && node run.ts --label bun-x2 --instances 2
 

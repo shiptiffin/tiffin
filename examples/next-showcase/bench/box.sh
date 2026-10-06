@@ -52,7 +52,7 @@ up)
   limactl start "$VM" --tty=false --timeout 14m
   echo "==> installing tiffin"
   cli up --binary "$work/tiffin-linux"
-  # The default per-IP limit (300 requests / 10 s, static files included)
+  # The default per-IP limit (300 requests / 10 s for pages and API calls)
   # would turn most of the load generator's requests into 429s.
   cli protect set --body '{"limits":{"app":{"requests":1000000,"windowSeconds":10}}}' >/dev/null
   ;;
