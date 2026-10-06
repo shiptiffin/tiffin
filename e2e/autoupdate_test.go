@@ -150,15 +150,21 @@ func TestAutoUpdate(t *testing.T) {
 		}
 		return m
 	}
-	// finished waits for the newest update to end and returns it.
-	finished := func(want string) map[string]any {
+	newest := func() string {
+		if ups, _ := b.ok("update", "status")["updates"].([]any); len(ups) > 0 {
+			return fmt.Sprint(ups[0].(map[string]any)["id"])
+		}
+		return ""
+	}
+	// finished waits for an update to want after the one with ID prev to end.
+	finished := func(want, prev string) map[string]any {
 		t.Helper()
 		deadline := time.Now().Add(10 * time.Minute)
 		for time.Now().Before(deadline) {
 			if s := status(); s != nil {
 				if ups, _ := s["updates"].([]any); len(ups) > 0 {
 					u := ups[0].(map[string]any)
-					if u["to"] == want && u["status"] != "running" {
+					if u["id"] != prev && u["to"] == want && u["status"] != "running" {
 						return u
 					}
 				}
@@ -184,13 +190,13 @@ func TestAutoUpdate(t *testing.T) {
 
 	// ---- (2) the maintenance window: installs by itself, under load ----
 	host.publish("0.2.0", read(v2), read(v2), false)
-	pid := edgePID()
+	pid, prev := edgePID(), newest()
 	var up map[string]any
 	r := loads.run("auto update in window", func() {
 		// The window opens so that its update time (30 min in) is the next minute.
 		win := b.inBox(`date -d '-29 minutes' +%H:%M`)
 		b.ok("update", "settings", "--window", win)
-		up = finished("0.2.0")
+		up = finished("0.2.0", prev)
 	})
 	if up["status"] != "ok" || up["trigger"] != "schedule" || up["backup"] == "" {
 		t.Fatalf("the window's update: %v", up)
@@ -219,9 +225,10 @@ func TestAutoUpdate(t *testing.T) {
 	// ---- (3) a build that fails its health check rolls back and alerts ----
 	host.publish("0.3.0", broken, broken, false)
 	_ = b.ok("update", "settings", "--window", "box") // no window: only update apply
+	prev = newest()
 	r = loads.run("unhealthy release", func() {
 		b.ok("update", "apply")
-		up = finished("0.3.0")
+		up = finished("0.3.0", prev)
 	})
 	if up["status"] != "rolled-back" {
 		t.Fatalf("the broken release: %v", up)
@@ -250,10 +257,10 @@ func TestAutoUpdate(t *testing.T) {
 
 	// ---- (4) a release that changed the edge restarts it ----
 	host.publish("0.4.0", read(v4), read(v4), true)
-	pid = edgePID()
+	pid, prev = edgePID(), newest()
 	r = loads.run("release with edge restart", func() {
 		b.ok("update", "apply")
-		up = finished("0.4.0")
+		up = finished("0.4.0", prev)
 	})
 	if up["status"] != "ok" || up["edgeRestart"] != true {
 		t.Fatalf("the edge release: %v", up)

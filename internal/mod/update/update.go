@@ -73,6 +73,7 @@ type record struct {
 	NextCheck     time.Time  `json:"nextCheck"`
 	Available     *Available `json:"available,omitempty"`
 	CheckError    string     `json:"checkError,omitempty"`
+	Refused       bool       `json:"refused,omitempty"` // the check refused a release (not a network error)
 	LastScheduled time.Time  `json:"lastScheduled"`
 	Updates       []Update   `json:"updates"` // newest first
 	Audited       []string   `json:"audited"`
@@ -169,7 +170,7 @@ func (u *updater) check(ctx context.Context) (*release.Manifest, record, error) 
 	now := time.Now().UTC()
 	prevErr := r.CheckError
 	r, serr := edit(func(r *record) {
-		r.CheckedAt, r.CheckError, r.Available = now, "", nil
+		r.CheckedAt, r.CheckError, r.Refused, r.Available = now, "", errors.Is(err, release.ErrRefused), nil
 		r.NextCheck = now.Add(20*time.Hour + rand.N(8*time.Hour)) // daily, at a time of its own
 		if err != nil {
 			r.CheckError = err.Error()

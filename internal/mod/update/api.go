@@ -88,8 +88,8 @@ func (*Module) Checks(context.Context, *platform.Platform) []platform.Check {
 	if len(r.Updates) > 0 && r.Updates[0].Status != "ok" && r.Updates[0].Status != "running" {
 		c.OK, c.Detail = false, r.Updates[0].Summary+"; "+s.Summary
 	}
-	if r.CheckError != "" && s.Release {
-		c.OK = false
+	if r.Refused {
+		c.OK = false // a release that does not check out is worth a look; the network is not
 	}
 	return []platform.Check{c}
 }

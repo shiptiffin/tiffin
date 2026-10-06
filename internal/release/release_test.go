@@ -186,12 +186,13 @@ func TestManifestValidate(t *testing.T) {
 func TestRolloutBuckets(t *testing.T) {
 	m := testManifest()
 	m.Rollout = 10
+	// Pinned: changing the hash would reshuffle every rollout in flight.
+	if b := Bucket("box_1", "1.5.0"); b != 25 {
+		t.Fatalf("bucket of box_1 for 1.5.0 = %d, want 25", b)
+	}
 	in, first := 0, 0
 	for i := 0; i < 10000; i++ {
 		id := fmt.Sprintf("box_%d", i)
-		if Bucket(id, "1.5.0") != Bucket(id, "1.5.0") {
-			t.Fatal("bucket not stable")
-		}
 		if m.InRollout(id) {
 			in++
 			if Bucket(id, "1.6.0") < 10 {
