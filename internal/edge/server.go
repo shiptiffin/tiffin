@@ -97,15 +97,12 @@ func (s *Server) Start(ctx context.Context) error {
 		cancelEvents()
 		_ = api.Close()
 		// Caddy first: it finishes the requests under way, through the
-		// switchboard, and then the switchboard has nothing left. Bounded:
-		// a stream left open would hold the restart up for good. With socket
-		// activation, connections that arrive meanwhile wait in the kernel
-		// for the next edge.
-		stopped := make(chan struct{})
-		go func() { _ = caddy.Stop(); close(stopped) }()
-		select {
-		case <-stopped:
-		case <-time.After(10 * time.Second):
+		// switchboard, and then the switchboard has nothing left (see
+		// drain.go). Bounded: a stream left open would hold the restart up
+		// for good. With socket activation, connections that arrive
+		// meanwhile wait in the kernel for the next edge.
+		_ = caddy.Stop()
+		if !waitConns(10 * time.Second) {
 			s.Log.Warn("edge: requests still under way after 10s; stopping anyway")
 		}
 		sctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -176,6 +173,12 @@ func (s *Server) loadCaddy(ctx context.Context, r Rendered) error {
 		return err
 	}
 	if r.Fallback, err = s.listeners(r.Fallback); err != nil {
+		return err
+	}
+	if r.Config, err = counted(r.Config); err != nil {
+		return err
+	}
+	if r.Fallback, err = counted(r.Fallback); err != nil {
 		return err
 	}
 	fallback, err := r.load(ctx)
