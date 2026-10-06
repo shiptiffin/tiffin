@@ -100,6 +100,7 @@ var groupShort = map[string]string{
 	"issues":    "Errors your apps reported, grouped into issues",
 	"traces":    "Request traces your apps sent over OpenTelemetry",
 	"observe":   "Observability settings and overview",
+	"monitor":   "Have someone outside notice when this box stops answering",
 	"previews":  "Preview deploys: list, sleep and delete",
 	"templates": "Starter apps to create a project from",
 	"box":       "This machine: CPU, memory, disks and what each service and app uses",
@@ -124,7 +125,7 @@ var switchFlags = map[string]struct{ flag, suffix, usage string }{
 // trailingArg lets a command take one body field or query parameter as a
 // last positional argument: `tiffin sql shop "select 1"` is
 // `--sql "select 1"`, `tiffin kv get shop greet` is `--key greet`.
-var trailingArg = map[string]string{"sql": "sql", "sql-write": "sql", "kv-get": "key"}
+var trailingArg = map[string]string{"sql": "sql", "sql-write": "sql", "kv-get": "key", "monitor-set": "url"}
 
 type bodyFlag struct {
 	name string

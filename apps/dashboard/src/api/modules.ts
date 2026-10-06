@@ -78,6 +78,7 @@ export type AlertRule = S["ObserveRule"];
 export type AppMetrics = S["ObserveAppMetrics"];
 export type LogsResult = S["ObserveLogsResult"];
 export type ObserveSettings = S["ObserveSettings"];
+export type OutsideCheck = S["Monitor"];
 export type TraceSummary = S["ObserveTraceSummary"];
 export type TraceDetail = S["ObserveTraceDetail"];
 export type TraceSpan = S["ObserveSpan"];
@@ -260,6 +261,11 @@ export const mod = {
   deleteRule: (name: string) => request<void>("DELETE", `/v1/observe/alert-rules/${e(name)}`),
   testAlert: () => request<unknown>("POST", "/v1/observe/alerts/test", {}),
   observeSettings: () => request<ObserveSettings>("GET", "/v1/observe/settings"),
+  // the outside check (heartbeat)
+  monitor: () => request<OutsideCheck>("GET", "/v1/monitor"),
+  monitorSet: (url: string) => request<OutsideCheck>("PUT", "/v1/monitor", { url }),
+  monitorTest: () => request<OutsideCheck>("POST", "/v1/monitor/test", {}),
+  monitorOff: () => request<OutsideCheck>("DELETE", "/v1/monitor"),
 };
 
 export const mod2 = {
@@ -364,6 +370,7 @@ export const mq = {
   trace: (project: string, id: string) => queryOptions({ queryKey: ["trace", project, id], queryFn: () => mod.trace(project, id), staleTime: Infinity }),
   alerts: queryOptions({ queryKey: ["alerts"], queryFn: mod.alerts, refetchInterval: 30_000 }),
   rules: queryOptions({ queryKey: ["rules"], queryFn: mod.rules }),
+  monitor: queryOptions({ queryKey: ["monitor"], queryFn: mod.monitor, refetchInterval: 30_000 }),
   // Polled by the shell for the alarm state; stops when the box has no protection module.
   protect: queryOptions({ queryKey: ["protect"], queryFn: mod2.protect, retry: false, refetchInterval: (q) => (q.state.error ? false : 20_000) }),
   wfApprovals: (p: string) => queryOptions({ queryKey: ["wf-approvals", p], queryFn: () => mod2.wfApprovals(p), refetchInterval: 15_000 }),

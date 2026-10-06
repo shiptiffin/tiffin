@@ -365,6 +365,9 @@ func (a *app) serveCmd() *cobra.Command {
 			if openErr != nil {
 				return openErr
 			}
+			if plat != nil {
+				plat.BoxChecks = func(ctx context.Context) []platform.Check { return b.api.Status(ctx, started).Checks }
+			}
 			ln, err := net.Listen("tcp", addr)
 			if err != nil {
 				return err
