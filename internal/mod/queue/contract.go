@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"net/http"
 
 	"github.com/btahir/tiffin/internal/platform"
 )
@@ -38,6 +39,16 @@ import (
 // every 10-30 s is fine. Plain queue jobs are not pinned: they go to the
 // current release.
 //
+// # The queue module implements ServeLive for the runtime
+//
+// Browsers watch a job or workflow run on the app's own host, at
+// GET /_tiffin/runs/{id}/events (LivePath). The runtime's switchboard hands
+// every request under LivePath to
+//
+//	queue.ServeLive(w, r)
+//
+// before it could reach the app, on every app host, previews included.
+//
 // # Postgres (internal/mod/postgres) implements SystemDatabase
 //
 //	SystemDatabase(ctx, p, "tiffin_queue") → DSN of a platform-owned
@@ -67,6 +78,13 @@ type PinnedReleaser interface {
 }
 
 var _ PinnedReleaser = (*Module)(nil)
+
+// LiveServer is what this module offers the runtime (see above).
+type LiveServer interface {
+	ServeLive(w http.ResponseWriter, r *http.Request)
+}
+
+var _ LiveServer = (*Module)(nil)
 
 func findModule[T any]() (T, bool) {
 	for _, m := range platform.Modules() {

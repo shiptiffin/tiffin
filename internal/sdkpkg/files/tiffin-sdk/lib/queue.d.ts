@@ -54,6 +54,8 @@ export interface ClientOptions {
     key?: string;
     /** This app's name; default TIFFIN_APP. */
     app?: string;
+    /** This app's project; default TIFFIN_PROJECT. */
+    project?: string;
     /** Signing secret for incoming pushes; default TIFFIN_QUEUE_SIGNING_SECRET. */
     signingSecret?: string;
     fetch?: typeof fetch;
@@ -95,9 +97,29 @@ export declare const OUTBOX_INSERT = "INSERT INTO tiffin.outbox (name, payload, 
 export declare function sendTx(db: SqlExecutor, name: string, payload?: unknown, opts?: SendOptions): Promise<void>;
 /** Asks the box to move committed sendTx rows into the queue now. */
 export declare function flush(): Promise<void>;
+export interface TokenOptions {
+    /** How long a browser may (re)connect with the token: default "1h", at most "7d". */
+    ttl?: Duration;
+}
+/**
+ * Mints a token that lets a browser watch one job or workflow run
+ * (`useJob` / `useRun` in tiffin-sdk/react). Call it on the server: it signs
+ * with TIFFIN_QUEUE_SIGNING_SECRET, without a call to the box.
+ */
+export declare function subscribeToken(id: string, opts?: TokenOptions): string;
+/**
+ * Sends a job and returns its ID with a token for the browser: what a server
+ * action returns so the page can show the job's progress live.
+ */
+export declare function sendWithToken(name: string, payload?: unknown, opts?: SendOptions & TokenOptions): Promise<{
+    id: string;
+    token: string;
+}>;
 export declare const queue: {
     send: typeof send;
     sendTx: typeof sendTx;
+    sendWithToken: typeof sendWithToken;
+    subscribeToken: typeof subscribeToken;
     flush: typeof flush;
     configure: typeof configure;
 };
@@ -136,6 +158,10 @@ export interface Job<T = unknown> {
     payload: T;
     /** Extends the lease; long work should call it at least every leaseSeconds. */
     heartbeat(): Promise<void>;
+    /** Reports progress (small JSON, at most 16 KB, e.g. { pct: 40 }); browsers watching the job see the latest value. */
+    progress(value: unknown): Promise<void>;
+    /** Appends a chunk of output (JSON, at most 64 KB) that browsers watching the job receive in order. */
+    log(chunk: unknown): Promise<void>;
     /** Aborted when the box ends the attempt (lease lost, cancelled). */
     signal: AbortSignal;
 }
@@ -149,6 +175,16 @@ export declare function readDelivery(req: Request, secret?: string): Promise<Del
 export declare function errorResponse(err: unknown): Response;
 /** @internal Heartbeats for one attempt; aborts the controller when the attempt is over. */
 export declare function heartbeater(d: Delivery, ctrl: AbortController): () => Promise<void>;
+/**
+ * @internal Sends progress and output chunks to the box in call order. The
+ * returned promises never reject (a failure is logged), so callers need not
+ * await them; flush() waits for everything sent so far.
+ */
+export declare function reporter(base: string, extra?: Record<string, unknown>): {
+    progress: (v: unknown) => Promise<void>;
+    output: (v: unknown) => Promise<void>;
+    flush: () => Promise<void>;
+};
 export interface HandlerOptions {
     /** Heartbeat every leaseSeconds/3 while the handler runs. Default false. */
     autoHeartbeat?: boolean;

@@ -60,6 +60,10 @@ tiffin apply --confirm <hash> -m "why, in one sentence"
   Answer 2xx when done; anything else retries. Crons run in UTC unless they set `timezone`
   (IANA, e.g. `"America/New_York"`); a tick whose previous run is still going is skipped
   unless the cron sets `overlap: true`.
+- Progress in the browser: a server action returns `queue.sendWithToken(...)` /
+  `workflow.startWithToken(...)` (`{ id, token }`); the job reports with `job.progress()` (workflows
+  `ctx.progress()`); the page shows `useRun(id, token)` from `tiffin-sdk/react`, which streams
+  `GET /_tiffin/runs/<id>/events` from the box on the app's own host.
 
 Output is JSON when piped. Exit codes: 0 ok, 1 error, 2 auth, 3 invalid input,
 4 needs confirmation. In Claude Code the CLI acts as the box's agent key (other agents:

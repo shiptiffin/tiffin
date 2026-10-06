@@ -303,6 +303,18 @@ func (m *Module) serveApps(ctx context.Context, p *platform.Platform, e *Engine)
 	}
 }
 
+// ServeLive streams a job or run to a browser (live.go); the runtime calls it
+// for LivePath on every app host.
+func (m *Module) ServeLive(w http.ResponseWriter, r *http.Request) {
+	e := m.engine()
+	if e == nil {
+		w.Header().Set("Retry-After", "5")
+		writeErr(w, &Error{Status: 503, Code: "precondition", Msg: "the queue is not running yet", Hint: "retry shortly"})
+		return
+	}
+	e.ServeLive(w, r)
+}
+
 // Checks reports the queue's health.
 func (m *Module) Checks(ctx context.Context, p *platform.Platform) []platform.Check {
 	e := m.engine()

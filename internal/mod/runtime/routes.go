@@ -113,12 +113,55 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 			add(rt, who, env)
 		}
 	}
+	out = append(out, liveRoutes(out, owner, r.actAddr)...)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Host+out[i].PathPrefix < out[j].Host+out[j].PathPrefix })
 	r.setDispatch(table)
 	for _, c := range conflicts {
 		r.p.Log.Warn("route conflict", "route", c.Key, "served_by", c.Winner, "ignored", c.Loser)
 	}
 	return out, conflicts
+}
+
+// livePrefix is where browsers watch jobs and workflow runs on every app host
+// (the queue module's LivePath, without its slash).
+const livePrefix = "/_tiffin/runs"
+
+// liveRoutes sends livePrefix to the switchboard on hosts whose root it does
+// not already get: static sites, and hosts where apps only serve paths.
+func liveRoutes(routes []edge.Route, owner map[string]string, act string) []edge.Route {
+	proxied := map[string]bool{}
+	for _, rt := range routes {
+		if rt.PathPrefix == "" && rt.FileRoot == "" && rt.RedirectTo == "" {
+			proxied[rt.Host] = true
+		}
+	}
+	var out []edge.Route
+	seen := map[string]bool{}
+	for _, rt := range routes {
+		if proxied[rt.Host] || seen[rt.Host] || rt.RedirectTo != "" || owner[rt.Host+livePrefix] != "" {
+			continue
+		}
+		seen[rt.Host] = true
+		out = append(out, edge.Route{Host: rt.Host, PathPrefix: livePrefix, Upstream: act})
+	}
+	return out
+}
+
+// liveServer is the queue module's side of live streams (internal/mod/queue/contract.go).
+type liveServer interface {
+	ServeLive(w http.ResponseWriter, r *http.Request)
+}
+
+// serveLive hands a browser's subscription to the queue module; it never
+// reaches the app.
+func serveLive(w http.ResponseWriter, req *http.Request) {
+	for _, mod := range platform.Modules() {
+		if ls, ok := mod.(liveServer); ok {
+			ls.ServeLive(w, req)
+			return
+		}
+	}
+	http.Error(w, "live progress needs the queue module", http.StatusNotFound)
 }
 
 // routeKeys returns host+path for every route a project's web apps claim,
@@ -232,6 +275,10 @@ func (r *rt) serveInternal(ctx context.Context, ln net.Listener) {
 // request belongs to (by host and path, as the edge routed it), wakes a
 // sleeping preview, and proxies to the least busy instance.
 func (r *rt) activate(w http.ResponseWriter, req *http.Request) {
+	if strings.HasPrefix(req.URL.Path, livePrefix+"/") {
+		serveLive(w, req)
+		return
+	}
 	host := strings.ToLower(req.Host)
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h

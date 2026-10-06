@@ -234,6 +234,46 @@ ALTER TABLE tq_crons ADD COLUMN timezone text NOT NULL DEFAULT '',
 	ADD COLUMN overlap bool NOT NULL DEFAULT false,
 	ADD COLUMN skipped_at timestamptz;
 `,
+	// 5: progress and output of jobs and runs, and a notification on every
+	// change a browser may be watching (live.go).
+	`
+ALTER TABLE tq_jobs ADD COLUMN progress jsonb, ADD COLUMN out_n int NOT NULL DEFAULT 0, ADD COLUMN out_bytes int NOT NULL DEFAULT 0;
+ALTER TABLE wf_runs ADD COLUMN progress jsonb, ADD COLUMN out_n int NOT NULL DEFAULT 0, ADD COLUMN out_bytes int NOT NULL DEFAULT 0;
+
+CREATE TABLE tq_output (
+	id     bigserial PRIMARY KEY,
+	job_id bigint REFERENCES tq_jobs (id) ON DELETE CASCADE,
+	run_id text REFERENCES wf_runs (id) ON DELETE CASCADE,
+	data   jsonb NOT NULL,
+	at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX tq_output_job ON tq_output (job_id, id) WHERE job_id IS NOT NULL;
+CREATE INDEX tq_output_run ON tq_output (run_id, id) WHERE run_id IS NOT NULL;
+
+CREATE FUNCTION tq_live_notify() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+	IF TG_TABLE_NAME = 'tq_jobs' THEN
+		PERFORM pg_notify('tiffin_live', 'job_' || NEW.id);
+	ELSIF TG_TABLE_NAME = 'tq_output' THEN
+		PERFORM pg_notify('tiffin_live', coalesce('job_' || NEW.job_id, NEW.run_id));
+	ELSIF TG_TABLE_NAME = 'wf_runs' THEN
+		PERFORM pg_notify('tiffin_live', NEW.id);
+	ELSE
+		PERFORM pg_notify('tiffin_live', NEW.run_id);
+	END IF;
+	RETURN NULL;
+END $$;
+CREATE TRIGGER tq_jobs_live AFTER UPDATE OF state, progress ON tq_jobs FOR EACH ROW
+	WHEN (NEW.kind <> 'workflow' AND (OLD.state IS DISTINCT FROM NEW.state OR OLD.progress IS DISTINCT FROM NEW.progress))
+	EXECUTE FUNCTION tq_live_notify();
+CREATE TRIGGER wf_runs_live AFTER UPDATE ON wf_runs FOR EACH ROW
+	WHEN (OLD.state IS DISTINCT FROM NEW.state OR OLD.progress IS DISTINCT FROM NEW.progress)
+	EXECUTE FUNCTION tq_live_notify();
+CREATE TRIGGER wf_steps_live_insert AFTER INSERT ON wf_steps FOR EACH ROW EXECUTE FUNCTION tq_live_notify();
+CREATE TRIGGER wf_steps_live_update AFTER UPDATE ON wf_steps FOR EACH ROW
+	WHEN (OLD.state IS DISTINCT FROM NEW.state) EXECUTE FUNCTION tq_live_notify();
+CREATE TRIGGER tq_output_live AFTER INSERT ON tq_output FOR EACH ROW EXECUTE FUNCTION tq_live_notify();
+`,
 }
 
 // migrate brings River's schema and ours up to date. Concurrent callers are

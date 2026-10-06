@@ -51,6 +51,7 @@ function settings() {
     url: (overrides.url ?? env.TIFFIN_QUEUE_URL ?? "").replace(/\/$/, ""),
     key: overrides.key ?? env.TIFFIN_QUEUE_KEY ?? "",
     app: overrides.app ?? env.TIFFIN_APP ?? "",
+    project: overrides.project ?? env.TIFFIN_PROJECT ?? "",
     secret: overrides.signingSecret ?? env.TIFFIN_QUEUE_SIGNING_SECRET ?? "",
     fetch: overrides.fetch ?? fetch
   };
@@ -63,7 +64,7 @@ async function boxCall(method, path, body) {
   const res = await s.fetch(s.url + path, {
     method,
     headers: { "content-type": "application/json", authorization: `Bearer ${s.key}` },
-    body: body === undefined ? undefined : JSON.stringify(body)
+    body: body === undefined ? null : JSON.stringify(body)
   });
   const text = await res.text();
   let data = undefined;
@@ -117,7 +118,29 @@ async function sendTx(db, name, payload, opts = {}) {
 async function flush() {
   await boxCall("POST", "/v1/queue-internal/outbox/kick", {});
 }
-var queue = { send, sendTx, flush, configure };
+function subscribeToken(id, opts = {}) {
+  const s = settings();
+  if (!s.secret || !s.project) {
+    throw new QueueError(0, "precondition", "TIFFIN_QUEUE_SIGNING_SECRET and TIFFIN_PROJECT are not set", "run on a Tiffin box, or call configure({ signingSecret, project })");
+  }
+  if (!/^(job_\d+|run_[A-Za-z0-9]+)$/.test(id))
+    throw new TypeError(`${JSON.stringify(id)} is not a job or run ID`);
+  const ttl = toMs(opts.ttl ?? "1h");
+  if (ttl < 1000 || ttl > 7 * 86400000)
+    throw new TypeError("ttl must be between 1s and 7d");
+  const exp = Math.floor((Date.now() + ttl) / 1000).toString();
+  const sig = createHmac("sha256", s.secret).update(`tiffin-live:${s.project}:${id}:${exp}`).digest("hex");
+  return `live1.${s.project}.${id}.${exp}.${sig}`;
+}
+async function sendWithToken(name, payload, opts = {}) {
+  const res = await send(name, payload, opts);
+  const id = res.jobs[0];
+  if (res.jobs.length !== 1 || !id) {
+    throw new QueueError(0, "validation", `"${name}" is a topic: it made ${res.jobs.length} jobs`, "watch one queue's job, or mint a token per job with subscribeToken");
+  }
+  return { id, token: subscribeToken(id, opts) };
+}
+var queue = { send, sendTx, sendWithToken, subscribeToken, flush, configure };
 function verifySignature(secret, header, body, toleranceSeconds = 300, now = Date.now()) {
   if (!secret || !header)
     return false;
@@ -175,6 +198,20 @@ function heartbeater(d, ctrl) {
     }
   };
 }
+function reporter(base, extra = {}) {
+  let chain = Promise.resolve();
+  const post = (kind, value) => {
+    const json = JSON.stringify(value === undefined ? null : value);
+    const limit = kind === "progress" ? 16 << 10 : 64 << 10;
+    const size = new TextEncoder().encode(json).length;
+    if (size > limit)
+      throw new TypeError(`${kind === "progress" ? "progress" : "an output chunk"} is ${size} bytes; the limit is ${limit >> 10} KB`);
+    const body = { ...extra, [kind === "progress" ? "progress" : "data"]: JSON.parse(json) };
+    chain = chain.then(() => boxCall("POST", `${base}/${kind}`, body).then(() => {}, (err) => console.warn(`tiffin: ${kind} not recorded: ${err instanceof Error ? err.message : err}`)));
+    return chain;
+  };
+  return { progress: (v) => post("progress", v), output: (v) => post("output", v), flush: () => chain };
+}
 function defineHandler(fn, opts = {}) {
   return async (req) => {
     const d = await readDelivery(req, opts.secret);
@@ -182,6 +219,7 @@ function defineHandler(fn, opts = {}) {
       return d;
     const ctrl = new AbortController;
     const beat = heartbeater(d, ctrl);
+    const rep = reporter(`/v1/queue-internal/jobs/${d.id}`, { attemptId: d.attemptId });
     const job = {
       id: d.id,
       queue: d.queue,
@@ -195,6 +233,8 @@ function defineHandler(fn, opts = {}) {
       enqueuedAt: new Date(d.enqueuedAt),
       payload: d.payload,
       heartbeat: beat,
+      progress: rep.progress,
+      log: rep.output,
       signal: ctrl.signal
     };
     const timer = opts.autoHeartbeat ? setInterval(() => beat().catch(() => {}), Math.max(1000, d.leaseSeconds * 1000 / 3)) : undefined;
@@ -206,6 +246,7 @@ function defineHandler(fn, opts = {}) {
     } finally {
       if (timer)
         clearInterval(timer);
+      await rep.flush();
     }
   };
 }
@@ -219,7 +260,12 @@ var registry = new Map;
 function define(name, fn) {
   if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(name))
     throw new TypeError(`invalid workflow name ${JSON.stringify(name)}`);
-  const wf = { name, fn, start: (input, opts) => start(name, input, opts) };
+  const wf = {
+    name,
+    fn,
+    start: (input, opts) => start(name, input, opts),
+    startWithToken: (input, opts) => startWithToken(name, input, opts)
+  };
   registry.set(name, wf);
   return wf;
 }
@@ -232,6 +278,10 @@ async function start(name, input, opts = {}) {
     path: opts.path,
     fromApp: currentApp()
   });
+}
+async function startWithToken(name, input, opts = {}) {
+  const { run } = await start(name, input, opts);
+  return { id: run.id, token: subscribeToken(run.id, opts) };
 }
 async function emit(event, payload) {
   return boxCall("POST", "/v1/queue-internal/workflows/events", { name: event, payload: payload === undefined ? null : payload, fromApp: currentApp() });
@@ -254,8 +304,10 @@ class Turn {
   bySeq = new Map;
   inflight = new Set;
   maxRecordedSeq;
+  report;
   constructor(run) {
     this.run = run;
+    this.report = reporter(`/v1/queue-internal/workflows/runs/${run.id}`);
     let max = -1;
     for (const s of run.steps) {
       this.byName.set(s.name, s);
@@ -265,6 +317,9 @@ class Turn {
       }
     }
     this.maxRecordedSeq = max;
+  }
+  replaying() {
+    return this.seq <= this.maxRecordedSeq;
   }
   track(p) {
     this.inflight.add(p);
@@ -406,6 +461,12 @@ function ctxFor(t) {
       t.byName.set(key, rec);
       t.track(t.wait({ name: key, seq: t.seq, kind: "patch" }));
       return true;
+    },
+    progress(value) {
+      return t.replaying() ? Promise.resolve() : t.report.progress(value);
+    },
+    stream(chunk) {
+      return t.replaying() ? Promise.resolve() : t.report.output(chunk);
     }
   };
   return ctx;
@@ -426,6 +487,8 @@ async function runTurn(run) {
     if (err instanceof Suspend)
       return { status: "suspended" };
     throw err;
+  } finally {
+    await t.report.flush();
   }
 }
 function handler(opts = {}) {
@@ -447,14 +510,17 @@ function handler(opts = {}) {
     }
   };
 }
-var workflow = { define, start, emit, get, handler, DEFAULT_PATH };
+var workflow = { define, start, startWithToken, subscribeToken, emit, get, handler, DEFAULT_PATH };
 export {
   workflow,
   verifySignature,
   toMs,
+  subscribeToken,
   sign,
+  sendWithToken,
   sendTx,
   send,
+  reporter,
   readDelivery,
   queue,
   heartbeater,

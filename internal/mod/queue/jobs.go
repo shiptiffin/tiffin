@@ -106,11 +106,12 @@ type jobRow struct {
 	LastStatus    *int            `db:"last_status"`
 	Output        json.RawMessage `db:"output"`
 	EnqueuedBy    string          `db:"enqueued_by"`
+	Progress      json.RawMessage `db:"progress"`
 }
 
 const jobCols = `id, project, queue, kind, topic, subscription, cron, run_id, app, path, url, release, payload, key, group_key, dedupe,
 	priority, state, attempt, total_attempts, max_attempts, lease_s, seq, river_id, blocked_on, run_at, enqueued_at, started_at,
-	lease_until, finished_at, last_error, last_status, output, enqueued_by`
+	lease_until, finished_at, last_error, last_status, output, enqueued_by, progress`
 
 func (e *Engine) loadJob(ctx context.Context, q querier, id int64, suffix ...string) (*jobRow, error) {
 	rows, err := q.Query(ctx, `SELECT `+jobCols+` FROM tq_jobs WHERE id = $1 `+strings.Join(suffix, " "), id)
@@ -542,6 +543,7 @@ type Job struct {
 	LastError    string          `json:"lastError,omitempty"`
 	LastStatus   int             `json:"lastStatus,omitempty" doc:"HTTP status of the latest attempt"`
 	EnqueuedBy   string          `json:"enqueuedBy,omitempty"`
+	Progress     json.RawMessage `json:"progress,omitempty" doc:"The latest progress the app reported (job.progress in tiffin-sdk)"`
 	Payload      json.RawMessage `json:"payload,omitempty" doc:"Job payload (get only)"`
 	Output       json.RawMessage `json:"output,omitempty" doc:"The app's JSON response to the successful attempt (get only)"`
 	Attempts     []Attempt       `json:"attempts,omitempty" doc:"Every attempt, oldest first (get only)"`
@@ -582,7 +584,8 @@ func (j *jobRow) public(full bool) Job {
 	out := Job{ID: jobID(j.ID), Queue: j.Queue, Kind: j.Kind, State: j.State, Topic: deref(j.Topic), Subscription: deref(j.Subscription),
 		Cron: deref(j.Cron), RunID: deref(j.RunID), Release: j.Release, Priority: prioName(j.Priority), Key: deref(j.Key),
 		GroupKey: deref(j.GroupKey), Dedupe: deref(j.Dedupe), Attempt: j.Attempt, MaxAttempts: j.MaxAttempts, RunAt: j.RunAt,
-		EnqueuedAt: j.EnqueuedAt, StartedAt: j.StartedAt, FinishedAt: j.FinishedAt, LastError: deref(j.LastError), EnqueuedBy: j.EnqueuedBy}
+		EnqueuedAt: j.EnqueuedAt, StartedAt: j.StartedAt, FinishedAt: j.FinishedAt, LastError: deref(j.LastError), EnqueuedBy: j.EnqueuedBy,
+		Progress: j.Progress}
 	if j.State == stateRunning {
 		out.LeaseUntil = j.LeaseUntil
 	}

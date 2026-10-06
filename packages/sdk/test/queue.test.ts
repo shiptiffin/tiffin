@@ -48,6 +48,10 @@ class FakeBox {
       this.beats++;
       return Response.json({ leaseUntil: new Date(Date.now() + 60000).toISOString() });
     }
+    if (/^\/v1\/queue-internal\/(jobs|workflows\/runs)\/[^/]+\/(progress|output)$/.test(p)) {
+      await new Promise((r) => setTimeout(r, Math.random() * 5)); // out-of-order networks must not reorder
+      return Response.json(p.endsWith("output") ? { id: ++this.seq } : { ok: true });
+    }
     if (p === "/v1/queue-internal/workflows/start") {
       const id = `run_${++this.seq}`;
       const run = { id, workflow: body.workflow, input: body.input, release: "r1", turn: 0, createdAt: new Date().toISOString(), steps: [] as any[], state: "running" };
@@ -234,6 +238,49 @@ describe("tiffin-sdk/queue", () => {
     expect(forged.status).toBe(401);
   });
 
+  test("subscribe tokens match the box's format", () => {
+    configure({ signingSecret: SECRET, project: "shop" });
+    const realNow = Date.now;
+    Date.now = () => 1_900_000_000_000 - 3_600_000;
+    try {
+      // The same vector the box checks (internal/mod/queue TestSubscribeTokenScopeAndExpiry).
+      expect(queue.subscribeToken("run_01ABC")).toBe("live1.shop.run_01ABC.1900000000.d5035e46a7cbe4b6929e0b3f051cbce30924bb8b9d52226f5261eb3edf358fa2");
+      expect(queue.subscribeToken("job_42", { ttl: "10m" })).toStartWith("live1.shop.job_42.1899997000.");
+    } finally {
+      Date.now = realNow;
+    }
+    expect(() => queue.subscribeToken("../etc")).toThrow(/not a job or run ID/);
+    expect(() => queue.subscribeToken("job_1", { ttl: "30d" })).toThrow(/7d/);
+    configure({ env: {} });
+    expect(() => queue.subscribeToken("job_1")).toThrow(/TIFFIN_QUEUE_SIGNING_SECRET/);
+  });
+
+  test("sendWithToken returns what a server action hands the browser", async () => {
+    configure({ url: "http://box:7075", key: KEY, app: "web", project: "shop", signingSecret: SECRET, fetch: box.fetch as typeof fetch });
+    const { id, token } = await queue.sendWithToken("report", { month: 9 }, { key: "u1", ttl: "5m" });
+    expect(id).toBe("job_1");
+    expect(token).toStartWith("live1.shop.job_1.");
+    expect(box.calls[0]!.body).toEqual({ name: "report", payload: { month: 9 }, key: "u1", fromApp: "web" });
+  });
+
+  test("job.progress and job.log reach the box in order, before the job finishes", async () => {
+    const h = defineHandler(async (job) => {
+      for (let i = 1; i <= 5; i++) {
+        job.progress({ pct: i * 20 }); // not awaited: still sent in order
+        job.log(`line ${i}`);
+      }
+      expect(() => job.progress("x".repeat(17 << 10))).toThrow(/16 KB/);
+      return { done: true };
+    });
+    const res = await push(h, { id: "job_7", attemptId: 3 });
+    expect(res.status).toBe(200);
+    const sent = box.calls.filter((c) => c.path.startsWith("/v1/queue-internal/jobs/job_7/"));
+    expect(sent.map((c) => c.path.split("/").at(-1))).toEqual(Array(5).fill(["progress", "output"]).flat());
+    expect(sent.filter((c) => c.path.endsWith("progress")).map((c) => c.body.progress.pct)).toEqual([20, 40, 60, 80, 100]);
+    expect(sent.filter((c) => c.path.endsWith("output")).map((c) => c.body.data)).toEqual(["line 1", "line 2", "line 3", "line 4", "line 5"]);
+    expect(sent.every((c) => c.body.attemptId === 3)).toBe(true);
+  });
+
   test("heartbeats extend the lease; a finished attempt aborts the job", async () => {
     const h = defineHandler(async (job) => {
       await job.heartbeat();
@@ -326,6 +373,37 @@ describe("tiffin-sdk/workflow", () => {
       "patch:gift:completed",
       "gift:completed",
     ]);
+  });
+
+  test("progress and stream are sent once, not again when a later turn replays them", async () => {
+    workflow.define("live", async (ctx) => {
+      ctx.progress({ stage: "start" });
+      await ctx.step("load", async () => {
+        await ctx.progress({ stage: "loading" });
+        return 1;
+      });
+      ctx.stream("loaded");
+      await ctx.sleep("pause", "1h");
+      ctx.progress({ stage: "after" });
+      ctx.stream("done");
+      return "ok";
+    });
+    const { run, token } = await (async () => {
+      configure({ url: "http://box:7075", key: KEY, app: "web", project: "shop", signingSecret: SECRET, fetch: box.fetch as typeof fetch });
+      const r = await workflow.startWithToken("live", null);
+      return { run: { id: r.id }, token: r.token };
+    })();
+    expect(token).toStartWith(`live1.shop.${run.id}.`);
+    const h = workflow.handler();
+    const reported = () =>
+      box.calls
+        .filter((c) => /\/(progress|output)$/.test(c.path))
+        .map((c) => (c.path.endsWith("progress") ? c.body.progress.stage : c.body.data));
+    expect(await (await box.turn(h, run.id)).json()).toEqual({ status: "suspended" });
+    expect(reported()).toEqual(["start", "loading", "loaded"]);
+    box.wakeSleeps();
+    expect(((await (await box.turn(h, run.id)).json()) as any).status).toBe("completed");
+    expect(reported()).toEqual(["start", "loading", "loaded", "after", "done"]);
   });
 
   test("patched() is false for runs whose history predates the patch", async () => {

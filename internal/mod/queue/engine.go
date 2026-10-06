@@ -68,6 +68,9 @@ type Engine struct {
 	ready    chan struct{}
 
 	outboxKick chan struct{}
+
+	hub       *hub // live streams to browsers (live.go)
+	hubCancel context.CancelFunc
 }
 
 // Open connects and migrates; it does not start working jobs (Start does).
@@ -112,6 +115,9 @@ func Open(ctx context.Context, cfg Config) (*Engine, error) {
 		http:       &http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 64, IdleConnTimeout: 90 * time.Second}},
 		ready:      make(chan struct{}),
 		outboxKick: make(chan struct{}, 1)}
+	var hctx context.Context
+	hctx, e.hubCancel = context.WithCancel(context.Background())
+	e.hub = newHub(hctx, e)
 	workers := river.NewWorkers()
 	river.AddWorker(workers, river.WorkFunc(e.workDeliver))
 	river.AddWorker(workers, river.WorkFunc(e.workWake))
@@ -192,6 +198,7 @@ func (e *Engine) Ready() <-chan struct{} { return e.ready }
 
 // Close stops work and releases the database.
 func (e *Engine) Close() {
+	e.hubCancel()
 	if e.cancel != nil {
 		e.cancel()
 		<-e.done

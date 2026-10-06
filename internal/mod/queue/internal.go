@@ -55,6 +55,54 @@ func internalRoutes() []internalRoute {
 			}
 			return map[string]any{"leaseUntil": until}, nil
 		}},
+		{method: "POST", path: "/v1/queue-internal/jobs/{id}/progress", h: func(e *Engine, c caller, w http.ResponseWriter, r *http.Request) (any, error) {
+			var b struct {
+				AttemptID int             `json:"attemptId"`
+				Progress  json.RawMessage `json:"progress"`
+			}
+			if err := decode(r, &b); err != nil {
+				return nil, err
+			}
+			id, err := ParseJobID(r.PathValue("id"))
+			if err != nil {
+				return nil, err
+			}
+			return map[string]bool{"ok": true}, e.JobProgress(r.Context(), c.project, id, b.AttemptID, b.Progress)
+		}},
+		{method: "POST", path: "/v1/queue-internal/jobs/{id}/output", h: func(e *Engine, c caller, w http.ResponseWriter, r *http.Request) (any, error) {
+			var b struct {
+				AttemptID int             `json:"attemptId"`
+				Data      json.RawMessage `json:"data"`
+			}
+			if err := decode(r, &b); err != nil {
+				return nil, err
+			}
+			id, err := ParseJobID(r.PathValue("id"))
+			if err != nil {
+				return nil, err
+			}
+			chunk, err := e.JobOutput(r.Context(), c.project, id, b.AttemptID, b.Data)
+			return map[string]int64{"id": chunk}, err
+		}},
+		{method: "POST", path: "/v1/queue-internal/workflows/runs/{id}/progress", h: func(e *Engine, c caller, w http.ResponseWriter, r *http.Request) (any, error) {
+			var b struct {
+				Progress json.RawMessage `json:"progress"`
+			}
+			if err := decode(r, &b); err != nil {
+				return nil, err
+			}
+			return map[string]bool{"ok": true}, e.RunProgress(r.Context(), c.project, r.PathValue("id"), b.Progress)
+		}},
+		{method: "POST", path: "/v1/queue-internal/workflows/runs/{id}/output", h: func(e *Engine, c caller, w http.ResponseWriter, r *http.Request) (any, error) {
+			var b struct {
+				Data json.RawMessage `json:"data"`
+			}
+			if err := decode(r, &b); err != nil {
+				return nil, err
+			}
+			chunk, err := e.RunOutput(r.Context(), c.project, r.PathValue("id"), b.Data)
+			return map[string]int64{"id": chunk}, err
+		}},
 		{method: "POST", path: "/v1/queue-internal/workflows/start", h: func(e *Engine, c caller, w http.ResponseWriter, r *http.Request) (any, error) {
 			var b struct {
 				Workflow string          `json:"workflow"`

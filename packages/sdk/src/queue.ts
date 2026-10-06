@@ -24,6 +24,10 @@
  * (default 60 s): answer within it or call `job.heartbeat()` (or pass
  * `autoHeartbeat: true`) for long work.
  *
+ * Live progress: `job.progress({ pct: 40 })` and `job.log(chunk)` inside a
+ * handler; on the server, `sendWithToken()` returns `{ id, token }` for a
+ * browser to watch with `useJob(id, token)` from tiffin-sdk/react.
+ *
  * Durations are milliseconds (numbers) or strings like "30s", "5m", "2h", "1d".
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -109,6 +113,8 @@ export interface ClientOptions {
   key?: string;
   /** This app's name; default TIFFIN_APP. */
   app?: string;
+  /** This app's project; default TIFFIN_PROJECT. */
+  project?: string;
   /** Signing secret for incoming pushes; default TIFFIN_QUEUE_SIGNING_SECRET. */
   signingSecret?: string;
   fetch?: typeof fetch;
@@ -128,6 +134,7 @@ function settings() {
     url: (overrides.url ?? env.TIFFIN_QUEUE_URL ?? "").replace(/\/$/, ""),
     key: overrides.key ?? env.TIFFIN_QUEUE_KEY ?? "",
     app: overrides.app ?? env.TIFFIN_APP ?? "",
+    project: overrides.project ?? env.TIFFIN_PROJECT ?? "",
     secret: overrides.signingSecret ?? env.TIFFIN_QUEUE_SIGNING_SECRET ?? "",
     fetch: overrides.fetch ?? fetch,
   };
@@ -226,7 +233,45 @@ export async function flush(): Promise<void> {
   await boxCall("POST", "/v1/queue-internal/outbox/kick", {});
 }
 
-export const queue = { send, sendTx, flush, configure };
+// ---- live progress in the browser ----
+
+export interface TokenOptions {
+  /** How long a browser may (re)connect with the token: default "1h", at most "7d". */
+  ttl?: Duration;
+}
+
+/**
+ * Mints a token that lets a browser watch one job or workflow run
+ * (`useJob` / `useRun` in tiffin-sdk/react). Call it on the server: it signs
+ * with TIFFIN_QUEUE_SIGNING_SECRET, without a call to the box.
+ */
+export function subscribeToken(id: string, opts: TokenOptions = {}): string {
+  const s = settings();
+  if (!s.secret || !s.project) {
+    throw new QueueError(0, "precondition", "TIFFIN_QUEUE_SIGNING_SECRET and TIFFIN_PROJECT are not set", "run on a Tiffin box, or call configure({ signingSecret, project })");
+  }
+  if (!/^(job_\d+|run_[A-Za-z0-9]+)$/.test(id)) throw new TypeError(`${JSON.stringify(id)} is not a job or run ID`);
+  const ttl = toMs(opts.ttl ?? "1h");
+  if (ttl < 1000 || ttl > 7 * 86400e3) throw new TypeError("ttl must be between 1s and 7d");
+  const exp = Math.floor((Date.now() + ttl) / 1000).toString();
+  const sig = createHmac("sha256", s.secret).update(`tiffin-live:${s.project}:${id}:${exp}`).digest("hex");
+  return `live1.${s.project}.${id}.${exp}.${sig}`;
+}
+
+/**
+ * Sends a job and returns its ID with a token for the browser: what a server
+ * action returns so the page can show the job's progress live.
+ */
+export async function sendWithToken(name: string, payload?: unknown, opts: SendOptions & TokenOptions = {}): Promise<{ id: string; token: string }> {
+  const res = await send(name, payload, opts);
+  const id = res.jobs[0];
+  if (res.jobs.length !== 1 || !id) {
+    throw new QueueError(0, "validation", `"${name}" is a topic: it made ${res.jobs.length} jobs`, "watch one queue's job, or mint a token per job with subscribeToken");
+  }
+  return { id, token: subscribeToken(id, opts) };
+}
+
+export const queue = { send, sendTx, sendWithToken, subscribeToken, flush, configure };
 
 // ---- receiving ----
 
@@ -266,6 +311,10 @@ export interface Job<T = unknown> {
   payload: T;
   /** Extends the lease; long work should call it at least every leaseSeconds. */
   heartbeat(): Promise<void>;
+  /** Reports progress (small JSON, at most 16 KB, e.g. { pct: 40 }); browsers watching the job see the latest value. */
+  progress(value: unknown): Promise<void>;
+  /** Appends a chunk of output (JSON, at most 64 KB) that browsers watching the job receive in order. */
+  log(chunk: unknown): Promise<void>;
   /** Aborted when the box ends the attempt (lease lost, cancelled). */
   signal: AbortSignal;
 }
@@ -331,6 +380,30 @@ export function heartbeater(d: Delivery, ctrl: AbortController) {
   };
 }
 
+/**
+ * @internal Sends progress and output chunks to the box in call order. The
+ * returned promises never reject (a failure is logged), so callers need not
+ * await them; flush() waits for everything sent so far.
+ */
+export function reporter(base: string, extra: Record<string, unknown> = {}) {
+  let chain: Promise<void> = Promise.resolve();
+  const post = (kind: "progress" | "output", value: unknown): Promise<void> => {
+    const json = JSON.stringify(value === undefined ? null : value);
+    const limit = kind === "progress" ? 16 << 10 : 64 << 10;
+    const size = new TextEncoder().encode(json).length;
+    if (size > limit) throw new TypeError(`${kind === "progress" ? "progress" : "an output chunk"} is ${size} bytes; the limit is ${limit >> 10} KB`);
+    const body = { ...extra, [kind === "progress" ? "progress" : "data"]: JSON.parse(json) };
+    chain = chain.then(() =>
+      boxCall("POST", `${base}/${kind}`, body).then(
+        () => {},
+        (err) => console.warn(`tiffin: ${kind} not recorded: ${err instanceof Error ? err.message : err}`),
+      ),
+    );
+    return chain;
+  };
+  return { progress: (v: unknown) => post("progress", v), output: (v: unknown) => post("output", v), flush: () => chain };
+}
+
 export interface HandlerOptions {
   /** Heartbeat every leaseSeconds/3 while the handler runs. Default false. */
   autoHeartbeat?: boolean;
@@ -349,6 +422,7 @@ export function defineHandler<T = unknown>(fn: (job: Job<T>) => unknown, opts: H
     if (d instanceof Response) return d;
     const ctrl = new AbortController();
     const beat = heartbeater(d, ctrl);
+    const rep = reporter(`/v1/queue-internal/jobs/${d.id}`, { attemptId: d.attemptId });
     const job: Job<T> = {
       id: d.id,
       queue: d.queue,
@@ -362,6 +436,8 @@ export function defineHandler<T = unknown>(fn: (job: Job<T>) => unknown, opts: H
       enqueuedAt: new Date(d.enqueuedAt),
       payload: d.payload as T,
       heartbeat: beat,
+      progress: rep.progress,
+      log: rep.output,
       signal: ctrl.signal,
     };
     const timer = opts.autoHeartbeat ? setInterval(() => beat().catch(() => {}), Math.max(1000, (d.leaseSeconds * 1000) / 3)) : undefined;
@@ -372,6 +448,7 @@ export function defineHandler<T = unknown>(fn: (job: Job<T>) => unknown, opts: H
       return errorResponse(err);
     } finally {
       if (timer) clearInterval(timer);
+      await rep.flush(); // progress lands before the job finishes
     }
   };
 }

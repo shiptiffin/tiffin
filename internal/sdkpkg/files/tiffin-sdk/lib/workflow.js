@@ -21,6 +21,11 @@
  * await workflow.emit("paid-u_1", { amount: 1200 });                // resumes the run
  * ```
  *
+ * Live progress: `ctx.progress(value)` and `ctx.stream(chunk)` report to
+ * browsers watching the run; `workflow.startWithToken()` (in a server
+ * action) returns `{ id, token }` for `useRun(id, token)` in tiffin-sdk/react.
+ * Calls replayed from earlier turns are not sent again.
+ *
  * How it runs: each "turn" the box POSTs the run and its finished steps to
  * the handler; the function runs from the top and finished steps return
  * their recorded result instead of running again. A step's result is saved
@@ -35,8 +40,8 @@
  * replay. Runs are pinned to the release that started them; to change code
  * that already-running runs may replay, guard it with `ctx.patched("id")`.
  */
-import { boxCall, currentApp, errorResponse, heartbeater, NonRetryableError, readDelivery, toMs, } from "./queue.js";
-export { NonRetryableError } from "./queue.js";
+import { boxCall, currentApp, errorResponse, heartbeater, NonRetryableError, readDelivery, reporter, subscribeToken, toMs, } from "./queue.js";
+export { NonRetryableError, subscribeToken } from "./queue.js";
 /** Where the box POSTs workflow turns by default. */
 export const DEFAULT_PATH = "/_tiffin/workflows";
 /** The code took a different path than this run's recorded history. */
@@ -48,7 +53,12 @@ const registry = new Map();
 export function define(name, fn) {
     if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(name))
         throw new TypeError(`invalid workflow name ${JSON.stringify(name)}`);
-    const wf = { name, fn, start: (input, opts) => start(name, input, opts) };
+    const wf = {
+        name,
+        fn,
+        start: (input, opts) => start(name, input, opts),
+        startWithToken: (input, opts) => startWithToken(name, input, opts),
+    };
     registry.set(name, wf);
     return wf;
 }
@@ -62,6 +72,14 @@ export async function start(name, input, opts = {}) {
         path: opts.path,
         fromApp: currentApp(),
     });
+}
+/**
+ * Starts a run and returns its ID with a token for the browser: what a
+ * server action returns so the page can show the run's progress live.
+ */
+export async function startWithToken(name, input, opts = {}) {
+    const { run } = await start(name, input, opts);
+    return { id: run.id, token: subscribeToken(run.id, opts) };
 }
 /** Emits an event; every run waiting for it resumes. The first emit of a name wins. */
 export async function emit(event, payload) {
@@ -84,8 +102,10 @@ class Turn {
     bySeq = new Map();
     inflight = new Set();
     maxRecordedSeq;
+    report;
     constructor(run) {
         this.run = run;
+        this.report = reporter(`/v1/queue-internal/workflows/runs/${run.id}`);
         let max = -1;
         for (const s of run.steps) {
             this.byName.set(s.name, s);
@@ -95,6 +115,10 @@ class Turn {
             }
         }
         this.maxRecordedSeq = max;
+    }
+    /** True while the code is still before the last recorded step: an earlier turn already did this. */
+    replaying() {
+        return this.seq <= this.maxRecordedSeq;
     }
     track(p) {
         this.inflight.add(p);
@@ -241,6 +265,12 @@ function ctxFor(t) {
             t.track(t.wait({ name: key, seq: t.seq, kind: "patch" }));
             return true;
         },
+        progress(value) {
+            return t.replaying() ? Promise.resolve() : t.report.progress(value);
+        },
+        stream(chunk) {
+            return t.replaying() ? Promise.resolve() : t.report.output(chunk);
+        },
     };
     return ctx;
 }
@@ -263,6 +293,9 @@ export async function runTurn(run) {
         if (err instanceof Suspend)
             return { status: "suspended" };
         throw err;
+    }
+    finally {
+        await t.report.flush(); // progress lands before the run moves on
     }
 }
 /**
@@ -290,4 +323,4 @@ export function handler(opts = {}) {
         }
     };
 }
-export const workflow = { define, start, emit, get, handler, DEFAULT_PATH };
+export const workflow = { define, start, startWithToken, subscribeToken, emit, get, handler, DEFAULT_PATH };
