@@ -96,6 +96,10 @@ const (
 	zoneApp       = "tiffin_app"
 	zoneAuth      = "tiffin_auth"
 	zoneDashboard = "tiffin_dashboard"
+	zoneAssets    = "tiffin_assets"
+	// assetsFactor is how many more fingerprinted files than other
+	// requests a client may fetch per window.
+	assetsFactor = 10
 )
 
 var (
@@ -254,7 +258,13 @@ func (p *Protection) protectRoutes(c Config) []obj {
 		zones[zoneName(zoneDashboard, p.Dashboard)] = zone([]obj{{"host": dash}}, p.Dashboard)
 	}
 	if p.App.Events > 0 {
-		zones[zoneName(zoneApp, p.App)] = zone([]obj{notDash}, p.App)
+		// Fingerprinted build files (a page load fetches dozens, and the box
+		// serves them from disk) count in their own, larger bucket, so they
+		// never use up a visitor's budget for pages and API calls.
+		hashed := obj{"tiffin_hashed_asset": obj{}}
+		zones[zoneName(zoneApp, p.App)] = zone([]obj{{"not": []obj{{"host": dash}, hashed}}}, p.App)
+		assets := Limit{Events: p.App.Events * assetsFactor, Window: p.App.Window}
+		zones[zoneName(zoneAssets, assets)] = zone([]obj{{"tiffin_hashed_asset": obj{}, "not": notDash["not"]}}, assets)
 	}
 	if p.Auth.Events > 0 {
 		// A Next.js Server Action posts to the page it is on (Next-Action

@@ -337,6 +337,7 @@ type fakeBuilder struct {
 	failAll atomic.Bool
 	mu      sync.Mutex
 	envs    map[string]map[string]string // deploy ID → its build env
+	runEnvs map[string]map[string]string // deploy ID → its build's RunEnv
 }
 
 func (b *fakeBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult, error) {
@@ -346,6 +347,10 @@ func (b *fakeBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult,
 		b.envs = map[string]map[string]string{}
 	}
 	b.envs[req.Deploy.ID] = req.Env
+	if b.runEnvs == nil {
+		b.runEnvs = map[string]map[string]string{}
+	}
+	b.runEnvs[req.Deploy.ID] = req.RunEnv
 	b.mu.Unlock()
 	if b.failAll.Load() {
 		return BuildResult{}, &BuildError{Msg: "the build failed", Hint: "read the log"}
@@ -479,6 +484,7 @@ func newHarness(t *testing.T) *harness {
 	opt.Builder = bld
 	pgb := &fakeBranches{made: map[string]postgres.PGBranch{}}
 	opt.Branches = pgb
+	opt.ReadAccess = fakeReadAccess{}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	// The registered module instance: the platform finds routes and the API

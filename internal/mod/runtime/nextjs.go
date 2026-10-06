@@ -8,11 +8,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/sdkpkg"
 )
 
@@ -138,6 +142,127 @@ func prepareNext(req BuildRequest, env map[string]string) map[string]string {
 	}
 	fmt.Fprintf(req.Log, "==> Next.js: the box's adapter sets deploymentId %s and %s, leaves compression to the edge (Next.js 16.2+; next.config wins where it sets these)\n", box.DeploymentID, cache)
 	return map[string]string{nextAdapterEnv: nextAdapterPath}
+}
+
+// nextOrigin tells Next.js where the app is served, at build and run time,
+// through the variables it reads on Vercel: without them it resolves
+// og:image, twitter:image and other file-based metadata images against
+// http://localhost:$PORT unless the app sets metadataBase. Production gets
+// VERCEL_PROJECT_PRODUCTION_URL; a preview gets its own URL in
+// VERCEL_BRANCH_URL with VERCEL_ENV=preview, which is how Next.js picks it.
+// VERCEL and VERCEL_URL stay unset: libraries take those to mean the app
+// runs on Vercel. The app's own values win.
+func nextOrigin(env map[string]string, prodURL, ownURL string, preview bool) {
+	set := func(k, raw string) {
+		// The host only: Next.js adds basePath to the paths itself.
+		if u, err := url.Parse(raw); err == nil && u.Scheme == "https" && u.Host != "" && env[k] == "" {
+			env[k] = u.Host
+		}
+	}
+	set("VERCEL_PROJECT_PRODUCTION_URL", prodURL)
+	if preview && env["VERCEL_ENV"] == "" && env["VERCEL_BRANCH_URL"] == "" {
+		set("VERCEL_BRANCH_URL", ownURL)
+		if env["VERCEL_BRANCH_URL"] != "" {
+			env["VERCEL_ENV"] = "preview"
+		}
+	}
+}
+
+// nextImagePath is Next.js's image optimizer, which next/image's default
+// loader points every image at (/_next/image?url=<src>&w=&q=).
+const nextImagePath = "/_next/image"
+
+// Widths and qualities the box's image transforms take (Next.js's defaults).
+var (
+	transformWidths    = []int{16, 32, 48, 64, 96, 128, 256, 384, 640, 750, 828, 1080, 1200, 1920, 2048, 3840}
+	transformQualities = []int{50, 75, 90, 100}
+)
+
+// fileServer is the storage module's side of files.<domain>.
+type fileServer interface {
+	ServeFile(w http.ResponseWriter, r *http.Request)
+}
+
+// findFileServer is the storage module, if it is in this build.
+var findFileServer = func() fileServer {
+	for _, mod := range platform.Modules() {
+		if f, ok := mod.(fileServer); ok {
+			return f
+		}
+	}
+	return nil
+}
+
+// serveBucketImage answers next/image optimizer requests for files in the
+// project's own buckets (files.<domain>/<project>/...) with the box's image
+// transforms, and reports whether it did. The app's optimizer cannot fetch
+// them: they resolve to the box itself, a private address Next.js refuses,
+// and a local box's port is not one the app can reach. The box resizes and
+// caches them on disk, outside the app's memory. Other images go to the app.
+func (r *rt) serveBucketImage(w http.ResponseWriter, req *http.Request, st *AppState, prefix string) bool {
+	if (req.Method != http.MethodGet && req.Method != http.MethodHead) || strings.TrimPrefix(req.URL.Path, prefix) != nextImagePath {
+		return false
+	}
+	q := req.URL.Query()
+	src, err := url.Parse(q.Get("url"))
+	if err != nil || !src.IsAbs() {
+		return false
+	}
+	files, err := url.Parse(r.p.URL(r.p.Host("files")))
+	if err != nil || src.Scheme != files.Scheme || !strings.EqualFold(src.Host, files.Host) || !strings.HasPrefix(src.Path, "/"+st.Project+"/") {
+		return false
+	}
+	fsrv := findFileServer()
+	if fsrv == nil {
+		return false
+	}
+	width, _ := strconv.Atoi(q.Get("w"))
+	quality, err := strconv.Atoi(q.Get("q"))
+	if err != nil {
+		quality = 75
+	}
+	tq := src.Query() // a signed URL keeps its signature
+	tq.Set("w", strconv.Itoa(atLeast(transformWidths, width)))
+	tq.Set("q", strconv.Itoa(nearest(transformQualities, quality)))
+	tq.Set("f", "original")
+	if strings.Contains(req.Header.Get("Accept"), "image/webp") {
+		tq.Set("f", "webp") // Next.js's default format
+	}
+	out := req.Clone(req.Context())
+	out.Host = files.Host
+	out.URL = &url.URL{Path: src.Path, RawQuery: tq.Encode()}
+	out.RequestURI = ""
+	w.Header().Set("Vary", "Accept")
+	fsrv.ServeFile(w, out)
+	return true
+}
+
+// atLeast is the smallest of sorted ns that is at least n (else the largest).
+func atLeast(ns []int, n int) int {
+	for _, v := range ns {
+		if v >= n {
+			return v
+		}
+	}
+	return ns[len(ns)-1]
+}
+
+// nearest is the element of ns closest to n.
+func nearest(ns []int, n int) int {
+	best := ns[0]
+	for _, v := range ns {
+		if abs(v-n) < abs(best-n) {
+			best = v
+		}
+	}
+	return best
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 // hasService reports whether a project has a service (valkey, postgres).

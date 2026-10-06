@@ -295,6 +295,15 @@ func TestProtectEndToEnd(t *testing.T) {
 		if r, _ := get(t, c, dashURL+"/"); r.StatusCode != 200 {
 			t.Errorf("dashboard during app flood: %d", r.StatusCode)
 		}
+		// So do fingerprinted build files: 10× the app limit.
+		for i := range 5 * assetsFactor {
+			if r, _ := get(t, c, shopURL+"/_next/static/chunks/main.js"); r.StatusCode != 200 {
+				t.Fatalf("asset %d during app flood: %d", i+1, r.StatusCode)
+			}
+		}
+		if r, _ := get(t, c, shopURL+"/_next/static/chunks/main.js"); r.StatusCode != 429 {
+			t.Errorf("asset past its own limit: %d, want 429", r.StatusCode)
+		}
 		time.Sleep(2100 * time.Millisecond)
 		if r, _ := get(t, c, shopURL+"/"); r.StatusCode != 200 {
 			t.Errorf("after the window: %d, want 200", r.StatusCode)

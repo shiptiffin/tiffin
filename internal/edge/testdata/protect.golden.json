@@ -270,11 +270,32 @@
                               "host": [
                                 "dashboard.tiffin.localhost"
                               ]
+                            },
+                            {
+                              "tiffin_hashed_asset": {}
                             }
                           ]
                         }
                       ],
                       "max_events": 300,
+                      "window": "10s"
+                    },
+                    "tiffin_assets_3000_10s": {
+                      "ipv6_prefix": 64,
+                      "key": "{http.vars.client_ip}",
+                      "match": [
+                        {
+                          "not": [
+                            {
+                              "host": [
+                                "dashboard.tiffin.localhost"
+                              ]
+                            }
+                          ],
+                          "tiffin_hashed_asset": {}
+                        }
+                      ],
+                      "max_events": 3000,
                       "window": "10s"
                     },
                     "tiffin_auth_10_1m0s": {

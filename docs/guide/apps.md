@@ -353,6 +353,23 @@ its own and the usage says `pressure: "oom"`: raise the budget or find the leak.
 `OTEL_*`, `TIFFIN_QUEUE_*` and your secrets (`tiffin secrets set`). Changing env or
 secrets restarts the app with the new values.
 
+**At build time** the app gets the same env as its instances, as on Vercel, so
+`generateStaticParams`, prerendered pages and build scripts can query the database: a
+preview's build reads its own branch. Two differences: `DATABASE_URL` (and `PG*`) connect
+as the project's read-only role (`p_<project>__read`: reads every table, writes nothing,
+not even with `SET default_transaction_read_only = off`) and `REDIS_URL` as a read-only
+Valkey user, unless the app sets its own values. The values reach build steps as BuildKit
+secrets: they are in no image layer, no build plan and no log, and only `NEXT_PUBLIC_*`
+(and the other browser variables) are built into client code. The trade-offs:
+
+- A build reads live data. A page prerendered from it shows the data of build time until
+  it revalidates, and a build fails if its queries fail.
+- The build runs before `release`, so it sees the schema before this deploy's
+  migrations: on a first deploy there are no tables yet. Prerender code that a new
+  migration feeds should cope with that (fall back, or render the page on demand).
+- Static sites built with Bun (no `package-lock`, `pnpm-lock` or `yarn.lock`) get the
+  plain env and browser variables only.
+
 Variables that frameworks build into browser code (`NEXT_PUBLIC_*`, `VITE_*`,
 `PUBLIC_*`) are public by definition: builds get them from env and secrets alike, and
 changing one rebuilds the app from its live version's source instead of restarting it
@@ -381,11 +398,39 @@ with Next.js 16.2 or later, the box adds its adapter to every build
   while it regenerates, as in Next.js). Cached pages belong to their deploy: a new
   release renders afresh and a rollback finds its old ones. Production and each preview
   have their own cache and revalidations. It takes effect on the next deploy after adding
-  Valkey.
+  Valkey. Pages and route handlers `next build` prerendered are served from the build's
+  files until the cache has a newer copy, as with Next.js's own cache: the first request
+  after a deploy is not a render, and an ISR page's age counts from the build.
 - `compress: false`: the edge compresses.
+- `poweredByHeader: false` (no `X-Powered-By`; add it with `headers()` if you want it).
 - `images.maximumDiskCacheSize`: 512 MB. Optimized images live in a directory per app
   environment, shared by its instances and kept across deploys (deleted with the
   preview or app).
+
+Without the adapter's help:
+
+- **next/image and buckets.** `/_next/image` requests for files in the project's own
+  buckets (`TIFFIN_FILES_URL/...`, public or signed) are answered by the box's image
+  transforms (WebP when the browser takes it), not by the app: Next.js could not fetch
+  them (they resolve to the box itself, an address it refuses) and the app keeps the
+  memory sharp would use. Images in `public/` and from elsewhere go to Next.js as usual.
+- **Social images.** The box sets `VERCEL_PROJECT_PRODUCTION_URL` to the app's host (a
+  preview also gets `VERCEL_ENV=preview` and its own host in `VERCEL_BRANCH_URL`), which
+  is what Next.js resolves `opengraph-image`, `twitter-image` and relative image metadata
+  against when the app sets no `metadataBase`; without it they point at
+  `http://localhost:<port>`. `VERCEL` and `VERCEL_URL` stay unset, since libraries take
+  them to mean the app runs on Vercel. Values the app sets win.
+- **Start command.** With no start script, or one that only runs `next start` (any of
+  `next start`, `bun --bun next start`, `bunx next start`, with `-p $PORT` and such), the
+  box starts `bun --bun next start` itself, and the shell that starts it replaces itself
+  with it (`exec`), so `SIGTERM` reaches Next.js: it finishes requests and `after()` work
+  before it exits.
+- **Memory.** Bun ignores `NODE_OPTIONS`' heap size, so an app with `memoryMB` also gets
+  `BUN_JSC_forceRAMSize` (its cap in bytes): Bun's engine then sizes its heap for the cap
+  instead of the whole machine and collects garbage sooner.
+- **Client files** under `/_next/static` are served by the box from disk, compressed
+  ahead of time (zstd and gzip, best levels), and count toward a separate per-IP limit
+  ten times the app's ([Protection](protection.md)).
 
 The app also gets `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`, made once per app and used at
 build and run time, so Server Actions in a page from the previous release still work

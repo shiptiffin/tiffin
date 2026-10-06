@@ -54,8 +54,9 @@ const (
 )
 
 const (
-	nsPassword = "valkey.password" // project → ACL user password (age-encrypted)
-	nsCap      = "valkey.cap"      // project → maxMemoryMB
+	nsPassword     = "valkey.password"      // project → ACL user password (age-encrypted)
+	nsReadPassword = "valkey.read-password" // project → read-only ACL user password (age-encrypted)
+	nsCap          = "valkey.cap"           // project → maxMemoryMB
 )
 
 func init() { platform.Register(&Module{}) }
@@ -286,9 +287,10 @@ func (*Module) Reconcile(ctx context.Context, p *platform.Platform, project, add
 	defer c.Close()
 	user, prefix := User(project), Prefix(project)
 	if spec == nil {
-		if _, err := c.Do(ctx, "ACL", "DELUSER", user); err != nil {
+		if _, err := c.Do(ctx, "ACL", "DELUSER", user, ReadUser(project)); err != nil {
 			return err
 		}
+		_ = p.DB.KVDelete(ctx, nsReadPassword, project)
 		if _, err := c.Do(ctx, "ACL", "SAVE"); err != nil {
 			return err
 		}
@@ -327,6 +329,34 @@ func (*Module) Reconcile(ctx context.Context, p *platform.Platform, project, add
 func ACLRules(project, password string) []string {
 	prefix := Prefix(project)
 	return append([]string{"reset", "on", ">" + password, "~" + prefix + "*", "&" + prefix + "*"}, commandRules...)
+}
+
+// ReadUser is a project's read-only ACL user.
+func ReadUser(project string) string { return User(project) + "__read" }
+
+// ReadEnv is REDIS_URL, VALKEY_URL and VALKEY_PREFIX for a user that can
+// read the project's keys and nothing more: app builds get it. The user is
+// made (or updated) on each call.
+func ReadEnv(ctx context.Context, p *platform.Platform, project string) (map[string]string, error) {
+	pw, err := datakit.EnsureSecret(ctx, p, nsReadPassword, project)
+	if err != nil {
+		return nil, err
+	}
+	c, err := Admin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("connect to valkey: %w", err)
+	}
+	defer c.Close()
+	prefix := Prefix(project)
+	rules := []string{"reset", "on", ">" + pw, "%R~" + prefix + "*", "+@read", "+@connection", "-@dangerous", "-scan", "-randomkey", "-select"}
+	if _, err := c.Do(ctx, append([]string{"ACL", "SETUSER", ReadUser(project)}, rules...)...); err != nil {
+		return nil, fmt.Errorf("ACL SETUSER: %w", err)
+	}
+	if _, err := c.Do(ctx, "ACL", "SAVE"); err != nil {
+		return nil, err
+	}
+	u := url.URL{Scheme: "redis", User: url.UserPassword(ReadUser(project), pw), Host: "127.0.0.1:" + strconv.Itoa(Port)}
+	return map[string]string{"REDIS_URL": u.String(), "VALKEY_URL": u.String(), "VALKEY_PREFIX": prefix}, nil
 }
 
 // commandRules are the commands a project user may run.

@@ -34,6 +34,9 @@ type BuildRequest struct {
 	WorkDir  string            // scratch space for this deploy
 	Prebuilt string            // image tarball to import instead of building
 	Env      map[string]string // env visible at build time: plain env, and a Next.js app's Server Actions key
+	// RunEnv is the env the environment's instances get (services,
+	// secrets). Railpack builds read it too, as BuildKit secrets; Env wins.
+	RunEnv map[string]string
 	// NextCache: the project has Valkey, so a Next.js app's adapter wires
 	// the shared cache handlers.
 	NextCache bool
@@ -200,8 +203,8 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 	appDir := req.appDir()
 	if req.Spec.Framework == manifest.FrameworkNext && !req.Export {
 		// Next.js runs on Bun as a long-lived server, unless the app chose its own start command.
-		if start := packageScript(appDir, "start"); start == "" || start == "next start" {
-			env["RAILPACK_START_CMD"] = req.inApp("bun --bun next start")
+		if args, ok := nextStartArgs(packageScript(appDir, "start")); ok {
+			env["RAILPACK_START_CMD"] = req.inApp("bun --bun next start" + args)
 		}
 		imageEnv = prepareNext(req, env)
 	}
@@ -237,11 +240,16 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 	if req.Export || req.Spec.Framework == manifest.FrameworkStatic {
 		env["RAILPACK_START_CMD"] = "true" // the image only carries the built files: it never runs
 	}
-	for k, v := range req.Env {
-		env[k] = v
+	for _, from := range []map[string]string{req.RunEnv, req.Env} {
+		for k, v := range from {
+			env[k] = v
+		}
 	}
 	if req.Spec.Command != "" && !req.Export {
 		env["RAILPACK_START_CMD"] = req.inApp(req.Spec.Command) // the manifest's command wins over any default
+	}
+	if c := env["RAILPACK_START_CMD"]; c != "" {
+		env["RAILPACK_START_CMD"] = execLast(c)
 	}
 	if len(req.Spec.Packages) > 0 {
 		env[aptPackagesEnv] = aptPackages(env[aptPackagesEnv], req.Spec.Packages)
@@ -537,6 +545,40 @@ func staticRootOf(dir, configured string) string {
 		}
 	}
 	return ""
+}
+
+// nextStartRe is a start script that only starts Next.js, with options.
+var nextStartRe = regexp.MustCompile(`^(?:bunx? (?:--bun )?|npx )?next start((?: (?:-p|--port|-H|--hostname|--keepAliveTimeout)[ =][\w.:${}-]+)*)$`)
+
+// nextStartArgs reports whether a start script ("" for none) only starts
+// Next.js, and the options it passes. The box then starts Next.js itself,
+// on Bun and without `bun run` in between.
+func nextStartArgs(script string) (string, bool) {
+	if script == "" {
+		return "", true
+	}
+	m := nextStartRe.FindStringSubmatch(script)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
+
+// execLast makes the shell that runs a start command (Railpack's bash -c)
+// replace itself with the command's last step, so the app is tini's direct
+// child and gets its signals (SIGTERM: Next.js finishes requests and
+// after() work before it exits). A command with shell syntax beyond
+// `cd <dir> && <command>` stays as it is.
+func execLast(cmd string) string {
+	prefix, last := "", cmd
+	if i := strings.LastIndex(cmd, " && "); i >= 0 && strings.HasPrefix(cmd, "cd ") && !strings.ContainsAny(cmd[:i], ";|&\n") {
+		prefix, last = cmd[:i+4], cmd[i+4:]
+	}
+	f := strings.Fields(last)
+	if len(f) == 0 || last == "true" || f[0] == "exec" || strings.Contains(f[0], "=") || strings.ContainsAny(last, ";&|<>()`\n") {
+		return cmd
+	}
+	return prefix + "exec " + last
 }
 
 func packageScript(dir, name string) string {

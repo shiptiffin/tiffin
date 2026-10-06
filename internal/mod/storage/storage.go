@@ -610,6 +610,21 @@ func (*Module) Routes(_ context.Context, p *platform.Platform) ([]edge.Route, er
 	return []edge.Route{{Host: p.Host("s3"), Upstream: up, NoCompress: true}, {Host: p.Host("files"), Upstream: up, NoCompress: true}}, nil
 }
 
+// ServeFile answers a request for a file on files.<domain>
+// (/<project>/<bucket>/<key>, image transforms included) in process, as the
+// files host does. The runtime serves next/image requests for bucket files
+// with it. Before the module has started it answers 503.
+func (m *Module) ServeFile(w http.ResponseWriter, r *http.Request) {
+	m.mu.Lock()
+	f := m.front
+	m.mu.Unlock()
+	if f == nil {
+		plain(w, http.StatusServiceUnavailable, "storage is not running")
+		return
+	}
+	f.serveFile(w, r)
+}
+
 // ---- background work and health ----
 
 // Start runs the front server, the usage scanner and the trash purger.

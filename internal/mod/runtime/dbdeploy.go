@@ -18,6 +18,7 @@ import (
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/mod/budget"
 	"github.com/btahir/tiffin/internal/mod/postgres"
+	"github.com/btahir/tiffin/internal/mod/valkey"
 	"github.com/btahir/tiffin/internal/platform"
 )
 
@@ -32,6 +33,23 @@ type BranchStore interface {
 	CreatePreviewBranch(ctx context.Context, p *platform.Platform, project, name, preview string) (*postgres.PGBranchCreated, error)
 	DeleteBranch(ctx context.Context, p *platform.Platform, project, name string) error
 	ListBranches(ctx context.Context, p *platform.Platform, project string) ([]postgres.PGBranch, error)
+}
+
+// ReadAccess hands builds read-only connections: the postgres and valkey
+// modules on a box, a fake in tests.
+type ReadAccess interface {
+	PostgresReadEnv(ctx context.Context, p *platform.Platform, project, branch string) (map[string]string, error)
+	ValkeyReadEnv(ctx context.Context, p *platform.Platform, project string) (map[string]string, error)
+}
+
+type boxReadAccess struct{}
+
+func (boxReadAccess) PostgresReadEnv(ctx context.Context, p *platform.Platform, project, branch string) (map[string]string, error) {
+	return postgres.ReadEnv(ctx, p, project, branch)
+}
+
+func (boxReadAccess) ValkeyReadEnv(ctx context.Context, p *platform.Platform, project string) (map[string]string, error) {
+	return valkey.ReadEnv(ctx, p, project)
 }
 
 type pgBranches struct{}

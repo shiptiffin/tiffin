@@ -5,8 +5,8 @@ import { sql } from "./db";
 
 /**
  * Creates the tables and the seed rows, and puts the featured image in the
- * media bucket. Safe to run on every start: instances take turns through an
- * advisory lock and existing rows are left alone.
+ * media bucket (the release command, lib/seed-run.ts). Safe to run on every
+ * deploy: runs take turns through an advisory lock and existing rows stay.
  */
 export async function seed() {
   const db = sql();
@@ -34,8 +34,7 @@ export async function seed() {
   await seedBucket();
 }
 
-// Bun.s3 reads the project's S3_* variables. Under Node.js the image is left
-// to a Bun deploy (the bench deploys on Bun first).
+// Bun.s3 reads the project's S3_* variables (the release runs on Bun).
 async function seedBucket() {
   const s3 = (globalThis as { Bun?: { s3?: BunS3 } }).Bun?.s3;
   const bucket = process.env.S3_BUCKET_MEDIA;

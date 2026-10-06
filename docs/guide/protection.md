@@ -5,6 +5,9 @@ On by default:
 - **Rate limits** per IP for every app, a strict limit on sign-in endpoints, and a
   generous one for the dashboard. Next.js Server Actions posted from a page such as
   `/sign-in` don't count as sign-in attempts; the auth engine limits the sign-ins they make.
+  Fingerprinted build files (`/_next/static/...`, `main.3f9a2c1d.js`) count toward their own
+  limit, ten times the app limit, so a page that loads dozens of them leaves a visitor's
+  budget for pages and API calls untouched.
 - **Security headers** on every response: `X-Content-Type-Options`, `Referrer-Policy`,
   HSTS, and no framing (`X-Frame-Options: DENY`, plus a `frame-ancestors 'none'` CSP when
   the app sends no CSP) unless the app sends its own `X-Frame-Options` or a CSP with
