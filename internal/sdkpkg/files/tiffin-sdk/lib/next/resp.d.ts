@@ -17,6 +17,7 @@ export declare class RespClient {
     private have;
     private need;
     private downUntil;
+    private fails;
     private timer;
     constructor(url: string, 
     /** A command with no reply after this long fails, and the connection is reset. */
