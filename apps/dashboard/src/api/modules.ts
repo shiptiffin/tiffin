@@ -251,6 +251,8 @@ export const mod3 = {
   previews: (p: string, app: string) => arr(request<EnvStatus[] | null>("GET", `${P(p)}/apps/${e(app)}/previews`)),
   deletePreview: (p: string, app: string, name: string) => request<void>("DELETE", `${P(p)}/apps/${e(app)}/previews/${e(name)}`),
   sleepPreview: (p: string, app: string, name: string) => request<unknown>("POST", `${P(p)}/apps/${e(app)}/previews/${e(name)}/sleep`, {}),
+  /** Starts the project's sleeping apps (or one) and answers once they are up. */
+  wake: (p: string, app?: string) => arr(request<S["RuntimeWakeResult"][] | null>("POST", `${P(p)}/wake${qs({ app })}`, {})),
   appLogs: (p: string, app: string, o: { since?: string; preview?: string; deploy?: string }) =>
     request<S["RuntimeLogPage"]>("GET", `${P(p)}/apps/${e(app)}/logs${qs({ ...o, limit: 500 })}`),
   appLogStream: (p: string, app: string, o: { preview?: string; since?: string }) => `${P(p)}/apps/${e(app)}/logs${qs({ ...o, follow: true })}`,

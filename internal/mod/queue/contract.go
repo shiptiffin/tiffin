@@ -39,6 +39,17 @@ import (
 // every 10-30 s is fine. Plain queue jobs are not pinned: they go to the
 // current release.
 //
+// # The queue module implements Delivering for the runtime
+//
+// A project can let its production apps sleep when unused. Before the
+// runtime puts an app to sleep it asks
+//
+//	queue.Delivering(ctx, p, project, app) → bool
+//
+// and keeps the app up while a delivery to it is under way, so a long job
+// is not cut off. A delivery to a sleeping app wakes it first: AppEndpoint
+// starts it before answering.
+//
 // # The queue module implements SetAppCrons for the runtime
 //
 // An app's own files can declare crons (vercel.json). When an app's
@@ -90,6 +101,13 @@ type PinnedReleaser interface {
 }
 
 var _ PinnedReleaser = (*Module)(nil)
+
+// DeliveryReporter is what this module offers the runtime (see above).
+type DeliveryReporter interface {
+	Delivering(ctx context.Context, p *platform.Platform, project, app string) (bool, error)
+}
+
+var _ DeliveryReporter = (*Module)(nil)
 
 // LiveServer is what this module offers the runtime (see above).
 type LiveServer interface {

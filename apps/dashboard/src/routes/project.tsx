@@ -22,7 +22,7 @@ import { rememberProject } from "@/lib/recent";
 import { progressWords, usePending } from "@/lib/staged";
 import { frameworkName } from "@/lib/starters";
 import { PARTS } from "@/lib/names";
-import { relative } from "@/lib/time";
+import { relative, sinceWhen } from "@/lib/time";
 import { ProjectIcon } from "@/components/project-icon";
 import { DomainsSummary } from "@/components/project-domains";
 
@@ -90,6 +90,11 @@ export function ProjectPage({ project }: { project: string }) {
                   {pulse.retry && (
                     <button type="button" onClick={pulse.retry} className="font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink">
                       Retry
+                    </button>
+                  )}
+                  {pulse.wake && (
+                    <button type="button" onClick={pulse.wake} className="font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink">
+                      Wake
                     </button>
                   )}
                 </>
@@ -208,7 +213,7 @@ function TileAction({ children, ...rest }: { children: ReactNode } & ({ href: st
 
 function AppTile({ project, app, role, framework }: { project: string; app: string; role?: string; framework?: string }) {
   const d = useQuery(deploysQuery(project, app));
-  const rt = useQuery({ ...runtimeQuery(project, app), enabled: role !== "worker" });
+  const rt = useQuery(runtimeQuery(project, app));
   const pulse = appPulse(d.data, role);
   const url = rt.data?.production?.url;
   const kind = framework === "static" ? "Website, static" : role === "worker" ? `Background worker · ${frameworkName(framework)}` : `Web app · ${frameworkName(framework)}`;
@@ -225,7 +230,10 @@ function AppTile({ project, app, role, framework }: { project: string; app: stri
       );
     else if (pulse.tone === "busy") fact = <span className="text-brass-ink">{pulse.words} a new version…</span>;
     else if (pulse.tone === "quiet") fact = "Not live yet. Deploy it to put it online.";
-    else fact = `${pulse.words} · updated ${relative(pulse.since!)}`;
+    else if (rt.data?.production?.sleeping) {
+      const since = rt.data.production.sleepingSince;
+      fact = `Asleep${since ? ` since ${sinceWhen(since)}` : ""} · wakes on ${role === "worker" ? "its next job" : "the next visit"}`;
+    } else fact = `${pulse.words} · updated ${relative(pulse.since!)}`;
   }
   return (
     <Tile

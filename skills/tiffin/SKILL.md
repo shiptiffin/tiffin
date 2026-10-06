@@ -52,7 +52,10 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    86400) for longer renders, or use a queue job. Bodies have no size limit (GB uploads work), but a
    Bun server needs `idleTimeout: 0` and a `maxRequestBodySize` in its `export default { ... }` (Bun
    cuts a silent request after 10 s and refuses bodies over 128 MB); user files still belong in a
-   bucket.
+   bucket. Production never sleeps unless the project sets `sleepAfter: "7d"` ("1h" to "30d"): then
+   apps unused that long stop, and the next request or job wakes them in a few seconds (timers
+   inside the app stop meanwhile; recurring work belongs in a cron). `tiffin projects wake <project>`
+   starts them ahead of visitors.
    Slow or failing requests: `tiffin traces list --project <p>` then `tiffin traces get <id> --project <p>`
    (apps already have the OTLP env; Next.js needs an `instrumentation.ts` calling `registerOTel()` from
    `@vercel/otel`). Real visitors' page speed: `<WebVitals />` from `tiffin-sdk/next/vitals` in the root

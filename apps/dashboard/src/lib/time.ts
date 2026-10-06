@@ -48,6 +48,12 @@ export function expiry(iso?: string): string {
   return t < Date.now() ? `expired ${relative(iso)}` : relative(iso);
 }
 
+/** For "since …": "14:05" today, "yesterday", or "Thursday, 2 October". */
+export function sinceWhen(iso: string, now = new Date()): string {
+  const l = dayLabel(iso, now);
+  return l === "Today" ? clock(iso) : l === "Yesterday" ? "yesterday" : l;
+}
+
 /** "Thursday, 2 October". */
 export function longDay(iso: string): string {
   return dayFmt.format(new Date(iso));

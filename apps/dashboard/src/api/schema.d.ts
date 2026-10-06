@@ -3152,6 +3152,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/wake": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Wake a project's sleeping apps
+         * @description Starts the project's production apps that sleep (a project with sleepAfter puts its apps to sleep after that long unused) and answers once they are up, with how long each start took. Apps that are awake are left as they are. A request or a job wakes a sleeping app by itself; this is for warming it up before visitors arrive.
+         */
+        post: operations["project-wake"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/workflows/approvals": {
         parameters: {
             query?: never;
@@ -4756,7 +4776,7 @@ export interface components {
             /** Format: int64 */
             memoryBytes: number;
             preview?: string;
-            /** @description running, starting, or stopped (no copies running) */
+            /** @description running, starting, stopped (no copies running), or asleep (stopped while nobody uses it; the next request or job wakes it) */
             state: string;
         };
         BoxUsageBuilds: {
@@ -5720,6 +5740,7 @@ export interface components {
             };
             resources?: components["schemas"]["ManifestResources"];
             services?: components["schemas"]["ManifestServices"];
+            sleepAfter?: string;
             topics?: {
                 [key: string]: components["schemas"]["ManifestTopic"];
             };
@@ -7841,11 +7862,23 @@ export interface components {
             /** @description Earlier releases still running, without traffic, for workflow runs pinned to them */
             draining?: components["schemas"]["RuntimeDrainSet"][] | null;
             instances: components["schemas"]["RuntimeInstanceStatus"][] | null;
+            /**
+             * Format: date-time
+             * @description Its last request, job, cron or workflow delivery, or deploy (the idle clock counts from it)
+             */
+            lastActive?: string;
+            /** @description Its last wake from sleep, with how long the start took */
+            lastWake?: components["schemas"]["RuntimeWake"];
             /** @description The deploy serving it */
             live?: components["schemas"]["RuntimeDeploy"];
             preview?: string;
-            /** @description A preview with no recent requests; the next request wakes it */
+            /** @description Asleep: a preview with no recent requests, or production of a project with sleepAfter that nobody used for that long. Its containers are stopped; the next request or delivery wakes it. */
             sleeping?: boolean;
+            /**
+             * Format: date-time
+             * @description When it fell asleep (while sleeping)
+             */
+            sleepingSince?: string;
             /** @description The app was deleted; undo the change to bring it back */
             stopped?: boolean;
             /** Format: date-time */
@@ -8086,6 +8119,37 @@ export interface components {
         };
         RuntimeTemplateList: {
             templates: components["schemas"]["Starter"][] | null;
+        };
+        RuntimeWake: {
+            /**
+             * Format: date-time
+             * @description When it began
+             */
+            at: string;
+            /**
+             * Format: double
+             * @description For a request: from its arrival, held while the app started, to the first byte of its response, in seconds
+             */
+            firstByteSeconds?: number;
+            /**
+             * Format: double
+             * @description From the start to healthy instances, in seconds
+             */
+            startSeconds: number;
+            /**
+             * @description What woke it: a request, a job, cron or workflow delivery, Wake now, or its project no longer letting it sleep
+             * @enum {string}
+             */
+            trigger: "request" | "delivery" | "wake" | "setting";
+        };
+        RuntimeWakeResult: {
+            app: string;
+            /** @description Why it could not start */
+            error?: string;
+            /** @description The wake, with its timing */
+            wake?: components["schemas"]["RuntimeWake"];
+            /** @description It was asleep and started now */
+            woke: boolean;
         };
         "Secret-setRequest": {
             /** @description Why you are setting it, in one sentence. Shown in History. */
@@ -22625,6 +22689,95 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BoxUsage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "project-wake": {
+        parameters: {
+            query?: {
+                /** @description Wake only this app */
+                app?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeWakeResult"][] | null;
                 };
             };
             /** @description Bad Request */

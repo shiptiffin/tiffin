@@ -108,7 +108,7 @@ type UsageApp struct {
 	Instances   int     `json:"instances" doc:"Copies running now"`
 	MemoryBytes uint64  `json:"memoryBytes"`
 	CPUPercent  float64 `json:"cpuPercent"`
-	State       string  `json:"state" doc:"running, starting, or stopped (no copies running)"`
+	State       string  `json:"state" doc:"running, starting, stopped (no copies running), or asleep (stopped while nobody uses it; the next request or job wakes it)"`
 }
 
 // UsageServices are the project's box services.
@@ -466,7 +466,19 @@ func (s *sampler) usage(ctx context.Context, t *tracker, project string, apps []
 			a.State = "running"
 		}
 	}
-	for _, a := range byEnv {
+	var asleep map[string]bool
+	if t.p != nil {
+		asleep = runtime.SleepingApps(ctx, t.p.DB, project)
+	}
+	for key, a := range byEnv {
+		if k := key[0]; a.State == "stopped" {
+			if key[1] != "" {
+				k += "@" + key[1]
+			}
+			if asleep[k] {
+				a.State = "asleep"
+			}
+		}
 		u.Apps = append(u.Apps, *a)
 	}
 	sort.Slice(u.Apps, func(i, j int) bool {
