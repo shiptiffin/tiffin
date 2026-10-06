@@ -25,7 +25,7 @@ jobs:
   go:
     name: go (build, lint, test)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45 # a cold -race build and staticcheck take most of it
     env:
       # Tests that run without -race only (see the test step).
       NORACE: ^(TestACMEIssuanceAndAskGate|TestACMEWildcardDNS01|TestACMERenewal|TestACMEAppsDomain)$
