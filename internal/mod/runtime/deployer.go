@@ -708,13 +708,10 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 		env["NODE_ENV"] = "production"
 	}
 	if env["NODE_OPTIONS"] == "" && spec.MemoryMB > 0 {
-		// Keep V8's heap inside the container's memory cap.
+		// Keep V8's heap inside the container's memory cap. Bun ignores the
+		// flag; its knobs (--smol, BUN_JSC_forceRAMSize) made no measurable
+		// difference to a Next.js app under load (examples/next-showcase/bench).
 		env["NODE_OPTIONS"] = "--max-old-space-size=" + strconv.Itoa(max(64, spec.MemoryMB*3/4))
-	}
-	if env[bunRAMEnv] == "" && spec.MemoryMB > 0 {
-		// Bun ignores NODE_OPTIONS' heap flag. Its engine sizes the heap by
-		// the machine's memory; telling it the cap makes it collect sooner.
-		env[bunRAMEnv] = strconv.Itoa(spec.MemoryMB << 20)
 	}
 	if preview != "" {
 		env["TIFFIN_PREVIEW"] = preview
@@ -771,13 +768,9 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 	return env, hex.EncodeToString(h.Sum(nil))[:16], nil
 }
 
-// bunRAMEnv is the memory size Bun's JavaScript engine (JavaScriptCore)
-// assumes the machine has: Bun reads JSC options from BUN_JSC_* variables.
-const bunRAMEnv = "BUN_JSC_forceRAMSize"
-
 // instanceOnlyEnv are defaults the box gives instances (production mode,
 // their memory cap); a build has its own, unless the app sets them.
-var instanceOnlyEnv = []string{"NODE_ENV", "NODE_OPTIONS", bunRAMEnv}
+var instanceOnlyEnv = []string{"NODE_ENV", "NODE_OPTIONS"}
 
 // buildRunEnv is the env a Railpack build reads besides its plain env: what
 // the environment's instances get (services, secrets, a preview's database

@@ -220,8 +220,8 @@ func TestPreviewDatabaseBranch(t *testing.T) {
 	if !strings.Contains(prb["DATABASE_URL"], "p_shop__read:") || !strings.Contains(prb["DATABASE_URL"], "/p_shop__pv_pr_7?") || prb["TIFFIN_URL"] == "" || prb["TIFFIN_PREVIEW"] != "pr-7" {
 		t.Errorf("preview build: %s TIFFIN_URL %q", prb["DATABASE_URL"], prb["TIFFIN_URL"])
 	}
-	if prb["NODE_ENV"] != "" || prb["NODE_OPTIONS"] != "" || prb[bunRAMEnv] != "" {
-		t.Errorf("instance-only defaults in the build env: %q %q %q", prb["NODE_ENV"], prb["NODE_OPTIONS"], prb[bunRAMEnv])
+	if prb["NODE_ENV"] != "" || prb["NODE_OPTIONS"] != "" {
+		t.Errorf("instance-only defaults in the build env: %q %q", prb["NODE_ENV"], prb["NODE_OPTIONS"])
 	}
 	// The next deploy and another app's preview of the same name use it.
 	h.deploy("api", "pr-7", map[string]string{"index.ts": "feature 2"})

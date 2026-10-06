@@ -204,7 +204,13 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 	if req.Spec.Framework == manifest.FrameworkNext && !req.Export {
 		// Next.js runs on Bun as a long-lived server, unless the app chose its own start command.
 		if args, ok := nextStartArgs(packageScript(appDir, "start")); ok {
-			env["RAILPACK_START_CMD"] = req.inApp("bun --bun next start" + args)
+			// Bun runs a package's bin by name in a child process; a path, in its
+			// own. A workspace may keep next at its top, so it goes by name there.
+			next := "./node_modules/next/dist/bin/next"
+			if req.Dir != "" {
+				next = "next"
+			}
+			env["RAILPACK_START_CMD"] = req.inApp("bun --bun " + next + " start" + args)
 		}
 		imageEnv = prepareNext(req, env)
 	}

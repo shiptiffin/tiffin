@@ -422,12 +422,14 @@ Without the adapter's help:
   them to mean the app runs on Vercel. Values the app sets win.
 - **Start command.** With no start script, or one that only runs `next start` (any of
   `next start`, `bun --bun next start`, `bunx next start`, with `-p $PORT` and such), the
-  box starts `bun --bun next start` itself, and the shell that starts it replaces itself
-  with it (`exec`), so `SIGTERM` reaches Next.js: it finishes requests and `after()` work
-  before it exits.
-- **Memory.** Bun ignores `NODE_OPTIONS`' heap size, so an app with `memoryMB` also gets
-  `BUN_JSC_forceRAMSize` (its cap in bytes): Bun's engine then sizes its heap for the cap
-  instead of the whole machine and collects garbage sooner.
+  box starts Next.js on Bun itself, as one process
+  (`exec bun --bun ./node_modules/next/dist/bin/next start`; `bun next` or `bun run start`
+  would put a Bun process in front of it), so `SIGTERM` reaches Next.js: it finishes
+  requests and `after()` work before it exits. A start command of your own (`command`)
+  is started with `exec` too when it is a plain command.
+- **Memory.** An instance of a small Next.js app on Bun settles around 270 MB RSS under
+  load (`memoryMB: 512` leaves room). Bun ignores `NODE_OPTIONS`' heap size; its own knobs
+  (`--smol`, `BUN_JSC_forceRAMSize`) made no measurable difference, so the box sets none.
 - **Client files** under `/_next/static` are served by the box from disk, compressed
   ahead of time (zstd and gzip, best levels), and count toward a separate per-IP limit
   ten times the app's ([Protection](protection.md)).
