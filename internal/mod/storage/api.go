@@ -28,13 +28,18 @@ const MaxAPIUpload = 10 << 20
 
 // BucketInfo is one bucket with its measured usage.
 type BucketInfo struct {
-	Name      string `json:"name" doc:"Bucket name in tiffin.config.ts"`
-	S3Name    string `json:"s3Name" doc:"The S3 bucket name apps use (<project>-<name>), also in env S3_BUCKET_<NAME>"`
-	Public    bool   `json:"public" doc:"Readable by anyone at publicURL without a signature"`
-	PublicURL string `json:"publicUrl,omitempty" doc:"Base URL of public files: <publicUrl>/<key>"`
-	Bytes     int64  `json:"bytes"`
-	Objects   int64  `json:"objects"`
-	State     string `json:"state" enum:"ready,pending" doc:"pending: applied but not created on the box yet"`
+	Name      string     `json:"name" doc:"Bucket name in tiffin.config.ts"`
+	S3Name    string     `json:"s3Name" doc:"The S3 bucket name apps use (<project>-<name>), also in env S3_BUCKET_<NAME>"`
+	Public    bool       `json:"public" doc:"Readable by anyone at publicURL without a signature"`
+	PublicURL string     `json:"publicUrl,omitempty" doc:"Base URL of public files: <publicUrl>/<key>"`
+	Bytes     int64      `json:"bytes"`
+	Objects   int64      `json:"objects"`
+	State     string     `json:"state" enum:"ready,pending" doc:"pending: applied but not created on the box yet"`
+	CreatedAt *time.Time `json:"createdAt,omitempty"`
+	// The bucket's rules from tiffin.config.ts.
+	MaxFileSize  int64    `json:"maxFileSize,omitempty" doc:"Largest file an upload may create, in bytes (0: no limit)"`
+	AllowedTypes []string `json:"allowedTypes,omitempty" doc:"MIME types uploads may have (image/* matches a family); empty: any"`
+	CORS         []string `json:"cors,omitempty" doc:"Websites that may upload from the browser; empty: the project's own apps"`
 }
 
 // Info is a project's storage overview.
@@ -52,6 +57,7 @@ type Info struct {
 	QuotaSource      string       `json:"quotaSource" enum:"project,box-default"`
 	ReadOnly         string       `json:"readOnly,omitempty" doc:"Set while uploads are refused: which limit was reached and how to fix it"`
 	MeasuredAt       time.Time    `json:"measuredAt" doc:"When usage was last measured (every minute, and after changes)"`
+	ImageTransforms  bool         `json:"imageTransforms" doc:"Images can be resized on the fly (?w=&q=&f=): libvips is installed"`
 	Buckets          []BucketInfo `json:"buckets"`
 }
 
@@ -562,6 +568,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		}
 		return nil, api.NewProblem(404, "not_found", "no trash entry "+in.ID)
 	}))
+
+	m.registerConsole(a, p, need, tag)
 }
 
 func noStorage(project string) error {
@@ -632,7 +640,7 @@ func (m *Module) info(ctx context.Context, p *platform.Platform, project string)
 	}
 	t := m.tracker()
 	info := &Info{Project: project, Endpoint: p.URL(p.Host("s3")), InternalEndpoint: fmt.Sprintf("http://%s:%d", m.containerHost(ctx, p), FrontPort),
-		FilesURL: p.URL(p.Host("files")) + "/" + project, Region: Region, Buckets: []BucketInfo{}, MeasuredAt: t.at()}
+		FilesURL: p.URL(p.Host("files")) + "/" + project, Region: Region, Buckets: []BucketInfo{}, MeasuredAt: t.at(), ImageTransforms: m.transforms()}
 	if c, ok, _ := credsFor(ctx, p, project, false); ok {
 		info.AccessKeyID = c.AccessKey
 	}
@@ -643,9 +651,13 @@ func (m *Module) info(ctx context.Context, p *platform.Platform, project string)
 	sort.Strings(names)
 	for _, n := range names {
 		s3name := S3Name(project, n)
-		bi := BucketInfo{Name: n, S3Name: s3name, Public: buckets[n].Public, State: "pending"}
+		b := buckets[n]
+		bi := BucketInfo{Name: n, S3Name: s3name, Public: b.Public, State: "pending", MaxFileSize: b.MaxFileSize, AllowedTypes: b.AllowedTypes, CORS: b.CORS}
 		if mt, ok := meta[s3name]; ok && mt.Project == project {
 			bi.State = "ready"
+			if !mt.CreatedAt.IsZero() {
+				bi.CreatedAt = &mt.CreatedAt
+			}
 			u := t.bucket(s3name)
 			bi.Bytes, bi.Objects = u.Bytes, u.Objects
 		}
@@ -671,8 +683,8 @@ func (m *Module) upload(ctx context.Context, p *platform.Platform, project, buck
 	if len(data) > MaxAPIUpload {
 		return nil, api.NewProblem(413, "validation", fmt.Sprintf("objects over %d MiB need a presigned PUT URL", MaxAPIUpload>>20))
 	}
-	if strings.HasSuffix(key, "/") || strings.HasPrefix(key, "/") || strings.Contains(key, "//") || strings.Contains("/"+key+"/", "/../") || strings.Contains("/"+key+"/", "/./") {
-		return nil, api.NewProblem(422, "validation", "key must not start or end with /, or contain empty, . or .. segments")
+	if err := checkKey(key); err != nil {
+		return nil, err
 	}
 	s3name, meta, err := m.readyBucket(ctx, p, project, bucket)
 	if err != nil {
@@ -690,11 +702,8 @@ func (m *Module) upload(ctx context.Context, p *platform.Platform, project, buck
 	if contentType == "" {
 		contentType = http.DetectContentType(data)
 	}
-	if meta.MaxFileSize > 0 && int64(len(data)) > meta.MaxFileSize {
-		return nil, api.NewProblem(413, "validation", fmt.Sprintf("bucket %s takes files up to %s; this one is %s", bucket, HumanBytes(meta.MaxFileSize), HumanBytes(int64(len(data)))))
-	}
-	if !typeAllowed(meta.AllowedTypes, contentType) {
-		return nil, api.NewProblem(422, "validation", fmt.Sprintf("bucket %s takes %s; this file is %s", bucket, strings.Join(meta.AllowedTypes, ", "), contentType))
+	if err := uploadRules(bucket, meta, int64(len(data)), contentType); err != nil {
+		return nil, err
 	}
 	gw, _ := m.gateway(p)
 	etag, err := gw.putObject(ctx, s3name, key, contentType, data)

@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -286,9 +287,16 @@ func (g *gateway) deleteObject(ctx context.Context, bucket, key string) error {
 	return g.call(ctx, http.MethodDelete, bucket, key, nil, nil, nil)
 }
 
-// partsSize adds up the parts uploaded so far to a multipart upload.
-func (g *gateway) partsSize(ctx context.Context, bucket, key, uploadID string) (int64, error) {
-	var total int64
+// UploadedPart is one stored part of a multipart upload.
+type UploadedPart struct {
+	N    int    `json:"n" doc:"Part number, from 1"`
+	Size int64  `json:"size"`
+	ETag string `json:"etag"`
+}
+
+// listParts lists the parts uploaded so far to a multipart upload.
+func (g *gateway) listParts(ctx context.Context, bucket, key, uploadID string) ([]UploadedPart, error) {
+	var out []UploadedPart
 	marker := ""
 	for range 100 {
 		q := url.Values{"uploadId": {uploadID}, "max-parts": {"1000"}}
@@ -297,11 +305,13 @@ func (g *gateway) partsSize(ctx context.Context, bucket, key, uploadID string) (
 		}
 		res, err := g.do(ctx, http.MethodGet, bucket, key, q, nil, nil)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		var v struct {
 			Parts []struct {
-				Size int64 `xml:"Size"`
+				N    int    `xml:"PartNumber"`
+				Size int64  `xml:"Size"`
+				ETag string `xml:"ETag"`
 			} `xml:"Part"`
 			IsTruncated          bool   `xml:"IsTruncated"`
 			NextPartNumberMarker string `xml:"NextPartNumberMarker"`
@@ -309,17 +319,81 @@ func (g *gateway) partsSize(ctx context.Context, bucket, key, uploadID string) (
 		err = xml.NewDecoder(res.Body).Decode(&v)
 		res.Body.Close()
 		if err != nil {
-			return 0, fmt.Errorf("storage gateway: bad part listing: %w", err)
+			return nil, fmt.Errorf("storage gateway: bad part listing: %w", err)
 		}
 		for _, p := range v.Parts {
-			total += p.Size
+			out = append(out, UploadedPart{N: p.N, Size: p.Size, ETag: strings.Trim(p.ETag, `"`)})
 		}
 		if !v.IsTruncated || v.NextPartNumberMarker == "" {
 			break
 		}
 		marker = v.NextPartNumberMarker
 	}
-	return total, nil
+	return out, nil
+}
+
+// partsSize adds up the parts uploaded so far to a multipart upload.
+func (g *gateway) partsSize(ctx context.Context, bucket, key, uploadID string) (int64, error) {
+	parts, err := g.listParts(ctx, bucket, key, uploadID)
+	var total int64
+	for _, p := range parts {
+		total += p.Size
+	}
+	return total, err
+}
+
+// createUpload starts a multipart upload and returns its id.
+func (g *gateway) createUpload(ctx context.Context, bucket, key, contentType string) (string, error) {
+	res, err := g.do(ctx, http.MethodPost, bucket, key, url.Values{"uploads": {""}}, nil, http.Header{"Content-Type": {contentType}})
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	var v struct {
+		UploadID string `xml:"UploadId"`
+	}
+	if err := xml.NewDecoder(res.Body).Decode(&v); err != nil || v.UploadID == "" {
+		return "", fmt.Errorf("storage gateway: no upload id (%v)", err)
+	}
+	return v.UploadID, nil
+}
+
+// uploadPart stores part n of a multipart upload and returns its ETag.
+func (g *gateway) uploadPart(ctx context.Context, bucket, key, uploadID string, n int, body []byte) (string, error) {
+	q := url.Values{"uploadId": {uploadID}, "partNumber": {strconv.Itoa(n)}}
+	res, err := g.do(ctx, http.MethodPut, bucket, key, q, body, nil)
+	if err != nil {
+		return "", err
+	}
+	res.Body.Close()
+	return strings.Trim(res.Header.Get("ETag"), `"`), nil
+}
+
+// completeUpload joins the parts into the object and returns its ETag.
+func (g *gateway) completeUpload(ctx context.Context, bucket, key, uploadID string, parts []UploadedPart) (string, error) {
+	var b strings.Builder
+	b.WriteString("<CompleteMultipartUpload>")
+	for _, p := range parts {
+		fmt.Fprintf(&b, "<Part><PartNumber>%d</PartNumber><ETag>&quot;%s&quot;</ETag></Part>", p.N, html.EscapeString(p.ETag))
+	}
+	b.WriteString("</CompleteMultipartUpload>")
+	res, err := g.do(ctx, http.MethodPost, bucket, key, url.Values{"uploadId": {uploadID}}, []byte(b.String()), http.Header{"Content-Type": {"application/xml"}})
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(res.Body, 64<<10))
+	// S3 can answer 200 with an error in the body.
+	if bytes.Contains(raw, []byte("<Error>")) {
+		se := &s3Error{Status: 500}
+		_ = xml.Unmarshal(raw, se)
+		return "", se
+	}
+	var v struct {
+		ETag string `xml:"ETag"`
+	}
+	_ = xml.Unmarshal(raw, &v)
+	return strings.Trim(v.ETag, `"`), nil
 }
 
 func (g *gateway) abortUpload(ctx context.Context, bucket, key, uploadID string) error {

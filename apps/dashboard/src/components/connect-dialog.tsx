@@ -207,6 +207,13 @@ await files.write("hello.txt", "Hello from ${project}");`,
 const s3 = new S3Client({ forcePathStyle: true });
 await s3.send(new PutObjectCommand({ Bucket: process.env.${buckets.length === 1 ? "S3_BUCKET" : `S3_BUCKET_${envName(b)}`}, Key: "hello.txt", Body: "Hello" }));`,
           },
+          {
+            label: "tiffin-sdk",
+            code: `import { signedUrl, upload } from "tiffin-sdk/storage";
+
+await upload("${b}", "avatars/ada.png", photo, { contentType: "image/png" });
+const src = signedUrl("${b}", "avatars/ada.png", { width: 256 }); // resized, works for an hour`,
+          },
         ],
         computer: (
           <Section>

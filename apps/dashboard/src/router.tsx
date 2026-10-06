@@ -60,8 +60,8 @@ const DomainsPage = lz<{ project: string }>(() => import("@/routes/domains"), "D
 const DnsSettingsPage = lz(() => import("@/routes/dns-settings"), "DnsSettingsPage");
 const PeoplePage = lz(() => import("@/routes/settings"), "PeoplePage");
 const PasskeysPage = lz(() => import("@/routes/settings"), "PasskeysPage");
-const StoragePage = lz<{ project: string }>(() => import("@/routes/storage"), "StoragePage");
-const BucketPage = lz<{ project: string; bucket: string; prefix?: string; file?: string }>(() => import("@/routes/storage"), "BucketPage");
+const FilesPage = lz<{ project: string; isNew?: boolean }>(() => import("@/routes/files"), "FilesPage");
+const BucketPage = lz<{ project: string; bucket: string; prefix?: string; file?: string }>(() => import("@/routes/files"), "BucketPage");
 const InboxPage = lz<{ project: string; q?: string; m?: string }>(() => import("@/routes/email"), "InboxPage");
 const EmailSettingsPage = lz<{ project: string }>(() => import("@/routes/email"), "EmailSettingsPage");
 const DataPage = lz<{ project: string }>(() => import("@/routes/data"), "DataPage");
@@ -276,10 +276,12 @@ const domainsRoute = createRoute({
 const storage = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/storage",
-  loader: () => void StoragePage.preload(),
+  validateSearch: (s: Record<string, unknown>): { new?: string } => ({ new: str(s.new) }),
+  loader: () => void FilesPage.preload(),
   component: function Storage() {
     const { project: p } = storage.useParams();
-    return <StoragePage key={p} project={p} />;
+    const { new: isNew } = storage.useSearch();
+    return <FilesPage key={p} project={p} isNew={isNew === "bucket"} />;
   },
 });
 const bucket = createRoute({

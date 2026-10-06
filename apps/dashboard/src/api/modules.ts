@@ -14,6 +14,14 @@ export type StorageContent = S["StorageObjectContent"];
 export type Presigned = S["StoragePresigned"];
 export type TrashEntry = S["StorageTrashEntry"];
 export type Uploaded = S["StorageUploaded"];
+export type FileLink = S["StorageFileLink"];
+export type FilesResult = S["StorageFilesResult"];
+export type UploadSession = S["StorageUploadSession"];
+/** The Files console's changes to files, by path under the bucket, with their bodies. */
+export type FilesWrites = {
+  move: S["Storage-objects-moveRequest"];
+  delete: S["Storage-objects-deleteRequest"];
+};
 export type EmailSummary = S["EmailSummary"];
 export type EmailDetail = S["EmailDetail"];
 export type EmailStatus = S["EmailStatus"];
@@ -124,8 +132,23 @@ const arr = <T>(p: Promise<T[] | null>) => p.then((x) => x ?? []);
 export const mod = {
   // storage
   storage: (p: string) => request<StorageInfo>("GET", `${P(p)}/storage`),
-  objects: (p: string, bucket: string, prefix: string, cursor?: string) =>
-    request<StorageList>("GET", `${P(p)}/storage/buckets/${e(bucket)}/objects${qs({ prefix, delimiter: "/", cursor, limit: 200 })}`),
+  objects: (p: string, bucket: string, prefix: string, cursor?: string, o: { flat?: boolean; limit?: number } = {}) =>
+    request<StorageList>("GET", `${P(p)}/storage/buckets/${e(bucket)}/objects${qs({ prefix, delimiter: o.flat ? undefined : "/", cursor, limit: o.limit ?? 200 })}`),
+  /** A file's bytes on the dashboard's own origin (thumbnails, previews, downloads). */
+  fileUrl: (p: string, bucket: string, key: string, o: { w?: number; q?: number; f?: string; download?: boolean } = {}) =>
+    `${P(p)}/storage/buckets/${e(bucket)}/file${qs({ key, w: o.w, q: o.q, f: o.f, download: o.download })}`,
+  fileLink: (p: string, bucket: string, body: S["Storage-linkRequest"]) => request<FileLink>("POST", `${P(p)}/storage/buckets/${e(bucket)}/link`, body),
+  filesWrite: <K extends keyof FilesWrites>(p: string, bucket: string, op: K, body: FilesWrites[K]) =>
+    request<FilesResult>("POST", `${P(p)}/storage/buckets/${e(bucket)}/${op}`, body),
+  filesUndo: (p: string, id: string) => request<FilesResult>("POST", `${P(p)}/storage/undo`, { id }),
+  uploadStart: (p: string, bucket: string, body: S["Storage-upload-startRequest"]) =>
+    request<UploadSession>("POST", `${P(p)}/storage/buckets/${e(bucket)}/uploads`, body),
+  uploadPartUrl: (p: string, bucket: string, uploadId: string, n: number, key: string) =>
+    `${P(p)}/storage/buckets/${e(bucket)}/uploads/${e(uploadId)}/parts/${n}${qs({ key })}`,
+  uploadComplete: (p: string, bucket: string, uploadId: string, key: string) =>
+    request<Uploaded>("POST", `${P(p)}/storage/buckets/${e(bucket)}/uploads/${e(uploadId)}/complete`, { key }),
+  uploadAbort: (p: string, bucket: string, uploadId: string, key: string) =>
+    request<void>("DELETE", `${P(p)}/storage/buckets/${e(bucket)}/uploads/${e(uploadId)}${qs({ key })}`),
   object: (p: string, bucket: string, key: string) => request<StorageContent>("GET", `${P(p)}/storage/buckets/${e(bucket)}/object${qs({ key })}`),
   presign: (p: string, bucket: string, key: string, expiresIn = 3600) =>
     request<Presigned>("POST", `${P(p)}/storage/buckets/${e(bucket)}/presign`, { key, method: "GET", expiresIn }),

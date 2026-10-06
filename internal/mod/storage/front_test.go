@@ -66,7 +66,13 @@ func (g *fakeGateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && q.Has("uploadId") {
 			g.objects[r.URL.Path] = fakeObject{bytes.Repeat([]byte("x"), int(2*g.parts)), "video/mp4"}
 		}
+		if r.Method == http.MethodDelete && !q.Has("uploadId") {
+			delete(g.objects, r.URL.Path)
+		}
 		w.Header().Set("ETag", `"tag"`)
+		if r.Method == http.MethodPost && q.Has("uploads") {
+			_, _ = io.WriteString(w, "<InitiateMultipartUploadResult><UploadId>U1</UploadId></InitiateMultipartUploadResult>")
+		}
 	}
 }
 

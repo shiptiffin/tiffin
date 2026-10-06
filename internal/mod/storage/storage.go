@@ -117,11 +117,12 @@ func imageCacheDir(root string) string { return filepath.Join(root, "cache", "im
 
 // Module implements the storage module.
 type Module struct {
-	mu     sync.Mutex
-	gw     *gateway
-	usage  *usageTracker
-	front  *frontServer
-	events chan createdEvent
+	mu      sync.Mutex
+	filesMu sync.Mutex // one file move, delete or undo at a time
+	gw      *gateway
+	usage   *usageTracker
+	front   *frontServer
+	events  chan createdEvent
 
 	// Tests override these; empty means the box defaults.
 	bin       string
@@ -650,6 +651,9 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 				p.Log.Error("storage: purge trash", "err", err)
 			} else if n > 0 {
 				p.Log.Info("storage: purged expired trash", "buckets", n)
+			}
+			if _, err := purgeHeld(ctx, p, time.Now()); err != nil {
+				p.Log.Error("storage: purge deleted files", "err", err)
 			}
 			select {
 			case <-ctx.Done():

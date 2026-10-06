@@ -51,8 +51,12 @@ export function DialogDescription({ className, ...props }: ComponentProps<typeof
   return <D.Description className={cn("mt-1.5 text-base text-ink-2", className)} {...props} />;
 }
 
-export function DialogBody({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("min-h-0 flex-1 overflow-y-auto px-6 pb-5", className)}>{children}</div>;
+export function DialogBody({ children, className, ...props }: ComponentProps<"div">) {
+  return (
+    <div className={cn("min-h-0 flex-1 overflow-y-auto px-6 pb-5", className)} {...props}>
+      {children}
+    </div>
+  );
 }
 
 export function DialogFooter({ children, className }: { children: ReactNode; className?: string }) {

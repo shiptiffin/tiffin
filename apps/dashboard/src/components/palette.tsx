@@ -97,6 +97,7 @@ const actions: Array<{ id: string; label: string; part: Part; kw: string[]; icon
   { id: "new-table", label: "New table", part: "postgres", kw: ["create", "database", "add"], icon: <Plus /> },
   { id: "new-key", label: "New key", part: "valkey", kw: ["create", "kv", "set", "add"], icon: <Plus /> },
   { id: "upload-file", label: "Upload a file", part: "storage", kw: ["files", "put", "add"], icon: <Upload /> },
+  { id: "new-bucket", label: "New bucket", part: "storage", kw: ["create", "files", "s3", "add"], icon: <Plus /> },
   { id: "new-schedule", label: "New schedule", part: "jobs", kw: ["cron", "every", "create", "jobs"], icon: <Clock /> },
   { id: "new-queue", label: "New queue", part: "jobs", kw: ["create", "jobs", "queue"], icon: <Plus /> },
   { id: "send-test-job", label: "Send a test job", part: "jobs", kw: ["queue", "job", "try", "payload"], icon: <Plus /> },
@@ -195,6 +196,19 @@ export function CommandPalette({ open, onOpenChange, initialSearch = "", onShort
         keys: here ? x.keys : undefined,
         run: go(x.to, { project: p }),
       }));
+    // Each bucket is a page of its own.
+    for (const r of st?.resources ?? []) {
+      if (!r.address.startsWith("bucket/")) continue;
+      const b = r.address.slice("bucket/".length);
+      out.push({
+        id: `page:${p}:bucket:${b}`,
+        label: here ? <>Files: {b}</> : <>Files: {b}<span className="ml-2 text-xs text-ink-3">{p}</span></>,
+        text: `${p} Files ${b} bucket`,
+        icon: here ? <FolderClosed /> : <ProjectGlyph project={p} />,
+        kw: ["bucket", "files", "s3", "upload"],
+        run: go("/projects/$project/storage/$bucket", { project: p, bucket: b }),
+      });
+    }
     for (const a of actions.filter((x) => parts.has(x.part))) {
       out.push({
         id: `do:${p}:${a.id}`,
