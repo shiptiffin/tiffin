@@ -494,13 +494,56 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 		if err := r.converge(ctx, s.Project, s.App, s.Preview, &a); err != nil {
 			errs = append(errs, err)
 		}
-		// A new size applies now, to running instances' folders too.
+	}
+	// A new size applies to running instances' folders too (Committed put
+	// it in force already, as the change committed).
+	if err := r.applySizes(ctx, project, app); err != nil {
+		errs = append(errs, err)
+	}
+	_ = r.syncCrons(ctx, project, app, nil)
+	return errors.Join(errs...)
+}
+
+// Committed puts an app's new disk folder sizes in force as its change
+// commits: the reconciler's pass comes after apply returns, and a folder an
+// apply grows must hold more by then.
+func (m *Module) Committed(ctx context.Context, p *platform.Platform, c *change.Change) {
+	r, err := m.rt()
+	if err != nil {
+		return
+	}
+	for _, op := range c.Plan.Ops {
+		if change.Kind(op.Address) != change.KindApp || op.Action == change.Delete {
+			continue
+		}
+		if err := r.applySizes(ctx, c.Project, change.Name(op.Address)); err != nil {
+			p.Log.Error("runtime: disk folder sizes", "project", c.Project, "app", change.Name(op.Address), "err", err)
+		}
+	}
+}
+
+// applySizes holds an app's folders in every environment to the sizes of
+// its committed spec, read now: a reconcile pass that started before a
+// change must not put the older size back.
+func (r *rt) applySizes(ctx context.Context, project, app string) error {
+	a, err := r.appSpec(ctx, project, app)
+	if errors.Is(err, errNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	states, err := r.st.statesOf(ctx, project, app)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, s := range states {
 		w := logWriter{log: r.p.Log, args: []any{"project", s.Project, "app", s.App, "preview", s.Preview}}
 		if err := r.quotas.apply(ctx, s.Project, s.App, s.Preview, a.Disk, nil, w); err != nil {
 			errs = append(errs, err)
 		}
 	}
-	_ = r.syncCrons(ctx, project, app, nil)
 	return errors.Join(errs...)
 }
 

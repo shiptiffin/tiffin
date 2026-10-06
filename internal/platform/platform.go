@@ -8,6 +8,7 @@
 //	Provisioner    installs system packages and units (root, idempotent) — `tiffin provision`
 //	APIRegistrar   adds API operations; they become CLI commands and MCP tools for free
 //	Reconciler     makes the machine match a resource after a Change is applied
+//	Committer      puts part of a Change in force as it commits, before the reconciler
 //	EnvProvider    contributes env vars to a project's apps (DATABASE_URL, REDIS_URL, ...)
 //	RouteProvider  contributes edge routes (app hosts, s3, files, ...)
 //	Starter        runs background loops while the box serves
@@ -71,6 +72,15 @@ type APIRegistrar interface {
 type Reconciler interface {
 	Kinds() []string
 	Reconcile(ctx context.Context, p *Platform, project, address string, spec json.RawMessage) error
+}
+
+// Committer puts part of a change in force as it commits, before the
+// reconciler's pass, for what a caller counts on once apply returns (an
+// app's bigger disk folder). It must be quick and idempotent, and read the
+// project's committed state rather than trust c alone: the pass follows,
+// and an earlier pass may still be running.
+type Committer interface {
+	Committed(ctx context.Context, p *Platform, c *change.Change)
 }
 
 // EnvProvider contributes environment variables to a project's app.

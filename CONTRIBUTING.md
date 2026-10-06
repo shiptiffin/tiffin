@@ -31,6 +31,7 @@ implements any of:
 | `Provisioner.Provision(ctx, *System)` | `tiffin provision` as root, before the service (re)starts; idempotent | apt packages, pinned downloads (`System.Fetch` needs a sha256), systemd units (`System.Unit`) |
 | `APIRegistrar.RegisterAPI(huma.API, *Platform)` | API construction (also with a nil Platform to build the spec) | operations; each becomes a CLI command and an MCP tool automatically |
 | `Reconciler.Kinds()/Reconcile(ctx, p, project, address, spec)` | after every apply and once at boot; `spec == nil` means deleted | create DBs, buckets, users; restart apps |
+| `Committer.Committed(ctx, p, change)` | as a change commits, before apply returns and before the reconciler's pass | put in force what callers count on once apply returns (a bigger disk folder); quick, idempotent, reads the committed state |
 | `EnvProvider.Env(ctx, p, project, app)` | when an app starts | DATABASE_URL, REDIS_URL, S3_*, SMTP_URL ... |
 | `RouteProvider.Routes(ctx, p)` | after every converge (`p.RefreshRoutes`) | edge routes (`edge.Route`: host, path prefix, upstreams, file root) |
 | `Starter.Start(ctx, p)` | when the box serves | background loops (must return promptly) |

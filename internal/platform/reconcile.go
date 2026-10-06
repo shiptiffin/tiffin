@@ -91,11 +91,20 @@ func (p *Platform) Failed(ctx context.Context, project string) []string {
 	return out
 }
 
-// AfterApply is called by the API after a change commits.
+// AfterApply is called by the API after a change commits: every Committer
+// puts its part in force, then the reconciler converges the project.
 func (p *Platform) AfterApply(c *change.Change) {
-	if c != nil {
-		p.ReconcileProject(c.Project)
+	if c == nil {
+		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, m := range Modules() {
+		if cm, ok := m.(Committer); ok {
+			cm.Committed(ctx, p, c)
+		}
+	}
+	p.ReconcileProject(c.Project)
 }
 
 func (r *reconciler) run(ctx context.Context) {
