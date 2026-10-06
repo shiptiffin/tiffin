@@ -80,8 +80,13 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    `NEXT_PUBLIC_*`, `VITE_*` and `PUBLIC_*` are built into browser code (public, even as
    secrets): changing one rebuilds the app. Next.js gets `NEXT_PUBLIC_TIFFIN_URL` and
    `NEXT_PUBLIC_SENTRY_DSN`.
-   Code written for Upstash or Vercel KV (`@upstash/redis`, `@upstash/ratelimit`, `@vercel/kv`)
-   runs unchanged on `services.valkey`: the box sets `UPSTASH_REDIS_REST_*` and `KV_REST_API_*`
+   KV (`services.valkey`): use `kv()` from `@shiptiffin/sdk/kv`. It reads `REDIS_URL` and
+   `VALKEY_PREFIX` and prefixes every key; `@upstash/redis` method names, objects stored as JSON,
+   hashes, lists, sets, sorted sets, `pipeline()`/`multi()`, `scan()`, `rateLimit(key, { limit,
+   window: "1 m" })` (atomic, shared by instances) and `cached(key, ttlSec, fn)`. Don't hand-roll
+   rate limits or caches with GET/SET. Another client (iovalkey) needs `keyPrefix: VALKEY_PREFIX`;
+   apps may not run `SCAN`/`KEYS` directly. Code moving from Upstash or Vercel KV
+   (`@upstash/redis`, `@upstash/ratelimit`, `@vercel/kv`) runs unchanged on `services.valkey`: the box sets `UPSTASH_REDIS_REST_*` and `KV_REST_API_*`
    (don't copy the old Upstash values into env or secrets; they would override the box's).
    `tiffin-sdk` ships inside tiffin, not npm: `tiffin sdk add [--react]` vendors it
    (`vendor/*.tgz` + a `file:` dependency; commit both), then `bun install`. Never install it from the npm registry.

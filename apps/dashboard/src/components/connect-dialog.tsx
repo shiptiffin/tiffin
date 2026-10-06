@@ -134,27 +134,29 @@ with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
         reveal: async () => Object.fromEntries(((await mod.kvConnection(project, true)).env ?? []).map((e) => [e.name, e.value ?? ""])),
         snippets: [
           {
-            label: "ioredis",
-            code: `import Redis from "ioredis";
+            label: "@shiptiffin/sdk",
+            code: `import { kv } from "@shiptiffin/sdk/kv"; // reads REDIS_URL and VALKEY_PREFIX
 
-export const redis = new Redis(process.env.REDIS_URL!, { keyPrefix: process.env.VALKEY_PREFIX });
-await redis.set("session:42", JSON.stringify({ user: 42 }), "EX", 3600); // with an expiry: cache`,
+const store = kv();
+await store.set("session:42", { user: 42 }, { ex: 3600 }); // with an expiry: cache
+const session = await store.get<{ user: number }>("session:42");
+const rl = await store.rateLimit(\`login:\${ip}\`, { limit: 5, window: "1 m" });`,
           },
           {
-            label: "Bun.redis",
-            code: `import { redis } from "bun"; // reads REDIS_URL
+            label: "iovalkey",
+            code: `import Valkey from "iovalkey"; // or ioredis: the same API
 
-const key = (k: string) => process.env.VALKEY_PREFIX + k;
-await redis.set(key("flags"), JSON.stringify({ beta: true })); // no expiry: kept
-const flags = await redis.get(key("flags"));`,
+// keyPrefix covers commands and script KEYS, not SCAN (which apps may not run here anyway).
+export const valkey = new Valkey(process.env.REDIS_URL!, { keyPrefix: process.env.VALKEY_PREFIX });
+await valkey.set("flags", JSON.stringify({ beta: true })); // no expiry: kept`,
           },
           {
-            label: "@upstash/redis",
+            label: "From Vercel KV",
             code: `import { Redis } from "@upstash/redis";
 
-// Reads UPSTASH_REDIS_REST_URL and _TOKEN; the box adds the prefix for you.
-export const redis = Redis.fromEnv();
-await redis.set("flags", { beta: true });`,
+// An app moving from Vercel KV or Upstash runs unchanged: the box sets
+// UPSTASH_REDIS_REST_* and KV_REST_API_* and adds the prefix for you.
+export const redis = Redis.fromEnv();`,
           },
         ],
         computer: (

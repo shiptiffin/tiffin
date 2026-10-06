@@ -23,7 +23,10 @@ import (
 // and hashes work, and its keys sit under the project's prefix → the rate
 // limit blocks after its limit → the read-only token reads but does not
 // write → another project's token reaches none of its keys, not even by
-// naming them in full or from a script.
+// naming them in full or from a script → an app on @shiptiffin/sdk/kv in that
+// other project works on both of its connections (JSON, hashes, sorted sets,
+// pipelines, scan, exactly 50 of 200 parallel rate-limited calls) and can't
+// read outside its prefix → SCAN over the endpoint lists only a project's keys.
 func TestUpstash(t *testing.T) {
 	start := time.Now()
 	phase := phaseLogger(t)
@@ -144,6 +147,55 @@ func TestUpstash(t *testing.T) {
 		}
 	}
 	phase("isolation", p)
+
+	// ---- @shiptiffin/sdk/kv in "other", on Bun's client and its own ----
+	p = time.Now()
+	sdkApp := filepath.Join(b.dir, "kvapp")
+	if out, err := exec.Command("cp", "-R", filepath.Join(RepoRoot(), "e2e", "kvapp"), sdkApp).CombinedOutput(); err != nil {
+		t.Fatalf("copy kv app: %v\n%s", err, out)
+	}
+	cfg = "export default {\n  project: \"other\",\n  services: { valkey: {} },\n  apps: { api: { routes: [\"other\"] } },\n};\n"
+	if err := os.WriteFile(filepath.Join(sdkApp, "tiffin.config.ts"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b.ok("sdk", "add", sdkApp)
+	plan = b.ok("plan", sdkApp)
+	b.ok("apply", sdkApp, "--confirm", plan["hash"].(string), "-m", "e2e kv sdk")
+	b.waitReady("app/api", "service/valkey")
+	deploy(t, b, sdkApp)
+	for _, driver := range []string{"bun", "resp"} {
+		code, _, body := b.get(c, "GET", b.url("other")+"/sdk?driver="+driver, nil)
+		var got map[string]any
+		if code != 200 || json.Unmarshal([]byte(body), &got) != nil {
+			t.Fatalf("sdk %s: %d %s", driver, code, body)
+		}
+		k := driver + ":"
+		want := map[string]any{
+			"got":     map[string]any{"hello": "world"},
+			"visits":  float64(1),
+			"hash":    map[string]any{"a": float64(1), "b": "two"},
+			"top":     []any{map[string]any{"member": "b", "score": float64(2)}, map[string]any{"member": "a", "score": float64(1)}},
+			"piped":   []any{true, float64(5), float64(5)},
+			"keys":    []any{k + "greeting", k + "h", k + "n", k + "visits", k + "z"},
+			"allowed": float64(50),
+			"outside": "NOPERM",
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("sdk %s: %v\nwant %v", driver, got, want)
+		}
+	}
+	// The SDK's keys are the Upstash client's keys, and SCAN over the
+	// endpoint lists only the project's own, without the prefix.
+	if got := rest(other, `["GET","bun:greeting"]`); got != `{"result":"{\"hello\":\"world\"}"} 200` {
+		t.Fatalf("SDK key over REST: %s", got)
+	}
+	if got := rest(other, `["SCAN","0","MATCH","*greeting","COUNT","1000"]`); !strings.Contains(got, `"bun:greeting"`) || !strings.Contains(got, `"resp:greeting"`) || strings.Contains(got, `"greeting"`) || strings.Contains(got, "p_") {
+		t.Fatalf("other's SCAN: %s", got)
+	}
+	if got := rest(ro, `["SCAN","0","COUNT","1000"]`); !strings.Contains(got, `"greeting"`) || strings.Contains(got, "bun:") || strings.Contains(got, "p_") {
+		t.Fatalf("upstash's SCAN: %s", got)
+	}
+	phase("sdk", p)
 	t.Logf("TOTAL %s", time.Since(start).Round(time.Second))
 }
 

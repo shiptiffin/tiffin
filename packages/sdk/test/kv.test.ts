@@ -1,4 +1,4 @@
-// tiffin-sdk/kv against a real Valkey (or Redis) server, with the box's ACL:
+// @shiptiffin/sdk/kv against a real Valkey (or Redis) server, with the box's ACL:
 // a project user limited to "p_t:" keys and channels, no SCAN, plus an admin.
 // Every test runs on both connections: Bun's RedisClient and the SDK's own
 // RESP client (what Node uses). Skipped when no server binary is found: set
@@ -372,6 +372,20 @@ for (const driver of ["bun", "resp"] as const) {
       await Bun.sleep(200);
       expect(calls).toBe(2); // one refresh
       expect(await s.cached("c1", 1, slow)).toEqual({ n: 2 });
+      // The one computing fails: another caller takes over at once.
+      let tries = 0;
+      const flaky = async () => {
+        tries++;
+        await Bun.sleep(50);
+        if (tries === 1) throw new Error("boom");
+        return "ok";
+      };
+      const t0 = Date.now();
+      const settled = await Promise.allSettled(Array.from({ length: 5 }, () => s.cached("c3", 10, flaky)));
+      expect(settled.filter((r) => r.status === "rejected").length).toBe(1);
+      expect(settled.filter((r) => r.status === "fulfilled").map((r) => (r as PromiseFulfilledResult<string>).value)).toEqual(["ok", "ok", "ok", "ok"]);
+      expect(tries).toBe(2);
+      expect(Date.now() - t0).toBeLessThan(1000);
       // stale: 0 waits for the fresh value.
       await s.cached("c2", 1, async () => "a", { stale: 0 });
       expect(await s.ttl("cached:c2")).toBe(1);

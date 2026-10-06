@@ -1,8 +1,8 @@
 /**
- * `tiffin-sdk/kv`: the project's key-value store (Valkey), with no setup.
+ * `@shiptiffin/sdk/kv`: the project's key-value store (Valkey), with no setup.
  *
  * ```ts
- * import { kv } from "tiffin-sdk/kv";
+ * import { kv } from "@shiptiffin/sdk/kv";
  *
  * const store = kv();                                  // REDIS_URL + VALKEY_PREFIX
  * await store.set("user:1", { name: "Ada" }, { ex: 3600 });
@@ -169,6 +169,8 @@ export abstract class Commands {
   protected dec = (v: unknown): unknown => {
     if (v == null) return null;
     if (typeof v !== "string" || !this.json) return v;
+    // Only text that starts like JSON is parsed: a plain string costs no exception.
+    if (!/^[[{"tfn\-0-9]/.test(v)) return v;
     try {
       const p: unknown = JSON.parse(v);
       // "1.50" or a 20-digit id would lose digits as a number: keep the string.
@@ -670,14 +672,15 @@ export class KV extends Commands {
       if (await take()) void refresh().catch(() => {});
       return hit.v;
     }
-    if (await take()) return refresh();
-    // Someone else is computing it: wait for their value, then fall back to our own.
-    for (const deadline = Date.now() + lockSec * 1000; Date.now() < deadline; ) {
+    // Cold: one caller computes it; the others wait for its value (or take
+    // over if it failed and let the lock go).
+    for (const deadline = Date.now() + lockSec * 1000; ; ) {
+      if (await take()) return refresh();
+      if (Date.now() >= deadline) return fn();
       await new Promise((r) => setTimeout(r, 50));
       hit = await read();
       if (hit) return hit.v;
     }
-    return fn();
   }
 
   /** Close the connection (scripts don't need to: an idle connection lets the process exit). */
@@ -708,7 +711,7 @@ let shared: KV | undefined;
  * shared connection per process. With options: a new store.
  *
  * @example
- * import { kv } from "tiffin-sdk/kv";
+ * import { kv } from "@shiptiffin/sdk/kv";
  * await kv().set("hello", "world", { ex: 60 });
  */
 export function kv(opts?: KVOptions): KV {

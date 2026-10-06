@@ -115,12 +115,56 @@ services: { valkey: { maxMemoryMB: 128 } }
 ```
 
 Each project gets a Valkey user limited to its own key prefix. Apps get `REDIS_URL` and
-`VALKEY_PREFIX`. `Bun.redis` works as is; `tiffin-sdk/kv` adds prefixed helpers, an
-atomic rate limiter and `cached()`. `maxMemoryMB` (64 by default) is held while the
-project has a limit: over it, its keys with an expiry are cleared first, then new writes
-are refused until it is under it (reads and deletes keep working).
+`VALKEY_PREFIX`. `maxMemoryMB` (64 by default) is held while the project has a limit: over
+it, its keys with an expiry are cleared first, then new writes are refused until it is under
+it (reads and deletes keep working).
 
-### Apps written for Upstash or Vercel KV
+Use `@shiptiffin/sdk/kv`. It reads both variables, adds the prefix to every key and removes
+it from keys it returns, so code only sees its own names:
+
+```ts
+import { kv } from "@shiptiffin/sdk/kv";
+
+const store = kv();
+await store.set("user:1", { name: "Ada" }, { ex: 3600 });   // objects are stored as JSON
+const user = await store.get<{ name: string }>("user:1");
+await store.incr("visits");
+await store.hset("job:7", { status: "running", progress: 0.4 });
+await store.zadd("scores", { score: 42, member: "ada" });
+const top = await store.zrange("scores", 0, 9, { rev: true, withScores: true });
+
+const rl = await store.rateLimit(`login:${ip}`, { limit: 5, window: "1 m" });
+if (!rl.allowed) return new Response("Slow down", { status: 429, headers: { "retry-after": String(rl.retryAfter) } });
+
+const posts = await store.cached("posts:latest", 60, () => db.query.posts.findMany());
+```
+
+- Commands: strings (`get`, `set` with `ex`/`px`/`nx`/`xx`/`keepTtl`, `getdel`, `mget`,
+  `mset`, `del`, `exists`, `expire`, `ttl`, `persist`, `incr`...), hashes, lists, sets,
+  sorted sets, `publish`, and `scan("user:*")` / `keys()` over the project's own keys.
+  Names and options match `@upstash/redis`; `store.command(...)` runs anything else as is,
+  with `store.key(name)` for the full key name.
+- Values: strings are stored as is, anything else as JSON, and reads parse JSON back, as
+  with `@upstash/redis` (a stored `"42"` reads back as `42`). `kv({ json: false })` or
+  `store.raw()` gives plain strings.
+- `store.pipeline()` sends many commands in one round trip, `store.multi()` as one
+  transaction; calls made in the same tick already share one.
+- `rateLimit` is a sliding window by default (`algorithm: "fixed"` for a plain counter), one
+  Lua script on one key with Valkey's clock, so app instances share it and parallel requests
+  can't slip past; refused calls don't count. `cached` lets one caller recompute an expired
+  value while the others get the old one.
+- One connection per process, opened on first use: Bun's built-in client on Bun, the SDK's
+  own on Node (no dependencies). A dropped connection is reopened with backoff, a call fails
+  after 5 seconds, and an idle connection lets a script exit. Errors are `KVError` with
+  Valkey's code and a plain message, e.g. when the project is over its memory limit.
+
+Any Redis client works too. With iovalkey (or ioredis), let it add the prefix:
+`new Valkey(process.env.REDIS_URL, { keyPrefix: process.env.VALKEY_PREFIX })`; it prefixes
+commands and script `KEYS`, not `SCAN`. Apps may not run `SCAN` or `KEYS` themselves (they
+would show other projects' key names); the SDK's `scan()` goes through the box's KV endpoint,
+which lists only the project's keys.
+
+### Apps moving from Vercel KV or Upstash
 
 Apps that use `@upstash/redis`, `@upstash/ratelimit` or `@vercel/kv` run unchanged: the
 box serves an Upstash-compatible REST endpoint inside the box and gives apps
@@ -135,8 +179,8 @@ secrets with these names win, so delete the old Upstash values from them when yo
   channels), so `user:1` over REST is `VALKEY_PREFIX + "user:1"` for `Bun.redis`. A Lua
   script gets prefixed `KEYS`; one that builds key names itself is refused.
 - Every command runs as the project's own Valkey user, with the same limits as
-  `REDIS_URL`: no `KEYS` or `SCAN` (so `@upstash/ratelimit`'s `resetUsedTokens` does not
-  work), and the KV limit above.
+  `REDIS_URL` and the KV limit above. `SCAN` lists the project's own keys; `KEYS` is refused
+  (so `@upstash/ratelimit`'s `resetUsedTokens` does not work).
 - The endpoint is only reachable from apps on the box, not from the internet.
 
 ## Flexible JSON

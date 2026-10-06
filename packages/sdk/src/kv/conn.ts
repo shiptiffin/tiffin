@@ -1,4 +1,4 @@
-// The connection under tiffin-sdk/kv: Bun's built-in RedisClient on Bun, the
+// The connection under @shiptiffin/sdk/kv: Bun's built-in RedisClient on Bun, the
 // SDK's own RESP client (no dependencies) elsewhere. Both pipeline commands
 // issued in the same tick into one write, so Promise.all over several calls
 // is one round trip. Replies are normalised to strings, numbers, arrays and
