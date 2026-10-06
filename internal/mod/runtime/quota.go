@@ -162,12 +162,13 @@ type quotas struct {
 	root string // the disks directory
 	now  func() time.Time
 
-	mu     sync.Mutex
-	set    map[uint32]int64 // limits set since the start
-	used   map[uint32]int64
-	usedAt time.Time
-	held   map[string]bool // projects the disk guard holds read-only
-	warned map[string]bool // folders past warnPercent, logged once
+	applyMu sync.Mutex
+	mu      sync.Mutex
+	set     map[uint32]int64 // limits set since the start
+	used    map[uint32]int64
+	usedAt  time.Time
+	held    map[string]bool // projects the disk guard holds read-only
+	warned  map[string]bool // folders past warnPercent, logged once
 }
 
 const warnPercent = 90
@@ -257,6 +258,8 @@ func (q *quotas) apply(ctx context.Context, project, app, preview string, disk m
 	if q == nil || q.fs == nil || len(disk) == 0 {
 		return nil
 	}
+	q.applyMu.Lock() // one folder, one project: a start and the sync must not both give it one
+	defer q.applyMu.Unlock()
 	recs, err := q.records(ctx)
 	if err != nil {
 		return err
@@ -506,9 +509,24 @@ func (r *rt) syncQuotas(ctx context.Context) {
 		return
 	}
 	specs := map[string]*manifest.App{}
+	seen := map[string]bool{}
 	for _, st := range states {
 		if st.Live == "" || st.Stopped {
 			continue
+		}
+		if !seen[st.Project] {
+			// The disk guard's holds, also those applied before the runtime started.
+			seen[st.Project] = true
+			if _, res, err := r.p.DB.Load(ctx, st.Project); err == nil {
+				_, held := res[change.KindReadOnly]
+				q.mu.Lock()
+				if held {
+					q.held[st.Project] = true
+				} else {
+					delete(q.held, st.Project)
+				}
+				q.mu.Unlock()
+			}
 		}
 		k := st.Project + "/" + st.App
 		spec, ok := specs[k]
