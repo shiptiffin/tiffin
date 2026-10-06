@@ -44,6 +44,20 @@ func TestBoxReachAppsDomain(t *testing.T) {
 	}
 }
 
+func TestDashboardURL(t *testing.T) {
+	for _, c := range []struct{ configured, want string }{
+		{"", "https://dashboard.tiffin.localhost:8443"},
+		{"https://dashboard.tiffin.localhost:18443", "https://dashboard.tiffin.localhost:18443"},
+		{"https://other.example:443/", "https://dashboard.tiffin.localhost"},
+		{"http://localhost:7392/", "http://localhost:7392"},
+		{"http://127.0.0.1:7392", "http://127.0.0.1:7392"},
+	} {
+		if got := dashboardURL(c.configured, "dashboard.tiffin.localhost", 8443); got != c.want {
+			t.Errorf("%q: %s, want %s", c.configured, got, c.want)
+		}
+	}
+}
+
 // TestDomainSetAppsDomainFlag: --apps-domain reaches the API (the generated
 // check command's --apps-domain comes from the API's query parameter).
 func TestDomainSetAppsDomainFlag(t *testing.T) {

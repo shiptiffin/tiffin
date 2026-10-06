@@ -104,10 +104,16 @@ func boxReach(ctx context.Context, db *state.DB, f reachFlags) (platform.Reach, 
 }
 
 // dashboardURL keeps the public port of the configured URL (a forwarded
-// local VM is reached on another port than the box serves on).
+// local VM is reached on another port than the box serves on). A plain HTTP
+// URL on this machine (a box served without the edge, as the dashboard's
+// browser tests do) is used as it is: passkeys must match the page's address.
 func dashboardURL(configured, host string, httpsPort int) string {
 	port := ""
-	if u, err := url.Parse(configured); err == nil && u.Port() != "" {
+	u, err := url.Parse(configured)
+	if err == nil && u.Scheme == "http" && isLoopbackHost(u.Hostname()) {
+		return strings.TrimRight(configured, "/")
+	}
+	if err == nil && u.Port() != "" {
 		port = u.Port()
 	} else if configured == "" && httpsPort != 0 && httpsPort != 443 {
 		port = fmt.Sprint(httpsPort)
@@ -116,6 +122,14 @@ func dashboardURL(configured, host string, httpsPort int) string {
 		return "https://" + host
 	}
 	return "https://" + host + ":" + port
+}
+
+func isLoopbackHost(h string) bool {
+	if h == "localhost" {
+		return true
+	}
+	a, err := netip.ParseAddr(h)
+	return err == nil && a.IsLoopback()
 }
 
 // anyRoutable reports whether any address is reachable from the internet
