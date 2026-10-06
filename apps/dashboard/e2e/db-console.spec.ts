@@ -70,6 +70,12 @@ test("edit a cell, then Undo puts the old value back", async ({ page }) => {
   await toasts(page).getByRole("button", { name: "Undo" }).last().click();
   await expect(cell(page, "books", "Bread & Weather", "price")).toHaveText("24.50");
   await expect(cell(page, "books", "Bread & Weather", "in_stock")).toHaveText("true");
+
+  // History has the edits, in words, with who made them.
+  await page.goto("/projects/bookshop/history");
+  await page.getByRole("button", { name: /Show .* undone/ }).click();
+  await expect(page.getByRole("link", { name: "Changed price on row 2 in books" }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "Changed price and in_stock on row 2 in books" }).first()).toBeVisible();
 });
 
 test("add rows, delete two (it asks with the count), Undo brings them back", async ({ page }) => {
