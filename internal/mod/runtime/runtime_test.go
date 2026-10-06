@@ -25,6 +25,7 @@ import (
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/change/changetest"
 	"github.com/btahir/tiffin/internal/edge"
+	"github.com/btahir/tiffin/internal/edge/switchboard"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/mod/postgres"
 	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
@@ -398,19 +399,56 @@ func (b *fakeBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult,
 
 // fakeEdge is a tiny reverse proxy standing in for Caddy: it serves whatever
 // routes were loaded last, like the real edge does after a reload.
+// fakeEdge is the edge process in one: routes as a map, and a real
+// switchboard fed from the runtime's table.
 type fakeEdge struct {
 	mu     sync.Mutex
 	routes []edge.Route
 	loads  int
+	source func() switchboard.Table
+	syncMu sync.Mutex
+	board  *switchboard.Board
+	sb     *httptest.Server
+}
+
+func newFakeEdge(t *testing.T, ctl switchboard.Control) *fakeEdge {
+	e := &fakeEdge{board: switchboard.New(ctl, slog.New(slog.NewTextHandler(io.Discard, nil)))}
+	e.sb = httptest.NewServer(e.board)
+	t.Cleanup(e.sb.Close)
+	return e
 }
 
 func (e *fakeEdge) SetRoutes(rs []edge.Route) error {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	e.routes = rs
 	e.loads++
+	e.mu.Unlock()
+	return e.SyncTable()
+}
+
+func (e *fakeEdge) Switchboard() string { return e.sb.Listener.Addr().String() }
+
+func (e *fakeEdge) TableSource(fn func() switchboard.Table) {
+	e.mu.Lock()
+	e.source = fn
+	e.mu.Unlock()
+}
+
+func (e *fakeEdge) SyncTable() error {
+	e.syncMu.Lock()
+	defer e.syncMu.Unlock()
+	e.mu.Lock()
+	fn := e.source
+	e.mu.Unlock()
+	if fn != nil {
+		e.board.Set(fn())
+	}
 	return nil
 }
+
+func (e *fakeEdge) Busy(names []string) (int64, error) { return e.board.Busy(names), nil }
+
+func (e *fakeEdge) Activity() (map[string]time.Time, error) { return e.board.Activity(), nil }
 
 func (e *fakeEdge) find(host, path string) *edge.Route {
 	e.mu.Lock()
@@ -487,7 +525,15 @@ func newHarnessQuota(t *testing.T, q quotaFS) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fe := &fakeEdge{}
+	// The registered module instance: the platform finds routes and the API
+	// finds operations through the registry.
+	var m *Module
+	for _, mod := range platform.Modules() {
+		if rm, ok := mod.(*Module); ok {
+			m = rm
+		}
+	}
+	fe := newFakeEdge(t, m)
 	p := &platform.Platform{DB: db, Engine: change.NewEngine(db), Tokens: tokens.NewManager(db), Secrets: sec, Home: dir,
 		Domain: "tiffin.localhost", PublicURL: "https://dashboard.tiffin.localhost:8443", Edge: fe,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
@@ -501,14 +547,6 @@ func newHarnessQuota(t *testing.T, q quotaFS) *harness {
 	opt.ReadAccess = fakeReadAccess{}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	// The registered module instance: the platform finds routes and the API
-	// finds operations through the registry.
-	var m *Module
-	for _, mod := range platform.Modules() {
-		if rm, ok := mod.(*Module); ok {
-			m = rm
-		}
-	}
 	if err := m.start(ctx, p, opt); err != nil {
 		t.Fatal(err)
 	}
@@ -1343,6 +1381,7 @@ func TestRecoverRemovesOrphanedContainers(t *testing.T) {
 	if err := h.r.recover(ctx); err != nil {
 		t.Fatal(err)
 	}
+	h.r.removeOrphans(ctx) // as start does, once the edge has the table
 	if c, _ := h.eng.Inspect(ctx, orphan.Name); c != nil {
 		t.Fatal("orphaned container survived the restart")
 	}

@@ -14,7 +14,7 @@ import (
 
 // boxChecks are the box-level health checks behind /v1/status. They read
 // the machine directly, so they keep working when app services are down.
-func boxChecks(home string, ed *edge.Edge, started time.Time) []api.Check {
+func boxChecks(home string, ed *edge.Client, started time.Time) []api.Check {
 	var out []api.Check
 	if free, total, err := diskSpace(home); err == nil && total > 0 {
 		pct := 100 * float64(total-free) / float64(total)
@@ -26,10 +26,12 @@ func boxChecks(home string, ed *edge.Edge, started time.Time) []api.Check {
 			Detail: fmt.Sprintf("%s available of %s", bytesHuman(avail), bytesHuman(total))})
 	}
 	if ed != nil {
-		if cfg := ed.Config(); !cfg.Internal && cfg.ACME != nil {
+		if _, err := ed.Status(); err != nil {
+			out = append(out, api.Check{Name: "edge", OK: false, Detail: err.Error() + ". Sites it serves keep their last routes; sudo systemctl status tiffin-edge says why."})
+		} else if cfg := ed.Config(); !cfg.Internal && cfg.ACME != nil {
 			out = append(out, api.Check{Name: "edge", OK: true, Detail: "HTTPS edge serving certificates from " + caName(cfg.ACME)})
 		} else {
-			_, err := ed.RootCAPEM()
+			_, err := edge.RootCAPEM(cfg.DataDir)
 			out = append(out, api.Check{Name: "edge", OK: err == nil, Detail: errOr(err, "HTTPS edge serving with the box's CA")})
 		}
 	}

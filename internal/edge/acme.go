@@ -2,7 +2,9 @@ package edge
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -78,9 +80,18 @@ type DNSChallenge struct {
 	PropagationTimeout time.Duration
 }
 
-// key names one provider instance in the config: a new instance (new
-// credentials) changes the config, so the edge reloads and uses it.
-func (d *DNSChallenge) key() string { return fmt.Sprintf("%s-%p", d.Name, d.Provider) }
+// key names one provider in the config by its settings (credentials
+// included, hashed): new credentials change the config, so the edge
+// reloads and uses them, while a restart of the control plane, with a new
+// instance of the same provider, does not.
+func (d *DNSChallenge) key() string {
+	raw, err := json.Marshal(d.Provider)
+	if err != nil || string(raw) == "{}" { // settings it does not show: by instance
+		return fmt.Sprintf("%s-%p", d.Name, d.Provider)
+	}
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("%s-%x", d.Name, sum[:8])
+}
 
 func (a *ACME) publicCA() bool {
 	switch strings.TrimRight(a.CA, "/") {
@@ -317,17 +328,9 @@ var (
 	providers   = map[string]certmagic.DNSProvider{}
 )
 
-// install publishes what the Caddy modules of the next config need: the
-// ask gate's host set and the DNS provider. Call before caddy.Load.
-func install(c Config) {
-	set := c.Allowed()
-	allowed.Store(&set)
-	if c.ACME != nil && c.ACME.Wildcard != nil {
-		providersMu.Lock()
-		providers[c.ACME.Wildcard.key()] = c.ACME.Wildcard.Provider
-		providersMu.Unlock()
-	}
-}
+// remoteDNS makes a provider for a DNS provider key another process (the
+// control plane) holds; the edge process sets it.
+var remoteDNS func(key string) certmagic.DNSProvider
 
 // ---- certificate events and status ----
 
@@ -403,8 +406,12 @@ type CertInfo struct {
 }
 
 // CertStatus reports the certificate the edge holds for host (exact or
-// wildcard match) and the last thing that happened while obtaining one.
+// wildcard match) and the last thing that happened while obtaining one. In
+// the control plane it asks the edge process (see Client).
 func CertStatus(host string) CertInfo {
+	if c := remote.Load(); c != nil {
+		return c.certStatus(host)
+	}
 	host = strings.ToLower(host)
 	now := time.Now()
 	info := CertInfo{Host: host, State: "none", CheckedAt: now}

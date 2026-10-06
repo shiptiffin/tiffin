@@ -56,7 +56,10 @@ can change (`tiffin domain set` restarts the service), so never store full host 
 world reaches the box (public IPs, ACME or the internal CA); `p.DNS` (nil without a connected provider) sets
 DNS records, e.g. email's SPF/DKIM/DMARC.
 Data disk: `/var/lib/tiffin` (XFS, reflinks) — use `/var/lib/tiffin/<yourmodule>/`.
-The service runs as root (`tiffin serve --box`). Edge access logs: `/var/lib/tiffin/logs/access.log`.
+The service runs as root (`tiffin serve --box`, unit `tiffin`). The HTTPS edge (Caddy and the switchboard that
+routes to app instances) is its own process (`tiffin edge`, unit `tiffin-edge`, ports held by `tiffin-edge.socket`),
+so restarting or updating `tiffin` never interrupts the apps; `tiffin` sends it routes and instances over
+`/var/lib/tiffin/platform/edge.sock` (internal/edge/proto.go). Edge access logs: `/var/lib/tiffin/logs/access.log`.
 
 ## A dev box
 
@@ -71,7 +74,7 @@ go build -o /tmp/tiffin-dev ./cmd/tiffin
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /tmp/tiffin-dev-linux ./cmd/tiffin
 /tmp/tiffin-dev up --binary /tmp/tiffin-dev-linux    # create or update (provision + self-update)
 /tmp/tiffin-dev status                               # every CLI command talks to the dev box
-limactl shell tiffin-dev -- sudo journalctl -u tiffin -n 200 --no-pager
+limactl shell tiffin-dev -- sudo journalctl -u tiffin -u tiffin-edge -n 200 --no-pager
 /tmp/tiffin-dev down --confirm local                 # delete it when you're done
 ```
 

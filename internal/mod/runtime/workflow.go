@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/btahir/tiffin/internal/edge/switchboard"
 	"github.com/btahir/tiffin/internal/manifest"
 )
 
@@ -179,4 +180,4 @@ func addBuildCommand(planPath, cmd string) error {
 // workflow and step code for whoever calls them. On the box only the world
 // calls them, over loopback, so the switchboard turns public requests away.
 // (Webhook routes stay public.)
-var workflowQueueRoute = regexp.MustCompile(`/\.well-known/workflow/v\d+/(flow|step)(/|$)`)
+var workflowQueueRoute = switchboard.WorkflowQueueRoute

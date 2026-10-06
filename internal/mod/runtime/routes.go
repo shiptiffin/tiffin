@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"path"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/edge"
+	"github.com/btahir/tiffin/internal/edge/switchboard"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/platform"
 )
@@ -88,8 +88,9 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 	}
 	var out []edge.Route
 	var conflicts []routeConflict
+	sb := r.switchboardAddr()
 	owner := map[string]string{}
-	table := map[string][]dispatchEntry{}
+	table := map[string][]switchboard.Route{}
 	add := func(rt edge.Route, who, env string) {
 		key := rt.Host + rt.PathPrefix
 		if w, taken := owner[key]; taken {
@@ -99,7 +100,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 		owner[key] = who
 		out = append(out, rt)
 		if rt.FileRoot == "" {
-			table[rt.Host] = append(table[rt.Host], dispatchEntry{prefix: rt.PathPrefix, env: env})
+			table[rt.Host] = append(table[rt.Host], switchboard.Route{Prefix: rt.PathPrefix, Env: env})
 		}
 	}
 	for _, st := range states {
@@ -128,7 +129,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 			if static {
 				rt.FileRoot, rt.SPA = r.staticLink(st.Project, st.App, st.Preview), spa
 			} else {
-				rt.Upstream = r.actAddr // the switchboard wakes the preview if it sleeps
+				rt.Upstream = sb // the switchboard wakes the preview if it sleeps
 			}
 			add(rt, who, env)
 			continue
@@ -139,12 +140,12 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 			if static {
 				rt.FileRoot, rt.SPA = r.staticLink(st.Project, st.App, ""), spa
 			} else {
-				rt.Upstream = r.actAddr // instances are switched behind the switchboard
+				rt.Upstream = sb // instances are switched behind the switchboard
 			}
 			add(rt, who, env)
 		}
 	}
-	out = append(out, liveRoutes(out, owner, r.actAddr)...)
+	out = append(out, liveRoutes(out, owner, sb)...)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Host+out[i].PathPrefix < out[j].Host+out[j].PathPrefix })
 	r.setDispatch(table)
 	for _, c := range conflicts {
@@ -153,9 +154,8 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 	return out, conflicts
 }
 
-// livePrefix is where browsers watch jobs and workflow runs on every app host
-// (the queue module's LivePath, without its slash).
-const livePrefix = "/_tiffin/runs"
+// livePrefix is where browsers watch jobs and workflow runs on every app host.
+const livePrefix = switchboard.LivePrefix
 
 // liveRoutes sends livePrefix to the switchboard on hosts whose root it does
 // not already get: static sites, and hosts where apps only serve paths.
@@ -292,12 +292,10 @@ func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project st
 	return prob
 }
 
-// serveInternal is the runtime's own localhost listener: the preview
-// activator (edge → here → preview instance) and git push hooks.
+// serveInternal is the runtime's own localhost listener, for git push hooks.
 func (r *rt) serveInternal(ctx context.Context, ln net.Listener) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/_tiffin/git-hook", r.handleGitHook)
-	mux.HandleFunc("/", r.activate)
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -306,68 +304,13 @@ func (r *rt) serveInternal(ctx context.Context, ln net.Listener) {
 	_ = srv.Serve(ln)
 }
 
-// activate is the switchboard's front door: it finds the app environment a
-// request belongs to (by host and path, as the edge routed it), wakes it if
-// it sleeps, and proxies to the least busy instance. Every request counts
-// as activity, those the box answers itself included.
-func (r *rt) activate(w http.ResponseWriter, req *http.Request) {
-	began := time.Now()
-	host := strings.ToLower(req.Host)
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	key, prefix, ok := r.lookup(host, req.URL.Path)
-	if strings.HasPrefix(req.URL.Path, livePrefix+"/") {
-		if ok {
-			r.touch(key)
-		}
-		serveLive(w, req)
-		return
-	}
-	if !ok {
-		r.routes(req.Context()) // rebuild the table (first request after a start)
-		if key, prefix, ok = r.lookup(host, req.URL.Path); !ok {
-			http.Error(w, "no app is served here", http.StatusNotFound)
-			return
-		}
-	}
-	if workflowQueueRoute.MatchString(path.Clean(req.URL.Path)) {
-		http.NotFound(w, req)
-		return
-	}
-	r.touch(key)
-	defer r.touch(key) // a long request keeps it awake until it ends
-	st := r.st.cache.get(key)
-	// Client assets come from the box's copy of them; a sleeping app need
-	// not wake for them.
-	if st != nil && !st.Stopped && (r.serveAsset(w, req, st, prefix) || r.serveBucketImage(w, req, st, prefix)) {
-		return
-	}
-	if st != nil && !st.Stopped && (st.Sleeping || (st.Preview != "" && len(st.Instances) == 0)) {
-		_, woke, err := r.wake(req.Context(), st.Project, st.App, st.Preview, wakeRequest)
-		if err != nil {
-			w.Header().Set("Retry-After", "5")
-			http.Error(w, "the app could not start: "+err.Error(), http.StatusServiceUnavailable)
-			return
-		}
-		if woke {
-			fb := &firstByte{ResponseWriter: w}
-			r.serveApp(fb, req, key)
-			if !fb.at.IsZero() {
-				r.wokeFirstByte(st.Project, st.App, st.Preview, roundMs(fb.at.Sub(began).Seconds()))
-			}
-			return
-		}
-	}
-	r.serveApp(w, req, key)
-}
-
 // expirePreviews deletes the previews nobody requested or deployed to for
 // PreviewExpire, as closing their pull request would. Only sleeping
 // previews qualify: a preview's state is last written when it falls asleep,
 // after its last request, so the clock survives a restart. Static previews
 // never sleep (the edge serves them) and are kept.
 func (r *rt) expirePreviews(ctx context.Context) {
+	r.pullActivity()
 	states, err := r.st.allStates(ctx)
 	if err != nil {
 		return

@@ -58,6 +58,9 @@ func NewUpdater() *Updater {
 			// A build that crash-loops trips systemd's start limit, and the unit
 			// then refuses a plain restart: clear it first, and retry a little,
 			// since a rollback must not give up on the build that worked.
+			if err := startEdge(ctx); err != nil {
+				return err
+			}
 			var last error
 			for i := 0; i < 3; i++ {
 				_ = exec.CommandContext(ctx, "systemctl", "reset-failed", "tiffin").Run()
@@ -80,6 +83,23 @@ func NewUpdater() *Updater {
 		},
 		Progress: func(string) {},
 	}
+}
+
+// startEdge starts the edge's units the first time, on a box whose tiffin
+// still ran the edge itself: the ports are tiffin's until it stops. Later
+// restarts of tiffin leave the edge running.
+func startEdge(ctx context.Context) error {
+	if _, err := os.Stat(EdgeUnits + ".service"); err != nil {
+		return nil
+	}
+	if exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", "tiffin-edge.socket").Run() == nil {
+		return nil
+	}
+	_ = exec.CommandContext(ctx, "systemctl", "stop", "tiffin").Run()
+	if out, err := exec.CommandContext(ctx, "systemctl", "start", "tiffin-edge.socket", "tiffin-edge.service").CombinedOutput(); err != nil {
+		return fmt.Errorf("systemctl start tiffin-edge: %w: %s", err, out)
+	}
+	return nil
 }
 
 // Update installs newBin as the current build. It is atomic: the symlink

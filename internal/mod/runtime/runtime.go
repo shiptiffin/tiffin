@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/edge/switchboard"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/platform"
 )
@@ -95,20 +96,17 @@ type rt struct {
 	seenDirty map[string]bool
 	// wakeTried: when sleepIdle last started an app that may no longer sleep.
 	wakeTried map[string]time.Time
-	orphanAt  map[string]time.Time // leftover container → when status first saw it
-	actAddr   string               // switchboard listener (app traffic, previews, git hooks)
-	dispatch  map[string][]dispatchEntry
+	orphanAt  map[string]time.Time           // leftover container → when status first saw it
+	actAddr   string                         // the runtime's own listener (git hooks)
+	dispatch  map[string][]switchboard.Route // the switchboard's routes: host → environments
 	// loadedRoutes is the hash of the routes the edge last loaded from us.
 	loadedRoutes string
 	hooks        *hookTokens
 	// gitResolve resolves hosts of git URLs to deploy from (nil: DNS).
 	gitResolve resolver
 	// gh is the GitHub connection and its deploy queue.
-	gh ghState
-	// assetMetas caches each release's client-asset directories (by its
-	// assets dir) for the request path.
-	assetMetas map[string][]AssetDir
-	keyMu      sync.Mutex // creating Next.js Server Actions keys
+	gh    ghState
+	keyMu sync.Mutex // creating Next.js Server Actions keys
 	// timeouts caches each app's request time limit ("project/app").
 	timeouts map[string]time.Duration
 	// quotas holds disk folders to their sizes.
@@ -154,7 +152,7 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	}
 	r := &rt{p: p, opt: opt, st: store{db: p.DB, cache: newStateCache()}, eng: opt.Engine, bld: opt.Builder, ctx: ctx,
 		build: make(chan struct{}, 1), locks: map[string]*sync.Mutex{}, ports: map[int]string{},
-		lastSeen: map[string]time.Time{}, seenDirty: map[string]bool{}, wakeTried: map[string]time.Time{}, hooks: newHookTokens(), assetMetas: map[string][]AssetDir{}, timeouts: map[string]time.Duration{}, warm: warmSlot{poll: 10 * time.Second, quiet: time.Minute}}
+		lastSeen: map[string]time.Time{}, seenDirty: map[string]bool{}, wakeTried: map[string]time.Time{}, hooks: newHookTokens(), timeouts: map[string]time.Duration{}, warm: warmSlot{poll: 10 * time.Second, quiet: time.Minute}}
 	for _, d := range []string{opt.DataDir, opt.LogDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
@@ -189,6 +187,18 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	}
 	r.actAddr = ln.Addr().String()
 	go r.serveInternal(ctx, ln)
+	// The switchboard's table, with its routes, before anything sends it:
+	// a table without routes would send the edge's hosts nowhere.
+	r.routes(ctx)
+	if p.Edge != nil {
+		p.Edge.TableSource(r.table)
+	}
+	r.st.changed = func() {
+		if err := r.syncEdge(); err != nil {
+			r.p.Log.Warn("runtime: send the switchboard table to the edge", "err", err)
+		}
+	}
+	r.removeOrphans(ctx)
 	go r.loop(ctx)
 	go r.resumeReports(ctx)
 	go r.syncQuotas(ctx)
@@ -227,7 +237,6 @@ func (r *rt) recover(ctx context.Context) error {
 			}
 		}
 	}
-	r.removeOrphans(ctx)
 	projects, err := r.p.DB.ListProjects(ctx)
 	if err != nil {
 		return err
@@ -262,9 +271,15 @@ func (r *rt) recover(ctx context.Context) error {
 // removeOrphans removes the app containers that are neither live, draining
 // nor starting: started by a deploy a restart interrupted before it was
 // recorded, a crashed start or a stop or drain whose removal failed. It runs
-// on start, before any deploy can, and every few minutes after.
+// on start, before any deploy can, and every few minutes after. Only once
+// the edge serves the current table, and an orphan the edge still has
+// requests in flight on (old instances a restart interrupted the drain of)
+// is left for a later sweep.
 func (r *rt) removeOrphans(ctx context.Context) {
-	r.sweep(ctx, func(_ Container, owned bool) bool { return !owned })
+	if r.syncEdge() != nil {
+		return
+	}
+	r.sweep(ctx, func(c Container, owned bool) bool { return !owned && r.busy([]Instance{{Name: c.Name}}) == 0 })
 }
 
 // sweep removes the app containers remove picks. owned: an app environment
