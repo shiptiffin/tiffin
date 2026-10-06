@@ -84,3 +84,21 @@ Unit tests run on the host: `go test ./internal/mod/<name>/...` (`make test` run
 and Bun tests; `make lint` runs gofmt, go vet and staticcheck). A module also gets an e2e
 test in `e2e/<name>_test.go` (build tag `e2e`) that drives the CLI against a fresh box
 the way `e2e/up_test.go` does; `make e2e` runs them all, each on a fresh VM (slow).
+
+## Releases
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`: `make release` builds
+`dist/tiffin-<os>-<arch>` reproducibly (trimmed paths, no build ID, the commit's date),
+`make release-sign` writes a minisign-signed manifest per channel (`dist/<channel>/manifest.json`),
+and the workflow publishes the builds and points the rolling `channel-stable` /
+`channel-edge` releases at the new manifest, which boxes read. Per-release settings
+(`Rollout: 10`, `Min-Version: 1.3.0`, `Edge-Restart: true`) go in the annotated tag's
+message; running the workflow by hand with a tag and a percentage widens a rollout.
+
+The signing key never goes in the repository. Make one with
+`go run ./cmd/tiffin-release keygen -out ~/tiffin-release.key` (or `minisign -G -W`), put its
+public key in `internal/release/keys.go` and the secret key file's contents in the
+`TIFFIN_RELEASE_KEY` repository secret. To rotate, add the new public key, release, then
+sign with the new key; drop the old one once every box runs a build that trusts the new.
+`go run ./cmd/tiffin-release verify dist/stable/manifest.json` (or `minisign -Vm ... -P <key>`)
+checks a signed manifest.

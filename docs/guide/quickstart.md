@@ -171,3 +171,30 @@ HTTPS, bans brute-force IPs with CrowdSec (never the IP you run `tiffin` from), 
 the clock in sync, adds a swap file and caps log size. A kernel update never reboots the
 server unless you choose a time: `tiffin up --name shop --reboot-window 04:00`.
 `tiffin status` shows all of it, including a reboot that is waiting.
+
+### Tiffin's own updates
+
+A box running a Tiffin release keeps itself on the newest release of its channel
+(`stable`, or `edge` for pre-releases too). Once a day it reads the channel's release
+manifest and checks its signature against the release keys built into Tiffin; a manifest
+or a build that does not match is refused, and so is anything older than what runs. In
+the maintenance window (`--reboot-window`, half an hour in, after the Postgres update) it
+installs a new release by itself: it downloads the build and checks its sha256, takes a
+backup and waits for it, then switches to the new build the way `tiffin up` does. Apps
+keep serving throughout; if the new build is not healthy within 90 seconds, the previous
+one comes back. A release that changed the edge restarts it too (the ports are held
+meanwhile, about a tenth of a second). A release may go to a share of boxes first: each
+box knows whether it is in that share.
+
+```bash
+tiffin update status                      # version, channel, what is out, recent updates
+tiffin update check                       # read the manifest now
+tiffin update apply                       # install the newest release now
+tiffin update settings --auto=false       # only when you run update apply
+tiffin update settings --window 03:30     # a window for updates of its own
+tiffin update settings --channel edge
+```
+
+Each update is in the audit log (`box.update`), and one that failed or rolled back sends
+an alert. Settings › Updates in the dashboard shows the same, with the switch. A
+development build (from source) updates with `tiffin up` only.

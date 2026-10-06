@@ -167,8 +167,9 @@ func buildTiffin(t *testing.T, dir, goos, version string) string {
 	return buildTiffinFrom(t, RepoRoot(), dir, goos, version)
 }
 
-// buildTiffinFrom builds the tiffin source tree at src.
-func buildTiffinFrom(t *testing.T, src, dir, goos, version string) string {
+// buildTiffinFrom builds the tiffin source tree at src, with any extra
+// -X link flags.
+func buildTiffinFrom(t *testing.T, src, dir, goos, version string, xflags ...string) string {
 	t.Helper()
 	name := "tiffin-host"
 	env := os.Environ()
@@ -179,7 +180,10 @@ func buildTiffinFrom(t *testing.T, src, dir, goos, version string) string {
 	out := filepath.Join(dir, name)
 	args := []string{"build", "-trimpath", "-o", out}
 	if version != "" {
-		args = append(args, "-ldflags", "-X github.com/btahir/tiffin/internal/version.Version="+version)
+		xflags = append(xflags, "-X github.com/btahir/tiffin/internal/version.Version="+version)
+	}
+	if len(xflags) > 0 {
+		args = append(args, "-ldflags", strings.Join(xflags, " "))
 	}
 	cmd := exec.Command("go", append(args, "./cmd/tiffin")...)
 	cmd.Dir, cmd.Env = src, env

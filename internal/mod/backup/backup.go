@@ -162,7 +162,7 @@ type BackupPart struct {
 type Backup struct {
 	ID         string    `json:"id" doc:"Backup ID (bk_...)"`
 	Kind       string    `json:"kind" enum:"full,incremental" doc:"pgBackRest backup type"`
-	Trigger    string    `json:"trigger" enum:"schedule,manual,pre-restore" doc:"What started it"`
+	Trigger    string    `json:"trigger" enum:"schedule,manual,pre-restore,pre-update" doc:"What started it (pre-update: just before an automatic Tiffin update)"`
 	Status     string    `json:"status" enum:"running,ok,failed"`
 	Error      string    `json:"error,omitempty"`
 	StartedAt  time.Time `json:"startedAt"`

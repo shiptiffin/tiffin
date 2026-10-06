@@ -108,6 +108,7 @@ var groupShort = map[string]string{
 	"dns":       "DNS providers (Cloudflare) and records the box sets for you",
 	"exports":   "List, inspect and delete box exports",
 	"imports":   "List, inspect, apply and discard uploaded box exports",
+	"update":    "Tiffin's own updates: status, check, apply now, and settings",
 	// Groups of the same word under projects (parent + " " + word).
 	"projects exports": "Inspect project exports",
 	"projects imports": "Apply or discard an uploaded project export",

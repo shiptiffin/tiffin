@@ -174,7 +174,7 @@ func (a *app) root() *cobra.Command {
 
 	root.AddCommand(a.versionCmd(), a.planCmd(), a.applyCmd(), a.undoCmd(), a.initCmd(),
 		a.serveCmd(), a.edgeCmd(), a.mcpCmd(), a.doctorCmd(), a.ownerCmd(), a.pullCmd(),
-		a.upCmd(), a.downCmd(), a.loginCmd(), a.trustCmd(), a.selfUpdateCmd(), a.provisionCmd(), a.boxCmd(), a.domainCmd(), a.sdkCmd(), a.projectsCmd(), a.watchCmd())
+		a.upCmd(), a.downCmd(), a.loginCmd(), a.trustCmd(), a.selfUpdateCmd(), a.installUnitsCmd(), a.provisionCmd(), a.boxCmd(), a.domainCmd(), a.sdkCmd(), a.projectsCmd(), a.watchCmd())
 	root.AddCommand(a.runtimeCmds()...) // deploy, logs, rollback, git-remote (internal/cli/deploy.go)
 	for _, kind := range []string{"db", "kv"} {
 		subgroup(root, kind).AddCommand(a.tunnelCmd(kind)) // the generated db and kv commands join these groups

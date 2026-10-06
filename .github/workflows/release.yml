@@ -1,0 +1,105 @@
+# Builds, signs and publishes a release when a v* tag is pushed.
+#
+# Boxes read the newest signed manifest of their channel from a rolling
+# release per channel (channel-stable, channel-edge); the manifest points at
+# this version's builds. A tag with a pre-release suffix (v1.5.0-rc.1) goes
+# to edge only.
+#
+# Per-release settings go in the annotated tag's message, one per line:
+#   Rollout: 10          percentage of boxes that apply it automatically (default 100)
+#   Min-Version: 1.3.0   the oldest version that may update to it directly
+#   Edge-Restart: true   the edge's code changed: boxes restart tiffin-edge
+# To widen a rollout later, run this workflow by hand with the tag and the
+# new percentage: it re-signs the manifest for the builds already published.
+#
+# Needs the repository secret TIFFIN_RELEASE_KEY: the unencrypted minisign
+# secret key (`go run ./cmd/tiffin-release keygen -out <file>`) whose public
+# key is in internal/release/keys.go.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published tag to re-sign, e.g. v1.4.0"
+        required: true
+      rollout:
+        description: "Percentage of boxes that apply it automatically"
+        required: true
+        default: "100"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Read the settings from the tag
+        id: opts
+        run: |
+          # checkout may turn an annotated tag into a light one: fetch it as it is.
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          msg="$(git tag -l --format='%(contents)' "$TAG")"
+          field() { printf '%s\n' "$msg" | sed -n "s/^$1: *//p" | head -1 | tr -d '\r'; }
+          rollout="${{ inputs.rollout }}"
+          [ -n "$rollout" ] || rollout="$(field Rollout)"
+          edge="$(field Edge-Restart)"
+          {
+            echo "rollout=${rollout:-100}"
+            echo "min=$(field Min-Version)"
+            echo "edge=${edge:-false}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        if: github.event_name == 'push'
+        run: make release VERSION="$TAG"
+
+      - name: Fetch the published builds
+        if: github.event_name == 'workflow_dispatch'
+        run: mkdir -p dist && gh release download "$TAG" --dir dist --pattern 'tiffin-linux-*'
+
+      - name: Sign the manifests
+        env:
+          TIFFIN_RELEASE_KEY: ${{ secrets.TIFFIN_RELEASE_KEY }}
+        run: |
+          make release-sign VERSION="$TAG" ROLLOUT="${{ steps.opts.outputs.rollout }}" \
+            MIN_VERSION="${{ steps.opts.outputs.min }}" EDGE_RESTART="${{ steps.opts.outputs.edge }}" \
+            NOTES="https://github.com/${{ github.repository }}/releases/tag/$TAG" \
+            BASE_URL="https://github.com/${{ github.repository }}/releases/download/$TAG"
+          # The key must match one this build trusts, or no box will take it.
+          for m in dist/*/manifest.json; do go run ./cmd/tiffin-release verify "$m"; done
+
+      - name: Publish the release
+        if: github.event_name == 'push'
+        run: |
+          pre=""
+          case "$TAG" in *-*) pre="--prerelease" ;; esac
+          gh release create "$TAG" dist/tiffin-* dist/checksums.txt --title "$TAG" --notes-from-tag --verify-tag $pre
+
+      - name: Point the channels at it
+        run: |
+          for ch in stable edge; do
+            [ -f "dist/$ch/manifest.json" ] || continue
+            gh release view "channel-$ch" >/dev/null 2>&1 || gh release create "channel-$ch" --prerelease --target "$GITHUB_SHA" \
+              --title "Channel: $ch" --notes "The newest $ch release's signed manifest, read by boxes' automatic updates."
+            gh release upload "channel-$ch" "dist/$ch/manifest.json" "dist/$ch/manifest.json.minisig" --clobber
+          done
