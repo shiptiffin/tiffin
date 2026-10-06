@@ -6,7 +6,7 @@ export { AcceptInvite, Invite, type AcceptInviteProps, type InviteProps } from "
 export { OrgSwitcher, UserButton, type OrgSwitcherProps, type UserButtonProps } from "./account";
 export { SignIn, type SignInProps } from "./sign-in";
 export { ResetPassword, SignUp, type SignUpProps } from "./sign-up";
-export { TiffinAuthProvider, createTiffinAuth, useTiffinAuth, type AuthConfig, type TiffinAuthClient } from "./client";
+export { CaptchaField, TiffinAuthProvider, createTiffinAuth, useTiffinAuth, type AuthConfig, type TiffinAuthClient } from "./client";
 export { tiffinStyles } from "./styles";
 export { subscribeRun, useJob, useRun, type LiveRun, type RunSnapshot, type RunStep, type SubscribeOptions } from "./run";
 export type { Theme } from "./ui";

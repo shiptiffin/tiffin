@@ -70,6 +70,9 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    a queue subscribed to the topic `storage.object.created`. Images resize at
    `files.<domain>/...?w=&q=&f=webp` (`publicUrl(b, key, { width })`, `signedUrl` for private buckets,
    `tiffin-sdk/next/image-loader` for next/image) instead of sharp in the app.
+   Sign-in in Next.js: `tiffin-sdk/next/auth` (`authProxy` in proxy.ts; `verifySession` /
+   `requireRole` where data is read; `signIn` / `signUp` / `signOut` in Server Actions with
+   `<CaptchaField />`); no auth route of your own: the box owns `/api/auth/*` on every app host.
 7. Copying a project: `tiffin projects duplicate <p> <new>` (same box, own addresses; undo =
    destroy the copy), `tiffin projects export <p> [-o file]` (a .tiffin of plain files with a
    docker-compose.yml; `--include-secrets` puts them in plain text: ask first), `tiffin projects

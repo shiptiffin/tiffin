@@ -303,6 +303,13 @@ func TestProtectEndToEnd(t *testing.T) {
 
 	t.Run("auth endpoints are stricter", func(t *testing.T) {
 		setProt(&Protection{App: Limit{Events: 1000, Window: time.Second}, Auth: Limit{Events: 3, Window: time.Minute}})
+		// Next.js Server Actions on a /sign-in page don't count; the engine's endpoints do.
+		action := map[string]string{"Next-Action": "7f3a"}
+		for i := range 5 {
+			if r, _ := do(t, c, "POST", shopURL+"/sign-in", action, "[]"); r.StatusCode != 200 {
+				t.Fatalf("server action %d on /sign-in: %d", i+1, r.StatusCode)
+			}
+		}
 		for i := range 3 {
 			if r, _ := do(t, c, "POST", shopURL+"/api/auth/sign-in/email", nil, "{}"); r.StatusCode != 200 {
 				t.Fatalf("sign-in %d: %d", i+1, r.StatusCode)
@@ -310,6 +317,12 @@ func TestProtectEndToEnd(t *testing.T) {
 		}
 		if r, _ := do(t, c, "POST", shopURL+"/api/auth/sign-in/email", nil, "{}"); r.StatusCode != 429 {
 			t.Fatalf("4th sign-in: %d, want 429", r.StatusCode)
+		}
+		if r, _ := do(t, c, "POST", shopURL+"/api/auth/sign-in/email", action, "{}"); r.StatusCode != 429 {
+			t.Errorf("a Next-Action header must not lift the engine's limit: %d", r.StatusCode)
+		}
+		if r, _ := do(t, c, "POST", shopURL+"/sign-in", nil, "{}"); r.StatusCode != 429 {
+			t.Errorf("a plain POST to /sign-in still counts: %d", r.StatusCode)
 		}
 		if r, _ := get(t, c, shopURL+"/api/auth/get-session"); r.StatusCode != 200 {
 			t.Errorf("GET get-session must not count as a sign-in: %d", r.StatusCode)

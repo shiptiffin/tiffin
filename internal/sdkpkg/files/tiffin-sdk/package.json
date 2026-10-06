@@ -54,6 +54,10 @@
       "types": "./lib/next/image-loader.d.ts",
       "default": "./lib/next/image-loader.js"
     },
+    "./next/auth": {
+      "types": "./lib/next/auth.d.ts",
+      "default": "./lib/next/auth.js"
+    },
     "./queue": {
       "types": "./lib/queue.d.ts",
       "default": "./lib/queue.js"
@@ -78,6 +82,7 @@
   "peerDependencies": {
     "@tiffin/react": "0.1.0",
     "@react-email/render": ">=1",
+    "next": ">=15",
     "react": ">=18",
     "react-dom": ">=18"
   },
@@ -86,6 +91,9 @@
       "optional": true
     },
     "@react-email/render": {
+      "optional": true
+    },
+    "next": {
       "optional": true
     },
     "react": {

@@ -56,6 +56,10 @@
       "types": "./src/next/image-loader.ts",
       "default": "./src/next/image-loader.ts"
     },
+    "./next/auth": {
+      "types": "./src/next/auth.ts",
+      "default": "./src/next/auth.ts"
+    },
     "./queue": {
       "types": "./src/queue.ts",
       "default": "./src/queue.ts"
@@ -87,6 +91,7 @@
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^19.3.0",
     "@types/smtp-server": "^3.5.13",
+    "next": "16.3.8",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "smtp-server": "^3.19.16"
@@ -94,6 +99,7 @@
   "peerDependencies": {
     "@tiffin/react": "0.1.0",
     "@react-email/render": ">=1",
+    "next": ">=15",
     "react": ">=18",
     "react-dom": ">=18"
   },
@@ -102,6 +108,9 @@
       "optional": true
     },
     "@react-email/render": {
+      "optional": true
+    },
+    "next": {
       "optional": true
     },
     "react": {

@@ -19,6 +19,9 @@ function fakeFetch(body: unknown, status = 200) {
 }
 
 const req = (headers: Record<string, string>) => new Request("https://shop.example.com/notes", { headers });
+// A new session token each time: answers are remembered per token for 5 s.
+let n = 0;
+const tok = () => `__Secure-tiffin.session_token=t${++n}.sig`;
 
 describe("roles", () => {
   test("ordering and multi-role strings", () => {
@@ -41,16 +44,17 @@ describe("getSession", () => {
     expect(calls[0]!.headers.get("x-tiffin-host")).toBe("shop.example.com");
   });
 
-  test("no credentials: no call, no session", async () => {
+  test("no credentials (or only other cookies): no call, no session", async () => {
     const { f, calls } = fakeFetch(session("member"));
     expect(await getSession(req({}), { url: "http://x/api/auth", fetch: f })).toBeNull();
+    expect(await getSession(req({ cookie: "theme=dark" }), { url: "http://x/api/auth", fetch: f })).toBeNull();
     expect(calls.length).toBe(0);
   });
 
   test("reads TIFFIN_AUTH_INTERNAL_URL", async () => {
     process.env.TIFFIN_AUTH_INTERNAL_URL = "http://engine:1/api/auth/";
     const { f, calls } = fakeFetch(null);
-    expect(await getSession(req({ cookie: "x=1" }), { fetch: f })).toBeNull();
+    expect(await getSession(req({ cookie: tok() }), { fetch: f })).toBeNull();
     expect(calls[0]!.url).toBe("http://engine:1/api/auth/tiffin/session");
     delete process.env.TIFFIN_AUTH_INTERNAL_URL;
   });
@@ -59,21 +63,21 @@ describe("getSession", () => {
 describe("require*", () => {
   test("401 without a session, 403 below the role, ok at or above", async () => {
     const none = fakeFetch(null).f;
-    const err = await requireUser(req({ cookie: "x=1" }), { url: "http://x", fetch: none }).catch((e) => e);
+    const err = await requireUser(req({ cookie: tok() }), { url: "http://x", fetch: none }).catch((e) => e);
     expect(err).toBeInstanceOf(AuthError);
     expect(err.status).toBe(401);
     expect(err.toResponse().status).toBe(401);
 
     const viewer = fakeFetch(session("viewer")).f;
-    const low = await requireRole(req({ cookie: "x=1" }), "member", { url: "http://x", fetch: viewer }).catch((e) => e);
+    const low = await requireRole(req({ cookie: tok() }), "member", { url: "http://x", fetch: viewer }).catch((e) => e);
     expect(low.status).toBe(403);
     expect(low.code).toBe("forbidden");
     expect(low.message).toContain("member");
 
-    const noOrg = await requireRole(req({ cookie: "x=1" }), "viewer", { url: "http://x", fetch: fakeFetch(session(null)).f }).catch((e) => e);
+    const noOrg = await requireRole(req({ cookie: tok() }), "viewer", { url: "http://x", fetch: fakeFetch(session(null)).f }).catch((e) => e);
     expect(noOrg.code).toBe("no_organization");
 
-    const admin = await requireRole(req({ cookie: "x=1" }), "member", { url: "http://x", fetch: fakeFetch(session("admin")).f });
+    const admin = await requireRole(req({ cookie: tok() }), "member", { url: "http://x", fetch: fakeFetch(session("admin")).f });
     expect(admin.organization.name).toBe("Acme");
   });
 });

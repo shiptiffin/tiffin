@@ -492,9 +492,7 @@ func buildConfig(c Config) obj {
 	}}
 	for _, h := range [][2]string{
 		{"X-Content-Type-Options", "nosniff"},
-		{"X-Frame-Options", "DENY"},
 		{"Referrer-Policy", "strict-origin-when-cross-origin"},
-		{"Content-Security-Policy", cspValue},
 	} {
 		secure = append(secure, obj{
 			"handler": "headers",
@@ -504,6 +502,35 @@ func buildConfig(c Config) obj {
 			},
 		})
 	}
+	secure = append(secure, []obj{
+		// No framing unless the app decides, with its own
+		// X-Frame-Options or a CSP with frame-ancestors (which browsers
+		// prefer). Inner handlers see the response first, so these run
+		// bottom to top: DENY when the app sent no X-Frame-Options;
+		// none when its CSP has frame-ancestors; then, when the app sent
+		// neither a CSP nor an X-Frame-Options of its own, our CSP.
+		{
+			"handler": "headers",
+			"response": obj{
+				"set":     obj{"Content-Security-Policy": []string{cspValue}},
+				"require": obj{"headers": obj{"Content-Security-Policy": nil, "X-Frame-Options": []string{"DENY"}}},
+			},
+		},
+		{
+			"handler": "headers",
+			"response": obj{
+				"delete":  []string{"X-Frame-Options"},
+				"require": obj{"headers": obj{"Content-Security-Policy": []string{"*frame-ancestors*"}, "X-Frame-Options": []string{"DENY"}}},
+			},
+		},
+		{
+			"handler": "headers",
+			"response": obj{
+				"set":     obj{"X-Frame-Options": []string{"DENY"}},
+				"require": obj{"headers": obj{"X-Frame-Options": nil}},
+			},
+		},
+	}...)
 	routes := []obj{{"handle": secure}}
 	if c.Protect != nil {
 		routes = append(routes, c.Protect.protectRoutes(c)...)

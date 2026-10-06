@@ -6,6 +6,6 @@ export { AcceptInvite, Invite } from "./invite.js";
 export { OrgSwitcher, UserButton } from "./account.js";
 export { SignIn } from "./sign-in.js";
 export { ResetPassword, SignUp } from "./sign-up.js";
-export { TiffinAuthProvider, createTiffinAuth, useTiffinAuth } from "./client.js";
+export { CaptchaField, TiffinAuthProvider, createTiffinAuth, useTiffinAuth } from "./client.js";
 export { tiffinStyles } from "./styles.js";
 export { subscribeRun, useJob, useRun } from "./run.js";

@@ -346,6 +346,15 @@ func Warnings(m *Manifest) []string {
 			}
 		}
 	}
+	if m.Services.Auth != nil {
+		for _, name := range sortedKeys(m.Apps) {
+			for _, r := range m.Apps[name].Routes {
+				if i := strings.IndexByte(r, '/'); i >= 0 && (r[i:] == "/api/auth" || strings.HasPrefix(r[i:], "/api/auth/")) {
+					out = append(out, fmt.Sprintf("apps.%s route %q is under /api/auth, which services.auth serves on every app host: the app never gets those requests. Pick another path", name, r))
+				}
+			}
+		}
+	}
 	if a := m.Services.Auth; a != nil && a.EmailVerification != nil && !*a.EmailVerification {
 		out = append(out, "services.auth.emailVerification is false: anyone can sign up with an address they don't own. "+
 			"Fine for testing; before real users sign up, remove it (verification turns on by itself once the box has an SMTP relay) or set it to true")

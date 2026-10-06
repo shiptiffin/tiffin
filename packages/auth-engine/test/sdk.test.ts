@@ -1,7 +1,7 @@
 // tiffin-sdk/auth against the real engine: what an app's server code sees.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import pg from "pg";
-import { getSession, requireRole, verifyToken, withOrg } from "../../sdk/src/auth";
+import { getSession, requireRole, sessionFor, verifyToken, withOrg } from "../../sdk/src/auth";
 import { adminHandler } from "../src/admin";
 import { Registry } from "../src/registry";
 import { publicHandler } from "../src/server";
@@ -76,4 +76,49 @@ test("getSession / requireRole / API key caps / JWT / withOrg with RLS", async (
   expect(String(sneak)).toContain("row-level security");
   c.release();
   await pool.end();
+}, 60_000);
+
+test("fast path: the signed session cookie is read without the engine, and stays honest", async () => {
+  const bea = await person(handle, "bea@example.com", "Bea");
+  let calls = 0;
+  const counting = ((url: string, init?: RequestInit) => {
+    if (url.includes("/tiffin/session")) calls++;
+    return engineFetch(url, init);
+  }) as unknown as typeof fetch;
+  const o = { ...opts, fetch: counting };
+  const appReq = () => new Request(`${ORIGIN}/dashboard`, { headers: { cookie: bea.cookieHeader() } });
+
+  const viaCookie = await getSession(appReq(), o);
+  const viaEngine = await getSession(appReq(), { ...o, fresh: true });
+  expect(calls).toBe(1);
+  const same = (s: typeof viaCookie) => ({ ...s, user: { ...s!.user, updatedAt: null } });
+  expect(same(viaCookie)).toEqual(same(viaEngine)); // the cookie holds the user as of signing in
+
+  // The engine's answer re-signs the cookie, for frameworks to pass on.
+  const { setCookie } = await sessionFor(appReq().headers, { ...o, fresh: true });
+  expect(setCookie.some((c) => c.startsWith("__Secure-tiffin.session_data="))).toBe(true);
+
+  // Creating an organization makes it active and re-signs the cookie.
+  const team = await bea.json("/organization/create", { body: { name: "Bea's team", slug: "bea-team" } });
+  expect((await getSession(appReq(), o))?.organization?.id).toBe(team.body.id);
+
+  // Signed out elsewhere: the engine says so at once; a copied cookie lasts until it expires (60 s).
+  const copy = bea.cookieHeader();
+  await bea.json("/sign-out", { body: {} });
+  const stale = new Request(`${ORIGIN}/dashboard`, { headers: { cookie: copy } });
+  expect(await getSession(stale, { ...o, fresh: true })).toBeNull();
+  expect((await getSession(stale, o))?.user.email).toBe("bea@example.com");
+
+  // Latency, one process (engine in-process, Postgres local).
+  const time = async (f: () => Promise<unknown>) => {
+    const t = performance.now();
+    for (let i = 0; i < 200; i++) await f();
+    return (performance.now() - t) / 200;
+  };
+  const signedIn = await person(handle, "cal@example.com", "Cal");
+  const r = () => new Request(`${ORIGIN}/x`, { headers: { cookie: signedIn.cookieHeader() } });
+  const fast = await time(() => getSession(r(), o));
+  const engine = await time(() => getSession(r(), { ...o, fresh: true }));
+  console.log(JSON.stringify({ getSessionMs: { signedCookie: +fast.toFixed(3), engine: +engine.toFixed(3) } }));
+  expect(fast).toBeLessThan(engine);
 }, 60_000);
