@@ -315,7 +315,7 @@ func quoteList(ss []string) string {
 
 // boxEnv are variables the box sets for apps; prefixes end in "_".
 var boxEnv = []string{"PORT", "DATABASE_URL", "REDIS_URL", "VALKEY_PREFIX", "SMTP_URL", "EMAIL_FROM", "SENTRY_DSN",
-	"S3_", "AWS_", "TIFFIN_", "OTEL_"}
+	"S3_", "AWS_", "TIFFIN_", "OTEL_", "UPSTASH_REDIS_REST_", "KV_REST_API_"}
 
 // SetByBox reports whether the box gives apps an env var of this name, so
 // a value of the project's own (env or a secret) would replace it.

@@ -1,7 +1,8 @@
 // Package valkey is the Tiffin valkey module: one Valkey server on the data
 // disk (AOF + RDB), and per project an ACL user that can only touch keys and
 // pub/sub channels under its own prefix "p_<project>:". Apps get REDIS_URL
-// (for Bun.redis or any Redis client) and VALKEY_PREFIX.
+// (for Bun.redis or any Redis client) and VALKEY_PREFIX, plus an
+// Upstash-compatible REST endpoint (rest.go) for @upstash/redis and @vercel/kv.
 //
 // Memory caps: Valkey has one maxmemory for the whole server and no
 // per-prefix limit. The server-wide maxmemory (about an eighth of RAM) with
@@ -401,7 +402,15 @@ func (*Module) Env(ctx context.Context, p *platform.Platform, project, app strin
 	if err != nil || !ok {
 		return nil, err
 	}
-	return ConnEnv(ctx, p, project, false)
+	env, err := ConnEnv(ctx, p, project, false)
+	if err != nil {
+		return nil, err
+	}
+	rest, err := RESTEnv(ctx, p, project)
+	for k, v := range rest {
+		env[k] = v
+	}
+	return env, err
 }
 
 // Checks reports whether Valkey answers and how full it is.

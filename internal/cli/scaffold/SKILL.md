@@ -42,6 +42,9 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
 6. App code reads services from env vars (`DATABASE_URL`, `S3_*`, `TIFFIN_AUTH_INTERNAL_URL`...),
    its own address from `TIFFIN_URL` and the domain apps live under from `TIFFIN_DOMAIN` (it can
    differ from the dashboard's: `tiffin domain` shows both); never hardcode either.
+   Code written for Upstash or Vercel KV (`@upstash/redis`, `@upstash/ratelimit`, `@vercel/kv`)
+   runs unchanged on `services.valkey`: the box sets `UPSTASH_REDIS_REST_*` and `KV_REST_API_*`
+   (don't copy the old Upstash values into env or secrets; they would override the box's).
    `tiffin-sdk` ships inside tiffin, not npm: `tiffin sdk add [--react]` vendors it
    (`vendor/*.tgz` + a `file:` dependency; commit both), then `bun install`. Never install it from the npm registry.
    AGENTS.md has the plain-HTTP auth and queue protocols. Plans list `warnings`: fix them before applying.

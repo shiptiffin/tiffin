@@ -36,6 +36,25 @@ atomic rate limiter and `cached()`. `maxMemoryMB` (64 by default) is held while 
 project has a limit: over it, its keys with an expiry are cleared first, then new writes
 are refused until it is under it (reads and deletes keep working).
 
+### Apps written for Upstash or Vercel KV
+
+Apps that use `@upstash/redis`, `@upstash/ratelimit` or `@vercel/kv` run unchanged: the
+box serves an Upstash-compatible REST endpoint inside the box and gives apps
+`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `KV_REST_API_URL`, `KV_REST_API_TOKEN`
+and `KV_REST_API_READ_ONLY_TOKEN`. `Redis.fromEnv()` picks them up. Your own env or
+secrets with these names win, so delete the old Upstash values from them when you move an app.
+
+- It speaks what those clients use: one command as a JSON array, path-style commands
+  (`/set/key/value`), `/pipeline`, `/multi-exec`, base64 replies, and Lua scripts (`EVAL`,
+  `EVALSHA`, `SCRIPT LOAD`). Subscriptions over REST are not available; use `REDIS_URL`.
+- Keys are clean: the endpoint adds the project's prefix to every key (and to `PUBLISH`
+  channels), so `user:1` over REST is `VALKEY_PREFIX + "user:1"` for `Bun.redis`. A Lua
+  script gets prefixed `KEYS`; one that builds key names itself is refused.
+- Every command runs as the project's own Valkey user, with the same limits as
+  `REDIS_URL`: no `KEYS` or `SCAN` (so `@upstash/ratelimit`'s `resetUsedTokens` does not
+  work), and the cache limit above.
+- The endpoint is only reachable from apps on the box, not from the internet.
+
 ## Documents
 
 `tiffin-sdk/db` gives typed JSONB collections on your Postgres database, for data you

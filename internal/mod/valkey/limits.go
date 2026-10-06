@@ -96,8 +96,9 @@ func decideCache(used, limit int64, held bool) (free int64, hold, release bool) 
 	return 0, false, false
 }
 
-// Start runs the cache limits (the box serves).
+// Start runs the cache limits and the REST endpoint (the box serves).
 func (*Module) Start(ctx context.Context, p *platform.Platform) error {
+	go serveREST(ctx, p)
 	go func() {
 		t := time.NewTicker(cacheEvery)
 		defer t.Stop()
