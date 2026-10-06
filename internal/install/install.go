@@ -119,7 +119,8 @@ var Units = []string{"tiffin.service", "tiffin-edge.service", "tiffin-edge.socke
 
 // EdgeSocketUnit renders the edge's socket unit: systemd holds the HTTPS
 // and HTTP ports (and UDP for HTTP/3), so an edge restart refuses no
-// connection; they wait for the next edge.
+// connection; they wait for the next edge. ReusePort lets it bind them
+// while the tiffin of the old layout still serves on them (see startEdge).
 func EdgeSocketUnit(o Options) string {
 	return fmt.Sprintf(`[Unit]
 Description=Tiffin edge ports (held across edge restarts)
@@ -130,6 +131,7 @@ ListenStream=%[2]d
 ListenDatagram=%[1]d
 Backlog=4096
 NoDelay=yes
+ReusePort=yes
 Service=tiffin-edge.service
 
 [Install]

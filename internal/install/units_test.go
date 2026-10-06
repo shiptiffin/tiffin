@@ -44,7 +44,7 @@ func TestRestoreUnits(t *testing.T) {
 			t.Errorf("%s is still there", u)
 		}
 	}
-	want := "stop tiffin|disable --now tiffin-edge.service|disable --now tiffin-edge.socket|daemon-reload"
+	want := "stop tiffin|disable tiffin-edge.service|disable tiffin-edge.socket|daemon-reload"
 	if got := strings.Join(calls, "|"); got != want {
 		t.Fatalf("systemctl calls:\n got %s\nwant %s", got, want)
 	}
@@ -63,6 +63,7 @@ func TestRollbackRestoresUnitsBeforeThePreviousBuildStarts(t *testing.T) {
 	}
 	var order []string
 	u.RestoreUnits = func(context.Context) error { order = append(order, "units"); return nil }
+	u.StopRemoved = func(context.Context) { order = append(order, "stop removed") }
 	restart := u.Restart
 	u.Restart = func(ctx context.Context) error {
 		order = append(order, "restart "+current(t, u))
@@ -71,7 +72,7 @@ func TestRollbackRestoresUnitsBeforeThePreviousBuildStarts(t *testing.T) {
 	if err := u.Update(ctx, build(t, dir, "bad", "BROKEN two")); !errors.Is(err, ErrRolledBack) {
 		t.Fatalf("want a rollback, got %v", err)
 	}
-	if got := strings.Join(order, ", "); got != "restart BROKEN two, units, restart build one" {
+	if got := strings.Join(order, ", "); got != "restart BROKEN two, units, restart build one, stop removed" {
 		t.Fatalf("order: %s", got)
 	}
 }
