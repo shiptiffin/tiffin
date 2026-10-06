@@ -1,27 +1,35 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, Eye, GitBranch, KeyRound, Play, RotateCcw, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { Check, ChevronDown, ChevronRight, Eye, GitBranch, Lock, Plug, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
 import { q as core } from "@/api/queries";
-import { mod, mq, type PgBranchCreated, type PgSnapshot, type PgStatement, type PgTable } from "@/api/modules";
+import { mod, mq, type PgBranchCreated, type PgSnapshot, type PgTable } from "@/api/modules";
 import { Confirm } from "@/components/confirm";
 import { Command } from "@/components/copy";
-import { MiniSelect, PartsBar, Reading, Readings, Rows, Section, TypeWord, jsonLine } from "@/components/data-parts";
+import { MiniSelect, Rows, Section } from "@/components/data-parts";
 import { useTitle } from "@/components/favicon";
 import { HazardDialog } from "@/components/hazard";
-import { Crumbs, Empty, Page, PageHeader, Skeleton, Tabs, Untrusted, NotOnBox } from "@/components/page";
+import { Crumbs, Empty, Page, PageHeader, Skeleton, NotOnBox } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
-import { RiskDots } from "@/components/risk-dots";
-import { SegMeter } from "@/components/seg-meter";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/dropdown";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
-import { bytes, bytesParts, count, countWords, int, ms, NNBSP, num, words } from "@/lib/format";
+import { bytes, count, int, ms, NNBSP, num, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
+import { PARTS } from "@/lib/names";
 import { clock, dayKey, full, relative } from "@/lib/time";
+import { parseSlug, slugOf } from "./data/api";
+import { SchemaMap } from "./data/schema-view";
+import { SqlPanel } from "./data/sql-page";
+import { TableForm } from "./data/table-form";
+import { TableView } from "./data/table-view";
+import { useBranch, useDataSearch, useSetSearch } from "./data/view";
+import "./data/data.css";
 
-// ------------------------------------------------------------------ shared
+// ------------------------------------------------------------------ the frame
 
 function useServices(project: string) {
   const p = useQuery(core.project(project));
@@ -29,21 +37,48 @@ function useServices(project: string) {
   return { postgres: has("service/postgres"), valkey: has("service/valkey"), loaded: p.isSuccess };
 }
 
-export function DataTabs({ project }: { project: string }) {
-  const s = useServices(project);
-  const items = [
-    ...(s.postgres || !s.loaded
-      ? [
-          { to: "/projects/$project/data", params: { project }, label: "Tables", exact: true },
-          { to: "/projects/$project/data/sql", params: { project }, label: "SQL" },
-          { to: "/projects/$project/data/branches", params: { project }, label: "Branches" },
-        ]
-      : []),
+/** The Database tabs; each keeps the copy you're looking at. */
+function DataTabs({ project, branch }: { project: string; branch: string }) {
+  const search = (branch ? { branch } : {}) as never;
+  const items: Array<{ to: string; label: string; exact?: boolean; also?: string }> = [
+    { to: "/projects/$project/data", label: "Tables", exact: true, also: "/projects/$project/data/tables/$table" },
+    { to: "/projects/$project/data/sql", label: "SQL" },
+    { to: "/projects/$project/data/schema", label: "Schema" },
+    { to: "/projects/$project/data/branches", label: "Copies" },
+    { to: "/projects/$project/data/restore", label: "Restore points" },
   ];
-  return <Tabs items={items} />;
+  return (
+    <nav className="mt-7 -mb-px flex gap-1 overflow-x-auto border-b border-rule [scrollbar-width:none]" aria-label="Database">
+      {items.map((t) => (
+        <TabLink key={t.to} to={t.to} also={t.also} exact={t.exact} project={project} search={search}>
+          {t.label}
+        </TabLink>
+      ))}
+    </nav>
+  );
 }
 
-/** "shop › Data", the title, one line, the Data tabs. */
+function TabLink({ to, also, exact, project, search, children }: { to: string; also?: string; exact?: boolean; project: string; search: never; children: ReactNode }) {
+  const cls =
+    "relative flex h-10 shrink-0 items-center gap-2 px-3 text-[0.875rem] text-ink-3 transition-colors first:pl-0 first:after:left-0 hover:text-ink data-[status=active]:font-[550] data-[status=active]:text-ink after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full after:bg-transparent data-[status=active]:after:bg-ink";
+  const path = useRouterState({ select: (s) => s.location.pathname });
+  const onAlso = !!also && path.startsWith(`/projects/${project}/data/tables/`);
+  return (
+    <Link
+      to={to as "/"}
+      params={{ project } as never}
+      search={search}
+      activeOptions={{ exact: !!exact, includeSearch: false }}
+      data-status={onAlso ? "active" : undefined}
+      aria-current={onAlso ? "page" : undefined}
+      className={cls}
+    >
+      {children}
+    </Link>
+  );
+}
+
+/** "shop › Database", the title, one line, the Database tabs and the copy you're looking at. */
 export function DataHeader({
   project,
   title,
@@ -57,9 +92,10 @@ export function DataHeader({
   lede?: ReactNode;
   actions?: ReactNode;
   sub?: string;
-  /** The Database tabs (Tables, SQL, Branches); the Cache page has none. */
+  /** The Database tabs (Tables, SQL, Schema, Copies, Restore points); the Cache page has none. */
   tabs?: boolean;
 }) {
+  const branch = useBranch();
   return (
     <PageHeader
       eyebrow={
@@ -74,740 +110,415 @@ export function DataHeader({
       lede={lede}
       actions={actions}
     >
-      {tabs && <DataTabs project={project} />}
+      {tabs && <DataTabs project={project} branch={branch} />}
     </PageHeader>
   );
 }
 
-const ident = (s: string) => `"${s.replace(/"/g, '""')}"`;
-const qualified = (t: Pick<PgTable, "schema" | "name">) => (t.schema === "public" ? ident(t.name) : `${ident(t.schema)}.${ident(t.name)}`);
-const tableSlug = (t: Pick<PgTable, "schema" | "name">) => (t.schema === "public" ? t.name : `${t.schema}.${t.name}`);
-const kindWord = (k: PgTable["kind"]) => (k === "table" ? "" : k === "materialized-view" ? "materialized view" : k);
+/** Pick the copy (preview branch) every Database tab looks at: production or one of its copies. */
+function CopyPicker({ project }: { project: string }) {
+  const branch = useBranch();
+  const set = useSetSearch();
+  const list = useQuery(mq.branches(project));
+  const copies = list.data ?? [];
+  if (!branch && copies.length === 0) return null;
+  return (
+    <Menu>
+      <MenuTrigger asChild>
+        <Button variant="secondary" aria-label={`Looking at ${branch ? `the copy ${branch}` : "production"}. Switch`}>
+          <GitBranch className={branch ? "text-brass-ink" : undefined} />
+          <span className="max-w-[9rem] truncate">{branch || "production"}</span>
+          <ChevronDown className="text-ink-3" />
+        </Button>
+      </MenuTrigger>
+      <MenuContent align="end" className="w-64">
+        <MenuLabel>Look at</MenuLabel>
+        <MenuItem onSelect={() => set({ branch: undefined, f: undefined, s: undefined })}>
+          <span className="flex-1">production</span>
+          {!branch && <Check className="!text-ink" />}
+        </MenuItem>
+        {copies.map((b) => (
+          <MenuItem key={b.name} onSelect={() => set({ branch: b.name, f: undefined, s: undefined })}>
+            <span className="min-w-0 flex-1 truncate font-mono text-[0.8125rem]">{b.name}</span>
+            <span className="text-xs text-ink-3">{relative(b.createdAt)}</span>
+            {branch === b.name && <Check className="!text-ink" />}
+          </MenuItem>
+        ))}
+        <MenuSeparator />
+        <MenuItem asChild>
+          <Link to="/projects/$project/data/branches" params={{ project }}>
+            <GitBranch />
+            Make or delete copies
+          </Link>
+        </MenuItem>
+      </MenuContent>
+    </Menu>
+  );
+}
 
-/** Each project's database role may open this many connections (internal/mod/postgres/reconcile.go). */
-const ROLE_CONNECTIONS = 80;
+function ConnectButton({ project }: { project: string }) {
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState<string | null>(null);
+  const [err, setErr] = useState<unknown>(null);
+  const branch = useBranch();
+  return (
+    <>
+      <Button variant="secondary" onClick={() => setOpen(true)}>
+        <Plug />
+        Connect
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Connect to the database</DialogTitle>
+            <DialogDescription>
+              Your apps on this box already have <code className="ident text-ink">DATABASE_URL</code>; nothing to set. For psql or a database app, reveal the URL.
+              It carries the password, so mind who's watching.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="flex flex-col gap-3">
+            {!url && (
+              <Button
+                className="self-start"
+                onClick={async () => {
+                  setErr(null);
+                  try {
+                    setUrl((await mod.pgConnection(project)).databaseUrl);
+                  } catch (e) {
+                    setErr(e);
+                  }
+                }}
+              >
+                <Eye />
+                Show the URL{branch ? ` of production` : ""}
+              </Button>
+            )}
+            {err ? <ProblemNote error={err} /> : null}
+            {url && <Command cmd={`psql "${url}"`} />}
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
 
-// ------------------------------------------------------------------ overview
-
-export function DataPage({ project }: { project: string }) {
-  useTitle(`${project} · Database`);
+/** Every Database page: the head, a note when looking at a copy, and the page; or why there's no database. */
+function DataShell({ project, children, wide }: { project: string; children: ReactNode; wide?: boolean }) {
   const info = useQuery(mq.pg(project));
   const tables = useQuery(mq.tables(project));
-  const snaps = useQuery(mq.snapshots(project));
   const s = useServices(project);
+  const branch = useBranch();
+  const { can } = useMe();
+  const search = useDataSearch();
+  const setSearch = useSetSearch();
+  const [keys, setKeys] = useState(false);
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.key !== "?" || e.metaKey || e.ctrlKey || t?.closest?.("input,textarea,select,[contenteditable],.cm-editor")) return;
+      e.preventDefault();
+      setKeys(true);
+    };
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  }, []);
 
   if (info.isError && notOnBox(info.error)) return <NotOnBox what="Databases" />;
   if (s.loaded && !s.postgres)
     return (
       <Page wide>
-        <DataHeader project={project} title="Database" />
-        <Empty className="mt-10" title="This project has no Postgres yet">
-          Add <code className="font-mono text-ink">services: {"{ postgres: {} }"}</code> to tiffin.config.ts, then plan and apply.
+        <DataHeader project={project} title={PARTS.postgres.name} tabs={false} />
+        <Empty className="mt-10" title="This project has no database yet">
+          Add it from the project's overview, or add <code className="font-mono text-ink">services: {"{ postgres: {} }"}</code> to tiffin.config.ts and apply.
         </Empty>
       </Page>
     );
-
-  const pg = info.data;
-  const list = tables.data ?? [];
-  // The app's own tables first; the sign-in service's tables are managed for it.
-  const mine = list.filter((t) => t.schema !== "auth");
-  const managed = list.filter((t) => t.schema === "auth");
-  const sum = (ts: PgTable[], f: (t: PgTable) => number) => ts.reduce((n, t) => n + f(t), 0);
-  const totalRows = sum(
-    mine.filter((t) => t.kind === "table"),
-    (t) => t.rowEstimate ?? 0,
-  );
-  const mineBytes = sum(mine, (t) => t.sizeBytes);
-  const authBytes = sum(managed, (t) => t.sizeBytes);
-  const nTables = mine.filter((t) => t.kind === "table").length;
-  const nViews = mine.length - nTables;
-  const newest = (snaps.data ?? [])[0];
-
+  const own = (tables.data ?? []).filter((t) => !t.managed && (t.kind === "table" || t.kind === "partitioned")).length;
   return (
-    <Page wide>
+    <Page full={!wide} wide={wide}>
       <DataHeader
         project={project}
-        title="Database"
+        title={PARTS.postgres.name}
         lede={
-          pg ? (
-            <>
-              Postgres {pg.version.split(" ")[0]}, database <code className="ident text-ink">{pg.database}</code>
-              {(pg.extensions ?? []).length > 0 && <> with {(pg.extensions ?? []).map((e) => e.split("@")[0]).join(", ")}</>}. Apps get{" "}
-              <code className="ident text-ink">DATABASE_URL</code> on their own.
-            </>
+          info.data ? (
+            <span className="tnum">
+              {bytes(info.data.sizeBytes)} · {count(own, "table")}
+              <span className="text-ink-3"> · {PARTS.postgres.sub}</span>
+            </span>
           ) : undefined
         }
         actions={
-          <Button asChild variant="secondary">
-            <Link to="/projects/$project/data/sql" params={{ project }}>
-              <Play />
-              Run SQL
-            </Link>
-          </Button>
+          <>
+            <CopyPicker project={project} />
+            <ConnectButton project={project} />
+            {can("apply:irreversible") && (
+              <Button variant="primary" onClick={() => setSearch({ new: "table" }, false)}>
+                <Plus />
+                New table
+              </Button>
+            )}
+          </>
         }
       />
+      {branch && (
+        <p className="mt-4 flex items-center gap-2 rounded-md border border-brass/50 bg-brass-wash px-3 py-2 text-sm text-ink">
+          <GitBranch className="size-3.5 shrink-0 text-brass-ink" aria-hidden />
+          <span>
+            You're looking at the copy <span className="font-mono">{branch}</span>. Changes here don't touch production.
+          </span>
+        </p>
+      )}
+      {info.isError && <ProblemNote className="mt-6" error={info.error} />}
+      <div className="mt-6">{children}</div>
+      {search.new === "table" && <TableForm project={project} branch={branch} onClose={() => setSearch({ new: undefined })} />}
+      <KeysDialog open={keys} onOpenChange={setKeys} />
+    </Page>
+  );
+}
 
-      {info.isError && <ProblemNote className="mt-8" error={info.error} />}
-      <Readings className="grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr_1fr]">
-        <Reading
-          className="col-span-2 lg:col-span-1"
-          label="Size"
-          value={pg ? bytesParts(pg.sizeBytes).value : "–"}
-          unit={pg ? bytesParts(pg.sizeBytes).unit : undefined}
-        >
-          {pg && tables.isSuccess && (
-            <PartsBar
-              className="mt-2.5"
-              total={pg.sizeBytes}
-              label={`Database size: your tables ${bytes(mineBytes)}, sign-in ${bytes(authBytes)}, Postgres's own catalog the rest`}
-              parts={[
-                { key: "mine", value: mineBytes, tone: "var(--ink-2)", name: `your tables ${bytes(mineBytes)}` },
-                { key: "auth", value: authBytes, tone: "var(--part-3)", name: `sign-in ${bytes(authBytes)}` },
-                { key: "pg", value: Math.max(0, pg.sizeBytes - mineBytes - authBytes), tone: "var(--part-4)", name: "Postgres's own catalog" },
-              ]}
-            />
-          )}
-        </Reading>
-        <Reading label="Connections" value={pg ? int(pg.connections) : "–"} unit={`of ${ROLE_CONNECTIONS}`}>
-          <SegMeter
-            className="mt-2.5"
-            label="Connections open"
-            value={pg?.connections ?? 0}
-            max={ROLE_CONNECTIONS}
-            warnAt={0.75}
-            fullAt={0.95}
-            scale={["0", "40", "80"]}
-            valueText={`${pg?.connections ?? 0} of ${ROLE_CONNECTIONS}`}
-          />
-        </Reading>
-        <Reading
-          label="Rows, about"
-          value={tables.isSuccess ? num(totalRows) : "–"}
-          sub={tables.isSuccess ? `in ${countWords(nTables, "table")}${nViews ? ` and ${countWords(nViews, "view")}` : ""}` : undefined}
-        />
-        <Reading
-          label="Branches"
-          value={pg ? int(pg.branches) : "–"}
-          unit={pg ? (pg.branches === 1 ? "branch" : "branches") : undefined}
-          sub={
-            pg ? (
-              <Link to="/projects/$project/data/branches" params={{ project }} className="hover:text-ink">
-                {count(pg.snapshots, "snapshot")}
-                {newest ? `, newest ${relative(newest.at)}` : ""}
-              </Link>
-            ) : undefined
-          }
-        />
-      </Readings>
+function KeysDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const groups: Array<[string, Array<[string, string]>]> = [
+    [
+      "Table",
+      [
+        ["↑ ↓ ← →", "Move between cells"],
+        ["↵", "Edit the cell; ↵ again saves"],
+        ["esc", "Cancel the edit, or clear the selection"],
+        ["⇥", "While editing: save and move right"],
+        ["⌥ ↵", "Open the linked row"],
+        ["Space", "Select the row (on its checkbox), or flip true/false"],
+        ["⌘ A", "Select every loaded row"],
+        ["⌘ C", "Copy the cell, or the selected rows"],
+        ["⌘ V", "Paste cells from a spreadsheet (a summary comes first)"],
+        ["⌫", "Delete the selected rows"],
+        ["Home End", "First or last column; with ⌘, first or last row"],
+      ],
+    ],
+    [
+      "SQL",
+      [
+        ["⌘ ↵", "Run"],
+        ["Ctrl Space", "Suggest tables and columns"],
+      ],
+    ],
+    [
+      "Schema",
+      [
+        ["+ −", "Zoom"],
+        ["0", "Fit the diagram"],
+      ],
+    ],
+    ["Anywhere", [["⌘ K", "Jump to any page or action"], ["?", "These keys"]]],
+  ];
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Keyboard</DialogTitle>
+          <DialogDescription>In the Database pages.</DialogDescription>
+        </DialogHeader>
+        <DialogBody className="flex flex-col gap-5">
+          {groups.map(([g, list]) => (
+            <section key={g}>
+              <h3 className="label mb-1.5">{g}</h3>
+              <dl className="divide-y divide-rule border-y border-rule">
+                {list.map(([k, v]) => (
+                  <div key={k} className="flex items-baseline gap-4 py-1.5">
+                    <dt className="w-24 shrink-0">
+                      {k.split(" ").map((x) => (
+                        <kbd key={x} className="kbd mr-1">
+                          {x}
+                        </kbd>
+                      ))}
+                    </dt>
+                    <dd className="text-base text-ink-2">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          ))}
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-      <Section className="mt-10" id="tables" label="Your tables" aside={mine.length > 0 ? "row counts are Postgres's estimate" : undefined}>
-        {tables.isPending && <Skeleton className="h-40" />}
+// ------------------------------------------------------------------ tables
+
+/** The Tables tab: your tables on the left, the open one on the right. */
+export function DataPage({ project }: { project: string }) {
+  useTitle(`${project} · Database`);
+  return (
+    <DataShell project={project}>
+      <TablesLayout project={project} />
+    </DataShell>
+  );
+}
+
+export function TablePage({ project, table }: { project: string; table: string }) {
+  useTitle(`${table} · ${project}`);
+  return (
+    <DataShell project={project}>
+      <TablesLayout project={project} slug={table} />
+    </DataShell>
+  );
+}
+
+function TablesLayout({ project, slug }: { project: string; slug?: string }) {
+  const branch = useBranch();
+  const tables = useQuery(mq.tables(project, branch || undefined));
+  const list = tables.data ?? [];
+  const mine = list.filter((t) => !t.managed);
+  const open = slug ? parseSlug(slug) : mine[0] ? { schema: mine[0].schema, name: mine[0].name } : null;
+  const exists = !slug || list.some((t) => t.schema === open?.schema && t.name === open?.name);
+  const { can } = useMe();
+  const setSearch = useSetSearch();
+
+  return (
+    <div className="grid gap-x-8 gap-y-4 lg:grid-cols-[13.5rem_minmax(0,1fr)]">
+      <TableNav project={project} list={list} loaded={tables.isSuccess} current={open ? slugOf(open) : undefined} branch={branch} />
+      <div className="min-w-0">
         {tables.isError && <ProblemNote error={tables.error} />}
         {tables.isSuccess && list.length === 0 && (
           <Empty title="No tables yet">
-            Your app's migrations create them. Or try <code className="font-mono text-ink">CREATE TABLE</code> in the SQL console with writes on.
+            Make one here, or let your app's migrations make them.
+            {can("apply:irreversible") && (
+              <div className="mt-4">
+                <Button variant="primary" onClick={() => setSearch({ new: "table" }, false)}>
+                  <Plus />
+                  New table
+                </Button>
+              </div>
+            )}
           </Empty>
         )}
-        {mine.length > 0 && <TableList project={project} list={mine} />}
-        {list.length > 0 && mine.length === 0 && (
-          <p className="border-y border-rule py-4 text-base text-ink-3">
-            None of your own yet. Your app's migrations create them; sign-in's tables are below.
-          </p>
-        )}
-      </Section>
-
-      {managed.length > 0 && (
-        <details className="group/managed mt-8">
-          <summary className="flex cursor-pointer list-none items-center gap-2 py-1 [&::-webkit-details-marker]:hidden">
-            <ChevronRight className="size-3.5 text-ink-3 transition-transform duration-[var(--dur-state)] group-open/managed:rotate-90" />
-            <span className="label">Auth (managed by Tiffin)</span>
-            <span className="ml-auto text-sm text-ink-3 tnum">
-              {count(managed.length, "table")}, about {num(sum(managed, (t) => t.rowEstimate ?? 0))} rows
-            </span>
-          </summary>
-          <p className="mt-1.5 mb-2.5 max-w-[44rem] text-sm text-ink-3">
-            People, sessions and organizations, in the <code className="ident">auth</code> schema. Read them freely; change them on the Users page or
-            through the sign-in API, not by hand.
-          </p>
-          <TableList project={project} list={managed} />
-        </details>
-      )}
-
-      <Connect project={project} className="mt-12" />
-    </Page>
-  );
-}
-
-function TableList({ project, list }: { project: string; list: PgTable[] }) {
-  return (
-    <Rows>
-      <li aria-hidden className="hidden grid-cols-[13rem_minmax(0,1fr)_6.5rem_5rem_1rem] gap-x-6 py-2 sm:grid">
-        <span className="label">Name</span>
-        <span className="label">Columns</span>
-        <span className="label text-right">Rows</span>
-        <span className="label text-right">On disk</span>
-        <span />
-      </li>
-      {list.map((t) => (
-        <li key={t.schema + t.name}>
-          <Link
-            to="/projects/$project/data/tables/$table"
-            params={{ project, table: tableSlug(t) }}
-            className="group grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-6 py-2.5 transition-colors duration-[var(--dur-state)] hover:bg-paper-sunk sm:-mx-3 sm:grid-cols-[13rem_minmax(0,1fr)_6.5rem_5rem_1rem] sm:px-3"
-          >
-            <span className="flex min-w-0 items-baseline gap-2">
-              <span className="truncate font-mono text-[0.84375rem] text-ink">{tableSlug(t)}</span>
-              {t.kind !== "table" && <TypeWord>{kindWord(t.kind)}</TypeWord>}
-            </span>
-            <span
-              className="col-start-1 row-start-2 truncate text-xs text-ink-3 sm:col-start-2 sm:row-start-1 sm:text-sm"
-              title={(t.columns ?? []).map((c) => `${c.name} ${c.type}`).join(", ")}
-            >
-              {(t.columns ?? []).map((c) => c.name).join(", ")}
-              {t.rls && <span className="text-ink-2"> · row security on</span>}
-            </span>
-            <span className="text-right text-sm text-ink-2 tnum sm:text-base">
-              {t.kind !== "table" || t.rowEstimate === null ? (
-                ""
-              ) : t.rowEstimate === 0 ? (
-                <span className="text-ink-3">empty</span>
-              ) : (
-                num(t.rowEstimate)
-              )}
-            </span>
-            <span className="hidden text-right text-sm text-ink-3 tnum sm:block">{t.sizeBytes ? bytes(t.sizeBytes) : ""}</span>
-            <ChevronRight className="hidden size-4 self-center text-ink-4 transition-transform group-hover:translate-x-0.5 group-hover:text-ink-2 sm:block" />
-          </Link>
-        </li>
-      ))}
-    </Rows>
-  );
-}
-
-function Connect({ project, className }: { project: string; className?: string }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [err, setErr] = useState<unknown>(null);
-  return (
-    <Section id="connect" label="Connect from this computer" className={className}>
-      <div className="flex flex-col gap-3 border-t border-rule pt-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-base text-ink-2">
-          For psql or a database app, reveal the connection URL. It carries the password, so mind who's watching.
-        </p>
-        {!url && (
-          <Button
-            size="sm"
-            className="self-start sm:self-auto"
-            onClick={async () => {
-              setErr(null);
-              try {
-                setUrl((await mod.pgConnection(project)).databaseUrl);
-              } catch (e) {
-                setErr(e);
-              }
-            }}
-          >
-            <Eye />
-            Show the URL
-          </Button>
-        )}
+        {tables.isSuccess && !exists && <ProblemNote error={new Error(`There's no table called ${slug}${branch ? ` in the copy ${branch}` : ""}.`)} />}
+        {tables.isPending && <Skeleton className="h-[max(20rem,calc(100dvh-20rem))]" />}
+        {open && exists && tables.isSuccess && <TableView key={`${branch}:${slugOf(open)}`} project={project} schema={open.schema} name={open.name} branch={branch} />}
       </div>
-      {err ? <ProblemNote className="mt-3" error={err} /> : null}
-      {url && <Command className="mt-3" cmd={`psql "${url}"`} />}
-    </Section>
+    </div>
   );
 }
 
-// ------------------------------------------------------------------ table viewer
-
-const PAGE = 50;
-
-export function TablePage({ project, table, page = 1 }: { project: string; table: string; page?: number }) {
-  useTitle(`${table} · ${project}`);
+function TableNav({ project, list, loaded, current, branch }: { project: string; list: PgTable[]; loaded: boolean; current?: string; branch: string }) {
+  const [q, setQ] = useState("");
   const navigate = useNavigate();
-  const tables = useQuery(mq.tables(project));
-  const t = (tables.data ?? []).find((x) => tableSlug(x) === table);
-  const pk = (t?.columns ?? []).filter((c) => c.primary).map((c) => ident(c.name));
-  const sql = t ? `SELECT * FROM ${qualified(t)}${pk.length ? ` ORDER BY ${pk.join(", ")}` : ""} LIMIT ${PAGE} OFFSET ${(page - 1) * PAGE}` : "";
-  const rows = useQuery({
-    queryKey: ["rows", project, table, page],
-    queryFn: () => mod.sql(project, { sql, limit: PAGE }),
-    enabled: !!t,
-    placeholderData: (d) => d,
-  });
-  const res = rows.data?.results?.[0];
-  const total = t?.rowEstimate ?? null;
-  const pages = total ? Math.max(1, Math.ceil(total / PAGE)) : null;
-  const last = (res?.rowCount ?? 0) < PAGE;
-  const to = (p: number) => navigate({ to: "/projects/$project/data/tables/$table", params: { project, table }, search: p > 1 ? { page: p } : {} });
-  const types = useMemo(() => Object.fromEntries((t?.columns ?? []).map((c) => [c.name, c.type])), [t]);
-  const keys = useMemo(() => new Set((t?.columns ?? []).filter((c) => c.primary).map((c) => c.name)), [t]);
-
-  // [ and ] page through, like a pager.
-  useEffect(() => {
-    const on = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement)?.closest?.("input,textarea,select,[contenteditable]")) return;
-      if (e.key === "[" && page > 1) to(page - 1);
-      if (e.key === "]" && !last) to(page + 1);
-    };
-    window.addEventListener("keydown", on);
-    return () => window.removeEventListener("keydown", on);
-  });
-
-  const from = (page - 1) * PAGE;
-  return (
-    <Page full>
-      <DataHeader
-        project={project}
-        sub="Database"
-        title={table}
-        lede={
-          t
-            ? `${t.kind === "table" ? "Table" : kindWord(t.kind).replace(/^./, (c) => c.toUpperCase())}${
-                t.kind === "table" ? `, about ${num(t.rowEstimate ?? 0)} rows` : ""
-              }, ${bytes(t.sizeBytes)} on disk. ${countWords((t.columns ?? []).length, "column", "columns", true)}${
-                pk.length
-                  ? `, keyed by ${(t.columns ?? [])
-                      .filter((c) => c.primary)
-                      .map((c) => c.name)
-                      .join(" and ")}`
-                  : ""
-              }.`
-            : undefined
-        }
-        actions={
-          <Button asChild>
-            <Link
-              to="/projects/$project/data/sql"
-              params={{ project }}
-              search={(t ? { sql: `${sql.replace(/ OFFSET \d+$/, "").replace(/ LIMIT \d+$/, "")} LIMIT 100;` } : {}) as never}
-            >
-              <Play />
-              Query it
-            </Link>
-          </Button>
-        }
-      />
-      {tables.isSuccess && !t && <ProblemNote className="mt-8" error={new Error(`There's no table called ${table}.`)} />}
-      <div className="mt-6">
-        {rows.isError && <ProblemNote error={rows.error} />}
-        {res ? (
-          <ResultGrid r={res} columnsTypes={types} keys={keys} offset={from} tall className={cn(rows.isPlaceholderData && "opacity-60")} />
-        ) : (
-          t && <Skeleton className="h-[min(32rem,calc(100dvh-20rem))]" />
-        )}
-      </div>
-      {t && (
-        <div className="mt-3 flex h-8 items-center justify-between gap-3 text-sm text-ink-3">
-          <span className="tnum">
-            {res && res.rowCount > 0 ? (
-              <>
-                Rows {int(from + 1)}–{int(from + res.rowCount)}
-                {total !== null && t.kind === "table" ? (
-                  <span className="max-sm:hidden"> of about {num(Math.max(total, from + res.rowCount))}</span>
-                ) : (
-                  ""
-                )}
-              </>
-            ) : res ? (
-              "No rows here."
-            ) : (
-              ""
-            )}
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="mr-2 hidden text-xs text-ink-4 lg:inline">
-              <kbd className="kbd">[</kbd> <kbd className="kbd">]</kbd> to page
-            </span>
-            <Button size="icon-sm" variant="ghost" disabled={page <= 1} onClick={() => to(page - 1)} aria-label="Previous page">
-              <ChevronLeft />
-            </Button>
-            <span className="min-w-[4.5rem] text-center text-sm text-ink-2 tnum">
-              {int(page)}
-              {pages ? <span className="text-ink-3"> of {int(Math.max(pages, page))}</span> : ""}
-            </span>
-            <Button size="icon-sm" variant="ghost" disabled={last} onClick={() => to(page + 1)} aria-label="Next page">
-              <ChevronRight />
-            </Button>
-          </span>
-        </div>
-      )}
-    </Page>
-  );
-}
-
-const NUMERIC = /^(int|numeric|float|real|double|decimal|bigint|smallint|serial|money|oid)/;
-
-/**
- * Rows as a grid. Every value is text: nothing a row contains is ever
- * rendered as HTML. Numbers right-aligned in tabular figures (raw digits, so
- * what you copy is what's stored); JSON on one readable line, expanded on
- * click; the header stays put while you scroll.
- */
-export function ResultGrid({
-  r,
-  columnsTypes,
-  keys,
-  offset = 0,
-  tall,
-  className,
-}: {
-  r: PgStatement;
-  columnsTypes?: Record<string, string>;
-  keys?: Set<string>;
-  offset?: number;
-  tall?: boolean;
-  className?: string;
-}) {
-  const cols = r.columns ?? [];
-  const rows = r.rows ?? [];
-  const [open, setOpen] = useState<string | null>(null);
-  if (cols.length === 0)
+  const shown = q ? list.filter((t) => slugOf(t).toLowerCase().includes(q.toLowerCase())) : list;
+  const mine = shown.filter((t) => !t.managed);
+  const managed = shown.filter((t) => t.managed);
+  const search = (branch ? { branch } : {}) as never;
+  const item = (t: PgTable) => {
+    const s = slugOf(t);
+    const on = s === current;
     return (
-      <p className="border-y border-rule py-3 text-base text-ink-2">
-        <span className="font-mono text-ink">{r.command.split(" ")[0]}</span>
-        <span className="text-ink-3"> · {count(r.rowCount, "row")} affected</span>
-      </p>
+      <li key={s}>
+        <Link
+          to="/projects/$project/data/tables/$table"
+          params={{ project, table: s }}
+          search={search}
+          aria-current={on ? "page" : undefined}
+          className={cn(
+            "flex h-8 items-center gap-2 rounded-[6px] px-2.5 text-[0.84375rem] transition-colors",
+            on ? "bg-paper-press font-[550] text-ink" : "text-ink-2 hover:bg-paper-sunk hover:text-ink",
+          )}
+        >
+          <span className="min-w-0 flex-1 truncate font-mono text-[0.8125rem]">{t.managed ? s : t.name}</span>
+          {t.kind !== "table" && t.kind !== "partitioned" ? (
+            <span className="shrink-0 text-xs text-ink-3">{t.kind === "materialized-view" ? "mat. view" : t.kind}</span>
+          ) : (
+            t.rowEstimate !== null && <span className="shrink-0 text-xs text-ink-3 tnum">{short(t.rowEstimate)}</span>
+          )}
+        </Link>
+      </li>
     );
-  const typeOf = (j: number) => columnsTypes?.[cols[j]?.name] ?? cols[j]?.type ?? "";
+  };
   return (
-    <Untrusted label="Rows from your database, shown as plain text" className={className}>
-      <div className={cn("overflow-auto overscroll-contain", tall ? "max-h-[max(20rem,calc(100dvh-19rem))]" : "max-h-[60vh]")}>
-        <table className="w-full border-separate border-spacing-0 font-mono text-[0.78125rem] leading-[1.1875rem]">
-          <thead className="sticky top-0 z-[1]">
-            <tr>
-              <th className="w-10 border-b border-rule-2 bg-paper-sunk px-3 py-1.5 text-right align-bottom font-normal text-ink-4">#</th>
-              {cols.map((c, j) => {
-                const numeric = NUMERIC.test(typeOf(j));
-                return (
-                  <th
-                    key={c.name + j}
-                    scope="col"
-                    className={cn(
-                      "border-b border-rule-2 bg-paper-sunk px-3 py-1.5 align-bottom font-normal whitespace-nowrap",
-                      numeric ? "text-right" : "text-left",
-                    )}
-                  >
-                    <span className={cn("flex items-center gap-1 text-ink", numeric && "justify-end")}>
-                      {keys?.has(c.name) && <KeyRound className="size-3 text-brass-ink" aria-label="primary key" />}
-                      {c.name}
-                    </span>
-                    <span className="block text-[0.6875rem] text-ink-4">{typeOf(j)}</span>
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, i) => (
-              <tr key={i} className="group">
-                <td className="border-b border-rule px-3 py-1.5 text-right align-top text-ink-4 tnum group-hover:bg-paper-press/60">
-                  {int(offset + i + 1)}
-                </td>
-                {(row ?? []).map((v, j) => {
-                  const id = `${i}:${j}`;
-                  const numeric = typeof v === "number" || (typeof v === "string" && NUMERIC.test(typeOf(j)));
-                  const isJson = v !== null && typeof v === "object";
-                  const expanded = open === id;
-                  const text = cell(v, expanded);
-                  const long = text.length > 48 || isJson;
-                  return (
-                    <td
-                      key={j}
-                      className={cn(
-                        "max-w-[26rem] border-b border-rule px-3 py-1.5 align-top group-hover:bg-paper-press/60",
-                        numeric && "text-right tnum",
-                        v === null ? "text-ink-4" : isJson ? "text-ink-2" : "text-ink",
-                        expanded ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "truncate whitespace-nowrap",
-                        long && "cursor-pointer",
-                      )}
-                      title={long && !expanded ? "Click to see all of it" : typeof v === "string" && TS.test(v) ? v : undefined}
-                      onClick={() => long && setOpen(expanded ? null : id)}
-                    >
-                      {text}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {r.truncated && <p className="border-t border-rule px-3 py-1.5 text-xs text-ink-3">More rows than shown. Add a LIMIT or narrow the query.</p>}
-    </Untrusted>
+    <>
+      {/* A phone gets a picker instead of the list. */}
+      <label className="flex items-center gap-2 text-sm text-ink-3 lg:hidden">
+        Table
+        <MiniSelect
+          value={current ?? ""}
+          onChange={(e) => navigate({ to: "/projects/$project/data/tables/$table", params: { project, table: e.target.value }, search })}
+          className="min-w-0 flex-1 [&_select]:h-9 [&_select]:text-sm"
+          aria-label="Table"
+        >
+          {list.map((t) => (
+            <option key={slugOf(t)} value={slugOf(t)}>
+              {slugOf(t)}
+              {t.managed ? " (managed)" : ""}
+            </option>
+          ))}
+        </MiniSelect>
+      </label>
+      <nav aria-label="Tables" className="hidden min-w-0 lg:block">
+        {list.length > 10 && (
+          <div className="mb-2 flex h-8 items-center gap-2 rounded-md border border-rule bg-paper px-2.5 focus-within:border-brass">
+            <Search className="size-3.5 shrink-0 text-ink-3" aria-hidden />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a table" aria-label="Find a table" className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-4" />
+          </div>
+        )}
+        <h2 className="label mb-1 px-2.5">Your tables</h2>
+        {!loaded ? (
+          <Skeleton className="h-40" />
+        ) : mine.length === 0 ? (
+          <p className="px-2.5 py-1 text-sm text-ink-3">{q ? "None match." : "None yet."}</p>
+        ) : (
+          <ul className="flex flex-col">{mine.map(item)}</ul>
+        )}
+        {managed.length > 0 && (
+          <details className="group/m mt-4" open={managed.some((t) => slugOf(t) === current)}>
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-1 [&::-webkit-details-marker]:hidden">
+              <ChevronRight className="size-3 text-ink-3 transition-transform group-open/m:rotate-90" />
+              <span className="label">Managed by Tiffin</span>
+              <Lock className="ml-auto size-3 text-ink-4" aria-label="read-only" />
+            </summary>
+            <p className="mt-1 mb-1.5 px-2.5 text-xs text-ink-3">Sign-in and the box's own tables. Read-only here.</p>
+            <ul className="flex flex-col">{managed.map(item)}</ul>
+          </details>
+        )}
+      </nav>
+    </>
   );
 }
 
-const TS = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(\.\d+)?([+-]\d{2}(?::?\d{2})?|Z)$/;
-const tsFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
-function cell(v: unknown, expanded = false): string {
-  if (v === null || v === undefined) return "null";
-  if (typeof v === "object") return expanded ? JSON.stringify(v, null, 2) : jsonLine(v);
-  // A timestamptz reads in the viewer's clock, to the second; expanding shows Postgres's own text.
-  if (!expanded && typeof v === "string" && TS.test(v)) {
-    const m = v.match(TS)!;
-    const d = new Date(`${m[1]}T${m[2]}${m[3] ?? ""}${m[4] === "Z" ? "Z" : m[4].length === 3 ? `${m[4]}:00` : m[4].replace(/^([+-]\d{2})(\d{2})$/, "$1:$2")}`);
-    if (!Number.isNaN(d.getTime())) return tsFmt.format(d);
-  }
-  return String(v);
-}
+const short = (n: number) => (n < 10_000 ? int(n) : num(n));
 
-// ------------------------------------------------------------------ SQL console
-
-const HISTORY = "tiffin.sql.history";
-
-function loadHistory(project: string): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(`${HISTORY}.${project}`) ?? "[]");
-  } catch {
-    return [];
-  }
-}
-
-/** The first keyword of a statement that would change something (the server refuses it without writes on). */
-function writeVerb(sql: string): string | null {
-  const body = sql
-    .replace(/--[^\n]*/g, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .trim();
-  const m = body.match(
-    /^(?:with\b[\s\S]*?\)\s*)?(insert|update|delete|drop|alter|create|truncate|grant|revoke|comment|vacuum|reindex|cluster|copy)\b/i,
-  );
-  return m ? m[1].toUpperCase() : null;
-}
+// ------------------------------------------------------------------ SQL and schema
 
 export function SqlPage({ project }: { project: string }) {
   useTitle(`${project} · SQL`);
-  const qc = useQueryClient();
-  const tables = useQuery(mq.tables(project));
-  const branches = useQuery(mq.branches(project));
-  const { can } = useMe();
-  // Other pages hand over a query or a branch in the URL (?sql=…, ?branch=…).
-  const [handed] = useState(() => new URLSearchParams(location.search));
-  const [sql, setSql] = useState(() => handed.get("sql") ?? loadHistory(project)[0] ?? "SELECT now();");
-  const [write, setWrite] = useState(false);
-  const [branch, setBranch] = useState(() => handed.get("branch") ?? "");
-  const [history, setHistory] = useState(() => loadHistory(project));
-  const ta = useRef<HTMLTextAreaElement>(null);
-  const gutter = useRef<HTMLDivElement>(null);
-  const run = useMutation({
-    mutationFn: (text: string) => (write ? mod.sqlWrite : mod.sql)(project, { sql: text, branch: branch || undefined, limit: 500 }),
-    onSuccess: (r, text) => {
-      const h = [text, ...history.filter((x) => x !== text)].slice(0, 12);
-      setHistory(h);
-      try {
-        localStorage.setItem(`${HISTORY}.${project}`, JSON.stringify(h));
-      } catch {
-        /* storage blocked */
-      }
-      if (!r.readOnly) {
-        qc.invalidateQueries({ queryKey: ["tables", project] });
-        qc.invalidateQueries({ queryKey: ["snapshots", project] });
-        qc.invalidateQueries({ queryKey: ["rows", project] });
-        qc.invalidateQueries({ queryKey: ["pg", project] });
-      }
-    },
-  });
-  const examples = useMemo(
-    () =>
-      (tables.data ?? [])
-        .filter((t) => t.schema !== "auth")
-        .slice(0, 4)
-        .map((t) => `SELECT * FROM ${qualified(t)} LIMIT 20;`),
-    [tables.data],
-  );
-  const writer = can("apply:irreversible");
-  const verb = writeVerb(sql);
-  const lines = Math.max(sql.split("\n").length, 8);
-  const go = () => sql.trim() && !run.isPending && run.mutate(sql);
-
+  const branch = useBranch();
+  // Other pages hand over a query in the URL (?sql=…).
+  const [handed] = useState(() => new URLSearchParams(location.search).get("sql") ?? undefined);
   return (
-    <Page full>
-      <DataHeader
-        project={project}
-        title="Database"
-        lede="Read-only unless you turn writes on. Results are rows your apps wrote, shown as plain text."
-      />
-      <div className="mt-8 grid gap-x-10 gap-y-8 xl:grid-cols-[minmax(0,1fr)_17rem]">
-        <div className="min-w-0">
-          <div
-            className={cn(
-              "overflow-hidden rounded-[10px] border bg-paper-raised transition-colors duration-[var(--dur-state)]",
-              write ? "border-danger-rule" : "border-rule-2",
-            )}
-          >
-            <div className="flex max-h-[24rem] min-h-[10.5rem]">
-              <div
-                ref={gutter}
-                aria-hidden
-                className="w-10 shrink-0 overflow-hidden border-r border-rule bg-paper-sunk/60 py-3 pr-2.5 text-right font-mono text-[0.75rem] leading-6 text-ink-4 select-none tnum max-sm:hidden"
-              >
-                {Array.from({ length: lines }, (_, i) => (
-                  <div key={i}>{i + 1}</div>
-                ))}
-              </div>
-              <textarea
-                ref={ta}
-                value={sql}
-                onChange={(e) => setSql(e.target.value)}
-                onScroll={(e) => gutter.current && (gutter.current.scrollTop = e.currentTarget.scrollTop)}
-                onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                    e.preventDefault();
-                    go();
-                  }
-                }}
-                spellCheck={false}
-                autoCapitalize="off"
-                autoCorrect="off"
-                aria-label="SQL"
-                rows={7}
-                wrap="off"
-                // On a phone the statement wraps (no line numbers) so a DELETE is never scrolled out of sight.
-                className="block min-w-0 flex-1 resize-none bg-transparent px-3.5 py-3 font-mono text-[0.8125rem] leading-6 text-ink outline-none max-sm:!whitespace-pre-wrap max-sm:[overflow-wrap:anywhere]"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-rule bg-paper-sunk/60 px-3 py-2">
-              <label className="flex items-center gap-2 text-sm text-ink-3">
-                on
-                <MiniSelect value={branch} onChange={(e) => setBranch(e.target.value)} aria-label="Database" className="min-w-[7rem]">
-                  <option value="">main</option>
-                  {(branches.data ?? []).map((b) => (
-                    <option key={b.name} value={b.name}>
-                      {b.name}
-                    </option>
-                  ))}
-                </MiniSelect>
-              </label>
-              <label
-                className={cn("flex items-center gap-2 text-sm", writer ? "cursor-pointer text-ink-2" : "text-ink-4")}
-                title={writer ? undefined : "Writes need a key with full access"}
-              >
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={write}
-                  disabled={!writer}
-                  onClick={() => setWrite((w) => !w)}
-                  className={cn(
-                    "relative h-[18px] w-8 rounded-full border transition-colors duration-[var(--dur-state)]",
-                    write ? "border-danger bg-danger" : "border-rule-3 bg-paper-press",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "absolute top-[1px] left-[1px] size-3.5 rounded-full bg-paper-raised shadow-[0_1px_1px_oklch(0.2_0.01_60/0.25)] transition-transform duration-[var(--dur-state)] ease-[var(--ease-out)]",
-                      write && "translate-x-3.5",
-                    )}
-                  />
-                </button>
-                Allow writes
-              </label>
-              <span className="ml-auto hidden text-xs text-ink-3 sm:inline">
-                <kbd className="kbd">⌘</kbd> <kbd className="kbd">↵</kbd> runs
-              </span>
-              <Button
-                variant={write ? "danger" : "primary"}
-                size="sm"
-                disabled={!sql.trim() || run.isPending}
-                onClick={go}
-                className="max-sm:ml-auto"
-              >
-                <Play />
-                {run.isPending ? "Running…" : write ? "Run with writes" : "Run"}
-              </Button>
-            </div>
-          </div>
-          {write ? (
-            <p className="mt-2.5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm text-ink-2">
-              <RiskDots tier="irreversible" />
-              Writes can change or delete data. The database is snapshotted first; restore it under Branches for 7 days.
-            </p>
-          ) : (
-            verb && (
-              <p className="mt-2.5 text-sm text-ink-3">
-                <span className="font-mono text-ink-2">{verb}</span> changes data, so it only runs with writes on
-                {writer ? "" : ", which your token can't do"}.
-              </p>
-            )
-          )}
-
-          <div className="mt-7 flex flex-col gap-5">
-            {run.isError && <ProblemNote error={run.error} />}
-            {run.data && (
-              <>
-                <p className="text-sm text-ink-3 tnum">
-                  {(run.data.results ?? []).length === 1 && (run.data.results?.[0].columns ?? []).length > 0 && (
-                    <span className="text-ink-2">{count(run.data.results![0].rowCount, "row")} </span>
-                  )}
-                  in {ms(run.data.durationMs)}, {run.data.readOnly ? "read-only" : "with writes"}, on{" "}
-                  <span className="font-mono text-ink-2">{run.data.database}</span>.
-                  {run.data.snapshot && (
-                    <span className="text-ink-2">
-                      {" "}
-                      Snapshot <span className="font-mono">{run.data.snapshot.slice(0, 14)}…</span> taken first.
-                    </span>
-                  )}
-                </p>
-                {(run.data.results ?? []).map((r, i) => (
-                  <ResultGrid key={i} r={r} />
-                ))}
-              </>
-            )}
-            {!run.data && !run.isError && (
-              <p className="border-y border-dashed border-rule-3 py-8 text-center text-base text-ink-3">
-                Results show up here, with the row count and how long it took.
-              </p>
-            )}
-          </div>
-        </div>
-
-        <aside className="flex min-w-0 flex-col gap-8">
-          {examples.length > 0 && (
-            <Section id="start" label="Start from">
-              <QueryList items={examples} onPick={(x) => (setSql(x), ta.current?.focus())} />
-            </Section>
-          )}
-          {history.length > 0 && (
-            <Section id="recent" label="Recent">
-              <QueryList items={history} onPick={(x) => (setSql(x), ta.current?.focus())} quiet />
-            </Section>
-          )}
-        </aside>
-      </div>
-    </Page>
+    <DataShell project={project}>
+      <SqlPanel key={branch} project={project} branch={branch} handed={handed} />
+    </DataShell>
   );
 }
 
-function QueryList({ items, onPick, quiet }: { items: string[]; onPick: (s: string) => void; quiet?: boolean }) {
+export function SchemaPage({ project }: { project: string }) {
+  useTitle(`${project} · Schema`);
+  const branch = useBranch();
+  const tables = useQuery(mq.tables(project, branch || undefined));
   return (
-    <Rows>
-      {items.map((x) => (
-        <li key={x}>
-          <button
-            onClick={() => onPick(x)}
-            title={x}
-            className={cn(
-              "block w-full truncate py-2 text-left font-mono text-[0.75rem] transition-colors duration-[var(--dur-state)] hover:text-ink",
-              quiet ? "text-ink-3" : "text-ink-2",
-            )}
-          >
-            {x.replace(/\s+/g, " ")}
-          </button>
-        </li>
-      ))}
-    </Rows>
+    <DataShell project={project}>
+      {tables.isError && <ProblemNote error={tables.error} />}
+      {tables.isPending ? <Skeleton className="h-[max(24rem,calc(100dvh-20rem))]" /> : tables.data && <SchemaMap project={project} branch={branch} tables={tables.data} />}
+    </DataShell>
   );
 }
 
-// ------------------------------------------------------------------ branches and snapshots
+// ------------------------------------------------------------------ copies and restore points
 
 export function BranchesPage({ project }: { project: string }) {
-  useTitle(`${project} · Branches`);
+  useTitle(`${project} · Copies`);
   const qc = useQueryClient();
   const list = useQuery(mq.branches(project));
   const info = useQuery(mq.pg(project));
-  const snaps = useQuery(mq.snapshots(project));
   const { can } = useMe();
+  const setSearch = useSetSearch();
   const [name, setName] = useState("");
   const [from, setFrom] = useState("");
   const [made, setMade] = useState<PgBranchCreated | null>(null);
@@ -826,74 +537,59 @@ export function BranchesPage({ project }: { project: string }) {
     const t = setTimeout(() => setMade(null), 20_000);
     return () => clearTimeout(t);
   }, [made]);
-  const valid = /^[a-z][a-z0-9-]{0,39}$/.test(name.trim());
+  const valid = /^[a-z][a-z0-9-]{0,18}$/.test(name.trim());
   const branches = list.data ?? [];
 
   return (
-    <Page wide>
-      <DataHeader
-        project={project}
-        title="Database"
-        lede="A branch is a full, writable copy of the database that takes milliseconds to make: the data disk clones its files (a reflink) instead of copying them."
-      />
-
+    <DataShell project={project} wide>
+      <p className="max-w-[44rem] text-base text-ink-2">
+        A copy is a full, writable copy of the database that takes about a second to make: the disk shares the files instead of copying them. Previews of your apps
+        get one each; make your own to try something.
+      </p>
       {made && (
-        <div className="mt-8 flex max-w-[44rem] animate-pop items-center gap-5 rounded-[10px] border border-rule-2 bg-paper-raised px-5 py-4 shadow-[var(--top-light)]">
+        <div className="mt-6 flex max-w-[44rem] animate-pop items-center gap-5 rounded-[10px] border border-rule-2 bg-paper-raised px-5 py-4 shadow-[var(--top-light)]">
           <p className="reading shrink-0 text-ink">
             {ms(made.cloneMs).split(NNBSP)[0]}
             <span className="u text-[0.8125rem] text-ink-3">&#8239;{ms(made.cloneMs).split(NNBSP)[1]}</span>
           </p>
           <p className="text-base text-ink-2">
-            <span className="font-mono text-ink">{made.name}</span> is a full copy of {made.from}, {bytes(made.sizeBytes)}. Writes to {made.from}{" "}
-            paused for {ms(made.blockedMs)}; {ms(made.totalMs)} end to end.
+            <span className="font-mono text-ink">{made.name}</span> is a full copy of {made.from === "main" ? "production" : made.from}, {bytes(made.sizeBytes)}.{" "}
+            <button type="button" className="text-ink underline decoration-rule-3 underline-offset-4" onClick={() => setSearch({ branch: made.name }, false)}>
+              Look at it
+            </button>
           </p>
         </div>
       )}
-
-      <Section className="mt-10" id="branches" label="Branches" aside={branches.length > 0 ? count(branches.length + 1, "database") : undefined}>
+      <Section className="mt-8" id="copies" label="Copies" aside={branches.length > 0 ? count(branches.length + 1, "database") : undefined}>
         <Rows>
           <li className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-baseline gap-x-3 py-3 sm:grid-cols-[1.25rem_minmax(0,1fr)_6rem_10rem]">
             <span aria-hidden className="size-[7px] self-center justify-self-center rounded-full bg-ink-2" />
             <span className="min-w-0">
-              <span className="font-mono text-[0.84375rem] text-ink">main</span>
+              <span className="font-mono text-[0.84375rem] text-ink">production</span>
               <span className="ml-2 text-sm text-ink-3">what your apps use</span>
             </span>
             <span className="text-right text-sm text-ink-2 tnum">{info.data ? bytes(info.data.sizeBytes) : ""}</span>
             <span className="hidden sm:block" />
           </li>
           {branches.map((b) => (
-            <li
-              key={b.name}
-              className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-baseline gap-x-3 py-3 sm:grid-cols-[1.25rem_minmax(0,1fr)_6rem_10rem]"
-            >
+            <li key={b.name} className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-baseline gap-x-3 py-3 sm:grid-cols-[1.25rem_minmax(0,1fr)_6rem_10rem]">
               <GitBranch aria-hidden className="relative top-0.5 size-3.5 justify-self-center text-ink-3" />
               <span className="min-w-0">
                 <span className="font-mono text-[0.84375rem] text-ink">{b.name}</span>
                 <span className="mt-0.5 block truncate text-sm text-ink-3">
-                  from {b.from}, {relative(b.createdAt)}
+                  {b.preview ? `for the preview ${b.preview}, ` : ""}from {b.from === "main" ? "production" : b.from}, {relative(b.createdAt)}
                   <span className="sm:hidden">, {bytes(b.sizeBytes)}</span>
-                  <span className="max-sm:hidden">
-                    {" "}
-                    · <code className="ident">{b.database}</code>
-                  </span>
                 </span>
               </span>
               <span className="hidden text-right text-sm text-ink-2 tnum sm:block">{bytes(b.sizeBytes)}</span>
               <span className="flex justify-end gap-1 self-center">
                 <Button asChild variant="ghost" size="sm">
-                  <Link to="/projects/$project/data/sql" params={{ project }} search={{ branch: b.name } as never}>
-                    Query
+                  <Link to="/projects/$project/data" params={{ project }} search={{ branch: b.name } as never}>
+                    Open
                   </Link>
                 </Button>
                 {can("apply:irreversible") && (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Delete ${b.name}`}
-                    title={`Delete ${b.name}`}
-                    onClick={() => setDeleting(b.name)}
-                    className="hover:text-danger"
-                  >
+                  <Button variant="ghost" size="icon-sm" aria-label={`Delete ${b.name}`} title={`Delete ${b.name}`} onClick={() => setDeleting(b.name)} className="hover:text-danger">
                     <Trash2 />
                   </Button>
                 )}
@@ -914,14 +610,14 @@ export function BranchesPage({ project }: { project: string }) {
               value={name}
               onChange={(e) => setName(e.target.value.toLowerCase())}
               placeholder="try-new-pricing"
-              aria-label="New branch name"
+              aria-label="New copy's name"
               className="h-8 font-mono text-sm sm:max-w-[16rem]"
               autoComplete="off"
             />
             <label className="flex items-center gap-2 text-sm text-ink-3">
               from
               <MiniSelect id="b-from" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="Copy from" className="min-w-[7rem]">
-                <option value="">main</option>
+                <option value="">production</option>
                 {branches.map((b) => (
                   <option key={b.name} value={b.name}>
                     {b.name}
@@ -931,32 +627,38 @@ export function BranchesPage({ project }: { project: string }) {
             </label>
             <Button type="submit" variant="primary" disabled={!valid || create.isPending} className="self-start sm:ml-1 sm:self-auto">
               <GitBranch />
-              {create.isPending ? "Copying…" : valid ? `Branch ${from || "main"} as ${name.trim()}` : "Create branch"}
+              {create.isPending ? "Copying…" : valid ? `Copy ${from || "production"} as ${name.trim()}` : "Make a copy"}
             </Button>
           </form>
         )}
         {create.isError && <ProblemNote className="mt-3" error={create.error} />}
         <p className="mt-3 text-sm text-ink-3">
-          It costs almost nothing until it diverges. Agents can do the same:{" "}
-          <code className="ident text-ink-2">tiffin branches create {project} --name try-it</code>
+          It costs almost nothing until it changes. Agents can do the same: <code className="ident text-ink-2">tiffin branches create {project} --name try-it</code>
         </p>
       </Section>
-
-      <Snapshots project={project} list={snaps.data ?? []} loaded={snaps.isSuccess} />
-
       <Confirm
         open={!!deleting}
         onClose={() => setDeleting(null)}
-        title={`Delete branch ${deleting}?`}
-        body="Its database is dropped. Main is not affected."
-        action="Delete branch"
+        title={`Delete the copy ${deleting}?`}
+        body="Its database is dropped, with anything changed in it. Production is not affected."
+        action="Delete copy"
         run={() => mod.deleteBranch(project, deleting!)}
         done={() => {
           qc.invalidateQueries({ queryKey: ["branches", project] });
           qc.invalidateQueries({ queryKey: ["pg", project] });
         }}
       />
-    </Page>
+    </DataShell>
+  );
+}
+
+export function RestorePage({ project }: { project: string }) {
+  useTitle(`${project} · Restore points`);
+  const snaps = useQuery(mq.snapshots(project));
+  return (
+    <DataShell project={project} wide>
+      <Snapshots project={project} list={snaps.data ?? []} loaded={snaps.isSuccess} />
+    </DataShell>
   );
 }
 
@@ -966,27 +668,22 @@ function Snapshots({ project, list, loaded }: { project: string; list: PgSnapsho
   const [restoring, setRestoring] = useState<PgSnapshot | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [all, setAll] = useState(false);
-  const shown = all ? list : list.slice(0, 6);
+  const shown = all ? list : list.slice(0, 12);
   const today = dayKey(new Date().toISOString());
   return (
-    <Section className="mt-12" id="snaps" label="Snapshots" aside="taken before anything risky, kept for 7 days">
+    <Section id="snaps" label="Restore points" aside="taken before anything risky, kept for 7 days">
       {done && <p className="mb-3 text-base text-ink">{done}</p>}
       {loaded && list.length === 0 ? (
-        <p className="border-y border-rule py-4 text-base text-ink-3">
-          None yet. One is taken before the first SQL write, restore or dropped extension.
-        </p>
+        <p className="border-y border-rule py-4 text-base text-ink-3">None yet. One is taken before SQL that changes data, before deleting many rows or a table, and before a restore.</p>
       ) : (
         <Rows>
           {shown.map((s) => (
-            <li
-              key={s.id}
-              className="group grid grid-cols-[3.25rem_minmax(0,1fr)_auto_auto] items-center gap-x-3 py-1.5 sm:grid-cols-[3.25rem_minmax(0,1fr)_6rem_7rem] sm:gap-x-4"
-            >
+            <li key={s.id} className="group grid grid-cols-[3.25rem_minmax(0,1fr)_auto_auto] items-center gap-x-3 py-1.5 sm:grid-cols-[3.25rem_minmax(0,1fr)_6rem_7rem] sm:gap-x-4">
               <time dateTime={s.at} title={full(s.at)} className="text-sm text-ink-3 tnum">
                 {dayKey(s.at) === today ? clock(s.at) : new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(new Date(s.at))}
               </time>
               <span className="min-w-0 truncate text-base text-ink">
-                {s.reason.charAt(0).toUpperCase() + s.reason.slice(1)}
+                {s.reason.charAt(0).toUpperCase() + s.reason.slice(1).replace("an SQL write", "SQL that changed data")}
                 {s.branch && <span className="text-ink-3"> on {s.branch}</span>}
               </span>
               <span className="text-right text-sm text-ink-3 tnum">{bytes(s.sizeBytes)}</span>
@@ -996,7 +693,7 @@ function Snapshots({ project, list, loaded }: { project: string; list: PgSnapsho
                     variant="ghost"
                     size="sm"
                     onClick={() => setRestoring(s)}
-                    aria-label={`Restore the snapshot from ${clock(s.at)}`}
+                    aria-label={`Restore the database to ${full(s.at)}`}
                     className="max-sm:w-7 max-sm:px-0 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
                   >
                     <RotateCcw />
@@ -1009,27 +706,28 @@ function Snapshots({ project, list, loaded }: { project: string; list: PgSnapsho
         </Rows>
       )}
       {list.length > shown.length && (
-        <button onClick={() => setAll(true)} className="mt-2 text-sm text-ink-3 hover:text-ink">
+        <button type="button" onClick={() => setAll(true)} className="mt-2 text-sm text-ink-3 hover:text-ink">
           Show {words(list.length - shown.length)} more
         </button>
       )}
       <HazardDialog<{ overwrites: string; takenAt: string; database: string }, { restored: string; before?: string }>
         open={!!restoring}
         onOpenChange={(o) => !o && setRestoring(null)}
-        title="Restore this snapshot?"
+        title="Go back to this restore point?"
         word={project}
         action="Replace the database"
         run={(confirm) => mod.restoreSnapshot(project, restoring!.id, confirm)}
         renderPreview={(p) => (
           <div className="rounded-lg border border-danger-rule bg-danger-wash px-4 py-3 text-base text-ink">
-            <p>{p.overwrites.charAt(0).toUpperCase() + p.overwrites.slice(1)}.</p>
-            <p className="mt-2 text-sm text-ink-2">Taken {relative(p.takenAt)}. The current contents are snapshotted first, so you can come back.</p>
+            <p>Everything in the database is replaced by how it was {relative(p.takenAt)}.</p>
+            <p className="mt-2 text-sm text-ink-2">A restore point of what's there now is taken first, so you can come back.</p>
           </div>
         )}
-        onDone={(r) => {
-          setDone(`Restored. What was there before is snapshot ${r.before ?? "(none)"}.`);
+        onDone={() => {
+          setDone("Restored. What was there before is the newest restore point.");
           qc.invalidateQueries({ queryKey: ["snapshots", project] });
           qc.invalidateQueries({ queryKey: ["tables", project] });
+          qc.invalidateQueries({ queryKey: ["pg-rows", project] });
         }}
       />
     </Section>

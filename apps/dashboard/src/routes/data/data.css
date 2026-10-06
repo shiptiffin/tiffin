@@ -1,0 +1,29 @@
+/* The Database console's own drawings (loaded with its route). */
+@keyframes sheet-from-right {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+/* The schema diagram: tables as cards, links as hairlines. */
+.schema-map {
+  touch-action: none;
+  cursor: grab;
+}
+.schema-map[data-dragging="true"] {
+  cursor: grabbing;
+}
+.schema-map .link {
+  fill: none;
+  stroke: var(--rule-3);
+  stroke-width: 1.25;
+}
+.schema-map .link[data-on="true"] {
+  stroke: var(--brass-ink);
+  stroke-width: 1.75;
+}
+.schema-map .node:focus-visible rect.card {
+  stroke: var(--focus);
+  stroke-width: 2;
+}

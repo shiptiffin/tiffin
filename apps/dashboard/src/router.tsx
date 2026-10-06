@@ -63,9 +63,14 @@ const BucketPage = lz<{ project: string; bucket: string; prefix?: string; file?:
 const InboxPage = lz<{ project: string; q?: string; m?: string }>(() => import("@/routes/email"), "InboxPage");
 const EmailSettingsPage = lz<{ project: string }>(() => import("@/routes/email"), "EmailSettingsPage");
 const DataPage = lz<{ project: string }>(() => import("@/routes/data"), "DataPage");
-const TablePage = lz<{ project: string; table: string; page?: number }>(() => import("@/routes/data"), "TablePage");
+const TablePage = lz<{ project: string; table: string }>(() => import("@/routes/data"), "TablePage");
 const SqlPage = lz<{ project: string }>(() => import("@/routes/data"), "SqlPage");
 const BranchesPage = lz<{ project: string }>(() => import("@/routes/data"), "BranchesPage");
+const SchemaPage = lz<{ project: string }>(() => import("@/routes/data"), "SchemaPage");
+const RestorePage = lz<{ project: string }>(() => import("@/routes/data"), "RestorePage");
+// The Database pages keep the copy (?branch) and the table view (?f filters, ?s sort, ?h hidden columns) in the URL.
+type DataSearch = { branch?: string; f?: string; s?: string; h?: string; new?: string };
+const dataSearch = (s: Record<string, unknown>): DataSearch => ({ branch: str(s.branch), f: str(s.f), s: str(s.s), h: str(s.h), new: str(s.new) });
 const KvPage = lz<{ project: string; match?: string; k?: string }>(() => import("@/routes/kv"), "KvPage");
 const MetricsPage = lz(() => import("@/routes/observe"), "MetricsPage");
 const LogsPage = lz<LogsSearch>(() => import("@/routes/observe"), "LogsPage");
@@ -309,6 +314,7 @@ const emailSettings = createRoute({
 const data = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/data",
+  validateSearch: dataSearch,
   loader: () => void DataPage.preload(),
   component: function Data() {
     const { project: p } = data.useParams();
@@ -318,16 +324,17 @@ const data = createRoute({
 const table = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/data/tables/$table",
-  validateSearch: (s: Record<string, unknown>): { page?: number } => (Number(s.page) > 1 ? { page: Number(s.page) } : {}),
+  validateSearch: dataSearch,
   loader: () => void TablePage.preload(),
   component: function Table() {
     const { project: p, table: t } = table.useParams();
-    return <TablePage key={p + t} project={p} table={t} page={table.useSearch().page} />;
+    return <TablePage key={p} project={p} table={t} />;
   },
 });
 const sqlRoute = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/data/sql",
+  validateSearch: (s: Record<string, unknown>): { branch?: string; sql?: string } => ({ branch: str(s.branch), sql: str(s.sql) }),
   loader: () => void SqlPage.preload(),
   component: function Sql() {
     const { project: p } = sqlRoute.useParams();
@@ -337,10 +344,31 @@ const sqlRoute = createRoute({
 const branches = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/data/branches",
+  validateSearch: dataSearch,
   loader: () => void BranchesPage.preload(),
   component: function Branches() {
     const { project: p } = branches.useParams();
     return <BranchesPage key={p} project={p} />;
+  },
+});
+const schemaRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/data/schema",
+  validateSearch: dataSearch,
+  loader: () => void SchemaPage.preload(),
+  component: function Schema() {
+    const { project: p } = schemaRoute.useParams();
+    return <SchemaPage key={p} project={p} />;
+  },
+});
+const restoreRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/data/restore",
+  validateSearch: dataSearch,
+  loader: () => void RestorePage.preload(),
+  component: function Restore() {
+    const { project: p } = restoreRoute.useParams();
+    return <RestorePage key={p} project={p} />;
   },
 });
 const kv = createRoute({
@@ -636,6 +664,8 @@ const tree = root.addChildren([
     table,
     sqlRoute,
     branches,
+    schemaRoute,
+    restoreRoute,
     kv,
     metrics,
     logs,

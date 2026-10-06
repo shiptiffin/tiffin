@@ -2476,6 +2476,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/postgres/edits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List recent row edits
+         * @description Row edits made through the table editor (db insert, update, delete), newest first, with who made them and whether they can be undone. Kept for 7 days.
+         */
+        get: operations["db-edits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/postgres/edits/{id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo a row edit
+         * @description Writes back what a row edit replaced: an added row is deleted, changed values return, deleted rows come back with their keys. If a changed row was changed again since, nothing happens (409) unless force. Recorded as an edit of its own.
+         */
+        post: operations["db-undo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/postgres/queries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List saved queries
+         * @description Named SQL queries saved for a project in the dashboard's SQL editor (or with db save-query), by name.
+         */
+        get: operations["db-queries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/postgres/queries/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save a query
+         * @description Saves (or replaces) a named SQL query for a project. Saving runs nothing.
+         */
+        put: operations["db-save-query"];
+        post?: never;
+        /**
+         * Delete a saved query
+         * @description Forgets a saved query. The database is not touched.
+         */
+        delete: operations["db-delete-query"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/queue/crons": {
         parameters: {
             query?: never;
@@ -3125,7 +3209,119 @@ export interface paths {
          */
         get: operations["db-tables"];
         put?: never;
+        /**
+         * Create a table
+         * @description Makes a table from a list of columns (text, integer, bigint, numeric, boolean, timestamptz, date, uuid, jsonb, text[]) with an id primary key, defaults, unique values and links to other tables (each link gets an index). dryRun returns the SQL without running it. Needs full access, like sql write.
+         */
+        post: operations["db-create-table"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/tables/{schema}/{table}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show one table in full
+         * @description A table's columns (type, which editor fits, nullable, default, primary key, identity, enum values), its links to and from other tables, indexes, CHECK rules and a row count (exact under 200,000 rows). Tables without a primary key can't be edited by row.
+         */
+        get: operations["db-table"];
+        put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change a table
+         * @description Renames the table or its columns, adds columns, changes whether a column may be empty, its default and whether its values are unique, and drops columns, in one transaction. Dropping columns loses their values: without confirm nothing changes (status 428 with the row count), and a snapshot is taken first. dryRun returns the SQL. Needs full access.
+         */
+        patch: operations["db-alter-table"];
+        trace?: never;
+    };
+    "/v1/projects/{project}/tables/{schema}/{table}/drop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete a table
+         * @description Drops a table and its rows. Without confirm nothing changes: status 428 with the row count and the confirm value. A snapshot of the database is taken first, so snapshots restore brings it back. Tables other tables link to are refused until those links go.
+         */
+        post: operations["db-drop-table"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/tables/{schema}/{table}/rows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a row to a table
+         * @description Inserts one row with the values given (columns left out get their defaults) and returns it as stored. Recorded with Undo (db undo deletes it again). Needs full access, like sql write; no snapshot is taken.
+         */
+        post: operations["db-insert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change rows of a table
+         * @description Sets columns of rows found by primary key, all in one transaction, and returns the rows as stored. The old values are recorded, so db undo puts them back. Needs full access, like sql write; no snapshot is taken.
+         */
+        patch: operations["db-update"];
+        trace?: never;
+    };
+    "/v1/projects/{project}/tables/{schema}/{table}/rows/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete rows of a table
+         * @description Deletes rows by primary key and returns them. They are recorded, so db undo puts them back; deleting more than 100 rows takes a snapshot of the database first. Needs full access, like sql write.
+         */
+        post: operations["db-delete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/tables/{schema}/{table}/rows/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read a table's rows
+         * @description A page of rows, filtered and sorted, with keyset paging (pass next as after). Values you filter by are sent as query parameters. Links to other tables come with the linked rows' labels. Read-only.
+         */
+        post: operations["db-rows"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5064,6 +5260,36 @@ export interface components {
             /** @description The key's secret (tfn_...). Shown once; store it now. */
             secret: string;
         };
+        "Db-deleteRequest": {
+            branch?: string;
+            /** @description Each row's primary key: column → value */
+            keys: {
+                [key: string]: unknown;
+            }[] | null;
+        };
+        "Db-drop-tableRequest": {
+            branch?: string;
+            /** @description The confirm value from the preview (status 428) */
+            confirm?: string;
+        };
+        "Db-insertRequest": {
+            branch?: string;
+            /** @description Column → value; JSON columns take any JSON, arrays a JSON array, null is NULL */
+            values: {
+                [key: string]: unknown;
+            };
+        };
+        "Db-save-queryRequest": {
+            sql: string;
+        };
+        "Db-undoRequest": {
+            /** @description Undo even if the rows changed again since */
+            force?: boolean;
+        };
+        "Db-updateRequest": {
+            branch?: string;
+            changes: components["schemas"]["PostgresPGRowChange"][] | null;
+        };
         DestroyBody: {
             /** @description The hash of the plan that deletes the project (or its first 8+ characters), which you reviewed. Without it nothing is deleted and the plan comes back with status 428. */
             confirm?: string;
@@ -5733,7 +5959,7 @@ export interface components {
         ManifestApp: {
             assets?: components["schemas"]["ManifestAssets"];
             command?: string;
-            disk?: string[] | null;
+            disk?: components["schemas"]["ManifestDiskFolder"][] | null;
             env?: {
                 [key: string]: string;
             };
@@ -5746,8 +5972,11 @@ export interface components {
             memoryMB?: number;
             packages?: string[] | null;
             path: string;
+            release?: string;
             role: string;
             routes?: string[] | null;
+            /** Format: int64 */
+            timeoutSeconds?: number;
         };
         ManifestAssets: {
             dir: string;
@@ -5759,6 +5988,10 @@ export interface components {
             organizations: boolean;
         };
         ManifestBucket: {
+            allowedTypes?: string[] | null;
+            cors?: string[] | null;
+            /** Format: int64 */
+            maxFileSize?: number;
             public: boolean;
         };
         ManifestCron: {
@@ -5767,6 +6000,10 @@ export interface components {
             path: string;
             schedule: string;
             timezone?: string;
+        };
+        ManifestDiskFolder: {
+            Path: string;
+            Size: string;
         };
         ManifestDomain: {
             www?: string;
@@ -5797,6 +6034,7 @@ export interface components {
         };
         ManifestPostgres: {
             extensions?: string[] | null;
+            previews?: string;
             /** Format: int64 */
             statementTimeoutSeconds?: number;
         };
@@ -6666,6 +6904,8 @@ export interface components {
             from: string;
             /** @description Branch name */
             name: string;
+            /** @description The app preview this branch was made for: it is deleted with the preview */
+            preview?: string;
             /**
              * Format: int64
              * @description Logical size. Clones share unchanged blocks with their source on disk (reflinks), so this overstates real disk use.
@@ -6691,6 +6931,8 @@ export interface components {
             from: string;
             /** @description Branch name */
             name: string;
+            /** @description The app preview this branch was made for: it is deleted with the preview */
+            preview?: string;
             /**
              * Format: int64
              * @description Logical size. Clones share unchanged blocks with their source on disk (reflinks), so this overstates real disk use.
@@ -6704,6 +6946,41 @@ export interface components {
             /** @description Postgres type name, e.g. int8, text, jsonb, timestamptz */
             type: string;
         };
+        PostgresPGColumnChange: {
+            column: string;
+            default?: components["schemas"]["PostgresPGDefault"];
+            dropDefault?: boolean;
+            nullable?: boolean;
+            unique?: boolean;
+        };
+        PostgresPGColumnDetail: {
+            /** @description The type's internal name: int8, text, bool, timestamptz, jsonb, _text (arrays start with _), or an enum's name */
+            baseType: string;
+            /**
+             * @description Which editor fits
+             * @enum {string}
+             */
+            category: "number" | "text" | "bool" | "date" | "time" | "timestamp" | "json" | "uuid" | "enum" | "array" | "other";
+            comment?: string;
+            /** @description Default expression */
+            default?: string;
+            /** @description The allowed values of an enum column, in order */
+            enum?: string[] | null;
+            /** @description Computed from other columns: never written */
+            generated?: boolean;
+            /**
+             * @description Filled by an identity sequence
+             * @enum {string}
+             */
+            identity?: "always" | "by-default" | "";
+            name: string;
+            nullable: boolean;
+            primary?: boolean;
+            /** @description SQL type as Postgres prints it, e.g. "numeric(10,2)", "text[]" */
+            type: string;
+            /** @description Has a one-column unique constraint or index */
+            unique?: boolean;
+        };
         PostgresPGConnection: {
             database: string;
             /** @description postgresql:// URL with the project's password (127.0.0.1, inside the box) */
@@ -6711,6 +6988,89 @@ export interface components {
             role: string;
             /** @description The same over the unix socket in /var/run/postgresql */
             socketUrl: string;
+        };
+        PostgresPGDDLResult: {
+            applied: boolean;
+            schema: string;
+            /** @description Snapshot taken first (dropping columns or a table) */
+            snapshot?: string;
+            /** @description The statements, in one transaction */
+            sql: string;
+            /** @description The table's name afterwards */
+            table: string;
+        };
+        PostgresPGDefault: {
+            /** @enum {string} */
+            kind: "value" | "now" | "today" | "random-uuid" | "empty-list" | "empty-object";
+            /** @description For kind value: the value as text, e.g. 0, draft, true */
+            value?: string;
+        };
+        PostgresPGEdit: {
+            actor: components["schemas"]["Actor"];
+            /** Format: date-time */
+            at: string;
+            branch?: string;
+            /** @description For updates: the columns that changed */
+            columns?: string[] | null;
+            /** @description Edit ID (edit_...) */
+            id: string;
+            /** @description The touched rows' keys, as text (the first 20) */
+            keys?: string[] | null;
+            /** @enum {string} */
+            kind: "insert" | "update" | "delete";
+            /**
+             * Format: int64
+             * @description How many rows it touched
+             */
+            rows: number;
+            schema: string;
+            /** @description Snapshot taken first (deletes of more than 100 rows) */
+            snapshot?: string;
+            table: string;
+            /** @description The edit this one undid */
+            undoOf?: string;
+            /** @description Its old rows are kept, so it can be undone */
+            undoable: boolean;
+            undoneBy?: string;
+        };
+        PostgresPGEditResult: {
+            columns: components["schemas"]["PostgresPGColumn"][] | null;
+            edit: components["schemas"]["PostgresPGEdit"];
+            rows: (unknown[] | null)[] | null;
+        };
+        PostgresPGFilter: {
+            column: string;
+            /**
+             * @description contains and startsWith ignore case and compare the value as text
+             * @enum {string}
+             */
+            op: "eq" | "neq" | "lt" | "lte" | "gt" | "gte" | "contains" | "startsWith" | "isNull" | "notNull" | "in";
+            /** @description The value, as text (unused for isNull and notNull) */
+            value?: string;
+            /** @description For in: the values */
+            values?: string[] | null;
+        };
+        PostgresPGForeignKey: {
+            columns: string[] | null;
+            /** @description Constraint name */
+            name: string;
+            /** @enum {string} */
+            onDelete: "no-action" | "restrict" | "cascade" | "set-null" | "set-default";
+            refColumns: string[] | null;
+            refSchema: string;
+            refTable: string;
+            /** @description The table holding the link */
+            schema: string;
+            table: string;
+        };
+        PostgresPGIndex: {
+            /** @description CREATE INDEX statement */
+            definition: string;
+            name: string;
+            primary: boolean;
+            /** Format: int64 */
+            sizeBytes: number;
+            unique: boolean;
         };
         PostgresPGInfo: {
             /** Format: int64 */
@@ -6734,6 +7094,83 @@ export interface components {
             socketDir: string;
             /** @description Postgres server version */
             version: string;
+        };
+        PostgresPGNewColumn: {
+            default?: components["schemas"]["PostgresPGDefault"];
+            name: string;
+            /** @description Allow empty (NULL) values */
+            nullable?: boolean;
+            /** @description Link each value to a row of another table */
+            references?: components["schemas"]["PostgresPGReference"];
+            /**
+             * @description Optional with references: the linked column's type is used
+             * @enum {string}
+             */
+            type?: "text" | "integer" | "bigint" | "numeric" | "boolean" | "timestamptz" | "date" | "uuid" | "jsonb" | "text[]";
+            unique?: boolean;
+        };
+        PostgresPGReference: {
+            /** @description Default: the table's one-column primary key */
+            column?: string;
+            /**
+             * @description When the linked row is deleted (default no-action: the delete is refused)
+             * @enum {string}
+             */
+            onDelete?: "no-action" | "cascade" | "set-null" | "restrict";
+            /** @description Default public */
+            schema?: string;
+            table: string;
+        };
+        PostgresPGRename: {
+            from: string;
+            to: string;
+        };
+        PostgresPGRowChange: {
+            /** @description The row's primary key: column → value */
+            key: {
+                [key: string]: unknown;
+            };
+            /** @description Column → new value. JSON columns take any JSON; arrays take a JSON array; null is NULL. */
+            values: {
+                [key: string]: unknown;
+            };
+        };
+        PostgresPGRows: {
+            columns: components["schemas"]["PostgresPGColumn"][] | null;
+            /**
+             * Format: int64
+             * @description Rows that match, with count
+             */
+            count?: number;
+            /** @description More rows match than were counted */
+            countCapped?: boolean;
+            /** @description For each column that links to another table: the linked row's key (as text) → its label */
+            labels?: {
+                [key: string]: {
+                    [key: string]: string;
+                };
+            };
+            /** @description Pass as after for the next page; absent on the last page */
+            next?: string;
+            /** @description Rows in column order, as in sql results */
+            rows: (unknown[] | null)[] | null;
+        };
+        PostgresPGRowsRequest: {
+            /** @description The next cursor of the previous page */
+            after?: string;
+            /** @description A preview branch instead of the main database */
+            branch?: string;
+            /** @description Also count the rows that match (up to 100,000) */
+            count?: boolean;
+            /** @description All must match */
+            filters?: components["schemas"]["PostgresPGFilter"][] | null;
+            /**
+             * Format: int64
+             * @description Rows per page (default 100)
+             */
+            limit?: number;
+            /** @description The primary key breaks ties */
+            sort?: components["schemas"]["PostgresPGSort"][] | null;
         };
         PostgresPGSQLRequest: {
             /** @description Run against this preview branch instead of the main database. */
@@ -6762,6 +7199,14 @@ export interface components {
             /** @description Snapshot taken before a write; restore it with snapshots restore */
             snapshot?: string;
         };
+        PostgresPGSavedQuery: {
+            /** @description Who saved it last */
+            by?: string;
+            name: string;
+            sql: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         PostgresPGSnapshot: {
             /** Format: date-time */
             at: string;
@@ -6785,6 +7230,10 @@ export interface components {
             /** @description The snapshot that was restored */
             restored: string;
         };
+        PostgresPGSort: {
+            column: string;
+            desc?: boolean;
+        };
         PostgresPGStatementResult: {
             columns?: components["schemas"]["PostgresPGColumn"][] | null;
             /** @description The command tag, e.g. "SELECT 3", "INSERT 0 1", "CREATE TABLE" */
@@ -6801,11 +7250,15 @@ export interface components {
         };
         PostgresPGTable: {
             columns: components["schemas"]["PostgresPGTableColumn"][] | null;
+            /** @description Links from this table to others (for the schema diagram) */
+            foreignKeys: components["schemas"]["PostgresPGForeignKey"][] | null;
             /**
              * @description What it is
              * @enum {string}
              */
             kind: "table" | "partitioned" | "view" | "materialized-view" | "foreign";
+            /** @description In a schema Tiffin or a framework manages (auth, tiffin, graphile_worker, pgboss) */
+            managed: boolean;
             name: string;
             /** @description Row-level security is enabled */
             rls: boolean;
@@ -6821,6 +7274,20 @@ export interface components {
              */
             sizeBytes: number;
         };
+        PostgresPGTableAlter: {
+            add?: components["schemas"]["PostgresPGNewColumn"][] | null;
+            branch?: string;
+            change?: components["schemas"]["PostgresPGColumnChange"][] | null;
+            /** @description With dropColumns: the confirm value from the preview (status 428) */
+            confirm?: string;
+            /** @description Their values are gone for good: needs confirm, and a snapshot is taken first */
+            dropColumns?: string[] | null;
+            /** @description Only return the SQL */
+            dryRun?: boolean;
+            /** @description A new name for the table */
+            rename?: string;
+            renameColumns?: components["schemas"]["PostgresPGRename"][] | null;
+        };
         PostgresPGTableColumn: {
             default?: string;
             name: string;
@@ -6829,6 +7296,52 @@ export interface components {
             primary?: boolean;
             /** @description SQL type, e.g. "text", "vector(1536)", "timestamp with time zone" */
             type: string;
+        };
+        PostgresPGTableCreate: {
+            branch?: string;
+            columns: components["schemas"]["PostgresPGNewColumn"][] | null;
+            /** @description Only return the SQL */
+            dryRun?: boolean;
+            name: string;
+            /**
+             * @description The id column: a number Postgres counts up (default) or a random UUID
+             * @enum {string}
+             */
+            primaryKey?: "bigint-identity" | "uuid";
+            /** @description Default public */
+            schema?: string;
+        };
+        PostgresPGTableDetail: {
+            /** @description CHECK constraints, as SQL */
+            checks?: string[] | null;
+            columns: components["schemas"]["PostgresPGColumnDetail"][] | null;
+            comment?: string;
+            /** @description Links from this table to others */
+            foreignKeys: components["schemas"]["PostgresPGForeignKey"][] | null;
+            indexes: components["schemas"]["PostgresPGIndex"][] | null;
+            /** @enum {string} */
+            kind: "table" | "partitioned" | "view" | "materialized-view" | "foreign";
+            /** @description The column that names a row (name, title, email…), shown for links to it */
+            label?: string;
+            /** @description In a schema Tiffin or a framework manages (auth, tiffin, graphile_worker, pgboss) */
+            managed: boolean;
+            name: string;
+            /** @description Primary key columns; empty when the table has none (its rows are read-only in the editor) */
+            primaryKey: string[] | null;
+            /** @description Links from other tables to this one */
+            referencedBy: components["schemas"]["PostgresPGForeignKey"][] | null;
+            rls: boolean;
+            /**
+             * Format: int64
+             * @description Row count: exact when rowsExact, else Postgres's estimate
+             */
+            rows: number;
+            rowsExact: boolean;
+            schema: string;
+            /** Format: int64 */
+            sizeBytes: number;
+            /** @description Rows can be edited by key (a table with a primary key) */
+            writable: boolean;
         };
         Principal: {
             /**
@@ -7357,6 +7870,8 @@ export interface components {
             payload?: unknown;
             /** @enum {string} */
             priority: "high" | "normal" | "low";
+            /** @description The latest progress the app reported (job.progress in tiffin-sdk) */
+            progress?: unknown;
             /** @description Queue or topic name (_workflows and _cron are the box's own) */
             queue: string;
             /** @description Pinned app release (workflow turns) */
@@ -7415,6 +7930,8 @@ export interface components {
             idempotencyKey?: string;
             input?: unknown;
             output?: unknown;
+            /** @description The latest progress the run reported (ctx.progress in tiffin-sdk) */
+            progress?: unknown;
             /** @description The app release this run is pinned to */
             release?: string;
             startedBy?: string;
@@ -7777,6 +8294,8 @@ export interface components {
             /** @description Preview name, empty for production */
             preview?: string;
             project: string;
+            /** @description Hash of the env the build wrote into browser code (NEXT_PUBLIC_*, VITE_*, PUBLIC_*). When it changes, the box rebuilds the app from this deploy's source. */
+            publicEnv?: string;
             /**
              * Format: int64
              * @description The pull request a preview deploy is for, for deploys from GitHub
@@ -7784,6 +8303,11 @@ export interface components {
             pullRequest?: number;
             /** @description Branch, tag or commit asked for, for deploys from a git URL or GitHub */
             ref?: string;
+            /**
+             * Format: double
+             * @description Time the app's release command took
+             */
+            releaseSeconds?: number;
             /** @description Repository URL, for deploys from a git URL or GitHub */
             repo?: string;
             /** @enum {string} */
@@ -7799,10 +8323,10 @@ export interface components {
             /** @description Starter template, for template deploys */
             template?: string;
             /**
-             * @description What started a deploy from GitHub: a push to the production branch, a pull request, or a redeploy asked for on the box
+             * @description What started a deploy from GitHub (a push to the production branch, a pull request, or a redeploy asked for on the box), or env: the box rebuilt the live version because env it builds into browser code changed
              * @enum {string}
              */
-            trigger?: "push" | "pull_request" | "redeploy" | "";
+            trigger?: "push" | "pull_request" | "redeploy" | "env" | "";
             /** @description Where the deploy is served (web apps) */
             url?: string;
             /** @description What the deploy took from the app's vercel.json (build settings, crons, headers, redirects, rewrites) and what it ignored */
@@ -8317,6 +8841,8 @@ export interface components {
             text?: string;
         };
         "Storage-presignRequest": {
+            /** @description PUT only: the Content-Type the upload must send (signed into the URL) */
+            contentType?: string;
             /**
              * Format: int64
              * @description Seconds the URL stays valid (default 3600, max 7 days)
@@ -8324,6 +8850,11 @@ export interface components {
             expiresIn?: number;
             /** @description Object key */
             key: string;
+            /**
+             * Format: int64
+             * @description PUT only: the largest file the URL accepts, in bytes (signed into the URL; the bucket's maxFileSize applies too)
+             */
+            maxSize?: number;
             /**
              * @description GET to download, PUT to upload
              * @default GET
@@ -19667,6 +20198,388 @@ export interface operations {
             };
         };
     };
+    "db-edits": {
+        parameters: {
+            query?: {
+                /** @description Default 50 */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostgresPGEdit"][] | null;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "db-undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Edit ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Db-undoRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostgresPGEditResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "db-queries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostgresPGSavedQuery"][] | null;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "db-save-query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description The query's name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Db-save-queryRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostgresPGSavedQuery"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "db-delete-query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description The query's name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "queue-crons-list": {
         parameters: {
             query?: never;
@@ -22539,6 +23452,771 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PostgresPGTable"][] | null;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "db-create-table": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostgresPGTableCreate"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostgresPGDDLResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "db-table": {
+        parameters: {
+            query?: {
+                /** @description A preview branch instead of the main database */
+                branch?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Schema, usually public */
+                schema: string;
+                /** @description Table name */
+                table: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostgresPGTableDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "db-alter-table": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Schema, usually public */
+                schema: string;
+                /** @description Table name */
+                table: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostgresPGTableAlter"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostgresPGDDLResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "db-drop-table": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Schema, usually public */
+                schema: string;
+                /** @description Table name */
+                table: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Db-drop-tableRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostgresPGDDLResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "db-insert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Schema, usually public */
+                schema: string;
+                /** @description Table name */
+                table: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Db-insertRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostgresPGEditResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "db-update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Schema, usually public */
+                schema: string;
+                /** @description Table name */
+                table: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Db-updateRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostgresPGEditResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "db-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Schema, usually public */
+                schema: string;
+                /** @description Table name */
+                table: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Db-deleteRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostgresPGEditResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "db-rows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Schema, usually public */
+                schema: string;
+                /** @description Table name */
+                table: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostgresPGRowsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostgresPGRows"];
                 };
             };
             /** @description Bad Request */
