@@ -1,0 +1,4 @@
+# Supply-chain guard: never install a package version published less than
+# 7 days ago (most malicious releases are caught and pulled well before then).
+[install]
+minimumReleaseAge = 604800
