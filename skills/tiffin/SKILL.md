@@ -38,8 +38,9 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    lists the folders in `disk: ["data"]` (relative to the app; kept across deploys, shared by its
    instances, a preview gets its own, counted in the storage limit). Never keep data in other folders:
    each deploy starts from the image. Requests have no time or size limit (15-minute renders and
-   GB uploads work), but a Bun server needs `idleTimeout: 0` in its `export default { ... }`
-   (Bun's default cuts a silent request after 10 s); user files still belong in a bucket.
+   GB uploads work), but a Bun server needs `idleTimeout: 0` and a `maxRequestBodySize` in its
+   `export default { ... }` (Bun cuts a silent request after 10 s and refuses bodies over 128 MB);
+   user files still belong in a bucket.
 5. Secrets go in `tiffin secrets set`, never in the config or the repo. Starting a new project?
    Reuse keys the box already has instead of asking for them again:
    `tiffin secrets list <other>` shows names, `tiffin secrets copy <new> --from <other> [--names A,B]`

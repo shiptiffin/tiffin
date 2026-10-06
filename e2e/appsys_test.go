@@ -45,8 +45,9 @@ app.post("/upload", async (c) => {
   return c.text("got " + n);
 });
 
-// idleTimeout 0: Bun closes a request that sends nothing for 10s by default.
-export default { port: Number(process.env.PORT ?? 3000), idleTimeout: 0, fetch: app.fetch };
+// idleTimeout 0: Bun closes a request that sends nothing for 10s by default;
+// maxRequestBodySize: Bun refuses bodies over 128 MB by default.
+export default { port: Number(process.env.PORT ?? 3000), idleTimeout: 0, maxRequestBodySize: 4 * 1024 ** 3, fetch: app.fetch };
 `
 
 // TestAppSystem: what band-maker, podframes and satoshi-bench need, on a
