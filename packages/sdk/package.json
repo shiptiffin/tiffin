@@ -3,12 +3,6 @@
   "version": "0.1.0",
   "description": "The SDK for apps on Tiffin, the agent-first app-in-a-box platform: config, KV, storage, queues, workflows, auth, email, analytics and Next.js helpers.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/shiptiffin/tiffin.git",
-    "directory": "packages/sdk"
-  },
-  "homepage": "https://github.com/shiptiffin/tiffin/tree/main/docs/guide",
   "keywords": ["tiffin", "self-hosting", "nextjs", "valkey", "s3", "better-auth"],
   "type": "module",
   "sideEffects": false,
@@ -35,8 +29,7 @@
     "./package.json": "./package.json"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "scripts": {
     "build": "bun scripts/build.ts",
