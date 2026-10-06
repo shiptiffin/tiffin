@@ -6129,7 +6129,7 @@ export interface components {
              * Format: int64
              * @description Trace storage per project, in MB; the oldest traces go first
              */
-            tracesMaxMB: number;
+            tracesMaxMegabytes: number;
             /** @description How long traces are kept, e.g. 3d */
             tracesRetention: string;
             /**
@@ -6153,7 +6153,7 @@ export interface components {
              * Format: int64
              * @description Trace storage per project, in MB (default 64)
              */
-            tracesMaxMB?: number;
+            tracesMaxMegabytes?: number;
             /** @description e.g. 12h, 3d, 7d (at most 30d) */
             tracesRetention?: string;
             /**

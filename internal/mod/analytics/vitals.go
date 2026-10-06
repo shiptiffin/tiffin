@@ -154,7 +154,7 @@ var (
 // isID reports a path segment that is an ID rather than a name: a number,
 // a UUID or hex hash, or a long token with digits that is not a slug.
 func isID(s string) bool {
-	digits := strings.IndexAny(s, "0123456789") >= 0
+	digits := strings.ContainsAny(s, "0123456789")
 	switch {
 	case s == "" || !digits:
 		return false

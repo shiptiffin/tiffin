@@ -65,6 +65,52 @@ await track("Invoice paid", { amount: 49 });        // an event without a visito
 `track()` never throws and does nothing when analytics is off, so the same code
 runs in development.
 
+## Web Vitals
+
+How fast pages feel to real visitors: Largest Contentful Paint (LCP), Interaction
+to Next Paint (INP), Cumulative Layout Shift (CLS), First Contentful Paint (FCP)
+and Time to First Byte (TTFB). In Next.js, render `<WebVitals />` once in the
+root layout:
+
+```tsx
+// app/layout.tsx
+import { WebVitals } from "tiffin-sdk/next/vitals";
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        <WebVitals />
+        {children}
+      </body>
+    </html>
+  );
+}
+```
+
+It takes Next's own measurements (`useReportWebVitals`) and reports each page
+under its route (`/products/[id]`, not `/products/42`). Anywhere else, call
+`reportWebVitals()` from `tiffin-sdk/vitals` in browser code; it measures with the
+browser's performance observers, no library needed.
+
+Both send one beacon per page load, when the page is hidden, to `/_tiffin/vitals`
+on the page's own origin: the box answers that path on every app host, so there
+is no extra host, no CORS and nothing for an ad blocker to match. A beacon is
+JSON, `{"path": "/pricing", "metrics": {"LCP": 1840, "CLS": 0.02}}` (milliseconds;
+CLS has no unit), at most 4 KB. Bots are dropped, and one address may send 60
+beacons a minute (6,000 for the whole box). Query strings are dropped and IDs in
+paths become `[id]`.
+
+The box keeps no raw samples: each sample adds one to a bucket 5% wide, per app,
+day, page and metric, so the 75th percentile (the figure Google rates) and the
+share of good samples come from a few small rows a day, accurate to about 2.5%.
+Each app keeps at most 200 pages a day; more count as `(other)`. They follow the
+service's `retentionDays`.
+
+```bash
+tiffin analytics vitals --project shop --period 30d   # p75 and rating per metric, per page and per day
+```
+
 ## Reading it
 
 ```bash
@@ -74,7 +120,7 @@ tiffin analytics events --project shop --period 30d    # custom events and their
 ```
 
 Agents get the same as MCP tools (`analytics_overview`, `analytics_realtime`,
-`analytics_events`, `analytics_setup`). Paths, referrers and event names come from
+`analytics_events`, `analytics_vitals`, `analytics_setup`). Paths, referrers and event names come from
 visitors, so tools mark their output as untrusted data.
 
 ## Storage and limits
@@ -87,5 +133,5 @@ day). The store sits behind a small interface so a Postgres store (partitioned
 events) can replace it for busier boxes. Removing the service deletes the
 project's analytics data; shortening `retentionDays` deletes older events.
 
-Not yet: Web Vitals, funnels and retention, goals, share links, excluding your own
+Not yet: funnels and retention, goals, share links, excluding your own
 visits, and automatic events from sign-ups and deploys.

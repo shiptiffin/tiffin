@@ -19,8 +19,8 @@ by default.
 - **Errors your apps report**, with any Sentry SDK (see below).
 - **OpenTelemetry**: apps get `OTEL_EXPORTER_OTLP_ENDPOINT` and a key in
   `OTEL_EXPORTER_OTLP_HEADERS`; OTLP metrics and logs land next to everything else,
-  labelled with the app that sent them. Traces are not stored yet
-  (`OTEL_TRACES_EXPORTER=none` is set for you).
+  labelled with the app that sent them, and traces are sampled and kept for three
+  days (see Traces below).
 
 Tiffin tokens, login codes and analytics keys are masked before any line is stored.
 
@@ -64,6 +64,52 @@ tiffin issues resolve <iss_id>
 tiffin observe ingest --project shop --app web   # the DSNs and OTLP endpoint
 ```
 
+## Traces
+
+Apps get `OTEL_TRACES_EXPORTER=otlp` with the endpoint and key above, so any
+OpenTelemetry SDK sends its spans to the box. In Next.js, add an
+`instrumentation.ts` next to `app/`:
+
+```ts
+import { registerOTel } from "@vercel/otel";
+
+export function register() {
+  registerOTel({ serviceName: "web" });
+}
+```
+
+Next.js then traces every request (the route, rendering, each `fetch`), and
+database clients with an OpenTelemetry instrumentation add their queries.
+
+The box decides what to keep once a trace's spans arrive: every trace with a
+failed span (error status or a 5xx response) or a span of a second or more, and
+10% of the rest, chosen by trace ID so all the spans of a trace get the same
+answer. Spans whose trace is still undecided wait in memory for a minute (at most
+20,000), so a slow request's quick children are kept with it. Apps send every
+span (`OTEL_TRACES_SAMPLER` is left at its default); on loopback that costs little.
+
+Kept traces live in their own SQLite file (`/var/lib/tiffin/observe/traces.db`,
+not backed up), their spans compressed with zstd: a typical Next.js request of
+five to ten spans takes 1 to 2 KB. Traces older than 3 days are deleted, and so
+are a project's oldest once its traces pass 64 MB. A span keeps at most 48
+attributes (values cut at 1 KB, stack traces at 4 KB) and 8 events, exceptions
+first.
+
+```bash
+tiffin traces list --project shop                    # slowest first, last 24 hours
+tiffin traces list --project shop --errors --since 1h
+tiffin traces list --project shop --min-ms 500 --sort recent
+tiffin traces get <trace id> --project shop          # every span as a tree, offsets and durations in ms
+tiffin observe settings set --traces-sample-rate 0.25 --traces-retention 7d --traces-max-megabytes 256
+```
+
+The edge gives each request an ID: apps receive it as `X-Request-Id`, its access
+log line carries it, and a request that arrives without trace context starts its
+trace with that ID. So an edge log row's `trace_id` opens the request's trace
+(`tiffin traces get` takes the request ID too), and a trace's `logsQuery`
+(`trace_id:<id>`) finds its edge line. The dashboard shows them under Health ›
+Requests: the slowest and failed requests, and each one's steps on one timeline.
+
 ## Alerts
 
 Rules are checked every 15 seconds. Built in, and editable:
@@ -94,4 +140,4 @@ tiffin alerts test
 tiffin alerts list            # firing now, and recent history with where each notification went
 ```
 
-Retention: `tiffin observe settings set --metrics-retention 90d --logs-retention 30d`.
+Retention: `tiffin observe settings set --metrics-retention 90d --logs-retention 30d --traces-retention 7d`.

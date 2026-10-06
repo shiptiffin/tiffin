@@ -152,25 +152,25 @@ type AlertsView struct {
 
 // Settings are box-wide observe settings.
 type Settings struct {
-	Webhook          string  `json:"webhook" doc:"Alert webhook URL (JSON POST; Slack/Discord-compatible text field). Empty: none."`
-	Email            string  `json:"email" doc:"Alert email address. Empty: alerts@<box domain>."`
-	EmailProject     string  `json:"emailProject" doc:"Project whose email service sends box alerts (they land in its dev inbox until an SMTP relay is set up). Project alerts use their own project's email when it has one. Empty: box alerts are not emailed."`
-	MetricsRetention string  `json:"metricsRetention" doc:"How long metrics are kept, e.g. 30d"`
-	LogsRetention    string  `json:"logsRetention" doc:"How long logs are kept, e.g. 14d"`
-	TracesRetention  string  `json:"tracesRetention" doc:"How long traces are kept, e.g. 3d"`
-	TracesSampleRate float64 `json:"tracesSampleRate" doc:"Share of ordinary traces kept, 0-1. Traces with an error or a span of a second or more are always kept."`
-	TracesMaxMB      int64   `json:"tracesMaxMB" doc:"Trace storage per project, in MB; the oldest traces go first"`
+	Webhook            string  `json:"webhook" doc:"Alert webhook URL (JSON POST; Slack/Discord-compatible text field). Empty: none."`
+	Email              string  `json:"email" doc:"Alert email address. Empty: alerts@<box domain>."`
+	EmailProject       string  `json:"emailProject" doc:"Project whose email service sends box alerts (they land in its dev inbox until an SMTP relay is set up). Project alerts use their own project's email when it has one. Empty: box alerts are not emailed."`
+	MetricsRetention   string  `json:"metricsRetention" doc:"How long metrics are kept, e.g. 30d"`
+	LogsRetention      string  `json:"logsRetention" doc:"How long logs are kept, e.g. 14d"`
+	TracesRetention    string  `json:"tracesRetention" doc:"How long traces are kept, e.g. 3d"`
+	TracesSampleRate   float64 `json:"tracesSampleRate" doc:"Share of ordinary traces kept, 0-1. Traces with an error or a span of a second or more are always kept."`
+	TracesMaxMegabytes int64   `json:"tracesMaxMegabytes" doc:"Trace storage per project, in MB; the oldest traces go first"`
 }
 
 type settingsBody struct {
-	Webhook          *string  `json:"webhook,omitempty" maxLength:"2000" doc:"Alert webhook URL; \"\" removes it"`
-	Email            *string  `json:"email,omitempty" maxLength:"320" doc:"Alert email address; \"\" for the default"`
-	EmailProject     *string  `json:"emailProject,omitempty" maxLength:"40" doc:"Project whose email service sends box alerts; \"\" for none"`
-	MetricsRetention string   `json:"metricsRetention,omitempty" pattern:"^[1-9][0-9]{0,3}[dwy]$" doc:"e.g. 30d, 8w, 1y (restarts the metrics store)"`
-	LogsRetention    string   `json:"logsRetention,omitempty" pattern:"^[1-9][0-9]{0,3}[dwy]$" doc:"e.g. 14d, 4w (restarts the log store)"`
-	TracesRetention  string   `json:"tracesRetention,omitempty" pattern:"^([1-9][0-9]?h|[1-9]d|[12][0-9]d|30d)$" doc:"e.g. 12h, 3d, 7d (at most 30d)"`
-	TracesSampleRate *float64 `json:"tracesSampleRate,omitempty" minimum:"0" maximum:"1" doc:"Share of ordinary traces kept, e.g. 0.1; 0 keeps only errors and slow requests, 1 keeps everything"`
-	TracesMaxMB      int64    `json:"tracesMaxMB,omitempty" minimum:"1" maximum:"100000" doc:"Trace storage per project, in MB (default 64)"`
+	Webhook            *string  `json:"webhook,omitempty" maxLength:"2000" doc:"Alert webhook URL; \"\" removes it"`
+	Email              *string  `json:"email,omitempty" maxLength:"320" doc:"Alert email address; \"\" for the default"`
+	EmailProject       *string  `json:"emailProject,omitempty" maxLength:"40" doc:"Project whose email service sends box alerts; \"\" for none"`
+	MetricsRetention   string   `json:"metricsRetention,omitempty" pattern:"^[1-9][0-9]{0,3}[dwy]$" doc:"e.g. 30d, 8w, 1y (restarts the metrics store)"`
+	LogsRetention      string   `json:"logsRetention,omitempty" pattern:"^[1-9][0-9]{0,3}[dwy]$" doc:"e.g. 14d, 4w (restarts the log store)"`
+	TracesRetention    string   `json:"tracesRetention,omitempty" pattern:"^([1-9][0-9]?h|[1-9]d|[12][0-9]d|30d)$" doc:"e.g. 12h, 3d, 7d (at most 30d)"`
+	TracesSampleRate   *float64 `json:"tracesSampleRate,omitempty" minimum:"0" maximum:"1" doc:"Share of ordinary traces kept, e.g. 0.1; 0 keeps only errors and slow requests, 1 keeps everything"`
+	TracesMaxMegabytes int64    `json:"tracesMaxMegabytes,omitempty" minimum:"1" maximum:"100000" doc:"Trace storage per project, in MB (default 64)"`
 }
 
 // Ingest tells an app (or a person wiring one up) where to send telemetry.
@@ -617,7 +617,7 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 					return nil, err
 				}
 			}
-			for k, v := range map[string]string{SettingTraceRetention: b.TracesRetention, SettingTraceMaxMB: strconv.FormatInt(b.TracesMaxMB, 10)} {
+			for k, v := range map[string]string{SettingTraceRetention: b.TracesRetention, SettingTraceMaxMB: strconv.FormatInt(b.TracesMaxMegabytes, 10)} {
 				if v != "" && v != "0" {
 					if err := m.store.SetSetting(ctx, k, v); err != nil {
 						return nil, err
@@ -685,7 +685,7 @@ func (m *Module) settings(ctx context.Context) Settings {
 	}
 	s := Settings{Webhook: m.store.Setting(ctx, SettingWebhook), Email: m.store.Setting(ctx, SettingEmail), EmailProject: m.store.Setting(ctx, SettingEmailProject),
 		MetricsRetention: DefaultMetricsRetention, LogsRetention: DefaultLogsRetention,
-		TracesRetention: tr, TracesSampleRate: tc.SampleRate, TracesMaxMB: tc.MaxBytes >> 20}
+		TracesRetention: tr, TracesSampleRate: tc.SampleRate, TracesMaxMegabytes: tc.MaxBytes >> 20}
 	if b, err := os.ReadFile(settingsFile); err == nil {
 		for _, line := range strings.Split(string(b), "\n") {
 			k, v, _ := strings.Cut(line, "=")

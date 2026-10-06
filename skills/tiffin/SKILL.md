@@ -46,6 +46,10 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    GB uploads work), but a Bun server needs `idleTimeout: 0` and a `maxRequestBodySize` in its
    `export default { ... }` (Bun cuts a silent request after 10 s and refuses bodies over 128 MB);
    user files still belong in a bucket.
+   Slow or failing requests: `tiffin traces list --project <p>` then `tiffin traces get <id> --project <p>`
+   (apps already have the OTLP env; Next.js needs an `instrumentation.ts` calling `registerOTel()` from
+   `@vercel/otel`). Real visitors' page speed: `<WebVitals />` from `tiffin-sdk/next/vitals` in the root
+   layout (needs `services.analytics`), read with `tiffin analytics vitals --project <p>`.
 5. Secrets go in `tiffin secrets set`, never in the config or the repo. Starting a new project?
    Reuse keys the box already has instead of asking for them again:
    `tiffin secrets list <other>` shows names, `tiffin secrets copy <new> --from <other> [--names A,B]`

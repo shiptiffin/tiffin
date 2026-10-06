@@ -167,8 +167,8 @@ func TestTraceIngestSamplingAndAPI(t *testing.T) {
 	}
 
 	// Settings: sample rate and retention.
-	code, s, _ := h.call(h.owner, "PUT", "/v1/observe/settings", map[string]any{"tracesSampleRate": 1, "tracesRetention": "7d", "tracesMaxMB": 10})
-	if code != 200 || s["tracesSampleRate"].(float64) != 1 || s["tracesRetention"] != "7d" || s["tracesMaxMB"].(float64) != 10 {
+	code, s, _ := h.call(h.owner, "PUT", "/v1/observe/settings", map[string]any{"tracesSampleRate": 1, "tracesRetention": "7d", "tracesMaxMegabytes": 10})
+	if code != 200 || s["tracesSampleRate"].(float64) != 1 || s["tracesRetention"] != "7d" || s["tracesMaxMegabytes"].(float64) != 10 {
 		t.Fatalf("settings: %d %v", code, s)
 	}
 	send(nextExport(fastID, now, 20*time.Millisecond, 200), false, key)
