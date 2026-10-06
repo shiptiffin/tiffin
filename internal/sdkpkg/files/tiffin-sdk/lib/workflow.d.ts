@@ -21,6 +21,11 @@
  * await workflow.emit("paid-u_1", { amount: 1200 });                // resumes the run
  * ```
  *
+ * Live progress: `ctx.progress(value)` and `ctx.stream(chunk)` report to
+ * browsers watching the run; `workflow.startWithToken()` (in a server
+ * action) returns `{ id, token }` for `useRun(id, token)` in tiffin-sdk/react.
+ * Calls replayed from earlier turns are not sent again.
+ *
  * How it runs: each "turn" the box POSTs the run and its finished steps to
  * the handler; the function runs from the top and finished steps return
  * their recorded result instead of running again. A step's result is saved
@@ -35,8 +40,8 @@
  * replay. Runs are pinned to the release that started them; to change code
  * that already-running runs may replay, guard it with `ctx.patched("id")`.
  */
-import { NonRetryableError, type Duration } from "./queue.js";
-export { NonRetryableError } from "./queue.js";
+import { NonRetryableError, subscribeToken, type Duration, type TokenOptions } from "./queue.js";
+export { NonRetryableError, subscribeToken } from "./queue.js";
 /** Where the box POSTs workflow turns by default. */
 export declare const DEFAULT_PATH = "/_tiffin/workflows";
 /** The code took a different path than this run's recorded history. */
@@ -117,6 +122,10 @@ export interface WorkflowContext {
     }): Promise<T>;
     /** True for runs that reach this point with the new code, false for runs whose history predates it. */
     patched(id: string): boolean;
+    /** Reports progress (small JSON, at most 16 KB); browsers watching the run see the latest value. */
+    progress(value: unknown): Promise<void>;
+    /** Appends a chunk of output (JSON, at most 64 KB) that browsers watching the run receive in order. */
+    stream(chunk: unknown): Promise<void>;
 }
 export type WorkflowFn<I, O> = (ctx: WorkflowContext, input: I) => Promise<O>;
 export interface StartOptions {
@@ -147,6 +156,10 @@ export interface Workflow<I, O> {
         run: RunInfo;
         created: boolean;
     }>;
+    startWithToken(input: I, opts?: StartOptions & TokenOptions): Promise<{
+        id: string;
+        token: string;
+    }>;
 }
 /** Defines a workflow in this app. Names: lowercase letters, digits, . _ - */
 export declare function define<I = unknown, O = unknown>(name: string, fn: WorkflowFn<I, O>): Workflow<I, O>;
@@ -154,6 +167,14 @@ export declare function define<I = unknown, O = unknown>(name: string, fn: Workf
 export declare function start(name: string, input?: unknown, opts?: StartOptions): Promise<{
     run: RunInfo;
     created: boolean;
+}>;
+/**
+ * Starts a run and returns its ID with a token for the browser: what a
+ * server action returns so the page can show the run's progress live.
+ */
+export declare function startWithToken(name: string, input?: unknown, opts?: StartOptions & TokenOptions): Promise<{
+    id: string;
+    token: string;
 }>;
 /** Emits an event; every run waiting for it resumes. The first emit of a name wins. */
 export declare function emit(event: string, payload?: unknown): Promise<{
@@ -180,6 +201,8 @@ export declare function handler(opts?: {
 export declare const workflow: {
     define: typeof define;
     start: typeof start;
+    startWithToken: typeof startWithToken;
+    subscribeToken: typeof subscribeToken;
     emit: typeof emit;
     get: typeof get;
     handler: typeof handler;

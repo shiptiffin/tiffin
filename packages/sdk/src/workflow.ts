@@ -21,6 +21,11 @@
  * await workflow.emit("paid-u_1", { amount: 1200 });                // resumes the run
  * ```
  *
+ * Live progress: `ctx.progress(value)` and `ctx.stream(chunk)` report to
+ * browsers watching the run; `workflow.startWithToken()` (in a server
+ * action) returns `{ id, token }` for `useRun(id, token)` in tiffin-sdk/react.
+ * Calls replayed from earlier turns are not sent again.
+ *
  * How it runs: each "turn" the box POSTs the run and its finished steps to
  * the handler; the function runs from the top and finished steps return
  * their recorded result instead of running again. A step's result is saved
@@ -42,12 +47,15 @@ import {
   heartbeater,
   NonRetryableError,
   readDelivery,
+  reporter,
+  subscribeToken,
   toMs,
   type Delivery,
   type Duration,
+  type TokenOptions,
 } from "./queue";
 
-export { NonRetryableError } from "./queue";
+export { NonRetryableError, subscribeToken } from "./queue";
 
 /** Where the box POSTs workflow turns by default. */
 export const DEFAULT_PATH = "/_tiffin/workflows";
@@ -117,6 +125,10 @@ export interface WorkflowContext {
   all<T extends readonly unknown[]>(branches: { [K in keyof T]: Promise<T[K]> | (() => Promise<T[K]>) }): Promise<T>;
   /** True for runs that reach this point with the new code, false for runs whose history predates it. */
   patched(id: string): boolean;
+  /** Reports progress (small JSON, at most 16 KB); browsers watching the run see the latest value. */
+  progress(value: unknown): Promise<void>;
+  /** Appends a chunk of output (JSON, at most 64 KB) that browsers watching the run receive in order. */
+  stream(chunk: unknown): Promise<void>;
 }
 
 export type WorkflowFn<I, O> = (ctx: WorkflowContext, input: I) => Promise<O>;
@@ -148,6 +160,7 @@ export interface Workflow<I, O> {
   name: string;
   fn: WorkflowFn<I, O>;
   start(input: I, opts?: StartOptions): Promise<{ run: RunInfo; created: boolean }>;
+  startWithToken(input: I, opts?: StartOptions & TokenOptions): Promise<{ id: string; token: string }>;
 }
 
 const registry = new Map<string, Workflow<any, any>>();
@@ -155,7 +168,12 @@ const registry = new Map<string, Workflow<any, any>>();
 /** Defines a workflow in this app. Names: lowercase letters, digits, . _ - */
 export function define<I = unknown, O = unknown>(name: string, fn: WorkflowFn<I, O>): Workflow<I, O> {
   if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(name)) throw new TypeError(`invalid workflow name ${JSON.stringify(name)}`);
-  const wf: Workflow<I, O> = { name, fn, start: (input, opts) => start(name, input, opts) };
+  const wf: Workflow<I, O> = {
+    name,
+    fn,
+    start: (input, opts) => start(name, input, opts),
+    startWithToken: (input, opts) => startWithToken(name, input, opts),
+  };
   registry.set(name, wf);
   return wf;
 }
@@ -170,6 +188,15 @@ export async function start(name: string, input?: unknown, opts: StartOptions = 
     path: opts.path,
     fromApp: currentApp(),
   });
+}
+
+/**
+ * Starts a run and returns its ID with a token for the browser: what a
+ * server action returns so the page can show the run's progress live.
+ */
+export async function startWithToken(name: string, input?: unknown, opts: StartOptions & TokenOptions = {}): Promise<{ id: string; token: string }> {
+  const { run } = await start(name, input, opts);
+  return { id: run.id, token: subscribeToken(run.id, opts) };
 }
 
 /** Emits an event; every run waiting for it resumes. The first emit of a name wins. */
@@ -192,8 +219,10 @@ class Turn {
   readonly bySeq = new Map<number, StepRecord>();
   readonly inflight = new Set<Promise<unknown>>();
   readonly maxRecordedSeq: number;
+  readonly report: ReturnType<typeof reporter>;
 
   constructor(readonly run: TurnRun) {
+    this.report = reporter(`/v1/queue-internal/workflows/runs/${run.id}`);
     let max = -1;
     for (const s of run.steps) {
       this.byName.set(s.name, s);
@@ -203,6 +232,11 @@ class Turn {
       }
     }
     this.maxRecordedSeq = max;
+  }
+
+  /** True while the code is still before the last recorded step: an earlier turn already did this. */
+  replaying(): boolean {
+    return this.seq <= this.maxRecordedSeq;
   }
 
   track<T>(p: Promise<T>): Promise<T> {
@@ -344,6 +378,12 @@ function ctxFor(t: Turn): WorkflowContext {
       t.track(t.wait({ name: key, seq: t.seq, kind: "patch" }));
       return true;
     },
+    progress(value) {
+      return t.replaying() ? Promise.resolve() : t.report.progress(value);
+    },
+    stream(chunk) {
+      return t.replaying() ? Promise.resolve() : t.report.output(chunk);
+    },
   };
   return ctx;
 }
@@ -364,6 +404,8 @@ export async function runTurn(run: TurnRun): Promise<{ status: "completed"; outp
     while (t.inflight.size) await Promise.allSettled([...t.inflight]);
     if (err instanceof Suspend) return { status: "suspended" };
     throw err;
+  } finally {
+    await t.report.flush(); // progress lands before the run moves on
   }
 }
 
@@ -389,4 +431,4 @@ export function handler(opts: { secret?: string } = {}): (req: Request) => Promi
   };
 }
 
-export const workflow = { define, start, emit, get, handler, DEFAULT_PATH };
+export const workflow = { define, start, startWithToken, subscribeToken, emit, get, handler, DEFAULT_PATH };

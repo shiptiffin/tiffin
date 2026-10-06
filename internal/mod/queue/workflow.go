@@ -105,6 +105,7 @@ type Run struct {
 	WaitingFor string          `json:"waitingFor,omitempty" doc:"What a waiting run waits for"`
 	Input      json.RawMessage `json:"input,omitempty"`
 	Output     json.RawMessage `json:"output,omitempty"`
+	Progress   json.RawMessage `json:"progress,omitempty" doc:"The latest progress the run reported (ctx.progress in tiffin-sdk)"`
 	Error      string          `json:"error,omitempty"`
 	Turns      int             `json:"turns" doc:"Times the app has run the function"`
 	IdemKey    string          `json:"idempotencyKey,omitempty"`
@@ -119,7 +120,7 @@ type Run struct {
 
 type runRow struct {
 	ID, Project, Workflow, App, Path, URL, Release, State string
-	Input, Output                                         json.RawMessage
+	Input, Output, Progress                               json.RawMessage
 	Error, Idem                                           *string
 	Turns                                                 int
 	StartedBy                                             string
@@ -127,12 +128,12 @@ type runRow struct {
 	FinishedAt                                            *time.Time
 }
 
-const runCols = `id, project, workflow, app, path, url, release, state, input, output, error, idem, turns, started_by, created_at, updated_at, finished_at`
+const runCols = `id, project, workflow, app, path, url, release, state, input, output, error, idem, turns, started_by, created_at, updated_at, finished_at, progress`
 
 func scanRun(r pgx.Row) (*runRow, error) {
 	var x runRow
 	err := r.Scan(&x.ID, &x.Project, &x.Workflow, &x.App, &x.Path, &x.URL, &x.Release, &x.State, &x.Input, &x.Output, &x.Error, &x.Idem,
-		&x.Turns, &x.StartedBy, &x.CreatedAt, &x.UpdatedAt, &x.FinishedAt)
+		&x.Turns, &x.StartedBy, &x.CreatedAt, &x.UpdatedAt, &x.FinishedAt, &x.Progress)
 	return &x, err
 }
 
@@ -1063,7 +1064,7 @@ func (e *Engine) ListRuns(ctx context.Context, project string, f RunFilter) ([]R
 }
 
 func (r *runRow) public() Run {
-	return Run{ID: r.ID, Workflow: r.Workflow, App: r.App, Release: r.Release, State: r.State, Input: r.Input, Output: r.Output,
+	return Run{ID: r.ID, Workflow: r.Workflow, App: r.App, Release: r.Release, State: r.State, Input: r.Input, Output: r.Output, Progress: r.Progress,
 		Error: deref(r.Error), Turns: r.Turns, IdemKey: deref(r.Idem), StartedBy: r.StartedBy, CreatedAt: r.CreatedAt,
 		UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt}
 }

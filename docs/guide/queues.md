@@ -154,3 +154,59 @@ redeploys and box restarts. Your app's own `instrumentation.ts` still runs.
 
 Tiffin's own workflows (above) remain the native option: runs finish on the release they
 started on, and the dashboard shows each one.
+
+## Live progress in the browser
+
+Start work from a server action, return at once, and show its progress on the page as it
+happens. The box streams it from the app's own address, so there is nothing to host and no
+polling.
+
+```ts
+// app/actions.ts (server)
+"use server";
+import { workflow } from "tiffin-sdk/workflow";
+export async function buildReport(month: string) {
+  return workflow.startWithToken("report", { month }); // { id, token }; queue.sendWithToken for a job
+}
+
+// The workflow (or a queue handler: job.progress / job.log) reports as it goes.
+workflow.define("report", async (ctx, input: { month: string }) => {
+  const rows = await ctx.step("load", () => loadRows(input.month));
+  await ctx.progress({ pct: 50, note: `${rows.length} rows` });
+  await ctx.stream({ line: "rendering" });        // output chunks, in order
+  return ctx.step("render", () => render(rows));  // the run's output
+});
+
+// app/report-status.tsx (client)
+"use client";
+import { useRun } from "tiffin-sdk/react";
+export function ReportStatus({ id, token }: { id: string; token: string }) {
+  const run = useRun<{ pct: number; note: string }>(id, token);
+  if (run.error) return <p>Failed: {run.error}</p>;
+  if (run.done) return <a href={run.output as string}>Download</a>;
+  return <progress value={run.progress?.pct ?? 0} max={100} />;
+}
+```
+
+- `useRun(id, token)` (and `useJob`) returns `{ status, progress, output, error, chunks, done,
+  connected, run }`; `run.steps` lists a workflow's steps (names and states, not their results).
+  It reconnects by itself and stops when the work finishes.
+- **Progress** is the latest value (JSON, at most 16 KB) and stays on the job or run:
+  `tiffin queue jobs get` and `tiffin workflows runs get` show it. **Output chunks** (`job.log`,
+  `ctx.stream`, at most 64 KB each, 10,000 or 1 MB per job or run) arrive in order. A workflow
+  sends each once: calls replayed by later turns are skipped. A step that fails and runs again
+  sends its chunks again.
+- **Tokens** come from the server: `subscribeToken(id, { ttl })` (`tiffin-sdk/queue`) signs one
+  job or run ID with `TIFFIN_QUEUE_SIGNING_SECRET`, without a call to the box. They last an hour
+  by default and at most 7 days; a token for one run cannot watch another. Give a token only to
+  people allowed to see that work: the stream carries its progress, output chunks, result and error.
+- **Without the SDK:** `GET /_tiffin/runs/<id>/events` on any of the app's hosts, with the token in
+  `Authorization: Bearer` or `?token=` (for `EventSource`). The box answers it; the path never
+  reaches your app. The response is `text/event-stream`: `output` events (`id:` is the chunk's
+  ID), a `state` event (`{id, type, name, status, done, progress, output, error, steps?}`)
+  whenever it changes, `end` when the work finished, and a comment every 15 seconds. Reconnect
+  with `Last-Event-ID` to get the chunks you missed and the current state. Tokens are
+  `live1.<project>.<id>.<exp>.<hex HMAC-SHA256 of "tiffin-live:<project>:<id>:<exp>">`; jobs report
+  with `POST $TIFFIN_QUEUE_URL/v1/queue-internal/jobs/<id>/progress` (`{attemptId, progress}`) and
+  `.../output` (`{attemptId, data}`), runs with `.../workflows/runs/<id>/progress` and `.../output`.
+- A project has at most 200 streams open at once; more get `429`.

@@ -24,6 +24,10 @@
  * (default 60 s): answer within it or call `job.heartbeat()` (or pass
  * `autoHeartbeat: true`) for long work.
  *
+ * Live progress: `job.progress({ pct: 40 })` and `job.log(chunk)` inside a
+ * handler; on the server, `sendWithToken()` returns `{ id, token }` for a
+ * browser to watch with `useJob(id, token)` from tiffin-sdk/react.
+ *
  * Durations are milliseconds (numbers) or strings like "30s", "5m", "2h", "1d".
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -77,6 +81,7 @@ function settings() {
         url: (overrides.url ?? env.TIFFIN_QUEUE_URL ?? "").replace(/\/$/, ""),
         key: overrides.key ?? env.TIFFIN_QUEUE_KEY ?? "",
         app: overrides.app ?? env.TIFFIN_APP ?? "",
+        project: overrides.project ?? env.TIFFIN_PROJECT ?? "",
         secret: overrides.signingSecret ?? env.TIFFIN_QUEUE_SIGNING_SECRET ?? "",
         fetch: overrides.fetch ?? fetch,
     };
@@ -163,7 +168,38 @@ export async function sendTx(db, name, payload, opts = {}) {
 export async function flush() {
     await boxCall("POST", "/v1/queue-internal/outbox/kick", {});
 }
-export const queue = { send, sendTx, flush, configure };
+/**
+ * Mints a token that lets a browser watch one job or workflow run
+ * (`useJob` / `useRun` in tiffin-sdk/react). Call it on the server: it signs
+ * with TIFFIN_QUEUE_SIGNING_SECRET, without a call to the box.
+ */
+export function subscribeToken(id, opts = {}) {
+    const s = settings();
+    if (!s.secret || !s.project) {
+        throw new QueueError(0, "precondition", "TIFFIN_QUEUE_SIGNING_SECRET and TIFFIN_PROJECT are not set", "run on a Tiffin box, or call configure({ signingSecret, project })");
+    }
+    if (!/^(job_\d+|run_[A-Za-z0-9]+)$/.test(id))
+        throw new TypeError(`${JSON.stringify(id)} is not a job or run ID`);
+    const ttl = toMs(opts.ttl ?? "1h");
+    if (ttl < 1000 || ttl > 7 * 86400e3)
+        throw new TypeError("ttl must be between 1s and 7d");
+    const exp = Math.floor((Date.now() + ttl) / 1000).toString();
+    const sig = createHmac("sha256", s.secret).update(`tiffin-live:${s.project}:${id}:${exp}`).digest("hex");
+    return `live1.${s.project}.${id}.${exp}.${sig}`;
+}
+/**
+ * Sends a job and returns its ID with a token for the browser: what a server
+ * action returns so the page can show the job's progress live.
+ */
+export async function sendWithToken(name, payload, opts = {}) {
+    const res = await send(name, payload, opts);
+    const id = res.jobs[0];
+    if (res.jobs.length !== 1 || !id) {
+        throw new QueueError(0, "validation", `"${name}" is a topic: it made ${res.jobs.length} jobs`, "watch one queue's job, or mint a token per job with subscribeToken");
+    }
+    return { id, token: subscribeToken(id, opts) };
+}
+export const queue = { send, sendTx, sendWithToken, subscribeToken, flush, configure };
 /** Verifies a Tiffin-Signature header over the raw body. */
 export function verifySignature(secret, header, body, toleranceSeconds = 300, now = Date.now()) {
     if (!secret || !header)
@@ -229,6 +265,25 @@ export function heartbeater(d, ctrl) {
     };
 }
 /**
+ * @internal Sends progress and output chunks to the box in call order. The
+ * returned promises never reject (a failure is logged), so callers need not
+ * await them; flush() waits for everything sent so far.
+ */
+export function reporter(base, extra = {}) {
+    let chain = Promise.resolve();
+    const post = (kind, value) => {
+        const json = JSON.stringify(value === undefined ? null : value);
+        const limit = kind === "progress" ? 16 << 10 : 64 << 10;
+        const size = new TextEncoder().encode(json).length;
+        if (size > limit)
+            throw new TypeError(`${kind === "progress" ? "progress" : "an output chunk"} is ${size} bytes; the limit is ${limit >> 10} KB`);
+        const body = { ...extra, [kind === "progress" ? "progress" : "data"]: JSON.parse(json) };
+        chain = chain.then(() => boxCall("POST", `${base}/${kind}`, body).then(() => { }, (err) => console.warn(`tiffin: ${kind} not recorded: ${err instanceof Error ? err.message : err}`)));
+        return chain;
+    };
+    return { progress: (v) => post("progress", v), output: (v) => post("output", v), flush: () => chain };
+}
+/**
  * Wraps a job function as a fetch handler `(Request) => Promise<Response>`
  * for the route the box pushes to. The function's return value (JSON) is
  * stored as the job's output.
@@ -240,6 +295,7 @@ export function defineHandler(fn, opts = {}) {
             return d;
         const ctrl = new AbortController();
         const beat = heartbeater(d, ctrl);
+        const rep = reporter(`/v1/queue-internal/jobs/${d.id}`, { attemptId: d.attemptId });
         const job = {
             id: d.id,
             queue: d.queue,
@@ -253,6 +309,8 @@ export function defineHandler(fn, opts = {}) {
             enqueuedAt: new Date(d.enqueuedAt),
             payload: d.payload,
             heartbeat: beat,
+            progress: rep.progress,
+            log: rep.output,
             signal: ctrl.signal,
         };
         const timer = opts.autoHeartbeat ? setInterval(() => beat().catch(() => { }), Math.max(1000, (d.leaseSeconds * 1000) / 3)) : undefined;
@@ -266,6 +324,7 @@ export function defineHandler(fn, opts = {}) {
         finally {
             if (timer)
                 clearInterval(timer);
+            await rep.flush(); // progress lands before the job finishes
         }
     };
 }

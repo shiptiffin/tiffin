@@ -595,6 +595,27 @@ func TestDeployPromoteAndRoutes(t *testing.T) {
 	}
 }
 
+// Browsers watch jobs and runs at /_tiffin/runs/... on every app host: the
+// switchboard keeps that path for the queue module, never the app, also on
+// hosts where apps only serve paths and on static sites.
+func TestLivePathNeverReachesTheApp(t *testing.T) {
+	h := newHarness(t)
+	h.deploy("api", "", map[string]string{"index.ts": "v1"}) // served at shop.tiffin.localhost/api
+	code, body := h.get("shop.tiffin.localhost", "/_tiffin/runs/run_1/events")
+	// No queue module is linked into this test, so the switchboard says so.
+	if code != 404 || !strings.Contains(body, "queue module") {
+		t.Fatalf("live path on a path-only host: %d %s", code, body)
+	}
+	h2 := newHarness(t)
+	h2.deploy("site", "", map[string]string{"index.html": "<h1>hi</h1>"})
+	if code, body := h2.get("shop.tiffin.localhost", "/_tiffin/runs/run_1/events"); code != 404 || !strings.Contains(body, "queue module") {
+		t.Fatalf("live path on a static site: %d %s", code, body)
+	}
+	if code, body := h2.get("shop.tiffin.localhost", "/"); code != 200 || !strings.Contains(body, "hi") {
+		t.Fatalf("static site: %d %s", code, body)
+	}
+}
+
 func TestZeroDowntimeRedeployAndRollback(t *testing.T) {
 	h := newHarness(t)
 	v1 := h.deploy("api", "", map[string]string{"index.ts": "v1"})
