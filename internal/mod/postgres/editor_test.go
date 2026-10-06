@@ -415,7 +415,7 @@ func TestCreateAndAlterTable(t *testing.T) {
 		t.Fatalf("twice: %v", err)
 	}
 	yes, no := true, false
-	sql, err = alterTableSQL(ctx, rw, r, PGTableAlter{
+	_, err = alterTableSQL(ctx, rw, r, PGTableAlter{
 		Rename:        "book_reviews",
 		RenameColumns: []PGRename{{From: "body", To: "text"}},
 		DropColumns:   []string{"tags"},

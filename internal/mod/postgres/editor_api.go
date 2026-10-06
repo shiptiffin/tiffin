@@ -19,12 +19,6 @@ import (
 // The table editor's operations: a table in full, pages of rows, row edits
 // with Undo, making and changing tables, and saved queries.
 
-type tableIn struct {
-	Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
-	Schema  string `path:"schema" maxLength:"63" doc:"Schema, usually public"`
-	Table   string `path:"table" maxLength:"63" doc:"Table name"`
-}
-
 // editorConn opens the project's database (or a branch) as its role.
 func editorConn(ctx context.Context, p *platform.Platform, project, branch string, write bool) (*pgx.Conn, string, error) {
 	if err := onBox(p); err != nil {
@@ -59,8 +53,10 @@ func registerEditor(a huma.API, p *platform.Platform) {
 			"indexes, CHECK rules and a row count (exact under 200,000 rows). Tables without a primary key can't be edited by row.", tag)
 	td.Errors = append(td.Errors, 404, 409)
 	huma.Register(a, api.Untrusted(td), api.Wrap(func(ctx context.Context, in *struct {
-		tableIn
-		Branch string `query:"branch" doc:"A preview branch instead of the main database"`
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		Schema  string `path:"schema" maxLength:"63" doc:"Schema, usually public"`
+		Table   string `path:"table" maxLength:"63" doc:"Table name"`
+		Branch  string `query:"branch" doc:"A preview branch instead of the main database"`
 	}) (*struct{ Body *PGTableDetail }, error) {
 		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
 			return nil, err
@@ -80,8 +76,10 @@ func registerEditor(a huma.API, p *platform.Platform) {
 			"Links to other tables come with the linked rows' labels. Read-only.", tag)
 	rq.Errors = append(rq.Errors, 404, 409)
 	huma.Register(a, api.Untrusted(rq), api.Wrap(func(ctx context.Context, in *struct {
-		tableIn
-		Body PGRowsRequest
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		Schema  string `path:"schema" maxLength:"63" doc:"Schema, usually public"`
+		Table   string `path:"table" maxLength:"63" doc:"Table name"`
+		Body    PGRowsRequest
 	}) (*struct{ Body *PGRows }, error) {
 		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
 			return nil, err
@@ -137,8 +135,10 @@ func registerEditor(a huma.API, p *platform.Platform) {
 			"(db undo deletes it again). Needs full access, like sql write; no snapshot is taken.", tag)
 	ins.Errors = append(ins.Errors, 404, 409)
 	huma.Register(a, api.Untrusted(ins), api.Wrap(func(ctx context.Context, in *struct {
-		tableIn
-		Body struct {
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		Schema  string `path:"schema" maxLength:"63" doc:"Schema, usually public"`
+		Table   string `path:"table" maxLength:"63" doc:"Table name"`
+		Body    struct {
 			Branch string         `json:"branch,omitempty"`
 			Values map[string]any `json:"values" doc:"Column → value; JSON columns take any JSON, arrays a JSON array, null is NULL"`
 		}
@@ -155,8 +155,10 @@ func registerEditor(a huma.API, p *platform.Platform) {
 			"so db undo puts them back. Needs full access, like sql write; no snapshot is taken.", tag)
 	up.Errors = append(up.Errors, 404, 409)
 	huma.Register(a, api.Untrusted(up), api.Wrap(func(ctx context.Context, in *struct {
-		tableIn
-		Body struct {
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		Schema  string `path:"schema" maxLength:"63" doc:"Schema, usually public"`
+		Table   string `path:"table" maxLength:"63" doc:"Table name"`
+		Body    struct {
 			Branch  string        `json:"branch,omitempty"`
 			Changes []PGRowChange `json:"changes" minItems:"1" maxItems:"5000"`
 		}
@@ -173,8 +175,10 @@ func registerEditor(a huma.API, p *platform.Platform) {
 			"takes a snapshot of the database first. Needs full access, like sql write.", tag)
 	del.Errors = append(del.Errors, 404, 409)
 	huma.Register(a, api.Untrusted(del), api.Wrap(func(ctx context.Context, in *struct {
-		tableIn
-		Body struct {
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		Schema  string `path:"schema" maxLength:"63" doc:"Schema, usually public"`
+		Table   string `path:"table" maxLength:"63" doc:"Table name"`
+		Body    struct {
 			Branch string           `json:"branch,omitempty"`
 			Keys   []map[string]any `json:"keys" minItems:"1" maxItems:"10000" doc:"Each row's primary key: column → value"`
 		}
@@ -307,8 +311,10 @@ func registerEditor(a huma.API, p *platform.Platform) {
 	at.Errors = append(at.Errors, 404, 409, 428)
 	at.Extensions[api.ExtConfirm] = true
 	huma.Register(a, at, api.Wrap(func(ctx context.Context, in *struct {
-		tableIn
-		Body PGTableAlter
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		Schema  string `path:"schema" maxLength:"63" doc:"Schema, usually public"`
+		Table   string `path:"table" maxLength:"63" doc:"Table name"`
+		Body    PGTableAlter
 	}) (*struct{ Body *PGDDLResult }, error) {
 		pr := api.PrincipalFrom(ctx)
 		if err := pr.Require(tokens.ScopeApplyIrreversible, in.Project); err != nil {
@@ -360,8 +366,10 @@ func registerEditor(a huma.API, p *platform.Platform) {
 	dt.Errors = append(dt.Errors, 404, 409, 428)
 	dt.Extensions[api.ExtConfirm] = true
 	huma.Register(a, dt, api.Wrap(func(ctx context.Context, in *struct {
-		tableIn
-		Body struct {
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		Schema  string `path:"schema" maxLength:"63" doc:"Schema, usually public"`
+		Table   string `path:"table" maxLength:"63" doc:"Table name"`
+		Body    struct {
 			Branch  string `json:"branch,omitempty"`
 			Confirm string `json:"confirm,omitempty" doc:"The confirm value from the preview (status 428)"`
 		}
@@ -474,8 +482,9 @@ func registerQueries(a huma.API, p *platform.Platform, tag string) {
 	qs := api.Op("db-save-query", http.MethodPut, "/v1/projects/{project}/postgres/queries/{name}", "db save-query", api.RiskWrite,
 		"Save a query", "Saves (or replaces) a named SQL query for a project. Saving runs nothing.", tag)
 	huma.Register(a, qs, api.Wrap(func(ctx context.Context, in *struct {
-		nameIn
-		Body struct {
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		Name    string `path:"name" minLength:"1" maxLength:"80" doc:"The query's name"`
+		Body    struct {
 			SQL string `json:"sql" minLength:"1" maxLength:"200000"`
 		}
 	}) (*struct{ Body *PGSavedQuery }, error) {
