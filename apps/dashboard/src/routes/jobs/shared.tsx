@@ -8,6 +8,7 @@ import { ChevronDown } from "lucide-react";
 import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { jq } from "@/api/jobs";
 import { q as api, queryClient } from "@/api/queries";
+import { ConnectButton } from "@/components/connect";
 import { Crumbs, Page, PageHeader, Untrusted } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -17,6 +18,7 @@ import { cn } from "@/lib/cn";
 import { int, words } from "@/lib/format";
 import type { JobsDo, JobsSearch } from "@/lib/jobs-search";
 import { useMe } from "@/lib/me";
+import { useCommand } from "@/lib/shortcuts";
 
 export type JobsTab = "runs" | "schedules" | "queues" | "failed";
 export type { JobsDo, JobsSearch };
@@ -35,9 +37,6 @@ const Forms = {
   run: lazy(() => import("./forms").then((m) => ({ default: m.StartRunForm }))),
 };
 
-/** Keys on every Jobs page; never while typing. */
-const keys: Record<string, JobsDo> = { n: "schedule", t: "send", u: "queue", w: "run" };
-
 export function JobsArea({ project, tab, search, children, actions }: { project: string; tab: JobsTab; search: JobsSearch; children: ReactNode; actions?: ReactNode }) {
   const navigate = useNavigate();
   const { can } = useMe();
@@ -55,18 +54,12 @@ export function JobsArea({ project, tab, search, children, actions }: { project:
   }, [changed, project, qc]);
   const open = (d: JobsDo | undefined, name?: string) =>
     void navigate({ to: ".", search: (s: JobsSearch) => ({ ...s, do: d, name: d ? name : undefined }), replace: !d });
-  useEffect(() => {
-    if (!editable) return;
-    const on = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement)?.closest?.("input,textarea,select,[contenteditable],[role=dialog]")) return;
-      const d = keys[e.key];
-      if (!d || (d === "run" && apps.length === 0)) return;
-      e.preventDefault();
-      void navigate({ to: ".", search: (s: JobsSearch) => ({ ...s, do: d, name: undefined }) });
-    };
-    window.addEventListener("keydown", on);
-    return () => window.removeEventListener("keydown", on);
-  }, [editable, apps.length, navigate]);
+  // The area's actions: keys, ⌘K ("On this page"), and requests from elsewhere (the "Just a schedule" starter asks for new-schedule).
+  const go = (d: JobsDo) => void navigate({ to: ".", search: (x: JobsSearch) => ({ ...x, do: d, name: undefined }) });
+  useCommand(editable ? { id: "new-schedule", label: "New schedule", keys: "n", keywords: ["cron", "every", "timer"], run: () => go("schedule") } : null);
+  useCommand(editable ? { id: "new-queue", label: "New queue", keys: "u", keywords: ["create", "queue"], run: () => go("queue") } : null);
+  useCommand(editable ? { id: "send-test-job", label: "Send a test job", keys: "t", keywords: ["queue", "payload", "try"], run: () => go("send") } : null);
+  useCommand(editable && apps.length > 0 ? { id: "start-run", label: "Start a workflow run", keys: "w", keywords: ["workflow", "run"], run: () => go("run") } : null);
   const Form = search.do ? Forms[search.do] : null;
   return (
     <Page wide>
@@ -84,9 +77,12 @@ export function JobsArea({ project, tab, search, children, actions }: { project:
                   New schedule
                 </Button>
                 <MoreMenu hasApps={apps.length > 0} open={open} />
+                <ConnectButton part="jobs" project={project} />
               </>
             ))
-          ) : undefined
+          ) : (
+            <ConnectButton part="jobs" project={project} />
+          )
         }
       >
         <JobsTabs project={project} tab={tab} />

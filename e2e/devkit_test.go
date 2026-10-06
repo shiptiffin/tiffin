@@ -153,6 +153,6 @@ export default defineConfig({
 	prod, _ := st["production"].(map[string]any)
 	ins, _ := prod["instances"].([]any)
 	in, _ := ins[0].(map[string]any)
-	out := b.inBox(fmt.Sprintf(`sudo /usr/local/bin/nerdctl --namespace tiffin exec %s sh -c 'cd /app && WORKFLOW_POSTGRES_URL=$DATABASE_URL node_modules/.bin/workflow inspect runs --backend $WORKFLOW_TARGET_WORLD 2>&1 | tail -n 8' || true`, in["name"]))
+	out := b.inBox(fmt.Sprintf(`sudo /usr/local/bin/nerdctl --namespace tiffin exec %s sh -c 'cd /app && WORKFLOW_POSTGRES_URL=$DIRECT_DATABASE_URL node_modules/.bin/workflow inspect runs --backend $WORKFLOW_TARGET_WORLD 2>&1 | tail -n 8' || true`, in["name"]))
 	t.Logf("workflow inspect runs, in the instance:\n%s", out)
 }

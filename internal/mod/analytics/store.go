@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -24,7 +25,9 @@ type Store interface {
 	Insert(ctx context.Context, evs []Event) error
 	Rollup(ctx context.Context, project, app, day string) error
 	Daily(ctx context.Context, q Query) ([]DayRow, error)
-	Hourly(ctx context.Context, q Query) ([]Point, error)
+	// Series is page views, visitors and visits per step (an hour or a
+	// day) from raw events; a visit counts in the step it started.
+	Series(ctx context.Context, q Query, step time.Duration) ([]Point, error)
 	Top(ctx context.Context, q Query, dim string, limit int) ([]Count, error)
 	Sessions(ctx context.Context, q Query) (SessionStats, error)
 	Counts(ctx context.Context, q Query) (visitors, pageviews, events int64, err error)
@@ -32,6 +35,9 @@ type Store interface {
 	Recent(ctx context.Context, since time.Time) ([]Event, error)
 	Apps(ctx context.Context, project string) ([]string, error)
 	Purge(ctx context.Context, project string, before time.Time) (int64, error)
+	// ForgetSalts deletes the visitor salts of days before before, also
+	// after days without traffic (Salt only rotates when a hit arrives).
+	ForgetSalts(ctx context.Context, before time.Time) error
 	// Footprint counts a project's stored events older than before (zero
 	// time: all of them) and their approximate stored size in bytes.
 	Footprint(ctx context.Context, project string, before time.Time) (events, bytes int64, err error)
@@ -70,13 +76,37 @@ type Event struct {
 	Src       string // edge | script | server
 }
 
-// Query selects events: one project, optionally one app, a time range.
+// Query selects events: one project, optionally one app, a time range and
+// filters.
 type Query struct {
 	Project string
 	App     string // "" = every app
 	From    time.Time
 	To      time.Time
+	Filters Filters
 }
+
+// Filters narrow a query to the visits they match. Each selects whole
+// visits (sessions): Source and the UTM tags by the visit's first page view,
+// Entry and Exit by its first and last page, Page by any page it viewed, the
+// rest by the visitor's country, browser, system or device. A Page filter
+// also counts only that page's views and events.
+type Filters struct {
+	Page        string `json:"page,omitempty"`
+	Entry       string `json:"entry,omitempty"`
+	Exit        string `json:"exit,omitempty"`
+	Source      string `json:"source,omitempty"`
+	UTMSource   string `json:"utmSource,omitempty"`
+	UTMMedium   string `json:"utmMedium,omitempty"`
+	UTMCampaign string `json:"utmCampaign,omitempty"`
+	Country     string `json:"country,omitempty"`
+	Browser     string `json:"browser,omitempty"`
+	OS          string `json:"os,omitempty"`
+	Device      string `json:"device,omitempty"`
+}
+
+// Any reports whether a filter is set.
+func (f Filters) Any() bool { return f != Filters{} }
 
 // DayRow is one rollup row.
 type DayRow struct {
@@ -91,9 +121,12 @@ type DayRow struct {
 
 // Point is a timeseries point.
 type Point struct {
-	T         time.Time `json:"t"`
-	Visitors  int64     `json:"visitors"`
-	Pageviews int64     `json:"pageviews"`
+	T          time.Time `json:"t"`
+	Visitors   int64     `json:"visitors"`
+	Pageviews  int64     `json:"pageviews"`
+	Sessions   int64     `json:"sessions" doc:"Visits that started in this step"`
+	Bounces    int64     `json:"bounces" doc:"Of those, visits with one page view"`
+	DurationMS int64     `json:"durationMs" doc:"Their total length, first to last page view"`
 }
 
 // Count is one breakdown row.
@@ -126,8 +159,10 @@ type PropCount struct {
 
 // sqliteStore implements Store on one SQLite file.
 type sqliteStore struct {
-	db *sql.DB
-	mu sync.Mutex
+	db    *sql.DB
+	mu    sync.Mutex
+	selMu sync.Mutex
+	sel   map[string]selection
 }
 
 var sqliteSchema = []string{
@@ -260,26 +295,156 @@ func (s *sqliteStore) Daily(ctx context.Context, q Query) ([]DayRow, error) {
 	return out, rows.Err()
 }
 
-func (s *sqliteStore) Hourly(ctx context.Context, q Query) ([]Point, error) {
+// scope is the WHERE clause for a query's events: project (and app), the
+// range and, with filters, only the visits they select. A page filter also
+// keeps only that page's rows, unless whole visits are asked for.
+func (s *sqliteStore) scope(ctx context.Context, q Query, visits bool) (string, []any, error) {
 	where, args := appFilter(q)
+	where += ` AND ts >= ? AND ts < ?`
 	args = append(args, q.From.UnixMilli(), q.To.UnixMilli())
-	// Visitors per hour are distinct within the hour (and day: hashes rotate daily).
-	rows, err := s.db.QueryContext(ctx, `SELECT ts / 3600000 AS h, COUNT(DISTINCT visitor), COUNT(*) FROM events
-		WHERE `+where+` AND kind = 'pageview' AND ts >= ? AND ts < ? GROUP BY h ORDER BY h`, args...)
+	if !q.Filters.Any() {
+		return where, args, nil
+	}
+	ids, err := s.visits(ctx, q)
+	if err != nil {
+		return "", nil, err
+	}
+	where += ` AND session IN (SELECT value FROM json_each(?))`
+	args = append(args, ids)
+	if q.Filters.Page != "" && !visits {
+		where += ` AND path = ?`
+		args = append(args, q.Filters.Page)
+	}
+	return where, args, nil
+}
+
+// selectionFresh is how long a filter's visits are reused: an overview
+// asks a dozen questions of the same visits.
+const selectionFresh = 10 * time.Second
+
+type selection struct {
+	at  time.Time
+	ids string // JSON array of session ids
+}
+
+// visits returns the sessions a query's filters select, as a JSON array,
+// computed once per query and reused for a few seconds.
+func (s *sqliteStore) visits(ctx context.Context, q Query) (string, error) {
+	key := fmt.Sprintf("%s|%s|%d|%d|%+v", q.Project, q.App, q.From.UnixMilli(), q.To.UnixMilli(), q.Filters)
+	s.selMu.Lock()
+	if e, ok := s.sel[key]; ok && time.Since(e.at) < selectionFresh {
+		s.selMu.Unlock()
+		return e.ids, nil
+	}
+	s.selMu.Unlock()
+	f := q.Filters
+	// Values computed over each visit, and the conditions on them.
+	var cols, conds []string
+	var cargs []any
+	over := func(col, expr, val string) {
+		if val != "" {
+			cols = append(cols, expr+` AS `+col)
+			conds = append(conds, col+` = ?`)
+			cargs = append(cargs, val)
+		}
+	}
+	first := ` OVER (PARTITION BY session ORDER BY ts, id)`
+	over("f_entry", `FIRST_VALUE(path)`+first, f.Entry)
+	over("f_exit", `FIRST_VALUE(path) OVER (PARTITION BY session ORDER BY ts DESC, id DESC)`, f.Exit)
+	over("f_src", `FIRST_VALUE(ref_source)`+first, f.Source)
+	over("f_us", `FIRST_VALUE(utm_source)`+first, f.UTMSource)
+	over("f_um", `FIRST_VALUE(utm_medium)`+first, f.UTMMedium)
+	over("f_uc", `FIRST_VALUE(utm_campaign)`+first, f.UTMCampaign)
+	var args []any
+	if f.Page != "" {
+		cols = append(cols, `MAX(path = ?) OVER (PARTITION BY session) AS f_page`)
+		conds = append(conds, `f_page = 1`)
+		args = append(args, f.Page) // the select list's parameter comes first
+	}
+	for _, c := range [][2]string{{"country", f.Country}, {"browser", f.Browser}, {"os", f.OS}, {"device", f.Device}} {
+		if c[1] != "" {
+			conds = append(conds, c[0]+` = ?`)
+			cargs = append(cargs, c[1])
+		}
+	}
+	inner, iargs := appFilter(q)
+	args = append(append(args, iargs...), q.From.UnixMilli(), q.To.UnixMilli())
+	args = append(args, cargs...)
+	var ids string
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(json_group_array(DISTINCT session), '[]') FROM (SELECT session, country, browser, os, device`+prefixed(", ", cols)+
+		` FROM events WHERE `+inner+` AND kind = 'pageview' AND session != 0 AND ts >= ? AND ts < ?) WHERE `+strings.Join(conds, ` AND `), args...).Scan(&ids)
+	if err != nil {
+		return "", err
+	}
+	s.selMu.Lock()
+	if s.sel == nil || len(s.sel) > 64 {
+		s.sel = map[string]selection{}
+	}
+	s.sel[key] = selection{time.Now(), ids}
+	s.selMu.Unlock()
+	return ids, nil
+}
+
+func prefixed(sep string, xs []string) string {
+	out := ""
+	for _, x := range xs {
+		out += sep + x
+	}
+	return out
+}
+
+func (s *sqliteStore) Series(ctx context.Context, q Query, step time.Duration) ([]Point, error) {
+	ms := step.Milliseconds()
+	byT := map[int64]*Point{}
+	at := func(b int64) *Point {
+		if byT[b] == nil {
+			byT[b] = &Point{T: time.UnixMilli(b * ms).UTC()}
+		}
+		return byT[b]
+	}
+	// Visitors are distinct within the step (and the day: hashes rotate daily).
+	where, args, err := s.scope(ctx, q, false)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT ts / ? AS b, COUNT(DISTINCT visitor), COUNT(*) FROM events
+		WHERE `+where+` AND kind = 'pageview' GROUP BY b`, append([]any{ms}, args...)...)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var b, v, pv int64
+		if err := rows.Scan(&b, &v, &pv); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		p := at(b)
+		p.Visitors, p.Pageviews = v, pv
+	}
+	rows.Close()
+	if where, args, err = s.scope(ctx, q, true); err != nil {
+		return nil, err
+	}
+	rows, err = s.db.QueryContext(ctx, `SELECT start / ? AS b, COUNT(*), COALESCE(SUM(pv = 1), 0), COALESCE(SUM(dur), 0) FROM
+		(SELECT MIN(ts) AS start, COUNT(*) AS pv, MAX(ts) - MIN(ts) AS dur FROM events
+		 WHERE `+where+` AND kind = 'pageview' GROUP BY session) GROUP BY b`, append([]any{ms}, args...)...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Point
 	for rows.Next() {
-		var h int64
-		var p Point
-		if err := rows.Scan(&h, &p.Visitors, &p.Pageviews); err != nil {
+		var b, n, bounces, dur int64
+		if err := rows.Scan(&b, &n, &bounces, &dur); err != nil {
 			return nil, err
 		}
-		p.T = time.UnixMilli(h * 3600000).UTC()
-		out = append(out, p)
+		p := at(b)
+		p.Sessions, p.Bounces, p.DurationMS = n, bounces, dur
 	}
+	out := make([]Point, 0, len(byT))
+	for _, p := range byT {
+		out = append(out, *p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].T.Before(out[j].T) })
 	return out, rows.Err()
 }
 
@@ -287,6 +452,7 @@ func (s *sqliteStore) Hourly(ctx context.Context, q Query) ([]Point, error) {
 var dims = map[string]string{
 	"page":         "path",
 	"entry":        "path", // handled specially
+	"exit":         "path", // handled specially
 	"referrer":     "ref_source",
 	"country":      "country",
 	"browser":      "browser",
@@ -303,17 +469,31 @@ func (s *sqliteStore) Top(ctx context.Context, q Query, dim string, limit int) (
 	if !ok {
 		return nil, fmt.Errorf("unknown dimension %q", dim)
 	}
-	where, args := appFilter(q)
-	args = append(args, q.From.UnixMilli(), q.To.UnixMilli())
 	var query string
-	if dim == "entry" {
-		query = `SELECT path, COUNT(DISTINCT visitor), COUNT(*) FROM (
-			SELECT path, visitor, ROW_NUMBER() OVER (PARTITION BY session ORDER BY ts) AS rn FROM events
-			WHERE ` + where + ` AND kind = 'pageview' AND ts >= ? AND ts < ?) WHERE rn = 1
+	var args []any
+	if dim == "entry" || dim == "exit" {
+		// The first (or last) page of each visit; Count.Pageviews is visits.
+		order := "ts, id"
+		if dim == "exit" {
+			order = "ts DESC, id DESC"
+		}
+		where, a, err := s.scope(ctx, q, true)
+		if err != nil {
+			return nil, err
+		}
+		args = a
+		query = `SELECT path, COUNT(DISTINCT day || ':' || visitor), COUNT(*) FROM (
+			SELECT path, day, visitor, ROW_NUMBER() OVER (PARTITION BY session ORDER BY ` + order + `) AS rn FROM events
+			WHERE ` + where + ` AND kind = 'pageview') WHERE rn = 1
 			GROUP BY path ORDER BY 3 DESC, 1 LIMIT ?`
 	} else {
+		where, a, err := s.scope(ctx, q, false)
+		if err != nil {
+			return nil, err
+		}
+		args = a
 		query = `SELECT ` + col + `, COUNT(DISTINCT day || ':' || visitor), COUNT(*) FROM events
-			WHERE ` + where + ` AND kind = 'pageview' AND ts >= ? AND ts < ? AND ` + col + ` != ''
+			WHERE ` + where + ` AND kind = 'pageview' AND ` + col + ` != ''
 			GROUP BY 1 ORDER BY 2 DESC, 3 DESC, 1 LIMIT ?`
 	}
 	args = append(args, limit)
@@ -334,29 +514,35 @@ func (s *sqliteStore) Top(ctx context.Context, q Query, dim string, limit int) (
 }
 
 func (s *sqliteStore) Sessions(ctx context.Context, q Query) (SessionStats, error) {
-	where, args := appFilter(q)
-	args = append(args, q.From.UnixMilli(), q.To.UnixMilli())
 	var st SessionStats
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(pv = 1), 0), COALESCE(SUM(dur), 0) FROM
+	where, args, err := s.scope(ctx, q, true)
+	if err != nil {
+		return st, err
+	}
+	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(pv = 1), 0), COALESCE(SUM(dur), 0) FROM
 		(SELECT session, COUNT(*) AS pv, MAX(ts) - MIN(ts) AS dur FROM events
-		 WHERE `+where+` AND kind = 'pageview' AND ts >= ? AND ts < ? GROUP BY session)`, args...).Scan(&st.Sessions, &st.Bounces, &st.DurationMS)
+		 WHERE `+where+` AND kind = 'pageview' GROUP BY session)`, args...).Scan(&st.Sessions, &st.Bounces, &st.DurationMS)
 	return st, err
 }
 
 func (s *sqliteStore) Counts(ctx context.Context, q Query) (visitors, pageviews, events int64, err error) {
-	where, args := appFilter(q)
-	args = append(args, q.From.UnixMilli(), q.To.UnixMilli())
+	where, args, err := s.scope(ctx, q, false)
+	if err != nil {
+		return 0, 0, 0, err
+	}
 	err = s.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT CASE WHEN kind = 'pageview' THEN day || ':' || visitor END),
 		COALESCE(SUM(kind = 'pageview'), 0), COALESCE(SUM(kind = 'event'), 0)
-		FROM events WHERE `+where+` AND ts >= ? AND ts < ?`, args...).Scan(&visitors, &pageviews, &events)
+		FROM events WHERE `+where, args...).Scan(&visitors, &pageviews, &events)
 	return
 }
 
 func (s *sqliteStore) CustomEvents(ctx context.Context, q Query, limit int) ([]EventSummary, error) {
-	where, args := appFilter(q)
-	args = append(args, q.From.UnixMilli(), q.To.UnixMilli(), limit)
+	where, args, err := s.scope(ctx, q, false)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT name, COUNT(*), COUNT(DISTINCT day || ':' || visitor) FROM events
-		WHERE `+where+` AND kind = 'event' AND ts >= ? AND ts < ? GROUP BY name ORDER BY 2 DESC, 1 LIMIT ?`, args...)
+		WHERE `+where+` AND kind = 'event' GROUP BY name ORDER BY 2 DESC, 1 LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, err
 	}
@@ -371,11 +557,13 @@ func (s *sqliteStore) CustomEvents(ctx context.Context, q Query, limit int) ([]E
 	}
 	rows.Close()
 	for i := range out {
-		where, args := appFilter(q)
-		args = append(args, out[i].Name, q.From.UnixMilli(), q.To.UnixMilli())
+		where, args, err := s.scope(ctx, q, false)
+		if err != nil {
+			return nil, err
+		}
 		pr, err := s.db.QueryContext(ctx, `SELECT j.key, CAST(j.value AS TEXT), COUNT(*) FROM events, json_each(events.props) AS j
-			WHERE `+where+` AND kind = 'event' AND name = ? AND ts >= ? AND ts < ? AND props != ''
-			GROUP BY 1, 2 ORDER BY 1, 3 DESC`, args...)
+			WHERE `+where+` AND kind = 'event' AND name = ? AND props != ''
+			GROUP BY 1, 2 ORDER BY 1, 3 DESC`, append(args, out[i].Name)...)
 		if err != nil {
 			return nil, err
 		}
@@ -516,6 +704,10 @@ func (s *sqliteStore) AddVitals(ctx context.Context, rows []VitalCount) error {
 func (s *sqliteStore) Vitals(ctx context.Context, q Query) ([]VitalCount, error) {
 	where, args := appFilter(q)
 	args = append(args, dayOf(q.From), dayOf(q.To.Add(-time.Millisecond)))
+	if q.Filters.Page != "" { // the only filter vitals keep: they have no visits
+		where += ` AND path = ?`
+		args = append(args, q.Filters.Page)
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT project, app, day, path, metric, bucket, n FROM vitals WHERE `+where+` AND day >= ? AND day <= ?`, args...)
 	if err != nil {
 		return nil, err
@@ -554,6 +746,13 @@ func (s *sqliteStore) Salt(ctx context.Context, day string) ([]byte, error) {
 	_, _ = s.db.ExecContext(ctx, `DELETE FROM salts WHERE day < ?`, dayOf(t.Add(-48*time.Hour)))
 	err = s.db.QueryRowContext(ctx, `SELECT salt FROM salts WHERE day = ?`, day).Scan(&salt)
 	return salt, err
+}
+
+func (s *sqliteStore) ForgetSalts(ctx context.Context, before time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.ExecContext(ctx, `DELETE FROM salts WHERE day < ?`, dayOf(before))
+	return err
 }
 
 func (s *sqliteStore) Key(ctx context.Context, project, app string) (string, error) {

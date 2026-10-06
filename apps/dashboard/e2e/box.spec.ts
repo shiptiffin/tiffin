@@ -44,10 +44,11 @@ test("modules: storage, data, email, queues, workflows, users, analytics, protec
   await expect(page.locator("code", { hasText: "auth/verify?token=" })).toBeVisible();
 
   // Queues and a workflow run.
-  await page.goto("/projects/shop/queues");
-  await expect(page.getByRole("link", { name: "emails: its jobs" })).toBeVisible();
-  await page.goto("/projects/shop/workflows?state=completed");
+  await page.goto("/projects/shop/jobs/queues");
+  await expect(page.getByRole("link", { name: "emails: its runs" })).toBeVisible();
+  await page.goto("/projects/shop/jobs?kind=workflow");
   await page.getByText("fulfil-order").first().click();
+  await page.getByRole("link", { name: /Every step, its history and input/ }).click();
   await expect(page.getByRole("heading", { name: "Steps" })).toBeVisible();
 
   // The app's own users.

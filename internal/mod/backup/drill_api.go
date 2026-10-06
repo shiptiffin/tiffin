@@ -24,7 +24,28 @@ const drillAsync = "It runs in the background and returns the drill at once (sta
 	"Refused with 409 when a drill is already running or the data disk has less free space than the backup's size plus 20%. " +
 	"Needs full access to all projects."
 
+const drillFrom = "With from=offsite the drill restores the copy in the bucket instead: Postgres from pgBackRest repo2 (WAL from there too), " +
+	"and every other part (Valkey, platform state, files) downloaded into the scratch directory, each chunk decrypted and checked, " +
+	"the platform state opened and SQLite databases checked. Scheduled drills alternate between the two."
+
 type drillStartOut struct{ Body *BackupDrill }
+
+func orLocal(s string) string {
+	if s == "" {
+		return SourceLocal
+	}
+	return s
+}
+
+// lastCopied is the newest successful set with an off-box copy.
+func lastCopied(list []Backup) *Backup {
+	for i := range list {
+		if list[i].Status == "ok" && list[i].Offsite != nil && list[i].Offsite.Status == "ok" {
+			return &list[i]
+		}
+	}
+	return nil
+}
 
 // drillRefused turns StartDrill's refusals into problems.
 func drillRefused(err error) error {
@@ -54,12 +75,12 @@ func requireDrill(ctx context.Context) (*tokens.Principal, error) {
 }
 
 // startDrill starts a drill of b and, when asked, waits a little for it.
-func startDrill(ctx context.Context, p *platform.Platform, pr *tokens.Principal, b *Backup, wait bool) (*drillStartOut, error) {
-	d, done, err := StartDrill(ctx, p, b, "manual")
+func startDrill(ctx context.Context, p *platform.Platform, pr *tokens.Principal, b *Backup, source string, wait bool) (*drillStartOut, error) {
+	d, done, err := StartDrillFrom(ctx, p, b, "manual", source)
 	if err != nil {
 		return nil, drillRefused(err)
 	}
-	_ = p.DB.Audit(ctx, pr.TokenID, "backup.drill", d.ID, map[string]any{"session": pr.Session, "backup": b.ID})
+	_ = p.DB.Audit(ctx, pr.TokenID, "backup.drill", d.ID, map[string]any{"session": pr.Session, "backup": b.ID, "from": source})
 	if wait {
 		select {
 		case <-done:
@@ -79,10 +100,11 @@ func registerDrills(a huma.API, p *platform.Platform, tag string) {
 	dl := api.Op("backup-drill", http.MethodPost, "/v1/backups/drill", "backups drill", api.RiskWrite,
 		"Run a restore drill of the newest backup",
 		"Proves the newest successful backup can be restored. "+drillWhat+drillAsync+
-			" To drill an older backup use POST /v1/backups/{id}/drill (`tiffin backups drills start <id>`).", tag)
+			" To drill an older backup use POST /v1/backups/{id}/drill (`tiffin backups drills start <id>`). "+drillFrom, tag)
 	dl.Errors = append(dl.Errors, 409)
 	huma.Register(a, dl, api.Wrap(func(ctx context.Context, in *struct {
-		Wait bool `query:"wait" doc:"Wait up to 50 seconds for the drill to finish before answering"`
+		Wait bool   `query:"wait" doc:"Wait up to 50 seconds for the drill to finish before answering"`
+		From string `query:"from" enum:"local,offsite," doc:"local (default): the copy on this box; offsite: the copy in the bucket"`
 	}) (*drillStartOut, error) {
 		pr, err := requireDrill(ctx)
 		if err != nil {
@@ -95,13 +117,20 @@ func registerDrills(a huma.API, p *platform.Platform, tag string) {
 		if err != nil {
 			return nil, err
 		}
+		source := orLocal(in.From)
 		b := lastOK(list, "")
+		if source == SourceOffsite {
+			b = lastCopied(list)
+		}
 		if b == nil {
 			pb := api.NewProblem(409, "precondition", "there is no successful backup to drill yet")
 			pb.Hint = "take one with `tiffin backup`, then run `tiffin backups drill`"
+			if source == SourceOffsite {
+				pb.Detail, pb.Hint = "no backup has been copied off the box yet", "copy one with `tiffin backups offsite copy`"
+			}
 			return nil, pb
 		}
-		return startDrill(ctx, p, pr, b, in.Wait)
+		return startDrill(ctx, p, pr, b, source, in.Wait)
 	}))
 
 	ls := api.Op("backups-drills", http.MethodGet, "/v1/backups/drills", "backups drills", api.RiskRead,
@@ -158,11 +187,12 @@ func registerDrills(a huma.API, p *platform.Platform, tag string) {
 
 	st := api.Op("backups-drills-start", http.MethodPost, "/v1/backups/{id}/drill", "backups drills start", api.RiskWrite,
 		"Run a restore drill of a backup",
-		"Proves this backup can be restored. "+drillWhat+drillAsync, tag)
+		"Proves this backup can be restored. "+drillWhat+drillAsync+" "+drillFrom, tag)
 	st.Errors = append(st.Errors, 404, 409)
 	huma.Register(a, st, api.Wrap(func(ctx context.Context, in *struct {
 		ID   string `path:"id" pattern:"^bk_[0-9A-Z]{26}$" doc:"Backup ID"`
 		Wait bool   `query:"wait" doc:"Wait up to 50 seconds for the drill to finish before answering"`
+		From string `query:"from" enum:"local,offsite," doc:"local (default): the copy on this box; offsite: the copy in the bucket"`
 	}) (*drillStartOut, error) {
 		pr, err := requireDrill(ctx)
 		if err != nil {
@@ -180,7 +210,7 @@ func registerDrills(a huma.API, p *platform.Platform, tag string) {
 		if err != nil {
 			return nil, err
 		}
-		return startDrill(ctx, p, pr, b, in.Wait)
+		return startDrill(ctx, p, pr, b, orLocal(in.From), in.Wait)
 	}))
 
 	cn := api.Op("backups-drills-cancel", http.MethodPost, "/v1/backups/drills/{id}/cancel", "backups drills cancel", api.RiskWrite,

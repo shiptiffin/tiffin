@@ -419,6 +419,16 @@ func (m *Module) PinnedReleases(ctx context.Context, _ *platform.Platform, proje
 	return e.PinnedReleases(ctx, project, app)
 }
 
+// Delivering implements the runtime contract (contract.go): whether a job,
+// cron tick or workflow turn is being delivered to the app right now.
+func (m *Module) Delivering(ctx context.Context, _ *platform.Platform, project, app string) (bool, error) {
+	e := m.engine()
+	if e == nil {
+		return false, errors.New("the queue is not running yet")
+	}
+	return e.Delivering(ctx, project, app)
+}
+
 // Until the runtime implements AppUpstreams, the queue reads the runtime's
 // published app state (KV runtime/state, "project/app") read-only: the live
 // deploy is the current release and its instances' localhost ports are the

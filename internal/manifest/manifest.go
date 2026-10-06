@@ -25,6 +25,12 @@ type Manifest struct {
 	// never take the memory the platform or the other projects' running apps
 	// need (a box-wide default share, if the owner set one, still applies).
 	Resources *Resources `json:"resources,omitempty"`
+	// SleepAfter lets the project's production apps sleep when nobody uses
+	// them: after this long with no requests and no job, cron or workflow
+	// deliveries, their containers stop (freeing memory and CPU) and the
+	// next request or delivery starts them again. Hours or days, 1h to 30d:
+	// "24h", "7d", "14d". Absent: they never sleep.
+	SleepAfter string `json:"sleepAfter,omitempty"`
 	// Apps keyed by name (same slug rules as Project).
 	Apps map[string]App `json:"apps,omitempty"`
 	// Services the project uses. Absent means "not provisioned".

@@ -8,7 +8,7 @@ import { Confirm } from "@/components/confirm";
 import { useTitle } from "@/components/favicon";
 import { Crumbs, NotOnBox, Page, PageHeader, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
-import { Addresses, ConfigRow, SERVICES, ServiceRow, StagedRow, type SetEdit } from "@/components/project-rows";
+import { Addresses, ConfigRow, SERVICES, ServiceRow, StagedRow, Working, type SetEdit } from "@/components/project-rows";
 import { AddMenu } from "@/components/start-add-menu";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,8 @@ import { count, cronWords } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { DeleteProject } from "@/components/delete-project";
 import { rememberProject } from "@/lib/recent";
-import { pendingFor, undoChange, usePending } from "@/lib/staged";
+import { change, pendingFor, undoChange, usePending } from "@/lib/staged";
+import { cn } from "@/lib/cn";
 import { relative } from "@/lib/time";
 import { CreateKeyDialog, KeyList, keyProjects, onlyKeys } from "./keys";
 import { ProjectIcon } from "@/components/project-icon";
@@ -92,6 +93,12 @@ export function ProjectSettingsPage({ project }: { project: string }) {
           )}
         </div>
       </Section>
+
+      {apps.length > 0 && (
+        <Section title="When nobody visits" note="Its apps are always awake unless you let them sleep, which frees their memory for your other projects. The next visit, job or schedule wakes them in a few seconds.">
+          <SleepAfter project={project} live={man?.sleepAfter} staged={pendingSet(["sleepAfter"])} />
+        </Section>
+      )}
 
       <Section title="Built-in parts" note="Turn one on and it’s ready in seconds. Turning off something that holds data asks first and says what would be lost.">
         <div className="divide-y divide-rule border-y border-rule">
@@ -169,6 +176,67 @@ function ProjectKeys({ project }: { project: string }) {
       </div>
       <CreateKeyDialog open={open} onOpenChange={setOpen} project={project} />
     </Section>
+  );
+}
+
+const SLEEP: Array<{ value?: string; title: string }> = [
+  { title: "Never" },
+  { value: "24h", title: "After 24 hours" },
+  { value: "7d", title: "After 7 days" },
+  { value: "14d", title: "After 14 days" },
+];
+
+/** "24h", "1d" → 24; absent → 0. */
+const sleepHours = (v?: string) => {
+  const m = v?.match(/^(\d+)([hd])$/);
+  return m ? Number(m[1]) * (m[2] === "d" ? 24 : 1) : 0;
+};
+
+/** How long its apps may go unused before they sleep: sleepAfter in its config, never by default. */
+function SleepAfter({ project, live, staged }: { project: string; live?: string; staged?: SetEdit }) {
+  const value = staged ? (staged.to as string | undefined) : live;
+  const choices = [...SLEEP];
+  // A time set in tiffin.config.ts that the dashboard doesn't offer stays shown as it is.
+  if (live && !SLEEP.some((c) => sleepHours(c.value) === sleepHours(live))) choices.push({ value: live, title: `After ${live}` });
+  const label = (v?: string) => choices.find((c) => sleepHours(c.value) === sleepHours(v))?.title.toLowerCase() ?? v ?? "never";
+  const pick = (to?: string) =>
+    change(
+      project,
+      {
+        kind: "set",
+        path: ["sleepAfter"],
+        from: live,
+        to,
+        what: to ? `Let ${project}’s apps sleep ${label(to)} without visitors` : `Keep ${project}’s apps always awake`,
+        undo: live ? `${project}’s apps sleep ${label(live)} without visitors again` : `${project}’s apps stay awake again`,
+      },
+      { immediate: true },
+    );
+  return (
+    <div role="radiogroup" aria-label={`When ${project}’s apps sleep`} className="flex flex-wrap gap-1.5">
+      {choices.map((c) => {
+        const checked = sleepHours(c.value) === sleepHours(value);
+        return (
+          <button
+            key={c.title}
+            type="button"
+            role="radio"
+            aria-checked={checked}
+            onClick={() => !checked && pick(c.value)}
+            className={cn(
+              "flex items-center gap-2.5 rounded-[10px] border px-3 py-2 text-left transition-colors duration-[var(--dur-state)]",
+              checked ? "border-brass bg-brass-wash" : "border-rule-2 hover:border-rule-3",
+            )}
+          >
+            <span className={cn("grid size-4 shrink-0 place-items-center rounded-full border", checked ? "border-brass" : "border-rule-3")} aria-hidden>
+              {checked && <span className="size-2 rounded-full bg-brass" />}
+            </span>
+            <span className="text-[0.875rem] font-[550] text-ink">{c.title}</span>
+          </button>
+        );
+      })}
+      {staged && <Working> Saving…</Working>}
+    </div>
   );
 }
 

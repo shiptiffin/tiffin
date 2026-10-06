@@ -29,10 +29,39 @@ export type KVStats = S["ValkeyKVStats"];
 export type KVPage = S["ValkeyKVKeyPage"];
 export type KVValue = S["ValkeyKVKeyValue"];
 export type KVConnection = S["ValkeyKVConnection"];
+export type KVTree = S["ValkeyKVTree"];
+export type KVKeyInfo = S["ValkeyKVKeyInfo"];
+export type KVWrite = S["ValkeyKVWriteResult"];
+export type KVCommandResult = S["ValkeyKVCommandResult"];
+/** The KV write operations, by path under /kv/, with their bodies. */
+export type KVWrites = {
+  set: S["ValkeySetBody"];
+  "hash/set": S["ValkeyHashSetBody"];
+  "hash/delete": S["ValkeyHashDelBody"];
+  "list/push": S["ValkeyListPushBody"];
+  "list/set": S["ValkeyListSetBody"];
+  "list/remove": S["ValkeyListRemoveBody"];
+  "set/add": S["ValkeySetAddBody"];
+  "set/remove": S["ValkeySetRemoveBody"];
+  "zset/add": S["ValkeyZsetAddBody"];
+  "zset/remove": S["ValkeyZsetRemoveBody"];
+  "zset/incr": S["ValkeyZsetIncrBody"];
+  "stream/add": S["ValkeyStreamAddBody"];
+  "stream/trim": S["ValkeyStreamTrimBody"];
+  "stream/delete": S["ValkeyStreamDelBody"];
+  expire: S["ValkeyExpireBody"];
+  rename: S["ValkeyRenameBody"];
+  delete: S["ValkeyDelBody"];
+  "delete-prefix": S["ValkeyDeletePrefixBody"];
+  undo: S["ValkeyUndoBody"];
+};
 export type BackupOverview = S["BackupOverview"];
 export type Backup = S["Backup"];
 export type BackupRestored = S["BackupRestored"];
 export type BackupDrill = S["BackupDrill"];
+export type BackupOffsite = S["BackupOffsite"];
+export type BackupOffsiteTest = S["BackupOffsiteTest"];
+export type OffsiteInput = S["BackupOffsiteInput"];
 export type Overview = S["ObserveOverview"];
 export type Issue = S["ObserveIssue"];
 export type IssueDetail = S["ObserveIssueDetail"];
@@ -62,6 +91,10 @@ export type AnalyticsCount = S["AnalyticsCount"];
 export type AnalyticsEvent = S["AnalyticsEventSummary"];
 export type AnalyticsVitals = S["AnalyticsVitalsView"];
 export type Period = NonNullable<NonNullable<import("./schema").operations["analytics-overview"]["parameters"]["query"]>["period"]>;
+/** What an analytics read can ask for: a period or days, one app, the step and filters. */
+export type AnalyticsQuery = Omit<NonNullable<import("./schema").operations["analytics-overview"]["parameters"]["query"]>, "project" | "limit">;
+export type AnalyticsFilters = S["AnalyticsFilters"];
+export type UsageHistory = S["ObserveUsageHistory"];
 export type ProtectStatus = S["ProtectStatus"];
 export type ProtectDecision = S["ProtectDecision"];
 export type ProtectAlert = S["ProtectAlert"];
@@ -159,8 +192,16 @@ export const mod = {
   // valkey
   kvStats: (p: string) => request<KVStats>("GET", `${P(p)}/kv/stats`),
   kvKeys: (p: string, match?: string, cursor?: string) => request<KVPage>("GET", `${P(p)}/kv/keys${qs({ match, cursor, count: 200 })}`),
-  kvKey: (p: string, key: string) => request<KVValue>("GET", `${P(p)}/kv/key${qs({ key })}`),
-  kvConnection: (p: string) => request<KVConnection>("GET", `${P(p)}/kv/connection`),
+  kvKey: (p: string, key: string, o: { cursor?: string; match?: string; count?: number } = {}) =>
+    request<KVValue>("GET", `${P(p)}/kv/key${qs({ key, ...o })}`),
+  kvTree: (p: string, o: { prefix?: string; delimiter?: string; match?: string; type?: string; expiry?: string; offset?: number; limit?: number }) =>
+    request<KVTree>("GET", `${P(p)}/kv/tree${qs(o)}`),
+  /** Secrets only with reveal, which needs full access to the project. */
+  kvConnection: (p: string, reveal = false) => request<KVConnection>("GET", `${P(p)}/kv/connection${qs({ reveal })}`),
+  /** Every write answers an undo id; one too big to undo answers 428 with a confirm value first. */
+  kvWrite: <K extends keyof KVWrites>(p: string, op: K, body: KVWrites[K]) => request<KVWrite>("POST", `${P(p)}/kv/${op}`, body),
+  kvCommand: (p: string, commands: string, write: boolean) =>
+    request<S["ValkeyKVConsole"]>("POST", `${P(p)}/kv/command`, { commands, ...(write ? { write } : {}) }),
 
   // backups
   backups: () => request<BackupOverview>("GET", "/v1/backups"),
@@ -172,6 +213,11 @@ export const mod = {
   drill: (backup?: string) => request<BackupDrill>("POST", backup ? `/v1/backups/${e(backup)}/drill` : "/v1/backups/drill", {}),
   drillGet: (id: string) => request<BackupDrill>("GET", `/v1/backups/drills/${e(id)}`),
   drillCancel: (id: string) => request<BackupDrill>("POST", `/v1/backups/drills/${e(id)}/cancel`, {}),
+  /** Copies off the box: set (tested first; a new destination returns its passphrase once), test, copy now, off. */
+  offsiteSet: (body: OffsiteInput) => request<BackupOffsite>("PUT", "/v1/backups/offsite", body),
+  offsiteTest: () => request<BackupOffsiteTest>("POST", "/v1/backups/offsite/test", {}),
+  offsiteCopy: () => request<S["BackupOffsiteCopy"]>("POST", "/v1/backups/offsite/copy", {}),
+  offsiteOff: () => request<BackupOffsite>("DELETE", "/v1/backups/offsite"),
 
   // observe
   overview: () => request<Overview>("GET", "/v1/observe/overview"),
@@ -222,9 +268,11 @@ export const mod2 = {
     request<WorkflowApproval>("POST", `${P(p)}/workflows/approvals/${e(id)}`, { decision, ...(comment ? { comment } : {}) }),
   // analytics
   analytics: (p: string, period: Period) => request<AnalyticsOverview>("GET", `/v1/analytics/overview${qs({ project: p, period, limit: 8 })}`),
-  realtime: (p: string) => request<AnalyticsRealtime>("GET", `/v1/analytics/realtime${qs({ project: p })}`),
-  events: (p: string, period: Period) => request<AnalyticsEvents>("GET", `/v1/analytics/events${qs({ project: p, period })}`),
-  vitals: (p: string, period: Period) => request<AnalyticsVitals>("GET", `/v1/analytics/vitals${qs({ project: p, period, limit: 8 })}`),
+  /** The overview for a period or day range, one app and filters (see AnalyticsQuery). */
+  analyticsView: (p: string, q: AnalyticsQuery, limit = 10) => request<AnalyticsOverview>("GET", `/v1/analytics/overview${qs({ project: p, ...q, limit })}`),
+  realtime: (p: string, app?: string) => request<AnalyticsRealtime>("GET", `/v1/analytics/realtime${qs({ project: p, app })}`),
+  events: (p: string, q: AnalyticsQuery) => request<AnalyticsEvents>("GET", `/v1/analytics/events${qs({ project: p, ...q, interval: undefined })}`),
+  vitals: (p: string, q: AnalyticsQuery) => request<AnalyticsVitals>("GET", `/v1/analytics/vitals${qs({ project: p, period: q.period, from: q.from, to: q.to, app: q.app, page: q.page, limit: 8 })}`),
   analyticsSetup: (p: string) => request<AnalyticsSetup>("GET", `/v1/analytics/setup${qs({ project: p })}`),
   // protection
   protect: () => request<ProtectStatus>("GET", "/v1/protect"),
@@ -237,6 +285,8 @@ export const mod2 = {
 };
 
 export const mod3 = {
+  /** Memory, CPU, traffic and data over time, for the project or one app. */
+  usageHistory: (p: string, range: "1h" | "24h" | "7d" | "30d", app?: string) => request<UsageHistory>("GET", `${P(p)}/usage/history${qs({ range, app })}`),
   // runtime
   runtime: (p: string, app: string) => request<AppRuntime>("GET", `${P(p)}/apps/${e(app)}/runtime`),
   deploys: (p: string, app: string, preview?: string) =>
@@ -251,6 +301,8 @@ export const mod3 = {
   previews: (p: string, app: string) => arr(request<EnvStatus[] | null>("GET", `${P(p)}/apps/${e(app)}/previews`)),
   deletePreview: (p: string, app: string, name: string) => request<void>("DELETE", `${P(p)}/apps/${e(app)}/previews/${e(name)}`),
   sleepPreview: (p: string, app: string, name: string) => request<unknown>("POST", `${P(p)}/apps/${e(app)}/previews/${e(name)}/sleep`, {}),
+  /** Starts the project's sleeping apps (or one) and answers once they are up. */
+  wake: (p: string, app?: string) => arr(request<S["RuntimeWakeResult"][] | null>("POST", `${P(p)}/wake${qs({ app })}`, {})),
   appLogs: (p: string, app: string, o: { since?: string; preview?: string; deploy?: string }) =>
     request<S["RuntimeLogPage"]>("GET", `${P(p)}/apps/${e(app)}/logs${qs({ ...o, limit: 500 })}`),
   appLogStream: (p: string, app: string, o: { preview?: string; since?: string }) => `${P(p)}/apps/${e(app)}/logs${qs({ ...o, follow: true })}`,

@@ -4,7 +4,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { notOnBox } from "@/api/client";
 import { jq } from "@/api/jobs";
 import type { QueueJob, QueueStats, WorkflowRun } from "@/api/modules";
@@ -15,6 +15,7 @@ import { ProblemNote } from "@/components/problem";
 import { useTitle } from "@/components/favicon";
 import { cn } from "@/lib/cn";
 import { countWords, int, ms, pct, words } from "@/lib/format";
+import { useShortcut } from "@/lib/shortcuts";
 import { relative } from "@/lib/time";
 import { ApprovalCard } from "./approvals";
 import { JobPane, RunPane } from "./detail";
@@ -95,21 +96,16 @@ export function RunsTab({ project, search }: { project: string; search: JobsSear
   const go = (id?: string) => void navigate({ to: "/projects/$project/jobs", params: { project }, search: { ...search, id }, replace: true });
 
   // j / k move through the list, like a mail client.
-  useEffect(() => {
-    const on = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement)?.closest?.("input,textarea,select,[contenteditable],[role=dialog]")) return;
-      if (e.key !== "j" && e.key !== "k") return;
-      const i = items.findIndex((x) => x.id === selected);
-      const next = items[e.key === "j" ? Math.min(items.length - 1, i + 1) : Math.max(0, i - 1)];
-      if (next && next.id !== selected) {
-        e.preventDefault();
-        go(next.id);
-        document.getElementById(`run-${next.id}`)?.focus();
-      }
-    };
-    window.addEventListener("keydown", on);
-    return () => window.removeEventListener("keydown", on);
-  });
+  const step = (by: number) => {
+    const i = items.findIndex((x) => x.id === selected);
+    const next = items[Math.max(0, Math.min(items.length - 1, i + by))];
+    if (next && next.id !== selected) {
+      go(next.id);
+      document.getElementById(`run-${next.id}`)?.focus();
+    }
+  };
+  useShortcut("j", "Next run", () => step(1));
+  useShortcut("k", "Previous run", () => step(-1));
 
   if (jobs.isError && notOnBox(jobs.error)) return <NotOnBox what="Jobs" />;
   const waiting = (approvals.data ?? []).filter((a) => a.state === "waiting");

@@ -192,7 +192,7 @@ func (m *Module) PlanWarnings(ctx context.Context, p *platform.Platform, project
 		if p != nil && p.Secrets != nil {
 			secrets, _ = p.Secrets.All(ctx, project)
 		}
-		if w := poolWarning(project, postgres.LimitUsage(project).ConnectionLimit, apps, env, secrets); w != "" {
+		if w := poolWarning(project, postgres.PoolerClientLimit, apps, env, secrets); w != "" {
 			out = append(out, w)
 		}
 	}
@@ -241,14 +241,14 @@ func inlinedChanges(plan *change.Plan, apps map[string]manifest.App) string {
 }
 
 // poolWarning warns when the apps' connection pools could open more
-// connections than the project's role may hold.
+// client connections than the pooler lets one project hold (limit).
 func poolWarning(project string, limit int, apps map[string]manifest.App, env, secrets map[string]string) string {
 	instances := projectInstances(apps)
 	if instances == 0 || limit <= 0 {
 		return ""
 	}
-	box := poolMax(limit, instances, false)
-	peak, defaults := 0, 0
+	box := poolMax(instances, false)
+	peak := 0
 	var parts []string
 	for _, name := range sortedKeys(apps) {
 		a := apps[name]
@@ -266,18 +266,11 @@ func poolWarning(project string, limit int, apps map[string]manifest.App, env, s
 			_, _ = fmt.Sscan(own, &pool)
 		}
 		peak += 2 * n * pool
-		defaults += 2 * n * 10
 		parts = append(parts, fmt.Sprintf("%s %d × %d", name, n, pool))
 	}
-	reserve := min(5, limit/4)
-	switch {
-	case peak > limit-reserve:
-		return fmt.Sprintf("database connections: during a deploy, old and new instances together can open %d (%s, doubled) and project %s may hold %d; "+
-			"connections past that are refused. Lower instances or DATABASE_POOL_MAX", peak, strings.Join(parts, ", "), project, limit)
-	case box < 10 && defaults > limit-reserve:
-		return fmt.Sprintf("database connections: project %s may hold %d, so the box sets DATABASE_POOL_MAX=%d for its %d instance(s). "+
-			"Pass it to your Postgres client (its pool max): postgres.js, Bun.SQL and node-postgres open up to 10 each by default, %d during a deploy",
-			project, limit, box, instances, defaults)
+	if peak > limit {
+		return fmt.Sprintf("database connections: during a deploy, old and new instances together can open %d (%s, doubled) and project %s may hold %d "+
+			"at the connection pooler; connections past that are refused. Lower instances or DATABASE_POOL_MAX", peak, strings.Join(parts, ", "), project, limit)
 	}
 	return ""
 }

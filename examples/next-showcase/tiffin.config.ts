@@ -7,7 +7,7 @@ import { defineConfig } from "tiffin-sdk";
 export default defineConfig({
   project: "next-showcase",
   apps: {
-    web: { framework: "next", instances: 2, memoryMB: 512, healthcheck: "/api/health" },
+    web: { framework: "next", instances: 2, memoryMB: 512, healthcheck: "/api/health", release: "bun lib/seed-run.ts" },
   },
   services: {
     postgres: {},

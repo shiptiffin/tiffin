@@ -74,9 +74,14 @@ type EnvStatus struct {
 	Live      *Deploy          `json:"live,omitempty" doc:"The deploy serving it"`
 	Instances []InstanceStatus `json:"instances"`
 	Stopped   bool             `json:"stopped,omitempty" doc:"The app was deleted; undo the change to bring it back"`
-	Sleeping  bool             `json:"sleeping,omitempty" doc:"A preview with no recent requests; the next request wakes it"`
-	Draining  []DrainSet       `json:"draining,omitempty" doc:"Earlier releases still running, without traffic, for workflow runs pinned to them"`
-	UpdatedAt time.Time        `json:"updatedAt"`
+	Sleeping  bool             `json:"sleeping,omitempty" doc:"Asleep: a preview with no recent requests, or production of a project with sleepAfter that nobody used for that long. Its containers are stopped; the next request or delivery wakes it."`
+	// SleepingSince is when it fell asleep.
+	SleepingSince *time.Time `json:"sleepingSince,omitempty" doc:"When it fell asleep (while sleeping)"`
+	// LastActive is its last request or delivery the box knows of.
+	LastActive *time.Time `json:"lastActive,omitempty" doc:"Its last request, job, cron or workflow delivery, or deploy (the idle clock counts from it)"`
+	LastWake   *Wake      `json:"lastWake,omitempty" doc:"Its last wake from sleep, with how long the start took"`
+	Draining   []DrainSet `json:"draining,omitempty" doc:"Earlier releases still running, without traffic, for workflow runs pinned to them"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
 }
 
 // AppRuntime is what runs for an app.
@@ -349,6 +354,31 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		return &struct{ Body *Deploy }{d}, nil
 	}))
 
+	wk := api.Op("project-wake", http.MethodPost, "/v1/projects/{project}/wake", "projects wake", api.RiskWrite, "Wake a project's sleeping apps",
+		"Starts the project's production apps that sleep (a project with sleepAfter puts its apps to sleep after that long unused) and "+
+			"answers once they are up, with how long each start took. Apps that are awake are left as they are. A request or a job "+
+			"wakes a sleeping app by itself; this is for warming it up before visitors arrive.", "apps")
+	wk.Errors = append(wk.Errors, 404, 503)
+	huma.Register(a, wk, api.Wrap(func(ctx context.Context, in *struct {
+		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+		App     string `query:"app" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Wake only this app"`
+	}) (*struct{ Body []WakeResult }, error) {
+		r, err := m.rt()
+		if err != nil {
+			return nil, unavailable(err)
+		}
+		pr := api.PrincipalFrom(ctx)
+		if err := pr.Require(tokens.ScopeApplyReversible, in.Project); err != nil {
+			return nil, err
+		}
+		out, err := r.wakeProject(ctx, in.Project, in.App)
+		if err != nil {
+			return nil, r.toProblem(err, "app "+in.App)
+		}
+		_ = r.p.DB.Audit(ctx, pr.TokenID, "project.wake", in.Project, map[string]any{"app": in.App, "session": pr.Session})
+		return &struct{ Body []WakeResult }{out}, nil
+	}))
+
 	huma.Register(a, api.Op("previews-list", http.MethodGet, appPath+"/previews", "previews list", api.RiskRead, "List an app's previews",
 		"Preview environments of an app: URL, live deploy, and whether they sleep (previews scale to zero when idle and wake on the next request).", "apps"),
 		api.Wrap(func(ctx context.Context, in *struct {
@@ -416,7 +446,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if st.Live == "" {
 			return nil, problem(404, "not_found", "no preview "+in.Name, "")
 		}
-		r.sleep(ctx, in.Project, in.App, in.Name)
+		r.sleep(ctx, in.Project, in.App, in.Name, 0)
 		out, err := r.appRuntime(ctx, in.Project, in.App)
 		if err != nil {
 			return nil, err
@@ -828,8 +858,16 @@ func (r *rt) appRuntime(ctx context.Context, project, app string) (*AppRuntime, 
 	if err != nil {
 		return nil, err
 	}
+	r.pullActivity()
 	for _, s := range states {
-		es := EnvStatus{Preview: s.Preview, Stopped: s.Stopped, Sleeping: s.Sleeping, Draining: s.Draining, UpdatedAt: s.UpdatedAt, Instances: []InstanceStatus{}}
+		es := EnvStatus{Preview: s.Preview, Stopped: s.Stopped, Sleeping: s.Sleeping, SleepingSince: s.SleptAt, LastWake: s.LastWake,
+			Draining: s.Draining, UpdatedAt: s.UpdatedAt, Instances: []InstanceStatus{}}
+		r.mu.Lock()
+		if t, ok := r.lastSeen[envKey(s.Project, s.App, s.Preview)]; ok {
+			t = t.UTC()
+			es.LastActive = &t
+		}
+		r.mu.Unlock()
 		if s.Live != "" {
 			if d, err := r.st.getDeploy(ctx, project, app, s.Live); err == nil {
 				// The address now, from the current routes (a route change since the deploy moves it).

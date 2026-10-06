@@ -1,0 +1,469 @@
+{
+  "label": "after-b-node-x2",
+  "date": "2026-10-06 03:27 UTC",
+  "base": "https://next-showcase.tiffin.localhost:54686",
+  "directIp": "192.168.64.4",
+  "vm": "tiffin-bench-1791254123",
+  "notes": [
+    "Same app and box; command: node node_modules/next/dist/bin/next start (Node.js 24 via RAILPACK_PACKAGES), started with exec. tiffin-sdk's cache handlers share Valkey on Node too (its own RESP client). Per-IP app rate limit raised to 1,000,000/10 s for the load generator."
+  ],
+  "deploy": {
+    "runtime": "node",
+    "instances": "2",
+    "deploy": "dep_01M47M0RKA5XE033S2496KD95F",
+    "tiffin": "{\"commit\":\"9f6d584+\",\"date\":\"unknown\",\"name\":\"tiffin\",\"version\":\"0.0.1-bench\"}",
+    "box": "2 vCPU, 3896 MB, 7.0.0-34-generic"
+  },
+  "memory": {
+    "idle": [
+      {
+        "name": "tf.next-showcase.web.prod.15",
+        "instance": "0",
+        "runtime": "node",
+        "currentMB": 179,
+        "peakMB": 179,
+        "anonMB": 43,
+        "rssMB": 112
+      },
+      {
+        "name": "tf.next-showcase.web.prod.16",
+        "instance": "1",
+        "runtime": "node",
+        "currentMB": 49,
+        "peakMB": 52,
+        "anonMB": 45,
+        "rssMB": 114
+      }
+    ],
+    "boxIdle": {
+      "used": 1957,
+      "available": 1939,
+      "postgres": 340,
+      "valkey-server": 13,
+      "tiffin": 284,
+      "buildkitd": 514,
+      "containerd": 49
+    },
+    "peakDuringLoad": {
+      "0": 320,
+      "1": 186
+    },
+    "after": [
+      {
+        "name": "tf.next-showcase.web.prod.15",
+        "instance": "0",
+        "runtime": "node",
+        "currentMB": 290,
+        "peakMB": 328,
+        "anonMB": 116,
+        "rssMB": 179
+      },
+      {
+        "name": "tf.next-showcase.web.prod.16",
+        "instance": "1",
+        "runtime": "node",
+        "currentMB": 185,
+        "peakMB": 186,
+        "anonMB": 169,
+        "rssMB": 230
+      }
+    ],
+    "boxAfter": {
+      "used": 1891,
+      "available": 2005,
+      "postgres": 629,
+      "valkey-server": 13,
+      "tiffin": 196,
+      "buildkitd": 361,
+      "containerd": 49
+    }
+  },
+  "checks": [
+    {
+      "id": "F01",
+      "name": "home: static, proxy header, compressed",
+      "ok": true,
+      "detail": "cache-control=s-maxage=31536000 x-nextjs-cache=HIT x-nextjs-prerender=1, 1 encoding=zstd 18435→4638 B (21 ms)"
+    },
+    {
+      "id": "F02",
+      "name": "next/font: woff2 preloaded and served immutable",
+      "ok": true,
+      "detail": "Geist_Variable-s.p.03oqkqkevsckn.woff2?dpl=dep_01M47M0RKA5XE033S2496KD95F font/woff2 public, max-age=31536000, immutable (248 ms)"
+    },
+    {
+      "id": "F03",
+      "name": "client chunk: immutable, compressed by the edge",
+      "ok": true,
+      "detail": "cache-control=public, max-age=31536000, immutable content-encoding=zstd (7 ms)"
+    },
+    {
+      "id": "F04",
+      "name": "next/image local: every srcset candidate loads",
+      "ok": true,
+      "detail": "8 widths, image/webp, browser picked 1080w (338 ms)"
+    },
+    {
+      "id": "F05",
+      "name": "next/image remote: the bucket's featured image loads",
+      "ok": true,
+      "detail": "https://files.tiffin.localhost:54686/next-showcase/media/featured.jpg → 456px (2 ms)"
+    },
+    {
+      "id": "F06",
+      "name": "Open Graph: og:image is an absolute URL on this site",
+      "ok": true,
+      "detail": "https://next-showcase.tiffin.localhost:54686/opengraph-image?3f305df0986b521c (0 ms)"
+    },
+    {
+      "id": "F07",
+      "name": "Open Graph image decodes (1200×630 PNG)",
+      "ok": true,
+      "detail": "71533 B, cache-control=public, max-age=0, must-revalidate (27 ms)"
+    },
+    {
+      "id": "F08",
+      "name": "client navigation (RSC) from / to /products",
+      "ok": true,
+      "detail": "soft navigation (77 ms)"
+    },
+    {
+      "id": "F09",
+      "name": "blog: prerendered at build, served from cache (ISR)",
+      "ok": true,
+      "detail": "cache-control=s-maxage=60, stale-while-revalidate=3540 x-nextjs-cache=HIT x-nextjs-prerender=1, 1, first copy rendered 18 s ago (13 ms)"
+    },
+    {
+      "id": "F10",
+      "name": "proxy: /dashboard without a session redirects to /login on this site",
+      "ok": true,
+      "detail": "307 → /login (5 ms)"
+    },
+    {
+      "id": "F11",
+      "name": "login: form Server Action sets the session, redirects to /dashboard",
+      "ok": true,
+      "detail": "cookie secure=false httpOnly=true (195 ms)"
+    },
+    {
+      "id": "F12",
+      "name": "streaming: dashboard shell arrives before the slow section (edge, browser encoding)",
+      "ok": true,
+      "detail": "zstd: shell 32 ms, slow section 1089 ms, 11 chunks; uncompressed: shell 11 ms (2127 ms)"
+    },
+    {
+      "id": "F13",
+      "name": "streaming in Chromium: shell painted before the slow section",
+      "ok": true,
+      "detail": "shell 73 ms, slow section 1365 ms (1404 ms)"
+    },
+    {
+      "id": "F14",
+      "name": "Server Action: useActionState + useOptimistic note, then saved",
+      "ok": true,
+      "detail": "optimistic 36 ms, saved 824 ms (400 ms of it is the action's own wait), kept after reload (870 ms)"
+    },
+    {
+      "id": "F15",
+      "name": "Server Action: useOptimistic like, round trip",
+      "ok": true,
+      "detail": "optimistic 40 ms, server round trip 59 ms (67 ms)"
+    },
+    {
+      "id": "F16",
+      "name": "Server Action over fetch (Next-Action header, as in the load test)",
+      "ok": true,
+      "detail": "200 46 B in 29 ms (29 ms)"
+    },
+    {
+      "id": "F17",
+      "name": "ISR on demand: revalidatePath from the dashboard reaches every instance",
+      "ok": true,
+      "detail": "new revision everywhere after 150 ms; 1 distinct render time(s) across instances (201 ms)"
+    },
+    {
+      "id": "F18",
+      "name": "use cache + updateTag: restock refreshes /products everywhere, one shared entry",
+      "ok": true,
+      "detail": "1 shared entry before and after (321 ms)"
+    },
+    {
+      "id": "F19",
+      "name": "PPR: /products static shell first, cart count streamed from the cookie",
+      "ok": true,
+      "detail": "grid at 9 ms of 13 ms; add to cart: \"Cart: …\" → \"Cart: 1\" (195 ms)"
+    },
+    {
+      "id": "F20",
+      "name": "route handler /api/items: JSON from Postgres on every instance",
+      "ok": true,
+      "detail": "12 items, instances 0,1, encoding=none (60 ms)"
+    },
+    {
+      "id": "F21",
+      "name": "SSE /api/stream: events arrive as sent (browser encoding)",
+      "ok": true,
+      "detail": "zstd: 10 events, first 6 ms, last 1814 ms; identity: first 10 ms (3633 ms)"
+    },
+    {
+      "id": "F22",
+      "name": "next/image: a new image is optimized, then served from the image cache",
+      "ok": true,
+      "detail": "cold 106 ms (image/webp, 24212 B), warm 6 ms HIT (113 ms)"
+    },
+    {
+      "id": "F23",
+      "name": "no console errors, failed requests or 4xx/5xx in the browser",
+      "ok": true,
+      "detail": "clean (0 ms)"
+    }
+  ],
+  "lighthouse": [
+    {
+      "page": "/",
+      "formFactor": "mobile",
+      "runs": 5,
+      "score": 99,
+      "fcp": 768.681,
+      "lcp": 2014.5,
+      "tbt": 7,
+      "cls": 0,
+      "si": 768.681,
+      "ttfb": 21,
+      "bytes": 268529
+    },
+    {
+      "page": "/",
+      "formFactor": "desktop",
+      "runs": 5,
+      "score": 100,
+      "fcp": 203.808,
+      "lcp": 458.56399999999996,
+      "tbt": 0,
+      "cls": 0,
+      "si": 203.808,
+      "ttfb": 11,
+      "bytes": 290769
+    },
+    {
+      "page": "/blog/hello-box",
+      "formFactor": "mobile",
+      "runs": 5,
+      "score": 100,
+      "fcp": 762.17,
+      "lcp": 1865.5345,
+      "tbt": 12,
+      "cls": 0,
+      "si": 762.17,
+      "ttfb": 13,
+      "bytes": 212950
+    },
+    {
+      "page": "/blog/hello-box",
+      "formFactor": "desktop",
+      "runs": 5,
+      "score": 100,
+      "fcp": 206.7655,
+      "lcp": 420.7655,
+      "tbt": 0,
+      "cls": 0,
+      "si": 206.7655,
+      "ttfb": 16,
+      "bytes": 212948
+    },
+    {
+      "page": "/products",
+      "formFactor": "mobile",
+      "runs": 5,
+      "score": 100,
+      "fcp": 765.3865,
+      "lcp": 1871.336,
+      "tbt": 18,
+      "cls": 0,
+      "si": 765.3865,
+      "ttfb": 10,
+      "bytes": 213793
+    },
+    {
+      "page": "/products",
+      "formFactor": "desktop",
+      "runs": 5,
+      "score": 100,
+      "fcp": 207.473,
+      "lcp": 420.28,
+      "tbt": 0,
+      "cls": 0,
+      "si": 207.473,
+      "ttfb": 10,
+      "bytes": 213800
+    },
+    {
+      "page": "/dashboard",
+      "formFactor": "mobile",
+      "runs": 5,
+      "score": 79,
+      "fcp": 763.834,
+      "lcp": 1802.8339999999998,
+      "tbt": 6.5,
+      "cls": 0.4630383333094197,
+      "si": 763.834,
+      "ttfb": 5,
+      "bytes": 216371
+    },
+    {
+      "page": "/dashboard",
+      "formFactor": "desktop",
+      "runs": 5,
+      "score": 100,
+      "fcp": 205.904,
+      "lcp": 403.62,
+      "tbt": 0,
+      "cls": 0.02782660712722178,
+      "si": 205.904,
+      "ttfb": 5,
+      "bytes": 216244
+    }
+  ],
+  "load": [
+    {
+      "name": "static chunk",
+      "path": "/_next/static/chunks/3t785h_9t5l15.js?dpl=dep_01M47M0RKA5XE033S2496KD95F",
+      "via": "vzNAT",
+      "rate": 1000,
+      "rps": 999.8,
+      "ok": 100,
+      "p50": 0.4,
+      "p95": 5,
+      "p99": 43.6,
+      "max": 95.8,
+      "codes": "200×19999",
+      "errors": ""
+    },
+    {
+      "name": "home (static)",
+      "path": "/",
+      "via": "vzNAT",
+      "rate": 400,
+      "rps": 400,
+      "ok": 100,
+      "p50": 1.9,
+      "p95": 85,
+      "p99": 238.1,
+      "max": 439.1,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "home (static)",
+      "path": "/",
+      "via": "forwarder",
+      "rate": 400,
+      "rps": 400,
+      "ok": 100,
+      "p50": 2.6,
+      "p95": 805.8,
+      "p99": 1057.6,
+      "max": 1302.3,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "blog (ISR)",
+      "path": "/blog/hello-box",
+      "via": "vzNAT",
+      "rate": 400,
+      "rps": 399.8,
+      "ok": 100,
+      "p50": 40.6,
+      "p95": 1883.2,
+      "p99": 2051.7,
+      "max": 2455.3,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "products (PPR)",
+      "path": "/products",
+      "via": "vzNAT",
+      "rate": 200,
+      "rps": 199.4,
+      "ok": 100,
+      "p50": 10,
+      "p95": 189.5,
+      "p99": 310.8,
+      "max": 430.6,
+      "codes": "200×4000",
+      "errors": ""
+    },
+    {
+      "name": "dashboard (dynamic)",
+      "path": "/dashboard?delay=0",
+      "via": "vzNAT",
+      "rate": 50,
+      "rps": 50,
+      "ok": 100,
+      "p50": 7.5,
+      "p95": 12.5,
+      "p99": 18.3,
+      "max": 37.2,
+      "codes": "200×1000",
+      "errors": ""
+    },
+    {
+      "name": "api/items (JSON)",
+      "path": "/api/items",
+      "via": "vzNAT",
+      "rate": 400,
+      "rps": 399.7,
+      "ok": 100,
+      "p50": 1.5,
+      "p95": 4.6,
+      "p99": 22.2,
+      "max": 72.5,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "next/image warm",
+      "path": "/_next/image?url=%2Fhero.jpg&w=828&q=75",
+      "via": "vzNAT",
+      "rate": 300,
+      "rps": 300,
+      "ok": 100,
+      "p50": 1.1,
+      "p95": 2.2,
+      "p99": 5.1,
+      "max": 33.8,
+      "codes": "200×6000",
+      "errors": ""
+    },
+    {
+      "name": "next/image cold",
+      "path": "/_next/image\\?url=%2Fapi%2Fswatch%2F[0-9]{12}&w=640&q=75",
+      "via": "vzNAT",
+      "rate": 10,
+      "rps": 10,
+      "ok": 100,
+      "p50": 33.1,
+      "p95": 51.9,
+      "p99": 90,
+      "max": 94.6,
+      "codes": "200×200",
+      "errors": ""
+    },
+    {
+      "name": "server action POST",
+      "path": "/dashboard",
+      "via": "vzNAT",
+      "rate": 100,
+      "rps": 100,
+      "ok": 100,
+      "p50": 2.9,
+      "p95": 5.7,
+      "p99": 29.5,
+      "max": 140.1,
+      "codes": "200×2000",
+      "errors": ""
+    }
+  ]
+}

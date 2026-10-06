@@ -1,3 +1,4 @@
 /resources/cpus: must be a multiple of 0.25 (got 0.3)
 /resources/maxSharePercent: must be at least 5 (got 2)
 /resources/memoryMB: must be at least 128 (got 64)
+/sleepAfter: "30m" must be a time in hours or days, such as "24h", "7d" or "14d"

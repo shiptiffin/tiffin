@@ -30,6 +30,7 @@ type Hit struct {
 	UA       string
 	Props    map[string]any
 	Src      string // edge | script | server
+	GPC      bool   // the browser sent Global Privacy Control: not counted
 }
 
 // SessionIdle ends a session after this much inactivity.
@@ -49,6 +50,7 @@ type sess struct {
 type Stats struct {
 	Accepted int64 `json:"accepted"`
 	Bots     int64 `json:"bots" doc:"Hits dropped as bots, crawlers, monitors or scripts"`
+	OptedOut int64 `json:"optedOut" doc:"Hits not counted because the browser sent Global Privacy Control"`
 	Invalid  int64 `json:"invalid"`
 	Buffered int   `json:"buffered"`
 	Failed   int64 `json:"failed" doc:"Events lost because the store refused them"`
@@ -118,6 +120,12 @@ func (pl *Pipeline) Add(ctx context.Context, h Hit) (bool, string) {
 		h.At = pl.now()
 	}
 	h.At = h.At.UTC()
+	if h.GPC {
+		pl.mu.Lock()
+		pl.stats.OptedOut++
+		pl.mu.Unlock()
+		return false, "global privacy control"
+	}
 	if h.Src != "server" || h.UA != "" {
 		if pl.Bots.IsBot(h.UA) {
 			pl.mu.Lock()
@@ -145,6 +153,11 @@ func (pl *Pipeline) Add(ctx context.Context, h Hit) (bool, string) {
 		Country: pl.Geo.Country(h.IP), Browser: ag.Browser, OS: ag.OS, Device: ag.Device, Visitor: vis, Src: h.Src}
 	if ev.Kind == "pageview" {
 		ev.Name = "pageview"
+	}
+	if u, ok := h.Props["url"].(string); ok && (h.Name == "Outbound Link: Click" || h.Name == "File Download") {
+		// The script's own events keep where a link went, not its query
+		// string or fragment (they can hold tokens).
+		h.Props["url"] = enrich.StripQuery(u)
 	}
 	if len(h.Props) > 0 {
 		clean := map[string]any{}

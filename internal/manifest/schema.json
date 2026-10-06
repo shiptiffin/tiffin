@@ -19,6 +19,11 @@
       "description": "How much of the box the project's apps (production and previews) may use. Absent means automatic: the project grows into whatever the box has free, shares the CPU fairly with other projects under contention, and can never take the memory the platform or other projects' running apps need (a box-wide default share, if the owner set one, still applies). Set any field to give the project a fixed budget; when memoryMB and maxSharePercent are both set, the lower limit wins. Changes apply live, without restarting apps.",
       "$ref": "#/$defs/resources"
     },
+    "sleepAfter": {
+      "description": "Lets the project's production apps sleep when nobody uses them: after this long with no requests and no job, cron or workflow deliveries, their containers stop (freeing memory and CPU; images, data, routes and env stay) and the next request or delivery starts them again, which takes a few seconds. Hours or days, 1h to 30d, such as \"24h\", \"7d\" or \"14d\". Absent: they never sleep. Previews sleep after 15 idle minutes whatever this says.",
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,3}[hd]$"
+    },
     "apps": {
       "description": "Apps keyed by name. App names follow the same slug rules as `project`. An app is one deployable unit.",
       "type": "object",

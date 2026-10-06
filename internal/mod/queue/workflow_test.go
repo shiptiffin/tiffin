@@ -619,3 +619,21 @@ func TestCancelRunLockOrder(t *testing.T) {
 		})
 	})
 }
+
+// The runtime keeps an app that may sleep awake while a delivery to it runs.
+func TestDelivering(t *testing.T) {
+	e := newEngine(t, nil)
+	ctx := context.Background()
+	if busy, err := e.Delivering(ctx, proj, "web"); err != nil || busy {
+		t.Fatalf("nothing running: %v %v", busy, err)
+	}
+	if _, err := e.pool.Exec(ctx, `INSERT INTO tq_jobs (project, queue, app, state, max_attempts, lease_s) VALUES ($1, 'q', 'web', 'running', 3, 60)`, proj); err != nil {
+		t.Fatal(err)
+	}
+	if busy, err := e.Delivering(ctx, proj, "web"); err != nil || !busy {
+		t.Fatalf("a job runs on web: %v %v", busy, err)
+	}
+	if busy, _ := e.Delivering(ctx, proj, "api"); busy {
+		t.Fatal("api has nothing running")
+	}
+}

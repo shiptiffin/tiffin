@@ -29,7 +29,8 @@ Plainly, so you can decide what to trust it with.
 - **Every change and security event is logged** (changes with the key or person that
   made them, keys created and revoked, sign-ins, secrets).
 - **Known gaps:** a person or agent with shell access to your Mac can read your local
-  owner token in `~/.tiffin`. Backups stay on the box until off-site storage arrives.
+  owner token in `~/.tiffin`. Backups stay on the box unless you set an off-box destination
+  (`tiffin backups offsite set`); keep its passphrase off the box.
 
 ## Signing in with a passkey
 

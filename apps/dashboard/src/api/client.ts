@@ -151,6 +151,7 @@ export const api = {
     request<ProjectJob>("POST", `/v1/project-imports/${encodeURIComponent(id)}/apply`, body),
   discardImport: (id: string) => request<ProjectJob>("DELETE", `/v1/project-imports/${encodeURIComponent(id)}`),
   startProject: (project: string) => request<ApplyResult>("POST", `/v1/projects/${encodeURIComponent(project)}/start`, {}),
+  stopProject: (project: string) => request<ApplyResult>("POST", `/v1/projects/${encodeURIComponent(project)}/stop`, {}),
 };
 
 /** Uploads a file as the raw body, reporting progress (fetch can't report upload progress). */

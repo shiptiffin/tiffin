@@ -13,6 +13,7 @@
  * export { default } from "tiffin-sdk/next/cache-handler";
  * ```
  */
+import { createRequire } from "node:module";
 import { readBuildId, Store, warnOnce } from "./store.js";
 const TAGS_HEADER = "x-next-cache-tags";
 /**
@@ -29,6 +30,44 @@ function entryTags(item, ctx) {
     return tags;
 }
 const builds = new Map();
+/** The kinds `next build` prerenders to files: pages and GET route handlers. */
+const PRERENDERED = new Set(["APP_PAGE", "APP_ROUTE", "PAGES"]);
+let fileCacheClass;
+const fileCaches = new Map();
+/**
+ * Next.js's own file-system cache over this build's output, read-only. With a
+ * cacheHandler set, `next build` still writes every prerendered page and
+ * route handler to .next/server (the store it rendered into is gone), and
+ * Next.js's default handler serves those files until an entry replaces them.
+ * Reading them with that same class keeps its semantics: which file belongs
+ * to which key, PPR shells, segments, and the files' time as lastModified.
+ */
+function fileCache(o) {
+    const dist = o.serverDistDir;
+    if (!dist || !o.fs)
+        return null;
+    let fc = fileCaches.get(dist);
+    if (fc !== undefined)
+        return fc;
+    if (fileCacheClass === undefined) {
+        fileCacheClass = null;
+        for (const from of [`${process.cwd()}/package.json`, import.meta.url]) {
+            try {
+                const m = createRequire(from)("next/dist/server/lib/incremental-cache/file-system-cache.js");
+                if (typeof m.default === "function") {
+                    fileCacheClass = m.default;
+                    break;
+                }
+            }
+            catch {
+                // not resolvable from here
+            }
+        }
+    }
+    fc = fileCacheClass ? new fileCacheClass({ fs: o.fs, serverDistDir: dist, flushToDisk: false, revalidatedTags: [], maxMemoryCacheSize: 0 }) : null;
+    fileCaches.set(dist, fc);
+    return fc;
+}
 /**
  * Next.js makes one handler per request; they share one Store (connection,
  * in-memory copy, tag state). Each request reads the tag counter once.
@@ -36,7 +75,9 @@ const builds = new Map();
 export class TiffinCacheHandler {
     store;
     synced;
+    files;
     constructor(nextOptions = {}, storeOptions = {}) {
+        this.files = fileCache(nextOptions);
         let o = storeOptions;
         const dist = nextOptions.serverDistDir;
         if (dist && o.buildId === undefined && !process.env.TIFFIN_DEPLOY && !process.env.NEXT_DEPLOYMENT_ID) {
@@ -53,6 +94,7 @@ export class TiffinCacheHandler {
             const s = this.store;
             // The tag counter and the entry in one round trip.
             let [, item] = await Promise.all([(this.synced ??= s.sync()), s.read("e", key)]);
+            item ??= await this.prerendered(key, ctx);
             if (!item)
                 return null;
             let tags = entryTags(item, ctx);
@@ -77,6 +119,25 @@ export class TiffinCacheHandler {
             warnOnce(`cache get failed, treating as a miss: ${String(err)}`);
             return null;
         }
+    }
+    /**
+     * What `next build` prerendered for key, when Valkey has nothing yet. It is
+     * copied into Valkey with the build's time (unless an instance stored a
+     * rendering meanwhile), so later requests and the other instances read it there.
+     */
+    async prerendered(key, ctx) {
+        if (!this.files || !PRERENDERED.has(String(ctx.kind)))
+            return undefined;
+        const got = await this.files.get(key, ctx).catch(() => null);
+        if (!got?.value)
+            return undefined;
+        const item = { meta: { lastModified: got.lastModified, tags: [] }, value: got.value, size: 0, until: 0 };
+        const s = this.store;
+        // A tag revalidated since the build makes it a miss: nothing to copy.
+        if (!s.expired(entryTags(item, ctx), got.lastModified)) {
+            await s.write("e", key, { ...item.meta }, got.value, s.maxTtl, true).catch((err) => warnOnce(`cache set failed (the response was still served): ${String(err)}`));
+        }
+        return item;
     }
     async set(key, data, ctx = {}) {
         try {

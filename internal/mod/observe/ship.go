@@ -16,7 +16,32 @@ import (
 
 	"github.com/btahir/tiffin/internal/mod/observe/edgelog"
 	"github.com/btahir/tiffin/internal/mod/observe/logtail"
+	"github.com/btahir/tiffin/internal/platform"
 )
+
+// activityNoter is the runtime's: every request to an app's host counts as
+// the app's activity (an app whose project lets it sleep sleeps after a
+// while without any), those the box answers itself too.
+type activityNoter interface {
+	NoteActivity(project, app string, at time.Time)
+}
+
+// runtimeNoter finds the runtime once (modules register at init).
+var runtimeNoter = sync.OnceValue(func() activityNoter {
+	for _, mod := range platform.Modules() {
+		if n, ok := mod.(activityNoter); ok {
+			return n
+		}
+	}
+	return nil
+})
+
+// noteActivity tells the runtime, if there is one, about a request to an app.
+func noteActivity(project, app string, at time.Time) {
+	if n := runtimeNoter(); n != nil {
+		n.NoteActivity(project, app, at)
+	}
+}
 
 // ---- journald: the box's own services, tiffin included ----
 
@@ -399,6 +424,7 @@ func (m *Module) handleAccess(ctx context.Context, line []byte) {
 	var t Tenant
 	stream := "source,host"
 	if mapped {
+		noteActivity(site.Project, site.App, e.Time)
 		rec["app"] = site.App
 		stream = "source,app"
 		var err error

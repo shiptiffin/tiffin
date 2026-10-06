@@ -1,0 +1,1 @@
+@keyframes sheet-from-right{0%{opacity:0;transform:translate(24px)}}.schema-map{touch-action:none;cursor:grab}.schema-map[data-dragging=true]{cursor:grabbing}.schema-map .link{fill:none;stroke:var(--rule-3);stroke-width:1.25px}.schema-map .link[data-on=true]{stroke:var(--brass-ink);stroke-width:1.75px}.schema-map .node:focus-visible rect.card{stroke:var(--focus);stroke-width:2px}

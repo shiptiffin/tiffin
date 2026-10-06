@@ -92,7 +92,7 @@ export default function Greet() {
 		t.Fatalf("the release did not create notes: %s", got)
 	}
 	if code, _, body := b.get(c, "GET", b.url("relx")+"/", nil); code != 200 || !strings.Contains(body, "v1 tables=1") ||
-		!strings.Contains(body, "direct=true") || strings.Contains(body, "pool=undefined") {
+		!strings.Contains(body, "pooled=true") || strings.Contains(body, "pool=undefined") {
 		t.Fatalf("api: %d %s", code, body)
 	}
 
@@ -180,7 +180,7 @@ Bun.serve({
   async fetch() {
     const [{ n }] = await sql` + "`select count(*)::int as n from information_schema.tables where table_schema = 'public'`" + `;
     const env = process.env;
-    return new Response(` + "`" + version + " tables=${n} db=${env.PGDATABASE} pool=${env.DATABASE_POOL_MAX} direct=${env.DIRECT_DATABASE_URL === env.DATABASE_URL}`" + `);
+    return new Response(` + "`" + version + " tables=${n} db=${env.PGDATABASE} pool=${env.DATABASE_POOL_MAX} pooled=${env.DATABASE_URL.includes(':6432/') && env.DIRECT_DATABASE_URL.includes(':5432/')}`" + `);
   },
 });
 `

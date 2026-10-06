@@ -70,8 +70,8 @@ var groupShort = map[string]string{
 	"passkeys":  "List and remove the passkeys people sign in with",
 	"people":    "Invite people and manage their roles",
 	"session":   "Dashboard sessions",
-	"db":        "Inspect a project's Postgres database",
-	"kv":        "Inspect a project's Valkey keys",
+	"db":        "Inspect a project's Postgres database, or reach it from this computer",
+	"kv":        "Browse a project's KV keys, or reach them from this computer",
 	"branches":  "Clone and drop preview database branches",
 	"snapshots": "List and restore database snapshots",
 	"backups":   "List backups and set the backup schedule",
@@ -111,6 +111,7 @@ var groupShort = map[string]string{
 	"projects exports": "Inspect project exports",
 	"projects imports": "Apply or discard an uploaded project export",
 	"projects jobs":    "Follow a duplicate or an import",
+	"backups offsite":  "Copy backups off the box to an S3-compatible bucket, encrypted",
 }
 
 // switchFlags give a generated command a flag that sends the call to a

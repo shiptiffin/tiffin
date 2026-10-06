@@ -25,6 +25,7 @@ import (
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/change/changetest"
 	"github.com/btahir/tiffin/internal/edge"
+	"github.com/btahir/tiffin/internal/edge/switchboard"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/mod/postgres"
 	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
@@ -345,6 +346,7 @@ type fakeBuilder struct {
 	failAll atomic.Bool
 	mu      sync.Mutex
 	envs    map[string]map[string]string // deploy ID → its build env
+	runEnvs map[string]map[string]string // deploy ID → its build's RunEnv
 }
 
 func (b *fakeBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult, error) {
@@ -354,6 +356,10 @@ func (b *fakeBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult,
 		b.envs = map[string]map[string]string{}
 	}
 	b.envs[req.Deploy.ID] = req.Env
+	if b.runEnvs == nil {
+		b.runEnvs = map[string]map[string]string{}
+	}
+	b.runEnvs[req.Deploy.ID] = req.RunEnv
 	b.mu.Unlock()
 	if b.failAll.Load() {
 		return BuildResult{}, &BuildError{Msg: "the build failed", Hint: "read the log"}
@@ -393,19 +399,56 @@ func (b *fakeBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult,
 
 // fakeEdge is a tiny reverse proxy standing in for Caddy: it serves whatever
 // routes were loaded last, like the real edge does after a reload.
+// fakeEdge is the edge process in one: routes as a map, and a real
+// switchboard fed from the runtime's table.
 type fakeEdge struct {
 	mu     sync.Mutex
 	routes []edge.Route
 	loads  int
+	source func() switchboard.Table
+	syncMu sync.Mutex
+	board  *switchboard.Board
+	sb     *httptest.Server
+}
+
+func newFakeEdge(t *testing.T, ctl switchboard.Control) *fakeEdge {
+	e := &fakeEdge{board: switchboard.New(ctl, slog.New(slog.NewTextHandler(io.Discard, nil)))}
+	e.sb = httptest.NewServer(e.board)
+	t.Cleanup(e.sb.Close)
+	return e
 }
 
 func (e *fakeEdge) SetRoutes(rs []edge.Route) error {
 	e.mu.Lock()
-	defer e.mu.Unlock()
 	e.routes = rs
 	e.loads++
+	e.mu.Unlock()
+	return e.SyncTable()
+}
+
+func (e *fakeEdge) Switchboard() string { return e.sb.Listener.Addr().String() }
+
+func (e *fakeEdge) TableSource(fn func() switchboard.Table) {
+	e.mu.Lock()
+	e.source = fn
+	e.mu.Unlock()
+}
+
+func (e *fakeEdge) SyncTable() error {
+	e.syncMu.Lock()
+	defer e.syncMu.Unlock()
+	e.mu.Lock()
+	fn := e.source
+	e.mu.Unlock()
+	if fn != nil {
+		e.board.Set(fn())
+	}
 	return nil
 }
+
+func (e *fakeEdge) Busy(names []string) (int64, error) { return e.board.Busy(names), nil }
+
+func (e *fakeEdge) Activity() (map[string]time.Time, error) { return e.board.Activity(), nil }
 
 func (e *fakeEdge) find(host, path string) *edge.Route {
 	e.mu.Lock()
@@ -482,7 +525,15 @@ func newHarnessQuota(t *testing.T, q quotaFS) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fe := &fakeEdge{}
+	// The registered module instance: the platform finds routes and the API
+	// finds operations through the registry.
+	var m *Module
+	for _, mod := range platform.Modules() {
+		if rm, ok := mod.(*Module); ok {
+			m = rm
+		}
+	}
+	fe := newFakeEdge(t, m)
 	p := &platform.Platform{DB: db, Engine: change.NewEngine(db), Tokens: tokens.NewManager(db), Secrets: sec, Home: dir,
 		Domain: "tiffin.localhost", PublicURL: "https://dashboard.tiffin.localhost:8443", Edge: fe,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
@@ -493,16 +544,9 @@ func newHarnessQuota(t *testing.T, q quotaFS) *harness {
 	opt.Builder = bld
 	pgb := &fakeBranches{made: map[string]postgres.PGBranch{}}
 	opt.Branches = pgb
+	opt.ReadAccess = fakeReadAccess{}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	// The registered module instance: the platform finds routes and the API
-	// finds operations through the registry.
-	var m *Module
-	for _, mod := range platform.Modules() {
-		if rm, ok := mod.(*Module); ok {
-			m = rm
-		}
-	}
 	if err := m.start(ctx, p, opt); err != nil {
 		t.Fatal(err)
 	}
@@ -1032,7 +1076,7 @@ func TestPreviewSleepsAndWakes(t *testing.T) {
 	// Idle → asleep.
 	h.r.opt.PreviewIdle = time.Millisecond
 	time.Sleep(5 * time.Millisecond)
-	h.r.sleepIdlePreviews(context.Background())
+	h.r.sleepIdle(context.Background())
 	st := h.state("api", "feat-x")
 	if !st.Sleeping || len(st.Instances) != 0 {
 		t.Fatalf("not asleep: %+v", st)
@@ -1278,7 +1322,7 @@ func TestUnusedPreviewsAreDeleted(t *testing.T) {
 	h.deploy("api", "", map[string]string{"index.ts": "prod"})
 	pv := h.deploy("api", "feat-x", map[string]string{"index.ts": "preview"})
 	h.r.opt.PreviewExpire = time.Hour
-	h.r.sleep(ctx, "shop", "api", "feat-x")
+	h.r.sleep(ctx, "shop", "api", "feat-x", 0)
 	h.r.expirePreviews(ctx)
 	if h.state("api", "feat-x").Live != pv.ID {
 		t.Fatal("a preview used within PreviewExpire was deleted")
@@ -1337,6 +1381,7 @@ func TestRecoverRemovesOrphanedContainers(t *testing.T) {
 	if err := h.r.recover(ctx); err != nil {
 		t.Fatal(err)
 	}
+	h.r.removeOrphans(ctx) // as start does, once the edge has the table
 	if c, _ := h.eng.Inspect(ctx, orphan.Name); c != nil {
 		t.Fatal("orphaned container survived the restart")
 	}

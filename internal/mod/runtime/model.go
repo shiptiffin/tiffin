@@ -110,8 +110,13 @@ type AppState struct {
 	Hash string `json:"hash,omitempty"`
 	// Stopped: the app resource was deleted; Live is kept so undo can restore it.
 	Stopped bool `json:"stopped,omitempty"`
-	// Sleeping: a preview scaled to zero; the activator wakes it on a request.
+	// Sleeping: scaled to zero (an idle preview, or production of a project
+	// with sleepAfter); a request or a delivery wakes it.
 	Sleeping bool `json:"sleeping,omitempty"`
+	// SleptAt is when it fell asleep (while Sleeping).
+	SleptAt *time.Time `json:"sleptAt,omitempty"`
+	// LastWake is its last wake from sleep.
+	LastWake *Wake `json:"lastWake,omitempty"`
 	// Draining: earlier releases kept running (without routes) because
 	// workflow runs are pinned to them; stopped once the queue lets go.
 	Draining []DrainSet `json:"draining,omitempty"`
@@ -121,6 +126,17 @@ type AppState struct {
 	// Serial makes container names unique across restarts.
 	Serial    int       `json:"serial"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// Wake is one wake of a sleeping app environment.
+type Wake struct {
+	At      time.Time `json:"at" doc:"When it began"`
+	Trigger string    `json:"trigger" enum:"request,delivery,wake,setting" doc:"What woke it: a request, a job, cron or workflow delivery, Wake now, or its project no longer letting it sleep"`
+	// StartSeconds is from the wake's start to healthy instances.
+	StartSeconds float64 `json:"startSeconds" doc:"From the start to healthy instances, in seconds"`
+	// FirstByteSeconds is, for a request, from its arrival to the first
+	// byte of its response: the cold start the visitor saw.
+	FirstByteSeconds float64 `json:"firstByteSeconds,omitempty" doc:"For a request: from its arrival, held while the app started, to the first byte of its response, in seconds"`
 }
 
 // DrainSet is an old release's instances kept for pinned workflow runs.
@@ -155,6 +171,8 @@ func nsDeploys(project, app string) string { return "runtime/deploys/" + project
 type store struct {
 	db    *state.DB
 	cache *stateCache
+	// changed sends the switchboard the cache's new contents.
+	changed func()
 }
 
 var errNotFound = errors.New("not found")
@@ -229,12 +247,18 @@ func (s store) putState(ctx context.Context, st *AppState) error {
 	if s.cache != nil {
 		s.cache.put(st)
 	}
+	if s.changed != nil {
+		s.changed()
+	}
 	return nil
 }
 
 func (s store) deleteState(ctx context.Context, st *AppState) error {
 	if s.cache != nil {
 		s.cache.del(envKey(st.Project, st.App, st.Preview))
+	}
+	if s.changed != nil {
+		defer s.changed()
 	}
 	return s.db.KVDelete(ctx, nsState, envKey(st.Project, st.App, st.Preview))
 }

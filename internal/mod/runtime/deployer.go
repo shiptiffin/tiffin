@@ -25,7 +25,9 @@ import (
 	"github.com/btahir/tiffin/internal/mod/auth"
 	"github.com/btahir/tiffin/internal/mod/budget"
 	"github.com/btahir/tiffin/internal/mod/email"
+	"github.com/btahir/tiffin/internal/mod/postgres"
 	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
+	"github.com/btahir/tiffin/internal/mod/valkey"
 )
 
 // newDeploy records a queued deploy. Its source must already be on disk.
@@ -184,6 +186,19 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 			fmt.Fprintf(log, "==> browser env: %s (built into the client code; a change rebuilds the app)\n", publicEnvNames(pub))
 		}
 	}
+	// A preview's database branch exists before its build, which reads it.
+	branch := ""
+	if spec.Framework != manifest.FrameworkStatic && kind != SourcePrebuilt {
+		if err != nil {
+			return err
+		}
+		if branch, err = r.ensurePreviewBranch(ctx, d, log); err != nil {
+			return err
+		}
+		if req.RunEnv, err = r.buildRunEnv(ctx, d, spec, all, log); err != nil {
+			return err
+		}
+	}
 	if spec.Framework == manifest.FrameworkNext {
 		// The same key at build and run time, deploy after deploy.
 		if err != nil {
@@ -248,9 +263,10 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 	d.Status = StatusStarting
 	_ = r.st.putDeploy(ctx, d)
 	if d.StaticRoot == "" {
-		branch, err := r.ensurePreviewBranch(ctx, d, log)
-		if err != nil {
-			return err
+		if kind == SourcePrebuilt {
+			if branch, err = r.ensurePreviewBranch(ctx, d, log); err != nil {
+				return err
+			}
 		}
 		if err := r.runRelease(ctx, d, spec, branch, log); err != nil {
 			return err
@@ -350,7 +366,9 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 	}
 	// The switch: from here on new requests go to the new instances.
 	st.Retired = retire(st.Retired, prev.Live, d.ID, time.Now().UTC())
-	st.Live, st.Instances, st.Hash, st.Stopped, st.Sleeping = d.ID, started, hash, false, false
+	st.Live, st.Instances, st.Hash, st.Stopped, st.Sleeping, st.SleptAt = d.ID, started, hash, false, false, nil
+	// Deploys, rollbacks, restarts and wakes count as activity.
+	r.touch(envKey(d.Project, d.App, d.Preview))
 	if err := r.st.putState(ctx, st); err != nil {
 		r.removeInstances(ctx, started)
 		return err
@@ -552,7 +570,6 @@ func (r *rt) removeInstancesGrace(ctx context.Context, ins []Instance, grace tim
 				r.p.Log.Error("remove container", "name", in.Name, "err", err)
 			}
 			r.freePort(in.Port)
-			r.st.cache.forget([]Instance{in})
 		}()
 	}
 	wg.Wait()
@@ -692,7 +709,9 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 		env["NODE_ENV"] = "production"
 	}
 	if env["NODE_OPTIONS"] == "" && spec.MemoryMB > 0 {
-		// Keep V8's heap inside the container's memory cap.
+		// Keep V8's heap inside the container's memory cap. Bun ignores the
+		// flag; its knobs (--smol, BUN_JSC_forceRAMSize) made no measurable
+		// difference to a Next.js app under load (examples/next-showcase/bench).
 		env["NODE_OPTIONS"] = "--max-old-space-size=" + strconv.Itoa(max(64, spec.MemoryMB*3/4))
 	}
 	if preview != "" {
@@ -713,6 +732,9 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 		env["TIFFIN_URL"] = r.deployURL(d, spec)
 		if preview != "" {
 			auth.PreviewEnv(env, env["TIFFIN_URL"])
+		}
+		if spec.Framework == manifest.FrameworkNext {
+			nextOrigin(env, r.deployURL(&Deploy{Project: project, App: app}, spec), env["TIFFIN_URL"], preview != "")
 		}
 	}
 	addNextAliases(env, spec)
@@ -745,6 +767,74 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 	// the next start rather than restarting every app of the project.
 	r.setPoolMax(ctx, project, preview, env)
 	return env, hex.EncodeToString(h.Sum(nil))[:16], nil
+}
+
+// instanceOnlyEnv are defaults the box gives instances (production mode,
+// their memory cap); a build has its own, unless the app sets them.
+var instanceOnlyEnv = []string{"NODE_ENV", "NODE_OPTIONS"}
+
+// buildRunEnv is the env a Railpack build reads besides its plain env: what
+// the environment's instances get (services, secrets, a preview's database
+// branch, TIFFIN_URL), as on Vercel, where builds get the project's env, so
+// generateStaticParams and prerenders can query the database. Railpack hands
+// it to build steps as BuildKit secrets: it never lands in the image. own is
+// the project's env (ProjectEnv).
+func (r *rt) buildRunEnv(ctx context.Context, d *Deploy, spec *manifest.App, own map[string]string, log io.Writer) (map[string]string, error) {
+	env, _, err := r.instanceEnv(ctx, d.Project, d.App, d.Preview, spec)
+	if err != nil {
+		return nil, err
+	}
+	for _, k := range instanceOnlyEnv {
+		if own[k] == "" {
+			delete(env, k)
+		}
+	}
+	// The database (a preview's: its branch) and Valkey through read-only
+	// users, where the env still holds the box's connection: a build reads
+	// data but never writes to it.
+	if r.hasService(ctx, d.Project, "postgres") {
+		branch := r.previewBranch(ctx, d.Project, d.Preview)
+		box, err := postgres.ConnEnv(ctx, r.p, d.Project, branch, false)
+		if err != nil {
+			return nil, err
+		}
+		if env["DATABASE_URL"] == box["DATABASE_URL"] {
+			ro, err := r.opt.ReadAccess.PostgresReadEnv(ctx, r.p, d.Project, branch)
+			if err != nil {
+				return nil, err
+			}
+			for k, v := range ro {
+				if env[k] == box[k] {
+					env[k] = v
+				}
+			}
+		}
+	}
+	if r.hasService(ctx, d.Project, "valkey") {
+		box, err := valkey.ConnEnv(ctx, r.p, d.Project, false)
+		if err != nil {
+			return nil, err
+		}
+		if env["REDIS_URL"] == box["REDIS_URL"] {
+			ro, err := r.opt.ReadAccess.ValkeyReadEnv(ctx, r.p, d.Project)
+			if err != nil {
+				return nil, err
+			}
+			for k, v := range ro {
+				env[k] = v
+			}
+		}
+	}
+	var svc []string
+	for _, k := range []string{"DATABASE_URL", "REDIS_URL", "S3_ENDPOINT", "TIFFIN_FILES_URL", "TIFFIN_URL"} {
+		if env[k] != "" {
+			svc = append(svc, k)
+		}
+	}
+	if len(svc) > 0 {
+		fmt.Fprintf(log, "==> build env: the app's env, secrets and services as its instances get them (%s), as build secrets, never in the image; prerenders read live data\n", strings.Join(svc, ", "))
+	}
+	return env, nil
 }
 
 // plainEnv is the non-secret env visible at build time: the project's env
@@ -790,7 +880,9 @@ func (r *rt) converge(ctx context.Context, project, app, preview string, spec *m
 	if !d.Terminal() {
 		return nil
 	}
-	if !st.Stopped && !st.Sleeping && r.rebuildIfStale(ctx, d, spec) {
+	// A sleeping production app is rebuilt too (the deploy wakes it); a
+	// sleeping preview picks the change up at its next deploy.
+	if !st.Stopped && (!st.Sleeping || preview == "") && r.rebuildIfStale(ctx, d, spec) {
 		return nil // the rebuild goes live with the new env
 	}
 	if d.StaticRoot != "" {
@@ -800,7 +892,7 @@ func (r *rt) converge(ctx context.Context, project, app, preview string, spec *m
 		return nil
 	}
 	if st.Sleeping {
-		return nil // a sleeping preview starts with the current config when it wakes
+		return nil // a sleeping app starts with the current config when it wakes
 	}
 	_, hash, err := r.instanceEnv(ctx, project, app, preview, spec)
 	if err != nil {
@@ -853,7 +945,8 @@ func (r *rt) stopEnv(ctx context.Context, st *AppState) error {
 	for _, ds := range st.Draining {
 		ins = append(ins, ds.Instances...)
 	}
-	st.Instances, st.Draining, st.Stopped = nil, nil, true
+	// Not asleep: a start brings it back awake.
+	st.Instances, st.Draining, st.Stopped, st.Sleeping, st.SleptAt = nil, nil, true, false, nil
 	if err := r.st.putState(ctx, st); err != nil {
 		return err
 	}

@@ -1,7 +1,7 @@
 import postgres from "postgres";
 
 // postgres.js runs on Bun and on Node.js, so the same app can be measured on
-// both. Tiffin sets DATABASE_URL.
+// both. Tiffin sets DATABASE_URL (for the build: a read-only user).
 const g = globalThis as { __showcaseSql?: postgres.Sql };
 
 export function sql(): postgres.Sql {
@@ -14,20 +14,17 @@ export function sql(): postgres.Sql {
 const building = () => process.env.NEXT_PHASE === "phase-production-build";
 
 /**
- * Runs a query; while `next build` prerenders without a reachable database
- * it returns the seed data instead (the page is rendered again from the
- * database when its cache expires or is revalidated).
+ * Runs a query. The release command creates the tables after the build, so
+ * the very first build finds none: it prerenders the seed rows instead (the
+ * rows the release then writes). So does a build without DATABASE_URL.
  */
 export async function orSeed<T>(query: () => Promise<T>, seed: () => T): Promise<T> {
-  if (building() && !process.env.DATABASE_URL) {
-    console.warn("[showcase] build: no DATABASE_URL, prerendering seed data");
-    return seed();
-  }
+  if (building() && !process.env.DATABASE_URL) return seed();
   try {
     return await query();
   } catch (err) {
-    if (!building()) throw err;
-    console.warn(`[showcase] build: database not reachable (${(err as Error).message}), prerendering seed data`);
+    if (!building() || (err as { code?: string }).code !== "42P01") throw err;
+    console.warn("[showcase] build: no tables yet (first deploy), prerendering the seed rows");
     return seed();
   }
 }

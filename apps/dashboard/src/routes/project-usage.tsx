@@ -19,6 +19,7 @@ import { rememberProject } from "@/lib/recent";
 import { change, changeMany, pendingFor, usePending, type StagedEdit } from "@/lib/staged";
 import { partName, partSub } from "@/lib/names";
 import { Button } from "@/components/ui/button";
+import { UsageCharts } from "@/components/usage-charts";
 import { boxSettingsQuery, cpuWords, memWords, missing, shareMeans, shareWords, useBoxShares, usageQuery, type ProjectResources, type ProjectUsage } from "@/lib/usage";
 
 const MB = 1048576;
@@ -126,6 +127,8 @@ export function ProjectUsagePage({ project }: { project: string }) {
         </Limit>
       )}
 
+      <UsageCharts project={project} apps={Object.keys(m.data?.manifest.apps ?? {}).sort()} usage={usage.data} />
+
       <Details
         project={project}
         free={res && res.memory.totalBytes > 0 ? res.memory.availableBytes / MB - RESERVE_MB : undefined}
@@ -191,7 +194,7 @@ function Limit({
           checked={limited}
           onSelect={() => !limited && limit(25)}
           title={limited && !resources?.maxSharePercent ? "Limited to exact numbers" : `Limit to ${shown}% of the box`}
-          note={limited && !resources?.maxSharePercent ? `${resources?.memoryMB ? memWords(resources.memoryMB) : "no memory limit"}${resources?.cpus ? ` and ${cpuWords(resources.cpus)}` : ""}. Change it under Details.` : "Its apps, database, cache and builds each get at most this share, so it can’t crowd out your other projects. At the limit it slows down first."}
+          note={limited && !resources?.maxSharePercent ? `${resources?.memoryMB ? memWords(resources.memoryMB) : "no memory limit"}${resources?.cpus ? ` and ${cpuWords(resources.cpus)}` : ""}. Change it under Details.` : "Its apps, database, KV store and builds each get at most this share, so it can’t crowd out your other projects. At the limit it slows down first."}
         >
           {limited && !!resources?.maxSharePercent && (
             <div className="mt-3">
@@ -270,7 +273,7 @@ function LimitAdvanced({ project, usage, services }: { project: string; usage: P
   const save = () => {
     const edits: StagedEdit[] = [];
     if (services?.valkey && mb !== live.mb)
-      edits.push({ kind: "set", path: ["services", "valkey", "maxMemoryMB"], from: services.valkey.maxMemoryMB, to: nMb, what: `Limit ${project}’s cache to ${nMb} MB`, undo: `${project}’s cache limit goes back to ${live.mb} MB` });
+      edits.push({ kind: "set", path: ["services", "valkey", "maxMemoryMB"], from: services.valkey.maxMemoryMB, to: nMb, what: `Limit ${project}’s KV store to ${nMb} MB`, undo: `${project}’s KV limit goes back to ${live.mb} MB` });
     if (services?.postgres && secs !== live.secs)
       edits.push({
         kind: "set",
@@ -318,8 +321,8 @@ function LimitAdvanced({ project, usage, services }: { project: string; usage: P
             </Setting>
           )}
           {services?.valkey && (
-            <Setting label="Cache (MB)" note={usage.cache?.enforced ? "Over it, keys with an expiry are cleared first, then new writes wait until it’s under it." : "Held to this while it has a limit."}>
-              <input aria-label="Cache limit in MB" value={mb} onChange={(e) => setMb(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" className={field} />
+            <Setting label="KV (MB)" note={usage.cache?.enforced ? "Over it, keys with an expiry are cleared first, then new writes wait until it’s under it." : "Held to this while it has a limit."}>
+              <input aria-label="KV limit in MB" value={mb} onChange={(e) => setMb(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" className={field} />
             </Setting>
           )}
           {services?.postgres && (
@@ -331,7 +334,7 @@ function LimitAdvanced({ project, usage, services }: { project: string; usage: P
             <Button type="submit" size="md" disabled={!dirty || !okGb || !okMb || !okSecs || quota.isPending}>
               Save
             </Button>
-            {!(okGb && okMb && okSecs) && <span className="ml-3 text-sm text-warn-ink">Storage above 0 GB, cache 1–65,536 MB, query time 1–3,600 seconds.</span>}
+            {!(okGb && okMb && okSecs) && <span className="ml-3 text-sm text-warn-ink">Storage above 0 GB, KV 1–65,536 MB, query time 1–3,600 seconds.</span>}
           </div>
           {quota.isError && <ProblemNote className="mb-3" error={quota.error} />}
         </form>
@@ -359,8 +362,8 @@ function SharedMeters({ usage }: { usage: ProjectUsage }) {
   const builds = usage.builds;
   const stopped = db?.queriesStoppedToday ?? 0;
   return (
-    <section className="mt-8 max-w-[46rem]" aria-label="Database, cache and builds">
-      <h2 className="label mb-1.5">Database, cache and builds</h2>
+    <section className="mt-8 max-w-[46rem]" aria-label="Database, KV and builds">
+      <h2 className="label mb-1.5">Database, KV and builds</h2>
       <div className="divide-y divide-rule border-y border-rule">
         {db?.limitCpus && (
           <Meter
@@ -388,7 +391,7 @@ function SharedMeters({ usage }: { usage: ProjectUsage }) {
         )}
         {cache && (
           <Meter
-            name="Cache"
+            name="KV"
             value={cache.limitBytes > 0 ? `${bytes(cache.usedBytes)} of ${bytes(cache.limitBytes, 0)}` : bytes(cache.usedBytes)}
             sub={
               cache.writesRefused

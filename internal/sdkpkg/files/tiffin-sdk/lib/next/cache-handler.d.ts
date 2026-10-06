@@ -1,18 +1,3 @@
-/**
- * `tiffin-sdk/next/cache-handler`: a Next.js 16 `cacheHandler` (ISR pages,
- * route handlers, `fetch` cache, `unstable_cache`) backed by Valkey, so every
- * instance of an app shares one cache and `revalidateTag` / `revalidatePath`
- * reach all of them.
- *
- * ```js
- * // next.config.mjs
- * export default {
- *   cacheHandler: fileURLToPath(new URL("./cache-handler.mjs", import.meta.url)),
- * };
- * // cache-handler.mjs
- * export { default } from "tiffin-sdk/next/cache-handler";
- * ```
- */
 import { Store, type StoreOptions } from "./store.js";
 /** What Next.js passes to get(). */
 export interface GetContext {
@@ -40,6 +25,8 @@ export interface Entry {
 /** Options Next.js passes to the constructor (the parts we use). */
 export interface HandlerOptions {
     serverDistDir?: string;
+    /** Next.js's file-system interface, which its own file-system cache reads build output with. */
+    fs?: unknown;
     [k: string]: unknown;
 }
 /**
@@ -49,8 +36,15 @@ export interface HandlerOptions {
 export declare class TiffinCacheHandler {
     readonly store: Store;
     private synced;
+    private readonly files;
     constructor(nextOptions?: HandlerOptions, storeOptions?: StoreOptions);
     get(key: string, ctx?: GetContext): Promise<Entry | null>;
+    /**
+     * What `next build` prerendered for key, when Valkey has nothing yet. It is
+     * copied into Valkey with the build's time (unless an instance stored a
+     * rendering meanwhile), so later requests and the other instances read it there.
+     */
+    private prerendered;
     set(key: string, data: Record<string, unknown> | null, ctx?: SetContext): Promise<void>;
     revalidateTag(tags: string | string[], durations?: {
         expire?: number;

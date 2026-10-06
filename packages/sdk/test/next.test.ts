@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
+import { dirname } from "node:path";
 import { createUseCacheHandler, memoryRedis, RespClient, TiffinCacheHandler, toRedisLike, type RedisLike, type StoreOptions, type TagState } from "tiffin-sdk/next";
 import { startFakeValkey, type FakeValkey } from "./fake-valkey";
 
@@ -203,6 +205,51 @@ describe("cacheHandler (ISR, route handlers, fetch)", () => {
     } finally {
       fake.mute = false;
     }
+  });
+});
+
+describe("pages prerendered by next build", () => {
+  // As `next build` writes them with an adapter: the scoped cache key's path under .next/server.
+  const key = "/route-cache/APP_PAGE/0f0f/$/blog/hello";
+  const { nodeFs } = createRequire(import.meta.url)("next/dist/server/lib/node-fs-methods.js") as { nodeFs: unknown };
+  const built = (tags: string) => {
+    const dist = mkdtempSync(`${tmpdir()}/next-`) + "/server";
+    const base = `${dist}${key}`;
+    mkdirSync(dirname(base), { recursive: true });
+    writeFileSync(`${base}.html`, "<h1>from the build</h1>");
+    writeFileSync(`${base}.rsc`, "rsc");
+    writeFileSync(`${base}.meta`, JSON.stringify({ headers: { "x-next-cache-tags": tags }, status: 200 }));
+    const at = new Date(Date.now() - 60_000);
+    utimesSync(`${base}.html`, at, at);
+    return { serverDistDir: dist, fs: nodeFs, at: at.getTime() };
+  };
+  const html = (e: Awaited<ReturnType<TiffinCacheHandler["get"]>>) => (e?.value as { html?: string } | undefined)?.html;
+
+  test("a miss serves the build's file with the build's time, and copies it to Valkey for every instance", async () => {
+    const o = app();
+    const files = built("_N_T_/blog/hello,posts");
+    const got = await new TiffinCacheHandler(files, o(instance())).get(key, { kind: "APP_PAGE" });
+    expect(html(got)).toBe("<h1>from the build</h1>");
+    expect(Buffer.from((got!.value as { rscData: Uint8Array }).rscData).toString()).toBe("rsc");
+    expect(got!.lastModified).toBe(files.at);
+    // Another instance without the files finds it in Valkey, still with the build's time.
+    const other = await req(o(instance())).get(key, { kind: "APP_PAGE" });
+    expect(html(other)).toBe("<h1>from the build</h1>");
+    expect(other!.lastModified).toBe(files.at);
+    // fetch entries are never prerendered files.
+    expect(await new TiffinCacheHandler(files, app()(instance())).get(key, { kind: "FETCH" })).toBeNull();
+  });
+
+  test("a rendering stored since wins, and a tag revalidated since the build makes it a miss", async () => {
+    const o = app();
+    const files = built("_N_T_/blog/hello,posts");
+    await req(o(instance())).set(key, page("rendered"), {});
+    expect(html(await new TiffinCacheHandler(files, o(instance())).get(key, { kind: "APP_PAGE" }))).toBe("rendered");
+
+    const p = app();
+    await req(p(instance())).revalidateTag("posts");
+    expect(await new TiffinCacheHandler(files, p(instance())).get(key, { kind: "APP_PAGE" })).toBeNull();
+    expect(await req(p(instance())).get(key, { kind: "APP_PAGE" })).toBeNull(); // nothing copied
   });
 });
 

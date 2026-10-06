@@ -192,24 +192,26 @@ func TestEnvAndBranchEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	pw, _ := u.User.Password()
-	if u.Scheme != "postgresql" || u.Host != "127.0.0.1:5432" || u.Path != "/p_my_shop" || u.User.Username() != "p_my_shop" || pw != env["PGPASSWORD"] || len(pw) != 32 {
+	// Apps go through the pooler; DIRECT_DATABASE_URL skips it.
+	if u.Scheme != "postgresql" || u.Host != "127.0.0.1:6432" || u.Path != "/p_my_shop" || u.User.Username() != "p_my_shop" || pw != env["PGPASSWORD"] || len(pw) != 32 {
 		t.Fatalf("DATABASE_URL %s", env["DATABASE_URL"])
 	}
-	if env["PGHOST"] != "127.0.0.1" || env["PGDATABASE"] != "p_my_shop" || env["PGUSER"] != "p_my_shop" || env["PGPORT"] != "5432" {
+	if env["PGHOST"] != "127.0.0.1" || env["PGDATABASE"] != "p_my_shop" || env["PGUSER"] != "p_my_shop" || env["PGPORT"] != "6432" {
 		t.Fatalf("PG* vars: %v", env)
 	}
-	if env["DIRECT_DATABASE_URL"] != env["DATABASE_URL"] {
+	if env["DIRECT_DATABASE_URL"] != strings.Replace(env["DATABASE_URL"], ":6432/", ":5432/", 1) {
 		t.Fatalf("DIRECT_DATABASE_URL %s", env["DIRECT_DATABASE_URL"])
 	}
 	b, err := BranchEnv(ctx, p, "my-shop", "pr-7")
-	if err != nil || !strings.Contains(b["DATABASE_URL"], "/p_my_shop__pr_7?") || b["DIRECT_DATABASE_URL"] != b["DATABASE_URL"] || b["PGPASSWORD"] != pw {
+	if err != nil || !strings.Contains(b["DATABASE_URL"], ":6432/p_my_shop__pr_7?") || !strings.Contains(b["DIRECT_DATABASE_URL"], ":5432/p_my_shop__pr_7?") || b["PGPASSWORD"] != pw {
 		t.Fatalf("branch env: %v %v", b, err)
 	}
 	if _, err := BranchEnv(ctx, p, "my-shop", "Bad_Name"); err == nil {
 		t.Fatal("invalid branch accepted")
 	}
 	s, _ := ConnEnv(ctx, p, "my-shop", "", true)
-	if s["PGHOST"] != SocketDir || !strings.Contains(s["DATABASE_URL"], "host=%2Fvar%2Frun%2Fpostgresql") && !strings.Contains(s["DATABASE_URL"], "host=/var/run/postgresql") {
+	if s["PGHOST"] != SocketDir || s["PGPORT"] != "6432" || !strings.Contains(s["DATABASE_URL"], "@localhost:6432/") || !strings.Contains(s["DIRECT_DATABASE_URL"], "@localhost:5432/") ||
+		!strings.Contains(s["DATABASE_URL"], "host=%2Fvar%2Frun%2Fpostgresql") && !strings.Contains(s["DATABASE_URL"], "host=/var/run/postgresql") {
 		t.Fatalf("socket env: %v", s)
 	}
 }

@@ -18,6 +18,7 @@ import { mcpCommand } from "@/lib/mcp";
 import { toneClass, useProjectPulse } from "@/lib/pulse";
 import { fullWords, memWords, useBoxShares, type Shares } from "@/lib/usage";
 import { useRecentProjects } from "@/lib/recent";
+import { useProjectHome } from "@/lib/switch";
 import { PartGlyphs } from "@/components/part-glyph";
 import { ProjectIcon } from "@/components/project-icon";
 
@@ -229,6 +230,11 @@ function Status({ project, pulse }: { project: string; pulse: ReturnType<typeof 
           Retry
         </button>
       )}
+      {pulse.wake && (
+        <button type="button" onClick={pulse.wake} className="relative z-10 shrink-0 font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink">
+          Wake
+        </button>
+      )}
     </>
   );
 }
@@ -238,6 +244,7 @@ const host = (url: string) => url.replace(/^https?:\/\//, "").replace(/:\d+$/, "
 function ProjectCard({ project, shares }: { project: string; shares?: Shares }) {
   const pulse = useProjectPulse(project);
   const preview = usePreview(project, pulse.tone === "ok" && !!pulse.url);
+  const home = useProjectHome(project);
   const share = shares ? (shares.projects[project] ?? 0) / shares.totalMB : undefined;
   const cap = shares?.caps[project];
   return (
@@ -247,7 +254,7 @@ function ProjectCard({ project, shares }: { project: string; shares?: Shares }) 
         <div className="flex items-center gap-2.5">
           <ProjectIcon project={project} size={22} />
           <h2 className="min-w-0 truncate text-[1.0625rem] leading-6 font-[550] tracking-[-0.01em] text-ink">
-            <Link to="/projects/$project" params={{ project }} className="outline-none after:absolute after:inset-0 after:rounded-[12px] focus-visible:after:shadow-[0_0_0_2px_var(--brass)]">
+            <Link to={home.to as "/projects/$project"} params={home.params} className="outline-none after:absolute after:inset-0 after:rounded-[12px] focus-visible:after:shadow-[0_0_0_2px_var(--brass)]">
               {project}
             </Link>
           </h2>
@@ -281,12 +288,13 @@ function ProjectCard({ project, shares }: { project: string; shares?: Shares }) 
 /** One project as a list row, for boxes with many projects. */
 function ProjectRow({ project, shares }: { project: string; shares?: Shares }) {
   const pulse = useProjectPulse(project);
+  const home = useProjectHome(project);
   const share = shares ? (shares.projects[project] ?? 0) / shares.totalMB : undefined;
   return (
     <li className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 py-3 transition-colors hover:bg-paper-sunk sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto_5rem] sm:px-2">
       <span className="flex min-w-0 items-center gap-2.5">
         <ProjectIcon project={project} size={18} />
-        <Link to="/projects/$project" params={{ project }} className="truncate text-[0.9375rem] font-[550] text-ink outline-none after:absolute after:inset-0 focus-visible:underline">
+        <Link to={home.to as "/projects/$project"} params={home.params} className="truncate text-[0.9375rem] font-[550] text-ink outline-none after:absolute after:inset-0 focus-visible:underline">
           {project}
         </Link>
       </span>

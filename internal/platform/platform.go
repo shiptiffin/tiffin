@@ -14,6 +14,7 @@
 //	Checker        contributes health checks to /v1/status
 //	LossEstimator  says what an irreversible op would destroy (rows, files, events)
 //	ProjectStopper holds a stopped project's background work (jobs, crons)
+//	MetricsReporter adds gauges to what observe pushes to the metrics store
 //
 // Modules never edit each other's files; they meet here.
 package platform
@@ -23,14 +24,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/edge"
+	"github.com/btahir/tiffin/internal/edge/switchboard"
 	"github.com/btahir/tiffin/internal/state"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
@@ -88,6 +92,22 @@ type Starter interface {
 // issues, analytics) once a project has been destroyed.
 type ProjectCleaner interface {
 	ProjectDeleted(ctx context.Context, p *Platform, project string) error
+}
+
+// Notifier tells the box's owner, once, about something that needs a look
+// (a failed Postgres update): the observe module sends it through the
+// alert webhook and email and lists it in the alert history.
+type Notifier interface {
+	Notify(ctx context.Context, subject, summary string)
+}
+
+// Notify sends a one-off notice through every Notifier.
+func (p *Platform) Notify(ctx context.Context, subject, summary string) {
+	for _, m := range Modules() {
+		if n, ok := m.(Notifier); ok {
+			n.Notify(ctx, subject, summary)
+		}
+	}
 }
 
 // ProjectStopper holds a project's background work (queued jobs, crons)
@@ -219,6 +239,13 @@ type UsageReporter interface {
 	ProjectUsage(ctx context.Context, p *Platform, project string) (*ServiceUsage, error)
 }
 
+// MetricsReporter adds a module's own gauges to what the box pushes to its
+// metrics store every 15 seconds, as Prometheus text lines. It must be
+// cheap: serve what the module already measured.
+type MetricsReporter interface {
+	Metrics(ctx context.Context, w io.Writer)
+}
+
 // Checker contributes health checks.
 type Checker interface {
 	Checks(ctx context.Context, p *Platform) []Check
@@ -266,9 +293,23 @@ func Modules() []Module {
 	return out
 }
 
-// EdgeController updates the box's edge routes.
+// EdgeController drives the box's edge: Caddy and the switchboard, which
+// run in their own process (tiffin edge) so that restarting this one never
+// interrupts the apps it serves. Every call returns once the edge serves
+// the change, or fails when the edge cannot be reached.
 type EdgeController interface {
+	// SetRoutes loads new routes (with the switchboard table as it is now).
 	SetRoutes(routes []edge.Route) error
+	// Switchboard is the address routes to app instances point at.
+	Switchboard() string
+	// TableSource registers where the switchboard table comes from (the
+	// runtime); SyncTable sends it as it is now.
+	TableSource(func() switchboard.Table)
+	SyncTable() error
+	// Busy counts the requests in flight on the named app instances.
+	Busy(names []string) (int64, error)
+	// Activity is when each app environment last had a request.
+	Activity() (map[string]time.Time, error)
 }
 
 // Platform is what modules get to work with on the box.
@@ -294,8 +335,9 @@ type Platform struct {
 	// Nil off-box.
 	Restart func(reason string)
 
-	rec     *reconciler
-	started atomic.Bool
+	rec      *reconciler
+	started  atomic.Bool
+	starting atomic.Bool
 }
 
 // Started reports whether Start finished: every module started. Health
@@ -316,9 +358,13 @@ func (p *Platform) URL(host string) string {
 	return "https://" + host + port
 }
 
-// RefreshRoutes collects every RouteProvider's routes and loads them into the edge.
+// RefreshRoutes collects every RouteProvider's routes and loads them into
+// the edge. While Start runs it does nothing: modules not started yet would
+// give no routes, and the edge keeps serving the ones it has (a restart of
+// this process changes nothing it serves). Start's caller refreshes once
+// every module started.
 func (p *Platform) RefreshRoutes(ctx context.Context) error {
-	if p.Edge == nil {
+	if p.Edge == nil || p.starting.Load() {
 		return nil
 	}
 	var all []edge.Route
@@ -394,6 +440,8 @@ func (p *Platform) Start(ctx context.Context) error {
 	if p.Log == nil {
 		p.Log = slog.Default()
 	}
+	p.starting.Store(true)
+	defer p.starting.Store(false)
 	p.rec = newReconciler(p)
 	go p.rec.run(ctx)
 	for _, m := range Modules() {

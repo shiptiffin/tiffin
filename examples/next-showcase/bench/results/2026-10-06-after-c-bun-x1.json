@@ -1,0 +1,344 @@
+{
+  "label": "after-c-bun-x1",
+  "date": "2026-10-06 03:53 UTC",
+  "base": "https://next-showcase.tiffin.localhost:54686",
+  "directIp": "192.168.64.4",
+  "vm": "tiffin-bench-1791254123",
+  "notes": [
+    "Bun, one instance, after the fixes (no Lighthouse in this run). Per-IP app rate limit raised to 1,000,000/10 s for the load generator."
+  ],
+  "deploy": {
+    "runtime": "bun",
+    "instances": "1",
+    "deploy": "dep_01M47N5HJ8MBWQ4W1Q7JZWE3GF",
+    "tiffin": "{\"commit\":\"9f6d584+\",\"date\":\"unknown\",\"name\":\"tiffin\",\"version\":\"0.0.1-bench\"}",
+    "box": "2 vCPU, 3896 MB, 7.0.0-34-generic"
+  },
+  "memory": {
+    "idle": [
+      {
+        "name": "tf.next-showcase.web.prod.18",
+        "instance": "0",
+        "runtime": "bun",
+        "currentMB": 153,
+        "peakMB": 167,
+        "anonMB": 61,
+        "rssMB": 107
+      }
+    ],
+    "boxIdle": {
+      "used": 1596,
+      "available": 2300,
+      "postgres": 342,
+      "valkey-server": 12,
+      "tiffin": 168,
+      "buildkitd": 392,
+      "containerd": 48
+    },
+    "peakDuringLoad": {
+      "0": 394
+    },
+    "after": [
+      {
+        "name": "tf.next-showcase.web.prod.18",
+        "instance": "0",
+        "runtime": "bun",
+        "currentMB": 378,
+        "peakMB": 401,
+        "anonMB": 222,
+        "rssMB": 279
+      }
+    ],
+    "boxAfter": {
+      "used": 1833,
+      "available": 2063,
+      "postgres": 408,
+      "valkey-server": 12,
+      "tiffin": 220,
+      "buildkitd": 392,
+      "containerd": 49
+    }
+  },
+  "checks": [
+    {
+      "id": "F01",
+      "name": "home: static, proxy header, compressed",
+      "ok": true,
+      "detail": "cache-control=s-maxage=31536000 x-nextjs-cache=HIT x-nextjs-prerender=1, 1 encoding=zstd 18435→4607 B (9 ms)"
+    },
+    {
+      "id": "F02",
+      "name": "next/font: woff2 preloaded and served immutable",
+      "ok": true,
+      "detail": "Geist_Variable-s.p.03oqkqkevsckn.woff2?dpl=dep_01M47N5HJ8MBWQ4W1Q7JZWE3GF font/woff2 public, max-age=31536000, immutable (15 ms)"
+    },
+    {
+      "id": "F03",
+      "name": "client chunk: immutable, compressed by the edge",
+      "ok": true,
+      "detail": "cache-control=public, max-age=31536000, immutable content-encoding=zstd (7 ms)"
+    },
+    {
+      "id": "F04",
+      "name": "next/image local: every srcset candidate loads",
+      "ok": true,
+      "detail": "8 widths, image/webp, browser picked 1080w (70 ms)"
+    },
+    {
+      "id": "F05",
+      "name": "next/image remote: the bucket's featured image loads",
+      "ok": true,
+      "detail": "https://files.tiffin.localhost:54686/next-showcase/media/featured.jpg → 456px (2 ms)"
+    },
+    {
+      "id": "F06",
+      "name": "Open Graph: og:image is an absolute URL on this site",
+      "ok": true,
+      "detail": "https://next-showcase.tiffin.localhost:54686/opengraph-image?3f305df0986b521c (0 ms)"
+    },
+    {
+      "id": "F07",
+      "name": "Open Graph image decodes (1200×630 PNG)",
+      "ok": true,
+      "detail": "71533 B, cache-control=public, max-age=0, must-revalidate (22 ms)"
+    },
+    {
+      "id": "F08",
+      "name": "client navigation (RSC) from / to /products",
+      "ok": true,
+      "detail": "soft navigation (73 ms)"
+    },
+    {
+      "id": "F09",
+      "name": "blog: prerendered at build, served from cache (ISR)",
+      "ok": true,
+      "detail": "cache-control=s-maxage=60, stale-while-revalidate=3540 x-nextjs-cache=STALE x-nextjs-prerender=1, 1, first copy rendered 340 s ago (1019 ms)"
+    },
+    {
+      "id": "F10",
+      "name": "proxy: /dashboard without a session redirects to /login on this site",
+      "ok": true,
+      "detail": "307 → /login (4 ms)"
+    },
+    {
+      "id": "F11",
+      "name": "login: form Server Action sets the session, redirects to /dashboard",
+      "ok": true,
+      "detail": "cookie secure=false httpOnly=true (185 ms)"
+    },
+    {
+      "id": "F12",
+      "name": "streaming: dashboard shell arrives before the slow section (edge, browser encoding)",
+      "ok": true,
+      "detail": "zstd: shell 10 ms, slow section 1028 ms, 12 chunks; uncompressed: shell 8 ms (2046 ms)"
+    },
+    {
+      "id": "F13",
+      "name": "streaming in Chromium: shell painted before the slow section",
+      "ok": true,
+      "detail": "shell 57 ms, slow section 1341 ms (1370 ms)"
+    },
+    {
+      "id": "F14",
+      "name": "Server Action: useActionState + useOptimistic note, then saved",
+      "ok": true,
+      "detail": "optimistic 37 ms, saved 826 ms (400 ms of it is the action's own wait), kept after reload (1657 ms)"
+    },
+    {
+      "id": "F15",
+      "name": "Server Action: useOptimistic like, round trip",
+      "ok": true,
+      "detail": "optimistic 25 ms, server round trip 43 ms (50 ms)"
+    },
+    {
+      "id": "F16",
+      "name": "Server Action over fetch (Next-Action header, as in the load test)",
+      "ok": true,
+      "detail": "200 46 B in 10 ms (10 ms)"
+    },
+    {
+      "id": "F17",
+      "name": "ISR on demand: revalidatePath from the dashboard reaches every instance",
+      "ok": true,
+      "detail": "new revision everywhere after 101 ms; 1 distinct render time(s) across instances (124 ms)"
+    },
+    {
+      "id": "F18",
+      "name": "use cache + updateTag: restock refreshes /products everywhere, one shared entry",
+      "ok": true,
+      "detail": "1 shared entry before and after (174 ms)"
+    },
+    {
+      "id": "F19",
+      "name": "PPR: /products static shell first, cart count streamed from the cookie",
+      "ok": true,
+      "detail": "grid at 6 ms of 8 ms; add to cart: \"Cart: 0\" → \"Cart: 1\" (177 ms)"
+    },
+    {
+      "id": "F20",
+      "name": "route handler /api/items: JSON from Postgres on every instance",
+      "ok": true,
+      "detail": "12 items, instances 0, encoding=none (34 ms)"
+    },
+    {
+      "id": "F21",
+      "name": "SSE /api/stream: events arrive as sent (browser encoding)",
+      "ok": true,
+      "detail": "zstd: 10 events, first 6 ms, last 1824 ms; identity: first 7 ms (3644 ms)"
+    },
+    {
+      "id": "F22",
+      "name": "next/image: a new image is optimized, then served from the image cache",
+      "ok": true,
+      "detail": "cold 105 ms (image/webp, 24212 B), warm 5 ms HIT (110 ms)"
+    },
+    {
+      "id": "F23",
+      "name": "no console errors, failed requests or 4xx/5xx in the browser",
+      "ok": true,
+      "detail": "clean (0 ms)"
+    }
+  ],
+  "load": [
+    {
+      "name": "static chunk",
+      "path": "/_next/static/chunks/3t785h_9t5l15.js?dpl=dep_01M47N5HJ8MBWQ4W1Q7JZWE3GF",
+      "via": "vzNAT",
+      "rate": 1000,
+      "rps": 1000,
+      "ok": 100,
+      "p50": 0.4,
+      "p95": 1.3,
+      "p99": 5.7,
+      "max": 20.4,
+      "codes": "200×20000",
+      "errors": ""
+    },
+    {
+      "name": "home (static)",
+      "path": "/",
+      "via": "vzNAT",
+      "rate": 400,
+      "rps": 400,
+      "ok": 100,
+      "p50": 1.3,
+      "p95": 2.6,
+      "p99": 5,
+      "max": 24.4,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "home (static)",
+      "path": "/",
+      "via": "forwarder",
+      "rate": 400,
+      "rps": 399.9,
+      "ok": 100,
+      "p50": 1.5,
+      "p95": 14,
+      "p99": 51.8,
+      "max": 145,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "blog (ISR)",
+      "path": "/blog/hello-box",
+      "via": "vzNAT",
+      "rate": 400,
+      "rps": 400,
+      "ok": 100,
+      "p50": 2.7,
+      "p95": 149,
+      "p99": 264.3,
+      "max": 496.9,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "products (PPR)",
+      "path": "/products",
+      "via": "vzNAT",
+      "rate": 200,
+      "rps": 200,
+      "ok": 100,
+      "p50": 3.7,
+      "p95": 7.9,
+      "p99": 18.8,
+      "max": 122.6,
+      "codes": "200×4000",
+      "errors": ""
+    },
+    {
+      "name": "dashboard (dynamic)",
+      "path": "/dashboard?delay=0",
+      "via": "vzNAT",
+      "rate": 50,
+      "rps": 50,
+      "ok": 100,
+      "p50": 5.3,
+      "p95": 9.1,
+      "p99": 19.3,
+      "max": 53.3,
+      "codes": "200×1000",
+      "errors": ""
+    },
+    {
+      "name": "api/items (JSON)",
+      "path": "/api/items",
+      "via": "vzNAT",
+      "rate": 400,
+      "rps": 400,
+      "ok": 100,
+      "p50": 1.1,
+      "p95": 2.3,
+      "p99": 4.2,
+      "max": 17.8,
+      "codes": "200×8000",
+      "errors": ""
+    },
+    {
+      "name": "next/image warm",
+      "path": "/_next/image?url=%2Fhero.jpg&w=828&q=75",
+      "via": "vzNAT",
+      "rate": 300,
+      "rps": 300,
+      "ok": 100,
+      "p50": 0.9,
+      "p95": 1.7,
+      "p99": 3.7,
+      "max": 14.6,
+      "codes": "200×6000",
+      "errors": ""
+    },
+    {
+      "name": "next/image cold",
+      "path": "/_next/image\\?url=%2Fapi%2Fswatch%2F[0-9]{12}&w=640&q=75",
+      "via": "vzNAT",
+      "rate": 10,
+      "rps": 10,
+      "ok": 100,
+      "p50": 28.9,
+      "p95": 35.2,
+      "p99": 40.4,
+      "max": 54.9,
+      "codes": "200×200",
+      "errors": ""
+    },
+    {
+      "name": "server action POST",
+      "path": "/dashboard",
+      "via": "vzNAT",
+      "rate": 100,
+      "rps": 100,
+      "ok": 100,
+      "p50": 2.6,
+      "p95": 5.5,
+      "p99": 8.8,
+      "max": 24.8,
+      "codes": "200×2000",
+      "errors": ""
+    }
+  ]
+}

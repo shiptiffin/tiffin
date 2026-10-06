@@ -1,7 +1,7 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { AppWindow, ArrowUpRight, BarChart3, Clock, Database, FolderOpen, Mail, Plus, UserRound, Zap } from "lucide-react";
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { ApiError, type Manifest } from "@/api/client";
 import { mod, mod2, mod3, mq } from "@/api/modules";
 import { q } from "@/api/queries";
@@ -18,11 +18,11 @@ import { cn } from "@/lib/cn";
 import { useEnamel } from "@/lib/enamel";
 import { bytes, count, cronWords, int } from "@/lib/format";
 import { appPulse, deploysQuery, runtimeQuery, toneClass, useProjectPulse } from "@/lib/pulse";
-import { rememberProject } from "@/lib/recent";
+import { useArrival } from "@/lib/switch";
 import { progressWords, usePending } from "@/lib/staged";
 import { frameworkName } from "@/lib/starters";
 import { PARTS } from "@/lib/names";
-import { relative } from "@/lib/time";
+import { relative, sinceWhen } from "@/lib/time";
 import { ProjectIcon } from "@/components/project-icon";
 import { DomainsSummary } from "@/components/project-domains";
 
@@ -34,7 +34,7 @@ import { DomainsSummary } from "@/components/project-domains";
  */
 export function ProjectPage({ project }: { project: string }) {
   useTitle(project);
-  useEffect(() => rememberProject(project), [project]);
+  const arrived = useArrival(project);
   const p = useQuery(q.project(project));
   const m = useQuery({ ...q.manifest(project), staleTime: 5_000, refetchInterval: 10_000 });
   const pulse = useProjectPulse(project);
@@ -92,6 +92,11 @@ export function ProjectPage({ project }: { project: string }) {
                       Retry
                     </button>
                   )}
+                  {pulse.wake && (
+                    <button type="button" onClick={pulse.wake} className="font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink">
+                      Wake
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -107,6 +112,11 @@ export function ProjectPage({ project }: { project: string }) {
         )}
       </header>
       <ReadOnlyBanner project={project} className="mt-6" />
+      {arrived && (
+        <p role="status" className="mt-5 text-[0.9375rem] text-ink-3">
+          {project} doesn’t have {arrived}, so you’re on its Overview.
+        </p>
+      )}
 
       <h2 className="label mt-10 mb-3">What’s in it</h2>
       {m.isError && <ProblemNote className="mb-4" error={m.error} title="The project’s config can’t be read." />}
@@ -208,7 +218,7 @@ function TileAction({ children, ...rest }: { children: ReactNode } & ({ href: st
 
 function AppTile({ project, app, role, framework }: { project: string; app: string; role?: string; framework?: string }) {
   const d = useQuery(deploysQuery(project, app));
-  const rt = useQuery({ ...runtimeQuery(project, app), enabled: role !== "worker" });
+  const rt = useQuery(runtimeQuery(project, app));
   const pulse = appPulse(d.data, role);
   const url = rt.data?.production?.url;
   const kind = framework === "static" ? "Website, static" : role === "worker" ? `Background worker · ${frameworkName(framework)}` : `Web app · ${frameworkName(framework)}`;
@@ -225,7 +235,10 @@ function AppTile({ project, app, role, framework }: { project: string; app: stri
       );
     else if (pulse.tone === "busy") fact = <span className="text-brass-ink">{pulse.words} a new version…</span>;
     else if (pulse.tone === "quiet") fact = "Not live yet. Deploy it to put it online.";
-    else fact = `${pulse.words} · updated ${relative(pulse.since!)}`;
+    else if (rt.data?.production?.sleeping) {
+      const since = rt.data.production.sleepingSince;
+      fact = `Asleep${since ? ` since ${sinceWhen(since)}` : ""} · wakes on ${role === "worker" ? "its next job" : "the next visit"}`;
+    } else fact = `${pulse.words} · updated ${relative(pulse.since!)}`;
   }
   return (
     <Tile
@@ -303,7 +316,7 @@ function CacheTile({ project }: { project: string }) {
       kind={PARTS.valkey.sub}
       to="/projects/$project/data/kv"
       params={{ project }}
-      fact={kv.isError ? <span className="text-ink-3">The cache isn’t answering.</span> : kv.data ? `${count(kv.data.keys, "key")} · ${bytes(kv.data.memoryBytes)}` : <Skeleton className="h-4 w-28" />}
+      fact={kv.isError ? <span className="text-ink-3">The KV store isn’t answering.</span> : kv.data ? `${count(kv.data.keys, "key")} · ${bytes(kv.data.memoryBytes)}` : <Skeleton className="h-4 w-28" />}
     />
   );
 }

@@ -96,6 +96,10 @@ const (
 	zoneApp       = "tiffin_app"
 	zoneAuth      = "tiffin_auth"
 	zoneDashboard = "tiffin_dashboard"
+	zoneAssets    = "tiffin_assets"
+	// assetsFactor is how many more fingerprinted files than other
+	// requests a client may fetch per window.
+	assetsFactor = 10
 )
 
 var (
@@ -122,47 +126,6 @@ func ProtectionStatus() (*Protection, error) {
 	protectMu.Lock()
 	defer protectMu.Unlock()
 	return protectActive, protectErr
-}
-
-// loadProtected loads c, with the registered protection layer when c has
-// none of its own. If Caddy refuses the protected config, it loads c
-// unprotected so the box stays reachable, and records the error for
-// ProtectionStatus.
-func loadProtected(c Config) error {
-	protectMu.Lock()
-	src := protectSource
-	protectMu.Unlock()
-	if c.Protect == nil && src != nil {
-		if p := src(); p != nil {
-			pc := c
-			pc.Protect = p
-			err := pc.Protect.validate()
-			if err == nil {
-				if err = safeLoad(pc); err == nil {
-					setProtectState(p, nil)
-					return nil
-				}
-			}
-			setProtectState(nil, fmt.Errorf("edge: protection not applied: %w", err))
-			return load(c)
-		}
-	}
-	err := load(c)
-	if err == nil {
-		setProtectState(c.Protect, nil)
-	}
-	return err
-}
-
-// safeLoad is load that turns a panic in a third-party Caddy module's
-// setup into an error instead of taking the box down.
-func safeLoad(c Config) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("edge: caddy module panicked while loading: %v", r)
-		}
-	}()
-	return load(c)
 }
 
 func setProtectState(p *Protection, err error) {
@@ -254,7 +217,13 @@ func (p *Protection) protectRoutes(c Config) []obj {
 		zones[zoneName(zoneDashboard, p.Dashboard)] = zone([]obj{{"host": dash}}, p.Dashboard)
 	}
 	if p.App.Events > 0 {
-		zones[zoneName(zoneApp, p.App)] = zone([]obj{notDash}, p.App)
+		// Fingerprinted build files (a page load fetches dozens, and the box
+		// serves them from disk) count in their own, larger bucket, so they
+		// never use up a visitor's budget for pages and API calls.
+		hashed := obj{"tiffin_hashed_asset": obj{}}
+		zones[zoneName(zoneApp, p.App)] = zone([]obj{{"not": []obj{{"host": dash}, hashed}}}, p.App)
+		assets := Limit{Events: p.App.Events * assetsFactor, Window: p.App.Window}
+		zones[zoneName(zoneAssets, assets)] = zone([]obj{{"tiffin_hashed_asset": obj{}, "not": notDash["not"]}}, assets)
 	}
 	if p.Auth.Events > 0 {
 		// A Next.js Server Action posts to the page it is on (Next-Action

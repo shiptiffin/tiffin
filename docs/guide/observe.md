@@ -9,7 +9,9 @@ by default.
 ## What is collected
 
 - **Box metrics** every 15 seconds: CPU, memory, disks, network, every box service
-  (up, restarts, memory, CPU) and every app container (memory, CPU).
+  (up, restarts, memory, CPU), every app container (memory, CPU) and every
+  project (memory and CPU against its limits, its database, files and KV sizes,
+  open database connections).
 - **The box's own logs**: Tiffin and every system service, from the journal.
 - **App logs**: everything your apps print, with the app, deploy, environment and
   instance attached. JSON lines keep their fields (`msg`, `level` and the rest).
@@ -34,6 +36,7 @@ tiffin logs query --query 'unit:tiffin.service'        # the box's own logs (box
 
 tiffin observe overview                                # box health now and over the last hour
 tiffin observe apps --project shop --since 1h          # requests, errors and latency per app
+tiffin projects usage history shop --range 7d          # what the Usage page draws: memory, CPU, traffic, data
 tiffin metrics query --project shop --query 'sum by (app) (rate(tiffin_http_requests_total[5m]))' --since 1h
 ```
 
@@ -120,6 +123,8 @@ Rules are checked every 15 seconds. Built in, and editable:
 | `memory-high` | memory is more than 90% used for 5 minutes |
 | `cert-expiring` | an HTTPS certificate expires within 72 hours and has not renewed |
 | `backup-stale` | the newest backup is more than 26 hours old |
+| `offsite-stale` | the newest copy of the backups off the box is more than 26 hours old (silent while copies are off) |
+| `restore-drill-failed` | the last restore drill, of the local or the off-box copy, failed |
 | `error-spike` | a project's apps report more than 20 errors in 5 minutes |
 | `service-restarts` | a box service restarted more than 3 times in 15 minutes |
 | `service-down` | a box service has not been running for a minute |

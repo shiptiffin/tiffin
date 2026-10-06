@@ -49,14 +49,18 @@ func TestDue(t *testing.T) {
 }
 
 func TestTargetsAndConfirmKey(t *testing.T) {
-	got, err := normalizeTargets(nil)
+	def := []string{"postgres", "valkey"}
+	got, err := normalizeTargets(nil, def)
 	if err != nil || strings.Join(got, ",") != "postgres,valkey" {
 		t.Fatalf("default targets: %v %v", got, err)
 	}
-	if got, _ := normalizeTargets([]string{"valkey", "postgres", "valkey"}); strings.Join(got, ",") != "postgres,valkey" {
+	if got, _ := normalizeTargets([]string{"valkey", "postgres", "valkey"}, def); strings.Join(got, ",") != "postgres,valkey" {
 		t.Fatalf("dedupe/sort: %v", got)
 	}
-	if _, err := normalizeTargets([]string{"platform"}); err == nil {
+	if got, _ := normalizeTargets([]string{"all"}, def); strings.Join(got, ",") != "files,platform,postgres,valkey" {
+		t.Fatalf("all: %v", got)
+	}
+	if _, err := normalizeTargets([]string{"bogus"}, def); err == nil {
 		t.Fatal("unknown target accepted")
 	}
 	a := &BackupRestorePreview{Backup: "bk_1", Targets: []string{"postgres"}, Overwrites: []BackupOverwrite{{Target: "postgres", What: "3 databases now", Items: []string{"p_a"}}}}

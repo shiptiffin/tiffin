@@ -28,6 +28,8 @@ const kinds: Array<{ v: Kind; label: string; unit: string; dflt: number }> = [
   { v: "unit_down", label: "A service stops", unit: "", dflt: 0 },
   { v: "unit_restarts", label: "A service keeps restarting", unit: "restarts in 15 min", dflt: 3 },
   { v: "backup_age", label: "Backups fall behind", unit: "hours old", dflt: 26 },
+  { v: "offsite_age", label: "Copies off the box fall behind", unit: "hours old", dflt: 26 },
+  { v: "drill_failed", label: "A restore drill fails", unit: "", dflt: 0 },
   { v: "cert_expiry", label: "A certificate is about to expire", unit: "hours left", dflt: 72 },
   { v: "promql", label: "A metric crosses a line (PromQL)", unit: "", dflt: 1 },
 ];
@@ -50,6 +52,10 @@ function condition(r: Pick<AlertRule, "kind" | "threshold" | "forSeconds" | "pro
       return `A box service restarts more than ${countWords(r.threshold, "time")} in 15${NNBSP}min${hold}.`;
     case "backup_age":
       return `The newest backup is more than ${t} hours old${hold}.`;
+    case "offsite_age":
+      return `The newest copy of the backups off the box is more than ${t} hours old${hold}.`;
+    case "drill_failed":
+      return `The last restore drill failed${hold}.`;
     case "cert_expiry":
       return `An HTTPS certificate has less than ${t} hours left${hold}.`;
     case "promql":

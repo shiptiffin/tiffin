@@ -167,6 +167,7 @@ func (m *Module) retentionLoop(ctx context.Context) {
 }
 
 func (m *Module) applyRetention(ctx context.Context) {
+	_ = m.store.ForgetSalts(ctx, time.Now().Add(-48*time.Hour))
 	projects, err := m.p.DB.ListProjects(ctx)
 	if err != nil {
 		return
@@ -262,7 +263,7 @@ func (m *Module) Checks(ctx context.Context, p *platform.Platform) []platform.Ch
 	} else {
 		st := m.pipe.Stats()
 		out = append(out, platform.Check{Name: "analytics.collector", OK: st.Failed == 0,
-			Detail: fmt.Sprintf("%d events accepted, %d bots dropped, %d lost since start", st.Accepted, st.Bots, st.Failed)})
+			Detail: fmt.Sprintf("%d events accepted, %d bots dropped, %d not counted for Global Privacy Control, %d lost since start", st.Accepted, st.Bots, st.OptedOut, st.Failed)})
 	}
 	if m.geo.Loaded() {
 		out = append(out, platform.Check{Name: "analytics.geoip", OK: true, Detail: "DB-IP Lite " + geoVersion})

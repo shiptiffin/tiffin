@@ -21,6 +21,7 @@ import (
 	"github.com/btahir/tiffin/internal/dnskit"
 	"github.com/btahir/tiffin/internal/dnskit/dnstest"
 	"github.com/btahir/tiffin/internal/edge"
+	"github.com/btahir/tiffin/internal/edge/switchboard"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/state"
 	"github.com/btahir/tiffin/internal/tokens"
@@ -41,6 +42,12 @@ func (f *fakeEdge) SetRoutes(rs []edge.Route) error {
 	f.routes = rs
 	return nil
 }
+
+func (f *fakeEdge) Switchboard() string                     { return "127.0.0.1:1" }
+func (f *fakeEdge) TableSource(func() switchboard.Table)    {}
+func (f *fakeEdge) SyncTable() error                        { return nil }
+func (f *fakeEdge) Busy([]string) (int64, error)            { return 0, nil }
+func (f *fakeEdge) Activity() (map[string]time.Time, error) { return nil, nil }
 
 type harness struct {
 	t        *testing.T

@@ -42,6 +42,9 @@ func Unprepare(ctx context.Context, p *platform.Platform, project string) error 
 			return err
 		}
 	}
+	if err := dropReadRole(ctx, admin, p, project); err != nil {
+		return err
+	}
 	_ = p.DB.KVDelete(ctx, nsExtensions, project)
 	return p.DB.KVDelete(ctx, nsPassword, project)
 }

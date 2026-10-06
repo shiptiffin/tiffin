@@ -74,8 +74,9 @@ apps: { web: { framework: "next", release: "bunx drizzle-kit migrate" } }
 ```
 
 `release` runs once per deploy, after the build and before the new version takes
-traffic: one container of the new image with the app's env (`DATABASE_URL`,
-`DIRECT_DATABASE_URL`, secrets), memory cap and disk folders, in the app's folder. Its
+traffic: one container of the new image with the app's env (secrets too; `DATABASE_URL`
+goes straight to Postgres here, not through the pooler, so migration locks work), memory
+cap and disk folders, in the app's folder. Its
 output is in the deploy log (`tiffin deploys build-log`). If it exits non-zero, or runs
 over 10 minutes, the deploy fails and the running version keeps serving. Any command
 works (`bun run db:migrate`, `bunx prisma migrate deploy`); releases of one app run one
@@ -99,9 +100,9 @@ the preview's first deploy (milliseconds, whatever the size), deleted with the p
 `DATABASE_URL`, `DIRECT_DATABASE_URL` and `PG*` point at it, and its `release` migrates
 it, so a preview can change its schema and data without touching production's. Apps of
 the project that have a preview of the same name share it. While the copy is made,
-production's database refuses new connections for a moment: idle ones close at once
-(pools reconnect) and running queries get up to 5 seconds to finish. It is usually well
-under a second, once per preview. `tiffin sql <project> --branch pv-pr-12`
+queries through the pooler wait (usually well under a second, once per preview) and
+direct connections close (pools reconnect); a transaction still running after 5 seconds
+is ended. `tiffin sql <project> --branch pv-pr-12`
 reads it.
 
 ```ts
@@ -369,12 +370,64 @@ apps: { web: { instances: 2, memoryMB: 384 } } // each web copy, within that
 take, and whether it ran out lately. When an app is stopped for memory, it restarts on
 its own and the usage says `pressure: "oom"`: raise the budget or find the leak.
 
+## Letting apps sleep
+
+Production apps never sleep unless you say so. A side project that gets a few visits a
+week can give its memory back to the box between them:
+
+```ts
+sleepAfter: "7d", // at the top of tiffin.config.ts: hours or days, "1h" to "30d"
+```
+
+After that long with no requests and no job, cron or workflow deliveries, the project's
+production apps sleep: their containers stop, freeing their memory and CPU (usage counts
+them as using none). Their images, data, routes, env and secrets stay. In the dashboard,
+the project's Settings › When nobody visits offers Never (the default), 24 hours, 7 days
+or 14 days, and the project says "Asleep since …" with a Wake button.
+
+- **Waking:** the next request is held while the app starts and passes its health check,
+  then answered; if it cannot start, the visitor gets `503` with `Retry-After`. A job,
+  cron tick or workflow turn for a sleeping app wakes it first and is then delivered, so
+  no attempt is spent on it. Workers wake on deliveries only. A deploy starts the app as
+  usual. `tiffin projects wake shop` (or Wake in the dashboard) starts them ahead of
+  visitors.
+- **Cold start:** well under a second for small apps: about 0.3 s for a small Bun app and
+  0.5 s for a Hello World Next.js app, from the request arriving to its first byte (a
+  2-CPU box). A larger app takes as long as it needs to start and pass its health check.
+  `tiffin apps status <project> <app>` shows `lastWake` with its timing, `sleepingSince`
+  and `lastActive`.
+- **What counts as use:** every request to the app's addresses, including the files the
+  box serves for it, and every delivery. A request or a job still under way keeps the
+  app awake, however long it runs. The clock is kept across restarts of the box.
+- **What stops:** anything the app does on its own between requests (timers,
+  `setInterval`, in-memory caches) stops while it sleeps. Put recurring work in a cron:
+  it wakes the app, so a cron that runs every hour keeps an app with `sleepAfter: "24h"`
+  awake.
+- Previews sleep after 15 idle minutes whatever this says.
+
 ## What your app gets
 
 `PORT`, `NODE_ENV`, `TIFFIN_URL` (its public URL), plus each service's variables:
 `DATABASE_URL`, `REDIS_URL`, `S3_*`, `SMTP_URL`, `TIFFIN_AUTH_URL`, `SENTRY_DSN`,
 `OTEL_*`, `TIFFIN_QUEUE_*` and your secrets (`tiffin secrets set`). Changing env or
 secrets restarts the app with the new values.
+
+**At build time** the app gets the same env as its instances, as on Vercel, so
+`generateStaticParams`, prerendered pages and build scripts can query the database: a
+preview's build reads its own branch. Two differences: `DATABASE_URL` (and `PG*`) connect
+as the project's read-only role (`p_<project>__read`: reads every table, writes nothing,
+not even with `SET default_transaction_read_only = off`) and `REDIS_URL` as a read-only
+Valkey user, unless the app sets its own values. The values reach build steps as BuildKit
+secrets: they are in no image layer, no build plan and no log, and only `NEXT_PUBLIC_*`
+(and the other browser variables) are built into client code. The trade-offs:
+
+- A build reads live data. A page prerendered from it shows the data of build time until
+  it revalidates, and a build fails if its queries fail.
+- The build runs before `release`, so it sees the schema before this deploy's
+  migrations: on a first deploy there are no tables yet. Prerender code that a new
+  migration feeds should cope with that (fall back, or render the page on demand).
+- Static sites built with Bun (no `package-lock`, `pnpm-lock` or `yarn.lock`) get the
+  plain env and browser variables only.
 
 Variables that frameworks build into browser code (`NEXT_PUBLIC_*`, `VITE_*`,
 `PUBLIC_*`) are public by definition: builds get them from env and secrets alike, and
@@ -404,11 +457,41 @@ with Next.js 16.2 or later, the box adds its adapter to every build
   while it regenerates, as in Next.js). Cached pages belong to their deploy: a new
   release renders afresh and a rollback finds its old ones. Production and each preview
   have their own cache and revalidations. It takes effect on the next deploy after adding
-  Valkey.
+  Valkey. Pages and route handlers `next build` prerendered are served from the build's
+  files until the cache has a newer copy, as with Next.js's own cache: the first request
+  after a deploy is not a render, and an ISR page's age counts from the build.
 - `compress: false`: the edge compresses.
+- `poweredByHeader: false` (no `X-Powered-By`; add it with `headers()` if you want it).
 - `images.maximumDiskCacheSize`: 512 MB. Optimized images live in a directory per app
   environment, shared by its instances and kept across deploys (deleted with the
   preview or app).
+
+Without the adapter's help:
+
+- **next/image and buckets.** `/_next/image` requests for files in the project's own
+  buckets (`TIFFIN_FILES_URL/...`, public or signed) are answered by the box's image
+  transforms (WebP when the browser takes it), not by the app: Next.js could not fetch
+  them (they resolve to the box itself, an address it refuses) and the app keeps the
+  memory sharp would use. Images in `public/` and from elsewhere go to Next.js as usual.
+- **Social images.** The box sets `VERCEL_PROJECT_PRODUCTION_URL` to the app's host (a
+  preview also gets `VERCEL_ENV=preview` and its own host in `VERCEL_BRANCH_URL`), which
+  is what Next.js resolves `opengraph-image`, `twitter-image` and relative image metadata
+  against when the app sets no `metadataBase`; without it they point at
+  `http://localhost:<port>`. `VERCEL` and `VERCEL_URL` stay unset, since libraries take
+  them to mean the app runs on Vercel. Values the app sets win.
+- **Start command.** With no start script, or one that only runs `next start` (any of
+  `next start`, `bun --bun next start`, `bunx next start`, with `-p $PORT` and such), the
+  box starts Next.js on Bun itself, as one process
+  (`exec bun --bun ./node_modules/next/dist/bin/next start`; `bun next` or `bun run start`
+  would put a Bun process in front of it), so `SIGTERM` reaches Next.js: it finishes
+  requests and `after()` work before it exits. A start command of your own (`command`)
+  is started with `exec` too when it is a plain command.
+- **Memory.** An instance of a small Next.js app on Bun settles around 270 MB RSS under
+  load (`memoryMB: 512` leaves room). Bun ignores `NODE_OPTIONS`' heap size; its own knobs
+  (`--smol`, `BUN_JSC_forceRAMSize`) made no measurable difference, so the box sets none.
+- **Client files** under `/_next/static` are served by the box from disk, compressed
+  ahead of time (zstd and gzip, best levels), and count toward a separate per-IP limit
+  ten times the app's ([Protection](protection.md)).
 
 The app also gets `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`, made once per app and used at
 build and run time, so Server Actions in a page from the previous release still work

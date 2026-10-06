@@ -377,6 +377,14 @@ export interface TiffinConfig {
      * other projects' running apps.
      */
     resources?: ResourcesConfig;
+    /**
+     * Lets the project's production apps sleep when nobody uses them: after
+     * this long with no requests and no job, cron or workflow deliveries,
+     * their containers stop (freeing memory and CPU) and the next request or
+     * delivery starts them again, in a few seconds. Hours or days, 1h to 30d:
+     * "24h", "7d", "14d". Leave it out and they never sleep.
+     */
+    sleepAfter?: `${number}h` | `${number}d`;
     /** Apps keyed by name (same slug rules as `project`). */
     apps?: Record<Slug, AppConfig>;
     /** Services the project uses. Absent means "not provisioned". */

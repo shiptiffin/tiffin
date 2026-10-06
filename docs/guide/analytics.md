@@ -6,7 +6,7 @@ and no cookie banner is needed for it: there are no cookies.
 
 ```ts
 // tiffin.config.ts
-services: { analytics: { retentionDays: 365 } },  // raw events; daily totals are kept until the service is removed
+services: { analytics: { retentionDays: 365 } },  // how long visits are kept (default 365)
 ```
 
 ## How it counts
@@ -26,6 +26,9 @@ services: { analytics: { retentionDays: 365 } },  // raw events; daily totals ar
 - **Sessions** end after 30 minutes without a page view. Bounce rate is the share
   of sessions with one page view; visit duration is the time from a session's
   first to its last page view.
+- Browsers that send [Global Privacy Control](https://globalprivacycontrol.org)
+  are not counted at all (page views, script events and `track()` with a
+  request). Do Not Track is not read: browsers have dropped it.
 - Query strings are dropped, except `utm_*` and `ref`. Countries come from
   [DB-IP Lite](https://db-ip.com) (IP Geolocation by DB-IP, CC BY 4.0); browsers,
   systems and devices from [uap-core](https://github.com/ua-parser/uap-core).
@@ -113,8 +116,18 @@ tiffin analytics vitals --project shop --period 30d   # p75 and rating per metri
 
 ## Reading it
 
+The dashboard's Analytics page shows a period (24 hours to 90 days, or days you
+choose) against the one before it, by hour or by day, for the whole project or
+one app. Choosing a row anywhere (a page, a source, a country, a browser)
+filters the whole page; filters stay in the address, so a filtered view can be
+shared. Filters select whole visits: a source or UTM tag by the visit's first
+page view, entry and exit pages by its first and last page, a page by any page
+it viewed (and then only that page's views are counted), and country, browser,
+system and device by the visitor.
+
 ```bash
 tiffin analytics overview --project shop --period 7d   # today, yesterday, 24h, 7d, 30d, 90d, 12mo, or --from/--to
+tiffin analytics overview --project shop --period 30d --country DE --source Google --interval hour
 tiffin analytics realtime --project shop               # the last 5 and 30 minutes
 tiffin analytics events --project shop --period 30d    # custom events and their properties
 ```
@@ -122,6 +135,58 @@ tiffin analytics events --project shop --period 30d    # custom events and their
 Agents get the same as MCP tools (`analytics_overview`, `analytics_realtime`,
 `analytics_events`, `analytics_vitals`, `analytics_setup`). Paths, referrers and event names come from
 visitors, so tools mark their output as untrusted data.
+
+## Privacy
+
+You can link this section from your privacy policy, or copy it.
+
+**What is collected.** For each page view: the page's address without its query
+string (except `utm_*` and `ref` tags), the site that sent the visitor (its name
+only, such as "news.ycombinator.com", never the full address), the country, the
+kind of browser, operating system and device, and the time. Custom events add
+their name and the properties the site's own code sends. Visitors are told apart
+by a code computed from the site, the visitor's IP address and browser string,
+and a secret that changes every day; the code can't be turned back into either,
+and each day's secret is deleted within 48 hours, so visits on different days
+can't be linked, even by us.
+
+**What is not collected.** No cookies, and nothing else is stored on or read
+back from the visitor's device. No IP addresses or browser strings are stored.
+No location finer than the country. No names, email addresses or account IDs
+(email addresses in page addresses are replaced with `[email]`; links followed
+out of the site are kept without their query string or fragment). No tracking
+across sites: the same person on two sites is two unrelated visitors. Bots are
+not counted, and neither is anyone whose browser sends Global Privacy Control.
+
+**Where it is kept, and for how long.** On the server that runs the site, and
+nowhere else: nothing is sent to Tiffin or to any other company. Visits are kept
+for `retentionDays` (365 by default) and then deleted; turning analytics off
+deletes all of them.
+
+**Your part.** Custom events hold whatever your code sends: don't send user IDs,
+email addresses or anything else that identifies a person, unless your privacy
+policy covers it. Separately from analytics, the box keeps request logs for
+debugging and security (IP address, path without query, browser string) for 14
+days by default (`logsRetention` in the box's observe settings); mention them
+as you would any server's logs.
+
+**How this fits EU rules.** Under the GDPR the IP address is processed for a
+moment, in memory, to make the daily code and the country, which suits
+legitimate interest (Article 6(1)(f)); what is stored is statistics about
+visits, not about people. Page views counted at the edge read only what every
+browser sends with every request. The optional script sends events from the
+browser, which the ePrivacy rules (Article 5(3), as the EDPB reads it in its
+Guidelines 2/2023) may treat as reaching into the device; it is built to meet
+the conditions the French CNIL set for audience measurement without consent:
+for the site's own statistics only, anonymous figures, no cross-site tracking,
+no sharing, country-level location, kept well under 25 months, and an easy way
+to object (Global Privacy Control). Say in your privacy policy that you
+measure visits this way. This is how the design maps to the rules, not legal
+advice; your own circumstances may differ.
+
+**On Tiffin's hosted service** the server is run by Tiffin on your behalf, so
+Tiffin is your processor: we provide a data processing agreement covering the
+visit statistics and the request logs.
 
 ## Storage and limits
 

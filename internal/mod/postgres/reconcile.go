@@ -25,6 +25,7 @@ func (*Module) Kinds() []string { return []string{"service/postgres"} }
 func (*Module) Reconcile(ctx context.Context, p *platform.Platform, project, address string, spec json.RawMessage) error {
 	mu.Lock()
 	defer mu.Unlock()
+	defer poolsChanged()
 	if spec == nil {
 		return remove(ctx, p, project)
 	}
@@ -276,6 +277,9 @@ func remove(ctx context.Context, p *platform.Platform, project string) error {
 		if _, err := admin.Exec(ctx, fmt.Sprintf(`DROP OWNED BY %[1]s; DROP ROLE %[1]s`, quoteIdent(role))); err != nil {
 			return fmt.Errorf("drop role: %w", err)
 		}
+	}
+	if err := dropReadRole(ctx, admin, p, project); err != nil {
+		return err
 	}
 	forgetApplied(project)
 	_ = p.DB.KVDelete(ctx, nsExtensions, project)

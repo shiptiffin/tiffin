@@ -39,6 +39,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/mod/datakit"
 	"github.com/btahir/tiffin/internal/platform"
 )
@@ -93,11 +94,7 @@ func hostIP(ctx context.Context, p *platform.Platform) string {
 
 // serveREST listens on loopback and the host IP (re-checked every 10 s).
 func serveREST(ctx context.Context, p *platform.Platform) {
-	h := newREST(func(ctx context.Context, project string) (string, bool, error) {
-		return datakit.GetSecret(ctx, p, nsPassword, project)
-	}, func(ctx context.Context, user, pw string) (*Client, error) {
-		return Dial(ctx, "unix", SocketPath, user, pw)
-	})
+	h := conns(p)
 	open := map[string]*http.Server{}
 	defer func() {
 		for _, s := range open {
@@ -141,6 +138,9 @@ type restProject struct {
 type rest struct {
 	secret func(ctx context.Context, project string) (string, bool, error)
 	dial   func(ctx context.Context, user, pw string) (*Client, error)
+	// admin connects as the box's admin user, for the reads a project user
+	// may not make (SCAN across the server, for its own prefix).
+	admin func(ctx context.Context) (*Client, error)
 
 	mu    sync.Mutex
 	creds map[string]restCred
@@ -398,9 +398,7 @@ func (h *rest) with(ctx context.Context, project string, fn func(*Client) error)
 			return err
 		}
 		err = fn(c)
-		var re RedisError
-		var rerr *restError
-		broken := err != nil && !errors.As(err, &re) && !errors.As(err, &rerr)
+		broken := err != nil && !answered(err)
 		pp.release(c, broken)
 		if broken && reused && attempt == 0 && isClosed(err) {
 			continue
@@ -410,6 +408,16 @@ func (h *rest) with(ctx context.Context, project string, fn func(*Client) error)
 		}
 		return err
 	}
+}
+
+// answered reports whether err is an answer (a Valkey error reply or a
+// refusal of ours), not a failed connection.
+func answered(err error) bool {
+	var re RedisError
+	var rerr *restError
+	var pr *api.Problem
+	var cp *datakit.ConfirmProblem
+	return errors.As(err, &re) || errors.As(err, &rerr) || errors.As(err, &pr) || errors.As(err, &cp) || errors.Is(err, errWrite)
 }
 
 func isClosed(err error) bool {
@@ -736,6 +744,7 @@ type keySpec struct {
 
 type cmdInfo struct {
 	readonly bool
+	admin    bool // in @admin or @dangerous: never for a project
 	specs    []keySpec
 	sub      map[string]*cmdInfo
 }
@@ -799,6 +808,14 @@ func parseCommand(e any) (string, *cmdInfo) {
 	for _, f := range flags {
 		if f == "readonly" {
 			c.readonly = true
+		}
+	}
+	if len(a) > 6 {
+		cats, _ := a[6].([]any)
+		for _, cat := range cats {
+			if cat == "@admin" || cat == "@dangerous" {
+				c.admin = true
+			}
 		}
 	}
 	if len(a) > 8 {

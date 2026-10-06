@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import type { ActivitySearch } from "@/routes/activity";
 import type { GitSearch } from "@/routes/git-settings";
 import { jobsSearch, type JobsSearch } from "@/lib/jobs-search";
+import { analyticsSearch, type AnalyticsSearch } from "@/routes/analytics-search";
 import { HomePage } from "@/routes/home";
 import { Page } from "@/components/page";
 import { q } from "@/api/queries";
@@ -64,10 +65,15 @@ const BucketPage = lz<{ project: string; bucket: string; prefix?: string; file?:
 const InboxPage = lz<{ project: string; q?: string; m?: string }>(() => import("@/routes/email"), "InboxPage");
 const EmailSettingsPage = lz<{ project: string }>(() => import("@/routes/email"), "EmailSettingsPage");
 const DataPage = lz<{ project: string }>(() => import("@/routes/data"), "DataPage");
-const TablePage = lz<{ project: string; table: string; page?: number }>(() => import("@/routes/data"), "TablePage");
+const TablePage = lz<{ project: string; table: string }>(() => import("@/routes/data"), "TablePage");
 const SqlPage = lz<{ project: string }>(() => import("@/routes/data"), "SqlPage");
 const BranchesPage = lz<{ project: string }>(() => import("@/routes/data"), "BranchesPage");
-const KvPage = lz<{ project: string; match?: string; k?: string }>(() => import("@/routes/kv"), "KvPage");
+const SchemaPage = lz<{ project: string }>(() => import("@/routes/data"), "SchemaPage");
+const RestorePage = lz<{ project: string }>(() => import("@/routes/data"), "RestorePage");
+// The Database pages keep the copy (?branch) and the table view (?f filters, ?s sort, ?h hidden columns) in the URL.
+type DataSearch = { branch?: string; f?: string; s?: string; h?: string; new?: string };
+const dataSearch = (s: Record<string, unknown>): DataSearch => ({ branch: str(s.branch), f: str(s.f), s: str(s.s), h: str(s.h), new: str(s.new) });
+const KvPage = lz<{ project: string; match?: string; k?: string; tab?: "keys" | "console"; isNew?: boolean }>(() => import("@/routes/kv"), "KvPage");
 const MetricsPage = lz(() => import("@/routes/observe"), "MetricsPage");
 const LogsPage = lz<LogsSearch>(() => import("@/routes/observe"), "LogsPage");
 const ErrorsPage = lz<{ project?: string; status?: string }>(() => import("@/routes/observe"), "ErrorsPage");
@@ -81,7 +87,7 @@ const SchedulesTab = lz<{ project: string; search: JobsSearch }>(() => import("@
 const QueuesTab = lz<{ project: string; search: JobsSearch }>(() => import("@/routes/jobs"), "QueuesTab");
 const FailedTab = lz<{ project: string; search: JobsSearch }>(() => import("@/routes/jobs"), "FailedTab");
 const JobOrRunPage = lz<{ project: string; id: string }>(() => import("@/routes/jobs"), "JobOrRunPage");
-const AnalyticsPage = lz<{ project: string; period?: string }>(() => import("@/routes/analytics"), "AnalyticsPage");
+const AnalyticsPage = lz<{ project: string; search: AnalyticsSearch }>(() => import("@/routes/analytics"), "AnalyticsPage");
 const ProtectPage = lz(() => import("@/routes/protect"), "ProtectPage");
 const AppsPage = lz<{ project: string }>(() => import("@/routes/apps"), "AppsPage");
 const AppPage = lz<{ project: string; app: string; deploy?: boolean }>(() => import("@/routes/apps"), "AppPage");
@@ -310,6 +316,7 @@ const emailSettings = createRoute({
 const data = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/data",
+  validateSearch: dataSearch,
   loader: () => void DataPage.preload(),
   component: function Data() {
     const { project: p } = data.useParams();
@@ -319,16 +326,17 @@ const data = createRoute({
 const table = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/data/tables/$table",
-  validateSearch: (s: Record<string, unknown>): { page?: number } => (Number(s.page) > 1 ? { page: Number(s.page) } : {}),
+  validateSearch: dataSearch,
   loader: () => void TablePage.preload(),
   component: function Table() {
     const { project: p, table: t } = table.useParams();
-    return <TablePage key={p + t} project={p} table={t} page={table.useSearch().page} />;
+    return <TablePage key={p} project={p} table={t} />;
   },
 });
 const sqlRoute = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/data/sql",
+  validateSearch: (s: Record<string, unknown>): { branch?: string; sql?: string } => ({ branch: str(s.branch), sql: str(s.sql) }),
   loader: () => void SqlPage.preload(),
   component: function Sql() {
     const { project: p } = sqlRoute.useParams();
@@ -338,21 +346,55 @@ const sqlRoute = createRoute({
 const branches = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/data/branches",
+  validateSearch: dataSearch,
   loader: () => void BranchesPage.preload(),
   component: function Branches() {
     const { project: p } = branches.useParams();
     return <BranchesPage key={p} project={p} />;
   },
 });
+const schemaRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/data/schema",
+  validateSearch: dataSearch,
+  loader: () => void SchemaPage.preload(),
+  component: function Schema() {
+    const { project: p } = schemaRoute.useParams();
+    return <SchemaPage key={p} project={p} />;
+  },
+});
+const restoreRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/data/restore",
+  validateSearch: dataSearch,
+  loader: () => void RestorePage.preload(),
+  component: function Restore() {
+    const { project: p } = restoreRoute.useParams();
+    return <RestorePage key={p} project={p} />;
+  },
+});
 const kv = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/data/kv",
-  validateSearch: (s: Record<string, unknown>): { match?: string; key?: string } => ({ match: str(s.match), key: str(s.key) }),
+  validateSearch: (s: Record<string, unknown>): { match?: string; key?: string; new?: boolean } => ({
+    match: str(s.match),
+    key: str(s.key),
+    ...(s.new === true || s.new === "true" ? { new: true } : {}),
+  }),
   loader: () => void KvPage.preload(),
   component: function Kv() {
     const { project: p } = kv.useParams();
-    const { match, key } = kv.useSearch();
-    return <KvPage key={p} project={p} match={match} k={key} />;
+    const { match, key, new: isNew } = kv.useSearch();
+    return <KvPage key={p} project={p} match={match} k={key} isNew={isNew} />;
+  },
+});
+const kvConsole = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/data/kv/console",
+  loader: () => void KvPage.preload(),
+  component: function KvConsole() {
+    const { project: p } = kvConsole.useParams();
+    return <KvPage key={p} project={p} tab="console" />;
   },
 });
 const metrics = createRoute({ getParentRoute: () => app, path: "/metrics", loader: () => void MetricsPage.preload(),
@@ -483,11 +525,11 @@ const oldRun = createRoute({
 const analytics = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/analytics",
-  validateSearch: (s: Record<string, unknown>): { period?: string } => ({ period: str(s.period) }),
+  validateSearch: analyticsSearch,
   loader: () => void AnalyticsPage.preload(),
   component: function Analytics() {
     const { project: p } = analytics.useParams();
-    return <AnalyticsPage key={p} project={p} period={analytics.useSearch().period} />;
+    return <AnalyticsPage key={p} project={p} search={analytics.useSearch()} />;
   },
 });
 const appsRoute = createRoute({
@@ -654,7 +696,10 @@ const tree = root.addChildren([
     table,
     sqlRoute,
     branches,
+    schemaRoute,
+    restoreRoute,
     kv,
+    kvConsole,
     metrics,
     logs,
     errors,
