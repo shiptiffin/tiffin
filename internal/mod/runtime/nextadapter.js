@@ -15,7 +15,7 @@ export default {
     // release reloads instead of mixing builds.
     if (!c.deploymentId) c.deploymentId = box.deploymentId;
     if (box.cache) {
-      // One cache in Valkey for every instance (tiffin-sdk/next).
+      // One cache in Valkey for every instance (@shiptiffin/sdk/next).
       if (!c.cacheHandler) {
         c.cacheHandler = here("cache-handler.js");
         c.cacheMaxMemorySize = 0;
@@ -25,7 +25,7 @@ export default {
       handlers.remote ||= here("use-cache.js");
       c.cacheHandlers = handlers;
     }
-    // forbidden() and unauthorized() (tiffin-sdk/next/auth) answer 403/401.
+    // forbidden() and unauthorized() (@shiptiffin/sdk/next/auth) answer 403/401.
     if (c.experimental?.authInterrupts === undefined) {
       c.experimental = { ...c.experimental, authInterrupts: true };
     }

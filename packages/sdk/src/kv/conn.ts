@@ -3,7 +3,7 @@
 // issued in the same tick into one write, so Promise.all over several calls
 // is one round trip. Replies are normalised to strings, numbers, arrays and
 // (from Bun, which speaks RESP3) plain objects; the commands layer accepts both.
-import { ReplyError, RespClient } from "../next/resp";
+import { ReplyError, RespClient } from "../resp";
 
 /** A Valkey error, with its code ("NOPERM", "OOM", "WRONGTYPE"...) and a message that says what to do. */
 export class KVError extends Error {

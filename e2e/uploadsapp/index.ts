@@ -1,5 +1,5 @@
 // The app TestStorageUploads deploys: a page that uploads files from the
-// browser with tiffin-sdk/storage/client, the upload routes that hand out
+// browser with @shiptiffin/sdk/client, the upload routes that hand out
 // tickets, and a queue handler that records object.created events.
 // sdk.gen.js and public/client.js are bundled by the test (bun build).
 import { onUploadCompleted, uploadRoute } from "./sdk.gen.js";

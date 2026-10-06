@@ -4,7 +4,7 @@
 // Pageviews come from the edge's access log, so they need no JavaScript and
 // cannot be blocked. The ~1.3 KB tracker (t.<domain>/script.js) adds
 // single-page navigations, custom events, outbound clicks and downloads;
-// server code adds events with tiffin-sdk/analytics track(). Visitors are a
+// server code adds events with @shiptiffin/sdk/analytics track(). Visitors are a
 // daily-salted hash of app, IP and user agent: no cookies, no storage, and
 // raw IPs and user agents are never stored.
 //

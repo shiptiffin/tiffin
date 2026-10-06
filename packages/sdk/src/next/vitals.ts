@@ -1,10 +1,10 @@
 "use client";
 /**
- * `tiffin-sdk/next/vitals`: Web Vitals from a Next.js app to the box.
+ * `@shiptiffin/sdk/next/vitals`: Web Vitals from a Next.js app to the box.
  *
  * ```tsx
  * // app/layout.tsx
- * import { WebVitals } from "tiffin-sdk/next/vitals";
+ * import { WebVitals } from "@shiptiffin/sdk/next/vitals";
  *
  * export default function RootLayout({ children }: { children: React.ReactNode }) {
  *   return (

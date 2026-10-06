@@ -188,7 +188,7 @@ var scaffoldAgents []byte
 //go:embed scaffold/SKILL.md
 var scaffoldSkill []byte
 
-const configTemplate = `import { defineConfig } from "tiffin-sdk";
+const configTemplate = `import { defineConfig } from "@shiptiffin/sdk";
 
 // Your app in a box. Run "tiffin plan" to see what this would set up.
 export default defineConfig({
@@ -240,8 +240,8 @@ func (a *app) initCmd() *cobra.Command {
 					return err
 				}
 			}
-			// The SDK is not on npm: vendor it into an app that has a package.json.
-			sdk, err := addSDK(dir, false)
+			// Vendor the SDK into an app that has a package.json (unless it installs it from npm).
+			sdk, err := sdkpkg.Add(dir)
 			switch {
 			case errors.Is(err, sdkpkg.ErrNoPackageJSON):
 				sdk = nil
@@ -250,10 +250,13 @@ func (a *app) initCmd() *cobra.Command {
 			}
 			if a.tty() {
 				fmt.Fprintf(a.io.Out, "Wrote %s, AGENTS.md and the Tiffin agent skill for project %q.\n", path, project)
-				if sdk != nil {
-					fmt.Fprintf(a.io.Out, "Added tiffin-sdk (%s, vendored: commit it). Run bun install.\n", strings.Join(sdk.Files, ", "))
-				} else {
-					fmt.Fprintln(a.io.Out, "No package.json yet: once the app has one, `tiffin sdk add` vendors tiffin-sdk into it.")
+				switch {
+				case sdk != nil && sdk.FromNPM != "":
+					fmt.Fprintf(a.io.Out, "@shiptiffin/sdk is installed from npm (%s).\n", sdk.FromNPM)
+				case sdk != nil:
+					fmt.Fprintf(a.io.Out, "Added @shiptiffin/sdk (%s, vendored: commit it). Run bun install.\n", strings.Join(sdk.Files, ", "))
+				default:
+					fmt.Fprintln(a.io.Out, "No package.json yet: once the app has one, `tiffin sdk add` vendors @shiptiffin/sdk into it.")
 				}
 				fmt.Fprintln(a.io.Out, "Next: tiffin plan")
 			} else {

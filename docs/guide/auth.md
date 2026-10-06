@@ -27,14 +27,10 @@ about app routes under it).
 ## In your app
 
 ```ts
-import { getSession, requireRole, withOrg } from "tiffin-sdk/auth";
+import { getSession, requireRole, withOrg } from "@shiptiffin/sdk/auth";
 const session = await getSession(request);                 // null if signed out
 const admin = await requireRole(request, "admin");         // throws 401/403 otherwise
 const rows = await withOrg(sql, orgId, tx => tx`select * from projects`); // RLS by org
-```
-
-```tsx
-import { SignIn, UserButton, OrgSwitcher } from "tiffin-sdk/react";
 ```
 
 `getSession` doesn't ask the engine on every request. Each sign-in also sets a short-lived
@@ -45,6 +41,65 @@ So a signed-out session, a ban or a lowered role can keep working in your server
 up to **60 seconds** (the engine's own endpoints see it at once). For a sensitive action,
 check now: `getSession(request, { fresh: true })`.
 
+### Sign-in forms in the browser
+
+The forms are yours. Better Auth's own client talks to the box's `/api/auth` on the
+app's host (`bun add better-auth`; the box runs 1.7). The bot check comes from
+`@shiptiffin/sdk/client`: `prepareCaptcha()` starts solving at once and hands over headers
+for one request at a time (`{}` when the app has the check off).
+
+```tsx
+// lib/auth-client.ts
+import { createAuthClient } from "better-auth/react"; // or "better-auth/client" without React
+export const authClient = createAuthClient({ basePath: "/api/auth" });
+
+// app/sign-up/page.tsx
+"use client";
+import { useMemo, useState } from "react";
+import { errorText, prepareCaptcha } from "@shiptiffin/sdk/client";
+import { authClient } from "@/lib/auth-client";
+
+export default function SignUp() {
+  const captcha = useMemo(() => prepareCaptcha(), []);
+  const [error, setError] = useState("");
+  async function submit(form: FormData) {
+    const email = String(form.get("email")), password = String(form.get("password"));
+    const { error } = await authClient.signUp.email({ name: email.split("@")[0]!, email, password }, { headers: await captcha() });
+    if (error) setError(errorText(error));
+    else location.href = "/dashboard";
+  }
+  return (
+    <form action={submit}>
+      <input name="email" type="email" required />
+      <input name="password" type="password" minLength={8} required />
+      {error && <p>{error}</p>}
+      <button>Create account</button>
+    </form>
+  );
+}
+```
+
+Sign in the same way with `authClient.signIn.email({ email, password }, { headers: await captcha() })`
+(magic links and email codes take the headers too); `authClient.signOut()` signs out, and
+`authClient.useSession()` (React) or `await authClient.getSession()` (plain) says who is
+signed in. Without React:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { prepareCaptcha } from "@shiptiffin/sdk/client";
+const authClient = createAuthClient({ basePath: "/api/auth" });
+const captcha = prepareCaptcha();
+await authClient.signIn.email({ email, password }, { headers: await captcha() });
+const { data } = await authClient.getSession(); // data?.user.email
+await authClient.signOut();
+```
+
+Add Better Auth's client plugins for the rest of what the box serves:
+`organizationClient()`, `magicLinkClient()`, `emailOTPClient()`, `twoFactorClient()` from
+`better-auth/client/plugins`, `passkeyClient()` from `@better-auth/passkey/client`
+(`authClient.signIn.passkey()`, `authClient.passkey.addPasskey()`). `authConfig()` from
+`@shiptiffin/sdk/client` says which methods the app has on, to show only those buttons.
+
 Mail (verification, links, invites) goes through the project's email service, so add
 `email: {}` next to `auth` (the plan warns when it is missing). It lands in the dev inbox
 until you set up a relay. Email + password sign-up needs a confirmed address: sign-up
@@ -53,13 +108,13 @@ Testing it yourself? The link is in `tiffin email messages list <project>` / `ge
 
 ### Next.js
 
-`tiffin-sdk/next/auth` follows the Next.js authentication guide: an optimistic check in
+`@shiptiffin/sdk/next/auth` follows the Next.js authentication guide: an optimistic check in
 `proxy.ts`, the real check next to the data, and Server Actions that sign in. The box
 sets everything it needs; there is no auth route or config to write.
 
 ```ts
 // proxy.ts: only looks for the session cookie (no network)
-import { authProxy } from "tiffin-sdk/next/auth";
+import { authProxy } from "@shiptiffin/sdk/next/auth";
 export const proxy = authProxy({ protect: ["/dashboard/:path*"], signIn: "/sign-in" });
 ```
 
@@ -69,7 +124,7 @@ Signed out on a protected page: a redirect to `/sign-in?next=/dashboard/...`; un
 ```ts
 // app/lib/dal.ts
 import "server-only";
-export { getSession, verifySession, requireRole, currentUser } from "tiffin-sdk/next/auth";
+export { getSession, verifySession, requireRole, currentUser } from "@shiptiffin/sdk/next/auth";
 
 // app/dashboard/page.tsx
 const { user, organization } = await verifySession(); // signed out: to /sign-in?next=...
@@ -88,7 +143,7 @@ Server Actions call the engine for the browser and set its cookies:
 ```ts
 // app/actions.ts
 "use server";
-import { requireRole, signIn, signOut } from "tiffin-sdk/next/auth";
+import { requireRole, signIn, signOut } from "@shiptiffin/sdk/next/auth";
 
 export async function signInAction(_: unknown, form: FormData) {
   // email, password, captcha and next from the form; { ok: false, code, message } on failure
@@ -106,18 +161,19 @@ export async function deleteProject(id: string) {
 ```tsx
 // app/sign-in/form.tsx
 "use client";
-import { useActionState } from "react";
-import { CaptchaField } from "tiffin-sdk/react";
+import { useActionState, useEffect, useRef } from "react";
+import { attachCaptcha } from "@shiptiffin/sdk/client";
 import { signInAction } from "../actions";
 
 export function SignInForm({ next = "" }: { next?: string }) {
   const [state, action, pending] = useActionState(signInAction, null);
+  const form = useRef<HTMLFormElement>(null);
+  useEffect(() => attachCaptcha(form.current!), []); // fills a hidden "captcha" field
   return (
-    <form action={action}>
+    <form ref={form} action={action}>
       <input name="email" type="email" />
       <input name="password" type="password" />
       <input name="next" type="hidden" value={next} />
-      <CaptchaField />
       {state?.ok === false && <p>{state.message}</p>}
       <button disabled={pending}>Sign in</button>
     </form>
@@ -126,8 +182,9 @@ export function SignInForm({ next = "" }: { next?: string }) {
 ```
 
 `signUp` works the same (`name`, `email`, `password`); it answers `signedIn: false` when
-the user must confirm their email first. `<CaptchaField />` solves the bot check in the
-browser (from `tiffin sdk add --react`). Or skip the actions and drop in `<SignIn />`.
+the user must confirm their email first. `attachCaptcha` solves the bot check in the
+browser and holds a submit until it is ready. Or skip the actions and use Better Auth's
+client as above.
 
 With Cache Components: a `"use cache"` function can't read cookies, so never call
 `getSession` inside one. Check the session outside and pass in what the cached work

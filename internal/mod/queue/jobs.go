@@ -546,7 +546,7 @@ type Job struct {
 	LastError    string          `json:"lastError,omitempty"`
 	LastStatus   int             `json:"lastStatus,omitempty" doc:"HTTP status of the latest attempt"`
 	EnqueuedBy   string          `json:"enqueuedBy,omitempty"`
-	Progress     json.RawMessage `json:"progress,omitempty" doc:"The latest progress the app reported (job.progress in tiffin-sdk)"`
+	Progress     json.RawMessage `json:"progress,omitempty" doc:"The latest progress the app reported (job.progress in @shiptiffin/sdk)"`
 	Payload      json.RawMessage `json:"payload,omitempty" doc:"Job payload (get only)"`
 	Output       json.RawMessage `json:"output,omitempty" doc:"The app's JSON response to the successful attempt (get only)"`
 	Attempts     []Attempt       `json:"attempts,omitempty" doc:"Every attempt, oldest first (get only)"`

@@ -32,7 +32,7 @@ cp -R "$ROOT/templates/queues-worker" "$WORK/shop/worker"
 rm -rf "$WORK/shop/worker/node_modules" "$WORK/shop/worker/tiffin.config.ts"
 cp "$HERE/fixtures/worker/index.ts" "$WORK/shop/worker/index.ts"
 cat >"$WORK/shop/tiffin.config.ts" <<'TS'
-import { defineConfig } from "tiffin-sdk";
+import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({
   project: "shop",
   env: { LOG_LEVEL: "info" },

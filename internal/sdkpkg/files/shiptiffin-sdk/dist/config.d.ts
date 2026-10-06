@@ -1,0 +1,16 @@
+import type { TiffinConfig } from "./types.js";
+export type { AppConfig, AssetsConfig, BucketConfig, Framework, GitConfig, PostgresConfig, QueueConfig, ResourcesConfig, Role, ServicesConfig, Slug, StorageConfig, TiffinConfig, TopicConfig, ValkeyConfig, } from "./types.js";
+/**
+ * Declare a Tiffin project. Returns its argument unchanged; it exists so
+ * editors and agents get types and completion:
+ *
+ * ```ts
+ * import { defineConfig } from "@shiptiffin/sdk";
+ * export default defineConfig({ project: "hello", apps: { web: { framework: "next" } } });
+ * ```
+ *
+ * `tiffin` evaluates this file in a sandbox and checks the result against the
+ * manifest JSON Schema, so keep it plain data: no network, no file access.
+ * `process.env.X` is available for non-secret values.
+ */
+export declare function defineConfig(config: TiffinConfig): TiffinConfig;

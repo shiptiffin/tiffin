@@ -155,7 +155,7 @@ func checkRules(op s3Op, b *bucketMeta, r *http.Request, size int64) *rejection 
 	case opPostForm:
 		if b.MaxFileSize > 0 || len(b.AllowedTypes) > 0 {
 			return &rejection{http.StatusForbidden, "AccessDenied",
-				"bucket " + b.Name + " limits file sizes or types, which form uploads cannot be checked against; upload with a presigned PUT (createUpload in tiffin-sdk/storage)"}
+				"bucket " + b.Name + " limits file sizes or types, which form uploads cannot be checked against; upload with a presigned PUT (createUpload in @shiptiffin/sdk/storage)"}
 		}
 	}
 	return nil

@@ -1,5 +1,5 @@
 /**
- * `tiffin-sdk/next/cache-handler`: a Next.js 16 `cacheHandler` (ISR pages,
+ * `@shiptiffin/sdk/next/cache-handler`: a Next.js 16 `cacheHandler` (ISR pages,
  * route handlers, `fetch` cache, `unstable_cache`) backed by Valkey, so every
  * instance of an app shares one cache and `revalidateTag` / `revalidatePath`
  * reach all of them.
@@ -10,7 +10,7 @@
  *   cacheHandler: fileURLToPath(new URL("./cache-handler.mjs", import.meta.url)),
  * };
  * // cache-handler.mjs
- * export { default } from "tiffin-sdk/next/cache-handler";
+ * export { default } from "@shiptiffin/sdk/next/cache-handler";
  * ```
  */
 import { createRequire } from "node:module";

@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireRole } from "tiffin-sdk/next/auth";
+import { requireRole } from "@shiptiffin/sdk/next/auth";
 
 // Members only: an API key capped at viewer gets 403.
 export async function GET(req: NextRequest) {

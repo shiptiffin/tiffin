@@ -1,8 +1,8 @@
 /**
- * `tiffin-sdk/email`: send transactional email from an app on the box.
+ * `@shiptiffin/sdk/email`: send transactional email from an app on the box.
  *
  * ```tsx
- * import { send, render } from "tiffin-sdk/email";
+ * import { send, render } from "@shiptiffin/sdk/email";
  * import { WelcomeEmail } from "./emails/welcome";
  *
  * await send({ to: user.email, subject: "Welcome!", react: <WelcomeEmail name={user.name} /> });

@@ -18,7 +18,7 @@ import (
 )
 
 // TestNextAuth deploys e2e/nextauth, a Next.js 16 app using
-// tiffin-sdk/next/auth with plain (no JavaScript) forms, on two hosts:
+// @shiptiffin/sdk/next/auth with plain (no JavaScript) forms, on two hosts:
 //
 //	proxy.ts redirects a signed-out visitor to /sign-in?next= → sign up
 //	through a Server Action (its cookies reach the browser) → the dashboard

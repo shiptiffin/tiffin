@@ -54,7 +54,7 @@ test("a project with no apps: schedules and queues that call web addresses", asy
   await expect(digest.getByText(/^Next /)).toBeVisible();
   await axe(page, "schedules");
 
-  // The schedule's calls arrive signed, and the worker checked them with tiffin-sdk/verify.
+  // The schedule's calls arrive signed, and the worker checked them with @shiptiffin/sdk/verify.
   const got = await calls(page);
   expect(got.filter((c) => c.cron === "digest").every((c) => c.signed)).toBeTruthy();
   expect(got.some((c) => c.path === "/hooks/orders" && c.signed)).toBeTruthy();

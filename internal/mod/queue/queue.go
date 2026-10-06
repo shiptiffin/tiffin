@@ -8,7 +8,7 @@
 // anything else retries with exponential backoff and jitter. Long jobs hold a
 // lease the app extends with heartbeats. Limits (queue concurrency, per-key
 // concurrency, per-key rate, FIFO groups) are enforced in Postgres by the
-// delivery worker. Workflows are checkpointed functions run by tiffin-sdk
+// delivery worker. Workflows are checkpointed functions run by @shiptiffin/sdk
 // inside the app; see workflow.go.
 package queue
 
@@ -296,7 +296,7 @@ func (m *Module) ProjectStopped(ctx context.Context, p *platform.Platform, proje
 	return e.SetProjectStopped(ctx, project, stopped)
 }
 
-// Env gives apps what tiffin-sdk needs to send jobs and verify deliveries.
+// Env gives apps what @shiptiffin/sdk needs to send jobs and verify deliveries.
 func (m *Module) Env(ctx context.Context, p *platform.Platform, project, app string) (map[string]string, error) {
 	m.mu.RLock()
 	k := m.keys
@@ -318,7 +318,7 @@ func (m *Module) Env(ctx context.Context, p *platform.Platform, project, app str
 	}, nil
 }
 
-// AppPort is where the queue serves the app-facing endpoints (tiffin-sdk's
+// AppPort is where the queue serves the app-facing endpoints (@shiptiffin/sdk's
 // send, heartbeat and workflow calls): on 127.0.0.1 for the box itself and
 // on the runtime's host IP, which app containers reach.
 const AppPort = "7075"

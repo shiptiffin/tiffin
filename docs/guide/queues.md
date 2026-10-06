@@ -4,7 +4,7 @@ Apps don't poll. Tiffin pushes each job to your app as a signed HTTP request and
 retries until it succeeds.
 
 ```ts
-import { queue } from "tiffin-sdk/queue";
+import { queue } from "@shiptiffin/sdk/queue";
 await queue.send("emails", { to: "sam@example.com" }, { delay: "10m", key: "user:42" });
 ```
 
@@ -151,7 +151,7 @@ its own network, `TIFFIN_QUEUE_ALLOW_NETS=192.168.1.0/24` lets calls reach that 
 `TIFFIN_QUEUE_SIGNING_SECRET`):
 
 ```ts
-import { verifyRequest } from "tiffin-sdk/verify";
+import { verifyRequest } from "@shiptiffin/sdk/verify";
 
 export async function POST(req: Request) {
   const call = await verifyRequest(req, process.env.TIFFIN_SIGNING_SECRET!);
@@ -170,7 +170,7 @@ constant time with the header's `v1`, and reject a `t` more than five minutes aw
 Durable, checkpointed code in your app:
 
 ```ts
-import { workflow } from "tiffin-sdk/workflow";
+import { workflow } from "@shiptiffin/sdk/workflow";
 export const onboard = workflow.define("onboard", async (ctx, input: { userId: string }) => {
   const user = await ctx.step("load user", () => db.users.get(input.userId));
   await ctx.step("send welcome", () => sendWelcome(user));
@@ -224,7 +224,7 @@ polling.
 ```ts
 // app/actions.ts (server)
 "use server";
-import { workflow } from "tiffin-sdk/workflow";
+import { workflow } from "@shiptiffin/sdk/workflow";
 export async function buildReport(month: string) {
   return workflow.startWithToken("report", { month }); // { id, token }; queue.sendWithToken for a job
 }
@@ -239,24 +239,28 @@ workflow.define("report", async (ctx, input: { month: string }) => {
 
 // app/report-status.tsx (client)
 "use client";
-import { useRun } from "tiffin-sdk/react";
+import { useEffect, useState } from "react";
+import { subscribeRun, type LiveRun } from "@shiptiffin/sdk/client";
 export function ReportStatus({ id, token }: { id: string; token: string }) {
-  const run = useRun<{ pct: number; note: string }>(id, token);
+  const [run, setRun] = useState<LiveRun<{ pct: number; note: string }> | null>(null);
+  useEffect(() => subscribeRun(id, token, setRun), [id, token]); // returns its own cleanup
+  if (!run) return null;
   if (run.error) return <p>Failed: {run.error}</p>;
   if (run.done) return <a href={run.output as string}>Download</a>;
   return <progress value={run.progress?.pct ?? 0} max={100} />;
 }
 ```
 
-- `useRun(id, token)` (and `useJob`) returns `{ status, progress, output, error, chunks, done,
-  connected, run }`; `run.steps` lists a workflow's steps (names and states, not their results).
-  It reconnects by itself and stops when the work finishes.
+- `subscribeRun(id, token, onChange)` calls `onChange` with `{ status, progress, output, error,
+  chunks, done, connected, run }` on every change; `run.steps` lists a workflow's steps (names and
+  states, not their results). It reconnects by itself (Last-Event-ID) and stops when the work
+  finishes or when you call the function it returns. No framework needed.
 - **Progress** is the latest value (JSON, at most 16 KB) and stays on the job or run:
   `tiffin queue jobs get` and `tiffin workflows runs get` show it. **Output chunks** (`job.log`,
   `ctx.stream`, at most 64 KB each, 10,000 or 1 MB per job or run) arrive in order. A workflow
   sends each once: calls replayed by later turns are skipped. A step that fails and runs again
   sends its chunks again.
-- **Tokens** come from the server: `subscribeToken(id, { ttl })` (`tiffin-sdk/queue`) signs one
+- **Tokens** come from the server: `subscribeToken(id, { ttl })` (`@shiptiffin/sdk/queue`) signs one
   job or run ID with `TIFFIN_QUEUE_SIGNING_SECRET`, without a call to the box. They last an hour
   by default and at most 7 days; a token for one run cannot watch another. Give a token only to
   people allowed to see that work: the stream carries its progress, output chunks, result and error.

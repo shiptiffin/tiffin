@@ -1,4 +1,4 @@
-// tiffin-sdk/auth against the real engine: what an app's server code sees.
+// @shiptiffin/sdk/auth against the real engine: what an app's server code sees.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import pg from "pg";
 import { getSession, requireRole, sessionFor, verifyToken, withOrg } from "../../sdk/src/auth";

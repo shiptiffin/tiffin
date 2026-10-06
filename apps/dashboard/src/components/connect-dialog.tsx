@@ -210,8 +210,8 @@ const s3 = new S3Client({ forcePathStyle: true });
 await s3.send(new PutObjectCommand({ Bucket: process.env.${buckets.length === 1 ? "S3_BUCKET" : `S3_BUCKET_${envName(b)}`}, Key: "hello.txt", Body: "Hello" }));`,
           },
           {
-            label: "tiffin-sdk",
-            code: `import { signedUrl, upload } from "tiffin-sdk/storage";
+            label: "@shiptiffin/sdk",
+            code: `import { signedUrl, upload } from "@shiptiffin/sdk/storage";
 
 await upload("${b}", "avatars/ada.png", photo, { contentType: "image/png" });
 const src = signedUrl("${b}", "avatars/ada.png", { width: 256 }); // resized, works for an hour`,
@@ -246,14 +246,14 @@ const src = signedUrl("${b}", "avatars/ada.png", { width: 256 }); // resized, wo
         snippets: [
           {
             label: "Send",
-            code: `import { queue } from "tiffin-sdk/queue";
+            code: `import { queue } from "@shiptiffin/sdk/queue";
 
 await queue.send("emails", { to: "sam@example.com" }, { delay: "10m" });`,
           },
           {
             label: "Receive",
             code: `// The box POSTs each job to /queues/<name> on your app, signed, and retries until it answers 2xx.
-import { defineHandler } from "tiffin-sdk/queue";
+import { defineHandler } from "@shiptiffin/sdk/queue";
 
 export const POST = defineHandler(async (job) => {
   await sendWelcome(job.payload.to);
@@ -262,7 +262,7 @@ export const POST = defineHandler(async (job) => {
           {
             label: "A URL outside the box",
             code: `// Schedules and queues can call any web address, signed the same way (tiffin queue signing-secret ${project}).
-import { verifyRequest } from "tiffin-sdk/verify";
+import { verifyRequest } from "@shiptiffin/sdk/verify";
 
 export async function POST(req: Request) {
   const call = await verifyRequest(req, process.env.TIFFIN_SIGNING_SECRET!);

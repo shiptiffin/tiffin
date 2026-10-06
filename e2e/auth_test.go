@@ -105,7 +105,7 @@ func TestAuth(t *testing.T) {
 	project := fmt.Sprintf("auth%d", time.Now().Unix()%100000)
 	writeConfig := func(services string) string {
 		path := filepath.Join(dir, "tiffin.config.ts")
-		cfg := `import { defineConfig } from "tiffin-sdk";
+		cfg := `import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({ project: "` + project + `", apps: { web: { framework: "static", routes: ["` + project + `"] } }, services: {` + services + `} });
 `
 		if err := os.WriteFile(path, []byte(cfg), 0o644); err != nil {

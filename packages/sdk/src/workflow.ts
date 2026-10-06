@@ -1,8 +1,8 @@
 /**
- * `tiffin-sdk/workflow`: durable workflows that run inside your app.
+ * `@shiptiffin/sdk/workflow`: durable workflows that run inside your app.
  *
  * ```ts
- * import { workflow } from "tiffin-sdk/workflow";
+ * import { workflow } from "@shiptiffin/sdk/workflow";
  *
  * export const onboard = workflow.define("onboard", async (ctx, input: { userId: string }) => {
  *   const user = await ctx.step("load user", () => db.users.get(input.userId));
@@ -23,7 +23,7 @@
  *
  * Live progress: `ctx.progress(value)` and `ctx.stream(chunk)` report to
  * browsers watching the run; `workflow.startWithToken()` (in a server
- * action) returns `{ id, token }` for `useRun(id, token)` in tiffin-sdk/react.
+ * action) returns `{ id, token }` for `subscribeRun` in @shiptiffin/sdk/client.
  * Calls replayed from earlier turns are not sent again.
  *
  * How it runs: each "turn" the box POSTs the run and its finished steps to

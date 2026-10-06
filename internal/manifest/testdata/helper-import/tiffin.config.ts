@@ -1,4 +1,4 @@
-import { defineConfig } from "tiffin-sdk";
+import { defineConfig } from "@shiptiffin/sdk";
 import { appDefaults, routeFor } from "./lib/helpers";
 
 export default defineConfig({

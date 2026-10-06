@@ -1,11 +1,11 @@
 /**
- * `tiffin-sdk/next/image-loader`: a next/image loader that has the box
+ * `@shiptiffin/sdk/next/image-loader`: a next/image loader that has the box
  * resize images stored in buckets (files.<domain>/...?w=&q=&f=webp), so the
  * app does not run sharp. Images elsewhere are left as they are.
  *
  * ```ts
  * // image-loader.ts
- * export { default } from "tiffin-sdk/next/image-loader";
+ * export { default } from "@shiptiffin/sdk/next/image-loader";
  * // next.config.ts
  * images: { loader: "custom", loaderFile: "./image-loader.ts" },
  * // a page

@@ -162,7 +162,7 @@ type trackBody struct {
 	At       *time.Time     `json:"at"`
 }
 
-// serverTrack accepts events from app servers (tiffin-sdk/analytics track()).
+// serverTrack accepts events from app servers (@shiptiffin/sdk/analytics track()).
 func (m *Module) serverTrack(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		reply(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST only"})

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname } from "node:path";
-import { createUseCacheHandler, memoryRedis, RespClient, TiffinCacheHandler, toRedisLike, type RedisLike, type StoreOptions, type TagState } from "tiffin-sdk/next";
+import { createUseCacheHandler, memoryRedis, RespClient, TiffinCacheHandler, toRedisLike, type RedisLike, type StoreOptions, type TagState } from "../src/next";
 import { startFakeValkey, type FakeValkey } from "./fake-valkey";
 
 // Each "instance" of an app is its own connection (and so its own in-memory
@@ -422,7 +422,7 @@ describe("clients", () => {
     expect(rs[2]).toEqual([]);
     expect(rs[3]).toBeInstanceOf(Error);
     expect(fake.log.slice(mark)).toEqual(["AUTH user", "SET p:a", "GET p:a", "HGETALL p:none", "BOGUS"]);
-    const { target } = await import("../src/next/resp");
+    const { target } = await import("../src/resp");
     expect(target("redis+unix://p_shop:a%2Fb%3Ac@/var/run/valkey/valkey.sock")).toMatchObject({ path: "/var/run/valkey/valkey.sock", user: "p_shop", pass: "a/b:c" });
   });
 

@@ -1,0 +1,46 @@
+# Publishes @shiptiffin/sdk (packages/sdk) to npm when a tag sdk-v<version> is
+# pushed, e.g. `git tag sdk-v0.1.0 && git push origin sdk-v0.1.0`. The tag
+# must match the version in packages/sdk/package.json.
+#
+# Provenance comes from GitHub's OIDC token (id-token: write). Set up npm's
+# trusted publishing for this repository and workflow on npmjs.com, and no
+# token is needed; until then (the very first publish) add an NPM_TOKEN secret.
+# The 3-day minimum release age in bunfig.toml and .npmrc applies to installs,
+# not to publishing.
+name: sdk-publish
+
+on:
+  push:
+    tags: ["sdk-v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/sdk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Check the tag matches the version
+        run: |
+          v="$(node -p 'require("./package.json").version')"
+          [ "sdk-v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME, package.json $v"; exit 1; }
+      - name: Test
+        run: bunx tsc --noEmit -p . && bun test
+      - name: Build
+        run: bun run build && npm pack --dry-run
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

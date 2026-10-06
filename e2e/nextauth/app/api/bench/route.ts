@@ -1,4 +1,4 @@
-import { getSession } from "tiffin-sdk/auth";
+import { getSession } from "@shiptiffin/sdk/auth";
 
 // How long getSession takes inside the app, per path: the signed cookie
 // (no request), a remembered engine answer, and the engine itself.

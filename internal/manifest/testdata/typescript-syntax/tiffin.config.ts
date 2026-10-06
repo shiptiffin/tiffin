@@ -1,5 +1,5 @@
-import { defineConfig, type TiffinConfig } from "tiffin-sdk";
-import type { Something } from "tiffin-sdk/config";
+import { defineConfig, type TiffinConfig } from "@shiptiffin/sdk";
+import type { Something } from "@shiptiffin/sdk/config";
 
 interface Extra {
   region: string;

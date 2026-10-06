@@ -21,7 +21,7 @@ library works; the SDK wraps it and renders [react-email](https://react.email)
 templates:
 
 ```tsx
-import { send, render } from "tiffin-sdk/email";
+import { send, render } from "@shiptiffin/sdk/email";
 
 await send({ to: user.email, subject: "Welcome", react: <Welcome name={user.name} /> });
 await send({ to: "ops@example.com", subject: "Nightly report", text: "All good." });

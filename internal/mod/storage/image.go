@@ -38,7 +38,7 @@ import (
 
 var (
 	// imageWidths are the widths w may take: Next.js's default deviceSizes
-	// and imageSizes, so next/image with the tiffin-sdk loader always fits.
+	// and imageSizes, so next/image with the @shiptiffin/sdk loader always fits.
 	imageWidths = []int{16, 32, 48, 64, 96, 128, 256, 384, 640, 750, 828, 1080, 1200, 1920, 2048, 3840}
 	// imageQualities are the qualities q may take.
 	imageQualities = []int{50, 75, 90, 100}

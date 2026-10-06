@@ -1,4 +1,4 @@
-import { defineConfig } from "tiffin-sdk";
+import { defineConfig } from "@shiptiffin/sdk";
 
 // A guestbook in one Hono app: the page, a JSON API, Postgres for entries,
 // Valkey for a visit counter and cookieless analytics.

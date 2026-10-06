@@ -164,9 +164,10 @@ commands and script `KEYS`, not `SCAN`. Apps may not run `SCAN` or `KEYS` themse
 would show other projects' key names); the SDK's `scan()` goes through the box's KV endpoint,
 which lists only the project's keys.
 
-### Apps moving from Vercel KV or Upstash
+### Moving an app here from Upstash or Vercel KV
 
-Apps that use `@upstash/redis`, `@upstash/ratelimit` or `@vercel/kv` run unchanged: the
+For moving an app with no code changes only (new code uses `@shiptiffin/sdk/kv`): apps
+that use `@upstash/redis`, `@upstash/ratelimit` or `@vercel/kv` run unchanged: the
 box serves an Upstash-compatible REST endpoint inside the box and gives apps
 `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `KV_REST_API_URL`, `KV_REST_API_TOKEN`
 and `KV_REST_API_READ_ONLY_TOKEN`. `Redis.fromEnv()` picks them up. Your own env or

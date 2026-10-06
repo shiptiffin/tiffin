@@ -1,5 +1,5 @@
 /**
- * `tiffin-sdk/verify`: check that a request really came from your box.
+ * `@shiptiffin/sdk/verify`: check that a request really came from your box.
  *
  * Every call a Tiffin cron or queue makes (to an app, or to a URL outside the
  * box) carries a `Tiffin-Signature` header: `t=<unix seconds>,v1=<hex>`, the
@@ -8,7 +8,7 @@
  * TIFFIN_QUEUE_SIGNING_SECRET).
  *
  * ```ts
- * import { verifyRequest } from "tiffin-sdk/verify";
+ * import { verifyRequest } from "@shiptiffin/sdk/verify";
  *
  * export async function POST(req: Request) {
  *   const call = await verifyRequest(req, process.env.TIFFIN_SIGNING_SECRET!);

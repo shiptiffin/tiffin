@@ -1,12 +1,13 @@
-// Package sdkpkg carries tiffin-sdk and @tiffin/react inside the binary and
-// vendors them into a project, because neither is on npm: `tiffin sdk add`
-// (and `tiffin init`) writes vendor/<name>-<version>.tgz and points
-// package.json at it ("tiffin-sdk": "file:./vendor/tiffin-sdk-0.1.0.tgz"), so
-// `bun install` and `npm install` work without the registry for them, on a
-// laptop and in the box's builds alike.
+// Package sdkpkg carries @shiptiffin/sdk inside the binary, the same files
+// npm has, so an app can get the SDK without the registry: `tiffin sdk add`
+// (and `tiffin init`) writes vendor/shiptiffin-sdk-<version>.tgz and points
+// package.json at it ("@shiptiffin/sdk": "file:./vendor/shiptiffin-sdk-0.1.0.tgz"),
+// unless the app already installs it from npm, which wins. The box also
+// copies the SDK's Next.js cache handlers into Next.js builds from here, so
+// those never depend on what the app installed.
 //
-// files/ is built from packages/sdk and packages/react by scripts/sdk-pack.ts
-// (make sdk) and committed, like the dashboard build.
+// files/ is built from packages/sdk by scripts/sdk-pack.ts (make sdk) and
+// committed, like the dashboard build.
 package sdkpkg
 
 import (
@@ -31,25 +32,19 @@ var files embed.FS
 
 // Package is one vendorable package.
 type Package struct {
-	Name    string // the npm name: "tiffin-sdk", "@tiffin/react"
+	Name    string // the npm name: "@shiptiffin/sdk"
 	Version string
-	dir     string // under files/
+	dir     string // under files/; also the tarball's base name, as npm pack names it
 }
 
-// File is the tarball's name in vendor/: "tiffin-sdk-0.1.0.tgz".
-func (p Package) File() string { return p.base() + "-" + p.Version + ".tgz" }
-
-// base is the name without a scope: "tiffin-react" for "@tiffin/react".
-func (p Package) base() string { return p.dir }
+// File is the tarball's name in vendor/: "shiptiffin-sdk-0.1.0.tgz".
+func (p Package) File() string { return p.dir + "-" + p.Version + ".tgz" }
 
 // Spec is the package.json dependency value: "file:./vendor/<file>".
 func (p Package) Spec() string { return "file:./vendor/" + p.File() }
 
-// The packages: the SDK, and the React components (tiffin sdk add --react).
-var (
-	SDK   = load("tiffin-sdk")
-	React = load("tiffin-react")
-)
+// SDK is @shiptiffin/sdk.
+var SDK = load("shiptiffin-sdk")
 
 func load(dir string) Package {
 	raw, err := files.ReadFile("files/" + dir + "/package.json")
@@ -114,17 +109,21 @@ func (p Package) Tarball() ([]byte, error) {
 // ErrNoPackageJSON means the directory has no package.json to add the SDK to.
 var ErrNoPackageJSON = errors.New("no package.json")
 
-// Added is what Add wrote.
+// Added is what Add did.
 type Added struct {
-	Files   []string `json:"files" doc:"Tarballs written under vendor/"`
+	Files   []string `json:"files,omitempty" doc:"Tarballs written under vendor/"`
 	Removed []string `json:"removed,omitempty" doc:"Older vendored versions deleted"`
-	Deps    []string `json:"dependencies" doc:"package.json dependencies set, as name@spec"`
+	Deps    []string `json:"dependencies,omitempty" doc:"package.json dependencies set, as name@spec"`
+	FromNPM string   `json:"fromNpm,omitempty" doc:"The app already installs the SDK from npm (this version range), so nothing was vendored"`
 }
 
-// Add vendors pkgs into the project at dir: writes each tarball to
+// Add vendors the SDK into the project at dir: writes the tarball to
 // vendor/, removes other versions of it there, and sets the dependency in
-// package.json (keeping its key order and two-space indentation).
-func Add(dir string, pkgs ...Package) (*Added, error) {
+// package.json (keeping its key order and two-space indentation). An app
+// that already depends on the SDK from npm (a version range, not file:) is
+// left as it is.
+func Add(dir string) (*Added, error) {
+	p := SDK
 	pj := filepath.Join(dir, "package.json")
 	raw, err := os.ReadFile(pj)
 	if errors.Is(err, os.ErrNotExist) {
@@ -132,38 +131,51 @@ func Add(dir string, pkgs ...Package) (*Added, error) {
 	} else if err != nil {
 		return nil, err
 	}
+	if spec := dependency(raw, p.Name); spec != "" && !strings.HasPrefix(spec, "file:") {
+		return &Added{FromNPM: spec}, nil
+	}
+	tgz, err := p.Tarball()
+	if err != nil {
+		return nil, err
+	}
 	out := &Added{}
 	vendor := filepath.Join(dir, "vendor")
 	if err := os.MkdirAll(vendor, 0o755); err != nil {
 		return nil, err
 	}
-	for _, p := range pkgs {
-		tgz, err := p.Tarball()
-		if err != nil {
-			return nil, err
-		}
-		old, _ := filepath.Glob(filepath.Join(vendor, p.base()+"-*.tgz"))
-		for _, o := range old {
-			if filepath.Base(o) != p.File() && isVersionOf(filepath.Base(o), p.base()) {
-				if err := os.Remove(o); err == nil {
-					out.Removed = append(out.Removed, "vendor/"+filepath.Base(o))
-				}
+	old, _ := filepath.Glob(filepath.Join(vendor, p.dir+"-*.tgz"))
+	for _, o := range old {
+		if filepath.Base(o) != p.File() && isVersionOf(filepath.Base(o), p.dir) {
+			if err := os.Remove(o); err == nil {
+				out.Removed = append(out.Removed, "vendor/"+filepath.Base(o))
 			}
 		}
-		if err := os.WriteFile(filepath.Join(vendor, p.File()), tgz, 0o644); err != nil {
-			return nil, err
-		}
-		out.Files = append(out.Files, "vendor/"+p.File())
-		raw, err = setDependency(raw, p.Name, p.Spec())
-		if err != nil {
-			return nil, fmt.Errorf("package.json: %w", err)
-		}
-		out.Deps = append(out.Deps, p.Name+"@"+p.Spec())
 	}
+	if err := os.WriteFile(filepath.Join(vendor, p.File()), tgz, 0o644); err != nil {
+		return nil, err
+	}
+	out.Files = append(out.Files, "vendor/"+p.File())
+	if raw, err = setDependency(raw, p.Name, p.Spec()); err != nil {
+		return nil, fmt.Errorf("package.json: %w", err)
+	}
+	out.Deps = append(out.Deps, p.Name+"@"+p.Spec())
 	if err := os.WriteFile(pj, raw, 0o644); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// dependency is the spec package.json gives name in dependencies or
+// devDependencies, or "".
+func dependency(raw []byte, name string) string {
+	var m struct{ Dependencies, DevDependencies map[string]string }
+	if json.Unmarshal(raw, &m) != nil {
+		return ""
+	}
+	if v := m.Dependencies[name]; v != "" {
+		return v
+	}
+	return m.DevDependencies[name]
 }
 
 // isVersionOf reports whether file is "<base>-<version>.tgz" (so
@@ -264,19 +276,25 @@ func (o *ordered) marshal() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// NextCacheHandlers returns tiffin-sdk's Next.js cache handlers as plain ESM
-// files (name → contents): cache-handler.js and use-cache.js, which import
-// ./store.js, which imports ./resp.js. The box writes them into Next.js builds
-// next to its adapter, so an app gets the shared cache without depending on
-// tiffin-sdk.
+// NextCacheHandlers returns the SDK's Next.js cache handlers as plain ESM
+// files in one directory (name → contents): cache-handler.js and
+// use-cache.js, which import ./store.js, which imports ./resp.js. The box
+// writes them into Next.js builds next to its adapter, so an app gets the
+// shared cache without depending on the SDK.
 func NextCacheHandlers() (map[string][]byte, error) {
 	out := map[string][]byte{}
-	for _, name := range []string{"resp.js", "store.js", "cache-handler.js", "use-cache.js"} {
-		b, err := files.ReadFile("files/tiffin-sdk/lib/next/" + name)
+	for name, from := range map[string]string{
+		"resp.js":          "dist/resp.js",
+		"store.js":         "dist/next/store.js",
+		"cache-handler.js": "dist/next/cache-handler.js",
+		"use-cache.js":     "dist/next/use-cache.js",
+	} {
+		b, err := files.ReadFile("files/" + SDK.dir + "/" + from)
 		if err != nil {
 			return nil, err
 		}
-		out[name] = b
+		// One directory here: store.js's "../resp.js" is "./resp.js".
+		out[name] = bytes.ReplaceAll(b, []byte(`from "../resp.js"`), []byte(`from "./resp.js"`))
 	}
 	return out, nil
 }

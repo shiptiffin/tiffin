@@ -1,7 +1,7 @@
 /**
- * `tiffin-sdk/next/use-cache`: a Next.js 16 `cacheHandlers` handler for the
+ * `@shiptiffin/sdk/next/use-cache`: a Next.js 16 `cacheHandlers` handler for the
  * `"use cache"` directive, backed by Valkey and sharing tag revalidation
- * with the `cacheHandler` in `tiffin-sdk/next/cache-handler`.
+ * with the `cacheHandler` in `@shiptiffin/sdk/next/cache-handler`.
  *
  * ```js
  * // next.config.mjs
@@ -13,7 +13,7 @@
  *   },
  * };
  * // use-cache-handler.mjs
- * export { default } from "tiffin-sdk/next/use-cache";
+ * export { default } from "@shiptiffin/sdk/next/use-cache";
  * ```
  */
 import { Store, warnOnce, type StoreOptions } from "./store";

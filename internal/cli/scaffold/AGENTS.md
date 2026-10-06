@@ -39,10 +39,11 @@ tiffin apply --confirm <hash> -m "why, in one sentence"
 
 ## Writing the app
 
-- `tiffin-sdk` (`/db`, `/kv`, `/storage`, `/email`, `/queue`, `/auth`, `/next`; `/react` with
-  `--react`) ships inside tiffin, not npm: `tiffin sdk add [--react]` writes `vendor/tiffin-sdk-<ver>.tgz`
-  and a `file:` dependency (`tiffin init` does it when package.json exists). Commit `vendor/`, run
-  `bun install`; never install `tiffin-sdk` from the npm registry. Services: `postgres` (the dashboard's
+- `@shiptiffin/sdk` (`/kv`, `/storage`, `/email`, `/queue`, `/workflow`, `/auth`, `/next/*`, and
+  `/client` for the browser): `bun add @shiptiffin/sdk`, or `tiffin sdk add` to vendor the copy inside
+  tiffin (`vendor/shiptiffin-sdk-<ver>.tgz` + a `file:` dependency; `tiffin init` does it when package.json
+  exists and the app doesn't install it from npm). Commit `vendor/`, run `bun install`. KV: `kv()` from
+  `@shiptiffin/sdk/kv`. Services: `postgres` (the dashboard's
   Database), `valkey` (Cache), `storage` (Files), `auth`, `email`; jobs are top-level `queues`/`crons`.
 - One folder can run a web app and a worker: give the worker app the same `path` and its own
   `command` (e.g. `"bun run worker.ts"`; default: package.json `start`).
@@ -62,7 +63,7 @@ tiffin apply --confirm <hash> -m "why, in one sentence"
   unless the cron sets `overlap: true`.
 - Progress in the browser: a server action returns `queue.sendWithToken(...)` /
   `workflow.startWithToken(...)` (`{ id, token }`); the job reports with `job.progress()` (workflows
-  `ctx.progress()`); the page shows `useRun(id, token)` from `tiffin-sdk/react`, which streams
+  `ctx.progress()`); the page shows `subscribeRun(id, token, onChange)` from `@shiptiffin/sdk/client`, which streams
   `GET /_tiffin/runs/<id>/events` from the box on the app's own host.
 
 Output is JSON when piped. Exit codes: 0 ok, 1 error, 2 auth, 3 invalid input,

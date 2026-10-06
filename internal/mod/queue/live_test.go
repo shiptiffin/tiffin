@@ -22,7 +22,7 @@ func TestSubscribeTokenScopeAndExpiry(t *testing.T) {
 	if p, err := e.checkToken(ctx, good, "run_A", now); err != nil || p != proj {
 		t.Fatalf("valid token: %q %v", p, err)
 	}
-	// The same vector tiffin-sdk's test checks (packages/sdk/test/queue.test.ts).
+	// The same vector @shiptiffin/sdk's test checks (packages/sdk/test/queue.test.ts).
 	if v := SubscribeToken("tqs_test", "shop", "run_01ABC", time.Unix(1_900_000_000, 0)); v != "live1.shop.run_01ABC.1900000000.d5035e46a7cbe4b6929e0b3f051cbce30924bb8b9d52226f5261eb3edf358fa2" {
 		t.Fatalf("token format %q", v)
 	}

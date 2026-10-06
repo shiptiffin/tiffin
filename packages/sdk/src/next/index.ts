@@ -1,5 +1,5 @@
 /**
- * `tiffin-sdk/next`: Next.js on Tiffin.
+ * `@shiptiffin/sdk/next`: Next.js on Tiffin.
  *
  * - `cache-handler` — Next.js `cacheHandler` (ISR, route handlers, fetch) in Valkey
  * - `use-cache`     — Next.js `cacheHandlers` for the "use cache" directive, in Valkey
@@ -12,4 +12,4 @@
 export { TiffinCacheHandler } from "./cache-handler";
 export { createUseCacheHandler, type CacheEntry, type UseCacheHandler } from "./use-cache";
 export { configure, defaultClient, memoryRedis, toRedisLike, readBuildId, Store, type RedisLike, type StoreOptions, type TagState } from "./store";
-export { RespClient } from "./resp";
+export { RespClient } from "../resp";

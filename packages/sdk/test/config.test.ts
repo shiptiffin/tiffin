@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { defineConfig, type TiffinConfig } from "tiffin-sdk";
-import { defineConfig as defineFromConfig } from "tiffin-sdk/config";
+import { defineConfig, type TiffinConfig } from "../src";
+import { defineConfig as defineFromConfig } from "../src/config";
 
 // A sample that must type-check (the test file is part of `tsc -p packages/sdk`).
 const sample = {
@@ -34,7 +34,7 @@ const sample = {
   },
 } satisfies TiffinConfig;
 
-describe("tiffin-sdk", () => {
+describe("@shiptiffin/sdk", () => {
   test("defineConfig is the identity function", () => {
     expect(defineConfig(sample)).toBe(sample);
     expect(defineFromConfig(sample)).toBe(sample);

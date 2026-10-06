@@ -1,4 +1,4 @@
-import { defineConfig } from "tiffin-sdk/config";
+import { defineConfig } from "@shiptiffin/sdk/config";
 
 export default defineConfig({
   project: "shop",
