@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sort"
@@ -22,6 +24,7 @@ import (
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/dashboard"
 	"github.com/btahir/tiffin/internal/edge"
+	"github.com/btahir/tiffin/internal/edge/switchboard"
 	"github.com/btahir/tiffin/internal/manifest"
 	tmcp "github.com/btahir/tiffin/internal/mcp"
 	"github.com/btahir/tiffin/internal/mod/runtime/vercelcfg"
@@ -31,7 +34,6 @@ import (
 	"github.com/btahir/tiffin/internal/version"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
-	"log/slog"
 )
 
 func (a *app) versionCmd() *cobra.Command {
@@ -290,7 +292,7 @@ func slugify(s string) string {
 
 func (a *app) serveCmd() *cobra.Command {
 	var addr, domain, publicURL, publicIPv6 string
-	var withEdge, onBox bool
+	var withEdge, edgeExternal, onBox bool
 	var httpsPort, httpPort int
 	var tlsMode, acmeCA, acmeRoots, acmeEmail string
 	var publicIPs, resolvers []string
@@ -298,7 +300,7 @@ func (a *app) serveCmd() *cobra.Command {
 		Use:   "serve",
 		Short: "Run the box API and MCP endpoint",
 		Long: "Serves the Tiffin API at /v1, MCP (streamable HTTP, stateless, API key required) at /mcp and the dashboard at /. " +
-			"With --edge it also runs the embedded HTTPS edge for dashboard.<domain>. " +
+			"With --edge it also runs the embedded HTTPS edge for dashboard.<domain>; with --edge-external it drives the one `tiffin edge` runs. " +
 			"On first start it creates the owner token and prints it once.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -308,7 +310,7 @@ func (a *app) serveCmd() *cobra.Command {
 			envDefault(cmd, a.io.Env, map[string]string{"tls": "TIFFIN_TLS", "public-ip": "TIFFIN_PUBLIC_IP",
 				"acme-ca": "TIFFIN_ACME_CA", "acme-ca-roots": "TIFFIN_ACME_CA_ROOTS", "acme-email": "TIFFIN_ACME_EMAIL", "dns-resolver": "TIFFIN_DNS_RESOLVER"})
 			var reach platform.Reach
-			var ed *edge.Edge
+			var ecl *edge.Client
 			var plat *platform.Platform
 			var openErr error
 			if onBox {
@@ -318,7 +320,7 @@ func (a *app) serveCmd() *cobra.Command {
 				}
 			}
 			b, fresh, err := openBox(ctx, a.home, func(d *api.Deps) {
-				d.Checks = func(ctx context.Context) []api.Check { return boxChecks(a.home, ed, started) }
+				d.Checks = func(ctx context.Context) []api.Check { return boxChecks(a.home, ecl, started) }
 				if onBox {
 					var err error
 					reach, domain, publicURL, err = boxReach(ctx, d.DB, reachFlags{domain: domain, publicURL: publicURL, httpsPort: httpsPort,
@@ -371,30 +373,19 @@ func (a *app) serveCmd() *cobra.Command {
 			errc := make(chan error, 1)
 			go func() { errc <- hs.Serve(ln) }()
 			base := "http://" + ln.Addr().String()
+			withEdge = withEdge || edgeExternal
 			if withEdge {
 				ecfg := edge.Config{Domain: domain, Apps: reach.AppsDomain, Dashboard: reach.Dashboard, DashboardURL: publicURL, Upstream: ln.Addr().String(), DataDir: filepath.Join(a.home, "edge"),
 					HTTPPort: httpPort, HTTPSPort: httpsPort, Internal: !reach.ACME, AccessLog: accessLog(onBox)}
 				if reach.ACME {
 					ecfg.ACME = &edge.ACME{CA: reach.ACMEDirectory, Email: reach.ACMEEmail, TrustedRoots: reach.ACMERoots}
 				}
-				ed, err = edge.Start(ctx, ecfg)
+				ecl, err = a.startEdge(ctx, ecfg, edgeExternal)
 				if err != nil {
 					return fmt.Errorf("start the HTTPS edge: %w", err)
 				}
-				defer ed.Stop()
-				pem, err := ed.RootCAPEM()
-				if err != nil && !reach.ACME {
-					return err
-				}
-				// Public: clients fetch it to trust the box's HTTPS (a local
-				// box; with public certificates nobody needs it).
-				if err == nil {
-					if err := os.WriteFile(filepath.Join(a.home, "ca.crt"), pem, 0o644); err != nil {
-						return err
-					}
-				}
 				if plat != nil {
-					plat.Edge = &edgeControl{ed: ed, base: ecfg}
+					plat.Edge = ecl
 				}
 				if publicURL != "" {
 					base = publicURL
@@ -407,6 +398,16 @@ func (a *app) serveCmd() *cobra.Command {
 				if err := plat.RefreshRoutes(ctx); err != nil {
 					plat.Log.Error("routes", "err", err)
 				}
+			} else if ecl != nil {
+				if err := ecl.SetRoutes(nil); err != nil {
+					fmt.Fprintln(a.io.Err, "edge:", err)
+				}
+			}
+			if withEdge && !reach.ACME {
+				// Public: clients fetch it to trust the box's HTTPS (a local
+				// box; with public certificates nobody needs it). The edge
+				// makes it when it loads its first config.
+				go writeCA(ctx, filepath.Join(a.home, "edge"), filepath.Join(a.home, "ca.crt"))
 			}
 			fmt.Fprintf(a.io.Err, "tiffin %s serving %s (API %s/v1, MCP %s/mcp, data %s)\n", version.Version, base, base, base, a.home)
 			if fresh != "" && !isTerminal(a.io.Err) {
@@ -434,6 +435,7 @@ func (a *app) serveCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:7070", "API listen address (the edge proxies to it)")
 	cmd.Flags().BoolVar(&withEdge, "edge", false, "also run the HTTPS edge (embedded Caddy, internal CA)")
+	cmd.Flags().BoolVar(&edgeExternal, "edge-external", false, "drive the HTTPS edge `tiffin edge` runs (its own process, sockets in --home) instead")
 	cmd.Flags().BoolVar(&onBox, "box", false, "run as a box: start platform modules (services, apps, reconcilers)")
 	cmd.Flags().StringVar(&domain, "domain", "tiffin.localhost", "edge domain; the dashboard is dashboard.<domain>")
 	cmd.Flags().IntVar(&httpsPort, "https-port", 443, "edge HTTPS port")
@@ -468,16 +470,80 @@ func isTerminal(w io.Writer) bool {
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
-// edgeControl lets modules replace the edge's routes.
-type edgeControl struct {
-	ed   *edge.Edge
-	base edge.Config
+// startEdge connects to the box's edge: the one `tiffin edge` runs
+// (external), or one started in this process. Either way the control plane
+// drives it over its socket, the same way.
+func (a *app) startEdge(ctx context.Context, cfg edge.Config, external bool) (*edge.Client, error) {
+	log := slog.New(slog.NewJSONHandler(a.io.Err, nil))
+	sock, sb := filepath.Join(a.home, edge.EdgeSocket), edge.SwitchboardAddr
+	if !external {
+		srv := &edge.Server{Socket: sock, Control: filepath.Join(a.home, edge.ControlSocket), State: filepath.Join(a.home, edge.SnapshotFile),
+			Switchboard: "127.0.0.1:0", Build: version.Version, Log: log}
+		if err := srv.Start(ctx); err != nil {
+			return nil, err
+		}
+		sb = srv.SwitchboardAddr()
+	}
+	var ctl switchboard.Control
+	for _, m := range platform.Modules() {
+		if c, ok := m.(switchboard.Control); ok {
+			ctl = c
+		}
+	}
+	if err := edge.ServeControl(ctx, filepath.Join(a.home, edge.ControlSocket), ctl); err != nil {
+		return nil, err
+	}
+	o := edge.ClientOptions{Socket: sock, Base: cfg, Switchboard: sb, Local: !external, Log: log}
+	if external {
+		o.RestartEdge = func() { _ = exec.Command("systemctl", "restart", "tiffin-edge").Run() }
+	}
+	cl := edge.NewClient(o)
+	cl.Start(ctx, 30*time.Second)
+	return cl, nil
 }
 
-func (e *edgeControl) SetRoutes(routes []edge.Route) error {
-	cfg := e.base
-	cfg.Routes = routes
-	return e.ed.Reload(cfg)
+// writeCA copies the edge's internal CA root to dst once the edge made it.
+func writeCA(ctx context.Context, dataDir, dst string) {
+	for ctx.Err() == nil {
+		if pem, err := edge.RootCAPEM(dataDir); err == nil {
+			if old, err := os.ReadFile(dst); err != nil || string(old) != string(pem) {
+				_ = os.WriteFile(dst, pem, 0o644)
+			}
+			return
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
+// edgeCmd runs the box's edge process (unit tiffin-edge): Caddy and the
+// switchboard, driven by `tiffin serve --edge-external`.
+func (a *app) edgeCmd() *cobra.Command {
+	var sb string
+	cmd := &cobra.Command{
+		Use:   "edge",
+		Short: "Run the box's HTTPS edge (Caddy and the switchboard) for `tiffin serve`",
+		Long: "Serves every site on the box from the last configuration `tiffin serve --edge-external` sent (kept in --home), " +
+			"so restarting or updating the rest of Tiffin interrupts no app. Ports come from systemd (tiffin-edge.socket) when it passes them.",
+		Args:   cobra.NoArgs,
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			srv := &edge.Server{Socket: filepath.Join(a.home, edge.EdgeSocket), Control: filepath.Join(a.home, edge.ControlSocket),
+				State: filepath.Join(a.home, edge.SnapshotFile), Switchboard: sb, Build: version.Version, Log: slog.New(slog.NewJSONHandler(a.io.Err, nil))}
+			if err := srv.Start(ctx); err != nil {
+				return err
+			}
+			fmt.Fprintf(a.io.Err, "tiffin %s edge: switchboard %s, socket %s\n", version.Version, srv.SwitchboardAddr(), srv.Socket)
+			srv.Wait()
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&sb, "switchboard", edge.SwitchboardAddr, "where the switchboard listens (loopback)")
+	return cmd
 }
 
 func (a *app) provisionCmd() *cobra.Command {

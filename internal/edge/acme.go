@@ -317,17 +317,9 @@ var (
 	providers   = map[string]certmagic.DNSProvider{}
 )
 
-// install publishes what the Caddy modules of the next config need: the
-// ask gate's host set and the DNS provider. Call before caddy.Load.
-func install(c Config) {
-	set := c.Allowed()
-	allowed.Store(&set)
-	if c.ACME != nil && c.ACME.Wildcard != nil {
-		providersMu.Lock()
-		providers[c.ACME.Wildcard.key()] = c.ACME.Wildcard.Provider
-		providersMu.Unlock()
-	}
-}
+// remoteDNS makes a provider for a DNS provider key another process (the
+// control plane) holds; the edge process sets it.
+var remoteDNS func(key string) certmagic.DNSProvider
 
 // ---- certificate events and status ----
 
@@ -403,8 +395,12 @@ type CertInfo struct {
 }
 
 // CertStatus reports the certificate the edge holds for host (exact or
-// wildcard match) and the last thing that happened while obtaining one.
+// wildcard match) and the last thing that happened while obtaining one. In
+// the control plane it asks the edge process (see Client).
 func CertStatus(host string) CertInfo {
+	if c := remote.Load(); c != nil {
+		return c.certStatus(host)
+	}
 	host = strings.ToLower(host)
 	now := time.Now()
 	info := CertInfo{Host: host, State: "none", CheckedAt: now}

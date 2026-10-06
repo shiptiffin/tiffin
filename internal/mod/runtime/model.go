@@ -171,6 +171,8 @@ func nsDeploys(project, app string) string { return "runtime/deploys/" + project
 type store struct {
 	db    *state.DB
 	cache *stateCache
+	// changed sends the switchboard the cache's new contents.
+	changed func()
 }
 
 var errNotFound = errors.New("not found")
@@ -245,12 +247,18 @@ func (s store) putState(ctx context.Context, st *AppState) error {
 	if s.cache != nil {
 		s.cache.put(st)
 	}
+	if s.changed != nil {
+		s.changed()
+	}
 	return nil
 }
 
 func (s store) deleteState(ctx context.Context, st *AppState) error {
 	if s.cache != nil {
 		s.cache.del(envKey(st.Project, st.App, st.Preview))
+	}
+	if s.changed != nil {
+		defer s.changed()
 	}
 	return s.db.KVDelete(ctx, nsState, envKey(st.Project, st.App, st.Preview))
 }

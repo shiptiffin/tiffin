@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -41,7 +42,9 @@ var (
 	active   *Edge
 )
 
-// Edge is a running embedded Caddy.
+// Edge is a running embedded Caddy, configured in this process (tests and
+// the edge's own process run it; the box's control plane drives an edge
+// process through a Client instead).
 type Edge struct {
 	mu      sync.Mutex
 	cfg     Config
@@ -51,7 +54,7 @@ type Edge struct {
 // Start loads the Caddy config and returns once the edge is serving HTTPS.
 // Cancelling ctx stops the edge.
 func Start(ctx context.Context, cfg Config) (*Edge, error) {
-	c, err := withCertSource(cfg).normalized()
+	r, err := render(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -60,15 +63,11 @@ func Start(ctx context.Context, cfg Config) (*Edge, error) {
 	if active != nil {
 		return nil, errors.New("edge: already running in this process")
 	}
-	if err := os.MkdirAll(c.DataDir, 0o700); err != nil {
+	if err := os.MkdirAll(r.cfg.DataDir, 0o700); err != nil {
 		return nil, fmt.Errorf("edge: create data dir: %w", err)
 	}
-	if err := loadProtected(c); err != nil {
-		_ = caddy.Stop()
-		return nil, err
-	}
-	e := &Edge{cfg: c}
-	if err := e.waitReady(ctx, c); err != nil {
+	e := &Edge{cfg: r.cfg}
+	if err := r.load(ctx); err != nil {
 		_ = caddy.Stop()
 		return nil, err
 	}
@@ -85,7 +84,7 @@ func Start(ctx context.Context, cfg Config) (*Edge, error) {
 // Reload atomically swaps in a new config (for example with more routes).
 // The DataDir cannot change on reload.
 func (e *Edge) Reload(cfg Config) error {
-	c, err := withCertSource(cfg).normalized()
+	r, err := render(cfg)
 	if err != nil {
 		return err
 	}
@@ -94,14 +93,11 @@ func (e *Edge) Reload(cfg Config) error {
 	if e.stopped {
 		return errors.New("edge: stopped")
 	}
-	if c.DataDir != e.cfg.DataDir {
+	if r.cfg.DataDir != e.cfg.DataDir {
 		return errors.New("edge: DataDir cannot change on reload")
 	}
-	if err := loadProtected(c); err != nil {
-		return err
-	}
-	e.cfg = c
-	return e.waitReady(context.Background(), c)
+	e.cfg = r.cfg
+	return r.load(context.Background())
 }
 
 // Stop shuts the edge down and releases its ports. It is safe to call twice.
@@ -138,43 +134,166 @@ func RootCAPEM(dataDir string) ([]byte, error) {
 	return pem, nil
 }
 
-func load(c Config) error {
-	n, err := c.normalized()
+// Rendered is the edge's configuration as Caddy loads it. The control
+// plane renders it from a Config (render) and the edge process loads it
+// (load), so a new Tiffin build changes what the edge serves without the
+// edge process restarting.
+type Rendered struct {
+	Config json.RawMessage `json:"config"`
+	// Fallback is Config without the protection layer, loaded when Caddy
+	// refuses Config, so the box stays reachable (see ProtectionStatus).
+	Fallback json.RawMessage `json:"fallback,omitempty"`
+	// Allowed are the hosts that may get a certificate (the ask gate).
+	Allowed []string `json:"allowed,omitempty"`
+	// DNS names the DNS provider of the wildcard certificate's challenge;
+	// the process that rendered the config holds it.
+	DNS string `json:"dns,omitempty"`
+	// Probe is how load knows the config is served.
+	Probe Probe `json:"probe"`
+}
+
+// Probe: the HTTPS listener (127.0.0.1:<port>) answers, and with the
+// internal CA every one of Hosts presents a certificate. Caddy issues
+// certificates asynchronously after it loads a config. With ACME, public
+// certificates take seconds to minutes and some names only get one on
+// their first visit, so the listener is enough.
+type Probe struct {
+	Addr  string   `json:"addr"`
+	Hosts []string `json:"hosts,omitempty"`
+}
+
+// rendered is a render's result with what the renderer needs afterwards.
+type rendered struct {
+	Rendered
+	cfg     Config      // normalized, with the cert source merged in
+	prot    *Protection // the protection layer in Config
+	protErr error       // why the registered protection is not in Config
+}
+
+// render builds the Caddy configs for cfg, with the registered protection
+// layer when cfg has none of its own. It registers the wildcard's DNS
+// provider in this process.
+func render(cfg Config) (*rendered, error) {
+	c, err := withCertSource(cfg).normalized()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	install(n)
-	raw, err := json.MarshalIndent(buildConfig(n), "", "  ")
+	r := &rendered{cfg: c, prot: c.Protect}
+	protectMu.Lock()
+	src := protectSource
+	protectMu.Unlock()
+	if c.Protect == nil && src != nil {
+		if p := src(); p != nil {
+			if err := p.validate(); err != nil {
+				r.prot, r.protErr = nil, fmt.Errorf("edge: protection not applied: %w", err)
+			} else {
+				pc := c
+				pc.Protect = p
+				if r.Config, err = json.Marshal(buildConfig(pc)); err != nil {
+					return nil, err
+				}
+				r.prot = p
+			}
+		}
+	}
+	plain, err := json.Marshal(buildConfig(c))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	// Not forced: an identical config is a no-op, so the frequent route
-	// refreshes do not interrupt certificates being obtained.
+	if r.Config == nil {
+		r.Config = plain
+	} else {
+		r.Fallback = plain
+	}
+	for h := range c.Allowed() {
+		r.Allowed = append(r.Allowed, h)
+	}
+	sort.Strings(r.Allowed)
+	if c.ACME != nil && c.ACME.Wildcard != nil {
+		r.DNS = c.ACME.Wildcard.key()
+		providersMu.Lock()
+		providers[r.DNS] = c.ACME.Wildcard.Provider
+		providersMu.Unlock()
+	}
+	r.Probe.Addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(c.HTTPSPort))
+	if c.ACME == nil {
+		r.Probe.Hosts = c.dashboardHosts()
+		for _, rt := range c.Routes {
+			r.Probe.Hosts = append(r.Probe.Hosts, c.hostsFor(rt.Host)...)
+		}
+	}
+	return r, nil
+}
+
+// load loads r into this process's Caddy, records what protection is
+// enforced, and waits until the config is served.
+func (r *rendered) load(ctx context.Context) error {
+	fallback, err := r.Rendered.load(ctx)
+	switch {
+	case err != nil:
+	case fallback != nil:
+		setProtectState(nil, fallback)
+	case r.protErr != nil:
+		setProtectState(nil, r.protErr)
+	default:
+		setProtectState(r.prot, nil)
+	}
+	return err
+}
+
+// load loads r into this process's Caddy and waits until it is served.
+// fallback says why Caddy refused Config when it serves Fallback instead.
+func (r *Rendered) load(ctx context.Context) (fallback, err error) {
+	set := make(map[string]bool, len(r.Allowed))
+	for _, h := range r.Allowed {
+		set[h] = true
+	}
+	allowed.Store(&set)
+	if r.DNS != "" {
+		providersMu.Lock()
+		if providers[r.DNS] == nil && remoteDNS != nil {
+			providers[r.DNS] = remoteDNS(r.DNS)
+		}
+		providersMu.Unlock()
+	}
+	if err = caddyLoad(r.Config, r.Fallback != nil); err != nil && r.Fallback != nil {
+		fallback = fmt.Errorf("edge: protection not applied: %w", err)
+		err = caddyLoad(r.Fallback, false)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return fallback, waitReady(ctx, r.Probe)
+}
+
+// caddyLoad loads a Caddy JSON config. Not forced: an identical config is
+// a no-op, so the frequent route refreshes do not interrupt certificates
+// being obtained. safe turns a panic in a third-party Caddy module's setup
+// into an error instead of taking the edge down.
+func caddyLoad(raw json.RawMessage, safe bool) (err error) {
+	if safe {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("edge: caddy module panicked while loading: %v", r)
+			}
+		}()
+	}
 	if err := caddy.Load(raw, false); err != nil {
 		return fmt.Errorf("edge: load caddy config: %w", err)
 	}
 	return nil
 }
 
-// waitReady blocks until every managed host presents a certificate, because
-// Caddy issues certificates asynchronously after Load returns.
-//
-// With ACME, public certificates take seconds to minutes and some names only
-// get one on their first visit, so it waits for the HTTPS listener only.
-func (e *Edge) waitReady(ctx context.Context, c Config) error {
-	if c.ACME != nil {
-		return waitListening(ctx, net.JoinHostPort("127.0.0.1", strconv.Itoa(c.HTTPSPort)))
-	}
-	hosts := c.dashboardHosts()
-	for _, r := range c.Routes {
-		hosts = append(hosts, c.hostsFor(r.Host)...)
+// waitReady blocks until the probe passes (see Probe).
+func waitReady(ctx context.Context, p Probe) error {
+	if len(p.Hosts) == 0 {
+		return waitListening(ctx, p.Addr)
 	}
 	deadline := time.Now().Add(15 * time.Second)
-	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(c.HTTPSPort))
-	for _, h := range hosts {
+	for _, h := range p.Hosts {
 		var lastErr error
 		for {
-			if lastErr = probe(addr, h); lastErr == nil {
+			if lastErr = probe(p.Addr, h); lastErr == nil {
 				break
 			}
 			if ctx.Err() != nil {

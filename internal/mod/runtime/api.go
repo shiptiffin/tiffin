@@ -858,6 +858,7 @@ func (r *rt) appRuntime(ctx context.Context, project, app string) (*AppRuntime, 
 	if err != nil {
 		return nil, err
 	}
+	r.pullActivity()
 	for _, s := range states {
 		es := EnvStatus{Preview: s.Preview, Stopped: s.Stopped, Sleeping: s.Sleeping, SleepingSince: s.SleptAt, LastWake: s.LastWake,
 			Draining: s.Draining, UpdatedAt: s.UpdatedAt, Instances: []InstanceStatus{}}
