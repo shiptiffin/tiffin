@@ -102,6 +102,17 @@ type App struct {
 	// folder can run a web app and a worker. Applies from the next deploy.
 	// Not for static apps.
 	Command string `json:"command,omitempty"`
+	// Packages are Debian (apt) packages installed in the app's image, e.g.
+	// "ffmpeg" or "chromium", for apps that run programs beside their own
+	// code. Applies from the next deploy. Not for static apps.
+	Packages []string `json:"packages,omitempty"`
+	// Disk lists folders, relative to the app's working directory (e.g.
+	// "data", "uploads/tmp"), that persist across deploys and restarts.
+	// Every production instance of the app shares them; each preview gets
+	// its own, started from what the preview's image has there. A folder
+	// starts with what the image has at that path. Their size counts toward
+	// the project's storage limit. Not for static apps.
+	Disk []string `json:"disk,omitempty"`
 	// Env holds app-specific plain environment variables (merged over Manifest.Env).
 	Env map[string]string `json:"env,omitempty"`
 	// Git connects the app to a GitHub repository (through the box's GitHub

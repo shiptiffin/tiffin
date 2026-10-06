@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "project": "media",
+  "apps": {
+    "web": {
+      "path": ".",
+      "framework": "bun",
+      "role": "web",
+      "routes": [
+        "media"
+      ],
+      "instances": 1,
+      "healthcheck": "/",
+      "packages": [
+        "ffmpeg",
+        "chromium"
+      ],
+      "disk": [
+        "band-data",
+        "data",
+        ".podframes-renders",
+        "public/clips"
+      ]
+    }
+  }
+}

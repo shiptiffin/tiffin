@@ -363,12 +363,15 @@ func (p *Protection) apps() obj {
 
 // wafDirectives run Coraza with the OWASP core rule set (embedded in the
 // binary) at paranoia level 1, blocking. Response bodies are not inspected.
+// A request body is inspected up to its first 12.5 MB; the rest passes
+// through unread, so uploads of any size reach the app.
 const wafDirectives = `Include @coraza.conf-recommended
 Include @crs-setup.conf.example
 Include @owasp_crs/*.conf
 SecRuleEngine On
 SecResponseBodyAccess Off
 SecRequestBodyLimit 13107200
+SecRequestBodyLimitAction ProcessPartial
 SecRequestBodyNoFilesLimit 1048576`
 
 func wafHandler() obj {

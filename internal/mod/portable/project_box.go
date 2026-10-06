@@ -251,6 +251,15 @@ func (b boxBackend) bucketDir(project, bucket string) string {
 	return storage.BucketDir(b.p, project, bucket)
 }
 
+func (b boxBackend) diskDir(project, app string) string {
+	rm, err := runtimeModule()
+	if err != nil {
+		return ""
+	}
+	d, _ := rm.DiskDir(project, app)
+	return d
+}
+
 func (b boxBackend) recentlyDeleted(ctx context.Context, project string) bool {
 	return postgres.RecentlyDeleted(ctx, b.p, project) || storage.InTrash(ctx, b.p, project)
 }

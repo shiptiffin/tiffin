@@ -48,6 +48,7 @@
             "h1",
             "h2"
           ],
+          "read_idle_timeout": -1,
           "routes": [
             {
               "handle": [
@@ -310,7 +311,8 @@
           ],
           "tls_connection_policies": [
             {}
-          ]
+          ],
+          "write_idle_timeout": -1
         }
       }
     },

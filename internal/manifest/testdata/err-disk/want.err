@@ -1,0 +1,6 @@
+/apps/api/disk/1: "data" and "data/db" overlap; list only the outer folder
+/apps/api/disk/2: "../up" must be a folder inside the app's working directory, like "data" (no "..", "." or empty parts)
+/apps/api/disk/3: "a/./b" must be a folder inside the app's working directory, like "data" (no "..", "." or empty parts)
+/apps/api/disk/4: "./x" must be a folder inside the app's working directory, like "data" (no "..", "." or empty parts)
+/apps/site/disk: static apps are files served by the edge and write nothing; remove "disk" or pick another framework
+/apps/site/packages: static apps are files served by the edge and run no programs; remove "packages" or pick another framework

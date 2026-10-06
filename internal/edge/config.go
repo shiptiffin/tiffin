@@ -545,6 +545,13 @@ func buildConfig(c Config) obj {
 			"disable_redirects": true, // the http server above owns redirects
 		},
 		"tls_connection_policies": []obj{{}},
+		// Requests may take as long as the app needs (no read or write
+		// deadline). Caddy's stall timeouts are off (negative): as of
+		// 2.11 they cut a request a minute after its body was read, a
+		// response stream with a pause of a minute over HTTP/2, and every
+		// request longer than a minute behind the WAF (TestLongRequests).
+		"read_idle_timeout":  -1,
+		"write_idle_timeout": -1,
 	}
 	if c.ACME != nil {
 		// The automation policies below decide which names get certificates

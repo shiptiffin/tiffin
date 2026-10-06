@@ -93,6 +93,8 @@ func sets() []fileSet {
 			}},
 		{Name: "runtime-static", Path: under("runtime/static"), Detail: "static sites of every deploy"},
 		{Name: "runtime-git", Path: under("runtime/git"), Detail: "push-to-deploy git repositories"},
+		{Name: "runtime-disks", Path: under("runtime/disks"), Detail: "apps' disk folders"},
+		{Name: "runtime-disks-trash", Path: under("runtime/disks-trash"), Detail: "deleted apps' disk folders, kept for 7 days"},
 		// History.
 		{Name: "logs", Path: under("logs"), Detail: "app and edge logs", History: true, Live: true,
 			// pgBackRest's own log directory belongs to this box's backups.

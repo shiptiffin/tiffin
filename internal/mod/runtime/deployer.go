@@ -295,7 +295,11 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 				fmt.Fprintf(log, "==> starting %d instance(s) (sharing project %s's memory)\n", n, d.Project)
 			}
 		}
-		started, err = r.startInstances(ctx, st, d, spec, n, env)
+		var mounts []string
+		mounts, err = r.diskMounts(ctx, d, spec, log)
+		if err == nil {
+			started, err = r.startInstances(ctx, st, d, spec, n, env, mounts)
+		}
 		if err != nil {
 			// Keep the serials it used, so the next start takes new names
 			// (a first deploy has no state to keep them in; claimName copes).
@@ -374,10 +378,10 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 // On failure every container it started is removed again, and the serials
 // it used stay used: a container that could not be removed never blocks
 // the next start's name.
-func (r *rt) startInstances(ctx context.Context, st *AppState, d *Deploy, spec *manifest.App, n int, env map[string]string) ([]Instance, error) {
+func (r *rt) startInstances(ctx context.Context, st *AppState, d *Deploy, spec *manifest.App, n int, env map[string]string, mounts []string) ([]Instance, error) {
 	var out []Instance
 	for i := 0; i < n; i++ {
-		in, err := r.runInstance(ctx, st, d, spec, i, env)
+		in, err := r.runInstance(ctx, st, d, spec, i, env, mounts)
 		if err != nil {
 			r.removeInstances(ctx, out)
 			return nil, err
@@ -409,7 +413,7 @@ const nameTries = 10
 // runInstance starts instance i of d under the next free name. A container
 // that holds the name but serves nothing (a crashed start whose removal
 // failed) is removed first, or skipped when it will not go.
-func (r *rt) runInstance(ctx context.Context, st *AppState, d *Deploy, app *manifest.App, i int, env map[string]string) (Instance, error) {
+func (r *rt) runInstance(ctx context.Context, st *AppState, d *Deploy, app *manifest.App, i int, env map[string]string, mounts []string) (Instance, error) {
 	var err error
 	for try := 0; try < nameTries; try++ {
 		st.Serial++
@@ -434,7 +438,8 @@ func (r *rt) runInstance(ctx context.Context, st *AppState, d *Deploy, app *mani
 		_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
 		spec := RunSpec{Name: name, Image: d.Image, Port: port, MemoryMB: app.MemoryMB, Env: ienv, LogPath: logPath,
 			CgroupParent: budget.Slice(d.Project),
-			Labels:       map[string]string{"tiffin.project": d.Project, "tiffin.app": d.App, "tiffin.preview": d.Preview, "tiffin.deploy": d.ID, "tiffin.port": strconv.Itoa(port)}}
+			Labels:       map[string]string{"tiffin.project": d.Project, "tiffin.app": d.App, "tiffin.preview": d.Preview, "tiffin.deploy": d.ID, "tiffin.port": strconv.Itoa(port)},
+			Mounts:       append([]string(nil), mounts...)}
 		if app.Framework == manifest.FrameworkNext {
 			// Optimized images outlive the release; the environment's instances share them.
 			dir := r.nextCacheDir(d.Project, d.App, d.Preview)
@@ -693,6 +698,9 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 	// Containers started before project slices existed restart into theirs
 	// once (with zero downtime) when the hash changes.
 	fmt.Fprintf(h, " slice=%s", budget.Slice(project))
+	if len(spec.Disk) > 0 {
+		fmt.Fprintf(h, " disk=%q", spec.Disk) // a new folder mounts on a restart
+	}
 	return env, hex.EncodeToString(h.Sum(nil))[:16], nil
 }
 

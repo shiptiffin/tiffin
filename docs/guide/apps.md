@@ -63,8 +63,56 @@ failed build or health check leaves the old version serving.
   finding its chunks. The box serves these files without running the app's middleware.
   For another framework, name the directory: `assets: { dir: "dist/client", path: "/" }`
   (path defaults to `/`; files there are kept for old pages too, revalidated).
-- **Shutdown:** a replaced release gets SIGTERM once its requests finish, then 30
-  seconds before it is killed, for work it does after responding.
+- **Shutdown:** a replaced release finishes the requests it has (for up to 15 minutes,
+  so a long render survives a deploy), gets SIGTERM once they are done, then 30 seconds
+  before it is killed, for work it does after responding.
+
+## Programs, folders and long requests
+
+```ts
+apps: {
+  web: {
+    packages: ["ffmpeg", "chromium"],        // Debian packages in the app's image
+    disk: ["data", ".renders", "uploads/tmp"], // folders kept across deploys
+  },
+}
+```
+
+- **Packages:** `packages` installs Debian (apt) packages in the image the app runs, so
+  it can call `ffmpeg`, `ffprobe` or a headless `chromium`. Names are Debian's (`ffmpeg`,
+  `chromium`, `imagemagick`, `poppler-utils`). They apply from the next deploy (the build
+  log says what it installs). A prebuilt image (`--prebuilt`) brings its own; static apps
+  have none.
+- **Disk folders:** each path in `disk` is a folder, relative to the app's working
+  directory (`/app`), that keeps what the app writes across deploys, restarts and
+  rollbacks. All production instances share it (one disk, so SQLite works across them).
+  The first time the app starts with a folder, the folder gets what the image has at
+  that path (a SQLite file the repository ships, say); after that it is the app's and a
+  deploy never touches it. Each preview gets its own folders,
+  made the same way from the preview's build and deleted with the preview, so a preview
+  never writes to production's. The folders count toward the project's storage limit
+  (as files, in `tiffin projects usage`), travel in `projects export`, `duplicate` and
+  `move`, and are in box backups. Over the limit, the database and buckets turn read-only
+  but the folders themselves are not blocked: give apps that write a lot a storage limit
+  and watch usage. Deleting the app, or the project, moves its folders to
+  `/var/lib/tiffin/runtime/disks-trash` for 7 days. Taking a path out of `disk` unmounts
+  it but keeps its data (counted) until the app is deleted. Files the app writes to
+  `public/` at run time are not served by Next.js (it only serves what the build had):
+  put user files in a bucket (`services.storage`) instead.
+- **Long requests:** the box puts no time limit on a request. A response may take 15
+  minutes or more, streamed or all at once, and nothing cuts a stream for pausing. Only a
+  client that closes the connection ends it (browsers and proxies in front of the box may
+  have limits of their own). A preview with a request under way does not fall asleep.
+  Bun's own server (`export default { fetch }`, Hono, Elysia) has two limits of its own:
+  it closes a request that sends nothing for 10 seconds and refuses bodies over 128 MB.
+  Lift them in the app: `export default { port, fetch, idleTimeout: 0,
+  maxRequestBodySize: 4 * 1024 ** 3 }` (or `server.timeout(req, 0)` for one route).
+  Next.js has neither.
+- **Uploads:** no size limit on request bodies; they stream to the app as they arrive.
+  With the WAF on (see [Protection](protection.md)), it inspects the first 12.5 MB of a body and passes
+  the rest through, and its rules refuse some content types (a raw
+  `application/octet-stream` body, for one): send files as `multipart/form-data`.
+  For very large files, an upload straight to a bucket (a presigned URL) spares the app.
 
 ## Coming from Vercel
 

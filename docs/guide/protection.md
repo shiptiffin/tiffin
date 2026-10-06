@@ -16,5 +16,7 @@ When you need them:
   second; API calls with tokens are never challenged) and tightens limits. It turns
   itself off.
 - **WAF:** Coraza with the OWASP Core Rule Set, opt-in (`PUT /v1/protect {waf: true}`).
+  It inspects the first 12.5 MB of a request body and passes the rest through, so
+  uploads of any size still reach the app.
 
 On a server, Cloudflare in front absorbs large attacks; that upgrade comes later.

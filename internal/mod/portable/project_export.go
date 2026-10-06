@@ -104,6 +104,7 @@ func writeProject(ctx context.Context, p *platform.Platform, b backend, project 
 	}
 	releases := map[string]*appRelease{}
 	sites := map[string]string{}
+	disks := map[string]string{} // app → its production disk folders
 	for _, name := range sortedKeys(m.Apps) {
 		a := m.Apps[name]
 		ai := AppInfo{Name: name, Framework: string(a.Framework), Role: string(a.Role)}
@@ -121,6 +122,12 @@ func writeProject(ctx context.Context, p *platform.Platform, b backend, project 
 				sites[name] = d.StaticRoot
 			}
 		}
+		if dir := b.diskDir(project, name); len(a.Disk) > 0 && dir != "" {
+			if _, err := os.Stat(dir); err == nil {
+				ai.Disk = true
+				disks[name] = dir
+			}
+		}
 		info.Apps = append(info.Apps, ai)
 	}
 	git := b.gitDir(project)
@@ -131,7 +138,7 @@ func writeProject(ctx context.Context, p *platform.Platform, b backend, project 
 	man := &boxfile.Manifest{Kind: boxfile.ProjectKind, Project: project, Format: boxfile.FormatVersion, TiffinVersion: p.Version,
 		Schema: state.SchemaVersion(), CreatedAt: info.ExportedAt, Source: info.Source, Projects: []string{project},
 		Recipient: info.Secrets.Recipient, WithHistory: o.withHistory,
-		Consistency: boxfile.Consistency{Note: "the database is one consistent snapshot (pg_dump); files and cache keys were read live"}}
+		Consistency: boxfile.Consistency{Note: "the database is one consistent snapshot (pg_dump); files, disk folders and cache keys were read live"}}
 	if info.Postgres != nil {
 		man.Databases = []string{info.Postgres.Database}
 	}
@@ -156,6 +163,9 @@ func writeProject(ctx context.Context, p *platform.Platform, b backend, project 
 	}
 	if len(info.Buckets) > 0 {
 		man.Parts = append(man.Parts, "files")
+	}
+	if len(disks) > 0 {
+		man.Parts = append(man.Parts, "disk")
 	}
 	if info.Git {
 		man.Parts = append(man.Parts, "git")
@@ -287,6 +297,22 @@ func writeProject(ctx context.Context, p *platform.Platform, b backend, project 
 			st.Items++
 		}
 		aw.Part("files", st)
+	}
+
+	// ---- apps' disk folders ----
+	if len(disks) > 0 {
+		rep.say("writing the apps' disk folders", 55)
+		var st boxfile.Stats
+		for _, name := range sortedKeys(disks) {
+			s, err := aw.WriteTree("disk/"+name, disks[name], boxfile.TreeOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("app %s's disk folders: %w", name, err)
+			}
+			st.Files += s.Files
+			st.Bytes += s.Bytes
+			st.Items++
+		}
+		aw.Part("disk", st)
 	}
 
 	// ---- git ----

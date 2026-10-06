@@ -333,8 +333,8 @@ func (r *rt) sleepIdlePreviews(ctx context.Context) {
 			r.lastSeen[key] = seen
 		}
 		r.mu.Unlock()
-		if time.Since(seen) < r.opt.PreviewIdle {
-			continue
+		if time.Since(seen) < r.opt.PreviewIdle || r.st.cache.busy(s.Instances) > 0 {
+			continue // a request still under way keeps the preview awake, however long it runs
 		}
 		r.sleep(ctx, s.Project, s.App, s.Preview)
 	}

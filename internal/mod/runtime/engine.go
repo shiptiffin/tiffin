@@ -60,6 +60,12 @@ type Engine interface {
 	// directory) to dest/0, dest/1, ... in order, as plain files and
 	// directories (links followed inside the image); missing ones are skipped.
 	CopyOut(ctx context.Context, image string, dirs []string, dest string) error
+	// ImageConfig reports the working directory and user an image runs with.
+	ImageConfig(ctx context.Context, ref string) (workDir, user string, err error)
+	// SeedDirs makes dest/0, dest/1, ... from directories of an image
+	// (relative to its working directory) as `cp -a` copies them, or empty
+	// where the image has none, owned by user ("": root).
+	SeedDirs(ctx context.Context, image, user string, dirs []string, dest string) error
 }
 
 // nerdctl drives containerd through the pinned nerdctl CLI.
@@ -243,6 +249,31 @@ func (n *nerdctl) CopyOut(ctx context.Context, image string, dirs []string, dest
 	const script = `i=0; for d in "$@"; do if [ -d "$d" ]; then mkdir -p /tiffin-out/$i && cp -RL "$d"/. /tiffin-out/$i/ || exit 1; fi; i=$((i+1)); done`
 	args := append([]string{"run", "--rm", "--network", "none", "--user", "0:0", "--memory", "256m",
 		"--volume", dest + ":/tiffin-out", "--entrypoint", "/bin/sh", image, "-c", script, "sh"}, dirs...)
+	_, err := n.run(ctx, args...)
+	return err
+}
+
+func (n *nerdctl) ImageConfig(ctx context.Context, ref string) (string, string, error) {
+	out, err := n.run(ctx, "image", "inspect", "--format", "{{json .Config}}", ref)
+	if err != nil {
+		return "", "", err
+	}
+	var c struct{ WorkingDir, User string }
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &c); err != nil {
+		return "", "", fmt.Errorf("image %s: %w", ref, err)
+	}
+	return c.WorkingDir, c.User, nil
+}
+
+// SeedDirs runs cp in a throwaway container of the image as root, without
+// network, then hands the copies to the image's user. The directories and
+// the user travel as arguments, never inside the script.
+func (n *nerdctl) SeedDirs(ctx context.Context, image, user string, dirs []string, dest string) error {
+	const script = `u="$1"; shift; i=0; for d in "$@"; do mkdir -p /tiffin-out/$i || exit 1; ` +
+		`if [ -d "$d" ]; then cp -a "$d"/. /tiffin-out/$i/ || exit 1; fi; ` +
+		`if [ -n "$u" ]; then chown -R "$u" /tiffin-out/$i || exit 1; fi; i=$((i+1)); done`
+	args := append([]string{"run", "--rm", "--network", "none", "--user", "0:0", "--memory", "256m",
+		"--volume", dest + ":/tiffin-out", "--entrypoint", "/bin/sh", image, "-c", script, "sh", user}, dirs...)
 	_, err := n.run(ctx, args...)
 	return err
 }

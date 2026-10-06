@@ -38,6 +38,14 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    app is served as files (no container), an app in a pnpm/npm/yarn/bun workspace builds from its
    monorepo's top, and vercel.json's build settings, crons (GET + `CRON_SECRET`), headers,
    redirects and rewrites apply; the build log lists what was used and what was not.
+   An app that runs programs (`ffmpeg`, headless `chromium`) lists
+   their Debian names in `packages: ["ffmpeg"]`; one that writes files it must keep (SQLite, renders)
+   lists the folders in `disk: ["data"]` (relative to the app; kept across deploys, shared by its
+   instances, a preview gets its own, counted in the storage limit). Never keep data in other folders:
+   each deploy starts from the image. Requests have no time or size limit (15-minute renders and
+   GB uploads work), but a Bun server needs `idleTimeout: 0` and a `maxRequestBodySize` in its
+   `export default { ... }` (Bun cuts a silent request after 10 s and refuses bodies over 128 MB);
+   user files still belong in a bucket.
 5. Secrets go in `tiffin secrets set`, never in the config or the repo. Starting a new project?
    Reuse keys the box already has instead of asking for them again:
    `tiffin secrets list <other>` shows names, `tiffin secrets copy <new> --from <other> [--names A,B]`

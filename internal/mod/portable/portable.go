@@ -12,7 +12,8 @@
 //	platform/secrets.key    the box key, only with --include-key
 //	files/edge/...          the HTTPS CA and certificates
 //	files/<set>/...         storage (buckets, objects, S3 accounts), email,
-//	                        analytics, observe settings, static sites, git
+//	                        analytics, observe settings, static sites, git,
+//	                        apps' disk folders
 //	runtime/images.tar@N    `nerdctl save` of every live deploy's image
 //	valkey/dump.rdb         a BGSAVE snapshot
 //	postgres/...            roles, then one plain pg_dump per database (auth

@@ -136,6 +136,7 @@ func importProject(ctx context.Context, p *platform.Platform, b backend, r io.Re
 		exKey    string
 		gitStage = filepath.Join(o.stage, "git")
 		apps     = map[string]*stagedApp{}
+		disks    = map[string]string{} // app → its staged disk folders
 		self     = fileOwner{os.Geteuid(), os.Getegid()}
 		owner    = self
 	)
@@ -369,6 +370,25 @@ func importProject(ctx context.Context, p *platform.Platform, b backend, r io.Re
 			if err := addPlain(ex, parts[2], e, owner); err != nil {
 				return out, fmt.Errorf("%s: %w", entry, err)
 			}
+		case strings.HasPrefix(entry, "disk/"):
+			parts := strings.SplitN(entry, "/", 3)
+			if len(parts) < 3 || parts[2] == "" || len(mf.Apps[parts[1]].Disk) == 0 {
+				continue // the app's own directory, or an app without disk folders
+			}
+			dir := filepath.Join(o.stage, "disk-"+parts[1])
+			disks[parts[1]] = dir
+			if err := openEx("disk/"+parts[1], dir); err != nil {
+				return out, err
+			}
+			// Owners as the app left them (the image's user), modes without set-id bits.
+			if t := e.Header.Typeflag; t == tar.TypeDir || t == tar.TypeReg {
+				hd := *e.Header
+				hd.Mode &= 0o777
+				hd.Uname, hd.Gname = "", ""
+				if err := ex.Add(parts[2], &hd, e.Body); err != nil {
+					return out, fmt.Errorf("%s: %w", entry, err)
+				}
+			}
 		case entry == "source.git" || strings.HasPrefix(entry, "source.git/"):
 			rel := strings.TrimPrefix(strings.TrimPrefix(entry, "source.git"), "/")
 			if err := openEx("git", gitStage); err != nil {
@@ -434,6 +454,21 @@ func importProject(ctx context.Context, p *platform.Platform, b backend, r io.Re
 					return out, fmt.Errorf("git: %w", err)
 				}
 			}
+		}
+	}
+	// Disk folders are in place before the apps start, so none is made
+	// afresh from the image.
+	for _, app := range sortedKeys(disks) {
+		dst := b.diskDir(name, app)
+		if _, err := os.Stat(dst); dst == "" || err == nil {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return out, err
+		}
+		_ = os.Chmod(disks[app], 0o755) // made 0700 as a scratch directory
+		if err := os.Rename(disks[app], dst); err != nil {
+			return out, fmt.Errorf("app %s's disk folders: %w", app, err)
 		}
 	}
 	if info.Postgres != nil && len(info.Postgres.Cron) > 0 && mf.Services.Postgres != nil {

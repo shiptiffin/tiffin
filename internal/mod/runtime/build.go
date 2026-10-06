@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	goruntime "runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -154,6 +155,9 @@ func (b *boxBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult, 
 	switch {
 	case req.Prebuilt != "":
 		fmt.Fprintf(req.Log, "==> importing prebuilt image (%s)\n", humanBytes(fileSize(req.Prebuilt)))
+		if len(req.Spec.Packages) > 0 {
+			fmt.Fprintf(req.Log, "==> note: packages (%s) are not added to a prebuilt image; install them where it is built\n", strings.Join(req.Spec.Packages, ", "))
+		}
 		if err := loadImage(ctx, b.eng, req.Prebuilt, ref, req.Log); err != nil {
 			return BuildResult{}, &BuildError{Msg: err.Error(), Hint: "Pass a tarball from `docker save <image>` or `nerdctl save`, built for this box's CPU (" + hostArch() + ")."}
 		}
@@ -238,6 +242,10 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 	}
 	if req.Spec.Command != "" && !req.Export {
 		env["RAILPACK_START_CMD"] = req.inApp(req.Spec.Command) // the manifest's command wins over any default
+	}
+	if len(req.Spec.Packages) > 0 {
+		env[aptPackagesEnv] = aptPackages(env[aptPackagesEnv], req.Spec.Packages)
+		fmt.Fprintf(req.Log, "==> installing %s in the image (packages)\n", strings.Join(req.Spec.Packages, ", "))
 	}
 	planPath := filepath.Join(planDir, "railpack-plan.json")
 	args := []string{"prepare", req.SrcDir,
@@ -541,6 +549,25 @@ func packageScript(dir, name string) string {
 	}
 	_ = json.Unmarshal(raw, &pkg)
 	return strings.TrimSpace(pkg.Scripts[name])
+}
+
+// aptPackagesEnv makes Railpack install Debian packages in the image it
+// runs (the deploy stage), not only where it builds.
+const aptPackagesEnv = "RAILPACK_DEPLOY_APT_PACKAGES"
+
+// aptPackages adds the manifest's packages to a RAILPACK_DEPLOY_APT_PACKAGES
+// value (space-separated). "..." keeps the packages Railpack adds itself.
+func aptPackages(cur string, pkgs []string) string {
+	list := strings.Fields(cur)
+	if len(list) == 0 {
+		list = []string{"..."}
+	}
+	for _, p := range pkgs {
+		if !slices.Contains(list, p) {
+			list = append(list, p)
+		}
+	}
+	return strings.Join(list, " ")
 }
 
 // pinsBun reports whether the app chose a Bun version itself.
