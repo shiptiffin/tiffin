@@ -73,6 +73,13 @@ type Route struct {
 	// NoCompress passes responses through as the upstream sent them: for
 	// the S3 gateway, whose clients check lengths and ETags.
 	NoCompress bool
+	// NextCache marks a Next.js app. Next.js sends prerendered and ISR
+	// pages with "s-maxage=N" for Vercel's CDN, which a deploy purges; no
+	// CDN here does, and a proxy in front (Cloudflare) would keep the page
+	// past the next deploy. Those exact values become what Vercel sends
+	// browsers: "public, max-age=0, must-revalidate". A Cache-Control the
+	// app wrote itself is left alone.
+	NextCache bool
 	// RedirectTo permanently redirects (308, path and query kept) to this
 	// host over HTTPS instead of serving: "www.example.com" → "example.com".
 	RedirectTo string
@@ -423,6 +430,9 @@ func routeFor(c Config, r Route, portSuffix string) obj {
 			"precompressed_order": []string{"br", "zstd", "gzip"},
 		})
 	default:
+		if r.NextCache {
+			handle = append(handle, nextCacheControl())
+		}
 		handle = append(handle, r.Rules.headerHandlers()...)
 		handle = append(handle, r.Rules.redirectHandlers(false)...)
 		handle = append(handle, proxyMany(r.upstreams()))
@@ -431,6 +441,15 @@ func routeFor(c Config, r Route, portSuffix string) obj {
 		handle = append([]obj{compress()}, handle...)
 	}
 	return obj{"match": []obj{m}, "handle": handle, "terminal": true}
+}
+
+// nextCacheControl rewrites the Cache-Control Next.js writes for a CDN
+// (see Route.NextCache).
+func nextCacheControl() obj {
+	return obj{"handler": "headers", "response": obj{"deferred": true, "replace": obj{"Cache-Control": []obj{{
+		"search_regexp": `^s-maxage=[0-9]+(, ?stale-while-revalidate(=[0-9]+)?)?$`,
+		"replace":       "public, max-age=0, must-revalidate",
+	}}}}}
 }
 
 // compress encodes text responses with zstd or gzip, as the client

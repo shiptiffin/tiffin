@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/mod/runtime/ghapp"
 )
 
 func TestGuessFramework(t *testing.T) {
@@ -97,5 +98,22 @@ func TestNextBefore162(t *testing.T) {
 		if _, got := nextBefore162(dir); got != old {
 			t.Errorf("next %q: older than 16.2 = %v, want %v", spec, got, old)
 		}
+	}
+}
+
+func TestPnpmWorkspaceNeedsPackages(t *testing.T) {
+	files := map[string]string{
+		"package.json":        `{"devDependencies":{"vite":"7"},"scripts":{"build":"vite build"}}`,
+		"index.html":          "<!doctype html>",
+		"pnpm-workspace.yaml": "allowBuilds:\n  esbuild: true\n",
+	}
+	read := func(p string) ([]byte, error) { return []byte(files[p]), nil }
+	tree := []ghapp.TreeEntry{{Path: "package.json", Type: "blob"}, {Path: "index.html", Type: "blob"}, {Path: "pnpm-workspace.yaml", Type: "blob"}}
+	if r := detectRoots(tree, read); len(r) != 1 || r[0].Workspace || r[0].Framework != "static" {
+		t.Fatalf("settings-only pnpm-workspace.yaml is a single app: %+v", r)
+	}
+	files["pnpm-workspace.yaml"] = "packages:\n  - apps/*\n"
+	if r := detectRoots(tree, read); len(r) != 1 || !r[0].Workspace {
+		t.Fatalf("packages: makes it a monorepo top: %+v", r)
 	}
 }

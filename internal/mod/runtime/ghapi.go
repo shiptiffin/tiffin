@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -764,7 +765,7 @@ var skipDirs = map[string]bool{"node_modules": true, ".git": true, "vendor": tru
 // guesses each one's framework. read fetches a file's content.
 func detectRoots(tree []ghapp.TreeEntry, read func(string) ([]byte, error)) []RepoRoot {
 	pkgs, htmls := map[string]bool{}, map[string]bool{}
-	workspaceFiles := map[string]bool{}
+	workspaceFiles, pnpmFiles := map[string]bool{}, map[string]bool{}
 	for _, e := range tree {
 		if e.Type != "blob" {
 			continue
@@ -783,8 +784,10 @@ func detectRoots(tree []ghapp.TreeEntry, read func(string) ([]byte, error)) []Re
 			pkgs[dir] = true
 		case "index.html":
 			htmls[dir] = true
-		case "pnpm-workspace.yaml", "turbo.json", "lerna.json", "nx.json":
+		case "turbo.json", "lerna.json", "nx.json":
 			workspaceFiles[dir] = true
+		case "pnpm-workspace.yaml":
+			pnpmFiles[dir] = true
 		}
 	}
 	type cand struct {
@@ -830,7 +833,7 @@ func detectRoots(tree []ghapp.TreeEntry, read func(string) ([]byte, error)) []Re
 		}
 		g := guessFramework(raw, htmls[cd.dir])
 		root.Framework, root.Name, root.Why, root.Workspace, root.Unsupported = g.Framework, g.Name, g.Why, g.Workspace, g.Unsupported
-		if workspaceFiles[cd.dir] {
+		if workspaceFiles[cd.dir] || (pnpmFiles[cd.dir] && pnpmWorkspace(read, cd.dir)) {
 			root.Workspace = true
 		}
 		if root.Workspace && root.Unsupported == "" {
@@ -845,6 +848,20 @@ func detectRoots(tree []ghapp.TreeEntry, read func(string) ([]byte, error)) []Re
 	}
 	return out
 }
+
+// pnpmWorkspace reports whether dir's pnpm-workspace.yaml lists packages:
+// since pnpm 10 the file also carries settings (allowBuilds…) for a
+// single-package repository.
+func pnpmWorkspace(read func(string) ([]byte, error), dir string) bool {
+	file := "pnpm-workspace.yaml"
+	if dir != "" {
+		file = dir + "/" + file
+	}
+	raw, err := read(file)
+	return err == nil && pnpmPackagesRe.Match(raw)
+}
+
+var pnpmPackagesRe = regexp.MustCompile(`(?m)^packages:`)
 
 func depth(dir string) int {
 	if dir == "" {
