@@ -97,6 +97,10 @@ func TestPooler(t *testing.T) {
 		!strings.Contains(pools, "p_poolx = max_user_connections=60") {
 		t.Fatalf("pools.ini:\n%s", pools)
 	}
+	// PgBouncer itself runs with them (the box reloads it).
+	if live := b.inBox(`sudo psql -h /var/run/postgresql -p 6432 -U postgres -XA pgbouncer -c 'SHOW DATABASES' | awk -F'|' 'NR == 1 {for (i = 1; i <= NF; i++) if ($i == "pool_size") c = i} $1 == "p_poolx" {print $1, $c}'`); live != "p_poolx 60" {
+		t.Fatalf("SHOW DATABASES: %q", live)
+	}
 	if st := b.ok("status"); !strings.Contains(fmt.Sprint(st["checks"]), "PgBouncer 1.") {
 		t.Fatalf("status: %v", st["checks"])
 	}
@@ -192,6 +196,11 @@ sudo systemctl restart tiffin-postgres`, older))
 		}
 		time.Sleep(time.Second)
 	}
+	// A preview branch clone pauses the source database at the pooler: its
+	// queries wait instead of failing.
+	stall := load("branch clone", func() { b.ok("branches", "create", "poolx", "--name", "pr-9") })
+	b.ok("branches", "delete", "poolx", "pr-9")
+	t.Logf("BRANCH CLONE queries stalled at most %d ms", stall)
 	audit := b.list("audit", "list")
 	found := false
 	for _, e := range audit {
@@ -229,7 +238,7 @@ sudo systemctl restart tiffin-postgres`, older))
 	if s := fmt.Sprint(checked["summary"]); !strings.Contains(s, "restart of tiffin-postgres") {
 		t.Fatalf("check after a library update: %v", checked)
 	}
-	stall := load("restart for replaced libraries", func() { upd = b.ok("maintenance", "postgres-update", "--now") })
+	stall = load("restart for replaced libraries", func() { upd = b.ok("maintenance", "postgres-update", "--now") })
 	u, _ := upd["update"].(map[string]any)
 	if u["status"] != "ok" || !strings.Contains(fmt.Sprint(u["restarted"]), "tiffin-postgres.service") || pid("tiffin-pgbouncer") != pool {
 		t.Fatalf("restart: %v", upd)

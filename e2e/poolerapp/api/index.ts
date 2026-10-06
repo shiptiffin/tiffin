@@ -17,7 +17,8 @@ const max = Number(process.env.DATABASE_POOL_MAX ?? 10);
 
 const pjs = postgres(url, { max }); // prepares every query (named statements)
 const bsql = new SQL({ url, max }); // prepares too
-const node = new pg.Pool({ connectionString: url, max });
+// statement_timeout goes as a startup parameter: the pooler carries it.
+const node = new pg.Pool({ connectionString: url, max, statement_timeout: 60_000 });
 // node-postgres emits an idle connection's loss on the pool; without a
 // listener the process exits (a pooler restart closes idle connections).
 node.on("error", (e) => console.error("pg pool:", e.message));

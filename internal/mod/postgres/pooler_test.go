@@ -54,7 +54,7 @@ func TestPoolerConfig(t *testing.T) {
 		"auth_type = hba\n", "auth_user = tiffin_pgbouncer\n", "auth_dbname = postgres\n",
 		"auth_query = SELECT usename, passwd FROM public.tiffin_pgbouncer_auth($1)\n",
 		"max_user_connections = 60\n", "max_user_client_connections = 1000\n", "default_pool_size = 2\n",
-		"server_login_retry = 1\n", "track_extra_parameters = IntervalStyle, search_path\n",
+		"server_login_retry = 1\n", "track_extra_parameters = IntervalStyle, search_path, statement_timeout, lock_timeout, idle_in_transaction_session_timeout\n",
 		"%include /etc/tiffin/pgbouncer/pools.ini\n",
 	} {
 		if !strings.Contains(c, want) {

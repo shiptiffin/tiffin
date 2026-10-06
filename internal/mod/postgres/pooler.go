@@ -141,7 +141,7 @@ query_wait_timeout = 120
 client_tls_sslmode = disable
 server_tls_sslmode = disable
 ignore_startup_parameters = extra_float_digits
-track_extra_parameters = IntervalStyle, search_path
+track_extra_parameters = IntervalStyle, search_path, statement_timeout, lock_timeout, idle_in_transaction_session_timeout
 log_connections = 0
 log_disconnections = 0
 stats_period = 60
@@ -305,7 +305,11 @@ func pausePooler(ctx context.Context, db string, wait time.Duration) (resume fun
 	}
 	cmd, res := "PAUSE", "RESUME"
 	if db != "" {
-		cmd, res = "PAUSE "+quoteIdent(db), "RESUME "+quoteIdent(db)
+		// The admin console takes bare names; project databases are p_[a-z0-9_]+.
+		if strings.Trim(db, "abcdefghijklmnopqrstuvwxyz0123456789_") != "" {
+			return noop, fmt.Errorf("cannot pause %q", db)
+		}
+		cmd, res = "PAUSE "+db, "RESUME "+db
 	}
 	done := false
 	resume = func() error {

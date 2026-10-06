@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/btahir/tiffin/internal/ids"
@@ -684,6 +685,19 @@ func runUpdate(ctx context.Context, b updateBox, o runOpts) (*PGUpdate, updatePl
 		return nil, updatePlan{}, errBusy
 	}
 	defer updateOnce.Unlock()
+	// `tiffin provision` (tiffin up) is another process: a file lock keeps
+	// it and the running box from updating at once.
+	if err := os.MkdirAll(filepath.Dir(maintPath), 0o755); err != nil {
+		return nil, updatePlan{}, err
+	}
+	lock, err := os.OpenFile(maintPath+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, updatePlan{}, err
+	}
+	defer lock.Close()
+	if syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		return nil, updatePlan{}, errBusy
+	}
 	plan, _, err := check(ctx, b)
 	if err != nil {
 		return nil, plan, err

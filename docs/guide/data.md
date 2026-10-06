@@ -57,9 +57,12 @@ so its limits and its share of the CPU hold as before.
 | Prisma 6 (Rust engine) | works as is; `?pgbouncer=true` is not needed (it also works) |
 
 Prepared statements work because the pooler re-prepares them on whichever server
-connection runs them. What does not survive transaction pooling is state kept in the
-session between transactions: `LISTEN`, session advisory locks, `SET` without `LOCAL`,
-temporary tables and `WITH HOLD` cursors. Use `DIRECT_DATABASE_URL` for those (Prisma's
+connection runs them. Settings sent when connecting carry over for `search_path`,
+`timezone`, `application_name`, `statement_timeout`, `lock_timeout` and
+`idle_in_transaction_session_timeout`; the pooler refuses a connection that sends others
+(set them with `SET LOCAL` inside a transaction instead). What does not survive transaction
+pooling is state kept in the session between transactions: `LISTEN`, session advisory
+locks, `SET` without `LOCAL`, temporary tables and `WITH HOLD` cursors. Use `DIRECT_DATABASE_URL` for those (Prisma's
 `directUrl`, drizzle-kit, a LISTEN connection); release commands get it as `DATABASE_URL`
 already. With node-postgres, give the pool an error listener
 (`pool.on("error", ...)`): without one, a connection the server closes while idle ends
@@ -79,7 +82,8 @@ tiffin maintenance postgres-update --now       # install now
 
 An update downloads and installs the new packages while the old server runs, then pauses
 the pooler (transactions in flight finish; new queries wait), restarts Postgres and
-resumes. On a 3 GB box the pause was 0.1–0.3 s: queries waited that long and none failed.
+resumes. On a 2-CPU, 3 GB box the pause was 0.1–0.4 s and the slowest query under
+constant load took under half a second; none failed.
 Direct connections are closed by the restart and reconnect. If the new version does not
 start, the old packages go back. With a maintenance window (`tiffin up --reboot-window
 04:00`) updates install a quarter of an hour into it, once a day; without one the box
