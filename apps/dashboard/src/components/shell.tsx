@@ -8,6 +8,9 @@ import { q } from "@/api/queries";
 import { boxName } from "@/lib/box";
 import { cn } from "@/lib/cn";
 import { setNavigator, useConfirmRequest } from "@/lib/staged";
+import { rememberProject } from "@/lib/recent";
+import { PART_PAGE, partsOf, standalonePart, type Part } from "@/lib/sections";
+import { listen, useShortcut } from "@/lib/shortcuts";
 import { useFavicon } from "./favicon";
 import { Logo } from "./logo";
 import { rememberClick, WhoTrigger } from "./shell-triggers";
@@ -22,6 +25,7 @@ const LazyNavSheet = lazy(() => import("./shell-menus").then((m) => ({ default: 
 const LazySwitcher = lazy(() => import("./shell-switcher").then((m) => ({ default: m.SwitcherPopover })));
 const LazyPalette = lazy(() => import("./palette").then((m) => ({ default: m.CommandPalette })));
 const LazyConfirm = lazy(() => import("./plan-tray").then((m) => ({ default: m.ChangeConfirm })));
+const LazyKeysSheet = lazy(() => import("./keys-sheet").then((m) => ({ default: m.KeysSheet })));
 
 export const SIDEBAR_W = 232;
 
@@ -40,6 +44,8 @@ function useProjectInPath(): string | undefined {
  */
 export function Shell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteSearch, setPaletteSearch] = useState("");
+  const [keysOpen, setKeysOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const path = useRouterState({ select: (s) => s.location.pathname });
   const [navPath, setNavPath] = useState<string | null>(null);
@@ -62,26 +68,31 @@ export function Shell() {
     return () => clearTimeout(t);
   }, []);
   useEffect(() => {
-    let g = 0;
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
+        setPaletteSearch("");
         setPaletteOpen((o) => !o);
-        return;
-      }
-      const t = e.target;
-      if (e.metaKey || e.ctrlKey || e.altKey || (t instanceof Element && t.closest("input, textarea, select, [contenteditable]"))) return;
-      // "g p": go to a project (opens the switcher).
-      if (e.key === "g") g = Date.now();
-      else if (e.key === "p" && Date.now() - g < 1000) {
-        e.preventDefault();
-        g = 0;
-        setSwitcherOpen(true);
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    const off = listen();
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      off();
+    };
   }, []);
+  const project = useProjectInPath();
+  useEffect(() => {
+    if (project) rememberProject(project);
+  }, [project]);
+  const openPalette = (search = "") => {
+    setPaletteSearch(search);
+    setPaletteOpen(true);
+  };
+  useShortcut("?", "Show keyboard shortcuts", () => setKeysOpen(true), "Anywhere");
+  useShortcut("g p", "Switch project", () => setSwitcherOpen(true), "Go to");
+  useGoKeys(project, openPalette);
 
   // One open state, two triggers (the sidebar's and the phone bar's): only the visible one opens.
   const switcher = (where: "side" | "bar") => <Switcher open={switcherOpen && (where === "side") === isDesktop()} onOpenChange={setSwitcherOpen} compact={where === "bar"} />;
@@ -119,7 +130,12 @@ export function Shell() {
       </div>
       {paletteSeen && (
         <Suspense fallback={null}>
-          <LazyPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+          <LazyPalette open={paletteOpen} onOpenChange={setPaletteOpen} initialSearch={paletteSearch} onShortcuts={() => setKeysOpen(true)} />
+        </Suspense>
+      )}
+      {keysOpen && (
+        <Suspense fallback={null}>
+          <LazyKeysSheet open={keysOpen} onOpenChange={setKeysOpen} />
         </Suspense>
       )}
       {confirm && (
@@ -130,6 +146,28 @@ export function Shell() {
       <Toaster />
     </div>
   );
+}
+
+/**
+ * "g" then a letter: a section of the project in view. Outside a project (or
+ * in one without that part) it opens ⌘K on that part, to pick the project.
+ */
+function useGoKeys(project: string | undefined, openPalette: (search: string) => void) {
+  const navigate = useNavigate();
+  const state = useQuery({ ...q.project(project ?? ""), enabled: !!project }).data;
+  const parts = partsOf(state);
+  const go = (to: string, fallback: () => void) => () => (project ? void navigate({ to: to as "/", params: { project } as never }) : fallback());
+  const part = (p: Part, word: string) => () =>
+    project && parts.has(p) ? void navigate({ to: PART_PAGE[p].to as "/", params: { project } as never }) : openPalette(`${word} `);
+  useShortcut("g n", "New project", () => void navigate({ to: "/new" }), "Go to");
+  useShortcut("g o", "Overview", go("/projects/$project", () => void navigate({ to: "/" })), "Go to");
+  useShortcut("g d", "Database", part("postgres", "database"), "Go to");
+  useShortcut("g k", "KV", part("valkey", "kv"), "Go to");
+  useShortcut("g f", "Files", part("storage", "files"), "Go to");
+  useShortcut("g j", "Jobs", part("jobs", "jobs"), "Go to");
+  useShortcut("g u", "Usage", go("/projects/$project/usage", () => void navigate({ to: "/usage" })), "Go to");
+  useShortcut("g h", "History", go("/projects/$project/history", () => void navigate({ to: "/ledger", search: {} })), "Go to");
+  useShortcut("g s", "Settings", go("/projects/$project/settings", () => void navigate({ to: "/settings" })), "Go to");
 }
 
 const isDesktop = () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches;
@@ -289,29 +327,32 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
   );
 }
 
-/** A project's sections: Overview, the parts it has, then Usage, History and Settings. */
+/**
+ * A project's sections: Overview, the parts it has, then Usage, History and
+ * Settings. A standalone project (just a database, say) shows only its part,
+ * so it reads like that part's console.
+ */
 function ProjectNav({ project, path }: { project: string; path: string }) {
   const p = useQuery(q.project(project));
-  const res = p.data?.resources ?? [];
-  const has = (a: string) => res.some((r) => r.address === a);
-  const apps = res.filter((r) => r.address.startsWith("app/"));
-  const jobs = res.some((r) => r.address.startsWith("cron/") || r.address.startsWith("queue/")) || apps.some((a) => (a.spec as { role?: string })?.role === "worker");
+  const parts = partsOf(p.data);
+  const one = standalonePart(p.data);
+  const apps = (p.data?.resources ?? []).filter((r) => r.address.startsWith("app/")).length;
   const params = { project };
   const base = `/projects/${project}`;
   const at = (s: string) => path === `${base}/${s}` || path.startsWith(`${base}/${s}/`);
+  const show = (part: Part) => parts.has(part) && (!one || one === part);
+  const item = (part: Part, active?: boolean, label = PART_PAGE[part].label) => show(part) && <NavItem to={PART_PAGE[part].to} params={params} label={label} active={active} />;
   return (
     <>
-      <NavItem to="/projects/$project" params={params} exact label="Overview" aside={<Failing project={project} />} />
-      {apps.length > 0 && <NavItem to="/projects/$project/apps" params={params} label={apps.length === 1 ? "App" : "Apps"} />}
-      {has("service/postgres") ? (
-        <NavItem to="/projects/$project/data" params={params} label="Database" active={at("data") && !at("data/kv")} />
-      ) : null}
-      {has("service/valkey") && <NavItem to="/projects/$project/data/kv" params={params} label="Cache" />}
-      {has("service/storage") && <NavItem to="/projects/$project/storage" params={params} label="Files" />}
-      {has("service/email") && <NavItem to="/projects/$project/email" params={params} label="Email" />}
-      {has("service/auth") && <NavItem to="/projects/$project/users" params={params} label="Auth" active={at("users") || at("orgs")} />}
-      {has("service/analytics") && <NavItem to="/projects/$project/analytics" params={params} label="Analytics" />}
-      {jobs && <NavItem to="/projects/$project/queues" params={params} label="Jobs" active={at("queues") || at("workflows")} />}
+      {!one && <NavItem to="/projects/$project" params={params} exact label="Overview" aside={<Failing project={project} />} />}
+      {item("apps", undefined, apps === 1 ? "App" : "Apps")}
+      {item("postgres", at("data") && !at("data/kv"))}
+      {item("valkey")}
+      {item("storage")}
+      {item("email")}
+      {item("auth", at("users") || at("orgs"))}
+      {item("analytics")}
+      {item("jobs", at("queues") || at("workflows") || at("jobs") || at("schedules"))}
       <div className="my-2 h-px bg-rule" aria-hidden />
       <NavItem to="/projects/$project/usage" params={params} label="Usage" />
       <NavItem to="/projects/$project/history" params={params} label="History" />

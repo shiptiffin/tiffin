@@ -2345,7 +2345,7 @@ export interface paths {
         };
         /**
          * Show the KV connection URL
-         * @description The project's REDIS_URL, including its password, for valkey-cli or a client inside the box. Box owner only; every reveal is audited.
+         * @description The project's REDIS_URL, including its password, for valkey-cli or a client inside the box or through an SSH tunnel (tiffin kv tunnel). Needs full access to the project (apply:irreversible on it), since the password reaches all of its keys; every reveal is audited.
          */
         get: operations["kv-connection"];
         put?: never;
@@ -2465,7 +2465,7 @@ export interface paths {
         };
         /**
          * Show the database connection string
-         * @description The project's DATABASE_URL, including its password, for connecting from inside the box or through an SSH tunnel. Box owner only; every reveal is audited.
+         * @description The project's DATABASE_URL, including its password, for connecting from inside the box or through an SSH tunnel (tiffin db tunnel). Needs full access to the project (apply:irreversible on it), since the password reaches all of its data; every reveal is audited.
          */
         get: operations["db-connection"];
         put?: never;
@@ -5733,7 +5733,7 @@ export interface components {
         ManifestApp: {
             assets?: components["schemas"]["ManifestAssets"];
             command?: string;
-            disk?: string[] | null;
+            disk?: components["schemas"]["ManifestDiskFolder"][] | null;
             env?: {
                 [key: string]: string;
             };
@@ -5746,8 +5746,11 @@ export interface components {
             memoryMB?: number;
             packages?: string[] | null;
             path: string;
+            release?: string;
             role: string;
             routes?: string[] | null;
+            /** Format: int64 */
+            timeoutSeconds?: number;
         };
         ManifestAssets: {
             dir: string;
@@ -5759,6 +5762,10 @@ export interface components {
             organizations: boolean;
         };
         ManifestBucket: {
+            allowedTypes?: string[] | null;
+            cors?: string[] | null;
+            /** Format: int64 */
+            maxFileSize?: number;
             public: boolean;
         };
         ManifestCron: {
@@ -5767,6 +5774,10 @@ export interface components {
             path: string;
             schedule: string;
             timezone?: string;
+        };
+        ManifestDiskFolder: {
+            Path: string;
+            Size: string;
         };
         ManifestDomain: {
             www?: string;
@@ -5797,6 +5808,7 @@ export interface components {
         };
         ManifestPostgres: {
             extensions?: string[] | null;
+            previews?: string;
             /** Format: int64 */
             statementTimeoutSeconds?: number;
         };
@@ -6666,6 +6678,8 @@ export interface components {
             from: string;
             /** @description Branch name */
             name: string;
+            /** @description The app preview this branch was made for: it is deleted with the preview */
+            preview?: string;
             /**
              * Format: int64
              * @description Logical size. Clones share unchanged blocks with their source on disk (reflinks), so this overstates real disk use.
@@ -6691,6 +6705,8 @@ export interface components {
             from: string;
             /** @description Branch name */
             name: string;
+            /** @description The app preview this branch was made for: it is deleted with the preview */
+            preview?: string;
             /**
              * Format: int64
              * @description Logical size. Clones share unchanged blocks with their source on disk (reflinks), so this overstates real disk use.
@@ -7357,6 +7373,8 @@ export interface components {
             payload?: unknown;
             /** @enum {string} */
             priority: "high" | "normal" | "low";
+            /** @description The latest progress the app reported (job.progress in tiffin-sdk) */
+            progress?: unknown;
             /** @description Queue or topic name (_workflows and _cron are the box's own) */
             queue: string;
             /** @description Pinned app release (workflow turns) */
@@ -7415,6 +7433,8 @@ export interface components {
             idempotencyKey?: string;
             input?: unknown;
             output?: unknown;
+            /** @description The latest progress the run reported (ctx.progress in tiffin-sdk) */
+            progress?: unknown;
             /** @description The app release this run is pinned to */
             release?: string;
             startedBy?: string;
@@ -7777,6 +7797,8 @@ export interface components {
             /** @description Preview name, empty for production */
             preview?: string;
             project: string;
+            /** @description Hash of the env the build wrote into browser code (NEXT_PUBLIC_*, VITE_*, PUBLIC_*). When it changes, the box rebuilds the app from this deploy's source. */
+            publicEnv?: string;
             /**
              * Format: int64
              * @description The pull request a preview deploy is for, for deploys from GitHub
@@ -7784,6 +7806,11 @@ export interface components {
             pullRequest?: number;
             /** @description Branch, tag or commit asked for, for deploys from a git URL or GitHub */
             ref?: string;
+            /**
+             * Format: double
+             * @description Time the app's release command took
+             */
+            releaseSeconds?: number;
             /** @description Repository URL, for deploys from a git URL or GitHub */
             repo?: string;
             /** @enum {string} */
@@ -7799,10 +7826,10 @@ export interface components {
             /** @description Starter template, for template deploys */
             template?: string;
             /**
-             * @description What started a deploy from GitHub: a push to the production branch, a pull request, or a redeploy asked for on the box
+             * @description What started a deploy from GitHub (a push to the production branch, a pull request, or a redeploy asked for on the box), or env: the box rebuilt the live version because env it builds into browser code changed
              * @enum {string}
              */
-            trigger?: "push" | "pull_request" | "redeploy" | "";
+            trigger?: "push" | "pull_request" | "redeploy" | "env" | "";
             /** @description Where the deploy is served (web apps) */
             url?: string;
             /** @description What the deploy took from the app's vercel.json (build settings, crons, headers, redirects, rewrites) and what it ignored */
@@ -8317,6 +8344,8 @@ export interface components {
             text?: string;
         };
         "Storage-presignRequest": {
+            /** @description PUT only: the Content-Type the upload must send (signed into the URL) */
+            contentType?: string;
             /**
              * Format: int64
              * @description Seconds the URL stays valid (default 3600, max 7 days)
@@ -8324,6 +8353,11 @@ export interface components {
             expiresIn?: number;
             /** @description Object key */
             key: string;
+            /**
+             * Format: int64
+             * @description PUT only: the largest file the URL accepts, in bytes (signed into the URL; the bucket's maxFileSize applies too)
+             */
+            maxSize?: number;
             /**
              * @description GET to download, PUT to upload
              * @default GET

@@ -257,7 +257,7 @@ export function applyEdits(m: Manifest, edits: StagedEdit[]): Manifest {
   return next;
 }
 
-/** The services by their names in the interface (lib/names.ts): "Database", "Cache", "Files"… */
+/** The services by their names in the interface (lib/names.ts): "Database", "KV", "Files"… */
 export const serviceNames: Record<string, string> = Object.fromEntries(["postgres", "valkey", "storage", "email", "auth", "analytics", "queue"].map((k) => [k, partName(k)]));
 
 /** The services as a person says them in a sentence: "Add a database to shop". */

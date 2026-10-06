@@ -282,7 +282,7 @@ function Levers() {
             [
               ["On", <Breaker key="a" size="md" label="Database" state="on" />],
               ["Off", <Breaker key="b" size="md" label="Email" state="off" />],
-              ["Applying (click)", <Breaker key="d" size="md" label="Cache" state="on" staged={svc} onFlip={(x) => setSvc(x === "on" ? undefined : x)} />],
+              ["Applying (click)", <Breaker key="d" size="md" label="KV" state="on" staged={svc} onFlip={(x) => setSvc(x === "on" ? undefined : x)} />],
               ["Label beside", <Breaker key="e" label="Analytics" state="on" printed="beside" />],
             ] as Array<[string, ReactNode]>
           ).map(([l, b]) => (
@@ -439,7 +439,7 @@ function StackDemo() {
           status="Comes out of shop when you apply."
           staged
         />
-        <TierRow lever={<Breaker label="Valkey" state="tripped" />} name="Valkey" sub="Cache" status={<span className="text-danger">Tripped: out of memory.</span>} fault />
+        <TierRow lever={<Breaker label="Valkey" state="tripped" />} name="Valkey" sub="KV" status={<span className="text-danger">Tripped: out of memory.</span>} fault />
         <Rim />
         <div className="room tier-grid m-3 min-h-14 py-3 max-sm:mx-2 max-sm:flex max-sm:flex-col max-sm:items-start max-sm:gap-1.5 max-sm:px-3.5">
           <div className="col-start-2 text-sm font-[550]">Room left</div>

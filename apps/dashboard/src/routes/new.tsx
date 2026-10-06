@@ -1,6 +1,6 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useRouterState } from "@tanstack/react-router";
-import { ArrowUpRight, Check, FileUp, GitBranch, Plus } from "lucide-react";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { ArrowUpRight, Check, Clock, Database, FileUp, FolderOpen, GitBranch, Plus, Zap } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError, type Manifest, type Op } from "@/api/client";
 import { mod3, type Deploy } from "@/api/modules";
@@ -26,7 +26,9 @@ import { splitAddress } from "@/lib/changes";
 import { addressesOf } from "@/lib/addresses";
 import { cn } from "@/lib/cn";
 import { useDebounced } from "@/lib/debounced";
-import { partName, partSub } from "@/lib/names";
+import { partA, partName, partSub } from "@/lib/names";
+import { PART_PAGE } from "@/lib/sections";
+import { requestCommand } from "@/lib/shortcuts";
 import { countWords, dec, int, NNBSP } from "@/lib/format";
 import {
   appFor,
@@ -46,6 +48,9 @@ import {
   startersQuery,
   starterThumb,
   suggestName,
+  freeName,
+  soloParts,
+  type SoloPart,
   type Source,
   type Starter,
 } from "@/lib/starters";
@@ -68,6 +73,7 @@ type Phase = "compose" | "launching" | "live" | "failed";
 export function NewProjectPage() {
   useTitle("New project");
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const search = useRouterState({ select: (s) => s.location.search as Record<string, unknown> });
   const projects = useQuery(q.projects);
   const names = useMemo(() => (projects.data ?? []).map((p) => p.name), [projects.data]);
@@ -96,8 +102,11 @@ export function NewProjectPage() {
   const imp = useProjectImport(taken);
 
   const starter = list.find((s) => s.id === choice);
+  const solo = soloParts.find((s) => `part:${s.part}` === choice);
   const source: Source | null =
-    choice === "empty"
+    solo
+      ? { kind: "part", part: solo.part }
+      : choice === "empty"
       ? { kind: "empty" }
       : choice === "git"
         ? { kind: "git", ...git }
@@ -106,7 +115,9 @@ export function NewProjectPage() {
           : starter
             ? { kind: "starter", starter }
             : null;
-  const suggested = choice === "git" ? nameFromGit(git.url) || "web" : choice === "github" ? nameFromRepo(gh.repo) || "web" : suggestName(starter, taken) || "project";
+  const suggested = solo
+    ? freeName(solo.name, taken)
+    : choice === "git" ? nameFromGit(git.url) || "web" : choice === "github" ? nameFromRepo(gh.repo) || "web" : suggestName(starter, taken) || "project";
   const name = typed ?? suggested;
   const check = checkName(name, taken);
   const gitCheck = choice === "git" ? checkGitUrl(git.url) : choice === "github" ? checkPick(gh) : ({ ok: true } as const);
@@ -138,11 +149,20 @@ export function NewProjectPage() {
             ? `Start ${name} from ${shortRepo(git.url)}`
             : source.kind === "github"
               ? `Start ${name} from ${source.repo} on GitHub`
-              : `Start ${name}`;
+              : source.kind === "part"
+                ? `Start ${name} with just ${source.part === "jobs" ? "schedules" : partA(source.part)}`
+                : `Start ${name}`;
       await api.apply(desired, plan.data.hash, intent);
-      setPhase("launching");
       void qc.invalidateQueries({ queryKey: ["projects"] });
       void qc.invalidateQueries({ queryKey: ["changes"] });
+      if (source.kind === "part") {
+        // A standalone project opens straight on its part, like a console; a schedule project asks for its first schedule.
+        if (source.part === "jobs") requestCommand("new-schedule");
+        await qc.invalidateQueries({ queryKey: ["project", name] });
+        await navigate({ to: PART_PAGE[source.part].to as "/", params: { project: name } as never });
+        return null;
+      }
+      setPhase("launching");
       if (!app) return null;
       if (source.kind === "github") for (const e of source.env) await setSecret(name, e.k, e.v);
       const d =
@@ -248,6 +268,13 @@ export function NewProjectPage() {
                     line="A project exported from this box or another one, with its data."
                   />
                 </div>
+                <h3 className="mt-7 mb-1 text-[0.875rem] font-[550] text-ink">Or just one part</h3>
+                <p className="mb-3 text-[0.8125rem] text-ink-3">No app and no address: the project opens straight on that part. Add more to it any time.</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
+                  {soloParts.map((s) => (
+                    <SoloTile key={s.part} part={s.part} title={s.title} line={s.line} picked={choice === `part:${s.part}`} />
+                  ))}
+                </div>
               </RadioGroup>
               {choice === "git" && <GitFields git={git} setGit={setGit} check={gitCheck} />}
               {choice === "github" && <GitHubImport value={gh} onChange={setGh} admin={admin} />}
@@ -277,7 +304,9 @@ export function NewProjectPage() {
               </div>
               <p id="pname-note" className="mt-2 min-h-5 text-sm" aria-live="polite">
                 {check.ok ? (
-                  choice === "empty" ? (
+                  solo ? (
+                    <span className="text-ink-3">Only you and your keys reach it; nothing is public.</span>
+                  ) : choice === "empty" ? (
                     <span className="text-ink-3">
                       Its apps will live at addresses like <span className="ident text-ink-2">{name}.{dom}</span>
                     </span>
@@ -393,6 +422,32 @@ function StarterTile({ s, picked, loading }: { s: Starter; picked: boolean; load
           </span>
         </span>
         <span className="text-[0.78125rem] leading-[1.125rem] text-ink-3">{starterLine[s.id] ?? s.description}</span>
+      </span>
+    </RadioItem>
+  );
+}
+
+const soloIcon: Record<SoloPart, ReactNode> = { postgres: <Database />, valkey: <Zap />, storage: <FolderOpen />, jobs: <Clock /> };
+
+/** A standalone starter: one part, no app. */
+function SoloTile({ part, title, line, picked }: { part: SoloPart; title: string; line: string; picked: boolean }) {
+  return (
+    <RadioItem
+      value={`part:${part}`}
+      className={cn(
+        "grid grid-cols-[28px_minmax(0,1fr)_16px] items-start gap-x-3 rounded-[10px] border bg-paper-raised px-3 py-3 text-left transition-[border-color,box-shadow] duration-[var(--dur-state)]",
+        picked ? "border-brass shadow-[0_0_0_1px_var(--brass)]" : "border-rule-2 hover:border-rule-3",
+      )}
+    >
+      <span className="grid size-7 place-items-center rounded-[7px] bg-paper-sunk text-ink-2 [&_svg]:size-4" aria-hidden>
+        {soloIcon[part]}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[0.875rem] font-[550] text-ink">{title}</span>
+        <span className="block text-[0.78125rem] leading-[1.125rem] text-ink-3">{line}</span>
+      </span>
+      <span aria-hidden className={cn("mt-0.5 grid size-4 place-items-center rounded-full border", picked ? "border-brass bg-brass text-on-brass" : "border-rule-3 text-transparent")}>
+        <Check className="size-2.5" strokeWidth={3} />
       </span>
     </RadioItem>
   );
@@ -529,7 +584,7 @@ function PlanPanel({
               ? "The box can’t plan this yet."
               : !plan
               ? "Planning…"
-              : `${countWords(things, "thing", "things", true)}, ready in about a minute.`}
+              : `${countWords(things, "thing", "things", true)}, ready in ${source?.kind === "part" || source?.kind === "empty" ? "seconds" : "about a minute"}.`}
         </p>
       </div>
       <div className="px-5">
@@ -597,6 +652,7 @@ function skeletonOps(source: Source | null): Op[] {
   const app = source ? appFor(source) : null;
   if (app) ops.push({ action: "create", address: `app/${app.name}`, risk: "reversible", reason: "", after: { framework: app.framework } });
   if (source?.kind === "starter") for (const s of source.starter.services ?? []) ops.push({ action: "create", address: `service/${s}`, risk: "reversible", reason: "" });
+  if (source?.kind === "part" && source.part !== "jobs") ops.push({ action: "create", address: `service/${source.part}`, risk: "reversible", reason: "" });
   return ops;
 }
 
@@ -634,6 +690,13 @@ function OpRow({ op, project }: { op: Op; project: string }) {
           : name === "analytics"
             ? `Cookieless, kept ${int(Number(a.retentionDays ?? 365))} days`
             : partSub(name) || null;
+  } else if (kind === "bucket") {
+    title = (
+      <>
+        Bucket <b className="font-[550]">{name}</b>
+      </>
+    );
+    line = a.public ? "Anyone can read its files" : "Private: only your apps and links you make";
   }
   return (
     <li className="grid grid-cols-[14px_minmax(0,1fr)_auto] items-baseline gap-x-2.5 py-2.5">

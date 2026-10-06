@@ -1,7 +1,7 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { AppWindow, ArrowUpRight, BarChart3, Clock, Database, FolderOpen, Mail, Plus, UserRound, Zap } from "lucide-react";
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { ApiError, type Manifest } from "@/api/client";
 import { mod, mod2, mod3, mq } from "@/api/modules";
 import { q } from "@/api/queries";
@@ -18,7 +18,7 @@ import { cn } from "@/lib/cn";
 import { useEnamel } from "@/lib/enamel";
 import { bytes, count, cronWords, int } from "@/lib/format";
 import { appPulse, deploysQuery, runtimeQuery, toneClass, useProjectPulse } from "@/lib/pulse";
-import { rememberProject } from "@/lib/recent";
+import { useArrival } from "@/lib/switch";
 import { progressWords, usePending } from "@/lib/staged";
 import { frameworkName } from "@/lib/starters";
 import { PARTS } from "@/lib/names";
@@ -34,7 +34,7 @@ import { DomainsSummary } from "@/components/project-domains";
  */
 export function ProjectPage({ project }: { project: string }) {
   useTitle(project);
-  useEffect(() => rememberProject(project), [project]);
+  const arrived = useArrival(project);
   const p = useQuery(q.project(project));
   const m = useQuery({ ...q.manifest(project), staleTime: 5_000, refetchInterval: 10_000 });
   const pulse = useProjectPulse(project);
@@ -107,6 +107,11 @@ export function ProjectPage({ project }: { project: string }) {
         )}
       </header>
       <ReadOnlyBanner project={project} className="mt-6" />
+      {arrived && (
+        <p role="status" className="mt-5 text-[0.9375rem] text-ink-3">
+          {project} doesn’t have {arrived}, so you’re on its Overview.
+        </p>
+      )}
 
       <h2 className="label mt-10 mb-3">What’s in it</h2>
       {m.isError && <ProblemNote className="mb-4" error={m.error} title="The project’s config can’t be read." />}
@@ -303,7 +308,7 @@ function CacheTile({ project }: { project: string }) {
       kind={PARTS.valkey.sub}
       to="/projects/$project/data/kv"
       params={{ project }}
-      fact={kv.isError ? <span className="text-ink-3">The cache isn’t answering.</span> : kv.data ? `${count(kv.data.keys, "key")} · ${bytes(kv.data.memoryBytes)}` : <Skeleton className="h-4 w-28" />}
+      fact={kv.isError ? <span className="text-ink-3">The KV store isn’t answering.</span> : kv.data ? `${count(kv.data.keys, "key")} · ${bytes(kv.data.memoryBytes)}` : <Skeleton className="h-4 w-28" />}
     />
   );
 }

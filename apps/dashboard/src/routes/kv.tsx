@@ -15,6 +15,7 @@ import { cn } from "@/lib/cn";
 import { bytes, bytesParts, count, dec, duration, int, num } from "@/lib/format";
 import { relative } from "@/lib/time";
 import { DataHeader } from "./data";
+import { ConnectButton } from "@/components/connect";
 
 /** "expires in 4 min", or nothing when the key lives until it's deleted. */
 function ttl(ms: number): string | null {
@@ -46,7 +47,7 @@ const lengthWord: Record<string, [string, string]> = {
 const byName = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
 
 export function KvPage({ project, match, k }: { project: string; match?: string; k?: string }) {
-  useTitle(`${project} · Cache`);
+  useTitle(`${project} · KV`);
   const navigate = useNavigate();
   const stats = useQuery(mq.kvStats(project));
   const [glob, setGlob] = useState(match ?? "");
@@ -76,8 +77,9 @@ export function KvPage({ project, match, k }: { project: string; match?: string;
     <Page full>
       <DataHeader
         project={project}
-        title="Cache"
+        title="KV"
         tabs={false}
+        actions={<ConnectButton part="kv" project={project} />}
         lede={
           s ? (
             <>

@@ -16,6 +16,7 @@ import { RiskDots } from "@/components/risk-dots";
 import { SegMeter } from "@/components/seg-meter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ConnectButton } from "@/components/connect";
 import { cn } from "@/lib/cn";
 import { bytes, bytesParts, count, countWords, int, ms, NNBSP, num, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
@@ -57,7 +58,7 @@ export function DataHeader({
   lede?: ReactNode;
   actions?: ReactNode;
   sub?: string;
-  /** The Database tabs (Tables, SQL, Branches); the Cache page has none. */
+  /** The Database tabs (Tables, SQL, Branches); the KV page has none. */
   tabs?: boolean;
 }) {
   return (
@@ -72,7 +73,7 @@ export function DataHeader({
       }
       title={title}
       lede={lede}
-      actions={actions}
+      actions={<>{actions}{tabs && <ConnectButton part="database" project={project} />}</>}
     >
       {tabs && <DataTabs project={project} />}
     </PageHeader>

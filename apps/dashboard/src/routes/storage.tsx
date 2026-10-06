@@ -9,6 +9,7 @@ import { Command, CopyButton } from "@/components/copy";
 import { Reading, Readings, Rows, Section } from "@/components/data-parts";
 import { useTitle } from "@/components/favicon";
 import { Crumbs, Empty, Page, PageHeader, Skeleton, Untrusted, NotOnBox } from "@/components/page";
+import { ConnectButton } from "@/components/connect";
 import { PilotLight } from "@/components/pilot";
 import { ProblemNote } from "@/components/problem";
 import { ReadOnlyBanner } from "@/components/read-only";
@@ -58,6 +59,7 @@ export function StoragePage({ project }: { project: string }) {
       <PageHeader
         eyebrow={<StorageCrumbs project={project} />}
         title="Files"
+        actions={<ConnectButton part="files" project={project} />}
         lede={
           <>
             S3-compatible buckets on the box's own disk. Your apps already have the keys, so <code className="ident text-ink">Bun.s3</code> and any

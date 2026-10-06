@@ -10,7 +10,7 @@ export type PartKey = "postgres" | "valkey" | "storage" | "email" | "auth" | "jo
 
 export const PARTS: Record<PartKey, { name: string; sub: string; a: string }> = {
   postgres: { name: "Database", sub: "Postgres 18", a: "a database" },
-  valkey: { name: "Cache", sub: "Fast key-value, Redis-compatible", a: "a cache" },
+  valkey: { name: "KV", sub: "Redis-compatible · also a cache", a: "a KV store" },
   storage: { name: "Files", sub: "S3-compatible", a: "files" },
   email: { name: "Email", sub: "Send and catch email", a: "email" },
   auth: { name: "Auth", sub: "Users, passkeys, Google, GitHub", a: "auth" },
