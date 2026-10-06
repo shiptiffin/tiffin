@@ -44,6 +44,26 @@ async function settle(page: Page) {
   await expect(page.getByText(/being made|Making the bucket/)).toHaveCount(0, { timeout: 60_000 });
 }
 
+/** Takes the bucket out of the project (if a run left it) and empties it from the trash. */
+async function removeBucket(request: APIRequestContext, baseURL: string) {
+  const m = await (await request.get(`${baseURL}/v1/projects/${project}/manifest`, { headers: auth() })).json();
+  const buckets = m.manifest?.services?.storage?.buckets;
+  if (buckets?.[bucket]) {
+    delete buckets[bucket];
+    const plan = await (await request.post(`${baseURL}/v1/plan`, { headers: auth(), data: { manifest: m.manifest } })).json();
+    const res = await request.post(`${baseURL}/v1/apply`, { headers: auth(), data: { manifest: m.manifest, confirm: plan.hash, intent: "Remove the e2e bucket" } });
+    expect(res.ok(), await res.text()).toBeTruthy();
+  }
+  const trash = await (await request.get(`${baseURL}/v1/storage/trash?project=${project}`, { headers: auth() })).json();
+  for (const t of (trash ?? []) as Array<{ id: string; bucket: string }>) {
+    if (t.bucket === bucket) await request.delete(`${baseURL}/v1/storage/trash/${t.id}`, { headers: auth() });
+  }
+}
+
+test.beforeAll(async ({ request, baseURL }) => {
+  await removeBucket(request, baseURL!);
+});
+
 test.beforeEach(async ({ page, baseURL }) => {
   page.setDefaultTimeout(20_000);
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -363,9 +383,5 @@ test("delete the bucket: it asks first, naming the files", async ({ page, reques
   await tray.getByRole("button", { name: /Delete|Remove|Confirm/ }).last().click();
   await expect(page.getByRole("link", { name: bucket })).toHaveCount(0, { timeout: 30_000 });
   // Leave nothing behind: purge it from the trash.
-  const trash = await (await request.get(`${baseURL}/v1/storage/trash?project=${project}`, { headers: auth() })).json();
-  for (const t of trash as Array<{ id: string; bucket: string }>) {
-    if (t.bucket === bucket) await request.delete(`${baseURL}/v1/storage/trash/${t.id}`, { headers: auth() });
-  }
+  await removeBucket(request, baseURL!);
 });
-

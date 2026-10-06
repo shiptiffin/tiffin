@@ -21,7 +21,7 @@ export function FileGlyph({ name, className }: { name: string; className?: strin
   return <C aria-hidden className={cn("size-4 shrink-0 text-ink-3", className)} />;
 }
 
-const listCols = "grid-cols-[minmax(0,1fr)_4.5rem] sm:grid-cols-[minmax(0,1fr)_6rem_9rem_5.5rem]";
+const listCols = "grid-cols-[minmax(0,1fr)_4.5rem] @lg:grid-cols-[minmax(0,1fr)_5.5rem_8rem] @2xl:grid-cols-[minmax(0,1fr)_6rem_9rem_7rem]";
 const ROW = 40;
 const TILE = 176; // tile height, image and two lines
 
@@ -242,7 +242,7 @@ export const Browser = forwardRef<
       </span>
     );
     const actions = x.kind === "file" && (
-      <span className="relative z-[1] hidden shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 sm:flex">
+      <span className="relative z-[1] hidden shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 @lg:flex">
         <a
           href={download(x.o.key)}
           download={x.name}
@@ -351,10 +351,10 @@ export const Browser = forwardRef<
         <span role="gridcell" className="text-right text-sm text-ink-2 tnum">
           {x.kind === "file" ? bytes(x.o.size) : ""}
         </span>
-        <span role="gridcell" className="hidden truncate text-sm text-ink-3 sm:block" title={x.kind === "file" ? full(x.o.lastModified) : undefined}>
+        <span role="gridcell" className="hidden truncate text-sm text-ink-3 @lg:block" title={x.kind === "file" ? full(x.o.lastModified) : undefined}>
           {x.kind === "file" ? relative(x.o.lastModified) : ""}
         </span>
-        <span role="gridcell" className="hidden truncate text-sm text-ink-3 sm:block">
+        <span role="gridcell" className="hidden truncate text-sm text-ink-3 @2xl:block">
           {x.kind === "folder" ? "Folder" : kindWord(x.name)}
         </span>
       </div>
@@ -362,7 +362,7 @@ export const Browser = forwardRef<
   };
 
   return (
-    <div className={cn("flex min-h-0 flex-col", className)}>
+    <div className={cn("@container flex min-h-0 flex-col", className)}>
       <div
         ref={scroller}
         role="grid"
@@ -403,8 +403,8 @@ export const Browser = forwardRef<
               </button>
             </span>
             {header("size", "Size", "text-right [&>button]:flex-row-reverse")}
-            {header("modified", "Modified", "max-sm:hidden")}
-            <span role="columnheader" className="label max-sm:hidden">
+            {header("modified", "Modified", "hidden @lg:block")}
+            <span role="columnheader" className="label hidden @2xl:block">
               Kind
             </span>
           </div>

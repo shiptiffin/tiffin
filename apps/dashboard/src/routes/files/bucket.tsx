@@ -58,11 +58,12 @@ function BucketView({ project, bucket, prefix, file }: { project: string; bucket
   const [found, setFound] = useState({ at: prefix, text: "" });
   const search = found.at === prefix ? found.text : "";
   const setSearch = (text: string) => setFound({ at: prefix, text });
-  const [q, setQ] = useState("");
+  const [typed, setTyped] = useState({ at: prefix, q: "" });
+  const q = typed.at === prefix ? typed.q : "";
   useEffect(() => {
-    const t = setTimeout(() => setQ(search.trim()), search ? 200 : 0);
+    const t = setTimeout(() => setTyped({ at: prefix, q: search.trim() }), search ? 200 : 0);
     return () => clearTimeout(t);
-  }, [search]);
+  }, [search, prefix]);
   const flat = !!q;
 
   const list = useInfiniteQuery({
@@ -462,16 +463,16 @@ function BucketView({ project, bucket, prefix, file }: { project: string; bucket
                   onLink={(x) => x.kind === "file" && void copyLink(x.o)}
                   download={(key) => mod.fileUrl(project, bucket, key, { download: true })}
                   thumb={thumb}
-                  className="h-[max(24rem,calc(100dvh-20rem))]"
+                  className="max-h-[max(24rem,calc(100dvh-20rem))]"
                 />
-                <p className="mt-2 flex justify-between gap-4 text-xs text-ink-3" aria-live="polite">
+                <p className="mt-2 flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs text-ink-3" aria-live="polite">
                   <span>
                     {q
                       ? `${count(entries.length, "file")} starting with “${q}”`
                       : `${count(entries.filter((x) => x.kind === "file").length, "file")}`}
                     {list.hasNextPage ? (pages >= MAX_PAGES ? " shown; there are more" : " so far, loading the rest…") : ""}
                   </span>
-                  {canWrite && <span className="max-sm:hidden">Drop files anywhere to upload them here · ? for shortcuts</span>}
+                  {canWrite && !openFile && <span className="max-sm:hidden">Drop files anywhere to upload them here · ? for shortcuts</span>}
                 </p>
                 {list.hasNextPage && pages >= MAX_PAGES && (
                   <Button size="sm" className="mt-2" onClick={() => void list.fetchNextPage()}>
