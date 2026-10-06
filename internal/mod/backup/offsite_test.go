@@ -21,7 +21,7 @@ func TestNormalizeOffsite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Endpoint != "https://acct.r2.cloudflarestorage.com" || c.Region != "us-east-1" || c.Prefix != "tiffin" || c.URIStyle != "path" || c.RetentionDays != 30 {
+	if c.Endpoint != "https://acct.r2.cloudflarestorage.com" || c.Region != "auto" || c.Prefix != "tiffin" || c.URIStyle != "path" || c.RetentionDays != 30 {
 		t.Fatalf("defaults: %+v", c)
 	}
 	for _, bad := range []OffsiteInput{
@@ -40,6 +40,12 @@ func TestNormalizeOffsite(t *testing.T) {
 	if c.Endpoint != "https://fsn1.your-objectstorage.com:8443" || c.Prefix != "boxes/shop" || c.RetentionDays != 90 || c.Region != "fsn1" {
 		t.Fatalf("normalized: %+v", c)
 	}
+	// Region: R2 signs for "auto" (an EU jurisdiction endpoint too), others default to us-east-1.
+	for ep, want := range map[string]string{"https://acct.eu.r2.cloudflarestorage.com": "auto", "https://s3.example.com": "us-east-1", "https://r2.cloudflarestorage.com.example.com": "us-east-1"} {
+		if c, _ := normalize(OffsiteInput{Endpoint: ep, Bucket: "b", AccessKeyID: "k"}, nil); c.Region != want {
+			t.Errorf("%s: region %q, want %q", ep, c.Region, want)
+		}
+	}
 }
 
 func TestRepo2Settings(t *testing.T) {
@@ -50,7 +56,7 @@ func TestRepo2Settings(t *testing.T) {
 	for _, want := range []string{"[global]\n", "repo2-type=s3\n", "repo2-path=/boxes/a/pgbackrest\n", "repo2-s3-endpoint=host.lima.internal\n",
 		"repo2-storage-port=9443\n", "repo2-s3-key-secret=s3cret\n", "repo2-cipher-type=aes-256-cbc\n", "repo2-cipher-pass=pass-phrase\n",
 		"repo2-retention-full-type=time\n", "repo2-retention-full=30\n", "repo2-storage-ca-file=" + offsiteCAPath + "\n", "repo2-s3-uri-style=path\n",
-		"[tiffin]\npg1-path=/var/lib/tiffin/postgres/"} {
+		"repo2-bundle-size=2MiB\n", "[global:restore]\nprocess-max=8\n\n", "[tiffin]\npg1-path=/var/lib/tiffin/postgres/"} {
 		if !strings.Contains(conf, want) {
 			t.Errorf("conf lacks %q:\n%s", want, conf)
 		}

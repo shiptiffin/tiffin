@@ -232,7 +232,7 @@ write, list and delete objects in it.
 
 ```bash
 tiffin backups offsite set --endpoint https://<account>.r2.cloudflarestorage.com \
-  --region auto --bucket tiffin-backups --prefix shop-box \
+  --bucket tiffin-backups --prefix shop-box \
   --access-key-id <id> --secret-access-key <secret>
 tiffin backups offsite show          # on or off, the newest copy, what it sent
 tiffin backups offsite test          # write, read and delete a test object; pgBackRest lists its repository
@@ -241,6 +241,7 @@ tiffin backups offsite list          # the sets in the bucket
 tiffin backups offsite off           # stop; the copies in the bucket stay
 ```
 
+An R2 endpoint signs for region `auto` by default; others default to `us-east-1`.
 Other endpoints: `https://s3.<region>.amazonaws.com` (`--region <region>`),
 `https://<location>.your-objectstorage.com` (`--region <location>`), or your MinIO's
 HTTPS address (`--ca-cert "$(cat ca.pem)"` when a private CA signs it). Use one

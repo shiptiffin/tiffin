@@ -5679,7 +5679,7 @@ export interface components {
             passphrase?: string;
             /** @description Folder in the bucket for this box (default tiffin); one prefix per box */
             prefix?: string;
-            /** @description Signing region (default us-east-1; R2: auto) */
+            /** @description Signing region (default: auto for an R2 endpoint, us-east-1 otherwise) */
             region?: string;
             /**
              * Format: int64
