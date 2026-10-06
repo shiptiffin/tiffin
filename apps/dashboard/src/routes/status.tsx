@@ -1,13 +1,17 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import type { BoxResources, Check } from "@/api/client";
-import { mq } from "@/api/modules";
+import { mod, mq, type OutsideCheck } from "@/api/modules";
 import { q } from "@/api/queries";
+import { Confirm } from "@/components/confirm";
 import { useTitle } from "@/components/favicon";
 import { Alarm, Facts, Group, Rows } from "@/components/health-kit";
 import { Page, Skeleton } from "@/components/page";
 import { Code, ProblemNote, sentence } from "@/components/problem";
+import { toast } from "@/components/toast";
+import { Button } from "@/components/ui/button";
+import { Input, Label } from "@/components/ui/input";
 import { boxName, tiffinStarted, versionLabel, whereItRuns } from "@/lib/box";
 import { cn } from "@/lib/cn";
 import { countWords, dec, duration, int, plainWords, withUnit, words } from "@/lib/format";
@@ -250,6 +254,8 @@ export function StatusPage() {
         </p>
       </Group>
 
+      <OutsideCheckBlock now={now} />
+
       <Group label="This box" id="box">
         <Facts
           items={[
@@ -322,6 +328,121 @@ function CheckGroup({ name, about, checks }: { name: string; about: string; chec
         </ul>
       )}
     </li>
+  );
+}
+
+const hostOf = (u?: string) => {
+  try {
+    return new URL(u ?? "").host;
+  } catch {
+    return "the monitoring service";
+  }
+};
+
+/**
+ * The outside check: a box can't report its own death, so it pings a
+ * service elsewhere that tells you when the pings stop. Off, it says so and
+ * offers the ping URL field; on, the last ping, a test and Turn off. Only
+ * the box owner sees it (the API refuses everyone else).
+ */
+function OutsideCheckBlock({ now }: { now: number }) {
+  const qc = useQueryClient();
+  const m = useQuery({ ...mq.monitor, retry: false });
+  const [url, setUrl] = useState("");
+  const [leaving, setLeaving] = useState(false);
+  const show = (v: OutsideCheck) => qc.setQueryData(mq.monitor.queryKey, v);
+  const set = useMutation({
+    mutationFn: () => mod.monitorSet(url.trim()),
+    onSuccess: (v) => {
+      show(v);
+      setUrl("");
+      toast({ title: `The box pings ${hostOf(v.url)} every minute now.` });
+    },
+  });
+  const test = useMutation({ mutationFn: mod.monitorTest, onSuccess: show });
+  if (!m.data) return null; // not the owner, or not a box
+  const v = m.data;
+  const host = hostOf(v.url);
+  const last = v.last;
+
+  return (
+    <Group label="Outside check" id="outside" aside={v.on ? "on" : "off"}>
+      {!v.on ? (
+        <div className="border-y border-rule py-3.5">
+          <p className="text-[0.9375rem] font-[550] text-ink">Nobody outside is watching this box.</p>
+          <p className="mt-1 max-w-[44rem] text-[0.84375rem] text-ink-2">
+            If the machine stops, it can’t tell you. Paste a ping URL and the box pings it every minute; the service behind it tells you when the pings stop.
+            The free plan of healthchecks.io works, and so does an Uptime Kuma push monitor.
+          </p>
+          <form
+            className="mt-3 flex max-w-[40rem] flex-col gap-1"
+            onSubmit={(e) => {
+              e.preventDefault();
+              set.mutate();
+            }}
+          >
+            <Label htmlFor="ping-url">Ping URL</Label>
+            <div className="flex flex-wrap gap-2">
+              <Input
+                id="ping-url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://hc-ping.com/…"
+                autoComplete="off"
+                spellCheck={false}
+                className="ident min-w-0 flex-1 basis-60 text-[0.875rem]"
+              />
+              <Button type="submit" variant="primary" size="lg" disabled={set.isPending || !url.trim()}>
+                {set.isPending ? "Pinging…" : "Ping it and turn on"}
+              </Button>
+            </div>
+          </form>
+          {set.isError && <ProblemNote className="mt-3" error={set.error} />}
+        </div>
+      ) : (
+        <div className="border-y border-rule py-3.5">
+          <p className="text-[0.875rem] text-ink">
+            <span className="font-[550]">Someone outside checks this box is alive.</span> Every minute it pings {host}; if the pings stop, {host} tells you.
+          </p>
+          {last && (
+            <p className={cn("mt-1 text-[0.8125rem]", last.ok ? "text-ink-3" : "text-danger")}>
+              {last.ok
+                ? `Last ping ${relative(last.at, now)}${last.kind === "fail" ? ", saying the box is failing" : ""}.`
+                : `The last ping, ${relative(last.at, now)}, didn’t get through: ${last.error}`}
+            </p>
+          )}
+          {v.failingSince && (
+            <p className="mt-1 text-[0.8125rem] text-warn-ink">
+              Some checks started failing {relative(v.failingSince, now)}. Once they have failed for {v.failAfterMinutes} minutes, the pings say so.
+            </p>
+          )}
+          <p className="mt-1 text-[0.8125rem] text-ink-3">
+            A ping says the version, how long Tiffin has run and which checks fail{v.details ? ", plus project names and what each failing check says" : ", nothing else"}.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={() => test.mutate()} disabled={test.isPending}>
+              {test.isPending ? "Pinging…" : "Send a test ping"}
+            </Button>
+            <Button size="sm" variant="danger-quiet" onClick={() => setLeaving(true)}>
+              Turn off…
+            </Button>
+          </div>
+          {test.isError && <ProblemNote className="mt-3" error={test.error} />}
+        </div>
+      )}
+      <Confirm
+        open={leaving}
+        onClose={() => setLeaving(false)}
+        title="Stop the outside check?"
+        body={`The box stops pinging ${host}. Pause or delete the check there too, or it will tell you the box is down.`}
+        action="Turn off"
+        run={mod.monitorOff}
+        done={() => {
+          void qc.invalidateQueries({ queryKey: mq.monitor.queryKey });
+          toast({ title: "The outside check is off." });
+        }}
+      />
+    </Group>
   );
 }
 

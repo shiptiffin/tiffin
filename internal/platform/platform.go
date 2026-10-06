@@ -334,6 +334,9 @@ type Platform struct {
 	// seconds), for settings read only at start such as the box domain.
 	// Nil off-box.
 	Restart func(reason string)
+	// BoxChecks runs every check /v1/status reports, the machine's own
+	// (disk, memory, edge) included. Nil: Checks.
+	BoxChecks func(ctx context.Context) []Check
 
 	rec      *reconciler
 	started  atomic.Bool

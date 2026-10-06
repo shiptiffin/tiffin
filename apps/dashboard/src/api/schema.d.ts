@@ -1056,6 +1056,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/monitor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show the outside check
+         * @description Whether the box pings an outside URL (healthchecks.io, Uptime Kuma, tiffin watch) so someone notices when it stops, the last ping and exactly what a ping carries. Box owner only.
+         */
+        get: operations["monitor-show"];
+        /**
+         * Ping an outside URL while the box is alive
+         * @description Sets the URL the box pings about once a minute, so a service outside the box tells you when the pings stop: a healthchecks.io check (free tier), an Uptime Kuma push monitor or a tiffin watch collector. A ping is sent first and the URL is kept only if it answers 2xx. When the box's own checks fail for 10 minutes, pings become failure pings (<url>/fail; Kuma: status=down). Pings carry the version, uptime and the names of failing checks; project names and check details only with details. Box owner only.
+         */
+        put: operations["monitor-set"];
+        post?: never;
+        /**
+         * Stop pinging the outside URL
+         * @description Forgets the ping URL; the box stops pinging. Pause or delete the check at the monitoring service too, or it will report the box down. Box owner only.
+         */
+        delete: operations["monitor-off"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitor/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a ping now
+         * @description Pings the outside URL now with the box's current status and returns the outcome (last). Box owner only.
+         */
+        post: operations["monitor-test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/observe/alert-rules": {
         parameters: {
             query?: never;
@@ -7215,6 +7263,87 @@ export interface components {
         ManifestValkey: {
             /** Format: int64 */
             maxMemoryMB: number;
+        };
+        Monitor: {
+            /** @description Pings also carry project names and what failing checks say */
+            details: boolean;
+            /** Format: int64 */
+            everySeconds: number;
+            /**
+             * Format: int64
+             * @description Checks failing this long turn the ping into a failure ping
+             */
+            failAfterMinutes: number;
+            /**
+             * Format: date-time
+             * @description Since when the box's own checks have been failing
+             */
+            failingSince?: string;
+            /** @description The last ping sent since Tiffin started */
+            last?: components["schemas"]["MonitorBeat"];
+            /** @description The box pings an outside URL about once a minute */
+            on: boolean;
+            /** @description What a ping carries right now */
+            payload: components["schemas"]["MonitorPayload"];
+            /**
+             * @description healthchecks: POST <url>, <url>/fail, <url>/start (healthchecks.io, tiffin watch). uptime-kuma: GET with status=up|down.
+             * @enum {string}
+             */
+            receiver?: "healthchecks" | "uptime-kuma";
+            /** Format: date-time */
+            setAt?: string;
+            /** @description Where the pings go. Treat it as a secret: anyone with it can send pings. */
+            url?: string;
+        };
+        MonitorBeat: {
+            /** Format: date-time */
+            at: string;
+            error?: string;
+            /** @enum {string} */
+            kind: "ok" | "fail" | "start";
+            /** Format: int64 */
+            ms: number;
+            /** @description The receiver answered 2xx */
+            ok: boolean;
+            /**
+             * Format: int64
+             * @description HTTP status the receiver answered
+             */
+            status?: number;
+        };
+        MonitorPayload: {
+            /**
+             * Format: int64
+             * @description How many status checks ran
+             */
+            checks: number;
+            /** @description What each failing check says; only with details on */
+            details?: {
+                [key: string]: string;
+            };
+            /** Format: int64 */
+            failedChecks: number;
+            /** @description Names of the failing checks (disk, postgres...) */
+            failing?: string[] | null;
+            /** @description The box's projects; only with details on */
+            projects?: string[] | null;
+            /**
+             * @description failing once a check has failed for 10 minutes
+             * @enum {string}
+             */
+            status: "ok" | "failing";
+            /**
+             * Format: int64
+             * @description Since Tiffin started
+             */
+            uptimeSeconds: number;
+            version: string;
+        };
+        MonitorSetBody: {
+            /** @description Also send project names and what failing checks say (default false) */
+            details?: boolean;
+            /** @description The ping URL: a healthchecks.io check (https://hc-ping.com/<uuid>), an Uptime Kuma push URL (https://kuma.example.com/api/push/<token>) or a tiffin watch collector */
+            url: string;
         };
         ObserveAlert: {
             /** @description The project, for project alerts (error_spike) */
@@ -15743,6 +15872,306 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "monitor-show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Monitor"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "monitor-set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MonitorSetBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Monitor"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "monitor-off": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Monitor"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "monitor-test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Monitor"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

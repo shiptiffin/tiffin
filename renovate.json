@@ -1,0 +1,82 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "timezone": "Etc/UTC",
+  "schedule": ["* 0-5 * * 1"],
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "prConcurrentLimit": 10,
+  "postUpdateOptions": ["gomodTidy"],
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "description": "Security fixes skip the schedule and the 3-day wait.",
+    "schedule": ["at any time"],
+    "minimumReleaseAge": null,
+    "labels": ["security"]
+  },
+  "ignorePaths": [
+    "**/node_modules/**",
+    "internal/sdkpkg/files/**",
+    "internal/dashboard/dist/**"
+  ],
+  "packageRules": [
+    {
+      "description": "Minor and patch updates together, one PR per ecosystem a week. Majors get their own PRs (config:recommended).",
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
+      "groupName": "minor and patch ({{manager}})",
+      "groupSlug": "minor-patch-{{manager}}"
+    },
+    {
+      "description": "Patch releases of JS dev tools get their own PR and merge themselves once CI passes. Nothing else does.",
+      "matchManagers": ["npm", "bun"],
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["patch"],
+      "groupName": "dev tools (patch)",
+      "groupSlug": "dev-tools-patch",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "The Go toolchain line in go.mod moves only by hand: CI, the release builds and every box build follow it.",
+      "matchManagers": ["gomod"],
+      "matchDepTypes": ["golang", "toolchain"],
+      "enabled": false
+    },
+    {
+      "description": "The box adds @workflow/world-postgres at a pinned release per `workflow` major (internal/mod/runtime/versions.go, WorkflowPostgresWorld), proven by the devkit e2e. Bump it there, by hand, after `make e2e`; never let it float in a fixture.",
+      "matchPackageNames": ["@workflow/world-postgres"],
+      "enabled": false
+    },
+    {
+      "description": "The devkit e2e app stays on workflow 4.x: it proves the box picks the 4.x Postgres world. A 5.x app is a new fixture, not an update.",
+      "matchFileNames": ["e2e/workflow-devkit/package.json"],
+      "matchPackageNames": ["workflow"],
+      "allowedVersions": "<5"
+    },
+    {
+      "description": "The Prisma 6 pooler fixture exists to test Prisma 6 against PgBouncer; Prisma 7 is the other fixture.",
+      "matchFileNames": ["e2e/poolerapp/p6/package.json"],
+      "matchPackageNames": ["prisma", "@prisma/client"],
+      "allowedVersions": "<7"
+    },
+    {
+      "description": "Boxes run Postgres 18 (apt, minor updates only; PgBouncer and Postgres minimums are checked at start in internal/mod/postgres). Tests that embed Postgres must stay on the same major.",
+      "matchPackageNames": ["embedded-postgres"],
+      "allowedVersions": "<19"
+    },
+    {
+      "description": "Better Auth packages move together: the auth engine and the vendored SDK must agree on one release.",
+      "matchPackageNames": ["better-auth", "@better-auth/**"],
+      "groupName": "better-auth",
+      "groupSlug": "better-auth"
+    },
+    {
+      "description": "Next.js and React move together across the starters, templates and fixtures.",
+      "matchPackageNames": ["next", "react", "react-dom", "@types/react", "@types/react-dom"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "next and react",
+      "groupSlug": "next-react"
+    }
+  ]
+}

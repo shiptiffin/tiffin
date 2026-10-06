@@ -146,3 +146,30 @@ tiffin alerts list            # firing now, and recent history with where each n
 ```
 
 Retention: `tiffin observe settings set --metrics-retention 90d --logs-retention 30d --traces-retention 7d`.
+
+## Know when the box is down
+
+Alerts come from the box, so they stop when the box does. For that, have
+something outside notice: the box pings a URL about once a minute, and the
+service behind it tells you when the pings stop.
+
+- **[healthchecks.io](https://healthchecks.io)** (the free tier is enough): add a
+  check with a period of 1 minute and a grace time of 5, then
+  `tiffin monitor set https://hc-ping.com/<uuid>`.
+- **[Uptime Kuma](https://github.com/louislam/uptime-kuma)**: add a Push monitor
+  with a heartbeat interval of 90 seconds, then
+  `tiffin monitor set https://kuma.example.com/api/push/<token>`.
+
+```bash
+tiffin monitor show       # the URL, the last ping, and exactly what a ping carries
+tiffin monitor test       # ping now
+tiffin monitor off        # stop (pause the check at the service too, or it reports the box down)
+```
+
+The URL is kept only once a first ping gets a 2xx answer. When the box's own
+checks (`tiffin status`) have failed for 10 minutes, pings say so: healthchecks.io
+gets `<url>/fail`, Uptime Kuma `status=down`. A ping carries the version, the
+uptime and the names of failing checks, nothing else; add `--details` to send
+project names and what each failing check says too. Treat the ping URL as a
+secret: anyone with it can send pings. The dashboard shows it under Health ›
+Outside check.
