@@ -120,6 +120,17 @@ export interface ValkeyConfig {
 export interface BucketConfig {
   /** Public buckets are readable without a signature. Default false. */
   public?: boolean;
+  /**
+   * Browser origins allowed to call the bucket's S3 API (presigned uploads
+   * and downloads): "https://example.com", "https://*.example.com" or "*".
+   * Default: the project's own app hosts (previews and custom domains
+   * included) and http://localhost.
+   */
+  cors?: string[];
+  /** Largest object an upload may create, in bytes. Default: no limit beyond the project's storage limit. */
+  maxFileSize?: number;
+  /** MIME types uploads may have, e.g. ["image/*", "application/pdf"]. Default: any. */
+  allowedTypes?: string[];
 }
 
 /** Storage gives the project S3-compatible buckets. */

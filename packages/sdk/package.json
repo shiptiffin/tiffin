@@ -32,6 +32,10 @@
       "types": "./src/storage.ts",
       "default": "./src/storage.ts"
     },
+    "./storage/client": {
+      "types": "./src/storage-client.ts",
+      "default": "./src/storage-client.ts"
+    },
     "./email": {
       "types": "./src/email.ts",
       "default": "./src/email.ts"
@@ -47,6 +51,10 @@
     "./next/use-cache": {
       "types": "./src/next/use-cache.ts",
       "default": "./src/next/use-cache.ts"
+    },
+    "./next/image-loader": {
+      "types": "./src/next/image-loader.ts",
+      "default": "./src/next/image-loader.ts"
     },
     "./queue": {
       "types": "./src/queue.ts",
