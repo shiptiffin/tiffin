@@ -46,6 +46,7 @@ export default defineConfig({
   services: {
     postgres: { extensions: ["vector"] },
     valkey: { maxMemoryMB: 128 },
+    analytics: { retentionDays: 400 },
     storage: {
       buckets: {
         uploads: { public: true },

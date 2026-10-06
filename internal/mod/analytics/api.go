@@ -76,13 +76,13 @@ type FilterQuery struct {
 	Entry       string `query:"entry" maxLength:"512" doc:"Only visits that started on this path"`
 	Exit        string `query:"exit" maxLength:"512" doc:"Only visits that ended on this path"`
 	Source      string `query:"source" maxLength:"200" doc:"Only visits from this source (as listed in sources: Google, news.ycombinator.com, a utm_source)"`
-	UTMSource   string `query:"utmSource" maxLength:"200"`
-	UTMMedium   string `query:"utmMedium" maxLength:"200"`
-	UTMCampaign string `query:"utmCampaign" maxLength:"200"`
+	UTMSource   string `query:"utmSource" maxLength:"200" doc:"Only visits whose first page view had this utm_source"`
+	UTMMedium   string `query:"utmMedium" maxLength:"200" doc:"Only visits whose first page view had this utm_medium"`
+	UTMCampaign string `query:"utmCampaign" maxLength:"200" doc:"Only visits whose first page view had this utm_campaign"`
 	Country     string `query:"country" pattern:"^[A-Z]{2}$" doc:"ISO country code"`
-	Browser     string `query:"browser" maxLength:"100"`
-	OS          string `query:"os" maxLength:"100"`
-	Device      string `query:"device" enum:"desktop,mobile,tablet"`
+	Browser     string `query:"browser" maxLength:"100" doc:"Only visitors on this browser, as listed in browsers (Chrome, Mobile Safari)"`
+	OS          string `query:"os" maxLength:"100" doc:"Only visitors on this system, as listed in os (Mac OS X, Android)"`
+	Device      string `query:"device" enum:"desktop,mobile,tablet" doc:"Only visitors on this kind of device"`
 }
 
 func (f FilterQuery) filters() Filters { return Filters(f) }

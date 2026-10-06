@@ -62,6 +62,10 @@ export type AnalyticsCount = S["AnalyticsCount"];
 export type AnalyticsEvent = S["AnalyticsEventSummary"];
 export type AnalyticsVitals = S["AnalyticsVitalsView"];
 export type Period = NonNullable<NonNullable<import("./schema").operations["analytics-overview"]["parameters"]["query"]>["period"]>;
+/** What an analytics read can ask for: a period or days, one app, the step and filters. */
+export type AnalyticsQuery = Omit<NonNullable<import("./schema").operations["analytics-overview"]["parameters"]["query"]>, "project" | "limit">;
+export type AnalyticsFilters = S["AnalyticsFilters"];
+export type UsageHistory = S["ObserveUsageHistory"];
 export type ProtectStatus = S["ProtectStatus"];
 export type ProtectDecision = S["ProtectDecision"];
 export type ProtectAlert = S["ProtectAlert"];
@@ -222,9 +226,11 @@ export const mod2 = {
     request<WorkflowApproval>("POST", `${P(p)}/workflows/approvals/${e(id)}`, { decision, ...(comment ? { comment } : {}) }),
   // analytics
   analytics: (p: string, period: Period) => request<AnalyticsOverview>("GET", `/v1/analytics/overview${qs({ project: p, period, limit: 8 })}`),
-  realtime: (p: string) => request<AnalyticsRealtime>("GET", `/v1/analytics/realtime${qs({ project: p })}`),
-  events: (p: string, period: Period) => request<AnalyticsEvents>("GET", `/v1/analytics/events${qs({ project: p, period })}`),
-  vitals: (p: string, period: Period) => request<AnalyticsVitals>("GET", `/v1/analytics/vitals${qs({ project: p, period, limit: 8 })}`),
+  /** The overview for a period or day range, one app and filters (see AnalyticsQuery). */
+  analyticsView: (p: string, q: AnalyticsQuery, limit = 10) => request<AnalyticsOverview>("GET", `/v1/analytics/overview${qs({ project: p, ...q, limit })}`),
+  realtime: (p: string, app?: string) => request<AnalyticsRealtime>("GET", `/v1/analytics/realtime${qs({ project: p, app })}`),
+  events: (p: string, q: AnalyticsQuery) => request<AnalyticsEvents>("GET", `/v1/analytics/events${qs({ project: p, ...q, interval: undefined })}`),
+  vitals: (p: string, q: AnalyticsQuery) => request<AnalyticsVitals>("GET", `/v1/analytics/vitals${qs({ project: p, period: q.period, from: q.from, to: q.to, app: q.app, page: q.page, limit: 8 })}`),
   analyticsSetup: (p: string) => request<AnalyticsSetup>("GET", `/v1/analytics/setup${qs({ project: p })}`),
   // protection
   protect: () => request<ProtectStatus>("GET", "/v1/protect"),
@@ -237,6 +243,8 @@ export const mod2 = {
 };
 
 export const mod3 = {
+  /** Memory, CPU, traffic and data over time, for the project or one app. */
+  usageHistory: (p: string, range: "1h" | "24h" | "7d" | "30d", app?: string) => request<UsageHistory>("GET", `${P(p)}/usage/history${qs({ range, app })}`),
   // runtime
   runtime: (p: string, app: string) => request<AppRuntime>("GET", `${P(p)}/apps/${e(app)}/runtime`),
   deploys: (p: string, app: string, preview?: string) =>

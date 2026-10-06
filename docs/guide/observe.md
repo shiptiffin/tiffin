@@ -9,7 +9,9 @@ by default.
 ## What is collected
 
 - **Box metrics** every 15 seconds: CPU, memory, disks, network, every box service
-  (up, restarts, memory, CPU) and every app container (memory, CPU).
+  (up, restarts, memory, CPU), every app container (memory, CPU) and every
+  project (memory and CPU against its limits, its database, files and KV sizes,
+  open database connections).
 - **The box's own logs**: Tiffin and every system service, from the journal.
 - **App logs**: everything your apps print, with the app, deploy, environment and
   instance attached. JSON lines keep their fields (`msg`, `level` and the rest).
@@ -34,6 +36,7 @@ tiffin logs query --query 'unit:tiffin.service'        # the box's own logs (box
 
 tiffin observe overview                                # box health now and over the last hour
 tiffin observe apps --project shop --since 1h          # requests, errors and latency per app
+tiffin projects usage history shop --range 7d          # what the Usage page draws: memory, CPU, traffic, data
 tiffin metrics query --project shop --query 'sum by (app) (rate(tiffin_http_requests_total[5m]))' --since 1h
 ```
 
