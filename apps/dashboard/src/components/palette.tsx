@@ -54,7 +54,10 @@ const projectPages: Array<[string, string, string[]]> = [
   ["Apps and deploys", "/projects/$project/apps", ["deploy", "rollback", "preview", "restart"]],
   ["Database tables", "/projects/$project/data", ["postgres", "database"]],
   ["Run SQL", "/projects/$project/data/sql", ["query", "postgres"]],
-  ["Database branches", "/projects/$project/data/branches", ["clone", "preview"]],
+  ["Database copies", "/projects/$project/data/branches", ["clone", "preview", "branches"]],
+  ["Database schema", "/projects/$project/data/schema", ["diagram", "foreign keys", "relations", "erd"]],
+  ["Database restore points", "/projects/$project/data/restore", ["snapshots", "undo", "restore"]],
+  ["New database table", "/projects/$project/data?new=table", ["create table", "add table"]],
   ["Cache", "/projects/$project/data/kv", ["valkey", "redis", "key-value"]],
   ["KV console", "/projects/$project/data/kv/console", ["valkey", "redis", "commands", "cli", "cache"]],
   ["Files", "/projects/$project/storage", ["buckets", "storage", "s3", "upload"]],
@@ -174,7 +177,17 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               {current && !scale && (
                 <Command.Group heading={`In ${current}`}>
                   {projectPages.map(([label, to, kw]) => (
-                    <Item key={to} value={`${current} ${label}`} icon={<FolderClosed />} keywords={kw} onSelect={run(() => navigate({ to: to as "/", params: { project: current } as never }))}>
+                    <Item
+                      key={to}
+                      value={`${current} ${label}`}
+                      icon={<FolderClosed />}
+                      keywords={kw}
+                      onSelect={run(() => {
+                        // An action is a page with a search: "/projects/$project/data?new=table".
+                        const [path, search] = to.split("?");
+                        void navigate({ to: path as "/", params: { project: current } as never, search: Object.fromEntries(new URLSearchParams(search)) as never });
+                      })}
+                    >
                       {label}
                     </Item>
                   ))}

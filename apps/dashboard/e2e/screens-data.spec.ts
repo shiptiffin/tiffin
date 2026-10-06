@@ -22,7 +22,7 @@ async function shot(page: Page, name: string, fullPage = true) {
 }
 
 const pages: Array<{ name: string; url: string; wait: (p: Page) => Promise<unknown>; act?: (p: Page) => Promise<unknown>; full?: boolean }> = [
-  { name: "data", url: "/projects/shop/data", wait: (p) => p.getByRole("heading", { name: "Your tables" }).waitFor() },
+  { name: "data", url: "/projects/shop/data", wait: (p) => p.getByRole("grid").waitFor() },
   {
     name: "data-table",
     url: "/projects/shop/data/tables/orders",
@@ -52,11 +52,11 @@ const pages: Array<{ name: string; url: string; wait: (p: Page) => Promise<unkno
     wait: (p) => p.getByLabel("SQL").waitFor(),
     act: async (p) => {
       await p.getByLabel("SQL").fill("DELETE FROM orders WHERE status = 'refunded';");
-      await p.getByRole("switch", { name: "Allow writes" }).click();
+      await p.getByRole("switch", { name: "Allow changes" }).click();
     },
     full: false,
   },
-  { name: "data-branches", url: "/projects/shop/data/branches", wait: (p) => p.getByRole("heading", { name: "Snapshots", exact: true }).waitFor() },
+  { name: "data-branches", url: "/projects/shop/data/branches", wait: (p) => p.getByRole("heading", { name: "Copies", exact: true }).waitFor() },
   {
     name: "kv",
     url: "/projects/shop/data/kv?key=leaderboard%3Abowls",

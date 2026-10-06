@@ -25,7 +25,9 @@ type PGTable struct {
 	RowEstimate *int64          `json:"rowEstimate" doc:"Planner estimate (exact for small tables never analyzed); null when unknown"`
 	SizeBytes   int64           `json:"sizeBytes" doc:"Table plus indexes and TOAST"`
 	RLS         bool            `json:"rls" doc:"Row-level security is enabled"`
+	Managed     bool            `json:"managed" doc:"In a schema Tiffin or a framework manages (auth, tiffin, graphile_worker, pgboss)"`
 	Columns     []PGTableColumn `json:"columns"`
+	ForeignKeys []PGForeignKey  `json:"foreignKeys" doc:"Links from this table to others (for the schema diagram)"`
 }
 
 // Tables lists the user tables of a project's database (or a branch) with
@@ -44,11 +46,11 @@ func Tables(ctx context.Context, p *platform.Platform, project, branch string) (
 SELECT c.oid, n.nspname, c.relname, c.relkind::text, c.reltuples::bigint, pg_total_relation_size(c.oid), c.relrowsecurity
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE c.relkind IN ('r','p','v','m','f')
-  AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'tiffin', 'cron')
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'cron')
   AND n.nspname NOT LIKE 'pg\_%'
   AND NOT c.relispartition
   AND has_schema_privilege(n.oid, 'USAGE')
-ORDER BY n.nspname = 'public' DESC, n.nspname, c.relname
+ORDER BY n.nspname = 'public' DESC, n.nspname IN ('auth', 'tiffin', 'graphile_worker', 'pgboss'), n.nspname, c.relname
 LIMIT 1000`)
 	if err != nil {
 		return nil, sqlError(err)
@@ -70,6 +72,8 @@ LIMIT 1000`)
 			t.RowEstimate = &tuples
 		}
 		t.Columns = []PGTableColumn{}
+		t.ForeignKeys = []PGForeignKey{}
+		t.Managed = Managed(t.Schema)
 		byOID[oid] = &t
 		order = append(order, oid)
 	}
@@ -100,6 +104,17 @@ ORDER BY a.attrelid, a.attnum`, order)
 	cols.Close()
 	if err := cols.Err(); err != nil {
 		return nil, err
+	}
+	fks, err := foreignKeys(ctx, conn, `con.conrelid = ANY($1)`, order)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range fks {
+		for _, t := range byOID {
+			if t.Schema == f.Schema && t.Name == f.Table {
+				t.ForeignKeys = append(t.ForeignKeys, f)
+			}
+		}
 	}
 	out := make([]PGTable, 0, len(order))
 	for _, oid := range order {
