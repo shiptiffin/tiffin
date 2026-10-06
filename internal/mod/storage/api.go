@@ -426,7 +426,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			} else {
 				cur[change.KindStorageLimit] = change.Resource{Address: change.KindStorageLimit, Spec: spec}
 			}
-			return cur, nil
+			// The apps' disk folder sizes must still fit.
+			return cur, p.CheckPlan(ctx, in.Project, cur)
 		})
 		if err != nil {
 			return nil, err

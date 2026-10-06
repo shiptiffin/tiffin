@@ -244,7 +244,7 @@ func (x *testBox) shop(name string) {
 		m.Services = manifest.Services{Postgres: &manifest.Postgres{Extensions: []string{"vector"}}, Valkey: &manifest.Valkey{MaxMemoryMB: 32},
 			Storage: &manifest.Storage{Buckets: map[string]manifest.Bucket{"media": {Public: true}, "docs": {}}}}
 		m.Apps = map[string]manifest.App{
-			"web":  {Path: ".", Framework: manifest.FrameworkBun, Role: manifest.RoleWeb, Routes: []string{name, "example.com"}, Instances: 1, Git: &manifest.Git{Repo: "acme/shop", Branch: "main", Previews: manifest.PreviewsSameRepo}, Disk: []string{"data"}},
+			"web":  {Path: ".", Framework: manifest.FrameworkBun, Role: manifest.RoleWeb, Routes: []string{name, "example.com"}, Instances: 1, Git: &manifest.Git{Repo: "acme/shop", Branch: "main", Previews: manifest.PreviewsSameRepo}, Disk: manifest.Disk{{Path: "data"}}},
 			"site": {Path: ".", Framework: manifest.FrameworkStatic, Role: manifest.RoleWeb, Routes: []string{name + "-docs"}, Instances: 1},
 			"jobs": {Path: ".", Framework: manifest.FrameworkBun, Role: manifest.RoleWorker, Instances: 1},
 		}

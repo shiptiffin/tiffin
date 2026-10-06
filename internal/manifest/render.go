@@ -2,6 +2,7 @@ package manifest
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"regexp"
 	"slices"
@@ -223,7 +224,18 @@ func appNode(name string, a App, implied string) *node {
 		n.set("packages", strs(a.Packages))
 	}
 	if len(a.Disk) > 0 {
-		n.set("disk", strs(a.Disk))
+		if a.Disk.sized() {
+			d := obj()
+			for _, f := range a.Disk {
+				d.set(f.Path, str(cmp.Or(f.Size, DefaultDiskSize)))
+			}
+			n.set("disk", d)
+		} else {
+			n.set("disk", strs(a.Disk.Paths()))
+		}
+	}
+	if a.TimeoutSeconds != 0 {
+		n.set("timeoutSeconds", num(a.TimeoutSeconds))
 	}
 	if len(a.Env) > 0 {
 		n.set("env", strMap(a.Env))

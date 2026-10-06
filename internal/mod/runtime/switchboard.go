@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/edge"
+	"github.com/btahir/tiffin/internal/manifest"
 )
 
 // The switchboard is the runtime's own reverse proxy between the edge and
@@ -187,7 +189,35 @@ var proxyTransport = &http.Transport{
 	ForceAttemptHTTP2:     false,
 }
 
-// serveApp proxies one request to an instance of the app environment.
+// errTooLong ends a request that reached its app's time limit.
+var errTooLong = errors.New("the request reached its time limit")
+
+func (r *rt) setTimeout(project, app string, d time.Duration) {
+	r.mu.Lock()
+	r.timeouts[project+"/"+app] = d
+	r.mu.Unlock()
+}
+
+// requestTimeout is how long one request to the app may take: its
+// timeoutSeconds, read once and then kept current by Reconcile.
+func (r *rt) requestTimeout(ctx context.Context, project, app string) time.Duration {
+	r.mu.Lock()
+	d, ok := r.timeouts[project+"/"+app]
+	r.mu.Unlock()
+	if ok {
+		return d
+	}
+	spec, err := r.appSpec(ctx, project, app)
+	if err != nil {
+		return manifest.DefaultTimeout
+	}
+	r.setTimeout(project, app, spec.Timeout())
+	return spec.Timeout()
+}
+
+// serveApp proxies one request to an instance of the app environment. A
+// request that reaches the app's time limit is answered 504, or cut if the
+// response has begun (the client sees the stream end early).
 func (r *rt) serveApp(w http.ResponseWriter, req *http.Request, key string) {
 	in, done, ok := r.st.cache.acquire(key)
 	if !ok {
@@ -195,6 +225,13 @@ func (r *rt) serveApp(w http.ResponseWriter, req *http.Request, key string) {
 		return
 	}
 	defer done()
+	var limit time.Duration
+	if st := r.st.cache.get(key); st != nil {
+		limit = r.requestTimeout(req.Context(), st.Project, st.App)
+		ctx, cancel := context.WithTimeoutCause(req.Context(), limit, errTooLong)
+		defer cancel()
+		req = req.WithContext(ctx)
+	}
 	target := &url.URL{Scheme: "http", Host: fmt.Sprintf("127.0.0.1:%d", in.Port)}
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -212,11 +249,25 @@ func (r *rt) serveApp(w http.ResponseWriter, req *http.Request, key string) {
 		},
 		Transport:     proxyTransport,
 		FlushInterval: -1,
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
+			if errors.Is(context.Cause(req.Context()), errTooLong) {
+				http.Error(w, tooLong(limit), http.StatusGatewayTimeout)
+				return
+			}
 			http.Error(w, "the app did not answer: "+err.Error(), http.StatusBadGateway)
 		},
 	}
+	defer func() { // also when a response under way is cut (a panic that aborts it)
+		if errors.Is(context.Cause(req.Context()), errTooLong) {
+			r.p.Log.Info("runtime: request reached its time limit", "host", req.Host, "path", req.URL.Path, "limit", limit, "request_id", req.Header.Get("X-Request-Id"))
+		}
+	}()
 	rp.ServeHTTP(w, req)
+}
+
+func tooLong(limit time.Duration) string {
+	return fmt.Sprintf("the app took longer than its time limit for one request (%s), so the box stopped waiting. "+
+		"Make the request shorter (a queue job or a workflow can run longer), or raise the limit in tiffin.config.ts: timeoutSeconds (up to 86400).\n", limit)
 }
 
 // traceparent starts the request's trace with the edge's request ID as its

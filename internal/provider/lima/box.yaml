@@ -78,7 +78,13 @@ provision:
     label="$(blkid -s LABEL -o value "$dev")"
     mkdir -p /var/lib/tiffin
     sed -i '\| /var/lib/tiffin none bind |d' /etc/fstab
-    grep -q "^LABEL=$label /var/lib/tiffin " /etc/fstab || \
-      echo "LABEL=$label /var/lib/tiffin xfs defaults,nofail,x-systemd.device-timeout=60s 0 2" >> /etc/fstab
+    # prjquota: project quotas enforce the size of apps' disk folders. XFS
+    # turns them on only when the filesystem is first mounted, so Lima's
+    # own mount (made before this script, without them) goes first.
+    sed -i "\|^LABEL=$label /var/lib/tiffin |d" /etc/fstab
+    echo "LABEL=$label /var/lib/tiffin xfs defaults,prjquota,nofail,x-systemd.device-timeout=60s 0 2" >> /etc/fstab
     systemctl daemon-reload
+    if ! findmnt -n -o OPTIONS /var/lib/tiffin | grep -q prjquota && ! systemctl -q is-active tiffin; then
+      for m in $(findmnt -n -o TARGET -S "$dev"); do umount "$m"; done
+    fi
     mountpoint -q /var/lib/tiffin || mount /var/lib/tiffin

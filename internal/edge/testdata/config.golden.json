@@ -53,6 +53,10 @@
             {
               "handle": [
                 {
+                  "handler": "tiffin_stall",
+                  "timeout": 300000000000
+                },
+                {
                   "handler": "headers",
                   "response": {
                     "deferred": true,

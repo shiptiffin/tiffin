@@ -149,6 +149,14 @@ func (e *fakeEngine) Run(ctx context.Context, s RunSpec) error {
 		if d, err := time.ParseDuration(r.URL.Query().Get("sleep")); err == nil { // a long request
 			time.Sleep(d)
 		}
+		if n, err := strconv.Atoi(r.URL.Query().Get("ticks")); err == nil { // a stream, a tick every 200ms
+			for i := range n {
+				fmt.Fprintf(w, "tick %d\n", i)
+				w.(http.Flusher).Flush()
+				time.Sleep(200 * time.Millisecond)
+			}
+			return
+		}
 		fmt.Fprintf(w, "%s greeting=%s preview=%s", s.Image, s.Env["GREETING"], s.Env["TIFFIN_PREVIEW"])
 	})}
 	appendLog(s.LogPath, "stdout", "listening on "+s.Env["PORT"])
@@ -458,6 +466,12 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
+	return newHarnessQuota(t, newFakeQuota())
+}
+
+// newHarnessQuota starts a harness on the given project quotas.
+func newHarnessQuota(t *testing.T, q quotaFS) *harness {
+	t.Helper()
 	dir := t.TempDir()
 	db, err := state.Open(filepath.Join(dir, "state.db"))
 	if err != nil {
@@ -474,7 +488,7 @@ func newHarness(t *testing.T) *harness {
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	eng := newFakeEngine()
 	opt := Options{DataDir: filepath.Join(dir, "runtime"), LogDir: filepath.Join(dir, "logs"), HealthTimeout: 3 * time.Second,
-		Drain: 2 * time.Second, StopGrace: time.Second, PreviewIdle: time.Hour, KeepImages: 2, Engine: eng}
+		Drain: 2 * time.Second, StopGrace: time.Second, PreviewIdle: time.Hour, KeepImages: 2, Engine: eng, Quota: q}
 	bld := &fakeBuilder{eng: eng, static: &boxBuilder{eng: eng, staticDir: filepath.Join(opt.DataDir, "static")}}
 	opt.Builder = bld
 	pgb := &fakeBranches{made: map[string]postgres.PGBranch{}}

@@ -739,7 +739,7 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 	// once (with zero downtime) when the hash changes.
 	fmt.Fprintf(h, " slice=%s", budget.Slice(project))
 	if len(spec.Disk) > 0 {
-		fmt.Fprintf(h, " disk=%q", spec.Disk) // a new folder mounts on a restart
+		fmt.Fprintf(h, " disk=%q", spec.Disk.Paths()) // a new folder mounts on a restart; a new size needs none
 	}
 	// Outside the hash: a new budget (another app, a new limit) applies at
 	// the next start rather than restarting every app of the project.

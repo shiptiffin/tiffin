@@ -180,7 +180,7 @@ func compose(info *ProjectInfo, m *manifest.Manifest) string {
 		}
 		if a.Disk {
 			w("    volumes: # its disk folders (the box builds apps in /app)")
-			for _, p := range spec.Disk {
+			for _, p := range spec.Disk.Paths() {
 				w("      - ./disk/%s/%s:/app/%s", a.Name, p, p)
 			}
 		}

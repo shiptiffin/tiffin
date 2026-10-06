@@ -506,7 +506,7 @@ func buildConfig(c Config) obj {
 	// Non-terminal: security headers on every response, including 404s.
 	// HSTS is the box's (it owns TLS); the others are defaults an app or a
 	// site's own headers replace.
-	secure := []obj{{
+	secure := []obj{stallHandler(), {
 		"handler": "headers",
 		"response": obj{
 			"deferred": true, // after the upstream, so ours win rather than duplicate
@@ -602,11 +602,13 @@ func buildConfig(c Config) obj {
 			"disable_redirects": true, // the http server above owns redirects
 		},
 		"tls_connection_policies": []obj{{}},
-		// Requests may take as long as the app needs (no read or write
-		// deadline). Caddy's stall timeouts are off (negative): as of
-		// 2.11 they cut a request a minute after its body was read, a
-		// response stream with a pause of a minute over HTTP/2, and every
-		// request longer than a minute behind the WAF (TestLongRequests).
+		// Requests may take as long as the app's time limit, which the
+		// runtime's switchboard enforces (no read or write deadline here).
+		// Caddy's stall timeouts are off (negative): as of 2.11 they cut a
+		// request a minute after its body was read, a response stream with
+		// a pause of a minute over HTTP/2, and every request longer than a
+		// minute behind the WAF (TestLongRequests). The stall guard
+		// (stall.go) does their job without that.
 		"read_idle_timeout":  -1,
 		"write_idle_timeout": -1,
 	}

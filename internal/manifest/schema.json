@@ -148,8 +148,11 @@
           }
         },
         "disk": {
-          "description": "Folders, relative to the app's working directory (e.g. \"data\", \"uploads/tmp\"), that persist across deploys and restarts. Every production instance shares them; each preview gets its own. A folder starts with what the image has at that path. They count toward the project's storage limit. Not for static apps.",
-          "type": "array",
+          "description": "Folders, relative to the app's working directory (e.g. \"data\", \"uploads/tmp\"), that persist across deploys and restarts, each with a size: a list ([\"data\"]) makes each 1GB, an object sets them ({\"data\": \"5GB\", \"renders\": \"20GB\"}). Writes past a folder's size fail with \"disk full\" (ENOSPC). Growing a folder applies at once, without a restart; shrinking one below what it holds is refused. Every production instance shares them; each preview gets its own, of the same size. A folder starts with what the image has at that path. Their sizes together must fit in the project's storage limit. Not for static apps.",
+          "type": [
+            "array",
+            "object"
+          ],
           "maxItems": 10,
           "uniqueItems": true,
           "items": {
@@ -157,7 +160,23 @@
             "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$",
             "maxLength": 200,
             "description": "A folder inside the app's working directory, e.g. \"data\"."
+          },
+          "maxProperties": 10,
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$",
+            "maxLength": 200
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,5}(MB|GB|TB)$",
+            "description": "The folder's size: \"500MB\", \"5GB\", \"1TB\" (1GB = 1024MB)."
           }
+        },
+        "timeoutSeconds": {
+          "description": "The most one request to the app may take, in seconds, 1-86400 (24 hours). Default 900 (15 minutes). Past it the box answers 504 Gateway Timeout, or cuts a response it is streaming. Not for static apps.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
         },
         "env": {
           "description": "App-specific plain environment variables, merged over the top-level `env`.",

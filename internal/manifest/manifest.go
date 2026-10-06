@@ -114,12 +114,18 @@ type App struct {
 	// code. Applies from the next deploy. Not for static apps.
 	Packages []string `json:"packages,omitempty"`
 	// Disk lists folders, relative to the app's working directory (e.g.
-	// "data", "uploads/tmp"), that persist across deploys and restarts.
+	// "data", "uploads/tmp"), that persist across deploys and restarts,
+	// each with a size: ["data"] (1GB each) or {"data": "5GB"}. Writes past
+	// a folder's size fail with "disk full"; growing it applies at once.
 	// Every production instance of the app shares them; each preview gets
-	// its own, started from what the preview's image has there. A folder
-	// starts with what the image has at that path. Their size counts toward
-	// the project's storage limit. Not for static apps.
-	Disk []string `json:"disk,omitempty"`
+	// its own of the same size, started from what the preview's image has
+	// there. A folder starts with what the image has at that path. Their
+	// sizes count toward the project's storage limit. Not for static apps.
+	Disk Disk `json:"disk,omitempty"`
+	// TimeoutSeconds is the most one request to the app may take, in
+	// seconds, 1-86400 (24 hours). Default 0: 900 (15 minutes). Past it the
+	// box answers 504, or cuts a response it is streaming.
+	TimeoutSeconds int `json:"timeoutSeconds,omitempty"`
 	// Env holds app-specific plain environment variables (merged over Manifest.Env).
 	Env map[string]string `json:"env,omitempty"`
 	// Git connects the app to a GitHub repository (through the box's GitHub

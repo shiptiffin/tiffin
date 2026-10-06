@@ -65,7 +65,16 @@ grow() { # the disk grew (a resized volume): grow XFS to fill it, online
   after="$(df -B1 --output=size "$root" | tail -n1 | tr -d ' ')"
   if [ "$after" -gt "$before" ]; then echo "grew the data disk from $(( (before + (1<<29)) >> 30 )) to $(( (after + (1<<29)) >> 30 )) GB"; fi
 }
-if mountpoint -q "$root"; then grow; fsok; exit 0; fi
+quota() { # project quotas hold apps' disk folders to their sizes; XFS turns them on only when it mounts
+  [ "$(findmnt -n -o FSTYPE "$root" 2>/dev/null || true)" = xfs ] || return 0
+  findmnt -n -o OPTIONS "$root" | grep -q prjquota && return 0
+  if ! grep -qE "^[^#]+[[:space:]]$root[[:space:]]+xfs[[:space:]]+[^[:space:]]*prjquota" /etc/fstab; then
+    sudo sed -i -E "s|^([^#[:space:]]+[[:space:]]+$root[[:space:]]+xfs[[:space:]]+)([^[:space:]]+)|\1\2,prjquota|" /etc/fstab
+    sudo systemctl daemon-reload
+  fi
+  echo "warning: the data disk was mounted before project quotas, so apps' disk folder sizes are not enforced yet (folders can grow past them, as before). They are on from the server's next restart: sudo reboot (about a minute offline)"
+}
+if mountpoint -q "$root"; then grow; quota; fsok; exit 0; fi
 for i in $(seq 1 90); do [ -b "$dev" ] && break; sleep 1; done
 [ -b "$dev" ] || { echo "the data disk $dev does not exist on this server" >&2; exit 3; }
 real="$(readlink -f "$dev")"
@@ -103,7 +112,9 @@ if [ "$label" != %[2]s ] && { [ -z "$label" ] || [ "$moved" = 1 ]; }; then
 fi
 if [ "$label" = %[2]s ]; then src="LABEL=%[2]s"; else src="UUID=$(sudo blkid -o value -s UUID "$real")"; fi
 sudo sed -i '\| /var/lib/tiffin |d' /etc/fstab
-echo "$src $root $fstype defaults,nofail,x-systemd.device-timeout=90s 0 2" | sudo tee -a /etc/fstab >/dev/null
+opts=defaults
+if [ "$fstype" = xfs ]; then opts=defaults,prjquota; fi
+echo "$src $root $fstype $opts,nofail,x-systemd.device-timeout=90s 0 2" | sudo tee -a /etc/fstab >/dev/null
 sudo systemctl daemon-reload
 sudo mount "$root"
 grow

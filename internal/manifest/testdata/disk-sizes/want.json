@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "project": "media",
+  "apps": {
+    "same": {
+      "path": ".",
+      "framework": "bun",
+      "role": "web",
+      "routes": [
+        "media-same"
+      ],
+      "instances": 1,
+      "healthcheck": "/",
+      "disk": [
+        "data"
+      ]
+    },
+    "web": {
+      "path": ".",
+      "framework": "bun",
+      "role": "web",
+      "routes": [
+        "media"
+      ],
+      "instances": 1,
+      "healthcheck": "/",
+      "disk": {
+        "cache": "1GB",
+        "data": "5GB",
+        "renders/out": "2GB",
+        "tmp": "500MB"
+      },
+      "timeoutSeconds": 7200
+    }
+  }
+}

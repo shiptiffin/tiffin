@@ -14,6 +14,7 @@ import (
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/mod/budget"
 	"github.com/btahir/tiffin/internal/mod/postgres"
+	"github.com/btahir/tiffin/internal/mod/runtime"
 	"github.com/btahir/tiffin/internal/mod/valkey"
 	"github.com/btahir/tiffin/internal/platform"
 )
@@ -92,11 +93,12 @@ type UsageCPU struct {
 
 // UsageDisk is the project's data on disk.
 type UsageDisk struct {
-	DatabaseBytes int64      `json:"databaseBytes" doc:"Postgres databases, branches included"`
-	FilesBytes    int64      `json:"filesBytes" doc:"Bucket files and apps' disk folders"`
-	KVBytes       int64      `json:"kvBytes" doc:"Valkey keys (held in memory, snapshotted to disk)"`
-	TotalBytes    int64      `json:"totalBytes"`
-	MeasuredAt    *time.Time `json:"measuredAt,omitempty" doc:"When disk use was measured (refreshed every 30 seconds while asked for); absent until the first measurement finishes"`
+	DatabaseBytes int64                `json:"databaseBytes" doc:"Postgres databases, branches included"`
+	FilesBytes    int64                `json:"filesBytes" doc:"Bucket files and apps' disk folders"`
+	KVBytes       int64                `json:"kvBytes" doc:"Valkey keys (held in memory, snapshotted to disk)"`
+	TotalBytes    int64                `json:"totalBytes"`
+	Folders       []runtime.DiskFolder `json:"folders,omitempty" doc:"Its apps' disk folders (production's and previews') against their sizes; absent when the box's data disk has no project quotas"`
+	MeasuredAt    *time.Time           `json:"measuredAt,omitempty" doc:"When disk use was measured (refreshed every 30 seconds while asked for); absent until the first measurement finishes"`
 }
 
 // UsageApp is one app environment's copies.
@@ -496,6 +498,7 @@ func (s *sampler) usage(ctx context.Context, t *tracker, project string, apps []
 		}
 	}
 	u.Disk.TotalBytes = u.Disk.DatabaseBytes + u.Disk.FilesBytes + u.Disk.KVBytes
+	u.Disk.Folders = runtime.DiskFolders(ctx, project)
 	if s.guard.state() != nil {
 		u.Storage = s.guard.projectStorage(ctx, project)
 	}

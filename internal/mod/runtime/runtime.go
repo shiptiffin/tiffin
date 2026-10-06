@@ -46,6 +46,8 @@ type Options struct {
 	ReleaseTimeout time.Duration
 	Engine         Engine
 	Builder        Builder
+	// Quota is the data disk's project quotas (nil: found on the disk).
+	Quota quotaFS
 	// Branches makes and drops previews' database branches (nil: the
 	// postgres module's).
 	Branches BranchStore
@@ -60,9 +62,10 @@ func defaultOptions() Options {
 		expire = v
 	}
 	// Drain lets a request that was under way when a new version took over
-	// finish, however long it takes (renders, transcodes: up to 15 minutes).
-	// Old instances with no request in flight stop at once.
-	return Options{DataDir: DataDir, LogDir: LogDir, HealthTimeout: 120 * time.Second, Drain: 15 * time.Minute,
+	// finish, however long it takes: the switchboard ends every request at
+	// its app's time limit (timeoutSeconds, at most 24 hours). Old instances
+	// with no request in flight stop at once.
+	return Options{DataDir: DataDir, LogDir: LogDir, HealthTimeout: 120 * time.Second, Drain: 24*time.Hour + time.Minute,
 		StopGrace: 10 * time.Second, RetireGrace: 30 * time.Second, PreviewIdle: idle, PreviewExpire: expire, KeepImages: 3, ReleaseTimeout: 10 * time.Minute}
 }
 
@@ -95,6 +98,10 @@ type rt struct {
 	// assets dir) for the request path.
 	assetMetas map[string][]AssetDir
 	keyMu      sync.Mutex // creating Next.js Server Actions keys
+	// timeouts caches each app's request time limit ("project/app").
+	timeouts map[string]time.Duration
+	// quotas holds disk folders to their sizes.
+	quotas *quotas
 }
 
 // Start wires the runtime to the platform: it fails deploys a restart
@@ -133,13 +140,23 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	}
 	r := &rt{p: p, opt: opt, st: store{db: p.DB, cache: newStateCache()}, eng: opt.Engine, bld: opt.Builder, ctx: ctx,
 		build: make(chan struct{}, 1), locks: map[string]*sync.Mutex{}, ports: map[int]string{},
-		lastSeen: map[string]time.Time{}, hooks: newHookTokens(), assetMetas: map[string][]AssetDir{}, warm: warmSlot{poll: 10 * time.Second, quiet: time.Minute}}
+		lastSeen: map[string]time.Time{}, hooks: newHookTokens(), assetMetas: map[string][]AssetDir{}, timeouts: map[string]time.Duration{}, warm: warmSlot{poll: 10 * time.Second, quiet: time.Minute}}
 	for _, d := range []string{opt.DataDir, opt.LogDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}
 	}
-	setDiskRoot(filepath.Join(opt.DataDir, "disks"))
+	disks := filepath.Join(opt.DataDir, "disks")
+	setDiskRoot(disks)
+	if err := os.MkdirAll(disks, 0o755); err != nil {
+		return err
+	}
+	qfs, why := opt.Quota, ""
+	if qfs == nil {
+		qfs, why = detectQuota(disks)
+	}
+	r.quotas = newQuotas(qfs, why, p.DB, disks)
+	setActiveQuotas(r.quotas)
 	if err := r.recover(ctx); err != nil {
 		return err
 	}
@@ -157,6 +174,7 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	go r.serveInternal(ctx, ln)
 	go r.loop(ctx)
 	go r.resumeReports(ctx)
+	go r.syncQuotas(ctx)
 	m.mu.Lock()
 	m.r = r
 	m.mu.Unlock()
@@ -321,6 +339,9 @@ func (r *rt) loop(ctx context.Context) {
 			r.sleepIdlePreviews(ctx)
 			r.expirePreviews(ctx)
 			r.reapDrained(ctx)
+			if tick%4 == 0 {
+				r.syncQuotas(ctx)
+			}
 			if tick%20 == 0 {
 				r.removeOrphans(ctx)
 				r.pruneAssets(ctx)
@@ -430,9 +451,15 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 	if err := json.Unmarshal(spec, &a); err != nil {
 		return err
 	}
+	r.setTimeout(project, app, a.Timeout())
 	var errs []error
 	for _, s := range states {
 		if err := r.converge(ctx, s.Project, s.App, s.Preview, &a); err != nil {
+			errs = append(errs, err)
+		}
+		// A new size applies now, to running instances' folders too.
+		w := logWriter{log: r.p.Log, args: []any{"project", s.Project, "app", s.App, "preview", s.Preview}}
+		if err := r.quotas.apply(ctx, s.Project, s.App, s.Preview, a.Disk, nil, w); err != nil {
 			errs = append(errs, err)
 		}
 	}
