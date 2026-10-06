@@ -90,7 +90,7 @@ span (`OTEL_TRACES_SAMPLER` is left at its default); on loopback that costs litt
 
 Kept traces live in their own SQLite file (`/var/lib/tiffin/observe/traces.db`,
 not backed up), their spans compressed with zstd: a typical Next.js request of
-five to ten spans takes 1 to 2 KB. Traces older than 3 days are deleted, and so
+five spans takes under 1 KB. Traces older than 3 days are deleted, and so
 are a project's oldest once its traces pass 64 MB. A span keeps at most 48
 attributes (values cut at 1 KB, stack traces at 4 KB) and 8 events, exceptions
 first.

@@ -5,6 +5,7 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -168,7 +169,7 @@ export async function GET(req: Request) {
 			pings++
 		}
 	}
-	t.Logf("fast /api/ping traces kept as sampled: %d of 5 (plus the one inside the slow request)", pings)
+	t.Logf("fast /api/ping traces kept as sampled: %d of 5", pings)
 	if pings > 5 {
 		t.Fatalf("too many fast traces kept: %d", pings)
 	}
@@ -178,11 +179,16 @@ export async function GET(req: Request) {
 	// ---- Web Vitals on the app's own origin ----
 	p = time.Now()
 	for i, lcp := range []int{1200, 1800, 2400, 3100} {
-		code, _, body := b.get(c, "POST", site+"/_tiffin/vitals",
+		req, _ := http.NewRequest("POST", site+"/_tiffin/vitals",
 			strings.NewReader(fmt.Sprintf(`{"path":"/products/%d","metrics":{"LCP":%d,"CLS":0.0%d,"INP":%d,"TTFB":90}}`, 100+i, lcp, i, 80+i*40)))
-		if code != 204 {
-			t.Fatalf("vitals beacon: %d %s", code, body)
+		req.Header.Set("Content-Type", "text/plain;charset=UTF-8") // what sendBeacon sends
+		// A browser's user agent: Go's own is a bot's, and bots' beacons are dropped.
+		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
+		res, err := c.Do(req)
+		if err != nil || res.StatusCode != 204 {
+			t.Fatalf("vitals beacon: %v %v", err, res)
 		}
+		res.Body.Close()
 	}
 	if code, _, _ := b.get(c, "POST", b.url("t")+"/_tiffin/vitals", strings.NewReader(`{"path":"/","metrics":{"LCP":1}}`)); code != 404 {
 		t.Fatalf("a beacon to a host no app serves: %d", code)
