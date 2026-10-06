@@ -192,8 +192,38 @@ type Page struct {
 	RawQuery string // kept query: only utm_* and ref
 }
 
+// redactEmails replaces path segments holding an email address (a sign-up
+// confirmation page, say) with [email], so none is stored.
+func redactEmails(path string) string {
+	if !strings.Contains(path, "@") && !strings.Contains(path, "%40") {
+		return path
+	}
+	segs := strings.Split(path, "/")
+	for i, s := range segs {
+		// A local part, then a domain with a dot: not a handle like /@ada.
+		if d, err := url.PathUnescape(s); err == nil && strings.Index(d, "@") > 0 && strings.Contains(d[strings.Index(d, "@"):], ".") {
+			segs[i] = "[email]"
+		}
+	}
+	return strings.Join(segs, "/")
+}
+
+// StripQuery drops a URL's query string and fragment.
+func StripQuery(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		if i := strings.IndexAny(raw, "?#"); i >= 0 {
+			return raw[:i]
+		}
+		return raw
+	}
+	u.RawQuery, u.Fragment, u.RawFragment, u.User = "", "", "", nil
+	return u.String()
+}
+
 // ParsePage parses a full URL (or a request URI with a separate host).
-// Query strings are dropped except utm_* and ref.
+// Query strings are dropped except utm_* and ref, and email addresses in
+// the path become [email].
 func ParsePage(rawURL, host string) Page {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -203,7 +233,7 @@ func ParsePage(rawURL, host string) Page {
 	if h == "" {
 		h = host
 	}
-	p := Page{Host: StripPort(strings.ToLower(h)), Path: u.EscapedPath(), UTM: map[string]string{}, Valid: true}
+	p := Page{Host: StripPort(strings.ToLower(h)), Path: redactEmails(u.EscapedPath()), UTM: map[string]string{}, Valid: true}
 	if p.Path == "" {
 		p.Path = "/"
 	}

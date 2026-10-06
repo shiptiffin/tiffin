@@ -34,35 +34,58 @@ type Timeseries struct {
 
 // Overview is the analytics dashboard for a project or one app.
 type Overview struct {
-	Project    string     `json:"project"`
-	App        string     `json:"app,omitempty"`
-	Period     string     `json:"period"`
-	From       time.Time  `json:"from"`
-	To         time.Time  `json:"to"`
-	Totals     Totals     `json:"totals"`
-	Previous   Totals     `json:"previous" doc:"The same-length range just before, for comparison"`
-	Timeseries Timeseries `json:"timeseries"`
-	Pages      []Count    `json:"pages"`
-	EntryPages []Count    `json:"entryPages"`
-	Sources    []Count    `json:"sources" doc:"Referrer sources (Google, news.ycombinator.com, utm_source); direct traffic is not listed"`
-	Countries  []Count    `json:"countries" doc:"ISO country codes from DB-IP Lite (IP Geolocation by DB-IP, https://db-ip.com)"`
-	Browsers   []Count    `json:"browsers"`
-	OS         []Count    `json:"os"`
-	Devices    []Count    `json:"devices"`
-	UTMSources []Count    `json:"utmSources"`
-	UTMMediums []Count    `json:"utmMediums"`
-	Campaigns  []Count    `json:"utmCampaigns"`
-	Source     string     `json:"source" doc:"Where the totals came from: daily rollups (whole days) or raw events (24h)"`
+	Project            string     `json:"project"`
+	App                string     `json:"app,omitempty"`
+	Period             string     `json:"period"`
+	From               time.Time  `json:"from"`
+	To                 time.Time  `json:"to"`
+	Filters            Filters    `json:"filters" doc:"The filters applied"`
+	Totals             Totals     `json:"totals"`
+	Previous           Totals     `json:"previous" doc:"The same-length range just before, for comparison"`
+	Timeseries         Timeseries `json:"timeseries"`
+	PreviousTimeseries Timeseries `json:"previousTimeseries" doc:"The range just before, step for step, to draw beside the timeseries"`
+	Pages              []Count    `json:"pages"`
+	EntryPages         []Count    `json:"entryPages" doc:"First page of each visit; pageviews counts visits"`
+	ExitPages          []Count    `json:"exitPages" doc:"Last page of each visit; pageviews counts visits"`
+	Sources            []Count    `json:"sources" doc:"Referrer sources (Google, news.ycombinator.com, utm_source); direct traffic is not listed"`
+	Countries          []Count    `json:"countries" doc:"ISO country codes from DB-IP Lite (IP Geolocation by DB-IP, https://db-ip.com)"`
+	Browsers           []Count    `json:"browsers"`
+	OS                 []Count    `json:"os"`
+	Devices            []Count    `json:"devices"`
+	UTMSources         []Count    `json:"utmSources"`
+	UTMMediums         []Count    `json:"utmMediums"`
+	Campaigns          []Count    `json:"utmCampaigns"`
+	Source             string     `json:"source" doc:"Where the totals came from: daily rollups (whole days) or raw events (24h)"`
 }
 
 type rangeQuery struct {
-	Project string `query:"project" required:"true" doc:"Project"`
-	App     string `query:"app" doc:"One app (default: every app of the project)"`
-	Period  string `query:"period" enum:"today,yesterday,24h,7d,30d,90d,12mo" doc:"Default 7d. Days are UTC. Ignored when from is set."`
-	From    string `query:"from" pattern:"^\\d{4}-\\d{2}-\\d{2}$" doc:"First day, YYYY-MM-DD (UTC)"`
-	To      string `query:"to" pattern:"^\\d{4}-\\d{2}-\\d{2}$" doc:"Last day, YYYY-MM-DD (UTC, inclusive; default today)"`
-	Limit   int    `query:"limit" minimum:"1" maximum:"100" default:"10" doc:"Rows per breakdown"`
+	Project  string `query:"project" required:"true" doc:"Project"`
+	App      string `query:"app" doc:"One app (default: every app of the project)"`
+	Period   string `query:"period" enum:"today,yesterday,24h,7d,30d,90d,12mo" doc:"Default 7d. Days are UTC. Ignored when from is set."`
+	From     string `query:"from" pattern:"^\\d{4}-\\d{2}-\\d{2}$" doc:"First day, YYYY-MM-DD (UTC)"`
+	To       string `query:"to" pattern:"^\\d{4}-\\d{2}-\\d{2}$" doc:"Last day, YYYY-MM-DD (UTC, inclusive; default today)"`
+	Limit    int    `query:"limit" minimum:"1" maximum:"100" default:"10" doc:"Rows per breakdown"`
+	Interval string `query:"interval" enum:"hour,day" doc:"Timeseries step. Default: hour up to 48 hours, day beyond. Hours go up to 92 days."`
+	FilterQuery
 }
+
+// FilterQuery narrows a range to matching visits (see Filters). Exported:
+// huma reads the query parameters of exported embedded structs only.
+type FilterQuery struct {
+	Page        string `query:"page" maxLength:"512" doc:"Only visits that viewed this path (and only its views and events)"`
+	Entry       string `query:"entry" maxLength:"512" doc:"Only visits that started on this path"`
+	Exit        string `query:"exit" maxLength:"512" doc:"Only visits that ended on this path"`
+	Source      string `query:"source" maxLength:"200" doc:"Only visits from this source (as listed in sources: Google, news.ycombinator.com, a utm_source)"`
+	UTMSource   string `query:"utmSource" maxLength:"200"`
+	UTMMedium   string `query:"utmMedium" maxLength:"200"`
+	UTMCampaign string `query:"utmCampaign" maxLength:"200"`
+	Country     string `query:"country" pattern:"^[A-Z]{2}$" doc:"ISO country code"`
+	Browser     string `query:"browser" maxLength:"100"`
+	OS          string `query:"os" maxLength:"100"`
+	Device      string `query:"device" enum:"desktop,mobile,tablet"`
+}
+
+func (f FilterQuery) filters() Filters { return Filters(f) }
 
 // resolve turns a period or day range into [from, to) and whether it is
 // day-aligned (so rollups answer it).
@@ -134,7 +157,7 @@ func ratio(a, b int64) float64 {
 
 func (m *Module) totals(ctx context.Context, q Query, aligned bool) (Totals, error) {
 	var t Totals
-	if aligned {
+	if aligned && !q.Filters.Any() {
 		rows, err := m.store.Daily(ctx, q)
 		if err != nil {
 			return t, err
@@ -185,37 +208,39 @@ func (m *Module) Overview(ctx context.Context, in rangeQuery, now time.Time) (*O
 	if limit == 0 {
 		limit = 10
 	}
-	q := Query{Project: in.Project, App: in.App, From: from, To: to}
-	o := &Overview{Project: in.Project, App: in.App, Period: label, From: from, To: to, Source: "rollups"}
-	if !aligned {
+	span := to.Sub(from)
+	gran := in.Interval
+	if gran == "" {
+		gran = "day"
+		if span <= 48*time.Hour {
+			gran = "hour"
+		}
+	}
+	if gran == "hour" && span > 92*24*time.Hour {
+		p := api.NewProblem(422, "validation", "hourly points go up to 92 days")
+		p.Hint = "use interval=day for longer ranges"
+		return nil, p
+	}
+	f := in.filters()
+	q := Query{Project: in.Project, App: in.App, From: from, To: to, Filters: f}
+	prev := Query{Project: in.Project, App: in.App, From: from.Add(-span), To: from, Filters: f}
+	o := &Overview{Project: in.Project, App: in.App, Period: label, From: from, To: to, Filters: f, Source: "rollups"}
+	if !aligned || f.Any() {
 		o.Source = "events"
 	}
 	if o.Totals, err = m.totals(ctx, q, aligned); err != nil {
 		return nil, err
 	}
-	span := to.Sub(from)
-	if o.Previous, err = m.totals(ctx, Query{Project: in.Project, App: in.App, From: from.Add(-span), To: from}, aligned); err != nil {
+	if o.Previous, err = m.totals(ctx, prev, aligned); err != nil {
 		return nil, err
 	}
-	if span <= 48*time.Hour {
-		pts, err := m.store.Hourly(ctx, q)
-		if err != nil {
-			return nil, err
-		}
-		o.Timeseries = Timeseries{Granularity: "hour", Points: fill(pts, from, to, time.Hour)}
-	} else {
-		rows, err := m.store.Daily(ctx, q)
-		if err != nil {
-			return nil, err
-		}
-		pts := make([]Point, 0, len(rows))
-		for _, d := range rows {
-			t, _ := time.Parse("2006-01-02", d.Day)
-			pts = append(pts, Point{T: t, Visitors: d.Visitors, Pageviews: d.Pageviews})
-		}
-		o.Timeseries = Timeseries{Granularity: "day", Points: fill(pts, from, to, 24*time.Hour)}
+	if o.Timeseries, err = m.series(ctx, q, gran, time.Now()); err != nil {
+		return nil, err
 	}
-	for dim, dst := range map[string]*[]Count{"page": &o.Pages, "entry": &o.EntryPages, "referrer": &o.Sources, "country": &o.Countries,
+	if o.PreviousTimeseries, err = m.series(ctx, prev, gran, to); err != nil {
+		return nil, err
+	}
+	for dim, dst := range map[string]*[]Count{"page": &o.Pages, "entry": &o.EntryPages, "exit": &o.ExitPages, "referrer": &o.Sources, "country": &o.Countries,
 		"browser": &o.Browsers, "os": &o.OS, "device": &o.Devices, "utm_source": &o.UTMSources, "utm_medium": &o.UTMMediums, "utm_campaign": &o.Campaigns} {
 		c, err := m.store.Top(ctx, q, dim, limit)
 		if err != nil {
@@ -226,8 +251,33 @@ func (m *Module) Overview(ctx context.Context, in rangeQuery, now time.Time) (*O
 	return o, nil
 }
 
+// series is the query's timeseries by hour or day: whole days without
+// filters come from the rollups, everything else from raw events. Steps
+// after now are left out.
+func (m *Module) series(ctx context.Context, q Query, gran string, now time.Time) (Timeseries, error) {
+	step := time.Hour
+	if gran == "day" {
+		step = 24 * time.Hour
+	}
+	var pts []Point
+	var err error
+	if gran == "day" && !q.Filters.Any() && q.From.Equal(q.From.Truncate(step)) {
+		var rows []DayRow
+		if rows, err = m.store.Daily(ctx, q); err != nil {
+			return Timeseries{}, err
+		}
+		for _, d := range rows {
+			t, _ := time.Parse("2006-01-02", d.Day)
+			pts = append(pts, Point{T: t, Visitors: d.Visitors, Pageviews: d.Pageviews, Sessions: d.Sessions, Bounces: d.Bounces, DurationMS: d.DurationMS})
+		}
+	} else if pts, err = m.store.Series(ctx, q, step); err != nil {
+		return Timeseries{}, err
+	}
+	return Timeseries{Granularity: gran, Points: fill(pts, q.From, q.To, step, now)}, nil
+}
+
 // fill adds zero points so charts have no gaps.
-func fill(pts []Point, from, to time.Time, step time.Duration) []Point {
+func fill(pts []Point, from, to time.Time, step time.Duration, now time.Time) []Point {
 	have := map[int64]Point{}
 	for _, p := range pts {
 		have[p.T.Unix()] = p
@@ -235,8 +285,8 @@ func fill(pts []Point, from, to time.Time, step time.Duration) []Point {
 	out := []Point{}
 	start := from.Truncate(step)
 	end := to
-	if end.After(time.Now()) {
-		end = time.Now()
+	if end.After(now) {
+		end = now
 	}
 	for t := start; t.Before(end); t = t.Add(step) {
 		if p, ok := have[t.Unix()]; ok {
@@ -276,8 +326,9 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 	huma.Register(a, api.Untrusted(api.Op("analytics-overview", http.MethodGet, "/v1/analytics/overview", "analytics overview", api.RiskRead,
 		"Show web analytics",
 		"Visitors, pageviews, sessions, bounce rate, visit duration and custom events for a project or one app over a period, "+
-			"with the previous period for comparison, a timeseries and top pages, entry pages, sources, countries, browsers, OS, devices and UTM tags. "+
-			"Bots are excluded. Cookieless: visitors are unique per day."+untrusted, "analytics")),
+			"with the previous period for comparison (totals and a timeseries), a timeseries by hour or day and top pages, entry and exit pages, sources, countries, browsers, OS, devices and UTM tags. "+
+			"Filters (page, entry, exit, source, utmSource, utmMedium, utmCampaign, country, browser, os, device) narrow everything to the visits that match; combine them freely. "+
+			"Bots and visitors whose browser sends Global Privacy Control are excluded. Cookieless: visitors are unique per day."+untrusted, "analytics")),
 		api.Wrap(func(ctx context.Context, in *rangeQuery) (*struct{ Body *Overview }, error) {
 			if err := m.ready(ctx, in.Project); err != nil {
 				return nil, err
@@ -310,7 +361,7 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 
 	huma.Register(a, api.Untrusted(api.Op("analytics-events", http.MethodGet, "/v1/analytics/events", "analytics events", api.RiskRead,
 		"List custom events",
-		"Custom events (track() calls, outbound clicks, downloads) with counts, unique visitors and top property values."+untrusted, "analytics")),
+		"Custom events (track() calls, outbound clicks, downloads) with counts, unique visitors and top property values, narrowed by the same filters as the overview."+untrusted, "analytics")),
 		api.Wrap(func(ctx context.Context, in *rangeQuery) (*struct{ Body EventsView }, error) {
 			if err := m.ready(ctx, in.Project); err != nil {
 				return nil, err
@@ -329,7 +380,7 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 			if limit == 0 {
 				limit = 10
 			}
-			ev, err := m.store.CustomEvents(ctx, Query{Project: in.Project, App: in.App, From: from, To: to}, limit)
+			ev, err := m.store.CustomEvents(ctx, Query{Project: in.Project, App: in.App, From: from, To: to, Filters: in.filters()}, limit)
 			if err != nil {
 				return nil, err
 			}
@@ -339,7 +390,8 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 	huma.Register(a, api.Untrusted(api.Op("analytics-vitals", http.MethodGet, "/v1/analytics/vitals", "analytics vitals", api.RiskRead,
 		"Show Web Vitals",
 		"How fast real visitors found the pages: p75 of LCP, INP, CLS, FCP and TTFB with Google's rating (good, needs-improvement, poor) and the share of good samples, "+
-			"per page and per day. Pages report them with tiffin-sdk/next/vitals (<WebVitals />) or reportWebVitals() from tiffin-sdk/vitals."+untrusted, "analytics")),
+			"per page and per day. Pages report them with tiffin-sdk/next/vitals (<WebVitals />) or reportWebVitals() from tiffin-sdk/vitals. "+
+			"Of the filters only page applies: vitals are kept per page, not per visit."+untrusted, "analytics")),
 		api.Wrap(func(ctx context.Context, in *rangeQuery) (*struct{ Body *VitalsView }, error) {
 			if err := m.ready(ctx, in.Project); err != nil {
 				return nil, err
@@ -355,7 +407,7 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 			if limit == 0 {
 				limit = 10
 			}
-			v, err := m.VitalsFor(ctx, Query{Project: in.Project, App: in.App, From: from, To: to}, limit)
+			v, err := m.VitalsFor(ctx, Query{Project: in.Project, App: in.App, From: from, To: to, Filters: Filters{Page: in.Page}}, limit)
 			if err != nil {
 				return nil, err
 			}
@@ -384,7 +436,9 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 				Browser: `tiffin.track("Signup", { plan: "pro" })`,
 				Vitals:  `import { WebVitals } from "tiffin-sdk/next/vitals"; <WebVitals />`,
 				Env:     []string{"TIFFIN_ANALYTICS_URL", "TIFFIN_ANALYTICS_KEY", "TIFFIN_ANALYTICS_SCRIPT"},
-				Privacy: "No cookies or storage. Visitors are a daily-salted hash of app, IP and user agent; raw IPs and user agents are never stored; salts are deleted after 48 hours. Query strings are dropped except utm_* and ref."}
+				Privacy: "No cookies or storage on the visitor's device. Visitors are a daily-salted hash of app, IP address and browser; the IP address and browser string are never stored, and each day's salt is deleted after 48 hours. " +
+					"Query strings are dropped except utm_* and ref, email addresses in paths become [email], and referrers keep only the site. Countries, never cities. " +
+					"Browsers that send Global Privacy Control are not counted. Everything stays on this box."}
 			if !on {
 				s.Env = []string{}
 			}

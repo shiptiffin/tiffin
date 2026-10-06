@@ -15,6 +15,7 @@
 
   var ref = d.referrer || null
   function send(name, props) {
+    if (navigator.globalPrivacyControl) return // the visitor asked not to be counted
     var body = JSON.stringify({ n: name, u: location.href, r: ref, p: props || undefined })
     if (navigator.sendBeacon && navigator.sendBeacon(endpoint, body)) return
     try {
@@ -43,10 +44,11 @@
     var u
     try { u = new URL(a.href, location.href) } catch (err) { return }
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return
+    var to = u.origin + u.pathname // never the query or fragment: they can hold tokens
     if (/\.(pdf|zip|dmg|exe|msi|pkg|csv|xlsx?|docx?|pptx?|txt|rtf|mp3|mp4|mov|gz|tgz|7z|rar|apk|iso)$/i.test(u.pathname)) {
-      send('File Download', { url: u.href })
+      send('File Download', { url: to })
     } else if (u.host !== location.host) {
-      send('Outbound Link: Click', { url: u.href })
+      send('Outbound Link: Click', { url: to })
     }
   }, true)
 

@@ -14,6 +14,7 @@
 //	Checker        contributes health checks to /v1/status
 //	LossEstimator  says what an irreversible op would destroy (rows, files, events)
 //	ProjectStopper holds a stopped project's background work (jobs, crons)
+//	MetricsReporter adds gauges to what observe pushes to the metrics store
 //
 // Modules never edit each other's files; they meet here.
 package platform
@@ -23,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"sort"
 	"strings"
@@ -217,6 +219,13 @@ type ServiceUsage struct {
 // does not use the service.
 type UsageReporter interface {
 	ProjectUsage(ctx context.Context, p *Platform, project string) (*ServiceUsage, error)
+}
+
+// MetricsReporter adds a module's own gauges to what the box pushes to its
+// metrics store every 15 seconds, as Prometheus text lines. It must be
+// cheap: serve what the module already measured.
+type MetricsReporter interface {
+	Metrics(ctx context.Context, w io.Writer)
 }
 
 // Checker contributes health checks.
