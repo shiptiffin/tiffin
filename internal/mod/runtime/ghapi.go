@@ -109,6 +109,10 @@ type RepoRoot struct {
 	Name      string `json:"name,omitempty" doc:"The package name, if any"`
 	Why       string `json:"why" doc:"What the guess is based on, in plain words"`
 	Workspace bool   `json:"workspace,omitempty" doc:"A monorepo's top: its apps are in the folders below"`
+	// Unsupported names a framework the box can't run yet (SvelteKit,
+	// Nuxt…): it needs a server the box doesn't set up for it, and serving
+	// its build as files would fail. Framework is only a placeholder then.
+	Unsupported string `json:"unsupported,omitempty" doc:"A framework the box can't run yet (e.g. SvelteKit); import a supported app instead"`
 }
 
 // GitHubRepoDetail is what the box sees in a repository, for importing it.
@@ -824,11 +828,12 @@ func detectRoots(tree []ghapp.TreeEntry, read func(string) ([]byte, error)) []Re
 			out = append(out, root)
 			continue
 		}
-		root.Framework, root.Name, root.Why, root.Workspace = guessFramework(raw, htmls[cd.dir])
+		g := guessFramework(raw, htmls[cd.dir])
+		root.Framework, root.Name, root.Why, root.Workspace, root.Unsupported = g.Framework, g.Name, g.Why, g.Workspace, g.Unsupported
 		if workspaceFiles[cd.dir] {
 			root.Workspace = true
 		}
-		if root.Workspace {
+		if root.Workspace && root.Unsupported == "" {
 			root.Why = "the top of a monorepo: its apps are in the folders below"
 		}
 		out = append(out, root)
@@ -863,8 +868,23 @@ func hasPkgAbove(dir string, pkgs map[string]bool) bool {
 	return false
 }
 
+// fullStack are frameworks that build on Vite (or their own bundler) but
+// need their own server: checked before the "Vite builds it to files" rule,
+// which would otherwise serve their build output as a static site.
+var fullStack = []struct{ dep, name string }{
+	{"@sveltejs/kit", "SvelteKit"},
+	{"nuxt", "Nuxt"},
+	{"@react-router/dev", "React Router (framework mode)"},
+	{"@remix-run/dev", "Remix"},
+	{"@tanstack/react-start", "TanStack Start"},
+	{"@solidjs/start", "SolidStart"},
+}
+
+// astroServer are Astro's server adapters: with one, Astro renders on a server.
+var astroServer = []string{"@astrojs/node", "@astrojs/vercel", "@astrojs/netlify", "@astrojs/cloudflare"}
+
 // guessFramework reads a package.json.
-func guessFramework(raw []byte, hasHTML bool) (framework, name, why string, workspace bool) {
+func guessFramework(raw []byte, hasHTML bool) RepoRoot {
 	var pj struct {
 		Name            string            `json:"name"`
 		Dependencies    map[string]string `json:"dependencies"`
@@ -873,27 +893,48 @@ func guessFramework(raw []byte, hasHTML bool) (framework, name, why string, work
 		Workspaces      json.RawMessage   `json:"workspaces"`
 	}
 	if err := json.Unmarshal(raw, &pj); err != nil {
-		return string(manifest.FrameworkBun), "", "package.json is not valid JSON: guessing a Bun server", false
+		return RepoRoot{Framework: string(manifest.FrameworkBun), Why: "package.json is not valid JSON: guessing a Bun server"}
 	}
 	has := func(dep string) bool {
 		_, a := pj.Dependencies[dep]
 		_, b := pj.DevDependencies[dep]
 		return a || b
 	}
-	workspace = len(pj.Workspaces) > 0 && string(pj.Workspaces) != "null"
-	switch {
-	case has("next"):
-		return string(manifest.FrameworkNext), pj.Name, "Next.js (next in package.json)", workspace
-	case has("hono"):
-		return string(manifest.FrameworkHono), pj.Name, "Hono (hono in package.json)", workspace
+	out := RepoRoot{Name: pj.Name, Workspace: len(pj.Workspaces) > 0 && string(pj.Workspaces) != "null"}
+	is := func(f manifest.Framework, why string) RepoRoot {
+		out.Framework, out.Why = string(f), why
+		return out
 	}
-	for _, d := range []string{"vite", "astro", "@11ty/eleventy", "gatsby", "parcel", "@docusaurus/core", "vitepress"} {
+	soon := func(name, dep string) RepoRoot {
+		out.Framework, out.Unsupported = string(manifest.FrameworkBun), name
+		out.Why = name + " (" + dep + " in package.json): not supported yet, coming soon"
+		return out
+	}
+	if has("next") {
+		return is(manifest.FrameworkNext, "Next.js (next in package.json)")
+	}
+	for _, f := range fullStack {
+		if has(f.dep) {
+			return soon(f.name, f.dep)
+		}
+	}
+	if has("astro") {
+		for _, a := range astroServer {
+			if has(a) {
+				return soon("Astro with server rendering", a)
+			}
+		}
+	}
+	if has("hono") {
+		return is(manifest.FrameworkHono, "Hono (hono in package.json)")
+	}
+	for _, d := range []string{"vite", "astro", "react-scripts", "@11ty/eleventy", "gatsby", "parcel", "@docusaurus/core", "vitepress"} {
 		if has(d) && pj.Scripts["build"] != "" {
-			return string(manifest.FrameworkStatic), pj.Name, "a static site (" + d + " builds it to files)", workspace
+			return is(manifest.FrameworkStatic, "a static site ("+d+" builds it to files)")
 		}
 	}
 	if pj.Scripts["start"] == "" && pj.Scripts["build"] != "" && hasHTML {
-		return string(manifest.FrameworkStatic), pj.Name, "a static site (a build script and index.html)", workspace
+		return is(manifest.FrameworkStatic, "a static site (a build script and index.html)")
 	}
-	return string(manifest.FrameworkBun), pj.Name, "a Bun or Node server (package.json without Next.js or Hono)", workspace
+	return is(manifest.FrameworkBun, "a Bun or Node server (package.json without Next.js or Hono)")
 }

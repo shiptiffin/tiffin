@@ -2,7 +2,8 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { ArrowUpRight, BarChart3, Check, Database, FolderOpen, KeyRound, Mail, Plus, Zap } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { api, ApiError, type Manifest, type Op } from "@/api/client";
+import { api, ApiError, request, type Manifest, type Op } from "@/api/client";
+import type { components } from "@/api/schema";
 import { mod3, type Deploy } from "@/api/modules";
 import { q } from "@/api/queries";
 import { Command, CopyButton } from "@/components/copy";
@@ -18,9 +19,9 @@ import { BuildLogView, firstError, useBuildLog } from "@/components/start-build-
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioItem } from "@/components/ui/choice";
 import { GitHubMark } from "@/components/github-mark";
-import { checkPick, emptyPick, GitHubImport, type GitHubPick } from "@/components/github-import";
+import { checkPick, emptyPick, GitHubImport, unsupportedWhy, type GitHubPick } from "@/components/github-import";
 import { ImportFile, ImportPanel, ImportSteps, useProjectImport } from "@/components/project-import";
-import { deployGitHub, nameFromRepo, setSecret } from "@/lib/github";
+import { deployGitHub, nameFromRepo, setSecret, type RepoRoot } from "@/lib/github";
 import { useMe } from "@/lib/me";
 import { mcpCommand } from "@/lib/mcp";
 import { boxDomainQuery } from "@/lib/domains";
@@ -60,6 +61,7 @@ import {
 } from "@/lib/starters";
 
 const MB = 1048576;
+type GitInspect = components["schemas"]["RuntimeGitInspect"];
 /** Two columns: the work on the left, the mascot and the plan on the right. */
 const GRID = "grid items-start gap-x-12 gap-y-8 lg:grid-cols-[minmax(0,1fr)_360px]";
 
@@ -142,7 +144,37 @@ export function NewProjectPage() {
           : suggestName(starter, taken) || "project";
   const name = typed ?? suggested;
   const check = checkName(name, taken);
-  const gitCheck = code === "git" ? checkGitUrl(git.url) : code === "github" ? checkPick(gh) : ({ ok: true } as const);
+  // A pasted URL is looked inside (the box fetches it as a deploy would) for the same framework guess GitHub gets.
+  const gitUrl = useDebounced(code === "git" && checkGitUrl(git.url).ok ? git.url.trim() : "", 500);
+  const gitRef = useDebounced(git.ref.trim(), 500);
+  const inspect = useQuery({
+    queryKey: ["inspect-git", gitUrl, gitRef],
+    queryFn: () => request<GitInspect>("POST", "/v1/git/inspect", { url: gitUrl, ...(gitRef ? { ref: gitRef } : {}) }),
+    enabled: !!gitUrl,
+    retry: false,
+    staleTime: 300_000,
+  });
+  const found = inspect.data?.roots?.find((r) => !r.workspace) ?? inspect.data?.roots?.[0];
+  const [overridden, setOverridden] = useState(false);
+  // A new answer fills in how it's built, once; picking another build afterwards wins.
+  const [applied, setApplied] = useState<RepoRoot>();
+  if (found && found !== applied) {
+    setApplied(found);
+    setOverridden(false);
+    setGit((g) => ({ ...g, framework: found.framework, path: found.path }));
+  }
+  const gitUnsupported = code === "git" && !overridden ? found?.unsupported : undefined;
+  const urlCheck = checkGitUrl(git.url);
+  const gitCheck =
+    code === "git"
+      ? !urlCheck.ok
+        ? urlCheck
+        : gitUnsupported
+          ? ({ ok: false, why: unsupportedWhy(gitUnsupported) } as const)
+          : ({ ok: true } as const)
+      : code === "github"
+        ? checkPick(gh)
+        : ({ ok: true } as const);
 
   const [stage, setPhase] = useState<Phase>("compose");
   const [L, setL] = useState<Launched | null>(null);
@@ -332,7 +364,15 @@ export function NewProjectPage() {
                     {code === "git" && (
                       <>
                         <p className="mt-4 text-sm text-ink-3">{starterLine.git} It doesn’t redeploy when the repository changes.</p>
-                        <GitFields git={git} setGit={setGit} check={gitCheck} />
+                        <GitFields
+                          git={git}
+                          setGit={(g) => {
+                            if (g.framework !== git.framework) setOverridden(true);
+                            setGit(g);
+                          }}
+                          check={urlCheck}
+                          inspect={{ loading: inspect.isFetching, error: inspect.error, found, unsupported: gitUnsupported }}
+                        />
                         <SwitchLink onClick={() => setCodeOnly("github")}>Use one of your GitHub repositories instead</SwitchLink>
                       </>
                     )}
@@ -378,6 +418,7 @@ export function NewProjectPage() {
                 creating={create.isPending}
                 source={source}
                 parts={parts}
+                blockedWhy={gitUnsupported ? unsupportedWhy(gitUnsupported) : undefined}
               />
             )}
           </div>
@@ -548,10 +589,12 @@ function GitFields({
   git,
   setGit,
   check,
+  inspect,
 }: {
   git: { url: string; ref: string; path: string; framework: string };
   setGit: (g: typeof git) => void;
   check: { ok: boolean; why?: string };
+  inspect: { loading: boolean; error: unknown; found?: RepoRoot; unsupported?: string };
 }) {
   const field = "h-9 w-full rounded-[7px] border border-rule-2 bg-paper-raised px-2.5 text-[0.84375rem] text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]";
   return (
@@ -574,7 +617,20 @@ function GitFields({
         <input value={git.ref} onChange={(e) => setGit({ ...git, ref: e.target.value })} placeholder="default branch" spellCheck={false} className={cn(field, "ident")} />
       </label>
       <p className="text-sm text-ink-3 sm:col-span-3">
-        Tiffin builds it as {buildAs(git.framework)}. {buildNote(git.framework) ?? "Something else? Change it under Build settings."}
+        {inspect.loading ? (
+          "Looking inside the repository…"
+        ) : inspect.unsupported ? (
+          <span className="text-danger">{unsupportedWhy(inspect.unsupported)}</span>
+        ) : inspect.found ? (
+          <>
+            Found {buildAs(git.framework)} {inspect.found.path ? <>in <span className="ident text-[0.75rem] text-ink-2">{inspect.found.path}</span></> : "at the top"}: {inspect.found.why}.{" "}
+            {buildNote(git.framework)}
+          </>
+        ) : inspect.error ? (
+          <>Tiffin couldn’t look inside it ({inspect.error instanceof Error ? inspect.error.message : "no answer"}), so it will build it as {buildAs(git.framework)}.</>
+        ) : (
+          <>Tiffin builds it as {buildAs(git.framework)}. {buildNote(git.framework) ?? "Something else? Change it under Build settings."}</>
+        )}
       </p>
       <BuildSettings className="sm:col-span-3" framework={git.framework} onFramework={(framework) => setGit({ ...git, framework })} path={git.path} onPath={(path) => setGit({ ...git, path })} />
     </div>
@@ -596,6 +652,7 @@ function PlanPanel({
   creating,
   source,
   parts,
+  blockedWhy,
 }: {
   name: string;
   ready: boolean;
@@ -609,6 +666,8 @@ function PlanPanel({
   creating: boolean;
   source: Source | null;
   parts: NewPart[];
+  /** Why it can't be created, when the code says so (a framework the box can't run yet). */
+  blockedWhy?: string;
 }) {
   const ops = plan?.ops ?? [];
   const clash = !!plan && (ops.length === 0 || ops.some((o) => o.action !== "create"));
@@ -632,7 +691,7 @@ function PlanPanel({
             ? source?.kind === "github" && !source.repo
               ? "Pick a repository to see the plan."
               : source?.kind === "git"
-                ? "Paste a repository address to see the plan."
+                ? (blockedWhy ?? "Paste a repository address to see the plan.")
                 : "Pick a free name to see the plan."
             : clash
               ? `There’s already a project called ${name}. Pick another name.`

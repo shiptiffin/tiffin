@@ -168,14 +168,15 @@ func (b *boxBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult, 
 		return BuildResult{Image: ref, Digest: dg}, nil
 	case req.Export:
 		fmt.Fprintf(req.Log, "==> Next.js static export (output: \"export\" in next.config): next build, then the edge serves the files (no container)\n")
-		return b.buildFiles(ctx, req, ref, []string{orDefaultStr(vercelOut(req.Vercel), "out")})
+		return b.buildFiles(ctx, req, ref, []string{orDefaultStr(vercelOut(req.Vercel), "out")}, false)
 	case req.Spec.Framework == manifest.FrameworkStatic && railpackSite(req):
 		fmt.Fprintf(req.Log, "==> the site builds with npm, pnpm or yarn: building with Railpack, then serving the files\n")
 		dirs := []string{"dist", "build", "out", "public"}
-		if out := orDefaultStr(vercelOut(req.Vercel), readStaticfile(req.appDir()).root); out != "" {
+		sf := readStaticfile(req.appDir())
+		if out := orDefaultStr(vercelOut(req.Vercel), sf.root); out != "" {
 			dirs = []string{out}
 		}
-		return b.buildFiles(ctx, req, ref, dirs)
+		return b.buildFiles(ctx, req, ref, dirs, spaFallback(req, sf))
 	case req.Spec.Framework == manifest.FrameworkStatic:
 		return b.buildStatic(ctx, req)
 	default:
@@ -398,7 +399,7 @@ func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildRe
 	if rootRel == "." {
 		_ = os.Remove(filepath.Join(appDir, vercelcfg.File)) // config, not content (as on Vercel)
 	}
-	return b.serveFiles(req, req.SrcDir, filepath.Join(appDir, rootRel), rootRel, sf.spa)
+	return b.serveFiles(req, req.SrcDir, filepath.Join(appDir, rootRel), rootRel, spaFallback(req, sf))
 }
 
 // serveFiles moves a build's output (from, inside root) to where the edge
@@ -425,7 +426,7 @@ func (b *boxBuilder) serveFiles(req BuildRequest, root, from, name string, spa b
 // buildFiles builds with Railpack (the app's package manager and Node.js),
 // copies the first of dirs (relative to the app) that has an index.html out
 // of the image, and serves it as files. The image is removed: nothing runs.
-func (b *boxBuilder) buildFiles(ctx context.Context, req BuildRequest, ref string, dirs []string) (BuildResult, error) {
+func (b *boxBuilder) buildFiles(ctx context.Context, req BuildRequest, ref string, dirs []string, spa bool) (BuildResult, error) {
 	if _, err := b.buildRailpack(ctx, req, ref); err != nil {
 		return BuildResult{}, err
 	}
@@ -448,7 +449,7 @@ func (b *boxBuilder) buildFiles(ctx context.Context, req BuildRequest, ref strin
 	}
 	for i, dir := range dirs {
 		if from := filepath.Join(tmp, strconv.Itoa(i)); exists(filepath.Join(from, "index.html")) {
-			return b.serveFiles(req, tmp, from, dir, false)
+			return b.serveFiles(req, tmp, from, dir, spa)
 		}
 	}
 	return BuildResult{}, &BuildError{Msg: "the build wrote no index.html in " + strings.Join(dirs, ", "),
@@ -515,8 +516,9 @@ func nextExport(dir string) bool {
 }
 
 type staticfile struct {
-	root string
-	spa  bool
+	root   string
+	spa    bool
+	spaSet bool // index_fallback was written, either way
 }
 
 // readStaticfile reads Railpack's Staticfile (root:, index_fallback:).
@@ -538,10 +540,44 @@ func readStaticfile(dir string) staticfile {
 		case "root":
 			sf.root = v
 		case "index_fallback":
-			sf.spa = v == "true"
+			sf.spa, sf.spaSet = v == "true", true
 		}
 	}
 	return sf
+}
+
+// clientRouters are routers that draw pages in the browser: a site built
+// with one has paths no file answers, so a refresh on /about needs
+// index.html.
+var clientRouters = []string{"react-router", "react-router-dom", "@tanstack/react-router", "vue-router", "wouter", "preact-router", "@solidjs/router", "svelte-spa-router", "@angular/router"}
+
+// spaFallback reports whether unknown paths serve index.html: the
+// Staticfile's index_fallback when it says, else whether package.json uses a
+// client-side router. It notes an automatic fallback in the build log.
+func spaFallback(req BuildRequest, sf staticfile) bool {
+	if sf.spaSet {
+		return sf.spa
+	}
+	raw, err := os.ReadFile(filepath.Join(req.appDir(), "package.json"))
+	if err != nil {
+		return false
+	}
+	var pj struct {
+		Dependencies    map[string]string `json:"dependencies"`
+		DevDependencies map[string]string `json:"devDependencies"`
+	}
+	if json.Unmarshal(raw, &pj) != nil {
+		return false
+	}
+	for _, r := range clientRouters {
+		_, a := pj.Dependencies[r]
+		_, b := pj.DevDependencies[r]
+		if a || b {
+			fmt.Fprintf(req.Log, "==> %s draws pages in the browser: paths without a file serve index.html (index_fallback: false in a Staticfile turns this off)\n", r)
+			return true
+		}
+	}
+	return false
 }
 
 // staticRootOf picks the directory to serve, relative to dir ("." for dir itself).

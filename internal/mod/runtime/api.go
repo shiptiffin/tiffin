@@ -478,6 +478,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	m.registerGit(a)
 	m.registerCreate(a)
+	m.registerGitInspect(a)
 	m.registerGitHubOps(a)
 }
 

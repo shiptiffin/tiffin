@@ -932,6 +932,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/git/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Look inside a public git repository
+         * @description What the box sees in a public repository before deploying it from its URL: the folders that look like apps and the framework the box would use for each (next, hono, bun or static), or the framework it can't run yet. It fetches the commit the same way a git deploy does (https only, a public host, depth 1, size-capped) and keeps nothing.
+         */
+        post: operations["inspect-git"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/github": {
         parameters: {
             query?: never;
@@ -10062,6 +10082,19 @@ export interface components {
             /** @description git remote URL; authenticate with any username and a Tiffin token as the password */
             url: string;
         };
+        RuntimeGitInspect: {
+            /** @description Folders that look like apps, most likely first, each with the framework the box would use (as for a GitHub repository) */
+            roots: components["schemas"]["RuntimeRepoRoot"][] | null;
+        };
+        RuntimeGitInspectBody: {
+            /** @description Branch, tag or full commit SHA. Default: the repository's default branch. */
+            ref?: string;
+            /**
+             * @description https URL of a public git repository, as for a git deploy
+             * @example https://gitlab.com/owner/repo
+             */
+            url: string;
+        };
         RuntimeInstance: {
             deploy: string;
             /** @description Container name */
@@ -10110,6 +10143,8 @@ export interface components {
             name?: string;
             /** @description Folder inside the repository; empty for the top */
             path: string;
+            /** @description A framework the box can't run yet (e.g. SvelteKit); import a supported app instead */
+            unsupported?: string;
             /** @description What the guess is based on, in plain words */
             why: string;
             /** @description A monorepo's top: its apps are in the folders below */
@@ -15485,6 +15520,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Email-relay-testResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "inspect-git": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuntimeGitInspectBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeGitInspect"];
                 };
             };
             /** @description Bad Request */

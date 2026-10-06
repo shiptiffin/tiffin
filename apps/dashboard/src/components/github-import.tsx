@@ -19,14 +19,20 @@ export type GitHubPick = {
   path: string;
   framework: string;
   env: Array<{ k: string; v: string }>;
+  /** A framework found in the picked folder that the box can't run yet (SvelteKit…); cleared by choosing how it's built. */
+  unsupported?: string;
 };
 
 export const emptyPick: GitHubPick = { repo: "", branch: "", path: "", framework: "next", env: [] };
+
+/** Why a framework the box can't run yet stops the import. */
+export const unsupportedWhy = (name: string) => `${name} isn’t supported yet; it’s coming soon. Tiffin runs Next.js apps best today.`;
 
 /** Whether a pick can be created: a repository, a branch, and env names the box accepts. */
 export function checkPick(p: GitHubPick): { ok: true } | { ok: false; why: string } {
   if (!p.repo) return { ok: false, why: "Pick a repository." };
   if (!p.branch) return { ok: false, why: "Pick a branch." };
+  if (p.unsupported) return { ok: false, why: unsupportedWhy(p.unsupported) };
   const bad = p.env.find((e) => (e.k || e.v) && !ENV_NAME.test(e.k));
   if (bad) return { ok: false, why: `${bad.k || "A variable"} isn’t a valid name: capital letters, digits and _, not starting with a digit.` };
   return { ok: true };
@@ -194,11 +200,11 @@ function RepoSetup({ value, onChange }: { value: GitHubPick; onChange: (p: GitHu
     if (!d || seeded.current === value.repo) return;
     seeded.current = value.repo;
     const root = (d.roots ?? []).find((r) => r.path === d.suggested) ?? d.roots?.[0];
-    onChange({ ...value, branch: value.branch || d.defaultBranch, path: root?.path ?? "", framework: root?.framework ?? value.framework });
+    onChange({ ...value, branch: value.branch || d.defaultBranch, path: root?.path ?? "", framework: root?.framework ?? value.framework, unsupported: root?.unsupported });
   }, [d, value, onChange]);
 
   const set = (patch: Partial<GitHubPick>) => onChange({ ...value, ...patch });
-  const pickRoot = (r: RepoRoot) => set({ path: r.path, framework: r.framework });
+  const pickRoot = (r: RepoRoot) => set({ path: r.path, framework: r.framework, unsupported: r.unsupported });
   const appRoots = roots.filter((r) => !r.workspace);
 
   return (
@@ -283,8 +289,12 @@ function RepoSetup({ value, onChange }: { value: GitHubPick; onChange: (p: GitHu
           )}
         </p>
       )}
-      {appRoots.length > 0 && buildNote(value.framework) && <p className="mt-2 text-sm text-ink-3">{buildNote(value.framework)}</p>}
-      <BuildSettings className="mt-3" framework={value.framework} onFramework={(framework) => set({ framework })} path={value.path} onPath={(path) => set({ path })} />
+      {value.unsupported ? (
+        <p className="mt-2 text-sm text-danger">{unsupportedWhy(value.unsupported)}</p>
+      ) : (
+        appRoots.length > 0 && buildNote(value.framework) && <p className="mt-2 text-sm text-ink-3">{buildNote(value.framework)}</p>
+      )}
+      <BuildSettings className="mt-3" framework={value.framework} onFramework={(framework) => set({ framework, unsupported: undefined })} path={value.path} onPath={(path) => set({ path })} />
 
       <EnvRows env={value.env} onChange={(env) => set({ env })} />
 
