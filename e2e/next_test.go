@@ -9,8 +9,10 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,11 +27,18 @@ import (
 //
 //	the page renders with the deploy's deploymentId and is not compressed by
 //	Next.js → its chunks are served immutable → revalidateTag reaches both
-//	instances (Valkey) → next/image optimizes (sharp on Bun) into the
-//	box's image cache → a redeploy: a chunk only the old release had still
-//	loads, a Server Action posted from a page of the old release runs on the
-//	new one (stable key), the image cache survives, and the old release's
-//	after() callback finishes during its shutdown.
+//	instances (Valkey) → an ISR page is one copy for both instances and
+//	revalidatePath from a Server Action renews it on both → so does
+//	revalidateTag for a cached GET route handler, and with "max" the old copy
+//	is served once while it regenerates → next/image optimizes (sharp on Bun)
+//	into the box's image cache → a redeploy: the ISR page is rendered by the
+//	new deploy, a chunk only the old release had still loads, a Server Action
+//	posted from a page of the old release runs on the new one (stable key),
+//	the image cache survives, and the old release's after() callback finishes
+//	during its shutdown → a preview has its own cache: production's ISR page
+//	and revalidations are untouched by it → a second app with cacheComponents:
+//	"use cache" entries shared by both instances, and updateTag in a Server
+//	Action is read-your-writes (its reply and both instances show the new value).
 func TestNext(t *testing.T) {
 	start := time.Now()
 	phase := phaseLogger(t)
@@ -63,6 +72,22 @@ func TestNext(t *testing.T) {
 	var pngBuf bytes.Buffer
 	_ = png.Encode(&pngBuf, img)
 	write("public/e2e.png", pngBuf.String())
+	write("app/isr/page.tsx", isrPage)
+	write("app/api/feed/route.ts", feedRoute)
+	write("app/api/feed/revalidate/route.ts", feedRevalidate)
+	// A second app in the project, with cacheComponents ("use cache").
+	for _, f := range []string{"package.json", "bun.lock", "tsconfig.json", "app/layout.tsx"} {
+		raw, err := os.ReadFile(filepath.Join(app, f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		write("cc/"+f, string(raw))
+	}
+	write("cc/next.config.mjs", "export default { cacheComponents: true };\n")
+	write("cc/app/page.tsx", ccPage)
+	tsconfig, _ := os.ReadFile(filepath.Join(app, "tsconfig.json"))
+	write("tsconfig.json", strings.Replace(string(tsconfig), `"tiffin.config.ts"`, `"tiffin.config.ts", "cc"`, 1))
+	write("tiffin.config.ts", nextConfig)
 
 	plan := b.ok("plan", app)
 	hash, _ := plan["hash"].(string)
@@ -71,7 +96,7 @@ func TestNext(t *testing.T) {
 
 	// ---- first deploy ----
 	p := time.Now()
-	d1 := deployArgs(t, b, app)
+	d1 := deployArgs(t, b, app, "--app", "web")
 	phase("first deploy", p)
 	t.Logf("first deploy: build %.1fs, total %.1fs", d1.BuildSecs, d1.TotalSecs)
 	log1 := b.ok("deploys", "build-log", "hello-next", "web", d1.ID)
@@ -84,12 +109,39 @@ func TestNext(t *testing.T) {
 	if code != 200 || !strings.Contains(home1, `data-dpl-id="`+d1.ID+`"`) {
 		t.Fatalf("GET /: %d, want data-dpl-id=%s\n%s", code, d1.ID, head(home1))
 	}
-	port := func() string {
-		st := b.ok("apps", "status", "hello-next", "web")
+	ports := func(appName string) []string {
+		st := b.ok("apps", "status", "hello-next", appName)
 		prod, _ := st["production"].(map[string]any)
 		ins, _ := prod["instances"].([]any)
-		in, _ := ins[0].(map[string]any)
-		return fmt.Sprint(in["port"])
+		var out []string
+		for _, x := range ins {
+			in, _ := x.(map[string]any)
+			out = append(out, fmt.Sprint(in["port"]))
+		}
+		return out
+	}
+	port := func() string { return ports("web")[0] }
+	// fromEach is what every production instance of an app serves at path
+	// (straight to the instance, not through the edge).
+	fromEach := func(appName, path, re string) []string {
+		var out []string
+		for _, p := range ports(appName) {
+			out = append(out, match(b.inBox("curl -s http://127.0.0.1:"+p+path), re))
+		}
+		if len(out) < 2 {
+			t.Fatalf("%s: want two instances, got %v", appName, out)
+		}
+		return out
+	}
+	// one is the value every instance serves.
+	one := func(what string, vals []string) string {
+		t.Helper()
+		for _, v := range vals {
+			if v == "" || v != vals[0] {
+				t.Fatalf("%s: the instances do not serve one copy: %q", what, vals)
+			}
+		}
+		return vals[0]
 	}
 	if hdr := b.inBox(`curl -s -D - -o /dev/null -H 'Accept-Encoding: gzip' http://127.0.0.1:` + port() + `/`); strings.Contains(strings.ToLower(hdr), "content-encoding") {
 		t.Fatalf("Next.js compressed its response (compress must be off):\n%s", hdr)
@@ -134,6 +186,49 @@ func TestNext(t *testing.T) {
 	}
 	phase("shared cache", p)
 
+	// ---- ISR page: one copy; revalidatePath from a Server Action renews it everywhere ----
+	p = time.Now()
+	const rendered, deployRe = `id="rendered">([^<]*)<`, `id="deploy">([^<]*)<`
+	if dep := one("ISR deploy", fromEach("web", "/isr", deployRe)); dep != d1.ID {
+		t.Fatalf("ISR page rendered by %q, want %s", dep, d1.ID)
+	}
+	isr1 := one("ISR page", fromEach("web", "/isr", rendered))
+	_, _, isrHTML := b.get(c, "GET", site+"/isr", nil)
+	if code := postForm(t, c, site+"/isr", isrHTML, nil); code != 200 {
+		t.Fatalf("revalidatePath action: %d", code)
+	}
+	isr2 := one("ISR page after revalidatePath", fromEach("web", "/isr", rendered))
+	if isr2 == isr1 {
+		t.Fatalf("revalidatePath did not renew the ISR page (still %s)", isr1)
+	}
+
+	// ---- cached GET route handler: revalidateTag, then "max" (stale once) ----
+	const feedRe = `"rendered":"([^"]*)"`
+	feed1 := one("feed", fromEach("web", "/api/feed", feedRe))
+	if code, _, body := b.get(c, "POST", site+"/api/feed/revalidate", nil); code != 200 {
+		t.Fatalf("feed revalidate: %d %s", code, body)
+	}
+	feed2 := one("feed after revalidateTag", fromEach("web", "/api/feed", feedRe))
+	if feed2 == feed1 {
+		t.Fatal("revalidateTag did not renew the cached route handler")
+	}
+	if code, _, body := b.get(c, "POST", site+"/api/feed/revalidate?max", nil); code != 200 {
+		t.Fatalf("feed revalidate max: %d %s", code, body)
+	}
+	p0 := ports("web")[0]
+	if got := match(b.inBox("curl -s http://127.0.0.1:"+p0+"/api/feed"), feedRe); got != feed2 {
+		t.Fatalf(`after revalidateTag(tag, "max") the first request got %q, want the stale %q`, got, feed2)
+	}
+	var feed3 string
+	for i := 0; i < 20 && (feed3 == "" || feed3 == feed2); i++ { // regenerated in the background
+		time.Sleep(250 * time.Millisecond)
+		feed3 = match(b.inBox("curl -s http://127.0.0.1:"+p0+"/api/feed"), feedRe)
+	}
+	if one(`feed after "max"`, fromEach("web", "/api/feed", feedRe)) != feed3 || feed3 == feed2 {
+		t.Fatalf(`revalidateTag(tag, "max") never regenerated the feed (%s)`, feed3)
+	}
+	phase("ISR + routes", p)
+
 	// ---- next/image: sharp on Bun, cached in the box's directory ----
 	imgURL := site + "/_next/image?url=%2Fe2e.png&w=64&q=75"
 	getImage := func() http.Header {
@@ -157,7 +252,6 @@ func TestNext(t *testing.T) {
 
 	// ---- an old tab: the action page and the home page of release 1 ----
 	_, _, action1 := b.get(c, "GET", site+"/action", nil)
-	form := formFields(t, action1)
 	oldChunks := chunkURLs(action1)
 	b.get(c, "GET", site+"/api/after", nil) // schedules an after() callback that outlives the request
 
@@ -167,12 +261,16 @@ func TestNext(t *testing.T) {
 	raw, _ := os.ReadFile(page)
 	write("app/page.tsx", strings.Replace(string(raw), "Hello from Next.js on Tiffin", "Hello again from Next.js on Tiffin", 1))
 	write("app/action/badge.tsx", strings.Replace(badge, "VERSION", "release 2", 1)) // a new client chunk
-	d2 := deployArgs(t, b, app)
+	d2 := deployArgs(t, b, app, "--app", "web")
 	phase("redeploy", p)
 	t.Logf("redeploy: build %.1fs, total %.1fs", d2.BuildSecs, d2.TotalSecs)
 	_, _, home2 := b.get(c, "GET", site+"/", nil)
 	if !strings.Contains(home2, `data-dpl-id="`+d2.ID+`"`) || !strings.Contains(home2, "Hello again") {
 		t.Fatalf("after the redeploy: %s", head(home2))
+	}
+	// Next.js gives both builds the same BUILD_ID: the ISR page must still be the new deploy's.
+	if dep := one("ISR deploy after the redeploy", fromEach("web", "/isr", deployRe)); dep != d2.ID {
+		t.Fatalf("after the redeploy the ISR page was rendered by %q, want %s", dep, d2.ID)
 	}
 
 	// A chunk only release 1 had: the app no longer has it, the box still serves it.
@@ -195,27 +293,9 @@ func TestNext(t *testing.T) {
 	t.Logf("old chunk %s: 404 from the new release, 200 from the box", gone)
 
 	// A Server Action posted from release 1's page (no JS: the form as it was) runs on release 2.
-	var body bytes.Buffer
-	mw := multipart.NewWriter(&body)
-	for _, f := range form {
-		v := f[1]
-		if f[0] == "msg" {
-			v = "from-old-tab"
-		}
-		_ = mw.WriteField(f[0], v)
-	}
-	mw.Close()
-	req, _ := http.NewRequest("POST", site+"/action", &body)
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	req.Header.Set("Origin", site)
-	res, err := c.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	res.Body.Close()
 	want := fmt.Sprintf("from-old-tab (form from %s, run on %s)", d1.ID, d2.ID)
-	if res.StatusCode != 200 {
-		t.Fatalf("server action from the old page: %d", res.StatusCode)
+	if code := postForm(t, c, site+"/action", action1, map[string]string{"msg": "from-old-tab"}); code != 200 {
+		t.Fatalf("server action from the old page: %d", code)
 	}
 	ok := false
 	for i := 0; i < 10 && !ok; i++ { // the result lives in the instance that ran it
@@ -240,6 +320,52 @@ func TestNext(t *testing.T) {
 		time.Sleep(2 * time.Second)
 	}
 	phase("skew checks", p)
+
+	// ---- a preview has its own cache and revalidations ----
+	p = time.Now()
+	prodISR := one("ISR page", fromEach("web", "/isr", rendered))
+	pv := deployArgs(t, b, app, "--app", "web", "--preview", "pr-1")
+	pvSite := b.url("pr-1--hello-next")
+	_, _, pvISR := b.get(c, "GET", pvSite+"/isr", nil)
+	if dep := match(pvISR, deployRe); dep != pv.ID {
+		t.Fatalf("preview ISR page rendered by %q, want %s", dep, pv.ID)
+	}
+	if code := postForm(t, c, pvSite+"/isr", pvISR, nil); code != 200 {
+		t.Fatalf("revalidatePath in the preview: %d", code)
+	}
+	if got := one("ISR page", fromEach("web", "/isr", rendered)); got != prodISR {
+		t.Fatalf("the preview's revalidatePath reached production (%s → %s)", prodISR, got)
+	}
+	b.ok("previews", "sleep", "hello-next", "web", "pr-1") // frees its memory for the next app
+	phase("preview cache", p)
+
+	// ---- cacheComponents: "use cache" shared; updateTag reads its own write ----
+	p = time.Now()
+	deployArgs(t, b, app, "--app", "cc")
+	const stampRe = `id="stamp">([^<]*)<`
+	stamp1 := one(`"use cache" entry`, fromEach("cc", "/", stampRe))
+	ccSite := b.url("hello-next-cc")
+	_, _, ccHTML := b.get(c, "GET", ccSite+"/", nil)
+	id := match(ccHTML, `name="\$ACTION_ID_([0-9a-f]+)"`)
+	req, _ := http.NewRequest("POST", ccSite+"/", strings.NewReader("[]")) // as the client router calls it
+	req.Header.Set("Next-Action", id)
+	req.Header.Set("Accept", "text/x-component")
+	req.Header.Set("Content-Type", "text/plain;charset=UTF-8")
+	req.Header.Set("Origin", ccSite)
+	res, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	stamp2 := match(string(reply), `(20\d\d-\d\d-\d\dT[0-9:.]+Z)`)
+	if res.StatusCode != 200 || stamp2 == "" || stamp2 == stamp1 {
+		t.Fatalf("updateTag action: %d, reply stamp %q (before %q)\n%s", res.StatusCode, stamp2, stamp1, head(string(reply)))
+	}
+	if got := one(`"use cache" entry after updateTag`, fromEach("cc", "/", stampRe)); got != stamp2 {
+		t.Fatalf("after updateTag the instances serve %s, the action's reply had %s", got, stamp2)
+	}
+	phase("use cache", p)
 	t.Logf("TOTAL %s", time.Since(start).Round(time.Second))
 }
 
@@ -297,6 +423,128 @@ export function GET() {
   return new Response("scheduled");
 }
 `
+
+const nextConfig = `import { defineConfig } from "tiffin-sdk";
+
+export default defineConfig({
+  project: "hello-next",
+  apps: {
+    web: { framework: "next", instances: 2, memoryMB: 512, healthcheck: "/api/health" },
+    cc: { framework: "next", path: "cc", instances: 2, memoryMB: 512 },
+  },
+  services: { valkey: {} },
+});
+`
+
+// isrPage is rendered once an hour at most; its Server Action revalidates it.
+const isrPage = `import { revalidatePath } from "next/cache";
+
+export const revalidate = 3600;
+
+export default function IsrPage() {
+  async function refresh() {
+    "use server";
+    revalidatePath("/isr");
+  }
+  return (
+    <main>
+      <p>
+        deploy <code id="deploy">{process.env.TIFFIN_DEPLOY ?? "build"}</code>, rendered{" "}
+        <code id="rendered">{new Date().toISOString()}</code>
+      </p>
+      <form action={refresh}>
+        <button type="submit">Refresh</button>
+      </form>
+    </main>
+  );
+}
+`
+
+// feedRoute is a cached GET route handler, tagged "feed" through the data it reads.
+const feedRoute = `import { unstable_cache } from "next/cache";
+
+export const revalidate = 3600;
+
+const items = unstable_cache(async () => new Date().toISOString(), ["feed-items"], { tags: ["feed"] });
+
+export async function GET() {
+  return Response.json({ deploy: process.env.TIFFIN_DEPLOY ?? "build", items: await items(), rendered: new Date().toISOString() });
+}
+`
+
+const feedRevalidate = `import { revalidateTag } from "next/cache";
+
+export async function POST(req: Request) {
+  const max = new URL(req.url).searchParams.has("max");
+  revalidateTag("feed", max ? "max" : { expire: 0 });
+  return Response.json({ revalidated: "feed", max });
+}
+`
+
+// ccPage (cacheComponents): a "use cache" value tagged "stamp", the instance
+// in a dynamic hole, and a Server Action that calls updateTag("stamp").
+const ccPage = `import { cacheTag, updateTag } from "next/cache";
+import { connection } from "next/server";
+import { Suspense } from "react";
+
+async function stamp() {
+  "use cache";
+  cacheTag("stamp");
+  return new Date().toISOString();
+}
+
+async function Instance() {
+  await connection();
+  return <code id="instance">{process.env.TIFFIN_INSTANCE ?? "local"}</code>;
+}
+
+export default async function Page() {
+  async function bump() {
+    "use server";
+    updateTag("stamp");
+  }
+  return (
+    <main>
+      <p>
+        stamp <code id="stamp">{await stamp()}</code>, instance{" "}
+        <Suspense fallback="?">
+          <Instance />
+        </Suspense>
+      </p>
+      <form action={bump}>
+        <button type="submit">Bump</button>
+      </form>
+    </main>
+  );
+}
+`
+
+// postForm submits the first form of page (no JS, as an old browser would),
+// with some fields set, and returns the status.
+func postForm(t *testing.T, c *http.Client, u, page string, set map[string]string) int {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	for _, f := range formFields(t, page) {
+		v := f[1]
+		if s, ok := set[f[0]]; ok {
+			v = s
+		}
+		_ = mw.WriteField(f[0], v)
+	}
+	mw.Close()
+	req, _ := http.NewRequest("POST", u, &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if pu, err := url.Parse(u); err == nil {
+		req.Header.Set("Origin", pu.Scheme+"://"+pu.Host)
+	}
+	res, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	return res.StatusCode
+}
 
 var (
 	chunkRe = regexp.MustCompile(`/_next/static/[^"?\s]+\.js`)

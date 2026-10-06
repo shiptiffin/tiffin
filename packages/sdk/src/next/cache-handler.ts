@@ -1,6 +1,6 @@
 /**
  * `tiffin-sdk/next/cache-handler`: a Next.js 16 `cacheHandler` (ISR pages,
- * route handlers, `fetch` cache, optimized images) backed by Valkey, so every
+ * route handlers, `fetch` cache, `unstable_cache`) backed by Valkey, so every
  * instance of an app shares one cache and `revalidateTag` / `revalidatePath`
  * reach all of them.
  *
@@ -8,13 +8,12 @@
  * // next.config.mjs
  * export default {
  *   cacheHandler: fileURLToPath(new URL("./cache-handler.mjs", import.meta.url)),
- *   cacheMaxMemorySize: 0, // let Valkey hold the cache
  * };
  * // cache-handler.mjs
  * export { default } from "tiffin-sdk/next/cache-handler";
  * ```
  */
-import { readBuildId, Store, warnOnce, type StoreOptions } from "./store";
+import { readBuildId, Store, warnOnce, type Item, type StoreOptions } from "./store";
 
 /** What Next.js passes to get(). */
 export interface GetContext {
@@ -27,6 +26,8 @@ export interface GetContext {
 /** What Next.js passes to set(). */
 export interface SetContext {
   tags?: string[];
+  revalidate?: number | false;
+  cacheControl?: { revalidate?: number | false; expire?: number };
   [k: string]: unknown;
 }
 
@@ -43,23 +44,67 @@ export interface HandlerOptions {
   [k: string]: unknown;
 }
 
+interface Meta {
+  lastModified: number;
+  tags: string[];
+}
+
+const TAGS_HEADER = "x-next-cache-tags";
+
+/**
+ * An entry's tags: those it was stored with and Next.js passes (fetch), and
+ * for pages and route handlers the x-next-cache-tags header, which holds their
+ * explicit tags and the implicit _N_T_ path tags revalidatePath uses. That is
+ * where Next.js's file-system cache reads them too.
+ */
+function entryTags(item: Item<Meta>, ctx: GetContext): string[] {
+  const tags = [...item.meta.tags, ...(ctx.tags ?? []), ...(ctx.softTags ?? [])];
+  const header = ((item.value as Record<string, unknown> | null)?.headers as Record<string, unknown> | undefined)?.[TAGS_HEADER];
+  if (typeof header === "string" && header) tags.push(...header.split(","));
+  return tags;
+}
+
+const builds = new Map<string, string | undefined>();
+
+/**
+ * Next.js makes one handler per request; they share one Store (connection,
+ * in-memory copy, tag state). Each request reads the tag counter once.
+ */
 export class TiffinCacheHandler {
   readonly store: Store;
+  private synced: Promise<void> | undefined;
 
   constructor(nextOptions: HandlerOptions = {}, storeOptions: StoreOptions = {}) {
-    const fromDist = nextOptions.serverDistDir ? readBuildId(`${nextOptions.serverDistDir}/..`) : undefined;
-    this.store = new Store(fromDist ? { buildId: fromDist, ...storeOptions } : storeOptions);
+    let o = storeOptions;
+    const dist = nextOptions.serverDistDir;
+    if (dist && o.buildId === undefined && !process.env.TIFFIN_DEPLOY && !process.env.NEXT_DEPLOYMENT_ID) {
+      if (!builds.has(dist)) builds.set(dist, readBuildId(`${dist}/..`));
+      const id = builds.get(dist);
+      if (id) o = { ...o, buildId: id };
+    }
+    this.store = Store.open(o);
   }
 
   async get(key: string, ctx: GetContext = {}): Promise<Entry | null> {
     try {
-      const entry = await this.store.getJSON<Entry>(this.store.entryKey("e", key));
-      if (!entry) return null;
-      const tags = [...(entry.tags ?? []), ...(ctx.tags ?? []), ...(ctx.softTags ?? [])];
-      if (tags.length > 0 && (await this.store.tagsExpiredAt(tags)) > entry.lastModified) {
-        return null; // a tag (or path) was revalidated after this was stored
+      const s = this.store;
+      // The tag counter and the entry in one round trip.
+      let [, item] = await Promise.all([(this.synced ??= s.sync()), s.read<Meta>("e", key)]);
+      if (!item) return null;
+      let tags = entryTags(item, ctx);
+      if (s.expired(tags, item.meta.lastModified) || s.stale(tags, item.meta.lastModified)) {
+        // Outdated copy: another instance may have rendered it anew already.
+        item = await s.read<Meta>("e", key, true);
+        if (!item) return null;
+        tags = entryTags(item, ctx);
       }
-      return entry;
+      const { lastModified } = item.meta;
+      const value = item.value as Record<string, unknown>;
+      if (s.expired(tags, lastModified)) return null;
+      // A stale tag: Next.js sees it in its tag state and serves this entry
+      // once while it regenerates. Without that state, regenerate now.
+      if (!s.signalsStale && s.stale(tags, lastModified)) return null;
+      return { lastModified, value, tags: item.meta.tags };
     } catch (err) {
       warnOnce(`cache get failed, treating as a miss: ${String(err)}`);
       return null;
@@ -68,22 +113,28 @@ export class TiffinCacheHandler {
 
   async set(key: string, data: Record<string, unknown> | null, ctx: SetContext = {}): Promise<void> {
     try {
-      const k = this.store.entryKey("e", key);
       if (data == null) {
-        await this.store.del(k);
+        await this.store.del("e", key);
         return;
       }
       const tags = ctx.tags ?? (Array.isArray(data.tags) ? (data.tags as string[]) : []);
-      const entry: Entry = { lastModified: Date.now(), value: data, tags };
-      await this.store.setJSON(k, entry, this.store.maxTtl);
+      const lastModified = Date.now();
+      const revalidate = ctx.cacheControl?.revalidate ?? ctx.revalidate ?? (data.revalidate as number | false | undefined);
+      const expire = ctx.cacheControl?.expire;
+      const meta: Record<string, unknown> = { lastModified, tags };
+      if (typeof revalidate === "number" && revalidate > 0) meta.fresh = lastModified + revalidate * 1000;
+      await this.store.write("e", key, meta, data, typeof expire === "number" && expire > 0 ? expire : this.store.maxTtl);
     } catch (err) {
       warnOnce(`cache set failed (the response was still served): ${String(err)}`);
     }
   }
 
-  async revalidateTag(tags: string | string[], _durations?: { expire?: number }): Promise<void> {
-    // Entries tagged before now become misses on every instance.
-    await this.store.revalidate(Array.isArray(tags) ? tags : [tags]);
+  async revalidateTag(tags: string | string[], durations?: { expire?: number }): Promise<void> {
+    try {
+      await this.store.updateTags(Array.isArray(tags) ? tags : [tags], durations);
+    } catch (err) {
+      warnOnce(`revalidating tags failed: ${String(err)}`);
+    }
   }
 
   resetRequestCache(): void {}

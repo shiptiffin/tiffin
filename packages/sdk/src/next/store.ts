@@ -1,36 +1,60 @@
 /**
  * The storage behind `tiffin-sdk/next`'s cache handlers: entries and tag
- * revalidation timestamps in Valkey, shared by every instance of the app.
+ * revalidations in Valkey, shared by every instance of the app, with a
+ * bounded in-process copy in front.
  *
  * Keys (all under VALKEY_PREFIX, the project's ACL prefix):
- *   <prefix>next:<app>:<build>:e:<key>   incremental cache entries (ISR, route handlers, fetch, images)
- *   <prefix>next:<app>:<build>:u:<key>   "use cache" entries
- *   <prefix>next:<app>:tags              hash: tag → last revalidation (ms since epoch)
+ *   <prefix>next:<app>:<env>:<deploy>:e:<key>   incremental cache entries (ISR, route handlers, fetch)
+ *   <prefix>next:<app>:<env>:<deploy>:u:<key>   "use cache" entries
+ *   <prefix>next:<app>:<env>:tags               hash: s:<tag> / x:<tag> → when the tag went stale / expires (ms)
+ *   <prefix>next:<app>:<env>:tagv               counter, bumped on every revalidation
  *
- * Entries are namespaced by the Next.js build ID, so a new deploy never
- * serves pages rendered against another build's assets, and a rollback finds
- * its own build's cache again. Tags are shared across builds.
+ * <env> is "prod" or "pr-<preview>", <deploy> the deploy (TIFFIN_DEPLOY). Next.js
+ * gives every build the same BUILD_ID once deploymentId is set, so entries are
+ * keyed by deploy: a new release or a preview never serves pages another one
+ * rendered, and a rollback finds its own entries again. Tags are shared by all
+ * deploys of an environment, so a revalidation outlives a redeploy.
+ *
+ * Entries are stored as bytes (a JSON header plus raw buffers), not base64 JSON.
+ * Each request reads the tag counter (one small GET, pipelined with the entry
+ * read); the tag hash is fetched only when the counter moved.
  */
 
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { ReplyError, RespClient, type Arg } from "./resp";
 
 /** The subset of a Redis client the handlers use: Bun's RedisClient as is. */
 export interface RedisLike {
   send(command: string, args: string[]): Promise<unknown>;
 }
 
+/** A client that takes and returns bytes (RespClient, memoryRedis). */
+interface BinaryClient {
+  binary: true;
+  send(command: string, args: Arg[]): Promise<unknown>;
+  pipeline?(cmds: Arg[][]): Promise<unknown[]>;
+}
+
 /** Wraps an ioredis client (`call`) or a node-redis v4+ client (`sendCommand`). */
 export function toRedisLike(client: unknown): RedisLike {
   const c = client as Record<string, unknown>;
   if (typeof c.send === "function") return client as RedisLike;
+  // One wrapper per client, so the handlers keep sharing one Store for it.
+  let w = wrappers.get(c);
+  if (w) return w;
   if (typeof c.call === "function") {
-    return { send: (cmd, args) => (c.call as (...a: string[]) => Promise<unknown>).call(client, cmd, ...args) };
+    w = { send: (cmd, args) => (c.call as (...a: string[]) => Promise<unknown>).call(client, cmd, ...args) };
+  } else if (typeof c.sendCommand === "function") {
+    w = { send: (cmd, args) => (c.sendCommand as (a: string[]) => Promise<unknown>).call(client, [cmd, ...args]) };
+  } else {
+    throw new TypeError("tiffin-sdk/next: pass a Bun RedisClient, an ioredis client or a node-redis client");
   }
-  if (typeof c.sendCommand === "function") {
-    return { send: (cmd, args) => (c.sendCommand as (a: string[]) => Promise<unknown>).call(client, [cmd, ...args]) };
-  }
-  throw new TypeError("tiffin-sdk/next: pass a Bun RedisClient, an ioredis client or a node-redis client");
+  wrappers.set(c, w);
+  return w;
 }
+
+const wrappers = new WeakMap<object, RedisLike>();
 
 /**
  * An in-memory stand-in supporting exactly the commands the handlers send.
@@ -38,7 +62,7 @@ export function toRedisLike(client: unknown): RedisLike {
  * works per process, like Next.js's default.
  */
 export function memoryRedis(): RedisLike {
-  const strings = new Map<string, { v: string; exp: number }>();
+  const strings = new Map<string, { v: Arg; exp: number }>();
   const hashes = new Map<string, Map<string, string>>();
   const live = (k: string) => {
     const e = strings.get(k);
@@ -48,60 +72,65 @@ export function memoryRedis(): RedisLike {
     }
     return e;
   };
-  return {
-    async send(cmd: string, args: string[]): Promise<unknown> {
-      switch (cmd.toUpperCase()) {
-        case "GET":
-          return live(args[0]!)?.v ?? null;
-        case "SET": {
-          let exp = 0;
-          const i = args.findIndex((a) => a.toUpperCase() === "EX");
-          if (i >= 0) exp = Date.now() + Number(args[i + 1]) * 1000;
-          strings.set(args[0]!, { v: args[1]!, exp });
-          return "OK";
-        }
-        case "DEL":
-          return args.reduce((n, k) => n + (strings.delete(k) || hashes.delete(k) ? 1 : 0), 0);
-        case "HSET": {
-          const h = hashes.get(args[0]!) ?? new Map<string, string>();
-          for (let i = 1; i + 1 < args.length; i += 2) h.set(args[i]!, args[i + 1]!);
-          hashes.set(args[0]!, h);
-          return (args.length - 1) / 2;
-        }
-        case "HMGET": {
-          const h = hashes.get(args[0]!);
-          return args.slice(1).map((f) => h?.get(f) ?? null);
-        }
-        case "HGETALL":
-          return Object.fromEntries(hashes.get(args[0]!) ?? []);
-        default:
-          throw new Error(`memoryRedis: unsupported command ${cmd}`);
+  const str = (a: Arg | undefined) => (typeof a === "string" ? a : Buffer.from(a ?? []).toString());
+  const send = async (cmd: string, a: Arg[]): Promise<unknown> => {
+    const set = cmd.toUpperCase() === "SET";
+    const args = a.map((x, i) => (set && i === 1 ? "" : str(x))); // a SET value stays bytes
+    switch (cmd.toUpperCase()) {
+      case "GET":
+        return live(args[0]!)?.v ?? null;
+      case "MGET":
+        return args.map((k) => live(k)?.v ?? null);
+      case "SET": {
+        let exp = 0;
+        const i = args.findIndex((x) => x.toUpperCase() === "EX");
+        if (i >= 0) exp = Date.now() + Number(args[i + 1]) * 1000;
+        const v = a[1]!;
+        strings.set(args[0]!, { v: typeof v === "string" ? v : Buffer.from(v), exp });
+        return "OK";
       }
-    },
+      case "DEL":
+        return args.reduce((n: number, k) => n + (strings.delete(k) || hashes.delete(k) ? 1 : 0), 0);
+      case "INCR": {
+        const n = Number(str(live(args[0]!)?.v ?? "0")) + 1;
+        strings.set(args[0]!, { v: String(n), exp: 0 });
+        return n;
+      }
+      case "HSET": {
+        const h = hashes.get(args[0]!) ?? new Map<string, string>();
+        for (let i = 1; i + 1 < args.length; i += 2) h.set(args[i]!, args[i + 1]!);
+        hashes.set(args[0]!, h);
+        return (args.length - 1) / 2;
+      }
+      case "HDEL": {
+        const h = hashes.get(args[0]!);
+        return args.slice(1).reduce((n: number, f) => n + (h?.delete(f) ? 1 : 0), 0);
+      }
+      case "HMGET": {
+        const h = hashes.get(args[0]!);
+        return args.slice(1).map((f) => h?.get(f) ?? null);
+      }
+      case "HGETALL":
+        return Object.fromEntries(hashes.get(args[0]!) ?? []);
+      default:
+        throw new Error(`memoryRedis: unsupported command ${cmd}`);
+    }
   };
+  const client: BinaryClient = { binary: true, send };
+  return client as unknown as RedisLike;
 }
-
-type BunLike = { RedisClient: new (url?: string) => RedisLike };
 
 let shared: RedisLike | undefined;
 
 /**
- * The client the handlers use by default: Bun's built-in RedisClient on
- * REDIS_URL (Tiffin sets it when the project has `services.valkey`), or an
- * in-memory store when REDIS_URL is unset or the process is not Bun.
+ * The client the handlers use by default: a connection to REDIS_URL (Tiffin
+ * sets it when the project has `services.valkey`) on Bun or Node, or an
+ * in-memory store when REDIS_URL is unset and during `next build`.
  */
 export function defaultClient(): RedisLike {
   if (shared) return shared;
   const url = process.env.REDIS_URL ?? process.env.VALKEY_URL;
-  const bun = (globalThis as { Bun?: BunLike }).Bun;
-  if (url && bun?.RedisClient) {
-    shared = new bun.RedisClient(url);
-  } else {
-    if (url && process.env.NEXT_PHASE !== "phase-production-build") {
-      warnOnce("REDIS_URL is set but this is not Bun: pass a client (ioredis/node-redis) to configure(), or run with `bun --bun next start`. Using an in-memory cache.");
-    }
-    shared = memoryRedis();
-  }
+  shared = url && process.env.NEXT_PHASE !== "phase-production-build" ? (new RespClient(url) as unknown as RedisLike) : memoryRedis();
   return shared;
 }
 
@@ -112,16 +141,28 @@ export function warnOnce(msg: string): void {
   console.warn("[tiffin-sdk/next] " + msg);
 }
 
+/** When a tag went stale and when it expires (ms since epoch), as Next.js keeps them. */
+export interface TagState {
+  stale?: number;
+  expired?: number;
+}
+
 /** Settings shared by both handlers. */
 export interface StoreOptions {
   /** Defaults to defaultClient(). */
   client?: RedisLike;
   /** Key prefix. Default: VALKEY_PREFIX + "next:" + TIFFIN_APP + ":". */
   prefix?: string;
-  /** Build ID used to namespace entries. Default: .next/BUILD_ID, else TIFFIN_DEPLOY. */
+  /** Environment the tags and entries belong to. Default: "pr-" + TIFFIN_PREVIEW, else "prod". */
+  environment?: string;
+  /** Deploy that entries are keyed by. Default: TIFFIN_DEPLOY, else NEXT_DEPLOYMENT_ID, else .next/BUILD_ID. */
   buildId?: string;
   /** Upper bound for entry TTLs in seconds. Default 30 days. */
   maxTtlSeconds?: number;
+  /** Size of the in-process copy of entries, in bytes. Default 32 MB; 0 turns it off. */
+  memoryBytes?: number;
+  /** Next.js's in-process tag state (found automatically from the app's `next`). */
+  tagsManifest?: Map<string, TagState> | null;
 }
 
 let options: StoreOptions = {};
@@ -132,79 +173,350 @@ export function configure(o: StoreOptions): void {
   if (o.client) shared = toRedisLike(o.client);
 }
 
+let nextManifest: Map<string, TagState> | null | undefined;
+
+/**
+ * Next.js's process-wide tag state (`tags-manifest.external`). Its own cache
+ * checks the tags of pages and route handlers against it after our get()
+ * returns, which is how a stale (not expired) tag makes it serve the entry and
+ * regenerate in the background.
+ */
+function findNextManifest(): Map<string, TagState> | null {
+  if (nextManifest !== undefined) return nextManifest;
+  nextManifest = null;
+  for (const from of [`${process.cwd()}/package.json`, import.meta.url]) {
+    try {
+      const m = createRequire(from)("next/dist/server/lib/incremental-cache/tags-manifest.external.js") as { tagsManifest?: unknown };
+      if (m.tagsManifest instanceof Map) return (nextManifest = m.tagsManifest as Map<string, TagState>);
+    } catch {
+      // not resolvable from here
+    }
+  }
+  return nextManifest;
+}
+
+/** An entry as kept in memory: its header (`meta`) and value. */
+export interface Item<M = Record<string, unknown>> {
+  meta: M & { fresh?: number };
+  value: unknown;
+  size: number;
+  /** Until when the in-memory copy may be served without asking Valkey. */
+  until: number;
+}
+
+/** How long an in-memory copy is trusted at most, so instances converge after concurrent writes. */
+const TRUST_MS = 10_000;
+
+class Lru {
+  private map = new Map<string, Item>();
+  private bytes = 0;
+  constructor(readonly max: number) {}
+  get(k: string): Item | undefined {
+    const v = this.map.get(k);
+    if (!v) return undefined;
+    if (Date.now() > v.until) {
+      this.delete(k);
+      return undefined;
+    }
+    this.map.delete(k);
+    this.map.set(k, v);
+    return v;
+  }
+  set(k: string, v: Item): void {
+    this.delete(k);
+    if (v.size > this.max / 4) return;
+    this.map.set(k, v);
+    this.bytes += v.size;
+    for (const [old, e] of this.map) {
+      if (this.bytes <= this.max) break;
+      this.map.delete(old);
+      this.bytes -= e.size;
+    }
+  }
+  delete(k: string): void {
+    const v = this.map.get(k);
+    if (!v) return;
+    this.map.delete(k);
+    this.bytes -= v.size;
+  }
+}
+
+const stores = new WeakMap<object, Map<string, Store>>();
+let cwdBuildId: string | undefined | null = null;
+
+/** Options with the defaults filled in from the environment. */
+function resolve(o: StoreOptions) {
+  const opt = { ...options, ...o };
+  if (cwdBuildId === null) cwdBuildId = readBuildId();
+  return {
+    ...opt,
+    client: opt.client ? toRedisLike(opt.client) : defaultClient(),
+    prefix: opt.prefix ?? `${process.env.VALKEY_PREFIX ?? ""}next:${process.env.TIFFIN_APP ?? "app"}:`,
+    environment: opt.environment ?? (process.env.TIFFIN_PREVIEW ? `pr-${process.env.TIFFIN_PREVIEW}` : "prod"),
+    buildId: opt.buildId ?? process.env.TIFFIN_DEPLOY ?? (process.env.NEXT_DEPLOYMENT_ID || undefined) ?? cwdBuildId ?? "dev",
+  };
+}
+
 export class Store {
   readonly client: RedisLike;
   readonly prefix: string;
+  readonly environment: string;
   readonly buildId: string;
   readonly maxTtl: number;
-  /** Local copy of tag timestamps, refreshed from Valkey. */
-  readonly tagTimes = new Map<string, number>();
+  /** Tag states of this environment, as of `version`. */
+  readonly tagTimes = new Map<string, TagState>();
+  /** The tag counter value the map reflects (undefined: re-read the hash). */
+  private version: number | undefined;
+  private applied = 0;
+  private syncing: Promise<void> | undefined;
+  /** This process's revalidations: a sequence number, the last one Valkey confirmed, and per tag the latest. */
+  private seq = 0;
+  private acked = 0;
+  private readonly own = new Map<string, number>();
+  private readonly lru: Lru;
+  private readonly reads = new Map<string, Promise<Item | undefined>>();
+  private readonly writes = new Map<string, Promise<void>>();
+  private readonly manifest: Map<string, TagState> | null;
+
+  /** The store for these options, shared by every handler in the process. */
+  static open(o: StoreOptions = {}): Store {
+    const opt = resolve(o);
+    const id = [opt.prefix, opt.environment, opt.buildId, opt.maxTtlSeconds, opt.memoryBytes].join("|");
+    let m = stores.get(opt.client);
+    if (!m) stores.set(opt.client, (m = new Map()));
+    let s = m.get(id);
+    if (!s) m.set(id, (s = new Store(opt)));
+    return s;
+  }
 
   constructor(o: StoreOptions = {}) {
-    const opt = { ...options, ...o };
-    this.client = opt.client ? toRedisLike(opt.client) : defaultClient();
-    this.prefix = opt.prefix ?? `${process.env.VALKEY_PREFIX ?? ""}next:${process.env.TIFFIN_APP ?? "app"}:`;
-    this.buildId = opt.buildId ?? readBuildId() ?? process.env.TIFFIN_DEPLOY ?? "dev";
+    const opt = resolve(o);
+    this.client = opt.client;
+    this.prefix = opt.prefix;
+    this.environment = opt.environment;
+    this.buildId = opt.buildId;
     this.maxTtl = opt.maxTtlSeconds ?? 30 * 24 * 3600;
+    this.lru = new Lru(opt.memoryBytes ?? 32 << 20);
+    this.manifest = opt.tagsManifest !== undefined ? opt.tagsManifest : findNextManifest();
+  }
+
+  /** Whether Next.js itself can be told a tag is stale (otherwise stale counts as expired). */
+  get signalsStale(): boolean {
+    return this.manifest != null;
   }
 
   entryKey(kind: "e" | "u", key: string): string {
-    return `${this.prefix}${this.buildId}:${kind}:${key}`;
+    return `${this.prefix}${this.environment}:${this.buildId}:${kind}:${key}`;
   }
 
   get tagsKey(): string {
-    return `${this.prefix}tags`;
+    return `${this.prefix}${this.environment}:tags`;
   }
 
-  async getJSON<T>(key: string): Promise<T | undefined> {
-    const raw = await this.client.send("GET", [key]);
-    if (typeof raw !== "string" || raw === "") return undefined;
-    return JSON.parse(raw, revive) as T;
+  get versionKey(): string {
+    return `${this.prefix}${this.environment}:tagv`;
   }
 
-  async setJSON(key: string, value: unknown, ttlSeconds: number): Promise<void> {
+  private get binary(): boolean {
+    return (this.client as Partial<BinaryClient>).binary === true;
+  }
+
+  private send(cmd: string, args: Arg[]): Promise<unknown> {
+    if (this.binary) return (this.client as unknown as BinaryClient).send(cmd, args);
+    return this.client.send(cmd, args as string[]);
+  }
+
+  private pipeline(cmds: Arg[][]): Promise<unknown[]> {
+    const c = this.client as Partial<BinaryClient>;
+    if (c.binary && c.pipeline) {
+      return c.pipeline(cmds).then((rs) => {
+        const err = rs.find((r) => r instanceof ReplyError);
+        if (err) throw err;
+        return rs;
+      });
+    }
+    return Promise.all(cmds.map(([cmd, ...args]) => this.send(cmd as string, args)));
+  }
+
+  /**
+   * Reads an entry: the in-memory copy, else Valkey (one read per key at a
+   * time). `fromValkey` skips the in-memory copy, for when it turned out to be
+   * outdated by a revalidation (another instance may have rendered anew).
+   */
+  async read<M>(kind: "e" | "u", key: string, fromValkey = false): Promise<Item<M> | undefined> {
+    const k = this.entryKey(kind, key);
+    await this.writes.get(k);
+    if (fromValkey) this.lru.delete(k);
+    const hit = this.lru.get(k);
+    if (hit) return hit as Item<M>;
+    const joined = fromValkey ? undefined : this.reads.get(k);
+    if (joined) return (await joined) as Item<M> | undefined;
+    const p: Promise<Item | undefined> = this.send("GET", [k])
+      .then((raw) => {
+        const buf = this.bytes(raw);
+        if (!buf) return undefined;
+        const { meta, value } = decode(buf);
+        const item: Item = { meta, value, size: buf.length, until: Math.min(Number(meta.fresh ?? Infinity), Date.now() + TRUST_MS) };
+        this.lru.set(k, item);
+        return item;
+      })
+      .finally(() => {
+        if (this.reads.get(k) === p) this.reads.delete(k);
+      });
+    this.reads.set(k, p);
+    return (await p) as Item<M> | undefined;
+  }
+
+  /** Stores an entry in Valkey. `meta.fresh` (ms) is when it goes stale; until then a local copy needs no check. */
+  async write(kind: "e" | "u", key: string, meta: Record<string, unknown>, value: unknown, ttlSeconds: number): Promise<void> {
+    const k = this.entryKey(kind, key);
+    this.lru.delete(k);
+    const frame = encode(meta, value);
     const ttl = Math.max(1, Math.min(Math.floor(ttlSeconds) || this.maxTtl, this.maxTtl));
-    await this.client.send("SET", [key, JSON.stringify(value, replace), "EX", String(ttl)]);
-  }
-
-  async del(key: string): Promise<void> {
-    await this.client.send("DEL", [key]);
-  }
-
-  /** Latest revalidation time (ms) across tags, from Valkey. */
-  async tagsExpiredAt(tags: string[]): Promise<number> {
-    const uniq = [...new Set(tags)].filter(Boolean);
-    if (uniq.length === 0) return 0;
-    const vals = (await this.client.send("HMGET", [this.tagsKey, ...uniq])) as (string | null)[];
-    let max = 0;
-    vals?.forEach((v, i) => {
-      const n = Number(v ?? 0);
-      if (n > 0) this.tagTimes.set(uniq[i]!, n);
-      if (n > max) max = n;
+    const p = this.send("SET", [k, this.binary ? frame : frame.toString("base64"), "EX", String(ttl)]).then(() => {});
+    // Reads of this key in this process wait for the write.
+    const done: Promise<void> = p.catch(() => {}).finally(() => {
+      if (this.writes.get(k) === done) this.writes.delete(k);
     });
-    return max;
+    this.writes.set(k, done);
+    await p;
   }
 
-  /** Marks tags revalidated now (every instance sees it). */
-  async revalidate(tags: string[], at = Date.now()): Promise<void> {
+  async del(kind: "e" | "u", key: string): Promise<void> {
+    const k = this.entryKey(kind, key);
+    this.lru.delete(k);
+    await this.send("DEL", [k]);
+  }
+
+  /** Mirrors Next.js's areTagsExpired: a tag expired (by now) after the entry was made. */
+  expired(tags: Iterable<string>, at: number): boolean {
+    const now = Date.now();
+    for (const t of tags) {
+      const x = this.tagTimes.get(t)?.expired;
+      if (x !== undefined && x <= now && x > at) return true;
+    }
+    return false;
+  }
+
+  /** Mirrors Next.js's areTagsStale: a tag was marked stale after the entry was made. */
+  stale(tags: Iterable<string>, at: number): boolean {
+    for (const t of tags) {
+      const s = this.tagTimes.get(t)?.stale;
+      if (s !== undefined && s > at) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Revalidates tags on every instance, the way Next.js's own handlers do:
+   * without durations they expire now; with durations they are stale now
+   * (served once more while regenerating) and expire after `expire` seconds.
+   */
+  async updateTags(tags: string[], durations?: { expire?: number }): Promise<void> {
     const uniq = [...new Set(tags)].filter(Boolean);
     if (uniq.length === 0) return;
-    const args = [this.tagsKey];
+    const now = Date.now();
+    const seq = ++this.seq;
+    const fields: string[] = [];
     for (const t of uniq) {
-      args.push(t, String(at));
-      this.tagTimes.set(t, at);
+      const next: TagState = { ...this.tagTimes.get(t) };
+      if (durations) {
+        next.stale = now;
+        fields.push(`s:${t}`, String(now));
+        if (durations.expire !== undefined) {
+          next.expired = now + durations.expire * 1000;
+          fields.push(`x:${t}`, String(next.expired));
+        }
+      } else {
+        next.expired = now;
+        fields.push(`x:${t}`, String(now));
+      }
+      this.setTag(t, next); // read-your-writes in this process right away
+      this.own.set(t, seq);
     }
-    await this.client.send("HSET", args);
+    const before = this.version;
+    const [, v] = await this.pipeline([
+      ["HSET", this.tagsKey, ...fields],
+      ["INCR", this.versionKey],
+    ]);
+    this.acked = Math.max(this.acked, seq);
+    // Nobody else revalidated since our map was current: it still is.
+    if (before !== undefined && this.version === before && Number(v) === before + 1) this.version = before + 1;
   }
 
-  /** Pulls every tag timestamp into the local map. */
-  async refreshTags(): Promise<void> {
-    const raw = await this.client.send("HGETALL", [this.tagsKey]);
-    const pairs: [string, unknown][] = Array.isArray(raw)
-      ? Array.from({ length: raw.length / 2 }, (_, i) => [String(raw[2 * i]), raw[2 * i + 1]])
-      : Object.entries((raw ?? {}) as Record<string, unknown>);
-    for (const [k, v] of pairs) this.tagTimes.set(k, Number(v));
+  /**
+   * Brings the tag map up to date: one GET of the counter, the hash only when
+   * it moved. Calls in the same tick share the GET (it has not gone out yet);
+   * later ones send their own, so a request sees every revalidation that
+   * finished before it began.
+   */
+  sync(): Promise<void> {
+    if (this.syncing) return this.syncing;
+    const p = this.doSync();
+    this.syncing = p;
+    queueMicrotask(() => {
+      if (this.syncing === p) this.syncing = undefined;
+    });
+    return p;
   }
+
+  private async doSync(): Promise<void> {
+    const v = Number(this.text(await this.send("GET", [this.versionKey])) ?? 0);
+    if (v === this.version || v < this.applied) return;
+    // Revalidations from here that Valkey had confirmed are in the hash we read.
+    const acked = this.acked;
+    const seq = this.seq;
+    const raw = await this.send("HGETALL", [this.tagsKey]);
+    if (v < this.applied) return; // a newer read finished first
+    this.applied = v;
+    const old = Date.now() - this.maxTtl * 1000;
+    const fresh = new Map<string, TagState>();
+    const prune: string[] = [];
+    for (const [f, val] of pairs(raw)) {
+      const field = this.text(f) ?? "";
+      const n = Number(this.text(val));
+      // Every entry made before this is gone (TTL), so the field no longer matters.
+      if (!(n >= old)) {
+        prune.push(field);
+        continue;
+      }
+      const tag = field.slice(2);
+      const st = fresh.get(tag) ?? {};
+      if (field.startsWith("s:")) st.stale = n;
+      else if (field.startsWith("x:")) st.expired = n;
+      fresh.set(tag, st);
+    }
+    // This process's own revalidations that may not be in what we read stay as they are.
+    const mine = (t: string) => (this.own.get(t) ?? 0) > acked;
+    for (const t of this.tagTimes.keys()) if (!fresh.has(t) && !mine(t)) this.tagTimes.delete(t);
+    for (const [t, st] of fresh) if (!mine(t)) this.setTag(t, st);
+    for (const [t, s] of this.own) if (s <= acked) this.own.delete(t);
+    this.version = acked === seq && this.seq === seq ? v : undefined;
+    if (prune.length > 0) this.send("HDEL", [this.tagsKey, ...prune]).catch(() => {});
+  }
+
+  private setTag(tag: string, st: TagState): void {
+    this.tagTimes.set(tag, st);
+    if (this.manifest) this.manifest.set(tag, { ...this.manifest.get(tag), ...st });
+  }
+
+  private text(v: unknown): string | undefined {
+    if (v == null) return undefined;
+    return typeof v === "string" ? v : Buffer.isBuffer(v) || v instanceof Uint8Array ? Buffer.from(v).toString() : String(v);
+  }
+
+  private bytes(raw: unknown): Buffer | undefined {
+    if (raw == null || raw === "") return undefined;
+    if (typeof raw === "string") return Buffer.from(raw, this.binary ? "utf8" : "base64");
+    if (raw instanceof Uint8Array) return Buffer.isBuffer(raw) ? raw : Buffer.from(raw.buffer, raw.byteOffset, raw.byteLength);
+    return undefined;
+  }
+}
+
+function pairs(raw: unknown): [unknown, unknown][] {
+  if (Array.isArray(raw)) return Array.from({ length: raw.length / 2 }, (_, i) => [raw[2 * i], raw[2 * i + 1]]);
+  if (raw instanceof Map) return [...raw.entries()];
+  return Object.entries((raw ?? {}) as Record<string, unknown>);
 }
 
 /** Reads Next.js's BUILD_ID from a .next directory (default: ./.next). */
@@ -216,19 +528,69 @@ export function readBuildId(distDir = `${process.cwd()}/.next`): string | undefi
   }
 }
 
-// JSON with Buffers/Uint8Arrays and Maps (Next.js cache values contain both).
-function replace(this: Record<string, unknown>, key: string, value: unknown): unknown {
-  const raw = this[key];
-  if (raw instanceof Uint8Array) return { __t: "b", d: Buffer.from(raw).toString("base64") };
-  if (raw instanceof Map) return { __t: "m", d: [...raw.entries()] };
-  return value;
+// Entry format: 1 version byte, u32 header length, the JSON header, then
+// each binary part as u32 length + bytes. Buffers and long strings in the
+// value become parts (marked in the JSON), Maps a marked list of entries, so
+// page bodies are never base64'd or JSON-escaped.
+const FORMAT = 1;
+const LONG = 1024;
+const B = "\u0000b";
+const S = "\u0000s";
+const M = "\u0000m";
+
+function pack(v: unknown, parts: Buffer[]): unknown {
+  if (typeof v === "string") {
+    if (v.length < LONG) return v;
+    parts.push(Buffer.from(v));
+    return { [S]: parts.length - 1 };
+  }
+  if (v === null || typeof v !== "object") return v;
+  if (v instanceof Uint8Array) {
+    parts.push(Buffer.from(v.buffer, v.byteOffset, v.byteLength));
+    return { [B]: parts.length - 1 };
+  }
+  if (v instanceof Map) return { [M]: [...v].map(([k, x]) => [k, pack(x, parts)]) };
+  if (Array.isArray(v)) return v.map((x) => pack(x, parts));
+  if (typeof (v as { toJSON?: unknown }).toJSON === "function") return v;
+  const o: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(v)) if (x !== undefined && typeof x !== "function") o[k] = pack(x, parts);
+  return o;
 }
 
-function revive(_key: string, value: unknown): unknown {
-  if (value && typeof value === "object" && "__t" in value) {
-    const v = value as { __t: string; d: unknown };
-    if (v.__t === "b") return Buffer.from(v.d as string, "base64");
-    if (v.__t === "m") return new Map(v.d as [string, unknown][]);
+export function encode(meta: Record<string, unknown>, value: unknown): Buffer {
+  const parts: Buffer[] = [];
+  const head = Buffer.from(JSON.stringify({ m: meta, v: pack(value, parts) }));
+  let size = 5 + head.length;
+  for (const p of parts) size += 4 + p.length;
+  const out = Buffer.allocUnsafe(size);
+  out[0] = FORMAT;
+  out.writeUInt32LE(head.length, 1);
+  head.copy(out, 5);
+  let at = 5 + head.length;
+  for (const p of parts) {
+    out.writeUInt32LE(p.length, at);
+    p.copy(out, at + 4);
+    at += 4 + p.length;
   }
-  return value;
+  return out;
+}
+
+export function decode(buf: Buffer): { meta: Record<string, unknown>; value: unknown } {
+  if (buf[0] !== FORMAT) throw new Error("unknown cache entry format");
+  const n = buf.readUInt32LE(1);
+  const parts: Buffer[] = [];
+  for (let at = 5 + n; at < buf.length; ) {
+    const len = buf.readUInt32LE(at);
+    parts.push(buf.subarray(at + 4, at + 4 + len));
+    at += 4 + len;
+  }
+  const doc = JSON.parse(buf.toString("utf8", 5, 5 + n), (_k, v) => {
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      if (B in v) return parts[v[B]];
+      if (S in v) return parts[v[S]]!.toString();
+      if (M in v) return new Map(v[M]);
+    }
+    return v;
+  }) as { m: Record<string, unknown>; v: unknown };
+  return { meta: doc.m, value: doc.v };
 }

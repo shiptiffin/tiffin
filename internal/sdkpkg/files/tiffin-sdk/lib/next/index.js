@@ -1,7 +1,7 @@
 /**
  * `tiffin-sdk/next`: Next.js on Tiffin.
  *
- * - `cache-handler` — Next.js `cacheHandler` (ISR, route handlers, fetch, images) in Valkey
+ * - `cache-handler` — Next.js `cacheHandler` (ISR, route handlers, fetch) in Valkey
  * - `use-cache`     — Next.js `cacheHandlers` for the "use cache" directive, in Valkey
  * - `configure()`   — pass your own Redis client (ioredis / node-redis) or prefix
  *
@@ -12,3 +12,4 @@
 export { TiffinCacheHandler } from "./cache-handler.js";
 export { createUseCacheHandler } from "./use-cache.js";
 export { configure, defaultClient, memoryRedis, toRedisLike, readBuildId, Store } from "./store.js";
+export { RespClient } from "./resp.js";
