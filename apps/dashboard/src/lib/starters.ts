@@ -3,7 +3,7 @@ import type { Manifest } from "@/api/client";
 import { request } from "@/api/client";
 import type { components } from "@/api/schema";
 import thumbApi from "@/assets/illustrations/starter-api.webp";
-import thumbNext from "@/assets/illustrations/starter-next.webp";
+import thumbWeb from "@/assets/illustrations/starter-web.webp";
 import thumbStatic from "@/assets/illustrations/starter-static.webp";
 
 /**
@@ -23,16 +23,17 @@ export const startersQuery = queryOptions({
 });
 
 /**
- * Thumbnails by starter id: a single open tier (a static site), a closed tin
- * with an order slip (an API), three open tiers side by side (a full-stack
- * app). The guestbook demo is full-stack too. Transparent; put them in an
- * .art-well so dark mode gives them a paper ground.
+ * Thumbnails by starter id, named for what you make rather than the
+ * framework: a browser window with its database (a web app), a plug meeting
+ * a socket (an API), a single page (a static site). The guestbook demo is a
+ * web app too. Transparent; put them in an .art-well so dark mode gives them
+ * a paper ground.
  */
 export const starterThumb: Record<string, string> = {
   "static-site": thumbStatic,
   "hono-postgres": thumbApi,
-  guestbook: thumbNext,
-  "next-postgres": thumbNext,
+  guestbook: thumbWeb,
+  "next-postgres": thumbWeb,
 };
 
 /**
@@ -46,7 +47,7 @@ export const pickable = <T extends { id: string }>(list: T[]) =>
 
 /** What each starter is called in the picker. */
 export const starterTitle: Record<string, string> = {
-  "next-postgres": "Next.js app",
+  "next-postgres": "Web app",
   "hono-postgres": "API",
   "static-site": "Static site",
   guestbook: "Guestbook",

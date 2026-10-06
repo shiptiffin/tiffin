@@ -64,7 +64,7 @@ for name in ['mascot-base', 'mascot-live', 'mascot-idle', 'mascot-deploying', 'm
         mask_webp(mm.split()[3], name + '-band')
 
 # --- starters: 640x400 (shown at 320x200)
-for name in ['starter-static', 'starter-api', 'starter-next']:
+for name in ['starter-static', 'starter-api', 'starter-web']:
     webp(fit(Image.open(f'{CUT}/{name}.png'), 640, 400, 0.86), name)
 
 # --- empty states

@@ -13,6 +13,7 @@ import { Crumbs, Page } from "@/components/page";
 import { PilotLight } from "@/components/pilot";
 import { ProblemNote } from "@/components/problem";
 import { Qty } from "@/components/qty";
+import { BuildSettings, buildAs, buildNote } from "@/components/build-settings";
 import { BuildLogView, firstError, useBuildLog } from "@/components/start-build-log";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioItem } from "@/components/ui/choice";
@@ -542,12 +543,6 @@ function OptionRow({ value, picked, icon, title, line }: { value: string; picked
   );
 }
 
-const gitFrameworks = [
-  { value: "next", label: "Next.js" },
-  { value: "hono", label: "Hono" },
-  { value: "bun", label: "Bun" },
-  { value: "static", label: "Static site" },
-];
 
 function GitFields({
   git,
@@ -560,8 +555,8 @@ function GitFields({
 }) {
   const field = "h-9 w-full rounded-[7px] border border-rule-2 bg-paper-raised px-2.5 text-[0.84375rem] text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]";
   return (
-    <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem_9rem]">
-      <label className="sm:col-span-3">
+    <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
+      <label>
         <span className="mb-1 block text-xs text-ink-3">Repository</span>
         <input
           autoFocus
@@ -578,20 +573,10 @@ function GitFields({
         <span className="mb-1 block text-xs text-ink-3">Branch, tag or commit</span>
         <input value={git.ref} onChange={(e) => setGit({ ...git, ref: e.target.value })} placeholder="default branch" spellCheck={false} className={cn(field, "ident")} />
       </label>
-      <label>
-        <span className="mb-1 block text-xs text-ink-3">Folder</span>
-        <input value={git.path} onChange={(e) => setGit({ ...git, path: e.target.value })} placeholder="the top" spellCheck={false} className={cn(field, "ident")} />
-      </label>
-      <label>
-        <span className="mb-1 block text-xs text-ink-3">Framework</span>
-        <select value={git.framework} onChange={(e) => setGit({ ...git, framework: e.target.value })} className={field}>
-          {gitFrameworks.map((f) => (
-            <option key={f.value} value={f.value}>
-              {f.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <p className="text-sm text-ink-3 sm:col-span-3">
+        Tiffin builds it as {buildAs(git.framework)}. {buildNote(git.framework) ?? "Something else? Change it under Build settings."}
+      </p>
+      <BuildSettings className="sm:col-span-3" framework={git.framework} onFramework={(framework) => setGit({ ...git, framework })} path={git.path} onPath={(path) => setGit({ ...git, path })} />
     </div>
   );
 }

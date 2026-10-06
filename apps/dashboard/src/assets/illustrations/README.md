@@ -41,15 +41,15 @@ largest display size.
 | `mascot-preview.webp` (+ `-band`) | 800x800 | — | In `<Mascot>` for previews (tasting spoon); not placed yet |
 | `mascot-night.webp` | 800x800 | 128 | Jobs, nothing scheduled (asleep under a moon) |
 | `tin-plain.webp` (+ `-band`) | 800x800 | 40 | Project cards on Projects, in the project's colour |
-| `starter-next.webp` | 640x400 | 320x200 | New project and starter pickers, "Next.js app" (three open tins: rice, soup, bread rolls) |
-| `starter-api.webp` | 640x400 | 320x200 | "API" (a closed tin with an order slip) |
-| `starter-static.webp` | 640x400 | 320x200 | "Static site" (one open tin of round cookies) |
+| `starter-web.webp` | 640x400 | 320x200 | New project and starter pickers, "Web app" (a browser window with a small database beside it) |
+| `starter-api.webp` | 640x400 | 320x200 | "API" (a plug meeting its socket, one arrow in and one out) |
+| `starter-static.webp` | 640x400 | 320x200 | "Static site" (a single page with a folded corner) |
 | `empty-projects.webp` | 640x320 | — | Not placed now (an empty box opens on New project); the mascot alone on an empty hand cart |
 | `empty-inbox.webp` | 400x400 | 160 | Email dev inbox, nothing caught; the 404 page (lid up, an empty dashed slot above) |
 | `empty-backups.webp` | 480x280 | 240x140 | Backups, none yet (the mascot beside a pantry shelf of jars) |
 | `og-card.png` | 1200x630 | social card | README / social preview: flat paper (#F3EDE1), the cart with five tins on the right, the left ~50 % empty for a headline. No text. 96-colour PNG. |
 
-The guestbook demo starter reuses `starter-next.webp`.
+The guestbook demo starter reuses `starter-web.webp`.
 
 ## Style bible
 
@@ -85,9 +85,10 @@ Subject lines, in short (each was 2–3 variants; the best kept):
   spiral eyes, a wavy mouth, a sweat drop, lid knocked askew, a small ochre spill on the ground; preview,
   happy closed eyes, holding up a long-handled tasting spoon, one sparkle; night, asleep with a small crescent
   moon above.
-- **Starters** (plain tins without faces): static site, a single small snack tin with its lid ajar over a few
-  round cookies; API, a closed tin with a paper order slip clipped on (abstract lines and boxes only); Next.js,
-  a three-course lunch, three tins opened side by side (rice, soup, rolled bread) and a lid.
+- **Starters** (2026-10-06, not tins: they say what you make): a browser window with a slim title bar and a
+  page of flat blocks, a small database cylinder at its corner (web app); a plug about to meet its socket, an
+  ochre arrow in and a graphite arrow out (API); a single sheet with a folded corner (static site). Prompted with
+  "NO mascot and NO lunch tins", cut with `keep='all'` so the page inside each stays paper.
 - **Scenes:** a wooden hand cart with large spoked wheels carrying five tins, the mascot among them (og card);
   the same cart empty but for the mascot (first run); the mascot beside a two-shelf pantry of jars (backups);
   the mascot lifting its own lid under an empty dashed slot (empty inbox, 404).

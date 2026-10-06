@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { BarChart3, ChevronDown, Clock, Database, FolderPlus, GitBranch, Inbox, KeyRound, LayoutTemplate, Mail, Zap } from "lucide-react";
 import { lazy, Suspense, useState, type FormEvent, type ReactNode } from "react";
 import type { Manifest } from "@/api/client";
+import { BUILDS } from "@/components/build-settings";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/dropdown";
@@ -219,9 +220,9 @@ function AddApp({ project, manifest, routes, done }: { project: string; manifest
           </Field>
           <Field label="Framework">
             <select value={git.framework} onChange={(e) => setGit({ ...git, framework: e.target.value })} className={field}>
-              {["next", "hono", "bun", "static"].map((f) => (
-                <option key={f} value={f}>
-                  {frameworkName(f)}
+              {BUILDS.map((b) => (
+                <option key={b.value} value={b.value}>
+                  {b.label}
                 </option>
               ))}
             </select>

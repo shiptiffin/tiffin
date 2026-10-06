@@ -127,7 +127,7 @@ test("start flow", async ({ page, baseURL }) => {
   await page.emulateMedia({ colorScheme: theme });
   await signIn(page, baseURL!);
   await page.goto("/new");
-  await page.getByRole("radio", { name: new RegExp(`^${process.env.STARTER ?? "Next.js app"}`) }).click();
+  await page.getByRole("radio", { name: new RegExp(`^${process.env.STARTER ?? "Web app"}`) }).click();
   await page.getByLabel("Project name").fill(name);
   await page.getByRole("radio", { name: process.env.ENAMEL ?? "Plum" }).click();
   await page.getByRole("button", { name: `Create ${name}` }).waitFor();

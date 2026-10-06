@@ -8,6 +8,7 @@ import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { connectGitHub, ENV_NAME, githubQuery, installGitHub, parseEnv, repoQuery, reposQuery, shortSha, type GitHubRepo, type RepoRoot } from "@/lib/github";
+import { BuildSettings, buildNote, UNKNOWN_BUILD } from "@/components/build-settings";
 import { frameworkName } from "@/lib/starters";
 import { relative } from "@/lib/time";
 
@@ -33,13 +34,6 @@ export function checkPick(p: GitHubPick): { ok: true } | { ok: false; why: strin
 
 const field =
   "h-9 w-full rounded-[7px] border border-rule-2 bg-paper-raised px-2.5 text-[0.84375rem] text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]";
-
-const frameworks = [
-  { value: "next", label: "Next.js" },
-  { value: "hono", label: "Hono" },
-  { value: "bun", label: "Bun or Node server" },
-  { value: "static", label: "Static site" },
-];
 
 /**
  * Import from GitHub, inside New project: connect (if needed), pick a
@@ -233,7 +227,7 @@ function RepoSetup({ value, onChange }: { value: GitHubPick; onChange: (p: GitHu
       {det.isError && <ProblemNote className="mt-3" error={det.error} />}
       {d && (d.connected ?? []).length > 0 && <p className="mt-2 text-sm text-warn-ink">It already deploys to {d.connected!.join(", ")}. Importing again makes a second copy.</p>}
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <div className="mt-4 max-w-[22rem]">
         <label>
           <span className="mb-1 block text-xs text-ink-3">Production branch · every push to it goes live</span>
           <select value={value.branch} onChange={(e) => set({ branch: e.target.value })} className={cn(field, "ident")} disabled={!d}>
@@ -241,16 +235,6 @@ function RepoSetup({ value, onChange }: { value: GitHubPick; onChange: (p: GitHu
               <option key={b} value={b}>
                 {b}
                 {b === d?.defaultBranch ? " (default)" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span className="mb-1 block text-xs text-ink-3">Built as</span>
-          <select value={value.framework} onChange={(e) => set({ framework: e.target.value })} className={field}>
-            {frameworks.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
               </option>
             ))}
           </select>
@@ -295,23 +279,12 @@ function RepoSetup({ value, onChange }: { value: GitHubPick; onChange: (p: GitHu
               Found {frameworkName(appRoots[0].framework)} {appRoots[0].path ? <>in <span className="ident text-[0.75rem] text-ink-2">{appRoots[0].path}</span></> : "at the top"}: {appRoots[0].why}.
             </>
           ) : (
-            "No package.json or index.html found. The box will try to build it as a Bun app; pick another framework if that’s wrong."
+            UNKNOWN_BUILD
           )}
         </p>
       )}
-      <details className="group mt-3">
-        <summary className="cursor-pointer list-none text-[0.8125rem] text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
-          <span className="inline-block transition-transform group-open:rotate-90">›</span> Another folder
-        </summary>
-        <input
-          value={value.path}
-          onChange={(e) => set({ path: e.target.value.replace(/^\/+/, "") })}
-          placeholder="the top of the repository"
-          spellCheck={false}
-          className={cn(field, "ident mt-2 max-w-[22rem]")}
-          aria-label="Folder inside the repository"
-        />
-      </details>
+      {appRoots.length > 0 && buildNote(value.framework) && <p className="mt-2 text-sm text-ink-3">{buildNote(value.framework)}</p>}
+      <BuildSettings className="mt-3" framework={value.framework} onFramework={(framework) => set({ framework })} path={value.path} onPath={(path) => set({ path })} />
 
       <EnvRows env={value.env} onChange={(env) => set({ env })} />
 

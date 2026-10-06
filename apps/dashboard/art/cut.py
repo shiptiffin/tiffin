@@ -19,7 +19,7 @@ os.makedirs(OUT, exist_ok=True)
 #   band: None (leave the colours alone), 'largest' (the biggest ochre region is the band), or an
 #         (x0, y0, x1, y1) box to look in (scenes, where the cart's wood is ochre too)
 #   keep: centroids of enclosed paper-coloured pockets that are part of the drawing (a paper tag, rice),
-#         not background showing through (inside a handle, between spokes)
+#         not background showing through (inside a handle, between spokes); 'all' keeps every one
 JOBS = {
     'mascot-base': ('picks/mascot-base.png', 'largest', []),
     'mascot-live': ('picks/A-live.png', 'largest', []),
@@ -28,9 +28,9 @@ JOBS = {
     'mascot-failed': ('picks/A-failed.png', 'largest', []),
     'mascot-preview': ('picks/A-preview.png', 'largest', []),
     'mascot-night': ('raw/statesC/states-sleepy-2.png', 'largest', []),
-    'starter-static': ('picks/C-static.png', None, []),
-    'starter-api': ('picks/C-api.png', None, [(792, 734)]),
-    'starter-next': ('picks/C-next.png', None, [(299, 709)]),
+    'starter-static': ('picks/static.png', None, 'all'),
+    'starter-api': ('picks/api.png', None, 'all'),
+    'starter-web': ('picks/web-app.png', None, 'all'),
     'empty-projects': ('picks/E-no-projects.png', (650, 380, 840, 500), []),
     'empty-inbox': ('picks/E-empty-inbox.png', 'largest', []),
     'empty-backups': ('picks/D-backup.png', (1000, 300, 1400, 750), [(379, 368), (296, 647), (553, 657)]),
@@ -60,6 +60,8 @@ def background(a, B, keep):
         if i in edge:
             bg_labels.append(i); continue
         if means[i - 1] >= HOLE_MEAN:
+            continue
+        if keep == 'all':  # every enclosed pocket is drawing (a window's page, a sheet of paper)
             continue
         cy, cx = coms[i - 1]
         if any(abs(cx - kx) < 40 and abs(cy - ky) < 40 for kx, ky in keep):
