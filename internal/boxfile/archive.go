@@ -237,10 +237,50 @@ type TreeOptions struct {
 // are left out. A missing root writes nothing.
 func (w *Writer) WriteTree(prefix, root string, o TreeOptions) (Stats, error) {
 	var st Stats
+	err := walk(root, o, w.owners, func(rel string, hd *tar.Header, src string) error {
+		name := prefix
+		if rel != "" {
+			name = prefix + "/" + rel
+		}
+		if hd.Typeflag == tar.TypeDir {
+			name += "/"
+		}
+		hd.Name = name
+		if hd.Typeflag != tar.TypeReg {
+			return w.header(hd)
+		}
+		f, err := os.Open(src)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		defer f.Close()
+		if err := w.header(hd); err != nil {
+			return err
+		}
+		st.Files++
+		st.Bytes += hd.Size
+		return w.contentPadded(f, hd.Size)
+	})
+	return st, err
+}
+
+// Walk calls fn for root and every directory, regular file and symlink
+// under it (root first, with rel ""), with the header WriteTree writes for
+// it (Name empty): mode, owners by name, modification time and user.*
+// extended attributes as SCHILY.xattr.* PAX records. src is where a regular
+// file's content is read from (o.Replace applied). A missing root walks
+// nothing.
+func Walk(root string, o TreeOptions, fn func(rel string, hd *tar.Header, src string) error) error {
+	return walk(root, o, newOwnerCache(), fn)
+}
+
+func walk(root string, o TreeOptions, owners *ownerCache, fn func(rel string, hd *tar.Header, src string) error) error {
 	if _, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
-		return st, nil
+		return nil
 	}
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return nil // removed while walking (live copy)
@@ -276,15 +316,8 @@ func (w *Writer) WriteTree(prefix, root string, o TreeOptions) (Stats, error) {
 			return err
 		}
 		hd.Format = tar.FormatPAX
-		name := prefix
-		if rel != "." {
-			name = prefix + "/" + rel
-		}
-		if fi.IsDir() {
-			name += "/"
-		}
-		hd.Name = name
-		hd.Uname, hd.Gname = w.owners.names(hd.Uid, hd.Gid)
+		hd.Name = ""
+		hd.Uname, hd.Gname = owners.names(hd.Uid, hd.Gid)
 		hd.AccessTime, hd.ChangeTime = time.Time{}, time.Time{}
 		if fi.Mode()&os.ModeSymlink == 0 {
 			if xa, err := listXattrs(p); err == nil && len(xa) > 0 {
@@ -294,32 +327,19 @@ func (w *Writer) WriteTree(prefix, root string, o TreeOptions) (Stats, error) {
 				}
 			}
 		}
-		if !fi.Mode().IsRegular() {
-			return w.header(hd)
-		}
 		src := p
-		if alt, ok := o.Replace[rel]; ok {
+		if alt, ok := o.Replace[rel]; ok && fi.Mode().IsRegular() {
 			afi, err := os.Stat(alt)
 			if err != nil {
 				return err
 			}
 			src, hd.Size = alt, afi.Size()
 		}
-		f, err := os.Open(src)
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		} else if err != nil {
-			return err
+		if rel == "." {
+			rel = ""
 		}
-		defer f.Close()
-		if err := w.header(hd); err != nil {
-			return err
-		}
-		st.Files++
-		st.Bytes += hd.Size
-		return w.contentPadded(f, hd.Size)
+		return fn(rel, hd, src)
 	})
-	return st, err
 }
 
 // Written is the number of archive (compressed) bytes written so far.

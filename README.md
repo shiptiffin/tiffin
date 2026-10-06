@@ -18,8 +18,8 @@ claude mcp add tiffin -- tiffin mcp         # let your agent help, safely
 > **Status: pre-1.0.** Everything below runs today on a Lima VM on your Mac, and on a real
 > server: `tiffin up --provider hetzner` creates one on Hetzner Cloud, and
 > `tiffin up --provider ssh --host root@<ip>` installs on any Ubuntu server you can SSH into
-> ([quickstart](docs/guide/quickstart.md#run-it-on-a-server)). Cloudflare DNS is supported;
-> off-site backups are not yet. Interfaces may change.
+> ([quickstart](docs/guide/quickstart.md#run-it-on-a-server)). Cloudflare DNS and encrypted
+> off-box backup copies (any S3-compatible bucket) are supported. Interfaces may change.
 
 ## What's in the box
 
@@ -47,8 +47,8 @@ claude mcp add tiffin -- tiffin mcp         # let your agent help, safely
 ## Honest limits
 
 It is one machine: if it's down, your app is down. It is made for side projects,
-experiments and small apps, not banks. Backups stay on the box; off-site storage is not
-supported yet. Read [docs/guide/security.md](docs/guide/security.md) before you put anything
+experiments and small apps, not banks. Backups stay on the box unless you copy them off it
+(`tiffin backups offsite set`). Read [docs/guide/security.md](docs/guide/security.md) before you put anything
 important on it.
 
 ## Docs

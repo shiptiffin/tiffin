@@ -185,7 +185,7 @@ type Ingest struct {
 }
 
 type ruleBody struct {
-	Kind        string  `json:"kind" enum:"disk,memory,cert_expiry,backup_age,error_spike,unit_restarts,unit_down,promql" doc:"What to watch. disk/memory: percent used. cert_expiry: hours left (short-lived internal certificates fire when past 80% of their lifetime). backup_age: hours since the newest backup file. error_spike: error events per project in 5 minutes. unit_restarts: restarts of a box service in 15 minutes. unit_down: a box service is not running. promql: any expression, fires per series above the threshold."`
+	Kind        string  `json:"kind" enum:"disk,memory,cert_expiry,backup_age,offsite_age,drill_failed,error_spike,unit_restarts,unit_down,promql" doc:"What to watch. disk/memory: percent used. cert_expiry: hours left (short-lived internal certificates fire when past 80% of their lifetime). backup_age: hours since the newest backup file. offsite_age: hours since the newest copy of the backups off the box (silent while copies are off). drill_failed: 1 when the last restore drill failed. error_spike: error events per project in 5 minutes. unit_restarts: restarts of a box service in 15 minutes. unit_down: a box service is not running. promql: any expression, fires per series above the threshold."`
 	Threshold   float64 `json:"threshold" doc:"Fires when the value is above this (below, for cert_expiry)"`
 	ForSeconds  int     `json:"forSeconds,omitempty" minimum:"0" maximum:"86400" doc:"The condition must hold this long before the alert fires. Default 0."`
 	Project     string  `json:"project,omitempty" doc:"error_spike only: watch one project (default every project)"`

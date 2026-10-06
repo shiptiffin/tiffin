@@ -448,3 +448,40 @@ func TestVictoriaRoundTrip(t *testing.T) {
 		t.Fatalf("overview: %d %v", code, out)
 	}
 }
+
+// Rules added after a box was seeded are installed once there too, and
+// stay deleted when the owner deletes them.
+func TestLaterDefaultRules(t *testing.T) {
+	ctx := context.Background()
+	st, err := OpenStore(filepath.Join(t.TempDir(), "observe.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A box seeded before the off-box rules existed, whose owner deleted disk-full.
+	for _, r := range DefaultRules[:4] {
+		if err := st.PutRule(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = st.SetSetting(ctx, "rules.seeded", "2026-09-01T00:00:00Z")
+	_, _ = st.DeleteRule(ctx, "disk-full")
+	if err := st.EnsureDefaultRules(ctx); err != nil {
+		t.Fatal(err)
+	}
+	names := func() string {
+		rs, _ := st.Rules(ctx)
+		var n []string
+		for _, r := range rs {
+			n = append(n, r.Name)
+		}
+		return strings.Join(n, ",")
+	}
+	if got := names(); got != "backup-stale,cert-expiring,memory-high,offsite-stale,restore-drill-failed" {
+		t.Fatalf("rules: %s", got)
+	}
+	_, _ = st.DeleteRule(ctx, "offsite-stale")
+	_ = st.EnsureDefaultRules(ctx)
+	if got := names(); strings.Contains(got, "offsite-stale") || strings.Contains(got, "disk-full") {
+		t.Fatalf("deleted rules came back: %s", got)
+	}
+}

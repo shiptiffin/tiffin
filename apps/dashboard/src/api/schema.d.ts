@@ -179,7 +179,7 @@ export interface paths {
         put?: never;
         /**
          * Run a restore drill of the newest backup
-         * @description Proves the newest successful backup can be restored. Restores the backup's Postgres part into a scratch directory on the data disk, starts a private temporary Postgres on it (unix socket only, WAL archiving off), counts the rows of every table in every database and checks that every database and table the box had when the backup was taken is there, then stops the temporary server and deletes the scratch copy. Nothing live changes: the live cluster, its WAL archive and the backup repository are only read. It runs in the background and returns the drill at once (status running, with its phase); poll GET /v1/backups/drills/{id} (`tiffin backups drills get <id>`) until status is passed or failed, or pass wait=true to wait up to 50 seconds. Refused with 409 when a drill is already running or the data disk has less free space than the backup's size plus 20%. Needs full access to all projects. To drill an older backup use POST /v1/backups/{id}/drill (`tiffin backups drills start <id>`).
+         * @description Proves the newest successful backup can be restored. Restores the backup's Postgres part into a scratch directory on the data disk, starts a private temporary Postgres on it (unix socket only, WAL archiving off), counts the rows of every table in every database and checks that every database and table the box had when the backup was taken is there, then stops the temporary server and deletes the scratch copy. Nothing live changes: the live cluster, its WAL archive and the backup repository are only read. It runs in the background and returns the drill at once (status running, with its phase); poll GET /v1/backups/drills/{id} (`tiffin backups drills get <id>`) until status is passed or failed, or pass wait=true to wait up to 50 seconds. Refused with 409 when a drill is already running or the data disk has less free space than the backup's size plus 20%. Needs full access to all projects. To drill an older backup use POST /v1/backups/{id}/drill (`tiffin backups drills start <id>`). With from=offsite the drill restores the copy in the bucket instead: Postgres from pgBackRest repo2 (WAL from there too), and every other part (Valkey, platform state, files) downloaded into the scratch directory, each chunk decrypted and checked, the platform state opened and SQLite databases checked. Scheduled drills alternate between the two.
          */
         post: operations["backup-drill"];
         delete?: never;
@@ -248,6 +248,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/backups/offsite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show where backups are copied off the box
+         * @description The off-box destination (S3-compatible bucket; never its secret or passphrase), its state (off, active, foreign) and the newest copy: when, what was sent, and any error.
+         */
+        get: operations["backups-offsite-show"];
+        /**
+         * Copy backups off the box
+         * @description Sets an S3-compatible bucket (Cloudflare R2, AWS S3, Hetzner Object Storage, MinIO) where every backup set is copied, encrypted: Postgres as a second pgBackRest repository (aes-256-cbc, WAL archived there too), everything else (Valkey, platform state, files) as encrypted, deduplicated chunks. The destination is tested first (a test object is written, read and deleted). For a new destination a passphrase is generated and returned once: keep it, a new box needs it to restore. For a destination that already holds copies (restoring onto a new box), pass that passphrase. Box owner only.
+         */
+        put: operations["backups-offsite-set"];
+        post?: never;
+        /**
+         * Stop copying backups off the box
+         * @description Forgets the destination and its credentials; WAL is archived locally only again. The copies already in the bucket stay there (delete them in the bucket if you want them gone); keep the passphrase to restore them. Box owner only.
+         */
+        delete: operations["backups-offsite-off"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/backups/offsite/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy a backup off the box now
+         * @description Copies a backup set (default: the newest successful one) to the bucket now: an incremental Postgres backup to pgBackRest repo2 (a full one each week) and the set's other parts as encrypted chunks, only those the bucket lacks. Copies otherwise run by themselves after every backup. Waits up to timeoutSeconds (default 50) and returns the copy; status running means it carries on (see `tiffin backups offsite show`). Needs full access to all projects.
+         */
+        post: operations["backups-offsite-copy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/backups/offsite/sets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the backups in the bucket
+         * @description Backup sets copied to the off-box destination, newest first, read from the bucket (so a new box sees a lost box's sets): ID, when it was taken and copied, which box took it, and whether its Postgres backup is still there (restorable). Restore one with `tiffin restore <id> --from offsite`.
+         */
+        get: operations["backups-offsite-list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/backups/offsite/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test the off-box destination
+         * @description Writes a small random object to the bucket, reads it back, deletes it, and has pgBackRest list its repository there. Returns each step with its time; ok is false when one failed (the step says why).
+         */
+        post: operations["backups-offsite-test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/backups/schedule": {
         parameters: {
             query?: never;
@@ -279,7 +367,7 @@ export interface paths {
         put?: never;
         /**
          * Run a restore drill of a backup
-         * @description Proves this backup can be restored. Restores the backup's Postgres part into a scratch directory on the data disk, starts a private temporary Postgres on it (unix socket only, WAL archiving off), counts the rows of every table in every database and checks that every database and table the box had when the backup was taken is there, then stops the temporary server and deletes the scratch copy. Nothing live changes: the live cluster, its WAL archive and the backup repository are only read. It runs in the background and returns the drill at once (status running, with its phase); poll GET /v1/backups/drills/{id} (`tiffin backups drills get <id>`) until status is passed or failed, or pass wait=true to wait up to 50 seconds. Refused with 409 when a drill is already running or the data disk has less free space than the backup's size plus 20%. Needs full access to all projects.
+         * @description Proves this backup can be restored. Restores the backup's Postgres part into a scratch directory on the data disk, starts a private temporary Postgres on it (unix socket only, WAL archiving off), counts the rows of every table in every database and checks that every database and table the box had when the backup was taken is there, then stops the temporary server and deletes the scratch copy. Nothing live changes: the live cluster, its WAL archive and the backup repository are only read. It runs in the background and returns the drill at once (status running, with its phase); poll GET /v1/backups/drills/{id} (`tiffin backups drills get <id>`) until status is passed or failed, or pass wait=true to wait up to 50 seconds. Refused with 409 when a drill is already running or the data disk has less free space than the backup's size plus 20%. Needs full access to all projects. With from=offsite the drill restores the copy in the bucket instead: Postgres from pgBackRest repo2 (WAL from there too), and every other part (Valkey, platform state, files) downloaded into the scratch directory, each chunk decrypted and checked, the platform state opened and SQLite databases checked. Scheduled drills alternate between the two.
          */
         post: operations["backups-drills-start"];
         delete?: never;
@@ -299,7 +387,7 @@ export interface paths {
         put?: never;
         /**
          * Restore a backup
-         * @description Puts a backup back: by default the whole Postgres cluster and all Valkey data (targets: postgres, valkey, files). Everything changed since the backup is lost, so a safety backup of the current state is taken first. Without confirm nothing changes: you get status 428 with what would be overwritten and the confirm value. Box owner only.
+         * @description Puts a backup back: by default the whole Postgres cluster and all Valkey data (targets: postgres, valkey, files, platform, or all). Everything changed since the backup is lost, so a safety backup of the current state is taken first. id is a backup ID or latest. from=offsite restores the copy in the bucket (`tiffin backups offsite list`), which works on a new box after `tiffin backups offsite set ... --passphrase`: on a box with no projects every target is restored by default (platform: projects, settings, secrets, tokens, the box key; this box's owner token, domain and backup settings are kept), and no safety backup is taken. Without confirm nothing changes: you get status 428 with what would be overwritten and the confirm value. A restore from the bucket goes on if the call gives up waiting (pass timeoutSeconds to wait longer). Box owner only.
          */
         post: operations["backup-restore"];
         delete?: never;
@@ -4918,6 +5006,8 @@ export interface components {
              * @enum {string}
              */
             kind: "full" | "incremental";
+            /** @description Its copy off the box, when one was made */
+            offsite?: components["schemas"]["BackupOffsiteCopy"];
             platform: components["schemas"]["BackupPart"];
             postgres: components["schemas"]["BackupPostgresStruct"];
             /** Format: date-time */
@@ -4941,8 +5031,18 @@ export interface components {
         "Backup-restoreRequest": {
             /** @description The confirm value from the preview (status 428) */
             confirm?: string;
-            /** @description What to restore: postgres, valkey, files (default postgres and valkey) */
+            /**
+             * @description local (default): this box's copy; offsite: the copy in the bucket
+             * @enum {string}
+             */
+            from?: "local" | "offsite" | "";
+            /** @description What to restore: postgres, valkey, files, platform, all (default postgres and valkey; all on a box with no projects) */
             targets?: string[] | null;
+            /**
+             * Format: int64
+             * @description How long the call waits for a restore from the bucket (default 60 s; it goes on after)
+             */
+            timeoutSeconds?: number;
         };
         BackupDrill: {
             /** @description The backup set restored */
@@ -4975,6 +5075,8 @@ export interface components {
             id: string;
             /** @description The outcome in plain words */
             message: string;
+            /** @description An off-box drill's check of the set's other parts */
+            offsite?: components["schemas"]["BackupDrillOffsite"];
             /**
              * Format: int64
              * @description Rough progress of the restore phase, 0-100
@@ -4990,6 +5092,11 @@ export interface components {
             /** @description Scratch directory (deleted when the drill ends) */
             scratch: string;
             seconds: components["schemas"]["BackupDrillSeconds"];
+            /**
+             * @description local: the copy on this box; offsite: the copy in the bucket (Postgres from pgBackRest repo2, every other part downloaded and checked)
+             * @enum {string}
+             */
+            source: "local" | "offsite" | "";
             /** Format: date-time */
             startedAt: string;
             /** @enum {string} */
@@ -5026,6 +5133,25 @@ export interface components {
              * @description User tables in the restored copy
              */
             tables: number;
+        };
+        BackupDrillOffsite: {
+            /** Format: int64 */
+            bytes: number;
+            /** @description What was checked, in plain words */
+            checks: string[] | null;
+            /** Format: int64 */
+            chunks: number;
+            /**
+             * Format: int64
+             * @description Files downloaded (every chunk decrypted and checked against its ID)
+             */
+            files: number;
+            problems?: string[] | null;
+            /**
+             * Format: double
+             * @description Download and checks
+             */
+            seconds: number;
         };
         BackupDrillSeconds: {
             /**
@@ -5067,6 +5193,125 @@ export interface components {
             /** @description schema.table */
             table: string;
         };
+        BackupOffsite: {
+            accessKeyId?: string;
+            bucket?: string;
+            /** @description The set being copied now */
+            copying?: string;
+            customCa?: boolean;
+            /** @description Copies off the box are on */
+            enabled: boolean;
+            endpoint?: string;
+            /** @description The newest copy attempt */
+            lastCopy: components["schemas"]["BackupOffsiteCopy"];
+            /** @description The newest successful copy */
+            lastOk: components["schemas"]["BackupOffsiteCopy"];
+            /**
+             * Format: date-time
+             * @description When the newest successful copy finished
+             */
+            lastOkAt: string | null;
+            /** @description How it is going, in plain words */
+            message: string;
+            /** @description Shown once, when a new destination is set: keep it somewhere safe, off this box */
+            passphrase?: string;
+            passphraseNote?: string;
+            prefix?: string;
+            region?: string;
+            /** Format: int64 */
+            retentionDays?: number;
+            /** Format: date-time */
+            setAt?: string;
+            /**
+             * @description off; active (copies run); foreign (the destination holds another cluster's backups: restore them, or choose another prefix)
+             * @enum {string}
+             */
+            state: "off" | "active" | "foreign";
+            uriStyle?: string;
+        };
+        BackupOffsiteCopy: {
+            /** @description The backup set copied */
+            backup: string;
+            /** Format: int64 */
+            durationMs: number;
+            error?: string;
+            /** @description The set's other parts: Valkey, platform state, registered files */
+            files: components["schemas"]["BackupUploadStats"];
+            /** Format: date-time */
+            finishedAt?: string;
+            /**
+             * Format: int64
+             * @description What the Postgres backup added to the bucket (compressed)
+             */
+            postgresBytes: number;
+            /** @description The pgBackRest backup in the bucket (repo2) */
+            postgresLabel: string;
+            /** @enum {string} */
+            postgresType?: "full" | "incr" | "diff" | "";
+            /**
+             * Format: int64
+             * @description Bytes uploaded in all (Postgres plus new chunks)
+             */
+            sentBytes: number;
+            /** Format: date-time */
+            startedAt: string;
+            /** @enum {string} */
+            status: "running" | "ok" | "failed";
+        };
+        BackupOffsiteInput: {
+            /** @description Access key ID */
+            accessKeyId: string;
+            /** @description Bucket name (it must exist) */
+            bucket: string;
+            /** @description PEM certificate of a private CA that signs the endpoint's certificate (self-hosted MinIO) */
+            caCert?: string;
+            /** @description The S3 endpoint, e.g. https://<account>.r2.cloudflarestorage.com, https://s3.eu-central-1.amazonaws.com, https://fsn1.your-objectstorage.com (HTTPS) */
+            endpoint: string;
+            /** @description The passphrase of copies already at this destination (to restore them on a fresh box). Leave empty to have one generated for a new destination */
+            passphrase?: string;
+            /** @description Folder in the bucket for this box (default tiffin); one prefix per box */
+            prefix?: string;
+            /** @description Signing region (default us-east-1; R2: auto) */
+            region?: string;
+            /**
+             * Format: int64
+             * @description Days of off-box copies to keep (default 30)
+             */
+            retentionDays?: number;
+            /** @description Secret access key (stored sealed with the box key; never shown again). Optional when changing other settings of the same destination */
+            secretAccessKey?: string;
+            /**
+             * @description path (default: https://endpoint/bucket/key, works everywhere) or host (https://bucket.endpoint/key)
+             * @enum {string}
+             */
+            uriStyle?: "path" | "host" | "";
+        };
+        BackupOffsiteSet: {
+            /** @description Hostname of the box that took it */
+            box: string;
+            /** Format: date-time */
+            copiedAt: string;
+            /** Format: int64 */
+            files: number;
+            id: string;
+            /** @enum {string} */
+            kind: "full" | "incremental";
+            postgresLabel: string;
+            /** @description Its Postgres backup is still in the bucket (pgBackRest repo2) */
+            restorable: boolean;
+            /**
+             * Format: int64
+             * @description Postgres cluster plus the other parts
+             */
+            sizeBytes: number;
+            /** Format: date-time */
+            takenAt: string;
+        };
+        BackupOffsiteTest: {
+            destination: string;
+            ok: boolean;
+            steps: components["schemas"]["BackupProbeStep"][] | null;
+        };
         BackupOverview: {
             /** @description Newest first */
             backups: components["schemas"]["Backup"][] | null;
@@ -5079,6 +5324,8 @@ export interface components {
              * @description When the newest successful backup started
              */
             lastOkAt: string | null;
+            /** @description Copies off the box: on or off, the newest copy and its size (see GET /v1/backups/offsite) */
+            offsite: components["schemas"]["BackupOffsite"];
             /**
              * Format: int64
              * @description Disk used by the local backup repository and sets
@@ -5105,13 +5352,24 @@ export interface components {
             sizeBytes: number;
             type: string;
         };
+        BackupProbeStep: {
+            detail?: string;
+            /** Format: int64 */
+            ms: number;
+            name: string;
+            ok: boolean;
+        };
         BackupRestored: {
             backup: string;
             /** Format: int64 */
             durationMs: number;
-            /** @description The box's service restarts now to swap in the restored files (seconds) */
+            /** @enum {string} */
+            from: "local" | "offsite";
+            /** @description What else happened, in plain words */
+            notes?: string[] | null;
+            /** @description The box's service restarts now to swap in the restored files or state (seconds) */
             restarting?: boolean;
-            /** @description Backup of the state just before the restore; restore it to go back */
+            /** @description Backup of the state just before the restore; restore it to go back (empty on a box with no projects) */
             safetyBackup: string;
             targets: string[] | null;
         };
@@ -5140,6 +5398,41 @@ export interface components {
              * @description Full backups to keep, with their incrementals (default 7)
              */
             retainFull: number;
+        };
+        BackupUploadStats: {
+            /**
+             * Format: int64
+             * @description Size of the files in the set
+             */
+            bytes: number;
+            /** Format: int64 */
+            chunks: number;
+            /** Format: int64 */
+            files: number;
+            /**
+             * Format: int64
+             * @description Chunks the destination did not have yet
+             */
+            newChunks: number;
+            /**
+             * Format: int64
+             * @description Files unchanged since the last upload (not read again)
+             */
+            reusedFiles: number;
+            /**
+             * Format: int64
+             * @description Bytes uploaded (compressed and encrypted)
+             */
+            sentBytes: number;
+        };
+        "Backups-offsite-copyRequest": {
+            /** @description Backup ID (default the newest successful one) */
+            backup?: string;
+            /**
+             * Format: int64
+             * @description How long to wait for the copy (default 50)
+             */
+            timeoutSeconds?: number;
         };
         "Backups-schedule-setRequest": {
             /** @description Run restore drills automatically (default on) */
@@ -6875,10 +7168,10 @@ export interface components {
              */
             forSeconds?: number;
             /**
-             * @description What to watch. disk/memory: percent used. cert_expiry: hours left (short-lived internal certificates fire when past 80% of their lifetime). backup_age: hours since the newest backup file. error_spike: error events per project in 5 minutes. unit_restarts: restarts of a box service in 15 minutes. unit_down: a box service is not running. promql: any expression, fires per series above the threshold.
+             * @description What to watch. disk/memory: percent used. cert_expiry: hours left (short-lived internal certificates fire when past 80% of their lifetime). backup_age: hours since the newest backup file. offsite_age: hours since the newest copy of the backups off the box (silent while copies are off). drill_failed: 1 when the last restore drill failed. error_spike: error events per project in 5 minutes. unit_restarts: restarts of a box service in 15 minutes. unit_down: a box service is not running. promql: any expression, fires per series above the threshold.
              * @enum {string}
              */
-            kind: "disk" | "memory" | "cert_expiry" | "backup_age" | "error_spike" | "unit_restarts" | "unit_down" | "promql";
+            kind: "disk" | "memory" | "cert_expiry" | "backup_age" | "offsite_age" | "drill_failed" | "error_spike" | "unit_restarts" | "unit_down" | "promql";
             /** @description Rule name (lowercase slug) */
             name: string;
             /** @description error_spike only: watch one project (default every project) */
@@ -6901,10 +7194,10 @@ export interface components {
              */
             forSeconds?: number;
             /**
-             * @description What to watch. disk/memory: percent used. cert_expiry: hours left (short-lived internal certificates fire when past 80% of their lifetime). backup_age: hours since the newest backup file. error_spike: error events per project in 5 minutes. unit_restarts: restarts of a box service in 15 minutes. unit_down: a box service is not running. promql: any expression, fires per series above the threshold.
+             * @description What to watch. disk/memory: percent used. cert_expiry: hours left (short-lived internal certificates fire when past 80% of their lifetime). backup_age: hours since the newest backup file. offsite_age: hours since the newest copy of the backups off the box (silent while copies are off). drill_failed: 1 when the last restore drill failed. error_spike: error events per project in 5 minutes. unit_restarts: restarts of a box service in 15 minutes. unit_down: a box service is not running. promql: any expression, fires per series above the threshold.
              * @enum {string}
              */
-            kind: "disk" | "memory" | "cert_expiry" | "backup_age" | "error_spike" | "unit_restarts" | "unit_down" | "promql";
+            kind: "disk" | "memory" | "cert_expiry" | "backup_age" | "offsite_age" | "drill_failed" | "error_spike" | "unit_restarts" | "unit_down" | "promql";
             /** @description error_spike only: watch one project (default every project) */
             project?: string;
             /**
@@ -10904,6 +11197,8 @@ export interface operations {
             query?: {
                 /** @description Wait up to 50 seconds for the drill to finish before answering */
                 wait?: boolean;
+                /** @description local (default): the copy on this box; offsite: the copy in the bucket */
+                from?: "local" | "offsite" | "";
             };
             header?: never;
             path?: never;
@@ -11204,6 +11499,458 @@ export interface operations {
             };
         };
     };
+    "backups-offsite-show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupOffsite"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "backups-offsite-set": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackupOffsiteInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupOffsite"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "backups-offsite-off": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupOffsite"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "backups-offsite-copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Backups-offsite-copyRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupOffsiteCopy"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "backups-offsite-list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupOffsiteSet"][] | null;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "backups-offsite-test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackupOffsiteTest"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "backups-schedule-set": {
         parameters: {
             query?: never;
@@ -11278,6 +12025,8 @@ export interface operations {
             query?: {
                 /** @description Wait up to 50 seconds for the drill to finish before answering */
                 wait?: boolean;
+                /** @description local (default): the copy on this box; offsite: the copy in the bucket */
+                from?: "local" | "offsite" | "";
             };
             header?: never;
             path: {
@@ -11367,7 +12116,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Backup ID */
+                /** @description Backup ID, or latest (the newest successful one) */
                 id: string;
             };
             cookie?: never;
