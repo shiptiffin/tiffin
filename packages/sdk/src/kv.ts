@@ -727,7 +727,9 @@ export function kv(opts?: KVOptions): KV {
     if (!url) throw new KVError("KV: REDIS_URL is not set. Add services.valkey to tiffin.config.ts (the box sets it for your apps), or pass { url }.", "CONFIG");
     const timeout = o.timeoutMs ?? 5000;
     const Bun = bunRedis();
-    conn = Bun && o.driver !== "resp" ? new BunConn(url, timeout, Bun) : new RespConn(url, timeout);
+    // Bun's client can't parse the box's socket URLs (redis+unix://user:pass@/path).
+    const bun = Bun && (o.driver ?? "bun") === "bun" && !/^(redis\+)?unix:/.test(url);
+    conn = bun ? new BunConn(url, timeout, Bun) : new RespConn(url, timeout);
   }
   const store = new KV(conn, prefix, json);
   if (!opts) shared = store;

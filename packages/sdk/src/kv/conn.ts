@@ -131,7 +131,12 @@ export class BunConn implements Conn {
 
   send(cmd: string, args: string[]): Promise<unknown> {
     if (Date.now() < this.downUntil) return Promise.reject(new KVError("KV: cannot reach Valkey (retrying shortly)", "CONNECTION"));
-    const c = this.client();
+    let c: RedisLike & { connected?: boolean };
+    try {
+      c = this.client();
+    } catch (e) {
+      return Promise.reject(kvError(e, cmd));
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new KVError(`KV: Valkey did not answer ${cmd} within ${this.timeoutMs} ms`, "TIMEOUT")), this.timeoutMs);

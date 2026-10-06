@@ -31,7 +31,7 @@ async function freePort(): Promise<number> {
 }
 
 async function startServer(port: number) {
-  const p = Bun.spawn([bin!, "--port", String(port), "--bind", "127.0.0.1", "--aclfile", join(dir, "users.acl"), "--save", "", "--appendonly", "no", "--dir", dir], {
+  const p = Bun.spawn([bin!, "--port", String(port), "--bind", "127.0.0.1", "--aclfile", join(dir, "users.acl"), "--save", "", "--appendonly", "no", "--dir", dir, "--unixsocket", join(dir, `${port}.sock`)], {
     stdout: "ignore",
     stderr: "ignore",
   });
@@ -397,6 +397,13 @@ for (const driver of ["bun", "resp"] as const) {
       let v: unknown;
       for (let i = 0; i < 20 && v !== "hello"; i++) v = await s.get("str").catch(() => Bun.sleep(100));
       expect(v).toBe("hello");
+    });
+
+    test("the box's socket URLs work (Bun's client can't parse them: the SDK's own is used)", async () => {
+      const sock = kv({ url: `redis+unix://p_t:pw@${join(dir, `${port}.sock`)}`, prefix: "p_t:", driver });
+      stores.push(sock);
+      await sock.set("sock", { via: "socket" });
+      expect(await s.get<object>("sock")).toEqual({ via: "socket" });
     });
 
     test("command and client: the raw escape hatch", async () => {
