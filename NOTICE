@@ -6,6 +6,7 @@ This product includes software developed by Bilal Tahir (https://github.com/btah
 Third-party components (each under its own license; see the respective projects):
 - Caddy, caddy-ratelimit, caddy-crowdsec-bouncer, Coraza and the OWASP CRS (Apache-2.0)
 - containerd, nerdctl, runc, BuildKit (Apache-2.0); Railpack (MIT); Bun (MIT)
+- @workflow/world-postgres (Apache-2.0), added to builds of apps that use the Workflow DevKit
 - PostgreSQL (PostgreSQL License); pgvector (PostgreSQL License); pg_cron (PostgreSQL License)
 - Valkey (BSD-3-Clause); versitygw (Apache-2.0); River (MPL-2.0, used unmodified)
 - Better Auth (MIT); go-webauthn (BSD-3-Clause); age (BSD-3-Clause)

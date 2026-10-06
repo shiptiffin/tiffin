@@ -73,11 +73,16 @@ func writeNextAdapter(srcDir string, box nextBox) error {
 			return err
 		}
 	}
-	// A .dockerignore that leaves out dot-directories must not leave out
-	// the adapter (Railpack applies it to the build context).
+	return keepInBuild(srcDir, nextDir)
+}
+
+// keepInBuild makes sure a .dockerignore that leaves out dot-directories
+// does not leave out dir, which the box wrote (Railpack applies it to the
+// build context).
+func keepInBuild(srcDir, dir string) error {
 	di := filepath.Join(srcDir, ".dockerignore")
 	if raw, err := os.ReadFile(di); err == nil {
-		raw = append(raw, "\n!.tiffin\n!"+nextDir+"\n!"+nextDir+"/**\n"...)
+		raw = append(raw, "\n!.tiffin\n!"+dir+"\n!"+dir+"/**\n"...)
 		return os.WriteFile(di, raw, 0o644)
 	}
 	return nil
@@ -135,13 +140,13 @@ func prepareNext(req BuildRequest, env map[string]string) map[string]string {
 	return map[string]string{nextAdapterEnv: nextAdapterPath}
 }
 
-// hasValkey reports whether a project has the cache service.
-func (r *rt) hasValkey(ctx context.Context, project string) bool {
+// hasService reports whether a project has a service (valkey, postgres).
+func (r *rt) hasService(ctx context.Context, project, name string) bool {
 	_, res, err := r.p.DB.Load(ctx, project)
 	if err != nil {
 		return false
 	}
-	_, ok := res[change.KindService+"/valkey"]
+	_, ok := res[change.KindService+"/"+name]
 	return ok
 }
 

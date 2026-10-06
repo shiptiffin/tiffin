@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -243,6 +244,10 @@ func (r *rt) activate(w http.ResponseWriter, req *http.Request) {
 			http.Error(w, "no app is served here", http.StatusNotFound)
 			return
 		}
+	}
+	if workflowQueueRoute.MatchString(path.Clean(req.URL.Path)) {
+		http.NotFound(w, req)
+		return
 	}
 	st := r.st.cache.get(key)
 	if st != nil && st.Preview != "" {
