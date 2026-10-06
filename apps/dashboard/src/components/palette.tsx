@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { api } from "@/api/client";
+import { mq } from "@/api/modules";
 import { q } from "@/api/queries";
 import { asTier } from "@/lib/changes";
 import { copyText } from "@/lib/clipboard";
@@ -61,6 +62,8 @@ const projectPages: Array<[string, string, string[]]> = [
   ["Cache", "/projects/$project/data/kv", ["valkey", "redis", "key-value"]],
   ["KV console", "/projects/$project/data/kv/console", ["valkey", "redis", "commands", "cli", "cache"]],
   ["Files", "/projects/$project/storage", ["buckets", "storage", "s3", "upload"]],
+  ["New bucket", "/projects/$project/storage?new=bucket", ["files", "storage", "s3", "create bucket"]],
+  ["Connect to files", "/projects/$project/storage?connect=1", ["s3", "env", "keys", "endpoint", "credentials", "storage"]],
   ["Email", "/projects/$project/email", ["mail", "inbox", "relay"]],
   ["Jobs", "/projects/$project/queues", ["queues", "dead letter", "cron"]],
   ["Usage", "/projects/$project/usage", ["memory", "cpu", "limit", "resources", "copies", "scale"]],
@@ -79,6 +82,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const current = useCurrentProject();
   const { data: projects } = useQuery({ ...q.projects, enabled: open });
   const { data: changes } = useQuery({ ...q.changes(), enabled: open });
+  // The current project's buckets, so each is a keystroke away.
+  const files = useQuery({ ...mq.storage(current ?? ""), enabled: open && !!current, retry: false, refetchInterval: false });
   const [toast, setToast] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   // "scale web to 4" (or "scale web in shop to 4") makes the same change the copies stepper would.
@@ -189,6 +194,17 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                       })}
                     >
                       {label}
+                    </Item>
+                  ))}
+                  {(files.data?.buckets ?? []).map((b) => (
+                    <Item
+                      key={`bucket-${b.name}`}
+                      value={`${current} files bucket ${b.name}`}
+                      icon={<FolderClosed />}
+                      keywords={["bucket", "files", "upload", "s3"]}
+                      onSelect={run(() => navigate({ to: "/projects/$project/storage/$bucket", params: { project: current, bucket: b.name } }))}
+                    >
+                      Files: {b.name}
                     </Item>
                   ))}
                 </Command.Group>

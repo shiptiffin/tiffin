@@ -3548,6 +3548,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/storage/buckets/{bucket}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete files
+         * @description Deletes files, or everything under a folder (prefix ending in /). They are kept for 60 minutes: the reply's undo id puts them back (storage-undo); after that they are gone for good. A folder takes two steps: without confirm nothing changes and the reply is 428 with how many files and bytes would go; repeat with its confirm value.
+         */
+        post: operations["storage-objects-delete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/storage/buckets/{bucket}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a file
+         * @description The file's bytes, for the dashboard's previews and downloads (Range requests work). Images can be resized with w, q and f as on files.<domain>. Only images, video, audio and PDFs show inline; everything else downloads. Tools use a presigned URL instead.
+         */
+        get: operations["storage-object-file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/storage/buckets/{bucket}/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a link to a file
+         * @description A files.<domain> link anyone can open: the plain public URL for a public bucket, or for a private one a signed URL that works until expiresIn runs out (default an hour, at most 7 days). w, q and f resize an image (w: a Next.js width such as 640 or 1080; q: 50, 75, 90 or 100; f: webp, avif or original).
+         */
+        post: operations["storage-link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/storage/buckets/{bucket}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rename or move files
+         * @description Renames one file (to is its new key), moves files into a folder (to ends with /, they keep their names), or moves everything under prefix to under to instead (renaming or moving a folder). Nothing is overwritten: a file already there refuses it. The reply's undo id puts everything back for an hour.
+         */
+        post: operations["storage-objects-move"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/storage/buckets/{bucket}/object": {
         parameters: {
             query?: never;
@@ -3616,6 +3696,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/storage/buckets/{bucket}/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a large upload
+         * @description Starts an upload in parts for the dashboard, after checking the bucket's size and type rules and the storage limit. With uploadId it resumes instead and lists the parts already stored. Tools upload with a presigned URL instead.
+         */
+        post: operations["storage-upload-start"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/storage/buckets/{bucket}/uploads/{uploadId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Cancel a large upload
+         * @description Gives up on an upload and frees the parts stored so far.
+         */
+        delete: operations["storage-upload-abort"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/storage/buckets/{bucket}/uploads/{uploadId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish a large upload
+         * @description Joins the stored parts into the file, after checking the whole size against the bucket's rules (an upload over them is aborted).
+         */
+        post: operations["storage-upload-complete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/storage/buckets/{bucket}/uploads/{uploadId}/parts/{n}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Upload one part
+         * @description The raw bytes of part n (up to 64 MiB) of an upload from storage-upload-start.
+         */
+        put: operations["storage-upload-part"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/storage/connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Show how to connect to a project's files
+         * @description The S3 env every app in the project already has (endpoint, region, a variable per bucket, the key). The secret key shows only with reveal=true, which needs full access to the project; every reveal is recorded.
+         */
+        get: operations["storage-connection"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/storage/credentials": {
         parameters: {
             query?: never;
@@ -3650,6 +3830,26 @@ export interface paths {
          */
         put: operations["storage-quota-set"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/storage/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo a change to files
+         * @description Puts back what a move or delete did, once, within the hour. Refused when one of its files changed since, or a new file took an old place. The reply has its own undo id, to redo.
+         */
+        post: operations["storage-undo"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9426,6 +9626,30 @@ export interface components {
             hostname: string;
             os: string;
         };
+        "Storage-linkRequest": {
+            /**
+             * Format: int64
+             * @description Private buckets: seconds the link works (default 3600)
+             */
+            expiresIn?: number;
+            /**
+             * @description Format
+             * @enum {string}
+             */
+            f?: "webp" | "avif" | "original" | "";
+            /** @description Object key */
+            key: string;
+            /**
+             * Format: int64
+             * @description Quality
+             */
+            q?: number;
+            /**
+             * Format: int64
+             * @description Resize to this width
+             */
+            w?: number;
+        };
         "Storage-object-putRequest": {
             /** @description Content, base64-encoded (for binary files) */
             base64?: string;
@@ -9435,6 +9659,22 @@ export interface components {
             key: string;
             /** @description Content as text (UTF-8) */
             text?: string;
+        };
+        "Storage-objects-deleteRequest": {
+            /** @description For a folder: the confirm value from the 428 reply */
+            confirm?: string;
+            /** @description Files to delete */
+            keys?: string[] | null;
+            /** @description Or a folder (ending in /): everything under it */
+            prefix?: string;
+        };
+        "Storage-objects-moveRequest": {
+            /** @description Files to move */
+            keys?: string[] | null;
+            /** @description Or a folder (ending in /): everything under it */
+            prefix?: string;
+            /** @description The new key, or a folder ending in / */
+            to: string;
         };
         "Storage-presignRequest": {
             /** @description PUT only: the Content-Type the upload must send (signed into the URL) */
@@ -9476,6 +9716,24 @@ export interface components {
              */
             maxBytes: number;
         };
+        "Storage-undoRequest": {
+            /** @description The undo id from the change */
+            id: string;
+        };
+        "Storage-upload-completeRequest": {
+            key: string;
+        };
+        "Storage-upload-startRequest": {
+            contentType?: string;
+            key: string;
+            /**
+             * Format: int64
+             * @description The whole file's size in bytes
+             */
+            size: number;
+            /** @description Resume this upload */
+            uploadId?: string;
+        };
         StorageAuditIssue: {
             bucket: string;
             detail?: string;
@@ -9509,8 +9767,19 @@ export interface components {
             verified: number;
         };
         StorageBucketInfo: {
+            /** @description MIME types uploads may have (image/* matches a family); empty: any */
+            allowedTypes?: string[] | null;
             /** Format: int64 */
             bytes: number;
+            /** @description Websites that may upload from the browser; empty: the project's own apps */
+            cors?: string[] | null;
+            /** Format: date-time */
+            createdAt?: string;
+            /**
+             * Format: int64
+             * @description Largest file an upload may create, in bytes (0: no limit)
+             */
+            maxFileSize?: number;
             /** @description Bucket name in tiffin.config.ts */
             name: string;
             /** Format: int64 */
@@ -9526,6 +9795,44 @@ export interface components {
              * @enum {string}
              */
             state: "ready" | "pending";
+        };
+        StorageConnection: {
+            /** @description S3 endpoint for tools off the box (path-style) */
+            endpoint: string;
+            /** @description What every app in the project gets, already set */
+            env: components["schemas"]["StorageEnv"][] | null;
+            region: string;
+            /** @description The secret key is included */
+            revealed: boolean;
+        };
+        StorageEnv: {
+            name: string;
+            secret: boolean;
+            /** @description Empty for secrets unless revealed */
+            value: string;
+        };
+        StorageFileLink: {
+            /**
+             * Format: date-time
+             * @description Private buckets: when the signed link stops working
+             */
+            expiresAt?: string;
+            /** @description The bucket is public: the link never expires */
+            public: boolean;
+            url: string;
+        };
+        StorageFilesResult: {
+            /** Format: int64 */
+            bytes: number;
+            /**
+             * Format: int64
+             * @description How many files it moved, deleted or put back
+             */
+            files: number;
+            /** @description The keys it touched, the first 100 (moves: where they are now) */
+            keys: string[] | null;
+            /** @description Pass to storage-undo within an hour to put things back as they were */
+            undo?: string;
         };
         StorageInfo: {
             /** @description The project's S3 access key id (the secret is in the app env, or GET .../storage/credentials) */
@@ -9545,6 +9852,8 @@ export interface components {
             filesBytes: number;
             /** @description Public files base: <filesUrl>/<bucket>/<key> (public buckets only) */
             filesUrl: string;
+            /** @description Images can be resized on the fly (?w=&q=&f=): libvips is installed */
+            imageTransforms: boolean;
             /** @description S3 endpoint apps on the box use (env S3_ENDPOINT) */
             internalEndpoint: string;
             /**
@@ -9627,6 +9936,17 @@ export interface components {
             project: string;
             s3Name: string;
         };
+        StorageUploadSession: {
+            key: string;
+            /**
+             * Format: int64
+             * @description Every part but the last is this big
+             */
+            partSize: number;
+            /** @description Parts already stored (when resuming): send only the others */
+            parts: components["schemas"]["StorageUploadedPart"][] | null;
+            uploadId: string;
+        };
         StorageUploaded: {
             bucket: string;
             etag: string;
@@ -9635,6 +9955,16 @@ export interface components {
             size: number;
             /** @description Public URL (public buckets only) */
             url?: string;
+        };
+        StorageUploadedPart: {
+            etag: string;
+            /**
+             * Format: int64
+             * @description Part number, from 1
+             */
+            n: number;
+            /** Format: int64 */
+            size: number;
         };
         UndoBody: {
             /** @description The undo plan's hash (or its first 8+ characters). Without it the undo plan comes back with status 428. */
@@ -26012,6 +26342,363 @@ export interface operations {
             };
         };
     };
+    "storage-objects-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Bucket name */
+                bucket: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Storage-objects-deleteRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageFilesResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "storage-object-file": {
+        parameters: {
+            query: {
+                /** @description Object key */
+                key: string;
+                /** @description Resize images to this width */
+                w?: number;
+                /** @description Image quality: 50, 75, 90 or 100 */
+                q?: number;
+                /** @description Image format */
+                f?: "webp" | "avif" | "original" | "";
+                /** @description Save it rather than show it */
+                download?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Bucket name */
+                bucket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "storage-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Bucket name */
+                bucket: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Storage-linkRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageFileLink"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "storage-objects-move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Bucket name */
+                bucket: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Storage-objects-moveRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageFilesResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "storage-object-get": {
         parameters: {
             query: {
@@ -26392,6 +27079,477 @@ export interface operations {
             };
         };
     };
+    "storage-upload-start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Bucket name */
+                bucket: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Storage-upload-startRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageUploadSession"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "storage-upload-abort": {
+        parameters: {
+            query: {
+                key: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Bucket name */
+                bucket: string;
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "storage-upload-complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Bucket name */
+                bucket: string;
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Storage-upload-completeRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageUploaded"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "storage-upload-part": {
+        parameters: {
+            query: {
+                /** @description Object key */
+                key: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description Bucket name */
+                bucket: string;
+                /** @description From storage-upload-start */
+                uploadId: string;
+                /** @description Part number, from 1 */
+                n: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageUploadedPart"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "storage-connection": {
+        parameters: {
+            query?: {
+                /** @description Include the secret key */
+                reveal?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageConnection"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "storage-credentials": {
         parameters: {
             query?: never;
@@ -26516,6 +27674,96 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "storage-undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Storage-undoRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageFilesResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

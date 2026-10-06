@@ -229,6 +229,23 @@ files are kept: the bucket's directory moves to `/var/lib/tiffin/trash/storage` 
 frees the space now. Deleting single objects (`tiffin storage objects delete`) is
 immediate and final.
 
+## Renaming, moving and deleting files
+
+The dashboard's Files page (and the same operations from the CLI or an agent) renames
+and moves files without copying them, and deletes them with Undo: deleted files are
+kept for an hour, and the reply's undo id puts them back. A folder delete asks first,
+with how many files and bytes would go.
+
+```bash
+tiffin storage objects move shop uploads --to archive/ --keys a.png,b.png   # into a folder
+tiffin storage objects move shop uploads --prefix covers/ --to old-covers/  # rename a folder
+tiffin storage objects remove shop uploads --keys a.png                     # kept for an hour
+tiffin storage undo shop --id stu_...                                       # put it back
+tiffin storage link shop uploads --key a.png --expires-in 86400 --w 640     # a link that works for a day
+```
+
+Moves and renames don't publish `object.created`; the file is the same file.
+
 ## Checks and backups
 
 `tiffin storage audit <project>` reads every object, checks it against its recorded

@@ -486,3 +486,6 @@ func (f *frontServer) serveImage(w http.ResponseWriter, r *http.Request, meta *b
 	}
 	return true
 }
+
+// transforms reports whether images can be resized on this box.
+func (m *Module) transforms() bool { return m.imgEngine != nil || vipsBin() != "" }
