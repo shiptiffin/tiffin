@@ -1,5 +1,7 @@
-/apps/Web_App: name "Web_App" must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or dashes
+/apps/Web_App: name "Web_App" must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or single dashes, not ending in a dash
+/apps/web-: name "web-" must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or single dashes, not ending in a dash
+/apps/web--read: name "web--read" must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or single dashes, not ending in a dash
 /env/NUM: expected string, got number
 /env/lowercase: variable name "lowercase" must be UPPER_SNAKE_CASE: letters A-Z, digits and underscores, not starting with a digit
-/project: "My Project" must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or dashes
-/services/storage/buckets/Bad Bucket: name "Bad Bucket" must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or dashes
+/project: "My Project" must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or single dashes, not ending in a dash
+/services/storage/buckets/Bad Bucket: name "Bad Bucket" must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or single dashes, not ending in a dash

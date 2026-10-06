@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -637,5 +638,31 @@ func TestAuthEmailVerification(t *testing.T) {
 	}
 	if src := string(RenderConfig(m, "")); !strings.Contains(src, "emailVerification: false") {
 		t.Fatalf("render: %s", src)
+	}
+}
+
+func TestEvaluateWithinRefusesOutsideImports(t *testing.T) {
+	secret := filepath.Join(t.TempDir(), "engine.json")
+	if err := os.WriteFile(secret, []byte(`{"password":"hunter2"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	write := func(name, s string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("shared.ts", `export const name = "inside"`)
+	write("tiffin.config.ts", `import s from `+strconv.Quote(secret)+`
+import { name } from "./shared"
+throw new Error(name + JSON.stringify(s))`)
+	_, err := EvaluateJSONWithin(filepath.Join(dir, "tiffin.config.ts"), dir, nil)
+	if err == nil || strings.Contains(err.Error(), "hunter2") {
+		t.Fatalf("read a file outside the repository: %v", err)
+	}
+	write("tiffin.config.ts", `import { name } from "./shared"
+export default { project: name, apps: { web: {} } }`)
+	if _, err := EvaluateJSONWithin(filepath.Join(dir, "tiffin.config.ts"), dir, nil); err != nil {
+		t.Fatalf("an import inside the repository: %v", err)
 	}
 }

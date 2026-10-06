@@ -1171,7 +1171,7 @@ func TestRouteSplittingAndConflicts(t *testing.T) {
 	h.apply()
 	h.deploy("api", "", map[string]string{"index.ts": "v1"})
 	h.deploy("site", "", map[string]string{"index.html": "x"})
-	_, conflicts := h.r.routes(context.Background())
+	_, conflicts, _ := h.r.routes(context.Background())
 	if len(conflicts) != 1 || conflicts[0].Key != "shop.tiffin.localhost" {
 		t.Fatalf("conflicts %+v", conflicts)
 	}
@@ -1793,5 +1793,28 @@ func TestWarmUpYieldsToDeploys(t *testing.T) {
 	}
 	if len(h.r.build) != 0 {
 		t.Fatal("the build slot is still held")
+	}
+}
+
+// A state read that fails leaves the edge's routes as they were, rather
+// than sending it a list without the apps it could not read.
+func TestRoutesKeptWhenStateUnreadable(t *testing.T) {
+	h := newHarness(t)
+	h.deploy("site", "", map[string]string{"index.html": "x"})
+	h.edge.mu.Lock()
+	before := len(h.edge.routes)
+	h.edge.mu.Unlock()
+	if before == 0 {
+		t.Fatal("no routes after a deploy")
+	}
+	h.p.DB.Close()
+	if err := h.p.RefreshRoutes(context.Background()); err == nil {
+		t.Fatal("routes refreshed from an unreadable state")
+	}
+	h.edge.mu.Lock()
+	after := len(h.edge.routes)
+	h.edge.mu.Unlock()
+	if after != before || !h.p.RoutesStale() {
+		t.Fatalf("routes %d → %d, retry pending %v", before, after, h.p.RoutesStale())
 	}
 }

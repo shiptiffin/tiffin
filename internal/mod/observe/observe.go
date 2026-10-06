@@ -67,7 +67,7 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 	if root == "" {
 		root = "/var/lib/tiffin"
 	}
-	if err := m.setup(ctx, p, root, &Victoria{VM: "http://" + VMAddr, VL: "http://" + VLAddr}); err != nil {
+	if err := m.setup(ctx, p, root, &Victoria{VM: "http://" + VMAddr, VL: "http://" + VLAddr, Password: victoriaPassword()}); err != nil {
 		return err
 	}
 	for _, addr := range ListenAddrs(ctx, p, IngestPort) {

@@ -158,7 +158,10 @@ func (r *rt) setDispatch(t map[string][]switchboard.Route) {
 // routesChanged reports whether the edge needs new routes (hosts, paths,
 // file roots), as opposed to only instances changing behind the switchboard.
 func (r *rt) routesChanged(ctx context.Context) bool {
-	routes, _ := r.routes(ctx)
+	routes, _, err := r.routes(ctx)
+	if err != nil {
+		return true // RefreshRoutes reports it, and the edge keeps what it has
+	}
 	h := routesHash(routes)
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -88,6 +88,10 @@ for (const driver of ["bun", "resp"] as const) {
       expect(await s.get<any>("unicode")).toBe("héllo ✓ 日本");
       expect(await s.get<any>("missing")).toBeNull();
       expect(() => s.set("u", undefined)).toThrow(TypeError);
+      // No JSON form: refused before anything is sent, so the replies of
+      // the commands around it stay theirs.
+      expect(() => s.set("odd", { toJSON: () => undefined })).toThrow(TypeError);
+      expect(await Promise.all([s.get<string>("str"), s.get<number>("n")])).toEqual(["hello", 42]);
       // Raw: no JSON either way.
       const raw = s.raw();
       expect(await raw.get<any>("obj")).toBe('{"a":1,"b":[true,null,"x"]}');
@@ -388,6 +392,18 @@ for (const driver of ["bun", "resp"] as const) {
       expect(settled.filter((r) => r.status === "fulfilled").map((r) => (r as PromiseFulfilledResult<string>).value)).toEqual(["ok", "ok", "ok", "ok"]);
       expect(tries).toBe(2);
       expect(Date.now() - t0).toBeLessThan(1000);
+      // A refresh that outlived its lock leaves the next holder's lock and
+      // value alone.
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      const late = s.cached("c4", 1, async () => (await gate, "late"));
+      await Bun.sleep(50);
+      await server.admin.command("SET", "p_t:cached:c4:lock", "someone-else");
+      await server.admin.command("SET", "p_t:cached:c4", JSON.stringify({ v: "newer", t: Date.now() + 60_000 }));
+      release();
+      expect(await late).toBe("late");
+      expect(await server.admin.command<any>("GET", "p_t:cached:c4:lock")).toBe("someone-else");
+      expect(JSON.parse(await server.admin.command<any>("GET", "p_t:cached:c4")).v).toBe("newer");
       // stale: 0 waits for the fresh value.
       await s.cached("c2", 1, async () => "a", { stale: 0 });
       expect(await s.ttl("cached:c2")).toBe(1);

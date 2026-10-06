@@ -200,7 +200,9 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		}
 		_ = p.DB.Audit(ctx, pr.TokenID, "backup.restore", b.ID, map[string]any{"session": pr.Session, "targets": targets, "from": from})
 		if from == SourceLocal {
-			out, err := Restore(ctx, p, b, targets)
+			// Once it starts it runs to the end: a dropped connection must not
+			// stop it halfway with Postgres or Valkey down.
+			out, err := Restore(context.WithoutCancel(ctx), p, b, targets)
 			if err != nil {
 				return nil, busy(err)
 			}

@@ -91,6 +91,7 @@ export function checkName(name: string, taken: { projects: string[]; routes: str
   if (/[^a-z0-9-]/.test(name)) return { ok: false, why: "Lowercase letters, digits and dashes only." };
   if (name.length > 40) return { ok: false, why: "Keep it to 40 characters." };
   if (name.endsWith("-")) return { ok: false, why: "End with a letter or a digit." };
+  if (name.includes("--")) return { ok: false, why: "Use single dashes." };
   if (taken.projects.includes(name)) return { ok: false, why: `There’s already a project called ${name}.` };
   if (RESERVED.has(name)) return { ok: false, why: `The box keeps ${name}.… for itself. Pick another name.` };
   if (taken.routes.includes(name)) return { ok: false, why: `An app already answers at ${name}.…` };

@@ -772,9 +772,31 @@ func uncopyable(ctx context.Context, p *platform.Platform, b *Backup, now time.T
 	return ""
 }
 
+// saveRefs caches the chunks a set refers to. Pruning trusts the cache, so
+// it is whole or absent (and then read from the bucket): a file cut short by
+// a full disk would let pruning delete chunks the set still needs.
 func saveRefs(id string, refs []string) {
-	_ = os.MkdirAll(filepath.Dir(refsPath(id)), 0o700)
-	_ = os.WriteFile(refsPath(id), []byte(strings.Join(refs, "\n")), 0o600)
+	path := refsPath(id)
+	_ = os.MkdirAll(filepath.Dir(path), 0o700)
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return
+	}
+	_, err = f.WriteString(strings.Join(refs, "\n"))
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		_ = os.Remove(path)
+	}
 }
 
 // waitRun takes the backup lock, waiting up to d for a running backup.

@@ -1,4 +1,4 @@
-/crons/Bad Name: name "Bad Name" must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or dashes
+/crons/Bad Name: name "Bad Name" must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or single dashes, not ending in a dash
 /crons/chars/schedule: "0 0 $ * *" must be 5 space-separated cron fields (minute hour day-of-month month day-of-week, using digits and * , - / ? or month/day names) such as "*/15 * * * *", or one of @hourly, @daily, @weekly, @monthly
 /crons/incomplete: missing required field(s): schedule
 /crons/macro/schedule: "@yearly" must be 5 space-separated cron fields (minute hour day-of-month month day-of-week, using digits and * , - / ? or month/day names) such as "*/15 * * * *", or one of @hourly, @daily, @weekly, @monthly

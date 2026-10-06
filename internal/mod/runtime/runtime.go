@@ -189,7 +189,9 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	go r.serveInternal(ctx, ln)
 	// The switchboard's table, with its routes, before anything sends it:
 	// a table without routes would send the edge's hosts nowhere.
-	r.routes(ctx)
+	if _, _, err := r.routes(ctx); err != nil {
+		r.p.Log.Error("runtime: the switchboard's first table", "err", err)
+	}
 	if p.Edge != nil {
 		p.Edge.TableSource(r.table)
 	}
@@ -372,6 +374,11 @@ func (r *rt) loop(ctx context.Context) {
 			cancel()
 			return
 		case <-t.C:
+			if r.p.RoutesStale() {
+				if err := r.p.RefreshRoutes(ctx); err != nil {
+					r.p.Log.Warn("runtime: retry the edge's routes", "err", err)
+				}
+			}
 			r.sleepIdle(ctx)
 			r.expirePreviews(ctx)
 			r.reapDrained(ctx)

@@ -12,7 +12,7 @@
       "const": 1
     },
     "project": {
-      "description": "Project slug: a lowercase letter followed by up to 39 lowercase letters, digits or dashes (1-40 chars).",
+      "description": "Project slug: a lowercase letter followed by up to 39 lowercase letters, digits or single dashes, not ending in a dash (1-40 chars).",
       "$ref": "#/$defs/slug"
     },
     "resources": {
@@ -66,8 +66,9 @@
   "$defs": {
     "slug": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9-]{0,39}$",
-      "description": "Lowercase letter followed by up to 39 lowercase letters, digits or dashes."
+      "pattern": "^[a-z](-?[a-z0-9]){0,39}$",
+      "maxLength": 40,
+      "description": "Lowercase letter followed by up to 39 lowercase letters, digits or single dashes, not ending in a dash. Names join with \"__\" in database, role and key names, so a double dash would collide with another project's."
     },
     "topicName": {
       "type": "string",

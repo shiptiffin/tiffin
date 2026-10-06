@@ -104,7 +104,7 @@ func collectAt(ve *jsonschema.ValidationError, at string, out *[]FieldError) {
 
 // patternHints explains the patterns in schema.json in plain language.
 var patternHints = map[string]string{
-	"^[a-z][a-z0-9-]{0,39}$":      "must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or dashes",
+	"^[a-z](-?[a-z0-9]){0,39}$":   "must be a slug: a lowercase letter followed by up to 39 lowercase letters, digits or single dashes, not ending in a dash",
 	"^[a-z][a-z0-9.-]{0,63}$":     "must be a topic name: a lowercase letter followed by up to 63 lowercase letters, digits, dots or dashes, such as \"order.created\"",
 	"^[A-Z_][A-Z0-9_]*$":          "must be UPPER_SNAKE_CASE: letters A-Z, digits and underscores, not starting with a digit",
 	"^/":                          "must start with \"/\"",

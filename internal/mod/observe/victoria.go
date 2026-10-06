@@ -3,6 +3,8 @@ package observe
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,7 +43,8 @@ var (
 )
 
 // Local addresses. Both stores listen on loopback only; the API is the only
-// way in from outside.
+// way in from outside. Apps share the host's network, so loopback alone
+// does not keep them out: both stores also want a password (authFile).
 const (
 	VMAddr = "127.0.0.1:8428"
 	VLAddr = "127.0.0.1:9428"
@@ -52,7 +55,10 @@ const (
 	DataDir      = "/var/lib/tiffin/observe"
 	binDir       = "/var/lib/tiffin/observe/bin"
 	settingsFile = "/var/lib/tiffin/observe/retention.env"
-	AppLogsDir   = "/var/lib/tiffin/logs/apps"
+	// authFile holds the stores' password (root only), as environment
+	// variables they read with -envflag.enable.
+	authFile   = "/var/lib/tiffin/observe/auth.env"
+	AppLogsDir = "/var/lib/tiffin/logs/apps"
 )
 
 // Default retention, overridable with the observe-settings-set operation.
@@ -78,7 +84,8 @@ User=tiffin-observe
 Group=tiffin-observe
 Environment=METRICS_RETENTION=30d
 EnvironmentFile=-` + settingsFile + `
-ExecStart=` + binDir + `/victoria-metrics-%s -storageDataPath=` + DataDir + `/metrics -retentionPeriod=${METRICS_RETENTION} -httpListenAddr=` + VMAddr + ` -search.latencyOffset=5s -memory.allowedPercent=20 -loggerLevel=WARN
+EnvironmentFile=` + authFile + `
+ExecStart=` + binDir + `/victoria-metrics-%s -envflag.enable -storageDataPath=` + DataDir + `/metrics -retentionPeriod=${METRICS_RETENTION} -httpListenAddr=` + VMAddr + ` -search.latencyOffset=5s -memory.allowedPercent=20 -loggerLevel=WARN
 Restart=always
 RestartSec=2
 LimitNOFILE=65536
@@ -97,7 +104,8 @@ User=tiffin-observe
 Group=tiffin-observe
 Environment=LOGS_RETENTION=14d
 EnvironmentFile=-` + settingsFile + `
-ExecStart=` + binDir + `/victoria-logs-%s -storageDataPath=` + DataDir + `/logs -retentionPeriod=${LOGS_RETENTION} -retention.maxDiskUsagePercent=80 -httpListenAddr=` + VLAddr + ` -memory.allowedPercent=15 -loggerLevel=WARN
+EnvironmentFile=` + authFile + `
+ExecStart=` + binDir + `/victoria-logs-%s -envflag.enable -storageDataPath=` + DataDir + `/logs -retentionPeriod=${LOGS_RETENTION} -retention.maxDiskUsagePercent=80 -httpListenAddr=` + VLAddr + ` -memory.allowedPercent=15 -loggerLevel=WARN
 Restart=always
 RestartSec=2
 LimitNOFILE=65536
@@ -123,6 +131,16 @@ func (m *Module) Provision(ctx context.Context, s *platform.System) error {
 	}
 	if _, err := s.Run(ctx, "chown", "tiffin-observe:tiffin-observe", DataDir+"/metrics", DataDir+"/logs"); err != nil {
 		return err
+	}
+	if _, err := os.Stat(authFile); err != nil {
+		b := make([]byte, 24)
+		if _, err := rand.Read(b); err != nil {
+			return err
+		}
+		env := "httpAuth_username=" + authUser + "\nhttpAuth_password=" + hex.EncodeToString(b) + "\n"
+		if err := os.WriteFile(authFile, []byte(env), 0o600); err != nil {
+			return err
+		}
 	}
 	install := func(url, sum, member, dest string) error {
 		if fi, err := os.Stat(dest); err == nil && fi.Mode().IsRegular() {
@@ -194,12 +212,35 @@ func doRetry(req *http.Request) (*http.Response, error) {
 
 // Victoria talks to the local stores.
 type Victoria struct {
-	VM, VL string // base URLs, e.g. http://127.0.0.1:8428
+	VM, VL   string // base URLs, e.g. http://127.0.0.1:8428
+	Password string // the stores' password ("" for none)
+}
+
+const authUser = "tiffin"
+
+// victoriaPassword reads the password Provision gave the stores.
+func victoriaPassword() string {
+	raw, _ := os.ReadFile(authFile)
+	for _, line := range strings.Split(string(raw), "\n") {
+		if v, ok := strings.CutPrefix(line, "httpAuth_password="); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// newReq is a request to one of the stores, with their password.
+func (v *Victoria) newReq(ctx context.Context, method, url string, body io.Reader) *http.Request {
+	req, _ := http.NewRequestWithContext(ctx, method, url, body)
+	if v.Password != "" {
+		req.SetBasicAuth(authUser, v.Password)
+	}
+	return req
 }
 
 // PushPrometheus imports Prometheus text exposition lines into VictoriaMetrics.
 func (v *Victoria) PushPrometheus(ctx context.Context, body []byte) error {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, v.VM+"/api/v1/import/prometheus", bytes.NewReader(body))
+	req := v.newReq(ctx, http.MethodPost, v.VM+"/api/v1/import/prometheus", bytes.NewReader(body))
 	return do(req)
 }
 
@@ -225,7 +266,7 @@ type Tenant uint32
 func (v *Victoria) PushLogs(ctx context.Context, t Tenant, streamFields string, lines []byte) error {
 	q := url.Values{}
 	q.Set("_stream_fields", streamFields)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, v.VL+"/insert/jsonline?"+q.Encode(), bytes.NewReader(lines))
+	req := v.newReq(ctx, http.MethodPost, v.VL+"/insert/jsonline?"+q.Encode(), bytes.NewReader(lines))
 	req.Header.Set("Content-Type", "application/stream+json")
 	req.Header.Set("AccountID", strconv.FormatUint(uint64(t), 10))
 	req.Header.Set("ProjectID", "0")
@@ -243,7 +284,7 @@ func (v *Victoria) QueryLogs(ctx context.Context, t Tenant, query string, start,
 	if !end.IsZero() {
 		q.Set("end", end.UTC().Format(time.RFC3339Nano))
 	}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, v.VL+"/select/logsql/query", strings.NewReader(q.Encode()))
+	req := v.newReq(ctx, http.MethodPost, v.VL+"/select/logsql/query", strings.NewReader(q.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("AccountID", strconv.FormatUint(uint64(t), 10))
 	req.Header.Set("ProjectID", "0")
@@ -300,7 +341,7 @@ func (v *Victoria) QueryMetrics(ctx context.Context, query string, start, end ti
 		q.Set("time", strconv.FormatInt(end.Unix(), 10))
 	}
 	q.Set("timeout", "10s")
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, v.VM+path, strings.NewReader(q.Encode()))
+	req := v.newReq(ctx, http.MethodPost, v.VM+path, strings.NewReader(q.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	res, err := doRetry(req)
 	if err != nil {
@@ -323,7 +364,7 @@ func (v *Victoria) QueryMetrics(ctx context.Context, query string, start, end ti
 
 // Healthy checks both stores.
 func (v *Victoria) Healthy(ctx context.Context, base string) error {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, base+"/health", nil)
+	req := v.newReq(ctx, http.MethodGet, base+"/health", nil)
 	return do(req)
 }
 

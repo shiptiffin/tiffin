@@ -356,7 +356,15 @@ func ReadEnv(ctx context.Context, p *platform.Platform, project string) (map[str
 		return nil, err
 	}
 	u := url.URL{Scheme: "redis", User: url.UserPassword(ReadUser(project), pw), Host: "127.0.0.1:" + strconv.Itoa(Port)}
-	return map[string]string{"REDIS_URL": u.String(), "VALKEY_URL": u.String(), "VALKEY_PREFIX": prefix}, nil
+	env := map[string]string{"REDIS_URL": u.String(), "VALKEY_URL": u.String(), "VALKEY_PREFIX": prefix}
+	// The REST tokens too: a build reads through either, never writes.
+	rest, err := RESTEnv(ctx, p, project)
+	if err != nil {
+		return nil, err
+	}
+	ro := rest["KV_REST_API_READ_ONLY_TOKEN"]
+	env["UPSTASH_REDIS_REST_TOKEN"], env["KV_REST_API_TOKEN"] = ro, ro
+	return env, nil
 }
 
 // commandRules are the commands a project user may run.

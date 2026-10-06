@@ -406,8 +406,21 @@ func (e *Engine) deliver(ctx context.Context, j *jobRow, d *delivery) outcome {
 		return oc
 	}
 	defer res.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20+1))
+	raw, rerr := io.ReadAll(io.LimitReader(res.Body, 1<<20+1))
 	oc.status = res.StatusCode
+	if rerr != nil && res.StatusCode >= 200 && res.StatusCode < 300 {
+		// A success whose body never arrived whole (the app stalled or hung
+		// up mid-answer) is not one: delivery is at least once, so try again.
+		if c := context.Cause(rctx); c != nil && rctx.Err() != nil {
+			if errors.Is(c, errCancelled) {
+				oc.kind, oc.err = outcomeDead, "cancelled by an operator while running"
+				return oc
+			}
+			rerr = c
+		}
+		oc.kind, oc.err = outcomeRetry, fmt.Sprintf("the response (HTTP %d) was cut off: %v", res.StatusCode, rerr)
+		return oc
+	}
 	switch {
 	case res.StatusCode >= 200 && res.StatusCode < 300:
 		oc.kind = outcomeOK

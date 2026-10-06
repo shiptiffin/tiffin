@@ -262,7 +262,7 @@ func (r *rt) deployPush(ctx context.Context, say func(string, ...any), g hookGra
 		say("tiffin: no tiffin.config.ts at the top of the repository; nothing to deploy")
 		return
 	}
-	raw, err := manifest.EvaluateJSON(cfgPath, map[string]string{})
+	raw, err := manifest.EvaluateJSONWithin(cfgPath, root, map[string]string{})
 	if err != nil {
 		say("tiffin: tiffin.config.ts: %v", err)
 		return

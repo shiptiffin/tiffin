@@ -467,3 +467,52 @@ func TestChangesPagingAndAgentModel(t *testing.T) {
 		t.Fatalf("unknown cursor: %d", code)
 	}
 }
+
+func TestCookieChangesOnlyFromTheDashboard(t *testing.T) {
+	e := newEnv(t)
+	code, inv, _ := e.call(e.owner, "POST", "/v1/people", map[string]any{"name": "Sam", "email": "sam@example.com", "role": "member"})
+	if code != 200 {
+		t.Fatalf("invite: %d", code)
+	}
+	codeStr := strings.SplitN(inv["url"].(string), "#", 2)[1]
+	res, err := http.Post(e.srv.URL+"/v1/session", "application/json", strings.NewReader(`{"code":"`+codeStr+`"}`))
+	if err != nil || res.StatusCode != 200 {
+		t.Fatalf("redeem: %v", err)
+	}
+	res.Body.Close()
+	var cookie *http.Cookie
+	for _, c := range res.Cookies() {
+		if c.Name == api.SessionCookie {
+			cookie = c
+		}
+	}
+	// refused reports whether the CSRF check (not the member's role) refused it.
+	refused := func(method string, headers ...string) bool {
+		req, _ := http.NewRequest(method, e.srv.URL+"/v1/plan", strings.NewReader(`{"manifest":{"project":"shop"}}`))
+		req.AddCookie(cookie)
+		for i := 0; i < len(headers); i += 2 {
+			req.Header.Set(headers[i], headers[i+1])
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		return res.StatusCode == 403 && strings.Contains(string(body), "another site")
+	}
+	// An app on the box posting with the cookie (no Content-Type: no preflight).
+	if !refused("POST", "Sec-Fetch-Site", "same-site", "Origin", "https://shop.box.example") {
+		t.Fatal("a same-site app's request was let through")
+	}
+	if !refused("POST", "Origin", "https://shop.box.example") {
+		t.Fatal("another origin without Sec-Fetch-Site was let through")
+	}
+	host := strings.TrimPrefix(e.srv.URL, "http://")
+	if refused("POST", "Sec-Fetch-Site", "same-origin") || refused("POST", "Origin", "http://"+host) || refused("POST") {
+		t.Fatal("the dashboard's own request was refused")
+	}
+	if refused("GET", "Sec-Fetch-Site", "cross-site") {
+		t.Fatal("a read was refused")
+	}
+}

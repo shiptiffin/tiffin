@@ -348,9 +348,10 @@ type Platform struct {
 	// (disk, memory, edge) included. Nil: Checks.
 	BoxChecks func(ctx context.Context) []Check
 
-	rec      *reconciler
-	started  atomic.Bool
-	starting atomic.Bool
+	rec         *reconciler
+	started     atomic.Bool
+	starting    atomic.Bool
+	routesStale atomic.Bool
 }
 
 // Started reports whether Start finished: every module started. Health
@@ -380,6 +381,16 @@ func (p *Platform) RefreshRoutes(ctx context.Context) error {
 	if p.Edge == nil || p.starting.Load() {
 		return nil
 	}
+	err := p.refreshRoutes(ctx)
+	p.routesStale.Store(err != nil)
+	return err
+}
+
+// RoutesStale reports that the last RefreshRoutes failed: the edge still
+// serves the routes before it, and the runtime's housekeeping retries.
+func (p *Platform) RoutesStale() bool { return p.routesStale.Load() }
+
+func (p *Platform) refreshRoutes(ctx context.Context) error {
 	var all []edge.Route
 	for _, m := range Modules() {
 		if rp, ok := m.(RouteProvider); ok {

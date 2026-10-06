@@ -323,7 +323,10 @@ func restorePostgres(ctx context.Context, p *platform.Platform, src restoreFrom)
 	if rerr == nil && src.repo == 2 {
 		note, rerr = adoptCluster(ctx, p)
 	}
-	// Start again whatever happened: after a failed restore the old data is still there (--delta only rewrites what differs).
+	// Start again whatever happened. A restore that failed partway may have
+	// rewritten some files already; the safety backup taken before it is how
+	// to get back.
+	ctx = context.WithoutCancel(ctx)
 	if err := systemctl(ctx, "start", postgres.UnitName); err != nil && rerr == nil {
 		rerr = err
 	}
@@ -387,11 +390,15 @@ func restoreValkey(ctx context.Context, dir string) error {
 // src (box imports use it too). With AOF on, Valkey loads only the AOF at
 // startup, so the RDB is loaded by a temporary server with AOF off, which
 // then rewrites a fresh AOF from it. Valkey is down meanwhile.
-func RestoreValkeyRDB(ctx context.Context, src string) error {
+func RestoreValkeyRDB(ctx context.Context, src string) (err error) {
 	if err := systemctl(ctx, "stop", valkey.UnitName); err != nil {
 		return err
 	}
-	defer func() { _ = systemctl(context.WithoutCancel(ctx), "start", valkey.UnitName) }()
+	defer func() {
+		if serr := systemctl(context.WithoutCancel(ctx), "start", valkey.UnitName); err == nil && serr != nil {
+			err = fmt.Errorf("start valkey after the restore: %w", serr)
+		}
+	}()
 	stamp := strconv.FormatInt(time.Now().Unix(), 10)
 	aof := filepath.Join(valkey.DataDir, "appendonlydir")
 	aside := aof + ".pre-restore-" + stamp
@@ -399,6 +406,14 @@ func RestoreValkeyRDB(ctx context.Context, src string) error {
 		if err := os.Rename(aof, aside); err != nil {
 			return err
 		}
+		// On any failure from here, put the old AOF back so the server
+		// comes up with the old data (it loads only the AOF).
+		defer func() {
+			if err != nil {
+				os.RemoveAll(aof)
+				_ = os.Rename(aside, aof)
+			}
+		}()
 	}
 	rdb := filepath.Join(valkey.DataDir, "dump.rdb")
 	if _, err := datakit.Run(ctx, "cp", "--reflink=auto", src, rdb); err != nil {
@@ -408,9 +423,6 @@ func RestoreValkeyRDB(ctx context.Context, src string) error {
 		return err
 	}
 	if err := rewriteAOF(ctx); err != nil {
-		// Put the old AOF back so the server comes up with the old data.
-		os.RemoveAll(aof)
-		_ = os.Rename(aside, aof)
 		return err
 	}
 	os.RemoveAll(aside)

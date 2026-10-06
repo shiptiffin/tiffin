@@ -86,7 +86,10 @@ export class Commands {
                 return String(v);
             throw new TypeError("KV: with json: false, values must be strings or numbers");
         }
-        return JSON.stringify(v);
+        const s = JSON.stringify(v);
+        if (typeof s !== "string")
+            throw new TypeError("KV: this value has no JSON form (its toJSON returns undefined)");
+        return s;
     }
     /** A stored value back: JSON parsed (as @upstash/redis does), else the string. */
     dec = (v) => {
@@ -525,21 +528,27 @@ export class KV extends Commands {
         const k = `cached:${key}`;
         const lock = `${k}:lock`;
         const lockSec = Math.max(5, Math.min(60, Math.ceil(ttl)));
+        // The lock holds a token of its own, so a refresh that outlived its lock
+        // neither lets go of the next caller's lock nor overwrites its value.
+        const token = crypto.randomUUID();
         const read = async () => {
             const raw = await this.conn.send("GET", [this.key(k)]);
             return raw == null ? undefined : JSON.parse(String(raw));
         };
+        const finish = (value, px) => this.conn.send("EVAL", [CACHED_FINISH_LUA, "2", this.key(k), this.key(lock), token, value, px]);
         const refresh = async () => {
+            let v;
             try {
-                const v = await fn();
-                await this.conn.send("SET", [this.key(k), JSON.stringify({ v, t: Date.now() + ttl * 1000 }), "PX", String(Math.ceil((ttl + stale) * 1000))]);
-                return v;
+                v = await fn();
             }
-            finally {
-                await this.conn.send("DEL", [this.key(lock)]).catch(() => { });
+            catch (e) {
+                await finish("", "0").catch(() => { });
+                throw e;
             }
+            await finish(JSON.stringify({ v, t: Date.now() + ttl * 1000 }), String(Math.ceil((ttl + stale) * 1000)));
+            return v;
         };
-        const take = async () => (await this.conn.send("SET", [this.key(lock), "1", "NX", "EX", String(lockSec)])) != null;
+        const take = async () => (await this.conn.send("SET", [this.key(lock), token, "NX", "EX", String(lockSec)])) != null;
         let hit = await read();
         if (hit && hit.t > Date.now())
             return hit.v;
@@ -615,3 +624,12 @@ export function kv(opts) {
         shared = store;
     return store;
 }
+/**
+ * Ends a cached() refresh: stores the value (when there is one) unless
+ * another caller holds the lock now, and lets go of the lock only if it is
+ * still this caller's. KEYS: value, lock. ARGV: token, value, PX.
+ */
+const CACHED_FINISH_LUA = `local l = redis.call("GET", KEYS[2])
+if ARGV[2] ~= "" and (l == ARGV[1] or not l) then redis.call("SET", KEYS[1], ARGV[2], "PX", ARGV[3]) end
+if l == ARGV[1] then redis.call("DEL", KEYS[2]) end
+return 0`;

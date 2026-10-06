@@ -13,6 +13,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"reflect"
 	"runtime"
@@ -175,9 +176,14 @@ func (a *API) authenticate(ctx huma.Context, next func(huma.Context)) {
 	cred := ctx.Header("Authorization")
 	if cred == "" {
 		// The dashboard authenticates with an HttpOnly, SameSite=Strict cookie.
-		// Mutations still need a JSON body or a non-simple method, which
-		// cross-site forms cannot send.
+		// Apps on the box are the same site as the dashboard, so the browser
+		// sends it with their requests too: changes must come from the
+		// dashboard's own pages.
 		if c, err := huma.ReadCookie(ctx, SessionCookie); err == nil {
+			if !sameOrigin(ctx) {
+				_ = huma.WriteErr(a.api, ctx, http.StatusForbidden, "This request came from another site; use the dashboard or an API key.")
+				return
+			}
 			cred = c.Value
 		}
 	}
@@ -1024,4 +1030,24 @@ func (a *API) Operations() []*huma.Operation {
 	}
 	slices.SortFunc(ops, func(x, y *huma.Operation) int { return strings.Compare(x.OperationID, y.OperationID) })
 	return ops
+}
+
+// sameOrigin reports whether a cookie-authenticated request may act: reads
+// always, changes only from the dashboard's own origin. Browsers say where a
+// request came from (Sec-Fetch-Site, or else Origin); clients that say
+// neither are not browsers, which carry no cookie of their own accord.
+func sameOrigin(ctx huma.Context) bool {
+	switch ctx.Method() {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	if s := ctx.Header("Sec-Fetch-Site"); s != "" {
+		return s == "same-origin" || s == "none"
+	}
+	o := ctx.Header("Origin")
+	if o == "" {
+		return true
+	}
+	u, err := url.Parse(o)
+	return err == nil && strings.EqualFold(u.Host, ctx.Host())
 }

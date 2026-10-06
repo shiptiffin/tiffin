@@ -162,7 +162,7 @@ function Shell({
   );
 }
 
-const slugOk = (s: string) => /^[a-z][a-z0-9-]{0,39}$/.test(s) && !s.endsWith("-");
+const slugOk = (s: string) => /^[a-z](-?[a-z0-9]){0,39}$/.test(s) && s.length <= 40;
 const say = (what: string) => void what; // the change's own toast says what happened
 const set = (project: string, e: Omit<Extract<StagedEdit, { kind: "set" }>, "kind">) => change(project, { kind: "set", ...e }, { immediate: true });
 

@@ -91,6 +91,11 @@ func (r *rt) seedDisks(ctx context.Context, image, user, root string, paths []st
 	}
 	for i, p := range paths {
 		from, to := filepath.Join(tmp, strconv.Itoa(i)), filepath.Join(root, p)
+		// The copy ran the image's own tools: a link here would be mounted
+		// as whatever host folder it points to.
+		if fi, err := os.Lstat(from); err != nil || !fi.IsDir() {
+			return &startError{msg: fmt.Sprintf("could not make the disk folder %s from the image: the copy is not a folder", p)}
+		}
 		if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
 			return err
 		}

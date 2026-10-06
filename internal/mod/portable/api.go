@@ -70,7 +70,7 @@ func (u *uploadInput) Resolve(ctx huma.Context) []error {
 
 // importUploadInput is a project archive upload, or with Check its check.
 type importUploadInput struct {
-	Name          string `query:"name" pattern:"^([a-z][a-z0-9-]{0,39})?$" doc:"The name it will be imported under: refused before the upload if it is not free here"`
+	Name          string `query:"name" pattern:"^([a-z](-?[a-z0-9]){0,39})?$" maxLength:"40" doc:"The name it will be imported under: refused before the upload if it is not free here"`
 	Check         bool   `query:"check" doc:"Store nothing: check the name and, if sent, the archive's start"`
 	ContentLength int64  `header:"Content-Length" doc:"Archive size in bytes"`
 	body          io.Reader

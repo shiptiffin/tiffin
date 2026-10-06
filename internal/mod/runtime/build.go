@@ -398,12 +398,18 @@ func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildRe
 	if rootRel == "." {
 		_ = os.Remove(filepath.Join(appDir, vercelcfg.File)) // config, not content (as on Vercel)
 	}
-	return b.serveFiles(req, filepath.Join(appDir, rootRel), rootRel, sf.spa)
+	return b.serveFiles(req, req.SrcDir, filepath.Join(appDir, rootRel), rootRel, sf.spa)
 }
 
-// serveFiles moves a build's output to where the edge serves it.
-func (b *boxBuilder) serveFiles(req BuildRequest, from, name string, spa bool) (BuildResult, error) {
+// serveFiles moves a build's output (from, inside root) to where the edge
+// serves it.
+func (b *boxBuilder) serveFiles(req BuildRequest, root, from, name string, spa bool) (BuildResult, error) {
 	d := req.Deploy
+	from, err := confinedDir(root, from)
+	if err != nil {
+		return BuildResult{}, &BuildError{Msg: "the built files can't be served: " + err.Error(),
+			Hint: "Links in the output may only point to files of the site itself."}
+	}
 	dest := filepath.Join(b.staticDir, d.Project, d.App, d.ID)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return BuildResult{}, err
@@ -437,9 +443,12 @@ func (b *boxBuilder) buildFiles(ctx context.Context, req BuildRequest, ref strin
 	if err := b.eng.CopyOut(cctx, ref, in, tmp); err != nil {
 		return BuildResult{}, fmt.Errorf("copy the built files out of the image: %w", err)
 	}
+	if err := plainTree(tmp); err != nil {
+		return BuildResult{}, fmt.Errorf("copy the built files out of the image: %w", err)
+	}
 	for i, dir := range dirs {
 		if from := filepath.Join(tmp, strconv.Itoa(i)); exists(filepath.Join(from, "index.html")) {
-			return b.serveFiles(req, from, dir, false)
+			return b.serveFiles(req, tmp, from, dir, false)
 		}
 	}
 	return BuildResult{}, &BuildError{Msg: "the build wrote no index.html in " + strings.Join(dirs, ", "),

@@ -259,7 +259,9 @@ func targetErrors(kind, base, name, app, rawURL, path string) []FieldError {
 }
 
 var (
-	slugRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
+	// slugRe is a name: no double dash, as names join with "__" in database,
+	// role and key names ("shop--read" would be shop's read-only role).
+	slugRe = regexp.MustCompile(`^[a-z](-?[a-z0-9]){0,39}$`)
 	// topicRe is a topic name: like a slug but dots are allowed ("order.created").
 	topicRe = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,63}$`)
 	// emailRe accepts a bare address: a local part, "@", and a dotted hostname.
@@ -305,7 +307,7 @@ func keyErrors(doc any) []FieldError {
 	var errs []FieldError
 	slug := func(base string, obj any) {
 		for key := range asMap(obj) {
-			if !slugRe.MatchString(key) {
+			if !slugRe.MatchString(key) || len(key) > 40 {
 				errs = append(errs, FieldError{Path: base + "/" + escapePointer(key), Message: fmt.Sprintf("name %q %s", key, patternHints[slugRe.String()])})
 			}
 		}

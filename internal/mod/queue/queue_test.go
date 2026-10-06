@@ -761,3 +761,29 @@ func TestOutbox(t *testing.T) {
 		t.Errorf("duplicate after redrain: %d jobs", len(js))
 	}
 }
+
+// A 200 whose body stalls past the lease is not a success.
+func TestCutOffSuccessIsRetried(t *testing.T) {
+	e := newEngine(t, nil)
+	a := newApp(t, e.Engine, proj)
+	var calls atomic.Int64
+	a.handle("/stall", func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Content-Length", "100")
+			w.WriteHeader(200)
+			w.(http.Flusher).Flush()
+			select {
+			case <-r.Context().Done():
+			case <-time.After(5 * time.Second):
+			}
+			return
+		}
+		w.WriteHeader(200)
+	})
+	e.configure(proj, QueueConfig{Name: "stall", URL: a.url("/stall"), LeaseS: 1})
+	id := e.send(proj, SendRequest{Name: "stall"}).Jobs[0]
+	j := e.waitState(proj, id, stateCompleted, 10*time.Second)
+	if len(j.Attempts) != 2 || !strings.Contains(j.Attempts[0].Error, "cut off") {
+		t.Errorf("attempts %+v", j.Attempts)
+	}
+}

@@ -54,13 +54,22 @@ export class RespClient {
         this.reset(new Error("client closed"), false);
     }
     enqueue(cmd) {
+        // Encoded before anything is queued: a command that cannot be sent must
+        // not leave a waiter behind, which would take the next command's reply.
+        let wire;
+        try {
+            wire = encode(cmd);
+        }
+        catch (e) {
+            return Promise.reject(e);
+        }
         return new Promise((resolve, reject) => {
             // The socket keeps the process alive only while a reply is due, so a
             // script that is done exits without close().
             if (this.waiters.length === 0)
                 this.sock?.ref();
             this.waiters.push({ resolve, reject });
-            this.out.push(encode(cmd));
+            this.out.push(wire);
             if (!this.timer)
                 this.arm();
             if (this.ready && !this.flushQueued) {

@@ -76,6 +76,13 @@ func Evaluate(path string, opts ...Option) (*Manifest, error) {
 // module access. The only globals beyond the language are `process.env`
 // (populated from env) and a silent `console`. .json files are read as-is.
 func EvaluateJSON(path string, env map[string]string) ([]byte, error) {
+	return EvaluateJSONWithin(path, "", env)
+}
+
+// EvaluateJSONWithin is EvaluateJSON for a config the box did not write
+// (a pushed repository): with root set, it may import only files under root,
+// so it cannot read the box's own files and show them in an error.
+func EvaluateJSONWithin(path, root string, env map[string]string) ([]byte, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -94,15 +101,23 @@ func EvaluateJSON(path string, env map[string]string) ([]byte, error) {
 		}
 		return raw, nil
 	}
-	code, err := bundle(abs)
+	code, err := bundle(abs, root)
 	if err != nil {
 		return nil, err
 	}
 	return run(base, code, env)
 }
 
-func bundle(abs string) (string, error) {
+func bundle(abs, root string) (string, error) {
 	dir, base := filepath.Dir(abs), filepath.Base(abs)
+	plugins := []api.Plugin{sdkPlugin()}
+	if root != "" {
+		real, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			return "", err
+		}
+		plugins = append(plugins, confinePlugin(real))
+	}
 	res := api.Build(api.BuildOptions{
 		EntryPoints:   []string{base},
 		AbsWorkingDir: dir,
@@ -116,7 +131,7 @@ func bundle(abs string) (string, error) {
 		LogLevel:      api.LogLevelSilent,
 		// Ignore any tsconfig.json so results do not depend on the host project.
 		TsconfigRaw: "{}",
-		Plugins:     []api.Plugin{sdkPlugin()},
+		Plugins:     plugins,
 	})
 	if len(res.Errors) > 0 {
 		lines := make([]string, 0, len(res.Errors))
@@ -145,6 +160,22 @@ func sdkPlugin() api.Plugin {
 			b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: "sdk-shim"}, func(api.OnLoadArgs) (api.OnLoadResult, error) {
 				s := sdkShim
 				return api.OnLoadResult{Contents: &s, Loader: api.LoaderJS}, nil
+			})
+		},
+	}
+}
+
+// confinePlugin refuses to load files outside root.
+func confinePlugin(root string) api.Plugin {
+	return api.Plugin{
+		Name: "confine",
+		Setup: func(b api.PluginBuild) {
+			b.OnLoad(api.OnLoadOptions{Filter: `.*`, Namespace: "file"}, func(a api.OnLoadArgs) (api.OnLoadResult, error) {
+				real, err := filepath.EvalSymlinks(a.Path)
+				if err != nil || (real != root && !strings.HasPrefix(real, root+string(filepath.Separator))) {
+					return api.OnLoadResult{}, errors.New("imports only files of the repository")
+				}
+				return api.OnLoadResult{}, nil // load it as usual
 			})
 		},
 	}

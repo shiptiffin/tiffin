@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -26,7 +27,10 @@ func (m *Module) Routes(ctx context.Context, p *platform.Platform) ([]edge.Route
 	if err != nil {
 		return nil, nil
 	}
-	routes, _ := r.routes(ctx)
+	routes, _, err := r.routes(ctx)
+	if err != nil {
+		return nil, err // the edge keeps the routes it has
+	}
 	r.mu.Lock()
 	r.loadedRoutes = routesHash(routes)
 	r.mu.Unlock()
@@ -63,17 +67,21 @@ func (m *Module) PreviewHosts(ctx context.Context, p *platform.Platform, project
 // routeConflict is a route two apps claim; the first (by project, app) wins.
 type routeConflict struct{ Key, Winner, Loser string }
 
-func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
+// routes returns every route, or an error when the state could not be read
+// in full: a partial list would take the missing apps off the edge.
+func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) {
 	states, err := r.st.allStates(ctx)
 	if err != nil {
-		r.p.Log.Error("runtime routes", "err", err)
-		return nil, nil
+		return nil, nil, fmt.Errorf("runtime routes: %w", err)
 	}
 	specs := map[string]map[string]*manifest.App{} // project → app → spec
+	var loadErr error
 	specOf := func(project, app string) *manifest.App {
 		if _, ok := specs[project]; !ok {
 			specs[project] = map[string]*manifest.App{}
-			if _, res, err := r.p.DB.Load(ctx, project); err == nil {
+			if _, res, err := r.p.DB.Load(ctx, project); err != nil {
+				loadErr = err
+			} else {
 				for addr, rs := range res {
 					if change.Kind(addr) == change.KindApp {
 						var a manifest.App
@@ -108,12 +116,18 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 			continue
 		}
 		spec := specOf(st.Project, st.App)
+		if loadErr != nil {
+			return nil, nil, fmt.Errorf("runtime routes: %w", loadErr)
+		}
 		if spec == nil || spec.Role == manifest.RoleWorker {
 			continue
 		}
 		d, err := r.st.getDeploy(ctx, st.Project, st.App, st.Live)
-		if err != nil {
+		if errors.Is(err, errNotFound) {
 			continue
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("runtime routes: %w", err)
 		}
 		who := st.Project + "/" + st.App
 		env := envKey(st.Project, st.App, st.Preview)
@@ -151,7 +165,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 	for _, c := range conflicts {
 		r.p.Log.Warn("route conflict", "route", c.Key, "served_by", c.Winner, "ignored", c.Loser)
 	}
-	return out, conflicts
+	return out, conflicts, nil
 }
 
 // livePrefix is where browsers watch jobs and workflow runs on every app host.
@@ -420,7 +434,7 @@ func (r *rt) checks(ctx context.Context) []platform.Check {
 	if c := r.diskCheck(ctx); c != nil {
 		out = append(out, *c)
 	}
-	if _, conflicts := r.routes(ctx); len(conflicts) > 0 {
+	if _, conflicts, _ := r.routes(ctx); len(conflicts) > 0 {
 		var parts []string
 		for _, cf := range conflicts {
 			parts = append(parts, cf.Key+" (served by "+cf.Winner+", not "+cf.Loser+")")

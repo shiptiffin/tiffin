@@ -153,6 +153,9 @@ func (r *rt) extractAssets(ctx context.Context, d *Deploy, dir string) (int, int
 	if err := r.eng.CopyOut(cctx, d.Image, dirs, tmp); err != nil {
 		return 0, 0, err
 	}
+	if err := plainTree(tmp); err != nil {
+		return 0, 0, err
+	}
 	// Lay them out by URL path, shortest first, so "/" never lands on a
 	// directory placed for a longer path.
 	order := make([]int, len(d.Assets))
