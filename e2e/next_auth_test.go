@@ -27,7 +27,10 @@ import (
 //	cookie gets past proxy.ts but not verifySession → sign in through a
 //	Server Action → each host gets its own passkey rpID → Server Actions on
 //	/sign-in don't count as sign-in attempts at the edge → the app's CSP
-//	frame-ancestors replaces X-Frame-Options → getSession latency per path.
+//	frame-ancestors replaces X-Frame-Options → getSession latency per path →
+//	a preview: the production account signs in there (host-only cookies,
+//	verifySession), a preview sign-up signs in on production, and the
+//	preview's host is its passkey rpID.
 func TestNextAuth(t *testing.T) {
 	start := time.Now()
 	phase := phaseLogger(t)
@@ -166,6 +169,55 @@ func TestNextAuth(t *testing.T) {
 		t.Fatalf("/: X-Frame-Options %q, want DENY", res.Header.Get("X-Frame-Options"))
 	}
 	phase("checks", p)
+
+	// ---- a preview: auth on its own host, on the project's users ----
+	p = time.Now()
+	pv := deployArgs(t, b, app, "--preview", "pr-1")
+	pu, _ := url.Parse(pv.URL)
+	if !strings.HasPrefix(pu.Hostname(), "pr-1--nextauth.") {
+		t.Fatalf("preview URL %s", pv.URL)
+	}
+	waitBody(t, b, pv.URL+"/api/auth/tiffin/config", `"methods"`, 30*time.Second)
+	pb := newBrowser(t, b, pv.URL)
+	if res := pb.do("GET", "/dashboard", nil, nil); res.StatusCode != 307 {
+		t.Fatalf("signed-out /dashboard on the preview: %d", res.StatusCode)
+	}
+	pvSignIn := pb.body(pb.do("GET", "/sign-in", nil, nil))
+	res = pb.submit("/sign-in", formByID(t, pvSignIn, "sign-in"), map[string]string{
+		"email": "ana@example.com", "password": "correct horse battery", "captcha": pb.captcha(),
+	})
+	if res.StatusCode != 303 || res.Header.Get("Location") != "/dashboard" || pb.cookie("__Secure-tiffin.session_data") == "" {
+		t.Fatalf("production account signs in on the preview: %d %q", res.StatusCode, res.Header.Get("Location"))
+	}
+	for _, c := range res.Header.Values("Set-Cookie") {
+		if strings.Contains(strings.ToLower(c), "domain=") {
+			t.Fatalf("preview cookies must be host-only: %s", c)
+		}
+	}
+	if dash := pb.body(pb.do("GET", "/dashboard", nil, nil)); !strings.Contains(dash, `id="who">ana@example.com<`) {
+		t.Fatalf("verifySession on the preview:\n%s", head(dash))
+	}
+	// A tester signing up on the preview is a user of the project.
+	tb := newBrowser(t, b, pv.URL)
+	res = tb.submit("/sign-in", formByID(t, pvSignIn, "sign-up"), map[string]string{
+		"email": "tess@example.com", "password": "correct horse battery", "captcha": tb.captcha(),
+	})
+	if res.StatusCode != 303 || tb.cookie("__Secure-tiffin.session_token") == "" {
+		t.Fatalf("sign-up on the preview: %d %q", res.StatusCode, res.Header.Get("Location"))
+	}
+	prodTess := newBrowser(t, b, site)
+	res = prodTess.submit("/sign-in", formByID(t, signInPage, "sign-in"), map[string]string{
+		"email": "tess@example.com", "password": "correct horse battery", "captcha": prodTess.captcha(),
+	})
+	if res.StatusCode != 303 || res.Header.Get("Location") != "/dashboard" {
+		t.Fatalf("preview sign-up signs in on production: %d %q", res.StatusCode, res.Header.Get("Location"))
+	}
+	var o struct{ RpID string }
+	_, _, raw := b.get(b.https(), "GET", pv.URL+"/api/auth/passkey/generate-authenticate-options", nil)
+	if json.Unmarshal([]byte(raw), &o); o.RpID != pu.Hostname() {
+		t.Fatalf("passkey rpID on the preview: %q (%s)", o.RpID, raw)
+	}
+	phase("preview", p)
 	t.Logf("TOTAL %s", time.Since(start).Round(time.Second))
 }
 

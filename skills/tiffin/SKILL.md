@@ -72,7 +72,8 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    `tiffin-sdk/next/image-loader` for next/image) instead of sharp in the app.
    Sign-in in Next.js: `tiffin-sdk/next/auth` (`authProxy` in proxy.ts; `verifySession` /
    `requireRole` where data is read; `signIn` / `signUp` / `signOut` in Server Actions with
-   `<CaptchaField />`); no auth route of your own: the box owns `/api/auth/*` on every app host.
+   `<CaptchaField />`); no auth route of your own: the box owns `/api/auth/*` on every app host,
+   previews included (the project's users, host-only cookies, the preview's own passkeys).
 7. Copying a project: `tiffin projects duplicate <p> <new>` (same box, own addresses; undo =
    destroy the copy), `tiffin projects export <p> [-o file]` (a .tiffin of plain files with a
    docker-compose.yml; `--include-secrets` puts them in plain text: ask first), `tiffin projects

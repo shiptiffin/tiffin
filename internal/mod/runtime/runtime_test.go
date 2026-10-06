@@ -1408,6 +1408,43 @@ func TestPreviewMailGoesToTheDevInbox(t *testing.T) {
 	}
 }
 
+// Auth on previews: the auth module learns their hosts from PreviewHosts,
+// and a preview's auth env names its own host.
+func TestPreviewAuth(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	h.mf.Env["TIFFIN_AUTH_URL"] = "https://shop-api.tiffin.localhost:8443/api/auth"
+	h.mf.Env["TIFFIN_AUTH_HOST"] = "shop-api.tiffin.localhost"
+	h.apply()
+	h.deploy("api", "", map[string]string{"index.ts": "prod"})
+	if hosts, err := h.m.PreviewHosts(ctx, h.p, "shop"); err != nil || len(hosts) != 0 {
+		t.Fatalf("no previews yet: %v %v", hosts, err)
+	}
+	h.deploy("api", "feat-a", map[string]string{"index.ts": "pv"})
+	const host = "feat-a--shop-api.tiffin.localhost"
+	if hosts, _ := h.m.PreviewHosts(ctx, h.p, "shop"); len(hosts) != 1 || hosts[host] != "api" {
+		t.Fatalf("preview hosts: %v", hosts)
+	}
+	got := map[string]map[string]string{}
+	h.eng.mu.Lock()
+	for _, c := range h.eng.ctrs {
+		got[c.spec.Env["TIFFIN_PREVIEW"]] = c.spec.Env
+	}
+	h.eng.mu.Unlock()
+	if got[""]["TIFFIN_AUTH_HOST"] != "shop-api.tiffin.localhost" {
+		t.Errorf("production auth env changed: %v", got[""])
+	}
+	if e := got["feat-a"]; e["TIFFIN_AUTH_URL"] != "https://"+host+":8443/api/auth" || e["TIFFIN_AUTH_HOST"] != host {
+		t.Errorf("preview auth env: %v", e)
+	}
+	if err := h.r.deletePreview(ctx, "shop", "api", "feat-a"); err != nil {
+		t.Fatal(err)
+	}
+	if hosts, _ := h.m.PreviewHosts(ctx, h.p, "shop"); len(hosts) != 0 {
+		t.Fatalf("a deleted preview is still listed: %v", hosts)
+	}
+}
+
 func TestGitHelpers(t *testing.T) {
 	for in, want := range map[string]string{"feature/Login-Fix": "feature-login-fix", "--x--": "x", "___": "branch",
 		strings.Repeat("a", 40): strings.Repeat("a", 30)} {

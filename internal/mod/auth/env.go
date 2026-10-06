@@ -3,9 +3,12 @@ package auth
 import (
 	"context"
 	"net"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
@@ -49,8 +52,32 @@ func (*Module) Env(ctx context.Context, p *platform.Platform, project, app strin
 	}, nil
 }
 
+// PreviewEnv points a preview's auth env at the preview's own host (Env only
+// knows production hosts; the runtime calls this for previews). Server-side
+// calls then act for the preview, and its links lead back to it.
+func PreviewEnv(env map[string]string, previewURL string) {
+	u, err := url.Parse(previewURL)
+	if env["TIFFIN_AUTH_URL"] == "" || err != nil || u.Hostname() == "" {
+		return
+	}
+	base := strings.TrimRight(previewURL, "/") + PathPrefix
+	env["TIFFIN_AUTH_URL"] = base
+	env["TIFFIN_AUTH_HOST"] = u.Hostname()
+	env["TIFFIN_AUTH_JWKS_URL"] = base + "/jwks"
+}
+
+// lastPreviews is the preview host set the engine config last got (Routes).
+var lastPreviews struct {
+	sync.Mutex
+	key    string
+	synced bool
+}
+
 // Routes sends /api/auth on every web app host of auth-enabled projects to
-// the engine. Longer path prefixes win at the edge, so the app keeps the rest.
+// the engine, previews included. Longer path prefixes win at the edge, so
+// the app keeps the rest. Previews come and go between applies: when their
+// hosts changed, the engine config is rewritten first, so the engine knows a
+// host before the edge sends it there.
 func (*Module) Routes(ctx context.Context, p *platform.Platform) ([]edge.Route, error) {
 	projects, err := p.DB.ListProjects(ctx)
 	if err != nil {
@@ -58,6 +85,7 @@ func (*Module) Routes(ctx context.Context, p *platform.Platform) ([]edge.Route, 
 	}
 	sort.Strings(projects)
 	var out []edge.Route
+	var previews []string
 	seen := map[string]string{} // host → project
 	for _, project := range projects {
 		_, res, err := p.DB.Load(ctx, project)
@@ -67,7 +95,12 @@ func (*Module) Routes(ctx context.Context, p *platform.Platform) ([]edge.Route, 
 		if !hasAuth(res) {
 			continue
 		}
-		for _, r := range routesFor(p, res) {
+		rs := routesFor(p, res)
+		for _, h := range previewHosts(ctx, p, project) {
+			rs = append(rs, edge.Route{Host: h.Host, PathPrefix: PathPrefix, Upstream: EngineAddr})
+			previews = append(previews, project+" "+h.Host)
+		}
+		for _, r := range rs {
 			// Two projects claiming one host would make the edge reject every
 			// route; the first project (by name) keeps it.
 			if other, dup := seen[r.Host]; dup {
@@ -80,7 +113,24 @@ func (*Module) Routes(ctx context.Context, p *platform.Platform) ([]edge.Route, 
 			out = append(out, r)
 		}
 	}
+	syncPreviews(ctx, p, strings.Join(previews, ","))
 	return out, nil
+}
+
+// syncPreviews rewrites the engine config when the preview hosts changed.
+func syncPreviews(ctx context.Context, p *platform.Platform, key string) {
+	lastPreviews.Lock()
+	defer lastPreviews.Unlock()
+	if lastPreviews.synced && key == lastPreviews.key {
+		return
+	}
+	reconcileMu.Lock()
+	_, err := syncConfig(ctx, p, defaultEngine)
+	reconcileMu.Unlock()
+	lastPreviews.key, lastPreviews.synced = key, err == nil
+	if err != nil && p.Log != nil {
+		p.Log.Warn("auth: engine config for previews", "err", err)
+	}
 }
 
 func routesFor(p *platform.Platform, res map[string]change.Resource) []edge.Route {

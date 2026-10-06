@@ -22,6 +22,7 @@ import (
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/ids"
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/mod/auth"
 	"github.com/btahir/tiffin/internal/mod/budget"
 	"github.com/btahir/tiffin/internal/mod/email"
 	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
@@ -673,8 +674,11 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 		}
 	}
 	if spec.Role != manifest.RoleWorker {
-		d := &Deploy{App: app, Preview: preview}
+		d := &Deploy{Project: project, App: app, Preview: preview}
 		env["TIFFIN_URL"] = r.deployURL(d, spec)
+		if preview != "" {
+			auth.PreviewEnv(env, env["TIFFIN_URL"])
+		}
 	}
 	if spec.Framework == manifest.FrameworkNext {
 		if env[nextKeyEnv], err = r.nextActionsKey(ctx, project, app, env); err != nil {
