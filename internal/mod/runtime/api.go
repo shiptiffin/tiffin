@@ -880,6 +880,7 @@ func (r *rt) deletePreview(ctx context.Context, project, app, name string) error
 		_ = r.st.putDeploy(ctx, d)
 	}
 	_ = os.RemoveAll(r.envLogDir(project, app, name))
+	r.forgetFiles(project, app, name, false)
 	r.gc(ctx, project, app, name)
 	return nil
 }

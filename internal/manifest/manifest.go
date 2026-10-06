@@ -108,6 +108,18 @@ type App struct {
 	// App): pushes to Branch deploy to production, pull requests get
 	// previews. Absent: deploys only happen when asked.
 	Git *Git `json:"git,omitempty"`
+	// Assets names the build's client-asset directory, which the box then
+	// serves itself (for a framework it does not recognize). Absent: the
+	// box looks for a known framework's.
+	Assets *Assets `json:"assets,omitempty"`
+}
+
+// Assets is a server app's client-asset directory.
+type Assets struct {
+	// Dir is the directory in the build, relative to the app, e.g. "dist/client".
+	Dir string `json:"dir"`
+	// Path is the URL path its files are served at. Default "/".
+	Path string `json:"path,omitempty"`
 }
 
 // Git is where an app's code lives on GitHub.

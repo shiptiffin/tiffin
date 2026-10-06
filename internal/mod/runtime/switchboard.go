@@ -44,6 +44,7 @@ func newStateCache() *stateCache {
 func (c *stateCache) put(st *AppState) {
 	cp := *st
 	cp.Instances = append([]Instance(nil), st.Instances...)
+	cp.Retired = append([]Retired(nil), st.Retired...)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.m[envKey(st.Project, st.App, st.Preview)] = &cp
@@ -112,14 +113,15 @@ func (c *stateCache) forget(ins []Instance) {
 }
 
 // drainThenRemove stops old instances once they have no requests in flight
-// (at most Drain later).
+// (at most Drain later), giving them RetireGrace to finish work they do
+// after responding.
 func (r *rt) drainThenRemove(old []Instance) {
 	deadline := time.Now().Add(r.opt.Drain)
 	time.Sleep(50 * time.Millisecond) // let responses being written finish flushing
 	for r.st.cache.busy(old) > 0 && time.Now().Before(deadline) {
 		time.Sleep(25 * time.Millisecond)
 	}
-	r.removeInstances(r.ctx, old)
+	r.removeInstancesGrace(r.ctx, old, max(r.opt.RetireGrace, r.opt.StopGrace))
 }
 
 // dispatch maps edge routes to app environments.
@@ -137,16 +139,18 @@ func (r *rt) setDispatch(t map[string][]dispatchEntry) {
 	r.mu.Unlock()
 }
 
-func (r *rt) lookup(host, path string) (string, bool) {
+// lookup finds the app environment serving host and path, and the route's
+// path prefix.
+func (r *rt) lookup(host, path string) (env, prefix string, ok bool) {
 	r.mu.Lock()
 	es := r.dispatch[host]
 	r.mu.Unlock()
 	for _, e := range es {
 		if e.prefix == "" || path == e.prefix || strings.HasPrefix(path, e.prefix+"/") {
-			return e.env, true
+			return e.env, e.prefix, true
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 // routesChanged reports whether the edge needs new routes (hosts, paths,

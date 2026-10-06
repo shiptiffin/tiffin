@@ -137,6 +137,26 @@
         "git": {
           "description": "Connects the app to a GitHub repository through the box's GitHub App (Settings › Git): every push to `branch` deploys to production, and pull requests get preview deploys. Absent: the app deploys only when asked.",
           "$ref": "#/$defs/git"
+        },
+        "assets": {
+          "description": "The build's client-asset directory (its JS, CSS and other files for browsers). The box copies it out of each build and serves its files itself, and keeps serving the previous release's files for a day, so pages loaded before a deploy keep working. Absent: the box finds it for Next.js, Nuxt, TanStack Start, SolidStart, React Router, Remix, SvelteKit (adapter-node) and Astro (@astrojs/node); for other apps it stays off.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dir"],
+          "properties": {
+            "dir": {
+              "description": "The directory in the build, relative to the app, e.g. \"dist/client\".",
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9._@-][A-Za-z0-9._@/-]*$"
+            },
+            "path": {
+              "description": "The URL path its files are served at, e.g. \"/static\". Default \"/\".",
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^/[A-Za-z0-9._~@/-]*$"
+            }
+          }
         }
       }
     },

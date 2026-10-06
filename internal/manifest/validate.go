@@ -98,6 +98,15 @@ func semanticErrors(m *Manifest) []FieldError {
 		case app.Command != "" && strings.TrimSpace(app.Command) == "":
 			errs = append(errs, FieldError{Path: base + "/command", Message: "the command is blank; remove \"command\" to use the detected start command"})
 		}
+		if a := app.Assets; a != nil {
+			for _, seg := range strings.Split(a.Dir, "/") {
+				if seg == ".." || seg == "" {
+					errs = append(errs, FieldError{Path: base + "/assets/dir",
+						Message: fmt.Sprintf("%q must be a folder inside the app's build, like \"dist/client\" (no \"..\" or empty parts)", a.Dir)})
+					break
+				}
+			}
+		}
 		if app.Role == RoleWorker && len(app.Routes) > 0 {
 			errs = append(errs, FieldError{
 				Path:    base + "/routes",

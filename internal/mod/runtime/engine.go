@@ -56,6 +56,10 @@ type Engine interface {
 	// TagImage gives an image in the store another name (no layers copied).
 	// src is a name, read the way nerdctl reads one (dockerName).
 	TagImage(ctx context.Context, src, ref string) error
+	// CopyOut copies directories of an image (relative to its working
+	// directory) to dest/0, dest/1, ... in order, as plain files and
+	// directories (links followed inside the image); missing ones are skipped.
+	CopyOut(ctx context.Context, image string, dirs []string, dest string) error
 }
 
 // nerdctl drives containerd through the pinned nerdctl CLI.
@@ -230,6 +234,16 @@ func (n *nerdctl) RemoveImage(ctx context.Context, ref string) error {
 
 func (n *nerdctl) TagImage(ctx context.Context, src, ref string) error {
 	_, err := n.run(ctx, "tag", src, ref)
+	return err
+}
+
+// CopyOut runs cp in a throwaway container of the image, without network.
+// The directories travel as arguments, never inside the script.
+func (n *nerdctl) CopyOut(ctx context.Context, image string, dirs []string, dest string) error {
+	const script = `i=0; for d in "$@"; do if [ -d "$d" ]; then mkdir -p /tiffin-out/$i && cp -RL "$d"/. /tiffin-out/$i/ || exit 1; fi; i=$((i+1)); done`
+	args := append([]string{"run", "--rm", "--network", "none", "--user", "0:0", "--memory", "256m",
+		"--volume", dest + ":/tiffin-out", "--entrypoint", "/bin/sh", image, "-c", script, "sh"}, dirs...)
+	_, err := n.run(ctx, args...)
 	return err
 }
 

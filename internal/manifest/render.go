@@ -233,6 +233,14 @@ func appNode(name string, a App, implied string) *node {
 		}
 		n.set("git", gn)
 	}
+	if as := a.Assets; as != nil {
+		an := obj()
+		an.set("dir", str(as.Dir))
+		if as.Path != "" && as.Path != "/" {
+			an.set("path", str(as.Path))
+		}
+		n.set("assets", an)
+	}
 	return n
 }
 

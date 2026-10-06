@@ -66,6 +66,21 @@ export interface AppConfig {
    * requests get preview deploys.
    */
   git?: GitConfig;
+  /**
+   * The build's client-asset directory, for a framework the box does not
+   * recognize (it finds Next.js, Nuxt, TanStack Start, SolidStart, React Router,
+   * Remix, SvelteKit and Astro builds itself). The box serves its files and keeps
+   * the previous release's for a day, so pages loaded before a deploy keep working.
+   */
+  assets?: AssetsConfig;
+}
+
+/** A server app's client-asset directory. */
+export interface AssetsConfig {
+  /** The directory in the build, relative to the app, e.g. "dist/client". */
+  dir: string;
+  /** The URL path its files are served at. Default "/". */
+  path?: string;
 }
 
 /** Where an app's code lives on GitHub. */

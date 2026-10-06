@@ -38,6 +38,7 @@ type Options struct {
 	HealthTimeout time.Duration // how long new instances get to pass health checks
 	Drain         time.Duration // longest old instances may take to finish in-flight requests after a switch
 	StopGrace     time.Duration // SIGTERM → SIGKILL
+	RetireGrace   time.Duration // the same for a replaced release once drained: work after its responses (Next.js after())
 	PreviewIdle   time.Duration // previews sleep after this long without requests
 	PreviewExpire time.Duration // previews are deleted after this long without requests or deploys
 	KeepImages    int           // rollback targets kept per production environment (previews keep none)
@@ -54,7 +55,7 @@ func defaultOptions() Options {
 		expire = v
 	}
 	return Options{DataDir: DataDir, LogDir: LogDir, HealthTimeout: 120 * time.Second, Drain: 30 * time.Second,
-		StopGrace: 10 * time.Second, PreviewIdle: idle, PreviewExpire: expire, KeepImages: 3}
+		StopGrace: 10 * time.Second, RetireGrace: 30 * time.Second, PreviewIdle: idle, PreviewExpire: expire, KeepImages: 3}
 }
 
 // rt is the running runtime.
@@ -82,6 +83,10 @@ type rt struct {
 	gitResolve resolver
 	// gh is the GitHub connection and its deploy queue.
 	gh ghState
+	// assetMetas caches each release's client-asset directories (by its
+	// assets dir) for the request path.
+	assetMetas map[string][]AssetDir
+	keyMu      sync.Mutex // creating Next.js Server Actions keys
 }
 
 // Start wires the runtime to the platform: it fails deploys a restart
@@ -114,7 +119,7 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	}
 	r := &rt{p: p, opt: opt, st: store{db: p.DB, cache: newStateCache()}, eng: opt.Engine, bld: opt.Builder, ctx: ctx,
 		build: make(chan struct{}, 1), locks: map[string]*sync.Mutex{}, ports: map[int]string{},
-		lastSeen: map[string]time.Time{}, hooks: newHookTokens(), warm: warmSlot{poll: 10 * time.Second, quiet: time.Minute}}
+		lastSeen: map[string]time.Time{}, hooks: newHookTokens(), assetMetas: map[string][]AssetDir{}, warm: warmSlot{poll: 10 * time.Second, quiet: time.Minute}}
 	for _, d := range []string{opt.DataDir, opt.LogDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
@@ -281,6 +286,8 @@ func (m *Module) ProjectDeleted(ctx context.Context, p *platform.Platform, proje
 		}
 	}
 	r.sweep(ctx, func(c Container, _ bool) bool { return c.Labels["tiffin.project"] == project })
+	r.forgetFiles(project, "", "", true)
+	errs = append(errs, r.forgetNextKeys(ctx, project))
 	return errors.Join(errs...)
 }
 
@@ -300,6 +307,7 @@ func (r *rt) loop(ctx context.Context) {
 			r.reapDrained(ctx)
 			if tick%20 == 0 {
 				r.removeOrphans(ctx)
+				r.pruneAssets(ctx)
 			}
 		}
 	}
@@ -389,6 +397,10 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 			if err := r.stopEnv(ctx, s); err != nil {
 				return err
 			}
+		}
+		if spec == nil {
+			// Caches only: an undo copies the assets out of the image again.
+			r.forgetFiles(project, app, "", true)
 		}
 		return nil
 	}

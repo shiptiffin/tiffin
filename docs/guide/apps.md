@@ -49,6 +49,16 @@ failed build or health check leaves the old version serving.
   or `nerdctl save`). The tarball's own names are replaced by the deploy's as it loads:
   the image is kept under the deploy's name only, so it cannot replace another project's
   or the box's images.
+- **Client assets:** for Next.js, Nuxt, TanStack Start, SolidStart, React Router, Remix,
+  SvelteKit (adapter-node) and Astro (`@astrojs/node`) apps, the box copies the build's
+  browser files (JS, CSS, images) out of the image and serves them itself: hashed files
+  with a year-long immutable cache, others with revalidation. Hashed files of the
+  previous releases stay served for a day, so a page loaded before a deploy keeps
+  finding its chunks. The box serves these files without running the app's middleware.
+  For another framework, name the directory: `assets: { dir: "dist/client", path: "/" }`
+  (path defaults to `/`; files there are kept for old pages too, revalidated).
+- **Shutdown:** a replaced release gets SIGTERM once its requests finish, then 30
+  seconds before it is killed, for work it does after responding.
 
 ## Without a checkout: templates and git URLs
 
@@ -211,9 +221,27 @@ deletes its secrets too (its plan lists them).
 ## Next.js
 
 Next runs as a long-lived Bun server (`bun --bun next start`), so route handlers and
-server actions run in the process; long work goes to queues. With two or more
-instances, add Valkey and the `tiffin-sdk/next` cache handlers so every instance shares
-one cache and `revalidateTag` reaches all of them. Setup is in
-`packages/sdk/src/next/README.md`; `templates/hello-next` has it wired up.
+server actions run in the process; long work goes to queues. No next.config is needed:
+with Next.js 16.2 or later, the box adds its adapter to every build
+(`NEXT_ADAPTER_PATH`), which sets what next.config leaves unset:
+
+- `deploymentId`: the deploy's ID. A browser still on an older release reloads the page
+  instead of mixing builds.
+- With Valkey in the project (`services: { valkey: {} }`): `cacheHandler` and
+  `cacheHandlers` (`default`, `remote`) from `tiffin-sdk/next`, and `cacheMaxMemorySize: 0`,
+  so every instance and preview shares one cache and `revalidateTag` reaches all of
+  them. It takes effect on the next deploy after adding Valkey.
+- `compress: false`: the edge compresses.
+- `images.maximumDiskCacheSize`: 512 MB. Optimized images live in a directory per app
+  environment, shared by its instances and kept across deploys (deleted with the
+  preview or app).
+
+The app also gets `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`, made once per app and used at
+build and run time, so Server Actions in a page from the previous release still work
+after a deploy. Previews share it; a duplicated or imported project gets its own. Set
+the variable (or `NEXT_ADAPTER_PATH`) yourself to use your own. Older Next.js versions
+ignore the adapter and build as before.
+
+`templates/hello-next` is an example with two instances and Valkey.
 
 Templates: `templates/hello-hono`, `hello-next`, `static-site`, `queues-worker`.

@@ -1,5 +1,5 @@
 import type { TiffinConfig } from "./types.js";
-export type { AppConfig, BucketConfig, Framework, GitConfig, PostgresConfig, QueueConfig, ResourcesConfig, Role, ServicesConfig, Slug, StorageConfig, TiffinConfig, TopicConfig, ValkeyConfig, } from "./types.js";
+export type { AppConfig, AssetsConfig, BucketConfig, Framework, GitConfig, PostgresConfig, QueueConfig, ResourcesConfig, Role, ServicesConfig, Slug, StorageConfig, TiffinConfig, TopicConfig, ValkeyConfig, } from "./types.js";
 /**
  * Declare a Tiffin project. Returns its argument unchanged; it exists so
  * editors and agents get types and completion:
