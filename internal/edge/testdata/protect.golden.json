@@ -245,6 +245,11 @@
                       ]
                     }
                   }
+                },
+                {
+                  "handler": "log_append",
+                  "key": "request_id",
+                  "value": "{http.request.uuid}"
                 }
               ]
             },
@@ -435,6 +440,9 @@
                         ],
                         "X-Forwarded-Proto": [
                           "{http.request.scheme}"
+                        ],
+                        "X-Request-Id": [
+                          "{http.request.uuid}"
                         ]
                       }
                     }
@@ -483,6 +491,9 @@
                         ],
                         "X-Forwarded-Proto": [
                           "{http.request.scheme}"
+                        ],
+                        "X-Request-Id": [
+                          "{http.request.uuid}"
                         ]
                       }
                     }

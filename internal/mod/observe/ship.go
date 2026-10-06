@@ -370,7 +370,9 @@ func (m *Module) handleAccess(ctx context.Context, line []byte) {
 	}
 	path, _, _ := strings.Cut(e.URI, "?")
 	site, mapped := m.sites.Lookup(ctx, e.Host, path)
-	m.red.Observe(site.Project, site.App, e.Host, e.Status, e.Duration)
+	if !strings.HasPrefix(path, "/_tiffin/") { // the box answers these, not the app
+		m.red.Observe(site.Project, site.App, e.Host, e.Status, e.Duration)
+	}
 	rec := map[string]any{
 		"_msg":        fmt.Sprintf("%s %s %d %.0fms", e.Method, path, e.Status, e.Duration*1000),
 		"_time":       e.Time.Format(time.RFC3339Nano),
@@ -383,6 +385,9 @@ func (m *Module) handleAccess(ctx context.Context, line []byte) {
 		"user_agent":  e.Header("User-Agent"),
 		"client_ip":   e.ClientIP,
 		"source":      "edge",
+	}
+	if id := strings.ReplaceAll(e.RequestID, "-", ""); id != "" {
+		rec["trace_id"] = id // tiffin traces get <id> opens the request's trace, when the app sent one
 	}
 	if e.Status >= 500 {
 		rec["level"] = "error"

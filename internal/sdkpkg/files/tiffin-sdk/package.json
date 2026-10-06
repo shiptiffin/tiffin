@@ -26,6 +26,10 @@
       "types": "./lib/analytics.d.ts",
       "default": "./lib/analytics.js"
     },
+    "./vitals": {
+      "types": "./lib/vitals.d.ts",
+      "default": "./lib/vitals.js"
+    },
     "./storage": {
       "types": "./lib/storage.d.ts",
       "default": "./lib/storage.js"
@@ -57,6 +61,10 @@
     "./next/auth": {
       "types": "./lib/next/auth.d.ts",
       "default": "./lib/next/auth.js"
+    },
+    "./next/vitals": {
+      "types": "./lib/next/vitals.d.ts",
+      "default": "./lib/next/vitals.js"
     },
     "./queue": {
       "types": "./lib/queue.d.ts",

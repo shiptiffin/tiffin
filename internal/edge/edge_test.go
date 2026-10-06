@@ -1,6 +1,7 @@
 package edge
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -71,6 +72,7 @@ func upstreamServer(t *testing.T, name string) *httptest.Server {
 		w.Header().Set("X-Seen-Host", r.Host)
 		w.Header().Set("X-Seen-Fwd-Host", r.Header.Get("X-Forwarded-Host"))
 		w.Header().Set("X-Seen-Fwd-For", r.Header.Get("X-Forwarded-For"))
+		w.Header().Set("X-Seen-Request-Id", r.Header.Get("X-Request-Id"))
 		switch r.URL.Path {
 		case "/own-headers":
 			w.Header().Set("Content-Security-Policy", "default-src 'self'")
@@ -168,6 +170,8 @@ func TestConfigValidation(t *testing.T) {
 		"dup route":     func(c *Config) { c.Routes = []Route{{Host: "a.x", Upstream: "h:1"}, {Host: "A.x", Upstream: "h:2"}} },
 		"dashboard dup": func(c *Config) { c.Routes = []Route{{Host: "dashboard.tiffin.localhost", Upstream: "h:1"}} },
 		"wildcard host": func(c *Config) { c.Routes = []Route{{Host: "*.x", Upstream: "h:1"}} },
+		"hostless root": func(c *Config) { c.Routes = []Route{{Upstream: "h:1"}} },
+		"hostless file": func(c *Config) { c.Routes = []Route{{PathPrefix: "/_x", FileRoot: "/srv"}} },
 	} {
 		c := ok
 		mut(&c)
@@ -302,22 +306,43 @@ func TestEdgeEndToEnd(t *testing.T) {
 		t.Fatalf("redirect: %d %q", rr.StatusCode, rr.Header.Get("Location"))
 	}
 
-	// Reload with extra routes, one inside the wildcard and one outside.
+	// Reload with extra routes, one inside the wildcard and one outside, and
+	// a box path every app host serves.
 	cfg.Routes = []Route{
 		{Host: "shop.tiffin.localhost", Upstream: addr(app)},
 		{Host: "shop.example.test", Upstream: addr(app)},
+		{PathPrefix: "/_tiffin/vitals", Upstream: addr(up)},
 	}
+	cfg.AccessLog = filepath.Join(t.TempDir(), "access.log")
 	if err := e.Reload(cfg); err != nil {
 		t.Fatal(err)
 	}
+	var ids []string
 	for _, h := range []string{"shop.tiffin.localhost", "shop.example.test"} {
 		resp, body = get(t, c, "https://"+h+":"+strconv.Itoa(cfg.HTTPSPort)+"/x")
 		if resp.StatusCode != 200 || body != "hello from shop /x" {
 			t.Fatalf("route %s: %d %q", h, resp.StatusCode, body)
 		}
+		ids = append(ids, resp.Header.Get("X-Seen-Request-Id"))
+		resp, body = get(t, c, "https://"+h+":"+strconv.Itoa(cfg.HTTPSPort)+"/_tiffin/vitals")
+		if body != "hello from platform /_tiffin/vitals" || !strings.HasPrefix(resp.Header.Get("X-Seen-Host"), h) {
+			t.Fatalf("box path on %s: %q host %q", h, body, resp.Header.Get("X-Seen-Host"))
+		}
 	}
 	if _, body = get(t, c, base+"/y"); body != "hello from platform /y" {
 		t.Fatalf("dashboard after reload: %q", body)
+	}
+	// The ID the app saw is the request_id of its access log line.
+	if len(ids[0]) != 36 || ids[0] == ids[1] {
+		t.Fatalf("request IDs %q", ids)
+	}
+	var logged []byte
+	for i := 0; i < 100 && !bytes.Contains(logged, []byte(ids[1])); i++ {
+		time.Sleep(20 * time.Millisecond)
+		logged, _ = os.ReadFile(cfg.AccessLog)
+	}
+	if !bytes.Contains(logged, []byte(`"request_id":"`+ids[0]+`"`)) || !bytes.Contains(logged, []byte(`"request_id":"`+ids[1]+`"`)) {
+		t.Fatalf("access log lacks the request IDs %q:\n%s", ids, logged)
 	}
 	// The same CA still signs after reload.
 	if ca2, _ := e.RootCAPEM(); string(ca2) != string(ca) {

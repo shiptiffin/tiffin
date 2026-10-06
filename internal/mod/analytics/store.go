@@ -36,6 +36,10 @@ type Store interface {
 	// time: all of them) and their approximate stored size in bytes.
 	Footprint(ctx context.Context, project string, before time.Time) (events, bytes int64, err error)
 	DeleteProject(ctx context.Context, project string) error
+	// AddVitals adds Web Vitals bucket counts; Vitals reads them back for
+	// the days of a query.
+	AddVitals(ctx context.Context, rows []VitalCount) error
+	Vitals(ctx context.Context, q Query) ([]VitalCount, error)
 	Salt(ctx context.Context, day string) ([]byte, error)
 	Key(ctx context.Context, project, app string) (string, error)
 	LookupKey(ctx context.Context, key string) (project, app string, ok bool)
@@ -142,6 +146,9 @@ var sqliteSchema = []string{
 		visitors INTEGER NOT NULL, pageviews INTEGER NOT NULL, sessions INTEGER NOT NULL,
 		bounces INTEGER NOT NULL, duration_ms INTEGER NOT NULL, events INTEGER NOT NULL,
 		updated_at INTEGER NOT NULL, PRIMARY KEY(project, app, day))`,
+	`CREATE TABLE IF NOT EXISTS vitals (
+		project TEXT NOT NULL, app TEXT NOT NULL, day TEXT NOT NULL, path TEXT NOT NULL, metric TEXT NOT NULL,
+		bucket INTEGER NOT NULL, n INTEGER NOT NULL, PRIMARY KEY(project, app, day, path, metric, bucket)) WITHOUT ROWID`,
 	`CREATE TABLE IF NOT EXISTS salts (day TEXT PRIMARY KEY, salt BLOB NOT NULL)`,
 	`CREATE TABLE IF NOT EXISTS keys (project TEXT NOT NULL, app TEXT NOT NULL, key TEXT NOT NULL UNIQUE, PRIMARY KEY(project, app))`,
 }
@@ -433,7 +440,10 @@ func (s *sqliteStore) Purge(ctx context.Context, project string, before time.Tim
 		return 0, err
 	}
 	n, _ := res.RowsAffected()
-	_, err = s.db.ExecContext(ctx, `DELETE FROM daily WHERE project = ? AND day < ?`, project, dayOf(before))
+	if _, err = s.db.ExecContext(ctx, `DELETE FROM daily WHERE project = ? AND day < ?`, project, dayOf(before)); err != nil {
+		return n, err
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM vitals WHERE project = ? AND day < ?`, project, dayOf(before))
 	return n, err
 }
 
@@ -459,12 +469,67 @@ func (s *sqliteStore) Footprint(ctx context.Context, project string, before time
 func (s *sqliteStore) DeleteProject(ctx context.Context, project string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, q := range []string{`DELETE FROM events WHERE project = ?`, `DELETE FROM daily WHERE project = ?`, `DELETE FROM keys WHERE project = ?`} {
+	for _, q := range []string{`DELETE FROM events WHERE project = ?`, `DELETE FROM daily WHERE project = ?`, `DELETE FROM keys WHERE project = ?`, `DELETE FROM vitals WHERE project = ?`} {
 		if _, err := s.db.ExecContext(ctx, q, project); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (s *sqliteStore) AddVitals(ctx context.Context, rows []VitalCount) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	pages := map[string]int{} // project/app/day → distinct pages stored
+	for _, r := range rows {
+		k := r.Project + "/" + r.App + "/" + r.Day
+		if _, seen := pages[k]; !seen {
+			var n int
+			if err := tx.QueryRowContext(ctx, `SELECT COUNT(DISTINCT path) FROM vitals WHERE project = ? AND app = ? AND day = ?`, r.Project, r.App, r.Day).Scan(&n); err != nil {
+				return err
+			}
+			pages[k] = n
+		}
+		var has int
+		_ = tx.QueryRowContext(ctx, `SELECT 1 FROM vitals WHERE project = ? AND app = ? AND day = ? AND path = ? LIMIT 1`, r.Project, r.App, r.Day, r.Path).Scan(&has)
+		switch {
+		case has == 1:
+		case pages[k] < maxVitalPaths:
+			pages[k]++
+		default:
+			r.Path = "(other)"
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO vitals(project, app, day, path, metric, bucket, n) VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(project, app, day, path, metric, bucket) DO UPDATE SET n = n + excluded.n`,
+			r.Project, r.App, r.Day, r.Path, r.Metric, r.Bucket, r.N); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *sqliteStore) Vitals(ctx context.Context, q Query) ([]VitalCount, error) {
+	where, args := appFilter(q)
+	args = append(args, dayOf(q.From), dayOf(q.To.Add(-time.Millisecond)))
+	rows, err := s.db.QueryContext(ctx, `SELECT project, app, day, path, metric, bucket, n FROM vitals WHERE `+where+` AND day >= ? AND day <= ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []VitalCount
+	for rows.Next() {
+		var r VitalCount
+		if err := rows.Scan(&r.Project, &r.App, &r.Day, &r.Path, &r.Metric, &r.Bucket, &r.N); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // Salt returns the day's visitor salt, creating it; salts older than two

@@ -3,6 +3,8 @@ package observe
 import (
 	"strings"
 	"testing"
+
+	"github.com/btahir/tiffin/internal/mod/observe/edgelog"
 )
 
 func TestShipParsing(t *testing.T) {
@@ -29,6 +31,9 @@ func TestShipParsing(t *testing.T) {
 	}
 	if r := appLogRecord([]byte("plain text line"), AppLog{App: "web"}); r["_msg"] != "plain text line" {
 		t.Fatal(r)
+	}
+	if e, ok := edgelog.Parse([]byte(`{"ts":1727900000.5,"request":{"method":"GET","host":"shop.box.test:8443","uri":"/x"},"status":200,"request_id":"0b7c4e2a-9f1d-4c3b-8a6e-2d5f7e9a1b3c"}`)); !ok || e.RequestID != "0b7c4e2a-9f1d-4c3b-8a6e-2d5f7e9a1b3c" || e.Host != "shop.box.test" {
+		t.Fatalf("access line: %+v", e)
 	}
 	if got := Redact("Owner token: tfn_fakefakefakefakefakefakefakefake2345 and code tfl_testtesttesttesttesttest2345"); strings.Contains(got, "fakefake") || strings.Contains(got, "testtest") {
 		t.Fatal(got)

@@ -2,7 +2,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
-import { mod2, mod3, type AnalyticsCount, type AnalyticsEvent, type AnalyticsOverview, type Period } from "@/api/modules";
+import { mod2, mod3, type AnalyticsCount, type AnalyticsEvent, type AnalyticsOverview, type AnalyticsVitals, type Period } from "@/api/modules";
 import { q as api } from "@/api/queries";
 import { VisitsChart, type Bucket, type Marker } from "@/components/analytics-chart";
 import { CopyButton } from "@/components/copy";
@@ -11,7 +11,7 @@ import { StateSentence } from "@/components/jobs-words";
 import { Crumbs, NotOnBox, Page, PageHeader, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { cn } from "@/lib/cn";
-import { dec, int, MINUS, NNBSP, pct } from "@/lib/format";
+import { dec, int, MINUS, ms, NNBSP, pct } from "@/lib/format";
 
 const periods: Array<{ v: Period; label: string; short: string; words: string; before: string }> = [
   { v: "today", label: "Today", short: "Today", words: "today so far", before: "yesterday" },
@@ -71,6 +71,7 @@ export function AnalyticsPage({ project, period = "7d" }: { project: string; per
   const rt = useQuery({ queryKey: ["analytics-rt", project], queryFn: () => mod2.realtime(project), refetchInterval: 15_000 });
   const ev = useQuery({ queryKey: ["analytics-ev", project, p], queryFn: () => mod2.events(project, p) });
   const setup = useQuery({ queryKey: ["analytics-setup", project], queryFn: () => mod2.analyticsSetup(project), staleTime: Infinity });
+  const vitals = useQuery({ queryKey: ["analytics-vitals", project, p], queryFn: () => mod2.vitals(project, p), refetchInterval: 60_000 });
   const markers = useDeployMarkers(project);
   const since = useFirstVisit(project, p);
   // The previous window only counts as a baseline if visits were being counted for all of it.
@@ -180,6 +181,8 @@ export function AnalyticsPage({ project, period = "7d" }: { project: string; per
             <Events data={ev.data?.events ?? []} visitors={d.totals.visitors} />
             <Realtime project={project} />
           </div>
+
+          {vitals.data && <Speed v={vitals.data} code={setup.data?.vitals} />}
         </div>
       )}
 
@@ -448,6 +451,81 @@ function Realtime({ project }: { project: string }) {
           </>
         )}
       </div>
+    </section>
+  );
+}
+
+const speedNames: Record<string, [string, string]> = {
+  LCP: ["Main content shows", "Largest Contentful Paint"],
+  INP: ["Responds to taps", "Interaction to Next Paint"],
+  CLS: ["Layout stays put", "Cumulative Layout Shift"],
+  FCP: ["First paint", "First Contentful Paint"],
+  TTFB: ["Server answers", "Time to First Byte"],
+};
+const speedValue = (name: string, v: number) => (name === "CLS" ? dec(v, 2) : ms(v));
+const ratingWord: Record<string, string> = { good: "good", "needs-improvement": "could be faster", poor: "slow" };
+
+/** Web Vitals: how fast the pages felt to three in four visitors, overall and per page. */
+function Speed({ v, code }: { v: AnalyticsVitals; code?: string }) {
+  const metrics = v.metrics ?? [];
+  const pages = v.pages ?? [];
+  const cols = ["LCP", "INP", "CLS"];
+  return (
+    <section className="mt-14" aria-labelledby="speed">
+      <div className="mb-2 flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
+        <h2 id="speed" className="label">
+          Page speed
+        </h2>
+        {metrics.length > 0 && <span className="text-[0.75rem] text-ink-3">What three in four visits were at least as fast as</span>}
+      </div>
+      {metrics.length === 0 ? (
+        <div className="border-y border-rule-2 py-6 text-[0.84375rem] text-ink-3">
+          <p>No speed readings yet. Pages send them from visitors’ browsers, with one line in a Next.js root layout:</p>
+          {code && <CodeBox className="mt-3 max-w-[40rem]" code={code.replace("; ", ";\n\n// in <body>\n")} name="app/layout.tsx" />}
+        </div>
+      ) : (
+        <>
+          <dl className="grid grid-cols-2 border-y border-rule-2 sm:grid-cols-3 lg:grid-cols-5">
+            {metrics.map((m) => (
+              <div key={m.name} className="py-4 sm:pr-6">
+                <dt className="label" title={speedNames[m.name]?.[1]}>
+                  {speedNames[m.name]?.[0] ?? m.name}
+                </dt>
+                <dd className="reading mt-1.5 text-ink">{speedValue(m.name, m.p75)}</dd>
+                <dd className="mt-0.5 text-[0.75rem] text-ink-3">
+                  <span className={cn(m.rating === "poor" ? "text-danger" : m.rating === "needs-improvement" ? "text-warn-ink" : undefined)}>{ratingWord[m.rating]}</span>
+                  {" · "}
+                  {m.name} · {pct(m.good)} good
+                </dd>
+              </div>
+            ))}
+          </dl>
+          {pages.length > 0 && (
+            <ul className="mt-6 divide-y divide-rule border-y border-rule-2">
+              <li className="grid grid-cols-[minmax(0,1fr)_repeat(3,4.5rem)] gap-x-3 py-1.5 text-right text-[0.71875rem] text-ink-3">
+                <span className="text-left">Page</span>
+                {cols.map((c) => (
+                  <span key={c} title={speedNames[c][0]}>
+                    {c}
+                  </span>
+                ))}
+              </li>
+              {pages.map((pg) => (
+                <li key={pg.path} className="grid grid-cols-[minmax(0,1fr)_repeat(3,4.5rem)] items-baseline gap-x-3 py-2">
+                  <span className="min-w-0 truncate font-mono text-[0.78rem] text-ink" title={pg.path}>
+                    {pg.path}
+                  </span>
+                  {cols.map((c) => (
+                    <span key={c} className="text-right text-[0.84375rem] text-ink-2 tnum">
+                      {pg.p75[c] === undefined ? "–" : speedValue(c, pg.p75[c])}
+                    </span>
+                  ))}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
     </section>
   );
 }

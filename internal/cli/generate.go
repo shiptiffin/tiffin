@@ -98,6 +98,7 @@ var groupShort = map[string]string{
 	"git":       "The box's git remote for push-to-deploy",
 	"github":    "Connect GitHub: deploy on push, a preview per pull request",
 	"issues":    "Errors your apps reported, grouped into issues",
+	"traces":    "Request traces your apps sent over OpenTelemetry",
 	"observe":   "Observability settings and overview",
 	"previews":  "Preview deploys: list, sleep and delete",
 	"templates": "Starter apps to create a project from",

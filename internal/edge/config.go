@@ -48,6 +48,8 @@ type Config struct {
 	// Protect is the protection layer (rate limits, challenge, CrowdSec,
 	// WAF). Nil: the one registered with SetProtectionSource, if any.
 	Protect *Protection
+
+	paths []Route // routes without a host (see Route.Host), split out by normalized
 }
 
 // Route sends requests for Host (and optionally a path prefix) somewhere:
@@ -59,6 +61,9 @@ type Config struct {
 // except fingerprinted build assets, which are cached for a year (see
 // hashedAsset).
 type Route struct {
+	// Host is the route's host. Empty: a box path, served on every host
+	// but the dashboard's ahead of its own routes (PathPrefix and an
+	// upstream required), such as /_tiffin/vitals.
 	Host       string
 	PathPrefix string   // e.g. "/api"; empty matches every path. Longer prefixes win.
 	Upstream   string   // host:port
@@ -246,8 +251,21 @@ func (c Config) normalized() (Config, error) {
 		seen[d] = true
 	}
 	routes := make([]Route, 0, len(c.Routes))
+	c.paths = append([]Route(nil), c.paths...) // normalized twice keeps them
 	for _, r := range c.Routes {
 		r.Host = strings.ToLower(strings.TrimSpace(r.Host))
+		if r.Host == "" {
+			// A box path: the same path on every app host, ahead of the app.
+			if !strings.HasPrefix(r.PathPrefix, "/") || strings.HasSuffix(r.PathPrefix, "/") || len(r.upstreams()) == 0 || r.FileRoot != "" || r.RedirectTo != "" {
+				return c, fmt.Errorf("edge: a route without a host needs a path prefix and an upstream (got %q)", r.PathPrefix)
+			}
+			if seen[r.PathPrefix] {
+				return c, fmt.Errorf("edge: duplicate route %q", r.PathPrefix)
+			}
+			seen[r.PathPrefix] = true
+			c.paths = append(c.paths, r)
+			continue
+		}
 		if err := validHost(r.Host); err != nil {
 			return c, fmt.Errorf("edge: route host %q: %w", r.Host, err)
 		}
@@ -359,6 +377,9 @@ func proxyMany(upstreams []string) obj {
 		"upstreams":      ups,
 		"flush_interval": -1, // stream SSE and chunked responses straight through
 		"headers": obj{"request": obj{"set": obj{
+			// The access log's request_id: apps can log it, and the runtime
+			// makes it the trace ID of the request's OpenTelemetry spans.
+			"X-Request-Id":      []string{"{http.request.uuid}"},
 			"X-Forwarded-Proto": []string{"{http.request.scheme}"},
 			"X-Forwarded-Host":  []string{"{http.request.hostport}"},
 			"X-Forwarded-Port":  []string{"{http.request.port}"},
@@ -372,7 +393,10 @@ func proxyMany(upstreams []string) obj {
 }
 
 func routeFor(c Config, r Route, portSuffix string) obj {
-	m := obj{"host": c.hostsFor(r.Host)}
+	m := obj{}
+	if r.Host != "" {
+		m["host"] = c.hostsFor(r.Host)
+	}
 	if r.PathPrefix != "" {
 		m["path"] = []string{r.PathPrefix, r.PathPrefix + "/*"}
 	}
@@ -531,11 +555,17 @@ func buildConfig(c Config) obj {
 			},
 		},
 	}...)
+	// Every access log line carries the request's ID (also sent upstream
+	// as X-Request-Id, see proxyMany).
+	secure = append(secure, obj{"handler": "log_append", "key": "request_id", "value": "{http.request.uuid}"})
 	routes := []obj{{"handle": secure}}
 	if c.Protect != nil {
 		routes = append(routes, c.Protect.protectRoutes(c)...)
 	}
 	routes = append(routes, hostRoute(c.dashboardHosts(), c.Upstream))
+	for _, r := range c.paths {
+		routes = append(routes, routeFor(c, r, portSuffix))
+	}
 	for _, r := range c.Routes {
 		routes = append(routes, routeFor(c, r, portSuffix))
 	}

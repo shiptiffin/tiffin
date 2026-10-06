@@ -3,3 +3,4 @@ export { MetricsPage } from "./observe-metrics";
 export { LogsPage } from "./observe-logs";
 export { ErrorsPage, IssuePage } from "./observe-errors";
 export { AlertsPage } from "./observe-alerts";
+export { TracesPage, TracePage } from "./observe-traces";

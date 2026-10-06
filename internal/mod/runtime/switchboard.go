@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -205,6 +206,9 @@ func (r *rt) serveApp(w http.ResponseWriter, req *http.Request, key string) {
 					pr.Out.Header[h] = v
 				}
 			}
+			if tp := traceparent(pr.In.Header); tp != "" {
+				pr.Out.Header.Set("Traceparent", tp)
+			}
 		},
 		Transport:     proxyTransport,
 		FlushInterval: -1,
@@ -213,6 +217,23 @@ func (r *rt) serveApp(w http.ResponseWriter, req *http.Request, key string) {
 		},
 	}
 	rp.ServeHTTP(w, req)
+}
+
+// traceparent starts the request's trace with the edge's request ID as its
+// trace ID (W3C trace context), so an app's OpenTelemetry spans and the
+// request's access log line share one ID. A request that carries its own
+// trace context keeps it.
+func traceparent(h http.Header) string {
+	if h.Get("Traceparent") != "" {
+		return ""
+	}
+	id := strings.ReplaceAll(h.Get("X-Request-Id"), "-", "")
+	if len(id) != 32 || strings.Trim(strings.ToLower(id), "0123456789abcdef") != "" || strings.Trim(id, "0") == "" {
+		return ""
+	}
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return "00-" + strings.ToLower(id) + "-" + hex.EncodeToString(b[:]) + "-01"
 }
 
 // staticLink is the stable path the edge serves a static environment from;

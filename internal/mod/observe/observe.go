@@ -1,8 +1,9 @@
 // Package observe is the Tiffin observe module: box metrics, logs (the
-// box's services, apps and the edge), OTLP ingest, Sentry-compatible error
-// tracking and alerts. Metrics live in VictoriaMetrics and logs in
-// VictoriaLogs (both Apache-2.0, pinned, on loopback); issues and alerts
-// live in observe's own SQLite file.
+// box's services, apps and the edge), OTLP ingest, request traces,
+// Sentry-compatible error tracking and alerts. Metrics live in
+// VictoriaMetrics and logs in VictoriaLogs (both Apache-2.0, pinned, on
+// loopback); issues and alerts live in observe's own SQLite file, sampled
+// traces in another (traces.db).
 package observe
 
 import (
@@ -42,6 +43,8 @@ type Module struct {
 	collector *Collector
 	alerter   *Alerter
 	red       *RED
+	traces    *TraceStore
+	sampler   *Sampler
 
 	pushErr    atomic.Value // string: last metrics push error
 	journalErr atomic.Value // string
@@ -80,6 +83,7 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 	go m.batch.Run(ctx)
 	go m.metricsLoop(ctx)
 	go m.alertLoop(ctx)
+	go m.traceLoop(ctx)
 	go m.runJournal(ctx)
 	go m.runAppLogs(ctx, filepath.Join(root, "logs", "apps"))
 	go m.accessTailer(ctx, filepath.Join(root, "logs", "access.log")).Run(ctx)
@@ -95,6 +99,10 @@ func (m *Module) setup(ctx context.Context, p *platform.Platform, root string, v
 		return err
 	}
 	m.store = st
+	if m.traces, err = OpenTraceStore(filepath.Join(root, "observe", "traces.db")); err != nil {
+		return err
+	}
+	m.sampler = NewSampler(m.traceConfig(ctx).SampleRate, DefaultTraceSlow)
 	m.vic = vic
 	m.batch = &LogBatcher{V: m.vic}
 	m.sites = &edgelog.Sites{DB: p.DB, Domain: p.AppsDomain()}
@@ -193,7 +201,7 @@ func (m *Module) Env(ctx context.Context, p *platform.Platform, project, app str
 		"OTEL_EXPORTER_OTLP_ENDPOINT": "http://" + IngestAddr,
 		"OTEL_EXPORTER_OTLP_HEADERS":  "x-tiffin-key=" + k.Key,
 		"OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
-		"OTEL_TRACES_EXPORTER":        "none",
+		"OTEL_TRACES_EXPORTER":        "otlp",
 		"OTEL_SERVICE_NAME":           app,
 		"OTEL_RESOURCE_ATTRIBUTES":    "service.namespace=" + project + ",deployment.environment=production",
 		"TIFFIN_OTLP_PUBLIC_ENDPOINT": p.URL(otelHost(p)),

@@ -30,6 +30,9 @@ type Entry struct {
 	Duration float64 // seconds
 	Size     int64
 	Headers  map[string][]string // request headers (canonical names)
+	// RequestID is the edge's ID for the request (a UUID), also sent to
+	// the app as X-Request-Id; without dashes it is the request's trace ID.
+	RequestID string
 }
 
 // Header returns the first value of a request header.
@@ -52,9 +55,10 @@ type rawEntry struct {
 		URI      string              `json:"uri"`
 		Headers  map[string][]string `json:"headers"`
 	} `json:"request"`
-	Duration float64 `json:"duration"`
-	Size     int64   `json:"size"`
-	Status   int     `json:"status"`
+	Duration  float64 `json:"duration"`
+	Size      int64   `json:"size"`
+	Status    int     `json:"status"`
+	RequestID string  `json:"request_id"`
 }
 
 // Parse decodes one Caddy JSON access log line. ok is false for lines that
@@ -66,16 +70,17 @@ func Parse(line []byte) (Entry, bool) {
 	}
 	sec, frac := math.Modf(r.TS)
 	e := Entry{
-		Time:     time.Unix(int64(sec), int64(frac*1e9)).UTC(),
-		ClientIP: r.Request.ClientIP,
-		Method:   r.Request.Method,
-		Host:     stripPort(strings.ToLower(r.Request.Host)),
-		URI:      r.Request.URI,
-		Proto:    r.Request.Proto,
-		Status:   r.Status,
-		Duration: r.Duration,
-		Size:     r.Size,
-		Headers:  r.Request.Headers,
+		Time:      time.Unix(int64(sec), int64(frac*1e9)).UTC(),
+		ClientIP:  r.Request.ClientIP,
+		Method:    r.Request.Method,
+		Host:      stripPort(strings.ToLower(r.Request.Host)),
+		URI:       r.Request.URI,
+		Proto:     r.Request.Proto,
+		Status:    r.Status,
+		Duration:  r.Duration,
+		Size:      r.Size,
+		Headers:   r.Request.Headers,
+		RequestID: r.RequestID,
 	}
 	if e.ClientIP == "" {
 		e.ClientIP = r.Request.RemoteIP

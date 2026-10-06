@@ -28,6 +28,10 @@
       "types": "./src/analytics.ts",
       "default": "./src/analytics.ts"
     },
+    "./vitals": {
+      "types": "./src/vitals.ts",
+      "default": "./src/vitals.ts"
+    },
     "./storage": {
       "types": "./src/storage.ts",
       "default": "./src/storage.ts"
@@ -59,6 +63,10 @@
     "./next/auth": {
       "types": "./src/next/auth.ts",
       "default": "./src/next/auth.ts"
+    },
+    "./next/vitals": {
+      "types": "./src/next/vitals.ts",
+      "default": "./src/next/vitals.ts"
     },
     "./queue": {
       "types": "./src/queue.ts",
