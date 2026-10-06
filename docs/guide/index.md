@@ -9,7 +9,7 @@ online this weekend without stitching six services together.
 
 ## What you get
 
-- **One box, everything in it.** No accounts to create for the database, the cache,
+- **One box, everything in it.** No accounts to create for the database, the KV store,
   storage, email or analytics. They are all on the box, set up for you.
 - **Safe for agents by design.** Every change is planned first, shows how risky each
   step is, and is applied only with that plan's hash. Your agent's client asks you

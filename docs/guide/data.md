@@ -1,4 +1,4 @@
-# Postgres, Valkey and backups
+# Postgres, KV and backups
 
 ## Postgres
 
@@ -43,7 +43,17 @@ without a pooler, such as Prisma's `directUrl`; there is no pooler) and
   as instances start (a deploy or restart), and a plan warns when the apps' pools could
   open more connections than the project may hold.
 
-## Valkey
+### From your computer
+
+Postgres and KV listen only inside the box. `tiffin db tunnel <project>` forwards
+`localhost:15432` to the project's database over SSH (the box's own SSH access, or the
+Lima VM's for a local box) and prints a `postgresql://` URL for psql, TablePlus or a local
+app; `--branch pr-12` reaches a branch instead, `--port` picks another local port.
+`tiffin kv tunnel <project>` does the same for KV on `localhost:16379`. The URL carries the
+project's password, so it needs a key with full access to the project, and every reveal
+is recorded. It stays open until you press Ctrl-C.
+
+## KV (Valkey)
 
 ```ts
 services: { valkey: { maxMemoryMB: 128 } }
@@ -71,7 +81,7 @@ secrets with these names win, so delete the old Upstash values from them when yo
   script gets prefixed `KEYS`; one that builds key names itself is refused.
 - Every command runs as the project's own Valkey user, with the same limits as
   `REDIS_URL`: no `KEYS` or `SCAN` (so `@upstash/ratelimit`'s `resetUsedTokens` does not
-  work), and the cache limit above.
+  work), and the KV limit above.
 - The endpoint is only reachable from apps on the box, not from the internet.
 
 ## Flexible JSON

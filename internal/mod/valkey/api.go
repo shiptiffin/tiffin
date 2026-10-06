@@ -143,12 +143,13 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}))
 
 	cn := api.Op("kv-connection", http.MethodGet, "/v1/projects/{project}/kv/connection", "kv connection", api.RiskRead,
-		"Show the KV connection URL", "The project's REDIS_URL, including its password, for valkey-cli or a client inside the box. Box owner only; every reveal is audited.", tag)
+		"Show the KV connection URL", "The project's REDIS_URL, including its password, for valkey-cli or a client inside the box or through an SSH tunnel (tiffin kv tunnel). "+
+			"Needs full access to the project (apply:irreversible on it), since the password reaches all of its keys; every reveal is audited.", tag)
 	cn.Errors = append(cn.Errors, 409)
 	huma.Register(a, cn, api.Wrap(func(ctx context.Context, in *projectIn) (*struct{ Body *KVConnection }, error) {
 		pr := api.PrincipalFrom(ctx)
-		if !pr.BoxAdmin() {
-			return nil, fmt.Errorf("%w: revealing KV passwords needs the box owner's token", tokens.ErrForbidden)
+		if err := pr.Require(tokens.ScopeApplyIrreversible, in.Project); err != nil {
+			return nil, err
 		}
 		if err := ready(ctx, p, in.Project); err != nil {
 			return nil, err
