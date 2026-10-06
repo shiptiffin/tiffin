@@ -27,3 +27,27 @@ func TestRuntime(t *testing.T) {
 		t.Error("an unknown runtime should be refused")
 	}
 }
+
+func TestNextCopiesWithoutKV(t *testing.T) {
+	warn := func(js string) bool {
+		m, err := Parse([]byte(js))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range Warnings(m) {
+			if strings.Contains(w, "no KV") {
+				return true
+			}
+		}
+		return false
+	}
+	if !warn(`{"project":"shop","apps":{"web":{"framework":"next","instances":2}}}`) {
+		t.Error("two Next.js copies without KV should warn")
+	}
+	if warn(`{"project":"shop","apps":{"web":{"framework":"next","instances":2}},"services":{"valkey":{}}}`) {
+		t.Error("with KV the copies share a cache: no warning")
+	}
+	if warn(`{"project":"shop","apps":{"web":{"framework":"next"}}}`) {
+		t.Error("one copy: no warning")
+	}
+}

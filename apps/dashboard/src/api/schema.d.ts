@@ -9854,6 +9854,8 @@ export interface components {
             url?: string;
             /** @description What the deploy took from the app's vercel.json (build settings, crons, headers, redirects, rewrites) and what it ignored */
             vercel?: components["schemas"]["VercelcfgConfig"];
+            /** @description What works, but not as well as it could (a Next.js too old for the box's adapter), and what to do about it */
+            warnings?: string[] | null;
         };
         RuntimeDeployBody: {
             /** @description Inline source files, path → UTF-8 content (at most 8 MB in total), for agents that cannot upload a tarball. Include package.json and a lockfile. Command-line users run tiffin deploy, which uploads a gzipped tar of the app directory to this same endpoint (Content-Type: application/gzip). */

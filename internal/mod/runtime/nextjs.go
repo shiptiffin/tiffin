@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -122,6 +123,33 @@ func setDeployEnv(planPath string, env map[string]string) error {
 	return os.WriteFile(planPath, out, 0o644)
 }
 
+// nextVersionRe reads the version a package.json range starts from:
+// "16.3.8", "^15.1.0", "~16.1", ">=14".
+var nextVersionRe = regexp.MustCompile(`^\s*(?:[\^~]|>=?)?\s*v?(\d+)(?:\.(\d+))?`)
+
+// nextBefore162 reports the app's Next.js version when package.json pins one
+// older than 16.2 (tags like "latest" or "canary" are taken to be new).
+func nextBefore162(dir string) (string, bool) {
+	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		return "", false
+	}
+	var pj struct {
+		Dependencies map[string]string `json:"dependencies"`
+	}
+	if json.Unmarshal(raw, &pj) != nil {
+		return "", false
+	}
+	m := nextVersionRe.FindStringSubmatch(pj.Dependencies["next"])
+	if m == nil {
+		return "", false
+	}
+	major, _ := strconv.Atoi(m[1])
+	minor, _ := strconv.Atoi(m[2])
+	v := strings.TrimSpace(pj.Dependencies["next"])
+	return v, major < 16 || (major == 16 && minor < 2)
+}
+
 // prepareNext wires a Next.js build to the box: the adapter, and the env
 // that points Next.js at it during the build. It returns the env the image
 // needs at run time (nil when the app brings its own adapter).
@@ -129,6 +157,12 @@ func prepareNext(req BuildRequest, env map[string]string) map[string]string {
 	if req.Env[nextAdapterEnv] != "" {
 		fmt.Fprintf(req.Log, "==> Next.js: the app sets %s, so the box's adapter stays out\n", nextAdapterEnv)
 		return nil
+	}
+	if v, old := nextBefore162(req.appDir()); old {
+		w := "Next.js " + v + " is older than 16.2, which the box's adapter needs: this app gets no deploymentId (a tab left open across a deploy can break), " +
+			"no cache shared between its copies, and it compresses its own responses. Upgrade next to 16.2 or later."
+		fmt.Fprintf(req.Log, "==> warning: %s\n", w)
+		req.Deploy.Warnings = append(req.Deploy.Warnings, w)
 	}
 	box := nextBox{DeploymentID: req.Deploy.ID, Cache: req.NextCache, ImageCacheBytes: nextImageCacheBytes}
 	if err := writeNextAdapter(req.SrcDir, box); err != nil {

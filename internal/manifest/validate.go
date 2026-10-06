@@ -425,6 +425,14 @@ func Warnings(m *Manifest) []string {
 		out = append(out, "services.auth.emailVerification is false: anyone can sign up with an address they don't own. "+
 			"Fine for testing; before real users sign up, remove it (verification turns on by itself once the box has an SMTP relay) or set it to true")
 	}
+	if m.Services.Valkey == nil {
+		for _, name := range sortedKeys(m.Apps) {
+			if a := m.Apps[name]; a.Framework == FrameworkNext && a.Role != RoleWorker && a.Instances > 1 {
+				out = append(out, fmt.Sprintf("apps.%s runs %d copies of a Next.js app with no KV: each copy keeps its own cache, so ISR pages, revalidateTag and \"use cache\" "+
+					"can differ between requests. Add `valkey: {}` to services and the copies share one cache", name, a.Instances))
+			}
+		}
+	}
 	over := func(where string, env map[string]string) {
 		for _, k := range sortedKeys(env) {
 			if SetByBox(k) {

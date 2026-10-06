@@ -56,6 +56,7 @@ type Deploy struct {
 	URL         string     `json:"url,omitempty" doc:"Where the deploy is served (web apps)"`
 	Error       string     `json:"error,omitempty" doc:"Why the deploy failed"`
 	Hint        string     `json:"hint,omitempty" doc:"What to do about the failure"`
+	Warnings    []string   `json:"warnings,omitempty" doc:"What works, but not as well as it could (a Next.js too old for the box's adapter), and what to do about it"`
 	SourceBytes int64      `json:"sourceBytes,omitempty"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	CreatedBy   string     `json:"createdBy,omitempty" doc:"Token that started the deploy"`

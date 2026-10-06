@@ -453,7 +453,7 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
         <aside className="flex min-w-0 flex-col gap-9" aria-label="Scale">
           {spec?.git && <AppRepo project={project} app={app} git={spec.git} writer={writer} />}
           {spec && !isStatic && (
-            <Scale project={project} app={app} spec={spec} free={free} instances={pendingFor(edits, `instances:${app}`)} memory={edits.find((e: StagedEdit) => e.kind === "set" && e.path.join("/") === `apps/${app}/memoryMB`)} writer={writer} />
+            <Scale project={project} app={app} spec={spec} free={free} hasKV={!!m.data?.manifest.services?.valkey} instances={pendingFor(edits, `instances:${app}`)} memory={edits.find((e: StagedEdit) => e.kind === "set" && e.path.join("/") === `apps/${app}/memoryMB`)} writer={writer} />
           )}
           {spec && !isStatic && spec.framework !== "hono" && <RuntimeSetting project={project} app={app} spec={spec} writer={writer} />}
           {!isStatic && instances.length > 0 && (
@@ -562,11 +562,13 @@ function Scale({
   instances,
   memory,
   writer,
+  hasKV,
 }: {
   project: string;
   app: string;
   spec: ManifestApp;
   free?: number;
+  hasKV: boolean;
   instances?: StagedEdit;
   memory?: StagedEdit;
   writer: boolean;
@@ -627,6 +629,16 @@ function Scale({
           </>
         )}
       </p>
+      {spec.framework === "next" && nInst > 1 && !hasKV && (
+        <div className="mt-3 rounded-[8px] bg-warn-wash px-3.5 py-2.5 text-sm text-ink">
+          <p>Each copy of a Next.js app keeps its own cache without KV, so ISR pages and cached data can differ between requests.</p>
+          {writer && (
+            <Button size="sm" className="mt-2" onClick={() => change(project, { kind: "service", service: "valkey", from: "off", to: "on" }, { immediate: true })}>
+              Add KV, one shared cache
+            </Button>
+          )}
+        </div>
+      )}
       <p className="mt-1 text-xs text-ink-3">Changes apply as you click, and History can undo them.</p>
     </section>
   );
@@ -826,6 +838,12 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
           );
         })}
       </ol>
+
+      {(dep?.warnings ?? []).map((w) => (
+        <p key={w} className="mt-5 max-w-[46rem] rounded-[8px] bg-warn-wash px-3.5 py-2.5 text-sm text-ink">
+          {w}
+        </p>
+      ))}
 
       {dep?.status === "failed" && (
         <div role="alert" className="mt-7 max-w-[46rem] rounded-[10px] border border-danger-rule bg-danger-wash px-5 py-4">

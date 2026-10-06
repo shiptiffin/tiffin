@@ -87,3 +87,15 @@ func TestSmokeNext(t *testing.T) {
 		t.Fatalf("an app already on Node gets no Node.js hint, got %v", err)
 	}
 }
+
+func TestNextBefore162(t *testing.T) {
+	for spec, old := range map[string]bool{"16.3.8": false, "^16.2.0": false, "16.1.4": true, "^15.5.0": true, "~14.2": true, ">=17": false, "latest": false, "canary": false} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":{"next":"`+spec+`"}}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, got := nextBefore162(dir); got != old {
+			t.Errorf("next %q: older than 16.2 = %v, want %v", spec, got, old)
+		}
+	}
+}
