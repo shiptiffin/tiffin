@@ -183,6 +183,9 @@ func (e *Engine) liveState(ctx context.Context, project, id string) (*LiveState,
 			st.Steps = append(st.Steps, s)
 		}
 		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
 		if st.Status == runWaiting {
 			st.WaitingFor = e.waitingSummary(ctx, id)
 		}

@@ -329,6 +329,9 @@ func (e *Engine) fireDueCrons(ctx context.Context) error {
 		ds = append(ds, d)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	for _, d := range ds {
 		sched, err := parseSchedule(d.schedule, d.tz)
 		if err != nil {
