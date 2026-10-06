@@ -104,6 +104,7 @@ func (r *rt) release(ctx context.Context, d *Deploy, spec *manifest.App, src Rel
 	}
 	if d.Image != "" {
 		d.Digest, _ = r.eng.ImageDigest(ctx, d.Image)
+		d.Assets = clientAssets("", spec) // no source to look at: the app's setting or Next.js's
 	}
 	now := time.Now().UTC()
 	d.BuiltAt = &now

@@ -14,6 +14,7 @@ import (
 	"net/http/httputil"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -56,10 +57,12 @@ type fakeEngine struct {
 	stuck bool
 	// names nerdctl's name store holds with no container behind them.
 	leaked map[string]bool
+	// trees: a copy of the source each built image came from (CopyOut).
+	trees map[string]string
 }
 
 func newFakeEngine() *fakeEngine {
-	return &fakeEngine{ctrs: map[string]*fakeCtr{}, images: map[string]string{}, crash: map[string]bool{}, leaked: map[string]bool{}}
+	return &fakeEngine{ctrs: map[string]*fakeCtr{}, images: map[string]string{}, crash: map[string]bool{}, leaked: map[string]bool{}, trees: map[string]string{}}
 }
 
 func (e *fakeEngine) setStuck(v bool) {
@@ -217,6 +220,24 @@ func (e *fakeEngine) TagImage(ctx context.Context, src, ref string) error {
 	return nil
 }
 
+// CopyOut copies directories of the source an image was built from.
+func (e *fakeEngine) CopyOut(ctx context.Context, image string, dirs []string, dest string) error {
+	e.mu.Lock()
+	tree := e.trees[dockerName(image)]
+	e.mu.Unlock()
+	if tree == "" {
+		return fmt.Errorf("nerdctl run: exit status 1: image %q: not found", image)
+	}
+	for i, d := range dirs {
+		if src := filepath.Join(tree, d); exists(src) {
+			if err := os.CopyFS(filepath.Join(dest, strconv.Itoa(i)), os.DirFS(src)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // LoadImage stores the names containerd's import (as nerdctl load drives
 // it) takes from the tarball, replacing images of the same name, then
 // settles them as the box does.
@@ -268,7 +289,14 @@ func (b *fakeBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult,
 		return BuildResult{}, &BuildError{Msg: "the build failed: buildctl exited with status 1", Hint: "read the log"}
 	}
 	ref := imageRef(req.Deploy.Project, req.Deploy.App, req.Deploy.ID)
+	tree := filepath.Join(filepath.Dir(req.WorkDir), req.Deploy.ID+"-image")
+	if req.SrcDir != "" {
+		if err := os.CopyFS(tree, os.DirFS(req.SrcDir)); err != nil {
+			return BuildResult{}, err
+		}
+	}
 	b.eng.mu.Lock()
+	b.eng.trees[ref] = tree
 	b.eng.images[ref] = "built:" + ref
 	if exists(filepath.Join(req.SrcDir, "CRASH")) {
 		b.eng.crash[ref] = true

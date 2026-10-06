@@ -30,8 +30,11 @@ type BuildRequest struct {
 	SrcDir   string            // unpacked source (empty for prebuilt)
 	WorkDir  string            // scratch space for this deploy
 	Prebuilt string            // image tarball to import instead of building
-	Env      map[string]string // plain (non-secret) env, visible at build time
-	Log      io.Writer
+	Env      map[string]string // env visible at build time: plain env, and a Next.js app's Server Actions key
+	// NextCache: the project has Valkey, so a Next.js app's adapter wires
+	// the shared cache handlers.
+	NextCache bool
+	Log       io.Writer
 }
 
 // BuildResult is what a build produced: an image for container apps or a
@@ -151,30 +154,44 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 	if !pinsBun(req.SrcDir) {
 		env["RAILPACK_BUN_VERSION"] = BunVersion
 	}
+	var imageEnv map[string]string
 	if req.Spec.Framework == manifest.FrameworkNext {
 		// Next.js runs on Bun as a long-lived server, unless the app chose its own start command.
 		if start := packageScript(req.SrcDir, "start"); start == "" || start == "next start" {
 			env["RAILPACK_START_CMD"] = "bun --bun next start"
 		}
+		imageEnv = prepareNext(req, env)
 	}
 	for k, v := range req.Env {
 		env[k] = v
 	}
+	planPath := filepath.Join(planDir, "railpack-plan.json")
 	args := []string{"prepare", req.SrcDir,
-		"--plan-out", filepath.Join(planDir, "railpack-plan.json"),
+		"--plan-out", planPath,
 		"--info-out", filepath.Join(req.WorkDir, "railpack-info.json")}
 	keys := make([]string, 0, len(env))
 	for k := range env {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	// Names on the command line, values in the environment (Railpack and
+	// buildctl read them there), so `ps` never shows a secret.
+	var extra []string
 	for _, k := range keys {
-		args = append(args, "--env", k+"="+env[k])
+		if env[k] != "" { // Railpack skips empty ones too
+			args = append(args, "--env", k)
+		}
+		extra = append(extra, k+"="+env[k])
 	}
 	fmt.Fprintf(req.Log, "==> planning the build (Railpack %s)\n", RailpackVersion)
-	if err := runLogged(ctx, req.Log, req.SrcDir, "/usr/local/bin/railpack", args...); err != nil {
+	if err := runLoggedEnv(ctx, req.Log, req.SrcDir, extra, "/usr/local/bin/railpack", args...); err != nil {
 		return BuildResult{}, &BuildError{Msg: "Railpack could not plan a build for this app: " + err.Error(),
 			Hint: "Make sure the app has a package.json with a start script (or an index.ts), and a lockfile. See the build log for details."}
+	}
+	if imageEnv != nil {
+		if err := setDeployEnv(planPath, imageEnv); err != nil {
+			return BuildResult{}, fmt.Errorf("add the adapter to the build plan: %w", err)
+		}
 	}
 	// A limited project's build counts against its share. Builds run one at
 	// a time, so the shared build cgroup is this build's while it runs.
@@ -201,10 +218,8 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 		"--opt", "build-arg:cache-key=" + d.Project + "-" + d.App,
 		"--opt", "build-arg:secrets-hash=" + envHash(env, keys),
 		"--output", "type=image,name=" + ref + ",unpack=true"}
-	var extra []string
 	for _, k := range keys {
 		bargs = append(bargs, "--secret", "id="+k+",env="+k)
-		extra = append(extra, k+"="+env[k])
 	}
 	var out strings.Builder
 	w := io.MultiWriter(req.Log, &out)

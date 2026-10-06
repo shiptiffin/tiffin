@@ -165,6 +165,17 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 	began := time.Now()
 	req := BuildRequest{Deploy: d, Spec: *spec, WorkDir: r.workDir(d), Log: log}
 	req.Env, _ = r.plainEnv(ctx, d.Project, d.App)
+	if spec.Framework == manifest.FrameworkNext {
+		// The same key at build and run time, deploy after deploy.
+		all, err := r.p.ProjectEnv(ctx, d.Project, d.App)
+		if err != nil {
+			return err
+		}
+		if req.Env[nextKeyEnv], err = r.nextActionsKey(ctx, d.Project, d.App, all); err != nil {
+			return err
+		}
+		req.NextCache = r.hasValkey(ctx, d.Project)
+	}
 	switch kind {
 	case SourcePrebuilt:
 		req.Prebuilt = src
@@ -182,6 +193,7 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 		fmt.Fprintf(log, "==> source: %d files, %s\n", st.Files, humanBytes(st.Bytes))
 		dropConfig(req.SrcDir, log)
 	}
+	d.Assets = clientAssets(req.SrcDir, spec)
 	bctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	res, err := r.bld.Build(bctx, req)
 	cancel()
@@ -257,6 +269,7 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 	}
 	var started []Instance
 	if d.StaticRoot == "" {
+		r.ensureAssets(ctx, d, log)
 		n := max(1, spec.Instances)
 		if d.Preview != "" {
 			n = 1 // previews run one instance
@@ -288,6 +301,7 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 		}
 	}
 	// The switch: from here on new requests go to the new instances.
+	st.Retired = retire(st.Retired, prev.Live, d.ID, time.Now().UTC())
 	st.Live, st.Instances, st.Hash, st.Stopped, st.Sleeping = d.ID, started, hash, false, false
 	if err := r.st.putState(ctx, st); err != nil {
 		r.removeInstances(ctx, started)
@@ -407,6 +421,13 @@ func (r *rt) runInstance(ctx context.Context, st *AppState, d *Deploy, app *mani
 		spec := RunSpec{Name: name, Image: d.Image, Port: port, MemoryMB: app.MemoryMB, Env: ienv, LogPath: logPath,
 			CgroupParent: budget.Slice(d.Project),
 			Labels:       map[string]string{"tiffin.project": d.Project, "tiffin.app": d.App, "tiffin.preview": d.Preview, "tiffin.deploy": d.ID, "tiffin.port": strconv.Itoa(port)}}
+		if app.Framework == manifest.FrameworkNext {
+			// Optimized images outlive the release; the environment's instances share them.
+			dir := r.nextCacheDir(d.Project, d.App, d.Preview)
+			if err := os.MkdirAll(dir, 0o755); err == nil {
+				spec.Mounts = append(spec.Mounts, dir+":"+nextImageCache)
+			}
+		}
 		if err = r.eng.Run(ctx, spec); err == nil {
 			return Instance{Name: name, Port: port, Deploy: d.ID}, nil
 		}
@@ -467,6 +488,10 @@ func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
 }
 
 func (r *rt) removeInstances(ctx context.Context, ins []Instance) {
+	r.removeInstancesGrace(ctx, ins, r.opt.StopGrace)
+}
+
+func (r *rt) removeInstancesGrace(ctx context.Context, ins []Instance, grace time.Duration) {
 	ctx, cancel := cleanupContext(ctx)
 	defer cancel()
 	var wg sync.WaitGroup
@@ -474,7 +499,7 @@ func (r *rt) removeInstances(ctx context.Context, ins []Instance) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := r.eng.Remove(ctx, in.Name, r.opt.StopGrace); err != nil {
+			if err := r.eng.Remove(ctx, in.Name, grace); err != nil {
 				r.p.Log.Error("remove container", "name", in.Name, "err", err)
 			}
 			r.freePort(in.Port)
@@ -631,6 +656,11 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 	if spec.Role != manifest.RoleWorker {
 		d := &Deploy{App: app, Preview: preview}
 		env["TIFFIN_URL"] = r.deployURL(d, spec)
+	}
+	if spec.Framework == manifest.FrameworkNext {
+		if env[nextKeyEnv], err = r.nextActionsKey(ctx, project, app, env); err != nil {
+			return nil, "", err
+		}
 	}
 	h := sha256.New()
 	keys := make([]string, 0, len(env))

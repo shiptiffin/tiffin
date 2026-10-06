@@ -65,6 +65,8 @@ type Deploy struct {
 	TotalSecs   float64    `json:"durationSeconds,omitempty" doc:"Queued to live (or failed)"`
 	// StaticRoot is the directory a static deploy serves.
 	StaticRoot string `json:"staticRoot,omitempty"`
+	// Assets are the build's client-asset directories the box serves itself.
+	Assets []AssetDir `json:"assets,omitempty" doc:"Client-asset directories of the build that the box serves itself (hashed files stay served for pages of earlier releases for a day)"`
 }
 
 // Terminal reports whether the deploy finished its pipeline.
@@ -104,6 +106,9 @@ type AppState struct {
 	// Draining: earlier releases kept running (without routes) because
 	// workflow runs are pinned to them; stopped once the queue lets go.
 	Draining []DrainSet `json:"draining,omitempty"`
+	// Retired: earlier releases, newest first, whose hashed client assets
+	// are still served for pages loaded before they were replaced.
+	Retired []Retired `json:"retired,omitempty"`
 	// Serial makes container names unique across restarts.
 	Serial    int       `json:"serial"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -114,6 +119,12 @@ type DrainSet struct {
 	Release   string     `json:"release"`
 	Instances []Instance `json:"instances"`
 	Since     time.Time  `json:"since"`
+}
+
+// Retired is a release that stopped serving at At.
+type Retired struct {
+	Deploy string    `json:"deploy"`
+	At     time.Time `json:"at"`
 }
 
 // envKey names an app environment: "project/app" or "project/app@preview".

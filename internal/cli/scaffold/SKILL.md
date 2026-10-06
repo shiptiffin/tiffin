@@ -28,7 +28,10 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    <owner> <repo>` (folders and framework), put `git: { repo, branch, path }` on the app, plan,
    apply, then `tiffin deploys github <project> <app>` (also Redeploy). Every push to the branch
    then deploys and pull requests get previews. Not connected? Ask the human to click Connect
-   GitHub in Settings › Git (it needs a browser).
+   GitHub in Settings › Git (it needs a browser). Next.js needs no box-specific next.config: the
+   box's adapter sets `deploymentId`, the Valkey cache handlers (when the project has Valkey) and a
+   stable Server Actions key at build. Another server framework whose client files the box does
+   not find (deploy log: "client assets") can name them: `assets: { dir: "dist/client" }`.
 5. Secrets go in `tiffin secrets set`, never in the config or the repo. Starting a new project?
    Reuse keys the box already has instead of asking for them again:
    `tiffin secrets list <other>` shows names, `tiffin secrets copy <new> --from <other> [--names A,B]`

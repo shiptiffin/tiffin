@@ -8,43 +8,43 @@ in Valkey.
 
 ## Setup
 
-1. Add Valkey to the project so the box sets `REDIS_URL` (and `VALKEY_PREFIX`) for your apps:
+On a Tiffin box there is nothing to set up: add Valkey to the project so the box sets
+`REDIS_URL` (and `VALKEY_PREFIX`), and its Next.js adapter (Next.js 16.2+) points
+`cacheHandler` and `cacheHandlers` at these handlers on the next deploy, unless
+next.config sets its own.
 
-   ```ts
-   // tiffin.config.ts
-   export default defineConfig({
-     project: "shop",
-     apps: { web: { framework: "next", instances: 2 } },
-     services: { valkey: {} },
-   });
-   ```
+```ts
+// tiffin.config.ts
+export default defineConfig({
+  project: "shop",
+  apps: { web: { framework: "next", instances: 2 } },
+  services: { valkey: {} },
+});
+```
 
-2. Point Next.js at the handlers:
+Revalidate as usual: `revalidateTag("posts", { expire: 0 })`, `revalidatePath("/blog")`.
 
-   ```js
-   // next.config.mjs
-   import { fileURLToPath } from "node:url";
-   const here = (p) => fileURLToPath(new URL(p, import.meta.url));
+Elsewhere (a prebuilt image, or your own next.config), wire them by hand:
 
-   export default {
-     cacheHandler: here("./cache-handler.mjs"),   // ISR, route handlers, fetch, unstable_cache, images
-     cacheMaxMemorySize: 0,                       // Valkey holds the cache
-     // With cacheComponents ("use cache"), also:
-     // cacheHandlers: { default: here("./use-cache-handler.mjs"), remote: here("./use-cache-handler.mjs") },
-   };
-   ```
+```js
+// next.config.mjs
+import { fileURLToPath } from "node:url";
+const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 
-   ```js
-   // cache-handler.mjs
-   export { default } from "tiffin-sdk/next/cache-handler";
-   // use-cache-handler.mjs
-   export { default } from "tiffin-sdk/next/use-cache";
-   ```
+export default {
+  cacheHandler: here("./cache-handler.mjs"),   // ISR, route handlers, fetch, unstable_cache
+  cacheMaxMemorySize: 0,                       // Valkey holds the cache
+  // With cacheComponents ("use cache"), also:
+  // cacheHandlers: { default: here("./use-cache-handler.mjs"), remote: here("./use-cache-handler.mjs") },
+};
+```
 
-   Until `tiffin-sdk` is published on npm, templates/hello-next carries a bundled copy
-   (`bun run sync-cache-handler` regenerates it from this package).
-
-3. Revalidate as usual: `revalidateTag("posts", { expire: 0 })`, `revalidatePath("/blog")`.
+```js
+// cache-handler.mjs
+export { default } from "tiffin-sdk/next/cache-handler";
+// use-cache-handler.mjs
+export { default } from "tiffin-sdk/next/use-cache";
+```
 
 ## How it works
 

@@ -236,15 +236,16 @@ func (r *rt) activate(w http.ResponseWriter, req *http.Request) {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	key, ok := r.lookup(host, req.URL.Path)
+	key, prefix, ok := r.lookup(host, req.URL.Path)
 	if !ok {
 		r.routes(req.Context()) // rebuild the table (first request after a start)
-		if key, ok = r.lookup(host, req.URL.Path); !ok {
+		if key, prefix, ok = r.lookup(host, req.URL.Path); !ok {
 			http.Error(w, "no app is served here", http.StatusNotFound)
 			return
 		}
 	}
-	if st := r.st.cache.get(key); st != nil && st.Preview != "" {
+	st := r.st.cache.get(key)
+	if st != nil && st.Preview != "" {
 		r.mu.Lock()
 		r.lastSeen[key] = time.Now()
 		r.mu.Unlock()
@@ -253,6 +254,13 @@ func (r *rt) activate(w http.ResponseWriter, req *http.Request) {
 			r.lastSeen[key] = time.Now()
 			r.mu.Unlock()
 		}()
+	}
+	// Client assets come from the box's copy of them; a sleeping preview
+	// need not wake for them.
+	if st != nil && !st.Stopped && r.serveAsset(w, req, st, prefix) {
+		return
+	}
+	if st != nil && st.Preview != "" {
 		if st.Sleeping || len(st.Instances) == 0 {
 			if _, err := r.wake(req.Context(), st.Project, st.App, st.Preview); err != nil {
 				w.Header().Set("Retry-After", "5")
