@@ -160,8 +160,8 @@ apps: {
   Until then folders are not limited, and box health says so. A folder that already held
   more than 1GB when sizes came in may hold what it held plus 1GB until you give it a size.
 - **Long requests:** one request may take up to the app's time limit, `timeoutSeconds`:
-  15 minutes by default (so a Vercel function's `maxDuration`, at most 800 s, fits), up to 86400 (24 hours).
-  The limit counts from the moment the request reaches the box to the response's last
+  15 minutes by default (a Vercel function's `maxDuration`, at most 800 s, fits), up to
+  86400 (24 hours). The limit counts from the moment the request reaches the box to the response's last
   byte, upload included. Past it the box answers `504 Gateway Timeout`, saying which limit
   ran out, or, when the response has begun, ends it there (a stream is cut). Under it a
   response may take as long as it needs, streamed or all at once, and a stream may pause
