@@ -56,6 +56,7 @@ const projectPages: Array<[string, string, string[]]> = [
   ["Run SQL", "/projects/$project/data/sql", ["query", "postgres"]],
   ["Database branches", "/projects/$project/data/branches", ["clone", "preview"]],
   ["Cache", "/projects/$project/data/kv", ["valkey", "redis", "key-value"]],
+  ["KV console", "/projects/$project/data/kv/console", ["valkey", "redis", "commands", "cli", "cache"]],
   ["Files", "/projects/$project/storage", ["buckets", "storage", "s3", "upload"]],
   ["Email", "/projects/$project/email", ["mail", "inbox", "relay"]],
   ["Jobs", "/projects/$project/queues", ["queues", "dead letter", "cron"]],
@@ -180,6 +181,15 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 </Command.Group>
               )}
               <Command.Group heading="Do">
+                {current && (
+                  <Item
+                    icon={<Plus />}
+                    onSelect={run(() => navigate({ to: "/projects/$project/data/kv", params: { project: current }, search: { new: true } }))}
+                    keywords={["kv", "valkey", "redis", "cache", "new key"]}
+                  >
+                    New KV key in {current}
+                  </Item>
+                )}
                 <Item icon={<Plus />} onSelect={run(() => navigate({ to: "/settings/keys", search: { create: true } }))} keywords={["new", "agent", "token"]}>
                   Create a key
                 </Item>

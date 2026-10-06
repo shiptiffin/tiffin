@@ -29,6 +29,32 @@ export type KVStats = S["ValkeyKVStats"];
 export type KVPage = S["ValkeyKVKeyPage"];
 export type KVValue = S["ValkeyKVKeyValue"];
 export type KVConnection = S["ValkeyKVConnection"];
+export type KVTree = S["ValkeyKVTree"];
+export type KVKeyInfo = S["ValkeyKVKeyInfo"];
+export type KVWrite = S["ValkeyKVWriteResult"];
+export type KVCommandResult = S["ValkeyKVCommandResult"];
+/** The KV write operations, by path under /kv/, with their bodies. */
+export type KVWrites = {
+  set: S["ValkeySetBody"];
+  "hash/set": S["ValkeyHashSetBody"];
+  "hash/delete": S["ValkeyHashDelBody"];
+  "list/push": S["ValkeyListPushBody"];
+  "list/set": S["ValkeyListSetBody"];
+  "list/remove": S["ValkeyListRemoveBody"];
+  "set/add": S["ValkeySetAddBody"];
+  "set/remove": S["ValkeySetRemoveBody"];
+  "zset/add": S["ValkeyZsetAddBody"];
+  "zset/remove": S["ValkeyZsetRemoveBody"];
+  "zset/incr": S["ValkeyZsetIncrBody"];
+  "stream/add": S["ValkeyStreamAddBody"];
+  "stream/trim": S["ValkeyStreamTrimBody"];
+  "stream/delete": S["ValkeyStreamDelBody"];
+  expire: S["ValkeyExpireBody"];
+  rename: S["ValkeyRenameBody"];
+  delete: S["ValkeyDelBody"];
+  "delete-prefix": S["ValkeyDeletePrefixBody"];
+  undo: S["ValkeyUndoBody"];
+};
 export type BackupOverview = S["BackupOverview"];
 export type Backup = S["Backup"];
 export type BackupRestored = S["BackupRestored"];
@@ -159,8 +185,16 @@ export const mod = {
   // valkey
   kvStats: (p: string) => request<KVStats>("GET", `${P(p)}/kv/stats`),
   kvKeys: (p: string, match?: string, cursor?: string) => request<KVPage>("GET", `${P(p)}/kv/keys${qs({ match, cursor, count: 200 })}`),
-  kvKey: (p: string, key: string) => request<KVValue>("GET", `${P(p)}/kv/key${qs({ key })}`),
-  kvConnection: (p: string) => request<KVConnection>("GET", `${P(p)}/kv/connection`),
+  kvKey: (p: string, key: string, o: { cursor?: string; match?: string; count?: number } = {}) =>
+    request<KVValue>("GET", `${P(p)}/kv/key${qs({ key, ...o })}`),
+  kvTree: (p: string, o: { prefix?: string; delimiter?: string; match?: string; type?: string; expiry?: string; offset?: number; limit?: number }) =>
+    request<KVTree>("GET", `${P(p)}/kv/tree${qs(o)}`),
+  /** Secrets only with reveal, which needs full access to the project. */
+  kvConnection: (p: string, reveal = false) => request<KVConnection>("GET", `${P(p)}/kv/connection${qs({ reveal })}`),
+  /** Every write answers an undo id; one too big to undo answers 428 with a confirm value first. */
+  kvWrite: <K extends keyof KVWrites>(p: string, op: K, body: KVWrites[K]) => request<KVWrite>("POST", `${P(p)}/kv/${op}`, body),
+  kvCommand: (p: string, commands: string, write: boolean) =>
+    request<S["ValkeyKVConsole"]>("POST", `${P(p)}/kv/command`, { commands, ...(write ? { write } : {}) }),
 
   // backups
   backups: () => request<BackupOverview>("GET", "/v1/backups"),
