@@ -247,11 +247,11 @@ func TestRowEditsAndUndo(t *testing.T) {
 	}
 
 	// Update, then undo.
-	e, rec, res, err := updateRows(ctx, rw.PgConn(), b, []PGRowChange{{Key: map[string]any{"id": 27.0}, Values: map[string]any{"price": "24.50", "meta": map[string]any{"pages": 180.0}, "tags": []any{"a", `quo"te`}}}})
+	e, rec, res, err := updateRows(ctx, rw.PgConn(), b, []PGRowChange{{Key: map[string]any{"id": 27.0}, Values: map[string]any{"price": "24.50", "meta": map[string]any{"pages": 180.0}, "tags": []any{"a", `quo"te`}, "in_stock": false}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if price(27) != "24.50" || !slices.Equal(e.Columns, []string{"price", "tags", "meta"}) || e.Keys[0] != "27" || len(res.Rows) != 1 {
+	if price(27) != "24.50" || !slices.Equal(e.Columns, []string{"price", "in_stock", "tags", "meta"}) || e.Keys[0] != "27" || len(res.Rows) != 1 {
 		t.Fatalf("update: %s %+v", price(27), e)
 	}
 	var tags []string

@@ -461,7 +461,7 @@ func undoRows(ctx context.Context, pc *pgconn.PgConn, t *PGTableDetail, e *PGEdi
 				}
 				cols := make([]string, len(names))
 				for j, n := range names {
-					cols[j] = quoteIdent(n) + "::text"
+					cols[j] = quoteIdent(n) // as Postgres writes it (bool is t/f), like the recorded rows
 				}
 				_, now, err := readAll(pc.ExecParams(ctx, fmt.Sprintf("SELECT %s FROM %s WHERE %s FOR UPDATE", strings.Join(cols, ", "), t.ident(), rawKeyWhere(t, k, ps)), ps.args, nil, nil, nil))
 				if err != nil {
