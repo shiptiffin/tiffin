@@ -23,6 +23,10 @@ export default {
       handlers.remote ||= here("use-cache.js");
       c.cacheHandlers = handlers;
     }
+    // forbidden() and unauthorized() (tiffin-sdk/next/auth) answer 403/401.
+    if (c.experimental?.authInterrupts === undefined) {
+      c.experimental = { ...c.experimental, authInterrupts: true };
+    }
     // Optimized images live in a directory the box keeps across deploys.
     if (c.images && c.images.maximumDiskCacheSize === undefined) {
       c.images = { ...c.images, maximumDiskCacheSize: box.imageCacheBytes };

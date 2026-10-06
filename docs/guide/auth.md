@@ -80,8 +80,8 @@ const { organization } = await requireRole("admin");  // role too low: 403
 They work in Server Components, Server Actions and Route Handlers, run once per request,
 and return plain data (`user`, `organization` with your `role`; no tokens), safe to pass
 to Client Components. `requireRole`, and `verifySession({ signIn: false })` for a 401,
-use `forbidden()` and `unauthorized()`: turn on `experimental: { authInterrupts: true }`
-in next.config.
+use `forbidden()` and `unauthorized()`; the box turns on `experimental.authInterrupts` they
+need unless your next.config sets it.
 
 Server Actions call the engine for the browser and set its cookies:
 

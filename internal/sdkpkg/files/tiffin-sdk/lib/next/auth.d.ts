@@ -59,7 +59,7 @@ export declare function currentUser(): Promise<User | null>;
 /**
  * The signed-in session, or a redirect to the sign-in page (with ?next= when
  * authProxy runs). `signIn: false` answers 401 with unauthorized() instead
- * (it needs `experimental.authInterrupts` in next.config).
+ * (it needs `experimental.authInterrupts`, which the box turns on).
  */
 export declare function verifySession(opts?: SessionOpts & {
     signIn?: string | false;
@@ -68,7 +68,7 @@ export declare function verifySession(opts?: SessionOpts & {
  * The signed-in session with at least `role` (viewer < member < admin <
  * owner) in the active or given organization. Signed out: like
  * verifySession. Role too low or no organization: forbidden(), a 403 (it needs
- * `experimental.authInterrupts` in next.config).
+ * `experimental.authInterrupts`, which the box turns on).
  */
 export declare function requireRole(role: Role, opts?: SessionOpts & {
     signIn?: string | false;
