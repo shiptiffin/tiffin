@@ -27,15 +27,13 @@
       "groupSlug": "minor-patch-{{manager}}"
     },
     {
-      "description": "Patch releases of JS dev tools get their own PR and merge themselves once CI passes. Nothing else does. Renovate merges them itself: GitHub's auto-merge needs a paid plan for private repos.",
+      "description": "Patch releases of JS dev tools get their own PR. Nothing merges itself while CI is off: set automerge back to true when it is on again.",
       "matchManagers": ["npm", "bun"],
       "matchDepTypes": ["devDependencies"],
       "matchUpdateTypes": ["patch"],
       "groupName": "dev tools (patch)",
       "groupSlug": "dev-tools-patch",
-      "automerge": true,
-      "automergeType": "pr",
-      "platformAutomerge": false
+      "automerge": false
     },
     {
       "description": "The Go toolchain line in go.mod moves only by hand: CI, the release builds and every box build follow it.",
