@@ -75,7 +75,7 @@ func TestUpstash(t *testing.T) {
 	if !reflect.DeepEqual(kv, want) {
 		t.Fatalf("kv: %v\nwant %v", kv, want)
 	}
-	redisURL := b.ok("kv", "connection", "upstash")["redisUrl"].(string)
+	redisURL := b.ok("kv", "connection", "upstash", "--reveal")["redisUrl"].(string)
 	cli := func(u string, args ...string) string {
 		return b.inBox("valkey-cli -u " + shq(u) + " --no-auth-warning " + strings.Join(args, " "))
 	}
@@ -135,7 +135,7 @@ func TestUpstash(t *testing.T) {
 		}
 		time.Sleep(time.Second)
 	}
-	other := token(b.ok("kv", "connection", "other")["redisUrl"].(string), "other", "upstash-rest", "tvk_")
+	other := token(b.ok("kv", "connection", "other", "--reveal")["redisUrl"].(string), "other", "upstash-rest", "tvk_")
 	for body, wantOut := range map[string]string{
 		`["GET","greeting"]`:                                           `{"result":null} 200`,
 		`["GET","p_upstash:greeting"]`:                                 `{"result":null} 200`,
