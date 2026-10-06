@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/manifest"
 )
 
 func TestAptPackages(t *testing.T) {
@@ -45,7 +46,7 @@ func TestDiskFolders(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	api := h.mf.Apps["api"]
-	api.Disk = []string{"data", "cache/renders"}
+	api.Disk = manifest.Disk{{Path: "data"}, {Path: "cache/renders"}}
 	h.mf.Apps["api"] = api
 	h.apply()
 	d1 := h.deploy("api", "", map[string]string{"index.ts": "v1", "data/app.db": "seed v1"})
@@ -114,7 +115,7 @@ func TestDiskFolders(t *testing.T) {
 	}
 
 	// Adding a folder restarts the app with it mounted.
-	api.Disk = append(api.Disk, "uploads")
+	api.Disk = append(api.Disk, manifest.DiskFolder{Path: "uploads"})
 	h.mf.Apps["api"] = api
 	h.apply()
 	if ms := mounts(""); len(ms) != 2 || !strings.Contains(ms[0], prod+"/uploads:/app/uploads") {

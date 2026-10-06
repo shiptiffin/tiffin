@@ -63,9 +63,9 @@ failed build or health check leaves the old version serving.
   finding its chunks. The box serves these files without running the app's middleware.
   For another framework, name the directory: `assets: { dir: "dist/client", path: "/" }`
   (path defaults to `/`; files there are kept for old pages too, revalidated).
-- **Shutdown:** a replaced release finishes the requests it has (for up to 15 minutes,
-  so a long render survives a deploy), gets SIGTERM once they are done, then 30 seconds
-  before it is killed, for work it does after responding.
+- **Shutdown:** a replaced release finishes the requests it has (each within the app's
+  time limit, `timeoutSeconds`, so a long render survives a deploy), gets SIGTERM once
+  they are done, then 30 seconds before it is killed, for work it does after responding.
 
 ## Migrations and preview databases
 
@@ -117,8 +117,9 @@ replaced.
 ```ts
 apps: {
   web: {
-    packages: ["ffmpeg", "chromium"],        // Debian packages in the app's image
-    disk: ["data", ".renders", "uploads/tmp"], // folders kept across deploys
+    packages: ["ffmpeg", "chromium"],             // Debian packages in the app's image
+    disk: { data: "5GB", ".renders": "20GB" },    // folders kept across deploys, with sizes
+    timeoutSeconds: 3600,                         // one request may take an hour (default 15 min)
   },
 }
 ```
@@ -128,26 +129,48 @@ apps: {
   `chromium`, `imagemagick`, `poppler-utils`). They apply from the next deploy (the build
   log says what it installs). A prebuilt image (`--prebuilt`) brings its own; static apps
   have none.
-- **Disk folders:** each path in `disk` is a folder, relative to the app's working
-  directory (`/app`), that keeps what the app writes across deploys, restarts and
-  rollbacks. All production instances share it (one disk, so SQLite works across them).
-  The first time the app starts with a folder, the folder gets what the image has at
-  that path (a SQLite file the repository ships, say); after that it is the app's and a
-  deploy never touches it. Each preview gets its own folders,
-  made the same way from the preview's build and deleted with the preview, so a preview
-  never writes to production's. The folders count toward the project's storage limit
-  (as files, in `tiffin projects usage`), travel in `projects export`, `duplicate` and
-  `move`, and are in box backups. Over the limit, the database and buckets turn read-only
-  but the folders themselves are not blocked: give apps that write a lot a storage limit
-  and watch usage. Deleting the app, or the project, moves its folders to
+- **Disk folders:** each folder in `disk` is relative to the app's working directory
+  (`/app`) and keeps what the app writes across deploys, restarts and rollbacks. All
+  production instances share it (one disk, so SQLite works across them). The first time
+  the app starts with a folder, the folder gets what the image has at that path (a SQLite
+  file the repository ships, say); after that it is the app's and a deploy never touches
+  it. Each preview gets its own folders, of the same sizes, made the same way from the
+  preview's build and deleted with the preview, so a preview never writes to production's.
+  Folders travel in `projects export`, `duplicate` and `move`, and are in box backups.
+  Deleting the app, or the project, moves its folders to
   `/var/lib/tiffin/runtime/disks-trash` for 7 days. Taking a path out of `disk` unmounts
   it but keeps its data (counted) until the app is deleted. Files the app writes to
   `public/` at run time are not served by Next.js (it only serves what the build had):
   put user files in a bucket (`services.storage`) instead.
-- **Long requests:** the box puts no time limit on a request. A response may take 15
-  minutes or more, streamed or all at once, and nothing cuts a stream for pausing. Only a
-  client that closes the connection ends it (browsers and proxies in front of the box may
-  have limits of their own). A preview with a request under way does not fall asleep.
+- **Folder sizes:** a folder holds no more than its size, like a volume: `disk: ["data"]`
+  makes each folder 1GB; `disk: { data: "5GB", renders: "500MB" }` sets them (MB, GB or
+  TB; 1GB = 1024MB). A write past the size fails as a full disk does (`ENOSPC`, "No space
+  left on device"), so the app sees the error; nothing else on the box is affected.
+  Growing a folder applies when the change is applied, without a deploy or restart.
+  Shrinking one below what it holds is refused at plan time; delete files first. The
+  sizes set this way must fit together in the project's storage limit, which its database
+  and buckets share (a plan over it is refused; folders listed without sizes are not
+  counted against it). What the folders hold counts as files in the project's usage;
+  `tiffin projects usage` lists each folder's use against its size (`disk.folders`), and
+  box health names folders at 90% of their size or more. When the project reaches its
+  storage limit, or the disk guard stops it because the data disk is nearly full, its
+  folders stop growing too, with its database and buckets. Sizes need the data disk
+  mounted with XFS project quotas: boxes set up now are; on a server set up earlier,
+  `tiffin up` adds them and they turn on at the server's next restart (`sudo reboot`).
+  Until then folders are not limited, and box health says so. A folder that already held
+  more than 1GB when sizes came in may hold what it held plus 1GB until you give it a size.
+- **Long requests:** one request may take up to the app's time limit, `timeoutSeconds`:
+  15 minutes by default (a Vercel function's `maxDuration`, at most 800 s, fits), up to
+  86400 (24 hours). The limit counts from the moment the request reaches the box to the response's last
+  byte, upload included. Past it the box answers `504 Gateway Timeout`, saying which limit
+  ran out, or, when the response has begun, ends it there (a stream is cut). Under it a
+  response may take as long as it needs, streamed or all at once, and a stream may pause
+  for as long as it likes. A client that stops sending its body, or stops reading, for 5
+  minutes is cut (see [Protection](protection.md)). Queue jobs and workflow steps are
+  not requests: they have their own limits. A new limit applies to the next request, with
+  no deploy. A release replaced by a deploy finishes the requests it has, each within its
+  limit. Browsers and proxies in front of the box may have limits of their own. A preview
+  with a request under way does not fall asleep.
   Bun's own server (`export default { fetch }`, Hono, Elysia) has two limits of its own:
   it closes a request that sends nothing for 10 seconds and refuses bodies over 128 MB.
   Lift them in the app: `export default { port, fetch, idleTimeout: 0,

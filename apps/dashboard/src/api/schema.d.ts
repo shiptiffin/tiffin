@@ -4846,6 +4846,8 @@ export interface components {
              * @description Bucket files and apps' disk folders
              */
             filesBytes: number;
+            /** @description Its apps' disk folders (production's and previews') against their sizes; absent when the box's data disk has no project quotas */
+            folders?: components["schemas"]["RuntimeDiskFolder"][] | null;
             /**
              * Format: int64
              * @description Valkey keys (held in memory, snapshotted to disk)
@@ -7814,6 +7816,20 @@ export interface components {
         };
         RuntimeDeployList: {
             deploys: components["schemas"]["RuntimeDeploy"][] | null;
+        };
+        RuntimeDiskFolder: {
+            app: string;
+            /** @description False when the box's data disk has no project quotas (box health says why): the size is then not enforced */
+            enforced: boolean;
+            path: string;
+            preview?: string;
+            /**
+             * Format: int64
+             * @description Its size: writes past it fail with "disk full" (ENOSPC). A folder that held more than its size when sizes came in may hold what it held plus 1 GB until it is given a bigger one.
+             */
+            sizeBytes: number;
+            /** Format: int64 */
+            usedBytes: number;
         };
         RuntimeDrainSet: {
             instances: components["schemas"]["RuntimeInstance"][] | null;

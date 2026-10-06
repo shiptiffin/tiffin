@@ -226,8 +226,12 @@ func routeKeys(p *platform.Platform, project string, res map[string]change.Resou
 // CheckPlan refuses a route another project already serves: the edge would
 // keep sending it to the other project, so this app would deploy "live" at an
 // address that never reaches it. Routes the project already has are not
-// re-checked, so an old clash does not block unrelated changes.
+// re-checked, so an old clash does not block unrelated changes. It also
+// refuses disk folder sizes that cannot work (see checkDisks).
 func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project string, desired map[string]change.Resource) error {
+	if err := checkDisks(ctx, p, project, desired); err != nil {
+		return err
+	}
 	want := routeKeys(p, project, desired)
 	if len(want) == 0 {
 		return nil
@@ -541,6 +545,9 @@ func (r *rt) checks(ctx context.Context) []platform.Check {
 	if stuck := r.stuckDeploys(ctx); len(stuck) > 0 {
 		out = append(out, platform.Check{Name: "deploys", OK: false, Detail: "stuck for over " + stuckAfter.String() + ": " + strings.Join(stuck, ", ") +
 			". Restarting the service fails them and frees the builder: sudo systemctl restart tiffin."})
+	}
+	if c := r.diskCheck(ctx); c != nil {
+		out = append(out, *c)
 	}
 	if _, conflicts := r.routes(ctx); len(conflicts) > 0 {
 		var parts []string

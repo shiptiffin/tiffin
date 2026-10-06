@@ -906,6 +906,7 @@ func (r *rt) deletePreview(ctx context.Context, project, app, name string) error
 	_ = os.RemoveAll(r.envLogDir(project, app, name))
 	r.forgetFiles(project, app, name, false)
 	r.removeDir(r.diskDir(project, app, name))
+	r.quotas.forget(ctx, project+"/"+app+"/"+envDirName(name)+"/")
 	forgetDiskBytes(project)
 	r.gc(ctx, project, app, name)
 	r.dropPreviewBranch(ctx, project, name)

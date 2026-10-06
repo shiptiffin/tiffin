@@ -203,8 +203,10 @@ from filling the disk (see [Concepts](concepts.md)). Uploads that would go over 
 limit are refused with `QuotaExceeded` (S3) or a `precondition` problem (API). Files
 are measured every minute, plus what was uploaded since, and databases every 30
 seconds. A project that reaches its limit becomes read-only (its database refuses
-writes too) until it is under it again; raising or clearing the limit lifts that
-within seconds. The box owner sets limits on the project's Usage page or with the
+writes too, its apps' disk folders stop growing) until it is under it again; raising or
+clearing the limit lifts that within seconds. Disk folders count as files, and the sizes
+apps give them (`disk: { data: "5GB" }`, see [Apps](apps.md#programs-folders-and-long-requests))
+must fit in the limit: a limit below them is refused. The box owner sets limits on the project's Usage page or with the
 CLI. Setting one is a change in History: undo puts the previous limit back.
 
 ```bash

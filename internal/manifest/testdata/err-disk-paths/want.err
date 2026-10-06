@@ -1,0 +1,3 @@
+/apps/site/timeoutSeconds: static apps are files served by the edge, which has no time limit to set; remove "timeoutSeconds"
+/apps/web/disk/..~1up: "../up" must be a folder inside the app's working directory, like "data" (no "..", "." or empty parts)
+/apps/web/disk/data~1x: "data" and "data/x" overlap; list only the outer folder

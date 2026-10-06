@@ -458,6 +458,10 @@ func (g *guard) hold(ctx context.Context, project string, spec json.RawMessage) 
 	}
 	g.mu.Unlock()
 	storage.SetReadOnly(project, h.Reason, h.Message)
+	// Its apps' disk folders stop growing too: their limit becomes what they hold.
+	if err := runtime.HoldDisks(ctx, project, spec != nil); err != nil {
+		g.p.Log.Error("disk guard: disk folders", "project", project, "err", err)
+	}
 	return postgres.SetReadOnly(ctx, g.p, project, h.Message)
 }
 

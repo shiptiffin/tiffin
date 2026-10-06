@@ -51,9 +51,11 @@ func (r *rt) diskMounts(ctx context.Context, d *Deploy, spec *manifest.App, log 
 	}
 	root := r.diskDir(d.Project, d.App, d.Preview)
 	var missing []string
-	for _, p := range spec.Disk {
+	made := map[string]bool{}
+	for _, p := range spec.Disk.Paths() {
 		if !exists(filepath.Join(root, p)) {
 			missing = append(missing, p)
+			made[p] = true
 		}
 	}
 	if len(missing) > 0 {
@@ -61,8 +63,13 @@ func (r *rt) diskMounts(ctx context.Context, d *Deploy, spec *manifest.App, log 
 			return nil, err
 		}
 	}
+	if err := r.quotas.apply(ctx, d.Project, d.App, d.Preview, spec.Disk, made, log); err != nil {
+		// The app still starts, its folders unlimited as they were.
+		fmt.Fprintf(log, "==> warning: could not set the disk folders' sizes: %v\n", err)
+		r.p.Log.Error("runtime: disk folder sizes", "project", d.Project, "app", d.App, "preview", d.Preview, "err", err)
+	}
 	mounts := make([]string, len(spec.Disk))
-	for i, p := range spec.Disk {
+	for i, p := range spec.Disk.Paths() {
 		mounts[i] = filepath.Join(root, p) + ":" + path.Join(workDir, p)
 	}
 	return mounts, nil
@@ -114,6 +121,11 @@ func (r *rt) trashDisks(project, app string) {
 		err = os.Rename(src, dst)
 		if err == nil {
 			r.p.Log.Info("runtime: disk folders moved to the trash", "project", project, "app", app, "path", dst, "keep", diskTrashKeep)
+			prefix := project + "/"
+			if app != "" {
+				prefix += app + "/"
+			}
+			r.quotas.forget(r.ctx, prefix)
 			forgetDiskBytes(project)
 			return
 		}
@@ -161,12 +173,20 @@ func forgetDiskBytes(project string) {
 	diskUsage.Lock()
 	delete(diskUsage.at, project)
 	diskUsage.Unlock()
+	if q := currentQuotas(); q != nil {
+		q.mu.Lock()
+		q.used = nil
+		q.mu.Unlock()
+	}
 }
 
 // DiskBytes is the size of a project's app disk folders, production's and
-// previews', measured at most once a minute. They count toward the
+// previews': from their quotas, or measured at most once a minute. They count toward the
 // project's storage limit with its database and files.
 func DiskBytes(project string) int64 {
+	if n, ok := currentQuotas().projectBytes(context.Background(), project); ok {
+		return n
+	}
 	diskUsage.Lock()
 	root, at, n := diskUsage.root, diskUsage.at[project], diskUsage.n[project]
 	diskUsage.Unlock()

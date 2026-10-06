@@ -44,12 +44,15 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    redirects and rewrites apply; the build log lists what was used and what was not.
    An app that runs programs (`ffmpeg`, headless `chromium`) lists
    their Debian names in `packages: ["ffmpeg"]`; one that writes files it must keep (SQLite, renders)
-   lists the folders in `disk: ["data"]` (relative to the app; kept across deploys, shared by its
-   instances, a preview gets its own, counted in the storage limit). Never keep data in other folders:
-   each deploy starts from the image. Requests have no time or size limit (15-minute renders and
-   GB uploads work), but a Bun server needs `idleTimeout: 0` and a `maxRequestBodySize` in its
-   `export default { ... }` (Bun cuts a silent request after 10 s and refuses bodies over 128 MB);
-   user files still belong in a bucket.
+   lists the folders with sizes, `disk: { data: "5GB" }` (`["data"]` makes each 1GB; relative to the
+   app; kept across deploys, shared by its instances, a preview gets its own of the same size). A
+   write past a folder's size fails with ENOSPC; growing it applies without a restart; sizes must fit
+   in the project's storage limit. Never keep data in other folders: each deploy starts from the
+   image. A request may take 15 minutes, then gets 504 (a stream is cut): set `timeoutSeconds` (up to
+   86400) for longer renders, or use a queue job. Bodies have no size limit (GB uploads work), but a
+   Bun server needs `idleTimeout: 0` and a `maxRequestBodySize` in its `export default { ... }` (Bun
+   cuts a silent request after 10 s and refuses bodies over 128 MB); user files still belong in a
+   bucket.
    Slow or failing requests: `tiffin traces list --project <p>` then `tiffin traces get <id> --project <p>`
    (apps already have the OTLP env; Next.js needs an `instrumentation.ts` calling `registerOTel()` from
    `@vercel/otel`). Real visitors' page speed: `<WebVitals />` from `tiffin-sdk/next/vitals` in the root

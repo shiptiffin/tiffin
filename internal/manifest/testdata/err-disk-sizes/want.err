@@ -1,0 +1,3 @@
+/apps/web/disk/big: "0GB" must be a size such as "500MB", "5GB" or "1TB"
+/apps/web/disk/data: "5gb" must be a size such as "500MB", "5GB" or "1TB"
+/apps/web/timeoutSeconds: must be at most 86400 (got 90000)

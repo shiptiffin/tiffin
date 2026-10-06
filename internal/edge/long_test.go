@@ -22,9 +22,15 @@ import (
 // timeouts (1 minute; tried at 1s) the h1 upload, the h2 stream and the
 // WAF's idle response were cut, so the config turns them off; the e2e
 // runtime test covers minutes.
+//
+// The stall guard runs at a second here, under every wait: it must cut
+// nothing above, yet cut a request whose body stops arriving.
 func TestLongRequests(t *testing.T) {
 	isolate(t)
 	const wait = 1500 * time.Millisecond
+	old := stallTimeout
+	stallTimeout = time.Second
+	t.Cleanup(func() { stallTimeout = old })
 
 	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -116,5 +122,27 @@ func TestLongRequests(t *testing.T) {
 		}
 		t.Run(fmt.Sprintf("waf=%v/h1", w), func(t *testing.T) { run(t, false) })
 		t.Run(fmt.Sprintf("waf=%v/h2", w), func(t *testing.T) { run(t, true) })
+		t.Run(fmt.Sprintf("waf=%v/stalled-body", w), func(t *testing.T) { stalledBody(t, ca, cfg.HTTPSPort) })
 	}
+}
+
+// stalledBody: a request body that stops arriving gets its connection cut
+// once it has stalled for stallTimeout.
+func stalledBody(t *testing.T, ca []byte, port int) {
+	conf := client(t, ca, port).Transport.(*http.Transport).TLSClientConfig.Clone()
+	conf.ServerName, conf.NextProtos = "shop.tiffin.localhost", []string{"http/1.1"}
+	conn, err := tls.Dial("tcp", "127.0.0.1:"+strconv.Itoa(port), conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	began := time.Now()
+	fmt.Fprintf(conn, "POST /upload HTTP/1.1\r\nHost: shop.tiffin.localhost\r\nContent-Type: multipart/form-data; boundary=x\r\nContent-Length: 1000\r\n\r\n--x\r\n")
+	_ = conn.SetReadDeadline(time.Now().Add(20 * time.Second))
+	got, _ := io.ReadAll(conn) // until the edge closes the connection
+	took := time.Since(began)
+	if took < stallTimeout || took > 10*time.Second {
+		t.Fatalf("stalled body: cut after %s (%q), want after the %s stall", took.Round(time.Millisecond), got, stallTimeout)
+	}
+	t.Logf("cut after %s: %q", took.Round(time.Millisecond), strings.SplitN(string(got), "\r\n", 2)[0])
 }

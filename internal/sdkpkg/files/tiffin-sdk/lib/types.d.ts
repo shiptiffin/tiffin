@@ -22,6 +22,8 @@ export type Framework = "next" | "hono" | "bun" | "static";
  * - `"worker"`: receives queue and workflow pushes only
  */
 export type Role = "web" | "worker";
+/** A disk folder's size, e.g. "500MB", "5GB" or "1TB" (1GB = 1024MB). */
+export type DiskSize = `${number}MB` | `${number}GB` | `${number}TB`;
 /** One deployable unit. */
 export interface AppConfig {
     /** Path to the app's source, relative to the manifest. Default ".". */
@@ -71,12 +73,21 @@ export interface AppConfig {
     packages?: string[];
     /**
      * Folders, relative to the app's working directory (e.g. "data"), that
-     * persist across deploys and restarts. Every production instance shares
-     * them; each preview gets its own. A folder starts with what the image has
-     * at that path. They count toward the project's storage limit. Not for
-     * static apps.
+     * persist across deploys and restarts, each with a size: `["data"]` makes
+     * each 1GB, `{ data: "5GB", renders: "20GB" }` sets them (1GB = 1024MB).
+     * Writes past a folder's size fail with "disk full"; growing it applies at
+     * once, without a restart. Every production instance shares them; each
+     * preview gets its own of the same size. A folder starts with what the
+     * image has at that path. Their sizes together must fit in the project's
+     * storage limit. Not for static apps.
      */
-    disk?: string[];
+    disk?: string[] | Record<string, DiskSize>;
+    /**
+     * The most one request to the app may take, in seconds, 1-86400 (24
+     * hours). Default 900 (15 minutes). Past it the box answers 504, or cuts a
+     * response it is streaming. Not for static apps.
+     */
+    timeoutSeconds?: number;
     /** App-specific plain environment variables (merged over the top-level `env`). */
     env?: Record<string, string>;
     /**

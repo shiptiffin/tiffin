@@ -96,6 +96,13 @@ func normalize(m *Manifest, onBox map[string][]string) []string {
 		} else {
 			app.Routes = nil
 		}
+		if len(app.Disk) > 0 {
+			disk := make(Disk, len(app.Disk))
+			for i, d := range app.Disk {
+				disk[i] = DiskFolder{Path: d.Path, Size: canonicalSize(d.Size)}
+			}
+			app.Disk = disk
+		}
 		if g := app.Git; g != nil {
 			gc := *g
 			if gc.Branch == "" {
