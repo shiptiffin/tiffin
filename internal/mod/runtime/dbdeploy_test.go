@@ -106,9 +106,9 @@ func TestReleaseCommand(t *testing.T) {
 	rt := tasks[0]
 	env := rt.spec.Env
 	if rt.script != "bun run migrate.ts" || rt.spec.Image != v1.Image || rt.runs != 0 || rt.spec.MemoryMB != 256 || rt.spec.CgroupParent == "" ||
-		env["TIFFIN_DEPLOY"] != v1.ID || !strings.Contains(env["DATABASE_URL"], "/p_shop?") || env["DIRECT_DATABASE_URL"] != env["DATABASE_URL"] ||
-		env["DATABASE_POOL_MAX"] == "" || rt.spec.Labels["tiffin.release"] != "1" {
-		t.Fatalf("release ran before any instance, in the new image, with the app's env and limits: %+v (runs before: %d)", rt.spec, rt.runs)
+		env["TIFFIN_DEPLOY"] != v1.ID || !strings.Contains(env["DATABASE_URL"], ":5432/p_shop?") || env["DIRECT_DATABASE_URL"] != env["DATABASE_URL"] ||
+		env["PGPORT"] != "5432" || env["DATABASE_POOL_MAX"] == "" || rt.spec.Labels["tiffin.release"] != "1" {
+		t.Fatalf("release ran before any instance, in the new image, with the app's env (straight to Postgres) and limits: %+v (runs before: %d)", rt.spec, rt.runs)
 	}
 	log := h.buildLogText(v1)
 	for _, want := range []string{"==> release: bun run migrate.ts", "migrating p_shop", "==> release done in"} {
@@ -119,8 +119,9 @@ func TestReleaseCommand(t *testing.T) {
 	if strings.Index(log, "==> release done") > strings.Index(log, "==> starting") {
 		t.Errorf("the release must finish before instances start:\n%s", log)
 	}
-	if ie := h.instanceEnv("api", ""); ie["DIRECT_DATABASE_URL"] == "" || ie["DATABASE_POOL_MAX"] != "9" {
-		t.Errorf("instances: DIRECT_DATABASE_URL %q, DATABASE_POOL_MAX %q (80 connections, 3 instances)", ie["DIRECT_DATABASE_URL"], ie["DATABASE_POOL_MAX"])
+	if ie := h.instanceEnv("api", ""); !strings.Contains(ie["DATABASE_URL"], ":6432/p_shop?") || !strings.Contains(ie["DIRECT_DATABASE_URL"], ":5432/p_shop?") ||
+		ie["PGPORT"] != "6432" || ie["DATABASE_POOL_MAX"] != "20" {
+		t.Errorf("instances: DATABASE_URL %q, DIRECT_DATABASE_URL %q, DATABASE_POOL_MAX %q", ie["DATABASE_URL"], ie["DIRECT_DATABASE_URL"], ie["DATABASE_POOL_MAX"])
 	}
 
 	// A failing release stops the deploy before its instances start; v1 serves.
@@ -179,11 +180,11 @@ func TestPreviewDatabaseBranch(t *testing.T) {
 		t.Fatalf("branch: %+v (%d made)", h.pgb.made, h.pgb.creates)
 	}
 	tasks := h.eng.taskList()
-	if got := tasks[len(tasks)-1].spec.Env; !strings.Contains(got["DATABASE_URL"], "/p_shop__pv_pr_7?") || got["PGDATABASE"] != "p_shop__pv_pr_7" {
+	if got := tasks[len(tasks)-1].spec.Env; !strings.Contains(got["DATABASE_URL"], ":5432/p_shop__pv_pr_7?") || got["PGDATABASE"] != "p_shop__pv_pr_7" {
 		t.Fatalf("the preview's release must migrate its branch: %v", got["DATABASE_URL"])
 	}
 	ie := h.instanceEnv("api", "pr-7")
-	if !strings.Contains(ie["DATABASE_URL"], "/p_shop__pv_pr_7?") || ie["DIRECT_DATABASE_URL"] != ie["DATABASE_URL"] || ie["DATABASE_POOL_MAX"] != "2" {
+	if !strings.Contains(ie["DATABASE_URL"], ":6432/p_shop__pv_pr_7?") || !strings.Contains(ie["DIRECT_DATABASE_URL"], ":5432/p_shop__pv_pr_7?") || ie["DATABASE_POOL_MAX"] != "5" {
 		t.Fatalf("preview instance env: %s %s pool %s", ie["DATABASE_URL"], ie["DIRECT_DATABASE_URL"], ie["DATABASE_POOL_MAX"])
 	}
 	if pe := h.instanceEnv("api", ""); !strings.Contains(pe["DATABASE_URL"], "/p_shop?") {
@@ -274,30 +275,28 @@ func TestPreviewBranchName(t *testing.T) {
 }
 
 func TestPoolMax(t *testing.T) {
-	for _, c := range []struct{ limit, instances, want, preview int }{
-		{80, 1, 10, 2}, {80, 3, 9, 2}, {80, 8, 3, 2}, {80, 60, 1, 2}, {400, 4, 10, 2}, {10, 1, 3, 1}, {3, 1, 1, 1},
-	} {
-		if got := poolMax(c.limit, c.instances, false); got != c.want {
-			t.Errorf("poolMax(%d, %d) = %d, want %d", c.limit, c.instances, got, c.want)
+	// Client connections to the pooler: generous, and inside the project's
+	// client limit there even during a deploy (every instance twice).
+	for _, c := range []struct{ instances, want int }{{1, 20}, {6, 20}, {12, 20}, {25, 10}, {600, 1}} {
+		if got := poolMax(c.instances, false); got != c.want {
+			t.Errorf("poolMax(%d) = %d, want %d", c.instances, got, c.want)
 		}
-		if got := poolMax(c.limit, c.instances, true); got != c.preview {
-			t.Errorf("preview poolMax(%d) = %d, want %d", c.limit, got, c.preview)
+		if got := 2 * c.instances * poolMax(c.instances, false); c.instances < 250 && got > postgres.PoolerClientLimit/2 {
+			t.Errorf("%d instances open %d client connections during a deploy", c.instances, got)
 		}
+	}
+	if got := poolMax(3, true); got != postgres.PoolMaxPreview {
+		t.Errorf("preview poolMax = %d", got)
 	}
 	apps := map[string]manifest.App{"web": {Instances: 4}, "api": {Instances: 2}, "site": {Framework: manifest.FrameworkStatic, Instances: 1}}
-	// The box's own sizing fits; clients that ignore it would not.
-	w := poolWarning("shop", 80, apps, nil, nil)
-	if !strings.Contains(w, "DATABASE_POOL_MAX=4") || !strings.Contains(w, "120 during a deploy") {
-		t.Fatalf("defaults warning: %q", w)
+	if w := poolWarning("shop", postgres.PoolerClientLimit, apps, nil, nil); w != "" {
+		t.Fatalf("the box's own sizing fits: %q", w)
 	}
-	// An app's own value that overruns the limit.
-	apps["web"] = manifest.App{Instances: 4, Env: map[string]string{"DATABASE_POOL_MAX": "20"}}
-	w = poolWarning("shop", 80, apps, nil, nil)
-	if !strings.Contains(w, "can open 176 (api 2 × 4, web 4 × 20, doubled)") || !strings.Contains(w, "may hold 80") {
+	// An app's own value that overruns the pooler's client limit.
+	apps["web"] = manifest.App{Instances: 4, Env: map[string]string{"DATABASE_POOL_MAX": "200"}}
+	w := poolWarning("shop", postgres.PoolerClientLimit, apps, nil, nil)
+	if !strings.Contains(w, "can open 1680 (api 2 × 20, web 4 × 200, doubled)") || !strings.Contains(w, "may hold 1000 at the connection pooler") {
 		t.Fatalf("overrun warning: %q", w)
-	}
-	if w := poolWarning("shop", 80, map[string]manifest.App{"web": {Instances: 1}}, nil, nil); w != "" {
-		t.Fatalf("one instance warned: %q", w)
 	}
 }
 

@@ -251,6 +251,7 @@ func (r *rt) runRelease(ctx context.Context, d *Deploy, spec *manifest.App, bran
 		return err
 	}
 	env["TIFFIN_DEPLOY"] = d.ID
+	r.releaseDirect(ctx, d.Project, branch, env)
 	mounts, err := r.diskMounts(ctx, d, spec, log)
 	if err != nil {
 		return err
@@ -297,6 +298,24 @@ func (r *rt) runRelease(ctx context.Context, d *Deploy, spec *manifest.App, bran
 	return nil
 }
 
+// releaseDirect points the release command's DATABASE_URL straight at
+// Postgres: migration tools hold session state (advisory locks, SET) that
+// a transaction pooler would spread over several server connections. A
+// DATABASE_URL the app sets itself is left alone.
+func (r *rt) releaseDirect(ctx context.Context, project, branch string, env map[string]string) {
+	if r.postgresSpec(ctx, project) == nil {
+		return
+	}
+	box, err := postgres.ConnEnv(ctx, r.p, project, branch, false)
+	if err != nil || env["DATABASE_URL"] != box["DATABASE_URL"] {
+		return
+	}
+	env["DATABASE_URL"] = box["DIRECT_DATABASE_URL"]
+	if env["PGPORT"] == box["PGPORT"] {
+		env["PGPORT"] = strconv.Itoa(postgres.Port)
+	}
+}
+
 // tailBuffer keeps the last 8 KiB written to it.
 type tailBuffer struct {
 	mu sync.Mutex
@@ -321,18 +340,16 @@ func (t *tailBuffer) String() string {
 
 // ---- connection budget ----
 
-// poolMax is how many connections one instance's pool should open so the
-// project stays inside its role's connection limit: every app instance
-// shares the limit with the old instances a deploy is draining (so each
-// counts twice), the previews (their branches use the same role) and a
-// few for the SQL console and release commands. Clients default to 10;
-// the box never suggests more.
-func poolMax(limit, instances int, preview bool) int {
-	reserve, previews := min(5, limit/4), limit/5
+// poolMax is how many connections one instance's pool should open. They
+// are client connections to the pooler, which shares the project's server
+// connections among them, so the number only has to stay inside the
+// project's client limit there: every instance counts twice during a
+// deploy (the old ones drain), and previews get a few.
+func poolMax(instances int, preview bool) int {
 	if preview {
-		return max(1, min(2, previews/4))
+		return postgres.PoolMaxPreview
 	}
-	return max(1, min(10, (limit-reserve-previews)/(2*max(1, instances))))
+	return max(1, min(postgres.PoolMaxProduction, postgres.PoolerClientLimit/2/(2*max(1, instances))))
 }
 
 // projectInstances counts the production instances of a project's apps
@@ -372,6 +389,5 @@ func (r *rt) setPoolMax(ctx context.Context, project, preview string, env map[st
 	if env["DATABASE_POOL_MAX"] != "" || r.postgresSpec(ctx, project) == nil {
 		return
 	}
-	limit := postgres.LimitUsage(project).ConnectionLimit
-	env["DATABASE_POOL_MAX"] = strconv.Itoa(poolMax(limit, projectInstances(r.appSpecs(ctx, project)), preview != ""))
+	env["DATABASE_POOL_MAX"] = strconv.Itoa(poolMax(projectInstances(r.appSpecs(ctx, project)), preview != ""))
 }

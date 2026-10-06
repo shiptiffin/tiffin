@@ -90,6 +90,22 @@ type ProjectCleaner interface {
 	ProjectDeleted(ctx context.Context, p *Platform, project string) error
 }
 
+// Notifier tells the box's owner, once, about something that needs a look
+// (a failed Postgres update): the observe module sends it through the
+// alert webhook and email and lists it in the alert history.
+type Notifier interface {
+	Notify(ctx context.Context, subject, summary string)
+}
+
+// Notify sends a one-off notice through every Notifier.
+func (p *Platform) Notify(ctx context.Context, subject, summary string) {
+	for _, m := range Modules() {
+		if n, ok := m.(Notifier); ok {
+			n.Notify(ctx, subject, summary)
+		}
+	}
+}
+
 // ProjectStopper holds a project's background work (queued jobs, crons)
 // while the project is stopped (change.KindStopped) and lets it go when the
 // project starts. It must be idempotent: the runtime calls it on every

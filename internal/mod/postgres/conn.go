@@ -84,9 +84,12 @@ func HasService(ctx context.Context, p *platform.Platform, project string) (bool
 }
 
 // ConnEnv returns the connection env for a project's database, or for one
-// of its branches when branch is set. With viaSocket the URL and PGHOST
-// point at the unix socket directory (bind-mount /var/run/postgresql into
-// the container); otherwise at 127.0.0.1:5432.
+// of its branches when branch is set. DATABASE_URL and PG* go through the
+// pooler (transaction pooling); DIRECT_DATABASE_URL goes straight to
+// Postgres, for migrations, LISTEN/NOTIFY and session locks. With
+// viaSocket the URLs and PGHOST point at the unix socket directory
+// (bind-mount /var/run/postgresql into the container); otherwise at
+// 127.0.0.1.
 func ConnEnv(ctx context.Context, p *platform.Platform, project, branch string, viaSocket bool) (map[string]string, error) {
 	pw, err := datakit.EnsureSecret(ctx, p, nsPassword, project)
 	if err != nil {
@@ -97,25 +100,25 @@ func ConnEnv(ctx context.Context, p *platform.Platform, project, branch string, 
 		db = BranchDatabase(project, branch)
 	}
 	user := Role(project)
-	u := url.URL{Scheme: "postgresql", User: url.UserPassword(user, pw), Path: "/" + db}
+	connURL := func(port int) string {
+		u := url.URL{Scheme: "postgresql", User: url.UserPassword(user, pw), Path: "/" + db, RawQuery: "sslmode=disable"}
+		if viaSocket {
+			u.Host = "localhost:" + strconv.Itoa(port)
+			u.RawQuery = "host=" + SocketDir + "&sslmode=disable"
+		} else {
+			u.Host = "127.0.0.1:" + strconv.Itoa(port)
+		}
+		return u.String()
+	}
 	env := map[string]string{
-		"PGUSER": user, "PGPASSWORD": pw, "PGDATABASE": db, "PGPORT": strconv.Itoa(Port),
+		"PGUSER": user, "PGPASSWORD": pw, "PGDATABASE": db, "PGPORT": strconv.Itoa(PoolerPort), "PGHOST": "127.0.0.1",
 		"DATABASE_SOCKET_DIR": SocketDir,
+		"DATABASE_URL":        connURL(PoolerPort),
+		"DIRECT_DATABASE_URL": connURL(Port),
 	}
 	if viaSocket {
-		u.Host = "localhost"
-		u.RawQuery = "host=" + SocketDir + "&sslmode=disable"
 		env["PGHOST"] = SocketDir
-	} else {
-		u.Host = "127.0.0.1:" + strconv.Itoa(Port)
-		u.RawQuery = "sslmode=disable"
-		env["PGHOST"] = "127.0.0.1"
 	}
-	env["DATABASE_URL"] = u.String()
-	// For migration tools that want a connection without a pooler in
-	// between (Prisma's directUrl, drizzle-kit). There is no pooler, so it
-	// is the same URL.
-	env["DIRECT_DATABASE_URL"] = env["DATABASE_URL"]
 	return env, nil
 }
 
