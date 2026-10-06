@@ -4,10 +4,11 @@
 // One engine process (packages/auth-engine: Better Auth on Bun) serves every
 // auth-enabled project on the box. Each project keeps its users in its own
 // Postgres database, in the `auth` schema. The edge sends /api/auth/* on each
-// web app host to the engine, which picks the project by Host. This module
-// installs the engine (Provision), writes its config and migrates each
-// project's schema (Reconcile), adds the routes and TIFFIN_AUTH_URL, and
-// serves the dashboard's Auth pages through the platform API.
+// web app host (previews included) to the engine, which picks the project by
+// Host. This module installs the engine (Provision), writes its config and
+// migrates each project's schema (Reconcile), adds the routes and
+// TIFFIN_AUTH_URL, and serves the dashboard's Auth pages through the platform
+// API.
 //
 // Why one process: Bun plus Better Auth costs ~60-90 MB resident; one per
 // project would eat a 4 GB box after a handful of projects. Instances are

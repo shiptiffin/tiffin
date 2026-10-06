@@ -34,6 +34,33 @@ func (m *Module) Routes(ctx context.Context, p *platform.Platform) ([]edge.Route
 	return routes, nil
 }
 
+// PreviewHosts maps the hosts of a project's deployed web app previews to
+// their app. The auth module serves /api/auth on them; a preview's first
+// deploy and its deletion change the runtime's routes, and the route refresh
+// that follows is how it learns.
+func (m *Module) PreviewHosts(ctx context.Context, p *platform.Platform, project string) (map[string]string, error) {
+	r, err := m.rt()
+	if err != nil {
+		return nil, nil
+	}
+	states, err := r.st.allStates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, st := range states {
+		if st.Project != project || st.Preview == "" || st.Live == "" || st.Stopped {
+			continue
+		}
+		spec, err := r.appSpec(ctx, project, st.App)
+		if err != nil || spec.Role == manifest.RoleWorker {
+			continue
+		}
+		out[previewHost(st.Preview, project, st.App, spec, p.AppsDomain())] = st.App
+	}
+	return out, nil
+}
+
 // routeConflict is a route two apps claim; the first (by project, app) wins.
 type routeConflict struct{ Key, Winner, Loser string }
 

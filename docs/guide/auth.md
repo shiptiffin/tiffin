@@ -149,3 +149,21 @@ Everything above is plain HTTP, so any language works:
   (for example `POST /api/auth/sign-up/email {email, password, name}`).
 
 The dashboard lists users and organizations; you can ban users and revoke sessions.
+
+## Previews
+
+Sign-in works on previews (`<preview>--<name>.<domain>`) as on production: the box
+serves `/api/auth/*` on each preview's host from the moment it deploys until it is
+deleted, and the preview's `TIFFIN_AUTH_URL` and `TIFFIN_AUTH_HOST` name that host.
+
+- **Same users.** A preview signs in against the project's own accounts, so testers use
+  their real account and anyone who signs up on a preview is a user of the app.
+- **Own cookies.** Session cookies are host-only (no `Domain`): a preview never sees
+  production's cookies, and signing in on a preview doesn't sign you in on production.
+- **Own passkeys.** A preview's host is its own passkey rpID; passkeys made on
+  production don't show up there (sign in another way, or add one on the preview).
+- **Emails** (verification, magic links, invites) sent from a preview link back to it,
+  and go out like production's, since they reach real users.
+
+Code in a preview runs with the project's auth like production's, so treat a preview of
+someone else's branch as you would deploying it.

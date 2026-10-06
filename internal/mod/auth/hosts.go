@@ -82,3 +82,35 @@ func webHosts(p *platform.Platform, res map[string]change.Resource) []AppHost {
 	}
 	return out
 }
+
+// previewHoster is implemented by the runtime module: the hosts of a
+// project's deployed web app previews (<preview>--<name>.<apps domain>),
+// mapped to their app. Found among platform.Modules() by this method set, so
+// neither module imports the other.
+type previewHoster interface {
+	PreviewHosts(ctx context.Context, p *platform.Platform, project string) (map[string]string, error)
+}
+
+// previewHosts lists a project's preview hosts, sorted. Previews share the
+// project's users: a tester signs in on a preview with their real account.
+func previewHosts(ctx context.Context, p *platform.Platform, project string) []AppHost {
+	var out []AppHost
+	for _, m := range platform.Modules() {
+		ph, ok := m.(previewHoster)
+		if !ok {
+			continue
+		}
+		hosts, err := ph.PreviewHosts(ctx, p, project)
+		if err != nil {
+			if p.Log != nil {
+				p.Log.Warn("auth: preview hosts", "project", project, "err", err)
+			}
+			continue
+		}
+		for h, app := range hosts {
+			out = append(out, AppHost{App: app, Host: strings.ToLower(h)})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Host < out[j].Host })
+	return out
+}

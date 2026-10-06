@@ -181,6 +181,14 @@ func projectConfig(ctx context.Context, p *platform.Platform, project string, re
 		c.Origins = []string{p.URL(p.Host(project))}
 	}
 	c.PrimaryURL = c.Origins[0]
+	// Previews come after: the engine treats them as more hosts of the app
+	// (own cookies, own passkey rpID), on the same users.
+	for _, h := range previewHosts(ctx, p, project) {
+		if !contains(c.Hosts, h.Host) {
+			c.Hosts = append(c.Hosts, h.Host)
+			c.Origins = append(c.Origins, p.URL(h.Host))
+		}
+	}
 
 	// Email: the email module's relay or dev inbox.
 	mailEnv, err := moduleEnv(ctx, p, "email", project)

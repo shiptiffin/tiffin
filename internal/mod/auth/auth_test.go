@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/state"
@@ -273,5 +274,79 @@ func TestEmailVerificationSetting(t *testing.T) {
 	apply(t, p, `{"project":"shop","apps":{"web":{}},"services":{"postgres":{},"email":{},"auth":{"emailVerification":true}}}`)
 	if !required() {
 		t.Fatal("emailVerification:true must turn it on")
+	}
+}
+
+// A fake runtime: the preview hosts of each project.
+type fakeRuntime struct{ previews map[string]map[string]string }
+
+func (*fakeRuntime) Name() string { return "runtime" }
+func (f *fakeRuntime) PreviewHosts(_ context.Context, _ *platform.Platform, project string) (map[string]string, error) {
+	return f.previews[project], nil
+}
+
+var runtimeFake = &fakeRuntime{previews: map[string]map[string]string{}}
+
+func init() { platform.Register(runtimeFake) }
+
+// Previews: the edge sends /api/auth on their hosts to the engine, and the
+// engine serves them as more hosts of the project, on the same users. A
+// preview appearing or going away rewrites the engine config on the route
+// refresh it causes, before the edge gets the route.
+func TestPreviewHosts(t *testing.T) {
+	p := newPlatform(t)
+	ctx := t.Context()
+	apply(t, p, shop)
+	t.Cleanup(func() {
+		runtimeFake.previews = map[string]map[string]string{}
+		lastPreviews.key, lastPreviews.synced = "", false
+	})
+	const preview = "pr-3--shop.tiffin.localhost"
+	runtimeFake.previews["shop"] = map[string]string{preview: "web"}
+
+	routes, err := (&Module{}).Routes(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(routes, func(r edge.Route) bool {
+		return r.Host == preview && r.PathPrefix == "/api/auth" && r.Upstream == EngineAddr
+	}) {
+		t.Fatalf("no /api/auth route on the preview: %+v", routes)
+	}
+	written := func() *ProjectConfig {
+		t.Helper()
+		var c EngineConfig
+		raw, err := os.ReadFile(ConfigPath(p))
+		if err != nil || json.Unmarshal(raw, &c) != nil || c.Projects["shop"] == nil {
+			t.Fatalf("engine config: %v %s", err, raw)
+		}
+		return c.Projects["shop"]
+	}
+	s := written()
+	if s.Hosts[len(s.Hosts)-1] != preview || s.Origins[len(s.Origins)-1] != "https://"+preview+":8443" {
+		t.Fatalf("the engine config lists the preview last: %v %v", s.Hosts, s.Origins)
+	}
+	if s.PrimaryURL != "https://shop.tiffin.localhost:8443" {
+		t.Fatalf("the primary host stays production's: %s", s.PrimaryURL)
+	}
+
+	runtimeFake.previews["shop"] = nil // the preview was deleted
+	routes, _ = (&Module{}).Routes(ctx, p)
+	if slices.ContainsFunc(routes, func(r edge.Route) bool { return r.Host == preview }) || slices.Contains(written().Hosts, preview) {
+		t.Fatalf("a deleted preview keeps auth: %+v %v", routes, written().Hosts)
+	}
+}
+
+func TestPreviewEnv(t *testing.T) {
+	env := map[string]string{"TIFFIN_AUTH_URL": "https://shop.tiffin.localhost:8443/api/auth", "TIFFIN_AUTH_HOST": "shop.tiffin.localhost", "TIFFIN_AUTH_INTERNAL_URL": "http://10.0.0.1:7393/api/auth"}
+	PreviewEnv(env, "https://pr-3--shop.tiffin.localhost:8443")
+	if env["TIFFIN_AUTH_URL"] != "https://pr-3--shop.tiffin.localhost:8443/api/auth" || env["TIFFIN_AUTH_HOST"] != "pr-3--shop.tiffin.localhost" ||
+		env["TIFFIN_AUTH_JWKS_URL"] != "https://pr-3--shop.tiffin.localhost:8443/api/auth/jwks" || env["TIFFIN_AUTH_INTERNAL_URL"] != "http://10.0.0.1:7393/api/auth" {
+		t.Fatalf("preview env: %v", env)
+	}
+	plain := map[string]string{"TIFFIN_URL": "https://x"}
+	PreviewEnv(plain, "https://pr-3--shop.tiffin.localhost:8443")
+	if len(plain) != 1 {
+		t.Fatalf("no auth, no change: %v", plain)
 	}
 }
