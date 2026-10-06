@@ -271,6 +271,8 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		_ = p.DB.Audit(ctx, pr.TokenID, "postgres.connection_reveal", in.Project, map[string]any{"session": pr.Session, "database": db})
 		return &struct{ Body *PGConnection }{&PGConnection{DatabaseURL: tcp["DATABASE_URL"], SocketURL: sock["DATABASE_URL"], Database: db, Role: Role(in.Project)}}, nil
 	}))
+
+	registerEditor(a, p)
 }
 
 // SnapshotRestored is the outcome of a snapshot restore.

@@ -43,7 +43,7 @@ func TestAllModulesRegister(t *testing.T) {
 		t.Fatalf("%d tools for %d operations", len(tools), len(a.Operations()))
 	}
 	// Adding or removing an operation is a deliberate API change: update this.
-	const wantOps = 208
+	const wantOps = 221
 	if n := len(a.Operations()); n != wantOps {
 		t.Errorf("%d operations, want %d", n, wantOps)
 	}
@@ -58,7 +58,7 @@ func TestUntrustedOutputs(t *testing.T) {
 	}
 	for _, id := range []string{"sql", "sql-write", "app-logs", "logs-query", "email-messages-list", "email-message-get", "email-suppressions-list",
 		"auth-users-list", "auth-user-get", "auth-orgs-list", "auth-org-get", "storage-objects-list", "storage-object-get", "storage-audit",
-		"kv-get", "kv-keys", "db-tables", "queue-jobs-list", "queue-job-get", "workflow-runs-list", "workflow-run-get", "workflow-approvals-list",
+		"kv-get", "kv-keys", "db-tables", "db-table", "db-rows", "db-edits", "db-queries", "queue-jobs-list", "queue-job-get", "workflow-runs-list", "workflow-run-get", "workflow-approvals-list",
 		"analytics-overview", "analytics-events", "analytics-vitals", "issues-list", "issue-get", "traces-list", "trace-get", "deploy-build-log", "changes-list", "audit-list"} {
 		if !byID[id] {
 			t.Errorf("%s: output is not marked untrusted", id)
