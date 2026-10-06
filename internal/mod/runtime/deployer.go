@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -192,8 +193,17 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 		}
 		fmt.Fprintf(log, "==> source: %d files, %s\n", st.Files, humanBytes(st.Bytes))
 		dropConfig(req.SrcDir, log)
+		if err := r.readApp(d, spec, &req, log); err != nil {
+			return err
+		}
 	}
-	d.Assets = clientAssets(req.SrcDir, spec)
+	d.Assets = nil
+	if !req.Export {
+		for _, a := range clientAssets(req.appDir(), spec) {
+			a.Dir = path.Join(d.Dir, a.Dir)
+			d.Assets = append(d.Assets, a)
+		}
+	}
 	bctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	res, err := r.bld.Build(bctx, req)
 	cancel()
@@ -219,6 +229,9 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 		return err
 	}
 	fmt.Fprintf(log, "==> live in %.1fs total%s\n", d.TotalSecs, urlNote(d.URL))
+	if d.Preview == "" {
+		_ = r.syncCrons(ctx, d.Project, d.App, log)
+	}
 	r.gc(ctx, d.Project, d.App, d.Preview)
 	return nil
 }
@@ -425,7 +438,7 @@ func (r *rt) runInstance(ctx context.Context, st *AppState, d *Deploy, app *mani
 			// Optimized images outlive the release; the environment's instances share them.
 			dir := r.nextCacheDir(d.Project, d.App, d.Preview)
 			if err := os.MkdirAll(dir, 0o755); err == nil {
-				spec.Mounts = append(spec.Mounts, dir+":"+nextImageCache)
+				spec.Mounts = append(spec.Mounts, dir+":"+path.Join("/app", d.Dir, strings.TrimPrefix(nextImageCache, "/app/")))
 			}
 		}
 		if err = r.eng.Run(ctx, spec); err == nil {
@@ -831,6 +844,9 @@ func (r *rt) rollback(ctx context.Context, project, app, id string) (*Deploy, er
 	}
 	if err := r.promote(ctx, d, spec, modeRollback, w); err != nil {
 		return nil, err
+	}
+	if d.Preview == "" {
+		_ = r.syncCrons(ctx, project, app, w)
 	}
 	return d, nil
 }

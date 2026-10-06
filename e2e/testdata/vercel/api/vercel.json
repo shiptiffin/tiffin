@@ -1,0 +1,6 @@
+{
+  "crons": [{ "path": "/api/cron/ping", "schedule": "0 5 * * *" }],
+  "headers": [{ "source": "/(.*)", "headers": [{ "key": "X-Api", "value": "vx" }] }],
+  "redirects": [{ "source": "/v1/:rest*", "destination": "/v2/:rest*" }],
+  "rewrites": [{ "source": "/(.*)", "destination": "/" }]
+}

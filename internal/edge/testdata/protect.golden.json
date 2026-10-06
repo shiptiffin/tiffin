@@ -158,17 +158,53 @@
                       "Server"
                     ],
                     "set": {
-                      "Referrer-Policy": [
-                        "strict-origin-when-cross-origin"
-                      ],
                       "Strict-Transport-Security": [
                         "max-age=300"
-                      ],
+                      ]
+                    }
+                  }
+                },
+                {
+                  "handler": "headers",
+                  "response": {
+                    "require": {
+                      "headers": {
+                        "X-Content-Type-Options": null
+                      }
+                    },
+                    "set": {
                       "X-Content-Type-Options": [
                         "nosniff"
-                      ],
+                      ]
+                    }
+                  }
+                },
+                {
+                  "handler": "headers",
+                  "response": {
+                    "require": {
+                      "headers": {
+                        "X-Frame-Options": null
+                      }
+                    },
+                    "set": {
                       "X-Frame-Options": [
                         "DENY"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "handler": "headers",
+                  "response": {
+                    "require": {
+                      "headers": {
+                        "Referrer-Policy": null
+                      }
+                    },
+                    "set": {
+                      "Referrer-Policy": [
+                        "strict-origin-when-cross-origin"
                       ]
                     }
                   }

@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/manifest"
 	tmcp "github.com/btahir/tiffin/internal/mcp"
+	"github.com/btahir/tiffin/internal/mod/runtime/vercelcfg"
 	"github.com/btahir/tiffin/internal/passkeys"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/sdkpkg"
@@ -84,12 +86,46 @@ func (a *app) planCmd() *cobra.Command {
 			"and the plan hash to confirm. Never changes anything.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			raw, _, err := a.loadManifest(first(args))
+			raw, path, err := a.loadManifest(first(args))
 			if err != nil {
 				return err
 			}
-			return a.call(cmd.Context(), http.MethodPost, "/v1/plan", nil, map[string]any{"manifest": raw})
+			if err := a.call(cmd.Context(), http.MethodPost, "/v1/plan", nil, map[string]any{"manifest": raw}); err != nil {
+				return err
+			}
+			a.vercelNotes(raw, filepath.Dir(path))
+			return nil
 		},
+	}
+}
+
+// vercelNotes says, on a terminal, what deploys take from each app's
+// vercel.json, so nothing it changes comes as a surprise.
+func (a *app) vercelNotes(raw []byte, dir string) {
+	var m struct {
+		Apps map[string]struct {
+			Path string `json:"path"`
+		} `json:"apps"`
+	}
+	if json.Unmarshal(raw, &m) != nil {
+		return
+	}
+	names := make([]string, 0, len(m.Apps))
+	for n := range m.Apps {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		v, err := vercelcfg.Read(filepath.Join(dir, filepath.FromSlash(orDefault(m.Apps[n].Path, "."))))
+		switch {
+		case err != nil:
+			a.say("apps.%s: %v (its deploys fail until that is fixed)", n, err)
+		case v != nil:
+			a.say("apps.%s: vercel.json, read at each deploy: %s", n, orDefault(v.Summary(), "nothing the box uses"))
+			if len(v.Ignored) > 0 {
+				a.say("  not used by the box: %s", strings.Join(v.Ignored, ", "))
+			}
+		}
 	}
 }
 

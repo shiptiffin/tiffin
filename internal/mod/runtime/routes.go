@@ -91,9 +91,13 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 		env := envKey(st.Project, st.App, st.Preview)
 		static := d.StaticRoot != ""
 		spa := strings.HasSuffix(d.Framework, "+spa")
+		var rules *edge.Rules
+		if d.Vercel != nil {
+			rules = d.Vercel.Rules
+		}
 		if st.Preview != "" {
 			who += "@" + st.Preview
-			rt := edge.Route{Host: previewHost(st.Preview, st.Project, st.App, spec, r.p.AppsDomain())}
+			rt := edge.Route{Host: previewHost(st.Preview, st.Project, st.App, spec, r.p.AppsDomain()), Rules: rules}
 			if static {
 				rt.FileRoot, rt.SPA = r.staticLink(st.Project, st.App, st.Preview), spa
 			} else {
@@ -104,7 +108,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict) {
 		}
 		for _, rs := range appRoutes(st.Project, st.App, spec) {
 			host, prefix := r.splitRoute(rs)
-			rt := edge.Route{Host: host, PathPrefix: prefix}
+			rt := edge.Route{Host: host, PathPrefix: prefix, Rules: rules}
 			if static {
 				rt.FileRoot, rt.SPA = r.staticLink(st.Project, st.App, ""), spa
 			} else {
