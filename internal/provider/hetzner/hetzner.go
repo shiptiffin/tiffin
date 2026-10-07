@@ -189,14 +189,14 @@ func (p *Provider) Inventory(ctx context.Context) (*Inventory, error) {
 
 // State reports whether the box's server exists and runs.
 func (p *Provider) State(ctx context.Context) (provider.State, error) {
-	in, err := p.Inventory(ctx)
+	servers, err := p.c.Server.AllWithOpts(ctx, hcloud.ServerListOpts{ListOpts: hcloud.ListOpts{LabelSelector: p.selector()}})
 	if err != nil {
-		return provider.StateAbsent, err
+		return provider.StateAbsent, apiErr("list servers", err)
 	}
-	if len(in.Servers) == 0 {
+	if len(servers) == 0 {
 		return provider.StateAbsent, nil
 	}
-	if in.Servers[0].Status == hcloud.ServerStatusRunning {
+	if servers[0].Status == hcloud.ServerStatusRunning {
 		return provider.StateRunning, nil
 	}
 	return provider.StateStopped, nil
