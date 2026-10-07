@@ -52,7 +52,7 @@ type BuildLog struct {
 	Status string `json:"status"`
 	Text   string `json:"text" doc:"Build output from offset on"`
 	Offset int64  `json:"offset" doc:"Pass as offset to read only what comes next"`
-	Done   bool   `json:"done" doc:"The deploy finished; the log will not grow (except for later rollbacks)"`
+	Done   bool   `json:"done" doc:"The deploy finished and text reaches the log's end: nothing more to read (except after later rollbacks). False with more to read: read again from offset"`
 }
 
 // LogPage is a page of app log lines.
@@ -253,8 +253,15 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if err != nil {
 			return nil, notFound(err, "deploy "+in.ID)
 		}
-		text, off := r.readBuildLog(d, in.Offset, 4<<20)
-		return &struct{ Body BuildLog }{BuildLog{Deploy: d.ID, Status: d.Status, Text: string(text), Offset: off, Done: d.Terminal()}}, nil
+		const most = 4 << 20
+		text, off := r.readBuildLog(d, in.Offset, most)
+		// Done only once a read covers the rest of the log: a finished
+		// deploy's log over 4 MiB takes more reads, and its last lines
+		// often say why it failed. (A last partial word that looks like a
+		// credential is held back for good, so the test is the read's
+		// reach, not the offset.)
+		done := d.Terminal() && r.buildLogSize(d)-in.Offset <= most
+		return &struct{ Body BuildLog }{BuildLog{Deploy: d.ID, Status: d.Status, Text: string(text), Offset: off, Done: done}}, nil
 	}))
 
 	rb := api.Op("deploy-rollback", http.MethodPost, appPath+"/deploys/{id}/rollback", "deploys rollback", api.RiskWrite, "Roll back to a deploy",

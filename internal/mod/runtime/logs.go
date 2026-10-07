@@ -205,6 +205,15 @@ func (r *rt) pruneLogs(project, app, preview string, newestFirst []*Deploy) {
 	}
 }
 
+// buildLogSize is the size of a deploy's build log (0 without one).
+func (r *rt) buildLogSize(d *Deploy) int64 {
+	fi, err := os.Stat(r.buildLogPath(d))
+	if err != nil {
+		return 0
+	}
+	return fi.Size()
+}
+
 // readBuildLog returns a deploy's build log from byte offset off, with
 // Tiffin credentials masked. A read that ends partway into what may be a
 // credential stops before it, so the next read masks it whole.
