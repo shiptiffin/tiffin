@@ -371,15 +371,22 @@ func (v *Victoria) Healthy(ctx context.Context, base string) error {
 // ---- log batching ----
 
 // LogBatcher buffers JSON log lines per tenant and stream-field set and
-// flushes them every second (or at 1 MiB).
+// flushes them every second. Everything it holds, queued or being sent,
+// stays within maxLogBuffer: while the store is down, new lines are
+// dropped and counted rather than grown.
 type LogBatcher struct {
 	V    *Victoria
 	mu   sync.Mutex
 	bufs map[batchKey]*bytes.Buffer
+	held int // bytes queued or in flight
 	// Dropped counts lines dropped because the store was unreachable.
 	Dropped uint64
 	Sent    uint64
 }
+
+// maxLogBuffer is how much log data the box holds while the log store is
+// unreachable (all tenants together).
+const maxLogBuffer = 32 << 20
 
 type batchKey struct {
 	t      Tenant
@@ -402,6 +409,11 @@ func (b *LogBatcher) Add(t Tenant, streamFields string, rec map[string]any) {
 		return
 	}
 	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.held+len(line)+1 > maxLogBuffer { // store down for a while: drop rather than grow
+		b.Dropped++
+		return
+	}
 	if b.bufs == nil {
 		b.bufs = map[batchKey]*bytes.Buffer{}
 	}
@@ -411,14 +423,9 @@ func (b *LogBatcher) Add(t Tenant, streamFields string, rec map[string]any) {
 		buf = &bytes.Buffer{}
 		b.bufs[k] = buf
 	}
-	if buf.Len() > 16<<20 { // store down for a while: drop rather than grow forever
-		b.Dropped++
-		b.mu.Unlock()
-		return
-	}
 	buf.Write(line)
 	buf.WriteByte('\n')
-	b.mu.Unlock()
+	b.held += len(line) + 1
 }
 
 // Flush sends everything queued.
@@ -430,7 +437,8 @@ func (b *LogBatcher) Flush(ctx context.Context) {
 	for k, buf := range bufs {
 		n := uint64(bytes.Count(buf.Bytes(), []byte{'\n'}))
 		if err := b.V.PushLogs(ctx, k.t, k.stream, buf.Bytes()); err != nil {
-			// Put it back once; if the store stays down the cap above drops.
+			// Put it back, ahead of what came in meanwhile: held already
+			// counts both, so the cap in Add bounds the merge too.
 			b.mu.Lock()
 			if b.bufs == nil {
 				b.bufs = map[batchKey]*bytes.Buffer{}
@@ -444,6 +452,7 @@ func (b *LogBatcher) Flush(ctx context.Context) {
 		}
 		b.mu.Lock()
 		b.Sent += n
+		b.held -= buf.Len()
 		b.mu.Unlock()
 	}
 }
