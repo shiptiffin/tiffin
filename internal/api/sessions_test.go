@@ -62,7 +62,10 @@ func TestSessionsListEndAndEndOthers(t *testing.T) {
 	maya, invite := e.person("Maya", "member")
 	mac, macID, device := e.signIn(invite, "203.0.113.5", macUA)
 	phone, phoneID, _ := e.signIn(e.link(maya), "198.51.100.77", phoneUA)
-	code, _, err := e.tm.EmailLoginLink(t.Context(), maya)
+	if c, _, _ := e.call(e.owner, "PUT", "/v1/people/"+maya+"/email", map[string]any{"email": "maya@example.com"}); c != 200 {
+		t.Fatalf("set Maya's email: %d", c)
+	}
+	code, _, err := e.tm.EmailLoginLink(t.Context(), maya, "maya@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -78,7 +78,7 @@ func TestSessionKeyOutlivesItsSession(t *testing.T) {
 	if n, err := m.EndOtherSessions(ctx, p4, ""); err != nil || n == 0 {
 		t.Fatalf("end others: %d %v", n, err)
 	}
-	if err := m.Revoke(ctx, owner, p4.TokenID); err != nil { // signing out
+	if err := m.SignOut(ctx, p4); err != nil {
 		t.Fatal(err)
 	}
 	for i, s := range []string{never, year, k2, k3} {
@@ -236,7 +236,7 @@ func TestCancelEmailLinks(t *testing.T) {
 	m, owner, _ := setup(t)
 	ctx := context.Background()
 	ann, _ := m.AddPerson(ctx, owner, "Ann", "ann@example.com", RoleAdmin)
-	code, _, err := m.EmailLoginLink(ctx, ann.ID)
+	code, _, err := m.EmailLoginLink(ctx, ann.ID, "ann@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}

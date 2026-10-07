@@ -800,7 +800,8 @@ func (a *API) register() {
 	}))
 
 	rv := op("token-revoke", http.MethodDelete, "/v1/tokens/{id}", "tokens revoke", RiskDestructive, "Revoke an API key",
-		"Revokes an API key at once (and any key it created). Only a key with full access to all projects (or an owner or admin person) can revoke keys.", "tokens")
+		"Revokes an API key at once (and any key it created). Only a key with full access to all projects (or an owner or admin person) can revoke keys. "+
+			"Dashboard sign-ins are not keys: end them with DELETE /v1/sessions/{id} (403 here).", "tokens")
 	rv.Errors = append(rv.Errors, 404)
 	huma.Register(api, rv,
 		wrap(func(ctx context.Context, in *struct {
@@ -843,7 +844,8 @@ func (a *API) registerBox() {
 		}))
 
 	huma.Register(api, op("login-link-create", http.MethodPost, "/v1/login-links", "login", RiskWrite, "Create a dashboard login link",
-		"A one-time link (valid 10 minutes) that signs a browser into the dashboard with your power. Box admins only.", "system"),
+		"A one-time link (valid 10 minutes) that signs a browser into the dashboard as you: the owner token signs in as the owner, a session as its person. "+
+			"Box admins only; an API key acts for nobody, so it gets 403.", "system"),
 		wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body LoginLink }, error) {
 			code, exp, err := a.deps.Tokens.CreateLoginLink(ctx, PrincipalFrom(ctx))
 			if err != nil {
@@ -906,11 +908,7 @@ func (a *API) registerBox() {
 		wrap(func(ctx context.Context, _ *struct{}) (*struct {
 			SetCookie http.Cookie `header:"Set-Cookie"`
 		}, error) {
-			p := PrincipalFrom(ctx)
-			if p.Kind == tokens.KindHuman && p.Person != "" {
-				owner := &tokens.Principal{TokenID: p.TokenID, Name: p.Name, Scopes: []tokens.Scope{tokens.ScopeAll}, Projects: []string{"*"}}
-				_ = a.deps.Tokens.Revoke(ctx, owner, p.TokenID)
-			}
+			_ = a.deps.Tokens.SignOut(ctx, PrincipalFrom(ctx))
 			return &struct {
 				SetCookie http.Cookie `header:"Set-Cookie"`
 			}{http.Cookie{Name: SessionCookie, Value: "", Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, MaxAge: -1}}, nil

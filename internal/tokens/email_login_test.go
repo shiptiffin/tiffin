@@ -24,11 +24,11 @@ func TestEmailLoginLink(t *testing.T) {
 		t.Fatalf("unknown address: %v", err)
 	}
 
-	first, exp, err := m.EmailLoginLink(ctx, maya.ID)
+	first, exp, err := m.EmailLoginLink(ctx, maya.ID, "maya@example.com")
 	if err != nil || time.Until(exp) > EmailLinkTTL || time.Until(exp) < EmailLinkTTL-time.Minute {
 		t.Fatalf("link: %v %v", exp, err)
 	}
-	second, _, err := m.EmailLoginLink(ctx, maya.ID)
+	second, _, err := m.EmailLoginLink(ctx, maya.ID, "maya@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestEmailLoginLink(t *testing.T) {
 	}
 
 	// Expired links don't work.
-	third, _, _ := m.EmailLoginLink(ctx, maya.ID)
+	third, _, _ := m.EmailLoginLink(ctx, maya.ID, "maya@example.com")
 	m.now = func() time.Time { return time.Now().Add(EmailLinkTTL + time.Second) }
 	if _, _, _, err := m.RedeemLoginLink(ctx, third); !errors.Is(err, ErrUnauthenticated) {
 		t.Fatalf("expired link: %v", err)
@@ -59,14 +59,14 @@ func TestEmailLoginLink(t *testing.T) {
 	m.now = time.Now
 
 	// A removed person's link does nothing.
-	fourth, _, _ := m.EmailLoginLink(ctx, maya.ID)
+	fourth, _, _ := m.EmailLoginLink(ctx, maya.ID, "maya@example.com")
 	if err := m.RemovePerson(ctx, owner, maya.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, err := m.RedeemLoginLink(ctx, fourth); !errors.Is(err, ErrUnauthenticated) {
 		t.Fatalf("removed person: %v", err)
 	}
-	if _, _, err := m.EmailLoginLink(ctx, maya.ID); !errors.Is(err, ErrPersonNotFound) {
+	if _, _, err := m.EmailLoginLink(ctx, maya.ID, "maya@example.com"); !errors.Is(err, ErrPersonNotFound) {
 		t.Fatalf("removed person gets no link: %v", err)
 	}
 }

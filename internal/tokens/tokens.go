@@ -319,7 +319,7 @@ func (m *Manager) Create(ctx context.Context, by *Principal, req CreateRequest) 
 		t.ExpiresAt = &exp
 	}
 	secret := newSecret()
-	if err := m.insert(ctx, t, secret); err != nil {
+	if err := m.insert(ctx, t, secret, ""); err != nil {
 		return "", nil, err
 	}
 	_ = m.db.Audit(ctx, by.TokenID, "token.create", t.ID, map[string]any{"name": t.Name, "kind": t.Kind, "scopes": t.Scopes, "projects": t.Projects, "expiresAt": t.ExpiresAt})
@@ -336,7 +336,17 @@ func dedupe[T comparable](in []T) []T {
 	return out
 }
 
-func (m *Manager) insert(ctx context.Context, t *Token, secret string) error {
+// ErrRevokedMaker refuses a credential whose maker (the session or key
+// creating it) was revoked, or whose person was removed or changed role,
+// while it was being made.
+var ErrRevokedMaker = fmt.Errorf("%w: the session or key making this was signed out or revoked, or the person's access changed; sign in again", ErrUnauthenticated)
+
+// insert stores t, but only if what it rests on still holds when it lands:
+// its sponsor (which, coming from Authenticate, exists) is not revoked and, for a person's token, the person is active
+// (with role, when role is set). It is one statement, and revocations are one
+// statement too (Revoke, endSessions), so a credential made while its maker
+// is revoked is either caught by the revocation or never stored.
+func (m *Manager) insert(ctx context.Context, t *Token, secret, role string) error {
 	scopes, _ := json.Marshal(t.Scopes)
 	projects, _ := json.Marshal(t.Projects)
 	var grants any
@@ -344,11 +354,21 @@ func (m *Manager) insert(ctx context.Context, t *Token, secret string) error {
 		b, _ := json.Marshal(t.Grants)
 		grants = string(b)
 	}
-	_, err := m.db.SQL().ExecContext(ctx, `INSERT INTO tokens(id, name, kind, hash, scopes, projects, sponsor, created_at, expires_at, person, grants)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	res, err := m.db.SQL().ExecContext(ctx, `INSERT INTO tokens(id, name, kind, hash, scopes, projects, sponsor, created_at, expires_at, person, grants)
+		SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
+		WHERE NOT EXISTS (SELECT 1 FROM tokens WHERE id = ?7 AND revoked_at IS NOT NULL)
+		AND (?10 IS NULL OR EXISTS (SELECT 1 FROM people WHERE id = ?10 AND disabled_at IS NULL AND (?12 = '' OR role = ?12)))`,
 		t.ID, t.Name, t.Kind, hash(secret), string(scopes), string(projects), nullStr(t.Sponsor),
-		ts(&t.CreatedAt), ts(t.ExpiresAt), nullStr(t.Person), grants)
-	return err
+		ts(&t.CreatedAt), ts(t.ExpiresAt), nullStr(t.Person), grants, role)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return ErrRevokedMaker
+	}
+	return nil
 }
 
 // Authenticate resolves a secret to a principal.
@@ -388,9 +408,14 @@ func (m *Manager) Authenticate(ctx context.Context, secret string) (*Principal, 
 	return pr, nil
 }
 
-// Revoke revokes token id. Owners can revoke any token; others only tokens
-// they sponsored (directly). The owner token cannot be revoked this way.
-// Revoking a key takes the keys it made with it; revoking a session does not.
+// ErrSessionRevoke refuses ending a dashboard session as if it were an API
+// key: sessions end through EndSession, which keeps the owner's to the owner.
+var ErrSessionRevoke = fmt.Errorf("%w: that is a dashboard sign-in, not an API key; end it on Sign-ins or People (DELETE /v1/sessions/{id})", ErrForbidden)
+
+// Revoke revokes API key id and every key it made, transitively, in one
+// statement. Owners can revoke any key; others only keys they sponsored
+// (directly). The owner token cannot be revoked this way, nor a dashboard
+// session (see EndSession and SignOut).
 func (m *Manager) Revoke(ctx context.Context, by *Principal, id string) error {
 	if err := by.Require(ScopeTokens, ""); err != nil {
 		return err
@@ -402,6 +427,9 @@ func (m *Manager) Revoke(ctx context.Context, by *Principal, id string) error {
 	if t.Kind == KindOwner {
 		return fmt.Errorf("%w: the owner token is rotated with `tiffin token rotate-owner`, not revoked", ErrForbidden)
 	}
+	if t.Kind == KindHuman && t.Person != "" {
+		return ErrSessionRevoke
+	}
 	if !by.BoxAdmin() && t.Sponsor != by.TokenID {
 		return fmt.Errorf("%w: token %q was not minted by %q", ErrForbidden, t.Name, by.Name)
 	}
@@ -409,35 +437,39 @@ func (m *Manager) Revoke(ctx context.Context, by *Principal, id string) error {
 		return nil
 	}
 	now := m.now().UTC()
-	if _, err := m.db.SQL().ExecContext(ctx, `UPDATE tokens SET revoked_at = ? WHERE id = ?`, ts(&now), id); err != nil {
-		return err
-	}
-	// Revoking a key revokes every key it minted, transitively. Ending a
-	// dashboard session (signing out) does not: keys made in it are the
-	// person's own credentials and are revoked on the API keys page.
-	if t.Kind == KindHuman && t.Person != "" {
-		_ = m.db.Audit(ctx, by.TokenID, "token.revoke", id, map[string]any{"name": t.Name})
-		return nil
-	}
-	rows, err := m.db.SQL().QueryContext(ctx, `SELECT id FROM tokens WHERE sponsor = ? AND revoked_at IS NULL`, id)
+	rows, err := m.db.SQL().QueryContext(ctx, `WITH RECURSIVE tree(id) AS (
+			SELECT ?2 UNION SELECT t.id FROM tokens t JOIN tree ON t.sponsor = tree.id)
+		UPDATE tokens SET revoked_at = ?1 WHERE id IN (SELECT id FROM tree) AND revoked_at IS NULL RETURNING id`, ts(&now), id)
 	if err != nil {
 		return err
 	}
-	var children []string
+	var cascade []string
 	for rows.Next() {
 		var c string
-		if rows.Scan(&c) == nil {
-			children = append(children, c)
+		if rows.Scan(&c) == nil && c != id {
+			cascade = append(cascade, c)
 		}
 	}
-	rows.Close()
-	_ = m.db.Audit(ctx, by.TokenID, "token.revoke", id, map[string]any{"name": t.Name, "cascade": children})
-	owner := &Principal{TokenID: by.TokenID, Name: by.Name, Scopes: []Scope{ScopeAll}, Projects: []string{"*"}}
-	for _, c := range children {
-		if err := m.Revoke(ctx, owner, c); err != nil {
-			return err
-		}
+	if err := rows.Close(); err != nil {
+		return err
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_ = m.db.Audit(ctx, by.TokenID, "token.revoke", id, map[string]any{"name": t.Name, "cascade": cascade})
+	return nil
+}
+
+// SignOut ends the dashboard session p is (signing out); for anything else it
+// does nothing. Keys made in it keep working.
+func (m *Manager) SignOut(ctx context.Context, p *Principal) error {
+	if !p.IsSession() {
+		return nil
+	}
+	if err := m.revokeSessions(ctx, []string{p.TokenID}, false); err != nil {
+		return err
+	}
+	_ = m.db.Audit(ctx, p.TokenID, "token.revoke", p.TokenID, map[string]any{"name": p.Name})
 	return nil
 }
 

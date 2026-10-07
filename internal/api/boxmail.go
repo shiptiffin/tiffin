@@ -269,7 +269,7 @@ func (a *API) emailSignIn(ctx context.Context, addr, ip string) {
 		_ = a.deps.DB.Audit(ctx, "via:email", "session.email_link", person.ID, map[string]any{"ip": ip, "delivery": "none"})
 		return
 	}
-	code, exp, err := a.deps.Tokens.EmailLoginLink(ctx, person.ID)
+	code, exp, err := a.deps.Tokens.EmailLoginLink(ctx, person.ID, addr)
 	if err != nil {
 		return
 	}

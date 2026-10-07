@@ -110,7 +110,8 @@ func (a *API) registerPeople() {
 		}))
 
 	huma.Register(api, op("person-login-link", http.MethodPost, "/v1/people/{id}/login-link", "people login-link", RiskWrite, "Make a sign-in link",
-		"A fresh one-time sign-in link for someone (for example if their invite expired). With email=true the box also emails it to them.", "people"),
+		"A fresh one-time sign-in link for someone (for example if their invite expired), valid 7 days while whoever made it is still an owner or admin "+
+			"(or the key that made it still works). With email=true the box also emails it to them. Only the owner makes one for the owner (403 otherwise).", "people"),
 		wrap(func(ctx context.Context, in *struct {
 			ID    string `path:"id" maxLength:"40"`
 			Email bool   `query:"email" doc:"Also email the link to them (when they have an address)"`

@@ -189,11 +189,14 @@ func (m *Manager) Sessions(ctx context.Context, by *Principal, person string, hi
 // ErrSessionNotFound is returned for unknown, ended or expired sessions.
 var ErrSessionNotFound = errors.New("no open session with that ID")
 
-// EndSession signs one session out at once. API keys made in it keep
-// working: they are revoked on the API keys page. It returns the session.
+// EndSession signs one session out at once, and cancels the unspent sign-in
+// links it made. API keys made in it keep working: they are revoked on the API
+// keys page. It returns the session.
 func (m *Manager) EndSession(ctx context.Context, by *Principal, id string) (*Session, error) {
-	var person string
-	err := m.db.SQL().QueryRowContext(ctx, `SELECT person FROM tokens WHERE id = ? AND kind = ? AND person IS NOT NULL`, id, KindHuman).Scan(&person)
+	var person, created string
+	var expires, used, client sql.NullString
+	err := m.db.SQL().QueryRowContext(ctx, `SELECT person, created_at, expires_at, last_used_at, client FROM tokens
+		WHERE id = ? AND kind = ? AND person IS NOT NULL AND revoked_at IS NULL`, id, KindHuman).Scan(&person, &created, &expires, &used, &client)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrSessionNotFound
 	} else if err != nil {
@@ -206,19 +209,25 @@ func (m *Manager) EndSession(ctx context.Context, by *Principal, id string) (*Se
 		}
 		return nil, err
 	}
-	open, err := m.Sessions(ctx, &Principal{TokenID: by.TokenID, Person: p.ID}, p.ID, false)
-	if err != nil {
-		return nil, err
-	}
-	i := slices.IndexFunc(open, func(s *Session) bool { return s.ID == id })
-	if i < 0 {
-		return nil, ErrSessionNotFound
-	}
-	s := open[i]
-	if err := m.revokeSessions(ctx, []string{id}); err != nil {
-		return nil, err
-	}
 	now := m.now().UTC()
+	s := &Session{ID: id, Person: p.ID, CreatedAt: parseTS(created), LastSeenAt: parseNullTS(used), Current: id == by.TokenID}
+	if e := parseNullTS(expires); e != nil {
+		s.ExpiresAt = *e
+		if !now.Before(*e) {
+			return nil, ErrSessionNotFound
+		}
+	}
+	if client.Valid {
+		var c Client
+		_ = json.Unmarshal([]byte(client.String), &c)
+		s.Method, s.Device, s.IP, s.Country = c.Method, c.Device, c.IP, c.Country
+	}
+	if s.Device == "" {
+		s.Device = "A browser"
+	}
+	if err := m.revokeSessions(ctx, []string{id}, true); err != nil {
+		return nil, err
+	}
 	s.EndedAt, s.State = &now, "ended"
 	_ = m.db.Audit(ctx, by.TokenID, "session.end", id, map[string]any{
 		"summary": fmt.Sprintf("%s ended a session of %s (%s)", byName(by), p.Name, s.Device),
@@ -228,28 +237,46 @@ func (m *Manager) EndSession(ctx context.Context, by *Principal, id string) (*Se
 }
 
 // EndOtherSessions signs out every open session of a person ("" means by's
-// own) except the one making the request. API keys keep working. It returns
-// how many sessions ended.
+// own) except the one making the request, however many there are, and
+// cancels the unspent sign-in links those sessions made. API keys keep
+// working. It returns how many sessions ended.
 func (m *Manager) EndOtherSessions(ctx context.Context, by *Principal, person string) (int, error) {
 	p, err := m.SessionPerson(ctx, by, person, true)
 	if err != nil {
 		return 0, err
 	}
-	open, err := m.Sessions(ctx, &Principal{TokenID: by.TokenID, Person: p.ID}, p.ID, false)
+	now := m.now().UTC()
+	tx, err := m.db.SQL().BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `UPDATE tokens SET revoked_at = ?1
+		WHERE person = ?2 AND kind = ?3 AND revoked_at IS NULL AND id != ?4 AND (expires_at IS NULL OR expires_at > ?1)
+		RETURNING id`, ts(&now), p.ID, KindHuman, by.TokenID)
 	if err != nil {
 		return 0, err
 	}
 	var ids []string
-	for _, s := range open {
-		if s.ID != by.TokenID {
-			ids = append(ids, s.ID)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
 		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	if err := cancelLinksBy(ctx, tx, ids, now); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
 	}
 	if len(ids) == 0 {
 		return 0, nil
-	}
-	if err := m.revokeSessions(ctx, ids); err != nil {
-		return 0, err
 	}
 	summary := fmt.Sprintf("%s signed out %s everywhere else", byName(by), p.Name)
 	if p.ID == by.Person {
@@ -262,12 +289,37 @@ func (m *Manager) EndOtherSessions(ctx context.Context, by *Principal, person st
 }
 
 // revokeSessions revokes the sessions only: not the API keys made in them,
-// nor anyone's session signed in with a link they sent.
-func (m *Manager) revokeSessions(ctx context.Context, ids []string) error {
+// nor anyone's session signed in with a link they sent. With links, it also
+// cancels the unspent sign-in links they made (ending a session is how a
+// stolen one is cut off; signing out is not).
+func (m *Manager) revokeSessions(ctx context.Context, ids []string, links bool) error {
 	list, _ := json.Marshal(ids)
 	now := m.now().UTC()
-	_, err := m.db.SQL().ExecContext(ctx, `UPDATE tokens SET revoked_at = ?1
-		WHERE id IN (SELECT value FROM json_each(?2)) AND kind = 'human' AND revoked_at IS NULL`, ts(&now), string(list))
+	tx, err := m.db.SQL().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE tokens SET revoked_at = ?1
+		WHERE id IN (SELECT value FROM json_each(?2)) AND kind = 'human' AND revoked_at IS NULL`, ts(&now), string(list)); err != nil {
+		return err
+	}
+	if links {
+		if err := cancelLinksBy(ctx, tx, ids, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// cancelLinksBy cancels the unspent sign-in links the tokens ids made.
+func cancelLinksBy(ctx context.Context, tx *sql.Tx, ids []string, now time.Time) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	list, _ := json.Marshal(ids)
+	_, err := tx.ExecContext(ctx, `UPDATE login_links SET used_at = ?1
+		WHERE created_by IN (SELECT value FROM json_each(?2)) AND used_at IS NULL`, ts(&now), string(list))
 	return err
 }
 

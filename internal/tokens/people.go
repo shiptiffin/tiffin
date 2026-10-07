@@ -6,12 +6,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net/mail"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/btahir/tiffin/internal/ids"
+	"github.com/ncruces/go-sqlite3"
 )
 
 // People are the humans who use the box's dashboard. Each has a role; their
@@ -108,37 +108,81 @@ func (m *Manager) AddPerson(ctx context.Context, by *Principal, name, email, rol
 	if name == "" || len(name) > 64 {
 		return nil, fmt.Errorf("%w: name must be 1-64 characters", ErrInvalid)
 	}
-	if email != "" {
-		if a, err := mail.ParseAddress(email); err != nil || a.Address != email {
-			return nil, fmt.Errorf("%w: %q is not an email address", ErrInvalid, email)
-		}
+	if err := checkEmail(email); err != nil {
+		return nil, err
 	}
 	if !slices.Contains(Roles, role) {
 		return nil, fmt.Errorf("%w: role must be admin, member or viewer", ErrInvalid)
 	}
-	if taken, err := m.emailTaken(ctx, email, ""); err != nil {
-		return nil, err
-	} else if taken {
-		return nil, fmt.Errorf("%w: someone on this box already uses %s", ErrInvalid, email)
-	}
 	now := m.now().UTC()
 	p := &Person{ID: ids.New("usr"), Name: name, Email: email, Role: role, CreatedAt: now}
+	// The people_email index keeps an address to one active person, even
+	// when two invites race.
 	if _, err := m.db.SQL().ExecContext(ctx, `INSERT INTO people(id, name, email, role, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)`,
 		p.ID, p.Name, p.Email, p.Role, ts(&now), by.TokenID); err != nil {
-		return nil, err
+		return nil, emailErr(err, email)
 	}
 	_ = m.db.Audit(ctx, by.TokenID, "person.add", p.ID, map[string]any{"name": name, "role": role})
 	return p, nil
 }
 
-// UpdatePerson renames someone or changes their role. Their open sessions
-// end, so the new role applies at once; a demotion also revokes every key
-// they created (and keys those keys made), which may hold the old role's power.
+// emailErr turns a clash on the people_email index into ErrInvalid.
+func emailErr(err error, email string) error {
+	if errors.Is(err, sqlite3.CONSTRAINT_UNIQUE) {
+		return fmt.Errorf("%w: someone on this box already uses %s", ErrInvalid, email)
+	}
+	return err
+}
+
+// stillLive returns ErrUnauthenticated if by's token was revoked, read inside
+// tx: a change racing the revocation of whoever makes it loses.
+func stillLive(ctx context.Context, tx *sql.Tx, by *Principal) error {
+	var n int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM tokens WHERE id = ? AND revoked_at IS NOT NULL`, by.TokenID).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return ErrUnauthenticated
+	}
+	return nil
+}
+
+func personTx(ctx context.Context, tx *sql.Tx, id string) (*Person, error) {
+	p, err := scanPerson(tx.QueryRowContext(ctx, personCols+` FROM people WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrPersonNotFound
+	}
+	return p, err
+}
+
+// UpdatePerson renames someone or changes their role (an empty name or role
+// leaves it as it is). A role change ends their open sessions, so the new role
+// applies at once; a demotion also revokes every key they created (and keys
+// those keys made), which may hold the old role's power. The read, the checks
+// and the writes are one transaction, so a rename can't write back a role
+// that a demotion just took away.
 func (m *Manager) UpdatePerson(ctx context.Context, by *Principal, id, name, role string) (*Person, error) {
 	if !by.BoxAdmin() {
 		return nil, fmt.Errorf("%w: only an owner, an admin or a key with full access to all projects can change people", ErrForbidden)
 	}
-	p, err := m.GetPerson(ctx, id)
+	name = strings.TrimSpace(name)
+	if len(name) > 64 {
+		return nil, fmt.Errorf("%w: name must be 1-64 characters", ErrInvalid)
+	}
+	if id == OwnerPerson {
+		if err := m.ensureOwnerPerson(ctx); err != nil {
+			return nil, err
+		}
+	}
+	tx, err := m.db.SQL().BeginTx(ctx, nil) // immediate: writers serialize here
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if err := stillLive(ctx, tx, by); err != nil {
+		return nil, err
+	}
+	p, err := personTx(ctx, tx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -152,20 +196,15 @@ func (m *Manager) UpdatePerson(ctx context.Context, by *Principal, id, name, rol
 		}
 		changed, demoted = true, slices.Index(Roles, role) > slices.Index(Roles, p.Role)
 		p.Role = role
-	}
-	if n := strings.TrimSpace(name); n != "" {
-		if len(n) > 64 {
-			return nil, fmt.Errorf("%w: name must be 1-64 characters", ErrInvalid)
+		if _, err := tx.ExecContext(ctx, `UPDATE people SET role = ? WHERE id = ?`, role, id); err != nil {
+			return nil, err
 		}
-		p.Name = n
 	}
-	tx, err := m.db.SQL().BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `UPDATE people SET name = ?, role = ? WHERE id = ?`, p.Name, p.Role, id); err != nil {
-		return nil, err
+	if name != "" {
+		p.Name = name
+		if _, err := tx.ExecContext(ctx, `UPDATE people SET name = ? WHERE id = ?`, name, id); err != nil {
+			return nil, err
+		}
 	}
 	if changed {
 		if err := m.endSessions(ctx, tx, id, demoted); err != nil {
@@ -194,6 +233,9 @@ func (m *Manager) RemovePerson(ctx context.Context, by *Principal, id string) er
 		return err
 	}
 	defer tx.Rollback()
+	if err := stillLive(ctx, tx, by); err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx, `UPDATE people SET disabled_at = ? WHERE id = ? AND disabled_at IS NULL`, ts(&now), id)
 	if err != nil {
 		return err
@@ -226,11 +268,21 @@ func (m *Manager) endSessions(ctx context.Context, tx *sql.Tx, person string, ke
 	return err
 }
 
+// ErrOwnerLink refuses a sign-in link for the owner to anyone but the owner:
+// it would sign them in as the owner.
+var ErrOwnerLink = fmt.Errorf("%w: only the owner can make a sign-in link for the owner", ErrForbidden)
+
 // LoginLinkFor creates a one-time sign-in link for a person (an invite, or
-// a fresh link for someone who lost theirs). Box admins only.
+// a fresh link for someone who lost theirs). Box admins only, and only the
+// owner (the owner token or an owner session) for the owner. A link for
+// someone else lasts 7 days and works while its maker stays an owner or admin
+// (see linkAuthority); one for yourself lasts LoginLinkTTL.
 func (m *Manager) LoginLinkFor(ctx context.Context, by *Principal, person string) (string, time.Time, error) {
 	if !by.BoxAdmin() {
 		return "", time.Time{}, fmt.Errorf("%w: only an owner, an admin or a key with full access to all projects can create sign-in links", ErrForbidden)
+	}
+	if person == OwnerPerson && by.Person != OwnerPerson {
+		return "", time.Time{}, ErrOwnerLink
 	}
 	p, err := m.GetPerson(ctx, person)
 	if err != nil {

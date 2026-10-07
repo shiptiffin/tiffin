@@ -264,7 +264,7 @@ func (m *Manager) CreateKey(ctx context.Context, by *Principal, req KeyRequest) 
 		t.ExpiresAt = &exp
 	}
 	secret := newSecret()
-	if err := m.insert(ctx, t, secret); err != nil {
+	if err := m.insert(ctx, t, secret, ""); err != nil {
 		return "", nil, err
 	}
 	k := t.AsKey()

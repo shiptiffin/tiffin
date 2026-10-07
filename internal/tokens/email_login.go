@@ -3,6 +3,8 @@ package tokens
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
+	"errors"
 	"fmt"
 	"net/mail"
 	"strings"
@@ -42,16 +44,12 @@ func (m *Manager) PersonByEmail(ctx context.Context, email string) (*Person, err
 }
 
 // EmailLoginLink makes a one-time sign-in link for a person who asked for one
-// by email. It expires after EmailLinkTTL, and any earlier unspent emailed
-// link of theirs stops working, so only the newest email counts.
-func (m *Manager) EmailLoginLink(ctx context.Context, personID string) (string, time.Time, error) {
-	p, err := m.GetPerson(ctx, personID)
-	if err != nil {
-		return "", time.Time{}, err
-	}
-	if p.DisabledAt != nil {
-		return "", time.Time{}, ErrPersonNotFound
-	}
+// by email at addr. It expires after EmailLinkTTL, and any earlier unspent
+// emailed link of theirs stops working, so only the newest email counts. It
+// is made only while addr is still their address (ErrPersonNotFound
+// otherwise), checked in the same transaction, and a change of address
+// cancels it (SetPersonEmail): a link never outlives the inbox it went to.
+func (m *Manager) EmailLoginLink(ctx context.Context, personID, addr string) (string, time.Time, error) {
 	var b [20]byte
 	_, _ = rand.Read(b[:])
 	code := loginPrefix + strings.ToLower(b32.EncodeToString(b[:]))
@@ -62,6 +60,14 @@ func (m *Manager) EmailLoginLink(ctx context.Context, personID string) (string, 
 		return "", time.Time{}, err
 	}
 	defer tx.Rollback()
+	var n int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM people WHERE id = ? AND disabled_at IS NULL AND email != '' AND lower(email) = ?`,
+		personID, NormEmail(addr)).Scan(&n); err != nil {
+		return "", time.Time{}, err
+	}
+	if n == 0 {
+		return "", time.Time{}, ErrPersonNotFound
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE login_links SET used_at = ? WHERE person = ? AND created_by = ? AND used_at IS NULL`,
 		ts(&now), personID, emailLinkCreator); err != nil {
 		return "", time.Time{}, err
@@ -94,7 +100,9 @@ func (m *Manager) mintSession(ctx context.Context, person *Person, via string) (
 	t := &Token{ID: ids.New("tok"), Name: person.Name, Kind: KindHuman, Scopes: ScopesFor(person.Role), Projects: []string{"*"},
 		CreatedAt: now, ExpiresAt: &exp, Person: person.ID}
 	secret := newSecret()
-	if err := m.insert(ctx, t, secret); err != nil {
+	// Only while they still have that role: a session minted as a demotion
+	// lands would otherwise keep the old role's power.
+	if err := m.insert(ctx, t, secret, person.Role); err != nil {
 		return "", nil, err
 	}
 	_ = m.db.Audit(ctx, t.ID, "token.create", t.ID, map[string]any{"name": t.Name, "kind": t.Kind, "scopes": t.Scopes, "projects": t.Projects, "expiresAt": t.ExpiresAt, "via": via})
@@ -112,17 +120,6 @@ func checkEmail(email string) error {
 	return nil
 }
 
-// emailTaken reports whether another active person already has the address.
-func (m *Manager) emailTaken(ctx context.Context, email, except string) (bool, error) {
-	if email == "" {
-		return false, nil
-	}
-	var n int
-	err := m.db.SQL().QueryRowContext(ctx, `SELECT count(*) FROM people WHERE lower(email) = ? AND disabled_at IS NULL AND id != ?`,
-		NormEmail(email), except).Scan(&n)
-	return n > 0, err
-}
-
 // ErrEmailByKey refuses an email change from an API key: emailed sign-in
 // links go to the address, so a key that could repoint someone's (the
 // owner's included) could take over their account. People change addresses
@@ -137,7 +134,9 @@ var ErrOwnerEmail = fmt.Errorf("%w: only the owner can change the owner's email"
 // links by email and new sign-in notices). People may set their own; box
 // admins may set anyone's but the owner's. An address belongs to one active
 // person. A new address is set only from a dashboard session (after a recent
-// strong sign-in) or with the owner token: never by an API key.
+// strong sign-in) or with the owner token: never by an API key. Changing it
+// cancels every unspent sign-in link of theirs in the same transaction, since
+// those went (or would be shown) to the old address.
 func (m *Manager) SetPersonEmail(ctx context.Context, by *Principal, id, email string) (*Person, error) {
 	if !by.BoxAdmin() && (by.Person == "" || by.Person != id) {
 		return nil, fmt.Errorf("%w: only an owner or an admin can change someone else's email", ErrForbidden)
@@ -170,12 +169,32 @@ func (m *Manager) SetPersonEmail(ctx context.Context, by *Principal, id, email s
 			}
 		}
 	}
-	if taken, err := m.emailTaken(ctx, email, id); err != nil {
+	now := m.now().UTC()
+	tx, err := m.db.SQL().BeginTx(ctx, nil)
+	if err != nil {
 		return nil, err
-	} else if taken {
-		return nil, fmt.Errorf("%w: someone on this box already uses %s", ErrInvalid, email)
 	}
-	if _, err := m.db.SQL().ExecContext(ctx, `UPDATE people SET email = ? WHERE id = ?`, email, id); err != nil {
+	defer tx.Rollback()
+	var old string
+	err = tx.QueryRowContext(ctx, `SELECT email FROM people WHERE id = ? AND disabled_at IS NULL`, id).Scan(&old)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrPersonNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	if old != p.Email {
+		// Changed while this was checked: the checks above were for another address.
+		return nil, fmt.Errorf("%w: %s's email changed meanwhile; try again", ErrInvalid, p.Name)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE people SET email = ? WHERE id = ?`, email, id); err != nil {
+		return nil, emailErr(err, email)
+	}
+	if NormEmail(old) != NormEmail(email) {
+		if _, err := tx.ExecContext(ctx, `UPDATE login_links SET used_at = ? WHERE person = ? AND used_at IS NULL`, ts(&now), id); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	p.Email = email

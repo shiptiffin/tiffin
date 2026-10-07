@@ -285,6 +285,19 @@ var migrations = []string{
 		record     BLOB NOT NULL
 	) STRICT, WITHOUT ROWID`,
 	`CREATE INDEX idempotency_created ON idempotency(created_at)`,
+	// An email address belongs to one active person (compared without case):
+	// a constraint, so two invites or changes at once can't both take it.
+	// Where two already share one, the later-added person's is cleared.
+	`UPDATE people SET email = '' WHERE email != '' AND disabled_at IS NULL AND EXISTS (
+		SELECT 1 FROM people o WHERE o.email != '' AND o.disabled_at IS NULL AND lower(o.email) = lower(people.email)
+		AND (o.created_at < people.created_at OR (o.created_at = people.created_at AND o.id < people.id)))`,
+	`CREATE UNIQUE INDEX people_email ON people(lower(email)) WHERE email != '' AND disabled_at IS NULL`,
+	// Sessions by person (Sign-ins, ending them), keys by sponsor (revoking a
+	// key and the keys it made), sign-in links by person and maker.
+	`CREATE INDEX tokens_person ON tokens(person, kind, created_at) WHERE person IS NOT NULL`,
+	`CREATE INDEX tokens_sponsor ON tokens(sponsor) WHERE sponsor IS NOT NULL`,
+	`CREATE INDEX login_links_person ON login_links(person, created_by)`,
+	`CREATE INDEX login_links_created_by ON login_links(created_by)`,
 }
 
 // SchemaVersion is the state schema this build writes (box exports record

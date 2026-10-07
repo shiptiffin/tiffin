@@ -61,18 +61,13 @@ func TestOwnerTerminalLinkIsStrong(t *testing.T) {
 	// The owner token's invite for someone else.
 	code, _, _ = m.LoginLinkFor(ctx, owner, ann.ID)
 	weak("owner token's link for Ann", code)
-	// A full-access key's `tiffin login` doesn't sign in at all (keys can't
-	// mint sessions).
+	// A full-access key acts for nobody: it gets no `tiffin login` link.
 	keySecret, _, err := m.CreateKey(ctx, owner, KeyRequest{Name: "ci", Projects: Projects{AllProjects}, Access: LevelFull})
 	if err != nil {
 		t.Fatal(err)
 	}
 	key, _ := m.Authenticate(ctx, keySecret)
-	code, _, err = m.CreateLoginLink(ctx, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, _, err := m.RedeemLoginLink(ctx, code); !errors.Is(err, ErrForbidden) {
+	if _, _, err := m.CreateLoginLink(ctx, key); !errors.Is(err, ErrKeySignIn) {
 		t.Fatalf("an admin key's tiffin login: %v", err)
 	}
 	// The owner's own session minting a link for itself: a stolen session
@@ -82,14 +77,15 @@ func TestOwnerTerminalLinkIsStrong(t *testing.T) {
 		t.Fatal(err)
 	}
 	weak("the owner's session's link", code)
-	// An admin's session making a link for the owner.
+	// Nobody but the owner makes a link for the owner: not an admin's
+	// session, not an admin key.
 	annSess, _ := session(t, m, ann.ID, MethodPasskey)
 	annP, _ := m.Authenticate(ctx, annSess)
-	code, _, err = m.LoginLinkFor(ctx, annP, OwnerPerson)
-	if err != nil {
-		t.Fatal(err)
+	for what, by := range map[string]*Principal{"admin session": annP, "admin key": key} {
+		if _, _, err := m.LoginLinkFor(ctx, by, OwnerPerson); !errors.Is(err, ErrOwnerLink) {
+			t.Fatalf("%s makes a link for the owner: %v", what, err)
+		}
 	}
-	weak("an admin's link for the owner", code)
 }
 
 // An API key can't change anyone's email address (emailed sign-in links go
