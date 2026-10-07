@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -58,13 +59,37 @@ type Server struct {
 	repos         map[string]*repo
 	tokens        map[string]*tok
 	nextID        int64
-	// Calls the box made, for assertions.
-	Statuses           []Call
-	Deployments        []Call
-	DeploymentStatuses []Call
-	Comments           map[int64]*Comment
-	Clones             []string // repositories cloned (full names)
-	Deliveries         []Delivery
+	// Calls the box made, for assertions: read them with Recorded, which
+	// copies under the lock (the box keeps calling while a test reads).
+	statuses           []Call
+	deployments        []Call
+	deploymentStatuses []Call
+	comments           map[int64]*Comment
+	clones             []string // repositories cloned (full names)
+	deliveries         []Delivery
+}
+
+// Recorded is a copy of the calls the box made so far.
+type Recorded struct {
+	Statuses           []Call             `json:"statuses"`
+	Deployments        []Call             `json:"deployments"`
+	DeploymentStatuses []Call             `json:"deploymentStatuses"`
+	Comments           map[int64]*Comment `json:"-"`
+	Clones             []string           `json:"clones"`
+	Deliveries         []Delivery         `json:"deliveries"`
+}
+
+// Recorded copies what the box has called so far.
+func (s *Server) Recorded() Recorded {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := Recorded{Statuses: slices.Clone(s.statuses), Deployments: slices.Clone(s.deployments), DeploymentStatuses: slices.Clone(s.deploymentStatuses),
+		Comments: make(map[int64]*Comment, len(s.comments)), Clones: slices.Clone(s.clones), Deliveries: slices.Clone(s.deliveries)}
+	for id, c := range s.comments {
+		cp := *c
+		r.Comments[id] = &cp
+	}
+	return r
 }
 
 type appState struct {
@@ -131,7 +156,7 @@ func New(root string) (*Server, error) {
 	}
 	s := &Server{root: root, backend: filepath.Join(strings.TrimSpace(string(execPath)), "git-http-backend"), Account: "octo",
 		codes: map[string]ghapp.Manifest{}, oauthCodes: map[string]int64{}, installations: map[int64]*installation{}, repos: map[string]*repo{},
-		tokens: map[string]*tok{}, Comments: map[int64]*Comment{}, nextID: 1000}
+		tokens: map[string]*tok{}, comments: map[int64]*Comment{}, nextID: 1000}
 	for _, d := range []string{"bare", "work"} {
 		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
 			return nil, err
@@ -346,7 +371,7 @@ func (s *Server) DeliverRaw(hook, event, id string, body []byte, sig string) (De
 	reply, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
 	d := Delivery{ID: id, Event: event, Status: res.StatusCode, Reply: string(reply)}
 	s.mu.Lock()
-	s.Deliveries = append(s.Deliveries, d)
+	s.deliveries = append(s.deliveries, d)
 	s.mu.Unlock()
 	return d, nil
 }
@@ -862,6 +887,19 @@ func (s *Server) serveRepoAPI(w http.ResponseWriter, r *http.Request, rp *repo, 
 			return
 		}
 		writeJSON(w, 200, map[string]any{"type": "file", "encoding": "base64", "content": base64.StdEncoding.EncodeToString([]byte(out + "\n"))})
+	case strings.HasPrefix(rest, "/compare/"):
+		spec, _ := url.PathUnescape(strings.TrimPrefix(rest, "/compare/"))
+		base, head, ok := strings.Cut(spec, "...")
+		out, err := s.git(rp.bare, "diff", "--name-only", base+"..."+head)
+		if !ok || err != nil {
+			fail(w, 404, "Not Found")
+			return
+		}
+		files := []any{}
+		for _, f := range strings.Fields(out) {
+			files = append(files, map[string]any{"filename": f, "status": "modified"})
+		}
+		writeJSON(w, 200, map[string]any{"status": "ahead", "files": files})
 	case strings.HasPrefix(rest, "/commits/"):
 		ref, _ := url.PathUnescape(strings.TrimPrefix(rest, "/commits/"))
 		out, err := s.git(rp.bare, "log", "-1", "--format=%H%x00%an%x00%B", ref)
@@ -872,20 +910,20 @@ func (s *Server) serveRepoAPI(w http.ResponseWriter, r *http.Request, rp *repo, 
 		f := strings.SplitN(out, "\x00", 3)
 		writeJSON(w, 200, map[string]any{"sha": f[0], "commit": map[string]any{"message": strings.TrimSpace(f[2]), "author": map[string]any{"name": f[1]}}, "author": map[string]any{"login": "octocat"}})
 	case strings.HasPrefix(rest, "/statuses/") && r.Method == http.MethodPost:
-		s.record(&s.Statuses, rp.fullName, rest, r)
+		s.record(&s.statuses, rp.fullName, rest, r)
 		writeJSON(w, 201, map[string]any{"id": s.nextIDLocked()})
 	case rest == "/deployments" && r.Method == http.MethodPost:
-		s.record(&s.Deployments, rp.fullName, rest, r)
+		s.record(&s.deployments, rp.fullName, rest, r)
 		writeJSON(w, 201, map[string]any{"id": s.nextIDLocked()})
 	case strings.HasPrefix(rest, "/deployments/") && strings.HasSuffix(rest, "/statuses") && r.Method == http.MethodPost:
-		s.record(&s.DeploymentStatuses, rp.fullName, rest, r)
+		s.record(&s.deploymentStatuses, rp.fullName, rest, r)
 		writeJSON(w, 201, map[string]any{"id": s.nextIDLocked()})
 	case strings.HasPrefix(rest, "/issues/comments/") && r.Method == http.MethodPatch:
 		id, _ := strconv.ParseInt(strings.TrimPrefix(rest, "/issues/comments/"), 10, 64)
 		var b struct{ Body string }
 		_ = json.NewDecoder(r.Body).Decode(&b)
 		s.mu.Lock()
-		c := s.Comments[id]
+		c := s.comments[id]
 		if c != nil {
 			c.Body, c.Updates = b.Body, c.Updates+1
 		}
@@ -901,7 +939,7 @@ func (s *Server) serveRepoAPI(w http.ResponseWriter, r *http.Request, rp *repo, 
 		_ = json.NewDecoder(r.Body).Decode(&b)
 		id := s.nextIDLocked()
 		s.mu.Lock()
-		s.Comments[id] = &Comment{ID: id, Repo: rp.fullName, Issue: n, Body: b.Body}
+		s.comments[id] = &Comment{ID: id, Repo: rp.fullName, Issue: n, Body: b.Body}
 		s.mu.Unlock()
 		writeJSON(w, 201, map[string]any{"id": id})
 	default:
@@ -932,7 +970,7 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasSuffix(r.URL.Path, "/info/refs") {
 		s.mu.Lock()
-		s.Clones = append(s.Clones, rp.fullName)
+		s.clones = append(s.clones, rp.fullName)
 		s.mu.Unlock()
 	}
 	r2 := r.Clone(r.Context())
@@ -994,12 +1032,13 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	case "/_fake/install":
 		out = map[string]int64{"id": s.Install(in.Account, in.Repos)}
 	case "/_fake/state":
-		s.mu.Lock()
+		rec := s.Recorded()
 		comments := []*Comment{}
-		for _, c := range s.Comments {
+		for _, c := range rec.Comments {
 			comments = append(comments, c)
 		}
 		sort.Slice(comments, func(i, j int) bool { return comments[i].ID < comments[j].ID })
+		s.mu.Lock()
 		app := map[string]any{}
 		if s.app != nil {
 			app = map[string]any{"id": s.app.id, "slug": s.app.slug, "name": s.app.name, "manifest": s.app.manifest}
@@ -1010,8 +1049,8 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 				revoked++
 			}
 		}
-		out = map[string]any{"app": app, "statuses": s.Statuses, "deployments": s.Deployments, "deploymentStatuses": s.DeploymentStatuses,
-			"comments": comments, "clones": s.Clones, "deliveries": s.Deliveries, "tokens": len(s.tokens), "revokedTokens": revoked}
+		out = map[string]any{"app": app, "statuses": rec.Statuses, "deployments": rec.Deployments, "deploymentStatuses": rec.DeploymentStatuses,
+			"comments": comments, "clones": rec.Clones, "deliveries": rec.Deliveries, "tokens": len(s.tokens), "revokedTokens": revoked}
 		s.mu.Unlock()
 	default:
 		fail(w, 404, "Not Found")

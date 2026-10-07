@@ -344,6 +344,9 @@ type fakeBuilder struct {
 	warmBlock atomic.Bool
 	// failAll fails every build.
 	failAll atomic.Bool
+	// prunes counts build cache prunes; pruneTo is the last one's cap.
+	prunes  atomic.Int32
+	pruneTo atomic.Int64
 	mu      sync.Mutex
 	envs    map[string]map[string]string // deploy ID → its build env
 	runEnvs map[string]map[string]string // deploy ID → its build's RunEnv
@@ -394,7 +397,11 @@ func (b *fakeBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult,
 	}
 	b.eng.mu.Unlock()
 	fmt.Fprintln(req.Log, "#1 building", ref)
-	return BuildResult{Image: ref, Digest: "sha256:" + strings.Repeat("b", 64)}, nil
+	res := BuildResult{Image: ref, Digest: "sha256:" + strings.Repeat("b", 64)}
+	if req.Dockerfile != "" {
+		res.Start = startOverride(req.Spec) // as boxBuilder's Dockerfile builds do
+	}
+	return res, nil
 }
 
 // fakeEdge is a tiny reverse proxy standing in for Caddy: it serves whatever
@@ -701,6 +708,23 @@ func TestDeployPromoteAndRoutes(t *testing.T) {
 		if !strings.Contains(string(text), want) {
 			t.Errorf("build log lacks %q:\n%s", want, text)
 		}
+	}
+	// The log shipper's copy has the same lines, timed and labelled.
+	var shipped []string
+	for _, l := range shipLines(t, h.r, d) {
+		if l.Env != "prod" {
+			t.Fatalf("shipped line %+v", l)
+		}
+		shipped = append(shipped, l.Log)
+	}
+	var plain []string
+	for _, l := range strings.Split(string(text), "\n") {
+		if strings.TrimSpace(l) != "" {
+			plain = append(plain, l)
+		}
+	}
+	if strings.Join(shipped, "\n") != strings.Join(plain, "\n") {
+		t.Errorf("shipped copy differs:\n%s\n---\n%s", strings.Join(shipped, "\n"), strings.Join(plain, "\n"))
 	}
 }
 
@@ -1304,12 +1328,16 @@ func TestGCKeepsPinnedReleases(t *testing.T) {
 	for i := range 4 {
 		h.deploy("api", "", map[string]string{"index.ts": fmt.Sprint(i)})
 	}
+	// A deploy turns live before its own clean-up runs (in the background),
+	// so run the clean-up here as well: the checks don't race it.
+	h.r.gc(ctx, "shop", "api", "")
 	if d, _ := h.r.st.getDeploy(ctx, "shop", "api", v1.ID); d.Image == "" {
 		t.Fatal("the image of a pinned release was removed")
 	}
 	pins.set()
 	h.r.reapDrained(ctx)
 	h.deploy("api", "", map[string]string{"index.ts": "last"})
+	h.r.gc(ctx, "shop", "api", "")
 	if d, _ := h.r.st.getDeploy(ctx, "shop", "api", v1.ID); d.Image != "" {
 		t.Fatal("an unpinned old release keeps its image")
 	}

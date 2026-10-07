@@ -122,14 +122,14 @@ func TestManifestFlowAndAppCalls(t *testing.T) {
 	if err := b.SetStatus(ctx, inst, "octo/site", sha, ghapp.Status{State: "pending", Context: "tiffin/web", Description: strings.Repeat("x", 300)}); err != nil {
 		t.Fatal(err)
 	}
-	if d := f.Statuses[0].Body["description"].(string); len([]rune(d)) != 140 {
+	if d := f.Recorded().Statuses[0].Body["description"].(string); len([]rune(d)) != 140 {
 		t.Fatalf("descriptions are clipped to 140: %d", len(d))
 	}
 	id, err := b.CreateDeployment(ctx, inst, "octo/site", ghapp.DeploymentRequest{Ref: sha, Environment: "production", ProductionEnvironment: true})
 	if err != nil || id == 0 {
 		t.Fatal(err)
 	}
-	if f.Deployments[0].Body["required_contexts"] == nil {
+	if f.Recorded().Deployments[0].Body["required_contexts"] == nil {
 		t.Fatal("deployments must not wait for other checks")
 	}
 	if err := b.SetDeploymentStatus(ctx, inst, "octo/site", id, ghapp.DeploymentStatus{State: "success", EnvironmentURL: "https://x"}); err != nil {
@@ -139,8 +139,8 @@ func TestManifestFlowAndAppCalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again, err := b.UpsertComment(ctx, inst, "octo/site", 7, cid, "two"); err != nil || again != cid || f.Comments[cid].Body != "two" {
-		t.Fatalf("update in place: %v %d %+v", err, again, f.Comments[cid])
+	if again, err := b.UpsertComment(ctx, inst, "octo/site", 7, cid, "two"); err != nil || again != cid || f.Recorded().Comments[cid].Body != "two" {
+		t.Fatalf("update in place: %v %d %+v", err, again, f.Recorded().Comments[cid])
 	}
 	if fresh, err := b.UpsertComment(ctx, inst, "octo/site", 7, 99999999, "three"); err != nil || fresh == cid {
 		t.Fatalf("a deleted comment is recreated: %v %d", err, fresh)

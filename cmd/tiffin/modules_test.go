@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -43,9 +44,26 @@ func TestAllModulesRegister(t *testing.T) {
 		t.Fatalf("%d tools for %d operations", len(tools), len(a.Operations()))
 	}
 	// Adding or removing an operation is a deliberate API change: update this.
-	const wantOps = 274
+	const wantOps = 307
 	if n := len(a.Operations()); n != wantOps {
 		t.Errorf("%d operations, want %d", n, wantOps)
+	}
+}
+
+// TestWriteOpenAPI writes the whole API description (every module, as the
+// binary serves it at /v1/openapi.json) to $TIFFIN_OPENAPI_OUT: the
+// dashboard's `bun run gen:api` turns it into src/api/schema.d.ts.
+func TestWriteOpenAPI(t *testing.T) {
+	out := os.Getenv("TIFFIN_OPENAPI_OUT")
+	if out == "" {
+		t.Skip("set TIFFIN_OPENAPI_OUT to write the OpenAPI description")
+	}
+	b, err := json.MarshalIndent(api.New(api.Deps{}).OpenAPI(), "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(out, b, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

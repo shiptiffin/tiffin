@@ -257,7 +257,7 @@ func TestGitHubConnectPushAndPreviews(t *testing.T) {
 	}
 	g.settle()
 	var states []string
-	for _, s := range g.f.Statuses {
+	for _, s := range g.f.Recorded().Statuses {
 		if strings.HasSuffix(s.Path, sha2) {
 			states = append(states, s.Body["state"].(string))
 			if s.Body["context"] != "tiffin/shop/site" {
@@ -268,7 +268,8 @@ func TestGitHubConnectPushAndPreviews(t *testing.T) {
 	if strings.Join(states, ",") != "pending,success" {
 		t.Fatalf("statuses for %s: %v", sha2, states)
 	}
-	if last := g.f.DeploymentStatuses[len(g.f.DeploymentStatuses)-1].Body; last["state"] != "success" || last["environment_url"] != "https://shop.tiffin.localhost:8443" ||
+	ds := g.f.Recorded().DeploymentStatuses
+	if last := ds[len(ds)-1].Body; last["state"] != "success" || last["environment_url"] != "https://shop.tiffin.localhost:8443" ||
 		!strings.Contains(last["log_url"].(string), "/projects/shop/apps/site/deploys/"+d2.ID) {
 		t.Fatalf("deployment status: %v", last)
 	}
@@ -312,13 +313,19 @@ func TestGitHubConnectPushAndPreviews(t *testing.T) {
 		t.Fatalf("preview serves: %q", body)
 	}
 	g.settle()
-	if len(g.f.Comments) != 1 {
-		t.Fatalf("one comment: %+v", g.f.Comments)
+	// The one pull request comment, as it is now.
+	comment := func() *ghfake.Comment {
+		t.Helper()
+		cs := g.f.Recorded().Comments
+		if len(cs) != 1 {
+			t.Fatalf("one comment: %+v", cs)
+		}
+		for _, c := range cs {
+			return c
+		}
+		return nil
 	}
-	var cm *ghfake.Comment
-	for _, c := range g.f.Comments {
-		cm = c
-	}
+	cm := comment()
 	if cm.Issue != 7 || !strings.Contains(cm.Body, "https://pr-7--shop.tiffin.localhost:8443") || !strings.Contains(cm.Body, "built in") || !strings.Contains(cm.Body, "[logs](") {
 		t.Fatalf("comment: %+v", cm)
 	}
@@ -326,7 +333,8 @@ func TestGitHubConnectPushAndPreviews(t *testing.T) {
 	g.f.PullRequest("octo/shop", "synchronize", 7, "feat", false)
 	pv2 := g.waitFor("site", func(d *Deploy) bool { return d.Commit == sha4 })
 	g.settle()
-	if pv2.Status != StatusLive || len(g.f.Comments) != 1 || cm.Updates < 2 || !strings.Contains(cm.Body, short(sha4)) {
+	cm = comment()
+	if pv2.Status != StatusLive || cm.Updates < 2 || !strings.Contains(cm.Body, short(sha4)) {
 		t.Fatalf("updated in place: %+v %+v", pv2, cm)
 	}
 	if st := g.state("site", ""); st.Live != dc.ID {
@@ -348,22 +356,23 @@ func TestGitHubConnectPushAndPreviews(t *testing.T) {
 	if code, _ := g.get("pr-7--shop.tiffin.localhost", "/"); code != 404 {
 		t.Fatalf("closed preview still served: %d", code)
 	}
-	if !strings.Contains(cm.Body, "was removed") {
+	if cm = comment(); !strings.Contains(cm.Body, "was removed") {
 		t.Fatalf("comment after close: %s", cm.Body)
 	}
-	if last := g.f.DeploymentStatuses[len(g.f.DeploymentStatuses)-1].Body; last["state"] != "inactive" {
+	ds = g.f.Recorded().DeploymentStatuses
+	if last := ds[len(ds)-1].Body; last["state"] != "inactive" {
 		t.Fatalf("the preview deployment is retired: %v", last)
 	}
 
 	// Every token the box minted for a clone was revoked.
 	clones := 0
-	for _, r := range g.f.Clones {
+	for _, r := range g.f.Recorded().Clones {
 		if r == "octo/shop" {
 			clones++
 		}
 	}
 	if clones < 5 {
-		t.Fatalf("clones: %v", g.f.Clones)
+		t.Fatalf("clones: %v", g.f.Recorded().Clones)
 	}
 	if minted, revoked := g.f.ReadTokens(); minted < clones || revoked != minted {
 		t.Fatalf("clone tokens: %d minted, %d revoked", minted, revoked)
