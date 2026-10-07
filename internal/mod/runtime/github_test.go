@@ -195,9 +195,19 @@ func TestGitHubConnectPushAndPreviews(t *testing.T) {
 	g.connect()
 	code, st := g.call("GET", "/v1/github", "")
 	ins, _ := st["installations"].([]any)
-	if code != 200 || st["connected"] != true || st["source"] != "box" || len(ins) != 1 || st["canManage"] != true {
+	if code != 200 || st["connected"] != true || st["source"] != "box" || len(ins) != 1 || st["canManage"] != true || st["problem"] != nil {
 		t.Fatalf("status: %d %v", code, st)
 	}
+	if hook, _ := st["webhook"].(map[string]any); hook == nil || hook["url"] != st["webhookUrl"] || hook["problem"] != nil {
+		t.Fatalf("webhook as GitHub has it: %v", st["webhook"])
+	}
+	// An app whose webhook points elsewhere (one made by hand) gets no pushes: the status says so.
+	g.f.AppHookURL = "https://example.com/v1/github/webhook"
+	_, st = g.call("GET", "/v1/github", "")
+	if p, _ := st["problem"].(string); !strings.Contains(p, "GitHub sends the app's events to https://example.com/v1/github/webhook, not to this box") {
+		t.Fatalf("a webhook pointing elsewhere: %v", st)
+	}
+	g.f.AppHookURL = ""
 
 	first, err := g.f.AddRepo("octo/shop", true, map[string]string{"README.md": "shop", "web/index.html": "<h1>v1</h1>",
 		"apps/api/package.json": `{"name":"api","dependencies":{"hono":"4"}}`, "package.json": `{"workspaces":["apps/*"]}`})
@@ -254,6 +264,11 @@ func TestGitHubConnectPushAndPreviews(t *testing.T) {
 	}
 	if _, body := g.get("shop.tiffin.localhost", "/"); body != "<h1>v2</h1>" {
 		t.Fatalf("v2 not served: %q", body)
+	}
+	// GitHub's own list of deliveries, newest first, is in the status.
+	_, st = g.call("GET", "/v1/github", "")
+	if ds, _ := st["webhook"].(map[string]any)["deliveries"].([]any); len(ds) == 0 || ds[0].(map[string]any)["event"] != "push" || ds[0].(map[string]any)["statusCode"] != float64(202) {
+		t.Fatalf("GitHub's deliveries: %v", st["webhook"])
 	}
 	g.settle()
 	var states []string

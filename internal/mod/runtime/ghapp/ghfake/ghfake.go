@@ -43,6 +43,9 @@ type Server struct {
 	URL string
 	// HookURL receives webhook deliveries (default: the app manifest's hook URL).
 	HookURL string
+	// AppHookURL is the app's webhook URL as GitHub reports it (default:
+	// the manifest's), for an app whose webhook points elsewhere.
+	AppHookURL string
 	// HookClient sends deliveries (default http.DefaultClient).
 	HookClient *http.Client
 	// Account owns new apps and installations.
@@ -687,7 +690,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	// App-authenticated routes.
 	switch {
-	case p == "/app" || p == "/app/installations" || strings.HasPrefix(p, "/app/installations/") || strings.HasSuffix(p, "/installation") && strings.HasPrefix(p, "/repos/"):
+	case p == "/app" || p == "/app/installations" || strings.HasPrefix(p, "/app/hook/") || strings.HasPrefix(p, "/app/installations/") || strings.HasSuffix(p, "/installation") && strings.HasPrefix(p, "/repos/"):
 		if !s.checkJWT(r) {
 			fail(w, 401, "A JSON web token could not be decoded")
 			return
@@ -786,6 +789,24 @@ func (s *Server) serveAppAPI(w http.ResponseWriter, r *http.Request, p string) {
 		c := s.credsLocked()
 		s.mu.Unlock()
 		writeJSON(w, 200, map[string]any{"id": c.ID, "slug": c.Slug, "name": c.Name, "html_url": c.HTMLURL, "owner": map[string]any{"login": c.Owner, "type": "User"}})
+	case p == "/app/hook/config":
+		s.mu.Lock()
+		u := s.AppHookURL
+		if u == "" && s.app != nil {
+			u = s.app.manifest.HookAttributes.URL
+		}
+		s.mu.Unlock()
+		writeJSON(w, 200, map[string]any{"url": u, "content_type": "json", "insecure_ssl": "0", "secret": "********"})
+	case p == "/app/hook/deliveries":
+		s.mu.Lock()
+		out := []any{}
+		for i := len(s.deliveries) - 1; i >= 0 && len(out) < 30; i-- {
+			d := s.deliveries[i]
+			out = append(out, map[string]any{"guid": d.ID, "event": d.Event, "status_code": d.Status, "status": http.StatusText(d.Status),
+				"delivered_at": time.Now().UTC().Format(time.RFC3339), "redelivery": false})
+		}
+		s.mu.Unlock()
+		writeJSON(w, 200, out)
 	case p == "/app/installations":
 		s.mu.Lock()
 		out := []any{}

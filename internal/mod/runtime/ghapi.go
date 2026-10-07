@@ -37,7 +37,27 @@ type GitHubStatus struct {
 	ReachableHint string               `json:"reachableHint,omitempty"`
 	GitHubURL     string               `json:"githubUrl" doc:"The GitHub this box talks to"`
 	CanManage     bool                 `json:"canManage" doc:"The caller can connect, install and disconnect (box admins)"`
+	Webhook       *GitHubWebhook       `json:"webhook,omitempty" doc:"The app's webhook as GitHub has it, and its latest deliveries"`
 	Events        []GitHubEvent        `json:"events" doc:"What the box did because of GitHub, newest first"`
+}
+
+// GitHubWebhook is the app's webhook as GitHub has it.
+type GitHubWebhook struct {
+	URL        string           `json:"url" doc:"Where GitHub sends the app's events (empty: the app has no webhook)"`
+	Problem    string           `json:"problem,omitempty" doc:"Why pushes would not reach the box"`
+	Deliveries []GitHubDelivery `json:"deliveries" doc:"GitHub's latest deliveries, newest first"`
+	// DeliveriesError is why GitHub didn't list them.
+	DeliveriesError string `json:"deliveriesError,omitempty" doc:"Why GitHub didn't list the deliveries"`
+}
+
+// GitHubDelivery is one webhook GitHub sent (or tried to send).
+type GitHubDelivery struct {
+	At         time.Time `json:"at"`
+	Event      string    `json:"event" example:"push"`
+	Action     string    `json:"action,omitempty" example:"opened"`
+	StatusCode int       `json:"statusCode" doc:"The box's reply (0: GitHub could not reach it)"`
+	Status     string    `json:"status" doc:"GitHub's words for the outcome"`
+	Redelivery bool      `json:"redelivery,omitempty"`
 }
 
 // GitHubAppInfo is the box's GitHub App.
@@ -613,6 +633,40 @@ func (r *rt) githubStatus(ctx context.Context) GitHubStatus {
 	for _, in := range ins {
 		out.Installations = append(out.Installations, GitHubInstallation{ID: in.ID, Account: in.Account.Login, AccountType: in.Account.Type,
 			Repositories: orDefaultStr(in.RepositorySelection, "all"), SettingsURL: in.HTMLURL, Suspended: in.SuspendedAt != nil})
+	}
+	out.Webhook = r.webhookCheck(gctx, c, out.WebhookURL, info.SettingsURL)
+	if out.Webhook != nil && out.Problem == "" {
+		out.Problem = out.Webhook.Problem
+	}
+	return out
+}
+
+// webhookCheck reads the app's webhook from GitHub: an app given to the box
+// (use-app, the settings file) may send its events somewhere else, or
+// nowhere, and then pushes never arrive.
+func (r *rt) webhookCheck(ctx context.Context, c *ghConn, want, settings string) *GitHubWebhook {
+	where := "the app's settings on GitHub"
+	if settings != "" {
+		where = settings
+	}
+	h, err := c.App.HookConfig(ctx)
+	if ghapp.IsStatus(err, http.StatusNotFound) {
+		return &GitHubWebhook{Deliveries: []GitHubDelivery{}, Problem: "The app has no webhook, so GitHub sends the box nothing. In " + where +
+			": tick Webhook › Active and set its URL to " + want + " (and the webhook secret the box was given)."}
+	}
+	if err != nil {
+		return nil // GitHub didn't say: no verdict
+	}
+	out := &GitHubWebhook{URL: h.URL, Deliveries: []GitHubDelivery{}}
+	if strings.TrimRight(h.URL, "/") != strings.TrimRight(want, "/") {
+		out.Problem = "GitHub sends the app's events to " + orDefaultStr(h.URL, "no address") + ", not to this box. In " + where + ", set the webhook URL to " + want + " and tick Active."
+	}
+	ds, err := c.App.HookDeliveries(ctx, 10)
+	if err != nil {
+		out.DeliveriesError = err.Error()
+	}
+	for _, d := range ds {
+		out.Deliveries = append(out.Deliveries, GitHubDelivery{At: d.DeliveredAt, Event: d.Event, Action: d.Action, StatusCode: d.StatusCode, Status: d.Status, Redelivery: d.Redelivery})
 	}
 	return out
 }

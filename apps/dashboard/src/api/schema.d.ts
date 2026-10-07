@@ -11182,6 +11182,22 @@ export interface components {
             /** @description POST a form here from the browser, with one field, manifest */
             url: string;
         };
+        RuntimeGitHubDelivery: {
+            /** @example opened */
+            action?: string;
+            /** Format: date-time */
+            at: string;
+            /** @example push */
+            event: string;
+            redelivery?: boolean;
+            /** @description GitHub's words for the outcome */
+            status: string;
+            /**
+             * Format: int64
+             * @description The box's reply (0: GitHub could not reach it)
+             */
+            statusCode: number;
+        };
         RuntimeGitHubEvent: {
             /** Format: date-time */
             at: string;
@@ -11285,8 +11301,20 @@ export interface components {
              * @enum {string}
              */
             source?: "box" | "configured" | "file" | "";
+            /** @description The app's webhook as GitHub has it, and its latest deliveries */
+            webhook?: components["schemas"]["RuntimeGitHubWebhook"];
             /** @description Where GitHub delivers events */
             webhookUrl: string;
+        };
+        RuntimeGitHubWebhook: {
+            /** @description GitHub's latest deliveries, newest first */
+            deliveries: components["schemas"]["RuntimeGitHubDelivery"][] | null;
+            /** @description Why GitHub didn't list the deliveries */
+            deliveriesError?: string;
+            /** @description Why pushes would not reach the box */
+            problem?: string;
+            /** @description Where GitHub sends the app's events (empty: the app has no webhook) */
+            url: string;
         };
         RuntimeGitInfo: {
             instructions: string;

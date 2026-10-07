@@ -429,6 +429,36 @@ func (a *App) Installations(ctx context.Context) ([]Installation, error) {
 	return out, nil
 }
 
+// HookConfig is where GitHub sends the app's webhooks.
+type HookConfig struct {
+	URL         string `json:"url"`
+	ContentType string `json:"content_type"`
+}
+
+// HookConfig reads the app's webhook settings (404 when the app has no
+// webhook).
+func (a *App) HookConfig(ctx context.Context) (*HookConfig, error) {
+	var h HookConfig
+	return &h, a.asApp(ctx, http.MethodGet, "/app/hook/config", nil, &h)
+}
+
+// HookDelivery is one webhook GitHub sent (or tried to send).
+type HookDelivery struct {
+	GUID        string    `json:"guid"`
+	DeliveredAt time.Time `json:"delivered_at"`
+	Redelivery  bool      `json:"redelivery"`
+	Status      string    `json:"status"`
+	StatusCode  int       `json:"status_code"`
+	Event       string    `json:"event"`
+	Action      string    `json:"action"`
+}
+
+// HookDeliveries lists the app's latest webhook deliveries, newest first.
+func (a *App) HookDeliveries(ctx context.Context, n int) ([]HookDelivery, error) {
+	var out []HookDelivery
+	return out, a.asApp(ctx, http.MethodGet, fmt.Sprintf("/app/hook/deliveries?per_page=%d", n), nil, &out)
+}
+
 var repoRe = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$`)
 
 // ValidRepo reports whether s is an "owner/name" repository.

@@ -408,7 +408,7 @@ project's env and secrets.
 **From the terminal or an agent** (every step is an API operation, so also an MCP tool):
 
 ```bash
-tiffin github status                       # connected? installed where? recent deliveries
+tiffin github status                       # connected? installed where? webhook and recent deliveries
 tiffin github repos --q shop               # repositories the app can see
 tiffin github repo acme shop               # branches, latest commit, folders + framework
 # add apps.web.git to the manifest, then plan and apply it (projects manifest → plan → apply)
@@ -428,7 +428,9 @@ forgets the app (delete it on GitHub too: Settings › Developer settings › Gi
            "clientId": "Iv1.…", "clientSecretFile": "/etc/tiffin/github-client", "public": true } }
 ```
 
-The app's webhook must point at `<box>/v1/github/webhook`. A **public** app is installed by
+The app's webhook must be active and point at `<box>/v1/github/webhook`; `tiffin github status`
+(and Settings › Git) reads it from GitHub, says when it points somewhere else, and lists
+GitHub's latest deliveries with the box's replies. A **public** app is installed by
 other accounts too, so the box only acts for installations made from it: enable *Request
 user authorization (OAuth) during installation* on the app with `<box>/v1/github/setup` as
 a callback URL; after an install the box checks, with GitHub sign-in, that the person can
