@@ -203,7 +203,16 @@ func (u *Updater) Update(ctx context.Context, newBin string) error {
 		if err := u.Restart(ctx); err != nil {
 			return err
 		}
-		return u.waitHealthy(ctx, sum)
+		if err := u.waitHealthy(ctx, sum); err != nil {
+			return err
+		}
+		if u.RestartEdge != nil {
+			// The edge may still run an older build (one an update before
+			// left running): put it on this one too.
+			u.Progress("restarting the edge on build " + sum[:12])
+			return u.RestartEdge(ctx)
+		}
+		return nil
 	}
 	// The state as the previous build left it, for a rollback. Writes in the
 	// moment between this snapshot and the restart are lost if it rolls back.

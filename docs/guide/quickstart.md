@@ -104,7 +104,9 @@ a `cax11` (ARM, 2 vCPU, 4 GB) in `fsn1` on Ubuntu 26.04; change them with `--typ
 makes, pass `--ssh-key ~/.ssh/id_ed25519` (or set `HCLOUD_SSH_KEY`); only the public
 half is uploaded, and a copy already in the project is reused.
 
-Run `tiffin up --name shop` again to update it. To make it bigger in place:
+Run `tiffin up --name shop` again to update it: Tiffin and its HTTPS edge restart on the
+new build (the edge's ports are held meanwhile, so no connection is refused). To make it
+bigger in place:
 
 ```bash
 tiffin up --name shop --type cax21 --dry-run   # old and new size, and the monthly price

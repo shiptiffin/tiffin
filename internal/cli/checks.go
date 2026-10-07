@@ -10,6 +10,7 @@ import (
 
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/edge"
+	"github.com/btahir/tiffin/internal/version"
 )
 
 // boxChecks are the box-level health checks behind /v1/status. They read
@@ -26,16 +27,25 @@ func boxChecks(home string, ed *edge.Client, started time.Time) []api.Check {
 			Detail: fmt.Sprintf("%s available of %s", bytesHuman(avail), bytesHuman(total))})
 	}
 	if ed != nil {
-		if _, err := ed.Status(); err != nil {
+		if h, err := ed.Status(); err != nil {
 			out = append(out, api.Check{Name: "edge", OK: false, Detail: err.Error() + ". Sites it serves keep their last routes; sudo systemctl status tiffin-edge says why."})
 		} else if cfg := ed.Config(); !cfg.Internal && cfg.ACME != nil {
-			out = append(out, api.Check{Name: "edge", OK: true, Detail: "HTTPS edge serving certificates from " + caName(cfg.ACME)})
+			out = append(out, api.Check{Name: "edge", OK: true, Detail: "HTTPS edge serving certificates from " + caName(cfg.ACME) + edgeBuild(h)})
 		} else {
 			err := edge.VerifyCA(cfg)
-			out = append(out, api.Check{Name: "edge", OK: err == nil, Detail: errOr(err, "HTTPS edge serving with the box's CA")})
+			out = append(out, api.Check{Name: "edge", OK: err == nil, Detail: errOr(err, "HTTPS edge serving with the box's CA") + edgeBuild(h)})
 		}
 	}
 	return out
+}
+
+// edgeBuild notes an edge that runs another build than tiffin: an update
+// that left it running (tiffin up restarts it on the current build).
+func edgeBuild(h edge.Hello) string {
+	if h.Build == "" || h.Build == version.Version {
+		return ""
+	}
+	return fmt.Sprintf("; the edge runs build %s, tiffin %s (tiffin up restarts it on this one)", h.Build, version.Version)
 }
 
 // caName names the public CA an edge gets its certificates from.

@@ -232,13 +232,16 @@ chmod 0755 /tmp/tiffin.new
 		}
 	}
 	progress("starting tiffin (rolls back automatically if unhealthy)")
+	// The edge restarts on the new build too (its socket holds the ports
+	// meanwhile): otherwise it keeps running the build it started with,
+	// and edge changes never reach a box updated with up.
 	// The installed build performs the update, unless it predates the
 	// service layout being installed (the edge's own units): only the new
 	// build knows how to move to it and back. If the update fails, the
 	// unit files go back too (the build that did it restored them already,
 	// unless it could not run at all).
 	script := `set -o pipefail
-if [ -x ` + BinLink + ` ] && sudo test -e ` + UnitsBackup + `/tiffin-edge.service; then sudo ` + BinLink + ` self-update /tmp/tiffin.new; else sudo /tmp/tiffin.new self-update /tmp/tiffin.new; fi
+if [ -x ` + BinLink + ` ] && sudo test -e ` + UnitsBackup + `/tiffin-edge.service; then sudo ` + BinLink + ` self-update --restart-edge /tmp/tiffin.new; else sudo /tmp/tiffin.new self-update --restart-edge /tmp/tiffin.new; fi
 rc=$?; rm -f /tmp/tiffin.new
 if [ $rc -eq 0 ]; then sudo rm -rf ` + UnitsBackup + `
 elif sudo test -e ` + UnitsBackup + `/tiffin.service; then
