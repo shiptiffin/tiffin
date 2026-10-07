@@ -31,11 +31,14 @@ func (m *Manager) CreateLoginLink(ctx context.Context, by *Principal) (string, t
 }
 
 // RedeemLoginLink spends a login code (once) and mints a dashboard session:
-// a human token with the creator's scopes that expires after SessionTTL.
-func (m *Manager) RedeemLoginLink(ctx context.Context, code string) (string, *Token, error) {
+// a human token with the creator's scopes that expires after SessionTTL. It
+// also says how the session signed in: MethodEmail for a link the person
+// asked to be emailed, MethodTerminal for one the owner token made for the
+// owner (the owner's own `tiffin login`), MethodLink for any other.
+func (m *Manager) RedeemLoginLink(ctx context.Context, code string) (string, *Token, string, error) {
 	code = strings.TrimSpace(code)
 	if !strings.HasPrefix(code, loginPrefix) {
-		return "", nil, ErrUnauthenticated
+		return "", nil, "", ErrUnauthenticated
 	}
 	now := m.now().UTC()
 	var createdBy string
@@ -45,20 +48,21 @@ func (m *Manager) RedeemLoginLink(ctx context.Context, code string) (string, *To
 		WHERE hash = ? AND used_at IS NULL AND expires_at > ? RETURNING created_by, person`,
 		ts(&now), hash(code), ts(&now)).Scan(&createdBy, &personID)
 	if err != nil {
-		return "", nil, ErrUnauthenticated
+		return "", nil, "", ErrUnauthenticated
 	}
 	if createdBy == emailLinkCreator {
 		// Asked for by email: the person proved they read that inbox, so
 		// they get their own role's session, sponsored by nobody.
 		person, err := m.GetPerson(ctx, personID.String)
 		if err != nil || person.DisabledAt != nil {
-			return "", nil, ErrUnauthenticated
+			return "", nil, "", ErrUnauthenticated
 		}
-		return m.mintSession(ctx, person, "email")
+		secret, t, err := m.mintSession(ctx, person, "email")
+		return secret, t, MethodEmail, err
 	}
 	creator, err := m.Get(ctx, createdBy)
 	if err != nil || creator.RevokedAt != nil || (creator.ExpiresAt != nil && !now.Before(*creator.ExpiresAt)) {
-		return "", nil, ErrUnauthenticated
+		return "", nil, "", ErrUnauthenticated
 	}
 	pid := personID.String
 	if pid == "" {
@@ -66,11 +70,20 @@ func (m *Manager) RedeemLoginLink(ctx context.Context, code string) (string, *To
 	}
 	person, err := m.GetPerson(ctx, pid)
 	if err != nil || person.DisabledAt != nil {
-		return "", nil, ErrUnauthenticated
+		return "", nil, "", ErrUnauthenticated
+	}
+	// The owner token signing the owner in (their own `tiffin login`) is as
+	// strong as a passkey: that token adds passkeys and keys without asking.
+	// A link made by an API key, by a session (even the owner's) or for
+	// anyone else is not.
+	method := MethodLink
+	if creator.Kind == KindOwner && person.ID == OwnerPerson {
+		method = MethodTerminal
 	}
 	by := &Principal{TokenID: creator.ID, Name: creator.Name, Kind: creator.Kind, Scopes: creator.Scopes, Projects: creator.Projects, ExpiresAt: creator.ExpiresAt}
 	// The session gets the person's role, never more than whoever sent the link.
-	return m.Create(ctx, by, CreateRequest{Person: person.ID, Name: person.Name, Kind: KindHuman, Scopes: ScopesFor(person.Role), Projects: []string{"*"}, TTL: SessionTTL})
+	secret, t, err := m.Create(ctx, by, CreateRequest{Person: person.ID, Name: person.Name, Kind: KindHuman, Scopes: ScopesFor(person.Role), Projects: []string{"*"}, TTL: SessionTTL})
+	return secret, t, method, err
 }
 
 // SessionFor mints a dashboard session for a person who proved who they are

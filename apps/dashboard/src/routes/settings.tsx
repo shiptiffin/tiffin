@@ -134,7 +134,7 @@ export function PasskeysPage() {
               back="/settings/passkeys"
               onBack={() => setConfirm(null)}
               onConfirmed={() => setConfirm("done")}
-              noPasskeyNote="With a passkey, Google, GitHub or an emailed link you ask for. A link from the terminal doesn’t count."
+              noPasskeyNote="With Google, GitHub or an emailed link you ask for; the owner can also use a fresh tiffin login. A link someone else made doesn’t count."
             />
           )}
           {confirm === "done" && (

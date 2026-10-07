@@ -32,4 +32,5 @@ export const methodWords: Record<string, string> = {
   passkey: "Passkey",
   google: "Google",
   github: "GitHub",
+  terminal: "tiffin login",
 };

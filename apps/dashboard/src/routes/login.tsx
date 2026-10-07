@@ -70,6 +70,8 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
   const providers = useQuery({ ...oauthSignInQ, enabled: state === "no-code" || state === "bad-link" }).data ?? [];
   const refusal = oauthRefusal(reason);
   const providerList = providers.map((p) => p.name).join(" or ");
+  // What counts as a fresh sign-in for sudo mode, besides the owner's own `tiffin login`.
+  const strong = [canPasskey && words.name, ...providers.map((p) => p.name), byEmail && "an emailed link"].filter(Boolean);
   // With a passkey on offer, the terminal link is the small fallback (open at once after a bad link).
   const [linkOpen, setLinkOpen] = useState(false);
   if (state === "bad-link" && !linkOpen) setLinkOpen(true);
@@ -143,8 +145,16 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
               {reason === "confirm" && (
                 <p className="mt-2.5 text-md text-ink-2">
                   Adding a passkey, changing an email address or making an API key that outlives your session needs a sign-in from the last 10 minutes with{" "}
-                  {[canPasskey && words.name, ...providers.map((p) => p.name), byEmail && "an emailed link"].filter(Boolean).join(", ") || "a passkey, Google, GitHub or an emailed link"}.
-                  A link from the terminal doesn’t count.
+                  {strong.length > 0 ? (
+                    <>
+                      {strong.join(", ")}, or, if you’re the owner, a fresh <code className="ident text-ink">tiffin login</code>.
+                    </>
+                  ) : (
+                    <>
+                      a fresh <code className="ident text-ink">tiffin login</code> (the owner’s own).
+                    </>
+                  )}{" "}
+                  A link someone else made doesn’t count.
                 </p>
               )}
               {reason !== "confirm" && (canPasskey || providers.length > 0) && (
@@ -182,9 +192,9 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
                   className={canPasskey || providers.length > 0 ? "mt-7 border-t border-rule pt-6" : "mt-2.5"}
                 />
               )}
-              {reason !== "confirm" && (canPasskey || byEmail || providers.length > 0) && !linkOpen && (
+              {(canPasskey || byEmail || providers.length > 0) && !linkOpen && (
                 <button type="button" onClick={() => setLinkOpen(true)} className={cn("block text-[0.875rem] text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink", byEmail ? "mt-6" : "mt-4")}>
-                  {byEmail ? "or sign in from your terminal" : "or use a sign-in link"}
+                  {reason === "confirm" ? "or, as the owner, sign in from your terminal" : byEmail ? "or sign in from your terminal" : "or use a sign-in link"}
                 </button>
               )}
               {((!canPasskey && !byEmail && providers.length === 0) || linkOpen) && (

@@ -94,15 +94,21 @@ test("login → projects → history → change → undo → health → keys →
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/settings\/keys$/);
 
-  // API keys: create shows the secret once; revoke asks first.
+  // API keys: create shows the secret once; revoke asks first. A key that
+  // outlives the session needs a sign-in from the last 10 minutes: the
+  // owner's own `tiffin login` (signIn above) is one, so no confirm step.
   await page.getByRole("button", { name: "Create key" }).click();
-  await page.getByLabel("Name").fill("smoke-agent");
-  await page.getByRole("dialog").getByRole("radio", { name: "Read only" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Create smoke-agent" }).click();
+  const create = page.getByRole("dialog");
+  await create.getByLabel("Name").fill("smoke-agent");
+  await create.getByRole("radio", { name: "Read only" }).click();
+  await expect(create.getByRole("radio", { name: "90 days" })).toBeChecked();
+  for (const choice of ["30 days", "1 year", "Never"]) await expect(create.getByRole("radio", { name: choice })).not.toBeChecked();
+  await create.getByRole("button", { name: "Create smoke-agent" }).click();
   await expect(page.getByTestId("token-secret")).toHaveText(/^tfn_/);
   await page.getByRole("button", { name: "I’ve stored it" }).click();
   const row = page.getByRole("listitem").filter({ hasText: "Smoke Agent" });
   await expect(row).toContainText("Read only");
+  await expect(row).toContainText("expires in 3 months");
   await row.getByRole("button", { name: "Revoke smoke-agent" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Revoke Smoke Agent" }).click();
   await expect(page.getByRole("listitem").filter({ hasText: "Smoke Agent" })).toHaveCount(0);
@@ -119,7 +125,7 @@ test("login → projects → history → change → undo → health → keys →
 });
 
 // Touch ID / Face ID sign-in, then a project's overview, its secrets, and people.
-test("touch id → project → secrets → people → touch id sign-in", async ({ page, baseURL }) => {
+test("touch id → project → secrets → people → confirm it's you → touch id sign-in", async ({ page, baseURL, browser }) => {
   const problems: string[] = [];
   page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && !m.text().startsWith("Failed to load resource") && problems.push(m.text()));
@@ -132,7 +138,8 @@ test("touch id → project → secrets → people → touch id sign-in", async (
 
   await signIn(page, baseURL!);
 
-  // Touch ID / Face ID, from the account menu.
+  // Touch ID / Face ID, from the account menu. Adding a passkey needs a
+  // sign-in from the last 10 minutes: the owner's own `tiffin login` is one.
   await page.getByRole("button", { name: "Account" }).click();
   await page.getByRole("menuitem", { name: /Sign in with Touch ID \/ Face ID/ }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sign in with Touch ID / Face ID");
@@ -170,9 +177,26 @@ test("touch id → project → secrets → people → touch id sign-in", async (
   await page.getByLabel("Name").fill("Ada");
   await page.getByRole("radio", { name: /Viewer/ }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Invite Ada" }).click();
-  await expect(page.getByText(/\/login#tfl_/)).toBeVisible();
+  const invite = page.getByText(/\/login#tfl_/);
+  await expect(invite).toBeVisible();
+  const code = (await invite.textContent())!.match(/tfl_[a-z0-9]+/)![0];
   await page.getByRole("button", { name: "Done" }).click();
   await expect(page.getByText("Ada")).toBeVisible();
+
+  // Ada signs in with that invite, a link someone else made: setting up a
+  // passkey asks her to confirm it's her first, or to sign in again.
+  const ada = await browser.newContext({ baseURL });
+  const adaPage = await ada.newPage();
+  await adaPage.goto(`/login#${code}`);
+  await adaPage.waitForURL((u) => u.pathname === "/");
+  await adaPage.goto("/settings/passkeys");
+  await adaPage.getByRole("button", { name: "Set up this device" }).click();
+  const confirm = adaPage.getByRole("dialog");
+  await expect(confirm.getByRole("heading", { name: "Confirm it’s you" })).toBeVisible();
+  await expect(confirm.getByRole("link", { name: "Sign in again" })).toHaveAttribute("href", /^\/login\?.*reason=confirm/);
+  await confirm.getByRole("link", { name: "Sign in again" }).click();
+  await expect(adaPage.getByRole("heading", { level: 1 })).toHaveText("Sign in again to confirm it’s you.");
+  await ada.close();
 
   // The device set up above also signs in: sign out, sign back in with it, land where you were going.
   await page.request.delete("/v1/session");

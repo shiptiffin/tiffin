@@ -32,10 +32,10 @@ func TestEmailLoginLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := m.RedeemLoginLink(ctx, first); !errors.Is(err, ErrUnauthenticated) {
+	if _, _, _, err := m.RedeemLoginLink(ctx, first); !errors.Is(err, ErrUnauthenticated) {
 		t.Fatalf("an older emailed link must stop working: %v", err)
 	}
-	secret, tok, err := m.RedeemLoginLink(ctx, second)
+	secret, tok, _, err := m.RedeemLoginLink(ctx, second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,14 +46,14 @@ func TestEmailLoginLink(t *testing.T) {
 	if err != nil || p.Has(ScopeApplyIrreversible) || !p.Has(ScopeApplyOutbound) {
 		t.Fatalf("member session: %+v %v", p, err)
 	}
-	if _, _, err := m.RedeemLoginLink(ctx, second); !errors.Is(err, ErrUnauthenticated) {
+	if _, _, _, err := m.RedeemLoginLink(ctx, second); !errors.Is(err, ErrUnauthenticated) {
 		t.Fatalf("a link works once: %v", err)
 	}
 
 	// Expired links don't work.
 	third, _, _ := m.EmailLoginLink(ctx, maya.ID)
 	m.now = func() time.Time { return time.Now().Add(EmailLinkTTL + time.Second) }
-	if _, _, err := m.RedeemLoginLink(ctx, third); !errors.Is(err, ErrUnauthenticated) {
+	if _, _, _, err := m.RedeemLoginLink(ctx, third); !errors.Is(err, ErrUnauthenticated) {
 		t.Fatalf("expired link: %v", err)
 	}
 	m.now = time.Now
@@ -63,7 +63,7 @@ func TestEmailLoginLink(t *testing.T) {
 	if err := m.RemovePerson(ctx, owner, maya.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := m.RedeemLoginLink(ctx, fourth); !errors.Is(err, ErrUnauthenticated) {
+	if _, _, _, err := m.RedeemLoginLink(ctx, fourth); !errors.Is(err, ErrUnauthenticated) {
 		t.Fatalf("removed person: %v", err)
 	}
 	if _, _, err := m.EmailLoginLink(ctx, maya.ID); !errors.Is(err, ErrPersonNotFound) {

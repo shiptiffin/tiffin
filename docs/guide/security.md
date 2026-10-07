@@ -111,21 +111,34 @@ be able to do them quietly:
   admin key). A read-only key for a day doesn't ask.
 - **Adding a passkey.** A passkey signs in as you for good, and it would pass every later
   "confirm it's you", so a stolen session must not be able to add its own.
-- **Changing an email address** (yours, or as an owner or admin, someone else's). Emailed
-  sign-in links go there, and they count as a strong sign-in.
+- **Changing an email address** (yours, or as an owner or admin, someone else's; only
+  the owner changes the owner's). Emailed sign-in links go there, and they count as a
+  strong sign-in.
 
 Each needs a strong sign-in in the last 10 minutes: a passkey, Google, GitHub or a link you
-asked to be emailed. A one-time link someone else made (an invite, an admin's link,
-`tiffin login`) is not one. Otherwise the dashboard asks you to confirm with one of your
-own passkeys (someone else's doesn't count), or to sign in again (**Sign in again** goes
-to the login page and back); either gives you 10 minutes. If you have no passkey yet, you
-add your first one after signing in with Google, GitHub or an emailed link.
+asked to be emailed, or, for the owner, their own `tiffin login` (a link made with the
+owner token for the owner). That token can already add passkeys and keys without asking,
+so this grants nothing new, and it lets the owner of a box with no mail relay and no
+Google or GitHub keys add a first passkey. A one-time link someone else made (an invite,
+an admin's link, a link the owner token makes for someone else) is not one, and neither
+is a link a session makes for itself, the owner's included. Otherwise the dashboard asks
+you to confirm with one of your own passkeys (someone else's doesn't count), or to sign
+in again (**Sign in again** goes to the login page and back); either gives you 10
+minutes. If you have no passkey yet, you add your first one after signing in with
+Google, GitHub or an emailed link (the owner: or a fresh `tiffin login`). Settings ›
+Sign-ins shows the owner's terminal sign-ins as *tiffin login*.
 
 The API answers `403 reauth_required` (with a hint) until then. The dashboard confirms with
 `POST /v1/session/confirm/options`, then `navigator.credentials.get()`, then
 `POST /v1/session/confirm` with `{"credential": ...}`; the session then repeats the call.
 Keys and the owner token are not sessions: they never confirm, and the owner's CLI token
 may add the owner's passkeys without it. Removing a passkey doesn't ask, but is emailed.
+
+**API keys can't change email addresses.** A key isn't a session, so it can't confirm,
+and an admin key that could repoint someone's address (the owner's included) could then
+take over their emailed sign-in. `PUT /v1/people/{id}/email` with an API key is refused
+(`403 forbidden`) when the address would change. People change addresses in the
+dashboard; the owner token (`tiffin people email`) still changes anyone's.
 An emailed sign-in link only counts when the mail left the box (see *Sign-in links by
 email* above): one that would wait in the dev inbox is never made.
 

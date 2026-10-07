@@ -243,7 +243,7 @@ func TestCancelEmailLinks(t *testing.T) {
 	if err := m.CancelEmailLinks(ctx, ann.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := m.RedeemLoginLink(ctx, code); !errors.Is(err, ErrUnauthenticated) {
+	if _, _, _, err := m.RedeemLoginLink(ctx, code); !errors.Is(err, ErrUnauthenticated) {
 		t.Fatalf("cancelled link redeemed: %v", err)
 	}
 }

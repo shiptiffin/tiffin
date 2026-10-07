@@ -14,7 +14,7 @@ import { getAssertion, passkeyError, passkeyWords, webauthnSupported } from "@/l
  * session, a new passkey) need proof the person is still here. The box says
  * reauth_required; this asks them to confirm with one of their passkeys (10
  * minutes, then onConfirmed runs) or to sign in again with a passkey, Google,
- * GitHub or an emailed link, coming back to `back`.
+ * GitHub, an emailed link or (the owner) `tiffin login`, coming back to `back`.
  */
 export function ConfirmItsYou({
   why,
@@ -76,7 +76,7 @@ export function ConfirmItsYou({
         <p className="text-xs text-ink-3">
           {canPasskey
             ? "Or sign in again with Google, GitHub or an emailed link, then come back here."
-            : (noPasskeyNote ?? "With a passkey, Google, GitHub or an emailed link. Add a passkey in Settings › Passkeys to confirm in place next time.")}
+            : (noPasskeyNote ?? "With a passkey, Google, GitHub, an emailed link or, for the owner, a fresh tiffin login. Add a passkey in Settings › Passkeys to confirm in place next time.")}
         </p>
         {!!error && <ProblemNote error={error} />}
       </DialogBody>

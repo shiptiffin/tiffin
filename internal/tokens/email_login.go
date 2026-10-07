@@ -123,9 +123,21 @@ func (m *Manager) emailTaken(ctx context.Context, email, except string) (bool, e
 	return n > 0, err
 }
 
+// ErrEmailByKey refuses an email change from an API key: emailed sign-in
+// links go to the address, so a key that could repoint someone's (the
+// owner's included) could take over their account. People change addresses
+// in the dashboard, where it needs a recent strong sign-in; the owner token
+// may still change any.
+var ErrEmailByKey = fmt.Errorf("%w: an API key can't change an email address (emailed sign-in links go there); change it in the dashboard, or with the owner token", ErrForbidden)
+
+// ErrOwnerEmail refuses a change to the owner's address by anyone else.
+var ErrOwnerEmail = fmt.Errorf("%w: only the owner can change the owner's email", ErrForbidden)
+
 // SetPersonEmail sets or clears a person's address (used for invites, sign-in
 // links by email and new sign-in notices). People may set their own; box
-// admins may set anyone's. An address belongs to one active person.
+// admins may set anyone's but the owner's. An address belongs to one active
+// person. A new address is set only from a dashboard session (after a recent
+// strong sign-in) or with the owner token: never by an API key.
 func (m *Manager) SetPersonEmail(ctx context.Context, by *Principal, id, email string) (*Person, error) {
 	if !by.BoxAdmin() && (by.Person == "" || by.Person != id) {
 		return nil, fmt.Errorf("%w: only an owner or an admin can change someone else's email", ErrForbidden)
@@ -142,11 +154,20 @@ func (m *Manager) SetPersonEmail(ctx context.Context, by *Principal, id, email s
 		return nil, ErrPersonNotFound
 	}
 	// A new address gets that person's emailed sign-in links (a strong
-	// sign-in), and the address hears about new keys and passkeys: from a
-	// dashboard session, changing it needs a recent strong sign-in.
+	// sign-in), and the address hears about new keys and passkeys: only the
+	// owner token, or a dashboard session with a recent strong sign-in, may
+	// change it, and only the owner the owner's.
 	if NormEmail(email) != NormEmail(p.Email) {
-		if err := m.RequireSudo(ctx, by, ErrReauthEmail); err != nil {
-			return nil, err
+		switch {
+		case by.Kind == KindOwner:
+		case !by.IsSession():
+			return nil, ErrEmailByKey
+		case id == OwnerPerson && by.Person != OwnerPerson:
+			return nil, ErrOwnerEmail
+		default:
+			if err := m.RequireSudo(ctx, by, ErrReauthEmail); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if taken, err := m.emailTaken(ctx, email, id); err != nil {

@@ -146,6 +146,14 @@ func toProblem(err error) error {
 		out := problem(403, "reauth_required", err.Error())
 		out.Hint = "confirm with a passkey (POST /v1/session/confirm), or sign in again with a passkey, Google, GitHub or an emailed link, then repeat the call; or make a read-only key that lasts a day"
 		return out
+	case errors.Is(err, tokens.ErrEmailByKey):
+		out := problem(403, "forbidden", err.Error())
+		out.Hint = "change it in the dashboard (Settings › People), or with the owner token (tiffin people email)"
+		return out
+	case errors.Is(err, tokens.ErrOwnerEmail):
+		out := problem(403, "forbidden", err.Error())
+		out.Hint = "ask the owner to change it"
+		return out
 	case errors.Is(err, tokens.ErrForbidden):
 		out := problem(403, "forbidden", err.Error())
 		out.Hint = keyHint

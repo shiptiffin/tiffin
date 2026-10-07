@@ -838,7 +838,7 @@ func (a *API) registerBox() {
 		SetCookie []http.Cookie `header:"Set-Cookie"`
 		Body      *tokens.Principal
 	}, error) {
-		secret, t, err := a.deps.Tokens.RedeemLoginLink(ctx, in.Body.Code)
+		secret, t, method, err := a.deps.Tokens.RedeemLoginLink(ctx, in.Body.Code)
 		if err != nil {
 			return nil, problem(401, "unauthenticated", "this login link is invalid, used or expired; run `tiffin login` for a new one")
 		}
@@ -853,10 +853,12 @@ func (a *API) registerBox() {
 		out.SetCookie = []http.Cookie{{Name: SessionCookie, Value: secret, Path: "/", HttpOnly: true, Secure: true,
 			SameSite: http.SameSiteStrictMode, Expires: *t.ExpiresAt}}
 		if p.Person != "" {
-			// A link nobody sent (no sponsor) is one the person asked for by email.
-			method, how := tokens.MethodLink, "a sign-in link"
-			if t.Sponsor == "" {
-				method, how = tokens.MethodEmail, "a link from their email"
+			how := "a sign-in link"
+			switch method {
+			case tokens.MethodEmail:
+				how = "a link from their email"
+			case tokens.MethodTerminal:
+				how = "a sign-in link from the owner token (tiffin login)"
 			}
 			ip := clientIPFrom(ctx)
 			if a.deps.DB != nil {

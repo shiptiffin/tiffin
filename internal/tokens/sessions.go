@@ -20,11 +20,14 @@ import (
 
 // Sign-in methods.
 const (
-	MethodLink    = "link"    // a one-time link from an admin, an invite or `tiffin login`
+	MethodLink    = "link"    // a one-time link someone made: an invite, an admin's link
 	MethodEmail   = "email"   // a link the person asked for on the login page
 	MethodPasskey = "passkey" // Touch ID, Face ID, Windows Hello…
 	MethodGoogle  = "google"
 	MethodGitHub  = "github"
+	// MethodTerminal is the owner's own `tiffin login`: a link made with the
+	// owner token for the owner.
+	MethodTerminal = "terminal"
 )
 
 // SessionHistory is how far back ended and expired sessions are listed.
@@ -45,7 +48,7 @@ type Client struct {
 type Session struct {
 	ID         string     `json:"id" doc:"The session's token ID"`
 	Person     string     `json:"person"`
-	Method     string     `json:"method" enum:"link,email,passkey,google,github," doc:"How it signed in: link (a one-time link from an admin, an invite or tiffin login), email (a link asked for on the login page), passkey, google or github. Empty for sessions from before this was kept."`
+	Method     string     `json:"method" enum:"link,email,passkey,google,github,terminal," doc:"How it signed in: link (a one-time link someone made: an invite or an admin's link), email (a link asked for on the login page), passkey, google, github, or terminal (the owner's own tiffin login, with the owner token). Empty for sessions from before this was kept."`
 	Device     string     `json:"device" doc:"The browser and system, in words: \"Chrome on macOS\""`
 	IP         string     `json:"ip,omitempty" doc:"The address it signed in from"`
 	Country    string     `json:"country,omitempty" doc:"The country that address is in, when known"`
@@ -273,9 +276,11 @@ func (m *Manager) revokeSessions(ctx context.Context, ids []string) error {
 func (p *Principal) IsSession() bool { return p.Kind == KindHuman && p.Person != "" }
 
 // Strong sign-in methods: proof the person holds a passkey, their Google or
-// GitHub account, or their inbox. A link someone else made (an invite, an
-// admin's link, `tiffin login`) is not one.
-var strongMethods = []string{MethodPasskey, MethodGoogle, MethodGitHub, MethodEmail}
+// GitHub account, or their inbox; or, for the owner, the owner token (their
+// own `tiffin login`), which can add passkeys and keys without asking anyway.
+// A link someone else made (an invite, an admin's link, a link made with an
+// API key or from a session) is not one.
+var strongMethods = []string{MethodPasskey, MethodGoogle, MethodGitHub, MethodEmail, MethodTerminal}
 
 // SudoWindow is how recent a strong sign-in (or a confirmation with a
 // passkey) must be for actions that need one, like creating a long-lived key.

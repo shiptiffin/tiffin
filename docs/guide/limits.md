@@ -149,13 +149,15 @@ Next.js pages, pages rendered on request, and Early Hints during a wake.
   page existed show no browser or method. The list goes back 30 days.
 - **Confirming it's you** (for a long-lived or full-access API key, a new passkey or a
   changed email address) takes one of your passkeys, or signing in again with a passkey,
-  Google, GitHub or an emailed link. A `tiffin login` link doesn't count. So on a box with
-  no Google or GitHub keys and no mail relay, someone signed in only with links can't add
-  their first passkey or change an email address in the dashboard, and can make only
-  read-only keys for a day there: connect a relay (Settings › Email) or the Google or
-  GitHub keys first, or use the CLI with the owner token (`tiffin tokens create`,
-  `tiffin people email`). Passkeys added before this keep working.
-  Box-wide limits on how long keys may live don't exist yet.
+  Google, GitHub or an emailed link (the owner: or their own `tiffin login`). On a box
+  with no Google or GitHub keys and no mail relay, people other than the owner, signed in
+  with an invite or an admin's link, can't add their first passkey or change their email
+  in the dashboard, and can make only read-only keys for a day there: connect a relay
+  (Settings › Email) or the Google or GitHub keys first, or the owner adds it for them
+  (`tiffin tokens create`, `tiffin people email`). Box-wide limits on how long keys may
+  live don't exist yet.
+- **Email addresses can't be changed with an API key**, even an admin one: only in the
+  dashboard or with the owner token.
 - **Removing a passkey** doesn't ask you to confirm it's you (it is emailed and audited),
   and neither do inviting people or making sign-in links for them.
 - Admins can see the owner's sessions but not end them. There is no "sign everyone out"
