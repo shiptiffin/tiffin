@@ -193,7 +193,9 @@ func (c *client) doOnce(ctx context.Context, method, path string, q url.Values, 
 }
 
 func (c *client) send(ctx context.Context, method, path string, q url.Values, body any, key string) (int, []byte, error) {
-	wait := requestTimeout(q.Get("timeoutSeconds"))
+	// A call that asks the box to hold the answer (timeoutSeconds, or a
+	// deploy's wait) gets that long plus a margin, not the default minute.
+	wait := max(requestTimeout(q.Get("timeoutSeconds")), requestTimeout(q.Get("wait")))
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}
@@ -299,7 +301,8 @@ func exitFor(status int, raw []byte) int {
 }
 
 // requestTimeout is how long a call may take: a minute, or longer when the
-// call itself asks the box to wait longer (a query's timeoutSeconds).
+// call itself asks the box to wait longer (a query's timeoutSeconds or wait,
+// in seconds).
 func requestTimeout(timeoutSeconds string) time.Duration {
 	n, err := strconv.Atoi(timeoutSeconds)
 	if err != nil || n <= 0 {
