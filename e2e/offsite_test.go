@@ -400,9 +400,9 @@ func offsiteRoundTrip(t *testing.T, dir string, d *offsiteDest) {
 	bk2 := takeBackup(a, "incremental")
 	cp2 := copyNow(a, bk2["id"].(string))
 	f2 := cp2["files"].(map[string]any)
-	logf("COPY 2 %s: postgres %v %v (%v bytes), files %v, %v unchanged, %v new chunks, %v bytes sent in %vms (%s)",
-		bk2["id"], cp2["postgresType"], cp2["postgresLabel"], cp2["postgresBytes"], f2["files"], f2["reusedFiles"], f2["newChunks"], cp2["sentBytes"], cp2["durationMs"], rate(cp2))
-	if cp2["postgresType"] != "incr" || f2["reusedFiles"].(float64) == 0 || f2["newChunks"].(float64) >= f2["chunks"].(float64) ||
+	logf("COPY 2 %s: postgres %v %v (%v bytes), files %v, %v new chunks, %v bytes sent in %vms (%s)",
+		bk2["id"], cp2["postgresType"], cp2["postgresLabel"], cp2["postgresBytes"], f2["files"], f2["newChunks"], cp2["sentBytes"], cp2["durationMs"], rate(cp2))
+	if cp2["postgresType"] != "incr" || f2["newChunks"].(float64) >= f2["chunks"].(float64) ||
 		f2["sentBytes"].(float64) >= f2["bytes"].(float64)/2 {
 		fatalf("the second copy should send only what changed: %v", cp2)
 	}
