@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"path/filepath"
 	"reflect"
@@ -31,6 +32,10 @@ type memValkey struct {
 	held map[string]bool
 	seq  int64
 	log  [][]string
+	ver  map[string]int64 // key → writes to it, for WATCH
+	// beforeExec runs (unlocked) when an EXEC arrives, before it runs: a
+	// test's chance to write in between.
+	beforeExec func()
 }
 
 type memEntry struct {
@@ -52,7 +57,7 @@ var memCommands = map[string][4]int{
 	"sadd": {1, 1, 1, 1}, "srem": {1, 1, 1, 1}, "smembers": {0, 1, 1, 1}, "scard": {0, 1, 1, 1}, "sscan": {0, 1, 1, 1},
 	"zadd": {1, 1, 1, 1}, "zrem": {1, 1, 1, 1}, "zincrby": {1, 1, 1, 1}, "zrange": {0, 1, 1, 1}, "zcard": {0, 1, 1, 1}, "zscan": {0, 1, 1, 1},
 	"xadd": {1, 1, 1, 1}, "xtrim": {1, 1, 1, 1}, "xdel": {1, 1, 1, 1}, "xrange": {0, 1, 1, 1}, "xrevrange": {0, 1, 1, 1}, "xlen": {0, 1, 1, 1},
-	"xinfo": {0, 2, 2, 1}, "memory": {0, 2, 2, 1}, "type": {0, 1, 1, 1}, "pttl": {0, 1, 1, 1}, "dump": {0, 1, 1, 1},
+	"xinfo": {0, 2, 2, 1}, "memory": {0, 2, 2, 1}, "type": {0, 1, 1, 1}, "pttl": {0, 1, 1, 1}, "pexpiretime": {0, 1, 1, 1}, "dump": {0, 1, 1, 1},
 	"pexpire": {1, 1, 1, 1}, "pexpireat": {1, 1, 1, 1}, "persist": {1, 1, 1, 1}, "renamenx": {1, 1, 2, 1},
 	"del": {1, 1, -1, 1}, "unlink": {1, 1, -1, 1}, "exists": {0, 1, -1, 1},
 	"flushall": {1, 0, 0, 0}, "ping": {0, 0, 0, 0}, "scan": {0, 0, 0, 0}, "command": {0, 0, 0, 0},
@@ -209,6 +214,23 @@ func (m *memValkey) exec(user string, args []string) any {
 	if err != nil {
 		return RedisError(err.Error())
 	}
+	if c[0] == 1 {
+		if m.ver == nil {
+			m.ver = map[string]int64{}
+		}
+		last := c[2]
+		if last < 0 {
+			last = len(args) - 1
+		}
+		for i := c[1]; i > 0 && i <= last && i < len(args); i += c[3] {
+			m.ver[args[i]]++
+		}
+		if name == "flushall" {
+			for k := range m.ver {
+				m.ver[k]++
+			}
+		}
+	}
 	return reply
 }
 
@@ -241,6 +263,15 @@ func (m *memValkey) run(name string, a []string) (any, error) {
 			return int64(-1), nil
 		}
 		return e.exp - now, nil
+	case "pexpiretime":
+		e, _ := m.get(k, "")
+		switch {
+		case e == nil:
+			return int64(-2), nil
+		case e.exp == 0:
+			return int64(-1), nil
+		}
+		return e.exp, nil
 	case "memory":
 		e, _ := m.get(a[2], "")
 		if e == nil {
@@ -671,6 +702,9 @@ func (m *memValkey) run(name string, a []string) (any, error) {
 	return nil, fmt.Errorf("ERR fake: %s", name)
 }
 
+// nilArray is RESP's null array, EXEC's reply when a watched key changed.
+type nilArray struct{}
+
 func (m *memValkey) serve(t *testing.T) string {
 	sock := filepath.Join(t.TempDir(), "kv.sock")
 	ln, err := net.Listen("unix", sock)
@@ -690,21 +724,39 @@ func (m *memValkey) serve(t *testing.T) string {
 				user := ""
 				var queue [][]string
 				inTx, abort := false, false
+				watched := map[string]int64{}
 				for {
 					args, err := readCommand(r)
 					if err != nil {
 						return
+					}
+					if strings.EqualFold(args[0], "exec") && m.beforeExec != nil {
+						m.beforeExec()
 					}
 					m.mu.Lock()
 					var reply any
 					switch strings.ToLower(args[0]) {
 					case "auth":
 						user, reply = args[1], "OK"
+					case "watch":
+						for _, k := range args[1:] {
+							watched[k] = m.ver[k]
+						}
+						reply = "OK"
+					case "unwatch":
+						watched, reply = map[string]int64{}, "OK"
 					case "multi":
 						inTx, abort, queue, reply = true, false, nil, "OK"
 					case "exec":
+						raced := false
+						for k, v := range watched {
+							raced = raced || m.ver[k] != v
+						}
+						watched = map[string]int64{}
 						if abort {
 							reply = RedisError("EXECABORT Transaction discarded because of previous errors.")
+						} else if raced {
+							reply = nilArray{}
 						} else {
 							out := []any{}
 							for _, q := range queue {
@@ -725,7 +777,12 @@ func (m *memValkey) serve(t *testing.T) string {
 						}
 					}
 					m.mu.Unlock()
-					s := respEncode(reply)
+					var s string
+					if _, ok := reply.(nilArray); ok {
+						s = "*-1\r\n"
+					} else {
+						s = respEncode(reply)
+					}
 					if x, ok := reply.(string); ok && (x == "OK" || x == "QUEUED" || x == "PONG") {
 						s = "+" + x + "\r\n"
 					}
@@ -1251,6 +1308,72 @@ func TestKVConsole(t *testing.T) {
 	for _, bad := range []string{`get "open`, `get "a"b`, "  \n# only a comment"} {
 		if _, err := splitCommands(bad); err == nil {
 			t.Errorf("%q parsed", bad)
+		}
+	}
+}
+
+// Undo sees a change to a key's expiry as a change (DUMP alone does not
+// cover it), and a write that lands between Undo's check and its restore
+// makes it fail instead of being overwritten (WATCH). An ordinary write
+// raced the same way starts over.
+func TestKVUndoExpiryAndRaces(t *testing.T) {
+	h, m := newKV(t)
+	ctx := context.Background()
+	set := func(v string) *KVWriteResult {
+		w, err := buildSet("app", &setBody{KVKeyArg: KVKeyArg{Key: "k"}, Value: v})
+		return run(t, h, w, err)
+	}
+	appWrite := func(args ...string) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if r, ok := m.exec("p_app", args).(RedisError); ok {
+			t.Fatal(r)
+		}
+	}
+	set("v1")
+	res := set("v2")
+	appWrite("PEXPIRE", "p_app:k", "60000") // the app makes it cache
+	if _, err := h.undo(ctx, "app", res.Undo, "", nil); err == nil || !strings.Contains(err.Error(), "changed after") {
+		t.Fatalf("undo after the expiry changed: %v", err)
+	}
+
+	res = set("v3")
+	var once sync.Once
+	m.beforeExec = func() { once.Do(func() { appWrite("SET", "p_app:k", "app") }) }
+	if _, err := h.undo(ctx, "app", res.Undo, "", nil); err == nil || !strings.Contains(err.Error(), "changed while") {
+		t.Fatalf("undo raced by a write: %v", err)
+	}
+	if v := value(t, h, "k"); v != "app" {
+		t.Fatalf("the app's write was overwritten: %v", v)
+	}
+
+	once = sync.Once{}
+	res = set("v4") // raced once: starts over, then goes through
+	m.beforeExec = nil
+	if v := value(t, h, "k"); v != "v4" {
+		t.Fatalf("after a raced write: %v", v)
+	}
+	undo(t, h, res.Undo)
+	if v := value(t, h, "k"); v != "app" {
+		t.Fatalf("undo of the raced write puts back what it replaced: %v", v)
+	}
+}
+
+// A TTL in seconds is never turned into a negative millisecond count (which
+// PEXPIRE takes as "delete now"): the schema stops at 100 years and ms caps.
+func TestTTLNoOverflow(t *testing.T) {
+	w, _ := buildExpire("app", &expireBody{KVKeyArg: KVKeyArg{Key: "session:123"}, TTLSeconds: 9223372036854776})
+	if got := w.cmds[0][2]; strings.HasPrefix(got, "-") || got != strconv.FormatInt(maxTTLSeconds*1000, 10) {
+		t.Fatalf("PEXPIRE %s", got)
+	}
+	w, _ = buildHashSet("app", &hashSetBody{KVKeyArg: KVKeyArg{Key: "h"}, Fields: map[string]string{"a": "1"}, KVNewKey: KVNewKey{TTLSeconds: math.MaxInt64 / 999}})
+	if got := w.cmds[len(w.cmds)-1][2]; strings.HasPrefix(got, "-") {
+		t.Fatalf("collection PEXPIRE %s", got)
+	}
+	for _, typ := range []reflect.Type{reflect.TypeOf(expireBody{}), reflect.TypeOf(KVNewKey{})} {
+		f, _ := typ.FieldByName("TTLSeconds")
+		if f.Tag.Get("maximum") != strconv.Itoa(maxTTLSeconds) {
+			t.Errorf("%s.TTLSeconds maximum %q", typ.Name(), f.Tag.Get("maximum"))
 		}
 	}
 }

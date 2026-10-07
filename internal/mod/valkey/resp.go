@@ -17,6 +17,27 @@ import (
 type Client struct {
 	c net.Conn
 	r *bufio.Reader
+	// budget caps the reply bytes read until it is set again (0: none),
+	// so a small request can't make the box hold a huge reply.
+	budget, spent int64
+}
+
+// errReplyTooBig means replies ran past the client's budget. The reply is
+// half read, so the connection can't be used again.
+var errReplyTooBig = errors.New("valkey: the replies are too big")
+
+// setBudget caps the reply bytes from now on (0: no cap).
+func (c *Client) setBudget(n int64) { c.budget, c.spent = n, 0 }
+
+// charge counts n bytes against the budget.
+func (c *Client) charge(n int64) error {
+	if c.budget == 0 {
+		return nil
+	}
+	if c.spent += n; c.spent > c.budget {
+		return errReplyTooBig
+	}
+	return nil
 }
 
 // RedisError is an error reply from the server, e.g. "NOPERM ...".
@@ -152,6 +173,11 @@ func (c *Client) read() (any, error) {
 	if line == "" {
 		return nil, errors.New("valkey: empty reply")
 	}
+	// Every value costs what holding it does, about: its bytes, plus a
+	// little for the value itself, before anything is allocated for it.
+	if err := c.charge(int64(len(line)) + 16); err != nil {
+		return nil, err
+	}
 	body := line[1:]
 	switch line[0] {
 	case '+':
@@ -168,6 +194,9 @@ func (c *Client) read() (any, error) {
 		if n < 0 {
 			return nil, nil
 		}
+		if err := c.charge(int64(n)); err != nil {
+			return nil, err
+		}
 		buf := make([]byte, n+2)
 		if _, err := io.ReadFull(c.r, buf); err != nil {
 			return nil, err
@@ -180,6 +209,9 @@ func (c *Client) read() (any, error) {
 		}
 		if n < 0 {
 			return nil, nil
+		}
+		if err := c.charge(16 * int64(n)); err != nil {
+			return nil, err
 		}
 		out := make([]any, n)
 		for i := range out {

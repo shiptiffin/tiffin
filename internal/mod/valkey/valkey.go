@@ -248,7 +248,12 @@ save 3600 1 300 100 60 10000
 # without one are never evicted (writes fail with OOM instead).
 maxmemory %[6]dmb
 maxmemory-policy volatile-lru
-`, Port, SocketPath, ACLFile, DataDir, memMB, MaxMemoryMB(memMB))
+
+# A Lua script that runs past this many milliseconds gets every other
+# client BUSY replies; the box's script guard then kills it (or, when it
+# already wrote and can't be killed, restarts the server from its AOF).
+busy-reply-threshold %[7]d
+`, Port, SocketPath, ACLFile, DataDir, memMB, MaxMemoryMB(memMB), scriptBusyMS)
 }
 
 func unit(confSum string) string {
@@ -367,8 +372,13 @@ func ReadEnv(ctx context.Context, p *platform.Platform, project string) (map[str
 	return env, nil
 }
 
-// commandRules are the commands a project user may run.
-var commandRules = []string{"+@all", "-@admin", "-@dangerous", "+info", "-scan", "-randomkey", "-select", "-move", "-swapdb"}
+// commandRules are the commands a project user may run. Lua scripts
+// (EVAL, EVALSHA, SCRIPT LOAD) stay: rate limiters and queues need them,
+// and the script guard (scripts.go) stops one that runs too long. Functions
+// do not: a library is server-wide, so one project could replace another's.
+// Killing or flushing scripts is the box's job, not a project's.
+var commandRules = []string{"+@all", "-@admin", "-@dangerous", "+info", "-scan", "-randomkey", "-select", "-move", "-swapdb",
+	"-function", "-fcall", "-fcall_ro", "-script|kill", "-script|flush"}
 
 // deletePrefix removes every key under prefix and returns how many.
 func deletePrefix(ctx context.Context, c *Client, prefix string) (int, error) {

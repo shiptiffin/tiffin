@@ -96,9 +96,11 @@ func decideCache(used, limit int64, held bool) (free int64, hold, release bool) 
 	return 0, false, false
 }
 
-// Start runs the cache limits and the REST endpoint (the box serves).
+// Start runs the cache limits, the REST endpoint (the box serves) and the
+// script guard.
 func (*Module) Start(ctx context.Context, p *platform.Platform) error {
 	go serveREST(ctx, p)
+	go guardScripts(ctx, p, Admin)
 	go func() {
 		t := time.NewTicker(cacheEvery)
 		defer t.Stop()
@@ -325,9 +327,17 @@ func freeExpiring(ctx context.Context, c *Client, prefix string, need int64) (in
 		}
 		next, ks := scanReply(v)
 		cursor = next
-		for _, k := range ks {
-			if ttl, err := c.Int(ctx, "PTTL", k); err == nil && ttl > 0 {
-				expiring = append(expiring, key{k, ttl})
+		cmds := make([][]string, len(ks))
+		for i, k := range ks {
+			cmds[i] = []string{"PTTL", k}
+		}
+		ttls, err := c.Pipe(ctx, cmds...) // one round trip per page
+		if err != nil {
+			return 0, 0, err
+		}
+		for i, t := range ttls {
+			if ttl, ok := t.(int64); ok && ttl > 0 {
+				expiring = append(expiring, key{ks[i], ttl})
 			}
 		}
 		if cursor == "0" || time.Now().After(deadline) {
@@ -342,13 +352,27 @@ func freeExpiring(ctx context.Context, c *Client, prefix string, need int64) (in
 			break
 		}
 		size, _ := c.Int(ctx, "MEMORY", "USAGE", k.name, "SAMPLES", "5")
-		if _, err := c.Do(ctx, "UNLINK", k.name); err != nil {
+		gone, err := unlinkExpiring(ctx, c, k.name)
+		if err != nil {
 			return freed, n, err
 		}
-		freed += size
-		n++
+		if gone {
+			freed += size
+			n++
+		}
 	}
 	return freed, n, nil
+}
+
+// unlinkExpiringLua deletes KEYS[1] only if it still has an expiry, in one
+// step: since it was listed, the app may have made it permanent (PERSIST, a
+// SET without one), and the limit only ever clears cache.
+const unlinkExpiringLua = "if redis.call('PTTL', KEYS[1]) > 0 then return redis.call('UNLINK', KEYS[1]) end return 0"
+
+// unlinkExpiring deletes key if it still expires, and reports whether it did.
+func unlinkExpiring(ctx context.Context, c *Client, key string) (bool, error) {
+	n, err := c.Int(ctx, "EVAL", unlinkExpiringLua, "1", key)
+	return n == 1, err
 }
 
 func mbWords(b int64) string {

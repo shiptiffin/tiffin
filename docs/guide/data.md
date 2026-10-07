@@ -185,6 +185,13 @@ commands and script `KEYS`, not `SCAN`. Apps may not run `SCAN` or `KEYS` themse
 would show other projects' key names); the SDK's `scan()` goes through the box's KV endpoint,
 which lists only the project's keys.
 
+Lua scripts (`EVAL`, `EVALSHA`, `SCRIPT LOAD`) work; functions (`FUNCTION`, `FCALL`) don't,
+as a function library is shared by every project on the box. Valkey runs one script at a
+time with nothing else meanwhile, so a script may run for 1 second: past that the box
+kills it, or, when it has already written (Valkey can't undo half a script), restarts
+Valkey from its append-only file, which drops every project's connections for a few
+seconds and the script's own writes.
+
 ### Moving an app here from Upstash or Vercel KV
 
 For moving an app with no code changes only (new code uses `@shiptiffin/sdk/kv`): apps
@@ -197,6 +204,8 @@ secrets with these names win, so delete the old Upstash values from them when yo
 - It speaks what those clients use: one command as a JSON array, path-style commands
   (`/set/key/value`), `/pipeline`, `/multi-exec`, base64 replies, and Lua scripts (`EVAL`,
   `EVALSHA`, `SCRIPT LOAD`). Subscriptions over REST are not available; use `REDIS_URL`.
+- One request carries at most 16 MB and 10,000 commands, and its replies at most about
+  16 MB (more answers 413: read big values in parts with `GETRANGE`, `LRANGE`, `HSCAN`).
 - Keys are clean: the endpoint adds the project's prefix to every key (and to `PUBLISH`
   channels), so `user:1` over REST is `VALKEY_PREFIX + "user:1"` for `Bun.redis`. A Lua
   script gets prefixed `KEYS`; one that builds key names itself is refused.

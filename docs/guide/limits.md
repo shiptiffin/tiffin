@@ -289,10 +289,13 @@ The box adds nothing for LLMs:
 | Postgres connections | 80 per project; a limited project gets its share of 100 | |
 | Idle in transaction | closed after 60 s | |
 | KV memory (Valkey) | 64 MB, held while the project has a limit | `maxMemoryMB` |
+| KV Lua script | 1 s, then killed (one that already wrote: Valkey restarts, every project's KV drops for a few seconds); no functions (`FUNCTION`, `FCALL`) | |
+| KV REST request | 16 MB and 10,000 commands in; about 16 MB of replies out | |
 | Storage (databases + files) | no limit; the disk guard warns at 85% and makes the fastest-growing project read-only at 95% | `tiffin storage quota set` |
 | A read-only hold on a database | transactions default to read-only, which an app can override; one whose databases still grow by more than 64 MiB is locked out of them, reads included, until the hold lifts (checked every 30 s, so a determined app writes for up to that long) | |
 | Restoring a database snapshot | runs as the project's own role, never the superuser: it needs one of the project's connections, and its index builds must fit the role's temporary-file limit | |
 | SQL console results (`tiffin sql`, the data browser) | values cut at 100,000 characters; at most 32 MiB of rows per request (more are counted, not returned); a single row over 64 MiB fails | `limit`, or select fewer columns |
+| Image transforms (`files.<domain>?w=`) | 3840 px wide and 40 megapixels out, 50 MiB in, 2 GiB of memory, 30 s | |
 | Request time | 15 minutes, up to 24 hours | `timeoutSeconds` |
 | Queue job attempt | 60 s without a response or heartbeat (5 to 3600); heartbeats extend it up to 24 hours | `leaseSeconds` |
 | Cron call | 60 s (5 to 3600) | `timeoutSeconds` on the cron |

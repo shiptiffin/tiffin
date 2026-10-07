@@ -23,7 +23,7 @@ type KVKeyArg struct {
 // KVNewKey is in the writes that can make a key.
 type KVNewKey struct {
 	Create     bool  `json:"create,omitempty" doc:"Make a new key: refused when one with this name exists"`
-	TTLSeconds int64 `json:"ttlSeconds,omitempty" minimum:"0" doc:"Also expire the key after this many seconds (it becomes cache). 0 leaves its expiry as it is; a new key is then kept until deleted."`
+	TTLSeconds int64 `json:"ttlSeconds,omitempty" minimum:"0" maximum:"3153600000" doc:"Also expire the key after this many seconds (it becomes cache). 0 leaves its expiry as it is; a new key is then kept until deleted."`
 }
 
 // KVScored is a sorted-set member and its score.
@@ -56,7 +56,12 @@ type writeIn[B any] struct {
 const undoNote = " Runs as the project's own KV user, so its prefix and cache limit apply. The reply's undo id puts the key back as it was for an hour; " +
 	"a write too big to keep a copy of (over 1 MB) answers 428 first and then needs full access and the confirm value."
 
-func ms(sec int64) string { return strconv.FormatInt(sec*1000, 10) }
+// maxTTLSeconds is the longest expiry a write may set: 100 years. The
+// schema refuses more; ms caps at it too, as seconds × 1000 past about
+// 9.2e15 wraps negative, and PEXPIRE with a negative time deletes the key.
+const maxTTLSeconds = 100 * 365 * 24 * 3600
+
+func ms(sec int64) string { return strconv.FormatInt(min(sec, maxTTLSeconds)*1000, 10) }
 
 func score(f float64) string { return strconv.FormatFloat(f, 'g', -1, 64) }
 
@@ -205,7 +210,7 @@ type streamDelBody struct {
 
 type expireBody struct {
 	KVKeyArg
-	TTLSeconds int64 `json:"ttlSeconds" minimum:"0" doc:"Expire after this many seconds (cache); 0 keeps the key until it is deleted"`
+	TTLSeconds int64 `json:"ttlSeconds" minimum:"0" maximum:"3153600000" doc:"Expire after this many seconds (cache, at most 100 years); 0 keeps the key until it is deleted"`
 }
 
 type renameBody struct {

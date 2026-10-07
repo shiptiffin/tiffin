@@ -536,3 +536,31 @@ func TestRESTScripts(t *testing.T) {
 		t.Fatalf("SCRIPT LOAD: %v", r.body)
 	}
 }
+
+// A small request can't make the box hold a huge reply: one value read many
+// times in a pipeline stops at restMaxReply (413, and the half-read
+// connection is closed, not pooled), and a pipeline has at most
+// restMaxCmds commands. Pipelines go to Valkey restPipe at a time.
+func TestRESTReplyBudget(t *testing.T) {
+	h, f := newTestREST(t)
+	tok, _ := restTokens("app", "pw")
+	f.mu.Lock()
+	f.data["p_app:big"] = strings.Repeat("x", 1<<20)
+	f.mu.Unlock()
+	cmds := strings.TrimSuffix(strings.Repeat(`["GET","big"],`, 40), ",")
+	if r := call(t, h, "POST", "/pipeline", tok, "["+cmds+"]", false); r.code != 413 || !strings.Contains(r.body["error"].(string), "16 MB") {
+		t.Fatalf("40 MB of replies: %d %v", r.code, r.body)
+	}
+	if r := call(t, h, "POST", "/", tok, `["GET","big"]`, false); r.code != 200 || len(r.body["result"].(string)) != 1<<20 {
+		t.Fatalf("one 1 MB value after: %d", r.code)
+	}
+	many := strings.TrimSuffix(strings.Repeat(`["GET","a"],`, restMaxCmds+1), ",")
+	if r := call(t, h, "POST", "/pipeline", tok, "["+many+"]", false); r.code != 400 || !strings.Contains(r.body["error"].(string), "at most") {
+		t.Fatalf("too many commands: %d %v", r.code, r.body)
+	}
+	ok := strings.TrimSuffix(strings.Repeat(`["INCR","n"],`, 300), ",")
+	r := call(t, h, "POST", "/pipeline", tok, "["+ok+"]", false)
+	if r.code != 200 || len(r.list) != 300 || r.list[299]["result"] != float64(300) {
+		t.Fatalf("300 commands: %d %v", r.code, r.body)
+	}
+}

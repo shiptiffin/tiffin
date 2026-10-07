@@ -6,10 +6,11 @@ package valkey
 // it may run and its cache limit apply exactly as they do to its apps.
 //
 // Undo: before a write, the keys it touches are copied (up to 1 MB in all);
-// afterwards each key's DUMP is fingerprinted. kv-undo checks the keys still
-// match those fingerprints (nothing wrote to them since), then puts the
-// copies back with ordinary commands in one MULTI/EXEC (RESTORE is not a
-// project's to run). Undo is itself a write, so it can be undone too. A
+// in the same MULTI/EXEC as the write each key's DUMP and expiry are
+// fingerprinted. kv-undo checks the keys still match those fingerprints
+// (nothing wrote to them since, value or expiry), then puts the copies back
+// with ordinary commands in one MULTI/EXEC that fails if a key changes in
+// between (WATCH; RESTORE is not a project's to run). Undo is itself a write, so it can be undone too. A
 // write too big to copy (or a stream with consumer groups, which ordinary
 // commands can't rebuild) needs a confirm instead. Copies live in memory
 // for an hour, 64 MB at most across projects.
@@ -21,6 +22,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -60,7 +62,7 @@ type kvSnap struct {
 // or can't be put back with ordinary commands; the type is known either way.
 func snapshot(ctx context.Context, c *Client, key string, limit int64) (s kvSnap, ok bool, err error) {
 	s.key = key
-	r, err := c.Pipe(ctx, []string{"TYPE", key}, []string{"PTTL", key}, []string{"MEMORY", "USAGE", key})
+	r, err := c.Pipe(ctx, []string{"TYPE", key}, []string{"PEXPIRETIME", key}, []string{"MEMORY", "USAGE", key})
 	if err != nil {
 		return s, false, err
 	}
@@ -71,8 +73,8 @@ func snapshot(ctx context.Context, c *Client, key string, limit int64) (s kvSnap
 	if s.typ == "none" {
 		return s, true, nil
 	}
-	if ttl, _ := r[1].(int64); ttl > 0 {
-		s.expireAt = time.Now().UnixMilli() + ttl
+	if at, _ := r[1].(int64); at > 0 {
+		s.expireAt = at
 	}
 	if n, _ := r[2].(int64); n > limit {
 		return s, false, nil
@@ -173,33 +175,51 @@ func (s kvSnap) restore() [][]string {
 	return out
 }
 
-// fingerprints hashes each key's DUMP ("" for a key that does not exist).
-func fingerprints(ctx context.Context, c *Client, keys []string) ([]string, error) {
-	cmds := make([][]string, len(keys))
-	for i, k := range keys {
-		cmds[i] = []string{"DUMP", k}
+// fingerprintCmds read what a key's fingerprint covers: its value (DUMP)
+// and its expiry (PEXPIRETIME), so a change to either is seen.
+func fingerprintCmds(keys []string) [][]string {
+	out := make([][]string, 0, 2*len(keys))
+	for _, k := range keys {
+		out = append(out, []string{"DUMP", k}, []string{"PEXPIRETIME", k})
 	}
-	r, err := c.Pipe(ctx, cmds...)
+	return out
+}
+
+// fingerprintsOf hashes the replies to fingerprintCmds, one per key ("" for
+// a key that does not exist).
+func fingerprintsOf(r []any) []string {
+	out := make([]string, len(r)/2)
+	for i := range out {
+		d, ok := r[2*i].(string)
+		if !ok {
+			continue
+		}
+		exp, _ := r[2*i+1].(int64)
+		sum := sha256.Sum256([]byte(d + "\x00" + strconv.FormatInt(exp, 10)))
+		out[i] = hex.EncodeToString(sum[:8])
+	}
+	return out
+}
+
+// fingerprints fingerprints each key now.
+func fingerprints(ctx context.Context, c *Client, keys []string) ([]string, error) {
+	r, err := c.Pipe(ctx, fingerprintCmds(keys)...)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]string, len(keys))
-	for i, v := range r {
-		switch x := v.(type) {
-		case RedisError:
-			return nil, x
-		case string:
-			sum := sha256.Sum256([]byte(x))
-			out[i] = hex.EncodeToString(sum[:8])
+	for _, v := range r {
+		if e, ok := v.(RedisError); ok {
+			return nil, e
 		}
 	}
-	return out, nil
+	return fingerprintsOf(r), nil
 }
 
-// tx runs cmds, in one MULTI/EXEC when there is more than one, and returns
-// their replies. The first error reply is the error.
-func tx(ctx context.Context, c *Client, cmds [][]string) ([]any, error) {
-	if len(cmds) == 1 {
+// tx runs cmds, in one MULTI/EXEC when there is more than one (or always,
+// with multi: the connection WATCHes keys), and returns their replies. The
+// first error reply is the error; errTxRaced when a watched key changed.
+func tx(ctx context.Context, c *Client, cmds [][]string, multi bool) ([]any, error) {
+	if len(cmds) == 1 && !multi {
 		v, err := c.Do(ctx, cmds[0]...)
 		return []any{v}, err
 	}
@@ -215,6 +235,9 @@ func tx(ctx context.Context, c *Client, cmds [][]string) ([]any, error) {
 	}
 	if e, ok := r[len(r)-1].(RedisError); ok {
 		return nil, e
+	}
+	if r[len(r)-1] == nil {
+		return nil, errTxRaced
 	}
 	out, _ := r[len(r)-1].([]any)
 	for _, v := range out {
@@ -310,72 +333,27 @@ type kvWrite struct {
 
 // write runs w as the project's user. allow says whether the caller may make
 // a write that can (true) or cannot (false) be undone.
+//
+// The keys are WATCHed before they are copied, and the write and the
+// fingerprints for Undo run in one MULTI/EXEC: a write by anyone else in
+// between makes EXEC fail instead of being overwritten or missed. The
+// write then starts over (twice at most); an undo, whose check saw the old
+// value, is refused instead.
 func (h *rest) write(ctx context.Context, project string, w kvWrite, allow func(undoable bool) error) (*KVWriteResult, error) {
 	var res *KVWriteResult
 	err := h.with(ctx, project, func(c *Client) error {
-		undoable := !w.noUndo && len(w.keys) <= undoMaxKeys
-		var snaps []kvSnap
-		var total int64
-		for i, k := range w.keys {
-			if !undoable && i > 0 && w.check == nil {
-				break // too much to copy: no need to look at the rest
-			}
-			limit := int64(undoMaxBytes) - total
-			if !undoable {
-				limit = 0
-			}
-			s, ok, err := snapshot(ctx, c, k, limit)
-			if err != nil {
-				return err
-			}
-			undoable = undoable && ok
-			total += s.size
-			snaps = append(snaps, s)
-		}
-		if w.create && len(snaps) > 0 && snaps[0].typ != "none" {
-			return api.NewProblem(409, "conflict", "a key named "+strings.TrimPrefix(w.keys[0], Prefix(project))+" already exists")
-		}
-		if w.exist && len(snaps) > 0 && snaps[0].typ == "none" {
-			return api.NewProblem(404, "not_found", "no key "+strings.TrimPrefix(w.keys[0], Prefix(project)))
-		}
-		if w.check != nil {
-			if err := w.check(ctx, c, snaps); err != nil {
-				return err
+		var err error
+		for attempt := 0; attempt < 3; attempt++ {
+			if res, err = h.writeOnce(ctx, c, project, w, allow); !errors.Is(err, errTxRaced) || w.check != nil {
+				break
 			}
 		}
-		if allow != nil {
-			if err := allow(undoable); err != nil {
-				return err
-			}
+		if errors.Is(err, errTxRaced) {
+			pr := api.NewProblem(409, "conflict", "the key changed while this write was being made, so nothing was written")
+			pr.Hint = "reload the key and try again"
+			return pr
 		}
-		if !undoable && !w.confirmed {
-			preview := map[string]any{"keys": shortKeys(project, w.keys[:min(5, len(w.keys))]), "undo": false,
-				"why": fmt.Sprintf("this changes more than %s of data, too much to keep a copy for Undo", mbWords(undoMaxBytes))}
-			if err := datakit.RequireConfirm(w.confirm, []any{w.op, w.keys}, preview); err != nil {
-				return err
-			}
-		}
-		replies, err := tx(ctx, c, w.cmds)
-		if err != nil {
-			return err
-		}
-		if w.done != nil {
-			if err := w.done(replies); err != nil {
-				return err
-			}
-		}
-		res = &KVWriteResult{Keys: shortKeys(project, w.keys), Replies: replies}
-		if !undoable {
-			return nil
-		}
-		after, err := fingerprints(ctx, c, w.keys)
-		if err != nil {
-			return err
-		}
-		r := &kvUndo{id: newUndoID(), project: project, at: time.Now(), snaps: snaps, after: after, size: total}
-		undos.put(r)
-		res.Undo = r.id
-		return nil
+		return err
 	})
 	if err != nil {
 		if w.raw {
@@ -383,6 +361,93 @@ func (h *rest) write(ctx context.Context, project string, w kvWrite, allow func(
 		}
 		return nil, kvErr(project, err)
 	}
+	return res, nil
+}
+
+// errTxRaced means a watched key changed before EXEC, which then ran nothing.
+var errTxRaced = errors.New("valkey: a watched key changed")
+
+func (h *rest) writeOnce(ctx context.Context, c *Client, project string, w kvWrite, allow func(undoable bool) error) (res *KVWriteResult, err error) {
+	undoable := !w.noUndo && len(w.keys) <= undoMaxKeys
+	watch := len(w.keys) > 0 && (undoable || w.check != nil)
+	if watch {
+		if _, err := c.Do(ctx, append([]string{"WATCH"}, w.keys...)...); err != nil {
+			return nil, err
+		}
+		defer func() {
+			if watch { // EXEC did not run: the connection goes back to the pool
+				if _, uerr := c.Do(ctx, "UNWATCH"); uerr != nil && err == nil {
+					err = uerr
+				}
+			}
+		}()
+	}
+	var snaps []kvSnap
+	var total int64
+	for i, k := range w.keys {
+		if !undoable && i > 0 && w.check == nil {
+			break // too much to copy: no need to look at the rest
+		}
+		limit := int64(undoMaxBytes) - total
+		if !undoable {
+			limit = 0
+		}
+		s, ok, err := snapshot(ctx, c, k, limit)
+		if err != nil {
+			return nil, err
+		}
+		undoable = undoable && ok
+		total += s.size
+		snaps = append(snaps, s)
+	}
+	if w.create && len(snaps) > 0 && snaps[0].typ != "none" {
+		return nil, api.NewProblem(409, "conflict", "a key named "+strings.TrimPrefix(w.keys[0], Prefix(project))+" already exists")
+	}
+	if w.exist && len(snaps) > 0 && snaps[0].typ == "none" {
+		return nil, api.NewProblem(404, "not_found", "no key "+strings.TrimPrefix(w.keys[0], Prefix(project)))
+	}
+	if w.check != nil {
+		if err := w.check(ctx, c, snaps); err != nil {
+			return nil, err
+		}
+	}
+	if allow != nil {
+		if err := allow(undoable); err != nil {
+			return nil, err
+		}
+	}
+	if !undoable && !w.confirmed {
+		preview := map[string]any{"keys": shortKeys(project, w.keys[:min(5, len(w.keys))]), "undo": false,
+			"why": fmt.Sprintf("this changes more than %s of data, too much to keep a copy for Undo", mbWords(undoMaxBytes))}
+		if err := datakit.RequireConfirm(w.confirm, []any{w.op, w.keys}, preview); err != nil {
+			return nil, err
+		}
+	}
+	cmds := w.cmds
+	if undoable {
+		cmds = append(slices.Clip(cmds), fingerprintCmds(w.keys)...)
+	}
+	replies, err := tx(ctx, c, cmds, watch)
+	watch = false // EXEC (or a single command) ran: nothing is watched now
+	if err != nil {
+		return nil, err
+	}
+	var after []string
+	if undoable {
+		replies, after = replies[:len(w.cmds)], fingerprintsOf(replies[len(w.cmds):])
+	}
+	if w.done != nil {
+		if err := w.done(replies); err != nil {
+			return nil, err
+		}
+	}
+	res = &KVWriteResult{Keys: shortKeys(project, w.keys), Replies: replies}
+	if !undoable {
+		return res, nil
+	}
+	r := &kvUndo{id: newUndoID(), project: project, at: time.Now(), snaps: snaps, after: after, size: total}
+	undos.put(r)
+	res.Undo = r.id
 	return res, nil
 }
 

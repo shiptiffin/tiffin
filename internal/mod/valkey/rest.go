@@ -49,6 +49,9 @@ const RESTPort = "7076"
 
 const (
 	restMaxBody  = 16 << 20 // one request
+	restMaxReply = 16 << 20 // the replies to one request, about as held in memory
+	restMaxCmds  = 10000    // commands in one /pipeline or /multi-exec
+	restPipe     = 128      // commands sent to Valkey at once
 	restMaxConns = 64       // Valkey connections per project
 	restIdle     = 8        // kept open per project
 )
@@ -160,6 +163,12 @@ type restError struct {
 
 func (e *restError) Error() string { return e.msg }
 
+// GetStatus makes it a huma.StatusError, for the API's own KV calls.
+func (e *restError) GetStatus() int { return e.code }
+
+// errTooBig is what a request whose replies ran past restMaxReply gets.
+var errTooBig = &restError{http.StatusRequestEntityTooLarge, fmt.Sprintf("ERR the replies are over %d MB; read big values in parts (GETRANGE, LRANGE, HSCAN...)", restMaxReply>>20)}
+
 func badRequest(format string, a ...any) error {
 	return &restError{http.StatusBadRequest, fmt.Sprintf(format, a...)}
 }
@@ -200,6 +209,9 @@ func (h *rest) serve(r *http.Request) (any, error) {
 		var cmds [][]any
 		if err := decodeJSON(raw, &cmds); err != nil || len(cmds) == 0 {
 			return nil, badRequest("ERR the body must be a JSON array of commands")
+		}
+		if len(cmds) > restMaxCmds {
+			return nil, badRequest("ERR at most %d commands per request", restMaxCmds)
 		}
 		args := make([][]string, len(cmds))
 		for i, c := range cmds {
@@ -397,11 +409,16 @@ func (h *rest) with(ctx context.Context, project string, fn func(*Client) error)
 		if err != nil {
 			return err
 		}
+		c.setBudget(restMaxReply)
 		err = fn(c)
+		c.setBudget(0)
 		broken := err != nil && !answered(err)
 		pp.release(c, broken)
 		if broken && reused && attempt == 0 && isClosed(err) {
 			continue
+		}
+		if errors.Is(err, errReplyTooBig) {
+			return errTooBig
 		}
 		if broken {
 			err = fmt.Errorf("ERR valkey: %w", err)
@@ -523,12 +540,23 @@ func (h *rest) batch(ctx context.Context, project string, readOnly bool, all [][
 			}
 		}
 		if !tx {
-			for i, pr := range preps {
-				v, err := send(ctx, c, pr)
+			// Pipelined: restPipe commands per round trip, not one each.
+			for start := 0; start < len(preps); start += restPipe {
+				chunk := preps[start:min(len(preps), start+restPipe)]
+				args := make([][]string, len(chunk))
+				for i, pr := range chunk {
+					args[i] = pr.args
+				}
+				replies, err := c.Pipe(ctx, args...)
 				if err != nil {
 					return err
 				}
-				item(i, v)
+				for i, v := range replies {
+					if _, isErr := v.(RedisError); !isErr {
+						v = fromScript(chunk[i], v)
+					}
+					item(start+i, v)
+				}
 			}
 			return nil
 		}
