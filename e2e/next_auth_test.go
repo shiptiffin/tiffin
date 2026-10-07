@@ -70,7 +70,7 @@ func TestNextAuth(t *testing.T) {
 	res = br.submit("/sign-in?next=%2Fdashboard", formByID(t, signInPage, "sign-up"), map[string]string{
 		"email": "ana@example.com", "password": "correct horse battery", "captcha": br.captcha(),
 	})
-	if res.StatusCode != 303 || res.Header.Get("Location") != "/dashboard" || br.cookie("__Secure-tiffin.session_token") == "" || br.cookie("__Secure-tiffin.session_data") == "" {
+	if res.StatusCode != 303 || res.Header.Get("Location") != "/dashboard" || br.cookie("__Host-tiffin.session_token") == "" || br.cookie("__Host-tiffin.session_data") == "" {
 		t.Fatalf("sign-up action: %d %q, cookies %v", res.StatusCode, res.Header.Get("Location"), br.jar)
 	}
 	dash := br.body(br.do("GET", "/dashboard", nil, nil))
@@ -111,21 +111,21 @@ func TestNextAuth(t *testing.T) {
 	t.Logf("getSession in the app: %s", bench)
 
 	// ---- sign out ----
-	stale := br.cookie("__Secure-tiffin.session_token")
+	stale := br.cookie("__Host-tiffin.session_token")
 	res = br.submit("/dashboard", formByID(t, dash, "sign-out"), nil)
-	if res.StatusCode != 303 || br.cookie("__Secure-tiffin.session_token") != "" || br.cookie("__Secure-tiffin.session_data") != "" {
+	if res.StatusCode != 303 || br.cookie("__Host-tiffin.session_token") != "" || br.cookie("__Host-tiffin.session_data") != "" {
 		t.Fatalf("sign-out: %d, cookies left %v", res.StatusCode, br.jar)
 	}
 	if res := br.do("GET", "/dashboard", nil, nil); res.StatusCode != 307 {
 		t.Fatalf("/dashboard after signing out: %d", res.StatusCode)
 	}
 	// The old token alone gets past proxy.ts (it only looks), not verifySession.
-	br.jar["__Secure-tiffin.session_token"] = stale
+	br.jar["__Host-tiffin.session_token"] = stale
 	res = br.do("GET", "/dashboard?tab=1", nil, nil)
 	if res.StatusCode != 307 || res.Header.Get("Location") != "/sign-in?next=%2Fdashboard%3Ftab%3D1" {
 		t.Fatalf("revoked session on /dashboard: %d %q", res.StatusCode, res.Header.Get("Location"))
 	}
-	delete(br.jar, "__Secure-tiffin.session_token")
+	delete(br.jar, "__Host-tiffin.session_token")
 
 	// ---- sign in through a Server Action ----
 	res = br.submit("/sign-in", formByID(t, signInPage, "sign-in"), map[string]string{
@@ -137,7 +137,7 @@ func TestNextAuth(t *testing.T) {
 	res = br.submit("/sign-in", formByID(t, signInPage, "sign-in"), map[string]string{
 		"email": "ana@example.com", "password": "correct horse battery", "captcha": br.captcha(),
 	})
-	if res.StatusCode != 303 || res.Header.Get("Location") != "/dashboard" || br.cookie("__Secure-tiffin.session_data") == "" {
+	if res.StatusCode != 303 || res.Header.Get("Location") != "/dashboard" || br.cookie("__Host-tiffin.session_data") == "" {
 		t.Fatalf("sign-in action: %d %q", res.StatusCode, res.Header.Get("Location"))
 	}
 	if home := br.body(br.do("GET", "/", nil, nil)); !strings.Contains(home, "Hello Ana") {
@@ -186,7 +186,7 @@ func TestNextAuth(t *testing.T) {
 	res = pb.submit("/sign-in", formByID(t, pvSignIn, "sign-in"), map[string]string{
 		"email": "ana@example.com", "password": "correct horse battery", "captcha": pb.captcha(),
 	})
-	if res.StatusCode != 303 || res.Header.Get("Location") != "/dashboard" || pb.cookie("__Secure-tiffin.session_data") == "" {
+	if res.StatusCode != 303 || res.Header.Get("Location") != "/dashboard" || pb.cookie("__Host-tiffin.session_data") == "" {
 		t.Fatalf("production account signs in on the preview: %d %q", res.StatusCode, res.Header.Get("Location"))
 	}
 	for _, c := range res.Header.Values("Set-Cookie") {
@@ -202,7 +202,7 @@ func TestNextAuth(t *testing.T) {
 	res = tb.submit("/sign-in", formByID(t, pvSignIn, "sign-up"), map[string]string{
 		"email": "tess@example.com", "password": "correct horse battery", "captcha": tb.captcha(),
 	})
-	if res.StatusCode != 303 || tb.cookie("__Secure-tiffin.session_token") == "" {
+	if res.StatusCode != 303 || tb.cookie("__Host-tiffin.session_token") == "" {
 		t.Fatalf("sign-up on the preview: %d %q", res.StatusCode, res.Header.Get("Location"))
 	}
 	prodTess := newBrowser(t, b, site)

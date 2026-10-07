@@ -9,7 +9,7 @@ import { providerName, proxyCallbackProvider, proxyRedirectAllowed } from "./soc
 
 const problem = (status: number, code: string, message: string) => Response.json({ code, message }, { status });
 
-const CACHE_COOKIE = /^(__Secure-)?tiffin\.session_data(\.\d+)?$/;
+const CACHE_COOKIE = /^(__Secure-|__Host-)?tiffin\.session_data(\.\d+)?$/;
 
 /**
  * The request Better Auth sees. The session cookie cache is for apps: the

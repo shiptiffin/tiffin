@@ -149,7 +149,7 @@ describe("email verification off", () => {
       expect(s.body.user.emailVerified).toBe(false);
       // The first session already starts in the personal org, and so does its signed cookie.
       expect(s.body.organization).toMatchObject({ name: "Personal", role: "owner" });
-      const signed = JSON.parse(Buffer.from(c.cookies.get("__Secure-tiffin.session_data")!.split(".")[1]!, "base64url").toString());
+      const signed = JSON.parse(Buffer.from(c.cookies.get("__Host-tiffin.session_data")!.split(".")[1]!, "base64url").toString());
       expect(signed.tiffin.organization).toMatchObject({ id: s.body.organization.id, role: "owner" });
       const orgs = await c.json("/organization/list");
       expect(orgs.body.length).toBe(1);

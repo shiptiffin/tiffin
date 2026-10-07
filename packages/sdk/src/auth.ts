@@ -114,12 +114,12 @@ export async function getSession(request: Request, opts: SessionOptions = {}): P
 export async function sessionFor(from: HeadersLike, opts: SessionOptions = {}): Promise<{ session: AuthSession | null; setCookie: string[] }> {
   const headers = forwardHeaders(from, opts);
   const cookies = parseCookies(headers.get("cookie"));
-  const token = cookies.get(SECURE + TOKEN) ?? cookies.get(TOKEN);
+  const token = cookies.get(cookieName(TOKEN, headers));
   const key = headers.get("x-api-key") ?? headers.get("authorization");
   if (!key && !token) return { session: null, setCookie: [] };
   const url = base(opts);
   if (!key && !opts.fresh) {
-    const jwt = chunked(cookies, SECURE + DATA) ?? chunked(cookies, DATA);
+    const jwt = chunked(cookies, cookieName(DATA, headers));
     const s = jwt ? await fromSessionCookie(jwt, token!, url, headers.get("x-tiffin-host"), opts) : undefined;
     if (s) return { session: s, setCookie: [] };
   }
@@ -166,10 +166,19 @@ export function authBase(opts: AuthOptions = {}): string {
 
 // ---- Session cookie fast path ---------------------------------------------
 
-const SECURE = "__Secure-";
-/** Better Auth's cookies on a Tiffin box (cookiePrefix "tiffin"). */
+/** Better Auth's cookies on a Tiffin box, without their __Host- prefix. */
 export const TOKEN = "tiffin.session_token";
 const DATA = "tiffin.session_data";
+
+/**
+ * A session cookie's name for a request: over https the engine's cookies are
+ * __Host-tiffin.*, which only the app's own host can set. Any other spelling
+ * (__Secure-, or plain) can be planted by another app under the same domain,
+ * so it is never read. Plain names only on an http-only box.
+ */
+export function cookieName(name: string, request: HeadersLike): string {
+  return request.get("x-forwarded-proto") === "http" ? name : "__Host-" + name;
+}
 /** How long an engine answer is reused in this process. */
 const RECENT_MS = 5_000;
 const RECENT_MAX = 10_000;

@@ -55,8 +55,8 @@ async function browser(engine: Awaited<ReturnType<typeof fakeEngine>>, signedIn:
   readOnly = false;
   if (signedIn) {
     const t = `tok-next-${++n}`;
-    jar.set("__Secure-tiffin.session_token", `${t}.sig+/=`);
-    jar.set("__Secure-tiffin.session_data", await engine.jwt(t));
+    jar.set("__Host-tiffin.session_token", `${t}.sig+/=`);
+    jar.set("__Host-tiffin.session_data", await engine.jwt(t));
   }
   reqHeaders = new Headers({ host: "shop.example.com", "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https", "user-agent": "test", ...extra });
 }
@@ -79,14 +79,14 @@ describe("reading the session", () => {
 
   test("a refreshed cookie from the engine reaches the browser where it can, and is skipped in a page", async () => {
     const e = await fakeEngine({ user: { id: "u2", email: "b@example.com", name: "B", emailVerified: true }, session: { id: "s2", expiresAt: "x", activeOrganizationId: null }, organization: null, via: "session", apiKey: null });
-    e.setCookie = ["__Secure-tiffin.session_data=fresh.jwt; Max-Age=60; Path=/; HttpOnly; Secure; SameSite=Lax"];
+    e.setCookie = ["__Host-tiffin.session_data=fresh.jwt; Max-Age=60; Path=/; HttpOnly; Secure; SameSite=Lax"];
     await browser(e, false);
-    jar.set("__Secure-tiffin.session_token", "only-token.sig");
+    jar.set("__Host-tiffin.session_token", "only-token.sig");
     expect((await auth.getSession())?.user.email).toBe("b@example.com");
-    expect(sets[0]).toEqual({ name: "__Secure-tiffin.session_data", value: "fresh.jwt", opts: { maxAge: 60, path: "/", httpOnly: true, secure: true, sameSite: "lax" } });
+    expect(sets[0]).toEqual({ name: "__Host-tiffin.session_data", value: "fresh.jwt", opts: { maxAge: 60, path: "/", httpOnly: true, secure: true, sameSite: "lax" } });
 
     await browser(e, false);
-    jar.set("__Secure-tiffin.session_token", "other-token.sig");
+    jar.set("__Host-tiffin.session_token", "other-token.sig");
     readOnly = true; // a Server Component
     expect((await auth.getSession())?.user.email).toBe("b@example.com");
   });
@@ -107,10 +107,10 @@ describe("reading the session", () => {
     await browser(e, true);
     expect((await auth.requireRole("admin")).organization.role).toBe("owner");
     const t = "tok-member";
-    jar.set("__Secure-tiffin.session_token", `${t}.sig`);
-    jar.set("__Secure-tiffin.session_data", await e.jwt(t, { org: { id: "o1", name: "Acme", slug: "acme", role: "member", memberRole: "member" } }));
+    jar.set("__Host-tiffin.session_token", `${t}.sig`);
+    jar.set("__Host-tiffin.session_data", await e.jwt(t, { org: { id: "o1", name: "Acme", slug: "acme", role: "member", memberRole: "member" } }));
     expect(await caught(auth.requireRole("admin"))).toMatchObject({ kind: "forbidden" });
-    jar.set("__Secure-tiffin.session_data", await e.jwt(t, { org: null }));
+    jar.set("__Host-tiffin.session_data", await e.jwt(t, { org: null }));
     expect(await caught(auth.requireRole("viewer"))).toMatchObject({ kind: "forbidden" });
   });
 });
@@ -119,8 +119,8 @@ describe("Server Actions", () => {
   test("signIn calls the engine for the browser, sets its cookies, and goes to ?next=", async () => {
     const e = await fakeEngine({ redirect: false, token: "t", user: {} });
     e.setCookie = [
-      "__Secure-tiffin.session_token=newtok.c2ln%2B%3D; Max-Age=2592000; Path=/; HttpOnly; Secure; SameSite=Lax",
-      "__Secure-tiffin.session_data=eyJ.x.y; Max-Age=60; Path=/; HttpOnly; Secure; SameSite=Lax",
+      "__Host-tiffin.session_token=newtok.c2ln%2B%3D; Max-Age=2592000; Path=/; HttpOnly; Secure; SameSite=Lax",
+      "__Host-tiffin.session_data=eyJ.x.y; Max-Age=60; Path=/; HttpOnly; Secure; SameSite=Lax",
     ];
     await browser(e, false, { origin: "https://shop.example.com" });
     const form = new FormData();
@@ -135,7 +135,7 @@ describe("Server Actions", () => {
     expect(call.headers.get("x-tiffin-host")).toBe("shop.example.com");
     expect(call.headers.get("origin")).toBe("https://shop.example.com");
     expect(call.headers.get("x-forwarded-for")).toBe("203.0.113.9");
-    expect(jar.get("__Secure-tiffin.session_token")).toBe("newtok.c2ln+=");
+    expect(jar.get("__Host-tiffin.session_token")).toBe("newtok.c2ln+=");
     expect(sets[0]!.opts).toEqual({ maxAge: 2592000, path: "/", httpOnly: true, secure: true, sameSite: "lax" });
 
     // An outside next is ignored; redirectTo applies.
@@ -162,11 +162,11 @@ describe("Server Actions", () => {
 
   test("signOut ends the session on the engine and clears the cookies", async () => {
     const e = await fakeEngine({ success: true });
-    e.setCookie = ["__Secure-tiffin.session_token=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax", "__Secure-tiffin.session_data=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax"];
+    e.setCookie = ["__Host-tiffin.session_token=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax", "__Host-tiffin.session_data=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax"];
     await browser(e, true);
     expect(await caught(auth.signOut({ redirectTo: "/" }))).toMatchObject({ kind: "redirect", to: "/" });
     expect(e.calls[0]!.url).toBe(`${e.url}/sign-out`);
-    expect(e.calls[0]!.headers.get("cookie")).toContain("__Secure-tiffin.session_token=");
+    expect(e.calls[0]!.headers.get("cookie")).toContain("__Host-tiffin.session_token=");
     expect(jar.size).toBe(0);
   });
 });
@@ -191,7 +191,7 @@ describe("authProxy", () => {
       const r = call(p);
       expect([p, r.headers.get("x-middleware-next")]).toEqual([p, "1"]);
     }
-    const ok = call("/dashboard?tab=1", "__Secure-tiffin.session_token=abc.sig");
+    const ok = call("/dashboard?tab=1", "__Host-tiffin.session_token=abc.sig");
     expect(ok.headers.get("x-middleware-next")).toBe("1");
     expect(ok.headers.get("x-middleware-request-x-tiffin-path")).toBe("/dashboard?tab=1");
   });

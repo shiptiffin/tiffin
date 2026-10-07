@@ -92,10 +92,18 @@ describe("previews", () => {
     const verified = await tess.raw(link);
     expect(verified.status).toBeLessThan(400);
     const set = verified.headers.getSetCookie();
-    expect(set.some((c) => c.startsWith("__Secure-tiffin.session_token="))).toBe(true);
+    expect(set.some((c) => c.startsWith("__Host-tiffin.session_token="))).toBe(true);
     // No Domain attribute: the browser keeps them for the preview's host alone,
     // and production's cookies never reach the preview.
     for (const c of set) expect(c).not.toMatch(/;\s*domain=/i);
+    // __Host- names (Secure, Path=/, no Domain): a browser takes them only
+    // from this host, so another app on the box can't plant a session.
+    expect(set.length).toBeGreaterThan(0);
+    for (const c of set) {
+      expect(c).toMatch(/^__Host-tiffin\./);
+      expect(c).toMatch(/;\s*Secure/i);
+      expect(c).toMatch(/;\s*Path=\/(;|$)/i);
+    }
     expect((await tess.json(at("/tiffin/session"))).body.user.email).toBe("tess@example.com");
 
     // The same account signs in on production, and a production user on the preview.
@@ -150,12 +158,12 @@ test("rate limits leave session reads alone, not sign-ins", async () => {
 describe("session cookie cache", () => {
   test("is a JWT signed with the project's key, carrying the active org and role", async () => {
     const quinn = await person(handle, "quinn@example.com", "Quinn");
-    const jwt = quinn.cookies.get("__Secure-tiffin.session_data");
+    const jwt = quinn.cookies.get("__Host-tiffin.session_data");
     expect(jwt).toBeDefined();
     expect(decodeProtectedHeader(jwt!).typ).toBe("better-auth.session-cache+jwt");
     const jwks = await new Client(handle).json("/jwks");
     const { payload } = await jwtVerify(jwt!, createLocalJWKSet(jwks.body), { audience: "better-auth:session-cache" });
-    const token = decodeURIComponent(quinn.cookies.get("__Secure-tiffin.session_token")!).split(".")[0];
+    const token = decodeURIComponent(quinn.cookies.get("__Host-tiffin.session_token")!).split(".")[0];
     expect(payload.sid).toBe(token);
     expect((payload.user as { email: string }).email).toBe("quinn@example.com");
     expect(payload.exp! - payload.iat!).toBe(60);
@@ -164,7 +172,7 @@ describe("session cookie cache", () => {
     // Switching organizations re-signs it with the new one.
     const team = await quinn.json("/organization/create", { body: { name: "Crew", slug: "crew" } });
     await quinn.json("/organization/set-active", { body: { organizationId: team.body.id } });
-    const after = await jwtVerify(quinn.cookies.get("__Secure-tiffin.session_data")!, createLocalJWKSet(jwks.body), { audience: "better-auth:session-cache" });
+    const after = await jwtVerify(quinn.cookies.get("__Host-tiffin.session_data")!, createLocalJWKSet(jwks.body), { audience: "better-auth:session-cache" });
     expect((after.payload.tiffin as any).organization).toMatchObject({ id: team.body.id, name: "Crew", role: "owner" });
   });
 
@@ -174,7 +182,7 @@ describe("session cookie cache", () => {
     copy.cookies = new Map(ray.cookies);
     expect((await copy.json("/tiffin/session")).body.user.email).toBe("ray@example.com");
     await ray.json("/sign-out", { body: {} });
-    expect(ray.cookies.has("__Secure-tiffin.session_data")).toBe(false);
+    expect(ray.cookies.has("__Host-tiffin.session_data")).toBe(false);
     expect((await copy.json("/tiffin/session")).body).toBeNull();
     expect((await copy.json("/get-session")).body).toBeNull();
   });
@@ -182,13 +190,13 @@ describe("session cookie cache", () => {
   test("engineRequest strips the cache cookie and serves internal calls as their host", async () => {
     const req = new Request("http://127.0.0.1:7393/api/auth/sign-in/email?x=1", {
       method: "POST",
-      headers: { host: "127.0.0.1:7393", cookie: "a=1; __Secure-tiffin.session_data=x; tiffin.session_data.0=y; __Secure-tiffin.session_token=t" },
+      headers: { host: "127.0.0.1:7393", cookie: "a=1; __Host-tiffin.session_data=x; tiffin.session_data.0=y; __Host-tiffin.session_token=t" },
       body: "{}",
     });
     const out = engineRequest(req, `${CUSTOM}:8443`, ORIGIN);
     expect(out.url).toBe(`https://${CUSTOM}:8443/api/auth/sign-in/email?x=1`);
     expect(out.headers.get("host")).toBe(`${CUSTOM}:8443`);
-    expect(out.headers.get("cookie")).toBe("a=1; __Secure-tiffin.session_token=t");
+    expect(out.headers.get("cookie")).toBe("a=1; __Host-tiffin.session_token=t");
     expect(await out.text()).toBe("{}");
     const plain = new Request("https://x/api/auth/ok", { headers: { cookie: "a=1" } });
     expect(engineRequest(plain, null, ORIGIN)).toBe(plain);

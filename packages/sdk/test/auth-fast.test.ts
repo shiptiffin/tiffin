@@ -15,7 +15,7 @@ const engineAnswer = {
 let n = 0;
 const token = () => `tok${++n}`;
 const req = (cookie: string, extra: Record<string, string> = {}) => new Request("https://shop.example.com/x", { headers: { cookie, host: "shop.example.com", ...extra } });
-const cookies = (t: string, jwt?: string) => `__Secure-tiffin.session_token=${t}.c2lnbmF0dXJl%2B%3D` + (jwt ? `; __Secure-tiffin.session_data=${jwt}` : "");
+const cookies = (t: string, jwt?: string) => `__Host-tiffin.session_token=${t}.c2lnbmF0dXJl%2B%3D` + (jwt ? `; __Host-tiffin.session_data=${jwt}` : "");
 
 describe("signed session cookie", () => {
   test("is read without asking the engine, and strips nothing a page needs", async () => {
@@ -37,11 +37,27 @@ describe("signed session cookie", () => {
     expect(jwks[0]!.headers.get("x-tiffin-host")).toBe("shop.example.com");
   });
 
+  test("cookies another host could plant (__Secure- or plain names, over https) are never read", async () => {
+    const e = await fakeEngine(null);
+    const t = token();
+    const jwt = await e.jwt(t);
+    const opts = { url: e.url, fetch: e.fetch };
+    for (const prefix of ["__Secure-", ""]) {
+      const planted = `${prefix}tiffin.session_token=${t}.sig; ${prefix}tiffin.session_data=${jwt}`;
+      expect(await getSession(req(planted), opts)).toBeNull();
+    }
+    expect(e.sessionCalls()).toBe(0);
+    // Plain names are the cookies of an http-only box.
+    const plain = await fakeEngine(engineAnswer);
+    const s = await getSession(req(`tiffin.session_token=${t}.sig; tiffin.session_data=${await plain.jwt(t)}`, { "x-forwarded-proto": "http" }), { url: plain.url, fetch: plain.fetch });
+    expect(s?.user.email).toBe("ana@example.com");
+  });
+
   test("Better Auth's chunked cookies (name.0, name.1) work too", async () => {
     const e = await fakeEngine(engineAnswer);
     const t = token();
     const jwt = await e.jwt(t);
-    const c = `__Secure-tiffin.session_token=${t}.sig; __Secure-tiffin.session_data.0=${jwt.slice(0, 100)}; __Secure-tiffin.session_data.1=${jwt.slice(100)}`;
+    const c = `__Host-tiffin.session_token=${t}.sig; __Host-tiffin.session_data.0=${jwt.slice(0, 100)}; __Host-tiffin.session_data.1=${jwt.slice(100)}`;
     expect((await getSession(req(c), { url: e.url, fetch: e.fetch }))?.organization?.role).toBe("owner");
     expect(e.sessionCalls()).toBe(0);
   });
@@ -106,7 +122,7 @@ describe("engine answers", () => {
 
   test("hand back the engine's Set-Cookie (a refreshed session cookie)", async () => {
     const e = await fakeEngine(engineAnswer);
-    e.setCookie = ["__Secure-tiffin.session_data=new; Max-Age=60; Path=/; HttpOnly; Secure; SameSite=Lax"];
+    e.setCookie = ["__Host-tiffin.session_data=new; Max-Age=60; Path=/; HttpOnly; Secure; SameSite=Lax"];
     const r = await sessionFor(req(cookies(token())).headers, { url: e.url, fetch: e.fetch });
     expect(r.session?.user.id).toBe("u1");
     expect(r.setCookie).toEqual(e.setCookie);

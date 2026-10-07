@@ -21,7 +21,7 @@ function fakeFetch(body: unknown, status = 200) {
 const req = (headers: Record<string, string>) => new Request("https://shop.example.com/notes", { headers });
 // A new session token each time: answers are remembered per token for 5 s.
 let n = 0;
-const tok = () => `__Secure-tiffin.session_token=t${++n}.sig`;
+const tok = () => `__Host-tiffin.session_token=t${++n}.sig`;
 
 describe("roles", () => {
   test("ordering and multi-role strings", () => {

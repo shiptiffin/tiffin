@@ -209,7 +209,7 @@ async function personalOrg(adapter: Adapter, userId: string): Promise<string> {
 }
 
 /**
- * How long the signed session cookie cache (`tiffin.session_data`) lasts.
+ * How long the signed session cookie cache (`__Host-tiffin.session_data`) lasts.
  * Apps verify it locally (@shiptiffin/sdk/auth) instead of asking the engine, so a
  * revoked session, a ban or a role change reaches app code within this long.
  * The engine itself never reads it (server.ts strips it).
@@ -330,6 +330,9 @@ const ORG_CHANGES = new Set([
   "/organization/update-member-role",
   "/invite-link/accept",
 ]);
+
+/** Whether the project's cookies are Secure (and so __Host-): everywhere but an http-only box. */
+const secureCookies = (c: ProjectConfig) => !c.primaryUrl.startsWith("http://");
 
 /** The Better Auth options for a project; also what migrations are computed from. */
 export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): BetterAuthOptions {
@@ -612,8 +615,14 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
       customRules: { "/tiffin/session": false, "/get-session": false, "/jwks": false },
     },
     advanced: {
-      cookiePrefix: "tiffin",
-      useSecureCookies: !c.primaryUrl.startsWith("http://"),
+      // Over https every cookie is __Host-tiffin.*: Secure, Path=/, no
+      // Domain, which a browser only takes from this very host. Better
+      // Auth's own prefix is __Secure-, which another app on the box (a
+      // sibling host under the same domain) can set for the whole domain,
+      // planting a session it holds into a visitor's browser.
+      cookiePrefix: secureCookies(c) ? "__Host-tiffin" : "tiffin",
+      useSecureCookies: false,
+      defaultCookieAttributes: secureCookies(c) ? { secure: true, path: "/" } : undefined,
       ipAddress: { ipAddressHeaders: ["x-forwarded-for"] },
     },
     session: {

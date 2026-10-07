@@ -22,7 +22,7 @@ import { cookies, headers } from "next/headers";
 import { forbidden, redirect, unauthorized } from "next/navigation";
 import { NextResponse, type NextRequest } from "next/server";
 import { cache } from "react";
-import { TOKEN, authBase, forgetSession, forwardHeaders, parseCookies, roleAtLeast, sessionFor, type AuthSession, type Role } from "../auth";
+import { TOKEN, authBase, cookieName, forgetSession, forwardHeaders, parseCookies, roleAtLeast, sessionFor, type AuthSession, type Role } from "../auth";
 
 export type { Role } from "../auth";
 
@@ -239,8 +239,8 @@ export async function signUp(
 
 /** Signs out from a Server Action: ends the session on the engine and clears its cookies, then redirects if asked. */
 export async function signOut(opts: { redirectTo?: string } = {}): Promise<void> {
-  const raw = parseCookies((await requestHeaders()).get("cookie"));
-  const token = raw.get("__Secure-" + TOKEN) ?? raw.get(TOKEN);
+  const req = await requestHeaders();
+  const token = parseCookies(req.get("cookie")).get(cookieName(TOKEN, req));
   if (token) {
     await engine("/sign-out", {});
     forgetSession(token);
@@ -278,7 +278,7 @@ export function authProxy(opts: { protect: string[]; signIn?: string }): (reques
   const signIn = opts.signIn ?? "/sign-in";
   return (request) => {
     const { pathname, search } = request.nextUrl;
-    const signedIn = request.cookies.has("__Secure-" + TOKEN) || request.cookies.has(TOKEN) || request.headers.has("x-api-key");
+    const signedIn = request.cookies.has("__Host-" + TOKEN) || request.cookies.has(TOKEN) || request.headers.has("x-api-key");
     if (!signedIn && rules.some((r) => r.test(pathname))) {
       if (pathname.startsWith("/api/")) return Response.json({ code: "unauthenticated", message: "Sign in first." }, { status: 401 });
       const url = new URL(signIn, request.nextUrl);

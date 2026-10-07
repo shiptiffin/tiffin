@@ -96,7 +96,7 @@ test("fast path: the signed session cookie is read without the engine, and stays
 
   // The engine's answer re-signs the cookie, for frameworks to pass on.
   const { setCookie } = await sessionFor(appReq().headers, { ...o, fresh: true });
-  expect(setCookie.some((c) => c.startsWith("__Secure-tiffin.session_data="))).toBe(true);
+  expect(setCookie.some((c) => c.startsWith("__Host-tiffin.session_data="))).toBe(true);
 
   // Creating an organization makes it active and re-signs the cookie.
   const team = await bea.json("/organization/create", { body: { name: "Bea's team", slug: "bea-team" } });

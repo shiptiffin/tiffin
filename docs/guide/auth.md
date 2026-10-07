@@ -347,8 +347,10 @@ deleted, and the preview's `TIFFIN_AUTH_URL` and `TIFFIN_AUTH_HOST` name that ho
 
 - **Same users.** A preview signs in against the project's own accounts, so testers use
   their real account and anyone who signs up on a preview is a user of the app.
-- **Own cookies.** Session cookies are host-only (no `Domain`): a preview never sees
-  production's cookies, and signing in on a preview doesn't sign you in on production.
+- **Own cookies.** Session cookies are host-only `__Host-tiffin.*` cookies (Secure,
+  `Path=/`, no `Domain`): a preview never sees production's cookies, signing in on a
+  preview doesn't sign you in on production, and no other app on the box can plant a
+  session in your app (browsers only take a `__Host-` cookie from its own host).
 - **Own passkeys.** A preview's host is its own passkey rpID; passkeys made on
   production don't show up there (sign in another way, or add one on the preview).
 - **Emails** (verification, magic links, invites) sent from a preview link back to it,
