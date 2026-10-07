@@ -397,21 +397,71 @@ func TestLocalAgentKey(t *testing.T) {
 	}
 }
 
-func TestTiffinEnvNeverReachesConfig(t *testing.T) {
+func TestEnvNeverReachesConfig(t *testing.T) {
 	dir := t.TempDir()
-	cfg := `export default { project: "leak", env: { T: process.env.TIFFIN_TOKEN ?? "none", H: process.env.HOME_MARKER ?? "none" } }`
+	cfg := `export default { project: "leak", env: { T: process.env.TIFFIN_TOKEN ?? "none", H: process.env.HCLOUD_TOKEN ?? "none" } }`
 	if err := os.WriteFile(filepath.Join(dir, "tiffin.config.ts"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("TIFFIN_TOKEN", "tfn_secret")
-	t.Setenv("HOME_MARKER", "visible")
-	a := &app{}
+	t.Setenv("HCLOUD_TOKEN", "cloud_secret")
+	env := newEnv(t)
+	a := &app{io: IO{Env: func(k string) string { return env[k] }}, home: env["TIFFIN_HOME"]}
 	raw, _, err := a.loadManifest(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), "tfn_secret") || !strings.Contains(string(raw), "visible") {
-		t.Fatalf("env filtering wrong: %s", raw)
+	if strings.Contains(string(raw), "secret") {
+		t.Fatalf("the environment reached the config: %s", raw)
+	}
+}
+
+// A config (a pull request can change it) cannot import the owner tokens
+// the CLI keeps in ~/.tiffin, nor anything else outside its repository.
+func TestConfigCannotImportOutsideItsRepository(t *testing.T) {
+	home := t.TempDir()
+	settings := filepath.Join(home, ".tiffin")
+	if err := os.MkdirAll(settings, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(settings, "boxes.json"), []byte(`{"boxes":{"b":{"token":"tfn_owner_secret"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(home, "work", "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "deploy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "shared.ts"), []byte(`export const name = "inside"`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{io: IO{Env: func(k string) string { return map[string]string{"HOME": home}[k] }}, home: settings}
+	write := func(cfg string) string {
+		p := filepath.Join(repo, "deploy", "tiffin.config.ts")
+		if err := os.WriteFile(p, []byte(cfg), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	// Files of the repository, above the config too, are fine.
+	raw, _, err := a.loadManifest(write(`import { name } from "../shared"; export default { project: name }`))
+	if err != nil || !strings.Contains(string(raw), "inside") {
+		t.Fatalf("an import inside the repository failed: %v %s", err, raw)
+	}
+	for _, imp := range []string{"../../../.tiffin/boxes.json", filepath.Join(settings, "boxes.json")} {
+		raw, _, err := a.loadManifest(write(`import b from "` + imp + `"; export default { project: "x", env: { T: b.boxes.b.token } }`))
+		if err == nil || strings.Contains(string(raw), "tfn_owner_secret") || strings.Contains(err.Error(), "tfn_owner_secret") {
+			t.Fatalf("import %s: the config read the owner token: %v %s", imp, err, raw)
+		}
+	}
+	// A project in the settings folder's parent (the home folder) is refused.
+	if err := os.WriteFile(filepath.Join(home, "tiffin.config.ts"), []byte(`export default { project: "x" }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.loadManifest(home); err == nil || !strings.Contains(err.Error(), "Tiffin's own settings") {
+		t.Fatalf("a config beside ~/.tiffin must be refused, got %v", err)
 	}
 }
 

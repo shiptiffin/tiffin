@@ -67,18 +67,57 @@ func (a *app) loadManifest(target string) (json.RawMessage, string, error) {
 		}
 		path = p
 	}
-	env := map[string]string{}
-	for _, kv := range os.Environ() {
-		// Tiffin's own settings (TIFFIN_TOKEN above all) never reach the config.
-		if k, v, ok := strings.Cut(kv, "="); ok && !strings.HasPrefix(k, "TIFFIN_") {
-			env[k] = v
+	// The config is code from the repository, which anyone who can open a
+	// pull request can change. It runs as a push deploys it: with no
+	// environment (where tokens and cloud keys live) and importing only files
+	// of its repository, never the CLI's settings (owner tokens).
+	root, err := configRoot(path)
+	if err != nil {
+		return nil, path, &exitError{ExitInvalid, err.Error()}
+	}
+	for _, d := range []string{a.configDir(), a.home} {
+		if d != "" && within(root, d) {
+			return nil, path, &exitError{ExitInvalid, fmt.Sprintf("%s is in a folder that holds Tiffin's own settings (%s): keep the project in a folder of its own", filepath.Base(path), d)}
 		}
 	}
-	raw, err := manifest.EvaluateJSON(path, env)
+	raw, err := manifest.EvaluateJSONWithin(path, root, map[string]string{})
 	if err != nil {
 		return nil, path, &exitError{ExitInvalid, err.Error()}
 	}
 	return raw, path, nil
+}
+
+// configRoot is the folder a config may import from: its git repository
+// (the nearest folder above it with a .git), else its own folder.
+func configRoot(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Dir(abs)
+	for d := dir; ; {
+		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
+			return d, nil
+		}
+		up := filepath.Dir(d)
+		if up == d {
+			return dir, nil
+		}
+		d = up
+	}
+}
+
+// within reports whether path is root or inside it, after resolving links.
+func within(root, path string) bool {
+	real := func(p string) string {
+		p, _ = filepath.Abs(p)
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		return filepath.Clean(p)
+	}
+	r, p := real(root), real(path)
+	return p == r || strings.HasPrefix(p, strings.TrimSuffix(r, string(filepath.Separator))+string(filepath.Separator))
 }
 
 func (a *app) planCmd() *cobra.Command {

@@ -11,6 +11,7 @@ export type { AppConfig, AssetsConfig, BucketConfig, Framework, GitConfig, Postg
  *
  * `tiffin` evaluates this file in a sandbox and checks the result against the
  * manifest JSON Schema, so keep it plain data: no network, no file access.
- * `process.env.X` is available for non-secret values.
+ * It sees no environment (`process.env` is empty, as when a push deploys it)
+ * and imports only files of its repository.
  */
 export declare function defineConfig(config: TiffinConfig): TiffinConfig;
