@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"net/http"
 	"sort"
@@ -87,6 +88,10 @@ type FilterQuery struct {
 
 func (f FilterQuery) filters() Filters { return Filters(f) }
 
+// maxRangeDays is the longest from..to range: retentionDays goes up to
+// 3650, plus leap days.
+const maxRangeDays = 3653
+
 // resolve turns a period or day range into [from, to) and whether it is
 // day-aligned (so rollups answer it).
 func resolve(period, fromDay, toDay string, now time.Time) (from, to time.Time, label string, aligned bool, err error) {
@@ -101,6 +106,13 @@ func resolve(period, fromDay, toDay string, now time.Time) (from, to time.Time, 
 		}
 		if err1 != nil || err2 != nil || t.Before(f) {
 			return from, to, "", false, api.NewProblem(422, "validation", "from and to must be YYYY-MM-DD with from <= to")
+		}
+		// Every answer fills one point per day (and compares with the range
+		// before it): keep it to the longest retention there is.
+		if t.Sub(f) >= maxRangeDays*24*time.Hour {
+			p := api.NewProblem(422, "validation", fmt.Sprintf("a range covers at most %d days", maxRangeDays))
+			p.Hint = "analytics keeps at most 10 years (retentionDays 3650); narrow from and to"
+			return from, to, "", false, p
 		}
 		return f, t.AddDate(0, 0, 1), fromDay + ".." + t.Format("2006-01-02"), true, nil
 	}

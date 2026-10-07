@@ -200,3 +200,18 @@ func TestRealtimeIsBoundedAndSwept(t *testing.T) {
 		t.Fatalf("%d apps left after the window passed", len(r.apps))
 	}
 }
+
+// An explicit range is at most the longest retention: a year-0 range
+// would fill ~740,000 daily points (twice, with the previous period).
+func TestRangeIsBounded(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	if _, _, _, _, err := resolve("", "0000-01-01", "2026-10-07", now); err == nil {
+		t.Fatal("a 2,000-year range was accepted")
+	}
+	if _, _, _, _, err := resolve("", "2016-10-08", "", now); err != nil {
+		t.Fatalf("ten years: %v", err)
+	}
+	if _, _, _, _, err := resolve("", "2016-10-01", "", now); err == nil {
+		t.Fatal("more than ten years was accepted")
+	}
+}

@@ -283,6 +283,8 @@ Router, TanStack Start) cover the files the build wrote, as they are:
 Not yet: funnels and retention, goals, share links, excluding your own visits, and
 automatic events from sign-ups and deploys.
 
+- A `from`..`to` range covers at most 3,653 days (ten years, the longest retention);
+  hourly points go up to 92 days.
 - "Right now" counts at most 5,000 visitors and 500 pages and sources per app and
   minute; past that it undercounts visitors and shows the rest of the pages as
   `(other)`. Daily stats are not affected.
