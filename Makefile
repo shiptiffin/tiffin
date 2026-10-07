@@ -36,10 +36,12 @@ dashboard:
 
 # @shiptiffin/sdk, built from packages/sdk into internal/sdkpkg/files and
 # embedded: `tiffin sdk add` vendors it into apps that don't install it from npm.
-# The output is committed, so without Bun the build uses what is there.
+# The output is committed, so without Bun, or before `bun install` (a fresh
+# clone or worktree), the build uses what is there.
 sdk:
-	@if command -v bun >/dev/null 2>&1; then bun scripts/sdk-pack.ts; \
-	else echo "bun not found: using the committed SDK build in internal/sdkpkg/files"; fi
+	@if ! command -v bun >/dev/null 2>&1; then echo "bun not found: using the committed SDK build in internal/sdkpkg/files"; \
+	elif [ ! -d node_modules ]; then echo "no node_modules (run bun install to rebuild the SDK): using the committed SDK build in internal/sdkpkg/files"; \
+	else bun scripts/sdk-pack.ts; fi
 
 build: sdk
 	@mkdir -p bin
