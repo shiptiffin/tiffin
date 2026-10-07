@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Switch, SwitchThumb } from "@/components/ui/switch";
 import { cn } from "@/lib/cn";
 import { count, int, ms } from "@/lib/format";
+import { loadHistory, saveHistory } from "@/lib/command-history";
 import { useMe } from "@/lib/me";
 import { db, dq, problemToast } from "./api";
 import { NUMERIC, toCSV } from "./format";
@@ -21,14 +22,6 @@ import type { SqlSchema } from "./sql-editor";
 
 const SqlEditor = lazy(() => import("./sql-editor"));
 
-const HISTORY = "tiffin.sql.history";
-function loadHistory(project: string): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(`${HISTORY}.${project}`) ?? "[]");
-  } catch {
-    return [];
-  }
-}
 
 const strip = (sql: string) =>
   sql
@@ -69,9 +62,9 @@ export function SqlPanel({ project, branch, handed }: { project: string; branch:
   const tables = useQuery(mq.tables(project, branch || undefined));
   const saved = useQuery(dq.queries(project));
   const { can } = useMe();
-  const [sql, setSql] = useState(() => handed ?? loadHistory(project)[0] ?? "SELECT now();");
+  const [sql, setSql] = useState(() => handed ?? loadHistory("sql", project)[0] ?? "SELECT now();");
   const [write, setWrite] = useState(false);
-  const [history, setHistory] = useState(() => loadHistory(project));
+  const [history, setHistory] = useState(() => loadHistory("sql", project));
   const [params, setParams] = useState<string[]>([]);
   const [timeout, setTimeoutS] = useState(30);
   const [openName, setOpenName] = useState<string | null>(null);
@@ -97,11 +90,7 @@ export function SqlPanel({ project, branch, handed }: { project: string; branch:
     onSuccess: (r, text) => {
       const h = [text, ...history.filter((x) => x !== text)].slice(0, 20);
       setHistory(h);
-      try {
-        localStorage.setItem(`${HISTORY}.${project}`, JSON.stringify(h));
-      } catch {
-        /* storage blocked */
-      }
+      saveHistory("sql", project, h);
       if (!r.readOnly) {
         for (const k of ["tables", "snapshots", "pg-rows", "pg-table", "pg"]) void qc.invalidateQueries({ queryKey: [k, project] });
       }

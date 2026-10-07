@@ -45,6 +45,7 @@ import { keyCaps, requestCommand, useCommands } from "@/lib/shortcuts";
 import { useSwitchToProject } from "@/lib/switch";
 import { useMe } from "@/lib/me";
 import { soloParts } from "@/lib/starters";
+import { signOut } from "@/lib/command-history";
 import { toast } from "./toast";
 
 // Box-wide pages, so every area is a keystroke away.
@@ -312,13 +313,7 @@ export function CommandPalette({ open, onOpenChange, initialSearch = "", onShort
       label: "Sign out",
       text: "Sign out",
       icon: <LogOut />,
-      run: async () => {
-        try {
-          await api.logout();
-        } finally {
-          location.assign("/login?reason=signed-out");
-        }
-      },
+      run: signOut,
     },
   ];
   const all = [...here, ...elsewhere, ...onPage, ...projectRows, ...general, ...doThings];

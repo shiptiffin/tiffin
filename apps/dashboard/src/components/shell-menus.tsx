@@ -2,12 +2,12 @@ import { useNavigate } from "@tanstack/react-router";
 import { Fingerprint, KeyRound, LogOut, MonitorSmartphone, Terminal } from "lucide-react";
 import { Dialog as D } from "radix-ui";
 import { useState, type ReactNode } from "react";
-import { api } from "@/api/client";
 import { copyText } from "@/lib/clipboard";
 import { mcpCommand } from "@/lib/mcp";
 import { roleCopy, useMe } from "@/lib/me";
 import { relative } from "@/lib/time";
 import { passkeyWords } from "@/lib/webauthn";
+import { signOut } from "@/lib/command-history";
 import { clickedEarly, WhoTrigger } from "./shell-triggers";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "./ui/dropdown";
 
@@ -82,13 +82,7 @@ export function WhoMenu() {
         </MenuItem>
         <MenuSeparator />
         <MenuItem
-          onSelect={async () => {
-            try {
-              await api.logout();
-            } finally {
-              location.assign("/login?reason=signed-out");
-            }
-          }}
+          onSelect={signOut}
         >
           <LogOut />
           Sign out

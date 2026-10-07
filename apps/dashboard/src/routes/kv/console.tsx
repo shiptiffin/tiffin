@@ -4,6 +4,7 @@ import { mod, type KVCommandResult } from "@/api/modules";
 import { Breaker } from "@/components/breaker";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
+import { loadHistory, saveHistory } from "@/lib/command-history";
 import { cn } from "@/lib/cn";
 import { ms } from "@/lib/format";
 import { useKv } from "./write";
@@ -27,14 +28,6 @@ export function replyLines(v: unknown, pad = ""): string[] {
   return [JSON.stringify(v)];
 }
 
-const historyKey = (p: string) => `tiffin.kv.history.${p}`;
-function loadHistory(p: string): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(historyKey(p)) ?? "[]");
-  } catch {
-    return [];
-  }
-}
 
 /**
  * The Console: commands as in valkey-cli, run as the project's own user, so
@@ -47,7 +40,7 @@ export function KvConsole({ project }: { project: string }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [write, setWrite] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [history, setHistory] = useState<string[]>(() => loadHistory(project));
+  const [history, setHistory] = useState<string[]>(() => loadHistory("kv", project));
   const [cursor, setCursor] = useState<number | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const log = useRef<HTMLDivElement>(null);
@@ -66,11 +59,7 @@ export function KvConsole({ project }: { project: string }) {
     setCursor(null);
     const h = [...history.filter((x) => x !== t), t].slice(-100);
     setHistory(h);
-    try {
-      localStorage.setItem(historyKey(project), JSON.stringify(h));
-    } catch {
-      // private mode: history lasts the visit
-    }
+    saveHistory("kv", project, h);
     try {
       const r = await mod.kvCommand(project, t, write);
       setEntries((e) => e.map((x) => (x.id === id ? { ...x, results: r.results ?? [] } : x)));

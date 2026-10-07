@@ -1,11 +1,13 @@
 import { MutationCache, QueryCache, QueryClient, queryOptions } from "@tanstack/react-query";
 import { ApiError, api } from "./client";
+import { forgetHistory } from "@/lib/command-history";
 import { whoMap } from "@/lib/who";
 
 /** Any 401 anywhere (except the login exchange itself) sends you to /login with a kind word. */
 function on401(e: unknown) {
   if (e instanceof ApiError && e.status === 401 && !location.pathname.startsWith("/login")) {
     queryClient.clear();
+    forgetHistory();
     const here = location.pathname + location.search;
     location.assign(`/login?reason=session${here !== "/" ? `&next=${encodeURIComponent(here)}` : ""}`);
   }
