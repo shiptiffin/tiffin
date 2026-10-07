@@ -86,6 +86,14 @@ describe("captcha", () => {
     expect(b.body.code).toBe("CAPTCHA_USED");
   });
 
+  test("a solution works once, even sent many times at once", async () => {
+    const c = new Client(handle);
+    const sol = await c.captcha();
+    const body = { email: "race@example.com", password: "wrong password!!" };
+    const all = await Promise.all(Array.from({ length: 6 }, () => c.json("/sign-in/email", { body, headers: { "x-captcha-response": sol } })));
+    expect(all.filter((r) => r.body?.code !== "CAPTCHA_USED")).toHaveLength(1);
+  });
+
   test("a forged solution is refused", async () => {
     const c = new Client(handle);
     const sol = JSON.parse(Buffer.from(await c.captcha(), "base64").toString());

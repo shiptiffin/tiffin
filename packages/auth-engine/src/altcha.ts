@@ -96,6 +96,9 @@ export const altcha = (o: AltchaOptions) => {
       });
       if (r.expired) return deny("CAPTCHA_EXPIRED", "The proof-of-work challenge expired. Fetch a new one.");
       if (!r.verified) return deny("CAPTCHA_INVALID", "The proof-of-work solution is wrong.");
+      // Checked again: concurrent requests with one solution all passed the
+      // check above while verification awaited. No await from here to the set.
+      if (used.has(nonce)) return deny("CAPTCHA_USED", "This proof-of-work solution was already used. Fetch a new challenge.");
       used.set(nonce, Date.now());
       return;
     },
