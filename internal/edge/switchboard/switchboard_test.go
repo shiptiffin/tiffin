@@ -28,7 +28,7 @@ func boardFor(t *testing.T, port int) *httptest.Server {
 	return srv
 }
 
-func portOf(t *testing.T, addr string) int {
+func portOf(t testing.TB, addr string) int {
 	t.Helper()
 	_, p, _ := net.SplitHostPort(addr)
 	var n int

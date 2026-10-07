@@ -421,7 +421,9 @@ func (b *Board) serveApp(w http.ResponseWriter, req *http.Request, key string) {
 			// passes through as it is.
 			pr.Out.Header.Set("Accept-Encoding", "identity")
 		},
-		Transport:     b.proxy,
+		Transport:  b.proxy,
+		BufferPool: &copyBuffers,
+
 		FlushInterval: -1,
 		ModifyResponse: func(res *http.Response) error {
 			if res.StatusCode == http.StatusSwitchingProtocols {
@@ -489,6 +491,15 @@ func (b *Board) CloseStreams() {
 		_ = s.Close()
 	}
 }
+
+// copyBuffers are the 32 KiB buffers responses are copied through, reused
+// rather than allocated for every response.
+var copyBuffers = bufferPool{sync.Pool{New: func() any { b := make([]byte, 32<<10); return &b }}}
+
+type bufferPool struct{ p sync.Pool }
+
+func (b *bufferPool) Get() []byte  { return *b.p.Get().(*[]byte) }
+func (b *bufferPool) Put(x []byte) { b.p.Put(&x) }
 
 func tooLong(limit time.Duration) string {
 	return fmt.Sprintf("the app took longer than its time limit for one request (%s), so the box stopped waiting. "+
