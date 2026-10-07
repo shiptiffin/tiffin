@@ -32,9 +32,19 @@ func (m *Module) Routes(ctx context.Context, p *platform.Platform) ([]edge.Route
 		return nil, err // the edge keeps the routes it has
 	}
 	r.mu.Lock()
-	r.loadedRoutes = routesHash(routes)
+	r.givenRoutes = routesHash(routes)
 	r.mu.Unlock()
 	return routes, nil
+}
+
+// RoutesLoaded notes that the edge serves the routes Routes gave last (the
+// platform gathers and loads routes one refresh at a time).
+func (m *Module) RoutesLoaded() {
+	if r, err := m.rt(); err == nil {
+		r.mu.Lock()
+		r.loadedRoutes = r.givenRoutes
+		r.mu.Unlock()
+	}
 }
 
 // PreviewHosts maps the hosts of a project's deployed web app previews to
@@ -76,6 +86,10 @@ type routeConflict struct{ Key, Winner, Loser string }
 // routes returns every route, or an error when the state could not be read
 // in full: a partial list would take the missing apps off the edge.
 func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) {
+	// One at a time, so the switchboard's dispatch table is never set from
+	// states read before the ones another call already used.
+	r.routesMu.Lock()
+	defer r.routesMu.Unlock()
 	states, err := r.st.allStates(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("runtime routes: %w", err)

@@ -93,6 +93,12 @@ type RouteProvider interface {
 	Routes(ctx context.Context, p *Platform) ([]edge.Route, error)
 }
 
+// RoutesLoader is a RouteProvider told when the routes it last gave are
+// what the edge serves.
+type RoutesLoader interface {
+	RoutesLoaded()
+}
+
 // Starter starts background work. Start must return promptly; stop when ctx ends.
 type Starter interface {
 	Start(ctx context.Context, p *Platform) error
@@ -358,6 +364,9 @@ type Platform struct {
 	started     atomic.Bool
 	starting    atomic.Bool
 	routesStale atomic.Bool
+	// routesMu makes gathering routes and loading them one step: two
+	// refreshes in a row load the newer routes last.
+	routesMu sync.Mutex
 }
 
 // Started reports whether Start finished: every module started. Health
@@ -397,6 +406,8 @@ func (p *Platform) RefreshRoutes(ctx context.Context) error {
 func (p *Platform) RoutesStale() bool { return p.routesStale.Load() }
 
 func (p *Platform) refreshRoutes(ctx context.Context) error {
+	p.routesMu.Lock()
+	defer p.routesMu.Unlock()
 	var all []edge.Route
 	for _, m := range Modules() {
 		if rp, ok := m.(RouteProvider); ok {
@@ -408,7 +419,15 @@ func (p *Platform) refreshRoutes(ctx context.Context) error {
 		}
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].Host < all[j].Host })
-	return p.Edge.SetRoutes(all)
+	if err := p.Edge.SetRoutes(all); err != nil {
+		return err
+	}
+	for _, m := range Modules() {
+		if rl, ok := m.(RoutesLoader); ok {
+			rl.RoutesLoaded()
+		}
+	}
+	return nil
 }
 
 // Checks runs every Checker, then checks no project resource failed.

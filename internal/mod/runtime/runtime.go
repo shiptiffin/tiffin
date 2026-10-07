@@ -118,9 +118,11 @@ type rt struct {
 	// previewFiles: the hosts of static previews (the edge serves their
 	// files, so the switchboard never sees their requests) → environment.
 	previewFiles map[string]string
-	// loadedRoutes is the hash of the routes the edge last loaded from us.
-	loadedRoutes string
-	hooks        *hookTokens
+	// loadedRoutes is the hash of the routes the edge last loaded from us;
+	// givenRoutes, of those Routes last gave (loaded once RoutesLoaded).
+	loadedRoutes, givenRoutes string
+	routesMu                  sync.Mutex // one routes() at a time
+	hooks                     *hookTokens
 	// gitResolve resolves hosts of git URLs to deploy from (nil: DNS).
 	gitResolve resolver
 	// gh is the GitHub connection and its deploy queue.
