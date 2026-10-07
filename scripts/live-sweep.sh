@@ -78,6 +78,8 @@ if [ -z "$p" ]; then
   echo "## buildkit cache"; buildctl --addr unix:///run/buildkit/buildkitd.sock du 2>/dev/null | tail -2
 fi
 echo "## containers"; $ns ps -a --format '{{.Names}}  {{.Status}}' | grep -E "^tf\.${p}" ; [ -z "$p" ] && $ns ps -a --format '{{.Names}}  {{.Status}}' | grep -v '^tf\.'
+# Build and copy helpers that stopped: --rm is nerdctl's client's job, so a killed client left them (a running one is in use).
+echo "## stopped helper containers"; $ns ps -a --filter label=tiffin.helper --format '{{.Names}}  {{.Status}}' | grep -vi '^[^ ]*  *up'
 echo "## images"; $ns images --format '{{.Repository}}:{{.Tag}}  {{.Size}}' | grep -E "^tiffin/${p}" ; [ -z "$p" ] && $ns images --format '{{.Repository}}:{{.Tag}}  {{.Size}}' | grep -v '^tiffin/'
 q() { sudo -u postgres psql -h /var/run/postgresql -Atc "$1" 2>/dev/null; }
 echo "## databases"; q "select datname from pg_database where datname like '${db}%' and datname not in ('postgres','template0','template1') order by 1"
