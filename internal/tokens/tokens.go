@@ -377,8 +377,11 @@ func (m *Manager) Authenticate(ctx context.Context, secret string) (*Principal, 
 	if !strings.HasPrefix(secret, secretPrefix) {
 		return nil, ErrUnauthenticated
 	}
-	row := m.db.SQL().QueryRowContext(ctx, tokenCols+` FROM tokens WHERE hash = ?`, hash(secret))
-	t, err := scanToken(row)
+	// One query for the token and its person (the owner token's is the owner).
+	var pName, pRole, pDisabled sql.NullString
+	row := m.db.SQL().QueryRowContext(ctx, tokenColsT+`, p.name, p.role, p.disabled_at FROM tokens t
+		LEFT JOIN people p ON p.id = CASE WHEN t.kind = ? THEN ? ELSE t.person END WHERE t.hash = ?`, KindOwner, OwnerPerson, hash(secret))
+	t, err := scanToken(row, &pName, &pRole, &pDisabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUnauthenticated
 	} else if err != nil {
@@ -398,12 +401,15 @@ func (m *Manager) Authenticate(ctx context.Context, secret string) (*Principal, 
 	pr := &Principal{TokenID: t.ID, Name: t.Name, Kind: t.Kind, Scopes: t.Scopes, Projects: t.Projects, Sponsor: t.Sponsor, ExpiresAt: t.ExpiresAt, Person: person}
 	pr.Access = pr.access()
 	if person != "" {
-		if pp, err := m.GetPerson(ctx, person); err == nil {
-			if pp.DisabledAt != nil {
-				return nil, ErrUnauthenticated
+		if !pRole.Valid && person == OwnerPerson { // a box from before people: make the owner's row
+			if pp, err := m.GetPerson(ctx, person); err == nil {
+				pName.String, pRole.String = pp.Name, pp.Role
 			}
-			pr.PersonName, pr.Role = pp.Name, pp.Role
 		}
+		if pDisabled.Valid {
+			return nil, ErrUnauthenticated
+		}
+		pr.PersonName, pr.Role = pName.String, pRole.String
 	}
 	return pr, nil
 }
@@ -495,9 +501,22 @@ func (m *Manager) Get(ctx context.Context, id string) (*Token, error) {
 
 // List returns tokens, newest first. Revoked tokens are included only if asked.
 func (m *Manager) List(ctx context.Context, includeRevoked bool) ([]*Token, error) {
-	q := tokenCols + ` FROM tokens`
+	return m.list(ctx, includeRevoked, false)
+}
+
+// ListKeys is List without dashboard sessions: the API keys (and the owner
+// token), filtered in SQL so accumulated sessions cost nothing.
+func (m *Manager) ListKeys(ctx context.Context, includeRevoked bool) ([]*Token, error) {
+	return m.list(ctx, includeRevoked, true)
+}
+
+func (m *Manager) list(ctx context.Context, includeRevoked, keys bool) ([]*Token, error) {
+	q := tokenCols + ` FROM tokens WHERE 1`
 	if !includeRevoked {
-		q += ` WHERE revoked_at IS NULL`
+		q += ` AND revoked_at IS NULL`
+	}
+	if keys {
+		q += ` AND NOT (kind = 'human' AND person IS NOT NULL)`
 	}
 	rows, err := m.db.SQL().QueryContext(ctx, q+` ORDER BY created_at DESC, id DESC`)
 	if err != nil {
@@ -517,13 +536,17 @@ func (m *Manager) List(ctx context.Context, includeRevoked bool) ([]*Token, erro
 
 const tokenCols = `SELECT id, name, kind, scopes, projects, sponsor, created_at, expires_at, revoked_at, last_used_at, person, grants`
 
+// tokenColsT is tokenCols for a query where tokens is "t".
+const tokenColsT = `SELECT t.id, t.name, t.kind, t.scopes, t.projects, t.sponsor, t.created_at, t.expires_at, t.revoked_at, t.last_used_at, t.person, t.grants`
+
 type scanner interface{ Scan(dest ...any) error }
 
-func scanToken(r scanner) (*Token, error) {
+// scanToken reads tokenCols, then any extra columns into extra.
+func scanToken(r scanner, extra ...any) (*Token, error) {
 	var t Token
 	var scopes, projects, created string
 	var sponsor, expires, revoked, used, person, grants sql.NullString
-	if err := r.Scan(&t.ID, &t.Name, &t.Kind, &scopes, &projects, &sponsor, &created, &expires, &revoked, &used, &person, &grants); err != nil {
+	if err := r.Scan(append([]any{&t.ID, &t.Name, &t.Kind, &scopes, &projects, &sponsor, &created, &expires, &revoked, &used, &person, &grants}, extra...)...); err != nil {
 		return nil, err
 	}
 	_ = json.Unmarshal([]byte(scopes), &t.Scopes)

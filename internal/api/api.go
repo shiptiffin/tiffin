@@ -758,15 +758,12 @@ func (a *API) register() {
 			if !PrincipalFrom(ctx).BoxAdmin() {
 				return nil, tokens.ErrNotAdmin
 			}
-			all, err := a.deps.Tokens.List(ctx, in.Revoked)
+			all, err := a.deps.Tokens.ListKeys(ctx, in.Revoked)
 			if err != nil {
 				return nil, err
 			}
 			out := []*tokens.Key{}
 			for _, t := range all {
-				if t.Kind == tokens.KindHuman && t.Person != "" {
-					continue // a dashboard session, not a key
-				}
 				out = append(out, t.AsKey())
 			}
 			return &struct{ Body []*tokens.Key }{out}, nil
