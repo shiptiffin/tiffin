@@ -35,6 +35,143 @@ func (h *harness) runningOf(app string) int {
 	return n
 }
 
+// keptOf counts app's production containers, running or stopped.
+func (h *harness) keptOf(app string) int {
+	h.eng.mu.Lock()
+	defer h.eng.mu.Unlock()
+	n := 0
+	for name := range h.eng.ctrs {
+		if strings.HasPrefix(name, "tf.shop."+app+".prod.") {
+			n++
+		}
+	}
+	return n
+}
+
+// asleep puts app's production to sleep now.
+func (h *harness) asleep(app string) *AppState {
+	h.t.Helper()
+	h.r.sleep(context.Background(), "shop", app, "", 0)
+	st := h.state(app, "")
+	if !st.Sleeping || len(st.Parked) == 0 {
+		h.t.Fatalf("not asleep with kept containers: %+v", st)
+	}
+	return st
+}
+
+// A wake after a config change creates new containers and removes the
+// kept ones; so do a deploy, a rollback and a stop while asleep.
+func TestKeptContainersGoWhenTheyNoLongerFit(t *testing.T) {
+	h := newHarness(t)
+	v1 := h.deploy("api", "", map[string]string{"index.ts": "v1"})
+	h.sleepy("1h")
+	ctx := context.Background()
+
+	// A changed env: the wake starts new containers with it.
+	h.asleep("api")
+	app := h.mf.Apps["api"]
+	app.Env = map[string]string{"GREETING": "hello again"}
+	h.mf.Apps["api"] = app
+	h.apply()
+	runs := h.eng.runs
+	if _, body := h.get("shop.tiffin.localhost", "/api/x"); !strings.Contains(body, "greeting=hello again") {
+		t.Fatalf("woke with the old env: %s", body)
+	}
+	if h.eng.runs != runs+2 {
+		t.Fatalf("runs %d → %d: want new containers", runs, h.eng.runs)
+	}
+	waitFor(t, func() bool { return h.keptOf("api") == 2 })
+
+	// Unchanged config: the next wake reuses them.
+	h.asleep("api")
+	runs = h.eng.runs
+	if code, _ := h.get("shop.tiffin.localhost", "/api/x"); code != 200 || h.eng.runs != runs {
+		t.Fatalf("wake made new containers (%d → %d)", runs, h.eng.runs)
+	}
+
+	// A deploy while asleep.
+	h.asleep("api")
+	v2 := h.deploy("api", "", map[string]string{"index.ts": "v2"})
+	if st := h.state("api", ""); v2.Status != StatusLive || st.Sleeping || len(st.Parked) != 0 {
+		t.Fatalf("deploy while asleep: %s %+v", v2.Status, st)
+	}
+	waitFor(t, func() bool { return h.keptOf("api") == 2 })
+
+	// A rollback while asleep.
+	h.asleep("api")
+	if _, err := h.r.rollback(ctx, "shop", "api", v1.ID); err != nil {
+		t.Fatal(err)
+	}
+	if st := h.state("api", ""); st.Live != v1.ID || st.Sleeping || len(st.Parked) != 0 {
+		t.Fatalf("rollback while asleep: %+v", st)
+	}
+	waitFor(t, func() bool { return h.keptOf("api") == 2 })
+
+	// A stop while asleep removes them and frees their ports.
+	st := h.asleep("api")
+	if err := h.r.stopEnv(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+	if n := h.keptOf("api"); n != 0 {
+		t.Fatalf("%d container(s) left after a stop", n)
+	}
+	for _, in := range st.Parked {
+		if h.r.ownedNames()[in.Name] != 0 {
+			t.Fatalf("port of %s still held", in.Name)
+		}
+	}
+}
+
+// A kept container that will not start is replaced on the wake.
+func TestWakeReplacesAKeptContainerThatWillNotStart(t *testing.T) {
+	h := newHarness(t)
+	h.deploy("api", "", map[string]string{"index.ts": "v1"})
+	h.sleepy("1h")
+	st := h.asleep("api")
+	// Removed behind the runtime's back.
+	if err := h.eng.Remove(context.Background(), st.Parked[0].Name, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	runs := h.eng.runs
+	if code, body := h.get("shop.tiffin.localhost", "/api/x"); code != 200 {
+		t.Fatalf("wake: %d %s", code, body)
+	}
+	if st := h.state("api", ""); st.Sleeping || len(st.Instances) != 2 || h.eng.runs != runs+2 {
+		t.Fatalf("not replaced: %+v runs %d → %d", st, runs, h.eng.runs)
+	}
+	waitFor(t, func() bool { return h.keptOf("api") == 2 })
+}
+
+// Kept containers survive a restart of the runtime: their ports stay held
+// and the leftover sweep leaves them alone.
+func TestKeptContainersSurviveRestart(t *testing.T) {
+	h := newHarness(t)
+	h.deploy("api", "", map[string]string{"index.ts": "v1"})
+	h.sleepy("1h")
+	st := h.asleep("api")
+	// A restart: the port table is rebuilt from the stored states.
+	h.r.mu.Lock()
+	h.r.ports = map[int]string{}
+	h.r.mu.Unlock()
+	if err := h.r.recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	h.r.removeOrphans(context.Background())
+	if n := h.keptOf("api"); n != 2 {
+		t.Fatalf("leftover sweep removed kept containers: %d left", n)
+	}
+	owned := h.r.ownedNames()
+	for _, in := range st.Parked {
+		if owned[in.Name] != in.Port {
+			t.Fatalf("port of %s not held after a restart", in.Name)
+		}
+	}
+	runs := h.eng.runs
+	if code, _ := h.get("shop.tiffin.localhost", "/api/x"); code != 200 || h.eng.runs != runs {
+		t.Fatalf("wake after restart: %d, runs %d → %d", code, runs, h.eng.runs)
+	}
+}
+
 func TestProductionNeverSleepsByDefault(t *testing.T) {
 	h := newHarness(t)
 	h.deploy("api", "", map[string]string{"index.ts": "v1"})
@@ -63,15 +200,19 @@ func TestProductionSleepsAndWakesOnRequest(t *testing.T) {
 	if !st.Sleeping || len(st.Instances) != 0 || st.SleptAt == nil || h.runningOf("api") != 0 {
 		t.Fatalf("not asleep: %+v (running %d)", st, h.runningOf("api"))
 	}
+	// Stopped, not removed: kept for the wake.
+	if len(st.Parked) != 2 || h.keptOf("api") != 2 {
+		t.Fatalf("containers not kept: %+v (kept %d)", st.Parked, h.keptOf("api"))
+	}
 	// Routes stay: the switchboard holds the request and starts the app.
-	runs := h.eng.runs
+	runs, starts := h.eng.runs, h.eng.starts
 	code, body := h.get("shop.tiffin.localhost", "/api/hello")
 	if code != 200 || !strings.Contains(body, strings.ToLower(d.ID)) {
 		t.Fatalf("wake on request: %d %s", code, body)
 	}
 	st = h.state("api", "")
-	if st.Sleeping || len(st.Instances) != 2 || h.eng.runs != runs+2 || st.SleptAt != nil {
-		t.Fatalf("woke wrong: %+v runs %d → %d", st, runs, h.eng.runs)
+	if st.Sleeping || len(st.Instances) != 2 || h.eng.runs != runs || h.eng.starts != starts+2 || st.SleptAt != nil || len(st.Parked) != 0 {
+		t.Fatalf("woke wrong: %+v runs %d → %d, starts %d → %d", st, runs, h.eng.runs, starts, h.eng.starts)
 	}
 	// The first byte is noted once the handler returns, which may be after the client read the response.
 	for deadline := time.Now().Add(2 * time.Second); st.LastWake != nil && st.LastWake.FirstByteSeconds == 0 && time.Now().Before(deadline); st = h.state("api", "") {

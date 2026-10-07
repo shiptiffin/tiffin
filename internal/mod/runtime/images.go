@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -433,8 +434,8 @@ func (r *rt) forget(ctx context.Context, project, app string) error {
 	}
 	for _, s := range states {
 		if s.Project == project && (app == "" || s.App == app) {
-			if len(s.Instances) > 0 {
-				r.removeInstances(ctx, s.Instances)
+			if ins := slices.Concat(s.Instances, s.Parked); len(ins) > 0 {
+				r.removeInstances(ctx, ins)
 			}
 			if err := r.st.deleteState(ctx, s); err != nil {
 				errs = append(errs, err)

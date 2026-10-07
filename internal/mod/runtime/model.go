@@ -125,6 +125,15 @@ type AppState struct {
 	Sleeping bool `json:"sleeping,omitempty"`
 	// SleptAt is when it fell asleep (while Sleeping).
 	SleptAt *time.Time `json:"sleptAt,omitempty"`
+	// Parked: the instances a sleep stopped but kept (filesystem, config,
+	// name and port), so a wake only starts them again. Their memory is
+	// freed. A wake with another config, a deploy, a rollback or a stop
+	// removes them.
+	Parked []Instance `json:"parked,omitempty"`
+	// Print fingerprints everything the instances were started with
+	// (release, full env, mounts, Hash): a wake starts Parked instances
+	// only while it still matches.
+	Print string `json:"print,omitempty"`
 	// LastWake is its last wake from sleep.
 	LastWake *Wake `json:"lastWake,omitempty"`
 	// Draining: earlier releases kept running (without routes) because

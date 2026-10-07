@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -429,7 +430,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}))
 
 	sl := api.Op("preview-sleep", http.MethodPost, appPath+"/previews/{name}/sleep", "previews sleep", api.RiskWrite, "Put a preview to sleep",
-		"Stops a preview's instance now to free memory; its URL keeps working and the next request wakes it (a few seconds). "+
+		"Stops a preview's instance now to free memory; its URL keeps working and the next request wakes it (about a second). "+
 			"Previews also sleep on their own after 15 idle minutes.", "apps")
 	sl.Errors = append(sl.Errors, 404)
 	huma.Register(a, sl, api.Wrap(func(ctx context.Context, in *struct {
@@ -946,7 +947,7 @@ func (r *rt) deletePreview(ctx context.Context, project, app, name string) error
 		return err
 	}
 	_ = r.refreshIfNeeded(ctx)
-	r.removeInstances(ctx, st.Instances)
+	r.removeInstances(ctx, slices.Concat(st.Instances, st.Parked))
 	if d, err := r.st.getDeploy(ctx, project, app, st.Live); err == nil {
 		d.Status = StatusStopped
 		_ = r.st.putDeploy(ctx, d)

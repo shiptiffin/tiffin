@@ -3,9 +3,11 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
@@ -238,7 +240,9 @@ func (r *rt) wakeUnwanted(s *AppState) {
 }
 
 // sleep stops an app environment's instances, keeping its routes, unless it
-// had activity within idle (0: sleep now, asked for).
+// had activity within idle (0: sleep now, asked for). The stopped containers
+// are kept (Parked): their memory is freed, and a wake only starts them
+// again instead of creating new ones.
 func (r *rt) sleep(ctx context.Context, project, app, preview string, idle time.Duration) {
 	unlock := r.lock(envKey(project, app, preview))
 	defer unlock()
@@ -253,6 +257,7 @@ func (r *rt) sleep(ctx context.Context, project, app, preview string, idle time.
 	ins := st.Instances
 	now := time.Now().UTC()
 	st.Instances, st.Sleeping, st.SleptAt = nil, true, &now
+	st.Parked = append(st.Parked[:0:0], ins...)
 	if r.st.putState(ctx, st) != nil {
 		return
 	}
@@ -261,8 +266,56 @@ func (r *rt) sleep(ctx context.Context, project, app, preview string, idle time.
 	for i := 0; i < 200 && r.busy(ins) > 0; i++ {
 		time.Sleep(25 * time.Millisecond)
 	}
-	r.removeInstances(ctx, ins)
+	if failed := r.park(ctx, ins); len(failed) > 0 {
+		// Not kept: removed instead, and the wake creates new ones.
+		st.Parked = nil
+		_ = r.st.putState(ctx, st)
+		r.removeInstances(ctx, ins)
+	}
 	r.p.Log.Info("app asleep", "project", project, "app", app, "preview", preview, "idle", idle)
+}
+
+// park stops instances and keeps them, ports included. It returns the ones
+// it could not stop.
+func (r *rt) park(ctx context.Context, ins []Instance) []Instance {
+	ctx, cancel := cleanupContext(ctx)
+	defer cancel()
+	var (
+		mu     sync.Mutex
+		failed []Instance
+		wg     sync.WaitGroup
+	)
+	for _, in := range ins {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := r.eng.Stop(ctx, in.Name, r.opt.StopGrace); err != nil {
+				r.p.Log.Warn("runtime: stop a sleeping app's container (removing it instead)", "name", in.Name, "err", err)
+				mu.Lock()
+				failed = append(failed, in)
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	return failed
+}
+
+// unpark starts parked instances again and waits for their health checks.
+func (r *rt) unpark(ctx context.Context, d *Deploy, spec *manifest.App, ins []Instance) error {
+	errs := make([]error, len(ins))
+	var wg sync.WaitGroup
+	for i, in := range ins {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if errs[i] = r.eng.Start(ctx, in.Name); errs[i] == nil {
+				errs[i] = r.waitHealthy(ctx, in, spec, r.logFile(d.Project, d.App, d.Preview, d.ID, serialOf(in.Name)))
+			}
+		}()
+	}
+	wg.Wait()
+	return errors.Join(errs...)
 }
 
 // wake returns a running instance's port for an app environment, starting

@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -231,7 +232,7 @@ func (r *rt) recover(ctx context.Context) error {
 	}
 	for _, s := range states {
 		r.st.cache.put(s)
-		for _, in := range s.Instances {
+		for _, in := range slices.Concat(s.Instances, s.Parked) {
 			r.ports[in.Port] = in.Name
 		}
 		for _, ds := range s.Draining {

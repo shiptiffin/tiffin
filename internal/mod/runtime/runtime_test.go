@@ -54,6 +54,8 @@ type fakeEngine struct {
 	images map[string]string
 	crash  map[string]bool
 	runs   int
+	// stops and starts count Stop and Start calls (sleep and wake).
+	stops, starts int
 	// stuck: removing an exited container fails, as nerdctl rm did on a
 	// box for a container crashing under its restart policy.
 	stuck bool
@@ -136,6 +138,12 @@ func (e *fakeEngine) Run(ctx context.Context, s RunSpec) error {
 		appendLog(s.LogPath, "stderr", "boom: missing DATABASE_URL")
 		return nil
 	}
+	return e.serve(c)
+}
+
+// serve starts a container's HTTP server. Call with e.mu held.
+func (e *fakeEngine) serve(c *fakeCtr) error {
+	s := c.spec
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", s.Port))
 	if err != nil {
 		return err
@@ -183,6 +191,44 @@ func (e *fakeEngine) Remove(ctx context.Context, name string, grace time.Duratio
 		_ = c.srv.Shutdown(sctx)
 	}
 	return nil
+}
+
+// Stop stops a container's server and keeps the container.
+func (e *fakeEngine) Stop(ctx context.Context, name string, grace time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	e.mu.Lock()
+	c := e.ctrs[name]
+	if c == nil {
+		e.mu.Unlock()
+		return fmt.Errorf("nerdctl stop: exit status 1: no such container: %s", name)
+	}
+	e.stops++
+	srv := c.srv
+	c.srv, c.running = nil, false
+	e.mu.Unlock()
+	if srv != nil {
+		sctx, cancel := context.WithTimeout(ctx, grace)
+		defer cancel()
+		_ = srv.Shutdown(sctx)
+	}
+	return nil
+}
+
+// Start serves a stopped container again, with the spec it was run with.
+func (e *fakeEngine) Start(ctx context.Context, name string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	c := e.ctrs[name]
+	if c == nil {
+		return fmt.Errorf("nerdctl start: exit status 1: no such container: %s", name)
+	}
+	e.starts++
+	if c.running {
+		return nil
+	}
+	return e.serve(c)
 }
 
 func (e *fakeEngine) Inspect(ctx context.Context, name string) (*Container, error) {
@@ -1102,19 +1148,29 @@ func TestPreviewSleepsAndWakes(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 	h.r.sleepIdle(context.Background())
 	st := h.state("api", "feat-x")
-	if !st.Sleeping || len(st.Instances) != 0 {
+	if !st.Sleeping || len(st.Instances) != 0 || len(st.Parked) != 1 {
 		t.Fatalf("not asleep: %+v", st)
 	}
-	runs := h.eng.runs
-	// The next request wakes it.
+	runs, starts := h.eng.runs, h.eng.starts
+	// The next request wakes it: the kept container starts again.
 	h.r.opt.PreviewIdle = time.Hour
 	code, body = h.get(host, "/hello")
 	if code != 200 || !strings.Contains(body, strings.ToLower(pv.ID)) {
 		t.Fatalf("wake: %d %s", code, body)
 	}
-	if h.eng.runs != runs+1 || h.state("api", "feat-x").Sleeping {
-		t.Fatal("wake did not start one instance")
+	if h.eng.runs != runs || h.eng.starts != starts+1 || h.state("api", "feat-x").Sleeping {
+		t.Fatal("wake did not start its kept instance")
 	}
+	// Asleep again, then deleted: the kept container goes too.
+	h.r.sleep(context.Background(), "shop", "api", "feat-x", 0)
+	if st := h.state("api", "feat-x"); !st.Sleeping || len(st.Parked) != 1 {
+		t.Fatalf("not asleep: %+v", st)
+	}
+	defer func() {
+		if c, _ := h.eng.Inspect(context.Background(), st.Parked[0].Name); c != nil {
+			t.Fatalf("a deleted preview's kept container is still there: %+v", c)
+		}
+	}()
 	// Previews are listed and deletable.
 	rt, err := h.r.appRuntime(context.Background(), "shop", "api")
 	if err != nil || len(rt.Previews) != 1 || rt.Prod.Live.ID != prod.ID {

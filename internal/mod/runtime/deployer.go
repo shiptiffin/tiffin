@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -364,7 +365,14 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 	if err != nil {
 		return err
 	}
-	var started []Instance
+	var (
+		started []Instance
+		fp      string
+		// parked: the stopped instances a sleep kept; reused: this wake
+		// started them again instead of new ones.
+		parked = st.Parked
+		reused bool
+	)
 	if d.StaticRoot == "" {
 		r.ensureAssets(ctx, d, log)
 		n := max(1, spec.Instances)
@@ -380,8 +388,21 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 		}
 		var mounts []string
 		mounts, err = r.diskMounts(ctx, d, spec, log)
-		if err == nil {
-			started, err = r.startInstances(ctx, st, d, spec, n, env, mounts)
+		fp = runPrint(d.ID, hash, env, mounts)
+		if err == nil && mode == modeWake && len(parked) == n && st.Print == fp && parkedFor(parked, d.ID) {
+			if uerr := r.unpark(ctx, d, spec, parked); uerr == nil {
+				started, reused = parked, true
+			} else {
+				r.p.Log.Warn("runtime: a sleeping app's kept containers did not start; starting new ones", "project", d.Project, "app", d.App, "preview", d.Preview, "err", uerr)
+				bad := parked
+				st.Parked, parked = nil, nil
+				_ = r.st.putState(ctx, st)
+				r.removeInstances(ctx, bad)
+			}
+		}
+		if err == nil && !reused {
+			// A wake starts the release that passed its checks at deploy.
+			started, err = r.startInstances(ctx, st, d, spec, n, env, mounts, mode != modeWake)
 		}
 		if err != nil {
 			// Keep the serials it used, so the next start takes new names
@@ -403,11 +424,18 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 	}
 	// The switch: from here on new requests go to the new instances.
 	st.Retired = retire(st.Retired, prev.Live, d.ID, time.Now().UTC())
-	st.Live, st.Instances, st.Hash, st.Stopped, st.Sleeping, st.SleptAt = d.ID, started, hash, false, false, nil
+	st.Live, st.Instances, st.Hash, st.Print, st.Stopped, st.Sleeping, st.SleptAt, st.Parked = d.ID, started, hash, fp, false, false, nil, nil
 	// Deploys, rollbacks, restarts and wakes count as activity.
 	r.touch(envKey(d.Project, d.App, d.Preview))
+	undo := func() {
+		if reused {
+			r.park(ctx, started) // still asleep: kept for the next wake
+		} else {
+			r.removeInstances(ctx, started)
+		}
+	}
 	if err := r.st.putState(ctx, st); err != nil {
-		r.removeInstances(ctx, started)
+		undo()
 		return err
 	}
 	// The edge only reloads when hosts, paths or file roots change (a first
@@ -415,8 +443,12 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 	if err := r.refreshIfNeeded(ctx); err != nil {
 		_ = r.st.putState(ctx, &prev)
 		_ = r.p.RefreshRoutes(ctx)
-		r.removeInstances(ctx, started)
+		undo()
 		return fmt.Errorf("switch edge routes: %w", err)
+	}
+	if len(parked) > 0 && !reused {
+		// A sleeping app's kept containers of another release or config.
+		go r.removeInstances(r.ctx, parked)
 	}
 	now := time.Now().UTC()
 	if prev.Live != "" && prev.Live != d.ID {
@@ -459,11 +491,41 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 	return nil
 }
 
+// runPrint fingerprints what an app environment's instances start with: the
+// release, the full env (DATABASE_POOL_MAX included, which hash leaves out),
+// the mounts and hash (count, memory, role, health check, slice, disks).
+func runPrint(deploy, hash string, env map[string]string, mounts []string) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00%s\x00", deploy, hash)
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Fprintf(h, "%s=%s\x00", k, env[k])
+	}
+	for _, m := range mounts {
+		fmt.Fprintf(h, "mount=%s\x00", m)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// parkedFor reports whether every parked instance runs release id.
+func parkedFor(ins []Instance, id string) bool {
+	for _, in := range ins {
+		if in.Deploy != id {
+			return false
+		}
+	}
+	return true
+}
+
 // startInstances starts n containers for d and waits for all to be healthy.
 // On failure every container it started is removed again, and the serials
 // it used stay used: a container that could not be removed never blocks
 // the next start's name.
-func (r *rt) startInstances(ctx context.Context, st *AppState, d *Deploy, spec *manifest.App, n int, env map[string]string, mounts []string) ([]Instance, error) {
+func (r *rt) startInstances(ctx context.Context, st *AppState, d *Deploy, spec *manifest.App, n int, env map[string]string, mounts []string, smoke bool) ([]Instance, error) {
 	var out []Instance
 	for i := 0; i < n; i++ {
 		in, err := r.runInstance(ctx, st, d, spec, i, env, mounts)
@@ -482,7 +544,7 @@ func (r *rt) startInstances(ctx context.Context, st *AppState, d *Deploy, spec *
 			defer wg.Done()
 			logPath := r.logFile(d.Project, d.App, d.Preview, d.ID, serialOf(in.Name))
 			errs[i] = r.waitHealthy(ctx, in, spec, logPath)
-			if errs[i] == nil && i == 0 && spec.Framework == manifest.FrameworkNext && spec.Role != manifest.RoleWorker {
+			if errs[i] == nil && smoke && i == 0 && spec.Framework == manifest.FrameworkNext && spec.Role != manifest.RoleWorker {
 				errs[i] = smokeNext(ctx, in, spec, logPath)
 			}
 		}()
@@ -1033,15 +1095,15 @@ func (r *rt) stopEnv(ctx context.Context, st *AppState) error {
 	if err != nil {
 		return err
 	}
-	if st.Stopped && len(st.Instances) == 0 && len(st.Draining) == 0 {
+	if st.Stopped && len(st.Instances) == 0 && len(st.Draining) == 0 && len(st.Parked) == 0 {
 		return nil
 	}
-	ins := st.Instances
+	ins := slices.Concat(st.Instances, st.Parked)
 	for _, ds := range st.Draining {
 		ins = append(ins, ds.Instances...)
 	}
 	// Not asleep: a start brings it back awake.
-	st.Instances, st.Draining, st.Stopped, st.Sleeping, st.SleptAt = nil, nil, true, false, nil
+	st.Instances, st.Draining, st.Stopped, st.Sleeping, st.SleptAt, st.Parked = nil, nil, true, false, nil, nil
 	if err := r.st.putState(ctx, st); err != nil {
 		return err
 	}
