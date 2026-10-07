@@ -85,32 +85,73 @@ export const projectSchema = z.object({
 
 export type ProjectConfig = z.infer<typeof projectSchema>;
 
+const projectName = /^[a-z][a-z0-9-]{0,39}$/;
+
+const proxySchema = z.object({ url: z.string().url(), host: z.string().min(1), secret: z.string().min(32), social: socialApps });
+
 export const configSchema = z.object({
   version: z.literal(1),
   /** Extra addresses to serve on besides --listen (the runtime's bridge IP, so app containers reach the engine). */
   listen: z.array(z.string()).default([]),
-  projects: z.record(z.string().regex(/^[a-z][a-z0-9-]{0,39}$/), projectSchema),
+  projects: z.record(z.string().regex(projectName), projectSchema),
   /**
    * The box's one callback URL for box-wide sign-in keys: requests to
    * https://<host>/api/auth/callback/<provider> (the dashboard host; the box
    * forwards them) finish the provider's side and hand the sign-in to the app.
    */
-  proxy: z
-    .object({ url: z.string().url(), host: z.string().min(1), secret: z.string().min(32), social: socialApps })
-    .optional(),
+  proxy: proxySchema.optional(),
 });
 
-export type ProxyConfig = NonNullable<z.infer<typeof configSchema>["proxy"]>;
+export type ProxyConfig = z.infer<typeof proxySchema>;
 
 export type EngineConfig = z.infer<typeof configSchema>;
 
-export function parseConfig(raw: unknown): EngineConfig {
-  const r = configSchema.safeParse(raw);
-  if (!r.success) {
-    const first = r.error.issues[0];
-    throw new Error(`auth config invalid at ${first?.path.join(".") || "(root)"}: ${first?.message}`);
+// The file as a whole; each project (and the proxy) is checked on its own below.
+const envelope = z.object({
+  version: z.literal(1),
+  listen: z.array(z.string()).default([]),
+  projects: z.record(z.string(), z.unknown()).default({}),
+  proxy: z.unknown().optional(),
+});
+
+const issue = (e: z.ZodError) => {
+  const first = e.issues[0];
+  return `${first?.path.join(".") || "(root)"}: ${first?.message}`;
+};
+
+/**
+ * Parses the engine config. One project's bad settings (say an OpenID Connect
+ * issuer that isn't a URL, set through its secrets) leave that project out,
+ * logged, and never the file: every other project keeps signing people in,
+ * and the engine still starts.
+ */
+export function parseConfig(raw: unknown, warn: (msg: string, fields: Record<string, unknown>) => void = logWarn): EngineConfig {
+  const top = envelope.safeParse(raw);
+  if (!top.success) throw new Error(`auth config invalid at ${issue(top.error)}`);
+  const projects: EngineConfig["projects"] = {};
+  for (const [name, p] of Object.entries(top.data.projects)) {
+    if (!projectName.test(name)) {
+      warn("auth config: project left out (bad name)", { project: name });
+      continue;
+    }
+    const r = projectSchema.safeParse(p);
+    if (!r.success) {
+      warn("auth config: project left out (invalid settings)", { project: name, err: issue(r.error) });
+      continue;
+    }
+    projects[name] = r.data;
   }
-  return r.data;
+  const out: EngineConfig = { version: 1, listen: top.data.listen, projects };
+  if (top.data.proxy !== undefined) {
+    const r = proxySchema.safeParse(top.data.proxy);
+    if (r.success) out.proxy = r.data;
+    else warn("auth config: box-wide sign-in callback left out (invalid settings)", { err: issue(r.error) });
+  }
+  return out;
+}
+
+function logWarn(msg: string, fields: Record<string, unknown>) {
+  console.error(JSON.stringify({ level: "warn", msg, ...fields }));
 }
 
 export function readConfig(path: string): { config: EngineConfig; mtimeMs: number } {

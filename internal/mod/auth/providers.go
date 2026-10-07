@@ -175,12 +175,17 @@ func projectHas(prov Provider, have func(string) bool) bool {
 	return have(e+"_CLIENT_ID") && have(e+"_CLIENT_SECRET")
 }
 
-// projectApp builds the engine's OAuth app from a project's secrets.
+// projectApp builds the engine's OAuth app from a project's secrets. The
+// secrets API takes any value, so they are checked here as the box-wide
+// keys are when stored: the engine leaves out a project whose settings it
+// can't use, so a bad value fails this project's apply, never the engine.
 func projectApp(ctx context.Context, p *platform.Platform, prov Provider, sec map[string]string) (*OAuthApp, error) {
 	e := prov.Env
-	a := &OAuthApp{ClientID: sec[e+"_CLIENT_ID"], ClientSecret: sec[e+"_CLIENT_SECRET"]}
-	switch prov.ID {
-	case manifest.AuthApple:
+	a := &OAuthApp{ClientID: strings.TrimSpace(sec[e+"_CLIENT_ID"]), ClientSecret: strings.TrimSpace(sec[e+"_CLIENT_SECRET"])}
+	if prov.ID == manifest.AuthApple {
+		if a.ClientID == "" {
+			return nil, errors.New("the project's APPLE_CLIENT_ID secret is empty")
+		}
 		if a.ClientSecret == "" {
 			jwt, _, err := appleSecret(ctx, p, sec[e+"_TEAM_ID"], sec[e+"_KEY_ID"], a.ClientID, sec[e+"_PRIVATE_KEY"])
 			if err != nil {
@@ -188,13 +193,21 @@ func projectApp(ctx context.Context, p *platform.Platform, prov Provider, sec ma
 			}
 			a.ClientSecret = jwt
 		}
-	case manifest.AuthMicrosoft:
-		a.TenantID = sec[e+"_TENANT_ID"]
-	case manifest.AuthGitLab:
-		a.Issuer = sec[e+"_ISSUER"]
-	case manifest.AuthOIDC:
-		a.Issuer, a.Label = sec[e+"_ISSUER"], sec[e+"_NAME"]
+		return a, nil
 	}
+	in := ProviderInput{BoxProvider: BoxProvider{ClientID: a.ClientID}, ClientSecret: a.ClientSecret}
+	switch prov.ID {
+	case manifest.AuthMicrosoft:
+		in.TenantID = sec[e+"_TENANT_ID"]
+	case manifest.AuthGitLab:
+		in.Issuer = sec[e+"_ISSUER"]
+	case manifest.AuthOIDC:
+		in.Issuer, in.Label = sec[e+"_ISSUER"], sec[e+"_NAME"]
+	}
+	if err := validateInput(prov, &in, false); err != nil {
+		return nil, fmt.Errorf("the project's %s keys (its %s_* secrets): %w", prov.Name, e, err)
+	}
+	a.ClientID, a.ClientSecret, a.TenantID, a.Issuer, a.Label = in.ClientID, in.ClientSecret, in.TenantID, in.Issuer, in.Label
 	return a, nil
 }
 

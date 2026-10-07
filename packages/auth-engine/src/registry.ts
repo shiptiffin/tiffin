@@ -16,6 +16,9 @@ export class Registry {
   private pools = new Map<string, { url: string; pool: pg.Pool }>();
   private retired = new Set<pg.Pool>();
   private byHost = new Map<string, string>();
+  /** Each project's config fingerprint, computed once per config change rather than per request. */
+  private fps = new Map<string, string>();
+  private proxyFp = "";
   private lastStat = 0;
   private proxyInst: { fp: string; inst: ProxyInstance } | null = null;
 
@@ -38,10 +41,14 @@ export class Registry {
     this.config = config;
     this.onChange?.(config);
     this.byHost.clear();
-    for (const [name, p] of Object.entries(config.projects)) for (const h of p.hosts) this.byHost.set(h.toLowerCase(), name);
+    this.fps.clear();
+    for (const [name, p] of Object.entries(config.projects)) {
+      this.fps.set(name, fingerprint(p));
+      for (const h of p.hosts) this.byHost.set(h.toLowerCase(), name);
+    }
+    this.proxyFp = config.proxy ? new Bun.CryptoHasher("sha256").update(JSON.stringify(config.proxy)).digest("hex") : "";
     for (const [name, e] of this.instances) {
-      const p = config.projects[name];
-      if (!p || fingerprint(p) !== e.fp) this.instances.delete(name);
+      if (this.fps.get(name) !== e.fp) this.instances.delete(name);
     }
     for (const [name, e] of this.pools) {
       const p = config.projects[name];
@@ -94,7 +101,7 @@ export class Registry {
       this.proxyInst = null;
       return undefined;
     }
-    const fp = new Bun.CryptoHasher("sha256").update(JSON.stringify(p)).digest("hex");
+    const fp = this.proxyFp;
     if (this.proxyInst?.fp === fp) return this.proxyInst.inst;
     const inst = createProxyInstance(p);
     this.proxyInst = { fp, inst };
@@ -129,7 +136,7 @@ export class Registry {
   get(project: string): Instance | undefined {
     const p = this.config.projects[project];
     if (!p) return undefined;
-    const fp = fingerprint(p);
+    const fp = this.fps.get(project)!;
     const e = this.instances.get(project);
     if (e && e.fp === fp) return e.inst;
     const inst = createInstance(project, p, this.pool(project)!);

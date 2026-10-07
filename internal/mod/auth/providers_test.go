@@ -135,6 +135,41 @@ func TestKeyPrecedence(t *testing.T) {
 	}
 }
 
+// The secrets API takes any value. A project's own provider settings the
+// engine can't use (an OpenID Connect issuer that isn't a URL) fail that
+// project's config, reported, and never reach the engine's file, which
+// every project shares.
+func TestBadProjectProviderSecrets(t *testing.T) {
+	p := newPlatform(t)
+	ctx := t.Context()
+	apply(t, p, social)
+	apply(t, p, `{"project":"other","apps":{"web":{"routes":["other"]}},"services":{"postgres":{},"auth":{}}}`)
+	if _, err := p.SetSecrets(ctx, "shop", map[string]string{"OIDC_ISSUER": "not-a-url", "OIDC_CLIENT_ID": "id", "OIDC_CLIENT_SECRET": "secret"}, "bad issuer"); err != nil {
+		t.Fatal(err)
+	}
+	c, errs, err := buildEngineConfig(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errs["shop"] == nil || !strings.Contains(errs["shop"].Error(), "issuer URL") {
+		t.Fatalf("shop's error: %v", errs["shop"])
+	}
+	if c.Projects["shop"] != nil || c.Projects["other"] == nil {
+		t.Fatalf("projects in the engine config: %v", c.Projects)
+	}
+	// Fixed: back in, the issuer as the engine wants it.
+	if _, err := p.SetSecrets(ctx, "shop", map[string]string{"OIDC_ISSUER": " https://sso.example.com/ ", "OIDC_CLIENT_ID": " id "}, "fixed"); err != nil {
+		t.Fatal(err)
+	}
+	c, errs, _ = buildEngineConfig(ctx, p)
+	if errs["shop"] != nil {
+		t.Fatal(errs["shop"])
+	}
+	if o := c.Projects["shop"].Social["oidc"]; o == nil || o.Issuer != "https://sso.example.com" || o.ClientID != "id" {
+		t.Fatalf("oidc: %+v", o)
+	}
+}
+
 func TestAppleClientSecret(t *testing.T) {
 	keyPEM, key := appleKeyPEM(t)
 	now := time.Unix(1_800_000_000, 0)
