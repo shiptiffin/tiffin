@@ -517,6 +517,7 @@ func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildRe
 			"--memory", strconv.Itoa(b.memoryMB)+"m",
 			"--volume", req.SrcDir+":/app", "--workdir", "/app",
 			"--env", "CI=true", "--env", "NODE_ENV=production")
+		args = append(args, hostNetConfine...)
 		args = append(args, b.staticCaches(req)...)
 		if lim := buildLimitFor(d.Project); lim.cpus > 0 {
 			args = append(args, lim.staticBuildArgs()...)

@@ -159,13 +159,30 @@ func (n *nerdctl) Run(ctx context.Context, s RunSpec) error {
 	return nil
 }
 
-// withSpec is a nerdctl command of args plus the spec's memory cap, cgroup,
-// labels, mounts and env. The env travels as --env NAME=VALUE arguments,
+// hostNetConfine is what every container on the host network gives up. It
+// shares the box's loopback with the platform and every other app, so:
+// no raw sockets (NET_RAW: it could read loopback traffic, the dashboard's
+// cookies on their way from the edge to the API included, or forge
+// packets), no ports below 1024 (NET_BIND_SERVICE: it could join the
+// edge's SO_REUSEPORT sockets on 80 and 443 and take a share of the box's
+// public connections), no device nodes, audit records or file
+// capabilities, and no gaining privileges through setuid programs.
+// Ordinary apps (and images that drop to their own user as they start)
+// need none of it.
+var hostNetConfine = []string{
+	"--cap-drop", "NET_RAW", "--cap-drop", "NET_BIND_SERVICE", "--cap-drop", "MKNOD",
+	"--cap-drop", "AUDIT_WRITE", "--cap-drop", "SETFCAP",
+	"--security-opt", "no-new-privileges",
+}
+
+// withSpec is a nerdctl command of args plus hostNetConfine and the spec's
+// memory cap, cgroup, labels, mounts and env. The env travels as --env NAME=VALUE arguments,
 // never in nerdctl's own environment: nerdctl runs as root on the host and
 // reads variables such as DOCKER_CONFIG, NERDCTL_TOML or
 // CONTAINERD_NAMESPACE, and hands its environment to the OCI hooks runc
 // runs on the host. The caller appends the image and what follows it.
 func (n *nerdctl) withSpec(ctx context.Context, args []string, s RunSpec) *exec.Cmd {
+	args = append(args, hostNetConfine...)
 	if s.MemoryMB > 0 {
 		args = append(args, "--memory", strconv.Itoa(s.MemoryMB)+"m", "--memory-swap", strconv.Itoa(s.MemoryMB)+"m")
 	}
