@@ -164,7 +164,7 @@ func (w *Watcher) Notify(f func(context.Context, Alert) error) { w.notify = f }
 func (w *Watcher) Run(ctx context.Context) error {
 	errc := make(chan error, 1)
 	if w.cfg.Listen != "" {
-		srv := &http.Server{Addr: w.cfg.Listen, Handler: w.Handler(), ReadHeaderTimeout: 10 * time.Second}
+		srv := &http.Server{Addr: w.cfg.Listen, Handler: w.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 		go func() { errc <- srv.ListenAndServe() }()
 		defer srv.Close()
 		fmt.Fprintf(w.log, "collecting heartbeats on %s/ping/<heartbeat>\n", w.cfg.Listen)

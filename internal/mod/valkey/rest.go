@@ -112,7 +112,7 @@ func serveREST(ctx context.Context, p *platform.Platform) {
 				p.Log.Warn("valkey: REST listener", "addr", addr, "err", err)
 				continue
 			}
-			srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second}
+			srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 			open[addr] = srv
 			go func() { _ = srv.Serve(ln) }()
 		}

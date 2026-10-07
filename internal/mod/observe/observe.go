@@ -77,7 +77,7 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 			p.Log.Error("observe ingest listen", "addr", addr, "err", err)
 			continue
 		}
-		srv := &http.Server{Handler: m.ingestHandler(), ReadHeaderTimeout: 10 * time.Second}
+		srv := &http.Server{Handler: m.ingestHandler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 		go func() { _ = srv.Serve(ln) }()
 		go func() { <-ctx.Done(); _ = srv.Close() }()
 	}

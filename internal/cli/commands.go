@@ -376,7 +376,7 @@ func (a *app) serveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			hs := &http.Server{Handler: serveMux(b), ReadHeaderTimeout: 10 * time.Second}
+			hs := apiServer(serveMux(b))
 			errc := make(chan error, 1)
 			go func() { errc <- hs.Serve(ln) }()
 			base := "http://" + ln.Addr().String()
@@ -592,6 +592,16 @@ func (a *app) provisionCmd() *cobra.Command {
 }
 
 // serveMux routes the box's HTTP surface: the API under /v1 and MCP at /mcp.
+// apiServer is the API's HTTP server. Header reads and idle keep-alive
+// connections are bounded (apps on the box reach 127.0.0.1:7070 directly,
+// not through the edge's guards); whole-request read and write deadlines
+// are not, as uploads of gigabytes and event streams legitimately run long:
+// regular bodies have huma's 5-second read deadline per operation, and raw
+// uploads must keep moving (api.UploadBody).
+func apiServer(h http.Handler) *http.Server {
+	return &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 64 << 10}
+}
+
 func serveMux(b *box) http.Handler {
 	// /mcp lists the core tools; /mcp?tools=all lists every one.
 	core := tmcp.NewServer(b.api, b.api.Handler(), version.Version, tmcp.FromHeader, tmcp.GroupCore)

@@ -67,7 +67,7 @@ type partIn struct {
 }
 
 func (u *partIn) Resolve(ctx huma.Context) []error {
-	u.body = ctx.BodyReader()
+	u.body = api.UploadBody(ctx)
 	return nil
 }
 

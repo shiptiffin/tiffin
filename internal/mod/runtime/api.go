@@ -565,7 +565,7 @@ func (m *Module) uploadMiddleware(a huma.API) func(huma.Context, func(huma.Conte
 			return
 		}
 		dest := filepath.Join(r.workDir(d), file)
-		n, err := saveBody(hctx.BodyReader(), dest, MaxUpload)
+		n, err := saveBody(api.UploadBody(hctx), dest, MaxUpload)
 		if err != nil {
 			_ = r.st.deleteDeploy(ctx, d)
 			_ = os.RemoveAll(r.workDir(d))

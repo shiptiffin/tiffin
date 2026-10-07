@@ -489,3 +489,12 @@ func TestPreviewNote(t *testing.T) {
 		t.Fatalf("production: %s", out.String())
 	}
 }
+
+// The API server drops idle keep-alive connections and oversized headers:
+// apps reach it directly on 127.0.0.1, past the edge's guards.
+func TestAPIServerBounds(t *testing.T) {
+	hs := apiServer(http.NotFoundHandler())
+	if hs.ReadHeaderTimeout <= 0 || hs.IdleTimeout <= 0 || hs.MaxHeaderBytes <= 0 || hs.MaxHeaderBytes > 1<<20 {
+		t.Fatalf("unbounded API server: %+v", hs)
+	}
+}

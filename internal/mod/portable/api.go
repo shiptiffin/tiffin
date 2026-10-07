@@ -64,7 +64,7 @@ type uploadInput struct {
 }
 
 func (u *uploadInput) Resolve(ctx huma.Context) []error {
-	u.body = ctx.BodyReader()
+	u.body = api.UploadBody(ctx)
 	return nil
 }
 
@@ -77,7 +77,7 @@ type importUploadInput struct {
 }
 
 func (u *importUploadInput) Resolve(ctx huma.Context) []error {
-	u.body = ctx.BodyReader()
+	u.body = api.UploadBody(ctx)
 	return nil
 }
 

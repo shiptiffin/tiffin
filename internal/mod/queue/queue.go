@@ -370,7 +370,7 @@ func (m *Module) serveApps(ctx context.Context, p *platform.Platform, e *Engine)
 				p.Log.Warn("queue: app listener", "addr", addr, "err", err)
 				continue
 			}
-			srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second}
+			srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 			open[addr] = srv
 			go func() { _ = srv.Serve(ln) }()
 		}

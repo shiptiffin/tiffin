@@ -112,8 +112,9 @@ func New(d Deps) *API {
 	cfg.OpenAPIPath = "/v1/openapi"
 	cfg.SchemasPath = "/v1/schemas"
 	cfg.CreateHooks = nil // no $schema links injected into responses
+	cfg.Formats = map[string]huma.Format{"application/json": jsonFormat, "json": jsonFormat}
 	a := &API{api: humago.New(mux, cfg), mux: mux, deps: d}
-	a.api.UseMiddleware(a.authenticate, a.idempotent)
+	a.api.UseMiddleware(a.authenticate, a.projectAccess, a.idempotent)
 	a.register()
 	a.registerIdempotency()
 	a.registerBox()

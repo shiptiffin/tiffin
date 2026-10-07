@@ -69,9 +69,13 @@ func init() {
 			code = "internal"
 		}
 		p := problem(status, code, msg)
-		for _, e := range errs {
+		for i, e := range errs {
 			if e == nil {
 				continue
+			}
+			if len(p.Errors) == maxProblemErrors {
+				p.Errors = append(p.Errors, FieldError{Message: fmt.Sprintf("and up to %d more", len(errs)-i)})
+				break
 			}
 			var d *huma.ErrorDetail
 			if errors.As(e, &d) {

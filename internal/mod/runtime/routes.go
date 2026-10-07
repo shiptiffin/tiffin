@@ -317,7 +317,7 @@ func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project st
 func (r *rt) serveInternal(ctx context.Context, ln net.Listener) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/_tiffin/git-hook", r.handleGitHook)
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 	go func() {
 		<-ctx.Done()
 		_ = srv.Close()
