@@ -143,8 +143,10 @@ func (r *rt) drainThenRemove(old []Instance) {
 		time.Sleep(time.Second)
 	}
 	time.Sleep(50 * time.Millisecond) // let responses being written finish flushing
+	// Polled every 250 ms: each check asks the edge, and a release that
+	// drains is stopped with RetireGrace to spare anyway.
 	for r.busy(old) > 0 && time.Now().Before(deadline) {
-		time.Sleep(25 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 	}
 	r.removeInstancesGrace(r.ctx, old, max(r.opt.RetireGrace, r.opt.StopGrace))
 }
