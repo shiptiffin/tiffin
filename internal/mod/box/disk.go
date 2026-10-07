@@ -28,6 +28,10 @@ type DiskReport struct {
 	// What the hourly sweep removes.
 	UnusedImages     int   `json:"unusedImages" doc:"Images nothing needs (destroyed projects', builds past the rollback targets, failed or interrupted builds); the hourly sweep removes them once they are 6 hours old"`
 	UnusedImageBytes int64 `json:"unusedImageBytes" doc:"Their unpacked size (shared layers counted in each)"`
+	// The image store and the build cache, as the containerd part holds them.
+	ImagesBytes        int64 `json:"imagesBytes" doc:"The image store, layers shared between images counted once (0 when it can't be measured)"`
+	BuildCacheBytes    int64 `json:"buildCacheBytes" doc:"BuildKit's build cache (0 when it can't be measured)"`
+	BuildCacheCapBytes int64 `json:"buildCacheCapBytes" doc:"What the hourly sweep trims the build cache back to, oldest steps first: 15% of the data disk, 4 to 20 GiB (0 when unknown)"`
 }
 
 // DiskPart is one part of the box on the data disk.
@@ -143,10 +147,7 @@ func measureDisk(ctx context.Context, s *sampler) *DiskReport {
 	}
 	if hasContainerd {
 		p := DiskPart{Name: "containerd", What: diskParts["containerd"], Bytes: max(0, int64(rep.Disk.UsedBytes)-others)}
-		if rd != nil {
-			p.Detail = "images " + humanSize(rd.ImagesBytes) + ", build cache " + humanSize(rd.BuildCacheBytes) +
-				" (the build cache keeps itself under 8 GiB, past which BuildKit drops its least recently used steps)"
-		}
+		p.Detail = storeDetail(rd)
 		rep.Parts = append(rep.Parts, p)
 	}
 	sort.Slice(rep.Parts, func(i, j int) bool { return rep.Parts[i].Bytes > rep.Parts[j].Bytes })
@@ -183,6 +184,7 @@ func measureDisk(ctx context.Context, s *sampler) *DiskReport {
 			pd.Images, pd.ImageBytes, pd.LogBytes, pd.BuildBytes = u.Images, u.ImageBytes, u.LogBytes, u.BuildBytes
 		}
 		rep.UnusedImages, rep.UnusedImageBytes = rd.UnusedImages, rd.UnusedImageBytes
+		rep.ImagesBytes, rep.BuildCacheBytes, rep.BuildCacheCapBytes = rd.ImagesBytes, rd.BuildCacheBytes, rd.BuildCacheCapBytes
 	}
 	snaps, _ := os.ReadDir(postgres.SnapshotDir)
 	for _, e := range snaps {
@@ -203,6 +205,19 @@ func measureDisk(ctx context.Context, s *sampler) *DiskReport {
 		return rep.Projects[i].Project < rep.Projects[j].Project
 	})
 	return rep
+}
+
+// storeDetail says what the containerd part holds: images, and the build
+// cache against the size the hourly sweep trims it back to.
+func storeDetail(rd *runtime.RuntimeDisk) string {
+	if rd == nil {
+		return ""
+	}
+	d := "images " + humanSize(rd.ImagesBytes) + ", build cache " + humanSize(rd.BuildCacheBytes)
+	if rd.BuildCacheCapBytes > 0 {
+		d += " (the hourly sweep trims it back to " + humanSize(rd.BuildCacheCapBytes) + ", oldest steps first)"
+	}
+	return d
 }
 
 // treeSize adds up the regular files under dir (links not followed).

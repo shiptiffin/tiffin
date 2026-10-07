@@ -387,6 +387,9 @@ func TestDiskUse(t *testing.T) {
 	if rd.UnusedImages != 1 || rd.UnusedImageBytes != 1<<20 {
 		t.Fatalf("unused: %d %d", rd.UnusedImages, rd.UnusedImageBytes)
 	}
+	if rd.BuildCacheCapBytes != buildCacheCap(diskBytes(h.r.opt.DataDir)) || rd.BuildCacheCapBytes < 4<<30 {
+		t.Fatalf("build cache cap: %d", rd.BuildCacheCapBytes)
+	}
 	if a, b := parseSystemDF(`{"Type":"Images","Size":"4.768GB"}` + "\n" + `{"Type":"Build Cache","Size":"12.03GB"}`); a != 4_768_000_000 || b != 12_030_000_000 {
 		t.Fatalf("system df: %d %d", a, b)
 	}

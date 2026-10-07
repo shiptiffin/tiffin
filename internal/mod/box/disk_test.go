@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/btahir/tiffin/internal/mod/runtime"
 )
 
 // The disk report names each folder of the data disk with its size, and
@@ -42,5 +44,19 @@ func TestMeasureDisk(t *testing.T) {
 	}
 	if humanSize(2_500_000_000) != "2.5 GB" || humanSize(1500) != "1.5 kB" {
 		t.Fatal(humanSize(2_500_000_000))
+	}
+}
+
+// The containerd part names the build cache's cap as the sweep applies it.
+func TestStoreDetail(t *testing.T) {
+	if storeDetail(nil) != "" {
+		t.Fatal("no runtime: no detail")
+	}
+	got := storeDetail(&runtime.RuntimeDisk{ImagesBytes: 11_500_000_000, BuildCacheBytes: 9_100_000_000, BuildCacheCapBytes: 6_400_000_000})
+	if got != "images 11.5 GB, build cache 9.1 GB (the hourly sweep trims it back to 6.4 GB, oldest steps first)" {
+		t.Fatal(got)
+	}
+	if got := storeDetail(&runtime.RuntimeDisk{ImagesBytes: 1e9}); got != "images 1.0 GB, build cache 0.0 kB" {
+		t.Fatal(got)
 	}
 }

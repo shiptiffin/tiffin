@@ -25,6 +25,9 @@ type RuntimeDisk struct {
 	// cache, shared layers counted once (nerdctl system df).
 	ImagesBytes     int64 `json:"imagesBytes"`
 	BuildCacheBytes int64 `json:"buildCacheBytes"`
+	// BuildCacheCapBytes is what the hourly sweep prunes the build cache
+	// back to (buildCacheCap of the data disk).
+	BuildCacheCapBytes int64 `json:"buildCacheCapBytes"`
 	// Unused: images the hourly sweep removes (nothing needs them).
 	UnusedImages     int   `json:"unusedImages"`
 	UnusedImageBytes int64 `json:"unusedImageBytes"`
@@ -87,6 +90,7 @@ func (m *Module) DiskUse(ctx context.Context) (*RuntimeDisk, error) {
 		}
 	}
 	out.ImagesBytes, out.BuildCacheBytes = r.storeSizes(ctx)
+	out.BuildCacheCapBytes = buildCacheCap(diskBytes(r.opt.DataDir))
 	return out, nil
 }
 

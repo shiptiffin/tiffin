@@ -22,6 +22,7 @@ import { partName, partSub } from "@/lib/names";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/choice";
 import { UsageCharts, type Range } from "@/components/usage-charts";
+import { ProjectFootprint } from "@/components/usage-disk";
 import { boxSettingsQuery, cpuWords, memWords, missing, shareMeans, shareWords, useBoxShares, usageQuery, type ProjectResources, type ProjectUsage } from "@/lib/usage";
 
 const MB = 1048576;
@@ -130,6 +131,7 @@ export function ResourcesView({ project, range, app, tables }: { project: string
         <OutOfMemory project={project} live={live} source={usage.data.limitSource} />
       )}
       {usage.data && <SharedMeters usage={usage.data} />}
+      <ProjectFootprint project={project} className="mt-8 max-w-[46rem]" />
 
       {hasUsage && totalMB && (
         <Limit project={project} resources={resources} busy={!!staged} live={live} totalMB={totalMB} cpus={cpus} source={usage.data?.limitSource}>

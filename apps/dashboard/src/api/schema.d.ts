@@ -5172,6 +5172,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/session/oauth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which sign-in providers can open the dashboard?
+         * @description The providers the login page offers ("Sign in with Google", "Sign in with GitHub"): those with box-wide keys set.
+         */
+        get: operations["session-oauth-status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/session/oauth/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start signing in with Google or GitHub
+         * @description Returns the provider's sign-in URL and sets a short-lived, signed state cookie (state, PKCE verifier, nonce). The provider sends the browser back to /api/auth/callback/{provider}, where the box signs in the active person with the account's verified email, or nobody: it never makes an account. Limited per client address. Used by the dashboard's login page.
+         */
+        post: operations["session-oauth-start"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/session/passkey": {
         parameters: {
             query?: never;
@@ -6581,8 +6621,23 @@ export interface components {
             what: string;
         };
         BoxDiskReport: {
+            /**
+             * Format: int64
+             * @description BuildKit's build cache (0 when it can't be measured)
+             */
+            buildCacheBytes: number;
+            /**
+             * Format: int64
+             * @description What the hourly sweep trims the build cache back to, oldest steps first: 15% of the data disk, 4 to 20 GiB (0 when unknown)
+             */
+            buildCacheCapBytes: number;
             /** @description The data disk */
             disk: components["schemas"]["BoxDisk"];
+            /**
+             * Format: int64
+             * @description The image store, layers shared between images counted once (0 when it can't be measured)
+             */
+            imagesBytes: number;
             /**
              * Format: date-time
              * @description When it was measured (cached for a minute: it walks the data folders)
@@ -8559,6 +8614,19 @@ export interface components {
             details?: boolean;
             /** @description The ping URL: a healthchecks.io check (https://hc-ping.com/<uuid>), an Uptime Kuma push URL (https://kuma.example.com/api/push/<token>) or a tiffin watch collector */
             url: string;
+        };
+        OAuthSignInProvider: {
+            /** @enum {string} */
+            id: "google" | "github";
+            name: string;
+        };
+        OAuthSignInStart: {
+            /** @description The provider's sign-in page; open it in this tab */
+            url: string;
+        };
+        OAuthSignInStatus: {
+            /** @description Providers with box-wide keys set, in the order to show them */
+            providers: components["schemas"]["OAuthSignInProvider"][] | null;
         };
         ObserveAlert: {
             /** @description The project, for project alerts (error_spike) */
@@ -36311,6 +36379,161 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "session-oauth-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthSignInStatus"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "session-oauth-start": {
+        parameters: {
+            query?: {
+                /** @description A dashboard path to open after signing in; anything else opens the home page */
+                next?: string;
+            };
+            header?: never;
+            path: {
+                /** @description google or github */
+                provider: "google" | "github";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthSignInStart"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
