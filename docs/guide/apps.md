@@ -42,10 +42,22 @@ Any of them runs from its own Dockerfile (`builder: "dockerfile"`, see
 The edge compresses text responses (zstd or gzip) for every app; a response the app
 compressed itself is passed through. A static site's pages and files are revalidated on
 every visit, except fingerprinted build assets (`/assets/index-B1x9Qa2c.js`,
-`/_next/static/…`), which browsers keep for a year. `.br`, `.zst` or `.gz` files next to
-the originals are sent instead of compressing on the fly. A static site answers `/about` from
+`/_next/static/…`), which browsers keep for a year. A static site's text files are
+compressed once, when it deploys (zstd and gzip at their highest levels), and those copies
+are sent instead of compressing on the fly; `.br` files the site ships are sent too. Vite's
+`.vite/` folder (its build manifest) is left out. A static site answers `/about` from
 `about.html`, and a folder from its `index.html` (asked for without its slash, it redirects
 there); a path with no file gets the site's `404.html` with status 404 when it has one.
+
+A deploy of a static site keeps the previous release's hashed files (a Vite SPA's
+`/assets/lazy-C2y8Rb3d.js`, Astro's `/_astro/…`) for a day after that release stopped
+being live, so a tab opened before the deploy still loads its lazy chunks. Missing hashed
+files are a 404, never `index.html`, so Vite's `vite:preloadError` event fires; a page can
+reload on it:
+
+```js
+window.addEventListener("vite:preloadError", () => window.location.reload());
+```
 
 The edge adds `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy:
 strict-origin-when-cross-origin` and `Content-Security-Policy: frame-ancestors 'none'` to
@@ -69,6 +81,14 @@ failed build or health check leaves the old version serving.
 - **Disk:** images nothing needs any more go at once or in the hourly sweep. BuildKit's
   cache may hold 15% of the data disk (at least 4 GiB, at most 20 GiB); the sweep trims
   it back to that even when nothing builds.
+- **Build caches:** each app keeps its own. Railpack builds (server apps, and static
+  sites built with npm, pnpm or yarn) keep the package manager's store and the
+  framework's caches (`.next/cache`, Astro's, Vite's, `node_modules/.cache`) as BuildKit
+  cache mounts. Static sites built with Bun keep Bun's package cache and
+  `node_modules/.astro` (optimized images, content layer, fonts), `node_modules/.vite`,
+  `node_modules/.cache` and `.next/cache` in a folder of the box's, started afresh once
+  it passes 2 GiB. The build log says whether the cache was warm. Previews share their
+  app's caches.
 - **History:** `tiffin deploys list <project> <app>` for one app;
   `tiffin projects deploys <project>` for every app, previews included (filter with
   `--app`, `--env`, `--status`, `--branch`).
@@ -93,6 +113,14 @@ failed build or health check leaves the old version serving.
   finding its chunks. The box serves these files without running the app's middleware.
   For another framework, name the directory: `assets: { dir: "dist/client", path: "/" }`
   (path defaults to `/`; files there are kept for old pages too, revalidated).
+- **Prerendered pages:** for Astro (`@astrojs/node`), SvelteKit (`build/prerendered`),
+  Nuxt, React Router and TanStack Start (`.output/public` or `dist/client`), the box also
+  answers the pages the build prerendered, from the live release: `/about` from
+  `about/index.html` or `about.html`, `/` from `index.html`, revalidated on every visit
+  (ETag). Those frameworks' own servers answer these files before any app code runs, so
+  nothing changes but speed: a page costs the app nothing and a sleeping app doesn't wake
+  for it. Only exact files count; everything else goes to the app. Not Next.js: its
+  `proxy.ts` runs before prerendered pages. See [the limits](limits.md#caching-and-images).
 - **Shutdown:** a replaced release finishes the requests it has (each within the app's
   time limit, `timeoutSeconds`, so a long render survives a deploy), gets SIGTERM once
   they are done, then 30 seconds before it is killed, for work it does after responding.
@@ -277,7 +305,10 @@ unchanged.
 - **Next.js static export.** A Next.js app whose `next.config` (`.js`, `.mjs`, `.ts`) sets
   `output: "export"` builds with its own `next build` and package manager (Railpack), then
   the edge serves `out/` as a static site, with no container, whatever its `framework`. The
-  build log says "Next.js static export"; the deploy's framework is `next+export`.
+  build log says "Next.js static export"; the deploy's framework is `next+export`. No
+  image is made: BuildKit hands over `out/` alone, so nothing is compressed into layers
+  and unpacked. On the 2-CPU box, exporting and unpacking the image took 33 s of the
+  website's 92 s build; the same build without them took 28 s.
 - **Monorepos.** An app in a JavaScript workspace goes up with the whole workspace, as on
   Vercel: the nearest folder above it with a `pnpm-workspace.yaml` or a `package.json`
   `workspaces` field (inside its repository), when that lists the app's folder among its
@@ -499,8 +530,8 @@ or 14 days, and the project says "Asleep since …" with a Wake button.
   to start and pass its health check.
   `tiffin apps status <project> <app>` shows `lastWake` with its timing, `sleepingSince`
   and `lastActive`.
-- **What counts as use:** every request to the app's addresses, including the files the
-  box serves for it, and every delivery. A request or a job still under way keeps the
+- **What counts as use:** every request to the app's addresses, including the files and
+  prerendered pages the box serves for it (which never wake it), and every delivery. A request or a job still under way keeps the
   app awake, however long it runs. The clock is kept across restarts of the box.
 - **What stops:** anything the app does on its own between requests (timers,
   `setInterval`, in-memory caches) stops while it sleeps. Put recurring work in a cron:

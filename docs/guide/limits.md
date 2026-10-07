@@ -100,7 +100,9 @@ bigger app takes as long as it needs to boot and pass its health check. A deploy
 rollback, or a change to the app's env or settings while it sleeps makes the next start
 a fresh container.
 
-Not yet: serving pages from the edge while the app sleeps, or Early Hints during a wake.
+Prerendered pages of Astro, SvelteKit, Nuxt, React Router and TanStack Start are
+answered by the box while the app sleeps, without waking it (see Caching below). Not yet:
+Next.js pages, pages rendered on request, and Early Hints during a wake.
 
 ## Email
 
@@ -187,9 +189,34 @@ the box unless you [copy them off it](data.md#copies-off-the-box).
   than Next.js yet.
 - No shared image optimiser at the edge yet: each app optimises its own images (Next.js
   with sharp).
-- Prerendered pages of non-Next frameworks are served by the app, not the edge.
 
-All three are planned.
+Both are planned.
+
+**Prerendered pages at the edge** (Astro with `@astrojs/node`, SvelteKit, Nuxt, React
+Router, TanStack Start) cover the files the build wrote, as they are:
+
+- Next.js prerendered pages still go to the app (its `proxy.ts` runs before them).
+- Headers a framework adds to prerendered pages are not added: Astro's `_headers.json`
+  (CSP with `staticHeaders`) and Nuxt `routeRules` headers. A site that needs them on
+  prerendered pages should render those pages on request.
+- SPA shells (TanStack Start's `_shell.html`, React Router's `__spa-fallback.html`,
+  Nuxt's `200.html`) and `404.html` are not used as fallbacks: other paths go to the app.
+- A trailing slash is answered as the framework writes the file: `/about/` from
+  `about/index.html` (and `/about` too), `/about` only from `about.html`. The box never
+  redirects; the app does, for a path it leaves to it.
+- React Router's lazy route discovery (`/__manifest`) still reaches the app on client
+  navigation, so a sleeping `ssr: true` app wakes then; `routeDiscovery: { mode: "initial" }`
+  avoids it for mostly-static sites.
+
+**Static sites:**
+
+- The previous release's hashed files are kept for a day after it stopped being live,
+  counted from deploy to deploy: a file goes at the first deploy after its day is up. Only
+  hashed names are kept (a name with a content hash, or under `/_astro/`, `/_app/immutable/`
+  or `/_next/static/`); other files are the live release's only.
+- Static sites built with Bun keep their build caches in a folder per app, started afresh
+  past 2 GiB. A preview's build uses its app's caches, so a preview build could leave
+  files in them that production builds read.
 
 ## Analytics
 
