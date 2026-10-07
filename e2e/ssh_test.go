@@ -273,7 +273,7 @@ sudo systemctl daemon-reload; sudo mount /mnt/HC_Volume_123`)
 	}
 	phase("update", p)
 
-	// ---- down: Tiffin stops, the server and its data stay ----
+	// ---- down: Tiffin, its sites and its apps stop; the server and its data stay ----
 	p = time.Now()
 	if code, out := b.run("down", "--confirm", "nope"); code == 0 {
 		t.Fatalf("down of an unknown box must fail: %s", out)
@@ -282,8 +282,13 @@ sudo systemctl daemon-reload; sudo mount /mnt/HC_Volume_123`)
 		t.Fatalf("down without --confirm must exit 4: %d %s", code, out)
 	}
 	b.ok("down", "--confirm", "dev-ssh")
-	if s, _ := shell(`systemctl is-active tiffin`); s == "active" {
-		t.Fatal("tiffin still runs after down")
+	for _, u := range []string{"tiffin", "tiffin-edge.service", "tiffin-edge.socket"} {
+		if s, _ := shell(`systemctl is-active ` + u); s == "active" {
+			t.Fatalf("%s still runs after down", u)
+		}
+	}
+	if got, _ := shell(`sudo /usr/local/bin/nerdctl --namespace tiffin ps -q`); got != "" {
+		t.Fatalf("app containers still run after down: %s", got)
 	}
 	if got := mustShell(`sudo test -f /var/lib/tiffin/platform/owner-token && echo kept`); got != "kept" {
 		t.Fatal("down must keep the data on a server Tiffin did not create")
