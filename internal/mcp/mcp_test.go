@@ -59,10 +59,35 @@ func call(t *testing.T, cs *sdk.ClientSession, name string, args map[string]any)
 	if err != nil {
 		t.Fatalf("%s: %v", name, err)
 	}
+	return res, structured(res)
+}
+
+// structured is a result's JSON: structuredContent, or for untrusted output
+// (fenced text only) the JSON inside the fence.
+func structured(res *sdk.CallToolResult) map[string]any {
 	var out map[string]any
-	b, _ := json.Marshal(res.StructuredContent)
-	_ = json.Unmarshal(b, &out)
-	return res, out
+	if res.StructuredContent != nil {
+		b, _ := json.Marshal(res.StructuredContent)
+		_ = json.Unmarshal(b, &out)
+		return out
+	}
+	if len(res.Content) == 0 {
+		return nil
+	}
+	tc, _ := res.Content[0].(*sdk.TextContent)
+	if tc == nil {
+		return nil
+	}
+	text := tc.Text
+	if _, in, ok := strings.Cut(text, "<untrusted-data>\n"); ok {
+		text, _, _ = strings.Cut(in, "\n</untrusted-data>")
+	}
+	var v any
+	_ = json.Unmarshal([]byte(text), &v)
+	if m, ok := v.(map[string]any); ok {
+		return m
+	}
+	return map[string]any{"items": v}
 }
 
 func TestToolsMirrorTheAPI(t *testing.T) {
@@ -181,7 +206,7 @@ func TestStructuredContentIsAlwaysAnObject(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if _, ok := res.StructuredContent.(map[string]any); !ok {
+		if _, ok := res.StructuredContent.(map[string]any); !ok && res.StructuredContent != nil {
 			t.Errorf("%s: structuredContent is %T, want an object", name, res.StructuredContent)
 		}
 	}

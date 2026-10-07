@@ -136,9 +136,7 @@ func NewServer(a *api.API, h http.Handler, version string, token TokenFunc, grou
 		if group != GroupAll && !core[t.Tool.Name] {
 			continue
 		}
-		s.AddTool(t.Tool, func(ctx context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
-			return t.call(ctx, h, token(ctx, req), req)
-		})
+		s.AddTool(t.Tool, t.handler(h, token))
 	}
 	addRunTool(s, tools, h, token)
 	return s
@@ -304,6 +302,18 @@ func manifestSchema(defs map[string]any) any {
 	return m
 }
 
+// handler serves the tool to MCP clients: the API's answer, fenced as
+// data when others wrote it.
+func (t *Tool) handler(h http.Handler, token TokenFunc) sdk.ToolHandler {
+	return func(ctx context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		res, err := t.call(ctx, h, token(ctx, req), req)
+		if res != nil && api.IsUntrusted(t.op) {
+			res = fence(res)
+		}
+		return res, err
+	}
+}
+
 func (t *Tool) call(ctx context.Context, h http.Handler, token string, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 	var args map[string]any
 	if raw := req.Params.Arguments; len(raw) > 0 {
@@ -365,15 +375,21 @@ func (t *Tool) call(ctx context.Context, h http.Handler, token string, req *sdk.
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, hr)
-	res := toResult(rec.Code, rec.Body.Bytes())
-	if api.IsUntrusted(t.op) && !res.IsError {
-		for i, c := range res.Content {
-			if tc, ok := c.(*sdk.TextContent); ok {
-				res.Content[i] = &sdk.TextContent{Text: untrustedNote + "\n<untrusted-data>\n" + tc.Text + "\n</untrusted-data>"}
-			}
+	return toResult(rec.Code, rec.Body.Bytes()), nil
+}
+
+// fence marks a result whose content others wrote (rows, logs, mail) as
+// data, errors included (a database error can carry an app's text). Its
+// only copy is the fenced text: structuredContent would be an unmarked one.
+func fence(res *sdk.CallToolResult) *sdk.CallToolResult {
+	out := &sdk.CallToolResult{IsError: res.IsError, Meta: res.Meta}
+	for _, c := range res.Content {
+		if tc, ok := c.(*sdk.TextContent); ok {
+			c = &sdk.TextContent{Text: untrustedNote + "\n<untrusted-data>\n" + tc.Text + "\n</untrusted-data>"}
 		}
+		out.Content = append(out.Content, c)
 	}
-	return res, nil
+	return out
 }
 
 // stdioSession tells this process's calls apart from another agent's in

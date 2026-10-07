@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -21,10 +22,12 @@ import (
 // couldn't do tool by tool; apply still needs a confirm hash.
 
 const (
-	runTimeout  = 20 * time.Second
 	runMaxCalls = 50
 	runMaxCode  = 20_000
 )
+
+// runTimeout bounds a program, its calls included (a var for tests).
+var runTimeout = 20 * time.Second
 
 var runDescription = "Run a short JavaScript program that calls Tiffin tools, to chain several calls in one step. " +
 	"Inside, `tiffin.call(toolName, args)` returns the tool's result object (it throws with the problem on errors) and " +
@@ -41,6 +44,7 @@ func addRunTool(s *sdk.Server, tools []*Tool, h http.Handler, token TokenFunc) {
 	for _, t := range tools {
 		byName[t.Tool.Name] = t
 	}
+	sorted := sortedTools(byName)
 	f := false
 	schema := json.RawMessage(`{"type":"object","properties":{"code":{"type":"string","description":"JavaScript program body; use tiffin.call(name, args) and return a value"}},"required":["code"],"additionalProperties":false}`)
 	s.AddTool(&sdk.Tool{
@@ -59,7 +63,7 @@ func addRunTool(s *sdk.Server, tools []*Tool, h http.Handler, token TokenFunc) {
 		if len(in.Code) > runMaxCode {
 			return errorResult(fmt.Sprintf("code is longer than %d characters", runMaxCode)), nil
 		}
-		return runProgram(ctx, in.Code, byName, h, token(ctx, req), req), nil
+		return runProgram(ctx, in.Code, byName, sorted, h, token(ctx, req), req), nil
 	})
 }
 
@@ -74,13 +78,22 @@ func sortedTools(m map[string]*Tool) []*Tool {
 	return out
 }
 
-func runProgram(ctx context.Context, code string, tools map[string]*Tool, h http.Handler, tok string, req *sdk.CallToolRequest) *sdk.CallToolResult {
+func runProgram(ctx context.Context, code string, tools map[string]*Tool, sorted []*Tool, h http.Handler, tok string, req *sdk.CallToolRequest) *sdk.CallToolResult {
 	vm := goja.New()
 	var logs []string
 	calls := 0
 	untrusted := false
-	timer := time.AfterFunc(runTimeout, func() { vm.Interrupt("time limit reached") })
-	defer timer.Stop()
+	// The limit covers the calls too: their requests end with the program.
+	ctx, cancel := context.WithTimeout(ctx, runTimeout)
+	defer cancel()
+	stop := context.AfterFunc(ctx, func() {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			vm.Interrupt("time limit reached")
+		} else {
+			vm.Interrupt("cancelled")
+		}
+	})
+	defer stop()
 
 	tiffin := vm.NewObject()
 	_ = tiffin.Set("call", func(name string, args goja.Value) any {
@@ -124,7 +137,7 @@ func runProgram(ctx context.Context, code string, tools map[string]*Tool, h http
 			w = strings.ToLower(word.String())
 		}
 		out := []map[string]any{}
-		for _, t := range sortedTools(tools) {
+		for _, t := range sorted {
 			if w != "" && !strings.Contains(strings.ToLower(t.Tool.Name+" "+t.Tool.Title+" "+strings.Join(t.op.Tags, " ")), w) {
 				continue
 			}
@@ -172,8 +185,9 @@ func runProgram(ctx context.Context, code string, tools map[string]*Tool, h http
 	}
 	b, _ := json.Marshal(out)
 	text := string(b)
+	res := &sdk.CallToolResult{StructuredContent: out, IsError: err != nil, Content: []sdk.Content{&sdk.TextContent{Text: text}}}
 	if untrusted {
-		text = untrustedNote + "\n<untrusted-data>\n" + text + "\n</untrusted-data>"
+		return fence(res)
 	}
-	return &sdk.CallToolResult{StructuredContent: out, IsError: err != nil, Content: []sdk.Content{&sdk.TextContent{Text: text}}}
+	return res
 }
