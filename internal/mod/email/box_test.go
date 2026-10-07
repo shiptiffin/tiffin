@@ -220,7 +220,7 @@ func TestBoxMailInboxAndRelay(t *testing.T) {
 	if len(recs) != 1 || recs[0].Source != "box" || !strings.Contains(recs[0].From, "Tiffin") || !strings.Contains(recs[0].From, "<hello@tiffin.localhost>") || recs[0].Subject != "Sign in to dashboard.tiffin.localhost" {
 		t.Fatalf("box inbox: %+v", recs)
 	}
-	d, _ := mod.detail(r.ctx, r.p, boxProject, recs[0].ID)
+	d, _ := mod.detail(r.ctx, r.p, boxProject, recs[0].ID, true)
 	if len(d.Links) == 0 || d.Links[0] != link {
 		t.Fatalf("links: %v", d.Links)
 	}

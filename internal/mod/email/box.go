@@ -245,7 +245,7 @@ func (m *Module) registerBoxAPI(a huma.API, p *platform.Platform, tag string) {
 		if err := adminOnly(ctx, "box mail holds sign-in links: only owners and admins can read it"); err != nil {
 			return nil, err
 		}
-		d, err := m.detail(ctx, p, boxProject, in.ID)
+		d, err := m.detail(ctx, p, boxProject, in.ID, true)
 		if err != nil {
 			return nil, toProblem(err)
 		}

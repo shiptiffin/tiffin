@@ -225,7 +225,7 @@ func TestInboxAPIAndSMTP(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("no SSE event")
 	}
-	d, err := mod.detail(r.ctx, r.p, "shop", res.ID)
+	d, err := mod.detail(r.ctx, r.p, "shop", res.ID, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,6 +439,74 @@ func TestLimiterAndHelpers(t *testing.T) {
 	raw = fillHeaders([]byte("From: a@b.c\r\nSubject: x\r\n\r\nbody"), "shop@box", "msg_1", "box")
 	if bytes.Contains(raw, []byte("From: shop@box")) {
 		t.Fatalf("fill kept From: %s", raw)
+	}
+}
+
+// Read-only access sees mail's envelope and delivery, never what it says:
+// app and sign-in mail carries reset links, magic links and codes, and
+// reading them would turn read access to a project into its app's accounts.
+func TestReadOnlyMailIsEnvelopeOnly(t *testing.T) {
+	r := newRig(t)
+	owner, _, err := r.tm.Bootstrap(r.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, _ := r.tm.Authenticate(r.ctx, owner)
+	viewer, _, err := r.tm.Create(r.ctx, op, tokens.CreateRequest{Name: "viewer", Kind: tokens.KindAgent, Scopes: []tokens.Scope{tokens.ScopeRead}, Projects: []string{"shop"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := api.New(api.Deps{DB: r.p.DB, Engine: r.p.Engine, Tokens: r.tm, Platform: r.p})
+	call := func(tok, path string) (int, string) {
+		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		w := httptest.NewRecorder()
+		a.Handler().ServeHTTP(w, req)
+		return w.Code, w.Body.String()
+	}
+	const secret = "reset-token-Zq81"
+	send := `{"to":["admin@inbox.dev"],"subject":"Your code 482913","text":"Reset: https://shop.example.com/reset/` + secret + `"}`
+	req := httptest.NewRequest("POST", "/v1/projects/shop/email/send", strings.NewReader(send))
+	req.Header.Set("Authorization", "Bearer "+owner)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	a.Handler().ServeHTTP(w, req)
+	var sent struct{ ID string }
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &sent) != nil || sent.ID == "" {
+		t.Fatalf("send: %d %s", w.Code, w.Body.String())
+	}
+
+	code, body := call(viewer, "/v1/projects/shop/email/messages?all=true")
+	if code != 200 || !strings.Contains(body, sent.ID) || !strings.Contains(body, "admin@inbox.dev") || !strings.Contains(body, `"hidden":true`) {
+		t.Fatalf("viewer list: %d %s", code, body)
+	}
+	if strings.Contains(body, "482913") || strings.Contains(body, secret) {
+		t.Fatalf("viewer list shows what the message says: %s", body)
+	}
+	// Nor can the text be probed by searching it.
+	for _, q := range []string{"482913", "Zq81"} {
+		if code, body := call(viewer, "/v1/projects/shop/email/messages?all=true&q="+q); code != 200 || strings.Contains(body, sent.ID) {
+			t.Fatalf("viewer search %q matched the message text: %d %s", q, code, body)
+		}
+	}
+	if code, body := call(viewer, "/v1/projects/shop/email/messages?q=admin%40inbox"); code != 200 || !strings.Contains(body, sent.ID) {
+		t.Fatalf("viewer search by recipient: %d %s", code, body)
+	}
+	code, body = call(viewer, "/v1/projects/shop/email/messages/"+sent.ID)
+	if code != 200 || strings.Contains(body, secret) || strings.Contains(body, "482913") || !strings.Contains(body, `"hidden":true`) {
+		t.Fatalf("viewer detail: %d %s", code, body)
+	}
+	for _, path := range []string{"/raw", "/attachments/0"} {
+		if code, _ := call(viewer, "/v1/projects/shop/email/messages/"+sent.ID+path); code != 403 {
+			t.Fatalf("viewer %s: %d", path, code)
+		}
+	}
+	// Full access reads it all.
+	if code, body := call(owner, "/v1/projects/shop/email/messages/"+sent.ID); code != 200 || !strings.Contains(body, secret) || strings.Contains(body, `"hidden":true`) {
+		t.Fatalf("owner detail: %d %s", code, body)
+	}
+	if code, body := call(owner, "/v1/projects/shop/email/messages?q=482913"); code != 200 || !strings.Contains(body, sent.ID) {
+		t.Fatalf("owner search: %d %s", code, body)
 	}
 }
 

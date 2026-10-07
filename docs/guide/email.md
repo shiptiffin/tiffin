@@ -54,7 +54,10 @@ tiffin email messages clear shop
 ```
 
 `links` in a message lists its http(s) links, which is how an agent completes a
-sign-up or magic-link flow. The dashboard shows new mail live
+sign-up or magic-link flow. What a message says (subject, text, links, attachments, the
+raw `.eml`, and searching them) needs full access to the project: mail carries reset
+links, magic links and one-time codes, so read-only access sees each message's sender,
+recipients, size and delivery only (`"hidden": true`). The dashboard shows new mail live
 (`GET /v1/projects/<project>/email/stream`, server-sent events). Each project keeps
 its newest 1,000 captured messages.
 

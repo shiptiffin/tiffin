@@ -137,7 +137,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	m.registerBoxAPI(a, p, tag)
 
 	huma.Register(a, api.Untrusted(api.Op("email-messages-list", http.MethodGet, base+"/messages", "email messages list", api.RiskRead, "List the dev inbox",
-		"Messages captured in the project's dev inbox, newest first. With all=true: every message, including ones sent through the relay or suppressed, with delivery status.", tag)),
+		"Messages captured in the project's dev inbox, newest first. With all=true: every message, including ones sent through the relay or suppressed, with delivery status. "+
+			"With read-only access, subjects and text are left out (hidden: true) and q searches sender and recipients only.", tag)),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 			Q       string `query:"q" maxLength:"200" doc:"Search subject, from, to and text"`
@@ -151,19 +152,25 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
 				return nil, err
 			}
-			recs, err := listRecords(ctx, p.DB.SQL(), ListFilter{Project: in.Project, All: in.All, Query: in.Q, Before: in.Before, Limit: in.Limit})
+			full := fullAccess(ctx, in.Project)
+			recs, err := listRecords(ctx, p.DB.SQL(), ListFilter{Project: in.Project, All: in.All, Query: in.Q, Before: in.Before, Limit: in.Limit, EnvelopeOnly: !full})
 			if err != nil {
 				return nil, err
 			}
 			out := make([]Summary, 0, len(recs))
 			for _, r := range recs {
-				out = append(out, r.Summary)
+				if full {
+					out = append(out, r.Summary)
+				} else {
+					out = append(out, r.Summary.envelope())
+				}
 			}
 			return &struct{ Body []Summary }{out}, nil
 		}))
 
 	get := api.Op("email-message-get", http.MethodGet, base+"/messages/{id}", "email messages get", api.RiskRead, "Read a message",
-		"One message: headers, text, sanitised HTML, attachments, the links in it (handy for sign-in and verification links) and its delivery status.", tag)
+		"One message: headers, text, sanitised HTML, attachments, the links in it (handy for sign-in and verification links) and its delivery status. "+
+			"With read-only access, only its envelope and delivery (hidden: true): what mail says needs full access.", tag)
 	get.Errors = append(get.Errors, 404)
 	huma.Register(a, api.Untrusted(get), api.Wrap(func(ctx context.Context, in *messageIn) (*struct{ Body Detail }, error) {
 		if err := boxOnly(p); err != nil {
@@ -172,7 +179,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
 			return nil, err
 		}
-		d, err := m.detail(ctx, p, in.Project, in.ID)
+		d, err := m.detail(ctx, p, in.Project, in.ID, fullAccess(ctx, in.Project))
 		if err != nil {
 			return nil, toProblem(err)
 		}
@@ -190,7 +197,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if err := boxOnly(p); err != nil {
 			return nil, err
 		}
-		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
+		// What a message says needs full access (see Summary.envelope).
+		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeApplyReversible, in.Project); err != nil {
 			return nil, err
 		}
 		if _, err := getRecord(ctx, p.DB.SQL(), in.Project, in.ID); err != nil {
@@ -222,7 +230,8 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if err := boxOnly(p); err != nil {
 			return nil, err
 		}
-		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
+		// What a message says needs full access (see Summary.envelope).
+		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeApplyReversible, in.Project); err != nil {
 			return nil, err
 		}
 		if _, err := getRecord(ctx, p.DB.SQL(), in.Project, in.ID); err != nil {
@@ -307,6 +316,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			_ = send(sse.Message{Data: api.NewProblem(403, "forbidden", err.Error())})
 			return
 		}
+		full := fullAccess(ctx, in.Project)
 		_, h := m.state()
 		ch, cancel := h.subscribe(in.Project)
 		defer cancel()
@@ -318,6 +328,9 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			case <-ctx.Done():
 				return
 			case s := <-ch:
+				if !full {
+					s = s.envelope()
+				}
 				if send.Data(s) != nil {
 					return
 				}
@@ -677,10 +690,15 @@ func (m *Module) status(ctx context.Context, p *platform.Platform) (*Status, err
 	return st, nil
 }
 
-func (m *Module) detail(ctx context.Context, p *platform.Platform, project, id string) (*Detail, error) {
+// detail is one message; with full false (read-only access), only its
+// envelope and delivery: no subject, headers, text, links or attachments.
+func (m *Module) detail(ctx context.Context, p *platform.Platform, project, id string, full bool) (*Detail, error) {
 	rec, err := getRecord(ctx, p.DB.SQL(), project, id)
 	if err != nil {
 		return nil, err
+	}
+	if !full {
+		rec.Summary = rec.Summary.envelope()
 	}
 	d := &Detail{Summary: rec.Summary, Headers: []Header{}, Links: []string{}, AttachList: []AttachmentInfo{},
 		RawURL: "/v1/projects/" + project + "/email/messages/" + id + "/raw"}
@@ -691,6 +709,10 @@ func (m *Module) detail(ctx context.Context, p *platform.Platform, project, id s
 	_ = p.DB.SQL().QueryRowContext(ctx, `SELECT provider FROM email_tracking WHERE id = ?`, id).Scan(&d.Provider)
 	if d.Envelope.To == nil {
 		d.Envelope.To = []string{}
+	}
+	if !full {
+		d.RawURL = ""
+		return d, nil
 	}
 	raw, err := readRaw(p.DataRoot, project, id)
 	if err != nil {
@@ -705,4 +727,10 @@ func (m *Module) detail(ctx context.Context, p *platform.Platform, project, id s
 		d.Headers = []Header{}
 	}
 	return d, nil
+}
+
+// fullAccess reports whether the caller may read what the project's mail
+// says (see Summary.envelope): full access, not read-only.
+func fullAccess(ctx context.Context, project string) bool {
+	return api.PrincipalFrom(ctx).Require(tokens.ScopeApplyReversible, project) == nil
 }

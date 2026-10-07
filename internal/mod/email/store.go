@@ -132,6 +132,16 @@ type Summary struct {
 	NextAttempt time.Time `json:"nextAttempt,omitzero" doc:"When the next relay attempt is due"`
 	LastError   string    `json:"lastError,omitempty"`
 	SentAt      time.Time `json:"sentAt,omitzero"`
+	Hidden      bool      `json:"hidden,omitempty" doc:"Subject and text left out: what a message says (it can hold sign-in links and codes) needs full access to the project"`
+}
+
+// envelope is the summary without what the message says: who, when, how
+// big and where it went. Read-only access sees mail this way, since app
+// and sign-in mail carries reset links, magic links and one-time codes,
+// which would turn reading a project into signing in to its app.
+func (s Summary) envelope() Summary {
+	s.Subject, s.Snippet, s.Hidden = "", "", true
+	return s
 }
 
 type record struct {
@@ -200,8 +210,11 @@ type ListFilter struct {
 	Project string
 	All     bool   // every message, not just the dev inbox
 	Query   string // substring of subject, from, to or snippet
-	Before  string // message ID cursor (exclusive)
-	Limit   int
+	// EnvelopeOnly searches from and to only (read-only access: the subject
+	// and text aren't theirs to see, nor to probe a letter at a time).
+	EnvelopeOnly bool
+	Before       string // message ID cursor (exclusive)
+	Limit        int
 }
 
 func listRecords(ctx context.Context, db *sql.DB, f ListFilter) ([]*record, error) {
@@ -213,8 +226,13 @@ func listRecords(ctx context.Context, db *sql.DB, f ListFilter) ([]*record, erro
 	}
 	if f.Query != "" {
 		like := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.ToLower(f.Query)) + "%"
-		q += ` AND (lower(subject) LIKE ? ESCAPE '\' OR lower(from_hdr) LIKE ? ESCAPE '\' OR lower(to_hdr) LIKE ? ESCAPE '\' OR lower(snippet) LIKE ? ESCAPE '\')`
-		args = append(args, like, like, like, like)
+		if f.EnvelopeOnly {
+			q += ` AND (lower(from_hdr) LIKE ? ESCAPE '\' OR lower(to_hdr) LIKE ? ESCAPE '\')`
+			args = append(args, like, like)
+		} else {
+			q += ` AND (lower(subject) LIKE ? ESCAPE '\' OR lower(from_hdr) LIKE ? ESCAPE '\' OR lower(to_hdr) LIKE ? ESCAPE '\' OR lower(snippet) LIKE ? ESCAPE '\')`
+			args = append(args, like, like, like, like)
+		}
 	}
 	if f.Before != "" {
 		q += ` AND id < ?`
