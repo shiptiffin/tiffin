@@ -65,6 +65,9 @@ Plainly, so you can decide what to trust it with.
 - **Sign-ins and signing out.** **Settings › Sign-ins** lists where you're signed in, with
   **Sign out** on each and **Sign out everywhere else**. See
   [Seeing and ending sign-ins](#seeing-and-ending-sign-ins).
+- **Console history stays in the tab.** What you type in the SQL and KV consoles (which can
+  hold a password or an `AUTH`) is kept for the up arrow in that browser tab only, never in
+  the browser's lasting storage, and is wiped when you sign out or your session ends.
 - **Every change and security event is logged** (changes with the key or person that
   made them, keys created and revoked, sign-ins, secrets).
 - **Known gaps:** a person or agent with shell access to your Mac can read your local

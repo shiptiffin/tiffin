@@ -234,6 +234,24 @@ the box unless you [copy them off it](data.md#copies-off-the-box).
   error-spike rules.
 - Database snapshots of deleted projects are kept for 7 days.
 
+## The dashboard
+
+- **Build logs:** the viewer keeps the newest 50,000 lines (8 MB of text) and cuts any line
+  at 16 KB, saying so; **Download** always fetches the whole log from the box. The launch
+  page shows the newest 1,000 lines.
+- **Logs page, live:** reads up to 2,000 new lines every 2 s. A faster burst shows a
+  "came in too fast" marker that opens that time range; the live view keeps the newest
+  3,000 lines.
+- **Routes:** a route folded from several addresses (`/orders/:id`) shows the slowest
+  address's p50/p95 as an upper bound (≤), not an exact percentile across the route.
+- **Live app logs:** after a dropped connection the stream resumes from the newest line it
+  showed. A line from another instance still in flight at that moment can be missed;
+  reloading shows it.
+- **Table editor:** arrays are edited as Postgres array literals (`{a,"b c",NULL}`), not one
+  item per line. Timestamps with microseconds, `infinity` or BC dates are edited as text.
+  After a change, the rows reload so filters and sort stay true; an edited row that no
+  longer matches shows until they do.
+
 ## Caching and images
 
 - No edge response cache (ISR, `s-maxage`, `stale-while-revalidate`) for frameworks other
