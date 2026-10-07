@@ -164,7 +164,74 @@ func ParseEvent(b []byte) (*Event, error) {
 	if e.Message == "" && len(e.Exceptions) == 0 {
 		return nil, errors.New("event has neither a message nor an exception")
 	}
+	e.bound()
 	return e, nil
+}
+
+// Limits on what one event keeps (Sentry's own are similar): an issue keeps
+// its last 20 events, and reading it must stay cheap whatever apps send.
+const (
+	maxMessage    = 8192 // message and exception values
+	maxExceptions = 10   // the innermost ones
+	maxFrames     = 200  // across the chain, innermost exception first
+	maxTags       = 50
+	maxField      = 256 // names, frame fields, tag values
+	maxURL        = 2048
+)
+
+// bound clips every field so a stored event is at most a few hundred KB.
+func (e *Event) bound() {
+	e.EventID = trunc(e.EventID, 64)
+	e.Level = trunc(e.Level, 32)
+	e.Platform = trunc(e.Platform, 64)
+	for _, f := range []*string{&e.Release, &e.Environment, &e.ServerName, &e.Transaction} {
+		*f = trunc(*f, maxField)
+	}
+	e.URL = trunc(e.URL, maxURL)
+	e.Message = trunc(e.Message, maxMessage)
+	if n := len(e.Exceptions); n > maxExceptions {
+		e.Exceptions = e.Exceptions[n-maxExceptions:]
+	}
+	budget := maxFrames
+	for i := len(e.Exceptions) - 1; i >= 0; i-- {
+		ex := &e.Exceptions[i]
+		ex.Type, ex.Value = trunc(ex.Type, maxField), trunc(ex.Value, maxMessage)
+		if n := len(ex.Frames); n > budget {
+			ex.Frames = ex.Frames[n-budget:] // the innermost frames are last
+		}
+		budget -= len(ex.Frames)
+		for j := range ex.Frames {
+			f := &ex.Frames[j]
+			f.Filename, f.Function, f.Module, f.Context = trunc(f.Filename, maxField), trunc(f.Function, maxField), trunc(f.Module, maxField), trunc(f.Context, maxField)
+		}
+	}
+	if len(e.Tags) > 0 {
+		tags := make(map[string]string, min(len(e.Tags), maxTags))
+		for k, v := range e.Tags {
+			if len(tags) == maxTags {
+				break
+			}
+			tags[trunc(k, 64)] = trunc(v, maxField)
+		}
+		e.Tags = tags
+	}
+	if len(e.Fingerprint) > 10 {
+		e.Fingerprint = e.Fingerprint[:10]
+	}
+	for i := range e.Fingerprint {
+		e.Fingerprint[i] = trunc(e.Fingerprint[i], maxField)
+	}
+}
+
+// trunc cuts s to at most n bytes, not mid-rune.
+func trunc(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && s[n]&0xC0 == 0x80 {
+		n--
+	}
+	return s[:n]
 }
 
 func parseTime(raw json.RawMessage) time.Time {

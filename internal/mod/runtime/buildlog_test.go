@@ -139,3 +139,38 @@ func TestPruneBuildLogs(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Build and app logs are served straight from disk: Tiffin credentials in
+// them are masked on the way out, also when a read ends partway into one.
+func TestServedLogsAreMasked(t *testing.T) {
+	const secret = "tfn_abcdefghijklmnopqrstuvwxyz234567"
+	dir := t.TempDir()
+	r := &rt{opt: Options{DataDir: filepath.Join(dir, "runtime")}}
+	d := &Deploy{ID: "dep_01", Project: "shop", App: "web"}
+	os.MkdirAll(r.workDir(d), 0o755)
+	log := "step 1\necho " + secret + "\ndone\n"
+	if err := os.WriteFile(r.buildLogPath(d), []byte(log), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var got strings.Builder
+	var off int64
+	for i := 0; i < 100; i++ { // small reads cut through the credential
+		text, noff := r.readBuildLog(d, off, 7)
+		got.Write(text)
+		if noff == off && len(text) == 0 && off >= int64(len(log)) {
+			break
+		}
+		if noff == off && len(text) == 0 {
+			text, noff = r.readBuildLog(d, off, 64)
+			got.Write(text)
+		}
+		off = noff
+	}
+	if strings.Contains(got.String(), "abcdefghij") || !strings.Contains(got.String(), "tfn_[redacted]") || !strings.HasSuffix(got.String(), "done\n") {
+		t.Fatalf("build log served as %q", got.String())
+	}
+	l, ok := parseLine([]byte(`{"log":"token `+secret+`\n","stream":"stdout","time":"2026-10-07T10:00:00Z"}`), logSource{})
+	if !ok || strings.Contains(l.Text, "abcdefghij") || l.Text != "token tfn_[redacted]" {
+		t.Fatalf("app log line %q", l.Text)
+	}
+}

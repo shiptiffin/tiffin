@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -22,6 +21,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/platform"
+	"github.com/btahir/tiffin/internal/tokens"
 )
 
 // Pinned upstream releases (Apache-2.0). Bump version and both checksums
@@ -386,17 +386,9 @@ type batchKey struct {
 	stream string
 }
 
-// secretRe matches Tiffin's own credentials (tokens, login codes, analytics
-// keys) so they never reach the log store, even if a process prints one.
-var secretRe = regexp.MustCompile(`\b(tfn|tfl|tak)_[a-z0-9]{16,}`)
-
-// Redact masks Tiffin credentials in s.
-func Redact(s string) string {
-	if !strings.Contains(s, "_") {
-		return s
-	}
-	return secretRe.ReplaceAllString(s, "${1}_[redacted]")
-}
+// Redact masks Tiffin credentials in s (tokens.Redact), so they never
+// reach the log store, even if a process prints one.
+func Redact(s string) string { return tokens.Redact(s) }
 
 // Add queues one log record (marshalled as a JSON line).
 func (b *LogBatcher) Add(t Tenant, streamFields string, rec map[string]any) {

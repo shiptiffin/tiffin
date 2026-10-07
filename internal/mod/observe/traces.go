@@ -155,7 +155,8 @@ func decodeTraces(raw []byte, contentType, app string) (map[string][]span, int, 
 		service := ""
 		for _, kv := range rs.GetResource().GetAttributes() {
 			if kv.GetKey() == "service.name" {
-				service = kv.GetValue().GetStringValue()
+				// Clipped: it is copied into every span of the resource.
+				service = clip(Redact(kv.GetValue().GetStringValue()), maxSpanName)
 			}
 		}
 		for _, ss := range rs.GetScopeSpans() {

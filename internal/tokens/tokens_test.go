@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -317,6 +318,26 @@ func TestRequireBox(t *testing.T) {
 	} {
 		if err := c.p.RequireBox(ScopeRead); (err == nil) != c.ok || (err != nil && !errors.Is(err, ErrForbidden)) {
 			t.Errorf("%+v: %v", c.p, err)
+		}
+	}
+}
+
+func TestRedact(t *testing.T) {
+	const secret = "tfn_abcdefghijklmnopqrstuvwxyz234567"
+	if got := Redact("key " + secret + " and tak_0123456789abcdef0123."); got != "key tfn_[redacted] and tak_[redacted]." {
+		t.Fatal(got)
+	}
+	in := []byte(`{"a":"` + secret + `","b":"tfl_short"}`)
+	got := RedactBytes(in)
+	if len(got) != len(in) || string(got) != `{"a":"tfn_[redacted]**********************","b":"tfl_short"}` || string(in) == string(got) {
+		t.Fatalf("%s", got)
+	}
+	if b := []byte("nothing here"); &RedactBytes(b)[0] != &b[0] {
+		t.Fatal("copied without need")
+	}
+	for in, want := range map[string]int{"line\n": 5, "echo t": 5, "echo tf": 5, "echo tfn_ab": 5, "at": 2, "echo x_tfn_ab": 13, "echo " + strings.Repeat("tfn_a", 40): 205} {
+		if got := RedactSafeLen([]byte(in)); got != want {
+			t.Errorf("RedactSafeLen(%q) = %d, want %d", in, got, want)
 		}
 	}
 }

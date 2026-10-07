@@ -16,6 +16,10 @@ import (
 	"strings"
 
 	"github.com/btahir/tiffin/internal/mod/observe/sentry"
+	"github.com/btahir/tiffin/internal/tokens"
+	collogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // IngestAddr is where apps send errors (Sentry protocol), metrics and logs
@@ -198,8 +202,21 @@ func (m *Module) otlpHTTP(signal string) http.HandlerFunc {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unknown key: send Authorization: Bearer <key> (Tiffin sets OTEL_EXPORTER_OTLP_HEADERS for your apps)"})
 			return
 		}
-		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxIngestBody))
-		if err != nil {
+		in := r.Header
+		var raw []byte
+		var err error
+		if signal == "logs" {
+			// Logs are masked like every other line the box keeps: decode
+			// the body, mask credentials, send it on uncompressed.
+			if raw, err = body(r); err == nil {
+				raw, err = maskOTLPLogs(raw, r.Header.Get("Content-Type"))
+			}
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			in = http.Header{"Content-Type": r.Header.Values("Content-Type")}
+		} else if raw, err = io.ReadAll(http.MaxBytesReader(w, r.Body, maxIngestBody)); err != nil {
 			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": err.Error()})
 			return
 		}
@@ -223,7 +240,7 @@ func (m *Module) otlpHTTP(signal string) http.HandlerFunc {
 			hdr.Set("AccountID", strconv.FormatUint(uint64(t), 10))
 			hdr.Set("ProjectID", "0")
 		}
-		res, err := m.vic.forward(r.Context(), target, r.Header, hdr, raw)
+		res, err := m.vic.forward(r.Context(), target, in, hdr, raw)
 		if err != nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "the " + signal + " store is not reachable; try again shortly"})
 			return
@@ -236,6 +253,57 @@ func (m *Module) otlpHTTP(signal string) http.HandlerFunc {
 		}
 		w.WriteHeader(res.StatusCode)
 		_, _ = io.Copy(w, io.LimitReader(res.Body, 1<<20))
+	}
+}
+
+// maskOTLPLogs masks Tiffin credentials in an OTLP log export: in place
+// for JSON (a credential ends at its string's quote), by decoding and
+// re-encoding for protobuf.
+func maskOTLPLogs(raw []byte, contentType string) ([]byte, error) {
+	if strings.Contains(contentType, "json") {
+		return tokens.RedactBytes(raw), nil
+	}
+	if !bytes.Contains(raw, []byte("tfn_")) && !bytes.Contains(raw, []byte("tfl_")) && !bytes.Contains(raw, []byte("tak_")) {
+		return raw, nil
+	}
+	req := &collogs.ExportLogsServiceRequest{}
+	if err := proto.Unmarshal(raw, req); err != nil {
+		return nil, fmt.Errorf("not an OTLP log export: %w", err)
+	}
+	maskStrings(req.ProtoReflect())
+	return proto.Marshal(req)
+}
+
+// maskStrings masks credentials in every string field of m, recursively.
+func maskStrings(m protoreflect.Message) {
+	type set struct {
+		fd protoreflect.FieldDescriptor
+		v  string
+	}
+	var sets []set
+	m.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
+		switch {
+		case fd.IsMap():
+		case fd.IsList():
+			l := v.List()
+			for i := 0; i < l.Len(); i++ {
+				if fd.Kind() == protoreflect.StringKind {
+					l.Set(i, protoreflect.ValueOfString(tokens.Redact(l.Get(i).String())))
+				} else if fd.Message() != nil {
+					maskStrings(l.Get(i).Message())
+				}
+			}
+		case fd.Kind() == protoreflect.StringKind:
+			if r := tokens.Redact(v.String()); r != v.String() {
+				sets = append(sets, set{fd, r})
+			}
+		case fd.Message() != nil:
+			maskStrings(v.Message())
+		}
+		return true
+	})
+	for _, x := range sets {
+		m.Set(x.fd, protoreflect.ValueOfString(x.v))
 	}
 }
 

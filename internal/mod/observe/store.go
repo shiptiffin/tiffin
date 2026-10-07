@@ -1,6 +1,7 @@
 package observe
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -18,6 +19,7 @@ import (
 	"github.com/btahir/tiffin/internal/ids"
 	"github.com/btahir/tiffin/internal/mod/observe/logtail"
 	"github.com/btahir/tiffin/internal/mod/observe/sentry"
+	"github.com/btahir/tiffin/internal/tokens"
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
@@ -261,6 +263,13 @@ func (s *Store) RecordEvent(ctx context.Context, project, app string, e *sentry.
 		at = time.Now().UTC()
 	}
 	body, _ := json.Marshal(e)
+	if red := tokens.RedactBytes(body); !bytes.Equal(red, body) {
+		// Mask credentials everywhere in the event, title and culprit too.
+		body, *e = red, sentry.Event{}
+		if err := json.Unmarshal(body, e); err != nil {
+			return nil, false, err
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -302,14 +311,16 @@ func (s *Store) RecordEvent(ctx context.Context, project, app string, e *sentry.
 	if _, err := tx.ExecContext(ctx, `DELETE FROM error_counts WHERE minute < ?`, minute-24*60); err != nil {
 		return nil, false, err
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, false, err
-	}
-	is, err := s.GetIssue(ctx, id)
+	// The summary only: loading the issue's kept events here would decode
+	// up to 20 bodies on every ingest, under the writer lock.
+	is, err := scanIssue(tx.QueryRowContext(ctx, `SELECT `+issueCols+` FROM issues WHERE id = ?`, id))
 	if err != nil {
 		return nil, false, err
 	}
-	return &is.Issue, created, nil
+	if err := tx.Commit(); err != nil {
+		return nil, false, err
+	}
+	return &is, created, nil
 }
 
 // ErrorCount returns error events per project over the last window.

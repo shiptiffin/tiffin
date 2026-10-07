@@ -559,8 +559,10 @@ preview's build reads its own branch. Two differences: `DATABASE_URL` (and `PG*`
 as the project's read-only role (`p_<project>__read`: reads every table, writes nothing,
 not even with `SET default_transaction_read_only = off`) and `REDIS_URL` as a read-only
 Valkey user, unless the app sets its own values. The values reach build steps as BuildKit
-secrets: they are in no image layer, no build plan and no log, and only `NEXT_PUBLIC_*`
-(and the other browser variables) are built into client code. The trade-offs:
+secrets: Tiffin puts them in no image layer, build plan or log, and only `NEXT_PUBLIC_*`
+(and the other browser variables) are built into client code. Build code can still
+leak one: a script that prints a secret puts it in the build log (only Tiffin's own
+credentials are masked there), and one that writes it to a file can bake it into the image. The trade-offs:
 
 - A build reads live data. A page prerendered from it shows the data of build time until
   it revalidates, and a build fails if its queries fail.

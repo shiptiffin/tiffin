@@ -24,7 +24,10 @@ by default.
   labelled with the app that sent them, and traces are sampled and kept for three
   days (see Traces below).
 
-Tiffin tokens, login codes and analytics keys are masked before any line is stored.
+Tiffin tokens, login codes and analytics keys are masked in everything observe keeps
+or shows: app and build logs (also when read straight from disk with `tiffin logs` and
+the deploy page), OTLP logs, traces and reported errors. Other secrets your code prints
+(a database password, a third-party API key) are not recognised: don't log them.
 
 ## Reading logs and metrics
 

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/btahir/tiffin/internal/tokens"
 )
 
 // LogLine is one line an app instance wrote.
@@ -74,7 +76,8 @@ func parseLine(raw []byte, src logSource) (LogLine, bool) {
 	if json.Unmarshal(raw, &j) != nil {
 		return LogLine{}, false
 	}
-	return LogLine{Time: j.Time, Stream: j.Stream, Deploy: src.deploy, Instance: src.instance, Text: strings.TrimRight(j.Log, "\n")}, true
+	// Masked as the log store masks it: these files are served directly.
+	return LogLine{Time: j.Time, Stream: j.Stream, Deploy: src.deploy, Instance: src.instance, Text: tokens.Redact(strings.TrimRight(j.Log, "\n"))}, true
 }
 
 // readLogs returns lines after since (exclusive), oldest first. With limit,
@@ -202,7 +205,9 @@ func (r *rt) pruneLogs(project, app, preview string, newestFirst []*Deploy) {
 	}
 }
 
-// readBuildLog returns a deploy's build log from byte offset off.
+// readBuildLog returns a deploy's build log from byte offset off, with
+// Tiffin credentials masked. A read that ends partway into what may be a
+// credential stops before it, so the next read masks it whole.
 func (r *rt) readBuildLog(d *Deploy, off int64, maxBytes int64) ([]byte, int64) {
 	f, err := os.Open(r.buildLogPath(d))
 	if err != nil {
@@ -213,5 +218,6 @@ func (r *rt) readBuildLog(d *Deploy, off int64, maxBytes int64) ([]byte, int64) 
 		return nil, off
 	}
 	data, _ := io.ReadAll(io.LimitReader(f, maxBytes))
-	return data, off + int64(len(data))
+	data = data[:tokens.RedactSafeLen(data)]
+	return tokens.RedactBytes(data), off + int64(len(data))
 }
