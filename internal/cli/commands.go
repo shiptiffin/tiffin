@@ -25,6 +25,7 @@ import (
 	"github.com/btahir/tiffin/internal/dashboard"
 	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/edge/switchboard"
+	"github.com/btahir/tiffin/internal/install"
 	"github.com/btahir/tiffin/internal/manifest"
 	tmcp "github.com/btahir/tiffin/internal/mcp"
 	authmod "github.com/btahir/tiffin/internal/mod/auth"
@@ -411,6 +412,13 @@ func (a *app) serveCmd() *cobra.Command {
 			if plat != nil {
 				plat.BoxChecks = func(ctx context.Context) []platform.Check { return b.api.Status(ctx, started).Checks }
 			}
+			if withEdge || edgeExternal {
+				// Before the API answers: the installer reads it once the
+				// new build is healthy.
+				if err := recordTLS(a.home, reach.ACME); err != nil {
+					return err
+				}
+			}
 			ln, err := net.Listen("tcp", addr)
 			if err != nil {
 				return err
@@ -546,6 +554,21 @@ func (a *app) startEdge(ctx context.Context, cfg edge.Config, external bool) (*e
 	cl := edge.NewClient(o)
 	cl.Start(ctx, 30*time.Second)
 	return cl, nil
+}
+
+// recordTLS writes where the box's certificates come from (home/tls-mode:
+// "acme" or "internal") for the installer, which fetches the box's CA only
+// for internal certificates. With public certificates an internal CA from
+// before is removed, so nobody is told to trust it.
+func recordTLS(home string, acme bool) error {
+	mode := "internal"
+	if acme {
+		mode = "acme"
+		if err := os.Remove(filepath.Join(home, "ca.crt")); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return os.WriteFile(filepath.Join(home, install.TLSModeFile), []byte(mode+"\n"), 0o644)
 }
 
 // writeCA copies the edge's internal CA root to dst once the edge made it.

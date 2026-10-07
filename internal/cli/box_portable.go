@@ -612,7 +612,7 @@ func (a *app) boxImportCmd() *cobra.Command {
 				return &exitError{ExitError, "import " + im.ID + " failed: " + im.Error + hintOf(im.Hint)}
 			}
 			// The CLI's copy of the box's CA, and an agent token that exists here.
-			if bx != nil && man.CAPEM != "" {
+			if bx != nil && bx.CAFile != "" && man.CAPEM != "" {
 				if err := os.WriteFile(bx.CAFile, []byte(man.CAPEM), 0o644); err != nil {
 					return err
 				}

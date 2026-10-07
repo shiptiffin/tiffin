@@ -4,7 +4,9 @@ package cli
 // (Tiffin creates the server) and plain SSH (any Ubuntu 24.04 or 26.04 server).
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -421,8 +423,14 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 	}
 	warnings = append(warnings, res.Warnings...)
 
+	// A box with public certificates has no CA of its own to trust.
 	caFile := filepath.Join(dir, "ca.crt")
-	if err := os.WriteFile(caFile, res.CAPEM, 0o644); err != nil {
+	if len(bytes.TrimSpace(res.CAPEM)) == 0 {
+		if err := os.Remove(caFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		caFile = ""
+	} else if err := os.WriteFile(caFile, res.CAPEM, 0o644); err != nil {
 		return err
 	}
 	// A box moved to its own domain (tiffin domain set) stays there: its sslip

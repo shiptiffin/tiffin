@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/btahir/tiffin/internal/edge"
+	"github.com/btahir/tiffin/internal/install"
 	"github.com/btahir/tiffin/internal/tokens"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -591,5 +592,31 @@ func TestGitCredentialAnswersOnlyForTheBoxAsked(t *testing.T) {
 		if c.want == "" && got != "" || c.want != "" && !strings.HasSuffix(got, c.want) {
 			t.Errorf("%v %q: got %q, want %q", c.env, c.req, got, c.want)
 		}
+	}
+}
+
+func TestRecordTLS(t *testing.T) {
+	home := t.TempDir()
+	ca := filepath.Join(home, "ca.crt")
+	if err := os.WriteFile(ca, []byte("old internal CA"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordTLS(home, false); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(home, install.TLSModeFile)); string(raw) != "internal\n" {
+		t.Fatalf("mode %q", raw)
+	}
+	if _, err := os.Stat(ca); err != nil {
+		t.Fatal("the internal CA must stay")
+	}
+	if err := recordTLS(home, true); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(home, install.TLSModeFile)); string(raw) != "acme\n" {
+		t.Fatalf("mode %q", raw)
+	}
+	if _, err := os.Stat(ca); !os.IsNotExist(err) {
+		t.Fatal("a box with public certificates must not offer its old internal CA")
 	}
 }

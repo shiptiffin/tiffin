@@ -523,9 +523,13 @@ func (a *app) trustCmd() *cobra.Command {
 			"accept https://dashboard.tiffin.localhost. macOS asks for your password. Firefox keeps its own list; import the file there by hand.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			_, bx := a.currentBox()
-			if bx == nil || bx.CAFile == "" {
+			name, bx := a.currentBox()
+			if bx == nil {
 				return &exitError{ExitInvalid, "no box yet: run tiffin up first"}
+			}
+			if bx.CAFile == "" {
+				fmt.Fprintf(a.io.Out, "%s has certificates from a public CA: browsers trust it already. Open %s\n", name, bx.URL)
+				return nil
 			}
 			args := []string{"add-trusted-cert", "-r", "trustRoot", "-k", filepath.Join(a.io.Env("HOME"), "Library", "Keychains", "login.keychain-db"), bx.CAFile}
 			if printOnly || runtime.GOOS != "darwin" {

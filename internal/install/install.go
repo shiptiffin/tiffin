@@ -168,7 +168,7 @@ WantedBy=multi-user.target
 // Result is what the installer learned from the box.
 type Result struct {
 	OwnerToken string
-	CAPEM      []byte
+	CAPEM      []byte // empty: the box has public certificates
 	Build      string
 	Warnings   []string // modules that failed to provision (the box still updated)
 }
@@ -264,13 +264,25 @@ exit $rc`
 	if err != nil {
 		return nil, fmt.Errorf("read owner token: %w\n%s", err, stderr)
 	}
-	// The API answers health before the HTTPS edge has written its CA
-	// (a fresh box makes the CA on first start): wait for the file.
-	ca, stderr, err := m.Exec(ctx, "for i in $(seq 1 60); do sudo test -s "+Home+"/ca.crt && break; sleep 0.5; done; sudo cat "+Home+"/ca.crt")
+	ca, stderr, err := m.Exec(ctx, caScript(Home))
 	if err != nil {
 		return nil, fmt.Errorf("read the box's CA certificate: %w\n%s", err, stderr)
 	}
 	return &Result{OwnerToken: strings.TrimSpace(tok), CAPEM: []byte(ca), Build: sum, Warnings: warnings}, nil
+}
+
+// TLSModeFile, in the box's home, says where its certificates come from:
+// "acme" (a public CA: clients need nothing) or "internal" (the box's own
+// CA, which clients must trust). The service writes it before it answers.
+const TLSModeFile = "tls-mode"
+
+// caScript prints the box's CA certificate, or nothing when the box has
+// public certificates. The API answers health before the HTTPS edge has
+// written its CA (a fresh box makes the CA on first start): it waits for it.
+func caScript(home string) string {
+	return `if [ "$(sudo cat ` + home + `/` + TLSModeFile + ` 2>/dev/null)" = acme ]; then exit 0; fi
+for i in $(seq 1 60); do sudo test -s ` + home + `/ca.crt && break; sleep 0.5; done
+sudo cat ` + home + `/ca.crt`
 }
 
 // writeServerConfig records on the box that it runs on a real server.

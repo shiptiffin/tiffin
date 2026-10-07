@@ -1,9 +1,12 @@
 package install
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/btahir/tiffin/internal/platform"
 )
@@ -42,5 +45,36 @@ func TestUnitCarriesPublicIPs(t *testing.T) {
 	bad := &platform.ServerConfig{Provider: "hetzner", RebootWindow: "4am"}
 	if err := bad.Validate(); err == nil {
 		t.Fatal("a bad reboot window must be refused")
+	}
+}
+
+// A box with public certificates writes no CA: the installer must not wait
+// for one (a fresh Hetzner box failed every install), and reads it for the
+// box's own CA.
+func TestCAScript(t *testing.T) {
+	read := func(mode, ca string) (string, error) {
+		home := t.TempDir()
+		if mode != "" {
+			if err := os.WriteFile(filepath.Join(home, TLSModeFile), []byte(mode+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if ca != "" {
+			if err := os.WriteFile(filepath.Join(home, "ca.crt"), []byte(ca), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out, err := exec.Command("bash", "-c", "sudo() { \"$@\"; }\n"+caScript(home)).Output()
+		return string(out), err
+	}
+	start := time.Now()
+	if out, err := read("acme", ""); err != nil || out != "" || time.Since(start) > 5*time.Second {
+		t.Fatalf("public certificates: %q %v after %s", out, err, time.Since(start))
+	}
+	if out, err := read("internal", "PEM"); err != nil || out != "PEM" {
+		t.Fatalf("internal CA: %q %v", out, err)
+	}
+	if out, err := read("acme", "STALE"); err != nil || out != "" {
+		t.Fatalf("a stale CA on a box with public certificates was read: %q %v", out, err)
 	}
 }
