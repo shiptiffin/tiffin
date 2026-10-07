@@ -144,7 +144,16 @@ Next.js pages, pages rendered on request, and Early Hints during a wake.
   email on their Google or GitHub account, change it on the box too.
 - A provider sign-in in progress fails if the box restarts (its signing key is kept in
   memory). Start it again.
-- Settings doesn't show which provider a person signed in with before.
+- **Sign-ins** (Settings › Sign-ins) show the address and country a session signed in
+  from, not where it is used now; last active is to the minute. Sessions from before this
+  page existed show no browser or method. The list goes back 30 days.
+- **Signing out a session also stops the API keys made in it.** Keys made in the dashboard
+  already expire when the session that made them does (12 hours), because a key never
+  outlives what made it; make a long-lived key with the CLI and the owner token.
+- Admins can see the owner's sessions but not end them. There is no "sign everyone out"
+  for the whole box; end each person's sessions in turn.
+- Browsers the box knows can't be forgotten one at a time, and the box doesn't name
+  browsers beyond "Chrome on macOS".
 - **Previews share real users.** A preview signs in against the project's own accounts:
   anyone who signs up on a preview is a user of the app, and a preview's emails reach
   real people. Treat a preview of someone else's branch as you would deploying it.

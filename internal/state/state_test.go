@@ -2,8 +2,8 @@ package state
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -139,9 +139,12 @@ func TestSecretsMigrateToResources(t *testing.T) {
 	for _, p := range []string{"shop", "fresh", "gone", "_email"} {
 		exec(`INSERT INTO secrets(project, name, ciphertext, updated_at, updated_by) VALUES (?, 'KEY', X'00FF', '2026-01-02T03:04:05Z', 'tok_1')`, p)
 	}
-	exec(fmt.Sprintf(`PRAGMA user_version = %d`, len(migrations)-3))
-	if err := db.migrate(ctx); err != nil {
-		t.Fatal(err)
+	// The three statements that move secrets, run again on this data.
+	from := slices.IndexFunc(migrations, func(m string) bool {
+		return strings.HasPrefix(m, "INSERT INTO projects(name, version) SELECT DISTINCT")
+	})
+	for _, m := range migrations[from : from+3] {
+		exec(m)
 	}
 	for _, p := range []string{"shop", "fresh"} {
 		v, res, err := db.Load(ctx, p)

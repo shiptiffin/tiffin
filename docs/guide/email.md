@@ -107,8 +107,9 @@ images or tracking (SendGrid's click and open tracking is switched off for them)
 The new-browser note goes out once per browser, never on someone's first sign-in. It
 names the browser, the time (UTC), how they signed in and where from: the country, looked
 up on the box in the analytics country database when it is there (nothing is sent
-anywhere), then the address. Its button opens their passkeys; owners and admins also get
-a link to API keys.
+anywhere), then the address. Its button, **Review sign-ins**, opens **Settings › Sign-ins**,
+where they can choose **Sign out everywhere else**; it also links their passkeys and, for
+owners and admins, API keys.
 
 It comes from `Tiffin <hello@<box domain>>` until you change it under **Settings ›
 Email › Mail from the box**, where you can also set a Reply-To. The relay's mail service

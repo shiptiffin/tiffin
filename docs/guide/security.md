@@ -52,12 +52,50 @@ Plainly, so you can decide what to trust it with.
 - **New sign-in notices.** When someone with an email address signs in from a browser the
   box hasn't seen them use, it emails them (browser, time, address, how). Their first
   sign-in (the invite) and later sign-ins from the same browser are quiet. A random ID in
-  an HttpOnly cookie (`tiffin_device`) is all the box keeps about a browser.
+  an HttpOnly cookie (`tiffin_device`) is all the box keeps about a browser. The email's
+  button, **Review sign-ins**, opens the page below.
+- **Sign-ins and signing out.** **Settings › Sign-ins** lists where you're signed in, with
+  **Sign out** on each and **Sign out everywhere else**. See
+  [Seeing and ending sign-ins](#seeing-and-ending-sign-ins).
 - **Every change and security event is logged** (changes with the key or person that
   made them, keys created and revoked, sign-ins, secrets).
 - **Known gaps:** a person or agent with shell access to your Mac can read your local
   owner token in `~/.tiffin`. Backups stay on the box unless you set an off-box destination
   (`tiffin backups offsite set`); keep its passphrase off the box.
+
+## Seeing and ending sign-ins
+
+**Settings › Sign-ins** (also in your menu, bottom left) shows:
+
+- **Where you're signed in:** each open session's browser and system ("Safari on iPhone"),
+  the address it signed in from and its country (looked up on the box, when the analytics
+  country database is there), how it signed in (sign-in link, emailed link, passkey, Google
+  or GitHub), when, and when it was last active (to the minute). *This browser* marks yours.
+  **Sign out** ends one; **Sign out everywhere else** ends all but this one.
+- **Recent sign-ins:** every sign-in of the last 30 days, and whether it is still signed
+  in, was signed out or expired.
+- **Browsers this box knows:** up to 20 browsers you signed in from. Signing in from one of
+  these sends no new sign-in email.
+
+A session that is signed out is refused on its very next request, and any API keys made
+while signed in there stop working too (a stolen session's keys go with it). Keys made in
+another session, and other people's sessions, stay.
+
+Owners and admins can do the same for anyone: **People › (their role menu) › End
+sessions…** lists where that person is signed in, with **Sign out** on each and **Sign
+out everywhere**. They keep their access and can sign in again; to take it away, remove
+them. Only the owner can end the owner's sessions; admins can still see them.
+
+Agents and scripts use API keys, not sessions, so they aren't listed here: see
+**API keys**. Every sign-in is in the audit log (`session.link`, `session.passkey`,
+`session.oauth`), and so is every sign-out from this page (`session.end` with the session,
+`session.end_others` with the person, both with who did it).
+
+For scripts and agents: `GET /v1/sessions` (`?person=usr_…` for someone else,
+`&history=true` for the last 30 days), `DELETE /v1/sessions/{id}`,
+`POST /v1/sessions/end-others` (`?person=usr_…`) and `GET /v1/sessions/browsers`; in the
+CLI, `tiffin sessions list|end|end-others|browsers`. Sessions belong to people, so an API
+key must name the person, and only a key with full access to all projects may.
 
 ## Signing in with Google or GitHub
 

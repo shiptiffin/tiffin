@@ -221,6 +221,8 @@ var migrations = []string{
 		AND (project IN (SELECT project FROM resources) OR project IN (SELECT name FROM projects WHERE version = 1))`,
 	`DELETE FROM secrets WHERE project GLOB '[a-z]*' AND EXISTS
 		(SELECT 1 FROM resources r WHERE r.project = secrets.project AND r.address = 'secret/' || secrets.name)`,
+	// Dashboard sessions: how and where they signed in, as JSON (see internal/tokens/sessions.go).
+	`ALTER TABLE tokens ADD COLUMN client TEXT`,
 }
 
 // SchemaVersion is the state schema this build writes (box exports record

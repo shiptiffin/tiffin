@@ -298,14 +298,19 @@ type knownDevice struct {
 
 var deviceIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]{22,64}$`)
 
-// signedIn records the browser a person just signed in from and, when they
-// have signed in before but never from this browser, emails them a notice.
-// The first sign-in (an invite) is quiet. It returns the device cookie to set.
-func (a *API) signedIn(ctx context.Context, personID, cookie, ua, ip, via string) *http.Cookie {
+// signedIn records how and where session signed in (Settings › Sign-ins
+// lists it), remembers the browser and, when the person has signed in before
+// but never from this browser, emails them a notice. The first sign-in (an
+// invite) is quiet. method is a tokens.Method*; via is the same in words for
+// the notice ("Sign-in link", "Passkey", "Google"). It returns the device
+// cookie to set.
+func (a *API) signedIn(ctx context.Context, session, personID, cookie, ua, ip, method, via string) *http.Cookie {
 	person, err := a.deps.Tokens.GetPerson(ctx, personID)
 	if err != nil || a.deps.DB == nil {
 		return nil
 	}
+	where := locate(ip)
+	_ = a.deps.Tokens.SetClient(ctx, session, tokens.Client{Method: method, Device: deviceLabel(ua), IP: ip, Country: where})
 	id := cookie
 	if !deviceIDRE.MatchString(id) {
 		var b [18]byte
@@ -340,7 +345,7 @@ func (a *API) signedIn(ctx context.Context, personID, cookie, ua, ip, via string
 	}
 	if notify && person.Email != "" {
 		a.sendLater(BoxMail{Kind: BoxMailNewDevice, To: person.Email, Name: person.Name, Role: person.Role,
-			Device: label, IP: ip, Where: locate(ip), Via: via, At: now})
+			Device: label, IP: ip, Where: where, Via: via, At: now})
 	}
 	return &http.Cookie{Name: DeviceCookie, Value: id, Path: "/", HttpOnly: true, Secure: true,
 		SameSite: http.SameSiteLaxMode, MaxAge: 400 * 24 * 60 * 60}

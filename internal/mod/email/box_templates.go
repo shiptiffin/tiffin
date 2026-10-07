@@ -63,13 +63,13 @@ func renderBoxMail(m api.BoxMail, boxDomain string, now time.Time) (*boxEmail, e
 	}
 }
 
-// newSignIn writes the "New sign-in" notice. The dashboard has no list of
-// sign-ins, so the button opens the person's passkeys (what can sign them in)
-// and owners and admins also get a link to API keys.
+// newSignIn writes the "New sign-in" notice. The button opens the person's
+// sign-ins (where they can sign out everywhere else); the "Wasn't you?" line
+// also links their passkeys and, for owners and admins, API keys.
 func newSignIn(m api.BoxMail, dash, brand, host, mark string) (*boxEmail, error) {
 	first := firstName(m.Name)
 	if first == "there" {
-		first = "" // "Someone just signed in as you", not "there, someone…"
+		first = "" // "There's a new sign-in…", not "there, there's…"
 	}
 	device := m.Device
 	if device == "" {
@@ -84,9 +84,10 @@ func newSignIn(m api.BoxMail, dash, brand, host, mark string) (*boxEmail, error)
 		how = "Sign-in link"
 	}
 	admin := m.Role == "owner" || m.Role == "admin"
-	var url, shown, keys string
+	var url, shown, passkeys, keys string
 	if dash != "" {
-		url = dash + "/settings/passkeys"
+		url = dash + "/settings/sign-ins"
+		passkeys = dash + "/settings/passkeys"
 		shown = strings.TrimPrefix(strings.TrimPrefix(url, "https://"), "http://")
 		if admin {
 			keys = dash + "/settings/keys"
@@ -94,7 +95,7 @@ func newSignIn(m api.BoxMail, dash, brand, host, mark string) (*boxEmail, error)
 	}
 	return templates.NewSignIn(templates.NewSignInData{Brand: brand, Host: host, MarkURL: mark, First: first,
 		Device: device, From: from, When: friendlyWhen(m.At), How: how, Where: m.Where, IP: m.IP,
-		Admin: admin, URL: url, ShownURL: shown, KeysURL: keys})
+		Admin: admin, URL: url, ShownURL: shown, PasskeysURL: passkeys, KeysURL: keys})
 }
 
 // friendlyWhen: "Wednesday 7 October, 19:54 UTC". The email's own date gives the year.

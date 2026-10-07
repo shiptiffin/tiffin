@@ -121,6 +121,7 @@ func New(d Deps) *API {
 	a.registerPasskeys()
 	a.registerPasskeySignIn()
 	a.registerPeople()
+	a.registerSessions()
 	a.registerBoxMail()
 	a.registerOAuthSignIn()
 	a.registerAppearance()
@@ -842,7 +843,17 @@ func (a *API) registerBox() {
 		out.SetCookie = []http.Cookie{{Name: SessionCookie, Value: secret, Path: "/", HttpOnly: true, Secure: true,
 			SameSite: http.SameSiteStrictMode, Expires: *t.ExpiresAt}}
 		if p.Person != "" {
-			if dc := a.signedIn(ctx, p.Person, in.Device, in.UA, clientIPFrom(ctx), "Sign-in link"); dc != nil {
+			// A link nobody sent (no sponsor) is one the person asked for by email.
+			method, how := tokens.MethodLink, "a sign-in link"
+			if t.Sponsor == "" {
+				method, how = tokens.MethodEmail, "a link from their email"
+			}
+			ip := clientIPFrom(ctx)
+			if a.deps.DB != nil {
+				_ = a.deps.DB.Audit(ctx, t.ID, "session.link", p.Person,
+					map[string]any{"summary": orDefault(p.PersonName, p.Name) + " signed in with " + how, "method": method, "ip": ip})
+			}
+			if dc := a.signedIn(ctx, t.ID, p.Person, in.Device, in.UA, ip, method, "Sign-in link"); dc != nil {
 				out.SetCookie = append(out.SetCookie, *dc)
 			}
 		}

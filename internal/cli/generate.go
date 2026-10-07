@@ -71,6 +71,7 @@ var groupShort = map[string]string{
 	"passkeys":  "List and remove the passkeys people sign in with",
 	"people":    "Invite people and manage their roles",
 	"session":   "Dashboard sessions",
+	"sessions":  "See where people are signed in to the dashboard, and sign them out",
 	"db":        "Inspect a project's Postgres database, or reach it from this computer",
 	"kv":        "Browse a project's KV keys, or reach them from this computer",
 	"branches":  "Clone and drop preview database branches",

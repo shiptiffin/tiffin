@@ -41,8 +41,9 @@ func TestRenderBoxMail(t *testing.T) {
 		{api.BoxMail{Kind: api.BoxMailSignIn, Name: "Maya", URL: link, ExpiresAt: now.Add(15 * time.Minute), IP: "203.0.113.9", Dashboard: "https://dashboard.shiptiffin.com"},
 			"Sign in to dashboard.shiptiffin.com", []string{"the sign-in link you asked for", "for the next 15 minutes", "203.0.113.9", "Nobody can sign in without the link"}},
 		{api.BoxMail{Kind: api.BoxMailNewDevice, Name: "Owner", Role: "owner", Device: "Safari on iPhone", IP: "198.51.100.7", Where: "United Kingdom", Via: "Passkey", At: now, Dashboard: "https://dashboard.shiptiffin.com"},
-			"New sign-in to ShipTiffin from Safari on iPhone", []string{"\nSomeone just signed in as you", "Device: Safari on iPhone", "When: Tuesday 6 October, 21:00 UTC",
-				"How: Passkey", "Where: United Kingdom · 198.51.100.7", "Review passkeys: https://dashboard.shiptiffin.com/settings/passkeys",
+			"New sign-in to ShipTiffin from Safari on iPhone", []string{"\nThere's a new sign-in to your box from a browser it hasn't seen before.", "Device: Safari on iPhone", "When: Tuesday 6 October, 21:00 UTC",
+				"How: Passkey", "Where: United Kingdom · 198.51.100.7", "Review sign-ins: https://dashboard.shiptiffin.com/settings/sign-ins",
+				"Wasn't you? Choose Sign out everywhere else on that page, then remove any passkey you don't recognise (https://dashboard.shiptiffin.com/settings/passkeys) and",
 				"revoke API keys you didn't make: https://dashboard.shiptiffin.com/settings/keys", "Sent once per new browser · ShipTiffin"}},
 	}
 	for _, c := range cases {
@@ -93,8 +94,8 @@ func TestNewSignInVariants(t *testing.T) {
 	if e.Subject != "New sign-in to ShipTiffin from Chrome on macOS" {
 		t.Errorf("subject: %q", e.Subject)
 	}
-	for _, h := range []string{"Maya, someone just signed in as you from a new browser.", "How: Google", "Where: 203.0.113.4",
-		"tell the box's owner now", "Review passkeys: https://dashboard.shiptiffin.com/settings/passkeys"} {
+	for _, h := range []string{"Maya, there's a new sign-in to your box from a browser it hasn't seen before.", "How: Google", "Where: 203.0.113.4",
+		"and tell the box's owner.", "Review sign-ins: https://dashboard.shiptiffin.com/settings/sign-ins"} {
 		if !strings.Contains(e.Text, h) {
 			t.Errorf("member text lacks %q:\n%s", h, e.Text)
 		}
@@ -103,8 +104,13 @@ func TestNewSignInVariants(t *testing.T) {
 		t.Error("a member was sent to API keys")
 	}
 	// The address shows once, as the link under the button; nothing else names the dashboard.
-	if n := strings.Count(e.HTML, ">dashboard.shiptiffin.com"); n != 1 || !strings.Contains(e.HTML, ">dashboard.shiptiffin.com/settings/passkeys</a>") {
+	if n := strings.Count(e.HTML, ">dashboard.shiptiffin.com"); n != 1 || !strings.Contains(e.HTML, ">dashboard.shiptiffin.com/settings/sign-ins</a>") {
 		t.Errorf("the address shows %d times", n)
+	}
+	// "Wasn't you?" links sign out everywhere else and passkeys.
+	if !strings.Contains(e.HTML, `href="https://dashboard.shiptiffin.com/settings/sign-ins"`) || !strings.Contains(e.HTML, `href="https://dashboard.shiptiffin.com/settings/passkeys"`) ||
+		!strings.Contains(e.HTML, "Sign out everywhere else</a>") {
+		t.Error("no links to sign out everywhere else and to passkeys")
 	}
 	if strings.Contains(e.HTML, "Security notice") || strings.Contains(e.Text, "Hi ") {
 		t.Error("old copy left")

@@ -71,20 +71,21 @@ func Link(d LinkData) (*Email, error) {
 
 // NewSignInData fills new-sign-in: Someone signed in from a browser the box hasn't seen them use.
 type NewSignInData struct {
-	Brand    string // "ShipTiffin" on shiptiffin.com, "Tiffin" on a self-hosted box
-	Host     string // The dashboard's host, e.g. dashboard.example.com
-	MarkURL  string // The mark as a PNG (email-mark.png on the dashboard); empty for none
-	First    string // First name; empty when the box doesn't know it
-	Device   string // "Chrome on macOS"
-	From     string // The device inside a sentence, for the subject: "Chrome on macOS", "an unknown browser"
-	When     string // "Wednesday 7 October, 14:32 UTC"
-	How      string // "Google", "GitHub", "Passkey", "Sign-in link"
-	Where    string // The country the address is in, "United States"; empty when unknown
-	IP       string // The address it came from; empty to leave it out
-	Admin    bool   // An owner or admin: they can revoke API keys themselves
-	URL      string // Their passkeys page in the dashboard; empty for no button
-	ShownURL string // The same address without https://, to show under the button: "dashboard.example.com/settings/passkeys"
-	KeysURL  string // The dashboard's API keys page (owners and admins); empty for none
+	Brand       string // "ShipTiffin" on shiptiffin.com, "Tiffin" on a self-hosted box
+	Host        string // The dashboard's host, e.g. dashboard.example.com
+	MarkURL     string // The mark as a PNG (email-mark.png on the dashboard); empty for none
+	First       string // First name; empty when the box doesn't know it
+	Device      string // "Chrome on macOS"
+	From        string // The device inside a sentence, for the subject: "Chrome on macOS", "an unknown browser"
+	When        string // "Wednesday 7 October, 14:32 UTC"
+	How         string // "Google", "GitHub", "Passkey", "Sign-in link"
+	Where       string // The country the address is in, "United States"; empty when unknown
+	IP          string // The address it came from; empty to leave it out
+	Admin       bool   // An owner or admin: they can revoke API keys themselves
+	URL         string // Their sign-ins page in the dashboard (where they can sign out everywhere else); empty for no button
+	ShownURL    string // The same address without https://, to show under the button: "dashboard.example.com/settings/sign-ins"
+	PasskeysURL string // Their passkeys page in the dashboard; empty for none
+	KeysURL     string // The dashboard's API keys page (owners and admins); empty for none
 }
 
 // NewSignIn renders new-sign-in: Someone signed in from a browser the box hasn't seen them use.

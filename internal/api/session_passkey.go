@@ -214,7 +214,7 @@ func (a *API) registerPasskeySignIn() {
 		}{Body: PasskeySignIn{Person: person.ID, Name: person.Name, Role: person.Role, ExpiresAt: *t.ExpiresAt}}
 		out.SetCookie = []http.Cookie{{Name: SessionCookie, Value: secret, Path: "/", HttpOnly: true, Secure: true,
 			SameSite: http.SameSiteStrictMode, Expires: *t.ExpiresAt}}
-		if dc := a.signedIn(ctx, person.ID, in.Device, in.UA, ip, "Passkey"); dc != nil {
+		if dc := a.signedIn(ctx, t.ID, person.ID, in.Device, in.UA, ip, tokens.MethodPasskey, "Passkey"); dc != nil {
 			out.SetCookie = append(out.SetCookie, *dc)
 		}
 		return out, nil
