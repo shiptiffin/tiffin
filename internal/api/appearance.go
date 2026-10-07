@@ -15,7 +15,7 @@ import (
 // Enamels are the six project colours the dashboard paints a project's tier
 // rim, sidebar swatch and share of the memory bar with. They are names, not
 // values: the dashboard owns the actual colours (light and dark variants).
-var Enamels = []string{"leaf", "teal", "indigo", "plum", "chilli", "turmeric"}
+var Enamels = []string{"leaf", "teal", "indigo", "plum", "red", "gold"}
 
 // DefaultEnamel is the colour a project has until someone picks one:
 // stable for a name, so a project looks the same everywhere from the start.
@@ -28,7 +28,7 @@ func DefaultEnamel(project string) string {
 // Appearance is how the dashboard draws a project.
 type Appearance struct {
 	Project string `json:"project"`
-	Enamel  string `json:"enamel" enum:"leaf,teal,indigo,plum,chilli,turmeric" doc:"The project's colour: its tier rim on the Box page, its swatch in the sidebar and its share of the memory bar"`
+	Enamel  string `json:"enamel" enum:"leaf,teal,indigo,plum,red,gold" doc:"The project's colour: its tier rim on the Box page, its swatch in the sidebar and its share of the memory bar"`
 	Chosen  bool   `json:"chosen" doc:"False while the project still has its default colour (picked from its name)"`
 }
 
@@ -76,7 +76,7 @@ func (a *API) registerAppearance() {
 	api := a.api
 
 	get := op("appearance-get", http.MethodGet, "/v1/projects/{project}/appearance", "projects appearance get", RiskRead, "Get a project's colour",
-		"The enamel colour the dashboard draws the project with (leaf, teal, indigo, plum, chilli or turmeric). "+
+		"The enamel colour the dashboard draws the project with (leaf, teal, indigo, plum, red or gold). "+
 			"Until someone picks one, it is chosen from the project's name.", "projects")
 	get.Errors = append(get.Errors, 404)
 	huma.Register(api, get, wrap(func(ctx context.Context, in *struct {
@@ -98,7 +98,7 @@ func (a *API) registerAppearance() {
 	huma.Register(api, set, wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Body    struct {
-			Enamel string `json:"enamel" enum:"leaf,teal,indigo,plum,chilli,turmeric" doc:"One of leaf, teal, indigo, plum, chilli, turmeric"`
+			Enamel string `json:"enamel" enum:"leaf,teal,indigo,plum,red,gold" doc:"One of leaf, teal, indigo, plum, red, gold"`
 		}
 	}) (*struct{ Body Appearance }, error) {
 		if err := PrincipalFrom(ctx).Require(tokens.ScopeApplyReversible, in.Project); err != nil {

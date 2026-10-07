@@ -113,6 +113,7 @@ var patternHints = map[string]string{
 	cronPattern:                   "must be 5 space-separated cron fields (minute hour day-of-month month day-of-week, using digits and * , - / ? or month/day names) such as \"*/15 * * * *\", or one of @hourly, @daily, @weekly, @monthly",
 	"^[1-9][0-9]{0,5}(MB|GB|TB)$": "must be a size such as \"500MB\", \"5GB\" or \"1TB\"",
 	"^[1-9][0-9]{0,3}[hd]$":       "must be a time in hours or days, such as \"24h\", \"7d\" or \"14d\"",
+	"^#[0-9a-fA-F]{6}$":           "must be a colour written as \"#rrggbb\", such as \"#2f6b4f\"",
 	routePattern:                  "must be a hostname with an optional path prefix, such as \"shop\", \"example.com\" or \"example.com/api\"",
 }
 

@@ -34,7 +34,14 @@ export function P({ children, quiet, tight }: { children: ReactNode; quiet?: boo
   );
 }
 
-/** The one action: a bulletproof button (React Email's Button pads Outlook with mso spacers). */
+/**
+ * The one action: a bulletproof button (React Email's Button pads Outlook with
+ * mso spacers). It is the dashboard's primary button (components/ui/button.tsx):
+ * brass, 8px corners, semibold, the same top light and drop shadow where the
+ * mail client draws shadows; a little taller, for thumbs.
+ */
+const ctaShadow = "inset 0 1px 0 rgba(255,255,255,0.2),0 1px 1px rgba(62,41,15,0.2)"; // oklch(1 0 0/.2), oklch(.3 .05 70/.2)
+
 export function Cta({ href, children, style }: { href: string; children: ReactNode; style?: CSSProperties }) {
   if (textMode()) {
     return (
@@ -48,7 +55,7 @@ export function Cta({ href, children, style }: { href: string; children: ReactNo
       <Button
         href={href}
         className="tf-btn box-border rounded-[8px] bg-accent px-[22px] py-[13px] font-sans text-[15px] leading-[20px] font-semibold text-on-accent no-underline"
-        style={style}
+        style={{ boxShadow: ctaShadow, ...style }}
       >
         {children}
       </Button>

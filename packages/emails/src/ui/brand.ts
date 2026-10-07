@@ -2,8 +2,12 @@
 //
 // box: ShipTiffin / Tiffin's paper, ink and brass, converted from
 // apps/dashboard/src/styles/tokens.css. Brass is the one accent: the button.
-// app: a neutral stone palette, so a customer's app mail carries its own
-// accent and logo and nothing of ours.
+// app: a neutral stone palette around the app's own name and logo. Its
+// button is the same brass button as the dashboard's, unless the app sets
+// its own colour (auth.emailAccent in tiffin.config.ts).
+//
+// The values that come from tokens.css are listed in `fromDashboard`;
+// test/brand.test.ts converts the oklch there and fails on any drift.
 //
 // Every family has the same token names, so the shared parts in parts.tsx
 // work in both. Dark values feed the prefers-color-scheme block (Apple Mail,
@@ -26,6 +30,12 @@ export type Tokens = {
   ok: string;
 };
 
+/** The dashboard's primary button: brass, with its text colour. */
+export const brass = {
+  light: { accent: "#f2b036", onAccent: "#25170c" }, // --brass, --on-brass
+  dark: { accent: "#f7b83d", onAccent: "#1d140d" }, // the same, dark theme
+} as const;
+
 export const light: Record<Family, Tokens> = {
   box: {
     bg: "#f9f6f2", // --paper
@@ -35,8 +45,7 @@ export const light: Record<Family, Tokens> = {
     ink2: "#564e48", // --ink-2
     ink3: "#6c6660", // --ink-3
     well: "#f2efe8", // --paper-sunk
-    accent: "#f2b036", // --brass
-    onAccent: "#25170c", // --on-brass
+    ...brass.light,
     link: "#825411", // --brass-ink
     danger: "#b82f2b",
     ok: "#317a45",
@@ -49,8 +58,8 @@ export const light: Record<Family, Tokens> = {
     ink2: "#44403c",
     ink3: "#6b6661",
     well: "#f5f5f4",
-    accent: "#1c1917", // replaced by the app's accent at send time
-    onAccent: "#ffffff",
+    ...brass.light, // the default; the app's accent replaces it at send time
+
     link: "#1c1917",
     danger: "#b42318",
     ok: "#2f7a43",
@@ -66,8 +75,7 @@ export const dark: Record<Family, Tokens> = {
     ink2: "#c4bfb8",
     ink3: "#a29d97",
     well: "#0f0d0b",
-    accent: "#f7b83d",
-    onAccent: "#1d140d",
+    ...brass.dark,
     link: "#e0b771",
     danger: "#f06c61",
     ok: "#6fc082",
@@ -80,12 +88,42 @@ export const dark: Record<Family, Tokens> = {
     ink2: "#cfccc8",
     ink3: "#a8a29e",
     well: "#121110",
-    accent: "", // the app's accent stays as it is
+    accent: "", // the button stays as sent: brass, or the app's own accent
     onAccent: "",
     link: "#f2f1ef",
     danger: "#f97066",
     ok: "#6fc082",
   },
+};
+
+/** Which tokens.css variable each colour is, per theme (checked by test/brand.test.ts). */
+export const fromDashboard: Record<"light" | "dark", { family: Family; token: keyof Tokens; css: string }[]> = {
+  light: [
+    ...(["box", "app"] as const).flatMap((family) => [
+      { family, token: "accent" as const, css: "--brass" },
+      { family, token: "onAccent" as const, css: "--on-brass" },
+    ]),
+    { family: "box", token: "bg", css: "--paper" },
+    { family: "box", token: "card", css: "--paper-raised" },
+    { family: "box", token: "well", css: "--paper-sunk" },
+    { family: "box", token: "ink", css: "--ink" },
+    { family: "box", token: "ink2", css: "--ink-2" },
+    { family: "box", token: "ink3", css: "--ink-3" },
+    { family: "box", token: "link", css: "--brass-ink" },
+    { family: "box", token: "danger", css: "--danger" },
+    { family: "box", token: "ok", css: "--ok" },
+  ],
+  dark: [
+    { family: "box", token: "accent", css: "--brass" },
+    { family: "box", token: "onAccent", css: "--on-brass" },
+    { family: "box", token: "bg", css: "--paper" },
+    { family: "box", token: "card", css: "--paper-raised" },
+    { family: "box", token: "well", css: "--paper-sunk" },
+    { family: "box", token: "ink", css: "--ink" },
+    { family: "box", token: "link", css: "--brass-ink" },
+    { family: "box", token: "danger", css: "--danger" },
+    { family: "box", token: "ok", css: "--ok" },
+  ],
 };
 
 export const SANS = `-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif`;

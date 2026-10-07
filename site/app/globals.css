@@ -28,7 +28,7 @@
   --enamel-leaf: oklch(0.6 0.1 150);
   --enamel-teal: oklch(0.6 0.09 200);
   --enamel-plum: oklch(0.6 0.12 0);
-  --enamel-turmeric: oklch(0.68 0.12 90);
+  --enamel-gold: oklch(0.68 0.12 90);
   --tier-face: oklch(0.993 0.004 85);
   --tier-shade: oklch(0.235 0.014 60 / 0.07);
   --lift: 0 1px 1px oklch(0.3 0.02 60 / 0.05), 0 10px 30px -14px oklch(0.3 0.02 60 / 0.22);
@@ -67,7 +67,7 @@
     --enamel-leaf: oklch(0.68 0.1 150);
     --enamel-teal: oklch(0.68 0.09 200);
     --enamel-plum: oklch(0.68 0.115 0);
-    --enamel-turmeric: oklch(0.72 0.11 90);
+    --enamel-gold: oklch(0.72 0.11 90);
     --tier-face: oklch(0.235 0.006 65);
     --tier-shade: oklch(0 0 0 / 0.35);
     --lift: 0 1px 0 oklch(1 0 0 / 0.04) inset, 0 12px 32px -12px oklch(0 0 0 / 0.65);

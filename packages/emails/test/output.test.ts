@@ -84,9 +84,9 @@ describe("links and colours", () => {
 describe("accent text", () => {
   test("picks the readable colour", () => {
     expect(accentText("#1c1917")).toBe("#ffffff");
-    expect(accentText("#f2b036")).toBe("#1c1917");
+    expect(accentText("#f2b036")).toBe("#25170c"); // brass: the dashboard's text on brass
     expect(accentText("#2f6b4f")).toBe("#ffffff");
-    expect(accentText("#ffe14d")).toBe("#1c1917");
+    expect(accentText("#ffe14d")).toBe("#25170c");
   });
 });
 

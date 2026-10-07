@@ -558,6 +558,11 @@
             "emailVerification": {
               "description": "Whether new users must confirm their email address before they can sign in. Leave it out for automatic: required once the box has an SMTP relay (real mail goes out), not required while mail only reaches the dev inbox, so test sign-ups work at once. true or false forces it.",
               "type": "boolean"
+            },
+            "emailAccent": {
+              "description": "The button colour in the app's sign-in emails (verify, magic link, reset, invitations), as \"#rrggbb\", e.g. \"#2f6b4f\". Leave it out for the default: the same brass button as the dashboard. The text on the button is white or near-black, whichever reads better.",
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
             }
           }
         },

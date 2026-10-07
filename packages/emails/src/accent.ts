@@ -1,4 +1,7 @@
-// Helpers the auth engine can copy (or import) when filling app emails.
+// The button colour of app emails: the dashboard's brass unless the app sets
+// its own (auth.emailAccent), with readable text on it. The auth engine does
+// the same with the constants templates.gen.ts carries (BRASS, ON_BRASS).
+import { brass } from "./ui/brand";
 
 /** WCAG relative luminance of #rrggbb. */
 function luminance(hex: string): number {
@@ -12,13 +15,16 @@ function luminance(hex: string): number {
 
 const contrast = (a: number, b: number) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 
-/** White or near-black, whichever reads better on the accent. */
-export function accentText(accent: string): "#ffffff" | "#1c1917" {
+/** The dark text choice: the dashboard's text on brass. */
+export const DARK_TEXT = brass.light.onAccent;
+
+/** White or near-black (the dashboard's text on brass), whichever reads better on the accent. */
+export function accentText(accent: string): "#ffffff" | typeof DARK_TEXT {
   const l = luminance(accent);
-  return contrast(l, 1) >= contrast(l, luminance("#1c1917")) ? "#ffffff" : "#1c1917";
+  return contrast(l, 1) >= contrast(l, luminance(DARK_TEXT)) ? "#ffffff" : DARK_TEXT;
 }
 
-/** The accent, if it is a #rrggbb colour; else the neutral default. */
-export function accentOr(accent: string | undefined, fallback = "#1c1917"): string {
+/** The accent, if it is a #rrggbb colour; else the dashboard's brass. */
+export function accentOr(accent: string | undefined, fallback: string = brass.light.accent): string {
   return accent && /^#[0-9a-f]{6}$/i.test(accent) ? accent : fallback;
 }

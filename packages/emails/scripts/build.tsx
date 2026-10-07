@@ -16,6 +16,7 @@ import { join, resolve } from "node:path";
 import { render, toPlainText } from "react-email";
 import { appVars } from "../src/ui/app";
 import { boxVars } from "../src/ui/box";
+import { brass } from "../src/ui/brand";
 import { RAW, placeholderProps, setMode, type EmailSpec, type Var } from "../src/ui/compile";
 
 const root = resolve(import.meta.dir, "..", "..", "..");
@@ -422,6 +423,13 @@ function tsGen(all: Compiled[], parsed: Map<string, Record<string, Node[]>>): st
     const type = v.kind === "flag" ? "boolean" : v.kind === "enum" ? v.values.map((x) => JSON.stringify(x)).join(" | ") : "string";
     return [`  /** ${v.doc} */`, `  ${k}: ${type};`];
   };
+  out.push(
+    "",
+    "/** The button when the app sets no accent of its own: the dashboard's brass (--brass in tokens.css). */",
+    `export const BRASS = ${JSON.stringify(brass.light.accent)};`,
+    "/** The dashboard's text on brass (--on-brass): the dark choice for text on any accent. */",
+    `export const ON_BRASS = ${JSON.stringify(brass.light.onAccent)};`,
+  );
   out.push("", "/** What every app email carries: the app's own brand, and who it went to. */", "export type AppBrand = {");
   for (const [k, v] of Object.entries(appVars)) out.push(...field(k, v));
   out.push("};");

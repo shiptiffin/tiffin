@@ -66,20 +66,22 @@ export function closeTransports() {
 // ---- templates ----------------------------------------------------------
 // The emails are React Email templates in packages/emails, compiled at build
 // time to plain functions (templates.gen.ts): no React here, and every value
-// is escaped where it lands. They carry the app's brand, never ShipTiffin's.
+// is escaped where it lands. They carry the app's name and logo, never
+// ShipTiffin's; the button is the dashboard's brass unless the app sets its
+// own accent (auth.emailAccent).
 
 /** How an app's emails look: its name and, optionally, its logo and accent. */
 export type Brand = { app: string; primaryUrl: string; logoUrl?: string; accent?: string };
 
-const NEUTRAL = "#1c1917";
-
-/** White or near-black, whichever reads better on the accent (WCAG contrast). */
+/** White or near-black (the dashboard's text on brass), whichever reads better on the accent (WCAG contrast). */
 export function accentText(hex: string): string {
+  const onWhite = 1.05 / (luminance(hex) + 0.05);
+  const onDark = (luminance(hex) + 0.05) / (luminance(T.ON_BRASS) + 0.05);
+  return onWhite >= onDark ? "#ffffff" : T.ON_BRASS;
+}
+function luminance(hex: string) {
   const n = parseInt(hex.slice(1), 16);
-  const lum = (0.2126 * lin((n >> 16) & 255)) + (0.7152 * lin((n >> 8) & 255)) + (0.0722 * lin(n & 255));
-  const onWhite = 1.05 / (lum + 0.05);
-  const onInk = (lum + 0.05) / (0.2126 * lin(0x1c) + 0.7152 * lin(0x19) + 0.0722 * lin(0x17) + 0.05);
-  return onWhite >= onInk ? "#ffffff" : NEUTRAL;
+  return 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
 }
 function lin(c: number) {
   const x = c / 255;
@@ -87,7 +89,7 @@ function lin(c: number) {
 }
 
 function brandVars(b: Brand, email: string): T.AppBrand {
-  const accent = b.accent && /^#[0-9a-f]{6}$/i.test(b.accent) ? b.accent : NEUTRAL;
+  const accent = b.accent && /^#[0-9a-f]{6}$/i.test(b.accent) ? b.accent : T.BRASS;
   let site = "", siteLabel = "";
   try {
     const u = new URL(b.primaryUrl);

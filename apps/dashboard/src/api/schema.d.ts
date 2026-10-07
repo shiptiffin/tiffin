@@ -2049,7 +2049,7 @@ export interface paths {
         };
         /**
          * Get a project's colour
-         * @description The enamel colour the dashboard draws the project with (leaf, teal, indigo, plum, chilli or turmeric). Until someone picks one, it is chosen from the project's name.
+         * @description The enamel colour the dashboard draws the project with (leaf, teal, indigo, plum, red or gold). Until someone picks one, it is chosen from the project's name.
          */
         get: operations["appearance-get"];
         /**
@@ -5301,7 +5301,7 @@ export interface paths {
         };
         /**
          * List starter templates
-         * @description Small, working starter apps shipped inside tiffin. Each has a kind (web: a web app with a server; static: a static site; api: a JSON API) and a preset (the framework: nextjs, tanstack-start, astro, vite-react, hono); listed ones are offered when starting a project, and default marks each kind's usual pick. Also: the services they need and the manifest fragment to merge into a project (apps + services). To start a project from one: merge the fragment into the project's manifest (projects manifest), plan and apply it, then deploys template with the template id, e.g. `tiffin deploys template shop site --template astro`.
+         * @description Small, working starter apps shipped inside tiffin. Each has a kind (web: a web app with a server; static: a static site; api: a JSON API) and a preset (the framework: nextjs, tanstack-start, astro, vite-react, hono, fastapi); listed ones are offered when starting a project, and default marks each kind's usual pick. Also: the services they need and the manifest fragment to merge into a project (apps + services). To start a project from one: merge the fragment into the project's manifest (projects manifest), plan and apply it, then deploys template with the template id, e.g. `tiffin deploys template shop site --template astro`.
          */
         get: operations["templates-list"];
         put?: never;
@@ -5667,15 +5667,15 @@ export interface components {
              * @description The project's colour: its tier rim on the Box page, its swatch in the sidebar and its share of the memory bar
              * @enum {string}
              */
-            enamel: "leaf" | "teal" | "indigo" | "plum" | "chilli" | "turmeric";
+            enamel: "leaf" | "teal" | "indigo" | "plum" | "red" | "gold";
             project: string;
         };
         "Appearance-setRequest": {
             /**
-             * @description One of leaf, teal, indigo, plum, chilli, turmeric
+             * @description One of leaf, teal, indigo, plum, red, gold
              * @enum {string}
              */
-            enamel: "leaf" | "teal" | "indigo" | "plum" | "chilli" | "turmeric";
+            enamel: "leaf" | "teal" | "indigo" | "plum" | "red" | "gold";
         };
         ApplyBody: {
             /** @description The plan hash (or its first 8+ characters) you reviewed. Without it nothing is applied and the plan comes back with status 428. */
@@ -7552,7 +7552,7 @@ export interface components {
             username?: string;
         };
         "Email-relay-testRequest": {
-            /** @description Default tiffin@<box domain> */
+            /** @description Default: the box's sender (email box get) */
             from?: string;
             /** @description Where to send the test */
             to: string;
@@ -8375,6 +8375,7 @@ export interface components {
             path?: string;
         };
         ManifestAuth: {
+            emailAccent?: string;
             emailVerification?: boolean;
             methods: string[] | null;
             organizations: boolean;

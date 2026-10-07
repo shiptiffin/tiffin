@@ -41,8 +41,9 @@ export const projectSchema = z.object({
   /** Shown in emails and the authenticator app. */
   appName: z.string().min(1),
   /**
-   * How the app's emails look, from the project's icon and colour. logoUrl: a square PNG
-   * over https (shown at 32x32). accent: the button colour.
+   * How the app's emails look. logoUrl: the project's icon, a square PNG over https
+   * (shown at 32x32). accent: the button colour, set only by auth.emailAccent in the
+   * manifest; absent, the button is the dashboard's brass.
    */
   emailBrand: z
     .object({

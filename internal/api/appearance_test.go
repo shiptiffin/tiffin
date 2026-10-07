@@ -17,7 +17,7 @@ func TestProjectAppearance(t *testing.T) {
 		t.Fatalf("default: %d %v", code, got)
 	}
 	// Stable and spread out: the dashboard computes the same default (lib/enamel.ts).
-	if got := api.DefaultEnamel("shop"); got != "turmeric" {
+	if got := api.DefaultEnamel("shop"); got != "gold" {
 		t.Fatalf("default for shop: %s", got)
 	}
 

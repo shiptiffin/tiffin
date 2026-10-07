@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/platform"
@@ -86,17 +85,20 @@ type ProjectConfig struct {
 	PreviewHosts []string `json:"previewHosts"`
 }
 
-// EmailBrand is how an app's auth emails look: the project's icon and
-// colour, the same ones the dashboard shows. Nothing of the box's own brand.
+// EmailBrand is how an app's auth emails look: the project's icon, and the
+// button colour the manifest sets (auth.emailAccent). Without one the engine
+// draws the dashboard's brass button.
 type EmailBrand struct {
 	LogoURL string `json:"logoUrl,omitempty"`
 	Accent  string `json:"accent,omitempty"`
 }
 
 // emailBrand is the project's icon (its public PNG, when the box is served
-// over https; mail clients block plain http images) and its enamel colour.
-func emailBrand(ctx context.Context, p *platform.Platform, project string) *EmailBrand {
-	b := &EmailBrand{Accent: projicon.EmailAccent(api.EnamelOf(ctx, p.DB, project))}
+// over https; mail clients block plain http images) and the accent the
+// manifest asks for, if any. The enamel the dashboard draws a project with
+// is only for telling projects apart there: it is not the app's brand.
+func emailBrand(ctx context.Context, p *platform.Platform, project string, a *manifest.Auth) *EmailBrand {
+	b := &EmailBrand{Accent: a.EmailAccent}
 	if u, err := url.Parse(strings.TrimRight(p.PublicURL, "/")); err == nil && u.Scheme == "https" && u.Host != "" {
 		if id, err := projicon.PublicID(ctx, p.DB, project); err == nil && id != "" {
 			b.LogoURL = u.String() + "/v1/icons/" + id + ".png"
@@ -229,7 +231,7 @@ func projectConfig(ctx context.Context, p *platform.Platform, project string, re
 			c.AppName = strings.TrimSpace(name)
 		}
 	}
-	c.EmailBrand = emailBrand(ctx, p, project)
+	c.EmailBrand = emailBrand(ctx, p, project, &a)
 	for _, h := range webHosts(p, res) {
 		c.Hosts = append(c.Hosts, h.Host)
 		c.Origins = append(c.Origins, p.URL(h.Host))

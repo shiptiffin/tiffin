@@ -289,6 +289,13 @@ export interface AuthConfig {
    * so test sign-ups work at once. true or false forces it.
    */
   emailVerification?: boolean;
+  /**
+   * The button colour in the app's sign-in emails, as "#rrggbb", e.g.
+   * "#2f6b4f". Leave it out for the default: the same brass button as the
+   * dashboard. The text on the button is white or near-black, whichever
+   * reads better.
+   */
+  emailAccent?: string;
 }
 
 /**

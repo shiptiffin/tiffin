@@ -81,8 +81,8 @@
   --enamel-teal: oklch(0.6 0.09 200);
   --enamel-indigo: oklch(0.6 0.11 258);
   --enamel-plum: oklch(0.6 0.12 0);
-  --enamel-chilli: oklch(0.6 0.13 38);
-  --enamel-turmeric: oklch(0.6 0.11 90);
+  --enamel-red: oklch(0.6 0.13 38);
+  --enamel-gold: oklch(0.6 0.11 90);
   /* elevation: ground, raised, overlay */
   --lift-raised: 0 1px 1px oklch(0.3 0.02 60 / 0.05), 0 6px 20px -8px oklch(0.3 0.02 60 / 0.16);
   --lift-overlay: 0 -1px 0 oklch(0.235 0.014 60 / 0.1), 0 -18px 48px -20px oklch(0.3 0.02 60 / 0.28), 0 1px 2px oklch(0.3 0.02 60 / 0.06);
@@ -144,8 +144,8 @@
     --enamel-teal: oklch(0.68 0.09 200);
     --enamel-indigo: oklch(0.68 0.105 258);
     --enamel-plum: oklch(0.68 0.115 0);
-    --enamel-chilli: oklch(0.68 0.125 38);
-    --enamel-turmeric: oklch(0.68 0.11 90);
+    --enamel-red: oklch(0.68 0.125 38);
+    --enamel-gold: oklch(0.68 0.11 90);
     --lift-raised: 0 1px 0 oklch(1 0 0 / 0.04) inset, 0 8px 24px -8px oklch(0 0 0 / 0.6);
     --lift-overlay: 0 -1px 0 oklch(1 0 0 / 0.07), 0 -20px 50px -18px oklch(0 0 0 / 0.7);
     --scrim: oklch(0.1 0.005 65 / 0.5);
@@ -204,8 +204,8 @@
   --enamel-teal: oklch(0.68 0.09 200);
   --enamel-indigo: oklch(0.68 0.105 258);
   --enamel-plum: oklch(0.68 0.115 0);
-  --enamel-chilli: oklch(0.68 0.125 38);
-  --enamel-turmeric: oklch(0.68 0.11 90);
+  --enamel-red: oklch(0.68 0.125 38);
+  --enamel-gold: oklch(0.68 0.11 90);
   --lift-raised: 0 1px 0 oklch(1 0 0 / 0.04) inset, 0 8px 24px -8px oklch(0 0 0 / 0.6);
   --lift-overlay: 0 -1px 0 oklch(1 0 0 / 0.07), 0 -20px 50px -18px oklch(0 0 0 / 0.7);
   --scrim: oklch(0.1 0.005 65 / 0.5);

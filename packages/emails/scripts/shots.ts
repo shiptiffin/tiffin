@@ -53,11 +53,11 @@ for (const f of readdirSync(dir).filter((f) => f.endsWith(".tsx"))) {
   writeFileSync(join(out, `app-${spec.id}.html`), e.html);
   writeFileSync(join(out, `app-${spec.id}.txt`), `Subject: ${e.subject}\n\n${e.text}`);
 }
-// The same app with a logo and its own accent.
+// The same app with a logo and its own accent (auth.emailAccent).
 const ml = (await import(join(dir, "magic-link.tsx"))).spec.preview;
 writeFileSync(
   join(out, "app-magic-link-logo.html"),
-  gen.magicLink({ ...ml, logoUrl: "https://larder.app/logo.png", accent: "#f2b036", accentText: "#1c1917" }).html,
+  gen.magicLink({ ...ml, logoUrl: "https://larder.app/logo.png", accent: "#2f6b4f", accentText: "#ffffff" }).html,
 );
 
 // 2. screenshots

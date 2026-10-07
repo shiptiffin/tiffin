@@ -642,6 +642,24 @@ func TestAuthEmailVerification(t *testing.T) {
 	}
 }
 
+// auth.emailAccent: a #rrggbb colour, kept through parsing and rendering;
+// anything else is refused with a plain-language hint.
+func TestAuthEmailAccent(t *testing.T) {
+	m, err := Parse([]byte(`{"project":"p","services":{"postgres":{},"email":{},"auth":{"emailAccent":"#2f6b4f"}}}`))
+	if err != nil || m.Services.Auth.EmailAccent != "#2f6b4f" {
+		t.Fatalf("parse: %+v %v", m.Services.Auth, err)
+	}
+	if src := string(RenderConfig(m, "")); !strings.Contains(src, `emailAccent: "#2f6b4f"`) {
+		t.Fatalf("render: %s", src)
+	}
+	for _, bad := range []string{`"red"`, `"#2f6b4"`, `"#2f6b4f;x"`} {
+		_, err := Parse([]byte(`{"project":"p","services":{"postgres":{},"email":{},"auth":{"emailAccent":` + bad + `}}}`))
+		if err == nil || !strings.Contains(err.Error(), "#rrggbb") {
+			t.Errorf("%s: want a colour error, got %v", bad, err)
+		}
+	}
+}
+
 func TestEvaluateWithinRefusesOutsideImports(t *testing.T) {
 	secret := filepath.Join(t.TempDir(), "engine.json")
 	if err := os.WriteFile(secret, []byte(`{"password":"hunter2"}`), 0o600); err != nil {

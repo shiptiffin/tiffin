@@ -2,7 +2,6 @@ package projicon
 
 import (
 	"bytes"
-	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -42,14 +41,14 @@ func Letters(project string) string {
 }
 
 // Enamel hues and chroma, as in the dashboard's tokens.css (light theme:
-// email is read on white more often than not).
+// the PNG goes into email, which is read on white more often than not).
 var enamels = map[string][3]float64{
-	"leaf":     {0.6, 0.1, 150},
-	"teal":     {0.6, 0.09, 200},
-	"indigo":   {0.6, 0.11, 258},
-	"plum":     {0.6, 0.12, 0},
-	"chilli":   {0.6, 0.13, 38},
-	"turmeric": {0.6, 0.11, 90},
+	"leaf":   {0.6, 0.1, 150},
+	"teal":   {0.6, 0.09, 200},
+	"indigo": {0.6, 0.11, 258},
+	"plum":   {0.6, 0.12, 0},
+	"red":    {0.6, 0.13, 38},
+	"gold":   {0.6, 0.11, 90},
 }
 
 // The light theme's raised paper and ink, which the tile is mixed from
@@ -73,14 +72,6 @@ func MonogramColors(enamel string) (ground, letters color.NRGBA) {
 		e = enamels["indigo"]
 	}
 	return srgb(mixOKLab(e, paperRaised, groundShare)), srgb(mixOKLab(e, ink, letterShare))
-}
-
-// EmailAccent is an enamel as an email button colour, "#rrggbb": the
-// monogram's letter colour (enamel deepened with ink), which keeps ≥ 4.5:1
-// against white text and a light page.
-func EmailAccent(enamel string) string {
-	_, c := MonogramColors(enamel)
-	return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B)
 }
 
 // mixOKLab mixes share of a with the rest of b, like CSS

@@ -356,6 +356,9 @@ func servicesNode(s Services) *node {
 		if a.EmailVerification != nil {
 			p.set("emailVerification", boolean(*a.EmailVerification))
 		}
+		if a.EmailAccent != "" {
+			p.set("emailAccent", str(a.EmailAccent))
+		}
 		n.set("auth", p)
 	}
 	if e := s.Email; e != nil {

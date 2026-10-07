@@ -392,6 +392,10 @@ type Auth struct {
 	// sends real mail (an SMTP relay is set up), not required while mail
 	// only reaches the dev inbox, so test sign-ups work at once.
 	EmailVerification *bool `json:"emailVerification,omitempty"`
+	// EmailAccent is the button colour in the app's sign-in emails, as
+	// "#rrggbb". Unset: the same brass button as the dashboard. The text on
+	// the button is white or near-black, whichever reads better.
+	EmailAccent string `json:"emailAccent,omitempty"`
 }
 
 // UnmarshalJSON decodes an Auth, defaulting Organizations to true when the

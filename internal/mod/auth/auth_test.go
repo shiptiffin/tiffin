@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/manifest"
@@ -154,13 +153,15 @@ func TestEngineConfig(t *testing.T) {
 	if s.AppName != "shop" || len(s.Secret) < 32 { // the project's name as written, not "Shop"
 		t.Fatalf("name/secret: %q %d", s.AppName, len(s.Secret))
 	}
-	// Emails carry the project's own icon and colour: the public PNG and the enamel as a button colour.
+	// Emails carry the project's own icon (its public PNG) and no accent of
+	// their own: the engine draws the dashboard's brass button. The enamel
+	// the dashboard picked for the project is not its brand.
 	id, err := projicon.PublicID(ctx, p.DB, "shop")
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantBrand := EmailBrand{LogoURL: "https://dashboard.tiffin.localhost:8443/v1/icons/" + id + ".png", Accent: projicon.EmailAccent(api.EnamelOf(ctx, p.DB, "shop"))}
-	if s.EmailBrand == nil || *s.EmailBrand != wantBrand || !strings.HasPrefix(wantBrand.Accent, "#") || len(wantBrand.Accent) != 7 {
+	wantBrand := EmailBrand{LogoURL: "https://dashboard.tiffin.localhost:8443/v1/icons/" + id + ".png"}
+	if s.EmailBrand == nil || *s.EmailBrand != wantBrand {
 		t.Fatalf("email brand: %+v, want %+v", s.EmailBrand, wantBrand)
 	}
 	// The secret is stable across rebuilds.
@@ -285,6 +286,29 @@ func TestEmailVerificationSetting(t *testing.T) {
 	apply(t, p, `{"project":"shop","apps":{"web":{}},"services":{"postgres":{},"email":{},"auth":{"emailVerification":true}}}`)
 	if !required() {
 		t.Fatal("emailVerification:true must turn it on")
+	}
+}
+
+// The email button: the dashboard's brass unless auth.emailAccent says
+// otherwise. The project's enamel never leaks into it.
+func TestEmailAccentSetting(t *testing.T) {
+	p := newPlatform(t)
+	ctx := t.Context()
+	accent := func() string {
+		t.Helper()
+		c, errs, err := buildEngineConfig(ctx, p)
+		if err != nil || c.Projects["shop"] == nil || c.Projects["shop"].EmailBrand == nil {
+			t.Fatalf("config: %v %v", err, errs)
+		}
+		return c.Projects["shop"].EmailBrand.Accent
+	}
+	apply(t, p, `{"project":"shop","apps":{"web":{}},"services":{"postgres":{},"email":{},"auth":{}}}`)
+	if a := accent(); a != "" {
+		t.Fatalf("no emailAccent: the engine's default (brass) must be used, got %q", a)
+	}
+	apply(t, p, `{"project":"shop","apps":{"web":{}},"services":{"postgres":{},"email":{},"auth":{"emailAccent":"#2f6b4f"}}}`)
+	if a := accent(); a != "#2f6b4f" {
+		t.Fatalf("emailAccent: got %q", a)
 	}
 }
 

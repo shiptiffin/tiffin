@@ -23,8 +23,11 @@ about app routes under it).
   passkeys and sign-in providers keep working. Previews and local boxes keep the dev
   inbox, so testing just works. Plans warn, the Auth page shows a banner, and
   `authConfig()` reports `emailReady: false` so the app can hide those forms.
-- **The emails** carry the app's name (`APP_NAME`, else the project's), its icon and its
-  colour (Settings › General), and nothing of Tiffin's. One-time codes are in the subject.
+- **The emails** carry the app's name (`APP_NAME`, else the project's) and its icon
+  (Settings › General). The button is the dashboard's brass unless you set your own:
+  `auth: { emailAccent: "#2f6b4f" }`; its text turns white or near-black, whichever reads
+  better. The project's sidebar colour is only for telling projects apart and never goes
+  into email. One-time codes are in the subject.
 - **Changing an account's email:** the current address approves the move, the new one
   confirms it, and the old one is then told the account moved (`authClient.changeEmail`).
 - **Email verification:** `auth: { emailVerification: true | false }`. Left out it is

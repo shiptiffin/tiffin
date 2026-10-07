@@ -7,7 +7,7 @@ export const metadata = { alternates: { canonical: "/" } };
 const TIERS = [
   { name: "shop", parts: "Web app · Database · Files · Sign-in", limit: "Up to 40%", enamel: "teal", fill: 0.4 },
   { name: "guestbook", parts: "Web app · Database · Email", limit: "512 MB", enamel: "leaf", fill: 0.18 },
-  { name: "blog", parts: "Static site · Analytics", limit: "Automatic", enamel: "turmeric", fill: 0 },
+  { name: "blog", parts: "Static site · Analytics", limit: "Automatic", enamel: "gold", fill: 0 },
   { name: "reports", parts: "Jobs · Database", limit: "Up to 10%", enamel: "plum", fill: 0.1 },
 ] as const;
 

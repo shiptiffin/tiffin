@@ -6,7 +6,7 @@ import { api } from "@/api/client";
  * paints only its tier rim, its swatch (sidebar, breadcrumbs, ⌘K) and its
  * share of the memory bar. The box's own parts stay steel.
  */
-export const ENAMELS = ["leaf", "teal", "indigo", "plum", "chilli", "turmeric"] as const;
+export const ENAMELS = ["leaf", "teal", "indigo", "plum", "red", "gold"] as const;
 export type Enamel = (typeof ENAMELS)[number];
 
 export const enamelNames: Record<Enamel, string> = {
@@ -14,8 +14,8 @@ export const enamelNames: Record<Enamel, string> = {
   teal: "Teal",
   indigo: "Indigo",
   plum: "Plum",
-  chilli: "Chilli",
-  turmeric: "Turmeric",
+  red: "Red",
+  gold: "Gold",
 };
 
 /** The CSS colour for an enamel: var(--enamel-indigo). */
