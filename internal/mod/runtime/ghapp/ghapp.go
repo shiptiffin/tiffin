@@ -725,6 +725,26 @@ func (a *App) ChangedFiles(ctx context.Context, installation int64, fullName, ba
 	return files, len(r.Files) < CompareLimit, nil
 }
 
+// Compare says where head stands against base: "identical", "ahead"
+// (head has commits base lacks, base is in its history), "behind" (head
+// is in base's history) or "diverged".
+func (a *App) Compare(ctx context.Context, installation int64, fullName, base, head string) (string, error) {
+	p, err := repoPath(fullName)
+	if err != nil {
+		return "", err
+	}
+	var r struct {
+		Status string `json:"status"`
+	}
+	if err := a.asInstallation(ctx, installation, http.MethodGet, p+"/compare/"+url.PathEscape(base)+"..."+url.PathEscape(head)+"?per_page=1", nil, &r); err != nil {
+		return "", err
+	}
+	if r.Status == "" {
+		return "", errors.New("GitHub's comparison has no status")
+	}
+	return r.Status, nil
+}
+
 // Commit is a commit's head line.
 type Commit struct {
 	SHA     string `json:"sha"`

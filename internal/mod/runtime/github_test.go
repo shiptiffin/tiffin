@@ -308,7 +308,8 @@ func TestGitHubConnectPushAndPreviews(t *testing.T) {
 	dc := g.waitFor("site", func(d *Deploy) bool { return d.Commit == shas[2] })
 	db := g.waitFor("site", func(d *Deploy) bool { return d.Commit == shas[1] })
 	da := g.waitFor("site", func(d *Deploy) bool { return d.Commit == shas[0] })
-	if da.Status != StatusLive && da.Status != StatusSuperseded || db.Status != StatusSkipped || dc.Status != StatusLive {
+	// a may also be skipped: by the time it starts, main may have moved past it.
+	if da.Status != StatusLive && da.Status != StatusSuperseded && da.Status != StatusSkipped || db.Status != StatusSkipped || dc.Status != StatusLive {
 		t.Fatalf("coalescing: a=%s b=%s c=%s", da.Status, db.Status, dc.Status)
 	}
 	if _, body := g.get("shop.tiffin.localhost", "/"); body != "<h1>c</h1>" {
@@ -620,5 +621,43 @@ func TestDetectRoots(t *testing.T) {
 	}
 	if roots[len(roots)-1].Path != "" || !roots[len(roots)-1].Workspace || roots[0].Path != "site" {
 		t.Errorf("order (apps first, the monorepo's top last): %+v", roots)
+	}
+}
+
+// A push delivery that arrives late (GitHub's queue, a redelivery, or a
+// captured one replayed) never deploys an older commit over a newer one.
+func TestGitHubLatePushNeverRollsBack(t *testing.T) {
+	g := newGHHarness(t)
+	ctx := context.Background()
+	g.connect()
+	first, err := g.f.AddRepo("octo/shop", false, map[string]string{"web/index.html": "<h1>v1</h1>"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.connectSite(manifest.Git{Repo: "octo/shop", Branch: "main", Path: "web", Previews: manifest.PreviewsOff})
+	late, _ := g.f.PushPayload("octo/shop", "main") // the push of the first commit, delivered later
+	sha2, _ := g.f.Commit("octo/shop", "main", map[string]string{"web/index.html": "<h1>v2</h1>"}, "v2")
+	if dl, _ := g.f.Push("octo/shop", "main"); dl.Status != 202 || !strings.Contains(dl.Reply, "deploying") {
+		t.Fatalf("push: %+v", dl)
+	}
+	if d := g.waitFor("site", func(d *Deploy) bool { return d.Commit == sha2 }); d.Status != StatusLive {
+		t.Fatalf("v2: %+v", d)
+	}
+	if dl, _ := g.f.Deliver("push", late); dl.Status != 202 || !strings.Contains(dl.Reply, "no longer the head of main") {
+		t.Fatalf("a late push must not deploy: %+v", dl)
+	}
+	// One already queued when the branch moved on is skipped when its turn comes.
+	d, err := g.r.enqueue(ctx, &ghJob{Project: "shop", App: "site", Repo: "octo/shop", SHA: first, Branch: "main", Trigger: "push", By: "test", Path: "web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := g.waitFor("site", func(x *Deploy) bool { return x.ID == d.ID }); got.Status != StatusSkipped || !strings.Contains(got.Error, "no longer the head") {
+		t.Fatalf("queued late push: %+v", got)
+	}
+	if _, body := g.get("shop.tiffin.localhost", "/"); body != "<h1>v2</h1>" {
+		t.Fatalf("still v2: %q", body)
+	}
+	if ds, _ := g.r.st.listDeploys(ctx, "shop", "site", ""); len(ds) != 2 {
+		t.Fatalf("deploys: %d", len(ds))
 	}
 }

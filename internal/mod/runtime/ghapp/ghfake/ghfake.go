@@ -974,7 +974,18 @@ func (s *Server) serveRepoAPI(w http.ResponseWriter, r *http.Request, rp *repo, 
 		for _, f := range strings.Fields(out) {
 			files = append(files, map[string]any{"filename": f, "status": "modified"})
 		}
-		writeJSON(w, 200, map[string]any{"status": "ahead", "files": files})
+		b, _ := s.git(rp.bare, "rev-parse", base+"^{commit}")
+		h, _ := s.git(rp.bare, "rev-parse", head+"^{commit}")
+		status := "diverged"
+		switch {
+		case b == h:
+			status = "identical"
+		case s.isAncestor(rp, b, h):
+			status = "ahead"
+		case s.isAncestor(rp, h, b):
+			status = "behind"
+		}
+		writeJSON(w, 200, map[string]any{"status": status, "files": files})
 	case strings.HasPrefix(rest, "/commits/"):
 		ref, _ := url.PathUnescape(strings.TrimPrefix(rest, "/commits/"))
 		out, err := s.git(rp.bare, "log", "-1", "--format=%H%x00%an%x00%B", ref)
@@ -1020,6 +1031,11 @@ func (s *Server) serveRepoAPI(w http.ResponseWriter, r *http.Request, rp *repo, 
 	default:
 		fail(w, 404, "Not Found")
 	}
+}
+
+func (s *Server) isAncestor(rp *repo, a, b string) bool {
+	_, err := s.git(rp.bare, "merge-base", "--is-ancestor", a, b)
+	return err == nil
 }
 
 func (s *Server) nextIDLocked() int64 {

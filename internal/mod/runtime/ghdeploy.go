@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -39,6 +40,7 @@ type ghJob struct {
 	Message, Author       string
 	Installation          int64
 	Trigger               string // push, pull_request, redeploy
+	Forced                bool   // a force push
 	By                    string
 	Path                  string // folder inside the repository
 	d                     *Deploy
@@ -186,6 +188,14 @@ func (r *rt) runJob(j *ghJob) {
 			return
 		}
 	}
+	// A push that waited (behind a build, or in GitHub's delivery queue)
+	// may no longer be the branch's head: never deploy it over a newer one.
+	if j.Trigger == "push" {
+		if newer := r.superseded(ctx, c, j.Installation, j.Repo, j.SHA, j.Branch, j.Forced); newer != "" {
+			r.skip(ctx, j, newer)
+			return
+		}
+	}
 	tr := &ghTracker{Repo: j.Repo, SHA: j.SHA, Installation: j.Installation, PR: j.PR, Context: statusContext(j.Project, j.App, j.Preview)}
 	r.reportStart(ctx, c, d, tr, j)
 	raw, _ := json.Marshal(tr)
@@ -264,6 +274,26 @@ func (r *rt) cloneGitHub(ctx context.Context, c *ghConn, d *Deploy, j *ghJob, lo
 		return "", &BuildError{Msg: fmt.Sprintf("GitHub served commit %s instead of %s", short(d.Commit), short(j.SHA)), Hint: "Redeploy."}
 	}
 	return src, nil
+}
+
+// superseded says why a pushed commit must not deploy ("" when it may):
+// its branch on GitHub has moved past it, so this delivery arrived late
+// (or is a captured one replayed) and a newer push has its own. A branch
+// that no longer contains the commit (rewritten by a later force push)
+// supersedes it too, unless this push was the force push. When GitHub
+// can't say, the push deploys.
+func (r *rt) superseded(ctx context.Context, c *ghConn, installation int64, repo, sha, branch string, forced bool) string {
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	st, err := c.App.Compare(cctx, installation, repo, sha, branch)
+	if err != nil {
+		r.p.Log.Warn("github: could not compare a push with its branch; deploying it", "repo", repo, "commit", sha, "err", err)
+		return ""
+	}
+	if st == "ahead" || st == "diverged" && !forced {
+		return fmt.Sprintf("%s is no longer the head of %s on GitHub (a newer push deploys instead)", short(sha), branch)
+	}
+	return ""
 }
 
 func describeTrigger(j *ghJob) string {
@@ -660,6 +690,14 @@ func (r *rt) onPush(ctx context.Context, c *ghConn, body []byte) (int, string) {
 		r.logEvent(ctx, GitHubEvent{Event: "push", Repo: repo, Summary: fmt.Sprintf("Push to %s (%s) asked to skip deploys", branch, short(ev.After)), OK: true})
 		return http.StatusAccepted, "skipped: the commit message asks to skip deploys"
 	}
+	why := ""
+	if slices.ContainsFunc(apps, func(a connectedApp) bool { return a.Git.Branch == branch }) {
+		why = r.superseded(ctx, c, ev.Installation.ID, repo, ev.After, branch, ev.Forced)
+	}
+	if why != "" {
+		r.logEvent(ctx, GitHubEvent{Event: "push", Repo: repo, Summary: fmt.Sprintf("Push to %s (%s) not deployed: %s", branch, short(ev.After), why), OK: true})
+		return http.StatusAccepted, "skipped: " + why
+	}
 	var started, names, unchanged []string
 	changed := r.changedFiles(ctx, c, ev.Installation.ID, repo, ev.Before, ev.After)
 	for _, a := range apps {
@@ -671,7 +709,7 @@ func (r *rt) onPush(ctx context.Context, c *ghConn, body []byte) (int, string) {
 			continue
 		}
 		d, err := r.enqueue(ctx, &ghJob{Project: a.Project, App: a.App, Repo: repo, SHA: ev.After, Branch: branch, Message: msg, Author: author,
-			Installation: ev.Installation.ID, Trigger: "push", By: "github:" + ev.Sender.Login, Path: a.Git.Path})
+			Installation: ev.Installation.ID, Trigger: "push", Forced: ev.Forced, By: "github:" + ev.Sender.Login, Path: a.Git.Path})
 		if err != nil {
 			r.logEvent(ctx, GitHubEvent{Event: "push", Repo: repo, Summary: fmt.Sprintf("%s/%s: %v", a.Project, a.App, err)})
 			continue

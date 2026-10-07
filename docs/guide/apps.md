@@ -435,13 +435,16 @@ apps: {
   "Preview of `web`: https://pr-12--shop.example.com · built in 34 s · logs".
 
 Rapid pushes to one branch coalesce: while one builds, only the newest waiting push is
-built next (the ones in between show as *skipped*). A commit message with `[skip deploy]`
+built next (the ones in between show as *skipped*). A push is checked against its branch
+on GitHub before it deploys: one that arrives after the branch moved on (a late or replayed
+delivery) is skipped, so an older commit never replaces a newer one. A commit message with `[skip deploy]`
 or `[skip ci]` deploys nothing. On the app's page: the connected repository and branch,
 each version's commit (message, author, SHA), **Redeploy** and **Disconnect repo**.
 
 **Security.** Deliveries must carry a valid `X-Hub-Signature-256` (HMAC-SHA256 with the
-app's webhook secret, compared in constant time); a delivery id is accepted once, and
-events older than an hour are refused. Each clone uses a fresh token that can only read
+app's webhook secret, compared in constant time); a delivery is handled once (by its
+signed content, so a replay under a new delivery id counts too; one that failed on the box's
+side can be redelivered), and events older than an hour are refused. Each clone uses a fresh token that can only read
 that one repository, handed to git through its environment (never a file or the command
 line) and revoked as soon as the clone is done. **Pull requests from forks are not built**
 unless the app says `previews: "forks"`: a fork's code would run on your box with the
