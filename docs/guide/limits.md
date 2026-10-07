@@ -204,6 +204,25 @@ The box adds nothing for LLMs:
 - **No inbound email** (see Email above), so inbox agents need a mail provider's inbound
   webhook to an app route.
 
+## Servers
+
+- **SSH host keys are trusted on first use.** A new Hetzner server, or an SSH server that
+  is not in your `~/.ssh/known_hosts`, is trusted the first time Tiffin connects; only
+  after that is a different key refused. Tiffin cannot check the fingerprint through
+  another channel. For an SSH server, connect once with `ssh` and check the fingerprint
+  first: Tiffin then uses the key you accepted.
+- **No moving data onto a new data disk.** `up --data-disk` or `--data-dir` on a box whose
+  data is on the root disk is refused rather than hiding the data; move it by hand
+  (stop `tiffin`, `tiffin-edge.socket` and `tiffin-edge.service`, copy `/var/lib/tiffin`,
+  then run `up` with the option). A data directory that is already mounted is kept as it
+  is, even if the option names another disk.
+- **`down` on an SSH server stops Tiffin, its edge and its app containers only.** Postgres,
+  Valkey and the other system services stay installed and running (reachable only from the
+  server), and the firewall and hardening stay on.
+- **`tiffin.config.ts` sees no environment** on your computer or the box (`process.env` is
+  empty) and imports only files of its repository. Values that differ per environment
+  belong in secrets or `env`.
+
 ## Limits per project and per box
 
 | | Default | Change it |

@@ -10,8 +10,18 @@ Plainly, so you can decide what to trust it with.
   service you connect, so an app can't hurt the box's sending reputation behind your back.
   Each project may only send as its own addresses (`<project>@<box domain>` or its
   verified sending domain), never as the box or another project.
-- **HTTPS everywhere.** Locally the box has its own certificate authority, created on
-  the box and never shared. `tiffin trust` adds it to your Mac's keychain.
+- **HTTPS everywhere.** A server with a public address gets certificates from a public CA
+  (Let's Encrypt). Locally the box has its own certificate authority, created on the box
+  and never shared. `tiffin trust` adds it to your Mac's keychain.
+- **Your config is code from your repository**, which a pull request can change. `tiffin
+  plan` and `apply` run `tiffin.config.ts` on your computer the way a push runs it on the
+  box: no file, network or environment access (`process.env` is empty) and imports only
+  from its git repository, never `~/.tiffin` where your owner tokens are.
+- **Git pushes.** `tiffin git-remote --add` installs a credential helper that hands a box's
+  token only to that box's address, never to another remote.
+- **SSH to servers.** Tiffin pins each server's SSH host key the first time it connects
+  and refuses a different one after. For a server you bring (`--provider ssh`) it also
+  honours the keys in your own `~/.ssh/known_hosts`; see [limits](limits.md#servers).
 - **Only HTTPS leaves a local box,** and only to `127.0.0.1:8443` on your Mac. Postgres,
   Valkey and the rest are not reachable from outside the VM.
 - **API keys** are random 200-bit secrets; only their SHA-256 is stored. Each reaches
