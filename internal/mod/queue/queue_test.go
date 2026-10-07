@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -155,6 +156,21 @@ func TestNonRetryableGoesToDLQAndReplays(t *testing.T) {
 	j := e.waitState(proj, ja, stateCompleted, 10*time.Second)
 	if j.Attempt != 1 || len(j.Attempts) != 2 {
 		t.Errorf("after replay attempt %d attempts %d", j.Attempt, len(j.Attempts))
+	}
+
+	// Discarding a dead job takes it out of the dead-letter queue and keeps its attempts.
+	nb, _ := ParseJobID(jb)
+	if _, err := e.CancelJob(context.Background(), proj, nb); err != nil {
+		t.Fatalf("discard dead: %v", err)
+	}
+	if d := e.job(proj, jb); d.State != stateCancelled || len(d.Attempts) != 1 || d.FinishedAt == nil {
+		t.Errorf("discarded: %+v", d)
+	}
+	if dead, _ := e.ListJobs(context.Background(), proj, ListFilter{State: stateDead}); len(dead) != 0 {
+		t.Errorf("dlq still has %d", len(dead))
+	}
+	if st, _ := e.Stats(context.Background(), proj, "b"); len(st) != 1 || st[0].Dead != 0 {
+		t.Errorf("stats after discard %+v", st)
 	}
 }
 
@@ -491,6 +507,17 @@ func TestPauseResumeAndStats(t *testing.T) {
 	if len(st) != 1 || st[0].Completed1h != 1 || st[0].Throughput1m != 1 || st[0].FailureRate != 0 {
 		t.Errorf("stats %+v", st)
 	}
+	// The hour's series: twelve 5-minute windows, oldest first; the job just done is in the newest.
+	if d, f := st[0].DoneSeries, st[0].FailedSeries; len(d) != 12 || len(f) != 12 || d[11] != 1 || sum(d) != 1 || sum(f) != 0 {
+		t.Errorf("series done %v failed %v", d, f)
+	}
+}
+
+func sum(xs []int) (n int) {
+	for _, x := range xs {
+		n += x
+	}
+	return n
 }
 
 // A process killed mid-delivery leaves the job "running" and its limit slot
@@ -710,6 +737,20 @@ func TestOutbox(t *testing.T) {
 	if _, err := pool.Exec(ctx, OutboxDDL); err != nil {
 		t.Fatal(err)
 	}
+	// The box's schemas in a project database are named tiffin*; nothing
+	// lands in a schema an app might use.
+	var where string
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('tiffin_queue.outbox')::text`).Scan(&where); err != nil || where != "tiffin_queue.outbox" {
+		t.Fatalf("outbox at %q: %v", where, err)
+	}
+	// @shiptiffin/sdk's queue.sendTx inserts into the same table.
+	sdk, err := os.ReadFile("../../../packages/sdk/src/queue.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sdk), `"INSERT INTO tiffin_queue.outbox (name, payload, options, app) VALUES`) {
+		t.Error("packages/sdk/src/queue.ts OUTBOX_INSERT doesn't insert into tiffin_queue.outbox")
+	}
 	insert := func(commit bool, name string) {
 		tx, err := pool.Begin(ctx)
 		if err != nil {
@@ -750,7 +791,7 @@ func TestOutbox(t *testing.T) {
 		t.Errorf("bad row %+v", bad)
 	}
 	// Crash after enqueue, before delete: the row comes back, dedupe holds.
-	if _, err := pool.Exec(ctx, `INSERT INTO tiffin.outbox (uid, name, options, app) SELECT $1::uuid, 'emails', '{"delaySeconds":3600}', 'web'`,
+	if _, err := pool.Exec(ctx, `INSERT INTO tiffin_queue.outbox (uid, name, options, app) SELECT $1::uuid, 'emails', '{"delaySeconds":3600}', 'web'`,
 		strings.TrimPrefix(good.Dedupe, "outbox:")); err != nil {
 		t.Fatal(err)
 	}

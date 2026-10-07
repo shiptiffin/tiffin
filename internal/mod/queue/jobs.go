@@ -687,6 +687,8 @@ func (e *Engine) GetJob(ctx context.Context, project string, id int64) (*Job, er
 }
 
 // CancelJob stops a job: pending jobs never run, a running attempt is cut off.
+// A dead job is discarded: it leaves the dead-letter queue as cancelled, with
+// its attempts kept, and can still be replayed with RetryJob.
 func (e *Engine) CancelJob(ctx context.Context, project string, id int64) (*Job, error) {
 	tx, err := e.pool.Begin(ctx)
 	if err != nil {
@@ -701,8 +703,17 @@ func (e *Engine) CancelJob(ctx context.Context, project string, id int64) (*Job,
 		return nil, err
 	}
 	switch j.State {
-	case stateCompleted, stateDead, stateCancelled:
-		return nil, conflict(fmt.Sprintf("%s is already %s", jobID(id), j.State), "only scheduled, queued, retrying or running jobs can be cancelled")
+	case stateCompleted, stateCancelled:
+		return nil, conflict(fmt.Sprintf("%s is already %s", jobID(id), j.State), "only scheduled, queued, retrying, running or dead jobs can be cancelled")
+	case stateDead:
+		// Nothing holds a slot or waits on it: only the state changes (finished_at stays when it died).
+		if _, err := tx.Exec(ctx, `UPDATE tq_jobs SET state = 'cancelled', seq = seq + 1 WHERE id = $1`, id); err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return e.GetJob(ctx, project, id)
 	}
 	wasRunning := j.State == stateRunning
 	if _, err := tx.Exec(ctx, `UPDATE tq_jobs SET state = 'cancelled', finished_at = now(), blocked_on = NULL, lease_until = NULL,
@@ -936,7 +947,12 @@ type QueueStats struct {
 	P50MS         int        `json:"p50Ms" doc:"Median attempt duration, last hour"`
 	P95MS         int        `json:"p95Ms"`
 	LastRunAt     *time.Time `json:"lastRunAt,omitempty" doc:"When its latest attempt finished"`
+	DoneSeries    []int      `json:"doneByFiveMinutes" doc:"Attempts that succeeded in each of the last twelve 5-minute windows, oldest first (the last hour)"`
+	FailedSeries  []int      `json:"failedByFiveMinutes" doc:"Attempts that failed in each of the last twelve 5-minute windows, oldest first"`
 }
+
+// seriesBuckets is how many 5-minute windows the stats series covers (an hour).
+const seriesBuckets = 12
 
 // Stats returns per-queue depth, throughput, failures and durations.
 func (e *Engine) Stats(ctx context.Context, project, only string) ([]QueueStats, error) {
@@ -945,7 +961,7 @@ func (e *Engine) Stats(ctx context.Context, project, only string) ([]QueueStats,
 		if s, ok := by[name]; ok {
 			return s
 		}
-		s := &QueueStats{QueueConfig: defaultConfig(project, name)}
+		s := &QueueStats{QueueConfig: defaultConfig(project, name), DoneSeries: make([]int, seriesBuckets), FailedSeries: make([]int, seriesBuckets)}
 		by[name] = s
 		return s
 	}
@@ -998,6 +1014,28 @@ func (e *Engine) Stats(ctx context.Context, project, only string) ([]QueueStats,
 		if ok+failed > 0 {
 			s.FailureRate = float64(failed) / float64(ok+failed)
 		}
+	}
+	rows.Close()
+	// The last hour in 5-minute windows: bucket 0 is the newest (now-5m..now).
+	rows, err = e.pool.Query(ctx, `SELECT queue, least(floor(extract(epoch FROM now() - finished_at) / 300), $2 - 1)::int,
+		count(*) FILTER (WHERE outcome = 'ok'), count(*) FILTER (WHERE outcome IN ('retry', 'dead'))
+		FROM tq_attempts WHERE project = $1 AND finished_at > now() - interval '1 hour' GROUP BY 1, 2`, project, seriesBuckets)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var q string
+		var b, ok, failed int
+		if err := rows.Scan(&q, &b, &ok, &failed); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if b < 0 || b >= seriesBuckets {
+			continue
+		}
+		s := get(q)
+		s.DoneSeries[seriesBuckets-1-b] += ok
+		s.FailedSeries[seriesBuckets-1-b] += failed
 	}
 	rows.Close()
 	rows, err = e.pool.Query(ctx, `SELECT queue, max(finished_at) FROM tq_attempts WHERE project = $1 GROUP BY queue`, project)

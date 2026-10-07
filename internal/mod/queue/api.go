@@ -217,6 +217,7 @@ func (m *Module) registerQueueAPI(a huma.API, plat *platform.Platform) {
 	huma.Register(a, op("queue-job-cancel", http.MethodPost, "/v1/projects/{project}/queue/jobs/{id}/cancel", "queue jobs cancel", api.RiskWrite,
 		"Cancel a job",
 		"Stops a job: if it hasn't run it never will; if it is running, the request to the app is cut off. "+
+			"A dead (dead-letter) job is discarded: it leaves the dead-letter queue, keeping its attempts. "+
 			"Undo with queue jobs retry (replays it).", 404, 409),
 		api.Wrap(func(ctx context.Context, in *jobPath) (*out[*Job], error) {
 			e, id, err := withJob(ctx, in, tokens.ScopeApplyReversible)

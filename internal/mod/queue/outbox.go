@@ -10,7 +10,7 @@ import (
 )
 
 // sendTx: an app enqueues inside its own Postgres transaction by inserting a
-// row into tiffin.outbox in its own database (@shiptiffin/sdk's queue.sendTx). The
+// row into tiffin_queue.outbox in its own database (@shiptiffin/sdk's queue.sendTx). The
 // row commits or rolls back with the app's data; the box drains committed
 // rows into the queue. Each row carries a uuid used as the dedupe key, so a
 // crash between enqueue and delete never enqueues twice.
@@ -21,8 +21,8 @@ import (
 // (Bun.sql, postgres.js, pg) and keeps every job in one place.
 
 // OutboxDDL creates the outbox (the box runs it; apps only insert).
-const OutboxDDL = `CREATE SCHEMA IF NOT EXISTS tiffin;
-CREATE TABLE IF NOT EXISTS tiffin.outbox (
+const OutboxDDL = `CREATE SCHEMA IF NOT EXISTS tiffin_queue;
+CREATE TABLE IF NOT EXISTS tiffin_queue.outbox (
 	id         bigserial PRIMARY KEY,
 	uid        uuid NOT NULL DEFAULT gen_random_uuid(),
 	name       text NOT NULL,
@@ -128,7 +128,7 @@ func (ps *outboxPools) get(ctx context.Context, project, dsn string) (*pgxpool.P
 func (e *Engine) DrainOutbox(ctx context.Context, project string, app *pgxpool.Pool) (int, error) {
 	total := 0
 	for {
-		rows, err := app.Query(ctx, `SELECT id, uid::text, name, payload, options, app FROM tiffin.outbox ORDER BY id LIMIT 200`)
+		rows, err := app.Query(ctx, `SELECT id, uid::text, name, payload, options, app FROM tiffin_queue.outbox ORDER BY id LIMIT 200`)
 		if err != nil {
 			return total, err
 		}
@@ -175,7 +175,7 @@ func (e *Engine) DrainOutbox(ctx context.Context, project string, app *pgxpool.P
 			}
 			ids = append(ids, r.id)
 		}
-		if _, err := app.Exec(ctx, `DELETE FROM tiffin.outbox WHERE id = ANY($1)`, ids); err != nil {
+		if _, err := app.Exec(ctx, `DELETE FROM tiffin_queue.outbox WHERE id = ANY($1)`, ids); err != nil {
 			return total, err
 		}
 		total += len(ids)
@@ -193,4 +193,4 @@ func (e *Engine) deadLetter(ctx context.Context, project, name string, payload [
 }
 
 // outboxInsert is the statement @shiptiffin/sdk runs (documented for other clients).
-const outboxInsert = `INSERT INTO tiffin.outbox (name, payload, options, app) VALUES ($1, $2, $3, $4)`
+const outboxInsert = `INSERT INTO tiffin_queue.outbox (name, payload, options, app) VALUES ($1, $2, $3, $4)`
