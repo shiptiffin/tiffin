@@ -771,7 +771,7 @@
     }
   },
   "storage": {
-    "module": "file_system",
+    "module": "tiffin",
     "root": "/var/lib/tiffin/platform/caddy"
   }
 }

@@ -742,7 +742,7 @@ func buildConfig(c Config) obj {
 	out := obj{
 		"admin":   obj{"disabled": true, "config": obj{"persist": false}},
 		"logging": obj{"logs": logs},
-		"storage": obj{"module": "file_system", "root": c.DataDir},
+		"storage": obj{"module": storageModuleName, "root": c.DataDir},
 		"apps":    apps,
 	}
 	if c.Protect != nil {

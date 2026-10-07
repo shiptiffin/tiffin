@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/dnskit/dnstest"
+	"github.com/caddyserver/certmagic"
 	pca "github.com/letsencrypt/pebble/v2/ca"
 	pdb "github.com/letsencrypt/pebble/v2/db"
 	pva "github.com/letsencrypt/pebble/v2/va"
@@ -513,5 +514,41 @@ func TestACMEAppsDomain(t *testing.T) {
 	leaf, err := handshake(pb.pool, ports[1], "pr-7--web.apps.test")
 	if err != nil || len(leaf.DNSNames) != 1 || leaf.DNSNames[0] != "*.apps.test" {
 		t.Fatalf("preview certificate: %v %v", leaf, err)
+	}
+}
+
+// An email-less ACME account whose files are only half there (a crash
+// between certmagic's two writes, or another issuance mid-save) must not
+// become an account with the contact "default": certmagic names the folder
+// of the email-less account "default" and, finding it incomplete, used to
+// make up mailto:default, which every CA rejects (and remembered it for the
+// rest of the process).
+func TestACMEHalfWrittenAccount(t *testing.T) {
+	isolate(t)
+	dns := dnstest.Start(t)
+	dns.AddZone("half.test")
+	dns.Set("*.half.test", "A", "127.0.0.1")
+	ports := freePorts(t, 2)
+	pb := startPebble(t, dns.Addr(), ports[0], ports[1], 0)
+	dataDir := filepath.Join(t.TempDir(), "caddy")
+	users := filepath.Join(dataDir, "acme", certmagic.StorageKeys.Safe((&certmagic.ACMEIssuer{CA: pb.dir}).IssuerKey()), "users")
+	if err := os.MkdirAll(filepath.Join(users, "default"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(users, "default", "default.json"), []byte(`{"status":"valid"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	up := upstreamServer(t, "platform")
+	e, err := Start(context.Background(), Config{
+		Domain: "half.test", Upstream: addr(up), DataDir: dataDir,
+		HTTPPort: ports[0], HTTPSPort: ports[1],
+		ACME: &ACME{CA: pb.dir, TrustedRoots: pb.roots},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Stop()
+	if ci := waitCert(t, "dashboard.half.test", "live", 30*time.Second); !strings.Contains(ci.Issuer, "Pebble") {
+		t.Errorf("issuer = %q", ci.Issuer)
 	}
 }
