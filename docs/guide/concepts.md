@@ -106,8 +106,10 @@ Disk is shared too: every project's database and files live on the data disk, so
 guards it. Past 85% full it warns (on Usage and Health), naming the project growing
 fastest; past 95% that project becomes read-only (its database refuses writes, its
 buckets refuse uploads, its apps' disk folders stop growing) so every other project keeps
-running; below 90% it can write again. Each step is a change by the system in the
-project's history, and undoing it lets the project write at once. Change the levels with
+running. An app that turns its database's read-only default off and keeps growing it
+anyway is locked out of the database (its role cannot log in) until the hold lifts.
+Below 90% it can write again. Each step is a change by the system in the project's
+history, and undoing it lets the project write at once. Change the levels with
 `tiffin box settings set --disk-warn-percent 85 --disk-stop-percent 95 --disk-resume-percent 90`
 (a stop level of 100 only warns). For a tighter share, give a project a storage limit
 (off by default; see [Storage](storage.md#storage-limits)).

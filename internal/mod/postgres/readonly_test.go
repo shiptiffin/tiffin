@@ -17,10 +17,10 @@ func TestReadOnlyHold(t *testing.T) {
 	admin, connect := embedded(t)
 	ctx := context.Background()
 	for _, s := range []string{
-		`CREATE DATABASE p_shop`,
-		`CREATE DATABASE p_shop__pr_1`,
-		`COMMENT ON DATABASE p_shop__pr_1 IS '{"tiffin":"branch","project":"shop","branch":"pr-1"}'`,
-		`CREATE DATABASE p_blog`,
+		`CREATE ROLE p_shop`, `CREATE ROLE p_blog`,
+		`CREATE DATABASE p_shop OWNER p_shop`,
+		`CREATE DATABASE p_shop__pr_1 OWNER p_shop`,
+		`CREATE DATABASE p_blog OWNER p_blog`,
 	} {
 		if _, err := admin.Exec(ctx, s); err != nil {
 			t.Fatal(s, err)

@@ -139,9 +139,70 @@ func TestTenantHardening(t *testing.T) {
 		}
 	})
 
+	t.Run("a held app that writes anyway is locked out", func(t *testing.T) {
+		w, err := tc.as(t, "p_shop", "shop", "p_shop")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer w.Close(ctx)
+		if err := setReadOnly(ctx, tc.admin, "shop", true); err != nil {
+			t.Fatal(err)
+		}
+		defer setReadOnly(ctx, tc.admin, "shop", false)
+		w, err = tc.as(t, "p_shop", "shop", "p_shop")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The read-only default is the app's to turn off: why EnforceHold exists.
+		if _, err := w.Exec(ctx, `SET default_transaction_read_only = off`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Exec(ctx, `CREATE TABLE grow (x text)`); err != nil {
+			t.Fatalf("the bypass this guards against: %v", err)
+		}
+		holds.Lock()
+		holds.why["shop"] = "shop is read-only"
+		holds.Unlock()
+		defer func() {
+			holds.Lock()
+			delete(holds.why, "shop")
+			delete(holds.base, "shop")
+			delete(holds.locked, "shop")
+			holds.Unlock()
+		}()
+		for _, n := range []int64{1000, 1000 + holdSlack} {
+			if err := EnforceHold(ctx, "shop", n); err != nil || lockedOut("shop") {
+				t.Fatalf("%d bytes: locked %v %v", n, lockedOut("shop"), err)
+			}
+		}
+		if err := EnforceHold(ctx, "shop", 1001+holdSlack); err != nil || !lockedOut("shop") {
+			t.Fatalf("grew past the slack: locked %v %v", lockedOut("shop"), err)
+		}
+		if _, err := w.Exec(ctx, `INSERT INTO grow VALUES ('x')`); err == nil {
+			t.Fatal("the writing session is still open")
+		}
+		if c, err := tc.as(t, "p_shop", "shop", "p_shop"); err == nil {
+			c.Close(ctx)
+			t.Fatal("the locked-out role logged in")
+		}
+		if err := setLogin(ctx, tc.admin, "shop", true); err != nil {
+			t.Fatal(err)
+		}
+		c, err := tc.as(t, "p_shop", "shop", "p_shop")
+		if err != nil {
+			t.Fatalf("lifted, the role cannot log in: %v", err)
+		}
+		c.Close(ctx)
+	})
+
 	t.Run("ownership ignores the comment", func(t *testing.T) {
 		// The app rewrites its database's metadata to name a role line
 		// that would add a superuser pool, and hides a branch.
+		app, err := tc.as(t, "p_shop", "shop", "p_shop")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer app.Close(ctx)
 		evil := `{"tiffin":"main","project":"shop = max_user_connections=60\n[databases]\np_backdoor = host=/var/run/postgresql dbname=postgres user=postgres\n[users]\np_unused","createdAt":"2026-01-01T00:00:00Z"}`
 		if _, err := app.Exec(ctx, fmt.Sprintf(`COMMENT ON DATABASE p_shop IS %s`, quoteLiteral(evil))); err != nil {
 			t.Fatal(err)

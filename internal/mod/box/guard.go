@@ -307,6 +307,14 @@ func (g *guard) round(ctx context.Context) error {
 		}
 	}
 
+	// A held app that turned its read-only default off and keeps growing
+	// is locked out of its database (postgres.EnforceHold).
+	for pr := range held {
+		if err := postgres.EnforceHold(ctx, pr, g.dbBytes(pr)); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
 	g.mu.Lock()
 	g.seen, g.waived = held, waived
 	g.view = g.describe(in)

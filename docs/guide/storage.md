@@ -213,7 +213,9 @@ are measured every minute, plus what was uploaded since, and databases every 30
 seconds. An upload counts from the moment it is accepted, so uploads at once can't
 overshoot together; replacing a file counts only what it adds. With a limit, an upload
 must say its size (`Content-Length`). A project that reaches its limit becomes read-only (its database refuses
-writes too, its apps' disk folders stop growing) until it is under it again; raising or
+writes too, its apps' disk folders stop growing) until it is under it again (an app
+that overrides the read-only default and keeps growing its database is locked out of
+it, reads included, until then); raising or
 clearing the limit lifts that within seconds. Disk folders count as files, and the sizes
 apps give them (`disk: { data: "5GB" }`, see [Apps](apps.md#programs-folders-and-long-requests))
 must fit in the limit: a limit below them is refused. The box owner sets limits on the project's Usage page or with the

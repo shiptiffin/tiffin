@@ -209,6 +209,7 @@ The box adds nothing for LLMs:
 | Idle in transaction | closed after 60 s | |
 | KV memory (Valkey) | 64 MB, held while the project has a limit | `maxMemoryMB` |
 | Storage (databases + files) | no limit; the disk guard warns at 85% and makes the fastest-growing project read-only at 95% | `tiffin storage quota set` |
+| A read-only hold on a database | transactions default to read-only, which an app can override; one whose databases still grow by more than 64 MiB is locked out of them, reads included, until the hold lifts (checked every 30 s, so a determined app writes for up to that long) | |
 | Request time | 15 minutes, up to 24 hours | `timeoutSeconds` |
 | Queue job attempt | 60 s without a response or heartbeat (5 to 3600); heartbeats extend it up to 24 hours | `leaseSeconds` |
 | Cron call | 60 s (5 to 3600) | `timeoutSeconds` on the cron |

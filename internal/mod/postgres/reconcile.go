@@ -77,8 +77,12 @@ func ensure(ctx context.Context, p *platform.Platform, project string, s manifes
 		verb = "CREATE"
 	}
 	limits := roleLimits(budget.SharedLimit(project).Percent, s.StatementTimeoutSeconds, MaxConnections(memTotalMB()), dataDiskBytes())
-	if _, err := admin.Exec(ctx, fmt.Sprintf(`%s ROLE %s WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT %d PASSWORD %s`,
-		verb, quoteIdent(role), limits.Connections, quoteLiteral(pw))); err != nil {
+	login := "LOGIN"
+	if lockedOut(project) {
+		login = "NOLOGIN" // a hold locked it out (readonly.go)
+	}
+	if _, err := admin.Exec(ctx, fmt.Sprintf(`%s ROLE %s WITH %s NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT %d PASSWORD %s`,
+		verb, quoteIdent(role), login, limits.Connections, quoteLiteral(pw))); err != nil {
 		return fmt.Errorf("%s role: %w", strings.ToLower(verb), err)
 	}
 	if !exists {
