@@ -162,7 +162,7 @@ func TestPortable(t *testing.T) {
 	ar.Close()
 	f.Close()
 	if entries["platform/secrets.key"] || !entries["platform/state.db"] || !entries["postgres/db/p_shop.sql"] || !entries["valkey/dump.rdb"] ||
-		!entries["files/storage/data/shop-media/notes/a.txt"] || strings.Join(ar.Manifest.Projects, ",") != "shop" {
+		!entries["files/storage/data/shop--media/notes/a.txt"] || strings.Join(ar.Manifest.Projects, ",") != "shop" {
 		t.Fatalf("archive contents: projects %v, entries %d", ar.Manifest.Projects, len(entries))
 	}
 	t.Logf("EXPORT %d bytes (%.1f MB) in %.1fs, writes paused %vms, sha256 %s", size, float64(size)/(1<<20), exportSecs, ex["writesPausedMs"], ex["sha256"])

@@ -38,14 +38,14 @@ func TestStorage(t *testing.T) {
 			t.Fatalf("credentials: %s missing: %v", k, env)
 		}
 	}
-	if env["S3_BUCKET_MEDIA"] != "shop-media" || env["S3_BUCKET_ASSETS"] != "shop-assets" {
+	if env["S3_BUCKET_MEDIA"] != "shop--media" || env["S3_BUCKET_ASSETS"] != "shop--assets" {
 		t.Fatalf("bucket env: %v", env)
 	}
 	curl := fmt.Sprintf("curl -s --aws-sigv4 aws:amz:%s:s3 --user '%s:%s'", env["S3_REGION"], env["S3_ACCESS_KEY_ID"], env["S3_SECRET_ACCESS_KEY"])
 	ep := env["S3_ENDPOINT"].(string)
 	out := b.inBox(`printf 'hello public world' > /tmp/pub.txt; printf 'top secret' > /tmp/priv.txt
-` + curl + ` -o /dev/null -w '%{http_code} ' -H 'Content-Type: text/plain' -T /tmp/pub.txt ` + ep + `/shop-assets/docs/hello.txt
-` + curl + ` -o /dev/null -w '%{http_code} ' -T /tmp/priv.txt ` + ep + `/shop-media/secret.txt
+` + curl + ` -o /dev/null -w '%{http_code} ' -H 'Content-Type: text/plain' -T /tmp/pub.txt ` + ep + `/shop--assets/docs/hello.txt
+` + curl + ` -o /dev/null -w '%{http_code} ' -T /tmp/priv.txt ` + ep + `/shop--media/secret.txt
 ` + curl + ` -o /dev/null -w '%{http_code}' -X PUT ` + ep + `/not-mine`)
 	if out != "200 200 403" {
 		t.Fatalf("uploads (public, private, create bucket with the project key): %q", out)
@@ -65,12 +65,12 @@ func TestStorage(t *testing.T) {
 	if code, _, _ := b.get(c, "GET", b.url("files")+"/shop/media/secret.txt", nil); code != 403 {
 		t.Fatalf("private via files: %d", code)
 	}
-	if code, _, _ := b.get(c, "GET", b.url("s3")+"/shop-media/secret.txt", nil); code != 403 {
+	if code, _, _ := b.get(c, "GET", b.url("s3")+"/shop--media/secret.txt", nil); code != 403 {
 		t.Fatalf("private anonymous S3: %d", code)
 	}
 	pre := b.ok("storage", "presign", "shop", "media", "--key", "secret.txt", "--expires-in", "300")
 	signed, _ := pre["url"].(string)
-	if !strings.HasPrefix(signed, b.url("s3")+"/shop-media/secret.txt?") {
+	if !strings.HasPrefix(signed, b.url("s3")+"/shop--media/secret.txt?") {
 		t.Fatalf("presign: %v", pre)
 	}
 	if code, _, body := b.get(c, "GET", signed, nil); code != 200 || body != "top secret" {
@@ -91,7 +91,7 @@ func TestStorage(t *testing.T) {
 	// ---- quota, API upload, audit ----
 	p = time.Now()
 	b.ok("storage", "quota", "set", "shop", "--max-bytes", "20")
-	out = b.inBox(curl + ` -w ' %{http_code}' -T /tmp/pub.txt ` + ep + `/shop-media/more.txt`)
+	out = b.inBox(curl + ` -w ' %{http_code}' -T /tmp/pub.txt ` + ep + `/shop--media/more.txt`)
 	if !strings.Contains(out, "QuotaExceeded") || !strings.HasSuffix(out, "403") {
 		t.Fatalf("over quota: %q", out)
 	}
