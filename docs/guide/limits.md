@@ -286,6 +286,17 @@ The box adds nothing for LLMs:
 Everything runs on **one machine**: if the box is down, your apps are down. Backups stay on
 the box unless you [copy them off it](data.md#copies-off-the-box).
 
+## Backups
+
+- Each off-box copy reads every backed-up file again (only changed chunks are sent), so
+  on a box with many gigabytes of files each copy spends a while reading the disk.
+- A backup set's file list must fit in 1 GiB (about five million files) to be copied off
+  the box; a bigger set fails to copy and says so. A restore from the bucket holds that
+  list in memory.
+- A bucket that stops sending data for 2 minutes fails the copy, restore or prune that
+  was reading from it (copies try again after 15 minutes). Objects bigger than they can
+  be are refused, not read.
+
 ## Usage and observability
 
 - Usage trends cover only the last hour.

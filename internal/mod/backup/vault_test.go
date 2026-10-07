@@ -34,12 +34,15 @@ func (m *memStore) Put(_ context.Context, key string, body []byte) error {
 	return nil
 }
 
-func (m *memStore) Get(_ context.Context, key string) ([]byte, error) {
+func (m *memStore) Get(_ context.Context, key string, limit int64) ([]byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	b, ok := m.objs[key]
 	if !ok {
 		return nil, errNoObject
+	}
+	if int64(len(b)) > limit {
+		return nil, errBodyTooBig
 	}
 	return append([]byte(nil), b...), nil
 }
@@ -129,21 +132,34 @@ func TestSealOpen(t *testing.T) {
 		if len(plain) > 8 && bytes.Contains(ct, plain[:8]) {
 			t.Fatal("ciphertext holds plaintext")
 		}
-		got, err := v.open(ct)
+		got, err := v.open(ct, zdecRecord)
 		if err != nil || !bytes.Equal(got, plain) {
 			t.Fatalf("round trip of %d bytes: %v", len(plain), err)
 		}
 		if len(plain) > 0 {
 			ct[len(ct)-1] ^= 1
-			if _, err := v.open(ct); err == nil {
+			if _, err := v.open(ct, zdecRecord); err == nil {
 				t.Fatal("a tampered object opened")
 			}
 		}
 	}
 	// Another key cannot open it.
 	ct, _ := v.seal([]byte("secret"))
-	if _, err := testVault(t, newMem()).open(ct); err == nil {
+	if _, err := testVault(t, newMem()).open(ct, zdecRecord); err == nil {
 		t.Fatal("another key opened it")
+	}
+	// A set's file list of more than 64 MiB (some 300,000 files) reads back;
+	// a chunk opens to at most chunkSize.
+	big := bytes.Repeat([]byte(`{"p":"files/storage/data/shop-media/x","t":48}`), (70<<20)/46)
+	ct, err := v.seal(big)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := v.open(ct, zdecRecord); err != nil || len(got) != len(big) {
+		t.Fatalf("a 70 MiB record: %v", err)
+	}
+	if _, err := v.open(ct, zdecChunk); err == nil {
+		t.Fatal("a chunk opened to more than chunkSize")
 	}
 	// Chunk IDs are keyed: the same content gets another ID under another key.
 	if v.chunkID([]byte("x")) == testVault(t, newMem()).chunkID([]byte("x")) {
@@ -472,11 +488,11 @@ type flakyStore struct {
 	fail string
 }
 
-func (f *flakyStore) Get(ctx context.Context, key string) ([]byte, error) {
+func (f *flakyStore) Get(ctx context.Context, key string, limit int64) ([]byte, error) {
 	if key == f.fail {
 		return nil, errors.New("503 slow down")
 	}
-	return f.memStore.Get(ctx, key)
+	return f.memStore.Get(ctx, key, limit)
 }
 
 // A set whose record cannot be read during a prune is not taken for one

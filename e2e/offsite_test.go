@@ -117,7 +117,7 @@ func (d *offsiteDest) plaintext(t *testing.T, markers ...string) []string {
 				found = append(found, m+" in the name "+k)
 			}
 		}
-		raw, err := d.store.Get(ctx, k)
+		raw, err := d.store.Get(ctx, k, 1<<30)
 		if err != nil {
 			t.Fatal(d.hide(fmt.Sprintf("reading %s: %v", k, err)))
 		}

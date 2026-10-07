@@ -44,6 +44,15 @@ const (
 	vaultVersion = 1
 	putWorkers   = 4
 	getWorkers   = 8
+	// maxRecord is the most a set's record or file list may hold (about
+	// five million files); the objects in the bucket are read with these
+	// bounds, so a damaged or hostile bucket cannot exhaust memory.
+	maxRecord = 1 << 30
+	// The most an object of each kind can be once sealed: compression and
+	// encryption add little to incompressible content.
+	maxKeyObject    = 1 << 20
+	maxChunkObject  = chunkSize + 1<<20
+	maxRecordObject = maxRecord + 32<<20
 )
 
 // offsiteKeys is the key bundle (the "key" object).
@@ -156,7 +165,9 @@ func newVault(st objectStore, prefix string, k *offsiteKeys) (*vault, error) {
 
 var (
 	zenc, _ = zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault), zstd.WithEncoderConcurrency(1))
-	zdec, _ = zstd.NewReader(nil, zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxMemory(64<<20))
+	// A chunk opens to at most chunkSize bytes, a record to maxRecord.
+	zdecChunk, _  = zstd.NewReader(nil, zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxMemory(chunkSize))
+	zdecRecord, _ = zstd.NewReader(nil, zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxMemory(maxRecord))
 )
 
 // seal compresses and encrypts.
@@ -175,7 +186,8 @@ func (v *vault) seal(plain []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (v *vault) open(ct []byte) ([]byte, error) {
+// open decrypts and decompresses; dec bounds the size (zdecChunk, zdecRecord).
+func (v *vault) open(ct []byte, dec *zstd.Decoder) ([]byte, error) {
 	r, err := age.Decrypt(bytes.NewReader(ct), v.id)
 	if err != nil {
 		return nil, err
@@ -184,7 +196,7 @@ func (v *vault) open(ct []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return zdec.DecodeAll(z, nil)
+	return dec.DecodeAll(z, nil)
 }
 
 func (v *vault) chunkID(plain []byte) string {
@@ -204,6 +216,10 @@ func (v *vault) putJSON(ctx context.Context, key string, x any) error {
 	if err != nil {
 		return err
 	}
+	if len(raw) > maxRecord {
+		// It could not be read back.
+		return fmt.Errorf("%s would be %d MiB, more than the %d MiB a set's record or file list may be: the set has too many files for an off-box copy", key, len(raw)>>20, maxRecord>>20)
+	}
 	ct, err := v.seal(raw)
 	if err != nil {
 		return err
@@ -212,11 +228,11 @@ func (v *vault) putJSON(ctx context.Context, key string, x any) error {
 }
 
 func (v *vault) getJSON(ctx context.Context, key string, x any) error {
-	ct, err := v.st.Get(ctx, key)
+	ct, err := v.st.Get(ctx, key, maxRecordObject)
 	if err != nil {
 		return err
 	}
-	raw, err := v.open(ct)
+	raw, err := v.open(ct, zdecRecord)
 	if err != nil {
 		return fmt.Errorf("%s: %w", key, err)
 	}
@@ -486,14 +502,14 @@ type fetched struct {
 
 // fetchChunk downloads, decrypts and checks one chunk.
 func (v *vault) fetchChunk(ctx context.Context, id string) fetched {
-	ct, err := v.st.Get(ctx, v.chunkKey(id))
+	ct, err := v.st.Get(ctx, v.chunkKey(id), maxChunkObject)
 	if errors.Is(err, errNoObject) {
 		return fetched{err: fmt.Errorf("chunk %s is missing from the destination", id[:12])}
 	}
 	if err != nil {
 		return fetched{err: err}
 	}
-	plain, err := v.open(ct)
+	plain, err := v.open(ct, zdecChunk)
 	if err != nil {
 		return fetched{err: fmt.Errorf("chunk %s cannot be decrypted: %w", id[:12], err)}
 	}

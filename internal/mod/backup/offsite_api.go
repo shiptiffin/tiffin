@@ -271,7 +271,7 @@ func setOffsite(ctx context.Context, p *platform.Platform, in OffsiteInput) (*Ba
 			"check the endpoint, region, bucket (it must exist) and the key's permissions (read, write, list and delete objects)")
 	}
 	v := &vault{st: store, prefix: vaultPrefix(c.Prefix)}
-	raw, err := store.Get(ctx, v.keyKey())
+	raw, err := store.Get(ctx, v.keyKey(), maxKeyObject)
 	pass, reveal := in.Passphrase, ""
 	var keys *offsiteKeys
 	switch {

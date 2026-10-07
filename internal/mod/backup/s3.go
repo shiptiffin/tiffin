@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -26,14 +27,27 @@ import (
 // real one; tests use a map.
 type objectStore interface {
 	Put(ctx context.Context, key string, body []byte) error
-	// Get returns errNoObject when key does not exist.
-	Get(ctx context.Context, key string) ([]byte, error)
+	// Get returns errNoObject when key does not exist, and an error for an
+	// object of more than limit bytes (nothing past limit is read).
+	Get(ctx context.Context, key string, limit int64) ([]byte, error)
 	Delete(ctx context.Context, key string) error
 	// List calls fn for every key under prefix, in key order.
 	List(ctx context.Context, prefix string, fn func(key string, size int64) error) error
 }
 
 var errNoObject = errors.New("no such object")
+
+// Every response body is bounded: in size (an answer bigger than its
+// kind of object or listing can be is refused, never buffered), and in
+// time (bodyStall without a byte fails it; the header wait is
+// ResponseHeaderTimeout). A store that misbehaves or stalls cannot exhaust
+// memory or hold a copy, restore or prune (and their locks) forever.
+var bodyStall = 2 * time.Minute
+
+const (
+	maxSmallBody = 64 << 10 // error, PUT and DELETE answers
+	maxListBody  = 16 << 20 // one page of a listing or a DeleteObjects answer
+)
 
 // s3Client is a small S3 client (SigV4, path- or host-style requests):
 // enough for R2, AWS S3, Hetzner Object Storage, MinIO and versitygw.
@@ -99,7 +113,7 @@ func (e *s3Error) Error() string {
 }
 
 func (c *s3Client) Put(ctx context.Context, key string, body []byte) error {
-	resp, err := c.do(ctx, http.MethodPut, key, nil, body)
+	resp, err := c.do(ctx, http.MethodPut, key, nil, body, maxSmallBody)
 	if err != nil {
 		return err
 	}
@@ -107,17 +121,21 @@ func (c *s3Client) Put(ctx context.Context, key string, body []byte) error {
 	return nil
 }
 
-func (c *s3Client) Get(ctx context.Context, key string) ([]byte, error) {
-	resp, err := c.do(ctx, http.MethodGet, key, nil, nil)
+func (c *s3Client) Get(ctx context.Context, key string, limit int64) ([]byte, error) {
+	resp, err := c.do(ctx, http.MethodGet, key, nil, nil, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", key, err)
+	}
+	return body, nil
 }
 
 func (c *s3Client) Delete(ctx context.Context, key string) error {
-	resp, err := c.do(ctx, http.MethodDelete, key, nil, nil)
+	resp, err := c.do(ctx, http.MethodDelete, key, nil, nil, maxSmallBody)
 	if errors.Is(err, errNoObject) {
 		return nil
 	}
@@ -140,7 +158,7 @@ func (c *s3Client) DeleteMany(ctx context.Context, keys []string) error {
 			body.WriteString("</Key></Object>")
 		}
 		body.WriteString("</Delete>")
-		resp, err := c.do(ctx, http.MethodPost, "", url.Values{"delete": {""}}, body.Bytes())
+		resp, err := c.do(ctx, http.MethodPost, "", url.Values{"delete": {""}}, body.Bytes(), maxListBody)
 		if err != nil {
 			return err
 		}
@@ -168,7 +186,7 @@ func (c *s3Client) DeleteMany(ctx context.Context, keys []string) error {
 
 // CreateBucket creates the bucket (for tests against a local store).
 func (c *s3Client) CreateBucket(ctx context.Context) error {
-	resp, err := c.do(ctx, http.MethodPut, "", nil, nil)
+	resp, err := c.do(ctx, http.MethodPut, "", nil, nil, maxSmallBody)
 	if err != nil {
 		return err
 	}
@@ -192,7 +210,7 @@ func (c *s3Client) List(ctx context.Context, prefix string, fn func(key string, 
 		if token != "" {
 			q.Set("continuation-token", token)
 		}
-		resp, err := c.do(ctx, http.MethodGet, "", q, nil)
+		resp, err := c.do(ctx, http.MethodGet, "", q, nil, maxListBody)
 		if err != nil {
 			return err
 		}
@@ -222,8 +240,9 @@ func (c *s3Client) List(ctx context.Context, prefix string, fn func(key string, 
 }
 
 // do sends a signed request, retrying network errors and 5xx/429 answers.
-// A 404 on an object is errNoObject; other failures are *s3Error.
-func (c *s3Client) do(ctx context.Context, method, key string, q url.Values, body []byte) (*http.Response, error) {
+// A 404 on an object is errNoObject; other failures are *s3Error. The
+// answer's body is bounded (limit bytes, bodyStall between reads).
+func (c *s3Client) do(ctx context.Context, method, key string, q url.Values, body []byte, limit int64) (*http.Response, error) {
 	var last error
 	for attempt := 0; attempt < 4; attempt++ {
 		if attempt > 0 {
@@ -233,22 +252,30 @@ func (c *s3Client) do(ctx context.Context, method, key string, q url.Values, bod
 			case <-time.After(time.Duration(attempt*attempt) * 500 * time.Millisecond):
 			}
 		}
-		req, err := c.request(ctx, method, key, q, body)
+		rctx, cancel := context.WithCancel(ctx)
+		req, err := c.request(rctx, method, key, q, body)
 		if err != nil {
+			cancel()
 			return nil, err
 		}
 		resp, err := c.hc.Do(req)
 		if err != nil {
+			cancel()
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
 			last = err
 			continue
 		}
+		resp.Body = newBoundedBody(resp.Body, cancel, max(limit, maxSmallBody))
 		if resp.StatusCode < 300 {
+			if resp.ContentLength > limit {
+				resp.Body.Close()
+				return nil, fmt.Errorf("%s: the store answered with %d bytes, more than %d", strings.TrimSpace(key+" "+q.Encode()), resp.ContentLength, limit)
+			}
 			return resp, nil
 		}
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxSmallBody))
 		resp.Body.Close()
 		e := &s3Error{Status: resp.StatusCode}
 		_ = xml.Unmarshal(raw, e)
@@ -261,6 +288,50 @@ func (c *s3Client) do(ctx context.Context, method, key string, q url.Values, bod
 		}
 	}
 	return nil, last
+}
+
+// boundedBody is a response body that fails past limit bytes, or when no
+// byte arrives for bodyStall (it cancels the request). Close releases it.
+type boundedBody struct {
+	r      io.ReadCloser
+	cancel context.CancelFunc
+	stall  *time.Timer
+	left   int64
+	timed  atomic.Bool
+}
+
+var errBodyTooBig = errors.New("the store's answer is bigger than this kind of object can be")
+
+func newBoundedBody(r io.ReadCloser, cancel context.CancelFunc, limit int64) *boundedBody {
+	b := &boundedBody{r: r, cancel: cancel, left: limit}
+	b.stall = time.AfterFunc(bodyStall, func() { b.timed.Store(true); cancel() })
+	return b
+}
+
+func (b *boundedBody) Read(p []byte) (int, error) {
+	// One byte past the limit tells a body of exactly limit bytes from a bigger one.
+	if int64(len(p)) > b.left+1 {
+		p = p[:b.left+1]
+	}
+	n, err := b.r.Read(p)
+	if int64(n) > b.left {
+		return 0, errBodyTooBig
+	}
+	b.left -= int64(n)
+	if n > 0 {
+		b.stall.Reset(bodyStall)
+	}
+	if err != nil && b.timed.Load() {
+		err = fmt.Errorf("the store sent nothing for %s: %w", bodyStall, err)
+	}
+	return n, err
+}
+
+func (b *boundedBody) Close() error {
+	b.stall.Stop()
+	err := b.r.Close()
+	b.cancel()
+	return err
 }
 
 func (c *s3Client) request(ctx context.Context, method, key string, q url.Values, body []byte) (*http.Request, error) {

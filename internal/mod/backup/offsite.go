@@ -307,7 +307,7 @@ func probe(ctx context.Context, st objectStore, prefix string) ([]ProbeStep, err
 		return steps, fmt.Errorf("writing a test object failed: %w", err)
 	}
 	err := step("read it back", func() error {
-		got, err := st.Get(ctx, key)
+		got, err := st.Get(ctx, key, maxKeyObject)
 		if err == nil && string(got) != string(body) {
 			err = errors.New("the object read back differs from what was written")
 		}
@@ -694,7 +694,7 @@ func copyParts(ctx context.Context, p *platform.Platform, c *OffsiteConfig, s *o
 		return err
 	}
 	// A quick look first: pgBackRest takes minutes to give up on a bucket it cannot reach.
-	if _, err := v.st.Get(ctx, v.keyKey()); err != nil {
+	if _, err := v.st.Get(ctx, v.keyKey(), maxKeyObject); err != nil {
 		return fmt.Errorf("the bucket cannot be read: %w", err)
 	}
 	// 1. Postgres: a backup to repo2, between local backups (pgBackRest
@@ -1013,7 +1013,7 @@ func reachable(ctx context.Context) error {
 	}
 	v, err := openVault(c, s)
 	if err == nil {
-		_, err = v.st.Get(ctx, v.keyKey())
+		_, err = v.st.Get(ctx, v.keyKey(), maxKeyObject)
 	}
 	if err != nil {
 		return fmt.Errorf("the bucket cannot be read: %w", err)

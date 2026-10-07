@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -125,11 +126,11 @@ func storeRoundTrip(t *testing.T, cl *s3Client, prefix string) {
 		if err := cl.Put(ctx, key, []byte("v:"+key)); err != nil {
 			fatalR2(t, "put %q: %v", key, err)
 		}
-		if got, err := cl.Get(ctx, key); err != nil || string(got) != "v:"+key {
+		if got, err := cl.Get(ctx, key, 1<<20); err != nil || string(got) != "v:"+key {
 			fatalR2(t, "get %q: %q %v", key, got, err)
 		}
 	}
-	if _, err := cl.Get(ctx, prefix+"/nope"); !errors.Is(err, errNoObject) {
+	if _, err := cl.Get(ctx, prefix+"/nope", 1<<20); !errors.Is(err, errNoObject) {
 		fatalR2(t, "missing object: %v", err)
 	}
 	if err := cl.Delete(ctx, prefix+"/nope"); err != nil {
@@ -216,7 +217,7 @@ func TestS3Versitygw(t *testing.T) {
 	noCA := *c
 	noCA.CACert = ""
 	plain, _ := newS3(&noCA, secret)
-	if _, err := plain.Get(ctx, c.Prefix+"/plain"); err == nil || !strings.Contains(err.Error(), "certificate") {
+	if _, err := plain.Get(ctx, c.Prefix+"/plain", 1<<20); err == nil || !strings.Contains(err.Error(), "certificate") {
 		fatalR2(t, "without the CA: %v", err)
 	}
 	emptied(t, cl, c.Prefix)
@@ -340,5 +341,69 @@ func TestS3DeleteMany(t *testing.T) {
 	fail = true
 	if err := cl.DeleteMany(ctx, keys[:5]); err == nil || !strings.Contains(err.Error(), "AccessDenied") {
 		t.Fatalf("a key that was not deleted: %v", err)
+	}
+}
+
+// A store's answers are bounded: an object bigger than its kind can be is
+// refused (by its Content-Length, or as it streams in), and a body that
+// stops arriving fails after bodyStall instead of holding the caller.
+func TestS3BoundedBodies(t *testing.T) {
+	old := bodyStall
+	bodyStall = 300 * time.Millisecond
+	t.Cleanup(func() { bodyStall = old })
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/b/fits":
+			w.Write(bytes.Repeat([]byte("x"), 1000))
+		case "/b/declared":
+			w.Header().Set("Content-Length", strconv.Itoa(10<<20))
+			w.Write(bytes.Repeat([]byte("x"), 10<<20))
+		case "/b/streamed": // no Content-Length
+			for range 100 {
+				w.Write(bytes.Repeat([]byte("x"), 100<<10))
+				w.(http.Flusher).Flush()
+			}
+		case "/b/stalls":
+			w.Write([]byte("partial"))
+			w.(http.Flusher).Flush()
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+		case "/b":
+			// A listing that never ends.
+			w.Write([]byte("<ListBucketResult>"))
+			for range 2000 {
+				w.Write([]byte("<Contents><Key>" + strings.Repeat("k", 10<<10) + "</Key></Contents>"))
+			}
+		}
+	}))
+	defer srv.Close()
+	defer close(release)
+	u, _ := url.Parse(srv.URL)
+	cl := &s3Client{base: u, region: "auto", bucket: "b", access: "k", secret: "s", hc: srv.Client(), now: time.Now}
+	ctx := context.Background()
+	if got, err := cl.Get(ctx, "fits", 1000); err != nil || len(got) != 1000 {
+		t.Fatalf("an object of exactly the limit: %d %v", len(got), err)
+	}
+	if _, err := cl.Get(ctx, "fits", 999); err == nil {
+		t.Fatal("an object one byte over the limit was read")
+	}
+	if _, err := cl.Get(ctx, "declared", 1<<20); err == nil || !strings.Contains(err.Error(), "more than") {
+		t.Fatalf("a declared oversize object: %v", err)
+	}
+	if _, err := cl.Get(ctx, "streamed", 1<<20); !errors.Is(err, errBodyTooBig) {
+		t.Fatalf("a streamed oversize object: %v", err)
+	}
+	start := time.Now()
+	if _, err := cl.Get(ctx, "stalls", 1<<20); err == nil || !strings.Contains(err.Error(), "sent nothing") {
+		t.Fatalf("a stalled body: %v", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("a stalled body held the call for %s", d)
+	}
+	if err := cl.List(ctx, "", func(string, int64) error { return nil }); err == nil {
+		t.Fatal("an endless listing was read")
 	}
 }
