@@ -551,10 +551,22 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 			return err
 		}
 	}
+	// restoreLink puts a static site's stable path back where it pointed
+	// (or removes it), for a promotion that fails after the swap.
+	restoreLink := func() {}
 	if d.StaticRoot != "" {
 		// The edge serves a stable path; point it at this deploy's files.
-		if err := swapSymlink(r.staticLink(d.Project, d.App, d.Preview), d.StaticRoot); err != nil {
+		link := r.staticLink(d.Project, d.App, d.Preview)
+		was, rerr := os.Readlink(link)
+		if err := swapSymlink(link, d.StaticRoot); err != nil {
 			return err
+		}
+		restoreLink = func() {
+			if rerr == nil {
+				_ = swapSymlink(link, was)
+			} else {
+				_ = os.Remove(link)
+			}
 		}
 	}
 	// The switch: from here on new requests go to the new instances.
@@ -563,6 +575,7 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 	// Deploys, rollbacks, restarts and wakes count as activity.
 	r.touch(envKey(d.Project, d.App, d.Preview))
 	undo := func() {
+		restoreLink()
 		if reused {
 			r.park(ctx, started) // still asleep: kept for the next wake
 		} else {

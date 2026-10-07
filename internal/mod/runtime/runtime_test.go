@@ -519,6 +519,7 @@ type fakeEdge struct {
 	syncMu sync.Mutex
 	board  *switchboard.Board
 	sb     *httptest.Server
+	down   atomic.Bool // the edge refuses every change
 }
 
 func newFakeEdge(t *testing.T, ctl switchboard.Control) *fakeEdge {
@@ -529,6 +530,9 @@ func newFakeEdge(t *testing.T, ctl switchboard.Control) *fakeEdge {
 }
 
 func (e *fakeEdge) SetRoutes(rs []edge.Route) error {
+	if e.down.Load() {
+		return errors.New("edge: not answering")
+	}
 	e.mu.Lock()
 	e.routes = rs
 	e.loads++
@@ -545,6 +549,9 @@ func (e *fakeEdge) TableSource(fn func() switchboard.Table) {
 }
 
 func (e *fakeEdge) SyncTable() error {
+	if e.down.Load() {
+		return errors.New("edge: not answering")
+	}
 	e.syncMu.Lock()
 	defer e.syncMu.Unlock()
 	e.mu.Lock()
