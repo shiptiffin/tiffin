@@ -357,6 +357,12 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
     return c.primaryUrl.replace(/\/+$/, "");
   };
 
+  // Old addresses of this project's accounts whose email is being changed,
+  // by the new address, between the update's before and after hooks. Per
+  // project: two projects may move accounts to the same address at once,
+  // and within one an address belongs to one account.
+  const movedFrom = new Map<string, { was: string; at: number }>();
+
   const tiffin = {
     id: "tiffin",
     init(ctx) {
@@ -722,13 +728,15 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
           before: async (data, ctx) => {
             if (typeof data.email !== "string") return;
             const was = await emailBefore(ctx, holder.adapter);
-            if (was && was.toLowerCase() !== data.email.toLowerCase()) movedFrom.set(data.email.toLowerCase(), was);
+            if (was && was.toLowerCase() !== data.email.toLowerCase()) movedFrom.set(data.email.toLowerCase(), { was, at: Date.now() });
           },
           after: async (user) => {
             const key = user.email.toLowerCase();
-            const was = movedFrom.get(key);
-            if (!was) return;
+            const moved = movedFrom.get(key);
             movedFrom.delete(key);
+            // A leftover from an update that failed after its before hook doesn't count.
+            if (!moved || Date.now() - moved.at > 60_000) return;
+            const was = moved.was;
             await mail(templates.emailChanged(brand, was, user.email, new Date())).catch((err) =>
               console.error(JSON.stringify({ level: "error", msg: "email-changed notice failed", project, err: String(err) })),
             );
@@ -768,10 +776,6 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
     plugins,
   };
 }
-
-// Old addresses of accounts whose email is being changed, by the new
-// address, between the update's before and after hooks.
-const movedFrom = new Map<string, string>();
 
 type HookCtx = { query?: Record<string, unknown>; body?: Record<string, unknown>; context?: { session?: { user?: { email?: string } } | null } } | null;
 
