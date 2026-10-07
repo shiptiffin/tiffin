@@ -1449,7 +1449,7 @@ export interface paths {
         };
         /**
          * List alert rules
-         * @description Every alert rule, enabled or not. Rules are evaluated every 15 seconds.
+         * @description Every alert rule, enabled or not. Rules are evaluated every 15 seconds. A key limited to some projects sees only the error_spike rules that watch them.
          */
         get: operations["alert-rules-list"];
         put?: never;
@@ -1493,7 +1493,7 @@ export interface paths {
         };
         /**
          * List alerts
-         * @description Alerts firing now and recent transitions with where each notification went.
+         * @description Alerts firing now and recent transitions with where each notification went. A key limited to some projects sees only those projects' alerts.
          */
         get: operations["alerts-list"];
         put?: never;
@@ -1673,7 +1673,7 @@ export interface paths {
         };
         /**
          * Show box health
-         * @description The box's vital signs now (CPU, memory, disks, network, services, containers), the last hour as series, store health and firing alerts.
+         * @description The box's vital signs now (CPU, memory, disks, network, services, containers), the last hour as series, store health and firing alerts. A key limited to some projects sees only those projects' containers and alerts.
          */
         get: operations["observe-overview"];
         put?: never;
@@ -2651,7 +2651,7 @@ export interface paths {
         put?: never;
         /**
          * Add a domain to a project
-         * @description Serves <domain> (optionally only <path>) from one of the project's apps: adds "<domain>[/path]" to the app's routes in the manifest (and www: "redirect" under domains), through plan and apply like any change, so tiffin pull captures it. Without confirm you get status 428 with the plan. The answer lists the DNS records to add (A/AAAA to this box; for a subdomain, or one CNAME to the box's own name). The box then watches DNS and gets the certificate: waiting_for_dns → issuing → live. With createRecords and a connected DNS provider it adds the records itself.
+         * @description Serves <domain> (optionally only <path>) from one of the project's apps: adds "<domain>[/path]" to the app's routes in the manifest (and www: "redirect" under domains), through plan and apply like any change, so tiffin pull captures it. Without confirm you get status 428 with the plan. The answer lists the DNS records to add (A/AAAA to this box; for a subdomain, or one CNAME to the box's own name). The box then watches DNS and gets the certificate: waiting_for_dns → issuing → live. With createRecords and a connected DNS provider it adds the records itself (box admins only).
          */
         post: operations["domain-add"];
         delete?: never;
@@ -2749,7 +2749,7 @@ export interface paths {
         };
         /**
          * List the dev inbox
-         * @description Messages captured in the project's dev inbox, newest first. With all=true: every message, including ones sent through the relay or suppressed, with delivery status.
+         * @description Messages captured in the project's dev inbox, newest first. With all=true: every message, including ones sent through the relay or suppressed, with delivery status. With read-only access, subjects and text are left out (hidden: true) and q searches sender and recipients only.
          */
         get: operations["email-messages-list"];
         put?: never;
@@ -2773,7 +2773,7 @@ export interface paths {
         };
         /**
          * Read a message
-         * @description One message: headers, text, sanitised HTML, attachments, the links in it (handy for sign-in and verification links) and its delivery status.
+         * @description One message: headers, text, sanitised HTML, attachments, the links in it (handy for sign-in and verification links) and its delivery status. With read-only access, only its envelope and delivery (hidden: true): what mail says needs full access.
          */
         get: operations["email-message-get"];
         put?: never;
@@ -2843,7 +2843,7 @@ export interface paths {
         put?: never;
         /**
          * Send from my domain
-         * @description Sets a domain up with the relay's mail service through its API (SendGrid: domain authentication with automatic security; Resend: a domain), reusing it when the provider already has it. When the box's connected DNS provider holds the domain, the box writes the records (and a DMARC p=none policy if there is none); otherwise the answer lists them to add. The box then checks until the provider verifies the domain (up to 48 hours) and makes local@domain the project's sender, as a change in History. For providers without an API path the answer lists the steps. Needs the right to send outbound for the project.
+         * @description Sets a domain up with the relay's mail service through its API (SendGrid: domain authentication with automatic security; Resend: a domain), reusing it when the provider already has it. When the box's connected DNS provider holds the domain, the box writes the records (and a DMARC p=none policy if there is none); otherwise the answer lists them to add. The box then checks until the provider verifies the domain (up to 48 hours) and makes local@domain the project's sender, as a change in History. For providers without an API path the answer lists the steps. Box admins only (the owner, or a key with full access to all projects).
          */
         post: operations["email-sending-domain-set"];
         /**
@@ -4247,7 +4247,7 @@ export interface paths {
         put?: never;
         /**
          * Query a project's database (read-only)
-         * @description Runs one SQL statement as the project's own Postgres role, inside a READ ONLY transaction that is always rolled back, and returns rows as JSON. Needs only read access and changes nothing, so it never asks for confirmation. A statement that writes fails with SQLSTATE 25006: use sql_write (CLI: tiffin sql write, or tiffin sql --write) for that. Use branch to target a preview branch. Postgres errors come back as 422 with the SQLSTATE.
+         * @description Runs one SQL statement as the project's read-only Postgres role (p_<project>__read: it reads every table, and row-level security applies to it), inside a READ ONLY transaction that is always rolled back, and returns rows as JSON. Values longer than 100,000 characters are cut, and rows stop at 32 MiB (truncated is set). Needs only read access and changes nothing, so it never asks for confirmation. A statement that writes fails with SQLSTATE 25006: use sql_write (CLI: tiffin sql write, or tiffin sql --write) for that. Use branch to target a preview branch. Postgres errors come back as 422 with the SQLSTATE.
          */
         post: operations["sql"];
         delete?: never;
@@ -6522,6 +6522,8 @@ export interface components {
             detail?: string;
             /** Format: int64 */
             sizeBytes: number;
+            /** @description Set when part of it could not be copied as intended, e.g. SQLite files kept as plain copies */
+            warning?: string;
         };
         BackupPostgresStruct: {
             label: string;
@@ -7492,7 +7494,7 @@ export interface components {
             app: string;
             /** @description The plan hash (or its first 8+ characters) you reviewed. Without it nothing changes: you get status 428 with the plan. */
             confirm?: string;
-            /** @description Create the DNS records through the connected DNS provider that holds the zone (after the change is applied). */
+            /** @description Create the DNS records through the connected DNS provider that holds the zone (after the change is applied). Box admins only. */
             createRecords?: boolean;
             /** @description The host name, e.g. example.com or shop.example.com. */
             domain: string;
@@ -7827,6 +7829,8 @@ export interface components {
             /** @description The From header */
             from: string;
             headers: components["schemas"]["EmailHeader"][] | null;
+            /** @description Subject and text left out: what a message says (it can hold sign-in links and codes) needs full access to the project */
+            hidden?: boolean;
             /** @description The HTML body, sanitised (no scripts, forms, iframes or event handlers). Show it in a sandboxed iframe */
             html: string;
             id: string;
@@ -8193,6 +8197,8 @@ export interface components {
             delivery: "inbox" | "relay" | "suppressed";
             /** @description The From header */
             from: string;
+            /** @description Subject and text left out: what a message says (it can hold sign-in links and codes) needs full access to the project */
+            hidden?: boolean;
             id: string;
             lastError?: string;
             /**
