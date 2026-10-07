@@ -16,7 +16,7 @@ func TestSMTPSuppressedRecipientsAreLogged(t *testing.T) {
 		t.Fatal(err)
 	}
 	env, _ := mod.Env(r.ctx, r.p, "shop", "")
-	if err := r.smtpSend("shop", env["SMTP_PASSWORD"], "app@shop.test", []string{"gone@inbox.dev", "here@inbox.dev"},
+	if err := r.smtpSend("shop", env["SMTP_PASSWORD"], "shop@tiffin.localhost", []string{"gone@inbox.dev", "here@inbox.dev"},
 		"To: gone@inbox.dev, here@inbox.dev\r\nSubject: mixed\r\n\r\nhello\r\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestSMTPSuppressedRecipientsAreLogged(t *testing.T) {
 		t.Fatalf("log: %+v", all)
 	}
 	// Only suppressed recipients: logged, nothing relayed.
-	if err := r.smtpSend("shop", env["SMTP_PASSWORD"], "app@shop.test", []string{"gone@inbox.dev"}, "Subject: only\r\n\r\nx\r\n"); err != nil {
+	if err := r.smtpSend("shop", env["SMTP_PASSWORD"], "shop@tiffin.localhost", []string{"gone@inbox.dev"}, "Subject: only\r\n\r\nx\r\n"); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(200 * time.Millisecond)

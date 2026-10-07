@@ -15,6 +15,14 @@ services: { email: { from: "hello@shop.example" } },  // from is optional
 
 The default sender is `<project>@<box domain>`.
 
+Every project sends through the box's one relay account, so the box checks who mail
+claims to be from before it leaves: a project may send as `<project>@<box domain>` or as
+any address at its own [sending domain](#send-from-your-own-domain) once that is verified
+(or set up by hand, for providers without an API), and never as the box's own sender.
+That goes for the envelope sender, `From` and `Sender`, through SMTP and the API alike;
+anything else is refused (SMTP `550 5.7.1`, API 422). Mail kept in the dev inbox never
+leaves the box, so it is not checked.
+
 ## Sending
 
 Apps get `SMTP_URL` (`smtp://<project>:<password>@127.0.0.1:2525`), plus

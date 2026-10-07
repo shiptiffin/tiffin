@@ -329,6 +329,8 @@ func (se *session) Data(r io.Reader) error {
 		return nil
 	case errors.As(err, &rl):
 		return smtpErr(451, smtp.EnhancedCode{4, 7, 0}, rl.Error())
+	case errors.As(err, &ve) && ve.sender:
+		return smtpErr(550, smtp.EnhancedCode{5, 7, 1}, ve.Error())
 	case errors.As(err, &ve):
 		return smtpErr(554, smtp.EnhancedCode{5, 6, 0}, ve.Error())
 	}

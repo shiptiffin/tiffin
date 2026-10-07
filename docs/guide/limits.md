@@ -141,6 +141,11 @@ Next.js pages, pages rendered on request, and Early Hints during a wake.
   with STARTTLS; Cloudflare Email Service's SMTP is on 465, so it doesn't work there.
 - **No inbound mail yet:** the box can't receive email for your domains.
 - Each project may send 300 messages an hour by default.
+- **Relayed mail comes only from the project's own senders:** `<project>@<box domain>`
+  or its one verified sending domain. A project can't send from several domains.
+- **SMTP submission is bounded:** messages up to 25 MiB; at most 4 arriving at once per
+  project and 16 for the box (more get a "try again" 451); one message may take up to 10
+  minutes to arrive; at most 256 open connections.
 
 ## Sign-in
 

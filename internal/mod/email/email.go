@@ -374,6 +374,12 @@ func (m *Module) accept(ctx context.Context, p *platform.Platform, project, prev
 	case delivery == DeliveryRelay:
 		status = StatusQueued
 	}
+	if status == StatusQueued && project != boxProject {
+		// Mail that leaves the box must come from a sender the project owns.
+		if mailFrom, err = m.checkSender(ctx, p, project, mailFrom, raw); err != nil {
+			return nil, err
+		}
+	}
 	now := time.Now().UTC()
 	rec := &record{Summary: Summary{ID: id, Project: project, CreatedAt: now, Source: source, From: parsed.From, To: parsed.To,
 		Subject: parsed.Subject, Snippet: parsed.snippet(), Size: int64(len(raw)), Attachments: len(parsed.Attachments),

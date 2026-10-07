@@ -48,11 +48,14 @@ var reservedHeaders = map[string]bool{
 }
 
 // ValidationError is a problem with a message the caller must fix.
-type ValidationError struct{ Msg string }
+type ValidationError struct {
+	Msg    string
+	sender bool // the sender is not one the project may use
+}
 
 func (e *ValidationError) Error() string { return e.Msg }
 
-func invalid(format string, a ...any) error { return &ValidationError{fmt.Sprintf(format, a...)} }
+func invalid(format string, a ...any) error { return &ValidationError{Msg: fmt.Sprintf(format, a...)} }
 
 // parseAddrs parses address strings ("a@b.c" or "Name <a@b.c>").
 func parseAddrs(field string, in []string) ([]*mail.Address, error) {
