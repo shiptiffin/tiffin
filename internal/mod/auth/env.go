@@ -25,7 +25,7 @@ func hasAuth(res map[string]change.Resource) bool {
 //
 //	TIFFIN_AUTH_URL           public base URL on the app's own host (browsers, links)
 //	TIFFIN_AUTH_INTERNAL_URL  the engine on the box (server-side calls skip the edge)
-//	TIFFIN_AUTH_HOST          the host to name in x-tiffin-host on internal calls
+//	TIFFIN_AUTH_HOST          the app's host: internal calls name it in x-tiffin-auth-host, which holds them to this project
 //	TIFFIN_AUTH_JWKS_URL      keys for verifying the engine's JWTs
 func (*Module) Env(ctx context.Context, p *platform.Platform, project, app string) (map[string]string, error) {
 	_, res, err := p.DB.Load(ctx, project)
