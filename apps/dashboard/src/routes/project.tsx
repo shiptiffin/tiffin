@@ -1,4 +1,4 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ArrowUpRight, BarChart3, Clock, Database, FolderOpen, Mail, Moon, Plus, UserRound, Zap } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
@@ -13,7 +13,6 @@ import { ProblemNote } from "@/components/problem";
 import { ReadOnlyBanner } from "@/components/read-only";
 import { AddMenu } from "@/components/start-add-menu";
 import { Button } from "@/components/ui/button";
-import { addressesOf } from "@/lib/addresses";
 import { cn } from "@/lib/cn";
 import { bytes, count, cronWords, dec, int } from "@/lib/format";
 import { useMe, useWho } from "@/lib/me";
@@ -39,13 +38,6 @@ export function ProjectPage({ project }: { project: string }) {
   const m = useQuery({ ...q.manifest(project), staleTime: 5_000, refetchInterval: 10_000 });
   const pulse = useProjectPulse(project);
   const staged = usePending(project);
-  const projects = useQuery(q.projects);
-  const others = (projects.data ?? []).map((x) => x.name).filter((n) => n !== project);
-  const otherManifests = useQueries({ queries: others.map((n) => ({ ...q.manifest(n), staleTime: 60_000 })) });
-  const routes = useMemo(
-    () => otherManifests.flatMap((x) => (x.data ? addressesOf(x.data.project, x.data.manifest.apps) : [])),
-    [otherManifests],
-  );
 
   if (p.isError) {
     return (
@@ -131,7 +123,7 @@ export function ProjectPage({ project }: { project: string }) {
         <Empty className="mt-10" title={`Nothing in ${project} yet.`}>
           <p>Add an app from a starter, GitHub or a git URL, or a database, files, email or sign-in. Each part is ready in seconds.</p>
           <div className="mt-4 flex justify-center">
-            <AddMenu project={project} manifest={man} routes={routes} trigger={<Button variant="primary" size="lg" disabled={!man}><Plus />Add the first part</Button>} />
+            <AddMenu project={project} manifest={man} trigger={<Button variant="primary" size="lg" disabled={!man}><Plus />Add the first part</Button>} />
           </div>
         </Empty>
       ) : (
@@ -148,7 +140,7 @@ export function ProjectPage({ project }: { project: string }) {
               {apps.length === 0 && addingApps.length === 0 ? (
                 <div className="flex flex-wrap items-center justify-between gap-3 border-y border-rule py-4">
                   <p className="text-sm text-ink-2">No app yet. An app is the code the box builds and runs: a site, an API or a worker.</p>
-                  <AddMenu project={project} manifest={man} routes={routes} only="app" trigger={<Button size="md" disabled={!man}><Plus />Add app</Button>} />
+                  <AddMenu project={project} manifest={man} only="app" trigger={<Button size="md" disabled={!man}><Plus />Add app</Button>} />
                 </div>
               ) : (
                 <ul className="divide-y divide-rule border-y border-rule">
@@ -170,7 +162,7 @@ export function ProjectPage({ project }: { project: string }) {
                 <AddMenu
                   project={project}
                   manifest={man}
-                  routes={routes}
+                 
                   trigger={
                     <button type="button" disabled={!man} className="inline-flex items-center gap-1 text-[0.8125rem] text-ink-3 hover:text-ink disabled:opacity-50">
                       <Plus className="size-3.5" />

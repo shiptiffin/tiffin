@@ -1,36 +1,24 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronDown, Plus } from "lucide-react";
 import { useState } from "react";
 import type { Manifest, ManifestApp } from "@/api/client";
-import { q as core } from "@/api/queries";
 import { GitHubMark } from "@/components/github-mark";
 import { AddMenu } from "@/components/start-add-menu";
 import { DeployTray } from "@/components/start-deploy-tray";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@/components/ui/dropdown";
-import { addressesOf } from "@/lib/addresses";
 import { deployGitHub, shortSha } from "@/lib/github";
 import { frameworkName, nextDeployFor } from "@/lib/starters";
 import { refreshApp } from "./deploy-parts";
 
-/** Addresses other projects already use, so a new app's name can't clash with them. */
-export function useOtherRoutes(project: string) {
-  const projects = useQuery(core.projects);
-  const others = (projects.data ?? []).map((x) => x.name).filter((n) => n !== project);
-  const om = useQueries({ queries: others.map((n) => ({ ...core.manifest(n), staleTime: 60_000 })) });
-  return om.flatMap((x) => (x.data ? addressesOf(x.data.project, x.data.manifest.apps) : []));
-}
-
 /** "Add app": the Add menu's app form, opened straight away. */
 export function AddAppButton({ project, manifest, variant = "secondary" }: { project: string; manifest?: Manifest; variant?: "primary" | "secondary" }) {
-  const routes = useOtherRoutes(project);
   return (
     <AddMenu
       project={project}
       manifest={manifest}
-      routes={routes}
       only="app"
       trigger={
         <Button variant={variant} size="lg" disabled={!manifest}>

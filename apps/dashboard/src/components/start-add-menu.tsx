@@ -1,9 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { BarChart3, ChevronDown, Clock, Database, FolderPlus, Inbox, KeyRound, LayoutTemplate, Mail, Zap } from "lucide-react";
 import { lazy, Suspense, useState, type FormEvent, type ReactNode } from "react";
 import { ApiError, request, type Manifest } from "@/api/client";
-import { queryClient } from "@/api/queries";
+import { q, queryClient } from "@/api/queries";
 import type { components } from "@/api/schema";
 import { BuildSettings, buildNote } from "@/components/build-settings";
 import { FrameworkSelect } from "@/components/framework-select";
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioItem } from "@/components/ui/choice";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/dropdown";
-import { defaultAddress } from "@/lib/addresses";
+import { addressesOf, defaultAddress } from "@/lib/addresses";
 import { asTier, tierRank } from "@/lib/changes";
 import { cn } from "@/lib/cn";
 import { useDebounced } from "@/lib/debounced";
@@ -47,14 +47,14 @@ const FRIENDLY: Record<string, { label: string; icon: ReactNode }> = {
  * for a name and the one or two things it needs, then is added. Each is one
  * change in History, with Undo in the toast.
  */
-export function AddMenu({ project, manifest, routes, className, trigger, only }: { project: string; manifest?: Manifest; routes: string[]; className?: string; trigger?: ReactNode; /** Skip the menu: the trigger opens this one form. */ only?: Kind }) {
+export function AddMenu({ project, manifest, className, trigger, only }: { project: string; manifest?: Manifest; className?: string; trigger?: ReactNode; /** Skip the menu: the trigger opens this one form. */ only?: Kind }) {
   const [open, setOpen] = useState<Kind | null>(null);
   const services = (manifest?.services ?? {}) as Record<string, unknown>;
   const off = ["postgres", "storage", "auth", "email", "analytics", "valkey"].filter((s) => !(s in services));
   const dialog = (
     <Dialog open={!!open} onOpenChange={(o) => !o && setOpen(null)}>
       <DialogContent className={open === "cron" || open === "queue" || open === "app" ? "sm:max-w-2xl" : "sm:max-w-lg"}>
-        {open === "app" && manifest && <AddApp project={project} manifest={manifest} routes={routes} done={() => setOpen(null)} />}
+        {open === "app" && manifest && <AddApp project={project} manifest={manifest} done={() => setOpen(null)} />}
         {open === "bucket" && manifest && <AddBucket project={project} manifest={manifest} done={() => setOpen(null)} />}
         {(open === "queue" || open === "cron") && (
           <Suspense fallback={<div className="h-96" />}>
@@ -191,8 +191,9 @@ type GitInspect = components["schemas"]["RuntimeGitInspect"];
  * its framework), or, for code that isn't on GitHub, a public git URL.
  * Nothing is made until Add.
  */
-function AddApp({ project, manifest, routes, done }: { project: string; manifest: Manifest; routes: string[]; done: () => void }) {
+function AddApp({ project, manifest, done }: { project: string; manifest: Manifest; done: () => void }) {
   const router = useRouter();
+  const routes = useOtherRoutes(project);
   const { admin } = useMe();
   const starters = useQuery(startersQuery);
   const list = starters.data ?? [];
@@ -382,6 +383,17 @@ function AddApp({ project, manifest, routes, done }: { project: string; manifest
       )}
     </Shell>
   );
+}
+
+/**
+ * Addresses other projects already use, so a new app's name can't clash with
+ * them. Read when the Add app form opens, not on every page that offers it.
+ */
+function useOtherRoutes(project: string) {
+  const projects = useQuery(q.projects);
+  const others = (projects.data ?? []).map((x) => x.name).filter((n) => n !== project);
+  const om = useQueries({ queries: others.map((n) => ({ ...q.manifest(n), staleTime: 60_000 })) });
+  return om.flatMap((x) => (x.data ? addressesOf(x.data.project, x.data.manifest.apps) : []));
 }
 
 /**
