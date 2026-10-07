@@ -7,11 +7,39 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
+	"sync/atomic"
 )
 
 //go:embed all:dist
 var dist embed.FS
+
+// FormOrigins are the other origins the dashboard may submit forms to:
+// GitHub's website, where Connect GitHub POSTs the app manifest (GitHub's
+// manifest flow needs a real form post). The runtime points it at the
+// GitHub the box uses (GitHub Enterprise Server too).
+var FormOrigins atomic.Pointer[func() []string]
+
+var originRe = regexp.MustCompile(`^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$`)
+
+// csp is the dashboard's Content-Security-Policy.
+func csp() string {
+	fa := "'self'"
+	if f := FormOrigins.Load(); f != nil {
+		for _, o := range (*f)() {
+			if originRe.MatchString(o) {
+				fa += " " + o
+			}
+		}
+	}
+	return "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action " + fa
+}
+
+func init() {
+	gh := func() []string { return []string{"https://github.com"} }
+	FormOrigins.Store(&gh)
+}
 
 // Handler serves the single-page app: real files when they exist, otherwise
 // index.html so client-side routes work. Hashed assets are cached forever.
@@ -20,7 +48,7 @@ func Handler() http.Handler {
 	files := http.FileServer(http.FS(root))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		h.Set("Content-Security-Policy", csp())
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
 		p := strings.TrimPrefix(path.Clean(r.URL.Path), "/")

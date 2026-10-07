@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/dashboard"
 	"github.com/btahir/tiffin/internal/edge/switchboard"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/platform"
@@ -220,6 +222,14 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	}
 	go r.loop(ctx)
 	go r.resumeReports(ctx, true)
+	// Connect GitHub posts its form to the GitHub this box uses.
+	formOrigins := func() []string {
+		if u, err := url.Parse(r.ghEndpoints().Web); err == nil && u.Scheme == "https" && u.Host != "" {
+			return []string{"https://" + u.Host}
+		}
+		return nil
+	}
+	dashboard.FormOrigins.Store(&formOrigins)
 	go r.syncQuotas(ctx)
 	m.mu.Lock()
 	m.r = r
