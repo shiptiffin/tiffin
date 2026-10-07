@@ -238,6 +238,12 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 		if err := r.readApp(d, spec, &req, log); err != nil {
 			return err
 		}
+		if l := req.Launch; l != nil && l.Secret != "" && l.Files == nil {
+			// Made once and kept, for every build, instance and preview.
+			if _, err := r.appKey(ctx, d.Project, d.App, l.Secret, all); err != nil {
+				return err
+			}
+		}
 	}
 	if req.Dockerfile != "" {
 		spec.Builder = manifest.BuilderDockerfile // this deploy's hints and checks
@@ -267,7 +273,7 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 	now := time.Now().UTC()
 	d.BuiltAt = &now
 	d.BuildSecs = round1(time.Since(began).Seconds())
-	d.Image, d.Digest, d.StaticRoot, d.Start = res.Image, res.Digest, res.StaticRoot, res.Start
+	d.Image, d.Digest, d.StaticRoot, d.Start, d.SPAPage = res.Image, res.Digest, res.StaticRoot, res.Start, res.SPAPage
 	if d.StaticRoot != "" {
 		r.keepHashed(d, log)
 	}
@@ -547,8 +553,10 @@ func (r *rt) startInstances(ctx context.Context, st *AppState, d *Deploy, spec *
 			defer wg.Done()
 			logPath := r.logFile(d.Project, d.App, d.Preview, d.ID, serialOf(in.Name))
 			errs[i] = r.waitHealthy(ctx, in, spec, logPath)
-			if errs[i] == nil && smoke && i == 0 && spec.Framework == manifest.FrameworkNext && spec.Role != manifest.RoleWorker {
-				errs[i] = smokeNext(ctx, in, spec, logPath)
+			if errs[i] == nil && smoke && i == 0 && spec.Role != manifest.RoleWorker {
+				if name := smokeName(spec, d); name != "" {
+					errs[i] = smokeSSR(ctx, in, spec, name, logPath)
+				}
 			}
 		}()
 	}
@@ -786,12 +794,29 @@ func healthPoll(since time.Duration) time.Duration {
 	return 200 * time.Millisecond
 }
 
-// smokeNext asks a Next.js instance that passed its health check for two
-// pages that take different paths through Next.js: the home page and a page
-// that doesn't exist (its not-found render). A 5xx on either stops the
-// deploy, which is how a runtime incompatibility (a Bun release, a library
-// leaning on Node internals) shows before the new version takes traffic.
-func smokeNext(ctx context.Context, in Instance, spec *manifest.App, logPath string) error {
+// smokeName is the framework a deploy's first instance is smoke-tested
+// for after its health check, "" for none: Next.js, and the full-stack
+// frameworks the box launches (SvelteKit, Nuxt, React Router).
+func smokeName(spec *manifest.App, d *Deploy) string {
+	switch {
+	case spec.Framework == manifest.FrameworkNext:
+		return "Next.js"
+	case d.Launch != "":
+		return launchNames[d.Launch]
+	}
+	return ""
+}
+
+// launchNames are the frameworks a Deploy's Launch names.
+var launchNames = map[string]string{"sveltekit": "SvelteKit", "nuxt": "Nuxt", "react-router": "React Router"}
+
+// smokeSSR asks a server-rendering instance that passed its health check
+// for two pages that take different paths through its framework: the home
+// page and a page that doesn't exist (its not-found render). A 5xx on
+// either stops the deploy, which is how a runtime incompatibility (a Bun
+// release, a library leaning on Node internals) shows before the new
+// version takes traffic.
+func smokeSSR(ctx context.Context, in Instance, spec *manifest.App, framework, logPath string) error {
 	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	for _, p := range []string{"/", "/_tiffin/smoke-" + strconv.FormatInt(time.Now().UnixNano(), 36)} {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s", in.Port, p), nil)
@@ -806,7 +831,7 @@ func smokeNext(ctx context.Context, in Instance, spec *manifest.App, logPath str
 		if res.StatusCode >= 500 {
 			what := "the home page"
 			if p != "/" {
-				what = "a page that doesn't exist (Next.js's not-found page)"
+				what = "a page that doesn't exist (" + framework + "'s not-found page)"
 			}
 			return &healthError{msg: fmt.Sprintf("instance %s passed its health check but %s answered HTTP %d. Last log lines:\n%s", in.Name, what, res.StatusCode, tailLog(logPath, 15)),
 				hint: "The new version keeps the old one serving until this works; the log lines usually say why." + onNodeHint(*spec)}
@@ -891,6 +916,14 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 	if spec.Framework == manifest.FrameworkNext {
 		if env[nextKeyEnv], err = r.nextActionsKey(ctx, project, app, env); err != nil {
 			return nil, "", err
+		}
+	}
+	if spec.Framework == manifest.FrameworkBun && env[nuxtSecretEnv] == "" {
+		// Kept since a build found Nuxt (launch.go); the app's own wins.
+		if v, ok, err := r.storedKey(ctx, project, app, nuxtSecretEnv); err != nil {
+			return nil, "", err
+		} else if ok {
+			env[nuxtSecretEnv] = v
 		}
 	}
 	h := sha256.New()

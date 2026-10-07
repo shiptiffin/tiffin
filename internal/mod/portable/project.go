@@ -119,6 +119,7 @@ type appRelease struct {
 	App       string `json:"app"`
 	Deploy    string `json:"deploy"`
 	Framework string `json:"framework"`
+	SPAPage   string `json:"spaPage,omitempty"` // a single-page app's page for unknown paths, when not index.html
 	Image     string `json:"image,omitempty"`
 	Commit    string `json:"commit,omitempty"`
 	Repo      string `json:"repo,omitempty"`

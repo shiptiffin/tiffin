@@ -315,12 +315,39 @@ const nsNextKeys = "runtime/next-keys"
 // (env or secret) when it sets one, otherwise one the box made for it once
 // and keeps, sealed. Previews share their app's key.
 func (r *rt) nextActionsKey(ctx context.Context, project, app string, env map[string]string) (string, error) {
-	if v := env[nextKeyEnv]; v != "" {
+	return r.appKey(ctx, project, app, nextKeyEnv, env)
+}
+
+// appKeyName is where an app's key named name is kept: Next.js's Server
+// Actions key under the app's own name, others (Nuxt's NUXT_APP_SECRET)
+// after it, so forgetNextKeys drops them all with the project.
+func appKeyName(project, app, name string) string {
+	if name == nextKeyEnv {
+		return project + "/" + app
+	}
+	return project + "/" + app + "/" + name
+}
+
+// storedKey is an app's kept key named name, if the box made one.
+func (r *rt) storedKey(ctx context.Context, project, app, name string) (string, bool, error) {
+	sealed, ok, err := r.p.DB.KVGet(ctx, nsNextKeys, appKeyName(project, app, name))
+	if err != nil || !ok {
+		return "", false, err
+	}
+	plain, err := r.p.Secrets.Open(sealed)
+	return string(plain), err == nil, err
+}
+
+// appKey is an app's key named name (env): the app's own (env or secret)
+// when it sets one, otherwise one the box made for it once and keeps,
+// sealed. Previews share their app's key.
+func (r *rt) appKey(ctx context.Context, project, app, name string, env map[string]string) (string, error) {
+	if v := env[name]; v != "" {
 		return v, nil
 	}
 	r.keyMu.Lock()
 	defer r.keyMu.Unlock()
-	k := project + "/" + app
+	k := appKeyName(project, app, name)
 	sealed, ok, err := r.p.DB.KVGet(ctx, nsNextKeys, k)
 	if err != nil {
 		return "", err

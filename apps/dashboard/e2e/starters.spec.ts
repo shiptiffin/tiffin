@@ -54,6 +54,9 @@ test("a link names a kind or a starter", async ({ page, baseURL }) => {
     ["vite-react", "static", "Vite + React"],
     ["tanstack-start", "web", "TanStack Start"],
     ["nextjs", "web", "Next.js"],
+    ["sveltekit", "web", "SvelteKit"],
+    ["react-router", "web", "React Router"],
+    ["nuxt", "web", "Nuxt"],
   ]) {
     await open(page, baseURL!, `?starter=${q}`);
     await expect(kind(page, k).getByRole("radio")).toBeChecked();

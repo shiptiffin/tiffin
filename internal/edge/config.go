@@ -70,6 +70,10 @@ type Route struct {
 	Upstreams  []string // several host:ports; overrides Upstream
 	FileRoot   string   // serve static files from this directory instead of proxying
 	SPA        bool     // with FileRoot: unknown paths serve index.html
+	// SPAPage is the page an SPA's unknown paths serve instead of
+	// /index.html: React Router's /__spa-fallback.html when its home page
+	// is prerendered, an adapter-static fallback, Nuxt's /200.html.
+	SPAPage string
 	// NoCompress passes responses through as the upstream sent them: for
 	// the S3 gateway, whose clients check lengths and ETags.
 	NoCompress bool

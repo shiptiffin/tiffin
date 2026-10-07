@@ -2299,7 +2299,7 @@ export interface paths {
         put?: never;
         /**
          * Put a preview to sleep
-         * @description Stops a preview's instance now to free memory; its URL keeps working and the next request wakes it (a few seconds). Previews also sleep on their own after 15 idle minutes.
+         * @description Stops a preview's instance now to free memory; its URL keeps working and the next request wakes it (about a second). Previews also sleep on their own after 15 idle minutes.
          */
         post: operations["preview-sleep"];
         delete?: never;
@@ -5341,7 +5341,7 @@ export interface paths {
         };
         /**
          * List starter templates
-         * @description Small, working starter apps shipped inside tiffin. Each has a kind (web: a web app with a server; static: a static site; api: a JSON API) and a preset (the framework: nextjs, tanstack-start, astro, vite-react, hono, fastapi); listed ones are offered when starting a project, and default marks each kind's usual pick. Also: the services they need and the manifest fragment to merge into a project (apps + services). To start a project from one: merge the fragment into the project's manifest (projects manifest), plan and apply it, then deploys template with the template id, e.g. `tiffin deploys template shop site --template astro`.
+         * @description Small, working starter apps shipped inside tiffin. Each has a kind (web: a web app with a server; static: a static site; api: a JSON API) and a preset (the framework: nextjs, tanstack-start, sveltekit, react-router, nuxt, astro, vite-react, hono, fastapi); listed ones are offered when starting a project, and default marks each kind's usual pick. Also: the services they need and the manifest fragment to merge into a project (apps + services). To start a project from one: merge the fragment into the project's manifest (projects manifest), plan and apply it, then deploys template with the template id, e.g. `tiffin deploys template shop site --template astro`.
          */
         get: operations["templates-list"];
         put?: never;
@@ -11009,6 +11009,11 @@ export interface components {
             /** @description Image reference in the box's containerd store */
             image?: string;
             /**
+             * @description The framework the box recognised in the build and set up its server for (start command, proxy settings, smoke test): sveltekit, nuxt or react-router; empty for any other app
+             * @enum {string}
+             */
+            launch?: "sveltekit" | "nuxt" | "react-router" | "";
+            /**
              * Format: date-time
              * @description When it went live: deployed, or rolled back to. Restarts and rescales don't move it.
              */
@@ -11038,6 +11043,8 @@ export interface components {
             source: "upload" | "files" | "prebuilt" | "git" | "template";
             /** Format: int64 */
             sourceBytes?: number;
+            /** @description The page a single-page app's paths without a file serve, when not /index.html (React Router's /__spa-fallback.html, Nuxt's /200.html) */
+            spaPage?: string;
             /** @description The command the instances run instead of the image's own (Dockerfile and prebuilt images of an app that sets command) */
             start?: string;
             staticRoot?: string;
@@ -11449,11 +11456,11 @@ export interface components {
             /** @description Folder inside the repository; empty for the top */
             path: string;
             /**
-             * @description The framework as people know it, with the same ids as templates list: nextjs, tanstack-start, astro, vite-react, vite, hono, html; empty for any other server or static build
+             * @description The framework as people know it, with the same ids as templates list: nextjs, tanstack-start, sveltekit, nuxt, react-router, astro, vite-react, vite, hono, html; empty for any other server or static build
              * @example astro
              */
             preset?: string;
-            /** @description A framework the box can't run yet (e.g. SvelteKit); import a supported app instead */
+            /** @description A framework the box can't run yet (e.g. SolidStart); import a supported app instead */
             unsupported?: string;
             /** @description What the guess is based on, in plain words */
             why: string;
@@ -11465,7 +11472,7 @@ export interface components {
              * @description Starter ID from templates list (e.g. astro)
              * @enum {string}
              */
-            template: "nextjs" | "tanstack-start" | "astro" | "vite-react" | "hono" | "fastapi" | "static-site" | "guestbook";
+            template: "nextjs" | "tanstack-start" | "sveltekit" | "react-router" | "nuxt" | "astro" | "vite-react" | "hono" | "fastapi" | "static-site" | "guestbook";
         };
         RuntimeTemplateList: {
             templates: components["schemas"]["Starter"][] | null;
@@ -11711,7 +11718,7 @@ export interface components {
             /** @example Astro */
             name: string;
             /**
-             * @description The framework as people know it (nextjs, tanstack-start, astro, vite-react, hono, html); the same ids as a repository's detected preset
+             * @description The framework as people know it (nextjs, tanstack-start, sveltekit, react-router, nuxt, astro, vite-react, hono, fastapi, html); the same ids as a repository's detected preset
              * @example astro
              */
             preset: string;

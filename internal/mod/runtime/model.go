@@ -68,6 +68,12 @@ type Deploy struct {
 	TotalSecs   float64    `json:"durationSeconds,omitempty" doc:"Queued to live (or failed)"`
 	// StaticRoot is the directory a static deploy serves.
 	StaticRoot string `json:"staticRoot,omitempty"`
+	// SPAPage is the page a single-page app's unknown paths serve, when it
+	// is not index.html (React Router's __spa-fallback.html, Nuxt's 200.html).
+	SPAPage string `json:"spaPage,omitempty" doc:"The page a single-page app's paths without a file serve, when not /index.html (React Router's /__spa-fallback.html, Nuxt's /200.html)"`
+	// Launch is the full-stack framework the box started the build's server
+	// for (launch.go), when it knows it.
+	Launch string `json:"launch,omitempty" enum:"sveltekit,nuxt,react-router," doc:"The framework the box recognised in the build and set up its server for (start command, proxy settings, smoke test): sveltekit, nuxt or react-router; empty for any other app"`
 	// Assets are the build's client-asset directories the box serves itself.
 	Assets []AssetDir `json:"assets,omitempty" doc:"Client-asset directories of the build that the box serves itself (hashed files stay served for pages of earlier releases for a day)"`
 	// Dir is the app's folder in its source when the source is a whole

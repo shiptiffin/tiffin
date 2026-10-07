@@ -1,0 +1,16 @@
+{
+  "name": "web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "nuxt": "4.5.2",
+    "postgres": "3.4.9",
+    "vue": "3.5.43",
+    "vue-router": "5.3.1"
+  }
+}

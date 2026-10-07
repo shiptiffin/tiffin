@@ -57,7 +57,10 @@ var knownAssets = []assetKind{
 		{Dir: "dist/client", Path: "/", Immutable: []string{"/assets/"}, Pages: true}}},
 	{[]string{"@solidjs/start"}, []AssetDir{{Dir: ".output/public", Path: "/", Immutable: []string{"/_build/assets/"}}}},
 	{[]string{"@react-router/dev", "@remix-run/dev"}, []AssetDir{{Dir: "build/client", Path: "/", Immutable: []string{"/assets/"}, Pages: true}}},
-	{[]string{"@sveltejs/adapter-node", "@sveltejs/adapter-bun"}, []AssetDir{
+	// SvelteKit's adapter-bun and adapter-node (adapter-auto builds with
+	// adapter-node here) write the same folders; _app/version.json keeps
+	// its name and is revalidated.
+	{[]string{"@sveltejs/adapter-bun", "@sveltejs/adapter-node", "@sveltejs/kit"}, []AssetDir{
 		{Dir: "build/client", Path: "/", Immutable: []string{"/_app/immutable/"}},
 		{Dir: "build/prerendered", Path: "/", Immutable: []string{"/_app/immutable/"}, Pages: true}}},
 	{[]string{"@astrojs/node"}, []AssetDir{{Dir: "dist/client", Path: "/", Immutable: []string{"/_astro/"}, Pages: true}}},

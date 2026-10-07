@@ -36,7 +36,7 @@ type Starter struct {
 	// Kind is what you make, the choice people start from; Preset is the
 	// framework within it (several per kind, one of them the default).
 	Kind       string `json:"kind" enum:"web,static,api" doc:"What it makes: web (a web app with a server), static (a static site: built files, no server), api (a JSON API)"`
-	Preset     string `json:"preset" example:"astro" doc:"The framework as people know it (nextjs, tanstack-start, astro, vite-react, hono, html); the same ids as a repository's detected preset"`
+	Preset     string `json:"preset" example:"astro" doc:"The framework as people know it (nextjs, tanstack-start, sveltekit, react-router, nuxt, astro, vite-react, hono, fastapi, html); the same ids as a repository's detected preset"`
 	PresetName string `json:"presetName" example:"Astro" doc:"The framework's display name"`
 	Default    bool   `json:"default" doc:"The framework picked for its kind unless someone chooses another"`
 	Listed     bool   `json:"listed" doc:"Offered when starting a project; false for demos"`
@@ -74,6 +74,12 @@ var meta = []starterMeta{
 		desc: "Next.js App Router on Bun: a server component reads notes from Postgres and a server action adds them."},
 	{id: "tanstack-start", kind: "web", preset: "tanstack-start", presetName: "TanStack Start", listed: true, edit: "src/routes/index.tsx",
 		desc: "TanStack Start on Bun: a loader reads notes from Postgres, a server function adds them, stats stream in, and /about is prerendered."},
+	{id: "sveltekit", kind: "web", preset: "sveltekit", presetName: "SvelteKit", listed: true, edit: "src/routes/+page.svelte",
+		desc: "SvelteKit 3 on Bun (adapter-bun): a server load reads notes from Postgres, a form action adds them, stats stream in, and /about is prerendered."},
+	{id: "react-router", kind: "web", preset: "react-router", presetName: "React Router", listed: true, edit: "app/routes/home.tsx",
+		desc: "React Router 8 framework mode on Bun: a loader reads notes from Postgres, a route action adds them, stats stream in, and /about is prerendered."},
+	{id: "nuxt", kind: "web", preset: "nuxt", presetName: "Nuxt", listed: true, edit: "app/pages/index.vue",
+		desc: "Nuxt 4 (Nitro's node-server output on Bun): a page reads notes from Postgres through a server route, a form posts new ones, and /about is prerendered."},
 	{id: "astro", kind: "static", preset: "astro", presetName: "Astro", isDefault: true, listed: true, edit: "src/pages/index.astro",
 		desc: "Astro built to plain HTML: no JavaScript unless a page asks, images resized at build time, a self-hosted font."},
 	{id: "vite-react", kind: "static", preset: "vite-react", presetName: "Vite + React", listed: true, edit: "src/App.tsx",

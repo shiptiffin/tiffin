@@ -26,7 +26,7 @@ export type GitHubPick = {
   /** How the box builds it: the detected build for the detected preset, else the preset's own. */
   framework: string;
   env: Array<{ k: string; v: string }>;
-  /** A framework found in the picked folder that the box can't run yet (SvelteKit…); cleared by choosing how it's built. */
+  /** A framework found in the picked folder that the box can’t run yet (SolidStart…); cleared by choosing how it's built. */
   unsupported?: string;
   /** Build settings detection got wrong, overridden (builder, commands): spread into the app with pickBuild. */
   build?: BuildOverrides;

@@ -24,6 +24,7 @@ type ReleaseSource struct {
 	Image     string // an image in the store, tagged anew for this deploy
 	StaticDir string // a static site's files (moved into place)
 	Framework string // the source deploy's framework ("static+spa" keeps SPA routing)
+	SPAPage   string // and the page its unknown paths serve, when not index.html
 	Commit    string
 	Repo      string
 	Note      string // what it is, for the build log ("duplicated from shop/web dep_...")
@@ -93,6 +94,7 @@ func (r *rt) release(ctx context.Context, d *Deploy, spec *manifest.App, src Rel
 		if src.Framework != "" {
 			d.Framework = src.Framework
 		}
+		d.SPAPage = src.SPAPage
 	case src.ImageTar != "":
 		ref := imageRef(d.Project, d.App, d.ID)
 		fmt.Fprintf(log, "==> loading the image (%s)\n", humanBytes(fileSize(src.ImageTar)))

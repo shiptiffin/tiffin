@@ -51,11 +51,20 @@ type BuildRequest struct {
 	Vercel *vercelcfg.Config
 	// Export: a Next.js static export (output: "export"), served as files.
 	Export bool
+	// Launch is the full-stack framework the box sets the app up for
+	// (SvelteKit, Nuxt, React Router; launch.go), nil for any other.
+	Launch *launch
 	// Dockerfile is the Dockerfile to build, relative to SrcDir, when the
 	// app builds with one (builder "dockerfile", or one found in an app
 	// folder Railpack has nothing for); "" builds with Railpack.
 	Dockerfile string
 	Log        io.Writer
+}
+
+// filesOnly reports whether the build only writes files the edge serves:
+// a static site, a Next.js static export, or a framework's static output.
+func (req BuildRequest) filesOnly() bool {
+	return req.Export || req.Spec.Framework == manifest.FrameworkStatic || (req.Launch != nil && req.Launch.Files != nil)
 }
 
 // appDir is the app's own folder in the source.
@@ -81,6 +90,8 @@ type BuildResult struct {
 	Digest     string
 	StaticRoot string
 	SPA        bool
+	// SPAPage is the page an SPA's unknown paths serve ("" for index.html).
+	SPAPage string
 	// Start replaces the image's own command (a Dockerfile or prebuilt
 	// image whose app sets command).
 	Start string
@@ -187,6 +198,14 @@ func (l buildLimit) words(project string) string {
 }
 
 func (b *boxBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult, error) {
+	res, err := b.build(ctx, req)
+	if err == nil && res.StaticRoot != "" && res.SPA {
+		res.SPAPage = spaPage(res.StaticRoot, req.Launch)
+	}
+	return res, err
+}
+
+func (b *boxBuilder) build(ctx context.Context, req BuildRequest) (BuildResult, error) {
 	d := req.Deploy
 	ref := imageRef(d.Project, d.App, d.ID)
 	switch {
@@ -208,9 +227,21 @@ func (b *boxBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult, 
 	case req.Export:
 		fmt.Fprintf(req.Log, "==> Next.js static export (output: \"export\" in next.config): next build, then the edge serves the files (no container)\n")
 		return b.buildFiles(ctx, req, ref, []string{orDefaultStr(req.Spec.Output, orDefaultStr(vercelOut(req.Vercel), "out"))}, false)
+	case req.Launch != nil && req.Launch.Err != nil:
+		return BuildResult{}, req.Launch.Err
+	case req.Launch != nil && req.Launch.Files != nil && req.Spec.Framework != manifest.FrameworkStatic:
+		// A server app whose build writes only files: built as it is, served as files.
+		dirs := req.Launch.Files.Dirs
+		if req.Spec.Output != "" {
+			dirs = []string{req.Spec.Output}
+		}
+		return b.buildFiles(ctx, req, ref, dirs, spaFallback(req, readStaticfile(req.appDir())))
 	case req.Spec.Framework == manifest.FrameworkStatic && railpackSite(req):
 		fmt.Fprintf(req.Log, "==> the site builds with npm, pnpm or yarn: building with Railpack, then serving the files\n")
 		dirs := []string{"dist", "build", "out", "public"}
+		if l := req.Launch; l != nil && l.Files != nil {
+			dirs = append(slices.Clone(l.Files.Dirs), dirs...)
+		}
 		sf := readStaticfile(req.appDir())
 		if out := orDefaultStr(req.Spec.Output, orDefaultStr(vercelOut(req.Vercel), sf.root)); out != "" {
 			dirs = []string{out}
@@ -262,7 +293,16 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 		}
 	}
 	start := packageScript(appDir, "start")
+	ln := req.Launch
+	if ln != nil && ln.Files == nil {
+		var err error
+		if imageEnv, err = prepareLaunch(req, ln, env); err != nil {
+			return BuildResult{}, err
+		}
+	}
 	switch {
+	case ln != nil && ln.Start != "":
+		env["RAILPACK_START_CMD"] = req.inApp(ln.Start)
 	case req.Spec.Framework == manifest.FrameworkNext && !req.Export:
 		// Next.js runs as a long-lived server, unless the app chose its own start command.
 		if args, ok := nextStartArgs(start); ok {
@@ -333,7 +373,7 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 		env["RAILPACK_BUILD_CMD"] = req.inApp(c)
 		fmt.Fprintf(req.Log, "==> build command: %s (the app's settings)\n", c)
 	}
-	if req.Export || req.Spec.Framework == manifest.FrameworkStatic {
+	if req.filesOnly() {
 		env["RAILPACK_START_CMD"] = "true" // the image only carries the built files: it never runs
 	}
 	for _, from := range []map[string]string{req.RunEnv, req.Env} {
@@ -341,7 +381,7 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 			env[k] = v
 		}
 	}
-	if req.Spec.Command != "" && !req.Export {
+	if req.Spec.Command != "" && !req.filesOnly() {
 		env["RAILPACK_START_CMD"] = req.inApp(req.Spec.Command) // the manifest's command wins over any default
 	}
 	if c := env["RAILPACK_START_CMD"]; c != "" {
@@ -493,7 +533,11 @@ func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildRe
 			return BuildResult{}, &BuildError{Msg: "the static build failed: " + err.Error(), Hint: "Run `" + script + "` locally to reproduce."}
 		}
 	}
-	rootRel := staticRootOf(appDir, sf.root)
+	root := sf.root
+	if l := req.Launch; root == "" && l != nil && l.Files != nil {
+		root = firstWithIndex(appDir, l.Files.Dirs)
+	}
+	rootRel := staticRootOf(appDir, root)
 	if rootRel == "" {
 		return BuildResult{}, &BuildError{Msg: "no index.html found to serve",
 			Hint: "Put index.html at the top of the app, in public/, dist/, build/ or out/, or name the folder: Output directory in the app's Build and deploy settings (output in tiffin.config.ts)."}
@@ -851,6 +895,9 @@ func spaFallback(req BuildRequest, sf staticfile) bool {
 	if sf.spaSet {
 		return sf.spa
 	}
+	if l := req.Launch; l != nil && l.Files != nil {
+		return l.Files.SPA // the framework's own setting (ssr: false, a fallback page)
+	}
 	raw, err := os.ReadFile(filepath.Join(req.appDir(), "package.json"))
 	if err != nil {
 		return false
@@ -871,6 +918,34 @@ func spaFallback(req BuildRequest, sf staticfile) bool {
 		}
 	}
 	return false
+}
+
+// firstWithIndex is the first of dirs (relative to dir) with an
+// index.html, "" for none.
+func firstWithIndex(dir string, dirs []string) string {
+	for _, d := range dirs {
+		if exists(filepath.Join(dir, filepath.FromSlash(d), "index.html")) {
+			return d
+		}
+	}
+	return ""
+}
+
+// spaPage is the page a single-page app built to root serves for paths
+// without a file, when it is not /index.html: the framework's own (an
+// adapter-static fallback, Nuxt's 200.html), or React Router's
+// __spa-fallback.html, which it writes when it prerenders the home page.
+func spaPage(root string, l *launch) string {
+	var pages []string
+	if l != nil && l.Files != nil && l.Files.Page != "" {
+		pages = append(pages, l.Files.Page)
+	}
+	for _, p := range append(pages, "/__spa-fallback.html") {
+		if exists(filepath.Join(root, filepath.FromSlash(p))) {
+			return p
+		}
+	}
+	return ""
 }
 
 // staticRootOf picks the directory to serve, relative to dir ("." for dir itself).
@@ -929,7 +1004,7 @@ func execLast(cmd string) string {
 // command (none given, none detected) before it runs: the image would
 // build (minutes) and then exit at once with no output.
 func checkStartCommand(planPath string, req BuildRequest, given string) error {
-	if given != "" || req.Export || req.Spec.Framework == manifest.FrameworkStatic {
+	if given != "" || req.filesOnly() {
 		return nil
 	}
 	raw, err := os.ReadFile(planPath)

@@ -16,6 +16,9 @@ export type Preset = {
 export const PRESETS: Preset[] = [
   { id: "nextjs", name: "Next.js", build: "next" },
   { id: "tanstack-start", name: "TanStack Start", build: "bun" },
+  { id: "sveltekit", name: "SvelteKit", build: "bun" },
+  { id: "react-router", name: "React Router", build: "bun" },
+  { id: "nuxt", name: "Nuxt", build: "bun" },
   { id: "astro", name: "Astro", build: "static" },
   { id: "vite-react", name: "Vite + React", build: "static" },
   { id: "vite", name: "Vite", build: "static" },
@@ -28,7 +31,7 @@ export const PRESETS: Preset[] = [
 ];
 
 /** Frameworks with a starter that builds and deploys on the box: no "tuned for Next.js" caveat for these. */
-const TESTED = new Set(["nextjs", "tanstack-start", "astro", "vite-react", "vite", "hono", "html", "fastapi"]);
+const TESTED = new Set(["nextjs", "tanstack-start", "sveltekit", "react-router", "nuxt", "astro", "vite-react", "vite", "hono", "html", "fastapi"]);
 export const isTested = (id: string) => TESTED.has(id);
 
 const byBuild: Record<string, string> = { next: "nextjs", hono: "hono", bun: "server-other", static: "static-other", fastapi: "fastapi", python: "python-other" };

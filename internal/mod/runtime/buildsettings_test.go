@@ -36,7 +36,7 @@ func fakeTools(t *testing.T) (binDir, log string) {
 	t.Helper()
 	binDir = t.TempDir()
 	log = filepath.Join(binDir, "calls.log")
-	rec := `printf -- '--- %s\n' "$(basename "$0")" >> ` + log + `; for a in "$@"; do printf '%s\n' "$a" >> ` + log + `; done; env | grep -E '^(RAILPACK_|DATABASE_URL|API_KEY|PUBLIC_|NEXT_SERVER)' | sed 's/^/env: /' | sort >> ` + log + "\n"
+	rec := `printf -- '--- %s\n' "$(basename "$0")" >> ` + log + `; for a in "$@"; do printf '%s\n' "$a" >> ` + log + `; done; env | grep -E '^(RAILPACK_|DATABASE_URL|API_KEY|PUBLIC_|NEXT_SERVER|NITRO_PRESET|GCP_BUILDPACKS)' | sed 's/^/env: /' | sort >> ` + log + "\n"
 	writeFiles(t, binDir, map[string]string{
 		// railpack prepare writes a plan where --plan-out says.
 		"railpack": "#!/bin/sh\n" + rec + `while [ $# -gt 0 ]; do if [ "$1" = --plan-out ]; then echo '{"deploy":{}}' > "$2"; fi; shift; done` + "\n",

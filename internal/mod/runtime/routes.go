@@ -148,7 +148,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) 
 			who += "@" + st.Preview
 			rt := edge.Route{Host: previewHost(st.Preview, st.Project, st.App, spec, r.p.AppsDomain()), Rules: rules, NextCache: next}
 			if static {
-				rt.FileRoot, rt.SPA = r.staticLink(st.Project, st.App, st.Preview), spa
+				rt.FileRoot, rt.SPA, rt.SPAPage = r.staticLink(st.Project, st.App, st.Preview), spa, d.SPAPage
 			} else {
 				rt.Upstream = sb // the switchboard wakes the preview if it sleeps
 			}
@@ -159,7 +159,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) 
 			host, prefix := r.splitRoute(rs)
 			rt := edge.Route{Host: host, PathPrefix: prefix, Rules: rules, NextCache: next}
 			if static {
-				rt.FileRoot, rt.SPA = r.staticLink(st.Project, st.App, ""), spa
+				rt.FileRoot, rt.SPA, rt.SPAPage = r.staticLink(st.Project, st.App, ""), spa, d.SPAPage
 			} else {
 				rt.Upstream = sb // instances are switched behind the switchboard
 			}

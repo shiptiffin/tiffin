@@ -22,9 +22,12 @@ func TestGuessFramework(t *testing.T) {
 		html                        bool
 	}{
 		{`{"dependencies":{"next":"16"}}`, "next", "", false},
-		{`{"devDependencies":{"@sveltejs/kit":"2","vite":"7"},"scripts":{"build":"vite build"}}`, "bun", "SvelteKit", false},
-		{`{"devDependencies":{"@react-router/dev":"7","vite":"7"},"scripts":{"build":"react-router build","start":"react-router-serve ./build/server/index.js"}}`, "bun", "React Router (framework mode)", false},
-		{`{"dependencies":{"nuxt":"4"},"scripts":{"build":"nuxt build"}}`, "bun", "Nuxt", false},
+		{`{"devDependencies":{"@sveltejs/kit":"3","vite":"8"},"scripts":{"build":"vite build"}}`, "bun", "", false},
+		{`{"devDependencies":{"@sveltejs/kit":"3","@sveltejs/adapter-static":"3","vite":"8"},"scripts":{"build":"vite build"}}`, "static", "", false},
+		{`{"devDependencies":{"@react-router/dev":"8","vite":"8"},"scripts":{"build":"react-router build","start":"react-router-serve ./build/server/index.js"}}`, "bun", "", false},
+		{`{"dependencies":{"nuxt":"4"},"scripts":{"build":"nuxt build"}}`, "bun", "", false},
+		{`{"dependencies":{"nuxt":"4"},"scripts":{"build":"nuxt generate"}}`, "static", "", false},
+		{`{"devDependencies":{"@remix-run/dev":"2"},"scripts":{"build":"remix vite:build"}}`, "bun", "Remix", false},
 		{`{"dependencies":{"astro":"7","@astrojs/node":"11"},"scripts":{"build":"astro build"}}`, "bun", "", false},
 		{`{"dependencies":{"astro":"7","@astrojs/vercel":"9"},"scripts":{"build":"astro build"}}`, "bun", "Astro with the @astrojs/vercel adapter", false},
 		{`{"dependencies":{"@tanstack/react-start":"1","nitro":"3"},"scripts":{"build":"vite build","start":"node .output/server/index.mjs"}}`, "bun", "", false},
@@ -54,7 +57,9 @@ func TestGuessPreset(t *testing.T) {
 		`{"dependencies":{"vue":"3"},"devDependencies":{"vite":"8"},"scripts":{"build":"vite build"}}`:    "vite",
 		`{"dependencies":{"hono":"4"}}`:                                                                   "hono",
 		`{"dependencies":{"express":"5"},"scripts":{"start":"node server.js"}}`:                           "",
-		`{"dependencies":{"@sveltejs/kit":"2"}}`:                                                          "",
+		`{"devDependencies":{"@sveltejs/kit":"3"}}`:                                                       "sveltekit",
+		`{"dependencies":{"nuxt":"4"},"scripts":{"build":"nuxt build"}}`:                                  "nuxt",
+		`{"devDependencies":{"@react-router/dev":"8"}}`:                                                   "react-router",
 	} {
 		if g := guessFramework([]byte(pkg), false); g.Preset != want {
 			t.Errorf("%s: preset %q, want %q", pkg, g.Preset, want)
@@ -102,17 +107,17 @@ func TestSmokeNext(t *testing.T) {
 	port, _ := strconv.Atoi(srv.URL[strings.LastIndexByte(srv.URL, ':')+1:])
 	in := Instance{Name: "web-1", Port: port}
 	spec := &manifest.App{Framework: manifest.FrameworkNext}
-	if err := smokeNext(context.Background(), in, spec, filepath.Join(t.TempDir(), "log")); err != nil {
+	if err := smokeSSR(context.Background(), in, spec, "Next.js", filepath.Join(t.TempDir(), "log")); err != nil {
 		t.Fatalf("a healthy app failed the smoke test: %v", err)
 	}
 	notFound = http.StatusInternalServerError
-	err := smokeNext(context.Background(), in, spec, filepath.Join(t.TempDir(), "log"))
+	err := smokeSSR(context.Background(), in, spec, "Next.js", filepath.Join(t.TempDir(), "log"))
 	var he *healthError
 	if !errors.As(err, &he) || !strings.Contains(he.msg, "doesn't exist") || !strings.Contains(he.hint, "Node.js") {
 		t.Fatalf("a broken not-found page should fail with the Node.js hint, got %v", err)
 	}
 	spec.Runtime = manifest.RuntimeNode
-	if err := smokeNext(context.Background(), in, spec, filepath.Join(t.TempDir(), "log")); err == nil || strings.Contains(err.(*healthError).hint, "switch the app to Node.js") {
+	if err := smokeSSR(context.Background(), in, spec, "Next.js", filepath.Join(t.TempDir(), "log")); err == nil || strings.Contains(err.(*healthError).hint, "switch the app to Node.js") {
 		t.Fatalf("an app already on Node gets no Node.js hint, got %v", err)
 	}
 }

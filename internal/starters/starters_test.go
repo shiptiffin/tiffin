@@ -21,6 +21,9 @@ func TestList(t *testing.T) {
 	}{
 		"nextjs":         {"next", "web", []string{"postgres"}},
 		"tanstack-start": {"bun", "web", []string{"postgres"}},
+		"sveltekit":      {"bun", "web", []string{"postgres"}},
+		"react-router":   {"bun", "web", []string{"postgres"}},
+		"nuxt":           {"bun", "web", []string{"postgres"}},
 		"astro":          {"static", "site", []string{}},
 		"vite-react":     {"static", "site", []string{}},
 		"hono":           {"hono", "api", []string{"postgres"}},
@@ -132,7 +135,7 @@ func TestKindsAndPresets(t *testing.T) {
 		}
 	}
 	wantListed := map[string][]string{
-		"web":    {"nextjs", "tanstack-start"},
+		"web":    {"nextjs", "tanstack-start", "sveltekit", "react-router", "nuxt"},
 		"static": {"astro", "vite-react"},
 		"api":    {"hono", "fastapi"},
 	}
@@ -150,7 +153,7 @@ func TestKindsAndPresets(t *testing.T) {
 // No build output or installed packages ride along in the binary.
 func TestNoBuildOutput(t *testing.T) {
 	for _, id := range IDs() {
-		for _, d := range []string{"node_modules", "dist", ".output", ".next", ".astro", ".tanstack", ".nitro"} {
+		for _, d := range []string{"node_modules", "dist", "build", ".output", ".next", ".nuxt", ".astro", ".tanstack", ".nitro", ".svelte-kit", ".react-router"} {
 			if _, err := os.Stat(filepath.Join("files", id, d)); err == nil {
 				t.Errorf("%s ships %s", id, d)
 			}

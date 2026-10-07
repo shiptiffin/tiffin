@@ -324,7 +324,7 @@ func writeJSON(t *testing.T, dir, name string, raw []byte) string {
 }
 
 // wantTemplates is the starter catalogue a fresh box lists.
-var wantTemplates = []string{"nextjs", "tanstack-start", "astro", "vite-react", "hono", "fastapi", "static-site", "guestbook"}
+var wantTemplates = []string{"nextjs", "tanstack-start", "sveltekit", "react-router", "nuxt", "astro", "vite-react", "hono", "fastapi", "static-site", "guestbook"}
 
 func boolInt(b bool) int {
 	if b {

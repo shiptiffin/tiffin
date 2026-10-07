@@ -116,7 +116,7 @@ func writeProject(ctx context.Context, p *platform.Platform, b backend, project 
 			ai.Deploy, ai.URL, ai.Image, ai.Commit, ai.Repo = d.ID, d.URL, d.Image, d.Commit, d.Repo
 			ai.ImageFile = d.Image != "" && !o.sameBox
 			ai.Site = d.StaticRoot != ""
-			releases[name] = &appRelease{App: name, Deploy: d.ID, Framework: d.Framework, Image: d.Image, Commit: d.Commit, Repo: d.Repo,
+			releases[name] = &appRelease{App: name, Deploy: d.ID, Framework: d.Framework, SPAPage: d.SPAPage, Image: d.Image, Commit: d.Commit, Repo: d.Repo,
 				Dir: d.Dir, Vercel: d.Vercel}
 			if ai.Site {
 				sites[name] = d.StaticRoot

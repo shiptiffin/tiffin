@@ -129,17 +129,18 @@ type RepoRoot struct {
 	Framework string `json:"framework" enum:"next,hono,bun,static,fastapi,python" doc:"How the box would build it"`
 	// Preset is the framework as people know it, for a picker to show and
 	// let them override (Vercel's Framework Preset).
-	Preset    string `json:"preset,omitempty" example:"astro" doc:"The framework as people know it, with the same ids as templates list: nextjs, tanstack-start, astro, vite-react, vite, hono, html; empty for any other server or static build"`
+	Preset    string `json:"preset,omitempty" example:"astro" doc:"The framework as people know it, with the same ids as templates list: nextjs, tanstack-start, sveltekit, nuxt, react-router, astro, vite-react, vite, hono, html; empty for any other server or static build"`
 	Name      string `json:"name,omitempty" doc:"The package name, if any"`
 	Why       string `json:"why" doc:"What the guess is based on, in plain words"`
 	Workspace bool   `json:"workspace,omitempty" doc:"A monorepo's top: its apps are in the folders below"`
 	// Builder is "dockerfile" for a folder the box would build with its
 	// Dockerfile (it has nothing else the box knows how to build).
 	Builder string `json:"builder,omitempty" enum:"dockerfile," doc:"dockerfile: the folder has a Dockerfile and nothing else the box builds, so it builds with the Dockerfile (builder \"dockerfile\")"`
-	// Unsupported names a framework the box can't run yet (SvelteKit,
-	// Nuxt…): it needs a server the box doesn't set up for it, and serving
-	// its build as files would fail. Framework is only a placeholder then.
-	Unsupported string `json:"unsupported,omitempty" doc:"A framework the box can't run yet (e.g. SvelteKit); import a supported app instead"`
+	// Unsupported names a framework the box can't run yet (Remix,
+	// SolidStart…): it needs a server the box doesn't set up for it, and
+	// serving its build as files would fail. Framework is only a
+	// placeholder then.
+	Unsupported string `json:"unsupported,omitempty" doc:"A framework the box can't run yet (e.g. SolidStart); import a supported app instead"`
 }
 
 // GitHubRepoDetail is what the box sees in a repository, for importing it.
@@ -968,9 +969,6 @@ func hasPkgAbove(dir string, pkgs map[string]bool) bool {
 // need their own server: checked before the "Vite builds it to files" rule,
 // which would otherwise serve their build output as a static site.
 var fullStack = []struct{ dep, name string }{
-	{"@sveltejs/kit", "SvelteKit"},
-	{"nuxt", "Nuxt"},
-	{"@react-router/dev", "React Router (framework mode)"},
 	{"@remix-run/dev", "Remix"},
 	{"@tanstack/solid-start", "TanStack Start for Solid"},
 	{"@solidjs/start", "SolidStart"},
@@ -1014,6 +1012,22 @@ func guessFramework(raw []byte, hasHTML bool) RepoRoot {
 	// with srvx) that runs on Bun like any other; the box serves its client assets.
 	if has("@tanstack/react-start") {
 		return is(manifest.FrameworkBun, "tanstack-start", "TanStack Start (@tanstack/react-start in package.json): its server runs on Bun")
+	}
+	// SvelteKit, Nuxt and React Router: the box starts their servers
+	// (launch.go), or serves their builds as files when that is all they
+	// write. React Router's ssr: false is in its config, which the build
+	// reads; here it looks like any React Router app.
+	switch {
+	case has("@sveltejs/kit") && has("@sveltejs/adapter-static"):
+		return is(manifest.FrameworkStatic, "sveltekit", "SvelteKit with adapter-static (@sveltejs/adapter-static in package.json): built to files")
+	case has("@sveltejs/kit"):
+		return is(manifest.FrameworkBun, "sveltekit", "SvelteKit (@sveltejs/kit in package.json): its server runs on Bun")
+	case has("nuxt") && strings.Contains(pj.Scripts["build"], "generate"):
+		return is(manifest.FrameworkStatic, "nuxt", "Nuxt with nuxt generate as its build: built to files")
+	case has("nuxt"):
+		return is(manifest.FrameworkBun, "nuxt", "Nuxt (nuxt in package.json): Nitro's node-server output runs on Bun")
+	case has("@react-router/dev"):
+		return is(manifest.FrameworkBun, "react-router", "React Router framework mode (@react-router/dev in package.json): its server runs on Bun (with ssr: false, built to files)")
 	}
 	for _, f := range fullStack {
 		if has(f.dep) {

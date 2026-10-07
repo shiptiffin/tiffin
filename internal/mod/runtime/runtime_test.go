@@ -1125,6 +1125,19 @@ func TestStaticSite(t *testing.T) {
 	if bad.Status != StatusFailed || !strings.Contains(bad.Hint, "index.html") {
 		t.Fatalf("no index: %+v", bad)
 	}
+	// SvelteKit's adapter-static with a fallback page: an SPA whose unknown
+	// paths serve that page, which the edge route carries.
+	spa := h.deploy("site", "", map[string]string{
+		"package.json":     `{"devDependencies":{"@sveltejs/kit":"3.0.0","@sveltejs/adapter-static":"3.0.0"}}`,
+		"vite.config.ts":   `import adapter from '@sveltejs/adapter-static'; export default { plugins: [sveltekit({ adapter: adapter({ fallback: '200.html' }) })] }`,
+		"build/index.html": "home", "build/200.html": "shell"})
+	if spa.Status != StatusLive || spa.Framework != "static+spa" || spa.SPAPage != "/200.html" {
+		t.Fatalf("adapter-static fallback: %+v", spa)
+	}
+	rt := h.edge.find("shop.tiffin.localhost", "/")
+	if rt == nil || !rt.SPA || rt.SPAPage != "/200.html" {
+		t.Fatalf("edge route: %+v", rt)
+	}
 }
 
 func TestPreviewSleepsAndWakes(t *testing.T) {

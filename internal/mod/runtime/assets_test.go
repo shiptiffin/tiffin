@@ -28,7 +28,7 @@ func TestClientAssetsFindsKnownBuilds(t *testing.T) {
 		{`{"dependencies":{"nuxt":"4"}}`, ".output/public"},
 		{`{"dependencies":{"@tanstack/react-start":"1"}}`, ".output/public"},
 		{`{"devDependencies":{"@react-router/dev":"7"}}`, "build/client"},
-		{`{"devDependencies":{"@sveltejs/adapter-node":"5"}}`, "build/client"},
+		{`{"devDependencies":{"@sveltejs/kit":"3","@sveltejs/adapter-bun":"1"}}`, "build/client"},
 		{`{"dependencies":{"@astrojs/node":"9"}}`, "dist/client"},
 		{`{"dependencies":{"hono":"4"}}`, ""},
 	}

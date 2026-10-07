@@ -212,6 +212,7 @@ func TestStaticFiles(t *testing.T) {
 		"assets/style.css":           "body{}" + bigText,
 		"_next/static/chunks/app.js": js,
 		"logo.png":                   bigText,
+		"__spa-fallback.html":        "<!doctype html><title>Shell</title>",
 	}
 	for name, body := range files {
 		p := filepath.Join(root, name)
@@ -236,6 +237,7 @@ func TestStaticFiles(t *testing.T) {
 	cfg.Routes = []Route{
 		{Host: "site.tiffin.localhost", FileRoot: root},
 		{Host: "spa.tiffin.localhost", FileRoot: root, SPA: true},
+		{Host: "shell.tiffin.localhost", FileRoot: root, SPA: true, SPAPage: "/__spa-fallback.html"},
 	}
 	c := startEdge(t, cfg)
 	port := ":" + strconv.Itoa(cfg.HTTPSPort)
@@ -256,6 +258,9 @@ func TestStaticFiles(t *testing.T) {
 		{site + "/assets/index-0000ffff.js", "", 404, "no-cache", "", ""}, // not there (yet): never kept
 		{spa + "/assets/index-0000ffff.js", "", 404, "no-cache", "", ""},  // never the page in a script's place
 		{spa + "/settings", "", 200, "no-cache", "", files["index.html"]},
+		// React Router prerendered its home page: the shell answers the rest.
+		{"https://shell.tiffin.localhost" + port + "/settings", "", 200, "no-cache", "", files["__spa-fallback.html"]},
+		{"https://shell.tiffin.localhost" + port + "/", "", 200, "no-cache", "", files["index.html"]},
 	} {
 		resp, body := fetch(t, c, tc.url, tc.ae)
 		if resp.StatusCode != tc.code || resp.Header.Get("Cache-Control") != tc.cache || resp.Header.Get("Content-Encoding") != tc.enc {

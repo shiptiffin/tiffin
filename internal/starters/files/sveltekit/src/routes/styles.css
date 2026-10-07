@@ -1,0 +1,30 @@
+:root {
+  --bg: oklch(0.985 0.006 85);
+  --ink: oklch(0.27 0.015 70);
+  --muted: oklch(0.52 0.015 70);
+  --line: oklch(0.9 0.01 80);
+  --accent: oklch(0.6 0.12 70);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: oklch(0.2 0.008 70); --ink: oklch(0.93 0.01 80); --muted: oklch(0.7 0.012 75); --line: oklch(0.32 0.01 70); }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 38rem; margin: 0 auto; padding: 4.5rem 1.25rem 3rem; }
+.eyebrow { color: var(--accent); font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; margin: 0; }
+h1 { font: 600 2.6rem/1.1 ui-serif, Georgia, serif; margin: .3rem 0 .6rem; letter-spacing: -0.01em; }
+.lede { color: var(--muted); margin: 0 0 2rem; }
+form { display: flex; gap: .6rem; }
+input { flex: 1; font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: .6rem .7rem; }
+button { font: 600 .95rem/1 inherit; transition: opacity .15s; color: var(--bg); background: var(--ink); border: 0; border-radius: 8px; padding: 0 1.1rem; cursor: pointer; }
+input:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.notes { list-style: none; padding: 0; margin: 2rem 0; display: grid; gap: .2rem; }
+.notes li { display: flex; justify-content: space-between; gap: 1rem; padding: .7rem 0; border-bottom: 1px solid var(--line); }
+.notes time { color: var(--muted); font-size: .85rem; white-space: nowrap; }
+.notes .empty { color: var(--muted); border: 0; }
+footer { color: var(--muted); font-size: .85rem; }
+code { font: .85em ui-monospace, "SF Mono", Menlo, monospace; }
+button:disabled { opacity: .6; cursor: default; }
+a { color: inherit; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+.error { color: oklch(0.55 0.17 30); margin: .6rem 0 0; }
+.facts { padding-left: 1.1rem; display: grid; gap: .5rem; margin: 0 0 2rem; }

@@ -42,6 +42,15 @@ func (r *rt) readApp(d *Deploy, spec *manifest.App, req *BuildRequest, log io.Wr
 	if req.Export {
 		d.Framework = "next+export"
 	}
+	d.Launch = ""
+	if req.Dockerfile == "" && spec.Role != manifest.RoleWorker && (spec.Framework == manifest.FrameworkBun || spec.Framework == manifest.FrameworkStatic) {
+		if l := launchFor(appDir, spec.Runtime == manifest.RuntimeNode); l != nil && (l.Files != nil || spec.Framework == manifest.FrameworkBun) {
+			req.Launch = l
+			if l.Files == nil && l.Err == nil {
+				d.Launch = l.ID
+			}
+		}
+	}
 	v, err := vercelcfg.Read(appDir)
 	if err != nil {
 		return &BuildError{Msg: err.Error(), Hint: "Fix vercel.json (or remove it): the box reads its build settings, crons, headers, redirects and rewrites."}

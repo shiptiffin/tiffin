@@ -176,7 +176,7 @@ func (r *Rules) redirectHandlers(static bool) []obj {
 // fileHandlers resolve a static site's request to a file: the path itself,
 // path.html, then (for an SPA, or a site that wants no trailing slash)
 // path/index.html; a folder asked for without its slash is redirected to it
-// by the file server. Without a file, an SPA's index.html answers
+// by the file server. Without a file, an SPA's index.html (or SPAPage) answers
 // navigations (spaNavigation), then the site's rewrites apply, then its
 // 404.html (with status 404) when it has one.
 func fileHandlers(rt Route) []obj {
@@ -193,12 +193,16 @@ func fileHandlers(rt Route) []obj {
 		"handle": []obj{{"handler": "rewrite", "uri": "{http.matchers.file.relative}"}},
 	}}
 	if rt.SPA {
+		page := "/index.html"
+		if rt.SPAPage != "" {
+			page = rt.SPAPage
+		}
 		var match []obj
 		for _, m := range spaNavigation() {
-			m["file"] = file([]string{"/index.html"})
+			m["file"] = file([]string{page})
 			match = append(match, m)
 		}
-		routes = append(routes, obj{"group": "file", "match": match, "handle": []obj{{"handler": "rewrite", "uri": "/index.html"}}})
+		routes = append(routes, obj{"group": "file", "match": match, "handle": []obj{{"handler": "rewrite", "uri": page}}})
 	}
 	if r != nil {
 		for i, w := range r.Rewrites {
