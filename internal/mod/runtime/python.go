@@ -66,10 +66,14 @@ func preparePython(req BuildRequest, env map[string]string) error {
 
 var requiresPythonRe = regexp.MustCompile(`(?m)^\s*requires-python\s*=\s*["']([^"']+)["']`)
 
+// pythonMinors are the Pythons the box may ask Railpack for, newest last.
+var pythonMinors = []string{"3.9", "3.10", "3.11", "3.12", "3.13", "3.14"}
+
 // pythonVersion is the Python to ask Railpack for ("" leaves its choice):
 // when the app pins no version (a .python-version, mise or runtime.txt
-// file), the lowest that pyproject.toml's requires-python accepts, if
-// Railpack's default does not.
+// file) and Railpack's default does not satisfy pyproject.toml's
+// requires-python, the newest Python that satisfies all of it (upper
+// bounds and exclusions too), else the lowest its lower bound names.
 func pythonVersion(dir string, pyproject []byte) (string, string) {
 	for _, f := range pythonVersionFiles {
 		if exists(filepath.Join(dir, f)) {
@@ -80,8 +84,18 @@ func pythonVersion(dir string, pyproject []byte) (string, string) {
 	if m == nil {
 		return "", ""
 	}
+	req := string(m[1])
+	why := "requires-python " + req + " in pyproject.toml"
+	if pySatisfies(railpackPythonDefault, req) {
+		return "", ""
+	}
+	for _, v := range slices.Backward(pythonMinors) {
+		if pySatisfies(v, req) {
+			return v, why
+		}
+	}
 	low := ""
-	for _, spec := range strings.Split(string(m[1]), ",") {
+	for _, spec := range strings.Split(req, ",") {
 		spec = strings.TrimSpace(spec)
 		for _, op := range []string{">=", "~=", "=="} {
 			if v, ok := strings.CutPrefix(spec, op); ok {
@@ -92,7 +106,65 @@ func pythonVersion(dir string, pyproject []byte) (string, string) {
 	if low == "" || !versionLess(railpackPythonDefault, low) {
 		return "", ""
 	}
-	return low, "requires-python " + string(m[1]) + " in pyproject.toml"
+	return low, why
+}
+
+var pySpecRe = regexp.MustCompile(`^(===|==|!=|~=|<=|>=|<|>)\s*v?([0-9]+(?:\.[0-9]+)*)(\.\*)?$`)
+
+// pySatisfies reports whether Python minor (the latest patch release of
+// it, which is what gets installed) meets a PEP 440 specifier set such as
+// ">=3.11,<3.13,!=3.12.*". A specifier it cannot read counts as met.
+func pySatisfies(minor, specs string) bool {
+	v := minor + ".99"
+	for _, spec := range strings.Split(specs, ",") {
+		m := pySpecRe.FindStringSubmatch(strings.TrimSpace(spec))
+		if m == nil {
+			continue
+		}
+		op, want, wild := m[1], m[2], m[3] != ""
+		prefix := func() bool { // v is want, or a release of it (3.12.* holds 3.12.4)
+			return v == want || strings.HasPrefix(v, want+".")
+		}
+		ok := true
+		switch op {
+		case "==", "===":
+			// ==3.12 asks for that minor in practice (an exact 3.12.0 is
+			// not something one installs), so it matches as 3.12.* does.
+			ok = ((wild || strings.Count(want, ".") < 2) && prefix()) || pyCmp(v, want) == 0
+		case "!=":
+			ok = !((wild && prefix()) || (!wild && pyCmp(v, want) == 0))
+		case ">=":
+			ok = pyCmp(v, want) >= 0
+		case "<=":
+			ok = pyCmp(v, want) <= 0
+		case ">":
+			ok = pyCmp(v, want) > 0
+		case "<":
+			ok = pyCmp(v, want) < 0
+		case "~=": // ~=3.11.2: >=3.11.2 and ==3.11.*; ~=3.11: >=3.11 and ==3.*
+			parts := strings.Split(want, ".")
+			if len(parts) < 2 {
+				continue
+			}
+			pre := strings.Join(parts[:len(parts)-1], ".")
+			ok = pyCmp(v, want) >= 0 && (v == pre || strings.HasPrefix(v, pre+"."))
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// pyCmp compares release versions, missing parts as 0 (3.12 == 3.12.0).
+func pyCmp(a, b string) int {
+	switch {
+	case versionLess(a, b):
+		return -1
+	case versionLess(b, a):
+		return 1
+	}
+	return 0
 }
 
 // minorOf cuts "3.14.2" to "3.14".
