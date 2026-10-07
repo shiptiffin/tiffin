@@ -666,6 +666,15 @@ func TestCronScheduleTimezones(t *testing.T) {
 			t.Errorf("time zone %q accepted", tz)
 		}
 	}
+	// A date that never comes would leave the cron due for ever.
+	for _, expr := range []string{"0 0 31 2 *", "0 0 30 2 *", "0 0 31 4,6,9,11 *"} {
+		if _, err := parseSchedule(expr, ""); err == nil || !strings.Contains(err.Error(), "never matches") {
+			t.Errorf("%q: %v", expr, err)
+		}
+	}
+	if _, err := parseSchedule("0 0 29 2 *", ""); err != nil {
+		t.Errorf("29 February refused: %v", err)
+	}
 }
 
 // A tick is skipped while the previous run is still going, unless the cron

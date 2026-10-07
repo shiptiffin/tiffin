@@ -155,9 +155,10 @@ func projectConcurrency() int {
 	return n
 }
 
-// CheckPlan refuses crons and queues whose url is plainly inside the box or
-// a private network (an address literal or localhost); host names are
-// checked against what they resolve to when each call is made.
+// CheckPlan refuses cron schedules that never fire, and crons and queues
+// whose url is plainly inside the box or a private network (an address
+// literal or localhost); host names are checked against what they resolve
+// to when each call is made.
 func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project string, desired map[string]change.Resource) error {
 	g := &guard{allow: allowNets(), self: selfIPs(p)}
 	addrs := make([]string, 0, len(desired))
@@ -171,9 +172,21 @@ func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project st
 			continue
 		}
 		var t struct {
-			URL string `json:"url"`
+			URL      string `json:"url"`
+			Schedule string `json:"schedule"`
+			Timezone string `json:"timezone"`
 		}
-		if json.Unmarshal(desired[a].Spec, &t) != nil || t.URL == "" {
+		if json.Unmarshal(desired[a].Spec, &t) != nil {
+			continue
+		}
+		if kind == change.KindCron {
+			if _, err := parseSchedule(t.Schedule, t.Timezone); err != nil {
+				prob := api.NewProblem(422, "validation", "cron "+change.Name(a)+": schedule "+strconv.Quote(t.Schedule)+": "+err.Error())
+				prob.Errors = append(prob.Errors, api.FieldError{Path: "/crons/" + change.Name(a) + "/schedule", Message: err.Error()})
+				return prob
+			}
+		}
+		if t.URL == "" {
 			continue
 		}
 		if err := g.checkURL(t.URL); err != nil {

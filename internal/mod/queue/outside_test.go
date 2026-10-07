@@ -310,6 +310,10 @@ func TestCheckPlanRefusesInsideURLs(t *testing.T) {
 	if err := m.CheckPlan(context.Background(), p, "x", ok); err != nil {
 		t.Errorf("public url refused: %v", err)
 	}
+	never := map[string]change.Resource{"cron/n": {Address: "cron/n", Spec: json.RawMessage(`{"schedule":"0 0 31 2 *","app":"web"}`)}}
+	if err := m.CheckPlan(context.Background(), p, "x", never); err == nil || !strings.Contains(err.Error(), "never matches") {
+		t.Errorf("31 February: %v", err)
+	}
 	bad := map[string]change.Resource{"queue/q": {Address: "queue/q", Spec: json.RawMessage(`{"url":"http://192.168.1.10/hook"}`)}}
 	if err := m.CheckPlan(context.Background(), p, "x", bad); err == nil || !strings.Contains(err.Error(), "a private address") {
 		t.Errorf("private url: %v", err)

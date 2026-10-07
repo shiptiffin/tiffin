@@ -32,7 +32,13 @@ func parseSchedule(expr, tz string) (*schedule, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &schedule{spec, loc}, nil
+	s := &schedule{spec, loc}
+	if s.Next(time.Now()).IsZero() {
+		// The parser accepts dates that never come, such as 31 February;
+		// a zero next tick would make the cron due for ever.
+		return nil, errors.New("the schedule never matches a date (such as 31 February)")
+	}
+	return s, nil
 }
 
 // Next is the first tick after t. Ticks follow the zone's wall clock, so a
@@ -267,6 +273,10 @@ func (e *Engine) fireDueCrons(ctx context.Context) error {
 	for _, d := range ds {
 		sched, err := parseSchedule(d.schedule, d.tz)
 		if err != nil {
+			// Stored before it was refused: look again tomorrow, not every second.
+			if _, err := tx.Exec(ctx, `UPDATE tq_crons SET next_at = now() + interval '1 day' WHERE project = $1 AND name = $2`, d.project, d.name); err != nil {
+				return err
+			}
 			continue
 		}
 		if d.busy {
