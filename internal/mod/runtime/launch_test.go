@@ -202,7 +202,7 @@ func TestLaunchRailpackBuild(t *testing.T) {
 func TestLaunchFilesFromAServerApp(t *testing.T) {
 	bin, log := fakeTools(t)
 	// buildctl --output type=local,dest=X writes what the plan's files step would.
-	writeFiles(t, bin, map[string]string{"railpack": "#!/bin/sh\n" + `env | grep '^RAILPACK_START_CMD' | sed 's/^/env: /' >> ` + log + `; while [ $# -gt 0 ]; do if [ "$1" = --plan-out ]; then echo '{"steps":[{"name":"install"},{"name":"build"}],"deploy":{}}' > "$2"; fi; shift; done` + "\n",
+	writeFiles(t, bin, map[string]string{"railpack": "#!/bin/sh\n" + `for a in "$@"; do case "$a" in RAILPACK_START_CMD=*) printf 'env: %s\n' "$a" >> ` + log + `;; esac; done; while [ $# -gt 0 ]; do if [ "$1" = --plan-out ]; then echo '{"steps":[{"name":"install"},{"name":"build"}],"deploy":{}}' > "$2"; fi; shift; done` + "\n",
 		"buildctl": "#!/bin/sh\n" + `for a in "$@"; do case "$a" in type=local,dest=*) d="${a#type=local,dest=}"; mkdir -p "$d/tiffin-out/0/assets" && echo home > "$d/tiffin-out/0/index.html" && echo shell > "$d/tiffin-out/0/__spa-fallback.html" && echo js > "$d/tiffin-out/0/assets/a.js";; esac; done` + "\n"})
 	b := &boxBuilder{eng: newFakeEngine(), binDir: bin, staticDir: t.TempDir(), memoryMB: 2048}
 	req := buildReq(t, manifest.App{Framework: manifest.FrameworkBun}, map[string]string{

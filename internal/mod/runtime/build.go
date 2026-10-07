@@ -400,17 +400,16 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	// Names on the command line, values in the environment (Railpack and
-	// buildctl read them there), so `ps` never shows a secret.
-	var extra []string
+	// Railpack (a root process on the host) gets the app's env as
+	// arguments, never in its own environment, where names like PATH or
+	// SSL_CERT_FILE would reconfigure it (see secretArgs).
 	for _, k := range keys {
 		if env[k] != "" { // Railpack skips empty ones too
-			args = append(args, "--env", k)
+			args = append(args, "--env", k+"="+env[k])
 		}
-		extra = append(extra, k+"="+env[k])
 	}
 	fmt.Fprintf(req.Log, "==> planning the build (Railpack %s)\n", RailpackVersion)
-	if err := runLoggedEnv(ctx, req.Log, req.SrcDir, extra, b.tool("railpack"), args...); err != nil {
+	if err := runLogged(ctx, req.Log, req.SrcDir, b.tool("railpack"), args...); err != nil {
 		return BuildResult{}, &BuildError{Msg: "Railpack could not plan a build for this app: " + err.Error(),
 			Hint: planHint(req.Spec)}
 	}
@@ -441,30 +440,31 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 		fmt.Fprintf(req.Log, "==> building the image (BuildKit)\n")
 	}
 	// Railpack mounts env vars into build steps as BuildKit secrets (so they
-	// never land in image layers); their values travel in buildctl's env.
+	// never land in image layers); their values travel in buildctl's env
+	// under names of the box's own. Railpack prefixes each cache mount with
+	// cache-key: the app's own namespace.
 	bargs := []string{"build",
 		"--progress", "plain",
 		"--local", "context=" + req.SrcDir,
 		"--local", "dockerfile=" + planDir,
 		"--frontend", "gateway.v0",
 		"--opt", "source=" + RailpackFrontend,
-		"--opt", "build-arg:cache-key=" + d.Project + "-" + d.App,
+		"--opt", "build-arg:cache-key=" + cacheNamespace(d.Project, d.App),
 		"--opt", "build-arg:secrets-hash=" + envHash(env, keys),
 		"--output", output}
-	for _, k := range keys {
-		bargs = append(bargs, "--secret", "id="+k+",env="+k)
-	}
-	var out strings.Builder
-	w := io.MultiWriter(req.Log, &out)
-	err = runLoggedEnv(ctx, w, req.SrcDir, extra, b.tool("buildctl"), bargs...)
+	sargs, senv := secretArgs(keys, env)
+	bargs = append(bargs, sargs...)
+	out := &buildOutput{}
+	err = runLoggedEnv(ctx, io.MultiWriter(req.Log, out), req.SrcDir, senv, b.tool("buildctl"), bargs...)
+	first, oom, dg := out.result()
 	if err != nil {
 		hint := "Read the build log (deploys build-log): the first error is usually the cause."
 		msg := "the build failed: " + err.Error()
-		if first := firstBuildError(out.String()); first != "" {
+		if first != "" {
 			msg = "the build failed: " + first
 			hint = "That is the first error in the build log; fix it and deploy again (deploys build-log has the rest)."
 		}
-		if strings.Contains(out.String(), "exit code: 137") || strings.Contains(out.String(), "Killed") {
+		if oom {
 			hint = "The build ran out of memory. Build elsewhere and deploy with --prebuilt, or give the box more memory."
 		} else {
 			hint += onNodeHint(req.Spec)
@@ -474,10 +474,7 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 	if files != nil {
 		return BuildResult{}, nil
 	}
-	dg := ""
-	if m := manifestDigest.FindStringSubmatch(out.String()); m != nil {
-		dg = m[1]
-	} else {
+	if dg == "" {
 		dg, _ = b.eng.ImageDigest(ctx, ref)
 	}
 	return BuildResult{Image: ref, Digest: dg}, nil
@@ -1119,19 +1116,22 @@ var (
 // firstBuildError finds the first line of build output that names a cause,
 // so a failed deploy says why without reading the whole log.
 func firstBuildError(out string) string {
-	sc := bufio.NewScanner(strings.NewReader(out))
-	sc.Buffer(make([]byte, 64<<10), 1<<20)
-	for sc.Scan() {
-		line := strings.TrimSpace(buildkitPrefix.ReplaceAllString(sc.Text(), ""))
-		if line == "" || !buildErrorLine.MatchString(line) || buildErrorNoise.MatchString(line) {
-			continue
-		}
-		if len(line) > 300 {
-			line = line[:300] + "…"
-		}
-		return line
+	o := &buildOutput{}
+	_, _ = o.Write([]byte(out))
+	first, _, _ := o.result()
+	return first
+}
+
+// errorLine is line, trimmed, when it names a cause; "" otherwise.
+func errorLine(line string) string {
+	line = strings.TrimSpace(buildkitPrefix.ReplaceAllString(line, ""))
+	if line == "" || !buildErrorLine.MatchString(line) || buildErrorNoise.MatchString(line) {
+		return ""
 	}
-	return ""
+	if len(line) > 300 {
+		line = line[:300] + "…"
+	}
+	return line
 }
 
 // configFiles are tiffin's own config: the box reads them, apps never import
@@ -1152,6 +1152,8 @@ func runLogged(ctx context.Context, w io.Writer, dir, name string, args ...strin
 	return runLoggedEnv(ctx, w, dir, nil, name, args...)
 }
 
+// runLoggedEnv is runLogged with extra variables in the command's
+// environment: only names the box picks, never an app's (see secretArgs).
 func runLoggedEnv(ctx context.Context, w io.Writer, dir string, env []string, name string, args ...string) error {
 	c := exec.CommandContext(ctx, name, args...)
 	c.Dir = dir

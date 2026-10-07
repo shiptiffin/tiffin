@@ -108,6 +108,13 @@ func (b *boxBuilder) buildDockerfile(ctx context.Context, req BuildRequest, ref 
 	bargs := []string{"build",
 		"--progress", "plain",
 		"--frontend", "dockerfile.v0",
+		// cmdline set: BuildKit's own Dockerfile frontend builds it, never
+		// the image a "# syntax=" line names, which could ignore the cache
+		// namespace below.
+		"--opt", "cmdline=",
+		// The app's own namespace for RUN --mount=type=cache: an id another
+		// project's Dockerfile picks never reaches this app's caches.
+		"--opt", "build-arg:BUILDKIT_CACHE_MOUNT_NS=" + cacheNamespace(d.Project, d.App),
 		"--local", "context=" + req.SrcDir,
 		"--local", "dockerfile=" + filepath.Dir(file),
 		"--opt", "filename=" + filepath.Base(file),
@@ -119,33 +126,33 @@ func (b *boxBuilder) buildDockerfile(ctx context.Context, req BuildRequest, ref 
 		// Plain and browser env only: values the app does not keep secret.
 		bargs = append(bargs, "--opt", "build-arg:"+k+"="+args[k])
 	}
-	// Secret values travel in buildctl's env, never on its command line.
-	var extra []string
-	for _, k := range secretKeys {
-		bargs = append(bargs, "--secret", "id="+k+",env="+k)
-		extra = append(extra, k+"="+secrets[k])
-	}
-	var out strings.Builder
-	err := runLoggedEnv(ctx, io.MultiWriter(req.Log, &out), req.SrcDir, extra, b.tool("buildctl"), bargs...)
+	// Secret values travel in buildctl's env (under the box's names), never
+	// on its command line.
+	sargs, senv := secretArgs(secretKeys, secrets)
+	bargs = append(bargs, sargs...)
+	const (
+		noStage, noStage2 = "target stage", "could not be found"
+		entHost, entInsec = "network.host", "security.insecure"
+	)
+	out := &buildOutput{marks: []string{noStage, noStage2, entHost, entInsec}}
+	err := runLoggedEnv(ctx, io.MultiWriter(req.Log, out), req.SrcDir, senv, b.tool("buildctl"), bargs...)
+	first, oom, dg := out.result()
 	if err != nil {
 		msg, hint := "the Dockerfile build failed: "+err.Error(), "Read the build log (deploys build-log): the first error is usually the cause."
-		if first := firstBuildError(out.String()); first != "" {
+		if first != "" {
 			msg = "the Dockerfile build failed: " + first
 		}
-		switch o := out.String(); {
-		case strings.Contains(o, "exit code: 137") || strings.Contains(o, "Killed"):
+		switch {
+		case oom:
 			hint = "The build ran out of memory. Build elsewhere and deploy with --prebuilt, or give the box more memory."
-		case strings.Contains(o, "target stage") && strings.Contains(o, "could not be found"):
+		case out.saw(noStage) && out.saw(noStage2):
 			hint = "The Dockerfile has no stage named " + target + ": fix the build target in the app's Build and deploy settings."
-		case strings.Contains(o, "network.host") || strings.Contains(o, "security.insecure"):
+		case out.saw(entHost) || out.saw(entInsec):
 			hint = "The box doesn't allow RUN --network=host or --security=insecure in builds; take them out of the Dockerfile."
 		}
 		return BuildResult{}, &BuildError{Msg: msg, Hint: hint}
 	}
-	dg := ""
-	if m := manifestDigest.FindStringSubmatch(out.String()); m != nil {
-		dg = m[1]
-	} else {
+	if dg == "" {
 		dg, _ = b.eng.ImageDigest(ctx, ref)
 	}
 	return BuildResult{Image: ref, Digest: dg, Start: startOverride(req.Spec)}, nil
@@ -160,6 +167,11 @@ func dockerfileEnv(req BuildRequest) (args, secrets map[string]string) {
 		secrets[k] = v
 	}
 	for k, v := range req.Env {
+		if strings.HasPrefix(k, "BUILDKIT_") {
+			// BuildKit reads build args of these names as its own settings
+			// (the syntax frontend, the cache namespace): never the app's.
+			continue
+		}
 		if k == nextKeyEnv {
 			secrets[k] = v
 			continue

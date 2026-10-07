@@ -32,15 +32,22 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 // fakeTools puts stand-ins for railpack, buildctl and nerdctl in a folder:
 // each appends its arguments (one per line, after a "--- <tool>" line) and
 // the build env it was given to calls.log, then does what the test needs.
+// "env: NAME=VALUE" lines are the env the build sees (railpack's --env
+// arguments, buildctl's secrets as their ids, resolved); "procenv: " lines
+// are variables of interest in the tool's own process environment, which
+// an app's env must never reach.
 func fakeTools(t *testing.T) (binDir, log string) {
 	t.Helper()
 	binDir = t.TempDir()
 	log = filepath.Join(binDir, "calls.log")
-	rec := `printf -- '--- %s\n' "$(basename "$0")" >> ` + log + `; for a in "$@"; do printf '%s\n' "$a" >> ` + log + `; done; env | grep -E '^(RAILPACK_|DATABASE_URL|API_KEY|PUBLIC_|NEXT_SERVER|NITRO_PRESET|GCP_BUILDPACKS)' | sed 's/^/env: /' | sort >> ` + log + "\n"
+	rec := `printf -- '--- %s\n' "$(basename "$0")" >> ` + log + `; for a in "$@"; do printf '%s\n' "$a" >> ` + log + `; done; ` +
+		`env | grep -E '^(RAILPACK_|DATABASE_URL|API_KEY|PUBLIC_|NEXT_SERVER|NITRO_PRESET|GCP_BUILDPACKS|DOCKER_CONFIG|LD_PRELOAD|NERDCTL_TOML|TIFFIN_SECRET_)' | sed 's/^/procenv: /' | sort >> ` + log + "\n"
+	railpackEnv := `prev=""; for a in "$@"; do if [ "$prev" = --env ]; then printf 'env: %s\n' "$a"; fi; prev="$a"; done | sort >> ` + log + "\n"
+	buildctlEnv := `prev=""; for a in "$@"; do if [ "$prev" = --secret ]; then id="${a#id=}"; id="${id%%,*}"; v="${a##*,env=}"; printf 'env: %s=%s\n' "$id" "$(printenv "$v")"; fi; prev="$a"; done | sort >> ` + log + "\n"
 	writeFiles(t, binDir, map[string]string{
 		// railpack prepare writes a plan where --plan-out says.
-		"railpack": "#!/bin/sh\n" + rec + `while [ $# -gt 0 ]; do if [ "$1" = --plan-out ]; then echo '{"deploy":{}}' > "$2"; fi; shift; done` + "\n",
-		"buildctl": "#!/bin/sh\n" + rec + "echo 'exporting manifest sha256:" + strings.Repeat("c", 64) + "'\n",
+		"railpack": "#!/bin/sh\n" + rec + railpackEnv + `while [ $# -gt 0 ]; do if [ "$1" = --plan-out ]; then echo '{"deploy":{}}' > "$2"; fi; shift; done` + "\n",
+		"buildctl": "#!/bin/sh\n" + rec + buildctlEnv + "echo 'exporting manifest sha256:" + strings.Repeat("c", 64) + "'\n",
 		// nerdctl run ... --volume <src>:/app ... <image> sh -c <script>: runs the script in src.
 		"nerdctl": "#!/bin/sh\n" + rec + `src=""; prev=""; for a in "$@"; do if [ "$prev" = --volume ]; then case "$a" in *:/app) src="${a%:/app}";; esac; fi; prev="$a"; last="$a"; done; cd "$src" && sh -c "$last"` + "\n",
 	})
@@ -110,15 +117,16 @@ func TestDockerfileBuildInvocation(t *testing.T) {
 	args := strings.Split(calls, "\n")
 	for _, want := range []string{"--frontend", "dockerfile.v0", "context=" + req.SrcDir, "dockerfile=" + filepath.Join(req.SrcDir, "docker"),
 		"filename=api.Dockerfile", "target=runner", "build-arg:PUBLIC_SITE=https://shop.example",
-		"id=API_KEY,env=API_KEY", "id=DATABASE_URL,env=DATABASE_URL", "id=" + nextKeyEnv + ",env=" + nextKeyEnv,
-		"env: API_KEY=sk_live_123", "env: DATABASE_URL=postgres://u:p4ss@db/shop"} {
+		"id=API_KEY,env=TIFFIN_SECRET_0", "id=DATABASE_URL,env=TIFFIN_SECRET_1", "id=" + nextKeyEnv + ",env=TIFFIN_SECRET_2",
+		"env: API_KEY=sk_live_123", "env: DATABASE_URL=postgres://u:p4ss@db/shop",
+		"cmdline=", "build-arg:BUILDKIT_CACHE_MOUNT_NS=" + cacheNamespace("shop", "web")} {
 		if !slices.Contains(args, want) {
 			t.Errorf("buildctl call lacks %q:\n%s", want, calls)
 		}
 	}
 	// Secrets never reach the command line, nor build args; nothing else may widen the build.
 	for _, bad := range []string{"build-arg:API_KEY", "build-arg:DATABASE_URL", "build-arg:" + nextKeyEnv, "--ssh", "--allow", "context:", "gateway.v0"} {
-		if strings.Contains(strings.Join(slices.DeleteFunc(args, func(a string) bool { return strings.HasPrefix(a, "env: ") }), "\n"), bad) {
+		if strings.Contains(strings.Join(slices.DeleteFunc(args, func(a string) bool { return strings.HasPrefix(a, "env: ") || strings.HasPrefix(a, "procenv: ") }), "\n"), bad) {
 			t.Errorf("buildctl call has %q:\n%s", bad, calls)
 		}
 	}

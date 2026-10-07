@@ -158,9 +158,11 @@ func (n *nerdctl) Run(ctx context.Context, s RunSpec) error {
 }
 
 // withSpec is a nerdctl command of args plus the spec's memory cap, cgroup,
-// labels, mounts and env. Env values travel in nerdctl's own environment
-// (`--env NAME` reads it), never on the command line where `ps` would show
-// them. The caller appends the image and what follows it.
+// labels, mounts and env. The env travels as --env NAME=VALUE arguments,
+// never in nerdctl's own environment: nerdctl runs as root on the host and
+// reads variables such as DOCKER_CONFIG, NERDCTL_TOML or
+// CONTAINERD_NAMESPACE, and hands its environment to the OCI hooks runc
+// runs on the host. The caller appends the image and what follows it.
 func (n *nerdctl) withSpec(ctx context.Context, args []string, s RunSpec) *exec.Cmd {
 	if s.MemoryMB > 0 {
 		args = append(args, "--memory", strconv.Itoa(s.MemoryMB)+"m", "--memory-swap", strconv.Itoa(s.MemoryMB)+"m")
@@ -186,8 +188,7 @@ func (n *nerdctl) withSpec(ctx context.Context, args []string, s RunSpec) *exec.
 	}
 	sort.Strings(envKeys)
 	for _, k := range envKeys {
-		args = append(args, "--env", k)
-		c.Env = append(c.Env, k+"="+s.Env[k])
+		args = append(args, "--env", k+"="+s.Env[k])
 	}
 	c.Args = append(c.Args, args...)
 	return c
