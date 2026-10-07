@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createLocalJWKSet, decodeProtectedHeader, jwtVerify } from "jose";
 import { rpIDFor } from "../src/auth";
 import { adminHandler } from "../src/admin";
+import { newRateLimitStore } from "../src/ratelimit";
 import { Registry } from "../src/registry";
 import { engineRequest, publicHandler } from "../src/server";
 import { Client, HOST, linkIn, lastMail, ORIGIN, person, projectConfig } from "./helpers";
@@ -154,6 +155,39 @@ test("rate limits leave session reads alone, not sign-ins", async () => {
     await r2.closeAll();
   }
 }, 60_000);
+
+test("rate limits are per project: one app's sign-in attempts never throttle another's", async () => {
+  const base = reg.projectConfig("shop")!;
+  const other = { ...base, hosts: ["other.tiffin.localhost"], origins: ["https://other.tiffin.localhost:8443"], primaryUrl: "https://other.tiffin.localhost:8443" };
+  const r2 = new Registry(null, { version: 1, listen: [], projects: { busy: { ...base, rateLimit: true, captcha: false }, calm: { ...other, rateLimit: true, captcha: false } } });
+  try {
+    const h = publicHandler(r2);
+    const ip = { "x-forwarded-for": "198.51.100.23" };
+    const attempt = (url: string) => new Client(h, ip).json(url, { body: { email: "x@example.com", password: "nope-nope" } });
+    const busy: number[] = [];
+    for (let i = 0; i < 5; i++) busy.push((await attempt("/sign-in/email")).status);
+    expect(busy).toContain(429);
+    // Same address, same path, another project: its own counters.
+    expect((await attempt("https://other.tiffin.localhost:8443/api/auth/sign-in/email")).status).not.toBe(429);
+  } finally {
+    await r2.closeAll();
+  }
+}, 60_000);
+
+test("rate-limit store: Better Auth's decision, bounded", async () => {
+  let t = 1_000_000;
+  const s = newRateLimitStore(() => t);
+  const rule = { window: 10, max: 3 };
+  const tries = async () => (await s.consume("k", rule)).allowed;
+  expect([await tries(), await tries(), await tries(), await tries()]).toEqual([true, true, true, false]);
+  expect((await s.consume("k", rule)).retryAfter).toBe(10);
+  t += 10_000;
+  expect(await tries()).toBe(true);
+  for (let i = 0; i < 100; i++) await s.consume(`ip${i}`, rule);
+  t += 60_000; // every entry has expired: the next call prunes them
+  await s.consume("fresh", rule);
+  expect(s.size()).toBe(1);
+});
 
 describe("session cookie cache", () => {
   test("is a JWT signed with the project's key, carrying the active org and role", async () => {

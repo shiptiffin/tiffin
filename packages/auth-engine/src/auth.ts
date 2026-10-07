@@ -16,6 +16,7 @@ import { altcha } from "./altcha";
 import { isSocial, SOCIAL, type ProjectConfig } from "./config";
 import { currentFacts } from "./context";
 import { effectiveRole, inviteLinks } from "./invite-links";
+import { rateLimitStore } from "./ratelimit";
 import { send, templates, type Brand } from "./mail";
 import { ac, rank, roles, weaker } from "./roles";
 import { APPLE_ORIGIN, bindProxyState, oauthProxies, oidcPlugin, providerName, socialProviders } from "./social";
@@ -609,7 +610,9 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
     },
     rateLimit: {
       enabled: c.rateLimit,
-      storage: "memory",
+      // This project's own counters: Better Auth's memory store is one map
+      // for the whole process, keyed by address and path only.
+      customStorage: rateLimitStore(project),
       // Reading the session isn't an attempt at anything, and apps read it
       // server-side for every page their visitors load.
       customRules: { "/tiffin/session": false, "/get-session": false, "/jwks": false },
