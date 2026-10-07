@@ -102,6 +102,7 @@ export function TableView({ project, schema, name, branch }: { project: string; 
           name: c.name,
           index: i,
           type: shortType(c.type),
+          baseType: c.baseType,
           category: c.category,
           numeric: !(t && linkOf(t, c.name)) && (c.category === "number" || NUMERIC.test(c.baseType)),
           primary: c.primary,

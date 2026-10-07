@@ -44,17 +44,63 @@ export function rawText(v: unknown): string {
   return String(v);
 }
 
-const pad = (n: number) => String(n).padStart(2, "0");
+const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+
+/** The parts of a column the editors need: its kind, and its type to tell timestamp from timestamptz. */
+export type EditCol = { category: string; name: string; nullable?: boolean; baseType?: string; type?: string };
+
+/** A timestamptz (an instant, shown in the viewer's clock) rather than a timestamp (a wall time, shown as stored). */
+const zoned = (c: EditCol) => (c.baseType ?? c.type) === "timestamptz";
+
+/** A wall time a datetime-local input can hold: seconds, and up to milliseconds. */
+const LOCAL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?$/;
+
+/**
+ * A stored timestamp as the wall time an editor starts with. A timestamptz
+ * is moved to the viewer's clock; a timestamp is its stored wall time, untouched.
+ * Fractional seconds are kept, all six digits.
+ */
+function tsDraft(v: string, c: EditCol): string {
+  if (zoned(c)) {
+    const m = v.match(TS);
+    const d = m && tsDate(`${m[1]} ${m[2]}${m[4]}`); // to the second; the fraction is carried over as written
+    if (!m || !d) return v;
+    return `${pad(d.getFullYear(), 4)}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}${m[3] ?? ""}`;
+  }
+  const w = v.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}(\.\d+)?)$/);
+  return w ? `${w[1]}T${w[2]}` : v;
+}
+
+/**
+ * A wall time typed for a timestamptz, read in the viewer's clock, as the
+ * instant to store (UTC, fraction kept). Text that names its own zone, or
+ * isn't a plain date and time (infinity, BC dates), goes to Postgres as typed.
+ */
+function tsInstant(t: string): string {
+  const m = t.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(:\d{2})?(\.\d+)?$/);
+  if (!m) return t;
+  const d = new Date(`${m[1]}T${m[2]}${m[3] ?? ":00"}`);
+  if (Number.isNaN(d.getTime())) return t;
+  const iso = d.toISOString();
+  return /^\d{4}-/.test(iso) ? `${iso.slice(0, 19)}${m[4] ?? ""}Z` : t;
+}
+
+/** The input a column's value is edited in. A stored timestamp too precise for the browser's picker gets plain text. */
+export function inputFor(c: EditCol, v: unknown): { type: "date" | "time" | "datetime-local" | "text"; step?: number } {
+  if (c.category === "date") return { type: "date" };
+  if (c.category === "time") return (c.baseType ?? c.type) === "timetz" ? { type: "text" } : { type: "time", step: 1 };
+  if (c.category !== "timestamp") return { type: "text" };
+  const d = v === null || v === undefined ? "" : toDraft(v, c);
+  if (d !== "" && !LOCAL.test(d)) return { type: "text" };
+  return { type: "datetime-local", step: d.includes(".") ? 0.001 : 1 };
+}
 
 /** A stored value as the text an editor starts with. */
-export function toDraft(v: unknown, category: string): string {
+export function toDraft(v: unknown, c: EditCol): string {
   if (v === null || v === undefined) return "";
-  if (category === "timestamp" && typeof v === "string") {
-    const d = tsDate(v);
-    if (d) return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  }
-  if (category === "json") return JSON.stringify(v, null, 2);
-  if (category === "array" && typeof v === "string") return arrayToLines(v);
+  if (c.category === "timestamp" && typeof v === "string") return tsDraft(v, c);
+  if (c.category === "json") return JSON.stringify(v, null, 2);
+  if (c.category === "array" && typeof v === "string") return arrayToLines(v);
   return rawText(v);
 }
 
@@ -64,7 +110,7 @@ export class DraftError extends Error {}
  * What a person typed, as the value to send. An empty box is NULL when the
  * column may be empty, and empty text otherwise.
  */
-export function fromDraft(draft: string, c: { category: string; nullable?: boolean; name: string }): unknown {
+export function fromDraft(draft: string, c: EditCol): unknown {
   const t = draft.trim();
   if (c.category === "json") {
     if (!t) return null;
@@ -79,11 +125,7 @@ export function fromDraft(draft: string, c: { category: string; nullable?: boole
     return items;
   }
   if (t === "" && (c.nullable || c.category !== "text")) return null;
-  if (c.category === "timestamp") {
-    const d = new Date(t);
-    if (Number.isNaN(d.getTime())) return t; // let Postgres judge (and explain)
-    return d.toISOString();
-  }
+  if (c.category === "timestamp") return zoned(c) ? tsInstant(t) : t; // a timestamp keeps its wall time
   if (c.category === "bool") return t === "true" || t === "t" || t === "yes";
   if (c.category === "number") return t.replace(/[,\s_]/g, "");
   return c.category === "text" ? draft : t;

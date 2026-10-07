@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { int } from "@/lib/format";
 import { db, type ColumnDetail, type TableDetail } from "./api";
-import { cellText, DraftError, fromDraft, rawText, shortType, toDraft } from "./format";
+import { cellText, DraftError, fromDraft, inputFor, rawText, shortType, toDraft } from "./format";
 import { LinkPicker } from "./link-picker";
 import { Sheet } from "./sheet";
 
@@ -107,6 +107,7 @@ export function RowPanel({
     const bad: Record<string, string> = {};
     for (const [name, d] of Object.entries(drafts)) {
       const c = table.columns[idx(name)];
+      if (!adding && d === toDraft(row![idx(name)], c)) continue; // typed back to what it was: leave the stored value exactly as is
       try {
         const v = fromDraft(d, c);
         if (adding && v === null && d.trim() === "") continue; // left empty: its default
@@ -174,7 +175,7 @@ export function RowPanel({
         />
       );
     }
-    const d = c.name in drafts ? drafts[c.name] : v === undefined ? "" : toDraft(v, c.category);
+    const d = c.name in drafts ? drafts[c.name] : v === undefined ? "" : toDraft(v, c);
     const multi = c.category === "json" || c.category === "array" || (c.category === "text" && (d.length > 60 || d.includes("\n")));
     const placeholder = adding
       ? c.identity
@@ -200,12 +201,13 @@ export function RowPanel({
           className="block w-full resize-y rounded-md border border-rule bg-paper px-3 py-2 font-mono text-[0.8125rem] leading-5 text-ink outline-hidden placeholder:text-ink-4 hover:border-rule-2 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] aria-invalid:border-danger"
         />
       );
-    const type = c.category === "date" ? "date" : c.category === "time" ? "time" : c.category === "timestamp" ? "datetime-local" : "text";
+    // Picked by the stored value, not the draft, so the input doesn't change kind while typing.
+    const { type, step } = inputFor(c, adding ? undefined : row![idx(c.name)]);
     return (
       <Input
         id={id}
         type={type}
-        step={type === "time" || type === "datetime-local" ? 1 : undefined}
+        step={step}
         inputMode={c.category === "number" ? "decimal" : undefined}
         value={d}
         onChange={(e) => setDraft(c, e.target.value)}

@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
 import { copyText } from "@/lib/clipboard";
 import type { Sort } from "./api";
-import { cellText, fromDraft, DraftError, isTimestamp, parseTSV, rawText, toDraft } from "./format";
+import { cellText, fromDraft, DraftError, inputFor, isTimestamp, parseTSV, rawText, toDraft } from "./format";
 
 /**
  * The table grid. Rows are virtualized (only what's on screen is in the
@@ -20,6 +20,8 @@ export type GridCol = {
   /** Where the value sits in each row. */
   index: number;
   type: string;
+  /** Postgres's internal type name (timestamp or timestamptz decides how a time is edited). */
+  baseType?: string;
   category: string;
   numeric: boolean;
   primary?: boolean;
@@ -164,7 +166,7 @@ export const DataGrid = memo(function DataGrid({
       return;
     }
     setErr(null);
-    setEditing({ ...at, draft: draft ?? toDraft(v, col.category) });
+    setEditing({ ...at, draft: draft ?? toDraft(v, col) });
   };
 
   const commit = (then?: Cell) => {
@@ -173,7 +175,7 @@ export const DataGrid = memo(function DataGrid({
     const before = rows[editing.r]?.[col.index];
     try {
       const v = fromDraft(editing.draft, col);
-      if (editing.draft !== toDraft(before, col.category)) onCommit?.(editing.r, col, v);
+      if (editing.draft !== toDraft(before, col)) onCommit?.(editing.r, col, v);
       setEditing(null);
       setErr(null);
       if (then) move(then);
@@ -543,7 +545,7 @@ const GridRow = memo(function GridRow({
             )}
           >
             {isEditing ? (
-              <Editor col={c} draft={editing!.draft} onDraft={onDraft} onKey={onEditKey} onBlur={onBlurEdit} />
+              <Editor col={c} value={v} draft={editing!.draft} onDraft={onDraft} onKey={onEditKey} onBlur={onBlurEdit} />
             ) : (
               <>
                 <span className="truncate">{text}</span>
@@ -587,12 +589,15 @@ const GridRow = memo(function GridRow({
 /** The editor inside a cell: a native input of the column's kind, or a select for an enum. */
 function Editor({
   col,
+  value,
   draft,
   onDraft,
   onKey,
   onBlur,
 }: {
   col: GridCol;
+  /** The stored value: it picks the input (a too-precise timestamp is edited as text). */
+  value: unknown;
   draft: string;
   onDraft: (d: string) => void;
   onKey: (e: KeyboardEvent<HTMLElement>) => void;
@@ -619,13 +624,13 @@ function Editor({
         ))}
       </select>
     );
-  const type = col.category === "date" ? "date" : col.category === "time" ? "time" : col.category === "timestamp" ? "datetime-local" : "text";
+  const { type, step } = inputFor(col, value);
   return (
     <input
       ref={ref}
       aria-label={`New ${col.name}`}
       type={type}
-      step={type === "time" || type === "datetime-local" ? 1 : undefined}
+      step={step}
       inputMode={col.numeric ? "decimal" : undefined}
       value={draft}
       spellCheck={false}
