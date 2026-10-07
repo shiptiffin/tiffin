@@ -60,6 +60,8 @@ func renderBoxMail(m api.BoxMail, boxDomain string, now time.Time) (*boxEmail, e
 		return newSignIn(m, dash, brand, host, mark)
 	case api.BoxMailNewKey:
 		return newKey(m, dash, brand, host, mark)
+	case api.BoxMailNewPasskey, api.BoxMailPasskeyRemoved:
+		return passkeyNotice(m, dash, brand, host, mark)
 	default:
 		return nil, fmt.Errorf("unknown box mail %q", m.Kind)
 	}
@@ -138,6 +140,32 @@ func newKey(m api.BoxMail, dash, brand, host, mark string) (*boxEmail, error) {
 	return templates.NewKey(templates.NewKeyData{Brand: brand, Host: host, MarkURL: mark, First: first, By: by,
 		Name: k.Name, Access: access, Expires: expires, When: friendlyWhen(m.At), Device: m.Device, Where: m.Where, IP: m.IP,
 		URL: url, ShownURL: shown, SignInsURL: signIns})
+}
+
+// passkeyNotice writes the "New passkey" or "Passkey removed" notice to the
+// person whose passkeys changed. The button opens their passkeys; "Wasn't
+// you?" links their sign-ins, to sign out everywhere else.
+func passkeyNotice(m api.BoxMail, dash, brand, host, mark string) (*boxEmail, error) {
+	name := strings.TrimSpace(m.Passkey)
+	if name == "" {
+		return nil, fmt.Errorf("%s mail without a passkey", m.Kind)
+	}
+	first := firstName(m.Name)
+	if first == "there" {
+		first = ""
+	}
+	var url, shown, signIns string
+	if dash != "" {
+		url = dash + "/settings/passkeys"
+		signIns = dash + "/settings/sign-ins"
+		shown = strings.TrimPrefix(strings.TrimPrefix(url, "https://"), "http://")
+	}
+	if m.Kind == api.BoxMailPasskeyRemoved {
+		return templates.PasskeyRemoved(templates.PasskeyRemovedData{Brand: brand, Host: host, MarkURL: mark, First: first, Name: name,
+			When: friendlyWhen(m.At), Device: m.Device, Where: m.Where, IP: m.IP, URL: url, ShownURL: shown, SignInsURL: signIns})
+	}
+	return templates.NewPasskey(templates.NewPasskeyData{Brand: brand, Host: host, MarkURL: mark, First: first, Name: name,
+		When: friendlyWhen(m.At), Device: m.Device, Where: m.Where, IP: m.IP, URL: url, ShownURL: shown, SignInsURL: signIns})
 }
 
 // friendlyWhen: "Wednesday 7 October, 19:54 UTC". The email's own date gives the year.

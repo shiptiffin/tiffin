@@ -48,7 +48,9 @@ Plainly, so you can decide what to trust it with.
   to anyone, and the lookup and the mail happen after it. Each link works once, for 15
   minutes, and asking again cancels the previous one. Requests are limited to 5 per
   15 minutes per client address and 3 an hour per email address, and refused from other
-  sites.
+  sites. A link only exists if its email left the box through the relay: one that would
+  wait in the box's dev inbox (which owners and admins can read) is never made, or is
+  cancelled at once, because an emailed link counts as proof that you read that inbox.
 - **Google and GitHub sign-in** only signs in people already on the box, matched by an
   email the provider has verified. It never makes an account. See
   [Signing in with Google or GitHub](#signing-in-with-google-or-github).
@@ -100,17 +102,39 @@ For scripts and agents: `GET /v1/sessions` (`?person=usr_…` for someone else,
 CLI, `tiffin sessions list|end|end-others|browsers`. Sessions belong to people, so an API
 key must name the person, and only a key with full access to all projects may.
 
+## Sudo mode: confirm it is you
+
+A few things outlive the dashboard session that does them, so a stolen session must not
+be able to do them quietly:
+
+- **Creating an API key** that lasts longer than a day, or has full access (and so any
+  admin key). A read-only key for a day doesn't ask.
+- **Adding a passkey.** A passkey signs in as you for good, and it would pass every later
+  "confirm it's you", so a stolen session must not be able to add its own.
+- **Changing an email address** (yours, or as an owner or admin, someone else's). Emailed
+  sign-in links go there, and they count as a strong sign-in.
+
+Each needs a strong sign-in in the last 10 minutes: a passkey, Google, GitHub or a link you
+asked to be emailed. A one-time link someone else made (an invite, an admin's link,
+`tiffin login`) is not one. Otherwise the dashboard asks you to confirm with one of your
+own passkeys (someone else's doesn't count), or to sign in again (**Sign in again** goes
+to the login page and back); either gives you 10 minutes. If you have no passkey yet, you
+add your first one after signing in with Google, GitHub or an emailed link.
+
+The API answers `403 reauth_required` (with a hint) until then. The dashboard confirms with
+`POST /v1/session/confirm/options`, then `navigator.credentials.get()`, then
+`POST /v1/session/confirm` with `{"credential": ...}`; the session then repeats the call.
+Keys and the owner token are not sessions: they never confirm, and the owner's CLI token
+may add the owner's passkeys without it. Removing a passkey doesn't ask, but is emailed.
+An emailed sign-in link only counts when the mail left the box (see *Sign-in links by
+email* above): one that would wait in the dev inbox is never made.
+
 ## Creating API keys in the dashboard
 
-A key outlives the session that made it, so a stolen dashboard session must not be able
-to mint one quietly. Three things stop that:
+A key outlives the session that made it. Three things keep a stolen session from minting
+one quietly:
 
-- **Confirm it's you (sudo mode).** Creating a key that lasts longer than a day, or has
-  full access (and so any admin key), needs a strong sign-in in the last 10 minutes: a
-  passkey, Google, GitHub or a link you asked to be emailed. A one-time link someone else
-  made (an invite, an admin's link, `tiffin login`) is not one. Otherwise **Create key**
-  asks you to confirm with your passkey, or to sign in again; either gives you 10 minutes.
-  Only your own passkey counts. A read-only key for a day needs neither.
+- **Confirm it's you** ([sudo mode](#sudo-mode-confirm-it-is-you)), as above.
 - **An email for every key.** The person who made it gets a *New API key* email: the
   key's name, its projects and access, when it expires, when, and the browser, address and
   country it came from, with a **Review API keys** button.
@@ -126,9 +150,18 @@ keys it made.
 
 For scripts: `POST /v1/tokens` with `"expiresInDays"`: 1, 30, 90 (the default when left
 out) or 365, or 0 for never. In a session that hasn't confirmed, a key that needs it is
-refused with `403 reauth_required`. The dashboard confirms with
-`POST /v1/session/confirm/options`, then `navigator.credentials.get()`, then
-`POST /v1/session/confirm` with `{"credential": ...}`.
+refused with `403 reauth_required`.
+
+## Adding and removing passkeys
+
+- **Confirm it's you** ([sudo mode](#sudo-mode-confirm-it-is-you)) before adding one, from a
+  dashboard session: both `POST /v1/passkeys/register` and `POST /v1/passkeys` check it.
+- **An email for every change.** The person gets a *New passkey* email when one is added
+  (its name, when, and the browser, address and country it came from, with a **Review
+  passkeys** button; "Wasn't you?" says to remove it and sign out everywhere else), and a
+  *Passkey removed* email when one is removed.
+- **The audit log** records `passkey.add` and `passkey.delete`, with the person and the
+  passkey's name.
 
 ## Signing in with Google or GitHub
 
@@ -169,10 +202,12 @@ session and opens `next`, or goes to `/login?reason=<provider>:<why>` (`unknown`
 
 ## Signing in with a passkey
 
-Set up a device once in **Sign in with Touch ID / Face ID** (your menu; sign in with a
-link first). From then on, choose **Sign in with Touch ID** on the login page: no
-username, no link. It is a passkey kept on that device, and every person can set up
-their own.
+Set up a device once in **Sign in with Touch ID / Face ID** (your menu). From then on,
+choose **Sign in with Touch ID** on the login page: no username, no link. It is a passkey
+kept on that device, and every person can set up their own. Adding one needs a recent
+strong sign-in ([sudo mode](#sudo-mode-confirm-it-is-you)): confirm with a passkey you
+already have, or, for your first, sign in with Google, GitHub or an emailed link first.
+You are emailed about every passkey added or removed.
 
 The dashboard names it the way your device does: Touch ID / Face ID on a Mac, iPhone
 or iPad, Windows Hello on Windows, fingerprint or face on Android, and a passkey

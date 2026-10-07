@@ -93,6 +93,27 @@ func NewKey(d NewKeyData) (*Email, error) {
 	return render("new-key", d)
 }
 
+// NewPasskeyData fills new-passkey: A passkey was added to someone's sign-ins (sent to them).
+type NewPasskeyData struct {
+	Brand      string // "ShipTiffin" on shiptiffin.com, "Tiffin" on a self-hosted box
+	Host       string // The dashboard's host, e.g. dashboard.example.com
+	MarkURL    string // The mark as a PNG (email-mark.png on the dashboard); empty for none
+	First      string // First name; empty when the box doesn't know it
+	Name       string // The passkey's name: "MacBook"
+	When       string // "Wednesday 7 October, 14:32 UTC"
+	Device     string // The browser it was added in: "Chrome on macOS"; empty when unknown
+	Where      string // The country the address is in, "United States"; empty when unknown
+	IP         string // The address it came from; empty to leave it out
+	URL        string // Their passkeys page in the dashboard; empty for no button
+	ShownURL   string // The same address without https://: "dashboard.example.com/settings/passkeys"
+	SignInsURL string // Their sign-ins page (to sign out everywhere else); empty for none
+}
+
+// NewPasskey renders new-passkey: A passkey was added to someone's sign-ins (sent to them).
+func NewPasskey(d NewPasskeyData) (*Email, error) {
+	return render("new-passkey", d)
+}
+
 // NewSignInData fills new-sign-in: Someone signed in from a browser the box hasn't seen them use.
 type NewSignInData struct {
 	Brand       string // "ShipTiffin" on shiptiffin.com, "Tiffin" on a self-hosted box
@@ -115,6 +136,27 @@ type NewSignInData struct {
 // NewSignIn renders new-sign-in: Someone signed in from a browser the box hasn't seen them use.
 func NewSignIn(d NewSignInData) (*Email, error) {
 	return render("new-sign-in", d)
+}
+
+// PasskeyRemovedData fills passkey-removed: A passkey was removed from someone's sign-ins (sent to them).
+type PasskeyRemovedData struct {
+	Brand      string // "ShipTiffin" on shiptiffin.com, "Tiffin" on a self-hosted box
+	Host       string // The dashboard's host, e.g. dashboard.example.com
+	MarkURL    string // The mark as a PNG (email-mark.png on the dashboard); empty for none
+	First      string // First name; empty when the box doesn't know it
+	Name       string // The passkey's name: "MacBook"
+	When       string // "Wednesday 7 October, 14:32 UTC"
+	Device     string // The browser it was removed in: "Chrome on macOS"; empty when unknown
+	Where      string // The country the address is in, "United States"; empty when unknown
+	IP         string // The address it came from; empty to leave it out
+	URL        string // Their passkeys page in the dashboard; empty for no button
+	ShownURL   string // The same address without https://: "dashboard.example.com/settings/passkeys"
+	SignInsURL string // Their sign-ins page (to sign out everywhere else); empty for none
+}
+
+// PasskeyRemoved renders passkey-removed: A passkey was removed from someone's sign-ins (sent to them).
+func PasskeyRemoved(d PasskeyRemovedData) (*Email, error) {
+	return render("passkey-removed", d)
 }
 
 // RelayTestData fills relay-test: The test email from Settings › Email (tiffin email relay test).
@@ -149,4 +191,4 @@ func SignIn(d SignInData) (*Email, error) {
 }
 
 // Names lists every box email.
-var Names = []string{"alert", "invite", "link", "new-key", "new-sign-in", "relay-test", "sign-in"}
+var Names = []string{"alert", "invite", "link", "new-key", "new-passkey", "new-sign-in", "passkey-removed", "relay-test", "sign-in"}

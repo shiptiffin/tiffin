@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/btahir/tiffin/internal/passkeys"
+	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
 )
 
@@ -43,41 +44,57 @@ func (a *API) registerPasskeys() {
 			return &struct{ Body []passkeys.Passkey }{l}, passkeyErr(err)
 		}))
 
-	huma.Register(api, op("passkey-register-begin", http.MethodPost, "/v1/passkeys/register", "-", RiskWrite, "Start adding a passkey",
-		"Returns WebAuthn creation options for a discoverable passkey (resident key and user verification required), so it can sign you in without a username. Any person's dashboard session; never API keys (the dashboard calls this).", "passkeys"),
-		wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body any }, error) {
-			m, err := a.passkeysMgr()
-			if err != nil {
-				return nil, err
-			}
-			opts, err := m.BeginRegistration(ctx, PrincipalFrom(ctx))
-			if err != nil {
-				return nil, passkeyErr(err)
-			}
-			return &struct{ Body any }{opts}, nil
-		}))
+	rb := op("passkey-register-begin", http.MethodPost, "/v1/passkeys/register", "-", RiskWrite, "Start adding a passkey",
+		"Returns WebAuthn creation options for a discoverable passkey (resident key and user verification required), so it can sign you in without a username. "+
+			"Any person's dashboard session; never API keys (the dashboard calls this). A passkey signs in for good, so in a dashboard session adding one "+
+			"needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes, or a confirmation with one of your passkeys "+
+			"(POST /v1/session/confirm): reauth_required otherwise.", "passkeys")
+	huma.Register(api, rb, wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body any }, error) {
+		m, err := a.passkeysMgr()
+		if err != nil {
+			return nil, err
+		}
+		p := PrincipalFrom(ctx)
+		if err := a.deps.Tokens.RequireSudo(ctx, p, tokens.ErrReauthPasskey); err != nil {
+			return nil, err
+		}
+		opts, err := m.BeginRegistration(ctx, p)
+		if err != nil {
+			return nil, passkeyErr(err)
+		}
+		return &struct{ Body any }{opts}, nil
+	}))
 
-	huma.Register(api, op("passkey-register-finish", http.MethodPost, "/v1/passkeys", "-", RiskWrite, "Finish adding a passkey",
-		"Stores the passkey from navigator.credentials.create(). It signs this person in to the dashboard from then on.", "passkeys"),
-		wrap(func(ctx context.Context, in *struct {
-			Body struct {
-				Name       string          `json:"name,omitempty" maxLength:"64"`
-				Credential json.RawMessage `json:"credential"`
-			}
-		}) (*struct{ Body *passkeys.Passkey }, error) {
-			m, err := a.passkeysMgr()
-			if err != nil {
-				return nil, err
-			}
-			pk, err := m.FinishRegistration(ctx, PrincipalFrom(ctx), in.Body.Name, in.Body.Credential)
-			if err != nil {
-				return nil, passkeyErr(err)
-			}
-			return &struct{ Body *passkeys.Passkey }{pk}, nil
-		}))
+	rf := op("passkey-register-finish", http.MethodPost, "/v1/passkeys", "-", RiskWrite, "Finish adding a passkey",
+		"Stores the passkey from navigator.credentials.create(). It signs this person in to the dashboard from then on. "+
+			"Needs the same recent sign-in as starting (reauth_required otherwise), and emails the person a \"New passkey\" notice "+
+			"with the browser, address and country it came from.", "passkeys")
+	rf.Middlewares = huma.Middlewares{withClientIP}
+	huma.Register(api, rf, wrap(func(ctx context.Context, in *struct {
+		Body struct {
+			Name       string          `json:"name,omitempty" maxLength:"64"`
+			Credential json.RawMessage `json:"credential"`
+		}
+	}) (*struct{ Body *passkeys.Passkey }, error) {
+		m, err := a.passkeysMgr()
+		if err != nil {
+			return nil, err
+		}
+		p := PrincipalFrom(ctx)
+		if err := a.deps.Tokens.RequireSudo(ctx, p, tokens.ErrReauthPasskey); err != nil {
+			return nil, err
+		}
+		pk, err := m.FinishRegistration(ctx, p, in.Body.Name, in.Body.Credential)
+		if err != nil {
+			return nil, passkeyErr(err)
+		}
+		a.passkeyNotice(ctx, p, BoxMailNewPasskey, pk)
+		return &struct{ Body *passkeys.Passkey }{pk}, nil
+	}))
 
 	del := op("passkey-delete", http.MethodDelete, "/v1/passkeys/{id}", "passkeys delete", RiskDestructive, "Remove a passkey",
-		"Removes one of your passkeys immediately: it no longer signs you in.", "passkeys")
+		"Removes one of your passkeys immediately: it no longer signs you in. The person is emailed a \"Passkey removed\" notice.", "passkeys")
+	del.Middlewares = huma.Middlewares{withClientIP}
 	huma.Register(api, del, wrap(func(ctx context.Context, in *struct {
 		ID string `path:"id" maxLength:"256"`
 	}) (*struct{}, error) {
@@ -85,6 +102,12 @@ func (a *API) registerPasskeys() {
 		if err != nil {
 			return nil, err
 		}
-		return &struct{}{}, passkeyErr(m.DeletePasskey(ctx, PrincipalFrom(ctx), in.ID))
+		p := PrincipalFrom(ctx)
+		pk, err := m.DeletePasskey(ctx, p, in.ID)
+		if err != nil {
+			return nil, passkeyErr(err)
+		}
+		a.passkeyNotice(ctx, p, BoxMailPasskeyRemoved, pk)
+		return &struct{}{}, nil
 	}))
 }

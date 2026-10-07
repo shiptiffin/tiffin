@@ -25,6 +25,7 @@ type fakeMailer struct {
 	mu      sync.Mutex
 	sent    []api.BoxMail
 	relayed bool
+	inboxTo string // with relayed: mail to this address stays in the dev inbox anyway (a reserved domain)
 }
 
 func (f *fakeMailer) SendBoxMail(_ context.Context, _ *platform.Platform, m api.BoxMail) (*api.BoxMailResult, error) {
@@ -32,7 +33,7 @@ func (f *fakeMailer) SendBoxMail(_ context.Context, _ *platform.Platform, m api.
 	defer f.mu.Unlock()
 	f.sent = append(f.sent, m)
 	d := "inbox"
-	if f.relayed {
+	if f.relayed && m.To != f.inboxTo {
 		d = "relay"
 	}
 	return &api.BoxMailResult{Delivery: d, To: m.To}, nil
@@ -206,6 +207,7 @@ func TestEmailSignInLink(t *testing.T) {
 
 func TestEmailSignInRateLimits(t *testing.T) {
 	e := newMailEnv(t)
+	e.f.relayed = true // links are only mailed through a relay
 	e.call(e.owner, "POST", "/v1/people", map[string]any{"name": "Maya", "email": "maya@example.com", "role": "member", "notify": false})
 
 	// Per address: the fourth request within the hour is refused, for a

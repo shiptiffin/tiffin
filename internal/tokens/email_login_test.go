@@ -81,6 +81,13 @@ func TestSetPersonEmail(t *testing.T) {
 		t.Fatal(err)
 	}
 	annP, _ := m.Authenticate(ctx, sec)
+	// A session that hasn't proved who is behind it lately can't change it.
+	if _, err := m.SetPersonEmail(ctx, annP, ann.ID, "ann@example.com"); !errors.Is(err, ErrReauth) || !errors.Is(err, ErrReauthEmail) {
+		t.Fatalf("set own email without confirming: %v", err)
+	}
+	if _, err := m.ConfirmSession(ctx, annP, ann.ID); err != nil {
+		t.Fatal(err)
+	}
 	if p, err := m.SetPersonEmail(ctx, annP, ann.ID, "ann@example.com"); err != nil || p.Email != "ann@example.com" {
 		t.Fatalf("set own email: %v %v", p, err)
 	}

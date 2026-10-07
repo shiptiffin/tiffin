@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btahir/tiffin/internal/passkeys"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
@@ -25,7 +26,8 @@ import (
 // The box's own mail to the people who use its dashboard: invites, sign-in
 // links (sent by an admin, or asked for on the login page), a notice when
 // someone signs in from a browser the box has not seen them use before, and
-// one when they create an API key in the dashboard. The
+// one when they create an API key in the dashboard or add or remove a
+// passkey. The
 // email module sends it (SetBoxMailer): through the relay when the box has
 // one, else into the box's dev inbox, like any other mail.
 
@@ -36,6 +38,10 @@ const (
 	BoxMailSignIn    = "sign-in"     // a link the person asked for on the login page
 	BoxMailNewDevice = "new-sign-in" // they signed in from a new browser
 	BoxMailNewKey    = "new-key"     // they created an API key in the dashboard
+	// BoxMailNewPasskey: a passkey was added to their sign-ins.
+	BoxMailNewPasskey = "new-passkey"
+	// BoxMailPasskeyRemoved: one of their passkeys was removed.
+	BoxMailPasskeyRemoved = "passkey-removed"
 )
 
 // BoxMail is one message from the box to a person.
@@ -47,14 +53,16 @@ type BoxMail struct {
 	URL       string    // the sign-in link (invite, link, sign-in)
 	ExpiresAt time.Time // when the link stops working
 	By        string    // who invited them or made the link
-	Device    string    // new-sign-in, new-key: "Chrome on macOS"
-	IP        string    // new-sign-in, new-key: the address it came from
-	Where     string    // new-sign-in, new-key: the country that address is in ("United States"); empty when unknown
+	Device    string    // new-sign-in, new-key, passkey notices: "Chrome on macOS"
+	IP        string    // new-sign-in, new-key, passkey notices: the address it came from
+	Where     string    // new-sign-in, new-key, passkey notices: the country that address is in ("United States"); empty when unknown
 	Via       string    // new-sign-in: how they signed in: "Sign-in link", "Passkey", "Google", "GitHub"
-	At        time.Time // new-sign-in, new-key: when
+	At        time.Time // new-sign-in, new-key, passkey notices: when
 	Dashboard string    // the dashboard's address
 	// new-key: the key (Device, IP, Where and At say where it was made from).
 	Key *tokens.Key
+	// new-passkey, passkey-removed: the passkey's name ("MacBook").
+	Passkey string
 }
 
 // BoxMailResult says what happened to a box message.
@@ -248,10 +256,17 @@ func (a *API) registerBoxMail() {
 }
 
 // emailSignIn sends a sign-in link to the person with addr, if there is one.
+// The link counts as a strong sign-in (proof they read that inbox), so it is
+// only made when the mail leaves the box: a link waiting in the box's dev
+// inbox is readable by any admin, and is cancelled at once.
 func (a *API) emailSignIn(ctx context.Context, addr, ip string) {
 	person, err := a.deps.Tokens.PersonByEmail(ctx, addr)
 	if err != nil {
 		_ = a.deps.DB.Audit(ctx, "via:email", "session.email_unknown", "", map[string]any{"ip": ip})
+		return
+	}
+	if bm := boxMailer(); bm == nil || !bm.BoxMailRelayed(ctx, a.deps.Platform) {
+		_ = a.deps.DB.Audit(ctx, "via:email", "session.email_link", person.ID, map[string]any{"ip": ip, "delivery": "none"})
 		return
 	}
 	code, exp, err := a.deps.Tokens.EmailLoginLink(ctx, person.ID)
@@ -263,6 +278,9 @@ func (a *API) emailSignIn(ctx context.Context, addr, ip string) {
 	delivery := ""
 	if res != nil {
 		delivery = res.Delivery
+	}
+	if delivery != "relay" {
+		_ = a.deps.Tokens.CancelEmailLinks(ctx, person.ID)
 	}
 	_ = a.deps.DB.Audit(ctx, "via:email", "session.email_link", person.ID, map[string]any{"ip": ip, "delivery": delivery})
 }
@@ -302,6 +320,39 @@ func (a *API) keyCreated(ctx context.Context, by *tokens.Principal, key *tokens.
 	}
 	a.sendLater(BoxMail{Kind: BoxMailNewKey, To: person.Email, Name: person.Name, Role: person.Role,
 		Device: device, IP: ip, Where: locate(ip), At: key.CreatedAt, Key: key})
+}
+
+// ---- passkey notices ----
+
+// passkeyNotice tells the person whose passkeys changed (kind is
+// BoxMailNewPasskey or BoxMailPasskeyRemoved), with the browser and address
+// it came from: a passkey signs in for good, so one added from a stolen
+// session must not go unnoticed, and a removal is worth knowing about too.
+func (a *API) passkeyNotice(ctx context.Context, by *tokens.Principal, kind string, pk *passkeys.Passkey) {
+	if pk == nil {
+		return
+	}
+	id := by.Person
+	if id == "" {
+		id = tokens.OwnerPerson // the owner's CLI token manages the owner's passkeys
+	}
+	person, err := a.deps.Tokens.GetPerson(ctx, id)
+	if err != nil || person.Email == "" {
+		return
+	}
+	ip := clientIPFrom(ctx)
+	device := ""
+	if by.IsSession() {
+		if c, err := a.deps.Tokens.SessionClient(ctx, by.TokenID); err == nil {
+			device = c.Device
+		}
+	}
+	at := time.Now().UTC()
+	if kind == BoxMailNewPasskey && !pk.CreatedAt.IsZero() {
+		at = pk.CreatedAt
+	}
+	a.sendLater(BoxMail{Kind: kind, To: person.Email, Name: person.Name, Role: person.Role,
+		Device: device, IP: ip, Where: locate(ip), At: at, Passkey: pk.Name})
 }
 
 // ---- new sign-in notices ----

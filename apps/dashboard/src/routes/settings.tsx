@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RenameSelf } from "@/components/name-ask";
 import { useState, type ReactNode } from "react";
-import { ApiError, api, notOnBox, type Invite, type Passkey, type Person, type Role } from "@/api/client";
+import { ApiError, api, isProblem, notOnBox, type Invite, type Passkey, type Person, type Role } from "@/api/client";
 import { q } from "@/api/queries";
 import { ActorMark } from "@/components/actor";
 import { Confirm } from "@/components/confirm";
+import { ConfirmItsYou } from "@/components/confirm-its-you";
 import { Command } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
 import { ProblemNote, sentence } from "@/components/problem";
@@ -38,6 +39,9 @@ export function PasskeysPage() {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<Passkey | null>(null);
+  // Sudo mode: a passkey signs in for good, so adding one needs a sign-in
+  // from the last 10 minutes; the box says reauth_required and we ask.
+  const [confirm, setConfirm] = useState<"ask" | "done" | null>(null);
 
   if (keys.isError && notOnBox(keys.error)) return <NotOnBox what="Passkeys" />;
 
@@ -51,7 +55,8 @@ export function PasskeysPage() {
       setLabel("");
       qc.invalidateQueries({ queryKey: ["passkeys"] });
     } catch (e) {
-      setError(e instanceof ApiError ? sentence(e.problem.detail ?? e.message) : passkeyError(e));
+      if (isProblem(e, "reauth_required")) setConfirm("ask");
+      else setError(e instanceof ApiError ? sentence(e.problem.detail ?? e.message) : passkeyError(e));
     } finally {
       setAdding(false);
     }
@@ -120,6 +125,42 @@ export function PasskeysPage() {
           </p>
         )}
       </Group>
+
+      <Dialog open={!!confirm} onOpenChange={(o) => !o && setConfirm(null)}>
+        <DialogContent className="max-w-md">
+          {confirm === "ask" && (
+            <ConfirmItsYou
+              why="A passkey signs in as you from now on, so Tiffin checks it’s really you first: adding one needs a sign-in from the last 10 minutes."
+              back="/settings/passkeys"
+              onBack={() => setConfirm(null)}
+              onConfirmed={() => setConfirm("done")}
+              noPasskeyNote="With a passkey, Google, GitHub or an emailed link you ask for. A link from the terminal doesn’t count."
+            />
+          )}
+          {confirm === "done" && (
+            <>
+              <DialogHeader>
+                <DialogTitle>It’s you</DialogTitle>
+                <DialogDescription>For the next 10 minutes you can add passkeys. Your browser asks for {words.how} next.</DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button type="button" variant="ghost" onClick={() => setConfirm(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    setConfirm(null);
+                    void add();
+                  }}
+                >
+                  Set up this device
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Confirm
         open={!!removing}

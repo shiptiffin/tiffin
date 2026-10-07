@@ -24,8 +24,8 @@ import (
 //
 // Both are rate-limited per client IP. Two more confirm, inside a dashboard
 // session, that the person is still at the keyboard ("sudo mode": creating a
-// long-lived or full-access API key needs a strong sign-in in the last 10
-// minutes):
+// long-lived or full-access API key, or adding a passkey, needs a strong
+// sign-in in the last 10 minutes):
 //
 //	POST /v1/session/confirm/options  -> WebAuthn assertion options
 //	POST /v1/session/confirm          -> {credential} -> {confirmedUntil}
@@ -229,7 +229,7 @@ func (a *API) registerPasskeySignIn() {
 
 // SessionConfirmed says until when the session counts as freshly signed in.
 type SessionConfirmed struct {
-	ConfirmedUntil time.Time `json:"confirmedUntil" doc:"Until then (10 minutes), this session may create long-lived and full-access API keys"`
+	ConfirmedUntil time.Time `json:"confirmedUntil" doc:"Until then (10 minutes), this session may create long-lived and full-access API keys and add passkeys"`
 }
 
 func (a *API) registerSessionConfirm() {
@@ -244,7 +244,7 @@ func (a *API) registerSessionConfirm() {
 
 	o := op("session-confirm-options", http.MethodPost, "/v1/session/confirm/options", "-", RiskWrite, "Start confirming it's you",
 		"Returns WebAuthn assertion options, like passkey sign-in, for confirming the person behind this dashboard session. "+
-			"Dashboard sessions only. Used by the dashboard before creating a long-lived or full-access API key.", "system")
+			"Dashboard sessions only. Used by the dashboard before creating a long-lived or full-access API key, or adding a passkey.", "system")
 	o.Errors = append(o.Errors, 429, 501)
 	o.Middlewares = huma.Middlewares{a.limitPerIP(optLimit, "confirm-options")}
 	huma.Register(api, o, wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body any }, error) {
@@ -264,7 +264,7 @@ func (a *API) registerSessionConfirm() {
 
 	f := op("session-confirm", http.MethodPost, "/v1/session/confirm", "-", RiskWrite, "Confirm it's you with a passkey",
 		"Verifies a passkey of the person signed in to this dashboard session. For the next 10 minutes the session may create "+
-			"API keys that last longer than a day or have full access. Dashboard sessions only.", "system")
+			"API keys that last longer than a day or have full access, and add passkeys. Dashboard sessions only.", "system")
 	f.Errors = append(f.Errors, 429, 501)
 	f.Middlewares = huma.Middlewares{a.limitPerIP(finLimit, "confirm")}
 	huma.Register(api, f, wrap(func(ctx context.Context, in *struct {

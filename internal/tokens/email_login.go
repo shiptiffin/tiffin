@@ -77,6 +77,15 @@ func (m *Manager) EmailLoginLink(ctx context.Context, personID string) (string, 
 	return code, exp, nil
 }
 
+// CancelEmailLinks stops every unspent emailed sign-in link of a person, e.g.
+// one whose mail stayed in the box's dev inbox instead of reaching them.
+func (m *Manager) CancelEmailLinks(ctx context.Context, personID string) error {
+	now := m.now().UTC()
+	_, err := m.db.SQL().ExecContext(ctx, `UPDATE login_links SET used_at = ? WHERE person = ? AND created_by = ? AND used_at IS NULL`,
+		ts(&now), personID, emailLinkCreator)
+	return err
+}
+
 // mintSession creates a dashboard session for a person with no sponsor
 // (a passkey, or a link they asked for by email). via goes in the audit log.
 func (m *Manager) mintSession(ctx context.Context, person *Person, via string) (string, *Token, error) {
@@ -131,6 +140,14 @@ func (m *Manager) SetPersonEmail(ctx context.Context, by *Principal, id, email s
 	}
 	if p.DisabledAt != nil {
 		return nil, ErrPersonNotFound
+	}
+	// A new address gets that person's emailed sign-in links (a strong
+	// sign-in), and the address hears about new keys and passkeys: from a
+	// dashboard session, changing it needs a recent strong sign-in.
+	if NormEmail(email) != NormEmail(p.Email) {
+		if err := m.RequireSudo(ctx, by, ErrReauthEmail); err != nil {
+			return nil, err
+		}
 	}
 	if taken, err := m.emailTaken(ctx, email, id); err != nil {
 		return nil, err

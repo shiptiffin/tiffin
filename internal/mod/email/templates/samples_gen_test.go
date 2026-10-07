@@ -61,6 +61,22 @@ var samples = map[string]func() (*Email, error){
 			SignInsURL: "https://dashboard.shiptiffin.com/settings/sign-ins",
 		})
 	},
+	"new-passkey": func() (*Email, error) {
+		return NewPasskey(NewPasskeyData{
+			Brand:      "ShipTiffin",
+			Host:       "dashboard.shiptiffin.com",
+			MarkURL:    "https://dashboard.shiptiffin.com/email-mark.png",
+			First:      "Sam",
+			Name:       "MacBook",
+			When:       "Wednesday 7 October, 14:32 UTC",
+			Device:     "Chrome on macOS",
+			Where:      "United Kingdom",
+			IP:         "198.51.100.7",
+			URL:        "https://dashboard.shiptiffin.com/settings/passkeys",
+			ShownURL:   "dashboard.shiptiffin.com/settings/passkeys",
+			SignInsURL: "https://dashboard.shiptiffin.com/settings/sign-ins",
+		})
+	},
 	"new-sign-in": func() (*Email, error) {
 		return NewSignIn(NewSignInData{
 			Brand:       "ShipTiffin",
@@ -78,6 +94,22 @@ var samples = map[string]func() (*Email, error){
 			ShownURL:    "dashboard.shiptiffin.com/settings/sign-ins",
 			PasskeysURL: "https://dashboard.shiptiffin.com/settings/passkeys",
 			KeysURL:     "https://dashboard.shiptiffin.com/settings/keys",
+		})
+	},
+	"passkey-removed": func() (*Email, error) {
+		return PasskeyRemoved(PasskeyRemovedData{
+			Brand:      "ShipTiffin",
+			Host:       "dashboard.shiptiffin.com",
+			MarkURL:    "https://dashboard.shiptiffin.com/email-mark.png",
+			First:      "Sam",
+			Name:       "MacBook",
+			When:       "Wednesday 7 October, 14:32 UTC",
+			Device:     "Chrome on macOS",
+			Where:      "United Kingdom",
+			IP:         "198.51.100.7",
+			URL:        "https://dashboard.shiptiffin.com/settings/passkeys",
+			ShownURL:   "dashboard.shiptiffin.com/settings/passkeys",
+			SignInsURL: "https://dashboard.shiptiffin.com/settings/sign-ins",
 		})
 	},
 	"relay-test": func() (*Email, error) {

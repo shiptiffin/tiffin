@@ -101,8 +101,10 @@ Each provider only sends from domains you have verified with it. The project's
 The dashboard sends its own mail through the same relay: an invite with the person's
 sign-in link (when you give their email address), a fresh link when you choose **Email a
 new sign-in link**, a link people ask for on the login page, a note when someone
-signs in from a new browser, and a note when someone creates an API key in the dashboard. The messages are plain text and simple HTML, with no
-images or tracking (SendGrid's click and open tracking is switched off for them).
+signs in from a new browser, a note when someone creates an API key in the dashboard, and
+a note when a passkey is added to or removed from someone's sign-ins. The messages are
+plain text and simple HTML, with no images or tracking (SendGrid's click and open
+tracking is switched off for them).
 
 The new-browser note goes out once per browser, never on someone's first sign-in. It
 names the browser, the time (UTC), how they signed in and where from: the country, looked
@@ -116,6 +118,11 @@ when it expires, when, and the browser, address and country it came from. Its bu
 **Review API keys**, opens **Settings › API keys**; "Wasn't you?" says to revoke it there
 and sign out everywhere else.
 
+The passkey notes go to the person whose passkeys changed, every time: *New passkey* names
+the passkey, when, and the browser, address and country it was added from; its button,
+**Review passkeys**, opens **Settings › Passkeys**, and "Wasn't you?" says to remove it
+there and sign out everywhere else. *Passkey removed* says the same about a removal.
+
 It comes from `Tiffin <hello@<box domain>>` until you change it under **Settings ›
 Email › Mail from the box**, where you can also set a Reply-To. The relay's mail service
 must accept the sender's domain.
@@ -128,7 +135,11 @@ tiffin people email <usr_id> --email maya@example.com
 ```
 
 Without a relay, box mail waits in the box's own dev inbox (the list under **Mail from
-the box**), and the invite dialog says so: copy the link and send it yourself.
+the box**), and the invite dialog says so: copy the link and send it yourself. The one
+exception is a sign-in link someone asks for on the login page: it counts as proof they
+read their inbox, so the box only makes one when the email leaves through the relay (one
+that would stay in the dev inbox, say for an address at a reserved test domain, is
+cancelled at once).
 
 ## Send from your own domain
 

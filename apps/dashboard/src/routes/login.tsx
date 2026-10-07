@@ -142,7 +142,7 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
             <div className="animate-rise" style={{ animationDelay: "60ms" }}>
               {reason === "confirm" && (
                 <p className="mt-2.5 text-md text-ink-2">
-                  New API keys outlive your session, so they need a sign-in from the last 10 minutes with{" "}
+                  Adding a passkey, changing an email address or making an API key that outlives your session needs a sign-in from the last 10 minutes with{" "}
                   {[canPasskey && words.name, ...providers.map((p) => p.name), byEmail && "an emailed link"].filter(Boolean).join(", ") || "a passkey, Google, GitHub or an emailed link"}.
                   A link from the terminal doesn’t count.
                 </p>

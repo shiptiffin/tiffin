@@ -147,11 +147,17 @@ Next.js pages, pages rendered on request, and Early Hints during a wake.
 - **Sign-ins** (Settings › Sign-ins) show the address and country a session signed in
   from, not where it is used now; last active is to the minute. Sessions from before this
   page existed show no browser or method. The list goes back 30 days.
-- **Confirming it's you for a new API key** takes a passkey, or signing in again with a
-  passkey, Google, GitHub or an emailed link. On a box with none of those set up (signed in
-  only with `tiffin login` links), the dashboard can make only read-only keys for a day;
-  add a passkey in Settings › Passkeys, or make the key with the CLI and the owner token.
+- **Confirming it's you** (for a long-lived or full-access API key, a new passkey or a
+  changed email address) takes one of your passkeys, or signing in again with a passkey,
+  Google, GitHub or an emailed link. A `tiffin login` link doesn't count. So on a box with
+  no Google or GitHub keys and no mail relay, someone signed in only with links can't add
+  their first passkey or change an email address in the dashboard, and can make only
+  read-only keys for a day there: connect a relay (Settings › Email) or the Google or
+  GitHub keys first, or use the CLI with the owner token (`tiffin tokens create`,
+  `tiffin people email`). Passkeys added before this keep working.
   Box-wide limits on how long keys may live don't exist yet.
+- **Removing a passkey** doesn't ask you to confirm it's you (it is emailed and audited),
+  and neither do inviting people or making sign-in links for them.
 - Admins can see the owner's sessions but not end them. There is no "sign everyone out"
   for the whole box; end each person's sessions in turn.
 - Browsers the box knows can't be forgotten one at a time, and the box doesn't name

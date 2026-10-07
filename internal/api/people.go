@@ -74,7 +74,9 @@ func (a *API) registerPeople() {
 
 	huma.Register(api, op("person-email-set", http.MethodPut, "/v1/people/{id}/email", "people email", RiskWrite, "Set a person's email",
 		"Sets or clears (empty) the address the box sends someone's invites, sign-in links and new sign-in notices to; with it they can also "+
-			"ask for a sign-in link on the login page. People may set their own; owners and admins anyone's. An address belongs to one person.", "people"),
+			"ask for a sign-in link on the login page. People may set their own; owners and admins anyone's. An address belongs to one person. "+
+			"From a dashboard session, a new address needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes "+
+			"(reauth_required otherwise), since emailed sign-in links will go there.", "people"),
 		wrap(func(ctx context.Context, in *struct {
 			ID   string `path:"id" maxLength:"40"`
 			Body struct {

@@ -3,6 +3,7 @@ package tokens
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -187,5 +188,62 @@ func TestKeyMadeByKeyIsCapped(t *testing.T) {
 	_, k, _ := m.CreateKey(ctx, pp, KeyRequest{Name: "short", Projects: Projects{"shop"}, Access: LevelRead, TTL: 24 * time.Hour})
 	if k.ExpiresAt == nil || k.ExpiresAt.After(*pp.ExpiresAt) || k.ExpiresAt.Sub(time.Now()) > 25*time.Hour {
 		t.Fatalf("shorter child: %v", k.ExpiresAt)
+	}
+}
+
+// RequireSudo (adding a passkey): sessions need a recent strong sign-in or
+// confirmation; the owner token and keys are never asked. The refusal is a
+// reauth_required (ErrReauth) that says what it was for.
+func TestRequireSudo(t *testing.T) {
+	m, owner, _ := setup(t)
+	ctx := context.Background()
+	ann, _ := m.AddPerson(ctx, owner, "Ann", "", RoleAdmin)
+	_, link := session(t, m, ann.ID, MethodLink)
+	err := m.RequireSudo(ctx, link, ErrReauthPasskey)
+	if !errors.Is(err, ErrReauth) || !errors.Is(err, ErrReauthPasskey) || !strings.Contains(err.Error(), "adding a passkey") {
+		t.Fatalf("link session: %v", err)
+	}
+	if errors.Is(ErrReauth, ErrReauthPasskey) {
+		t.Fatal("the key refusal reads as the passkey one")
+	}
+	if _, err := m.ConfirmSession(ctx, link, ann.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RequireSudo(ctx, link, ErrReauthPasskey); err != nil {
+		t.Fatalf("confirmed: %v", err)
+	}
+	m.now = func() time.Time { return time.Now().Add(SudoWindow + time.Minute) }
+	if err := m.RequireSudo(ctx, link, ErrReauthPasskey); !errors.Is(err, ErrReauth) {
+		t.Fatalf("confirmation lasted past 10 minutes: %v", err)
+	}
+	m.now = time.Now
+	_, google := session(t, m, ann.ID, MethodGoogle)
+	if err := m.RequireSudo(ctx, google, ErrReauthPasskey); err != nil {
+		t.Fatalf("google sign-in: %v", err)
+	}
+	if err := m.RequireSudo(ctx, owner, ErrReauthPasskey); err != nil {
+		t.Fatalf("owner token: %v", err)
+	}
+	secret, _, _ := m.CreateKey(ctx, owner, KeyRequest{Name: "k", Projects: Projects{AllProjects}, Access: LevelFull})
+	kp, _ := m.Authenticate(ctx, secret)
+	if err := m.RequireSudo(ctx, kp, ErrReauthPasskey); err != nil {
+		t.Fatalf("key: %v", err)
+	}
+}
+
+// An emailed link that stayed on the box is cancelled.
+func TestCancelEmailLinks(t *testing.T) {
+	m, owner, _ := setup(t)
+	ctx := context.Background()
+	ann, _ := m.AddPerson(ctx, owner, "Ann", "ann@example.com", RoleAdmin)
+	code, _, err := m.EmailLoginLink(ctx, ann.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.CancelEmailLinks(ctx, ann.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.RedeemLoginLink(ctx, code); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("cancelled link redeemed: %v", err)
 	}
 }

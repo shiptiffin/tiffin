@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { Fingerprint } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { api, isProblem, type CreatedToken, type Token } from "@/api/client";
 import { q } from "@/api/queries";
 import { Confirm } from "@/components/confirm";
+import { ConfirmItsYou } from "@/components/confirm-its-you";
 import { Command, CopyButton } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
 import { Page, PageHeader, Skeleton } from "@/components/page";
@@ -16,7 +16,6 @@ import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, Dia
 import { actorName } from "@/lib/actors";
 import { cn } from "@/lib/cn";
 import { relative } from "@/lib/time";
-import { getAssertion, passkeyError, passkeyWords, webauthnSupported } from "@/lib/webauthn";
 import { ProjectIcon } from "@/components/project-icon";
 
 /**
@@ -147,7 +146,7 @@ const field =
 export function CreateKeyDialog({ open, onOpenChange, project }: { open: boolean; onOpenChange: (o: boolean) => void; project?: string }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">{open && <CreateKey onClose={() => onOpenChange(false)} fixed={project} />}</DialogContent>
+      <DialogContent className="max-w-lg">{open && <CreateKey onClose={() => onOpenChange(false)} fixed={project} />}</DialogContent>
     </Dialog>
   );
 }
@@ -174,7 +173,17 @@ function CreateKey({ onClose, fixed }: { onClose: () => void; fixed?: string }) 
   });
   const ok = /^[a-z0-9][a-z0-9-_.]{0,63}$/i.test(name.trim()) && (all || picked.length > 0);
   if (created) return <SecretOnce created={created} onDone={onClose} />;
-  if (confirming) return <ConfirmItsYou name={name.trim()} onBack={() => (setConfirming(false), make.reset())} onConfirmed={() => make.mutate()} making={make.isPending} />;
+  if (confirming)
+    return (
+      <ConfirmItsYou
+        why={`${name.trim() || "This key"} will keep working after you sign out, so Tiffin checks it’s really you first. Keys that last more than a day, or have full access, need a sign-in from the last 10 minutes.`}
+        back={backHere}
+        working={make.isPending}
+        workingLabel="Creating…"
+        onBack={() => (setConfirming(false), make.reset())}
+        onConfirmed={() => make.mutate()}
+      />
+    );
   return (
     <form
       onSubmit={(e) => {
@@ -223,7 +232,7 @@ function CreateKey({ onClose, fixed }: { onClose: () => void; fixed?: string }) 
           <Pick value="read" title="Read only" />
         </Choices>
         <div>
-          <Choices label="Expires" row value={String(expires)} onValueChange={(v) => setExpires(Number(v) as Days)}>
+          <Choices label="Expires" row="grid" value={String(expires)} onValueChange={(v) => setExpires(Number(v) as Days)}>
             <Pick value="30" title="30 days" />
             <Pick value="90" title="90 days" />
             <Pick value="365" title="1 year" />
@@ -246,67 +255,10 @@ function CreateKey({ onClose, fixed }: { onClose: () => void; fixed?: string }) 
 }
 
 /**
- * Sudo mode: a key that outlives this session needs proof the person is still
- * here. A passkey confirms in place (10 minutes) and the key is made at once;
- * otherwise sign in again with a passkey, Google, GitHub or an emailed link.
+ * A Radix radio group of Picks: arrow keys move and choose, one tab stop.
+ * row lays them side by side; "grid" in equal columns, four to a row (two on
+ * a phone), so short choices like expiry never leave one hanging on its own.
  */
-function ConfirmItsYou({ name, onBack, onConfirmed, making }: { name: string; onBack: () => void; onConfirmed: () => void; making: boolean }) {
-  const words = passkeyWords();
-  const passkeys = useQuery({ ...q.passkeys, enabled: webauthnSupported(), retry: false });
-  const canPasskey = webauthnSupported() && (passkeys.data?.length ?? 0) > 0;
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  const confirm = async () => {
-    setError(null);
-    setBusy(true);
-    try {
-      await api.confirm(await getAssertion(await api.confirmOptions()));
-      onConfirmed();
-    } catch (e) {
-      // Closing the prompt is a choice, not an error.
-      if (!(e instanceof DOMException && (e.name === "NotAllowedError" || e.name === "AbortError"))) setError(e instanceof DOMException ? new Error(passkeyError(e)) : e);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <>
-      <DialogHeader>
-        <DialogTitle>Confirm it’s you</DialogTitle>
-        <DialogDescription>
-          {name || "This key"} will keep working after you sign out, so Tiffin checks it’s really you first. Keys that last more than a day, or have full
-          access, need a sign-in from the last 10 minutes.
-        </DialogDescription>
-      </DialogHeader>
-      <DialogBody className="flex flex-col gap-3">
-        {canPasskey && (
-          <Button variant="primary" size="lg" className="w-full" onClick={confirm} disabled={busy || making}>
-            <Fingerprint />
-            {busy ? `Waiting for ${words.button}…` : making ? "Creating…" : `Confirm with ${words.button}`}
-          </Button>
-        )}
-        <Button asChild size="lg" variant={canPasskey ? "secondary" : "primary"} className="w-full">
-          <Link to="/login" search={{ reason: "confirm", next: backHere }}>
-            Sign in again
-          </Link>
-        </Button>
-        <p className="text-xs text-ink-3">
-          {canPasskey
-            ? "Or sign in again with Google, GitHub or an emailed link, then create the key."
-            : "With a passkey, Google, GitHub or an emailed link. Add a passkey in Settings › Passkeys to confirm in place next time."}
-        </p>
-        {!!error && <ProblemNote error={error} />}
-      </DialogBody>
-      <DialogFooter>
-        <Button type="button" variant="ghost" onClick={onBack}>
-          Back
-        </Button>
-      </DialogFooter>
-    </>
-  );
-}
-
-/** A Radix radio group of Picks: arrow keys move and choose, one tab stop. */
 function Choices({
   label,
   row,
@@ -315,7 +267,7 @@ function Choices({
   children,
 }: {
   label: string;
-  row?: boolean;
+  row?: boolean | "grid";
   value: string;
   onValueChange: (v: string) => void;
   children: ReactNode;
@@ -328,7 +280,7 @@ function Choices({
         orientation={row ? "horizontal" : "vertical"}
         value={value}
         onValueChange={onValueChange}
-        className={cn("flex gap-1.5", row ? "flex-row flex-wrap" : "flex-col")}
+        className={cn(row === "grid" ? "grid grid-cols-2 gap-1.5 sm:grid-cols-4" : cn("flex gap-1.5", row ? "flex-row flex-wrap" : "flex-col"))}
       >
         {children}
       </RadioGroup>
@@ -343,8 +295,8 @@ function Pick({ value, title, note, children }: { value: string; title: string; 
         <span className="grid size-4 shrink-0 place-items-center rounded-full border border-rule-3 group-data-[state=checked]:border-brass" aria-hidden>
           <span className="hidden size-2 rounded-full bg-brass group-data-[state=checked]:block" />
         </span>
-        <span>
-          <span className="block text-[0.875rem] font-[550] text-ink">{title}</span>
+        <span className="min-w-0">
+          <span className="block text-[0.875rem] font-[550] whitespace-nowrap text-ink">{title}</span>
           {note && <span className="block text-xs text-ink-3">{note}</span>}
         </span>
       </RadioItem>

@@ -312,6 +312,33 @@ func (m *Manager) Confirmed(ctx context.Context, id string) bool {
 	return err == nil && !at.IsZero() && m.now().Sub(at) <= SudoWindow
 }
 
+// reauthError is a refusal that asks for a recent strong sign-in: it matches
+// ErrReauth (403 reauth_required) but says what it was for.
+type reauthError string
+
+func (e reauthError) Error() string        { return string(e) }
+func (e reauthError) Is(target error) bool { return target == ErrReauth }
+
+// ErrReauthPasskey asks the person to confirm it's them before adding a
+// passkey: a new passkey signs in for good and passes every later
+// confirmation, so a stolen session must not be able to add its own.
+var ErrReauthPasskey error = reauthError("confirm it's you first: adding a passkey needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes")
+
+// ErrReauthEmail asks the person to confirm it's them before changing an
+// email address: sign-in links people ask for go there, and such a link is a
+// strong sign-in, so a stolen session must not point it at another inbox.
+var ErrReauthEmail error = reauthError("confirm it's you first: changing an email address needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes")
+
+// RequireSudo returns refusal (an ErrReauth) when p is a dashboard session
+// that hasn't proved who is behind it within SudoWindow. API keys and the
+// owner token are never asked.
+func (m *Manager) RequireSudo(ctx context.Context, p *Principal, refusal error) error {
+	if p == nil || !p.IsSession() || m.Confirmed(ctx, p.TokenID) {
+		return nil
+	}
+	return refusal
+}
+
 // ConfirmSession records that the person behind session by just proved it
 // was them (a passkey of theirs), and returns until when that counts.
 func (m *Manager) ConfirmSession(ctx context.Context, by *Principal, person string) (time.Time, error) {

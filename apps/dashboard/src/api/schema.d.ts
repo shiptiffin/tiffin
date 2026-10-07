@@ -1763,7 +1763,7 @@ export interface paths {
         put?: never;
         /**
          * Finish adding a passkey
-         * @description Stores the passkey from navigator.credentials.create(). It signs this person in to the dashboard from then on.
+         * @description Stores the passkey from navigator.credentials.create(). It signs this person in to the dashboard from then on. Needs the same recent sign-in as starting (reauth_required otherwise), and emails the person a "New passkey" notice with the browser, address and country it came from.
          */
         post: operations["passkey-register-finish"];
         delete?: never;
@@ -1783,7 +1783,7 @@ export interface paths {
         put?: never;
         /**
          * Start adding a passkey
-         * @description Returns WebAuthn creation options for a discoverable passkey (resident key and user verification required), so it can sign you in without a username. Any person's dashboard session; never API keys (the dashboard calls this).
+         * @description Returns WebAuthn creation options for a discoverable passkey (resident key and user verification required), so it can sign you in without a username. Any person's dashboard session; never API keys (the dashboard calls this). A passkey signs in for good, so in a dashboard session adding one needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes, or a confirmation with one of your passkeys (POST /v1/session/confirm): reauth_required otherwise.
          */
         post: operations["passkey-register-begin"];
         delete?: never;
@@ -1804,7 +1804,7 @@ export interface paths {
         post?: never;
         /**
          * Remove a passkey
-         * @description Removes one of your passkeys immediately: it no longer signs you in.
+         * @description Removes one of your passkeys immediately: it no longer signs you in. The person is emailed a "Passkey removed" notice.
          */
         delete: operations["passkey-delete"];
         options?: never;
@@ -1870,7 +1870,7 @@ export interface paths {
         get?: never;
         /**
          * Set a person's email
-         * @description Sets or clears (empty) the address the box sends someone's invites, sign-in links and new sign-in notices to; with it they can also ask for a sign-in link on the login page. People may set their own; owners and admins anyone's. An address belongs to one person.
+         * @description Sets or clears (empty) the address the box sends someone's invites, sign-in links and new sign-in notices to; with it they can also ask for a sign-in link on the login page. People may set their own; owners and admins anyone's. An address belongs to one person. From a dashboard session, a new address needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes (reauth_required otherwise), since emailed sign-in links will go there.
          */
         put: operations["person-email-set"];
         post?: never;
@@ -5159,7 +5159,7 @@ export interface paths {
         put?: never;
         /**
          * Confirm it's you with a passkey
-         * @description Verifies a passkey of the person signed in to this dashboard session. For the next 10 minutes the session may create API keys that last longer than a day or have full access. Dashboard sessions only.
+         * @description Verifies a passkey of the person signed in to this dashboard session. For the next 10 minutes the session may create API keys that last longer than a day or have full access, and add passkeys. Dashboard sessions only.
          */
         post: operations["session-confirm"];
         delete?: never;
@@ -5179,7 +5179,7 @@ export interface paths {
         put?: never;
         /**
          * Start confirming it's you
-         * @description Returns WebAuthn assertion options, like passkey sign-in, for confirming the person behind this dashboard session. Dashboard sessions only. Used by the dashboard before creating a long-lived or full-access API key.
+         * @description Returns WebAuthn assertion options, like passkey sign-in, for confirming the person behind this dashboard session. Dashboard sessions only. Used by the dashboard before creating a long-lived or full-access API key, or adding a passkey.
          */
         post: operations["session-confirm-options"];
         delete?: never;
@@ -11831,7 +11831,7 @@ export interface components {
         SessionConfirmed: {
             /**
              * Format: date-time
-             * @description Until then (10 minutes), this session may create long-lived and full-access API keys
+             * @description Until then (10 minutes), this session may create long-lived and full-access API keys and add passkeys
              */
             confirmedUntil: string;
         };

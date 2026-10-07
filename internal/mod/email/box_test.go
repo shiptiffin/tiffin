@@ -102,6 +102,54 @@ func TestRenderBoxMail(t *testing.T) {
 		strings.Contains(nk.Text, "Device:") || strings.Contains(nk.Text, "Where:") || strings.Contains(nk.HTML, "<b>k</b>") {
 		t.Fatalf("new-key without device:\n%s", nk.Text)
 	}
+	// Passkey notices: the passkey, when, the browser and address, the button
+	// to the passkeys page and "Wasn't you?" to the sign-ins page.
+	np, err := renderBoxMail(api.BoxMail{Kind: api.BoxMailNewPasskey, Name: "Maya Okafor", Role: "member", Passkey: "MacBook", Device: "Chrome on macOS",
+		IP: "198.51.100.7", Where: "United Kingdom", At: now, Dashboard: "https://dashboard.shiptiffin.com"}, "shiptiffin.com", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if np.Subject != `New passkey "MacBook" on ShipTiffin` {
+		t.Errorf("new-passkey subject: %q", np.Subject)
+	}
+	for _, want := range []string{"\nMaya, a passkey was just added to your sign-ins. From now on it signs in to your box as you.", "Passkey: MacBook",
+		"When: Tuesday 6 October, 21:00 UTC", "Device: Chrome on macOS", "Where: United Kingdom · 198.51.100.7", "If you added it, there's nothing to do.",
+		"Review passkeys: https://dashboard.shiptiffin.com/settings/passkeys",
+		"Wasn't you? Remove it on that page, then sign out everywhere else: https://dashboard.shiptiffin.com/settings/sign-ins",
+		"Sent for every passkey added to your sign-ins · ShipTiffin"} {
+		if !strings.Contains(np.Text, want) {
+			t.Errorf("new-passkey text lacks %q:\n%s", want, np.Text)
+		}
+	}
+	for _, want := range []string{`href="https://dashboard.shiptiffin.com/settings/passkeys"`, "Review passkeys", `href="https://dashboard.shiptiffin.com/settings/sign-ins"`,
+		"rgb(242,176,54)", "rgb(37,23,12)", "MacBook", "United Kingdom"} {
+		if !strings.Contains(np.HTML, want) {
+			t.Errorf("new-passkey HTML lacks %q", want)
+		}
+	}
+	pr, err := renderBoxMail(api.BoxMail{Kind: api.BoxMailPasskeyRemoved, Name: "Owner", Passkey: "<b>Old phone</b>", At: now,
+		Dashboard: "https://dashboard.shiptiffin.com"}, "shiptiffin.com", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pr.Subject != `Passkey "<b>Old phone</b>" removed on ShipTiffin` {
+		t.Errorf("passkey-removed subject: %q", pr.Subject)
+	}
+	for _, want := range []string{"\nA passkey was just removed from your sign-ins. It no longer signs in to your box.", "Passkey: <b>Old phone</b>",
+		"Review passkeys: https://dashboard.shiptiffin.com/settings/passkeys",
+		"Wasn't you? Someone may be signed in as you: sign out everywhere else (https://dashboard.shiptiffin.com/settings/sign-ins), then remove any passkey you don't recognise.",
+		"Sent for every passkey removed from your sign-ins · ShipTiffin"} {
+		if !strings.Contains(pr.Text, want) {
+			t.Errorf("passkey-removed text lacks %q:\n%s", want, pr.Text)
+		}
+	}
+	// Unknown browser and address leave their rows out; the name is escaped.
+	if strings.Contains(pr.Text, "Device:") || strings.Contains(pr.Text, "Where:") || strings.Contains(pr.HTML, "<b>Old phone</b>") || !strings.Contains(pr.HTML, "&lt;b&gt;Old phone&lt;/b&gt;") {
+		t.Errorf("passkey-removed without device:\n%s", pr.Text)
+	}
+	if _, err := renderBoxMail(api.BoxMail{Kind: api.BoxMailNewPasskey}, "x", now); err == nil {
+		t.Fatal("new-passkey without a passkey")
+	}
 	if _, err := renderBoxMail(api.BoxMail{Kind: "nope"}, "x", now); err == nil {
 		t.Fatal("unknown kind")
 	}

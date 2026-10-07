@@ -2,7 +2,8 @@ import { useMutation } from "@tanstack/react-query";
 import { CircleAlert, MailCheck, Inbox } from "lucide-react";
 import { useState } from "react";
 import { boxMail, type BoxMailResult } from "@/api/modules";
-import type { Person } from "@/api/client";
+import { isProblem, type Person } from "@/api/client";
+import { ConfirmItsYou } from "@/components/confirm-its-you";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -45,13 +46,28 @@ function EmailForm({ person, self, onClose, onDone }: { person: Person; self: bo
   const [v, setV] = useState(person.email ?? "");
   const t = v.trim();
   const bad = t !== "" && !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(t);
+  // Sudo mode: emailed sign-in links go to this address, so changing it
+  // needs a sign-in from the last 10 minutes; the box says reauth_required.
+  const [confirming, setConfirming] = useState(false);
   const m = useMutation({
     mutationFn: () => boxMail.setEmail(person.id, t),
     onSuccess: () => {
       onDone();
       onClose();
     },
+    onError: (e) => isProblem(e, "reauth_required") && setConfirming(true),
   });
+  if (confirming)
+    return (
+      <ConfirmItsYou
+        why="Emailed sign-in links go to this address, so Tiffin checks it’s really you first: changing it needs a sign-in from the last 10 minutes."
+        back="/settings/people"
+        working={m.isPending}
+        workingLabel="Saving…"
+        onBack={() => (setConfirming(false), m.reset())}
+        onConfirmed={() => m.mutate()}
+      />
+    );
   return (
     <form
       className="flex min-h-0 flex-col"
@@ -82,7 +98,7 @@ function EmailForm({ person, self, onClose, onDone }: { person: Person; self: bo
           autoComplete={self ? "email" : "off"}
         />
         <p className={bad ? "text-sm text-danger" : "text-xs text-ink-3"}>{bad ? "That isn’t an email address." : "Leave it empty to remove it."}</p>
-        {m.isError && <ProblemNote className="mt-2" error={m.error} />}
+        {m.isError && !isProblem(m.error, "reauth_required") && <ProblemNote className="mt-2" error={m.error} />}
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="ghost" onClick={onClose}>

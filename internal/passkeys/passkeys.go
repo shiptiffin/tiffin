@@ -102,24 +102,36 @@ func (m *Manager) Passkeys(ctx context.Context, by *tokens.Principal) ([]Passkey
 	return out, rows.Err()
 }
 
-// DeletePasskey removes one passkey.
-func (m *Manager) DeletePasskey(ctx context.Context, by *tokens.Principal, id string) error {
+// DeletePasskey removes one passkey and returns what it was.
+func (m *Manager) DeletePasskey(ctx context.Context, by *tokens.Principal, id string) (*Passkey, error) {
 	if err := passkeyHolder(by); err != nil {
-		return err
+		return nil, err
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(id)
 	if err != nil {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
-	res, err := m.db.SQL().ExecContext(ctx, `DELETE FROM passkeys WHERE id = ? AND coalesce(person, ?) = ?`, raw, tokens.OwnerPerson, personOf(by))
-	if err != nil {
-		return err
+	pk := Passkey{ID: id}
+	var created string
+	err = m.db.SQL().QueryRowContext(ctx, `DELETE FROM passkeys WHERE id = ? AND coalesce(person, ?) = ? RETURNING name, created_at`,
+		raw, tokens.OwnerPerson, personOf(by)).Scan(&pk.Name, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
+	pk.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+	_ = m.db.Audit(ctx, by.TokenID, "passkey.delete", id, map[string]any{"summary": holderName(by) + " removed the passkey " + pk.Name,
+		"name": pk.Name, "person": personOf(by)})
+	return &pk, nil
+}
+
+// holderName names whoever acts on passkeys, for the audit log.
+func holderName(by *tokens.Principal) string {
+	if by.PersonName != "" {
+		return by.PersonName
 	}
-	_ = m.db.Audit(ctx, by.TokenID, "passkey.delete", id, nil)
-	return nil
+	return by.Name
 }
 
 // sessions hold in-flight WebAuthn ceremonies (challenge state) in the kv table.
@@ -195,6 +207,8 @@ func (m *Manager) FinishRegistration(ctx context.Context, by *tokens.Principal, 
 		cred.ID, name, string(raw), ts(now), personOf(by)); err != nil {
 		return nil, err
 	}
-	_ = m.db.Audit(ctx, by.TokenID, "passkey.add", name, nil)
-	return &Passkey{ID: base64.RawURLEncoding.EncodeToString(cred.ID), Name: name, CreatedAt: now}, nil
+	id := base64.RawURLEncoding.EncodeToString(cred.ID)
+	_ = m.db.Audit(ctx, by.TokenID, "passkey.add", id, map[string]any{"summary": holderName(by) + " added the passkey " + name,
+		"name": name, "person": personOf(by)})
+	return &Passkey{ID: id, Name: name, CreatedAt: now}, nil
 }

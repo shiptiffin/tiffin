@@ -98,6 +98,20 @@ func (e *env) addPasskey(token string, a *passkeytest.Authenticator) *passkeytes
 	return c
 }
 
+// sudo marks a dashboard session as freshly signed in (as a passkey, Google,
+// GitHub or emailed-link sign-in would), for tests that aren't about that.
+func (e *env) sudo(session string) string {
+	e.t.Helper()
+	p, err := e.tm.Authenticate(e.t.Context(), session)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if _, err := e.tm.ConfirmSession(e.t.Context(), p, p.Person); err != nil {
+		e.t.Fatal(err)
+	}
+	return session
+}
+
 func sessionCookie(t *testing.T, res *http.Response) *http.Cookie {
 	t.Helper()
 	for _, c := range res.Cookies() {
@@ -113,13 +127,14 @@ func TestPasskeySignIn(t *testing.T) {
 	e, _ := newPasskeyEnv(t)
 	a := passkeytest.New(pkOrigin)
 
-	// Sam is invited as a member, signs in with the link and adds a passkey.
+	// Sam is invited as a member, signs in with the link and (having just
+	// proved it's him) adds a passkey.
 	_, inv, _ := e.call(e.owner, "POST", "/v1/people", map[string]any{"name": "Sam", "role": "member"})
 	person := inv["person"].(map[string]any)["id"].(string)
 	link := strings.SplitN(inv["url"].(string), "#", 2)[1]
 	res, _ := e.post("/v1/session", "198.51.100.1", map[string]any{"code": link})
 	linkSession := sessionCookie(t, res).Value
-	cred := e.addPasskey(linkSession, a)
+	cred := e.addPasskey(e.sudo(linkSession), a)
 	if code, l, _ := e.call(linkSession, "GET", "/v1/passkeys", nil); code != 200 {
 		t.Fatalf("member lists passkeys: %d %v", code, l)
 	}

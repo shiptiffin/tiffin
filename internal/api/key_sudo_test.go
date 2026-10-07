@@ -101,7 +101,7 @@ func TestDashboardKeySudoMailAndLifetime(t *testing.T) {
 	// Someone else's passkey doesn't confirm Ada; API keys can't confirm at all.
 	_, binv, _ := e.call(e.owner, "POST", "/v1/people", map[string]any{"name": "Bob", "role": "admin", "notify": false})
 	res, _ = e.post("/v1/session", "198.51.100.5", map[string]any{"code": codeOf(binv["url"].(string))})
-	bobCred := e.addPasskey(sessionCookie(t, res).Value, a)
+	bobCred := e.addPasskey(e.sudo(sessionCookie(t, res).Value), a)
 	if code, out := e.confirm(link, a, bobCred); code != 403 || !strings.Contains(out["detail"].(string), "someone else") {
 		t.Fatalf("confirmed with Bob's passkey: %d %v", code, out)
 	}
@@ -109,8 +109,11 @@ func TestDashboardKeySudoMailAndLifetime(t *testing.T) {
 		t.Fatalf("owner token asked to confirm: %d", code)
 	}
 
-	// Ada adds a passkey and confirms with it: 10 minutes to make keys.
-	adaCred := e.addPasskey(link, a)
+	// Ada adds a passkey (on her phone, signed in just now) and confirms this
+	// session with it: 10 minutes to make keys.
+	_, again, _ := e.call(e.owner, "POST", "/v1/people/"+ada+"/login-link", nil)
+	res, _ = e.post("/v1/session", "198.51.100.4", map[string]any{"code": codeOf(again["url"].(string))})
+	adaCred := e.addPasskey(e.sudo(sessionCookie(t, res).Value), a)
 	code, out := e.confirm(link, a, adaCred)
 	if code != 200 || out["confirmedUntil"] == nil {
 		t.Fatalf("confirm: %d %v", code, out)
