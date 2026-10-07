@@ -31,9 +31,13 @@ func (a *app) doctorCmd() *cobra.Command {
 			var checks []check
 			add := func(name string, ok bool, detail string) { checks = append(checks, check{name, ok, detail}) }
 
-			_, bx := a.currentBox()
+			name, bx := a.currentBox()
 			if bx != nil && a.url == "" && !a.homeExplicit {
-				add("box", true, "local box at "+bx.URL)
+				where := "local box"
+				if bx.Provider != "" && bx.Provider != "local" {
+					where = bx.Provider + " box"
+				}
+				add("box", true, fmt.Sprintf("%s %q at %s", where, name, bx.URL))
 			} else if a.url == "" {
 				fi, err := os.Stat(a.home)
 				switch {
