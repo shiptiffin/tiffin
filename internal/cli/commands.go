@@ -437,8 +437,23 @@ func (a *app) serveCmd() *cobra.Command {
 				return err
 			}
 			hs := apiServer(serveMux(b))
-			errc := make(chan error, 1)
+			errc := make(chan error, 2)
 			go func() { errc <- hs.Serve(ln) }()
+			upstream := ln.Addr().String()
+			if onBox && edgeExternal {
+				// The edge reaches the API on a socket in the box's home: apps
+				// share the host network, and one could take the TCP port while
+				// this service restarts and receive the dashboard's requests.
+				sock := filepath.Join(a.home, apiSocket)
+				_ = os.Remove(sock)
+				uln, err := net.Listen("unix", sock)
+				if err != nil {
+					return err
+				}
+				_ = os.Chmod(sock, 0o600)
+				go func() { errc <- hs.Serve(edgeListener{uln}) }()
+				upstream = "unix/" + sock
+			}
 			base := "http://" + ln.Addr().String()
 			withEdge = withEdge || edgeExternal
 			if withEdge {
@@ -449,7 +464,7 @@ func (a *app) serveCmd() *cobra.Command {
 				_, _ = rand.Read(k[:])
 				edgeKey := base64.RawURLEncoding.EncodeToString(k[:])
 				api.SetEdgeKey(edgeKey)
-				ecfg := edge.Config{Domain: domain, Apps: reach.AppsDomain, Dashboard: reach.Dashboard, DashboardURL: publicURL, Upstream: ln.Addr().String(), UpstreamKey: edgeKey, DataDir: filepath.Join(a.home, "edge"),
+				ecfg := edge.Config{Domain: domain, Apps: reach.AppsDomain, Dashboard: reach.Dashboard, DashboardURL: publicURL, Upstream: upstream, UpstreamKey: edgeKey, DataDir: filepath.Join(a.home, "edge"),
 					HTTPPort: httpPort, HTTPSPort: httpsPort, Internal: !reach.ACME, AccessLog: accessLog(onBox)}
 				if reach.ACME {
 					ecfg.ACME = &edge.ACME{CA: reach.ACMEDirectory, Email: reach.ACMEEmail, TrustedRoots: reach.ACMERoots}
@@ -524,6 +539,27 @@ func (a *app) serveCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&resolvers, "dns-resolver", nil, "DNS servers (host:port) for the box's DNS checks; default public resolvers [TIFFIN_DNS_RESOLVER]")
 	return cmd
 }
+
+// apiSocket is the API's socket for the edge, in the box's home.
+const apiSocket = "api.sock"
+
+// edgeListener accepts the edge's connections on the API's socket. They
+// carry the client's address in X-Forwarded-For as the edge's loopback
+// connections do, so they report a loopback peer, which the API trusts
+// for it.
+type edgeListener struct{ net.Listener }
+
+func (l edgeListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return edgeConn{c}, nil
+}
+
+type edgeConn struct{ net.Conn }
+
+func (edgeConn) RemoteAddr() net.Addr { return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)} }
 
 // AccessLogPath is where the box's edge writes JSON access logs (analytics reads them).
 const AccessLogPath = "/var/lib/tiffin/logs/access.log"

@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -534,5 +535,44 @@ func TestUpstreamKeyOnlyToDashboard(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("key not on the dashboard route")
+	}
+}
+
+// On a box the edge reaches the API on a Unix socket, which no app can
+// listen on in its place (apps share the host's loopback ports).
+func TestDashboardUpstreamOnAUnixSocket(t *testing.T) {
+	isolate(t)
+	dir, err := os.MkdirTemp("", "edge-sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "api.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "api %s for %s", r.URL.Path, r.Header.Get("X-Forwarded-For"))
+	}))
+	up.Listener = ln
+	up.Start()
+	t.Cleanup(up.Close)
+	if _, err := ConfigJSON(Config{Domain: "tiffin.localhost", Upstream: "unix/api.sock", DataDir: "/x", Internal: true}); err == nil {
+		t.Fatal("a relative socket path was taken")
+	}
+	cfg := testConfig(t, "unix/"+sock)
+	e, err := Start(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { e.Stop() })
+	ca, err := e.RootCAPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, body := get(t, client(t, ca, cfg.HTTPSPort), "https://dashboard.tiffin.localhost:"+strconv.Itoa(cfg.HTTPSPort)+"/v1/health")
+	if resp.StatusCode != 200 || !strings.HasPrefix(body, "api /v1/health for 127.0.0.1") {
+		t.Fatalf("dashboard over the socket: %d %q", resp.StatusCode, body)
 	}
 }

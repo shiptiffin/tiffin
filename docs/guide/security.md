@@ -10,6 +10,16 @@ Plainly, so you can decide what to trust it with.
   service you connect, so an app can't hurt the box's sending reputation behind your back.
   Each project may only send as its own addresses (`<project>@<box domain>` or its
   verified sending domain), never as the box or another project.
+- **Apps share the box's network, not each other's traffic.** Apps listen on loopback
+  ports of the host, so an app could take a port another app left free (asleep, or
+  restarting). Every connection the box opens to an app (requests, health checks, queue
+  jobs and crons) is checked first: the kernel names the cgroup of the process that
+  answers, and it must be in the app's project. A port another project took gets no
+  request, and a wake starts the app on a new port. App containers run without raw
+  sockets (they can't read loopback traffic), without ports below 1024 (they can't join
+  the edge's sockets on 80 and 443) and can't gain privileges through setuid programs.
+  The edge reaches the dashboard and API on a Unix socket no app can reach. What this
+  does not cover yet is in [Limits](limits.md#isolation-between-apps).
 - **HTTPS everywhere.** A server with a public address gets certificates from a public CA
   (Let's Encrypt). Locally the box has its own certificate authority, created on the box
   and never shared. `tiffin trust` adds it to your Mac's keychain.

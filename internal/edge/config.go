@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"net"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -26,13 +27,16 @@ type Config struct {
 	// is forwarded to 8475), linked from the "Nothing here" page. Default:
 	// https://<dashboard host>[:HTTPSPort].
 	DashboardURL string
-	Upstream     string  // tiffin API/dashboard http address, e.g. "127.0.0.1:7070"
-	DataDir      string  // Caddy storage (certs, CA), e.g. /var/lib/tiffin/platform/caddy
-	HTTPPort     int     // default 80
-	HTTPSPort    int     // default 443
-	Internal     bool    // true: Caddy internal CA (local/dev); false: public ACME (see ACME)
-	Routes       []Route // extra host -> upstream routes
-	AccessLog    string  // file for JSON access logs (rolled); empty disables them
+	// Upstream is the tiffin API/dashboard: "127.0.0.1:7070", or on a box
+	// "unix//var/lib/tiffin/platform/api.sock" (Caddy's notation), a
+	// socket no app can listen on or reach.
+	Upstream  string
+	DataDir   string  // Caddy storage (certs, CA), e.g. /var/lib/tiffin/platform/caddy
+	HTTPPort  int     // default 80
+	HTTPSPort int     // default 443
+	Internal  bool    // true: Caddy internal CA (local/dev); false: public ACME (see ACME)
+	Routes    []Route // extra host -> upstream routes
+	AccessLog string  // file for JSON access logs (rolled); empty disables them
 	// ACME configures public certificates; required when Internal is false.
 	ACME *ACME
 	// UpstreamKey is sent to Upstream (only) as the EdgeKeyHeader, so the API
@@ -208,8 +212,12 @@ func (c Config) normalized() (Config, error) {
 	} else if c.Apps != "" && (validHost(c.Apps) != nil || strings.Contains(c.Apps, "*")) {
 		return c, fmt.Errorf("edge: invalid apps domain %q", c.Apps)
 	}
-	if _, _, err := net.SplitHostPort(c.Upstream); err != nil {
-		return c, fmt.Errorf("edge: invalid Upstream %q: want host:port", c.Upstream)
+	if sock, ok := strings.CutPrefix(c.Upstream, "unix/"); ok {
+		if !filepath.IsAbs(sock) {
+			return c, fmt.Errorf("edge: invalid Upstream %q: want unix/<absolute path>", c.Upstream)
+		}
+	} else if _, _, err := net.SplitHostPort(c.Upstream); err != nil {
+		return c, fmt.Errorf("edge: invalid Upstream %q: want host:port or unix/<path>", c.Upstream)
 	}
 	if strings.TrimSpace(c.DataDir) == "" {
 		return c, errors.New("edge: DataDir is required")
