@@ -89,8 +89,10 @@ export function oauthRefusal(reason?: string): { tone: "note" | "error"; text: s
         text:
           m[1] === "github"
             ? "That GitHub account's primary email isn't verified, so the box can't match it to anyone. Verify it on GitHub, or sign in another way."
-            : "Google hasn't verified that account's email, so the box can't match it to anyone. Sign in another way.",
+            : "Google only vouches for Gmail and Google Workspace addresses, so the box can't match that account to anyone. Sign in with an email link instead.",
       };
+    case "linked":
+      return { tone: "error", text: `You sign in here with another ${name} account. Use that one, or sign in another way.` };
     case "denied":
       return { tone: "note", text: `You cancelled signing in with ${name}.` };
     case "expired":
