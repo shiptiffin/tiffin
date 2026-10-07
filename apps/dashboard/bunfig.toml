@@ -1,0 +1,7 @@
+# Same supply-chain guard as the repository root's bunfig.toml.
+[install]
+minimumReleaseAge = 259200
+
+# Unit tests live in test/ (e2e/ is Playwright: bun run e2e).
+[test]
+root = "test"

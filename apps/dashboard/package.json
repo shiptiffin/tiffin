@@ -10,6 +10,7 @@
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint . && node scripts/check-overrides.mjs",
     "check:overrides": "node scripts/check-overrides.mjs",
+    "test": "bun test && tsc --noEmit -p test/tsconfig.json",
     "gen:api": "cd ../.. && TIFFIN_OPENAPI_OUT=\"$PWD/apps/dashboard/node_modules/.cache/openapi.json\" go test ./cmd/tiffin -run '^TestWriteOpenAPI$' -count=1 >/dev/null && cd apps/dashboard && openapi-typescript node_modules/.cache/openapi.json -o src/api/schema.d.ts",
     "gen:api:box": "openapi-typescript ${TIFFIN_URL:-http://127.0.0.1:7391}/v1/openapi.json -o src/api/schema.d.ts",
     "e2e": "playwright test --workers=1"

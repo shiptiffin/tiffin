@@ -1,4 +1,6 @@
 {
   "files": [],
+  // Bun's test runner resolves "@/…" from here (tsc builds the referenced projects).
+  "compilerOptions": { "paths": { "@/*": ["./src/*"] } },
   "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }]
 }

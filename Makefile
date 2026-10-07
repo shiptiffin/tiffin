@@ -74,7 +74,7 @@ test:
 	go test -race -skip '^TestACME' ./...
 	go test -run '^TestACME' ./internal/edge/
 	@if [ -f packages/package.json ] || ls packages/*/package.json >/dev/null 2>&1; then \
-		for d in packages/*/; do if [ -n "$$(find $$d -name '*.test.*' -not -path '*/node_modules/*' | head -1)" ]; then (cd $$d && bun test) || exit 1; fi; done; \
+		for d in packages/*/ apps/dashboard/; do if [ -n "$$(find $$d -name '*.test.*' -not -path '*/node_modules/*' | head -1)" ]; then (cd $$d && bun test) || exit 1; fi; done; \
 	else echo "packages: no JS packages yet, skipping bun test"; fi
 
 lint:
