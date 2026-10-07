@@ -585,9 +585,9 @@ func (r *rt) dispatchEvent(ctx context.Context, c *ghConn, event string, body []
 		r.gh.mu.Unlock()
 		c.App.Forget(ev.Installation.ID)
 		if ev.Action == "deleted" && c.Public {
-			ids := r.bound(ctx)
-			ids = slicesDelete(ids, ev.Installation.ID)
-			_ = r.setBound(ctx, ids)
+			b := r.bound(ctx)
+			delete(b, ev.Installation.ID)
+			_ = r.setBound(ctx, b)
 		}
 		if c.Public && !r.usable(ctx, c, ev.Installation.ID) {
 			return http.StatusAccepted, "not an installation of this box"
@@ -600,16 +600,6 @@ func (r *rt) dispatchEvent(ctx context.Context, c *ghConn, event string, body []
 		return r.onPullRequest(ctx, c, body)
 	}
 	return http.StatusAccepted, "ignored event " + event
-}
-
-func slicesDelete(ids []int64, id int64) []int64 {
-	out := ids[:0]
-	for _, x := range ids {
-		if x != id {
-			out = append(out, x)
-		}
-	}
-	return out
 }
 
 func installSummary(event string, ev *ghapp.InstallationEvent) string {
@@ -643,7 +633,7 @@ func (r *rt) onPush(ctx context.Context, c *ghConn, body []byte) (int, string) {
 	if branch == "" || ev.Deleted || !ghapp.ValidSHA(ev.After) {
 		return http.StatusAccepted, "nothing to deploy (tag, deletion or no commit)"
 	}
-	if !r.usable(ctx, c, ev.Installation.ID) {
+	if !r.repoUsable(ctx, c, ev.Installation.ID, ev.Repository.ID) {
 		return http.StatusAccepted, "not an installation of this box"
 	}
 	apps, err := r.appsFor(ctx, repo)
@@ -710,7 +700,7 @@ func (r *rt) onPullRequest(ctx context.Context, c *ghConn, body []byte) (int, st
 	if stale(ev.PullRequest.UpdatedAt.Time) {
 		return http.StatusUnprocessableEntity, "stale delivery: the pull request event is more than an hour old"
 	}
-	if !r.usable(ctx, c, ev.Installation.ID) {
+	if !r.repoUsable(ctx, c, ev.Installation.ID, ev.PullRequest.Base.Repo.ID) {
 		return http.StatusAccepted, "not an installation of this box"
 	}
 	apps, err := r.appsFor(ctx, repo)

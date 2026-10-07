@@ -518,7 +518,12 @@ func TestGitHubSharedAppBindsOnlyProvenInstallations(t *testing.T) {
 	if back := g.browse(http.MethodGet, forged, nil); back.Query().Get("error") == "" {
 		t.Fatalf("forged setup accepted: %s", back)
 	}
-	// The real install from the box binds the new installation.
+	// The real install from the box binds the new installation: only the
+	// repositories the installer can push to, though the installation (all
+	// of octo's repositories) reaches more.
+	g.f.AddRepo("octo/web", true, map[string]string{"index.html": "web"})
+	g.f.AddRepo("octo/payroll", true, map[string]string{"index.html": "pay"})
+	g.f.Installer = map[string]string{"octo/web": "write", "octo/payroll": "read"}
 	if code, link = g.call("POST", "/v1/github/install", ""); code != 200 {
 		t.Fatalf("install: %d %v", code, link)
 	}
@@ -529,6 +534,23 @@ func TestGitHubSharedAppBindsOnlyProvenInstallations(t *testing.T) {
 	_, st = g.call("GET", "/v1/github", "")
 	if ins := st["installations"].([]any); len(ins) != 1 || ins[0].(map[string]any)["id"] == float64(other) {
 		t.Fatalf("installations: %v", ins)
+	}
+	if code, list := g.call("GET", "/v1/github/repos?refresh=true", ""); code != 200 || len(list["repos"].([]any)) != 1 ||
+		list["repos"].([]any)[0].(map[string]any)["fullName"] != "octo/web" {
+		t.Fatalf("only the repositories the installer can push to: %d %v", code, list)
+	}
+	if code, p := g.call("GET", "/v1/github/repos/octo/payroll", ""); code != 409 || !strings.Contains(p["detail"].(string), "not been given access") {
+		t.Fatalf("inspect a repository the installer can only read: %d %v", code, p)
+	}
+	g.connectSite(manifest.Git{Repo: "octo/payroll", Branch: "main", Previews: manifest.PreviewsSameRepo})
+	if code, p := g.call("POST", "/v1/projects/shop/apps/site/deploys/github", ""); code != 409 {
+		t.Fatalf("deploy a repository the installer can only read: %d %v", code, p)
+	}
+	if dl, _ := g.f.Push("octo/payroll", "main"); !strings.Contains(dl.Reply, "not an installation of this box") {
+		t.Fatalf("push to a repository the installer can only read: %+v", dl)
+	}
+	if code, d := g.call("GET", "/v1/github/repos/octo/web", ""); code != 200 || d["fullName"] != "octo/web" {
+		t.Fatalf("inspect a bound repository: %d %v", code, d)
 	}
 	if code, _ := g.call("DELETE", "/v1/github", ""); code != 200 {
 		t.Fatal("disconnect")

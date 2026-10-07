@@ -550,7 +550,8 @@ func (r *rt) handleManifestCallback(w http.ResponseWriter, req *http.Request) {
 // handleSetup is where GitHub sends the browser after an installation.
 // For the box's own app every installation is the owner's; for a shared
 // app the box binds the installation only when the one-time state is its
-// own and GitHub sign-in proves the person can reach the installation.
+// own, and then only the repositories GitHub sign-in proves the person
+// can push to.
 func (r *rt) handleSetup(w http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 	q := req.URL.Query()
@@ -577,20 +578,30 @@ func (r *rt) handleSetup(w http.ResponseWriter, req *http.Request) {
 		r.back(w, req, url.Values{"error": {"That install link has expired. Click Install on repositories again."}})
 		return
 	}
-	mine, err := c.App.UserInstallations(ctx, q.Get("code"))
+	repos, err := c.App.UserRepos(ctx, q.Get("code"), id)
+	if ghapp.IsStatus(err, http.StatusNotFound) || err == nil && len(repos) == 0 {
+		r.back(w, req, url.Values{"error": {"You can't push to any repository of that installation on GitHub, so this box won't use it."}})
+		return
+	}
 	if err != nil {
 		r.back(w, req, url.Values{"error": {"GitHub sign-in could not confirm the installation (" + err.Error() + ")."}})
 		return
 	}
-	if !slices.ContainsFunc(mine, func(in ghapp.Installation) bool { return in.ID == id }) {
-		r.back(w, req, url.Values{"error": {"You can't reach that installation on GitHub, so this box won't use it."}})
-		return
+	// Bind exactly the repositories this person can push to, now: the
+	// rest of the installation stays out of reach (installing again
+	// refreshes the list).
+	ids := make([]int64, 0, len(repos))
+	for _, rp := range repos {
+		ids = append(ids, rp.ID)
 	}
-	if err := r.setBound(ctx, append(r.bound(ctx), id)); err != nil {
+	slices.Sort(ids)
+	b := r.bound(ctx)
+	b[id] = slices.Compact(ids)
+	if err := r.setBound(ctx, b); err != nil {
 		r.back(w, req, url.Values{"error": {err.Error()}})
 		return
 	}
-	_ = r.p.DB.Audit(ctx, p.By, "github.installed", "github", map[string]any{"installation": id})
+	_ = r.p.DB.Audit(ctx, p.By, "github.installed", "github", map[string]any{"installation": id, "repositories": len(ids)})
 	r.logEvent(ctx, GitHubEvent{Event: "installation", Summary: fmt.Sprintf("Installation %d now deploys to this box", id), OK: true})
 	r.back(w, req, url.Values{"installed": {"1"}})
 }
@@ -739,6 +750,10 @@ func (r *rt) listRepos(ctx context.Context, c *ghConn, q string, limit int, refr
 	}
 	wg.Wait()
 	idx := r.connectedIndex(ctx)
+	var bound ghBound
+	if c.Public {
+		bound = r.bound(ctx)
+	}
 	out := &GitHubRepoList{Repos: []GitHubRepo{}, Installations: len(ins)}
 	seen := map[string]bool{}
 	q = strings.ToLower(strings.TrimSpace(q))
@@ -748,7 +763,7 @@ func (r *rt) listRepos(ctx context.Context, c *ghConn, q string, limit int, refr
 		}
 		for _, g := range rs.repos {
 			k := strings.ToLower(g.FullName)
-			if seen[k] {
+			if seen[k] || bound != nil && !slices.Contains(bound[rs.id], g.ID) {
 				continue
 			}
 			seen[k] = true

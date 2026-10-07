@@ -309,19 +309,21 @@ func (r *rt) takeState(ctx context.Context, n, kind string) (*ghPending, bool) {
 
 // ---- installations ----
 
-func (r *rt) bound(ctx context.Context) []int64 {
+// ghBound is what a box on a shared app may act on: per installation, the
+// repositories (ids) its admin proved they can push to when installing.
+type ghBound map[int64][]int64
+
+func (r *rt) bound(ctx context.Context) ghBound {
 	raw, ok, _ := r.p.DB.KVGet(ctx, nsGitHub, "bound")
-	var ids []int64
+	b := ghBound{}
 	if ok {
-		_ = json.Unmarshal(raw, &ids)
+		_ = json.Unmarshal(raw, &b)
 	}
-	return ids
+	return b
 }
 
-func (r *rt) setBound(ctx context.Context, ids []int64) error {
-	slices.Sort(ids)
-	ids = slices.Compact(ids)
-	raw, _ := json.Marshal(ids)
+func (r *rt) setBound(ctx context.Context, b ghBound) error {
+	raw, _ := json.Marshal(b)
 	return r.p.DB.KVPut(ctx, nsGitHub, "bound", raw)
 }
 
@@ -338,19 +340,32 @@ func (r *rt) installations(ctx context.Context, c *ghConn) ([]ghapp.Installation
 	ok := r.bound(ctx)
 	var out []ghapp.Installation
 	for _, in := range all {
-		if slices.Contains(ok, in.ID) {
+		if _, b := ok[in.ID]; b {
 			out = append(out, in)
 		}
 	}
 	return out, nil
 }
 
-// usable reports whether this box may act for an installation.
+// usable reports whether this box may act for an installation at all.
 func (r *rt) usable(ctx context.Context, c *ghConn, installation int64) bool {
 	if installation <= 0 {
 		return false
 	}
-	return !c.Public || slices.Contains(r.bound(ctx), installation)
+	if !c.Public {
+		return true
+	}
+	_, ok := r.bound(ctx)[installation]
+	return ok
+}
+
+// repoUsable reports whether this box may act on a repository (by id)
+// through an installation: a shared app's box only on bound repositories.
+func (r *rt) repoUsable(ctx context.Context, c *ghConn, installation, repo int64) bool {
+	if installation <= 0 {
+		return false
+	}
+	return !c.Public || slices.Contains(r.bound(ctx)[installation], repo)
 }
 
 // repoInstallation finds the installation this box uses for a repository.
@@ -362,8 +377,19 @@ func (r *rt) repoInstallation(ctx context.Context, c *ghConn, repo string) (int6
 	if err != nil {
 		return 0, err
 	}
+	denied := &stateError{"this box has not been given access to " + repo, "Install the app on it from this box (Settings › Git › Install on repositories), signed in to GitHub as someone who can push to it."}
+	if !c.Public {
+		return id, nil
+	}
 	if !r.usable(ctx, c, id) {
-		return 0, &stateError{"this box has not been given access to " + repo, "Install the app on it from this box: Settings › Git › Install on repositories."}
+		return 0, denied
+	}
+	rp, err := c.App.Repo(ctx, id, repo)
+	if err != nil {
+		return 0, err
+	}
+	if !r.repoUsable(ctx, c, id, rp.ID) {
+		return 0, denied
 	}
 	return id, nil
 }

@@ -474,8 +474,9 @@ The app's webhook must be active and point at `<box>/v1/github/webhook`; `tiffin
 GitHub's latest deliveries with the box's replies. A **public** app is installed by
 other accounts too, so the box only acts for installations made from it: enable *Request
 user authorization (OAuth) during installation* on the app with `<box>/v1/github/setup` as
-a callback URL; after an install the box checks, with GitHub sign-in, that the person can
-reach that installation. The same file takes `"apiUrl"` and `"webUrl"` for GitHub
+a callback URL; after an install the box asks GitHub, with that person's sign-in, which of the
+installation's repositories they can push to, and acts on those only (repositories added to the
+installation later need another Install on repositories from the box). The same file takes `"apiUrl"` and `"webUrl"` for GitHub
 Enterprise Server.
 
 **Try it for real (once the box has its public domain):**

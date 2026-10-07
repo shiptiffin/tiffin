@@ -50,6 +50,9 @@ type Server struct {
 	HookClient *http.Client
 	// Account owns new apps and installations.
 	Account string
+	// Installer is the access (full name → "read" or "write") of the person
+	// who installs a public app through the website (nil: push to all).
+	Installer map[string]string
 
 	root    string
 	backend string
@@ -57,7 +60,7 @@ type Server struct {
 	mu            sync.Mutex
 	app           *appState
 	codes         map[string]ghapp.Manifest // manifest code → manifest
-	oauthCodes    map[string]int64          // oauth code → installation
+	oauthCodes    map[string]userGrant      // oauth code → the person it signs in
 	installations map[int64]*installation
 	repos         map[string]*repo
 	tokens        map[string]*tok
@@ -112,15 +115,24 @@ type installation struct {
 }
 
 type repo struct {
+	id            int64
 	fullName      string
 	private       bool
 	defaultBranch string
 	bare, work    string
 }
 
+// userGrant is a person signed in through OAuth: the installation they
+// came from and their access to its repositories (nil: push to all).
+type userGrant struct {
+	installation int64
+	access       map[string]string // full name → "read" or "write"
+}
+
 type tok struct {
 	installation int64
-	repos        []string // nil: all the installation reaches
+	user         *userGrant // a user token
+	repos        []string   // nil: all the installation reaches
 	readOnly     bool
 	revoked      bool
 	expires      time.Time
@@ -158,7 +170,7 @@ func New(root string) (*Server, error) {
 		return nil, fmt.Errorf("git: %w", err)
 	}
 	s := &Server{root: root, backend: filepath.Join(strings.TrimSpace(string(execPath)), "git-http-backend"), Account: "octo",
-		codes: map[string]ghapp.Manifest{}, oauthCodes: map[string]int64{}, installations: map[int64]*installation{}, repos: map[string]*repo{},
+		codes: map[string]ghapp.Manifest{}, oauthCodes: map[string]userGrant{}, installations: map[int64]*installation{}, repos: map[string]*repo{},
 		tokens: map[string]*tok{}, comments: map[int64]*Comment{}, nextID: 1000}
 	for _, d := range []string{"bare", "work"} {
 		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
@@ -211,13 +223,18 @@ func (s *Server) Install(account string, repos []string) int64 {
 	return in.id
 }
 
-// OAuthCode returns a code that proves access to an installation (what
-// GitHub sends after an install when the app requests user authorization).
-func (s *Server) OAuthCode(installation int64) string {
+// OAuthCode returns a code that signs in a person who can push to every
+// repository of an installation (what GitHub sends after an install when
+// the app requests user authorization).
+func (s *Server) OAuthCode(installation int64) string { return s.UserCode(installation, nil) }
+
+// UserCode returns a code that signs in a person with access (full name →
+// "read" or "write") to some of an installation's repositories.
+func (s *Server) UserCode(installation int64, access map[string]string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c := randHex(10)
-	s.oauthCodes[c] = installation
+	s.oauthCodes[c] = userGrant{installation: installation, access: access}
 	return c
 }
 
@@ -265,6 +282,7 @@ func (s *Server) AddRepo(fullName string, private bool, files map[string]string)
 		return "", err
 	}
 	s.mu.Lock()
+	r.id = s.id()
 	s.repos[strings.ToLower(fullName)] = r
 	s.mu.Unlock()
 	sha, err := s.commitFiles(r, "main", files, "first commit")
@@ -415,7 +433,7 @@ func (s *Server) reachesLocked(in *installation, fullName string) bool {
 
 func (s *Server) repoJSON(r *repo, unixPushed bool) map[string]any {
 	owner, name, _ := strings.Cut(r.fullName, "/")
-	m := map[string]any{"id": len(r.fullName) * 7, "full_name": r.fullName, "name": name, "private": r.private, "default_branch": r.defaultBranch,
+	m := map[string]any{"id": r.id, "full_name": r.fullName, "name": name, "private": r.private, "default_branch": r.defaultBranch,
 		"owner": map[string]any{"login": owner, "type": "User"}, "html_url": s.URL + "/" + r.fullName, "pushed_at": time.Now().UTC().Format(time.RFC3339)}
 	if unixPushed {
 		m["pushed_at"] = time.Now().Unix()
@@ -556,7 +574,10 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 			q.Set("state", st)
 		}
 		if a.public {
-			q.Set("code", s.OAuthCode(id))
+			s.mu.Lock()
+			access := s.Installer
+			s.mu.Unlock()
+			q.Set("code", s.UserCode(id, access))
 		}
 		target := a.manifest.SetupURL
 		if target == "" {
@@ -566,7 +587,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && p == "/login/oauth/access_token":
 		s.mu.Lock()
 		a := s.app
-		inst, ok := s.oauthCodes[r.FormValue("code")]
+		grant, ok := s.oauthCodes[r.FormValue("code")]
 		delete(s.oauthCodes, r.FormValue("code"))
 		s.mu.Unlock()
 		if a == nil || !ok || r.FormValue("client_id") != a.clientID || r.FormValue("client_secret") != a.clientSecret {
@@ -575,7 +596,7 @@ func (s *Server) serveWeb(w http.ResponseWriter, r *http.Request) {
 		}
 		t := "ghu_" + randHex(16)
 		s.mu.Lock()
-		s.tokens[t] = &tok{installation: inst, expires: time.Now().Add(time.Hour)}
+		s.tokens[t] = &tok{installation: grant.installation, user: &grant, expires: time.Now().Add(time.Hour)}
 		s.mu.Unlock()
 		writeJSON(w, 200, map[string]string{"access_token": t, "token_type": "bearer"})
 	default:
@@ -724,6 +745,39 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	_, t := s.token(r)
 	if t == nil {
 		fail(w, 401, "Bad credentials")
+		return
+	}
+	if m := regexp.MustCompile(`^/user/installations/(\d+)/repositories$`).FindStringSubmatch(p); m != nil && t.user != nil {
+		id, _ := strconv.ParseInt(m[1], 10, 64)
+		if id != t.installation {
+			fail(w, 404, "Not Found")
+			return
+		}
+		out := []any{}
+		s.mu.Lock()
+		names := make([]string, 0, len(s.repos))
+		for n := range s.repos {
+			names = append(names, n)
+		}
+		s.mu.Unlock()
+		sort.Strings(names)
+		for _, n := range names {
+			rp := s.repo(n)
+			if !s.tokReaches(t, rp.fullName) {
+				continue
+			}
+			access := "write"
+			if t.user.access != nil {
+				access = t.user.access[rp.fullName]
+			}
+			if access == "" {
+				continue
+			}
+			j := s.repoJSON(rp, false)
+			j["permissions"] = map[string]bool{"admin": false, "push": access == "write", "pull": true}
+			out = append(out, j)
+		}
+		writeJSON(w, 200, map[string]any{"total_count": len(out), "repositories": out})
 		return
 	}
 	if strings.HasPrefix(p, "/user/installations") {

@@ -171,14 +171,21 @@ func TestManifestFlowAndAppCalls(t *testing.T) {
 		t.Fatalf("revoked: %v", err)
 	}
 
-	// Installation checks for a shared app: the OAuth code proves access.
+	// Installation checks for a shared app: the OAuth code proves which of
+	// the installation's repositories the person can push to.
 	cred2 := other
 	b2, _ := c.NewApp(cred2)
-	got, err := b2.UserInstallations(ctx, f.OAuthCode(inst))
-	if err != nil || len(got) != 1 || got[0].ID != inst {
-		t.Fatalf("user installations: %v %+v", err, got)
+	got, err := b2.UserRepos(ctx, f.UserCode(inst, map[string]string{"octo/site": "write", "octo/other": "read"}), inst)
+	if err != nil || len(got) != 1 || got[0].FullName != "octo/site" || got[0].ID == 0 {
+		t.Fatalf("user repos (push access only): %v %+v", err, got)
 	}
-	if _, err := b2.UserInstallations(ctx, "nope"); err == nil {
+	if got, err := b2.UserRepos(ctx, f.OAuthCode(inst), inst); err != nil || len(got) != 2 {
+		t.Fatalf("user repos (push everywhere): %v %+v", err, got)
+	}
+	if _, err := b2.UserRepos(ctx, f.OAuthCode(inst), inst+1); err == nil {
+		t.Fatal("another installation must fail")
+	}
+	if _, err := b2.UserRepos(ctx, "nope", inst); err == nil {
 		t.Fatal("a bad code must fail")
 	}
 }

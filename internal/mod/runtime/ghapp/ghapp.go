@@ -891,14 +891,15 @@ func Clip(s string, n int) string {
 
 // ---- installing a shared app ----
 
-// UserInstallations checks which installations a person who just
-// installed the app can reach: it exchanges the OAuth code GitHub sends
-// with the post-install redirect (when the app requests user
-// authorization during installation) for a user token, lists that
-// person's installations of the app and revokes the token. A box on a
-// shared app binds only installations its admin proved access to, so it
-// never acts on other people's installations of the same app.
-func (a *App) UserInstallations(ctx context.Context, code string) ([]Installation, error) {
+// UserRepos checks what a person who just installed the app may do in
+// one installation: it exchanges the OAuth code GitHub sends with the
+// post-install redirect (when the app requests user authorization during
+// installation) for a user token, lists the installation's repositories
+// that person can push to and revokes the token. A box on a shared app
+// acts only on those repositories: seeing an installation proves little
+// (a collaborator on one repository sees the whole organization's
+// installation), so the box never reaches the rest of it.
+func (a *App) UserRepos(ctx context.Context, code string, installation int64) ([]Repo, error) {
 	if !codeRe.MatchString(code) {
 		return nil, errors.New("the code from GitHub is not valid")
 	}
@@ -930,16 +931,26 @@ func (a *App) UserInstallations(ctx context.Context, code string) ([]Installatio
 		return nil, fmt.Errorf("GitHub OAuth: %s", orStr(tr.Description, orStr(tr.Error, "no token")))
 	}
 	defer a.revokeUserToken(context.WithoutCancel(ctx), tr.AccessToken)
-	var out []Installation
-	for page := 1; page <= 10; page++ {
+	var out []Repo
+	for page := 1; page <= MaxRepos/100; page++ {
 		var r struct {
-			Installations []Installation `json:"installations"`
+			Repos []struct {
+				Repo
+				Permissions struct {
+					Admin bool `json:"admin"`
+					Push  bool `json:"push"`
+				} `json:"permissions"`
+			} `json:"repositories"`
 		}
-		if err := a.c.do(ctx, http.MethodGet, fmt.Sprintf("/user/installations?per_page=100&page=%d", page), "token "+tr.AccessToken, nil, &r); err != nil {
+		if err := a.c.do(ctx, http.MethodGet, fmt.Sprintf("/user/installations/%d/repositories?per_page=100&page=%d", installation, page), "token "+tr.AccessToken, nil, &r); err != nil {
 			return nil, err
 		}
-		out = append(out, r.Installations...)
-		if len(r.Installations) < 100 {
+		for _, rp := range r.Repos {
+			if rp.Permissions.Admin || rp.Permissions.Push {
+				out = append(out, rp.Repo)
+			}
+		}
+		if len(r.Repos) < 100 {
 			break
 		}
 	}
