@@ -599,7 +599,7 @@ func serveMux(b *box) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/v1/", b.api.Handler())
 	authmod.DashboardSignIn = b.api.DashboardOAuthCallback // the dashboard's own Google and GitHub sign-in
-	mux.Handle("/api/auth/", authmod.DashboardHandler()) // sign-in callbacks for the box's keys
+	mux.Handle("/api/auth/", authmod.DashboardHandler())   // sign-in callbacks for the box's keys
 	mux.Handle("/", dashboard.Handler())
 	mux.Handle("/mcp", requireKey(b, sdk.NewStreamableHTTPHandler(func(r *http.Request) *sdk.Server {
 		if r.URL.Query().Get("tools") == tmcp.GroupAll {
