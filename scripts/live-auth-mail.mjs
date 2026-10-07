@@ -215,7 +215,7 @@ async function call(method, path, { body, jar, captcha, retry429 = true, pace = 
       // not JSON
     }
     if (res.status === 429 && retry429 && attempt < 3) {
-      const edge = /text\/html/.test(res.headers.get("content-type") ?? "");
+      const edge = json?.code === "RATE_LIMITED" || /text\/html/.test(res.headers.get("content-type") ?? "");
       const wait = Number(res.headers.get("x-retry-after") || res.headers.get("retry-after") || (edge ? 60 : 10));
       log(`    (429 from the ${edge ? "edge" : "engine"} on ${path}, waiting ${wait}s)`);
       await sleep((wait + 1) * 1000);
@@ -627,7 +627,8 @@ async function flowNegative() {
   const seenCodes = [];
   for (; n < 20 && !edge; n++) {
     const r = await call("POST", "/api/auth/sign-in/email", { body: { email: TO, password: "x" }, retry429: false, pace: false });
-    const fromEdge = r.status === 429 && !/"message"/.test(r.text.slice(0, 40));
+    // The edge's own 429: its page, or for an API call its JSON (code RATE_LIMITED).
+    const fromEdge = r.status === 429 && (r.json?.code === "RATE_LIMITED" || /text\/html/.test(r.headers.get("content-type") ?? ""));
     seenCodes.push(fromEdge ? "429(edge)" : String(r.status));
     if (fromEdge) edge = r;
   }
