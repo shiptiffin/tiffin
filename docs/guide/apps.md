@@ -433,7 +433,7 @@ apps: {
 - a GitHub deployment per deploy (`tiffin/<project>/<app>`, previews as transient
   environments `…/pr-12`);
 - a pull request's preview lives at `pr-12--<app address>.<domain>` (`pr-12--shop` for the app at
-  `shop`); one comment says
+  `shop`; `--` in a route's first label is kept for previews, so no app can take one); one comment says
   "Preview of `web`: https://pr-12--shop.example.com · built in 34 s · logs".
   Closing the pull request removes the preview, also one still building: it never goes live.
 

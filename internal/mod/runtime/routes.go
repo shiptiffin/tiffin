@@ -275,6 +275,9 @@ func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project st
 	if len(want) == 0 {
 		return nil
 	}
+	if err := checkPreviewNames(want); err != nil {
+		return err
+	}
 	_, cur, err := p.DB.Load(ctx, project)
 	if err != nil {
 		return err
@@ -325,6 +328,34 @@ func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project st
 				p.AppsDomain(), p.AppsDomain(), suggest, p.Host(suggest))
 		}
 		prob.Errors = append(prob.Errors, api.FieldError{Path: "/apps/" + app + "/routes", Message: msg})
+	}
+	if prob == nil {
+		return nil
+	}
+	return prob
+}
+
+// checkPreviewNames refuses routes whose first label has "--": previews are
+// served at <preview>--<name> (previewHost), and a route there would take
+// another app's preview address. Internationalized names (xn--) are fine.
+func checkPreviewNames(want map[string]string) error {
+	var prob *api.Problem
+	keys := make([]string, 0, len(want))
+	for k := range want {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		host, _, _ := strings.Cut(k, "/")
+		label, _, _ := strings.Cut(host, ".")
+		if !strings.Contains(strings.TrimPrefix(label, "xn--"), "--") {
+			continue
+		}
+		if prob == nil {
+			prob = api.NewProblem(422, "validation", "a route's first label may not contain \"--\": the box serves previews at <preview>--<app>")
+			prob.Hint = "Use a single dash, e.g. pr-7-shop instead of pr-7--shop."
+		}
+		prob.Errors = append(prob.Errors, api.FieldError{Path: "/apps/" + want[k] + "/routes", Message: host + " looks like a preview address"})
 	}
 	if prob == nil {
 		return nil

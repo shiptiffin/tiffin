@@ -1858,6 +1858,16 @@ func TestPlanRefusesAnotherProjectsRoute(t *testing.T) {
 			t.Fatalf("%s: %v", r, err)
 		}
 	}
+	// Nor are preview addresses (<preview>--<name>): a route there would
+	// take another project's preview.
+	for _, r := range []string{"pr-7--shop", "pr-7--shop.tiffin.localhost", "pr-7--shop.example.com/api"} {
+		if err := h.m.CheckPlan(ctx, h.p, "blog", app(`{"routes":["`+r+`"]}`)); !errors.As(err, &prob) || prob.Status != 422 || !strings.Contains(prob.Detail, "--") {
+			t.Fatalf("%s: %v", r, err)
+		}
+	}
+	if err := h.m.CheckPlan(ctx, h.p, "blog", app(`{"routes":["xn--bcher-kva.example"]}`)); err != nil {
+		t.Fatalf("an internationalized domain: %v", err)
+	}
 }
 
 func TestFirstBuildErrorAndDropConfig(t *testing.T) {
