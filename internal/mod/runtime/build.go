@@ -508,10 +508,14 @@ func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildRe
 			script = install + " && " + script
 		}
 		fmt.Fprintf(req.Log, "==> building the site (%s, Bun %s)\n", script, BunVersion)
-		args := []string{"--namespace", Namespace, "run", "--rm", "--network", "host",
-			"--memory", strconv.Itoa(b.memoryMB) + "m",
-			"--volume", req.SrcDir + ":/app", "--workdir", "/app",
-			"--env", "CI=true", "--env", "NODE_ENV=production"}
+		// A helper container (named, labelled, its tasks capped): one cut
+		// short is removed below, as killing nerdctl leaves it running.
+		name := helperName()
+		args := append([]string{"--namespace", Namespace}, helperArgs(name, buildPids)...)
+		args = append(args, "--network", "host",
+			"--memory", strconv.Itoa(b.memoryMB)+"m",
+			"--volume", req.SrcDir+":/app", "--workdir", "/app",
+			"--env", "CI=true", "--env", "NODE_ENV=production")
 		args = append(args, b.staticCaches(req)...)
 		if lim := buildLimitFor(d.Project); lim.cpus > 0 {
 			args = append(args, lim.staticBuildArgs()...)
@@ -527,6 +531,11 @@ func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildRe
 		}
 		args = append(args, BunImage, "sh", "-c", script)
 		if err := runLogged(ctx, req.Log, req.SrcDir, b.tool("nerdctl"), args...); err != nil {
+			if ctx.Err() != nil {
+				rctx, cancel := cleanupContext(ctx)
+				_ = b.eng.Remove(rctx, name, time.Second)
+				cancel()
+			}
 			return BuildResult{}, &BuildError{Msg: "the static build failed: " + err.Error(), Hint: "Run `" + script + "` locally to reproduce."}
 		}
 	}

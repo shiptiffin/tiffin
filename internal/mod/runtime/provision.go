@@ -24,6 +24,10 @@ const (
 	swapFile      = "/var/lib/tiffin/swapfile"   // lets `next build` survive a 4 GB box
 	versionMarker = "/usr/local/lib/tiffin/nerdctl-full.version"
 	buildCgroup   = "tiffin-build" // cgroup (v2) every build container runs in, memory-capped
+	// buildPids caps the tasks (processes and threads) of all BuildKit's
+	// build steps together, and of a static site's build: a build that
+	// forks without end stops there, not at the box's limit.
+	buildPids = 4096
 	// Namespace is the containerd namespace for app images and containers.
 	Namespace = "tiffin"
 	// PortMin..PortMax are the localhost ports app instances listen on.
@@ -232,8 +236,9 @@ Requires=containerd.service
 RequiresMountsFor=/var/lib/tiffin
 
 [Service]
-# Build containers share one cgroup capped at ` + strconv.Itoa(capMB) + ` MiB (swap allowed beyond it).
-ExecStartPre=/bin/sh -c 'mkdir -p /sys/fs/cgroup/` + buildCgroup + ` && echo ` + strconv.Itoa(capMB) + `M > /sys/fs/cgroup/` + buildCgroup + `/memory.max && echo max > /sys/fs/cgroup/` + buildCgroup + `/memory.swap.max'
+# Build containers share one cgroup capped at ` + strconv.Itoa(capMB) + ` MiB (swap allowed beyond it)
+# and ` + strconv.Itoa(buildPids) + ` tasks.
+ExecStartPre=/bin/sh -c 'mkdir -p /sys/fs/cgroup/` + buildCgroup + ` && echo ` + strconv.Itoa(capMB) + `M > /sys/fs/cgroup/` + buildCgroup + `/memory.max && echo max > /sys/fs/cgroup/` + buildCgroup + `/memory.swap.max && echo ` + strconv.Itoa(buildPids) + ` > /sys/fs/cgroup/` + buildCgroup + `/pids.max'
 ExecStart=/usr/local/bin/buildkitd --config /etc/buildkit/buildkitd.toml
 Type=notify
 Delegate=yes

@@ -343,6 +343,10 @@ type tailBuffer struct {
 func (t *tailBuffer) Write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if len(p) >= 8<<10 {
+		t.b = append(t.b[:0], p[len(p)-8<<10:]...)
+		return len(p), nil
+	}
 	t.b = append(t.b, p...)
 	if over := len(t.b) - 8<<10; over > 0 {
 		t.b = append(t.b[:0], t.b[over:]...)

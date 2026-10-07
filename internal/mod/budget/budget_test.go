@@ -140,7 +140,7 @@ func newHarness(t *testing.T) *harness {
 func TestModule(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	if got := h.sd.props(ParentSlice); !slices.Equal(got, []string{"MemoryMax=1535M"}) {
+	if got := h.sd.props(ParentSlice); !slices.Equal(got, []string{"MemoryMax=1535M", "TasksMax=50%"}) {
 		t.Fatalf("parent slice: %v", got)
 	}
 
@@ -152,7 +152,7 @@ func TestModule(t *testing.T) {
 
 	// A fixed budget: hard cap, guarantee, CPU quota.
 	h.apply(`{"project":"shop","resources":{"memoryMB":256,"cpus":0.5},"apps":{"web":{}}}`)
-	want := []string{"MemoryMax=256M", "MemorySwapMax=0M", "MemoryLow=256M", "CPUWeight=100", "MemoryHigh=infinity", "CPUQuota=50%", "IOWeight=25"}
+	want := []string{"MemoryMax=256M", "MemorySwapMax=0M", "MemoryLow=256M", "CPUWeight=100", "MemoryHigh=infinity", "TasksMax=25%", "CPUQuota=50%", "IOWeight=25"}
 	if got := h.sd.props(`tiffin-p-shop.slice`); !slices.Equal(got, want) {
 		t.Fatalf("shop slice: %v", got)
 	}

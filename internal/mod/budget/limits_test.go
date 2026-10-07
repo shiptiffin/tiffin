@@ -143,7 +143,7 @@ func TestSharePercent(t *testing.T) {
 
 func TestProps(t *testing.T) {
 	p := props(Limits{MemoryMaxMB: 256, MemoryLowMB: 256, CPUs: 1.5, CPUWeight: 100, IOWeight: 25})
-	want := []string{"MemoryMax=256M", "MemorySwapMax=0M", "MemoryLow=256M", "CPUWeight=100", "MemoryHigh=infinity", "CPUQuota=150%", "IOWeight=25"}
+	want := []string{"MemoryMax=256M", "MemorySwapMax=0M", "MemoryLow=256M", "CPUWeight=100", "MemoryHigh=infinity", "TasksMax=25%", "CPUQuota=150%", "IOWeight=25"}
 	if !slices.Equal(p, want) {
 		t.Fatalf("props = %v", p)
 	}

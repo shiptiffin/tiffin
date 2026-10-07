@@ -208,6 +208,13 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 		}
 	}
 	r.removeOrphans(ctx)
+	if h, ok := r.eng.(interface{ RemoveHelpers(context.Context) error }); ok {
+		// Before any build: helpers a restart interrupted (static builds,
+		// copies out of images) would run on, unowned.
+		if err := h.RemoveHelpers(ctx); err != nil {
+			r.p.Log.Warn("runtime: remove leftover helper containers", "err", err)
+		}
+	}
 	go r.loop(ctx)
 	go r.resumeReports(ctx)
 	go r.syncQuotas(ctx)

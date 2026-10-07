@@ -265,7 +265,7 @@ func (m *Module) sync(ctx context.Context) error {
 		unit  string
 		props []string
 	}
-	wants := []want{{ParentSlice, []string{fmt.Sprintf("MemoryMax=%dM", box.PoolMB())}}}
+	wants := []want{{ParentSlice, []string{fmt.Sprintf("MemoryMax=%dM", box.PoolMB()), "TasksMax=" + AppsTasksMax}}}
 	for _, n := range names {
 		wants = append(wants, want{Slice(n), props(limits[n])})
 	}

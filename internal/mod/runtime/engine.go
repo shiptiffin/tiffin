@@ -3,6 +3,8 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -405,10 +407,70 @@ func (n *nerdctl) TagImage(ctx context.Context, src, ref string) error {
 // The directories travel as arguments, never inside the script.
 func (n *nerdctl) CopyOut(ctx context.Context, image string, dirs []string, dest string) error {
 	const script = `i=0; for d in "$@"; do if [ -d "$d" ]; then mkdir -p /tiffin-out/$i && cp -RL "$d"/. /tiffin-out/$i/ || exit 1; fi; i=$((i+1)); done`
-	args := append([]string{"run", "--rm", "--network", "none", "--user", "0:0", "--memory", "256m",
+	args := append([]string{"--network", "none", "--user", "0:0", "--memory", "256m",
 		"--volume", dest + ":/tiffin-out", "--entrypoint", "/bin/sh", image, "-c", script, "sh"}, dirs...)
-	_, err := n.run(ctx, args...)
-	return err
+	return n.runHelper(ctx, "copy out of "+image, args)
+}
+
+// Helper containers are the throwaway ones the box runs from an app's
+// image or to build its site (CopyOut, SeedDirs, static builds). Each has
+// a name and helperLabel, so one cut short is removed (runHelper), and one
+// a restart interrupted is swept (RemoveHelpers).
+const (
+	helperLabel = "tiffin.helper"
+	// helperPids caps the tasks (processes and threads) of one helper.
+	helperPids = 1024
+)
+
+// helperName is a new helper container's name.
+func helperName() string {
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	return "tiffin-helper-" + hex.EncodeToString(b[:])
+}
+
+// helperArgs are the nerdctl run flags that make a container a helper.
+func helperArgs(name string, pids int) []string {
+	return []string{"run", "--rm", "--name", name, "--label", helperLabel + "=1", "--pids-limit", strconv.Itoa(pids)}
+}
+
+// runHelper runs a helper container (args follow nerdctl run's own flags)
+// and waits for it. The image's own tools run in it, so its output is the
+// image's: only its last lines are kept, for the error. A helper cut short
+// by ctx is removed: killing nerdctl alone leaves its container running.
+func (n *nerdctl) runHelper(ctx context.Context, what string, args []string) error {
+	name := helperName()
+	c := n.cmd(ctx, append(helperArgs(name, helperPids), args...)...)
+	var out tailBuffer
+	c.Stdout, c.Stderr = &out, &out
+	c.WaitDelay = 5 * time.Second
+	err := c.Run()
+	if ctx.Err() != nil {
+		rctx, cancel := cleanupContext(ctx)
+		defer cancel()
+		_ = n.Remove(rctx, name, time.Second)
+		return fmt.Errorf("%s: %w", what, ctx.Err())
+	}
+	if err != nil {
+		return fmt.Errorf("%s: %w: %s", what, err, strings.TrimSpace(lastLines(out.String(), 5)))
+	}
+	return nil
+}
+
+// RemoveHelpers removes every helper container: run at start, before any
+// build, it clears those a restart interrupted.
+func (n *nerdctl) RemoveHelpers(ctx context.Context) error {
+	out, err := n.run(ctx, "ps", "--all", "--filter", "label="+helperLabel, "--format", "{{.Names}}")
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, name := range strings.Fields(out) {
+		if _, err := n.run(ctx, "rm", "--force", name); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (n *nerdctl) ImageConfig(ctx context.Context, ref string) (string, string, error) {
@@ -430,10 +492,9 @@ func (n *nerdctl) SeedDirs(ctx context.Context, image, user string, dirs []strin
 	const script = `u="$1"; shift; i=0; for d in "$@"; do mkdir -p /tiffin-out/$i || exit 1; ` +
 		`if [ -d "$d" ]; then cp -a "$d"/. /tiffin-out/$i/ || exit 1; fi; ` +
 		`if [ -n "$u" ]; then chown -R "$u" /tiffin-out/$i || exit 1; fi; i=$((i+1)); done`
-	args := append([]string{"run", "--rm", "--network", "none", "--user", "0:0", "--memory", "256m",
+	args := append([]string{"--network", "none", "--user", "0:0", "--memory", "256m",
 		"--volume", dest + ":/tiffin-out", "--entrypoint", "/bin/sh", image, "-c", script, "sh", user}, dirs...)
-	_, err := n.run(ctx, args...)
-	return err
+	return n.runHelper(ctx, "seed folders from "+image, args)
 }
 
 // LoadImage reads an image tarball whose every image is named ref (see

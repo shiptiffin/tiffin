@@ -13,8 +13,17 @@ import (
 )
 
 // ParentSlice holds every project's slice. Its MemoryMax is the pool, so
-// all apps together can never take the platform's memory.
+// all apps together can never take the platform's memory; its TasksMax
+// (AppsTasksMax) leaves the platform tasks to run with.
 const ParentSlice = "tiffin-p.slice"
+
+// AppsTasksMax and ProjectTasksMax cap the tasks (processes and threads)
+// of all apps together and of one project's, as systemd reads a
+// percentage: of the box's own task limit.
+const (
+	AppsTasksMax    = "50%"
+	ProjectTasksMax = "25%"
+)
 
 // Slice is the systemd slice a project's app containers run in, e.g.
 // "tiffin-p-shop.slice". Dashes in the project name are escaped (\x2d) as
@@ -134,6 +143,9 @@ func props(l Limits) []string {
 		"MemoryLow=" + strconv.Itoa(l.MemoryLowMB) + "M",
 		"CPUWeight=" + strconv.Itoa(l.CPUWeight),
 		"MemoryHigh=infinity", // see Resolve: no throttling short of the cap
+		// Processes and threads: a project that forks without end stops at
+		// its share of the box's tasks, not the box's own limit.
+		"TasksMax=" + ProjectTasksMax,
 	}
 	if l.CPUs > 0 {
 		// systemd takes whole percents: 1.5 cores = 150%.
