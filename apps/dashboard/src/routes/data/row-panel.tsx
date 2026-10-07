@@ -2,7 +2,7 @@ import { useQueries } from "@tanstack/react-query";
 import { ArrowUpRight, KeyRound, Trash2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Breaker } from "@/components/breaker";
-import { MiniSelect } from "@/components/data-parts";
+import { Select } from "@/components/ui/choice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
@@ -165,14 +165,13 @@ export function RowPanel({
     }
     if (c.category === "enum") {
       return (
-        <MiniSelect id={id} value={v === undefined || v === null ? "" : String(v)} onChange={(e) => set(c, e.target.value === "" ? null : e.target.value)} className="w-full [&_select]:h-9 [&_select]:text-sm">
-          {(c.nullable || adding) && <option value="">{adding && c.default ? "its default" : "null"}</option>}
-          {(c.enum ?? []).map((x) => (
-            <option key={x} value={x}>
-              {x}
-            </option>
-          ))}
-        </MiniSelect>
+        <Select
+          id={id}
+          value={v === undefined || v === null ? (c.nullable || adding ? "__null" : "") : String(v)}
+          onValueChange={(x) => set(c, x === "__null" ? null : x)}
+          className="font-mono"
+          options={[...(c.nullable || adding ? [{ value: "__null", label: adding && c.default ? "its default" : "null" }] : []), ...(c.enum ?? []).map((x) => ({ value: x, label: x }))]}
+        />
       );
     }
     const d = c.name in drafts ? drafts[c.name] : v === undefined ? "" : toDraft(v, c.category);

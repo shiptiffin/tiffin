@@ -6,7 +6,8 @@ import { notOnBox } from "@/api/client";
 import { q as core } from "@/api/queries";
 import { mod, mq, type PgBranchCreated, type PgSnapshot, type PgTable } from "@/api/modules";
 import { Confirm } from "@/components/confirm";
-import { MiniSelect, Rows, Section } from "@/components/data-parts";
+import { Rows, Section } from "@/components/data-parts";
+import { Select } from "@/components/ui/choice";
 import { useTitle } from "@/components/favicon";
 import { HazardDialog } from "@/components/hazard";
 import { Crumbs, Empty, Page, PageHeader, Skeleton, NotOnBox } from "@/components/page";
@@ -338,22 +339,16 @@ function TableNav({ project, list, loaded, current, branch }: { project: string;
   return (
     <>
       {/* A phone gets a picker instead of the list. */}
-      <label className="flex items-center gap-2 text-sm text-ink-3 lg:hidden">
+      <div className="flex items-center gap-2 text-sm text-ink-3 lg:hidden">
         Table
-        <MiniSelect
+        <Select
           value={current ?? ""}
-          onChange={(e) => navigate({ to: "/projects/$project/data/tables/$table", params: { project, table: e.target.value }, search })}
-          className="min-w-0 flex-1 [&_select]:h-9 [&_select]:text-sm"
+          onValueChange={(v) => navigate({ to: "/projects/$project/data/tables/$table", params: { project, table: v }, search })}
+          className="flex-1 font-mono"
           aria-label="Table"
-        >
-          {list.map((t) => (
-            <option key={slugOf(t)} value={slugOf(t)}>
-              {slugOf(t)}
-              {t.managed ? " (managed)" : ""}
-            </option>
-          ))}
-        </MiniSelect>
-      </label>
+          options={list.map((t) => ({ value: slugOf(t), label: `${slugOf(t)}${t.managed ? " (managed)" : ""}` }))}
+        />
+      </div>
       <nav aria-label="Tables" className="hidden min-w-0 lg:block">
         {list.length > 10 && (
           <div className="mb-2 flex h-8 items-center gap-2 rounded-md border border-rule bg-paper px-2.5 focus-within:border-brass">
@@ -517,17 +512,18 @@ export function BranchesPage({ project }: { project: string }) {
               className="h-8 font-mono text-sm sm:max-w-[16rem]"
               autoComplete="off"
             />
-            <label className="flex items-center gap-2 text-sm text-ink-3">
+            <div className="flex items-center gap-2 text-sm text-ink-3">
               from
-              <MiniSelect id="b-from" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="Copy from" className="min-w-[7rem]">
-                <option value="">production</option>
-                {branches.map((b) => (
-                  <option key={b.name} value={b.name}>
-                    {b.name}
-                  </option>
-                ))}
-              </MiniSelect>
-            </label>
+              <Select
+                id="b-from"
+                size="sm"
+                value={from || "__prod"}
+                onValueChange={(v) => setFrom(v === "__prod" ? "" : v)}
+                aria-label="Copy from"
+                className="w-auto min-w-[7rem] font-mono"
+                options={[{ value: "__prod", label: "production" }, ...branches.map((b) => ({ value: b.name, label: b.name }))]}
+              />
+            </div>
             <Button type="submit" variant="primary" disabled={!valid || create.isPending} className="self-start sm:ml-1 sm:self-auto">
               <GitBranch />
               {create.isPending ? "Copying…" : valid ? `Copy ${from || "production"} as ${name.trim()}` : "Make a copy"}

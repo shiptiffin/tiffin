@@ -16,7 +16,7 @@ import { ProblemNote } from "@/components/problem";
 import { toast } from "@/components/toast";
 import { Breaker } from "@/components/breaker";
 import { Button } from "@/components/ui/button";
-import { RadioGroup, RadioItem } from "@/components/ui/choice";
+import { RadioGroup, RadioItem, Select } from "@/components/ui/choice";
 import { DialogBody, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
 import { int } from "@/lib/format";
@@ -398,29 +398,29 @@ function ScheduleFields({
             />
             <div className="flex flex-wrap items-center gap-2 text-[0.84375rem] text-ink-2">
               {when.preset === "minutes" && (
-                <label className="flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   Every
-                  <select value={when.every} onChange={(e) => setWhen({ ...when, every: Number(e.target.value) })} className={cn(field, "w-20")}>
-                    {[1, 2, 5, 10, 15, 20, 30].map((n) => (
-                      <option key={n} value={n}>
-                        {n}
-                      </option>
-                    ))}
-                  </select>
+                  <Select
+                    aria-label="Every how many minutes"
+                    value={String(when.every)}
+                    onValueChange={(v) => setWhen({ ...when, every: Number(v) })}
+                    className="w-20"
+                    options={[1, 2, 5, 10, 15, 20, 30].map((n) => ({ value: String(n), label: n }))}
+                  />
                   {when.every === 1 ? "minute" : "minutes"}
-                </label>
+                </div>
               )}
               {when.preset === "hourly" && (
-                <label className="flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   At minute
-                  <select value={when.minute} onChange={(e) => setWhen({ ...when, minute: Number(e.target.value) })} className={cn(field, "w-20")}>
-                    {Array.from({ length: 12 }, (_, i) => i * 5).map((n) => (
-                      <option key={n} value={n}>
-                        :{String(n).padStart(2, "0")}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  <Select
+                    aria-label="At minute"
+                    value={String(when.minute)}
+                    onValueChange={(v) => setWhen({ ...when, minute: Number(v) })}
+                    className="w-20"
+                    options={Array.from({ length: 12 }, (_, i) => i * 5).map((n) => ({ value: String(n), label: `:${String(n).padStart(2, "0")}` }))}
+                  />
+                </div>
               )}
               {(when.preset === "daily" || when.preset === "weekdays") && (
                 <label className="flex items-center gap-2">
@@ -466,13 +466,7 @@ function ScheduleFields({
             />
             {target === "app" ? (
               <div className="grid gap-2 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]">
-                <select value={app} onChange={(e) => setApp(e.target.value)} aria-label="App" className={field}>
-                  {apps.map((a) => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
-                </select>
+                <Select aria-label="App" value={app} onValueChange={setApp} options={apps.map((a) => ({ value: a, label: a }))} />
                 <input value={path} onChange={(e) => setPath(e.target.value)} placeholder={defPath} aria-label="Path on the app" aria-invalid={!!pathErr} spellCheck={false} className={cn(field, "ident")} />
                 {pathErr && <span className="text-xs text-danger sm:col-span-2">{pathErr}</span>}
               </div>
@@ -652,13 +646,7 @@ function QueueFields({ project, manifest, editing, declared, live, done }: { pro
         />
         {target === "app" ? (
           <div className="grid gap-2 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]">
-            <select value={app} onChange={(e) => setApp(e.target.value)} aria-label="App" className={field}>
-              {apps.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </select>
+            <Select aria-label="App" value={app} onValueChange={setApp} options={apps.map((a) => ({ value: a, label: a }))} />
             <input value={path} onChange={(e) => setPath(e.target.value)} placeholder={`/queues/${name || "name"}`} aria-label="Path on the app" spellCheck={false} className={cn(field, "ident")} />
           </div>
         ) : (
@@ -678,13 +666,14 @@ function QueueFields({ project, manifest, editing, declared, live, done }: { pro
         <Field label="Start at most" note={rate ? `${int(rate)} per key, ${periods.find((x) => x.s === period)?.label ?? `${period} s`}` : "No rate limit"}>
           <div className="flex flex-wrap items-center gap-2">
             <Stepper value={rate} onChange={setRate} min={0} max={10000} zero="No limit" label="Jobs started per period" />
-            <select value={period} onChange={(e) => setPeriod(Number(e.target.value))} aria-label="Per" disabled={!rate} className={cn(field, "w-32")}>
-              {periods.map((x) => (
-                <option key={x.s} value={x.s}>
-                  per {x.label.replace(/^an? /, "")}
-                </option>
-              ))}
-            </select>
+            <Select
+              aria-label="Per"
+              value={String(period)}
+              onValueChange={(v) => setPeriod(Number(v))}
+              disabled={!rate}
+              className="w-32"
+              options={periods.map((x) => ({ value: String(x.s), label: `per ${x.label.replace(/^an? /, "")}` }))}
+            />
           </div>
         </Field>
         <Field label="Tries before it gives up" note="Then the job waits in Failed.">
@@ -769,23 +758,16 @@ export function SendJobForm({ project, name: preset, done }: FormProps) {
         <>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Queue" htmlFor={`${uid}-q`} note={isTopic ? `A topic: one job for each of its ${int(subs)} ${subs === 1 ? "subscriber" : "subscribers"}.` : undefined}>
-              <select id={`${uid}-q`} value={chosen} onChange={(e) => setQueue(e.target.value)} className={cn(field, "ident")}>
-                {targets.map((t) => (
-                  <option key={t.name} value={t.name}>
-                    {t.name}
-                    {t.topic ? " (topic)" : ""}
-                  </option>
-                ))}
-              </select>
+              <Select
+                id={`${uid}-q`}
+                value={chosen}
+                onValueChange={setQueue}
+                className="font-mono"
+                options={targets.map((t) => ({ value: t.name, label: `${t.name}${t.topic ? " (topic)" : ""}` }))}
+              />
             </Field>
             <Field label="When" htmlFor={`${uid}-d`}>
-              <select id={`${uid}-d`} value={delay} onChange={(e) => setDelay(Number(e.target.value))} className={field}>
-                {delays.map((d) => (
-                  <option key={d.s} value={d.s}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
+              <Select id={`${uid}-d`} value={String(delay)} onValueChange={(v) => setDelay(Number(v))} options={delays.map((d) => ({ value: String(d.s), label: d.label }))} />
             </Field>
           </div>
           <Field label="Payload (JSON)" htmlFor={`${uid}-p`}>
@@ -879,13 +861,7 @@ export function StartRunForm({ project, done }: FormProps) {
               </datalist>
             </Field>
             <Field label="In the app" htmlFor={`${uid}-a`}>
-              <select id={`${uid}-a`} value={chosenApp} onChange={(e) => setApp(e.target.value)} className={field}>
-                {apps.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
+              <Select id={`${uid}-a`} value={chosenApp} onValueChange={setApp} options={apps.map((a) => ({ value: a, label: a }))} />
             </Field>
           </div>
           <Field label="Input (JSON)" htmlFor={`${uid}-i`}>

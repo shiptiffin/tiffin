@@ -9,6 +9,7 @@ import { NameAsk } from "@/components/name-ask";
 import { Page, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
 import { words } from "@/lib/format";
 import { toneClass, useProjectPulse } from "@/lib/pulse";
@@ -91,16 +92,18 @@ export function HomePage() {
             </label>
           )}
           <div className="ml-auto flex items-center gap-2">
-            <select
+            <Select
+              size="sm"
               value={sort}
-              onChange={(e) => setSort(e.target.value as Sort)}
+              onValueChange={(v) => setSort(v as Sort)}
               aria-label="Sort projects"
-              className="h-8 rounded-[7px] border border-rule-2 bg-paper-raised px-2 text-[0.8125rem] text-ink-2 outline-none focus-visible:border-brass"
-            >
-              <option value="active">Recently active</option>
-              <option value="name">Name</option>
-              <option value="size">Most resources</option>
-            </select>
+              className="w-44"
+              options={[
+                { value: "active", label: "Recently active" },
+                { value: "name", label: "Name" },
+                { value: "size", label: "Most resources" },
+              ]}
+            />
             <div role="radiogroup" aria-label="View" className="flex rounded-[7px] border border-rule-2 bg-paper-raised p-0.5">
               {(
                 [

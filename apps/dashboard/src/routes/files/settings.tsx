@@ -1,7 +1,7 @@
 import { Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import type { StorageBucket } from "@/api/modules";
-import { Checkbox, Radio, RadioGroup } from "@/components/ui/choice";
+import { Checkbox, Radio, RadioGroup, Select } from "@/components/ui/choice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { bytes } from "@/lib/format";
@@ -114,18 +114,13 @@ export function BucketSettings({
             Largest file
           </h3>
           <p className="mt-0.5 text-sm text-ink-3">Uploads over this are refused, from your app and from here.</p>
-          <select
+          <Select
             aria-labelledby="max"
-            value={max}
-            onChange={(e) => setMax(Number(e.target.value))}
-            className="mt-2.5 h-9 w-48 rounded-[8px] border border-rule-2 bg-paper-raised px-2.5 text-base text-ink outline-none focus-visible:border-brass"
-          >
-            {sizes.map((s) => (
-              <option key={s} value={s}>
-                {s ? bytes(s, 0) : "No limit"}
-              </option>
-            ))}
-          </select>
+            value={String(max)}
+            onValueChange={(v) => setMax(Number(v))}
+            className="mt-2.5 w-48"
+            options={sizes.map((s) => ({ value: String(s), label: s ? bytes(s, 0) : "No limit" }))}
+          />
         </section>
 
         <section aria-labelledby="types">

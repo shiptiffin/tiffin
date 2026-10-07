@@ -1,3 +1,5 @@
+import { useId } from "react";
+import { Select } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
 
 /**
@@ -41,22 +43,19 @@ export function BuildSettings({
   onPath: (p: string) => void;
   className?: string;
 }) {
+  const uid = useId();
   return (
     <details className={cn("group", className)}>
       <summary className="cursor-pointer list-none text-[0.8125rem] text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
         <span className="inline-block transition-transform group-open:rotate-90">›</span> Build settings
       </summary>
       <div className="mt-2 grid max-w-[34rem] gap-3 sm:grid-cols-2">
-        <label>
-          <span className="mb-1 block text-xs text-ink-3">Built as</span>
-          <select value={framework} onChange={(e) => onFramework(e.target.value)} className={field}>
-            {BUILDS.map((b) => (
-              <option key={b.value} value={b.value}>
-                {b.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div>
+          <span id={`${uid}-as`} className="mb-1 block text-xs text-ink-3">
+            Built as
+          </span>
+          <Select aria-labelledby={`${uid}-as`} value={framework} onValueChange={onFramework} options={BUILDS.map((b) => ({ value: b.value, label: b.label }))} />
+        </div>
         <label>
           <span className="mb-1 block text-xs text-ink-3">Folder</span>
           <input value={path} onChange={(e) => onPath(e.target.value.replace(/^\/+/, ""))} placeholder="the top of the repository" spellCheck={false} className={cn(field, "ident")} />

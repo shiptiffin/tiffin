@@ -17,10 +17,12 @@ import { DeployTray } from "@/components/start-deploy-tray";
 import { AppRepo, useRedeploy } from "@/components/app-github";
 import { GitHubMark } from "@/components/github-mark";
 import { deployGitHub } from "@/lib/github";
-import { INSTANCE_STOPS, Throttle } from "@/components/throttle";
+import { INSTANCE_STOPS } from "@/components/throttle";
 import { useAppStatus } from "@/components/tier-status";
 import { toast } from "@/components/toast";
 import { Segmented } from "@/components/segmented";
+import { InfoTip } from "@/components/info-tip";
+import { Select } from "@/components/ui/choice";
 import { Button } from "@/components/ui/button";
 import { addressesOf } from "@/lib/addresses";
 import { cn } from "@/lib/cn";
@@ -568,68 +570,88 @@ function Scale({
   app: string;
   spec: ManifestApp;
   free?: number;
-  hasKV: boolean;
   instances?: StagedEdit;
   memory?: StagedEdit;
   writer: boolean;
+  hasKV: boolean;
 }) {
   const applied = spec.instances ?? 1;
-  // No cap (0) is the default: an app's copies share the project's memory.
+  // No limit (0) is the default: an app's copies share the project's memory.
   const appliedMem = spec.memoryMB ?? 0;
-  const nInst = instances?.kind === "instances" ? instances.to : applied;
-  const nMem = memory?.kind === "set" ? Number(memory.to ?? 0) : appliedMem;
-  const capWords = (n: number) => (n ? mbWords(n) : "No cap");
+  // A choice here is a draft until Save: picking from a list never changes the app by itself.
+  const [copies, setCopies] = useState(applied);
+  const [mem, setMem] = useState(appliedMem);
+  const [was, setWas] = useState(`${applied}/${appliedMem}`);
+  if (was !== `${applied}/${appliedMem}`) {
+    // Saved, undone or changed elsewhere: start from what the app has now.
+    setWas(`${applied}/${appliedMem}`);
+    setCopies(applied);
+    setMem(appliedMem);
+  }
+  const saving = !!(instances || memory);
+  const dirty = copies !== applied || mem !== appliedMem;
+  const fits = free === undefined || !mem || copies <= applied || (copies - applied) * mem <= free;
+  const limitWords = (n: number) => (n ? mbWords(n) : "No limit");
+  const copyOptions = [...new Set([...INSTANCE_STOPS, applied])].sort((x, y) => x - y);
+  const memOptions = [...new Set([0, ...MEMORY_STOPS, appliedMem])].sort((x, y) => x - y);
+  const save = () => {
+    if (copies !== applied) change(project, { kind: "instances", app, from: applied, to: copies }, { immediate: true });
+    if (mem !== appliedMem)
+      change(
+        project,
+        {
+          kind: "set",
+          path: ["apps", app, "memoryMB"],
+          from: spec.memoryMB,
+          to: mem || undefined,
+          what: mem ? `Limit each copy of ${app} to ${mbWords(mem)}` : `Let ${app}’s copies share ${project}’s memory with no limit`,
+          undo: appliedMem ? `${app} goes back to ${mbWords(appliedMem)} for each copy` : `${app}’s copies share ${project}’s memory again`,
+        },
+        { immediate: true },
+      );
+  };
   return (
     <section aria-label="Scale">
       <div className="flex items-baseline justify-between">
-        <h2 className="label">Size</h2>
-        {(instances || memory) && <span className="text-xs text-brass-ink">Saving…</span>}
+        <h2 className="label">Scale</h2>
+        {saving && <span className="text-xs text-brass-ink">Saving…</span>}
       </div>
-      <div className={cn("mt-1", !writer && "pointer-events-none opacity-60")}>
-        <p className="mt-3 mb-1.5 text-xs text-ink-3">Copies running</p>
-        <Throttle
-          label={`${app} copies`}
-          stops={INSTANCE_STOPS}
-          value={nInst}
-          applied={applied}
-          maxFit={free === undefined || !appliedMem ? undefined : applied + Math.max(0, Math.floor(free / appliedMem))}
-          onCommit={(to) => change(project, { kind: "instances", app, from: applied, to })}
-        />
-        <p className="mt-4 mb-1.5 text-xs text-ink-3">Memory cap for each copy</p>
-        <Throttle
-          label={`${app} memory per copy`}
-          format={capWords}
-          unit=""
-          stops={[0, ...MEMORY_STOPS]}
-          value={nMem}
-          applied={appliedMem}
-          onCommit={(to) =>
-            change(project, {
-              kind: "set",
-              path: ["apps", app, "memoryMB"],
-              from: spec.memoryMB,
-              to: to || undefined,
-              what: to ? `Cap each copy of ${app} at ${mbWords(to)}` : `Let ${app}’s copies share ${project}’s memory with no cap`,
-              undo: appliedMem ? `${app} goes back to ${mbWords(appliedMem)} for each copy` : `${app}’s copies share ${project}’s memory again`,
-            })
-          }
-        />
+      <div className={cn("mt-3 grid gap-3", !writer && "pointer-events-none opacity-60")}>
+        <div>
+          <div className="mb-1.5 flex items-center gap-1 text-xs text-ink-3">
+            <span id={`${app}-copies`}>Copies</span>
+            <InfoTip label="About copies">
+              How many copies of the app run at once. Requests are spread across them, and if one crashes the others keep serving. Each copy uses its own memory, so more copies use more. One is right for most apps.
+            </InfoTip>
+          </div>
+          <Select value={String(copies)} onValueChange={(v) => setCopies(Number(v))} options={copyOptions.map((n) => ({ value: String(n), label: count(n, "copy", "copies") }))} />
+        </div>
+        <div>
+          <div className="mb-1.5 flex items-center gap-1 text-xs text-ink-3">
+            <span>Memory limit per copy</span>
+            <InfoTip label="About the memory limit">
+              The most memory one copy may use. A copy that goes over is restarted, so one leak can’t take the whole box. No limit: the copies share what {project} may use.
+            </InfoTip>
+          </div>
+          <Select value={String(mem)} onValueChange={(v) => setMem(Number(v))} options={memOptions.map((n) => ({ value: String(n), label: limitWords(n) }))} />
+        </div>
       </div>
       <p className="mt-3 border-t border-rule pt-3 text-sm text-ink-2">
-        {nMem ? (
+        {mem ? (
           <>
-            {count(nInst, "copy", "copies")} of up to {mbWords(nMem)} each: at most {mbWords(nInst * nMem)}.
+            {count(copies, "copy", "copies")} of up to {mbWords(mem)} each: at most {mbWords(copies * mem)}.
           </>
         ) : (
           <>
-            {count(nInst, "copy", "copies")}, sharing what {project} may use.{" "}
+            {count(copies, "copy", "copies")}, sharing what {project} may use.{" "}
             <Link to="/projects/$project/usage" params={{ project }} className="text-ink underline decoration-rule-3 underline-offset-4">
               Usage
             </Link>
           </>
         )}
       </p>
-      {spec.framework === "next" && nInst > 1 && !hasKV && (
+      {!fits && <p className="mt-2 text-sm text-danger">That needs more memory than the box has free ({mbWords(free ?? 0)}).</p>}
+      {spec.framework === "next" && copies > 1 && !hasKV && (
         <div className="mt-3 rounded-[8px] bg-warn-wash px-3.5 py-2.5 text-sm text-ink">
           <p>Each copy of a Next.js app keeps its own cache without KV, so ISR pages and cached data can differ between requests.</p>
           {writer && (
@@ -639,7 +661,24 @@ function Scale({
           )}
         </div>
       )}
-      <p className="mt-1 text-xs text-ink-3">Changes apply as you click, and History can undo them.</p>
+      {writer && dirty && (
+        <div className="mt-3 flex items-center gap-2">
+          <Button variant="primary" size="sm" onClick={save} disabled={saving || !fits}>
+            Save
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setCopies(applied);
+              setMem(appliedMem);
+            }}
+          >
+            Cancel
+          </Button>
+          <span className="text-xs text-ink-3">Applies now; History can undo it.</span>
+        </div>
+      )}
     </section>
   );
 }
@@ -1036,18 +1075,14 @@ export function AppLogsPage({ project, app }: { project: string; app: string }) 
             </button>
           ))}
         </div>
-        <select
+        <Select
+          size="sm"
           value={since}
-          onChange={(e) => setSince(e.target.value)}
+          onValueChange={setSince}
           aria-label="From"
-          className="h-8 rounded-[7px] border border-rule-2 bg-paper-raised px-2 text-[0.8125rem] text-ink"
-        >
-          {["15m", "1h", "6h", "24h"].map((s) => (
-            <option key={s} value={s}>
-              {windowLabel(s)}
-            </option>
-          ))}
-        </select>
+          className="w-40"
+          options={["15m", "1h", "6h", "24h"].map((s) => ({ value: s, label: windowLabel(s) }))}
+        />
         <Button size="sm" variant={follow ? "secondary" : "ghost"} onClick={() => setFollow((f) => !f)} aria-pressed={follow} className="h-8">
           {follow ? <Pause /> : <Play />}
           {follow ? "Pause" : "Follow"}

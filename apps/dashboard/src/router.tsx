@@ -75,7 +75,7 @@ type DataSearch = { branch?: string; f?: string; s?: string; h?: string; new?: s
 const dataSearch = (s: Record<string, unknown>): DataSearch => ({ branch: str(s.branch), f: str(s.f), s: str(s.s), h: str(s.h), new: str(s.new) });
 const KvPage = lz<{ project: string; match?: string; k?: string; tab?: "keys" | "console"; isNew?: boolean }>(() => import("@/routes/kv"), "KvPage");
 const MetricsPage = lz(() => import("@/routes/observe"), "MetricsPage");
-const LogsPage = lz<LogsSearch>(() => import("@/routes/observe"), "LogsPage");
+const LogsPage = lz<LogsSearch & { inProject?: boolean }>(() => import("@/routes/observe"), "LogsPage");
 const ErrorsPage = lz<{ project?: string; status?: string }>(() => import("@/routes/observe"), "ErrorsPage");
 const IssuePage = lz<{ id: string }>(() => import("@/routes/observe"), "IssuePage");
 const AlertsPage = lz(() => import("@/routes/observe"), "AlertsPage");
@@ -415,6 +415,21 @@ const logs = createRoute({
     return <LogsPage {...logs.useSearch()} />;
   },
 });
+/** A project's own logs, inside its sidebar: the box's Logs page with the project fixed. */
+const projectLogs = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/logs",
+  validateSearch: (s: Record<string, unknown>): Omit<LogsSearch, "project"> => ({
+    q: str(s.q),
+    since: str(s.since),
+    live: s.live === true || s.live === "true" ? true : undefined,
+  }),
+  loader: () => void LogsPage.preload(),
+  component: function ProjectLogs() {
+    const { project: p } = projectLogs.useParams();
+    return <LogsPage key={p} {...projectLogs.useSearch()} project={p} inProject />;
+  },
+});
 const errors = createRoute({
   getParentRoute: () => app,
   path: "/errors",
@@ -704,6 +719,7 @@ const tree = root.addChildren([
     kvConsole,
     metrics,
     logs,
+    projectLogs,
     errors,
     issue,
     requests,

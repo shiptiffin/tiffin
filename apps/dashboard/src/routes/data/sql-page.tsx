@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, Play, TriangleAlert, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { mod, mq, type PgStatement } from "@/api/modules";
-import { MiniSelect, Rows, Section } from "@/components/data-parts";
+import { Rows, Section } from "@/components/data-parts";
+import { Select } from "@/components/ui/choice";
 import { Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { toast } from "@/components/toast";
@@ -190,16 +191,17 @@ export function SqlPanel({ project, branch, handed }: { project: string; branch:
               </button>
               Allow changes
             </label>
-            <label className="flex items-center gap-1.5 text-sm text-ink-3">
+            <div className="flex items-center gap-1.5 text-sm text-ink-3">
               Stop after
-              <MiniSelect value={String(timeout)} onChange={(e) => setTimeoutS(Number(e.target.value))} aria-label="Time limit" className="[&_select]:font-sans">
-                {[10, 30, 60, 300].map((s) => (
-                  <option key={s} value={s}>
-                    {s < 60 ? `${s} s` : `${s / 60} min`}
-                  </option>
-                ))}
-              </MiniSelect>
-            </label>
+              <Select
+                size="sm"
+                value={String(timeout)}
+                onValueChange={(v) => setTimeoutS(Number(v))}
+                aria-label="Time limit"
+                className="w-24"
+                options={[10, 30, 60, 300].map((s) => ({ value: String(s), label: s < 60 ? `${s} s` : `${s / 60} min` }))}
+              />
+            </div>
             <Button size="sm" variant="ghost" onClick={() => (openName && !naming ? save.mutate(openName) : setNaming(true))} disabled={!sql.trim() || save.isPending} title={openName ? `Save over “${openName}”` : "Save this query"}>
               <Bookmark />
               {openName ? "Save" : "Save…"}

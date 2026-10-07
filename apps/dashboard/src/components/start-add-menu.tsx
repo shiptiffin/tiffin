@@ -4,6 +4,7 @@ import { lazy, Suspense, useState, type FormEvent, type ReactNode } from "react"
 import type { Manifest } from "@/api/client";
 import { BUILDS } from "@/components/build-settings";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/choice";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/dropdown";
 import { defaultAddress } from "@/lib/addresses";
@@ -219,13 +220,7 @@ function AddApp({ project, manifest, routes, done }: { project: string; manifest
             <input value={git.url} onChange={(e) => setGit({ ...git, url: e.target.value })} placeholder="https://github.com/owner/repo" spellCheck={false} className={cn(field, "ident")} />
           </Field>
           <Field label="Framework">
-            <select value={git.framework} onChange={(e) => setGit({ ...git, framework: e.target.value })} className={field}>
-              {BUILDS.map((b) => (
-                <option key={b.value} value={b.value}>
-                  {b.label}
-                </option>
-              ))}
-            </select>
+            <Select aria-label="Framework" value={git.framework} onValueChange={(v) => setGit({ ...git, framework: v })} options={BUILDS.map((b) => ({ value: b.value, label: b.label }))} />
           </Field>
           <Field label="Branch, tag or commit">
             <input value={git.ref} onChange={(e) => setGit({ ...git, ref: e.target.value })} placeholder="default branch" spellCheck={false} className={cn(field, "ident")} />

@@ -12,6 +12,7 @@ import { Crumbs, NotOnBox, Page, PageHeader, Skeleton, Untrusted } from "@/compo
 import { ProblemNote } from "@/components/problem";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
 import { countWords, int, num, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
@@ -60,19 +61,14 @@ export function ErrorsPage({ project, status = "unresolved" }: { project?: strin
         title="Errors"
         actions={
           (projects.data?.length ?? 0) > 1 && (
-            <select
-              value={project ?? ""}
-              onChange={(e) => set({ project: e.target.value || undefined })}
+            <Select
+              size="sm"
+              value={project || "__all"}
+              onValueChange={(v) => set({ project: v === "__all" ? undefined : v })}
               aria-label="Project"
-              className="h-8 rounded-[7px] border border-rule-2 bg-paper-raised px-2 text-[0.84375rem] text-ink outline-none focus-visible:border-brass"
-            >
-              <option value="">Every project</option>
-              {(projects.data ?? []).map((p) => (
-                <option key={p.name} value={p.name}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+              className="w-48"
+              options={[{ value: "__all", label: "Every project" }, ...(projects.data ?? []).map((p) => ({ value: p.name, label: p.name }))]}
+            />
           )
         }
       />

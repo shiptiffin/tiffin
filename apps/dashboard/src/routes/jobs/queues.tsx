@@ -17,6 +17,7 @@ import { ProblemNote } from "@/components/problem";
 import { Throttle } from "@/components/throttle";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/choice";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/dropdown";
 import { cn } from "@/lib/cn";
 import { int, ms, pct } from "@/lib/format";
@@ -318,7 +319,6 @@ function SystemLine({ project, system }: { project: string; system: QueueStats[]
 function Topics({ project, list, stats, declared }: { project: string; list?: QueueTopic[]; stats: QueueStats[]; declared: Record<string, { subscribers?: string[] | null }> }) {
   const qc = useQueryClient();
   const { can } = useMe();
-  const [adding, setAdding] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [first, setFirst] = useState("");
   const queues = stats.filter((x) => x.app || x.url).map((x) => x.name);
@@ -344,7 +344,6 @@ function Topics({ project, list, stats, declared }: { project: string; list?: Qu
       const cur = declared[t.name].subscribers ?? [];
       setSubs(t.name, [...cur, queue].sort(), `Subscribe ${queue} to ${t.name}`, `${queue} stops getting ${t.name} messages`);
     } else viaApi.mutate({ topic: t.name, queue, add: true });
-    setAdding(null);
   };
   const remove = (t: QueueTopic, queue: string) => {
     if (declared[t.name]) setSubs(t.name, (declared[t.name].subscribers ?? []).filter((s) => s !== queue), `Remove ${queue} from ${t.name}`, `${queue} gets ${t.name} messages again`);
@@ -386,29 +385,20 @@ function Topics({ project, list, stats, declared }: { project: string; list?: Qu
                   {subs.length === 0 && <li className="text-[0.8125rem] text-ink-3">No subscribers: messages go nowhere.</li>}
                   {can("apply:reversible") && free.length > 0 && (
                     <li>
-                      {adding === t.name ? (
-                        <select
-                          autoFocus
-                          aria-label={`Subscribe a queue to ${t.name}`}
-                          defaultValue=""
-                          onChange={(e) => e.target.value && add(t, e.target.value)}
-                          onBlur={() => setAdding(null)}
-                          className="h-7 rounded-full border border-rule-2 bg-paper px-2 font-mono text-[0.75rem] text-ink"
-                        >
-                          <option value="" disabled>
-                            Pick a queue
-                          </option>
+                      <Menu>
+                        <MenuTrigger asChild>
+                          <button type="button" aria-label={`Subscribe a queue to ${t.name}`} className="h-7 rounded-full border border-dashed border-rule-3 px-2.5 text-[0.8125rem] text-ink-3 hover:text-ink data-[state=open]:text-ink">
+                            Add a queue
+                          </button>
+                        </MenuTrigger>
+                        <MenuContent align="start">
                           {free.map((q) => (
-                            <option key={q} value={q}>
+                            <MenuItem key={q} onSelect={() => add(t, q)} className="font-mono">
                               {q}
-                            </option>
+                            </MenuItem>
                           ))}
-                        </select>
-                      ) : (
-                        <button type="button" onClick={() => setAdding(t.name)} className="h-7 rounded-full border border-dashed border-rule-3 px-2.5 text-[0.8125rem] text-ink-3 hover:text-ink">
-                          Add a queue
-                        </button>
-                      )}
+                        </MenuContent>
+                      </Menu>
                     </li>
                   )}
                 </ul>
@@ -433,14 +423,15 @@ function Topics({ project, list, stats, declared }: { project: string; list?: Qu
             spellCheck={false}
             className="h-8 w-44 rounded-[7px] border border-rule-2 bg-paper px-2.5 font-mono text-[0.78rem] text-ink outline-none focus-visible:border-brass"
           />
-          <select value={first} onChange={(e) => setFirst(e.target.value)} aria-label="First subscriber" className="h-8 rounded-[7px] border border-rule-2 bg-paper px-2 font-mono text-[0.78rem] text-ink">
-            <option value="">sent to…</option>
-            {declaredQueues.map((q) => (
-              <option key={q} value={q}>
-                {q}
-              </option>
-            ))}
-          </select>
+          <Select
+            size="sm"
+            value={first}
+            onValueChange={setFirst}
+            aria-label="First subscriber"
+            placeholder="sent to…"
+            className="w-44 font-mono"
+            options={declaredQueues.map((q) => ({ value: q, label: q }))}
+          />
           <Button type="submit" size="md" disabled={!/^[a-z][a-z0-9.-]{0,63}$/.test(newName) || !first || !!declared[newName]}>
             Add topic
           </Button>

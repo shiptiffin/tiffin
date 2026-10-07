@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Check, Lock, Plus, RotateCw, Search, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { GitHubMark } from "@/components/github-mark";
 import { Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
 import { connectGitHub, ENV_NAME, githubQuery, installGitHub, parseEnv, repoQuery, reposQuery, shortSha, type GitHubRepo, type RepoRoot } from "@/lib/github";
 import { BuildSettings, buildNote, UNKNOWN_BUILD } from "@/components/build-settings";
@@ -191,6 +192,7 @@ function RepoPicker({ onPick, admin }: { onPick: (r: GitHubRepo) => void; admin:
 }
 
 function RepoSetup({ value, onChange }: { value: GitHubPick; onChange: (p: GitHubPick) => void }) {
+  const uid = useId();
   const det = useQuery(repoQuery(value.repo, value.branch || undefined));
   const d = det.data;
   const roots = d?.roots ?? [];
@@ -234,17 +236,18 @@ function RepoSetup({ value, onChange }: { value: GitHubPick; onChange: (p: GitHu
       {d && (d.connected ?? []).length > 0 && <p className="mt-2 text-sm text-warn-ink">It already deploys to {d.connected!.join(", ")}. Importing again makes a second copy.</p>}
 
       <div className="mt-4 max-w-[22rem]">
-        <label>
-          <span className="mb-1 block text-xs text-ink-3">Production branch · every push to it goes live</span>
-          <select value={value.branch} onChange={(e) => set({ branch: e.target.value })} className={cn(field, "ident")} disabled={!d}>
-            {(d?.branches?.length ? d.branches : [value.branch]).map((b) => (
-              <option key={b} value={b}>
-                {b}
-                {b === d?.defaultBranch ? " (default)" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
+        <span id={`${uid}-branch`} className="mb-1 block text-xs text-ink-3">
+          Production branch · every push to it goes live
+        </span>
+        <Select
+          aria-labelledby={`${uid}-branch`}
+          value={value.branch}
+          onValueChange={(v) => set({ branch: v })}
+          disabled={!d}
+          placeholder="Pick a branch"
+          className="font-mono"
+          options={(d?.branches?.length ? d.branches : [value.branch]).filter(Boolean).map((b) => ({ value: b, label: `${b}${b === d?.defaultBranch ? " (default)" : ""}` }))}
+        />
       </div>
 
       {appRoots.length > 1 && (

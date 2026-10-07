@@ -606,10 +606,10 @@ function Editor({
     if (el.tagName === "INPUT" && (el as HTMLInputElement).type === "text" && draft.length > 1) (el as HTMLInputElement).select();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const cls = "absolute inset-0 h-full w-full bg-paper-raised px-2.5 font-mono text-[0.78125rem] text-ink outline-none shadow-[inset_0_0_0_2px_var(--focus)]";
+  const cls = "absolute inset-0 h-full w-full bg-paper-raised pl-2.5 font-mono text-[0.78125rem] text-ink outline-none shadow-[inset_0_0_0_2px_var(--focus)]";
   if (col.category === "enum")
     return (
-      <select ref={ref} aria-label={`New ${col.name}`} value={draft} onChange={(e) => onDraft(e.target.value)} onKeyDown={onKey} onBlur={onBlur} className={cls}>
+      <select ref={ref} aria-label={`New ${col.name}`} value={draft} onChange={(e) => onDraft(e.target.value)} onKeyDown={onKey} onBlur={onBlur} className={cn(cls, "select-native")}>
         {col.nullable && <option value="">null</option>}
         {(col.enum ?? []).map((x) => (
           <option key={x} value={x}>
@@ -632,7 +632,7 @@ function Editor({
       onChange={(e) => onDraft(e.target.value)}
       onKeyDown={onKey}
       onBlur={onBlur}
-      className={cn(cls, col.numeric && "text-right")}
+      className={cn(cls, "pr-2.5", col.numeric && "text-right")}
     />
   );
 }

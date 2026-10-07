@@ -1,7 +1,6 @@
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
-import { MiniSelect } from "@/components/data-parts";
-import { RadioGroup, RadioItem } from "@/components/ui/choice";
+import { RadioGroup, RadioItem, Select } from "@/components/ui/choice";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
@@ -199,13 +198,7 @@ function NewKey({ prefix, onMade, close }: { prefix: string; onMade: (key: strin
                       onChange={(e) => setN(e.target.value.replace(/[^\d.]/g, ""))}
                       className="h-7 w-14 rounded-[6px] border border-rule-2 bg-paper-raised px-2 text-right text-ink tnum outline-none focus-visible:border-brass"
                     />
-                    <MiniSelect aria-label="Unit" value={unit} onChange={(e) => setUnit(e.target.value)} className="w-24">
-                      {UNITS.map((u) => (
-                        <option key={u.unit} value={u.unit}>
-                          {u.unit}
-                        </option>
-                      ))}
-                    </MiniSelect>
+                    <Select size="sm" aria-label="Unit" value={unit} onValueChange={setUnit} className="w-24 font-mono" options={UNITS.map((u) => ({ value: u.unit, label: u.unit }))} />
                   </span>
                 )}
               </div>

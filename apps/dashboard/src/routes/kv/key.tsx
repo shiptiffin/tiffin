@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { ApiError } from "@/api/client";
 import { mod, type KVValue } from "@/api/modules";
 import { CopyButton } from "@/components/copy";
-import { MiniSelect, TypeWord } from "@/components/data-parts";
+import { TypeWord } from "@/components/data-parts";
+import { Select } from "@/components/ui/choice";
 import { Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
@@ -252,13 +253,7 @@ function Expiry({ k, ttlMs, at }: { k: string; ttlMs: number; at: number }) {
             onKeyDown={(e) => e.key === "Escape" && setEdit(null)}
             className="h-7 w-16 rounded-[6px] border border-rule-2 bg-paper-raised px-2 text-right text-ink tnum outline-none focus-visible:border-brass"
           />
-          <MiniSelect aria-label="Unit" value={edit.unit} onChange={(e) => setEdit({ ...edit, unit: e.target.value })} className="w-24">
-            {UNITS.map((u) => (
-              <option key={u.unit} value={u.unit}>
-                {u.unit}
-              </option>
-            ))}
-          </MiniSelect>
+          <Select size="sm" aria-label="Unit" value={edit.unit} onValueChange={(v) => setEdit({ ...edit, unit: v })} className="w-24 font-mono" options={UNITS.map((u) => ({ value: u.unit, label: u.unit }))} />
           <Button size="sm" type="submit" disabled={!(Number(edit.n) > 0)}>
             Save
           </Button>

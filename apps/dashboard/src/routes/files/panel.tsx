@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowUpRight, Download, FolderInput, Link2, Pencil, Trash2, 
 import { useState } from "react";
 import { mod, type StorageBucket, type StorageObject } from "@/api/modules";
 import { CopyButton } from "@/components/copy";
-import { MiniSelect } from "@/components/data-parts";
+import { Select } from "@/components/ui/choice";
 import { Skeleton, Untrusted } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
@@ -224,21 +224,17 @@ function LinkPart({ project, bucket, o }: { project: string; bucket: StorageBuck
       <p className="label">Private link</p>
       <p className="mt-1 text-sm text-ink-3">Anyone with the link can open the file until it expires.</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-2 text-sm text-ink-2">
+        <div className="flex items-center gap-2 text-sm text-ink-2">
           Works for
-          <MiniSelect
+          <Select
+            size="sm"
             aria-label="How long the link works"
             value={String(ttl)}
-            onChange={(e) => setTtl(Number(e.target.value))}
-            className="w-24 [&_select]:font-sans"
-          >
-            {EXPIRIES.map((x) => (
-              <option key={x.seconds} value={x.seconds}>
-                {x.label}
-              </option>
-            ))}
-          </MiniSelect>
-        </label>
+            onValueChange={(v) => setTtl(Number(v))}
+            className="w-28"
+            options={EXPIRIES.map((x) => ({ value: String(x.seconds), label: x.label }))}
+          />
+        </div>
         <Button size="sm" onClick={() => make.mutate()} disabled={make.isPending}>
           <Link2 />
           {copied !== null ? "Copied" : "Copy private link"}
@@ -309,14 +305,15 @@ import { ${bucket.public ? "publicUrl" : "signedUrl"} } from "@shiptiffin/sdk/st
               ...(QUICK_WIDTHS.includes(w) ? [] : [{ value: "more", label: String(w) }]),
             ]}
           />
-          <MiniSelect aria-label="Another width" value="" onChange={(e) => e.target.value && setW(Number(e.target.value))} className="w-[4.5rem]">
-            <option value="">More</option>
-            {WIDTHS.map((x) => (
-              <option key={x} value={x}>
-                {x}
-              </option>
-            ))}
-          </MiniSelect>
+          <Select
+            size="sm"
+            aria-label="Another width"
+            value=""
+            placeholder="More"
+            onValueChange={(v) => v && setW(Number(v))}
+            className="w-[5.5rem] font-mono"
+            options={WIDTHS.map((x) => ({ value: String(x), label: x }))}
+          />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="w-14 text-sm text-ink-3">Quality</span>

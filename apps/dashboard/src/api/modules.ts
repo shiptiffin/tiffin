@@ -261,6 +261,7 @@ export const mod = {
   deleteRule: (name: string) => request<void>("DELETE", `/v1/observe/alert-rules/${e(name)}`),
   testAlert: () => request<unknown>("POST", "/v1/observe/alerts/test", {}),
   observeSettings: () => request<ObserveSettings>("GET", "/v1/observe/settings"),
+  setObserveSettings: (body: S["ObserveSettingsBody"]) => request<ObserveSettings>("PUT", "/v1/observe/settings", body),
   // the outside check (heartbeat)
   monitor: () => request<OutsideCheck>("GET", "/v1/monitor"),
   monitorSet: (url: string) => request<OutsideCheck>("PUT", "/v1/monitor", { url }),

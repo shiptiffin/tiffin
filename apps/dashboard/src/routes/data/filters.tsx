@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowUp, Columns3, Plus, X } from "lucide-react";
 import { DropdownMenu as M, Popover as P } from "radix-ui";
 import { useState } from "react";
-import { MiniSelect } from "@/components/data-parts";
+import { Select } from "@/components/ui/choice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { ColumnDetail, Filter } from "./api";
@@ -191,43 +191,32 @@ function FilterForm({ columns, initial, onDone }: { columns: ColumnDetail[]; ini
       aria-label="Filter"
     >
       <div className="grid grid-cols-2 gap-2">
-        <label className="flex flex-col gap-1 text-xs text-ink-3">
+        <div className="flex flex-col gap-1 text-xs text-ink-3">
           Column
-          <MiniSelect value={col} onChange={(e) => setCol(e.target.value)} className="w-full [&_select]:h-8">
-            {columns.map((x) => (
-              <option key={x.name} value={x.name}>
-                {x.name}
-              </option>
-            ))}
-          </MiniSelect>
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-ink-3">
+          <Select size="sm" aria-label="Column" value={col} onValueChange={setCol} className="font-mono" options={columns.map((x) => ({ value: x.name, label: x.name }))} />
+        </div>
+        <div className="flex flex-col gap-1 text-xs text-ink-3">
           Matches
-          <MiniSelect value={opOk} onChange={(e) => setOp(e.target.value as Filter["op"])} className="w-full [&_select]:h-8 [&_select]:font-sans">
-            {ops.map((o) => (
-              <option key={o} value={o}>
-                {OPS[o]}
-              </option>
-            ))}
-          </MiniSelect>
-        </label>
+          <Select size="sm" aria-label="Matches" value={opOk} onValueChange={(v) => setOp(v as Filter["op"])} options={ops.map((o) => ({ value: o, label: OPS[o] }))} />
+        </div>
       </div>
       {needsValue && (
         <label className="flex flex-col gap-1 text-xs text-ink-3">
           {opOk === "in" ? "Values, separated by commas" : "Value"}
           {c?.category === "bool" && opOk !== "in" ? (
-            <MiniSelect value={value || "true"} onChange={(e) => setValue(e.target.value)} className="w-full [&_select]:h-8">
-              <option value="true">true</option>
-              <option value="false">false</option>
-            </MiniSelect>
+            <Select
+              size="sm"
+              aria-label="Value"
+              value={value || "true"}
+              onValueChange={setValue}
+              className="font-mono"
+              options={[
+                { value: "true", label: "true" },
+                { value: "false", label: "false" },
+              ]}
+            />
           ) : c?.category === "enum" && opOk !== "in" ? (
-            <MiniSelect value={value || c.enum?.[0] || ""} onChange={(e) => setValue(e.target.value)} className="w-full [&_select]:h-8">
-              {(c.enum ?? []).map((x) => (
-                <option key={x} value={x}>
-                  {x}
-                </option>
-              ))}
-            </MiniSelect>
+            <Select size="sm" aria-label="Value" value={value || c.enum?.[0] || ""} onValueChange={setValue} className="font-mono" options={(c.enum ?? []).map((x) => ({ value: x, label: x }))} />
           ) : (
             <Input
               autoFocus

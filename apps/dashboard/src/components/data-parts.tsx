@@ -1,5 +1,4 @@
-import { ChevronDown } from "lucide-react";
-import type { ComponentProps, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 /**
@@ -127,19 +126,4 @@ export function jsonLine(v: unknown): string {
       .join(", ")}}`;
   }
   return v === undefined ? "null" : JSON.stringify(v);
-}
-
-/** A compact native select with a quiet chevron (keeps the platform's own menu, keyboard and a11y). */
-export function MiniSelect({ className, children, ...props }: ComponentProps<"select">) {
-  return (
-    <span className={cn("relative inline-flex", className)}>
-      <select
-        {...props}
-        className="h-7 w-full appearance-none rounded-[6px] border border-rule-2 bg-paper-raised pr-7 pl-2 font-mono text-xs text-ink shadow-[var(--top-light)] outline-none transition-colors hover:border-rule-3 focus-visible:border-brass"
-      >
-        {children}
-      </select>
-      <ChevronDown aria-hidden className="pointer-events-none absolute top-1/2 right-2 size-3.5 -translate-y-1/2 text-ink-3" />
-    </span>
-  );
 }

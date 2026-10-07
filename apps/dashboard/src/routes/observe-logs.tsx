@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -11,6 +11,7 @@ import { NotOnBox, Page, PageHeader, Skeleton, Untrusted } from "@/components/pa
 import { PilotLight } from "@/components/pilot";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
 import { int } from "@/lib/format";
 import { useMe } from "@/lib/me";
@@ -58,7 +59,7 @@ function toLine(r: Row, i: number): Line {
  * way a terminal reads. Follow keeps it pinned to the bottom and pauses the
  * moment you scroll up. Lines are untrusted: plain text, fenced, never acted on.
  */
-export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
+export function LogsPage({ q = "*", project, since = "1h", live, inProject }: LogsSearch & { inProject?: boolean }) {
   useTitle("Logs");
   const navigate = useNavigate();
   const projects = useQuery(core.projects);
@@ -92,7 +93,10 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
     refetchInterval: live ? 2000 : false,
     placeholderData: (d) => d,
   });
-  const set = (o: Partial<LogsSearch>) => navigate({ to: "/logs", search: { q, project, since, live, ...o }, replace: true });
+  const set = (o: Partial<LogsSearch>) =>
+    inProject && project
+      ? navigate({ to: "/projects/$project/logs", params: { project }, search: { q, since, live, ...o }, replace: true })
+      : navigate({ to: "/logs", search: { q, project, since, live, ...o }, replace: true });
   const lines = useMemo(() => res.data?.lines ?? [], [res.data]);
   const apps = useMemo(() => {
     const s = new Set<string>();
@@ -137,11 +141,12 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
   return (
     <Page full>
       <PageHeader
-        eyebrow={healthCrumbs}
+        eyebrow={inProject ? undefined : healthCrumbs}
         title="Logs"
+        actions={admin && <LogRetention now={settings.data?.logsRetention} />}
         lede={
           <>
-            What the box and your apps write, kept for {settings.data?.logsRetention?.replace(/d$/, " days") ?? "14 days"}. Search with{" "}
+            {inProject ? `What ${project}’s apps write: builds and runtime,` : "What the box and your apps write,"} kept for {settings.data?.logsRetention?.replace(/d$/, " days") ?? "14 days"}. Search with{" "}
             <a href="https://docs.victoriametrics.com/victorialogs/logsql/" target="_blank" rel="noopener noreferrer" className="text-brass-ink underline-offset-4 hover:underline">
               LogsQL
             </a>
@@ -151,21 +156,17 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
       />
 
       <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-3">
-        {options.length <= 5 ? (
+        {inProject ? null : options.length <= 5 ? (
           <Segmented label="Whose logs" value={scope} onChange={(v) => (setApp(""), set({ project: v || undefined }))} options={options} />
         ) : (
-          <select
-            value={scope}
-            onChange={(e) => (setApp(""), set({ project: e.target.value || undefined }))}
+          <Select
+            size="sm"
+            value={scope || "__box"}
+            onValueChange={(v) => (setApp(""), set({ project: v === "__box" ? undefined : v }))}
             aria-label="Whose logs"
-            className="h-8 rounded-[7px] border border-rule-2 bg-paper px-2 text-[0.8125rem] text-ink"
-          >
-            {options.map((o) => (
-              <option key={o.v} value={o.v}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+            className="w-48"
+            options={options.map((o) => ({ value: o.v || "__box", label: o.label }))}
+          />
         )}
         {scope && apps.length > 0 && (
           <Segmented label="Which app" value={app} onChange={setApp} options={[{ v: "", label: "All apps" }, ...apps.map((a) => ({ v: a, label: a }))]} />
@@ -190,19 +191,14 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
             spellCheck={false}
           />
         </label>
-        <select
+        <Select
           value={since}
-          onChange={(e) => set({ since: e.target.value })}
+          onValueChange={(v) => set({ since: v })}
           disabled={live}
           aria-label="How far back"
-          className="h-9 rounded-[8px] border border-rule-2 bg-paper-raised px-2.5 text-[0.84375rem] text-ink outline-none focus-visible:border-brass disabled:opacity-45"
-        >
-          {windows.map((w) => (
-            <option key={w} value={w}>
-              {windowLabel(w)}
-            </option>
-          ))}
-        </select>
+          className="w-40"
+          options={windows.map((w) => ({ value: w, label: windowLabel(w) }))}
+        />
         <Button type="submit" size="lg" className="h-9">
           Search
         </Button>
@@ -336,3 +332,40 @@ export function LogsPage({ q = "*", project, since = "1h", live }: LogsSearch) {
     </Page>
   );
 }
+
+const RETENTIONS = ["7d", "14d", "30d", "90d"];
+
+/** How long logs are kept, for box admins: pick, then Save. Shorter deletes older logs at the next cleanup. */
+function LogRetention({ now }: { now?: string }) {
+  const qc = useQueryClient();
+  const [pick, setPick] = useState<string>();
+  const save = useMutation({
+    mutationFn: (v: string) => mod.setObserveSettings({ logsRetention: v }),
+    onSuccess: () => {
+      setPick(undefined);
+      void qc.invalidateQueries({ queryKey: ["observe-settings"] });
+    },
+  });
+  if (!now) return null;
+  const value = pick ?? now;
+  const days = (v: string) => v.replace(/d$/, " days");
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs text-ink-3">Keep logs for</span>
+      <Select size="sm" className="w-32" value={value} onValueChange={setPick} aria-label="Keep logs for" options={[...new Set([...RETENTIONS, now])].map((v) => ({ value: v, label: days(v) }))} />
+      {pick && pick !== now && (
+        <>
+          <Button size="sm" variant="primary" disabled={save.isPending} onClick={() => save.mutate(pick)}>
+            Save
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setPick(undefined)}>
+            Cancel
+          </Button>
+        </>
+      )}
+      {pick && parseInt(pick) < parseInt(now) && <p className="w-full text-xs text-warn-ink">Logs older than {days(pick)} are deleted at the next cleanup.</p>}
+      {save.error && <p className="w-full text-xs text-danger">{save.error instanceof Error ? save.error.message : "Couldn’t save."}</p>}
+    </div>
+  );
+}
+

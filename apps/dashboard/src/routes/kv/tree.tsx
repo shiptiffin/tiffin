@@ -3,7 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight, Search, Trash2, X } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { mod, type KVTree } from "@/api/modules";
-import { MiniSelect } from "@/components/data-parts";
+import { Select } from "@/components/ui/choice";
 import { ProblemNote } from "@/components/problem";
 import { Skeleton } from "@/components/page";
 import { cn } from "@/lib/cn";
@@ -201,14 +201,14 @@ export const KeyBrowser = forwardRef<BrowserHandle, {
         )}
       </label>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <MiniSelect aria-label="Type" value={filters.type} onChange={(e) => onFilters({ ...filters, type: e.target.value })} className="w-32">
-          <option value="">All types</option>
-          {TYPES.map((t) => (
-            <option key={t.type} value={t.type}>
-              {t.name}
-            </option>
-          ))}
-        </MiniSelect>
+        <Select
+          size="sm"
+          aria-label="Type"
+          value={filters.type || "__all"}
+          onValueChange={(v) => onFilters({ ...filters, type: v === "__all" ? "" : v })}
+          className="w-36"
+          options={[{ value: "__all", label: "All types" }, ...TYPES.map((t) => ({ value: t.type, label: t.name }))]}
+        />
         <Segmented
           label="Expiry"
           value={filters.expiry}

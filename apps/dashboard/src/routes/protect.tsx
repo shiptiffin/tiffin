@@ -11,6 +11,7 @@ import { ProblemNote, sentence } from "@/components/problem";
 import { SegMeter } from "@/components/seg-meter";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/choice";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { countWords, duration, int, NNBSP, plainWords, words } from "@/lib/format";
@@ -221,18 +222,13 @@ function AttackLever({ s, admin, onDone }: { s: ProtectStatus; admin: boolean; o
         </div>
         {admin ? (
           <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={minutes}
-              onChange={(e) => setMinutes(Number(e.target.value))}
+            <Select
+              value={String(minutes)}
+              onValueChange={(v) => setMinutes(Number(v))}
               aria-label="For how long"
-              className="h-[38px] rounded-[8px] border border-rule-2 bg-paper px-2.5 text-[0.84375rem] text-ink outline-none focus-visible:border-brass"
-            >
-              {windowsFor.map((m) => (
-                <option key={m} value={m}>
-                  for {forWords(m)}
-                </option>
-              ))}
-            </select>
+              className="w-44"
+              options={windowsFor.map((m) => ({ value: String(m), label: `for ${forWords(m)}` }))}
+            />
             {armed ? (
               <>
                 <Button size="lg" variant="ghost" onClick={() => setArmed(false)}>
@@ -486,18 +482,13 @@ function Bans({ admin, onDone }: { admin: boolean; onDone: () => void }) {
         >
           <Input value={ip} onChange={(e) => setIp(e.target.value)} placeholder="203.0.113.7, or a range" className="ident sm:max-w-[14rem]" aria-label="Address or range to ban" spellCheck={false} />
           <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why (shown in this list)" aria-label="Why" />
-          <select
+          <Select
             value={length}
-            onChange={(e) => setLength(e.target.value)}
+            onValueChange={setLength}
             aria-label="For how long"
-            className="h-9 rounded-md border border-rule bg-paper px-2.5 text-[0.84375rem] text-ink outline-none focus-visible:border-brass"
-          >
-            {["1h", "4h", "24h", "168h"].map((d) => (
-              <option key={d} value={d}>
-                for {d === "168h" ? "a week" : d === "24h" ? "a day" : d.replace("h", `${NNBSP}h`)}
-              </option>
-            ))}
-          </select>
+            className="sm:w-36 sm:shrink-0"
+            options={["1h", "4h", "24h", "168h"].map((d) => ({ value: d, label: `for ${d === "168h" ? "a week" : d === "24h" ? "a day" : d.replace("h", `${NNBSP}h`)}` }))}
+          />
           <Button type="submit" size="lg" className="h-9" disabled={!ip.trim() || ban.isPending}>
             {ip.trim() ? `Ban ${ip.trim().length > 20 ? "it" : ip.trim()}` : "Ban"}
           </Button>

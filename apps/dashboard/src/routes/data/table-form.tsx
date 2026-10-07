@@ -4,11 +4,10 @@ import { ChevronRight, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ApiError } from "@/api/client";
 import { mq } from "@/api/modules";
-import { MiniSelect } from "@/components/data-parts";
 import { ProblemNote } from "@/components/problem";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/choice";
+import { Checkbox, Select } from "@/components/ui/choice";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { useDebounced } from "@/lib/debounced";
@@ -313,14 +312,22 @@ export function TableForm({
                           <Checkbox checked={e.unique} onCheckedChange={(v) => upd({ unique: v === true })} />
                           Unique
                         </label>
-                        <label className="flex items-center gap-2">
+                        <div className="flex items-center gap-2">
                           Default
-                          <MiniSelect value={e.defKind} onChange={(ev) => upd({ defKind: ev.target.value as Existing["defKind"] })} disabled={e.fixed} className="[&_select]:font-sans">
-                            <option value="keep">{e.def ? clipDef(e.def) : "none"}</option>
-                            {e.def && <option value="none">none</option>}
-                            <option value="value">a value…</option>
-                          </MiniSelect>
-                        </label>
+                          <Select
+                            size="sm"
+                            aria-label={`Default for ${e.name}`}
+                            value={e.defKind}
+                            onValueChange={(v) => upd({ defKind: v as Existing["defKind"] })}
+                            disabled={e.fixed}
+                            className="w-auto min-w-[8rem]"
+                            options={[
+                              { value: "keep", label: e.def ? clipDef(e.def) : "none" },
+                              ...(e.def ? [{ value: "none", label: "none" }] : []),
+                              { value: "value", label: "a value…" },
+                            ]}
+                          />
+                        </div>
                         {e.defKind === "value" && <Input aria-label={`Default for ${e.name}`} value={e.defValue} onChange={(ev) => upd({ defValue: ev.target.value })} className="h-7 w-36 font-mono text-sm" />}
                       </div>
                     )}
@@ -385,13 +392,14 @@ function NewColumnRow({ c, targets, onChange, onRemove }: { c: Draft; targets: s
     <li className="py-3">
       <div className="flex flex-wrap items-center gap-2">
         <Input aria-label="Column name" value={c.name} onChange={(e) => onChange({ name: e.target.value })} placeholder="column_name" className="h-8 max-w-[15rem] min-w-0 flex-1 font-mono text-sm" spellCheck={false} autoComplete="off" />
-        <MiniSelect aria-label="Type" value={c.type} onChange={(e) => onChange({ type: e.target.value as Draft["type"], def: "" })} className="min-w-[11rem] [&_select]:h-8 [&_select]:font-sans [&_select]:text-sm">
-          {TYPES.map(([v, label]) => (
-            <option key={v} value={v} disabled={v === "link" && targets.length === 0}>
-              {label}
-            </option>
-          ))}
-        </MiniSelect>
+        <Select
+          size="sm"
+          aria-label="Type"
+          value={c.type}
+          onValueChange={(v) => onChange({ type: v as Draft["type"], def: "" })}
+          className="w-auto min-w-[11rem]"
+          options={TYPES.map(([v, label]) => ({ value: v, label, disabled: v === "link" && targets.length === 0 }))}
+        />
         <Button size="icon-sm" variant="ghost" className="ml-auto" aria-label={`Remove ${c.name || "this column"}`} onClick={onRemove}>
           <Trash2 />
         </Button>
@@ -399,19 +407,27 @@ function NewColumnRow({ c, targets, onChange, onRemove }: { c: Draft; targets: s
       {c.type === "link" && (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-ink-2">
           to
-          <MiniSelect aria-label="Linked table" value={c.ref} onChange={(e) => onChange({ ref: e.target.value })} className="min-w-[10rem]">
-            {targets.map((t) => (
-              <option key={t} value={t}>
-                {t.replace(/^public\./, "")}
-              </option>
-            ))}
-          </MiniSelect>
+          <Select
+            size="sm"
+            aria-label="Linked table"
+            value={c.ref}
+            onValueChange={(v) => onChange({ ref: v })}
+            className="w-auto min-w-[10rem] font-mono"
+            options={targets.map((t) => ({ value: t, label: t.replace(/^public\./, "") }))}
+          />
           when that row is deleted
-          <MiniSelect aria-label="When the linked row is deleted" value={c.onDelete} onChange={(e) => onChange({ onDelete: e.target.value as Draft["onDelete"] })} className="[&_select]:font-sans">
-            <option value="no-action">refuse</option>
-            <option value="cascade">delete this row too</option>
-            <option value="set-null">empty the link</option>
-          </MiniSelect>
+          <Select
+            size="sm"
+            aria-label="When the linked row is deleted"
+            value={c.onDelete}
+            onValueChange={(v) => onChange({ onDelete: v as Draft["onDelete"] })}
+            className="w-44"
+            options={[
+              { value: "no-action", label: "refuse" },
+              { value: "cascade", label: "delete this row too" },
+              { value: "set-null", label: "empty the link" },
+            ]}
+          />
         </div>
       )}
       <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-ink-2">
@@ -424,18 +440,17 @@ function NewColumnRow({ c, targets, onChange, onRemove }: { c: Draft; targets: s
           Unique
         </label>
         {c.type !== "link" && (
-          <label className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
             Default
-            <MiniSelect value={c.def} onChange={(e) => onChange({ def: e.target.value as DefaultKind })} className="[&_select]:font-sans">
-              <option value="">none</option>
-              {defaults.map(([v, label]) => (
-                <option key={v} value={v}>
-                  {label}
-                </option>
-              ))}
-              <option value="value">a value…</option>
-            </MiniSelect>
-          </label>
+            <Select
+              size="sm"
+              aria-label="Default"
+              value={c.def || "__none"}
+              onValueChange={(v) => onChange({ def: (v === "__none" ? "" : v) as DefaultKind })}
+              className="w-auto min-w-[8rem]"
+              options={[{ value: "__none", label: "none" }, ...defaults.map(([v, label]) => ({ value: v, label })), { value: "value", label: "a value…" }]}
+            />
+          </div>
         )}
         {c.def === "value" && (
           <Input aria-label={`Default for ${c.name || "the column"}`} value={c.value} onChange={(e) => onChange({ value: e.target.value })} placeholder={c.type === "boolean" ? "false" : "0"} className="h-7 w-36 font-mono text-sm" />

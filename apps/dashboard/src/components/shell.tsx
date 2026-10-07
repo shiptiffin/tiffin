@@ -165,6 +165,7 @@ function useGoKeys(project: string | undefined, openPalette: (search: string) =>
   useShortcut("g k", "KV", part("valkey", "kv"), "Go to");
   useShortcut("g f", "Files", part("storage", "files"), "Go to");
   useShortcut("g j", "Jobs", part("jobs", "jobs"), "Go to");
+  useShortcut("g l", "Logs", go("/projects/$project/logs", () => void navigate({ to: "/logs", search: {} })), "Go to");
   useShortcut("g u", "Usage", go("/projects/$project/usage", () => void navigate({ to: "/usage" })), "Go to");
   useShortcut("g h", "History", go("/projects/$project/history", () => void navigate({ to: "/ledger", search: {} })), "Go to");
   useShortcut("g s", "Settings", go("/projects/$project/settings", () => void navigate({ to: "/settings" })), "Go to");
@@ -353,6 +354,7 @@ function ProjectNav({ project, path }: { project: string; path: string }) {
       {item("auth", at("users") || at("orgs"))}
       {item("analytics")}
       {item("jobs", at("queues") || at("workflows") || at("jobs") || at("schedules"))}
+      {!one && parts.has("apps") && <NavItem to="/projects/$project/logs" params={params} label="Logs" />}
       <div className="my-2 h-px bg-rule" aria-hidden />
       <NavItem to="/projects/$project/usage" params={params} label="Usage" />
       <NavItem to="/projects/$project/history" params={params} label="History" />

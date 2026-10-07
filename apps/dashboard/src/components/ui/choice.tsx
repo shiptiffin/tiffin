@@ -37,25 +37,54 @@ export function Radio({ className, ...props }: ComponentProps<typeof R.Item>) {
   );
 }
 
+/**
+ * A dropdown: the one used everywhere in the dashboard (never a native
+ * <select>). Values are strings; `size` matches the field it sits beside.
+ *
+ *   <Select value={v} onValueChange={setV} options={[{ value: "a", label: "A" }]} aria-label="Sort" />
+ */
 export function Select({
   value,
   onValueChange,
   options,
   id,
+  size = "md",
+  className,
+  disabled,
+  placeholder,
+  "aria-label": ariaLabel,
+  "aria-labelledby": labelledBy,
 }: {
   value: string;
   onValueChange: (v: string) => void;
-  options: Array<{ value: string; label: ReactNode }>;
+  options: Array<{ value: string; label: ReactNode; disabled?: boolean }>;
   id?: string;
+  /** sm: 32 px, beside toolbar buttons; md: 36 px, form fields. */
+  size?: "sm" | "md";
+  /** Width and placement; the trigger fills its container by default. */
+  className?: string;
+  disabled?: boolean;
+  placeholder?: string;
+  "aria-label"?: string;
+  "aria-labelledby"?: string;
 }) {
   return (
-    <S.Root value={value} onValueChange={onValueChange}>
+    <S.Root value={value} onValueChange={onValueChange} disabled={disabled}>
+      {/* The fill-width default is zero-specificity (:where) so a width in className (w-44, sm:w-36) wins without tailwind-merge. */}
       <S.Trigger
         id={id}
-        className="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-rule bg-paper px-3 text-base text-ink outline-none transition-colors hover:border-rule-2 focus-visible:border-brass data-[state=open]:border-rule-2"
+        aria-label={ariaLabel}
+        aria-labelledby={labelledBy}
+        className={cn(
+          "flex min-w-0 items-center [:where(&)]:w-full justify-between gap-2 rounded-[7px] border border-rule-2 bg-paper-raised pr-2.5 pl-3 text-left text-ink outline-none transition-[border-color,box-shadow] hover:border-rule-3 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] disabled:cursor-not-allowed disabled:opacity-55 data-[state=open]:border-rule-3 data-[placeholder]:text-ink-4",
+          size === "sm" ? "h-8 text-[0.8125rem]" : "h-9 text-[0.84375rem]",
+          className,
+        )}
       >
-        <S.Value />
-        <S.Icon>
+        <span className="min-w-0 truncate">
+          <S.Value placeholder={placeholder} />
+        </span>
+        <S.Icon className="shrink-0">
           <ChevronDown className="size-4 text-ink-3" />
         </S.Icon>
       </S.Trigger>
@@ -63,17 +92,22 @@ export function Select({
         <S.Content
           position="popper"
           sideOffset={6}
-          className="z-50 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-rule bg-paper-raised p-1 shadow-raised data-[state=open]:animate-pop"
+          collisionPadding={12}
+          className="z-50 max-h-[min(22rem,var(--radix-select-content-available-height))] min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-[10px] border border-rule-2 bg-paper-raised p-1 shadow-overlay data-[state=open]:animate-pop"
         >
           <S.Viewport>
             {options.map((o) => (
               <S.Item
                 key={o.value}
                 value={o.value}
-                className="relative flex h-8 cursor-default items-center rounded-md pr-8 pl-2 text-base text-ink-2 outline-none select-none data-[highlighted]:bg-paper-hover data-[highlighted]:text-ink"
+                disabled={o.disabled}
+                className={cn(
+                  "relative flex cursor-default items-center rounded-[6px] pr-8 pl-2.5 text-ink-2 outline-none select-none data-[disabled]:opacity-45 data-[highlighted]:bg-paper-hover data-[highlighted]:text-ink data-[state=checked]:text-ink",
+                  size === "sm" ? "h-8 text-[0.8125rem]" : "h-9 text-[0.84375rem]",
+                )}
               >
                 <S.ItemText>{o.label}</S.ItemText>
-                <S.ItemIndicator className="absolute right-2">
+                <S.ItemIndicator className="absolute right-2.5">
                   <Check className="size-3.5 text-ink" />
                 </S.ItemIndicator>
               </S.Item>

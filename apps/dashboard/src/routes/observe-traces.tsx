@@ -9,6 +9,7 @@ import { Facts, Group, Segmented, StateLine } from "@/components/health-kit";
 import { Crumbs, NotOnBox, Page, PageHeader, Skeleton, Untrusted } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { ProjectIcon } from "@/components/project-icon";
+import { Select } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
 import { countWords, ms } from "@/lib/format";
 import { full, relative } from "@/lib/time";
@@ -53,18 +54,14 @@ export function TracesPage({ project, since = "24h", errors }: { project?: strin
         title="Requests"
         actions={
           (projects.data?.length ?? 0) > 1 && (
-            <select
+            <Select
+              size="sm"
               value={p}
-              onChange={(e) => set({ project: e.target.value })}
+              onValueChange={(v) => set({ project: v })}
               aria-label="Project"
-              className="h-8 rounded-[7px] border border-rule-2 bg-paper-raised px-2 text-[0.84375rem] text-ink outline-none focus-visible:border-brass"
-            >
-              {(projects.data ?? []).map((x) => (
-                <option key={x.name} value={x.name}>
-                  {x.name}
-                </option>
-              ))}
-            </select>
+              className="w-48"
+              options={(projects.data ?? []).map((x) => ({ value: x.name, label: x.name }))}
+            />
           )
         }
       />
