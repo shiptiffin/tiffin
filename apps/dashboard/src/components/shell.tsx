@@ -329,38 +329,52 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
 }
 
 /**
- * A project's sections: Overview, the parts it has, then Usage, History and
- * Settings. A standalone project (just a database, say) shows only its part,
- * so it reads like that part's console.
+ * A project's sections, the way a hosting dashboard reads: what's running
+ * (Overview, Deployments, Logs), how it's doing (Analytics, Observability),
+ * how it's reached and configured (Domains, Environment Variables), then
+ * every built-in service, then History and Settings. Every service shows,
+ * added or not: one that isn't added yet opens on what it is and Add. A
+ * standalone project (just a database, say) shows only its part, so it
+ * reads like that part's console.
  */
 function ProjectNav({ project, path }: { project: string; path: string }) {
   const p = useQuery(q.project(project));
-  const parts = partsOf(p.data);
   const one = standalonePart(p.data);
-  const apps = (p.data?.resources ?? []).filter((r) => r.address.startsWith("app/")).length;
   const params = { project };
   const base = `/projects/${project}`;
   const at = (s: string) => path === `${base}/${s}` || path.startsWith(`${base}/${s}/`);
-  const show = (part: Part) => parts.has(part) && (!one || one === part);
-  const item = (part: Part, active?: boolean, label = PART_PAGE[part].label) => show(part) && <NavItem to={PART_PAGE[part].to} params={params} label={label} active={active} />;
+  const item = (part: Part, active?: boolean, label = PART_PAGE[part].label) =>
+    (!one || one === part) && <NavItem to={PART_PAGE[part].to} params={params} label={label} active={active} />;
   return (
     <>
-      {!one && <NavItem to="/projects/$project" params={params} exact label="Overview" aside={<Failing project={project} />} />}
-      {item("apps", undefined, apps === 1 ? "App" : "Apps")}
+      {!one && (
+        <>
+          <NavItem to="/projects/$project" params={params} exact label="Overview" aside={<Failing project={project} />} />
+          <NavItem to="/projects/$project/deployments" params={params} label="Deployments" active={at("deployments") || at("apps")} />
+          <NavItem to="/projects/$project/logs" params={params} label="Logs" />
+          {item("analytics")}
+          <NavItem to="/projects/$project/observability" params={params} label="Observability" active={at("observability") || at("usage")} />
+          <NavItem to="/projects/$project/domains" params={params} label="Domains" />
+          <NavItem to="/projects/$project/env" params={params} label="Environment Variables" active={at("env") || at("secrets")} />
+          <NavHeading>Services</NavHeading>
+        </>
+      )}
       {item("postgres", at("data") && !at("data/kv"))}
       {item("valkey")}
       {item("storage")}
       {item("email")}
       {item("auth", at("users") || at("orgs"))}
-      {item("analytics")}
       {item("jobs", at("queues") || at("workflows") || at("jobs") || at("schedules"))}
-      {!one && parts.has("apps") && <NavItem to="/projects/$project/logs" params={params} label="Logs" />}
       <div className="my-2 h-px bg-rule" aria-hidden />
-      <NavItem to="/projects/$project/usage" params={params} label="Usage" />
+      {one && <NavItem to="/projects/$project/observability" params={params} label="Observability" active={at("observability") || at("usage")} />}
       <NavItem to="/projects/$project/history" params={params} label="History" />
-      <NavItem to="/projects/$project/settings" params={params} label="Settings" active={at("settings") || at("secrets") || at("domains")} />
+      <NavItem to="/projects/$project/settings" params={params} label="Settings" active={at("settings")} />
     </>
   );
+}
+
+function NavHeading({ children }: { children: ReactNode }) {
+  return <p className="mt-4 mb-1 px-2.5 text-[0.6875rem] font-[550] tracking-[0.06em] text-ink-4 uppercase">{children}</p>;
 }
 
 function NavItem({

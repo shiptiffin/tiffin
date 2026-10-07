@@ -1,3 +1,4 @@
+import { PartGate } from "@/components/part-gate";
 import { createRootRouteWithContext, createRoute, createRouter, Link, Outlet, redirect, type ErrorComponentProps } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Tier } from "@/api/client";
@@ -55,6 +56,9 @@ const ChangePage = lz<{ id: string }>(() => import("@/routes/change"), "ChangePa
 const StatusPage = lz(() => import("@/routes/status"), "StatusPage");
 const KeysPage = lz<{ create?: boolean }>(() => import("@/routes/keys"), "KeysPage");
 const ProjectPage = lz<{ project: string }>(() => import("@/routes/project"), "ProjectPage");
+const DeploymentsPage = lz<{ project: string }>(() => import("@/routes/deployments"), "DeploymentsPage");
+const EnvVarsPage = lz<{ project: string }>(() => import("@/routes/env-vars"), "EnvVarsPage");
+const ObservabilityPage = lz<{ project: string }>(() => import("@/routes/project-observe"), "ObservabilityPage");
 const SecretsPage = lz<{ project: string }>(() => import("@/routes/project-settings"), "SecretsPage");
 const DomainsPage = lz<{ project: string }>(() => import("@/routes/domains"), "DomainsPage");
 const DnsSettingsPage = lz(() => import("@/routes/dns-settings"), "DnsSettingsPage");
@@ -234,6 +238,33 @@ const projectUsage = createRoute({
     return <ProjectUsagePage key={p} project={p} />;
   },
 });
+const deploymentsRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/deployments",
+  loader: warm(DeploymentsPage),
+  component: function Deployments() {
+    const { project: p } = deploymentsRoute.useParams();
+    return <DeploymentsPage key={p} project={p} />;
+  },
+});
+const envRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/env",
+  loader: warm(EnvVarsPage),
+  component: function Env() {
+    const { project: p } = envRoute.useParams();
+    return <EnvVarsPage key={p} project={p} />;
+  },
+});
+const observabilityRoute = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$project/observability",
+  loader: warm(ObservabilityPage),
+  component: function Observability() {
+    const { project: p } = observabilityRoute.useParams();
+    return <ObservabilityPage key={p} project={p} />;
+  },
+});
 const projectHistory = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/history",
@@ -281,7 +312,11 @@ const storage = createRoute({
   component: function Storage() {
     const { project: p } = storage.useParams();
     const { new: isNew } = storage.useSearch();
-    return <FilesPage key={p} project={p} isNew={isNew === "bucket"} />;
+    return (
+      <PartGate project={p} part="storage">
+        <FilesPage key={p} project={p} isNew={isNew === "bucket"} />
+      </PartGate>
+    );
   },
 });
 const bucket = createRoute({
@@ -292,7 +327,11 @@ const bucket = createRoute({
   component: function Bucket() {
     const { project: p, bucket: b } = bucket.useParams();
     const { prefix, file } = bucket.useSearch();
-    return <BucketPage key={p + b} project={p} bucket={b} prefix={prefix} file={file} />;
+    return (
+      <PartGate project={p} part="storage">
+        <BucketPage key={p + b} project={p} bucket={b} prefix={prefix} file={file} />
+      </PartGate>
+    );
   },
 });
 const inbox = createRoute({
@@ -303,7 +342,11 @@ const inbox = createRoute({
   component: function Inbox() {
     const { project: p } = inbox.useParams();
     const { q, m } = inbox.useSearch();
-    return <InboxPage key={p} project={p} q={q} m={m} />;
+    return (
+      <PartGate project={p} part="email">
+        <InboxPage key={p} project={p} q={q} m={m} />
+      </PartGate>
+    );
   },
 });
 const emailSettings = createRoute({
@@ -312,7 +355,11 @@ const emailSettings = createRoute({
   loader: () => void EmailSettingsPage.preload(),
   component: function EmailSettings() {
     const { project: p } = emailSettings.useParams();
-    return <EmailSettingsPage key={p} project={p} />;
+    return (
+      <PartGate project={p} part="email">
+        <EmailSettingsPage key={p} project={p} />
+      </PartGate>
+    );
   },
 });
 const data = createRoute({
@@ -322,7 +369,11 @@ const data = createRoute({
   loader: () => void DataPage.preload(),
   component: function Data() {
     const { project: p } = data.useParams();
-    return <DataPage key={p} project={p} />;
+    return (
+      <PartGate project={p} part="postgres">
+        <DataPage key={p} project={p} />
+      </PartGate>
+    );
   },
 });
 const table = createRoute({
@@ -332,7 +383,11 @@ const table = createRoute({
   loader: () => void TablePage.preload(),
   component: function Table() {
     const { project: p, table: t } = table.useParams();
-    return <TablePage key={p} project={p} table={t} />;
+    return (
+      <PartGate project={p} part="postgres">
+        <TablePage key={p} project={p} table={t} />
+      </PartGate>
+    );
   },
 });
 const sqlRoute = createRoute({
@@ -342,7 +397,11 @@ const sqlRoute = createRoute({
   loader: () => void SqlPage.preload(),
   component: function Sql() {
     const { project: p } = sqlRoute.useParams();
-    return <SqlPage key={p} project={p} />;
+    return (
+      <PartGate project={p} part="postgres">
+        <SqlPage key={p} project={p} />
+      </PartGate>
+    );
   },
 });
 const branches = createRoute({
@@ -352,7 +411,11 @@ const branches = createRoute({
   loader: () => void BranchesPage.preload(),
   component: function Branches() {
     const { project: p } = branches.useParams();
-    return <BranchesPage key={p} project={p} />;
+    return (
+      <PartGate project={p} part="postgres">
+        <BranchesPage key={p} project={p} />
+      </PartGate>
+    );
   },
 });
 const schemaRoute = createRoute({
@@ -362,7 +425,11 @@ const schemaRoute = createRoute({
   loader: () => void SchemaPage.preload(),
   component: function Schema() {
     const { project: p } = schemaRoute.useParams();
-    return <SchemaPage key={p} project={p} />;
+    return (
+      <PartGate project={p} part="postgres">
+        <SchemaPage key={p} project={p} />
+      </PartGate>
+    );
   },
 });
 const restoreRoute = createRoute({
@@ -372,7 +439,11 @@ const restoreRoute = createRoute({
   loader: () => void RestorePage.preload(),
   component: function Restore() {
     const { project: p } = restoreRoute.useParams();
-    return <RestorePage key={p} project={p} />;
+    return (
+      <PartGate project={p} part="postgres">
+        <RestorePage key={p} project={p} />
+      </PartGate>
+    );
   },
 });
 const kv = createRoute({
@@ -387,7 +458,11 @@ const kv = createRoute({
   component: function Kv() {
     const { project: p } = kv.useParams();
     const { match, key, new: isNew } = kv.useSearch();
-    return <KvPage key={p} project={p} match={match} k={key} isNew={isNew} />;
+    return (
+      <PartGate project={p} part="valkey">
+        <KvPage key={p} project={p} match={match} k={key} isNew={isNew} />
+      </PartGate>
+    );
   },
 });
 const kvConsole = createRoute({
@@ -396,7 +471,11 @@ const kvConsole = createRoute({
   loader: () => void KvPage.preload(),
   component: function KvConsole() {
     const { project: p } = kvConsole.useParams();
-    return <KvPage key={p} project={p} tab="console" />;
+    return (
+      <PartGate project={p} part="valkey">
+        <KvPage key={p} project={p} tab="console" />
+      </PartGate>
+    );
   },
 });
 const metrics = createRoute({ getParentRoute: () => app, path: "/metrics", loader: () => void MetricsPage.preload(),
@@ -546,7 +625,11 @@ const analytics = createRoute({
   loader: () => void AnalyticsPage.preload(),
   component: function Analytics() {
     const { project: p } = analytics.useParams();
-    return <AnalyticsPage key={p} project={p} search={analytics.useSearch()} />;
+    return (
+      <PartGate project={p} part="analytics">
+        <AnalyticsPage key={p} project={p} search={analytics.useSearch()} />
+      </PartGate>
+    );
   },
 });
 const appsRoute = createRoute({
@@ -597,7 +680,11 @@ const users = createRoute({
   component: function Users() {
     const { project: p } = users.useParams();
     const { search, page } = users.useSearch();
-    return <UsersPage key={p} project={p} search={search} page={page} />;
+    return (
+      <PartGate project={p} part="auth">
+        <UsersPage key={p} project={p} search={search} page={page} />
+      </PartGate>
+    );
   },
 });
 const userRoute = createRoute({
@@ -606,7 +693,11 @@ const userRoute = createRoute({
   loader: () => void UserPage.preload(),
   component: function UserView() {
     const { project: p, id } = userRoute.useParams();
-    return <UserPage key={id} project={p} id={id} />;
+    return (
+      <PartGate project={p} part="auth">
+        <UserPage key={id} project={p} id={id} />
+      </PartGate>
+    );
   },
 });
 const orgs = createRoute({
@@ -616,7 +707,11 @@ const orgs = createRoute({
   loader: () => void OrgsPage.preload(),
   component: function Orgs() {
     const { project: p } = orgs.useParams();
-    return <OrgsPage key={p} project={p} search={orgs.useSearch().search} />;
+    return (
+      <PartGate project={p} part="auth">
+        <OrgsPage key={p} project={p} search={orgs.useSearch().search} />
+      </PartGate>
+    );
   },
 });
 const orgRoute = createRoute({
@@ -625,7 +720,11 @@ const orgRoute = createRoute({
   loader: () => void OrgPage.preload(),
   component: function OrgView() {
     const { project: p, id } = orgRoute.useParams();
-    return <OrgPage key={id} project={p} id={id} />;
+    return (
+      <PartGate project={p} part="auth">
+        <OrgPage key={id} project={p} id={id} />
+      </PartGate>
+    );
   },
 });
 const protect = createRoute({ getParentRoute: () => app, path: "/protect", loader: () => void ProtectPage.preload(),
@@ -701,6 +800,9 @@ const tree = root.addChildren([
     approvals,
     project,
     projectUsage,
+    deploymentsRoute,
+    envRoute,
+    observabilityRoute,
     projectHistory,
     projectSettings,
     secrets,

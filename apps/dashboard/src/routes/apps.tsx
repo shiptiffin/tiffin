@@ -556,7 +556,7 @@ function VersionRow({
 }
 
 /** Copies and memory, as steppers with what they add up to. Each step is a change (rapid clicks go as one). */
-function Scale({
+export function Scale({
   project,
   app,
   spec,
@@ -688,7 +688,7 @@ function Scale({
  * (faster starts, less memory); Node.js is the way out for an app that
  * needs it. It applies from the next deploy.
  */
-function RuntimeSetting({ project, app, spec, writer }: { project: string; app: string; spec: ManifestApp; writer: boolean }) {
+export function RuntimeSetting({ project, app, spec, writer }: { project: string; app: string; spec: ManifestApp; writer: boolean }) {
   const now = spec.runtime === "node" ? "node" : "bun";
   return (
     <section aria-label="Runtime">
