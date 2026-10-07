@@ -486,6 +486,16 @@ describe("row-level security helpers", () => {
     await app.query("ROLLBACK");
     const upd = (await as("org_a", () => app.query(`UPDATE notes SET body = 'x' WHERE org_id = 'org_b'`))) as pg.QueryResult;
     expect(upd.rowCount).toBe(0);
+    // A permissive policy of the app's own (here one that lets everything
+    // through) is ANDed with the isolation, not ORed: still one org's rows.
+    await app.query(`CREATE POLICY everyone ON notes USING (true) WITH CHECK (true)`);
+    await app.query(`SELECT tiffin_auth.enable_org_rls('notes')`); // again: idempotent
+    const still = (await as("org_a", () => app.query(`SELECT body FROM notes ORDER BY body`))) as pg.QueryResult;
+    expect(still.rows.map((r) => r.body)).toEqual(["a1", "a2"]);
+    await app.query("BEGIN");
+    await app.query(`SELECT set_config('app.org_id', 'org_a', true)`);
+    await expect(app.query(`INSERT INTO notes (org_id, body) VALUES ('org_b', 'sneak')`)).rejects.toThrow(/row-level security/);
+    await app.query("ROLLBACK");
     await app.end();
   });
 });

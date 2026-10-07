@@ -26,7 +26,8 @@ pooler, `DIRECT_DATABASE_URL` straight to Postgres, and `DATABASE_POOL_MAX`.
 - **Snapshots:** deleting the database (or writing through the console) keeps a
   snapshot for 7 days; `tiffin snapshots restore` brings it back.
 - **Org isolation:** `tiffin_auth.enable_org_rls('table')` adds row-level security keyed on the
-  signed-in user's organization.
+  signed-in user's organization. Its policy is restrictive: the table's other policies can
+  narrow what a query sees, never widen it to another organization's rows.
 - **Safety limits:** a query is stopped after 5 minutes, or 30 seconds in a project with a limit (`statementTimeoutSeconds: 120`
   changes it; `SET LOCAL statement_timeout = '10min'` lets one long job run), a session
   left idle inside a transaction is closed after 60 seconds, and a project opens at most

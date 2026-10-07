@@ -20,6 +20,10 @@ CREATE OR REPLACE FUNCTION ${SCHEMA}.user_id() RETURNS text
 
 -- Turn on org isolation for a table: rows are visible and writable only when
 -- their org column equals app.org_id. FORCE applies it to the table owner too.
+-- The isolation policy is RESTRICTIVE, so it is ANDed with every other policy:
+-- one the table has, or gets later (USING (true)), can narrow access but never
+-- reach another org's rows. Postgres needs one permissive policy to let any
+-- row through at all: tiffin_org_access is that one.
 -- (Superusers and BYPASSRLS roles still bypass it: don't run apps as those.)
 CREATE OR REPLACE FUNCTION ${SCHEMA}.enable_org_rls(tbl regclass, col name DEFAULT 'org_id') RETURNS void
   LANGUAGE plpgsql
@@ -28,7 +32,9 @@ BEGIN
   EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY', tbl);
   EXECUTE format('ALTER TABLE %s FORCE ROW LEVEL SECURITY', tbl);
   EXECUTE format('DROP POLICY IF EXISTS tiffin_org_isolation ON %s', tbl);
-  EXECUTE format('CREATE POLICY tiffin_org_isolation ON %s USING (%I = ${SCHEMA}.org_id()) WITH CHECK (%I = ${SCHEMA}.org_id())', tbl, col, col);
+  EXECUTE format('DROP POLICY IF EXISTS tiffin_org_access ON %s', tbl);
+  EXECUTE format('CREATE POLICY tiffin_org_access ON %s AS PERMISSIVE USING (true) WITH CHECK (true)', tbl);
+  EXECUTE format('CREATE POLICY tiffin_org_isolation ON %s AS RESTRICTIVE USING (%I = ${SCHEMA}.org_id()) WITH CHECK (%I = ${SCHEMA}.org_id())', tbl, col, col);
 END $$;
 
 GRANT USAGE ON SCHEMA ${SCHEMA} TO PUBLIC;
