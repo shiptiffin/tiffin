@@ -34,10 +34,10 @@ TanStack Router, wouter…) serves `index.html` for paths without a file, so a r
 TanStack Start runs as a server on Bun: its `start` script (Nitro's
 `node .output/server/index.mjs`), or Railpack's default when there is none. Astro with
 `@astrojs/node` (standalone) runs its server the same way; without a `start` script the box
-starts `dist/server/entry.mjs`. SvelteKit, Nuxt, React Router's framework mode, Remix,
-SolidStart, TanStack Start for Solid and Astro with another host's adapter (Vercel,
-Netlify, Cloudflare) aren't detected yet: importing one says so. Any of them runs from
-its own Dockerfile (`builder: "dockerfile"`, see [Build settings](#build-settings)).
+starts `dist/server/entry.mjs`. Which frameworks are first-class, which are only
+detected and which aren't supported yet: [What works and what doesn't](limits.md#frameworks).
+Any of them runs from its own Dockerfile (`builder: "dockerfile"`, see
+[Build settings](#build-settings)).
 
 The edge compresses text responses (zstd or gzip) for every app; a response the app
 compressed itself is passed through. A static site's pages and files are revalidated on
@@ -282,9 +282,11 @@ unchanged.
   Vercel: the nearest folder above it with a `pnpm-workspace.yaml` or a `package.json`
   `workspaces` field (inside its repository), when that lists the app's folder among its
   packages or the app uses a workspace package (`"@acme/ui": "workspace:*"`). Dependencies
-  install at the top with the workspace's package manager (by its lockfile), then the app
-  builds and starts in its own folder (the deploy's `dir`, e.g. `apps/web`). `tiffin
-  deploy`, git pushes and GitHub deploys all do this. Any other app goes up alone.
+  install at the top with the workspace's package manager (by its lockfile), only for the
+  app, the workspace packages it uses and the root, falling back to the whole workspace
+  (see [Monorepos](limits.md#monorepos)); then the app builds and starts in its own folder
+  (the deploy's `dir`, e.g. `apps/web`). `tiffin deploy`, git pushes and GitHub deploys all
+  do this. Any other app goes up alone.
 - **vercel.json** in the app's folder is read at every deploy. The build log lists what was
   taken and what was not used (`tiffin plan` says the same on a terminal), and the deploy
   record keeps it (`vercel`):
@@ -480,7 +482,8 @@ sleepAfter: "7d", // at the top of tiffin.config.ts: hours or days, "1h" to "30d
 
 After that long with no requests and no job, cron or workflow deliveries, the project's
 production apps sleep: their containers stop, freeing their memory and CPU (usage counts
-them as using none). Their images, data, routes, env and secrets stay. In the dashboard,
+them as using none). The stopped containers are kept, so a wake starts them again rather
+than creating new ones. Their images, data, routes, env and secrets stay. In the dashboard,
 the project's Settings › When nobody visits offers Never (the default), 24 hours, 7 days
 or 14 days, and the project says "Asleep since …" with a Wake button.
 
@@ -490,9 +493,10 @@ or 14 days, and the project says "Asleep since …" with a Wake button.
   no attempt is spent on it. Workers wake on deliveries only. A deploy starts the app as
   usual. `tiffin projects wake shop` (or Wake in the dashboard) starts them ahead of
   visitors.
-- **Cold start:** well under a second for small apps: about 0.3 s for a small Bun app and
-  0.5 s for a Hello World Next.js app, from the request arriving to its first byte (a
-  2-CPU box). A larger app takes as long as it needs to start and pass its health check.
+- **Cold start:** measured on a 2-CPU box, from the request arriving to its first byte:
+  about 0.45 s for the Hono starter, 0.87 s for the Next.js starter and 1.7 s for the FastAPI
+  starter ([the numbers](limits.md#sleep-and-wake)). A larger app takes as long as it needs
+  to start and pass its health check.
   `tiffin apps status <project> <app>` shows `lastWake` with its timing, `sleepingSince`
   and `lastActive`.
 - **What counts as use:** every request to the app's addresses, including the files the

@@ -26,6 +26,8 @@ Honesty matters more than a big claim:
 - **Local first.** A box runs as a VM on your Mac, or on a Hetzner or any Ubuntu server
   (see the [quickstart](quickstart.md#run-it-on-a-server)).
 
+[What works and what doesn't](limits.md) lists every framework, limit and gap in one place.
+
 Start with the [quickstart](quickstart.md), then [concepts](concepts.md) and
 [working with agents](agents.md).
 
@@ -33,4 +35,4 @@ Services: [apps and deploys](apps.md) · [Postgres, Valkey and backups](data.md)
 [storage](storage.md) · [email](email.md) · [sign-in](auth.md) ·
 [queues and workflows](queues.md) · [observability](observe.md) ·
 [analytics](analytics.md) · [domains](domains.md) · [protection](protection.md) · [security model](security.md) ·
-[copying and moving](moving.md)
+[copying and moving](moving.md) · [what works and what doesn't](limits.md)

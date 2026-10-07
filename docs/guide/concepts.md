@@ -86,8 +86,8 @@ its `maxSharePercent`, the box default, or what its `memoryMB` and `cpus` come t
   slow down instead of failing;
 - its apps get a quarter of the weight when the disk is busy.
 
-Every project, limited or not, has database safety limits: a query is stopped after 30
-seconds (`services.postgres.statementTimeoutSeconds` changes it; one query can raise it
+Every project, limited or not, has database safety limits: a query is stopped after 5
+minutes, 30 seconds in a project with a limit (`services.postgres.statementTimeoutSeconds` changes it; one query can raise it
 for itself with `SET LOCAL statement_timeout`), a session idle inside a transaction is
 closed after 60 seconds, one query's temporary files are capped at a share of the disk,
 and a project opens at most 80 connections.

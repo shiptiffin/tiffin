@@ -240,6 +240,9 @@ The dashboard lists users and organizations; you can ban users and revoke sessio
 
 ## Sign-in providers
 
+Google is tested end to end; the others are wired up but not tested yet (see
+[What works and what doesn't](limits.md#sign-in)).
+
 | Method | Provider | Project secrets (when the project brings its own keys) |
 | --- | --- | --- |
 | `google` | Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |

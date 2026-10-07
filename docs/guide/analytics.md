@@ -198,5 +198,4 @@ day). The store sits behind a small interface so a Postgres store (partitioned
 events) can replace it for busier boxes. Removing the service deletes the
 project's analytics data; shortening `retentionDays` deletes older events.
 
-Not yet: funnels and retention, goals, share links, excluding your own
-visits, and automatic events from sign-ups and deploys.
+What analytics doesn't do yet: see [What works and what doesn't](limits.md#analytics).
