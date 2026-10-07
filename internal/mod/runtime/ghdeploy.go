@@ -213,26 +213,16 @@ func (r *rt) runJob(j *ghJob) {
 	raw, _ := json.Marshal(tr)
 	_ = r.p.DB.KVPut(ctx, nsGitHubJobs, trackerKey(d), raw)
 
-	done := make(chan struct{})
-	r.startFrom(d, SourceGit, func(ctx context.Context, d *Deploy, log io.Writer) (string, error) {
+	done := r.startFrom(d, SourceGit, func(ctx context.Context, d *Deploy, log io.Writer) (string, error) {
 		return r.cloneGitHub(ctx, c, d, j, log)
 	})
-	go func() {
-		defer close(done)
-		for {
-			cur, err := r.st.getDeploy(ctx, d.Project, d.App, d.ID)
-			if err == nil && cur.Terminal() {
-				*d = *cur
-				return
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(300 * time.Millisecond):
-			}
+	select {
+	case <-done:
+		if cur, err := r.st.getDeploy(ctx, d.Project, d.App, d.ID); err == nil {
+			*d = *cur
 		}
-	}()
-	<-done
+	case <-ctx.Done():
+	}
 	if ctx.Err() != nil {
 		return // the box is stopping: the tracker reports after the restart
 	}

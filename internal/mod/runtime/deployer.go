@@ -126,9 +126,13 @@ func (r *rt) start(d *Deploy, src string, kind string) {
 // Both write to the deploy's build log; a failure in either fails the deploy.
 // The pipeline (fetch too) works on its own copy of d: the caller keeps d as
 // queued, to answer with or poll by, while the pipeline changes its copy.
-func (r *rt) startFrom(queued *Deploy, kind string, fetch func(ctx context.Context, d *Deploy, log io.Writer) (string, error)) {
+// The returned channel closes when the pipeline is done (the deploy's
+// record is terminal by then).
+func (r *rt) startFrom(queued *Deploy, kind string, fetch func(ctx context.Context, d *Deploy, log io.Writer) (string, error)) <-chan struct{} {
 	d := new(*queued)
+	finished := make(chan struct{})
 	go func() {
+		defer close(finished)
 		if done := r.opt.pipelineDone; done != nil {
 			defer done(d.ID)
 		}
@@ -178,6 +182,7 @@ func (r *rt) startFrom(queued *Deploy, kind string, fetch func(ctx context.Conte
 			r.fail(ctx, d, err, hint, log)
 		}
 	}()
+	return finished
 }
 
 func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.Writer) error {
