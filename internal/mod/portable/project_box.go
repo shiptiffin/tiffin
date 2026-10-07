@@ -1,16 +1,22 @@
 package portable
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"os/user"
+	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/mod/datakit"
 	"github.com/btahir/tiffin/internal/mod/postgres"
 	"github.com/btahir/tiffin/internal/mod/runtime"
 	"github.com/btahir/tiffin/internal/mod/storage"
@@ -122,7 +128,11 @@ func (b boxBackend) prepareDatabase(ctx context.Context, project string, manifes
 
 // restoreDatabase loads database.sql as the project's own role, never as
 // the superuser: an archive can do nothing in Postgres its project could
-// not do itself.
+// not do itself. Nor on the box: psql runs client commands from its input
+// (\! runs a shell, \o |cmd, \copy ... program), so the script runs in
+// psql's restricted mode, entered first with a key the archive cannot know
+// (any backslash command but \unrestrict <key> fails, and stops the load),
+// and psql runs as nobody rather than as the box.
 func (b boxBackend) restoreDatabase(ctx context.Context, project string, r io.Reader) error {
 	env, err := postgres.ConnEnv(ctx, b.p, project, "", true)
 	if err != nil {
@@ -133,13 +143,76 @@ func (b boxBackend) restoreDatabase(ctx context.Context, project string, r io.Re
 	for _, k := range []string{"PGHOST", "PGPORT", "PGUSER", "PGPASSWORD", "PGDATABASE"} {
 		cmd.Env = append(cmd.Env, k+"="+env[k])
 	}
+	cmd.Dir = "/"
+	if cred, err := unprivileged(); err != nil {
+		return err
+	} else if cred != nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: cred}
+	}
 	cmd.WaitDelay = 10 * time.Second
 	var errb tailBuffer
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = r, io.Discard, &errb
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = restricted(r, datakit.Password()), io.Discard, &errb
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("psql: %w: %s", err, errb.String())
 	}
 	return nil
+}
+
+// restrictLine is one of the restrict lines pg_dump (17.6 and later) puts
+// around a plain dump: dropped, as the load runs restricted already.
+var restrictLine = regexp.MustCompile(`^\\(un)?restrict [A-Za-z0-9]+\s*$`)
+
+// restricted is the script r, entered in psql's restricted mode with key.
+func restricted(r io.Reader, key string) io.Reader {
+	pr, pw := io.Pipe()
+	go func() {
+		bw := bufio.NewWriterSize(pw, 64<<10)
+		_, err := bw.WriteString(`\restrict ` + key + "\n")
+		br := bufio.NewReaderSize(r, 64<<10)
+		for err == nil {
+			var line []byte
+			line, err = br.ReadSlice('\n')
+			if errors.Is(err, bufio.ErrBufferFull) {
+				// A long line (COPY data): not a restrict line; pass it on.
+				if _, werr := bw.Write(line); werr != nil {
+					err = werr
+					break
+				}
+				for errors.Is(err, bufio.ErrBufferFull) {
+					line, err = br.ReadSlice('\n')
+					if _, werr := bw.Write(line); werr != nil {
+						err = werr
+					}
+				}
+				continue
+			}
+			if len(line) > 0 && !restrictLine.Match(line) {
+				if _, werr := bw.Write(line); werr != nil {
+					err = werr
+				}
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			err = bw.Flush()
+		}
+		pw.CloseWithError(err)
+	}()
+	return pr
+}
+
+// unprivileged is the identity to run untrusted client tools as when the
+// box runs as root: nobody.
+func unprivileged() (*syscall.Credential, error) {
+	if os.Geteuid() != 0 {
+		return nil, nil
+	}
+	u, err := user.Lookup("nobody")
+	if err != nil {
+		return nil, fmt.Errorf("an unprivileged user to run psql as: %w", err)
+	}
+	uid, _ := strconv.Atoi(u.Uid)
+	gid, _ := strconv.Atoi(u.Gid)
+	return &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid), NoSetGroups: false, Groups: []uint32{}}, nil
 }
 
 func (b boxBackend) dropDatabase(ctx context.Context, project string) error {
