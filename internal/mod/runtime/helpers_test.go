@@ -40,8 +40,8 @@ func TestHelperOutputIsBounded(t *testing.T) {
 // A helper cut short is removed by name: killing nerdctl leaves its
 // container running. Every helper is named, labelled and has a task cap.
 func TestHelperCutShortIsRemoved(t *testing.T) {
-	n, calls := fakeNerdctl(t, `exec sleep 5`)
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	n, calls := fakeNerdctl(t, `exec sleep 30`)
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
 	if err := n.SeedDirs(ctx, "img", "", []string{"data"}, t.TempDir()); err == nil {
 		t.Fatal("a helper cut short succeeded")
@@ -79,8 +79,8 @@ func TestStaticBuildCutShortIsRemoved(t *testing.T) {
 	bin, log := fakeTools(t)
 	eng := &removingEngine{fakeEngine: newFakeEngine()}
 	b := &boxBuilder{eng: eng, binDir: bin, staticDir: t.TempDir(), memoryMB: 512}
-	req := buildReq(t, manifest.App{Framework: manifest.FrameworkStatic, Build: "sleep 5"}, map[string]string{"index.html": "x"})
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	req := buildReq(t, manifest.App{Framework: manifest.FrameworkStatic, Build: "sleep 30"}, map[string]string{"index.html": "x"})
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
 	if _, err := b.Build(ctx, req); err == nil {
 		t.Fatal("a build cut short succeeded")
