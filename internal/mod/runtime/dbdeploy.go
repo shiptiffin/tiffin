@@ -283,7 +283,7 @@ func (r *rt) runRelease(ctx context.Context, d *Deploy, spec *manifest.App, bran
 	if err != nil {
 		return err
 	}
-	defer r.freePort(port)
+	defer r.freePort(port, name)
 	script := cmd
 	if d.Dir != "" && d.Builder == "" { // a Dockerfile's image runs in its own WORKDIR
 		script = "cd " + shellQuote(d.Dir) + " && " + cmd

@@ -101,10 +101,13 @@ type rt struct {
 	build chan struct{}   // one build at a time
 	warm  warmSlot        // the build warm-up's claim on the slot (deploys preempt it)
 
-	mu       sync.Mutex
-	locks    map[string]*sync.Mutex // per app environment
-	ports    map[int]string         // allocated port → container
-	lastSeen map[string]time.Time   // env key → last request or delivery
+	mu    sync.Mutex
+	locks map[string]*sync.Mutex // per app environment
+	ports map[int]string         // allocated port → container
+	// leftover: containers whose removal failed. Their ports stay
+	// reserved (they may still listen) until a sweep removes them.
+	leftover map[string]bool
+	lastSeen map[string]time.Time // env key → last request or delivery
 	// seenDirty: lastSeen entries not saved yet.
 	seenDirty map[string]bool
 	// wakeTried: when sleepIdle last started an app that may no longer sleep.
@@ -170,7 +173,7 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 		opt.ReleaseTimeout = 10 * time.Minute
 	}
 	r := &rt{p: p, opt: opt, st: store{db: p.DB, cache: newStateCache()}, eng: opt.Engine, bld: opt.Builder, ctx: ctx,
-		build: make(chan struct{}, 1), locks: map[string]*sync.Mutex{}, ports: map[int]string{},
+		build: make(chan struct{}, 1), locks: map[string]*sync.Mutex{}, ports: map[int]string{}, leftover: map[string]bool{},
 		lastSeen: map[string]time.Time{}, seenDirty: map[string]bool{}, wakeTried: map[string]time.Time{}, hooks: newHookTokens(), timeouts: map[string]time.Duration{}, warm: warmSlot{poll: 10 * time.Second, quiet: time.Minute}}
 	for _, d := range []string{opt.DataDir, opt.LogDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -338,20 +341,21 @@ func (r *rt) sweep(ctx context.Context, remove func(c Container, owned bool) boo
 			r.p.Log.Error("runtime: remove container", "container", c.Name, "err", err)
 			continue
 		}
-		if p := owned[c.Name]; p != 0 {
-			r.freePort(p)
-		}
+		r.freeName(c.Name)
 		r.p.Log.Info("runtime: removed a container", "container", c.Name, "deploy", c.Labels["tiffin.deploy"], "owned", owned[c.Name] != 0)
 	}
 }
 
-// ownedNames maps the containers in the port table to their ports.
+// ownedNames maps the containers in the port table to their ports, but
+// for leftovers (their removal failed: the sweep retries it).
 func (r *rt) ownedNames() map[string]int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	out := make(map[string]int, len(r.ports))
 	for p, name := range r.ports {
-		out[name] = p
+		if !r.leftover[name] {
+			out[name] = p
+		}
 	}
 	return out
 }
@@ -495,12 +499,34 @@ func (r *rt) allocPort(name string) (int, error) {
 	return 0, errors.New("no free app ports left")
 }
 
-func (r *rt) freePort(p int) {
+// freePort releases port p if container name still holds it: a delayed
+// cleanup of a container that is long gone must not free a port another
+// container has since been given.
+func (r *rt) freePort(p int, name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.ports[p] != name {
+		return
+	}
 	delete(r.ports, p)
 	if holder, ok := r.eng.(portHolder); ok {
 		holder.ReleasePort(p)
+	}
+}
+
+// freeName releases every port a removed container held.
+func (r *rt) freeName(name string) {
+	r.mu.Lock()
+	var ps []int
+	for p, n := range r.ports {
+		if n == name {
+			ps = append(ps, p)
+		}
+	}
+	delete(r.leftover, name)
+	r.mu.Unlock()
+	for _, p := range ps {
+		r.freePort(p, name)
 	}
 }
 

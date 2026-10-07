@@ -40,7 +40,7 @@ func TestBoxSweepDryRun(t *testing.T) {
 	p := &platform.Platform{DB: db, Log: slog.New(slog.NewTextHandler(os.Stderr, nil))}
 	opt := defaultOptions()
 	r := &rt{p: p, opt: opt, st: store{db: db}, eng: newNerdctl(), ctx: ctx, locks: map[string]*sync.Mutex{},
-		ports: map[int]string{}, lastSeen: map[string]time.Time{}, timeouts: map[string]time.Duration{}}
+		ports: map[int]string{}, leftover: map[string]bool{}, lastSeen: map[string]time.Time{}, timeouts: map[string]time.Duration{}}
 	res, err := r.sweepImages(ctx, true)
 	if err != nil {
 		t.Fatal(err)

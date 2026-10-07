@@ -822,9 +822,15 @@ func (r *rt) removeInstancesGrace(ctx context.Context, ins []Instance, grace tim
 		go func() {
 			defer wg.Done()
 			if err := r.eng.Remove(ctx, in.Name, grace); err != nil {
+				// It may still listen: its port stays reserved until the
+				// leftover sweep removes it.
 				r.p.Log.Error("remove container", "name", in.Name, "err", err)
+				r.mu.Lock()
+				r.leftover[in.Name] = true
+				r.mu.Unlock()
+				return
 			}
-			r.freePort(in.Port)
+			r.freePort(in.Port, in.Name)
 		}()
 	}
 	wg.Wait()
