@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
@@ -24,6 +25,58 @@ import (
 // DB is the platform state database. It implements change.Store.
 type DB struct {
 	sql *sql.DB
+
+	mu     sync.Mutex
+	checks []CommitCheck
+}
+
+// CommitCheck vets a commit inside its write transaction, after its
+// preconditions hold and before anything is written: return an error to
+// refuse it. Commits serialize there, so a check across projects (memory
+// budgets that must add up) sees every commit before it and none can slip
+// in after: unlike a check at plan time, which two applies (or an undo,
+// which plans nothing) pass against the same free room.
+type CommitCheck func(ctx context.Context, v CommitView, project string, ops []change.Op) error
+
+// CommitView reads the state as a commit sees it.
+type CommitView interface {
+	// SpecsAt returns every project's spec at address, by project.
+	SpecsAt(ctx context.Context, address string) (map[string]json.RawMessage, error)
+}
+
+// OnCommit adds a check every commit must pass.
+func (s *DB) OnCommit(c CommitCheck) {
+	s.mu.Lock()
+	s.checks = append(s.checks, c)
+	s.mu.Unlock()
+}
+
+// SpecsAt returns every project's spec at address, by project.
+func (s *DB) SpecsAt(ctx context.Context, address string) (map[string]json.RawMessage, error) {
+	return specsAt(ctx, s.sql, address)
+}
+
+type txView struct{ q querier }
+
+func (v txView) SpecsAt(ctx context.Context, address string) (map[string]json.RawMessage, error) {
+	return specsAt(ctx, v.q, address)
+}
+
+func specsAt(ctx context.Context, q querier, address string) (map[string]json.RawMessage, error) {
+	rows, err := q.QueryContext(ctx, `SELECT project, spec FROM resources WHERE address = ?`, address)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]json.RawMessage{}
+	for rows.Next() {
+		var p, spec string
+		if err := rows.Scan(&p, &spec); err != nil {
+			return nil, err
+		}
+		out[p] = json.RawMessage(spec)
+	}
+	return out, rows.Err()
 }
 
 var _ change.Store = (*DB)(nil)
@@ -299,6 +352,37 @@ func load(ctx context.Context, q querier, project string) (int64, map[string]cha
 	return ver, cur, rows.Err()
 }
 
+// loadAddresses reads the project's resources at the ops' addresses.
+func loadAddresses(ctx context.Context, q querier, project string, ops []change.Op) (map[string]change.Resource, error) {
+	cur := map[string]change.Resource{}
+	if len(ops) == 0 {
+		return cur, nil
+	}
+	args := make([]any, 0, len(ops)+1)
+	args = append(args, project)
+	seen := map[string]bool{}
+	for _, o := range ops {
+		if !seen[o.Address] {
+			seen[o.Address] = true
+			args = append(args, o.Address)
+		}
+	}
+	rows, err := q.QueryContext(ctx, `SELECT address, spec FROM resources WHERE project = ? AND address IN (?`+
+		strings.Repeat(`, ?`, len(args)-2)+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var addr, spec string
+		if err := rows.Scan(&addr, &spec); err != nil {
+			return nil, err
+		}
+		cur[addr] = change.Resource{Address: addr, Spec: json.RawMessage(spec)}
+	}
+	return cur, rows.Err()
+}
+
 // Commit implements change.Store.
 func (s *DB) Commit(ctx context.Context, c *change.Change) error {
 	tx, err := s.sql.BeginTx(ctx, nil) // _txlock=immediate: writers serialize here
@@ -306,15 +390,30 @@ func (s *DB) Commit(ctx context.Context, c *change.Change) error {
 		return err
 	}
 	defer tx.Rollback()
-	ver, cur, err := load(ctx, tx, c.Project)
-	if err != nil {
+	// Only the version and the resources the ops touch are read here,
+	// inside the write lock: the rest of the project is not needed.
+	var ver int64
+	err = tx.QueryRowContext(ctx, `SELECT version FROM projects WHERE name = ?`, c.Project).Scan(&ver)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
 	if ver != c.Plan.BaseVersion {
 		return change.ErrConflict
 	}
+	cur, err := loadAddresses(ctx, tx, c.Project, c.Plan.Ops)
+	if err != nil {
+		return err
+	}
 	if err := change.CheckPreconditions(cur, c.Plan.Ops); err != nil {
 		return err
+	}
+	s.mu.Lock()
+	checks := s.checks
+	s.mu.Unlock()
+	for _, check := range checks {
+		if err := check(ctx, txView{tx}, c.Project, c.Plan.Ops); err != nil {
+			return err
+		}
 	}
 	if c.UndoOf != "" {
 		var undoneBy sql.NullString

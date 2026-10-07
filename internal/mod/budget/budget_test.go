@@ -295,3 +295,55 @@ func TestReadStats(t *testing.T) {
 		t.Fatal("missing dir exists")
 	}
 }
+
+// Budgets must add up however a change arrives: an undo plans nothing (no
+// plan-time check), and two applies can each pass the plan-time check
+// against the same free memory. The commit checks again, serialized.
+func TestBudgetsHoldAtCommit(t *testing.T) {
+	h := newHarness(t) // 1535 MB for apps
+	ctx := context.Background()
+	h.apply(`{"project":"shop","resources":{"memoryMB":1024}}`)
+	h.apply(`{"project":"shop","resources":{"memoryMB":256}}`)
+	req, _ := http.NewRequest("GET", h.srv.URL+"/v1/changes?project=shop&limit=1", nil)
+	req.Header.Set("Authorization", "Bearer "+h.owner)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list []change.Change
+	_ = json.NewDecoder(res.Body).Decode(&list)
+	res.Body.Close()
+	shrink := list[0].ID
+	h.apply(`{"project":"blog","resources":{"memoryMB":1024}}`) // 256 + 1024 fits
+
+	// Undoing the shrink would give shop 1024 again: 2048 > 1535. The undo
+	// is refused when planned, and again when it commits.
+	code, out := h.call("POST", "/v1/changes/"+shrink+"/undo", map[string]any{})
+	if code != 422 || !strings.Contains(fmt.Sprint(out["detail"]), "blog 1024 MB") {
+		t.Fatalf("undo past the box: %d %v", code, out)
+	}
+	up, err := h.p.Engine.PlanUndo(ctx, shrink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.p.Engine.Apply(ctx, change.ApplyRequest{Plan: up, Confirm: up.Hash}); err == nil || !strings.Contains(err.Error(), "do not fit") {
+		t.Fatalf("undo committed past the box: %v", err)
+	}
+
+	// An apply planned before another took the room is refused when it commits.
+	e := h.p.Engine
+	p, err := e.Plan(ctx, "news", map[string]change.Resource{change.KindProject: {Address: change.KindProject,
+		Spec: json.RawMessage(`{"resources":{"memoryMB":512}}`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Apply(ctx, change.ApplyRequest{Plan: p, Confirm: p.Hash}); err == nil || !strings.Contains(err.Error(), "do not fit") {
+		t.Fatalf("racing apply: %v", err)
+	}
+	// One that fits still commits.
+	p, _ = e.Plan(ctx, "news", map[string]change.Resource{change.KindProject: {Address: change.KindProject,
+		Spec: json.RawMessage(`{"resources":{"memoryMB":200}}`)}})
+	if _, err := e.Apply(ctx, change.ApplyRequest{Plan: p, Confirm: p.Hash}); err != nil {
+		t.Fatalf("a budget that fits: %v", err)
+	}
+}

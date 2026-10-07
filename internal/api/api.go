@@ -702,6 +702,17 @@ func (a *API) register() {
 			if err != nil {
 				return nil, err
 			}
+			if a.deps.Platform != nil {
+				// What the undo leaves must work on this box, as an apply's
+				// manifest must (a budget the box no longer has room for).
+				_, cur, err := a.deps.DB.Load(ctx, c.Project)
+				if err != nil {
+					return nil, err
+				}
+				if err := a.checkPlan(ctx, c.Project, change.ApplyOps(cur, plan.Ops)); err != nil {
+					return nil, err
+				}
+			}
 			intent := in.Body.Intent
 			if intent == "" {
 				intent = "undo " + in.ID + ": " + c.Intent

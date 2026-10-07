@@ -27,6 +27,7 @@ import (
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/platform"
+	"github.com/btahir/tiffin/internal/state"
 )
 
 var mod = &Module{}
@@ -160,6 +161,7 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, root string, s
 	m.applied, m.limits, m.history, m.kills = map[string]string{}, map[string]Limits{}, map[string][]eventMark{}, map[string]uint64{}
 	m.wake = make(chan struct{}, 1)
 	m.mu.Unlock()
+	p.DB.OnCommit(m.checkCommit)
 	if err := m.sync(ctx); err != nil {
 		p.Log.Error("budget sync", "err", err)
 	}
@@ -363,44 +365,61 @@ func Projects() map[string]*manifest.Resources {
 // CheckPlan refuses a plan whose project budget cannot fit this box: more
 // CPUs than it has, or memoryMB budgets that add up to more than it keeps
 // for apps. Unchanged budgets are not re-checked, so a box that shrank does
-// not block unrelated changes.
+// not block unrelated changes. It answers at plan time; checkCommit holds
+// the line when the change commits.
 func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project string, desired map[string]change.Resource) error {
 	rs, ok := desired[change.KindProject]
 	if !ok {
 		return nil
 	}
-	want := decodeSpec(rs.Spec)
-	if want == nil {
-		return nil
-	}
-	_, cur, err := p.DB.Load(ctx, project)
+	specs, err := p.DB.SpecsAt(ctx, change.KindProject)
 	if err != nil {
 		return err
 	}
-	if have, ok := cur[change.KindProject]; ok {
-		if h := decodeSpec(have.Spec); h != nil && *h == *want {
+	return m.fits(project, specs[project], rs.Spec, specs)
+}
+
+// checkCommit is CheckPlan inside the commit (see state.CommitCheck): an
+// undo, which plans nothing, and two applies racing for the same free
+// memory are refused there.
+func (m *Module) checkCommit(ctx context.Context, v state.CommitView, project string, ops []change.Op) error {
+	for _, o := range ops {
+		if o.Address != change.KindProject || o.Action == change.Delete {
+			continue
+		}
+		if decodeSpec(o.After) == nil {
 			return nil
 		}
+		specs, err := v.SpecsAt(ctx, change.KindProject)
+		if err != nil {
+			return err
+		}
+		return m.fits(project, o.Before, o.After, specs)
 	}
-	box, ok := ReadBox(m.root)
+	return nil
+}
+
+// fits refuses project's budget after (it was before) unless it fits the
+// box beside the other projects' budgets in specs.
+func (m *Module) fits(project string, before, after json.RawMessage, specs map[string]json.RawMessage) error {
+	want := decodeSpec(after)
+	if want == nil {
+		return nil
+	}
+	if h := decodeSpec(before); h != nil && *h == *want {
+		return nil
+	}
+	m.mu.Lock()
+	root := m.root
+	m.mu.Unlock()
+	box, ok := ReadBox(root)
 	if !ok {
 		return nil // not a box: nothing to measure against
 	}
 	others := map[string]*manifest.Resources{}
-	names, err := p.DB.ListProjects(ctx)
-	if err != nil {
-		return err
-	}
-	for _, n := range names {
-		if n == project {
-			continue
-		}
-		_, res, err := p.DB.Load(ctx, n)
-		if err != nil {
-			return err
-		}
-		if r, ok := res[change.KindProject]; ok {
-			others[n] = decodeSpec(r.Spec)
+	for n, spec := range specs {
+		if n != project {
+			others[n] = decodeSpec(spec)
 		}
 	}
 	probs := Check(box, project, want, others)
