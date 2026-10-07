@@ -51,13 +51,18 @@ export class ApiError extends Error {
 
 type Path = keyof paths;
 
-/** Sends body as JSON, or as it is when it's a Blob (a file or part of one). */
-export async function request<T>(method: string, path: Path | string, body?: unknown): Promise<T> {
+/**
+ * Sends body as JSON, or as it is when it's a Blob (a file or part of one).
+ * `signal` (TanStack Query's, for reads) cancels a request nobody wants any
+ * more, such as a table page for a filter that has since changed.
+ */
+export async function request<T>(method: string, path: Path | string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const blob = body instanceof Blob;
   let res: Response;
   try {
     res = await fetch(path, {
       method,
+      signal,
       credentials: "same-origin",
       headers:
         body === undefined
@@ -65,7 +70,9 @@ export async function request<T>(method: string, path: Path | string, body?: unk
           : { Accept: "application/json", "Content-Type": blob ? "application/octet-stream" : "application/json" },
       body: body === undefined ? undefined : blob ? body : JSON.stringify(body),
     });
-  } catch {
+  } catch (err) {
+    // Cancelled on purpose: let the caller (TanStack Query) see a cancellation, not "Offline".
+    if (signal?.aborted) throw err;
     throw new ApiError({
       status: 0,
       code: "internal",
