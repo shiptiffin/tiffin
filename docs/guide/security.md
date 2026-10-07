@@ -60,9 +60,9 @@ is nothing more to register. Remove the keys and the button goes.
 
 - **Who gets in.** The box asks the provider for the account's email and signs in the
   active person on the box with that address (compared without case). For Google that is
-  the ID token's `email`, only when `email_verified` is true. For GitHub it is the
-  primary address from `/user/emails`, only when it is verified; other addresses on the
-  account don't count. Nobody matches: *That Google account isn't on this box. Ask an
+  the ID token's `email`, only when `email_verified` is true. For GitHub it is any
+  verified address from `/user/emails` (the primary one is tried first); unverified
+  addresses don't count. Nobody matches: *That Google account isn't on this box. Ask an
   owner to invite you.* Removed people never match. The box never makes an account, so
   invite someone (with their email) before they can sign in this way.
 - **The session** is the same as a passkey's or a link's: 12 hours, that person's role,

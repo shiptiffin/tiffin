@@ -409,21 +409,28 @@ func TestOAuthSignInGitHub(t *testing.T) {
 	sam := e.person("Sam Lee", "sam@example.com", "admin")
 	ip := "203.0.113.6"
 
-	// The primary, verified address counts; other addresses don't.
+	// The primary, verified address counts.
 	_, authURL, c := e.start("github", "/", ip)
 	res, body := e.back(e.idp.authorize(authURL,
 		ghEmail{Email: "sam@users.noreply.example", Verified: true},
 		ghEmail{Email: "sam@example.com", Primary: true, Verified: true}), ip, c)
 	e.signedInAs(res, body, sam, "/")
 
-	// Sam's address on GitHub, but not primary: no match on it.
+	// Sam's verified address on GitHub that isn't the primary one still counts.
+	_, authURL, c = e.start("github", "/", ip)
+	res, body = e.back(e.idp.authorize(authURL,
+		ghEmail{Email: "other@example.org", Primary: true, Verified: true},
+		ghEmail{Email: "sam@example.com", Verified: true}), ip, c)
+	e.signedInAs(res, body, sam, "/")
+
+	// Sam's address but unverified, next to a verified one nobody has: no match.
 	_, authURL, c = e.start("github", "/", ip)
 	res, _ = e.back(e.idp.authorize(authURL,
 		ghEmail{Email: "other@example.org", Primary: true, Verified: true},
-		ghEmail{Email: "sam@example.com", Verified: true}), ip, c)
+		ghEmail{Email: "sam@example.com"}), ip, c)
 	refused(t, res, "github:unknown")
 
-	// Primary but unverified.
+	// No verified address at all.
 	_, authURL, c = e.start("github", "/", ip)
 	res, _ = e.back(e.idp.authorize(authURL, ghEmail{Email: "sam@example.com", Primary: true}), ip, c)
 	refused(t, res, "github:unverified")

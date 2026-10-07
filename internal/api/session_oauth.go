@@ -417,15 +417,23 @@ func (a *API) DashboardOAuthCallback(w http.ResponseWriter, r *http.Request) boo
 	if !ok {
 		return fail(oauthOff, nil)
 	}
-	email, verified, err := oauthEmail(ctx, provider, c, code, s)
+	emails, err := oauthEmails(ctx, provider, c, code, s)
 	if err != nil {
 		return fail(oauthFailed, map[string]any{"error": trimTo(err.Error(), 200)})
 	}
-	if !verified {
+	if len(emails) == 0 {
 		return fail(oauthUnverified, nil)
 	}
-	person, err := a.deps.Tokens.PersonByEmail(ctx, email)
-	if err != nil {
+	// The first verified address that belongs to someone on the box wins
+	// (GitHub's primary address is tried first).
+	var person *tokens.Person
+	for _, email := range emails {
+		if p, err := a.deps.Tokens.PersonByEmail(ctx, email); err == nil {
+			person = p
+			break
+		}
+	}
+	if person == nil {
 		return fail(oauthUnknown, nil)
 	}
 	secret, t, person, err := a.deps.Tokens.SessionFor(ctx, person.ID, provider)
@@ -469,20 +477,24 @@ func trimTo(s string, n int) string {
 
 // oauthEmail exchanges the code (with the PKCE verifier) and returns the
 // account's email and whether the provider verified it.
-func oauthEmail(ctx context.Context, provider string, c OAuthClient, code string, s *oauthState) (string, bool, error) {
+func oauthEmails(ctx context.Context, provider string, c OAuthClient, code string, s *oauthState) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.WithValue(ctx, oauth2.HTTPClient, oauthURLs.HTTP), 20*time.Second)
 	defer cancel()
 	tok, err := c.config(provider).Exchange(ctx, code, oauth2.VerifierOption(s.Verifier))
 	if err != nil {
-		return "", false, fmt.Errorf("token exchange: %w", err)
+		return nil, fmt.Errorf("token exchange: %w", err)
 	}
 	switch provider {
 	case "google":
-		return googleEmail(tok, c.ClientID, s.Nonce, time.Now())
+		email, verified, err := googleEmail(tok, c.ClientID, s.Nonce, time.Now())
+		if err != nil || !verified {
+			return nil, err
+		}
+		return []string{email}, nil
 	case "github":
-		return githubEmail(ctx, tok.AccessToken)
+		return githubEmails(ctx, tok.AccessToken)
 	}
-	return "", false, errors.New("unknown provider")
+	return nil, errors.New("unknown provider")
 }
 
 // googleEmail reads the ID token from Google's token endpoint. It came
@@ -532,12 +544,12 @@ func googleEmail(tok *oauth2.Token, clientID, nonce string, now time.Time) (stri
 	return tokens.NormEmail(cl.Email), verified && cl.Email != "", nil
 }
 
-// githubEmail reads the account's primary address from /user/emails, and
-// whether GitHub verified it. GitHub's user tokens (8 hours when the app
+// githubEmails reads the account's verified addresses from /user/emails,
+// the primary one first. GitHub's user tokens (8 hours when the app
 // has expiring tokens on) are used for this one call and dropped.
-func githubEmail(ctx context.Context, accessToken string) (string, bool, error) {
+func githubEmails(ctx context.Context, accessToken string) ([]string, error) {
 	if accessToken == "" {
-		return "", false, errors.New("github sent no access token")
+		return nil, errors.New("github sent no access token")
 	}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, oauthURLs.GitHubEmails, nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -546,11 +558,11 @@ func githubEmail(ctx context.Context, accessToken string) (string, bool, error) 
 	req.Header.Set("User-Agent", "tiffin")
 	res, err := oauthURLs.HTTP.Do(req)
 	if err != nil {
-		return "", false, fmt.Errorf("github emails: %w", err)
+		return nil, fmt.Errorf("github emails: %w", err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return "", false, fmt.Errorf("github emails: %s", res.Status)
+		return nil, fmt.Errorf("github emails: %s", res.Status)
 	}
 	var list []struct {
 		Email    string `json:"email"`
@@ -558,12 +570,18 @@ func githubEmail(ctx context.Context, accessToken string) (string, bool, error) 
 		Verified bool   `json:"verified"`
 	}
 	if err := json.NewDecoder(io.LimitReader(res.Body, 256<<10)).Decode(&list); err != nil {
-		return "", false, fmt.Errorf("github emails: %w", err)
+		return nil, fmt.Errorf("github emails: %w", err)
 	}
+	var out []string
 	for _, e := range list {
+		if !e.Verified || e.Email == "" {
+			continue
+		}
 		if e.Primary {
-			return tokens.NormEmail(e.Email), e.Verified && e.Email != "", nil
+			out = append([]string{tokens.NormEmail(e.Email)}, out...)
+		} else {
+			out = append(out, tokens.NormEmail(e.Email))
 		}
 	}
-	return "", false, nil
+	return out, nil
 }
