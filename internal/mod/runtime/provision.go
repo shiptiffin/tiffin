@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/btahir/tiffin/internal/mod/budget"
 	"github.com/btahir/tiffin/internal/platform"
 )
 
@@ -85,7 +86,7 @@ func (m *Module) Provision(ctx context.Context, s *platform.System) error {
 	// containers running: KillMode=process).
 	units := []struct{ unit, content, conf, confBody string }{
 		{"containerd.service", containerdUnit, "/etc/containerd/config.toml", containerdConfig},
-		{"buildkit.service", buildkitUnit(buildMemoryMB(mem)), "/etc/buildkit/buildkitd.toml", buildkitConfig},
+		{"buildkit.service", buildkitUnit(buildMemoryMB(mem)), "/etc/buildkit/buildkitd.toml", buildkitConfig(buildCacheCap(diskBytes(buildkitDir)))},
 		{"tiffin-runtime-firewall.service", firewallUnit, "/etc/tiffin/runtime.nft", firewallRules},
 	}
 	if _, err := s.WriteFile("/etc/nerdctl/nerdctl.toml", []byte(nerdctlConfig), 0o644); err != nil {
@@ -157,7 +158,18 @@ root = "` + containerdDir + `"
 state = "/run/containerd"
 `
 
-const buildkitConfig = `# Managed by tiffin (runtime module).
+// buildCacheCap is how much BuildKit's cache may hold: 15% of the data
+// disk, at least 4 GiB and at most 20 GiB (an unknown disk: 4 GiB).
+func buildCacheCap(disk int64) int64 {
+	return min(max(disk*15/100, 4<<30), 20<<30)
+}
+
+// buildkitConfig is buildkitd.toml with the cache capped at limit bytes.
+// Sources, cache mounts and git checkouts unused for a week go first and
+// may take half of it. BuildKit reads "MB" as MiB here.
+func buildkitConfig(limit int64) string {
+	mib := func(n int64) string { return strconv.FormatInt(n>>20, 10) + "MB" }
+	return `# Managed by tiffin (runtime module). The cache cap follows the data disk (buildCacheCap).
 root = "` + buildkitDir + `"
 
 [worker.oci]
@@ -173,13 +185,14 @@ root = "` + buildkitDir + `"
 
   [[worker.containerd.gcpolicy]]
     keepDuration = "168h"
-    maxUsedSpace = "4GB"
+    maxUsedSpace = "` + mib(limit/2) + `"
     filters = ["type==source.local", "type==exec.cachemount", "type==source.git.checkout"]
 
   [[worker.containerd.gcpolicy]]
     all = true
-    maxUsedSpace = "8GB"
+    maxUsedSpace = "` + mib(limit) + `"
 `
+}
 
 const nerdctlConfig = `# Managed by tiffin (runtime module).
 namespace = "` + Namespace + `"
@@ -238,7 +251,12 @@ WantedBy=multi-user.target
 }
 
 // firewallRules keep app instance ports (which listen on all interfaces with
-// host networking) reachable only from the box itself; the edge is the way in.
+// host networking) reachable only from the box itself; the edge is the way
+// in. And apps send mail through the box (SMTP_URL on 127.0.0.1:2525, which
+// relays it), never straight to other servers' port 25: an app's containers
+// run in the projects' slice, so connections from that cgroup to port 25
+// off the box are refused. nft resolves the slice's cgroup when it loads the
+// rules, so the unit starts the slice first.
 const firewallRules = `# Managed by tiffin (runtime module).
 table inet tiffin_runtime
 delete table inet tiffin_runtime
@@ -247,13 +265,22 @@ table inet tiffin_runtime {
 		type filter hook input priority filter; policy accept;
 		iifname != "lo" tcp dport ` + "20000-29999" + ` drop
 	}
+	chain output {
+		type filter hook output priority filter; policy accept;
+		oifname != "lo" tcp dport 25 socket cgroupv2 level 2 "` + appsCgroup + `" reject with tcp reset
+	}
 }
 `
 
+// appsCgroup is the cgroup (v2, under the root) every app container runs
+// in: budget.ParentSlice, which systemd nests in tiffin.slice.
+const appsCgroup = "tiffin.slice/" + budget.ParentSlice
+
 const firewallUnit = `# Managed by tiffin (runtime module).
 [Unit]
-Description=tiffin: app ports are reachable from the box only
-After=network.target
+Description=tiffin: app ports are reachable from the box only; apps send mail through the box
+Wants=` + budget.ParentSlice + `
+After=network.target ` + budget.ParentSlice + `
 
 [Service]
 Type=oneshot

@@ -25,8 +25,9 @@ func init() { platform.Register(&Module{}) }
 
 // Module is the box-resources module.
 type Module struct {
-	mu sync.Mutex
-	s  *sampler // set by Start: only a box measures itself
+	mu   sync.Mutex
+	s    *sampler // set by Start: only a box measures itself
+	disk diskCache
 }
 
 func (*Module) Name() string { return "box" }
@@ -93,8 +94,10 @@ func (m *Module) sampler() *sampler {
 	return m.s
 }
 
-// RegisterAPI adds GET /v1/box/resources.
+// RegisterAPI adds GET /v1/box/resources, /v1/box/disk and
+// /v1/projects/{project}/usage.
 func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
+	m.registerDisk(a)
 	op := api.Op("box-resources", http.MethodGet, "/v1/box/resources", "box resources", api.RiskRead, "Show the box's resources",
 		"What the machine has and what uses it, sampled now (cached for 3 seconds): CPU count, load and use; memory total, used "+
 			"and available; data disk and system disk size and use; uptime; and for every service Tiffin runs (postgres, valkey, "+
