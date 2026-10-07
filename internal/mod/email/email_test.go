@@ -292,8 +292,12 @@ func TestSuppressionAndRateLimit(t *testing.T) {
 		t.Fatalf("suppressed message must not be in the inbox: %d/%d", len(r.inbox(false)), len(r.inbox(true)))
 	}
 	env, _ := mod.Env(r.ctx, r.p, "shop", "")
-	if err := r.smtpSend("shop", env["SMTP_PASSWORD"], "a@shop.test", []string{"gone@example.com"}, "Subject: x\r\n\r\nx"); err == nil || !strings.Contains(err.Error(), "suppression") {
+	// SMTP behaves like the API: accepted, logged as suppressed, not sent.
+	if err := r.smtpSend("shop", env["SMTP_PASSWORD"], "a@shop.test", []string{"gone@example.com"}, "Subject: x\r\n\r\nx"); err != nil {
 		t.Fatalf("smtp suppressed rcpt: %v", err)
+	}
+	if all := r.inbox(true); len(all) != 3 || all[0].Source != "smtp" || all[0].Status != StatusSuppressed || len(all[0].Suppressed) != 1 || len(r.inbox(false)) != 1 {
+		t.Fatalf("smtp suppressed message: %+v", all[0])
 	}
 	if ok, _ := deleteSuppression(r.ctx, db, "shop", "GONE@example.com"); !ok {
 		t.Fatal("unsuppress")

@@ -116,6 +116,11 @@ func (m *Manager) AddPerson(ctx context.Context, by *Principal, name, email, rol
 	if !slices.Contains(Roles, role) {
 		return nil, fmt.Errorf("%w: role must be admin, member or viewer", ErrInvalid)
 	}
+	if taken, err := m.emailTaken(ctx, email, ""); err != nil {
+		return nil, err
+	} else if taken {
+		return nil, fmt.Errorf("%w: someone on this box already uses %s", ErrInvalid, email)
+	}
 	now := m.now().UTC()
 	p := &Person{ID: ids.New("usr"), Name: name, Email: email, Role: role, CreatedAt: now}
 	if _, err := m.db.SQL().ExecContext(ctx, `INSERT INTO people(id, name, email, role, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)`,

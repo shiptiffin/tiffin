@@ -54,6 +54,34 @@ var schema = []string{
 	) STRICT`,
 	`CREATE INDEX IF NOT EXISTS email_messages_project ON email_messages(project, delivery, id)`,
 	`CREATE INDEX IF NOT EXISTS email_messages_due ON email_messages(status, next_at)`,
+	// What the box sent each relayed message as, so the provider's
+	// delivery events can be matched back to it.
+	`CREATE TABLE IF NOT EXISTS email_tracking (
+		id          TEXT PRIMARY KEY,
+		project     TEXT NOT NULL,
+		provider    TEXT NOT NULL,
+		header_id   TEXT NOT NULL,
+		provider_id TEXT NOT NULL DEFAULT '',
+		sent_at     TEXT NOT NULL
+	) STRICT`,
+	`CREATE INDEX IF NOT EXISTS email_tracking_header ON email_tracking(header_id)`,
+	`CREATE INDEX IF NOT EXISTS email_tracking_provider ON email_tracking(provider, provider_id)`,
+	// Delivery events from the provider; (provider, key) makes each one count once.
+	`CREATE TABLE IF NOT EXISTS email_events (
+		seq         INTEGER PRIMARY KEY,
+		provider    TEXT NOT NULL,
+		key         TEXT NOT NULL,
+		project     TEXT NOT NULL,
+		message     TEXT NOT NULL,
+		type        TEXT NOT NULL,
+		recipient   TEXT NOT NULL,
+		detail      TEXT NOT NULL,
+		hard        INTEGER NOT NULL,
+		at          TEXT NOT NULL,
+		received_at TEXT NOT NULL,
+		UNIQUE (provider, key)
+	) STRICT`,
+	`CREATE INDEX IF NOT EXISTS email_events_message ON email_events(message, at)`,
 	`CREATE TABLE IF NOT EXISTS email_suppressions (
 		project    TEXT NOT NULL,
 		address    TEXT NOT NULL,
@@ -89,7 +117,7 @@ type Summary struct {
 	ID          string    `json:"id"`
 	Project     string    `json:"project"`
 	CreatedAt   time.Time `json:"createdAt"`
-	Source      string    `json:"source" enum:"api,smtp" doc:"How it arrived: the send API or SMTP submission"`
+	Source      string    `json:"source" enum:"api,smtp,box" doc:"How it arrived: the send API, SMTP submission, or the box itself (invites, sign-in links)"`
 	From        string    `json:"from" doc:"The From header"`
 	To          []string  `json:"to" doc:"To and Cc header addresses"`
 	Subject     string    `json:"subject"`
@@ -97,7 +125,7 @@ type Summary struct {
 	Size        int64     `json:"size" doc:"Raw message size in bytes"`
 	Attachments int       `json:"attachments"`
 	Delivery    string    `json:"delivery" enum:"inbox,relay,suppressed" doc:"inbox: captured, never sent; relay: sent through the SMTP relay; suppressed: every recipient was suppressed"`
-	Status      string    `json:"status" enum:"captured,queued,sent,failed,suppressed"`
+	Status      string    `json:"status" enum:"captured,queued,sent,delivered,bounced,complained,failed,suppressed" doc:"sent: the relay accepted it; delivered, bounced, complained: what the relay's provider reported back (needs its webhook)"`
 	Reason      string    `json:"reason,omitempty" doc:"Why it went where it went, in plain words"`
 	Suppressed  []string  `json:"suppressed,omitempty" doc:"Recipients dropped because they are on the suppression list"`
 	Attempts    int       `json:"attempts,omitempty" doc:"Relay delivery attempts so far"`

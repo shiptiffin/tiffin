@@ -24,6 +24,7 @@ import (
 
 	"github.com/btahir/tiffin/internal/mod/backup"
 	"github.com/btahir/tiffin/internal/mod/email"
+	"github.com/btahir/tiffin/internal/mod/email/templates"
 	"github.com/btahir/tiffin/internal/platform"
 )
 
@@ -715,7 +716,11 @@ func (a *Alerter) deliver(ctx context.Context, n Notification) string {
 		to = "alerts@" + a.Box
 	}
 	if project := a.emailProject(ctx, n.Project); project != "" {
-		res, err := email.Send(ctx, a.Platform, project, email.Message{To: []string{to}, Subject: n.Text, Text: notificationText(n)})
+		msg := email.Message{To: []string{to}, Subject: n.Text, Text: notificationText(n)}
+		if e, err := a.alertEmail(n); err == nil {
+			msg.Subject, msg.Text, msg.HTML = e.Subject, e.Text, e.HTML
+		}
+		res, err := email.Send(ctx, a.Platform, project, msg)
 		switch {
 		case err != nil:
 			parts = append(parts, "email failed: "+err.Error())
@@ -729,6 +734,29 @@ func (a *Alerter) deliver(ctx context.Context, n Notification) string {
 		return "not delivered: set a webhook or an email project (tiffin observe settings set --webhook URL or --email-project NAME)"
 	}
 	return strings.Join(parts, "; ")
+}
+
+// alertEmail is the notification as a branded email (packages/emails: alert).
+func (a *Alerter) alertEmail(n Notification) (*templates.Email, error) {
+	domain := a.Box
+	if a.Platform != nil && a.Platform.Domain != "" {
+		domain = a.Platform.Domain
+	}
+	state := n.State
+	if state != "firing" && state != "resolved" {
+		state = "test"
+	}
+	watching := n.Subject
+	if watching == n.Rule || watching == "test" {
+		watching = ""
+	}
+	reading := ""
+	if n.Threshold != 0 || n.Value != 0 {
+		reading = fmt.Sprintf("%g (limit %g)", n.Value, n.Threshold)
+	}
+	return templates.Alert(templates.AlertData{Brand: templates.Brand(domain), Host: templates.Host(n.Dashboard, "dashboard."+domain),
+		MarkURL: templates.MarkURL(n.Dashboard), State: state, Box: n.Box, Rule: n.Rule, Summary: n.Summary, Watching: watching,
+		Value: reading, When: templates.When(n.At), Description: n.Description, URL: n.Dashboard})
 }
 
 func notificationText(n Notification) string {

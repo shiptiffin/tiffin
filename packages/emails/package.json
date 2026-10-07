@@ -1,0 +1,26 @@
+{
+  "name": "@tiffin/emails",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tiffin's transactional emails, written with React Email and compiled at build time to Go html/template files and a zero-dependency TypeScript module. Nothing here runs at send time.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "preview": "email dev --dir src/emails --port 3030",
+    "build": "bun scripts/build.tsx",
+    "check": "bun scripts/build.tsx --check",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-email": "6.11.0"
+  },
+  "devDependencies": {
+    "@react-email/ui": "6.11.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "css-tree": "3.2.1"
+  }
+}

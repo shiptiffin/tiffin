@@ -67,8 +67,12 @@ type Module struct {
 	hub     *hub
 	queue   Queue
 	wake    chan struct{}
+	hookMu  sync.Mutex // serialises webhook state updates
+
+	sendMu sync.Mutex // serialises sending-domain setups and checks
 
 	// Tests override these.
+	clock    func() time.Time
 	smtpAddr string
 	extraIP  func(ctx context.Context, p *platform.Platform) string
 	backoff  func(attempt int) time.Duration
@@ -301,7 +305,7 @@ func (m *Module) route(ctx context.Context, p *platform.Platform, project, previ
 	if r == nil {
 		return DeliveryInbox, "no SMTP relay is configured on this box, so mail is captured in the dev inbox", nil
 	}
-	return DeliveryRelay, "sent through the relay " + r.Host, nil
+	return DeliveryRelay, "sent through the relay " + r.label(), nil
 }
 
 // WillSend reports whether a project's mail would leave the box now (a
@@ -509,6 +513,13 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 	if err := os.MkdirAll(messagesDir(p.DataRoot), 0o700); err != nil {
 		return err
 	}
+	// TIFFIN_SMTP_PORT moves the submission server, for a second box on one
+	// machine (the dashboard's end-to-end tests); boxes keep SMTPPort.
+	if v := os.Getenv("TIFFIN_SMTP_PORT"); m.smtpAddr == "" && v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n < 65536 {
+			m.smtpAddr = net.JoinHostPort("127.0.0.1", v)
+		}
+	}
 	srv := &smtpServer{m: m, p: p}
 	if err := srv.start(ctx); err != nil {
 		return fmt.Errorf("email: SMTP server: %w", err)
@@ -520,6 +531,7 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 	}
 	m.mu.Unlock()
 	go m.worker(ctx, p)
+	go m.sendingLoop(ctx, p)
 	go func() {
 		t := time.NewTicker(time.Hour)
 		defer t.Stop()
@@ -540,8 +552,8 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 func (m *Module) housekeep(ctx context.Context, p *platform.Platform) {
 	db := p.DB.SQL()
 	week := ts(time.Now().Add(-7 * 24 * time.Hour))
-	rows, err := db.QueryContext(ctx, `SELECT id, project FROM email_messages WHERE delivery = ? AND status IN (?, ?) AND created_at < ?`,
-		DeliveryRelay, StatusSent, StatusFailed, week)
+	rows, err := db.QueryContext(ctx, `SELECT id, project FROM email_messages WHERE delivery = ? AND status IN (?, ?, ?, ?, ?) AND created_at < ?`,
+		DeliveryRelay, StatusSent, StatusFailed, StatusDelivered, StatusBounced, StatusComplained, week)
 	if err == nil {
 		for rows.Next() {
 			var id, project string
@@ -551,8 +563,12 @@ func (m *Module) housekeep(ctx context.Context, p *platform.Platform) {
 		}
 		rows.Close()
 	}
-	_, _ = db.ExecContext(ctx, `DELETE FROM email_messages WHERE delivery != ? AND status IN (?, ?, ?) AND created_at < ?`,
-		DeliveryInbox, StatusSent, StatusFailed, StatusSuppressed, ts(time.Now().Add(-30*24*time.Hour)))
+	month := ts(time.Now().Add(-30 * 24 * time.Hour))
+	_, _ = db.ExecContext(ctx, `DELETE FROM email_messages WHERE delivery != ? AND status IN (?, ?, ?, ?, ?, ?) AND created_at < ?`,
+		DeliveryInbox, StatusSent, StatusFailed, StatusSuppressed, StatusDelivered, StatusBounced, StatusComplained, month)
+	// Events outlive their dedupe window (eventKeep), then go with their messages.
+	_, _ = db.ExecContext(ctx, `DELETE FROM email_events WHERE received_at < ?`, ts(time.Now().Add(-eventKeep)))
+	_, _ = db.ExecContext(ctx, `DELETE FROM email_tracking WHERE id NOT IN (SELECT id FROM email_messages)`)
 }
 
 // Checks reports the SMTP server and the delivery mode.

@@ -153,13 +153,8 @@ func (se *session) Rcpt(to string, _ *smtp.RcptOptions) error {
 	if _, err := mail.ParseAddress(to); err != nil {
 		return smtpErr(501, smtp.EnhancedCode{5, 1, 3}, "bad recipient address")
 	}
-	sup, err := suppressed(context.Background(), se.s.p.DB.SQL(), se.project, []string{to})
-	if err != nil {
-		return smtpErr(451, smtp.EnhancedCode{4, 3, 0}, "temporary error, try again")
-	}
-	if sup[normAddr(to)] {
-		return smtpErr(550, smtp.EnhancedCode{5, 7, 1}, to+" is on this project's suppression list (tiffin email suppressions list)")
-	}
+	// Suppressed recipients are accepted here, like the send API does: the
+	// message is logged with them marked suppressed, and only the others get it.
 	se.rcpt = append(se.rcpt, to)
 	return nil
 }

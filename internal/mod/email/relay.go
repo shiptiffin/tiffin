@@ -1,7 +1,6 @@
 package email
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -24,7 +23,11 @@ const (
 )
 
 // Relay is the box's outbound SMTP relay (Resend, SES, Postmark, your ISP...).
+// Provider and Region came later: relays saved before them still load, and
+// their provider is recognised from the host.
 type Relay struct {
+	Provider    string    `json:"provider,omitempty" enum:"sendgrid,resend,postmark,ses,mailgun,brevo,cloudflare,other" doc:"The mail service, when it is one the box knows (see email providers)"`
+	Region      string    `json:"region,omitempty" doc:"The provider's region, for Amazon SES and Mailgun"`
 	Host        string    `json:"host" doc:"Relay hostname, e.g. smtp.resend.com"`
 	Port        int       `json:"port" doc:"Usually 587 (starttls) or 465 (tls)"`
 	Username    string    `json:"username,omitempty"`
@@ -49,6 +52,7 @@ func getRelay(ctx context.Context, p *platform.Platform) (*Relay, error) {
 	if err := json.Unmarshal(raw, &r); err != nil {
 		return nil, err
 	}
+	r.Provider = r.provider()
 	return &r, nil
 }
 
@@ -157,9 +161,13 @@ func deliver(ctx context.Context, r *Relay, password, helo, from string, rcpt []
 		}
 	}
 	defer c.Close()
-	if r.Username != "" {
-		if err := c.Auth(sasl.NewPlainClient("", r.Username, password)); err != nil {
-			return nil, classify(fmt.Errorf("relay %s login as %s: %w", addr, r.Username, err))
+	if user := r.smtpUser(password); user != "" {
+		shown := user
+		if user == password {
+			shown = "the server token"
+		}
+		if err := c.Auth(sasl.NewPlainClient("", user, password)); err != nil {
+			return nil, classify(fmt.Errorf("relay %s login as %s: %w", addr, shown, err))
 		}
 	}
 	if err := c.Mail(from, nil); err != nil {
@@ -197,13 +205,4 @@ func deliver(ctx context.Context, r *Relay, password, helo, from string, rcpt []
 	}
 	_ = c.Quit()
 	return res, nil
-}
-
-// testMessage builds the relay test message.
-func testMessage(from, to, domain, id string) []byte {
-	var b bytes.Buffer
-	fmt.Fprintf(&b, "From: %s\r\nTo: %s\r\nSubject: Tiffin relay test\r\nDate: %s\r\nMessage-ID: <%s@%s>\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"+
-		"This is a test from your Tiffin box (%s). If you can read it, the SMTP relay works.\r\n",
-		from, to, time.Now().UTC().Format(time.RFC1123Z), id, domain, domain)
-	return b.Bytes()
 }

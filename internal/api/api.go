@@ -92,6 +92,7 @@ type API struct {
 	mux  *http.ServeMux
 	deps Deps
 	idem idemState
+	bg   sync.WaitGroup // box mail sent in the background
 }
 
 // New builds the API. Deps may be zero-valued when only the OpenAPI
@@ -119,6 +120,7 @@ func New(d Deps) *API {
 	a.registerPasskeys()
 	a.registerPasskeySignIn()
 	a.registerPeople()
+	a.registerBoxMail()
 	a.registerAppearance()
 	// Modules add their own operations; they become CLI commands and MCP tools too.
 	for _, m := range platform.Modules() {
@@ -812,12 +814,15 @@ func (a *API) registerBox() {
 	sc := op("session-create", http.MethodPost, "/v1/session", "-", RiskWrite, "Start a dashboard session",
 		"Exchanges a one-time login code for a session cookie. Used by the dashboard's login page.", "system")
 	sc.Security = nil
+	sc.Middlewares = huma.Middlewares{withClientIP}
 	huma.Register(api, sc, wrap(func(ctx context.Context, in *struct {
-		Body struct {
+		Device string `cookie:"tiffin_device"`
+		UA     string `header:"User-Agent"`
+		Body   struct {
 			Code string `json:"code" minLength:"8" maxLength:"128"`
 		}
 	}) (*struct {
-		SetCookie http.Cookie `header:"Set-Cookie"`
+		SetCookie []http.Cookie `header:"Set-Cookie"`
 		Body      *tokens.Principal
 	}, error) {
 		secret, t, err := a.deps.Tokens.RedeemLoginLink(ctx, in.Body.Code)
@@ -829,11 +834,16 @@ func (a *API) registerBox() {
 			return nil, err
 		}
 		out := &struct {
-			SetCookie http.Cookie `header:"Set-Cookie"`
+			SetCookie []http.Cookie `header:"Set-Cookie"`
 			Body      *tokens.Principal
 		}{Body: p}
-		out.SetCookie = http.Cookie{Name: SessionCookie, Value: secret, Path: "/", HttpOnly: true, Secure: true,
-			SameSite: http.SameSiteStrictMode, Expires: *t.ExpiresAt}
+		out.SetCookie = []http.Cookie{{Name: SessionCookie, Value: secret, Path: "/", HttpOnly: true, Secure: true,
+			SameSite: http.SameSiteStrictMode, Expires: *t.ExpiresAt}}
+		if p.Person != "" {
+			if dc := a.signedIn(ctx, p.Person, in.Device, in.UA, clientIPFrom(ctx), "a sign-in link"); dc != nil {
+				out.SetCookie = append(out.SetCookie, *dc)
+			}
+		}
 		return out, nil
 	}))
 

@@ -63,10 +63,11 @@ func clientIP(remoteAddr, xff string) string {
 
 // ipLimiter is a small in-memory token bucket per key.
 type ipLimiter struct {
-	mu      sync.Mutex
-	perMin  float64
-	buckets map[string]*bucket
-	now     func() time.Time
+	mu       sync.Mutex
+	perMin   float64
+	capacity float64 // the burst; 0 means perMin
+	buckets  map[string]*bucket
+	now      func() time.Time
 }
 
 type bucket struct {
@@ -84,19 +85,23 @@ func (l *ipLimiter) allow(key string) (bool, time.Duration) {
 	defer l.mu.Unlock()
 	now := l.now()
 	perSec := l.perMin / 60
+	capacity := l.perMin
+	if l.capacity > 0 {
+		capacity = l.capacity
+	}
 	if len(l.buckets) > 10000 {
 		for k, b := range l.buckets { // forget buckets that have refilled
-			if b.tokens+now.Sub(b.last).Seconds()*perSec >= l.perMin {
+			if b.tokens+now.Sub(b.last).Seconds()*perSec >= capacity {
 				delete(l.buckets, k)
 			}
 		}
 	}
 	b, ok := l.buckets[key]
 	if !ok {
-		b = &bucket{tokens: l.perMin, last: now}
+		b = &bucket{tokens: capacity, last: now}
 		l.buckets[key] = b
 	}
-	b.tokens = math.Min(l.perMin, b.tokens+now.Sub(b.last).Seconds()*perSec)
+	b.tokens = math.Min(capacity, b.tokens+now.Sub(b.last).Seconds()*perSec)
 	b.last = now
 	if b.tokens < 1 {
 		return false, time.Duration((1 - b.tokens) / perSec * float64(time.Second))
@@ -172,11 +177,13 @@ func (a *API) registerPasskeySignIn() {
 	f.Errors = append(f.Errors, 429, 501)
 	f.Middlewares = huma.Middlewares{a.limitPerIP(finLimit, "finish")}
 	huma.Register(api, f, wrap(func(ctx context.Context, in *struct {
-		Body struct {
+		Device string `cookie:"tiffin_device"`
+		UA     string `header:"User-Agent"`
+		Body   struct {
 			Credential json.RawMessage `json:"credential" doc:"The PublicKeyCredential from navigator.credentials.get(), with byte fields base64url-encoded"`
 		}
 	}) (*struct {
-		SetCookie http.Cookie `header:"Set-Cookie"`
+		SetCookie []http.Cookie `header:"Set-Cookie"`
 		Body      PasskeySignIn
 	}, error) {
 		m, err := a.passkeysMgr()
@@ -202,11 +209,14 @@ func (a *API) registerPasskeySignIn() {
 		_ = a.deps.DB.Audit(ctx, t.ID, "session.passkey", person.ID,
 			map[string]any{"summary": person.Name + " signed in with a passkey", "passkey": who.PasskeyName, "passkeyId": who.PasskeyID, "ip": ip})
 		out := &struct {
-			SetCookie http.Cookie `header:"Set-Cookie"`
+			SetCookie []http.Cookie `header:"Set-Cookie"`
 			Body      PasskeySignIn
 		}{Body: PasskeySignIn{Person: person.ID, Name: person.Name, Role: person.Role, ExpiresAt: *t.ExpiresAt}}
-		out.SetCookie = http.Cookie{Name: SessionCookie, Value: secret, Path: "/", HttpOnly: true, Secure: true,
-			SameSite: http.SameSiteStrictMode, Expires: *t.ExpiresAt}
+		out.SetCookie = []http.Cookie{{Name: SessionCookie, Value: secret, Path: "/", HttpOnly: true, Secure: true,
+			SameSite: http.SameSiteStrictMode, Expires: *t.ExpiresAt}}
+		if dc := a.signedIn(ctx, person.ID, in.Device, in.UA, ip, "a passkey"); dc != nil {
+			out.SetCookie = append(out.SetCookie, *dc)
+		}
 		return out, nil
 	}))
 }

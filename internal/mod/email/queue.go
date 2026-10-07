@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/ids"
+	"github.com/btahir/tiffin/internal/mod/email/templates"
 	"github.com/btahir/tiffin/internal/platform"
 )
 
@@ -150,6 +151,11 @@ func (m *Module) deliverOne(ctx context.Context, p *platform.Platform, id string
 	if err != nil {
 		return time.Time{}, err
 	}
+	// Mark the message so the provider's delivery events find it again.
+	raw, headerID := markForRelay(raw, id, p.Domain, relay.provider())
+	if err := track(ctx, db, id, rec.Project, relay.provider(), headerID); err != nil {
+		return time.Time{}, err
+	}
 	actx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	res, err := deliver(actx, relay, pw, p.Domain, rec.MailFrom, rec.Rcpt, raw)
 	cancel()
@@ -170,9 +176,14 @@ func (m *Module) deliverOne(ctx context.Context, p *platform.Platform, id string
 	if len(bounced) > 0 {
 		note = "refused by the relay and suppressed: " + strings.Join(bounced, ", ")
 	}
-	if _, err := db.ExecContext(ctx, `UPDATE email_messages SET attempts = ?, status = ?, next_at = '', last_error = ?, sent_at = ?, rcpt = ? WHERE id = ?`,
-		attempt, StatusSent, note, ts(time.Now()), jsonList(res.Accepted), id); err != nil {
+	// An event can beat this update (a fast "delivered"): only a queued
+	// message becomes sent.
+	if _, err := db.ExecContext(ctx, `UPDATE email_messages SET attempts = ?, status = CASE status WHEN ? THEN ? ELSE status END, next_at = '', last_error = ?, sent_at = ?, rcpt = ? WHERE id = ?`,
+		attempt, StatusQueued, StatusSent, note, ts(time.Now()), jsonList(res.Accepted), id); err != nil {
 		return time.Time{}, err
+	}
+	if pid := providerIDFromReply(res.Reply); pid != "" {
+		_, _ = db.ExecContext(ctx, `UPDATE email_tracking SET provider_id = ? WHERE id = ? AND provider_id = ''`, pid, id)
 	}
 	if s, ok := m.summary(ctx, p, rec.Project, id); ok {
 		_, h := m.state()
@@ -205,7 +216,22 @@ func testRelay(ctx context.Context, p *platform.Platform, to, from string) (*sen
 	if from == "" {
 		from = "tiffin@" + p.Domain
 	}
+	relay := r.Host
+	if pr := PresetByID(r.provider()); pr != nil && pr.ID != ProviderOther {
+		relay = pr.Name
+	}
+	now := time.Now()
+	e, err := templates.RelayTest(templates.RelayTestData{Brand: templates.Brand(p.Domain), Host: templates.Host(p.PublicURL, "dashboard."+p.Domain),
+		MarkURL: templates.MarkURL(p.PublicURL), Relay: relay, From: from, When: templates.When(now)})
+	if err != nil {
+		return nil, err
+	}
+	raw, envFrom, rcpt, err := compose(Message{To: []string{to}, Subject: e.Subject, Text: e.Text, HTML: e.HTML, Headers: boxHeaders(r.provider())},
+		from, ids.New("msg"), p.Domain, now)
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	return deliver(ctx, r, pw, p.Domain, from, []string{to}, testMessage(from, to, p.Domain, ids.New("msg")))
+	return deliver(ctx, r, pw, p.Domain, envFrom, rcpt, raw)
 }

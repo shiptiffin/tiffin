@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/btahir/tiffin/internal/ids"
 )
 
 // LoginLinkTTL is how long a one-time dashboard login link stays valid.
@@ -49,6 +47,15 @@ func (m *Manager) RedeemLoginLink(ctx context.Context, code string) (string, *To
 	if err != nil {
 		return "", nil, ErrUnauthenticated
 	}
+	if createdBy == emailLinkCreator {
+		// Asked for by email: the person proved they read that inbox, so
+		// they get their own role's session, sponsored by nobody.
+		person, err := m.GetPerson(ctx, personID.String)
+		if err != nil || person.DisabledAt != nil {
+			return "", nil, ErrUnauthenticated
+		}
+		return m.mintSession(ctx, person, "email")
+	}
 	creator, err := m.Get(ctx, createdBy)
 	if err != nil || creator.RevokedAt != nil || (creator.ExpiresAt != nil && !now.Before(*creator.ExpiresAt)) {
 		return "", nil, ErrUnauthenticated
@@ -79,14 +86,9 @@ func (m *Manager) SessionFor(ctx context.Context, personID, via string) (string,
 	if person.DisabledAt != nil {
 		return "", nil, nil, ErrPersonNotFound
 	}
-	now := m.now().UTC()
-	exp := now.Add(SessionTTL)
-	t := &Token{ID: ids.New("tok"), Name: person.Name, Kind: KindHuman, Scopes: ScopesFor(person.Role), Projects: []string{"*"},
-		CreatedAt: now, ExpiresAt: &exp, Person: person.ID}
-	secret := newSecret()
-	if err := m.insert(ctx, t, secret); err != nil {
+	secret, t, err := m.mintSession(ctx, person, via)
+	if err != nil {
 		return "", nil, nil, err
 	}
-	_ = m.db.Audit(ctx, t.ID, "token.create", t.ID, map[string]any{"name": t.Name, "kind": t.Kind, "scopes": t.Scopes, "projects": t.Projects, "expiresAt": t.ExpiresAt, "via": via})
 	return secret, t, person, nil
 }

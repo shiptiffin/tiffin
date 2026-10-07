@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/danielgtaylor/huma/v2/sse"
 	"github.com/emersion/go-message/mail"
 )
@@ -30,15 +32,25 @@ type Detail struct {
 	Links      []string         `json:"links" doc:"http(s) links in the message, e.g. sign-in or verification links"`
 	AttachList []AttachmentInfo `json:"attachmentList"`
 	RawURL     string           `json:"rawUrl" doc:"Download the raw .eml (API path)"`
+	Events     []Event          `json:"events" doc:"What the relay's provider reported after accepting it, oldest first (needs its webhook)"`
+	Provider   string           `json:"provider,omitempty" doc:"The mail service it was relayed through"`
+}
+
+// relayTestResult is what a relay test found.
+type relayTestResult struct {
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail" doc:"What the relay said"`
+	Hint   string `json:"hint,omitempty" doc:"What it means and what to try, in plain words, when the test failed"`
 }
 
 // Status is the box's email setup.
 type Status struct {
-	Mode      string   `json:"mode" enum:"inbox,relay" doc:"inbox: every message is captured in the dev inbox; relay: production mail is sent through the relay"`
-	Relay     *Relay   `json:"relay,omitempty"`
-	SMTP      []string `json:"smtp" doc:"Addresses of Tiffin's SMTP submission server"`
-	Queued    int      `json:"queued" doc:"Messages waiting for a relay attempt"`
-	FailedDay int      `json:"failedLastDay" doc:"Deliveries that failed for good in the last 24 hours"`
+	Mode      string    `json:"mode" enum:"inbox,relay" doc:"inbox: every message is captured in the dev inbox; relay: production mail is sent through the relay"`
+	Relay     *Relay    `json:"relay,omitempty"`
+	SMTP      []string  `json:"smtp" doc:"Addresses of Tiffin's SMTP submission server"`
+	Queued    int       `json:"queued" doc:"Messages waiting for a relay attempt"`
+	FailedDay int       `json:"failedLastDay" doc:"Deliveries that failed for good in the last 24 hours"`
+	Webhooks  []Webhook `json:"webhooks" doc:"Delivery events: the relay provider's webhook, and any other with a key saved"`
 }
 
 type projectIn struct {
@@ -119,6 +131,10 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		_ = p.DB.Audit(ctx, pr.TokenID, "email.send", in.Project+"/"+res.ID, map[string]any{"delivery": res.Delivery, "to": len(res.Recipients), "session": pr.Session})
 		return &struct{ Body Result }{*res}, nil
 	}))
+
+	m.registerDomainAPI(a, p, base, tag)
+	m.registerSendingAPI(a, p, base, tag)
+	m.registerBoxAPI(a, p, tag)
 
 	huma.Register(a, api.Untrusted(api.Op("email-messages-list", http.MethodGet, base+"/messages", "email messages list", api.RiskRead, "List the dev inbox",
 		"Messages captured in the project's dev inbox, newest first. With all=true: every message, including ones sent through the relay or suppressed, with delivery status.", tag)),
@@ -449,15 +465,19 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		}))
 
 	huma.Register(a, api.Op("email-relay-set", http.MethodPut, "/v1/email/relay", "email relay set", api.RiskWrite, "Configure the SMTP relay",
-		"Sends production mail through this SMTP relay (Resend, SES, Postmark, ...) instead of capturing it. The password is stored encrypted and never shown. "+
-			"Omit password to keep the stored one. Preview mail is still captured. Box admins only. Try it with email relay test.", tag),
+		"Sends production mail through this SMTP relay instead of capturing it. Name a provider (sendgrid, resend, postmark, ses, mailgun, brevo, cloudflare) "+
+			"and the box fills the host, port, security and username: send only the key (and region for ses or mailgun, username for ses, mailgun and brevo). "+
+			"Use provider other with host, port, tls and username for any other SMTP server. The password is stored encrypted and never shown; "+
+			"omit it to keep the stored one. Preview mail is still captured. Box admins only. Try it with email relay test.", tag),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Body struct {
-				Host     string  `json:"host" minLength:"1" maxLength:"253" doc:"Relay hostname"`
-				Port     int     `json:"port,omitempty" minimum:"1" maximum:"65535" doc:"Default 587 (starttls), 465 for tls, 25 for none"`
-				Username string  `json:"username,omitempty" maxLength:"320"`
-				Password *string `json:"password,omitempty" maxLength:"4096" doc:"Stored encrypted; \"\" removes it"`
-				TLS      string  `json:"tls,omitempty" enum:"starttls,tls,none" doc:"Default starttls. none sends credentials and mail in the clear: only for local test sinks"`
+				Provider string  `json:"provider,omitempty" enum:"sendgrid,resend,postmark,ses,mailgun,brevo,cloudflare,other" doc:"Default other"`
+				Region   string  `json:"region,omitempty" maxLength:"32" doc:"ses: an AWS region such as eu-west-1; mailgun: us or eu"`
+				Host     string  `json:"host,omitempty" maxLength:"253" doc:"Relay hostname; filled from the provider when omitted"`
+				Port     int     `json:"port,omitempty" minimum:"1" maximum:"65535" doc:"Default: the provider's, else 587 (starttls), 465 for tls, 25 for none"`
+				Username string  `json:"username,omitempty" maxLength:"320" doc:"Ignored for sendgrid, resend and postmark, whose username is fixed"`
+				Password *string `json:"password,omitempty" maxLength:"4096" doc:"The API key, SMTP key or password. Stored encrypted; \"\" removes it"`
+				TLS      string  `json:"tls,omitempty" enum:"starttls,tls,none" doc:"Default: the provider's, else starttls. none sends credentials and mail in the clear: only for local test sinks"`
 			}
 		}) (*struct{ Body Status }, error) {
 			if err := boxOnly(p); err != nil {
@@ -468,20 +488,20 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 				return nil, fmt.Errorf("%w: the SMTP relay is set by the box owner", tokens.ErrForbidden)
 			}
 			b := in.Body
-			r := &Relay{Host: strings.TrimSpace(b.Host), Port: b.Port, Username: b.Username, TLS: b.TLS, UpdatedAt: time.Now().UTC(), UpdatedBy: pr.TokenID}
-			if r.TLS == "" {
-				r.TLS = TLSStartTLS
+			r, err := resolve(relayInput{Provider: b.Provider, Region: b.Region, Host: b.Host, Port: b.Port, Username: b.Username, TLS: b.TLS})
+			if err != nil {
+				return nil, toProblem(err)
 			}
-			if r.Port == 0 {
-				r.Port = map[string]int{TLSStartTLS: 587, TLSImplicit: 465, TLSNone: 25}[r.TLS]
-			}
-			if strings.ContainsAny(r.Host, " /:@") {
-				return nil, api.NewProblem(422, "validation", "host: a hostname or IP address, without scheme or port")
+			r.UpdatedAt, r.UpdatedBy = time.Now().UTC(), pr.TokenID
+			if r.Provider != ProviderOther && r.Provider != "" {
+				if old, _ := getRelay(ctx, p); b.Password == nil && (old == nil || !old.PasswordSet) {
+					return nil, api.NewProblem(422, "validation", "password: paste the "+lowerFirst(PresetByID(r.Provider).KeyLabel))
+				}
 			}
 			if err := setRelay(ctx, p, r, b.Password); err != nil {
 				return nil, err
 			}
-			_ = p.DB.Audit(ctx, pr.TokenID, "email.relay.set", r.Host, map[string]any{"port": r.Port, "tls": r.TLS, "session": pr.Session})
+			_ = p.DB.Audit(ctx, pr.TokenID, "email.relay.set", r.Host, map[string]any{"provider": r.Provider, "port": r.Port, "tls": r.TLS, "session": pr.Session})
 			m.kick() // queued mail waiting for a relay goes now
 			st, err := m.status(ctx, p)
 			if err != nil {
@@ -489,6 +509,89 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			}
 			return &struct{ Body Status }{*st}, nil
 		}))
+
+	huma.Register(a, api.Op("email-providers", http.MethodGet, "/v1/email/providers", "email providers", api.RiskRead, "List relay providers",
+		"The mail services the box can fill in: SMTP host, port, security and username, what the key is called, where to create it and the "+
+			"permission it needs, where to verify a sending domain, and (SendGrid, Resend, Postmark) how to send delivery events back to the box.", tag),
+		api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body []Preset }, error) {
+			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, ""); err != nil {
+				return nil, err
+			}
+			return &struct{ Body []Preset }{Presets}, nil
+		}))
+
+	type webhookOut struct {
+		Webhook
+		SecretURL string `json:"secretUrl,omitempty" doc:"Postmark: the address with its user name and password. Shown this once; paste it into Postmark now"`
+	}
+	ws := api.Op("email-webhook-set", http.MethodPut, "/v1/email/webhooks/{provider}", "email webhooks set", api.RiskWrite, "Turn on delivery events",
+		"Saves the key the box checks the provider's event requests with: SendGrid's verification key (Signed Event Webhook), or Resend's signing secret. "+
+			"For Postmark, which has no signatures, the box makes a password and returns the webhook address with it, once (calling again makes a new one). "+
+			"The key is stored encrypted and never shown. Box admins only.", tag)
+	ws.Errors = append(ws.Errors, 404)
+	huma.Register(a, ws, api.Wrap(func(ctx context.Context, in *struct {
+		Provider string `path:"provider" enum:"sendgrid,resend,postmark"`
+		Body     struct {
+			Key string `json:"key,omitempty" maxLength:"4096" doc:"SendGrid: the verification key; Resend: the signing secret (whsec_...); Postmark: leave out"`
+		}
+	}) (*struct{ Body webhookOut }, error) {
+		if err := boxOnly(p); err != nil {
+			return nil, err
+		}
+		pr := api.PrincipalFrom(ctx)
+		if !pr.BoxAdmin() {
+			return nil, fmt.Errorf("%w: delivery events are set up by the box owner", tokens.ErrForbidden)
+		}
+		key := strings.TrimSpace(in.Body.Key)
+		secretURL := ""
+		if in.Provider == ProviderPostmark {
+			key = randomSecret() + randomSecret()
+			u, _ := url.Parse(strings.TrimSuffix(p.PublicURL, "/") + eventsPath(ProviderPostmark))
+			u.User = url.UserPassword(postmarkUser, key)
+			secretURL = u.String()
+		} else if key == "" {
+			return nil, api.NewProblem(422, "validation", "key: paste the "+lowerFirst(PresetByID(in.Provider).Events.KeyLabel))
+		} else if err := checkKey(in.Provider, key); err != nil {
+			return nil, toProblem(err)
+		}
+		if err := p.Secrets.Set(ctx, secretsProject, webhookSecretName(in.Provider), key, pr.TokenID); err != nil {
+			return nil, err
+		}
+		m.updateHook(ctx, p, in.Provider, func(s *hookState) {
+			*s = hookState{ConfiguredAt: time.Now().UTC(), ConfiguredBy: pr.TokenID}
+		})
+		_ = p.DB.Audit(ctx, pr.TokenID, "email.webhook.set", in.Provider, map[string]any{"session": pr.Session})
+		return &struct{ Body webhookOut }{webhookOut{Webhook: m.webhook(ctx, p, in.Provider), SecretURL: secretURL}}, nil
+	}))
+
+	wd := api.Op("email-webhook-delete", http.MethodDelete, "/v1/email/webhooks/{provider}", "email webhooks delete", api.RiskWrite, "Turn off delivery events",
+		"Forgets the provider's key: its event requests are refused from now on. Remove the webhook in the provider's dashboard too. Box admins only.", tag)
+	huma.Register(a, wd, api.Wrap(func(ctx context.Context, in *struct {
+		Provider string `path:"provider" enum:"sendgrid,resend,postmark"`
+	}) (*struct{}, error) {
+		if err := boxOnly(p); err != nil {
+			return nil, err
+		}
+		pr := api.PrincipalFrom(ctx)
+		if !pr.BoxAdmin() {
+			return nil, fmt.Errorf("%w: delivery events are set up by the box owner", tokens.ErrForbidden)
+		}
+		if _, err := p.Secrets.Delete(ctx, secretsProject, webhookSecretName(in.Provider)); err != nil {
+			return nil, err
+		}
+		_ = p.DB.KVDelete(ctx, kvNS, "webhook/"+in.Provider)
+		_ = p.DB.Audit(ctx, pr.TokenID, "email.webhook.delete", in.Provider, map[string]any{"session": pr.Session})
+		return &struct{}{}, nil
+	}))
+
+	// The providers' own calls. They carry no Tiffin credentials (each is
+	// signed, or carries Postmark's password), so they bypass the API's auth.
+	for _, prov := range eventProviders {
+		a.Adapter().Handle(&huma.Operation{Method: http.MethodPost, Path: eventsPath(prov)}, func(hctx huma.Context) {
+			req, w := humago.Unwrap(hctx)
+			m.handleEvents(p, prov, w, req)
+		})
+	}
 
 	huma.Register(a, api.Op("email-relay-delete", http.MethodDelete, "/v1/email/relay", "email relay delete", api.RiskWrite, "Remove the SMTP relay",
 		"Back to capturing every message in the dev inbox. Messages already queued for the relay wait until a relay is configured again. Box admins only.", tag),
@@ -519,10 +622,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 				From string `json:"from,omitempty" maxLength:"320" doc:"Default tiffin@<box domain>"`
 			}
 		}) (*struct {
-			Body struct {
-				OK     bool   `json:"ok"`
-				Detail string `json:"detail"`
-			}
+			Body relayTestResult
 		}, error) {
 			if err := boxOnly(p); err != nil {
 				return nil, err
@@ -532,17 +632,17 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 				return nil, fmt.Errorf("%w: only the box owner can test the relay", tokens.ErrForbidden)
 			}
 			out := &struct {
-				Body struct {
-					OK     bool   `json:"ok"`
-					Detail string `json:"detail"`
-				}
+				Body relayTestResult
 			}{}
 			res, err := testRelay(ctx, p, in.Body.To, in.Body.From)
+			relay, _ := getRelay(ctx, p)
 			switch {
 			case err != nil:
 				out.Body.Detail = err.Error()
+				out.Body.Hint = explainRelayError(err, relay)
 			case len(res.Accepted) == 0:
 				out.Body.Detail = "the relay refused the recipient: " + res.Rejected[in.Body.To]
+				out.Body.Hint = "That address was refused for good. Try another one."
 			default:
 				out.Body.OK, out.Body.Detail = true, strings.TrimSpace("accepted by the relay. "+res.Reply)
 			}
@@ -555,7 +655,7 @@ func (m *Module) status(ctx context.Context, p *platform.Platform) (*Status, err
 	if err != nil {
 		return nil, err
 	}
-	st := &Status{Mode: DeliveryInbox, Relay: r, SMTP: []string{}}
+	st := &Status{Mode: DeliveryInbox, Relay: r, SMTP: []string{}, Webhooks: m.webhooks(ctx, p, r)}
 	if r != nil {
 		st.Mode = DeliveryRelay
 	}
@@ -578,6 +678,10 @@ func (m *Module) detail(ctx context.Context, p *platform.Platform, project, id s
 	d := &Detail{Summary: rec.Summary, Headers: []Header{}, Links: []string{}, AttachList: []AttachmentInfo{},
 		RawURL: "/v1/projects/" + project + "/email/messages/" + id + "/raw"}
 	d.Envelope.From, d.Envelope.To = rec.MailFrom, rec.Rcpt
+	if d.Events, err = messageEvents(ctx, p.DB.SQL(), id); err != nil {
+		return nil, err
+	}
+	_ = p.DB.SQL().QueryRowContext(ctx, `SELECT provider FROM email_tracking WHERE id = ?`, id).Scan(&d.Provider)
 	if d.Envelope.To == nil {
 		d.Envelope.To = []string{}
 	}

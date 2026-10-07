@@ -304,7 +304,7 @@ func TestAlertsFireAndDeliver(t *testing.T) {
 	if len(hist) == 0 || !strings.HasPrefix(hist[0].(map[string]any)["delivery"].(string), "webhook ok; email to alerts@box.test captured in project ops's dev inbox") {
 		t.Fatalf("history: %v", hist)
 	}
-	if code, out, arr := h.call(h.owner, "GET", "/v1/projects/ops/email/messages", nil); code != 200 || !strings.Contains(fmt.Sprint(out, arr), "[FIRING] disk-full") {
+	if code, out, arr := h.call(h.owner, "GET", "/v1/projects/ops/email/messages", nil); code != 200 || !strings.Contains(fmt.Sprint(out, arr), "subject:Firing: disk-full on box.test") {
 		t.Fatalf("dev inbox: %d %v %v", code, out, arr)
 	}
 	mu.Lock()
