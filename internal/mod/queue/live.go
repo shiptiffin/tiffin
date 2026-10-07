@@ -66,39 +66,40 @@ func unauthenticated(msg string) error {
 	return &Error{Status: 401, Code: "unauthenticated", Msg: msg, Hint: "mint a token on the server with subscribeToken(id) and pass it to the browser"}
 }
 
-// checkToken returns the project a token for id belongs to.
-func (e *Engine) checkToken(ctx context.Context, token, id string, now time.Time) (string, error) {
+// checkToken returns the project a token for id belongs to, and when the
+// token expires.
+func (e *Engine) checkToken(ctx context.Context, token, id string, now time.Time) (string, time.Time, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 5 || parts[0] != "live1" {
-		return "", unauthenticated("missing or malformed subscribe token")
+		return "", time.Time{}, unauthenticated("missing or malformed subscribe token")
 	}
 	project, tokID, exp, sig := parts[1], parts[2], parts[3], parts[4]
 	if !projectSlug.MatchString(project) {
-		return "", unauthenticated("malformed subscribe token")
+		return "", time.Time{}, unauthenticated("malformed subscribe token")
 	}
 	_, secret, found, err := e.cfg.Keys.Lookup(ctx, project)
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 	if !found || !hmac.Equal([]byte(sig), []byte(liveMAC(secret, project, tokID, exp))) {
-		return "", unauthenticated("the subscribe token's signature does not match")
+		return "", time.Time{}, unauthenticated("the subscribe token's signature does not match")
 	}
 	if tokID != id {
-		return "", &Error{Status: 403, Code: "forbidden", Msg: "this token is for a different job or run",
+		return "", time.Time{}, &Error{Status: 403, Code: "forbidden", Msg: "this token is for a different job or run",
 			Hint: "each token watches the one job or run it was minted for"}
 	}
 	n, err := strconv.ParseInt(exp, 10, 64)
 	if err != nil {
-		return "", unauthenticated("malformed subscribe token")
+		return "", time.Time{}, unauthenticated("malformed subscribe token")
 	}
 	at := time.Unix(n, 0)
 	if !at.After(now) {
-		return "", unauthenticated("the subscribe token expired at " + at.UTC().Format(time.RFC3339))
+		return "", time.Time{}, unauthenticated("the subscribe token expired at " + at.UTC().Format(time.RFC3339))
 	}
 	if at.Sub(now) > maxTokenTTL+time.Minute {
-		return "", unauthenticated("subscribe tokens last at most 7 days")
+		return "", time.Time{}, unauthenticated("subscribe tokens last at most 7 days")
 	}
-	return project, nil
+	return project, at, nil
 }
 
 // ---- state ----
@@ -458,12 +459,15 @@ func (e *Engine) ServeLive(w http.ResponseWriter, r *http.Request) {
 	if token == "" {
 		token = strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 	}
-	project, err := e.checkToken(r.Context(), token, id, e.now())
+	project, exp, err := e.checkToken(r.Context(), token, id, e.now())
 	if err != nil {
 		writeErr(w, err)
 		return
 	}
-	e.StreamLive(w, r, project, id)
+	// The token's expiry ends the stream too, not just its opening.
+	ctx, cancel := context.WithDeadline(r.Context(), exp)
+	defer cancel()
+	e.StreamLive(w, r.WithContext(ctx), project, id)
 }
 
 // StreamLive streams one job or run of project as server-sent events, for a

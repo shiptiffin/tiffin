@@ -29,7 +29,7 @@ func TestAuthenticationCreatesNothing(t *testing.T) {
 			t.Errorf("%s: %d", key, res.StatusCode)
 		}
 	}
-	if _, err := e.checkToken(ctx, "live1.ghost2.job_1."+strings.Repeat("9", 10)+".abc", "job_1", time.Now()); err == nil {
+	if _, _, err := e.checkToken(ctx, "live1.ghost2.job_1."+strings.Repeat("9", 10)+".abc", "job_1", time.Now()); err == nil {
 		t.Error("token for an unknown project accepted")
 	}
 	for _, p := range []string{"ghost", "ghost2", "NOT-A-SLUG"} {

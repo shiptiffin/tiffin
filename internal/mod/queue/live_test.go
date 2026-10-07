@@ -19,7 +19,7 @@ func TestSubscribeTokenScopeAndExpiry(t *testing.T) {
 	_, secret, _ := e.cfg.Keys.Get(ctx, proj)
 	now := time.Now()
 	good := SubscribeToken(secret, proj, "run_A", now.Add(time.Hour))
-	if p, err := e.checkToken(ctx, good, "run_A", now); err != nil || p != proj {
+	if p, _, err := e.checkToken(ctx, good, "run_A", now); err != nil || p != proj {
 		t.Fatalf("valid token: %q %v", p, err)
 	}
 	// The same vector @shiptiffin/sdk's test checks (packages/sdk/test/queue.test.ts).
@@ -40,7 +40,7 @@ func TestSubscribeTokenScopeAndExpiry(t *testing.T) {
 		"garbage":         {"Bearer x", "run_A", 401},
 		"empty":           {"", "run_A", 401},
 	} {
-		_, err := e.checkToken(ctx, c.token, c.id, now)
+		_, _, err := e.checkToken(ctx, c.token, c.id, now)
 		qe, ok := err.(*Error)
 		if !ok || qe.Status != c.status {
 			t.Errorf("%s: %v, want %d", name, err, c.status)
@@ -378,5 +378,40 @@ func TestJobOutputCap(t *testing.T) {
 	}
 	if err := e.JobProgress(ctx, proj, n, 99, json.RawMessage(`1`)); err == nil {
 		t.Fatal("progress for another attempt was accepted")
+	}
+}
+
+// A stream ends when its token expires, even if the job is still running.
+func TestLiveStreamEndsAtTokenExpiry(t *testing.T) {
+	e := newEngine(t, nil)
+	ctx := context.Background()
+	release := make(chan struct{})
+	defer close(release)
+	a := newApp(t, e.Engine, proj)
+	a.handle("/q/slow", func(w http.ResponseWriter, r *http.Request) { <-release })
+	e.configure(proj, QueueConfig{Name: "slow", URL: a.url("/q/slow"), LeaseS: 60})
+	id := e.send(proj, SendRequest{Name: "slow"}).Jobs[0]
+	e.waitState(proj, id, stateRunning, 10*time.Second)
+	srv := httptest.NewServer(http.HandlerFunc(e.ServeLive))
+	t.Cleanup(srv.Close)
+	_, secret, _ := e.cfg.Keys.Get(ctx, proj)
+	exp := time.Now().Add(2 * time.Second)
+	s := openSSE(t, srv.URL, id, SubscribeToken(secret, proj, id, exp), "")
+	if s.Status != 200 {
+		t.Fatalf("open: %d %s", s.Status, s.Body)
+	}
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case _, ok := <-s.Events:
+			if !ok {
+				if time.Now().Before(exp.Truncate(time.Second)) {
+					t.Fatal("the stream ended before the token expired")
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("the stream outlived its token")
+		}
 	}
 }
