@@ -265,7 +265,7 @@ export const POST = defineHandler(async (job) => {
 import { verifyRequest } from "@shiptiffin/sdk/verify";
 
 export async function POST(req: Request) {
-  const call = await verifyRequest(req, process.env.TIFFIN_SIGNING_SECRET!);
+  const call = await verifyRequest(req, process.env.TIFFIN_QUEUE_SIGNING_SECRET!);
   if (!call) return new Response("bad signature", { status: 401 });
   return new Response(null, { status: 204 }); // 2xx: done; anything else retries
 }`,
