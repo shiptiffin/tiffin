@@ -251,7 +251,8 @@ code {
 }
 .footer-nav {
   display: flex;
-  gap: 22px;
+  flex-wrap: wrap;
+  gap: 8px 22px;
 }
 .footer-nav a {
   color: var(--ink-2);
@@ -260,6 +261,12 @@ code {
 .footer-nav a:hover {
   color: var(--ink);
   text-decoration: underline;
+}
+.footer-nav a.footer-privacy {
+  color: var(--ink);
+  font-weight: 550;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* ---------- buttons ---------- */
@@ -713,6 +720,36 @@ code {
 }
 .prose-lg p + p {
   margin-top: 14px;
+}
+
+/* Google sign-in and acceptable use */
+.notes {
+  display: grid;
+  gap: 32px;
+}
+@media (min-width: 900px) {
+  .notes {
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+  }
+}
+.note {
+  padding-top: 18px;
+  border-top: 1px solid var(--rule-2);
+}
+.note-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.note p {
+  margin-top: 12px;
+  color: var(--ink-2);
+  max-width: 36em;
+  text-wrap: pretty;
+}
+.note a {
+  color: var(--ink);
 }
 
 /* honest */

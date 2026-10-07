@@ -61,8 +61,10 @@ export function Footer() {
           </span>
         </div>
         <nav className="footer-nav" aria-label="Footer">
-          <Link href="/privacy">Privacy</Link>
-          <Link href="/terms">Terms</Link>
+          <Link href="/privacy" className="footer-privacy">
+            Privacy policy
+          </Link>
+          <Link href="/terms">Terms of service</Link>
           <a href={DASHBOARD}>Sign in</a>
         </nav>
       </div>

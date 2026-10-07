@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ACCESS_MAIL, DASHBOARD, EMAIL } from "./chrome";
 
 export const metadata = { alternates: { canonical: "/" } };
@@ -104,6 +105,27 @@ export default function Home() {
             </p>
           </div>
           <BoxDrawing />
+        </div>
+      </section>
+
+      <section id="about" className="band" aria-labelledby="about-title">
+        <div className="wrap two-col">
+          <h2 id="about-title" className="h2">
+            What ShipTiffin does
+          </h2>
+          <div className="prose-lg">
+            <p>
+              ShipTiffin is a hosting service for web apps. Each customer gets a server of their own, which we call
+              a box, and runs their apps on it. The box comes with the parts most apps need: a Postgres database,
+              sign-in for the app&rsquo;s users, email sending, file storage, background jobs, logs and visit
+              counts.
+            </p>
+            <p>
+              Customers deploy their apps with <code>git push</code>, the <code>tiffin</code> command line or a
+              coding agent, and manage them from the box&rsquo;s dashboard. It is built for developers and small
+              teams who run several small apps and want one flat price instead of a bill for each service.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -226,6 +248,44 @@ export default function Home() {
                 <li>Anything that must stay up if one server goes down: it&rsquo;s one machine</li>
                 <li>Work that needs a stable platform today: Tiffin is before version 1.0</li>
               </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="google" className="band" aria-labelledby="trust-title">
+        <div className="wrap">
+          <div className="section-head">
+            <h2 id="trust-title" className="h2">
+              Your data, and what we don&rsquo;t allow.
+            </h2>
+          </div>
+          <div className="notes">
+            <div className="note">
+              <h3 className="note-title">Sign in with Google</h3>
+              <p>
+                ShipTiffin uses Google for one thing: Sign in with Google, to sign you in to your box&rsquo;s
+                dashboard, or to an app hosted on ShipTiffin that offers it. We ask only for the{" "}
+                <code>openid</code>, <code>email</code> and <code>profile</code> scopes, which give us your name,
+                email address and profile picture. We use them only to identify your account.
+              </p>
+              <p>
+                We have no access to your Gmail, Drive, Calendar or any other Google data. We never sell Google user
+                data, use it for ads, or use it to train AI models. Read the details in our{" "}
+                <Link href="/privacy#google">privacy policy</Link>.
+              </p>
+            </div>
+            <div className="note">
+              <h3 className="note-title">Acceptable use</h3>
+              <p>
+                ShipTiffin does not use Google APIs or Google user data to create AI-generated non-consensual
+                intimate imagery (NCII), and does not allow customers to host apps that create or share it, or any
+                sexual content involving people who have not consented.
+              </p>
+              <p>
+                We take down apps that do, and may suspend the box. The full rules are in the{" "}
+                <Link href="/terms#use">acceptable use</Link> section of our terms.
+              </p>
             </div>
           </div>
         </div>

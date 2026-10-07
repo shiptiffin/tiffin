@@ -78,6 +78,11 @@ const sections: Section[] = [
           <li>host or spread malware, phishing pages, or anything built to deceive or steal;</li>
           <li>attack, scan, probe or overload other systems, or get around their security;</li>
           <li>host content that is illegal, that exploits children, or that infringes other people&rsquo;s rights;</li>
+          <li>
+            create, host or share intimate or sexual images or videos of a real person without their consent,
+            including ones made or altered with AI (non-consensual intimate imagery, or NCII), or any sexual
+            content involving people who have not consented;
+          </li>
           <li>harass, threaten or abuse people;</li>
           <li>mine cryptocurrency, or resell the service, without our written agreement;</li>
           <li>get around the limits of your box or account, or interfere with how the service runs.</li>
@@ -88,7 +93,8 @@ const sections: Section[] = [
           <a href="https://developers.google.com/terms/api-services-user-data-policy">
             Google API Services User Data Policy
           </a>{" "}
-          (including its Limited Use requirements), and never sell that data or use it for advertising.
+          (including its Limited Use requirements), and never sell that data, use it for advertising, use it to
+          train AI models, or use it, or any Google API, to create non-consensual intimate imagery.
         </p>
         <h3>Email</h3>
         <p>
@@ -107,8 +113,8 @@ const sections: Section[] = [
       <p>
         We may suspend a box or account that breaks these terms, puts the service or other people at risk, or that
         we are legally required to stop. Where we can, we warn you first and give you a chance to fix the problem.
-        When it can&rsquo;t wait (abusive mail, malware, an active attack), we act first and tell you straight
-        after. A suspended box keeps its data while we sort it out.
+        When it can&rsquo;t wait (abusive mail, malware, non-consensual intimate imagery, an active attack), we
+        act first and tell you straight after. A suspended box keeps its data while we sort it out.
       </p>
     ),
   },
