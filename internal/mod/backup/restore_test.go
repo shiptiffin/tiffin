@@ -104,11 +104,11 @@ func TestSQLiteFilesBackupAndRestore(t *testing.T) {
 	if got := marks(t, filepath.Join(set, "files", "observe")); len(got) != 0 {
 		t.Fatalf("a file copy should miss the WAL here: %v", got)
 	}
-	if err := snapshotSQLite(ctx, obsPath, filepath.Join(set, "files", "observe")); err != nil {
-		t.Fatal(err)
+	if failed, err := snapshotSQLite(ctx, obsPath, filepath.Join(set, "files", "observe")); err != nil || len(failed) > 0 {
+		t.Fatal(failed, err)
 	}
-	if err := snapshotSQLite(ctx, anaDir, filepath.Join(set, "files", "analytics")); err != nil {
-		t.Fatal(err)
+	if failed, err := snapshotSQLite(ctx, anaDir, filepath.Join(set, "files", "analytics")); err != nil || len(failed) > 0 {
+		t.Fatal(failed, err)
 	}
 	for _, p := range []string{filepath.Join(set, "files", "observe"), filepath.Join(set, "files", "analytics", "analytics.db")} {
 		if got := marks(t, p); len(got) != 1 || got[0] != "backed-up" {

@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -186,14 +187,28 @@ func RequireConfirm(confirm string, key, preview any) error {
 // SQLiteSnapshot writes a consistent copy of the live SQLite database src
 // to dst (VACUUM INTO reads one transaction's view, WAL included; writers
 // keep going). A file copy instead misses commits still in the WAL.
+//
+// src is opened read-only through SQLiteURI: database files live in places
+// apps write (their disk folders), and a name such as
+// "x?_pragma=<SQL>" spliced into a URI would run that SQL here, as root.
 func SQLiteSnapshot(ctx context.Context, src, dst string) error {
-	db, err := sql.Open("sqlite3", "file:"+src+"?_pragma=busy_timeout(10000)")
+	db, err := sql.Open("sqlite3", SQLiteURI(src, "mode=ro&_pragma=busy_timeout(10000)"))
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 	_, err = db.ExecContext(ctx, `VACUUM INTO ?`, dst)
 	return err
+}
+
+// SQLiteURI is a file: URI that SQLite opens as exactly the file at path
+// (every character that means something in a URI escaped), with query, the
+// caller's own trusted parameters.
+func SQLiteURI(path, query string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(path), RawQuery: query}).String()
 }
 
 // IsSQLite reports whether head starts with the SQLite header.

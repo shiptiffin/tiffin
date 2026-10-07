@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -156,6 +157,7 @@ func getSchedule(ctx context.Context, p *platform.Platform) BackupSchedule {
 type BackupPart struct {
 	SizeBytes int64  `json:"sizeBytes"`
 	Detail    string `json:"detail,omitempty"`
+	Warning   string `json:"warning,omitempty" doc:"Set when part of it could not be copied as intended, e.g. SQLite files kept as plain copies"`
 }
 
 // Backup is one backup set.
@@ -340,30 +342,54 @@ func takeParts(ctx context.Context, p *platform.Platform, b *Backup) error {
 		if _, err := datakit.Run(ctx, "cp", "-a", "--reflink=auto", path, filepath.Join(fdir, name)); err != nil {
 			return fmt.Errorf("files %s: %w", name, err)
 		}
-		if err := snapshotSQLite(ctx, path, filepath.Join(fdir, name)); err != nil {
+		part := BackupPart{Detail: path}
+		if failed, err := snapshotSQLite(ctx, path, filepath.Join(fdir, name)); err != nil {
 			return fmt.Errorf("files %s: %w", name, err)
+		} else if len(failed) > 0 {
+			// One unreadable database (an app can write any file that looks
+			// like one) must not fail every project's backup: it is kept as
+			// the plain copy.
+			p.Log.Warn("backup: SQLite files kept as plain copies", "set", name, "files", failed)
+			part.Warning = fmt.Sprintf("%d SQLite file(s) copied as plain files, not snapshotted: %s", len(failed), strings.Join(clipList(failed, 5), "; "))
 		}
-		b.Files[name] = BackupPart{SizeBytes: datakit.DirSize(filepath.Join(fdir, name)), Detail: path}
+		part.SizeBytes = datakit.DirSize(filepath.Join(fdir, name))
+		b.Files[name] = part
 	}
 	return nil
 }
 
 // snapshotSQLite replaces the file copies of the SQLite databases in live
 // (a database file or a directory) under dst with VACUUM INTO snapshots:
-// a copied database misses commits still in its WAL, or is torn.
-func snapshotSQLite(ctx context.Context, live, dst string) error {
+// a copied database misses commits still in its WAL, or is torn. A file
+// that cannot be snapshotted keeps its plain copy and is listed in failed;
+// err is for the backup's own files.
+func snapshotSQLite(ctx context.Context, live, dst string) (failed []string, err error) {
 	for _, rel := range datakit.FindSQLite(live, nil) {
 		to := filepath.Join(dst, filepath.FromSlash(rel))
-		for _, s := range []string{"", "-wal", "-shm", "-journal"} {
+		tmp := to + ".tiffin-snapshot"
+		os.Remove(tmp)
+		if err := datakit.SQLiteSnapshot(ctx, filepath.Join(live, filepath.FromSlash(rel)), tmp); err != nil {
+			os.Remove(tmp)
+			failed = append(failed, rel+" ("+err.Error()+")")
+			continue
+		}
+		for _, s := range []string{"-wal", "-shm", "-journal"} {
 			if err := os.Remove(to + s); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return err
+				return failed, err
 			}
 		}
-		if err := datakit.SQLiteSnapshot(ctx, filepath.Join(live, filepath.FromSlash(rel)), to); err != nil {
-			return fmt.Errorf("snapshot %s: %w", rel, err)
+		if err := os.Rename(tmp, to); err != nil {
+			return failed, err
 		}
 	}
-	return nil
+	return failed, nil
+}
+
+func clipList(s []string, n int) []string {
+	if len(s) <= n {
+		return s
+	}
+	return append(slices.Clone(s[:n]), fmt.Sprintf("and %d more", len(s)-n))
 }
 
 // valkeySnapshot runs BGSAVE, waits for it and copies dump.rdb to dst.
