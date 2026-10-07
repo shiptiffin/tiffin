@@ -861,38 +861,21 @@ func pruneOffsite(ctx context.Context, p *platform.Platform) (pruneResult, error
 	if err != nil {
 		return pruneResult{}, err
 	}
-	labels := map[string]bool{}
 	info, ierr := repoInfoOf(ctx, 2)
-	for _, x := range info {
-		labels[x.Label] = true
-	}
 	cutoff := time.Now().Add(-time.Duration(c.RetentionDays) * 24 * time.Hour)
-	label := func(id string) string {
-		if b, err := get(ctx, p, id); err == nil && b.Offsite != nil {
-			return b.Offsite.PostgresLabel
-		}
-		if rec, err := v.getSet(ctx, id); err == nil && rec.Backup.Offsite != nil {
-			return rec.Backup.Offsite.PostgresLabel
-		}
-		return ""
-	}
-	res, err := v.prune(ctx, func(id string) bool {
-		if t, ok := ulidTime(id); ok && t.Before(cutoff) {
-			return true
-		}
-		return ierr == nil && len(info) > 0 && !labels[label(id)]
-	}, func(id string) ([]string, error) {
-		if raw, err := os.ReadFile(refsPath(id)); err == nil {
-			return strings.Fields(string(raw)), nil
-		}
-		e, err := v.getEntries(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		refs := treeChunks(e)
-		saveRefs(id, refs)
-		return refs, nil
-	})
+	res, err := v.prune(ctx, pruneDrop(ctx, v, func(id string) (*Backup, error) { return get(ctx, p, id) }, info, ierr, cutoff),
+		func(id string) ([]string, error) {
+			if raw, err := os.ReadFile(refsPath(id)); err == nil {
+				return strings.Fields(string(raw)), nil
+			}
+			e, err := v.getEntries(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			refs := treeChunks(e)
+			saveRefs(id, refs)
+			return refs, nil
+		})
 	for _, id := range res.Sets {
 		_ = os.Remove(refsPath(id))
 	}
@@ -907,6 +890,41 @@ func pruneOffsite(ctx context.Context, p *platform.Platform) (pruneResult, error
 		}
 	}
 	return res, err
+}
+
+// pruneDrop decides which sets a prune drops: those older than cutoff, and,
+// when pgBackRest listed repo2 (info, ierr), those whose Postgres backup it
+// has expired. A set's label comes from its local record (local) or else
+// its record in the bucket; one that cannot be read is an error, never an
+// empty label: an empty label would drop a set that is still good.
+func pruneDrop(ctx context.Context, v *vault, local func(id string) (*Backup, error), info []repoBackup, ierr error, cutoff time.Time) func(string) (bool, error) {
+	labels := map[string]bool{}
+	for _, x := range info {
+		labels[x.Label] = true
+	}
+	return func(id string) (bool, error) {
+		if t, ok := ulidTime(id); ok && t.Before(cutoff) {
+			return true, nil
+		}
+		if ierr != nil || len(info) == 0 {
+			return false, nil
+		}
+		b, err := local(id)
+		switch {
+		case err == nil && b.Offsite != nil && b.Offsite.Status == "ok" && b.Offsite.PostgresLabel != "":
+			return !labels[b.Offsite.PostgresLabel], nil
+		case err != nil && !errors.Is(err, os.ErrNotExist):
+			return false, err
+		}
+		rec, err := v.getSet(ctx, id)
+		if err != nil {
+			return false, fmt.Errorf("reading its record: %w", err)
+		}
+		if rec.Backup.Offsite == nil || rec.Backup.Offsite.PostgresLabel == "" {
+			return true, nil // no Postgres backup: nothing can restore it
+		}
+		return !labels[rec.Backup.Offsite.PostgresLabel], nil
+	}
 }
 
 // offsiteLoop copies the newest backup set off the box once it exists

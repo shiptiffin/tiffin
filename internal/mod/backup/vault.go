@@ -609,23 +609,34 @@ type pruneResult struct {
 }
 
 // prune deletes the sets drop says to (never the newest one) and then
-// every chunk no remaining set uses. refs returns a set's chunk IDs.
-func (v *vault) prune(ctx context.Context, drop func(id string) bool, refs func(id string) ([]string, error)) (pruneResult, error) {
+// every chunk no remaining set uses. refs returns a set's chunk IDs. Every
+// set is decided before anything is deleted: an error deciding one (a
+// record that cannot be read now) stops the prune with nothing deleted.
+func (v *vault) prune(ctx context.Context, drop func(id string) (bool, error), refs func(id string) ([]string, error)) (pruneResult, error) {
 	var res pruneResult
 	ids, err := v.setIDs(ctx)
 	if err != nil {
 		return res, err
 	}
-	var keep []string
+	var keep, gone []string
 	for i, id := range ids {
-		if i < len(ids)-1 && drop(id) {
-			if err := v.deleteSet(ctx, id); err != nil {
-				return res, err
+		d := false
+		if i < len(ids)-1 {
+			if d, err = drop(id); err != nil {
+				return res, fmt.Errorf("set %s: %w", id, err)
 			}
-			res.Sets = append(res.Sets, id)
-			continue
 		}
-		keep = append(keep, id)
+		if d {
+			gone = append(gone, id)
+		} else {
+			keep = append(keep, id)
+		}
+	}
+	for _, id := range gone {
+		if err := v.deleteSet(ctx, id); err != nil {
+			return res, err
+		}
+		res.Sets = append(res.Sets, id)
 	}
 	used := map[string]bool{}
 	for _, id := range keep {

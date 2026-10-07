@@ -432,7 +432,7 @@ func TestPruneRetention(t *testing.T) {
 		t.Fatalf("chunks before: %d", n)
 	}
 	cutoff := now.Add(-30 * 24 * time.Hour)
-	drop := func(id string) bool { at, _ := ulidTime(id); return at.Before(cutoff) }
+	drop := func(id string) (bool, error) { at, _ := ulidTime(id); return at.Before(cutoff), nil }
 	res, err := v.prune(ctx, drop, func(id string) ([]string, error) { return refs[id], nil })
 	if err != nil {
 		t.Fatal(err)
@@ -452,17 +452,82 @@ func TestPruneRetention(t *testing.T) {
 		}
 	}
 	// The newest set is never dropped, even past the retention.
-	res, err = v.prune(ctx, func(string) bool { return true }, func(id string) ([]string, error) { return refs[id], nil })
+	res, err = v.prune(ctx, func(string) (bool, error) { return true, nil }, func(id string) ([]string, error) { return refs[id], nil })
 	if err != nil || strings.Join(res.Sets, ",") != recent {
 		t.Fatalf("drop all: %+v %v", res, err)
 	}
 	// A set whose chunk list cannot be read stops the prune before any chunk goes.
 	before := st.count(v.prefix + "chunks/")
-	if _, err := v.prune(ctx, func(string) bool { return false }, func(string) ([]string, error) { return nil, errors.New("offline") }); err == nil {
+	if _, err := v.prune(ctx, func(string) (bool, error) { return false, nil }, func(string) ([]string, error) { return nil, errors.New("offline") }); err == nil {
 		t.Fatal("prune went on without a set's chunk list")
 	}
 	if st.count(v.prefix+"chunks/") != before {
 		t.Fatal("chunks deleted on a partial view")
+	}
+}
+
+// flakyStore fails reading one key, as a store across the internet can.
+type flakyStore struct {
+	*memStore
+	fail string
+}
+
+func (f *flakyStore) Get(ctx context.Context, key string) ([]byte, error) {
+	if key == f.fail {
+		return nil, errors.New("503 slow down")
+	}
+	return f.memStore.Get(ctx, key)
+}
+
+// A set whose record cannot be read during a prune is not taken for one
+// whose Postgres backup expired: the prune stops and deletes nothing.
+func TestPruneUnreadableRecord(t *testing.T) {
+	ctx := context.Background()
+	mem := newMem()
+	st := &flakyStore{memStore: mem}
+	v := testVault(t, st)
+	now := time.Now()
+	var setIDs []string
+	for i, label := range []string{"20261001-000000F", "20261002-000000F_20261002-010000I", "20261002-000000F_20261002-020000I"} {
+		dir := t.TempDir()
+		_ = os.WriteFile(filepath.Join(dir, "own.txt"), []byte(label), 0o600)
+		rec := &offsiteSet{Backup: Backup{ID: idAt(now.Add(time.Duration(i-3) * time.Hour)), Status: "ok",
+			Offsite: &BackupOffsiteCopy{Status: "ok", PostgresLabel: label}}}
+		if _, err := v.putSet(ctx, rec, dir, map[string]bool{}); err != nil {
+			t.Fatal(err)
+		}
+		setIDs = append(setIDs, rec.Backup.ID)
+	}
+	// repo2 still has every label; no local records (a restored box).
+	info := []repoBackup{{Label: "20261001-000000F"}, {Label: "20261002-000000F_20261002-010000I"}, {Label: "20261002-000000F_20261002-020000I"}}
+	noLocal := func(string) (*Backup, error) { return nil, os.ErrNotExist }
+	refs := func(id string) ([]string, error) { e, err := v.getEntries(ctx, id); return treeChunks(e), err }
+	cutoff := now.Add(-30 * 24 * time.Hour)
+
+	st.fail = v.setKey(setIDs[0], "info")
+	if _, err := v.prune(ctx, pruneDrop(ctx, v, noLocal, info, nil, cutoff), refs); err == nil {
+		t.Fatal("the prune went on without the set's record")
+	}
+	if left, _ := v.setIDs(ctx); len(left) != 3 {
+		t.Fatalf("sets deleted on a partial view: %v", left)
+	}
+
+	// Readable again: nothing is dropped (every label is in repo2); once
+	// pgBackRest expires the first label, its set goes.
+	st.fail = ""
+	if res, err := v.prune(ctx, pruneDrop(ctx, v, noLocal, info, nil, cutoff), refs); err != nil || len(res.Sets) != 0 {
+		t.Fatalf("prune: %+v %v", res, err)
+	}
+	if res, err := v.prune(ctx, pruneDrop(ctx, v, noLocal, info[1:], nil, cutoff), refs); err != nil || strings.Join(res.Sets, ",") != setIDs[0] {
+		t.Fatalf("expired label: %+v %v", res, err)
+	}
+	// A local record that cannot be read is an error too.
+	broken := func(string) (*Backup, error) { return nil, errors.New("database is locked") }
+	if _, err := v.prune(ctx, pruneDrop(ctx, v, broken, info[2:], nil, cutoff), refs); err == nil {
+		t.Fatal("the prune went on without the local record")
+	}
+	if left, _ := v.setIDs(ctx); len(left) != 2 {
+		t.Fatalf("sets deleted on a partial view: %v", left)
 	}
 }
 
