@@ -11,6 +11,7 @@ import { Mascot } from "@/components/mascot";
 import { Button } from "@/components/ui/button";
 import { ProblemNote } from "@/components/problem";
 import { EmailSignIn } from "@/components/signin-email";
+import { oauthRefusal, oauthSignInQ, ProviderButtons } from "@/components/signin-oauth";
 import { cn } from "@/lib/cn";
 import { getAssertion, passkeyWords, webauthnSupported } from "@/lib/webauthn";
 import { Fingerprint } from "lucide-react";
@@ -65,6 +66,10 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
   const words = passkeyWords();
   // With a mail service connected, the box can email people a sign-in link.
   const byEmail = useQuery({ ...boxMailQ.signIn, enabled: state === "no-code" || state === "bad-link" }).data?.available ?? false;
+  // With the box-wide Google or GitHub keys set, people sign in with the account that has their email.
+  const providers = useQuery({ ...oauthSignInQ, enabled: state === "no-code" || state === "bad-link" }).data ?? [];
+  const refusal = oauthRefusal(reason);
+  const providerList = providers.map((p) => p.name).join(" or ");
   // With a passkey on offer, the terminal link is the small fallback (open at once after a bad link).
   const [linkOpen, setLinkOpen] = useState(false);
   if (state === "bad-link" && !linkOpen) setLinkOpen(true);
@@ -94,7 +99,7 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
         ? "Your session has ended."
         : reason === "signed-out"
           ? "Signed out. See you soon."
-          : canPasskey || byEmail
+          : canPasskey || byEmail || providers.length > 0
             ? "Sign in to your box."
             : "Sign in with a link from your terminal.",
     "bad-link": "That link has been used, or it expired.",
@@ -106,7 +111,7 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
   const opening = state === "signing-in" || state === "success";
 
   return (
-    <div className="grid min-h-dvh bg-paper md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+    <div className="grid min-h-dvh bg-paper max-md:grid-rows-[auto_1fr] md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
       {/* The mascot on its own plate, the form on the page: the wordmark over the form is the name alone, so the tin shows once. */}
       <aside
         aria-hidden
@@ -133,32 +138,54 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
 
           {showCommand && (
             <div className="animate-rise" style={{ animationDelay: "60ms" }}>
+              {(canPasskey || providers.length > 0) && (
+                <p className="mt-2.5 text-md text-ink-2">
+                  {state === "bad-link"
+                    ? `Use ${canPasskey ? words.how : providerList} instead, or get a fresh link.`
+                    : canPasskey && providers.length > 0
+                      ? `Use ${words.how}, or ${providerList} with your email on this box.`
+                      : canPasskey
+                        ? `Use ${words.how}, if you’ve set it up on this box.`
+                        : `Use ${providerList} with your email on this box.`}
+                </p>
+              )}
+              {refusal &&
+                (refusal.tone === "error" ? (
+                  <ProblemNote className="mt-5" error={new Error(refusal.text)} />
+                ) : (
+                  <p className="mt-5 text-[0.875rem] text-ink-3" role="status">
+                    {refusal.text}
+                  </p>
+                ))}
               {canPasskey && (
                 <>
-                  <p className="mt-2.5 text-md text-ink-2">
-                    {state === "bad-link" ? `Use ${words.how} instead, or get a fresh link.` : `Use ${words.how}, if you’ve set it up on this box.`}
-                  </p>
-                  <Button variant="primary" size="lg" className="mt-5" onClick={passkey} disabled={passkeyBusy}>
+                  <Button variant="primary" size="lg" className={providers.length > 0 ? "mt-5 w-full" : "mt-5"} onClick={passkey} disabled={passkeyBusy}>
                     <Fingerprint />
                     {passkeyBusy ? `Waiting for ${words.button}…` : `Sign in with ${words.button}`}
                   </Button>
                   {!!passkeyErr && <ProblemNote className="mt-4" error={passkeyErr} />}
                 </>
               )}
-              {byEmail && <EmailSignIn primary={!canPasskey} className={canPasskey ? "mt-7 border-t border-rule pt-6" : "mt-2.5"} />}
-              {(canPasskey || byEmail) && !linkOpen && (
+              <ProviderButtons providers={providers} next={next} className={canPasskey ? "mt-2" : "mt-5"} />
+              {byEmail && (
+                <EmailSignIn
+                  primary={!canPasskey && providers.length === 0}
+                  className={canPasskey || providers.length > 0 ? "mt-7 border-t border-rule pt-6" : "mt-2.5"}
+                />
+              )}
+              {(canPasskey || byEmail || providers.length > 0) && !linkOpen && (
                 <button type="button" onClick={() => setLinkOpen(true)} className={cn("block text-[0.875rem] text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink", byEmail ? "mt-6" : "mt-4")}>
                   {byEmail ? "or sign in from your terminal" : "or use a sign-in link"}
                 </button>
               )}
-              {((!canPasskey && !byEmail) || linkOpen) && (
+              {((!canPasskey && !byEmail && providers.length === 0) || linkOpen) && (
                 <>
-                  <p className={cn("text-md text-ink-2", canPasskey || byEmail ? "mt-8 text-[0.875rem]" : "mt-2.5")}>
+                  <p className={cn("text-md text-ink-2", canPasskey || byEmail || providers.length > 0 ? "mt-8 text-[0.875rem]" : "mt-2.5")}>
                     {state === "bad-link"
                       ? "Sign-in links work once, for ten minutes. Get a fresh one where Tiffin is installed:"
                       : "Run this where Tiffin is installed. It prints a link that signs you in once, within ten minutes."}
                   </p>
-                  <Command cmd="tiffin login" className={canPasskey || byEmail ? "mt-3" : "mt-5"} />
+                  <Command cmd="tiffin login" className={canPasskey || byEmail || providers.length > 0 ? "mt-3" : "mt-5"} />
                   <p className="mt-4 text-sm text-ink-3">
                     Signing in to a box on another machine? Set <code className="ident text-ink-2">TIFFIN_URL</code> and an owner{" "}
                     <code className="ident text-ink-2">TIFFIN_TOKEN</code> first, or ask its owner to invite you.

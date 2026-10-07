@@ -88,11 +88,12 @@ type Deps struct {
 
 // API is the HTTP API.
 type API struct {
-	api  huma.API
-	mux  *http.ServeMux
-	deps Deps
-	idem idemState
-	bg   sync.WaitGroup // box mail sent in the background
+	api   huma.API
+	mux   *http.ServeMux
+	deps  Deps
+	idem  idemState
+	bg    sync.WaitGroup // box mail sent in the background
+	oauth *oauthFlow     // dashboard sign-in with Google or GitHub
 }
 
 // New builds the API. Deps may be zero-valued when only the OpenAPI
@@ -121,6 +122,7 @@ func New(d Deps) *API {
 	a.registerPasskeySignIn()
 	a.registerPeople()
 	a.registerBoxMail()
+	a.registerOAuthSignIn()
 	a.registerAppearance()
 	// Modules add their own operations; they become CLI commands and MCP tools too.
 	for _, m := range platform.Modules() {

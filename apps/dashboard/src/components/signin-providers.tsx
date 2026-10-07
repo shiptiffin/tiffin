@@ -49,7 +49,7 @@ export function SignInProviders({ admin }: { admin: boolean }) {
       {list.data && (
         <p className="mb-3 text-[0.8125rem] text-ink-3">
           {setCount === 0 ? "None set yet." : `${setCount} of ${GUIDES.length} set.`} Every provider calls back to{" "}
-          <code className="ident text-ink-2 [overflow-wrap:anywhere]">{list.data.callbackBase}/api/auth/callback/…</code>, whatever the project or its domain. Make these OAuth apps in your own provider accounts: the box never comes with keys of its own.
+          <code className="ident text-ink-2 [overflow-wrap:anywhere]">{list.data.callbackBase}/api/auth/callback/…</code>, whatever the project or its domain. Make these OAuth apps in your own provider accounts: the box never comes with keys of its own. Google and GitHub keys also put their button on this dashboard’s login page, for people already on the box.
         </p>
       )}
       {list.isError && <ProblemNote error={list.error} title="Couldn’t load the sign-in providers" />}

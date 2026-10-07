@@ -25,8 +25,8 @@ Plainly, so you can decide what to trust it with.
 - **Secrets** (env vars) are encrypted with the box's own age key and are never shown
   after you set them.
 - **Dashboard sign-in** is a one-time link (`tiffin login`, an invite, or one emailed on
-  request) or a passkey.
-  Either gives a 12-hour session with exactly that person's role, in an HttpOnly,
+  request), a passkey, or Google or GitHub (see below).
+  Each gives a 12-hour session with exactly that person's role, in an HttpOnly,
   Secure, SameSite=Strict cookie. Passkey sign-in needs user verification (Face ID,
   fingerprint or PIN), uses a single-use challenge that expires after 2 minutes, refuses
   people who were removed and passkeys whose signature counter goes backwards (a sign of
@@ -37,6 +37,9 @@ Plainly, so you can decide what to trust it with.
   minutes, and asking again cancels the previous one. Requests are limited to 5 per
   15 minutes per client address and 3 an hour per email address, and refused from other
   sites.
+- **Google and GitHub sign-in** only signs in people already on the box, matched by an
+  email the provider has verified. It never makes an account. See
+  [Signing in with Google or GitHub](#signing-in-with-google-or-github).
 - **New sign-in notices.** When someone with an email address signs in from a browser the
   box hasn't seen them use, it emails them (browser, time, address, how). Their first
   sign-in (the invite) and later sign-ins from the same browser are quiet. A random ID in
@@ -46,6 +49,43 @@ Plainly, so you can decide what to trust it with.
 - **Known gaps:** a person or agent with shell access to your Mac can read your local
   owner token in `~/.tiffin`. Backups stay on the box unless you set an off-box destination
   (`tiffin backups offsite set`); keep its passphrase off the box.
+
+## Signing in with Google or GitHub
+
+When an owner sets the box-wide Google or GitHub keys (Box settings › Sign-in providers),
+the login page shows **Sign in with Google** or **Sign in with GitHub** to the box's
+people: owners, admins and members. It uses the same OAuth app and the same callback URL
+as the apps' sign-in (`https://<dashboard host>/api/auth/callback/<provider>`), so there
+is nothing more to register. Remove the keys and the button goes.
+
+- **Who gets in.** The box asks the provider for the account's email and signs in the
+  active person on the box with that address (compared without case). For Google that is
+  the ID token's `email`, only when `email_verified` is true. For GitHub it is the
+  primary address from `/user/emails`, only when it is verified; other addresses on the
+  account don't count. Nobody matches: *That Google account isn't on this box. Ask an
+  owner to invite you.* Removed people never match. The box never makes an account, so
+  invite someone (with their email) before they can sign in this way.
+- **The session** is the same as a passkey's or a link's: 12 hours, that person's role,
+  the same cookie, a new sign-in notice from a browser the box hasn't seen them use, and
+  `session.oauth` in the audit log (refusals are `session.oauth_refused`, with why).
+- **The flow** is the authorization code flow with PKCE (S256) and a random state; Google
+  also gets an OpenID Connect nonce and `prompt=select_account`, GitHub `allow_signup=false`.
+  The state, PKCE verifier, nonce and where to go next ride in a 10-minute
+  `__Host-tiffin_oauth` cookie (HttpOnly, Secure, SameSite=Lax), HMAC-signed with a key the
+  box makes when it starts. On the way back the box checks the signature, the age, the
+  provider and the state (constant-time), and spends the state: each works once, and only
+  in the browser that started it. The ID token comes straight from Google's token
+  endpoint over TLS, so its issuer, audience, expiry and nonce are checked, not its
+  signature (as Google's OpenID Connect guide allows). The provider's token is used for
+  that one request and never kept. Where to go next is always a path on the dashboard.
+- **Limits.** 10 starts and 10 returns a minute per client address; starts are refused
+  from other sites.
+
+For the dashboard: `GET /v1/session/oauth` lists the providers with keys set;
+`POST /v1/session/oauth/{google|github}?next=/path` sets the state cookie and returns
+`{url}` to open. The provider sends the browser back to the callback, which sets the
+session and opens `next`, or goes to `/login?reason=<provider>:<why>` (`unknown`,
+`unverified`, `expired`, `denied`, `failed`, `busy`, `off`).
 
 ## Signing in with a passkey
 

@@ -249,6 +249,7 @@ const tag = "auth"
 func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	m.registerProviders(a, p)
 	m.registerAppKeys(a, p)
+	registerDashboardSignIn(p)
 
 	get := api.Op("auth-get", http.MethodGet, "/v1/projects/{project}/auth", "auth show", api.RiskRead,
 		"Show a project's auth", "Sign-in methods, the endpoint URL, whether OAuth apps are set up, and user, session and organization counts.", tag)
