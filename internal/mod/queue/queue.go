@@ -215,6 +215,12 @@ func (m *Module) config(p *platform.Platform, dsn string) Config {
 			}
 			return runtimeStateEndpoint(ctx, p, project, app, release)
 		},
+		DialApp: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if d, ok := findModule[AppDialer](); ok {
+				return d.DialApp(ctx, network, addr)
+			}
+			return (&net.Dialer{}).DialContext(ctx, network, addr)
+		},
 		CurrentRelease: func(ctx context.Context, project, app string) (string, error) {
 			if up, ok := findModule[AppUpstreams](); ok {
 				return up.CurrentRelease(ctx, p, project, app)

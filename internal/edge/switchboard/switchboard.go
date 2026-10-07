@@ -34,6 +34,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/btahir/tiffin/internal/peer"
 )
 
 // Instance is one running app container.
@@ -63,6 +65,12 @@ type Env struct {
 	Assets string `json:"assets,omitempty"`
 	// Timeout is how long one request may take (the app's timeoutSeconds).
 	Timeout time.Duration `json:"timeout"`
+	// Cgroup is the cgroup directory whose processes may answer the
+	// instances' ports: the project's slice. Every connection to an
+	// instance is checked against it (internal/peer), so an app of another
+	// project that took a port (while its app slept) gets no request. ""
+	// checks nothing (tests).
+	Cgroup string `json:"cgroup,omitempty"`
 }
 
 // Route sends a path prefix of a host to an environment ("" matches every path).
@@ -112,6 +120,7 @@ type Board struct {
 	t        Table
 	inflight map[string]*atomic.Int64 // instance name → requests in flight
 	rr       atomic.Uint64            // rotates ties between instances
+	proxy    *http.Transport
 
 	seenMu sync.Mutex
 	seen   map[string]time.Time // env → last request
@@ -129,7 +138,19 @@ func New(ctl Control, log *slog.Logger) *Board {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Board{ctl: ctl, log: log, inflight: map[string]*atomic.Int64{}, seen: map[string]time.Time{}, metas: map[string]releaseMeta{}}
+	b := &Board{ctl: ctl, log: log, inflight: map[string]*atomic.Int64{}, seen: map[string]time.Time{}, metas: map[string]releaseMeta{}}
+	// Each request names its app's cgroup (serveApp); the dialer checks
+	// every new connection against it.
+	d := &peer.Dialer{Dialer: net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}}
+	b.proxy = &http.Transport{
+		DialContext:           d.DialContext,
+		MaxIdleConns:          1024,
+		MaxIdleConnsPerHost:   128,
+		IdleConnTimeout:       upstreamIdle,
+		ResponseHeaderTimeout: 0, // apps may stream
+		ForceAttemptHTTP2:     false,
+	}
+	return b
 }
 
 // Set switches to a new table. Selection and counting (acquire) happen
@@ -247,13 +268,14 @@ func (b *Board) lookup(host, p string) (env, prefix string, ok bool) {
 	return "", "", false
 }
 
-// acquire counts a request in on the least busy instance of an environment.
-func (b *Board) acquire(key string) (Instance, func(), bool) {
+// acquire counts a request in on the least busy instance of an
+// environment, and returns the environment as the table had it then.
+func (b *Board) acquire(key string) (*Env, Instance, func(), bool) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	st := b.t.Envs[key]
 	if st == nil || st.Stopped || st.Sleeping || len(st.Instances) == 0 {
-		return Instance{}, nil, false
+		return nil, Instance{}, nil, false
 	}
 	best, bestN := -1, int64(0)
 	start := int(b.rr.Add(1) % uint64(len(st.Instances)))
@@ -267,7 +289,7 @@ func (b *Board) acquire(key string) (Instance, func(), bool) {
 	in := st.Instances[best]
 	cnt := b.inflight[in.Name]
 	cnt.Add(1)
-	return in, func() { cnt.Add(-1) }, true
+	return st, in, func() { cnt.Add(-1) }, true
 }
 
 // ServeHTTP is the switchboard's front door: it finds the app environment a
@@ -341,15 +363,6 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 // costs some 50µs.
 const upstreamIdle = 4 * time.Second
 
-var proxyTransport = &http.Transport{
-	DialContext:           (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-	MaxIdleConns:          1024,
-	MaxIdleConnsPerHost:   128,
-	IdleConnTimeout:       upstreamIdle,
-	ResponseHeaderTimeout: 0, // apps may stream
-	ForceAttemptHTTP2:     false,
-}
-
 // errTooLong ends a request that reached its app's time limit.
 var errTooLong = errors.New("the request reached its time limit")
 
@@ -357,19 +370,21 @@ var errTooLong = errors.New("the request reached its time limit")
 // request that reaches the app's time limit is answered 504, or cut if the
 // response has begun (the client sees the stream end early).
 func (b *Board) serveApp(w http.ResponseWriter, req *http.Request, key string) {
-	in, done, ok := b.acquire(key)
+	st, in, done, ok := b.acquire(key)
 	if !ok {
 		http.Error(w, "this app has no running instances right now", http.StatusServiceUnavailable)
 		return
 	}
 	defer done()
 	var limit time.Duration
-	if st := b.env(key); st != nil && st.Timeout > 0 {
+	ctx := peer.WithOwner(req.Context(), st.Cgroup)
+	if st.Timeout > 0 {
 		limit = st.Timeout
-		ctx, cancel := context.WithTimeoutCause(req.Context(), limit, errTooLong)
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeoutCause(ctx, limit, errTooLong)
 		defer cancel()
-		req = req.WithContext(ctx)
 	}
+	req = req.WithContext(ctx)
 	target := &url.URL{Scheme: "http", Host: "127.0.0.1:" + strconv.Itoa(in.Port)}
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -390,12 +405,16 @@ func (b *Board) serveApp(w http.ResponseWriter, req *http.Request, key string) {
 			// passes through as it is.
 			pr.Out.Header.Set("Accept-Encoding", "identity")
 		},
-		Transport:     proxyTransport,
+		Transport:     b.proxy,
 		FlushInterval: -1,
 		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
 			if errors.Is(context.Cause(req.Context()), errTooLong) {
 				http.Error(w, tooLong(limit), http.StatusGatewayTimeout)
 				return
+			}
+			var fe *peer.ForeignError
+			if errors.As(err, &fe) {
+				b.log.Warn("switchboard: an app's port is answered by another project's process", "host", req.Host, "addr", fe.Addr, "project", st.Project)
 			}
 			http.Error(w, "the app did not answer: "+err.Error(), http.StatusBadGateway)
 		},

@@ -72,7 +72,7 @@ func (r *rt) table() switchboard.Table {
 	t := switchboard.Table{Hosts: hosts, Envs: make(map[string]*switchboard.Env, len(states)), Files: r.p.URL(r.p.Host("files"))}
 	for _, st := range states {
 		e := &switchboard.Env{Project: st.Project, App: st.App, Preview: st.Preview, Live: st.Live, Stopped: st.Stopped, Sleeping: st.Sleeping,
-			Assets: r.assetsDir(st.Project, st.App, st.Preview), Timeout: r.requestTimeout(r.ctx, st.Project, st.App)}
+			Assets: r.assetsDir(st.Project, st.App, st.Preview), Timeout: r.requestTimeout(r.ctx, st.Project, st.App), Cgroup: r.peerDir(st.Project)}
 		for _, in := range st.Instances {
 			e.Instances = append(e.Instances, switchboard.Instance{Name: in.Name, Port: in.Port})
 		}

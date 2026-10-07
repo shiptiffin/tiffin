@@ -21,6 +21,7 @@ import (
 	"github.com/btahir/tiffin/internal/dashboard"
 	"github.com/btahir/tiffin/internal/edge/switchboard"
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/mod/budget"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/projicon"
 )
@@ -62,6 +63,11 @@ type Options struct {
 	// ReadAccess gives builds read-only database and Valkey users (nil:
 	// the postgres and valkey modules').
 	ReadAccess ReadAccess
+	// PeerCgroup is the cgroup directory whose processes may answer a
+	// project's app ports: every connection the box opens to an app is
+	// checked against it (internal/peer). Nil checks nothing (tests,
+	// whose fake engines serve in process).
+	PeerCgroup func(project string) string
 	// pipelineDone (tests) is called as a deploy's background pipeline
 	// returns, after its last write: the record, the log, the cleanup.
 	pipelineDone func(id string)
@@ -130,6 +136,7 @@ type rt struct {
 func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 	opt := defaultOptions()
 	opt.Engine = newNerdctl()
+	opt.PeerCgroup = func(project string) string { return budget.SliceDir("", project) }
 	// A box keeps its data under /var/lib/tiffin; a laptop running
 	// `tiffin serve --box` (the dashboard e2e) keeps it under its home.
 	onBox := true

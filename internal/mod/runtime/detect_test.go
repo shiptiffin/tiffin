@@ -107,17 +107,17 @@ func TestSmokeNext(t *testing.T) {
 	port, _ := strconv.Atoi(srv.URL[strings.LastIndexByte(srv.URL, ':')+1:])
 	in := Instance{Name: "web-1", Port: port}
 	spec := &manifest.App{Framework: manifest.FrameworkNext}
-	if err := smokeSSR(context.Background(), in, spec, "Next.js", filepath.Join(t.TempDir(), "log")); err != nil {
+	if err := smokeSSR(context.Background(), &http.Client{}, in, spec, "Next.js", filepath.Join(t.TempDir(), "log")); err != nil {
 		t.Fatalf("a healthy app failed the smoke test: %v", err)
 	}
 	notFound = http.StatusInternalServerError
-	err := smokeSSR(context.Background(), in, spec, "Next.js", filepath.Join(t.TempDir(), "log"))
+	err := smokeSSR(context.Background(), &http.Client{}, in, spec, "Next.js", filepath.Join(t.TempDir(), "log"))
 	var he *healthError
 	if !errors.As(err, &he) || !strings.Contains(he.msg, "doesn't exist") || !strings.Contains(he.hint, "Node.js") {
 		t.Fatalf("a broken not-found page should fail with the Node.js hint, got %v", err)
 	}
 	spec.Runtime = manifest.RuntimeNode
-	if err := smokeSSR(context.Background(), in, spec, "Next.js", filepath.Join(t.TempDir(), "log")); err == nil || strings.Contains(err.(*healthError).hint, "switch the app to Node.js") {
+	if err := smokeSSR(context.Background(), &http.Client{}, in, spec, "Next.js", filepath.Join(t.TempDir(), "log")); err == nil || strings.Contains(err.(*healthError).hint, "switch the app to Node.js") {
 		t.Fatalf("an app already on Node gets no Node.js hint, got %v", err)
 	}
 }

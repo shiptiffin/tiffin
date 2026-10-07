@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -269,7 +270,16 @@ func (e *fakeEngine) Start(ctx context.Context, name string) error {
 	if c.running {
 		return nil
 	}
-	return e.serve(c)
+	if err := e.serve(c); err != nil {
+		if errors.Is(err, syscall.EADDRINUSE) {
+			// As with nerdctl: the container starts; its app cannot listen
+			// on its port (something else took it) and keeps restarting.
+			c.running = true
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (e *fakeEngine) Inspect(ctx context.Context, name string) (*Container, error) {

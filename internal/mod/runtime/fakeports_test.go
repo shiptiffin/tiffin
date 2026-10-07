@@ -70,6 +70,9 @@ func (e *fakeEngine) listen(port int) (net.Listener, error) {
 		return net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	}
 	delete(e.held, port)
+	// As real servers do (Go, Node, Bun): the connections it accepts then
+	// leave the port free for a new server as soon as it closes.
+	_ = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 	if err := syscall.Listen(fd, syscall.SOMAXCONN); err != nil {
 		syscall.Close(fd)
 		return nil, err

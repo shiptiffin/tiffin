@@ -178,6 +178,30 @@ Prerendered pages of Astro, SvelteKit, Nuxt, React Router and TanStack Start are
 answered by the box while the app sleeps, without waking it (see Caching below). Not yet:
 Next.js pages, pages rendered on request, and Early Hints during a wake.
 
+## Isolation between apps
+
+Apps run in containers on the host's network, so they share its loopback ports (see
+[Security](security.md)). The box checks who answers every connection it opens to an app,
+and app containers run without raw sockets or ports below 1024. Not covered yet (the fix
+is a network namespace per app, with box services on an address of their own):
+
+- **Box services while they restart.** Postgres, PgBouncer, Valkey, the sign-in engine,
+  storage and the error and analytics collectors listen on loopback ports. While one of
+  them restarts (an update), an app could listen on its port and answer apps in its place,
+  getting what they send it (a Valkey password, a query). The dashboard and API are not
+  affected: the edge reaches them on a Unix socket.
+- **Builds** (`RUN` steps of a Dockerfile, Railpack, static site builds) run on the host
+  network, and BuildKit's steps keep raw sockets. The box's requests never go to a build,
+  but a build could read loopback traffic while it runs.
+- **Apps of one project** are not checked against each other: the project is the
+  boundary. An app of the project can take a port another of its apps left free.
+- **An app that listens with `SO_REUSEPORT`** lets another app running as the same user
+  (root, in most images) join its port; the box sends nothing to the intruder, so its
+  share of requests fails (502) instead.
+- **A local box** serves HTTPS on 8443 and HTTP on 8080, above 1024, so an app running as
+  root could join those sockets and get a share of the connections (TLS it cannot
+  decrypt, and the HTTP port's redirects). A server's 80 and 443 are out of apps' reach.
+
 ## Email
 
 - **Sending** goes through a mail provider you bring (Resend, Postmark, SES, SendGrid,

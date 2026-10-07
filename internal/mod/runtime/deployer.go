@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"net"
 	"net/http"
 	"os"
 	"path"
@@ -30,6 +29,7 @@ import (
 	"github.com/btahir/tiffin/internal/mod/postgres"
 	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
 	"github.com/btahir/tiffin/internal/mod/valkey"
+	"github.com/btahir/tiffin/internal/peer"
 )
 
 // newDeploy records a queued deploy. Its source must already be on disk.
@@ -695,7 +695,7 @@ func (r *rt) startInstances(ctx context.Context, st *AppState, d *Deploy, spec *
 			errs[i] = r.waitHealthy(ctx, in, spec, logPath)
 			if errs[i] == nil && smoke && i == 0 && spec.Role != manifest.RoleWorker {
 				if name := smokeName(spec, d); name != "" {
-					errs[i] = smokeSSR(ctx, in, spec, name, logPath)
+					errs[i] = smokeSSR(ctx, r.appClient(15*time.Second), in, spec, name, logPath)
 				}
 			}
 		}()
@@ -861,7 +861,7 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 		path = "/" + strings.TrimPrefix(path, "/")
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%d%s", in.Port, path)
-	client := &http.Client{Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client, dialer := r.appClient(3*time.Second), r.appDialer(time.Second)
 	worker := spec.Role == manifest.RoleWorker
 	upSince := time.Now()
 	// The first inspect waits a second: it runs nerdctl, which would delay
@@ -883,9 +883,13 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 		}
 		if worker {
 			// Workers need not serve HTTP; one that stays up for 3s (or answers) is healthy.
-			if conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", in.Port), time.Second); err == nil {
+			conn, err := dialer.DialContext(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", in.Port))
+			if err == nil {
 				conn.Close()
 				return nil
+			}
+			if foreign(err) {
+				return portTakenError(in, err)
 			}
 			if time.Since(upSince) > 3*time.Second {
 				if c, err := r.eng.Inspect(ctx, in.Name); err == nil && c != nil && c.Running {
@@ -903,6 +907,8 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 					return nil
 				}
 				lastStatus = fmt.Sprintf("HTTP %d", res.StatusCode)
+			} else if foreign(err) {
+				return portTakenError(in, err)
 			} else {
 				lastStatus = "not answering"
 			}
@@ -956,8 +962,7 @@ var launchNames = map[string]string{"sveltekit": "SvelteKit", "nuxt": "Nuxt", "r
 // either stops the deploy, which is how a runtime incompatibility (a Bun
 // release, a library leaning on Node internals) shows before the new
 // version takes traffic.
-func smokeSSR(ctx context.Context, in Instance, spec *manifest.App, framework, logPath string) error {
-	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+func smokeSSR(ctx context.Context, client *http.Client, in Instance, spec *manifest.App, framework, logPath string) error {
 	for _, p := range []string{"/", "/_tiffin/smoke-" + strconv.FormatInt(time.Now().UnixNano(), 36)} {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s", in.Port, p), nil)
 		req.Header.Set("User-Agent", "tiffin-healthcheck")
@@ -978,6 +983,21 @@ func smokeSSR(ctx context.Context, in Instance, spec *manifest.App, framework, l
 		}
 	}
 	return nil
+}
+
+// foreign reports an error from an instance's port answered by a process
+// of another project (internal/peer).
+func foreign(err error) bool {
+	var fe *peer.ForeignError
+	return errors.As(err, &fe)
+}
+
+// portTakenError is an instance whose port another app holds: the instance
+// cannot listen on it, so waiting for its health check is pointless (a
+// wake then starts new instances on other ports).
+func portTakenError(in Instance, err error) error {
+	return &healthError{msg: fmt.Sprintf("instance %s cannot serve on port %d: %v", in.Name, in.Port, err),
+		hint: "Another app on the box took the port while this one was stopped; starting the app again gives it a new port."}
 }
 
 // exitedError explains an instance whose process exited on start (a syntax

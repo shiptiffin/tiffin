@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 
 	"github.com/btahir/tiffin/internal/platform"
@@ -24,6 +25,11 @@ import (
 //	    counts) when that release no longer runs, and the queue moves the
 //	    work to the current release.
 //	CurrentRelease(ctx, p, project, app) → release id ("" when not deployed)
+//
+// and connects the queue to those ports (AppDialer), checking that the app
+// owning the port answers, not another app that took it while it was free:
+//
+//	DialApp(ctx, network, "127.0.0.1:PORT") → net.Conn
 //
 // # The queue module implements PinnedReleases for the runtime
 //
@@ -88,6 +94,11 @@ var ErrReleaseGone = errors.New("release gone")
 type AppUpstreams interface {
 	AppEndpoint(ctx context.Context, p *platform.Platform, project, app, release string) (string, error)
 	CurrentRelease(ctx context.Context, p *platform.Platform, project, app string) (string, error)
+}
+
+// AppDialer is implemented by the runtime module.
+type AppDialer interface {
+	DialApp(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // SystemDatabases is implemented by the postgres module.

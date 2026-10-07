@@ -57,10 +57,11 @@ func freePort(t testing.TB) int {
 // An app that starts answering is seen healthy within a poll or two, not up
 // to 200ms later.
 func TestWaitHealthySeesTheAppAtOnce(t *testing.T) {
-	r := &rt{opt: Options{HealthTimeout: 5 * time.Second}, eng: runningEngine{}}
+	r := &rt{opt: Options{HealthTimeout: 5 * time.Second}, eng: runningEngine{}, ports: map[int]string{}}
 	spec := &manifest.App{Role: manifest.RoleWeb, Healthcheck: "/"}
 	for range 3 {
 		port := freePort(t)
+		r.ports[port] = "x"
 		upc := make(chan time.Time, 1)
 		go func() {
 			time.Sleep(150 * time.Millisecond)
@@ -98,7 +99,7 @@ func TestWakeTimeBun(t *testing.T) {
 	os.WriteFile(app, []byte(`Bun.serve({ port: Number(process.env.PORT), hostname: "127.0.0.1", fetch: () => new Response("hello") });`), 0o644)
 	// One `ps` per inspect: a CLI call, as nerdctl inspect is (nerdctl costs more).
 	inspect := func() { _ = exec.Command("ps", "-p", "1").Run() }
-	r := &rt{opt: Options{HealthTimeout: 10 * time.Second}, eng: runningEngine{inspect: inspect}}
+	r := &rt{opt: Options{HealthTimeout: 10 * time.Second}, eng: runningEngine{inspect: inspect}, ports: map[int]string{}}
 	spec := &manifest.App{Role: manifest.RoleWeb, Healthcheck: "/"}
 
 	// before is waitHealthy's loop as it was: inspect at once, then every
@@ -121,6 +122,9 @@ func TestWakeTimeBun(t *testing.T) {
 		}
 	}
 	after := func(port int) {
+		r.mu.Lock()
+		r.ports[port] = "x"
+		r.mu.Unlock()
 		if err := r.waitHealthy(context.Background(), Instance{Name: "x", Port: port}, spec, ""); err != nil {
 			t.Fatal(err)
 		}

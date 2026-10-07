@@ -444,7 +444,7 @@ func (r *rt) iconFetcher(project, app string, spec *manifest.App, st *AppState, 
 	if www := filepath.Join(r.assetsDir(project, app, ""), d.ID, "www"); exists(www) {
 		files = http.FileServer(http.Dir(www))
 	}
-	return projicon.Fetcher{Client: &http.Client{Transport: fallbackTransport{base: http.DefaultTransport, files: files}, CheckRedirect: noFollow},
+	return projicon.Fetcher{Client: &http.Client{Transport: fallbackTransport{base: r.appClient(0).Transport, files: files}, CheckRedirect: noFollow},
 		Base: u, Hosts: hosts}, true
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
 	"sync"
@@ -48,6 +49,9 @@ type Config struct {
 	Endpoint func(ctx context.Context, project, app, release string) (string, error)
 	// CurrentRelease reports an app's current release ("" = unknown).
 	CurrentRelease func(ctx context.Context, project, app string) (string, error)
+	// DialApp connects to an Endpoint's port, checking that the app owning
+	// it answers (nil: a plain dial).
+	DialApp func(ctx context.Context, network, addr string) (net.Conn, error)
 	// PublicURL is the box's public base (webhook URLs), e.g. https://dashboard.tiffin.localhost.
 	PublicURL string
 	Log       *slog.Logger
@@ -153,7 +157,7 @@ func Open(ctx context.Context, cfg Config) (*Engine, error) {
 		cfg.ProjectConcurrency = max(1, cfg.Workers/4)
 	}
 	e := &Engine{cfg: cfg, pool: pool, log: cfg.Log, now: time.Now,
-		http: &http.Client{Transport: &http.Transport{MaxIdleConns: 256, MaxIdleConnsPerHost: 64, IdleConnTimeout: 90 * time.Second},
+		http: &http.Client{Transport: &http.Transport{DialContext: cfg.DialApp, MaxIdleConns: 256, MaxIdleConnsPerHost: 64, IdleConnTimeout: 90 * time.Second},
 			// An app's redirect is not followed: it could point anywhere on
 			// the box (another project's port, a metadata address) with the
 			// signed delivery, past the checks URL targets get.
