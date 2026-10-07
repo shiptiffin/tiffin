@@ -8,6 +8,8 @@ Plainly, so you can decide what to trust it with.
   in. Apps can't open connections to port 25 on other servers (the box's firewall refuses
   them): their mail goes through the box (`SMTP_URL`), which sends it with the mail
   service you connect, so an app can't hurt the box's sending reputation behind your back.
+  Each project may only send as its own addresses (`<project>@<box domain>` or its
+  verified sending domain), never as the box or another project.
 - **HTTPS everywhere.** Locally the box has its own certificate authority, created on
   the box and never shared. `tiffin trust` adds it to your Mac's keychain.
 - **Only HTTPS leaves a local box,** and only to `127.0.0.1:8443` on your Mac. Postgres,
