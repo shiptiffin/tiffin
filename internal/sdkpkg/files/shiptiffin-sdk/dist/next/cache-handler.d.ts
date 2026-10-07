@@ -48,17 +48,25 @@ interface ImageValue {
  * `<key>/<maxAge>.<expireAt>.<etag>.<upstreamEtag>.<extension>`, so either
  * cache reads what the other wrote, and the directory is bounded by
  * `images.maximumDiskCacheSize` (least recently used out first), as Next.js
- * bounds it.
+ * bounds it. Every instance of the app writes to the directory, so a write
+ * reads it afresh when the last look is older than `rescanMs`: the cap then
+ * counts the other instances' files too (it holds to within what they
+ * write in that time).
  */
 export declare class ImageDiskCache {
     readonly dir: string;
     /** Byte cap; undefined: half the free disk, as Next.js does; 0: nothing is kept. */
     readonly maxBytes: number | undefined;
+    /** How old the view of the directory may get before a write reads it again. */
+    readonly rescanMs: number;
     private lru;
+    private scanned;
     private bytes;
     constructor(dir: string, 
     /** Byte cap; undefined: half the free disk, as Next.js does; 0: nothing is kept. */
-    maxBytes: number | undefined);
+    maxBytes: number | undefined, 
+    /** How old the view of the directory may get before a write reads it again. */
+    rescanMs?: number);
     private entries;
     private cap;
     get(key: string): Promise<Entry | null>;

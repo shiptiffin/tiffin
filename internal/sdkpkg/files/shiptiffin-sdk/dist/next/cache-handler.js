@@ -85,20 +85,32 @@ const IMAGE_PART = /^[A-Za-z0-9_-]{1,256}$/;
  * `<key>/<maxAge>.<expireAt>.<etag>.<upstreamEtag>.<extension>`, so either
  * cache reads what the other wrote, and the directory is bounded by
  * `images.maximumDiskCacheSize` (least recently used out first), as Next.js
- * bounds it.
+ * bounds it. Every instance of the app writes to the directory, so a write
+ * reads it afresh when the last look is older than `rescanMs`: the cap then
+ * counts the other instances' files too (it holds to within what they
+ * write in that time).
  */
 export class ImageDiskCache {
     dir;
     maxBytes;
+    rescanMs;
     lru;
+    scanned = 0;
     bytes = 0;
     constructor(dir, 
     /** Byte cap; undefined: half the free disk, as Next.js does; 0: nothing is kept. */
-    maxBytes) {
+    maxBytes, 
+    /** How old the view of the directory may get before a write reads it again. */
+    rescanMs = 60_000) {
         this.dir = dir;
         this.maxBytes = maxBytes;
+        this.rescanMs = rescanMs;
     }
     entries() {
+        if (this.lru && Date.now() - this.scanned >= this.rescanMs)
+            this.lru = undefined;
+        if (!this.lru)
+            this.scanned = Date.now();
         return (this.lru ??= (async () => {
             const found = [];
             for (const key of await readdir(this.dir).catch(() => [])) {
@@ -246,7 +258,7 @@ export class TiffinCacheHandler {
             // The tag counter and the entry in one round trip.
             let [, item] = await Promise.all([(this.synced ??= s.sync()), s.read("e", key)]);
             item ??= await this.prerendered(key, ctx);
-            if (!item)
+            if (!item || !s.trusted(item.meta.lastModified))
                 return null;
             let tags = entryTags(item, ctx);
             if (s.expired(tags, item.meta.lastModified) || s.stale(tags, item.meta.lastModified)) {
@@ -280,7 +292,8 @@ export class TiffinCacheHandler {
         if (!this.files || !PRERENDERED.has(String(ctx.kind)))
             return undefined;
         const got = await this.files.get(key, ctx).catch(() => null);
-        if (!got?.value)
+        // Older than the tag history kept (see Store.trusted): rendered anew.
+        if (!got?.value || !this.store.trusted(got.lastModified))
             return undefined;
         const item = { meta: { lastModified: got.lastModified, tags: [] }, value: got.value, size: 0, until: 0 };
         const s = this.store;

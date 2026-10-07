@@ -26,6 +26,12 @@ export interface RedisLike {
 /** Wraps an ioredis client (`call`) or a node-redis v4+ client (`sendCommand`). */
 export declare function toRedisLike(client: unknown): RedisLike;
 /**
+ * Deletes tag fields (ARGV: field, value, ...) of the hash KEYS[1] that still
+ * hold the value they were read with: a field another instance rewrote
+ * meanwhile (a new revalidation) stays.
+ */
+export declare const PRUNE_SCRIPT = "local n = 0\nfor i = 1, #ARGV, 2 do\n  if redis.call('HGET', KEYS[1], ARGV[i]) == ARGV[i + 1] then n = n + redis.call('HDEL', KEYS[1], ARGV[i]) end\nend\nreturn n";
+/**
  * An in-memory stand-in supporting exactly the commands the handlers send.
  * Used when no REDIS_URL is set (local dev, `next build`): caching then
  * works per process, like Next.js's default.
@@ -115,6 +121,13 @@ export declare class Store {
      */
     write(kind: "e" | "u", key: string, meta: Record<string, unknown>, value: unknown, ttlSeconds: number, ifAbsent?: boolean): Promise<void>;
     del(kind: "e" | "u", key: string): Promise<void>;
+    /**
+     * Whether an entry made at `at` can be checked against the tag state: tag
+     * fields older than the longest TTL are pruned, so an entry older than
+     * that (a page `next build` prerendered long ago, or its copy) may have
+     * been revalidated since without a trace. Such an entry counts as a miss.
+     */
+    trusted(at: number): boolean;
     /** Mirrors Next.js's areTagsExpired: a tag expired (by now) after the entry was made. */
     expired(tags: Iterable<string>, at: number): boolean;
     /** Mirrors Next.js's areTagsStale: a tag was marked stale after the entry was made. */

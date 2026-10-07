@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname } from "node:path";
+import { readdir } from "node:fs/promises";
+import { ImageDiskCache } from "../src/next/cache-handler";
 import { createUseCacheHandler, memoryRedis, RespClient, TiffinCacheHandler, toRedisLike, type RedisLike, type StoreOptions, type TagState } from "../src/next";
 import { startFakeValkey, type FakeValkey } from "./fake-valkey";
 
@@ -251,6 +253,15 @@ describe("pages prerendered by next build", () => {
     expect(await new TiffinCacheHandler(files, p(instance())).get(key, { kind: "APP_PAGE" })).toBeNull();
     expect(await req(p(instance())).get(key, { kind: "APP_PAGE" })).toBeNull(); // nothing copied
   });
+
+  test("a build older than the tag history kept is rendered anew, not served", async () => {
+    // Tag fields older than maxTtl are pruned: a revalidation of this page
+    // 45 s ago (its build is 60 s old) may be gone without a trace.
+    const o = app({ maxTtlSeconds: 30 });
+    const files = built("_N_T_/blog/hello,posts");
+    expect(await new TiffinCacheHandler(files, o(instance())).get(key, { kind: "APP_PAGE" })).toBeNull();
+    expect(await req(o(instance())).get(key, { kind: "APP_PAGE" })).toBeNull(); // nothing copied
+  });
 });
 
 describe("optimized images (kind IMAGE)", () => {
@@ -323,6 +334,21 @@ describe("optimized images (kind IMAGE)", () => {
   });
 });
 
+describe("the shared image directory", () => {
+  test("instances sharing it keep it within the cap together", async () => {
+    const dir = mkdtempSync(`${tmpdir()}/next-img-shared-`);
+    const img = (i: number) => ({ kind: "IMAGE" as const, etag: `e${i}`, upstreamEtag: `u${i}`, extension: "webp", buffer: Buffer.alloc(600, i) });
+    // Two instances, both started on the empty directory; a cap of one image.
+    const a = new ImageDiskCache(dir, 1000, 0);
+    const b = new ImageDiskCache(dir, 1000, 0);
+    await b.set("none", null, 0); // b has looked at the directory: empty
+    await a.set("one", img(1), 60);
+    await b.set("two", img(2), 60);
+    const kept = (await readdir(dir)).filter((n) => !n.startsWith("."));
+    expect(kept).toEqual(["two"]);
+  });
+});
+
 describe("hot path", () => {
   test("a repeat hit costs one small GET (the tag counter); the tag hash is read only when it moved", async () => {
     const o = app();
@@ -383,6 +409,27 @@ describe("hot path", () => {
     await sleep(10);
     const left = (await c.send("HGETALL", [`${prefix}prod:tags`])) as Buffer[];
     expect(left.map(String)).toEqual(["x:new", expect.any(String)]);
+  });
+
+  test("pruning leaves a field another instance revalidated since it was read", async () => {
+    const o = app({ maxTtlSeconds: 60 });
+    const a = instance(fake.url);
+    const b = instance(fake.url);
+    const tags = `${o(a).prefix!}prod:tags`;
+    await b.send("HSET", [tags, "x:posts", String(Date.now() - 120_000)]);
+    await b.send("INCR", [`${o(a).prefix!}prod:tagv`]);
+    const fresh = String(Date.now());
+    // Instance b revalidates "posts" right after a read the old field.
+    const racing: RedisLike = {
+      send: async (cmd, args) => {
+        const r = await a.send(cmd, args);
+        if (cmd === "HGETALL") await b.send("HSET", [tags, "x:posts", fresh]);
+        return r;
+      },
+    };
+    await req(o(racing)).get("/", { kind: "APP_PAGE" });
+    await sleep(10);
+    expect(((await b.send("HMGET", [tags, "x:posts"])) as unknown[]).map(String)).toEqual([fresh]);
   });
 });
 

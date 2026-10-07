@@ -57,6 +57,17 @@ export function toRedisLike(client: unknown): RedisLike {
 const wrappers = new WeakMap<object, RedisLike>();
 
 /**
+ * Deletes tag fields (ARGV: field, value, ...) of the hash KEYS[1] that still
+ * hold the value they were read with: a field another instance rewrote
+ * meanwhile (a new revalidation) stays.
+ */
+export const PRUNE_SCRIPT = `local n = 0
+for i = 1, #ARGV, 2 do
+  if redis.call('HGET', KEYS[1], ARGV[i]) == ARGV[i + 1] then n = n + redis.call('HDEL', KEYS[1], ARGV[i]) end
+end
+return n`;
+
+/**
  * An in-memory stand-in supporting exactly the commands the handlers send.
  * Used when no REDIS_URL is set (local dev, `next build`): caching then
  * works per process, like Next.js's default.
@@ -113,6 +124,13 @@ export function memoryRedis(): RedisLike {
       }
       case "HGETALL":
         return Object.fromEntries(hashes.get(args[0]!) ?? []);
+      case "EVAL": {
+        if (args[0] !== PRUNE_SCRIPT || args[1] !== "1") throw new Error("memoryRedis: unsupported script");
+        const h = hashes.get(args[2]!);
+        let n = 0;
+        for (let i = 3; i + 1 < args.length; i += 2) if (h && h.get(args[i]!) === args[i + 1] && h.delete(args[i]!)) n++;
+        return n;
+      }
       default:
         throw new Error(`memoryRedis: unsupported command ${cmd}`);
     }
@@ -394,6 +412,16 @@ export class Store {
     await this.send("DEL", [k]);
   }
 
+  /**
+   * Whether an entry made at `at` can be checked against the tag state: tag
+   * fields older than the longest TTL are pruned, so an entry older than
+   * that (a page `next build` prerendered long ago, or its copy) may have
+   * been revalidated since without a trace. Such an entry counts as a miss.
+   */
+  trusted(at: number): boolean {
+    return at >= Date.now() - this.maxTtl * 1000;
+  }
+
   /** Mirrors Next.js's areTagsExpired: a tag expired (by now) after the entry was made. */
   expired(tags: Iterable<string>, at: number): boolean {
     const now = Date.now();
@@ -481,9 +509,10 @@ export class Store {
     for (const [f, val] of pairs(raw)) {
       const field = this.text(f) ?? "";
       const n = Number(this.text(val));
-      // Every entry made before this is gone (TTL), so the field no longer matters.
+      // Every entry made before this is gone (TTL), or no longer trusted (see
+      // trusted), so the field no longer matters.
       if (!(n >= old)) {
-        prune.push(field);
+        prune.push(field, this.text(val) ?? "");
         continue;
       }
       const tag = field.slice(2);
@@ -498,7 +527,8 @@ export class Store {
     for (const [t, st] of fresh) if (!mine(t)) this.setTag(t, st);
     for (const [t, s] of this.own) if (s <= acked) this.own.delete(t);
     this.version = acked === seq && this.seq === seq ? v : undefined;
-    if (prune.length > 0) this.send("HDEL", [this.tagsKey, ...prune]).catch(() => {});
+    // Only if unchanged since read: another instance may have revalidated the tag again.
+    if (prune.length > 0) this.send("EVAL", [PRUNE_SCRIPT, "1", this.tagsKey, ...prune]).catch(() => {});
   }
 
   private setTag(tag: string, st: TagState): void {
