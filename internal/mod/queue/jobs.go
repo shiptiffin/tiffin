@@ -569,6 +569,8 @@ func waitingFor(key string) string {
 	switch kind {
 	case "s":
 		return "the project is stopped"
+	case "a":
+		return "the project's limit on deliveries at once"
 	case "p":
 		return "the queue is paused"
 	case "q":

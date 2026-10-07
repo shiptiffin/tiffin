@@ -52,6 +52,10 @@ type Config struct {
 	Log       *slog.Logger
 	// Workers is River's delivery pool size (default 200).
 	Workers int
+	// ProjectConcurrency caps one project's deliveries in flight, across
+	// its queues, crons and workflow turns, so one project cannot take
+	// every worker (default a quarter of Workers).
+	ProjectConcurrency int
 	// RetryBase is the first retry delay; it doubles per attempt (default 2s).
 	RetryBase time.Duration
 	// Outbox resolves a project's app DATABASE_URL for sendTx ("" = none).
@@ -134,6 +138,9 @@ func Open(ctx context.Context, cfg Config) (*Engine, error) {
 	}
 	if cfg.Workers <= 0 {
 		cfg.Workers = 200
+	}
+	if cfg.ProjectConcurrency <= 0 || cfg.ProjectConcurrency > cfg.Workers {
+		cfg.ProjectConcurrency = max(1, cfg.Workers/4)
 	}
 	e := &Engine{cfg: cfg, pool: pool, log: cfg.Log, now: time.Now,
 		http:       &http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 64, IdleConnTimeout: 90 * time.Second}},

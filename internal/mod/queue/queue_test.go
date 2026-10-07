@@ -896,3 +896,40 @@ func TestOutboxFairAndBounded(t *testing.T) {
 		t.Errorf("pools %v", ps.pools)
 	}
 }
+
+// One project holding its deliveries open takes at most its share of the
+// workers; another project's jobs still run.
+func TestProjectConcurrencyCap(t *testing.T) {
+	e := newEngine(t, func(c *Config) { c.Workers, c.ProjectConcurrency = 8, 3 })
+	hog, small := newApp(t, e.Engine, "hog"), newApp(t, e.Engine, "small")
+	release := make(chan struct{})
+	var running, peak atomic.Int64
+	hog.handle("/h", func(w http.ResponseWriter, r *http.Request) {
+		n := running.Add(1)
+		for p := peak.Load(); n > p && !peak.CompareAndSwap(p, n); p = peak.Load() {
+		}
+		<-release
+		running.Add(-1)
+		w.WriteHeader(200)
+	})
+	e.configure("hog", QueueConfig{Name: "h", URL: hog.url("/h"), LeaseS: 120})
+	e.configure("small", QueueConfig{Name: "s", URL: small.url("/s")})
+	var ids []string
+	for range 20 {
+		ids = append(ids, e.send("hog", SendRequest{Name: "h"}).Jobs[0])
+	}
+	eventually(t, 10*time.Second, "the hog's share running", func() bool { return running.Load() == 3 })
+	id := e.send("small", SendRequest{Name: "s"}).Jobs[0]
+	e.waitState("small", id, stateCompleted, 10*time.Second)
+	j := e.job("hog", ids[len(ids)-1])
+	if j.State != stateQueued || !strings.Contains(j.WaitingFor, "deliveries at once") {
+		t.Errorf("parked hog job %+v", j)
+	}
+	close(release)
+	for _, id := range ids {
+		e.waitState("hog", id, stateCompleted, 30*time.Second)
+	}
+	if p := peak.Load(); p > 3 {
+		t.Errorf("the hog ran %d at once (cap 3)", p)
+	}
+}

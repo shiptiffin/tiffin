@@ -133,7 +133,7 @@ type slotReq struct {
 }
 
 func (e *Engine) slotsFor(j *jobRow, cfg QueueConfig) []slotReq {
-	var s []slotReq
+	s := []slotReq{{key: projectSlot(j.Project), limit: e.cfg.ProjectConcurrency}}
 	if cfg.Concurrency > 0 {
 		s = append(s, slotReq{key: "q:" + j.Project + "/" + j.Queue, limit: cfg.Concurrency})
 	}
@@ -148,6 +148,9 @@ func (e *Engine) slotsFor(j *jobRow, cfg QueueConfig) []slotReq {
 }
 
 func groupSlot(project, group string) string { return "g:" + project + "/" + group }
+
+// projectSlot is the project's share of the delivery workers.
+func projectSlot(project string) string { return "a:" + project + "/" }
 
 func lockKey(ctx context.Context, tx pgx.Tx, key string) error {
 	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, key)

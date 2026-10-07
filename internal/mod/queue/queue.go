@@ -148,6 +148,13 @@ func urlRate() int {
 	return 600
 }
 
+// projectConcurrency is the cap on one project's deliveries in flight:
+// TIFFIN_QUEUE_PROJECT_CONCURRENCY, default a quarter of the workers (50).
+func projectConcurrency() int {
+	n, _ := strconv.Atoi(os.Getenv("TIFFIN_QUEUE_PROJECT_CONCURRENCY"))
+	return n
+}
+
 // CheckPlan refuses crons and queues whose url is plainly inside the box or
 // a private network (an address literal or localhost); host names are
 // checked against what they resolve to when each call is made.
@@ -181,13 +188,14 @@ func (m *Module) CheckPlan(ctx context.Context, p *platform.Platform, project st
 
 func (m *Module) config(p *platform.Platform, dsn string) Config {
 	return Config{
-		DSN:              dsn,
-		Keys:             m.keys,
-		PublicURL:        p.PublicURL,
-		Log:              p.Log,
-		AllowNets:        allowNets(),
-		SelfIPs:          selfIPs(p),
-		URLRatePerMinute: urlRate(),
+		DSN:                dsn,
+		Keys:               m.keys,
+		PublicURL:          p.PublicURL,
+		Log:                p.Log,
+		AllowNets:          allowNets(),
+		SelfIPs:            selfIPs(p),
+		URLRatePerMinute:   urlRate(),
+		ProjectConcurrency: projectConcurrency(),
 		Endpoint: func(ctx context.Context, project, app, release string) (string, error) {
 			if up, ok := findModule[AppUpstreams](); ok {
 				return up.AppEndpoint(ctx, p, project, app, release)
