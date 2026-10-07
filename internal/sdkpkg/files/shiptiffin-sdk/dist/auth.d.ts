@@ -48,7 +48,7 @@ export declare class AuthError extends Error {
 export type AuthOptions = {
     /** Engine base URL. Default: TIFFIN_AUTH_INTERNAL_URL, else TIFFIN_AUTH_URL. */
     url?: string;
-    /** The app host to act for on internal calls. Default: the request's Host, else TIFFIN_AUTH_HOST. */
+    /** The app host to act for on internal calls. Default: the request's Host, held to TIFFIN_AUTH_HOST's project. */
     host?: string;
     fetch?: typeof fetch;
 };
@@ -87,12 +87,26 @@ export declare function forgetSession(token: string): void;
 /**
  * Headers for a server-side call to the engine on behalf of a request: its
  * credentials, client address and user agent, and the app host it came to.
+ *
+ * The request's Host can be anything: other apps on the box reach this one
+ * directly, not through the edge. So the call also names the box-given
+ * TIFFIN_AUTH_HOST, and the engine answers for that project whatever host
+ * the request names (the request's host only picks which of the project's
+ * hosts links and passkeys use). A session from another project never
+ * passes here.
  */
 export declare function forwardHeaders(from: HeadersLike, opts?: AuthOptions): Headers;
 /** The engine's base URL (TIFFIN_AUTH_INTERNAL_URL unless opts.url). */
 export declare function authBase(opts?: AuthOptions): string;
-/** Better Auth's cookies on a Tiffin box (cookiePrefix "tiffin"). */
+/** Better Auth's cookies on a Tiffin box, without their __Host- prefix. */
 export declare const TOKEN = "tiffin.session_token";
+/**
+ * A session cookie's name for a request: over https the engine's cookies are
+ * __Host-tiffin.*, which only the app's own host can set. Any other spelling
+ * (__Secure-, or plain) can be planted by another app under the same domain,
+ * so it is never read. Plain names only on an http-only box.
+ */
+export declare function cookieName(name: string, request: HeadersLike): string;
 export declare function parseCookies(header: string | null): Map<string, string>;
 /** The signed-in user, or an AuthError(401). */
 export declare function requireUser(request: Request, opts?: SessionOptions): Promise<AuthSession>;

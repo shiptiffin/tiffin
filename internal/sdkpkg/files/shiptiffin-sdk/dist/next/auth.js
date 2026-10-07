@@ -22,7 +22,7 @@ import { cookies, headers } from "next/headers";
 import { forbidden, redirect, unauthorized } from "next/navigation";
 import { NextResponse } from "next/server";
 import { cache } from "react";
-import { TOKEN, authBase, forgetSession, forwardHeaders, parseCookies, roleAtLeast, sessionFor } from "../auth.js";
+import { TOKEN, authBase, cookieName, forgetSession, forwardHeaders, parseCookies, roleAtLeast, sessionFor } from "../auth.js";
 /** The request header authProxy sets to the page's path, for ?next= on redirects to sign-in. */
 const PATH_HEADER = "x-tiffin-path";
 function dto(s) {
@@ -208,8 +208,8 @@ export async function signUp(input, opts = {}) {
 }
 /** Signs out from a Server Action: ends the session on the engine and clears its cookies, then redirects if asked. */
 export async function signOut(opts = {}) {
-    const raw = parseCookies((await requestHeaders()).get("cookie"));
-    const token = raw.get("__Secure-" + TOKEN) ?? raw.get(TOKEN);
+    const req = await requestHeaders();
+    const token = parseCookies(req.get("cookie")).get(cookieName(TOKEN, req));
     if (token) {
         await engine("/sign-out", {});
         forgetSession(token);
@@ -248,7 +248,7 @@ export function authProxy(opts) {
     const signIn = opts.signIn ?? "/sign-in";
     return (request) => {
         const { pathname, search } = request.nextUrl;
-        const signedIn = request.cookies.has("__Secure-" + TOKEN) || request.cookies.has(TOKEN) || request.headers.has("x-api-key");
+        const signedIn = request.cookies.has("__Host-" + TOKEN) || request.cookies.has(TOKEN) || request.headers.has("x-api-key");
         if (!signedIn && rules.some((r) => r.test(pathname))) {
             if (pathname.startsWith("/api/"))
                 return Response.json({ code: "unauthenticated", message: "Sign in first." }, { status: 401 });

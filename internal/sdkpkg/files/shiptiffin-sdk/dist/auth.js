@@ -35,7 +35,8 @@ function base(o) {
         throw new Error("@shiptiffin/sdk/auth: no auth endpoint. Turn on services.auth in tiffin.config.ts (the box sets TIFFIN_AUTH_URL), or pass { url }.");
     return u.replace(/\/+$/, "");
 }
-const FORWARD = ["cookie", "x-api-key", "authorization", "user-agent", "x-forwarded-for", "x-forwarded-proto"];
+// The engine authenticates by the session cookie or x-api-key, never Authorization.
+const FORWARD = ["cookie", "x-api-key", "user-agent", "x-forwarded-for", "x-forwarded-proto"];
 /**
  * The signed-in user for a request (cookie or x-api-key), with their role in
  * the active organization, or null. Pass organizationId to check another
@@ -58,18 +59,19 @@ export async function getSession(request, opts = {}) {
 export async function sessionFor(from, opts = {}) {
     const headers = forwardHeaders(from, opts);
     const cookies = parseCookies(headers.get("cookie"));
-    const token = cookies.get(SECURE + TOKEN) ?? cookies.get(TOKEN);
-    const key = headers.get("x-api-key") ?? headers.get("authorization");
+    const token = cookies.get(cookieName(TOKEN, headers));
+    // What the engine will authenticate by: the API key when there is one, else the session cookie.
+    const key = headers.get("x-api-key");
     if (!key && !token)
         return { session: null, setCookie: [] };
     const url = base(opts);
     if (!key && !opts.fresh) {
-        const jwt = chunked(cookies, SECURE + DATA) ?? chunked(cookies, DATA);
-        const s = jwt ? await fromSessionCookie(jwt, token, url, headers.get("x-tiffin-host"), opts) : undefined;
+        const jwt = chunked(cookies, cookieName(DATA, headers));
+        const s = jwt ? await fromSessionCookie(jwt, token, url, headers.get(PIN) ?? headers.get("x-tiffin-host"), opts) : undefined;
         if (s)
             return { session: s, setCookie: [] };
     }
-    const cacheKey = `${url}|${headers.get("x-tiffin-host")}|${opts.organizationId ?? ""}|${key ?? token}`;
+    const cacheKey = `${url}|${headers.get(PIN) ?? ""}|${headers.get("x-tiffin-host")}|${opts.organizationId ?? ""}|${key ? "k:" + key : "s:" + token}`;
     const hit = recent.get(cacheKey);
     if (!opts.fresh && hit && Date.now() - hit.at < RECENT_MS)
         return { session: hit.session, setCookie: [] };
@@ -90,12 +92,21 @@ export async function sessionFor(from, opts = {}) {
 /** Drops what this process remembers about a session token (after signing out). */
 export function forgetSession(token) {
     for (const k of recent.keys())
-        if (k.endsWith("|" + token))
+        if (k.endsWith("|s:" + token))
             recent.delete(k);
 }
+/** The header that pins an internal call to this app's project (TIFFIN_AUTH_HOST). */
+const PIN = "x-tiffin-auth-host";
 /**
  * Headers for a server-side call to the engine on behalf of a request: its
  * credentials, client address and user agent, and the app host it came to.
+ *
+ * The request's Host can be anything: other apps on the box reach this one
+ * directly, not through the edge. So the call also names the box-given
+ * TIFFIN_AUTH_HOST, and the engine answers for that project whatever host
+ * the request names (the request's host only picks which of the project's
+ * hosts links and passkeys use). A session from another project never
+ * passes here.
  */
 export function forwardHeaders(from, opts = {}) {
     const headers = new Headers();
@@ -104,9 +115,12 @@ export function forwardHeaders(from, opts = {}) {
         if (v)
             headers.set(h, v);
     }
-    const host = opts.host ?? from.get("x-forwarded-host") ?? from.get("host") ?? env("TIFFIN_AUTH_HOST");
+    const pin = opts.host ? undefined : env("TIFFIN_AUTH_HOST");
+    const host = opts.host ?? from.get("x-forwarded-host") ?? from.get("host") ?? pin;
     if (host)
         headers.set("x-tiffin-host", host);
+    if (pin)
+        headers.set(PIN, pin);
     return headers;
 }
 /** The engine's base URL (TIFFIN_AUTH_INTERNAL_URL unless opts.url). */
@@ -114,10 +128,18 @@ export function authBase(opts = {}) {
     return base(opts);
 }
 // ---- Session cookie fast path ---------------------------------------------
-const SECURE = "__Secure-";
-/** Better Auth's cookies on a Tiffin box (cookiePrefix "tiffin"). */
+/** Better Auth's cookies on a Tiffin box, without their __Host- prefix. */
 export const TOKEN = "tiffin.session_token";
 const DATA = "tiffin.session_data";
+/**
+ * A session cookie's name for a request: over https the engine's cookies are
+ * __Host-tiffin.*, which only the app's own host can set. Any other spelling
+ * (__Secure-, or plain) can be planted by another app under the same domain,
+ * so it is never read. Plain names only on an http-only box.
+ */
+export function cookieName(name, request) {
+    return request.get("x-forwarded-proto") === "http" ? name : "__Host-" + name;
+}
 /** How long an engine answer is reused in this process. */
 const RECENT_MS = 5_000;
 const RECENT_MAX = 10_000;
