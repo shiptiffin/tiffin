@@ -119,10 +119,13 @@ ORDER BY a.attrelid, a.attnum`, order)
 		}
 	}
 	out := make([]PGTable, 0, len(order))
+	counted := 0
 	for _, oid := range order {
 		t := byOID[oid]
-		// Never analyzed but small: count exactly so the browser isn't blank.
-		if t.RowEstimate == nil && (t.Kind == "table" || t.Kind == "partitioned") && t.SizeBytes < 8<<20 {
+		// Never analyzed but small: count exactly so the browser isn't blank
+		// (for the first exactCounts such tables: one query each).
+		if t.RowEstimate == nil && (t.Kind == "table" || t.Kind == "partitioned") && t.SizeBytes < 8<<20 && counted < exactCounts {
+			counted++
 			var n int64
 			if conn.QueryRow(ctx, fmt.Sprintf(`SELECT count(*) FROM %s.%s`, quoteIdent(t.Schema), quoteIdent(t.Name))).Scan(&n) == nil {
 				t.RowEstimate = &n
@@ -132,6 +135,9 @@ ORDER BY a.attrelid, a.attnum`, order)
 	}
 	return out, nil
 }
+
+// exactCounts is how many never-analyzed tables one listing counts exactly.
+const exactCounts = 50
 
 // Info is a project's database at a glance.
 type PGInfo struct {
