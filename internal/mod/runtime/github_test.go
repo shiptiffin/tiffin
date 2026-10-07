@@ -661,3 +661,59 @@ func TestGitHubLatePushNeverRollsBack(t *testing.T) {
 		t.Fatalf("deploys: %d", len(ds))
 	}
 }
+
+// A final report GitHub refuses (rate limited, down) is kept and retried,
+// not dropped: the commit would stay "pending" for good.
+func TestGitHubRetriesFailedReports(t *testing.T) {
+	g := newGHHarness(t)
+	ctx := context.Background()
+	g.connect()
+	g.f.AddRepo("octo/shop", false, map[string]string{"web/index.html": "<h1>v1</h1>"})
+	g.connectSite(manifest.Git{Repo: "octo/shop", Branch: "main", Path: "web", Previews: manifest.PreviewsOff})
+	sha, _ := g.f.Commit("octo/shop", "main", map[string]string{"web/index.html": "<h1>v2</h1>"}, "v2")
+	g.f.SetRateLimited(true)
+	if dl, _ := g.f.Push("octo/shop", "main"); dl.Status != 202 {
+		t.Fatalf("push: %+v", dl)
+	}
+	d := g.waitFor("site", func(d *Deploy) bool { return d.Commit == sha })
+	if d.Status != StatusLive {
+		t.Fatalf("deploy: %+v", d)
+	}
+	var tr ghTracker
+	deadline := time.Now().Add(5 * time.Second)
+	for !tr.Ended && time.Now().Before(deadline) {
+		raw, _, _ := g.p.DB.KVGet(ctx, nsGitHubJobs, trackerKey(d))
+		_ = json.Unmarshal(raw, &tr)
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !tr.Ended || tr.Tries != 1 || tr.Next.Before(time.Now()) {
+		t.Fatalf("the failed report is kept for a retry: %+v", tr)
+	}
+	success := func() bool {
+		for _, s := range g.f.Recorded().Statuses {
+			if strings.HasSuffix(s.Path, sha) && s.Body["state"] == "success" {
+				return true
+			}
+		}
+		return false
+	}
+	if success() {
+		t.Fatal("GitHub refused every write")
+	}
+	g.r.resumeReports(ctx, false) // not due yet
+	g.f.SetRateLimited(false)
+	g.r.resumeReports(ctx, false)
+	if success() {
+		t.Fatal("retried before its time")
+	}
+	tr.Next = time.Now().Add(-time.Second)
+	raw, _ := json.Marshal(tr)
+	_ = g.p.DB.KVPut(ctx, nsGitHubJobs, trackerKey(d), raw)
+	g.r.resumeReports(ctx, false)
+	if !success() {
+		t.Fatalf("retried report: %+v", g.f.Recorded().Statuses)
+	}
+	if _, ok, _ := g.p.DB.KVGet(ctx, nsGitHubJobs, trackerKey(d)); ok {
+		t.Fatal("a delivered report is forgotten")
+	}
+}

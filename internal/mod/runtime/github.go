@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btahir/tiffin/internal/mod/runtime/ghapp"
@@ -108,6 +109,8 @@ type ghState struct {
 	q    ghQueue
 	// inflight are the deliveries being handled (by deliveryKey).
 	inflight map[string]bool
+	// reporting: failed final reports are being retried.
+	reporting atomic.Bool
 }
 
 type cachedRepos struct {

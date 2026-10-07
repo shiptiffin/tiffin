@@ -219,7 +219,7 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 		}
 	}
 	go r.loop(ctx)
-	go r.resumeReports(ctx)
+	go r.resumeReports(ctx, true)
 	go r.syncQuotas(ctx)
 	m.mu.Lock()
 	m.r = r
@@ -406,6 +406,12 @@ func (r *rt) loop(ctx context.Context) {
 			if tick%4 == 0 {
 				r.syncQuotas(ctx)
 				r.saveActivity(ctx)
+				if r.gh.reporting.CompareAndSwap(false, true) { // GitHub may be slow: not in the loop's way
+					go func() {
+						defer r.gh.reporting.Store(false)
+						r.resumeReports(ctx, false)
+					}()
+				}
 			}
 			if tick%20 == 0 {
 				r.removeOrphans(ctx)

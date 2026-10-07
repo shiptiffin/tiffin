@@ -157,7 +157,15 @@ type ghTracker struct {
 	Deployment   int64  `json:"deployment,omitempty"`
 	PR           int    `json:"pr,omitempty"`
 	Context      string `json:"context"`
+	// After the deploy ended: the final report failed (GitHub down, rate
+	// limited) and is retried until Next, for a day at most.
+	Ended bool      `json:"ended,omitempty"`
+	Tries int       `json:"tries,omitempty"`
+	At    time.Time `json:"at,omitzero"`
+	Next  time.Time `json:"next,omitzero"`
 }
+
+func trackerKey(d *Deploy) string { return d.Project + "/" + d.App + "/" + d.ID }
 
 // statusContext names a deploy's commit status. Production and previews
 // have their own: the same commit can be on the production branch and in a
@@ -199,7 +207,7 @@ func (r *rt) runJob(j *ghJob) {
 	tr := &ghTracker{Repo: j.Repo, SHA: j.SHA, Installation: j.Installation, PR: j.PR, Context: statusContext(j.Project, j.App, j.Preview)}
 	r.reportStart(ctx, c, d, tr, j)
 	raw, _ := json.Marshal(tr)
-	_ = r.p.DB.KVPut(ctx, nsGitHubJobs, d.Project+"/"+d.App+"/"+d.ID, raw)
+	_ = r.p.DB.KVPut(ctx, nsGitHubJobs, trackerKey(d), raw)
 
 	done := make(chan struct{})
 	r.startFrom(d, SourceGit, func(ctx context.Context, d *Deploy, log io.Writer) (string, error) {
@@ -224,8 +232,7 @@ func (r *rt) runJob(j *ghJob) {
 	if ctx.Err() != nil {
 		return // the box is stopping: the tracker reports after the restart
 	}
-	r.reportEnd(ctx, c, d, tr)
-	_ = r.p.DB.KVDelete(ctx, nsGitHubJobs, d.Project+"/"+d.App+"/"+d.ID)
+	r.finishReport(ctx, c, d, tr)
 	// A pull request closed while its preview was building: remove it now.
 	if j.PR > 0 {
 		q := &r.gh.q
@@ -386,7 +393,9 @@ func ownDomainURL(url func(host string) string, appsDomain string, routes []stri
 	return fallback
 }
 
-func (r *rt) reportEnd(ctx context.Context, c *ghConn, d *Deploy, tr *ghTracker) {
+// reportEnd tells GitHub how a deploy ended: the commit status, the
+// deployment and the pull request comment. It fails when any of them did.
+func (r *rt) reportEnd(ctx context.Context, c *ghConn, d *Deploy, tr *ghTracker) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	site := r.siteURL(ctx, d)
@@ -402,21 +411,56 @@ func (r *rt) reportEnd(ctx context.Context, c *ghConn, d *Deploy, tr *ghTracker)
 	if target == "" {
 		target = r.logURL(d)
 	}
-	r.ghWarn(d, "set the commit status", c.App.SetStatus(ctx, tr.Installation, tr.Repo, tr.SHA, ghapp.Status{State: state, TargetURL: target, Description: desc, Context: tr.Context}))
+	var errs []error
+	note := func(what string, err error) {
+		r.ghWarn(d, what, err)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	note("set the commit status", c.App.SetStatus(ctx, tr.Installation, tr.Repo, tr.SHA, ghapp.Status{State: state, TargetURL: target, Description: desc, Context: tr.Context}))
 	if tr.Deployment != 0 {
 		ds := ghapp.DeploymentStatus{State: dstate, LogURL: r.logURL(d), Description: desc, AutoInactive: dstate == "success"}
 		if dstate == "success" {
 			ds.EnvironmentURL = site
 		}
-		r.ghWarn(d, "update the deployment", c.App.SetDeploymentStatus(ctx, tr.Installation, tr.Repo, tr.Deployment, ds))
+		note("update the deployment", c.App.SetDeploymentStatus(ctx, tr.Installation, tr.Repo, tr.Deployment, ds))
 	}
 	if tr.PR > 0 {
 		kind := prLive
 		if d.Status != StatusLive {
 			kind = prFailed
 		}
-		r.ghWarn(d, "comment on the pull request", r.upsertComment(ctx, c, d, tr, kind))
+		note("comment on the pull request", r.upsertComment(ctx, c, d, tr, kind))
 	}
+	return errors.Join(errs...)
+}
+
+// reportRetries space out the retries of a failed final report; after
+// maxReportAge the box gives up.
+var reportRetries = []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute, time.Hour}
+
+const maxReportAge = 24 * time.Hour
+
+// finishReport reports a deploy's end, keeping the tracker for a later
+// retry when GitHub didn't take it all.
+func (r *rt) finishReport(ctx context.Context, c *ghConn, d *Deploy, tr *ghTracker) {
+	err := r.reportEnd(ctx, c, d, tr)
+	now := time.Now().UTC()
+	if !tr.Ended {
+		tr.Ended, tr.At = true, now
+	}
+	if err == nil || now.Sub(tr.At) > maxReportAge {
+		if err != nil {
+			r.p.Log.Warn("github: giving up reporting a deploy", "deploy", d.ID, "err", err)
+		}
+		_ = r.p.DB.KVDelete(ctx, nsGitHubJobs, trackerKey(d))
+		return
+	}
+	tr.Next = now.Add(reportRetries[min(tr.Tries, len(reportRetries)-1)])
+	tr.Tries++
+	raw, _ := json.Marshal(tr)
+	_ = r.p.DB.KVPut(ctx, nsGitHubJobs, trackerKey(d), raw)
 }
 
 func seconds(s float64) string {
@@ -491,8 +535,10 @@ func (r *rt) upsertComment(ctx context.Context, c *ghConn, d *Deploy, tr *ghTrac
 	return r.p.DB.KVPut(ctx, nsGitHub, k, raw)
 }
 
-// resumeReports tells GitHub how deploys a restart interrupted ended.
-func (r *rt) resumeReports(ctx context.Context) {
+// resumeReports tells GitHub how deploys ended whose final report is
+// still owed: at start (every tracker of an ended deploy: a restart
+// interrupted it) and then every minute (failed reports whose retry is due).
+func (r *rt) resumeReports(ctx context.Context, startup bool) {
 	all, err := r.p.DB.KVList(ctx, nsGitHubJobs)
 	if err != nil || len(all) == 0 {
 		return
@@ -501,6 +547,7 @@ func (r *rt) resumeReports(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	now := time.Now()
 	for k, raw := range all {
 		parts := strings.Split(k, "/")
 		var tr ghTracker
@@ -508,12 +555,16 @@ func (r *rt) resumeReports(ctx context.Context) {
 			_ = r.p.DB.KVDelete(ctx, nsGitHubJobs, k)
 			continue
 		}
-		d, err := r.st.getDeploy(ctx, parts[0], parts[1], parts[2])
-		if err == nil && d.Terminal() {
-			r.reportEnd(ctx, c, d, &tr)
+		if !startup && (!tr.Ended || now.Before(tr.Next)) {
+			continue // its deploy is still running (runJob reports it), or not due yet
 		}
-		if err != nil || d.Terminal() {
+		d, err := r.st.getDeploy(ctx, parts[0], parts[1], parts[2])
+		if err != nil {
 			_ = r.p.DB.KVDelete(ctx, nsGitHubJobs, k)
+			continue
+		}
+		if d.Terminal() {
+			r.finishReport(ctx, c, d, &tr)
 		}
 	}
 }

@@ -50,6 +50,9 @@ type Server struct {
 	HookClient *http.Client
 	// Account owns new apps and installations.
 	Account string
+	// RateLimited makes every repository write (statuses, deployments,
+	// comments) fail with 403 "API rate limit exceeded".
+	RateLimited bool
 	// Installer is the access (full name → "read" or "write") of the person
 	// who installs a public app through the website (nil: push to all).
 	Installer map[string]string
@@ -236,6 +239,13 @@ func (s *Server) UserCode(installation int64, access map[string]string) string {
 	c := randHex(10)
 	s.oauthCodes[c] = userGrant{installation: installation, access: access}
 	return c
+}
+
+// SetRateLimited turns RateLimited on or off (safe while the box calls).
+func (s *Server) SetRateLimited(on bool) {
+	s.mu.Lock()
+	s.RateLimited = on
+	s.mu.Unlock()
 }
 
 // ReadTokens counts the read-only, single-repository tokens minted (clone
@@ -822,6 +832,13 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if t.readOnly && r.Method != http.MethodGet {
 		fail(w, 403, "Resource not accessible by integration")
+		return
+	}
+	s.mu.Lock()
+	limited := s.RateLimited
+	s.mu.Unlock()
+	if limited && r.Method != http.MethodGet {
+		fail(w, 403, "API rate limit exceeded for installation")
 		return
 	}
 	s.serveRepoAPI(w, r, rp, rest)
