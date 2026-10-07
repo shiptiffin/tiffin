@@ -6,6 +6,7 @@
 import { chmodSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { adminHandler } from "./admin";
+import { installFetchLimits } from "./fetch";
 import { closeTransports } from "./mail";
 import { migrate } from "./migrate";
 import { Registry } from "./registry";
@@ -38,6 +39,7 @@ async function main(argv: string[]) {
       return;
     }
     case "serve": {
+      installFetchLimits(); // before any project's instance is built
       const listen = flag(args, "--listen", "TIFFIN_AUTH_LISTEN", "127.0.0.1:7393");
       const socket = flag(args, "--admin-socket", "TIFFIN_AUTH_ADMIN_SOCKET", "/run/tiffin-auth/admin.sock");
       const [hostname, port] = [listen.slice(0, listen.lastIndexOf(":")), Number(listen.slice(listen.lastIndexOf(":") + 1))];
