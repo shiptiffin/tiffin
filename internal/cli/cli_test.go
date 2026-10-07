@@ -548,3 +548,48 @@ func TestAPIServerBounds(t *testing.T) {
 		t.Fatalf("unbounded API server: %+v", hs)
 	}
 }
+
+// The git credential helper gives a remote only its own box's token: a push
+// to box A never receives box B's owner token because B is current.
+func TestGitCredentialAnswersOnlyForTheBoxAsked(t *testing.T) {
+	cfg := t.TempDir()
+	boxes := `{"current":"b","boxes":{
+		"a":{"provider":"ssh","url":"https://dashboard.203-0-113-5.sslip.io","token":"tfn_a"},
+		"b":{"provider":"ssh","url":"https://dashboard.box-b.example:8443/","token":"tfn_b"}}}`
+	if err := os.WriteFile(filepath.Join(cfg, "boxes.json"), []byte(boxes), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ask := func(env map[string]string, req string) string {
+		t.Helper()
+		var out, errb bytes.Buffer
+		no := false
+		env["TIFFIN_CONFIG_DIR"] = cfg
+		env["HOME"] = t.TempDir()
+		code := Execute(context.Background(), []string{"git-credential", "get"}, IO{Out: &out, Err: &errb, TTY: &no,
+			In: strings.NewReader(req), Env: func(k string) string { return env[k] }})
+		if code != ExitOK {
+			t.Fatalf("exit %d: %s", code, errb.String())
+		}
+		return out.String()
+	}
+	for _, c := range []struct {
+		env       map[string]string
+		req, want string
+	}{
+		{map[string]string{}, "protocol=https\nhost=dashboard.203-0-113-5.sslip.io\npath=v1/git/shop.git\n\n", "password=tfn_a\n"},
+		{map[string]string{}, "protocol=https\nhost=DASHBOARD.box-b.example:8443\n\n", "password=tfn_b\n"},
+		{map[string]string{}, "protocol=https\nhost=evil.example\n\n", ""},
+		{map[string]string{}, "protocol=http\nhost=dashboard.203-0-113-5.sslip.io\n\n", ""},
+		{map[string]string{}, "", ""},
+		// TIFFIN_TOKEN belongs to the box the CLI targets, and only to it.
+		{map[string]string{"TIFFIN_TOKEN": "tfn_env"}, "protocol=https\nhost=dashboard.box-b.example:8443\n\n", "password=tfn_env\n"},
+		{map[string]string{"TIFFIN_TOKEN": "tfn_env"}, "protocol=https\nhost=dashboard.203-0-113-5.sslip.io\n\n", "password=tfn_a\n"},
+		{map[string]string{"TIFFIN_TOKEN": "tfn_env", "TIFFIN_URL": "https://ci.example"}, "protocol=https\nhost=ci.example\n\n", "password=tfn_env\n"},
+		{map[string]string{"TIFFIN_TOKEN": "tfn_env", "TIFFIN_URL": "https://ci.example"}, "protocol=https\nhost=evil.example\n\n", ""},
+	} {
+		got := ask(c.env, c.req)
+		if c.want == "" && got != "" || c.want != "" && !strings.HasSuffix(got, c.want) {
+			t.Errorf("%v %q: got %q, want %q", c.env, c.req, got, c.want)
+		}
+	}
+}

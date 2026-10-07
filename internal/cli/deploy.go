@@ -836,8 +836,10 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// gitCredentialCmd is a git credential helper that hands git the token the
-// CLI uses (TIFFIN_TOKEN, else the box's token from `tiffin up`).
+// gitCredentialCmd is a git credential helper. It answers only for a box's
+// own address: the token of the box whose URL has the origin git asks
+// about (TIFFIN_TOKEN for the TIFFIN_URL or current box), never another
+// box's, so a remote can't collect the token of whichever box is current.
 func (a *app) gitCredentialCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:    "git-credential <get|store|erase>",
@@ -848,19 +850,76 @@ func (a *app) gitCredentialCmd() *cobra.Command {
 			if args[0] != "get" {
 				return nil
 			}
-			// Drain git's request (protocol=..., host=...).
-			_, _ = io.Copy(io.Discard, a.io.In)
-			tok := a.token
-			if tok == "" {
-				if _, bx := a.currentBox(); bx != nil {
-					tok = bx.Token
+			req := map[string]string{}
+			sc := bufio.NewScanner(a.io.In)
+			for sc.Scan() {
+				if k, v, ok := strings.Cut(sc.Text(), "="); ok {
+					req[k] = v
 				}
 			}
-			if tok == "" {
-				return &exitError{ExitAuth, "no token: set TIFFIN_TOKEN"}
+			want := originOf(req["protocol"] + "://" + req["host"])
+			if req["protocol"] == "" || req["host"] == "" || want == "" {
+				return nil
 			}
-			fmt.Fprintf(a.io.Out, "username=tiffin\npassword=%s\n", tok)
+			if tok := a.tokenFor(want); tok != "" {
+				fmt.Fprintf(a.io.Out, "username=tiffin\npassword=%s\n", tok)
+			}
+			// No answer: git asks its other helpers, then the person.
 			return nil
 		},
 	}
+}
+
+// tokenFor returns the token for the box at origin: TIFFIN_TOKEN when origin
+// is the box the CLI targets, else the saved token of the box at origin.
+func (a *app) tokenFor(origin string) string {
+	if origin == "" {
+		return ""
+	}
+	target := a.url
+	_, cur := a.currentBox()
+	if target == "" && cur != nil {
+		target = cur.URL
+	}
+	if a.token != "" && target != "" && originOf(target) == origin {
+		return a.token
+	}
+	if cur != nil && originOf(cur.URL) == origin && cur.Token != "" {
+		return cur.Token
+	}
+	f, err := a.loadBoxes()
+	if err != nil {
+		return ""
+	}
+	names := make([]string, 0, len(f.Boxes))
+	for n := range f.Boxes {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		if bx := f.Boxes[n]; bx != nil && bx.Token != "" && originOf(bx.URL) == origin {
+			return bx.Token
+		}
+	}
+	return ""
+}
+
+// originOf is a URL's scheme://host[:port], lower case, without the
+// scheme's default port; "" for anything that is not an http(s) URL.
+func originOf(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return ""
+	}
+	host, port := strings.ToLower(u.Hostname()), u.Port()
+	if port == map[string]string{"https": "443", "http": "80"}[u.Scheme] {
+		port = ""
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port != "" {
+		host += ":" + port
+	}
+	return u.Scheme + "://" + host
 }
