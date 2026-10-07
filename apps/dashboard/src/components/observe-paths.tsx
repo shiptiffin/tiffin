@@ -5,7 +5,7 @@ import { Segmented } from "@/components/health-kit";
 import { useTopPaths, type PathRow, type Range } from "@/components/observe-data";
 import { Skeleton } from "@/components/page";
 import { cn } from "@/lib/cn";
-import { int, ms, pct } from "@/lib/format";
+import { int, ms, NNBSP, pct } from "@/lib/format";
 
 type Sort = "busiest" | "slowest" | "failing";
 const SHOWN = 8;
@@ -34,7 +34,9 @@ export function TopPaths({ project, range, app, enabled }: { project: string; ra
           <h2 id="routes" className="text-[0.9375rem] font-[550] text-ink">
             Routes
           </h2>
-          <p className="text-[0.8125rem] text-ink-3">Every request the box answered, grouped by path. Ids in a path are folded into one route.</p>
+          <p className="text-[0.8125rem] text-ink-3">
+            Every request the box answered, grouped by path. Ids in a path are folded into one route; its times are its slowest address’s (≤).
+          </p>
         </div>
         {(q.data?.length ?? 0) > 1 && (
           <Segmented
@@ -89,6 +91,9 @@ function PathLine({ r, project, range, cols, max }: { r: PathRow; project: strin
   // The route's own requests open in the logs; a folded route searches its prefix.
   const prefix = r.path.includes(":id") ? r.path.slice(0, r.path.indexOf(":id")) : r.path;
   const query = `source:edge path:${JSON.stringify(prefix)}${r.path.includes(":id") ? "*" : ""}`;
+  // A folded route's times are its slowest address's: an upper bound, said as one.
+  const time = (v: number) => (r.bound ? `≤${NNBSP}${ms(v)}` : ms(v));
+  const boundNote = r.bound ? `At most this: the slowest of its ${int(r.paths)} addresses. Times can’t be combined exactly across addresses.` : undefined;
   return (
     <li>
       <Link
@@ -106,13 +111,17 @@ function PathLine({ r, project, range, cols, max }: { r: PathRow; project: strin
             <span className="block h-full rounded-full bg-ink-4" style={{ width: `${Math.max(1, (r.requests / max) * 100)}%` }} />
           </span>
           <span className="block text-xs text-ink-3 sm:hidden">
-            {fail} failed · half within {ms(r.p50)} · 95% within {ms(r.p95)}
+            {fail} failed · half within {time(r.p50)} · 95% within {time(r.p95)}
           </span>
         </span>
         <span className="relative text-right text-ink tnum">{int(r.requests)}</span>
         <span className="relative hidden text-right tnum sm:block">{fail}</span>
-        <span className="relative hidden text-right text-ink-2 tnum sm:block">{ms(r.p50)}</span>
-        <span className={cn("relative hidden text-right tnum sm:block", r.p95 >= 1000 ? "text-warn-ink" : "text-ink-2")}>{ms(r.p95)}</span>
+        <span className="relative hidden text-right text-ink-2 tnum sm:block" title={boundNote}>
+          {time(r.p50)}
+        </span>
+        <span className={cn("relative hidden text-right tnum sm:block", r.p95 >= 1000 ? "text-warn-ink" : "text-ink-2")} title={boundNote}>
+          {time(r.p95)}
+        </span>
       </Link>
     </li>
   );

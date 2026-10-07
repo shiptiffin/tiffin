@@ -97,7 +97,14 @@ export function useWindowTotals(project: string, range: Range, app?: string, ena
   });
 }
 
-export type PathRow = { path: string; app?: string; requests: number; failed: number; p50: number; p95: number; paths: number };
+/**
+ * A route's requests in the window. p50 and p95 are exact for a route of one
+ * address. For a folded route (paths > 1, `bound`) they are the slowest of
+ * its addresses' own: quantiles don't add up, so that is all the per-path
+ * numbers can honestly say. It is a true upper bound (a mix of groups never
+ * has a quantile above its slowest group's).
+ */
+export type PathRow = { path: string; app?: string; requests: number; failed: number; p50: number; p95: number; paths: number; bound: boolean };
 
 /**
  * /orders/1842 and /orders/1843 are one route: numbers, ids and hashes in a
@@ -112,10 +119,28 @@ export function routeOf(path: string): string {
   );
 }
 
+/** Per-path stats rows (path, requests, failed, p50, p95) folded into routes, busiest first. */
+export function foldPaths(rows: Array<Record<string, unknown>>): PathRow[] {
+  const groups = new Map<string, PathRow>();
+  for (const row of rows) {
+    const path = String(row.path ?? "");
+    if (!path) continue;
+    const key = routeOf(path);
+    const g = groups.get(key) ?? { path: key, requests: 0, failed: 0, p50: 0, p95: 0, paths: 0, bound: false };
+    g.requests += Number(row.requests) || 0;
+    g.failed += Number(row.failed) || 0;
+    g.p50 = Math.max(g.p50, Number(row.p50) || 0);
+    g.p95 = Math.max(g.p95, Number(row.p95) || 0);
+    g.paths++;
+    g.bound = g.paths > 1;
+    groups.set(key, g);
+  }
+  return [...groups.values()].sort((a, b) => b.requests - a.requests);
+}
+
 /**
  * The busiest paths in the window, from the edge's access log: requests,
- * 5xx answers, and p50/p95 response time. Addresses that differ only by an
- * id are folded into one route (its times weighted by requests).
+ * 5xx answers, and p50/p95 response time, folded into routes (foldPaths).
  */
 export function useTopPaths(project: string, range: Range, app?: string, enabled = true) {
   return useQuery({
@@ -131,23 +156,7 @@ export function useTopPaths(project: string, range: Range, app?: string, enabled
         .filter(Boolean)
         .join(" ");
       const r: LogsResult = await mod.logs({ project, query: q, since: range, limit: 400 });
-      const groups = new Map<string, PathRow & { w50: number; w95: number }>();
-      for (const row of r.rows ?? []) {
-        const path = String(row.path ?? "");
-        if (!path) continue;
-        const n = Number(row.requests) || 0;
-        const key = routeOf(path);
-        const g = groups.get(key) ?? { path: key, requests: 0, failed: 0, p50: 0, p95: 0, paths: 0, w50: 0, w95: 0 };
-        g.requests += n;
-        g.failed += Number(row.failed) || 0;
-        g.w50 += (Number(row.p50) || 0) * n;
-        g.w95 += (Number(row.p95) || 0) * n;
-        g.paths++;
-        groups.set(key, g);
-      }
-      return [...groups.values()]
-        .map(({ w50, w95, ...g }) => ({ ...g, p50: g.requests ? w50 / g.requests : 0, p95: g.requests ? w95 / g.requests : 0 }))
-        .sort((a, b) => b.requests - a.requests);
+      return foldPaths(r.rows ?? []);
     },
     enabled,
     refetchInterval: 120_000,
