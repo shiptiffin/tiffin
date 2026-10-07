@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Download, Lock, MoreHorizontal, Pencil, Play, Plus, Trash2, Unlock } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
@@ -19,6 +19,7 @@ import { fromDraft, NUMERIC, rawText, shortType, toCSV, DraftError } from "./for
 import { DataGrid, widthFor, type Cell, type GridCol } from "./grid";
 import { LinkPicker } from "./link-picker";
 import { fixedWhy, linkOf, RowPanel } from "./row-panel";
+import { prependRows, replaceRows, rowWrites, type Pages } from "./rows-cache";
 import { TableForm } from "./table-form";
 import { parseView, useDataSearch, useSetSearch, viewSearch, type View } from "./view";
 
@@ -47,7 +48,8 @@ export function TableView({ project, schema, name, branch }: { project: string; 
   const [dropping, setDropping] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  const key = ["pg-rows", project, branch, schema, name, search.f ?? "", search.s ?? ""] as const;
+  const tableRows = ["pg-rows", project, branch, schema, name] as const;
+  const key = [...tableRows, search.f ?? "", search.s ?? ""] as const;
   const rows = useInfiniteQuery({
     queryKey: key,
     queryFn: ({ pageParam }) =>
@@ -63,7 +65,7 @@ export function TableView({ project, schema, name, branch }: { project: string; 
     getNextPageParam: (last) => last.next || undefined,
     enabled: !!t,
     placeholderData: (p) => p,
-    // Refetching every loaded page of a big table on focus would be heavy; edits patch the pages instead.
+    // Refetching every loaded page of a big table on focus would be heavy; writes patch the pages, then refetch once they settle.
     refetchOnWindowFocus: false,
   });
   const all = useMemo(() => (rows.data?.pages ?? []).flatMap((p) => p.rows ?? []), [rows.data]);
@@ -117,39 +119,34 @@ export function TableView({ project, schema, name, branch }: { project: string; 
 
   // ---- writing rows ----
 
-  /** Replaces rows (by key) in every loaded page; drop removes them. */
-  const patch = (fresh: unknown[][], drop?: Set<string>) => {
-    const byKey = new Map(fresh.map((r) => [rowKey(r, 0), r]));
-    qc.setQueryData<InfiniteData<Rows, string>>(key, (d) =>
-      d
-        ? {
-            ...d,
-            pages: d.pages.map((p) => ({ ...p, rows: (p.rows ?? []).filter((r) => !drop?.has(rowKey(r, 0))).map((r) => byKey.get(rowKey(r, 0)) ?? r) })),
-          }
-        : d,
-    );
-  };
-  const prepend = (fresh: unknown[][]) =>
-    qc.setQueryData<InfiniteData<Rows, string>>(key, (d) =>
-      d ? { ...d, pages: d.pages.map((p, i) => (i === 0 ? { ...p, rows: [...fresh, ...(p.rows ?? [])], count: p.count === undefined ? p.count : p.count + fresh.length } : p)) } : d,
-    );
-  const refresh = () => {
-    void qc.invalidateQueries({ queryKey: ["pg-rows", project, branch, schema, name] });
+  const [writes] = useState(() => rowWrites(qc));
+  /** Replaces rows found by the key each had before; drop removes rows. */
+  const patch = (replace: Array<[string, unknown[]]>, drop?: Set<string>) => qc.setQueryData<Pages<Rows>>(key, (d) => replaceRows(d, (r) => rowKey(r, 0), replace, drop));
+  /** Row counts: the table's own, and the tables list. */
+  const recount = () => {
     void qc.invalidateQueries({ queryKey: ["pg-table", project, branch, schema, name] });
     void qc.invalidateQueries({ queryKey: ["tables", project] });
+  };
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: tableRows });
+    recount();
     void qc.invalidateQueries({ queryKey: ["pg-edits", project] });
   };
 
   const undo = async (res: EditResult, what: string) => {
+    await writes.start(tableRows);
     try {
       const back = await db.undo(project, res.edit.id);
-      if (res.edit.kind === "update") patch(back.rows ?? []);
+      // Undo answers in the edit's order: each row back as it was, found by the key the edit left it with.
+      if (res.edit.kind === "update") patch((back.rows ?? []).flatMap((r, i): Array<[string, unknown[]]> => (res.rows?.[i] ? [[rowKey(res.rows[i], 0), r]] : [])));
       else if (res.edit.kind === "insert") patch([], new Set((back.rows ?? []).map((r) => rowKey(r, 0))));
-      else refresh();
+      if (res.edit.kind !== "update") recount();
       void qc.invalidateQueries({ queryKey: ["pg-edits", project] });
       toast({ title: `Undone: ${what}` });
     } catch (e) {
       problemToast(e);
+    } finally {
+      writes.end(tableRows);
     }
   };
 
@@ -157,21 +154,27 @@ export function TableView({ project, schema, name, branch }: { project: string; 
   const update = async (changes: Array<{ row: unknown[]; values: Record<string, unknown> }>, what: string) => {
     if (!t) return false;
     const before = changes.map((c) => c.row);
-    const cells = new Set(changes.flatMap((c) => Object.keys(c.values).map((n) => `${rowKey(c.row, 0)}:${n}`)));
-    patch(changes.map((c) => c.row.map((v, j) => (t.columns[j].name in c.values ? c.values[t.columns[j].name] : v))));
+    const after = changes.map((c) => c.row.map((v, j) => (t.columns[j].name in c.values ? c.values[t.columns[j].name] : v)));
+    // An edit may change the key itself: rows are found by their old key, then by the new one.
+    const was = before.map((r) => rowKey(r, 0));
+    const now = after.map((r) => rowKey(r, 0));
+    const cells = new Set(changes.flatMap((c, i) => Object.keys(c.values).map((n) => `${now[i]}:${n}`)));
+    await writes.start(tableRows);
+    patch(was.map((k, i) => [k, after[i]]));
     setPending((p) => new Set([...p, ...cells]));
     try {
       const res = await db.update(project, schema, name, changes.map((c) => ({ key: keyObj(c.row), values: c.values })), branch || undefined);
-      patch(res.rows ?? []);
+      patch((res.rows ?? []).map((r, i) => [now[i], r])); // one row back per change, in order
       void qc.invalidateQueries({ queryKey: ["pg-edits", project] });
       toast({ title: what, action: { label: "Undo", run: () => undo(res, what) } });
       return true;
     } catch (e) {
-      patch(before);
+      patch(now.map((k, i) => [k, before[i]]));
       problemToast(e, "That didn't save.");
       return false;
     } finally {
       setPending((p) => new Set([...p].filter((x) => !cells.has(x))));
+      writes.end(tableRows);
     }
   };
 
@@ -182,9 +185,12 @@ export function TableView({ project, schema, name, branch }: { project: string; 
   };
 
   const insert = async (values: Record<string, unknown>) => {
+    await writes.start(tableRows);
     try {
       const res = await db.insert(project, schema, name, values, branch || undefined);
-      prepend(res.rows ?? []);
+      // Shown at the top at once when nothing is filtered; under a filter, the refetch decides whether it belongs.
+      if (view.filters.length === 0) qc.setQueryData<Pages<Rows>>(key, (d) => prependRows(d, res.rows ?? []));
+      recount();
       void qc.invalidateQueries({ queryKey: ["pg-edits", project] });
       const what = `Added ${res.rows?.[0] ? rowName(res.rows[0]) : "a row"} to ${name}`;
       toast({ title: what, action: { label: "Undo", run: () => undo(res, `added ${name} row`) } });
@@ -192,22 +198,28 @@ export function TableView({ project, schema, name, branch }: { project: string; 
     } catch (e) {
       problemToast(e, "The row wasn't added.");
       return false;
+    } finally {
+      writes.end(tableRows);
     }
   };
 
   const remove = async (keys: string[]) => {
     const rs = all.filter((r, i) => keys.includes(rowKey(r, i)));
     if (!rs.length) return;
+    await writes.start(tableRows);
     try {
       const res = await db.remove(project, schema, name, rs.map(keyObj), branch || undefined);
       patch([], new Set(rs.map((r) => rowKey(r, 0))));
       setSelected(new Set());
-      qc.setQueryData<InfiniteData<Rows, string>>(key, (d) => (d ? { ...d, pages: d.pages.map((p, i) => (i === 0 && p.count !== undefined ? { ...p, count: p.count - rs.length } : p)) } : d));
+      qc.setQueryData<Pages<Rows>>(key, (d) => (d ? { ...d, pages: d.pages.map((p, i) => (i === 0 && p.count !== undefined ? { ...p, count: p.count - rs.length } : p)) } : d));
+      recount();
       void qc.invalidateQueries({ queryKey: ["pg-edits", project] });
       const what = rs.length === 1 ? `Deleted ${rowName(rs[0])} from ${name}` : `Deleted ${int(rs.length)} rows from ${name}`;
       toast({ title: what, detail: res.edit.snapshot ? "A restore point was taken first." : undefined, action: res.edit.undoable ? { label: "Undo", run: () => undo(res, what.toLowerCase()) } : undefined });
     } catch (e) {
       problemToast(e, "Nothing was deleted.");
+    } finally {
+      writes.end(tableRows);
     }
   };
 
