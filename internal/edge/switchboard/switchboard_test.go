@@ -194,3 +194,31 @@ func TestUpstreamAcceptEncodingIdentity(t *testing.T) {
 	}
 	close(release)
 }
+
+// After the apps domain changed, the edge still serves app hosts under the
+// old one for a while: the switchboard finds their app too.
+func TestOldDomainAliasesReachTheApp(t *testing.T) {
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "shop") }))
+	defer app.Close()
+	b := New(nil, nil)
+	b.Set(Table{
+		Hosts:      map[string][]Route{"shop.new.example": {{Env: "p/a"}}},
+		Envs:       map[string]*Env{"p/a": {Project: "p", App: "a", Live: "d1", Instances: []Instance{{Name: "p-a-1", Port: portOf(t, app.Listener.Addr().String())}}}},
+		AppsDomain: "new.example",
+		Aliases:    []string{"old.example"},
+	})
+	srv := httptest.NewServer(b)
+	defer srv.Close()
+	for host, want := range map[string]int{"shop.new.example": 200, "shop.old.example": 200, "shop.other.example": 404, "a.shop.old.example": 404} {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+"/", nil)
+		req.Host = host
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != want {
+			t.Errorf("%s: %d, want %d", host, res.StatusCode, want)
+		}
+	}
+}

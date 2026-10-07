@@ -218,6 +218,9 @@ func (c *Client) send(ctx context.Context, r *rendered) error {
 	}
 	if src != nil {
 		t := src()
+		if cur != nil {
+			t.AppsDomain, t.Aliases = cur.cfg.appsDomain(), cur.cfg.Aliases
+		}
 		snap.Table = &t
 	}
 	if snap.Caddy == nil && snap.Table == nil {

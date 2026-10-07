@@ -28,6 +28,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -88,6 +89,11 @@ type Table struct {
 	// next/image requests for a project's own files there go to the
 	// control plane, which resizes them (see IsBucketImage).
 	Files string `json:"files,omitempty"`
+	// AppsDomain and Aliases: the edge also serves the one-label hosts
+	// under the apps domain under each alias (an earlier domain, for a
+	// while after it changed), and their requests arrive with that name.
+	AppsDomain string   `json:"appsDomain,omitempty"`
+	Aliases    []string `json:"aliases,omitempty"`
 }
 
 // Control is what the switchboard needs the control plane for.
@@ -258,7 +264,12 @@ func (b *Board) env(key string) *Env {
 // lookup finds the environment serving host and path, and the route's path prefix.
 func (b *Board) lookup(host, p string) (env, prefix string, ok bool) {
 	b.mu.RLock()
-	rs := b.t.Hosts[host]
+	rs, ok := b.t.Hosts[host]
+	if !ok && b.t.AppsDomain != "" {
+		if label, rest, cut := strings.Cut(host, "."); cut && label != "" && slices.Contains(b.t.Aliases, rest) {
+			rs = b.t.Hosts[label+"."+b.t.AppsDomain]
+		}
+	}
 	b.mu.RUnlock()
 	for _, r := range rs {
 		if r.Prefix == "" || p == r.Prefix || strings.HasPrefix(p, r.Prefix+"/") {
