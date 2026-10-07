@@ -127,7 +127,10 @@ func (r *Rules) headerHandlers() []obj {
 
 // redirectHandlers answers the first matching redirect: the site's
 // cleanUrls and trailingSlash ones first (static sites), then its own.
-func (r *Rules) redirectHandlers(static bool) []obj {
+//
+// mount is the public path a static site is served under (its requests
+// arrive with it stripped): redirects within the site go under it too.
+func (r *Rules) redirectHandlers(static bool, mount string) []obj {
 	if r == nil {
 		return nil
 	}
@@ -156,6 +159,9 @@ func (r *Rules) redirectHandlers(static bool) []obj {
 	for i, d := range list {
 		name := "r" + strconv.Itoa(i)
 		to := placeholders(d.Destination, name)
+		if !strings.Contains(d.Destination, "://") {
+			to = mount + to
+		}
 		sep := "?"
 		if strings.Contains(d.Destination, "?") {
 			sep = "&"

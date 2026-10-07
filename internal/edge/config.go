@@ -438,8 +438,15 @@ func routeFor(c Config, r Route, portSuffix string) obj {
 			"headers":     obj{"Location": []string{"https://" + r.RedirectTo + portSuffix + "{http.request.uri}"}},
 		}}
 	case r.FileRoot != "":
+		if r.PathPrefix != "" {
+			// A site mounted at a path has its files at its folder's root:
+			// /docs/assets/app.js is <root>/assets/app.js. Its rules match
+			// its own paths too; the file server's folder redirects keep
+			// the public path.
+			handle = append(handle, obj{"handler": "rewrite", "strip_path_prefix": r.PathPrefix})
+		}
 		handle = append(handle, r.Rules.headerHandlers()...)
-		handle = append(handle, r.Rules.redirectHandlers(true)...)
+		handle = append(handle, r.Rules.redirectHandlers(true, r.PathPrefix)...)
 		handle = append(handle, fileHandlers(r)...)
 		// After the rewrites, so a missing asset answered with index.html
 		// is never cached as the asset. The site's own headers (above)
@@ -456,7 +463,7 @@ func routeFor(c Config, r Route, portSuffix string) obj {
 			handle = append(handle, nextCacheControl())
 		}
 		handle = append(handle, r.Rules.headerHandlers()...)
-		handle = append(handle, r.Rules.redirectHandlers(false)...)
+		handle = append(handle, r.Rules.redirectHandlers(false, "")...)
 		handle = append(handle, proxyMany(r.upstreams()))
 	}
 	if r.RedirectTo == "" && !r.NoCompress {

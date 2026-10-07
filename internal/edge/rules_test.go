@@ -56,6 +56,8 @@ func TestSiteRules(t *testing.T) {
 	cfg := testConfig(t, addr(upstreamServer(t, "platform")))
 	cfg.Routes = []Route{
 		{Host: "site.tiffin.localhost", FileRoot: root, Rules: rules},
+		// A site mounted at a path: its files sit at the root of its folder.
+		{Host: "mount.tiffin.localhost", PathPrefix: "/site", FileRoot: root, Rules: &Rules{CleanURLs: true}},
 		{Host: "slash.tiffin.localhost", FileRoot: root, Rules: &Rules{TrailingSlash: &no}},
 		{Host: "plain.tiffin.localhost", FileRoot: plain},
 		{Host: "app.tiffin.localhost", Upstream: addr(app), Rules: &Rules{
@@ -92,6 +94,14 @@ func TestSiteRules(t *testing.T) {
 		{u("slash", "/about"), 200, "about", "", "X-Frame-Options", "DENY"},
 		{u("plain", "/nope"), 404, "", "", "", ""},
 		{u("plain", "/"), 200, "plain", "", "Content-Security-Policy", cspValue},
+		{u("mount", "/site"), 200, "home", "", "", ""},
+		{u("mount", "/site/"), 200, "home", "", "", ""},
+		{u("mount", "/site/about"), 200, "about", "", "", ""},
+		{u("mount", "/site/assets/index-B1x9Qa2c.js"), 200, "js", "", "", ""},
+		{u("mount", "/site/docs"), 308, "", "/site/docs/", "", ""},
+		{u("mount", "/site/docs/"), 200, "docs", "", "", ""},
+		{u("mount", "/site/nope"), 404, "custom not found", "", "", ""},
+		{u("mount", "/site/about.html"), 308, "", "/site/about", "", ""},
 		{u("app", "/x"), 200, "app /x", "", "X-Frame-Options", "SAMEORIGIN"},
 		{u("app", "/x"), 200, "app /x", "", "X-From-Config", "yes"},
 		{u("app", "/x"), 200, "app /x", "", "Cache-Control", "no-store"},
