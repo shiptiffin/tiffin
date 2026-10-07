@@ -119,6 +119,20 @@ set `runtime: "node"` for them:
   aren't built from the workspace yet: give the member its own `uv.lock`, or use a
   Dockerfile.
 
+## GitHub
+
+- **Webhooks are handled as they arrive**, not from a durable inbox. GitHub does not resend
+  a failed delivery by itself: when the box answered one with an error (a 5xx), redeliver it
+  from the app's settings on GitHub (Advanced › Recent deliveries).
+- **Only production pushes are checked against their branch.** A pull request event that
+  arrives late can rebuild the preview of an older head; the next push to the pull request
+  fixes it.
+- **Final reports to GitHub** (status, deployment, comment) are retried for a day, then
+  dropped.
+- **A shared GitHub App** acts only on the repositories the installer could push to when
+  installing from the box; repositories added to the installation later need another
+  Install on repositories.
+
 ## Python
 
 FastAPI is first-class; other Python servers run as generic `python` apps (see the table
