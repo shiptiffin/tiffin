@@ -1,9 +1,18 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useState, type ReactNode } from "react";
 import { ApiError } from "@/api/client";
 import { ProblemNote } from "./problem";
 import { RiskMark } from "./risk";
 import { Button } from "./ui/button";
-import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 import { Input } from "./ui/input";
 
 type Phase<P> =
@@ -35,9 +44,9 @@ export function HazardDialog<P, R>({
   onDone: (r: R) => void;
 }) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
       {open && (
-        <DialogContent tone="danger" className="max-w-xl" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <AlertDialogContent tone="danger" onOpenAutoFocus={(e) => e.preventDefault()}>
           <Body
             title={title}
             word={word}
@@ -47,9 +56,9 @@ export function HazardDialog<P, R>({
             onDone={onDone}
             onClose={() => onOpenChange(false)}
           />
-        </DialogContent>
+        </AlertDialogContent>
       )}
-    </Dialog>
+    </AlertDialog>
   );
 }
 
@@ -72,14 +81,19 @@ function Body<P, R>({
 }) {
   const [phase, setPhase] = useState<Phase<P>>({ k: "loading" });
   const [typed, setTyped] = useState("");
+  // Ask once, on open; the callbacks are read when the answer comes, not reacted to.
+  const ask = useEffectEvent(() => run());
+  const finish = useEffectEvent((r: R) => {
+    onDone(r);
+    onClose();
+  });
   useEffect(() => {
     let live = true;
-    run()
+    ask()
       .then((r) => {
         // Nothing to confirm: it already ran.
         if (!live) return;
-        onDone(r);
-        onClose();
+        finish(r);
       })
       .catch((e) => {
         if (!live) return;
@@ -90,7 +104,6 @@ function Body<P, R>({
     return () => {
       live = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const go = async () => {
@@ -107,14 +120,14 @@ function Body<P, R>({
 
   return (
     <>
-      <DialogHeader>
-        <DialogTitle className="flex items-center gap-2 text-danger">
+      <AlertDialogHeader>
+        <AlertDialogTitle className="flex items-center gap-2 text-danger">
           <RiskMark tier="irreversible" className="size-4" />
           {title}
-        </DialogTitle>
-        <DialogDescription>Nothing has changed yet. Read what this overwrites, then confirm.</DialogDescription>
-      </DialogHeader>
-      <DialogBody>
+        </AlertDialogTitle>
+        <AlertDialogDescription>Nothing has changed yet. Read what this overwrites, then confirm.</AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogBody>
         {phase.k === "loading" && <div className="h-24 animate-pulse rounded-lg bg-paper-sunk" />}
         {phase.k === "error" && <ProblemNote error={phase.error} />}
         {(phase.k === "review" || phase.k === "running") && (
@@ -135,17 +148,17 @@ function Body<P, R>({
             </label>
           </>
         )}
-      </DialogBody>
-      <DialogFooter>
-        <Button variant="ghost" onClick={onClose}>
-          {phase.k === "error" ? "Close" : "Keep everything as it is"}
-        </Button>
+      </AlertDialogBody>
+      <AlertDialogFooter>
+        <AlertDialogCancel asChild>
+          <Button variant="ghost">{phase.k === "error" ? "Close" : "Keep everything as it is"}</Button>
+        </AlertDialogCancel>
         {(phase.k === "review" || phase.k === "running") && (
           <Button variant="danger" disabled={typed.trim() !== word || phase.k === "running"} onClick={go}>
             {phase.k === "running" ? "Working…" : action}
           </Button>
         )}
-      </DialogFooter>
+      </AlertDialogFooter>
     </>
   );
 }

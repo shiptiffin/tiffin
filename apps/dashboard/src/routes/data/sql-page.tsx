@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, Play, TriangleAlert, X } from "lucide-react";
+import { Bookmark, Download, Play, TriangleAlert, X } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { mod, mq, type PgStatement } from "@/api/modules";
 import { Rows, Section } from "@/components/data-parts";
@@ -10,11 +10,12 @@ import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Switch, SwitchThumb } from "@/components/ui/switch";
 import { cn } from "@/lib/cn";
 import { count, int, ms } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { db, dq, problemToast } from "./api";
-import { NUMERIC } from "./format";
+import { NUMERIC, toCSV } from "./format";
 import { DataGrid, widthFor, type GridCol } from "./grid";
 import type { SqlSchema } from "./sql-editor";
 
@@ -174,21 +175,14 @@ export function SqlPanel({ project, branch, handed }: { project: string; branch:
           )}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-rule bg-paper-sunk/60 px-3 py-2">
             <label className={cn("flex items-center gap-2 text-sm", writer ? "cursor-pointer text-ink-2" : "text-ink-3")} title={writer ? undefined : "Changes need a key with full access"}>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={write}
+              <Switch
+                checked={write}
+                onCheckedChange={setWrite}
                 disabled={!writer}
-                onClick={() => setWrite((w) => !w)}
-                className={cn("relative h-[18px] w-8 rounded-full border transition-colors duration-[var(--dur-state)]", write ? "border-danger bg-danger" : "border-rule-3 bg-paper-press")}
+                className="relative h-[18px] w-8 rounded-full border border-rule-3 bg-paper-press transition-colors duration-[var(--dur-state)] data-[state=checked]:border-danger data-[state=checked]:bg-danger"
               >
-                <span
-                  className={cn(
-                    "absolute top-[1px] left-[1px] size-3.5 rounded-full bg-paper-raised shadow-[0_1px_1px_oklch(0.2_0.01_60/0.25)] transition-transform duration-[var(--dur-state)] ease-[var(--ease-out)]",
-                    write && "translate-x-3.5",
-                  )}
-                />
-              </button>
+                <SwitchThumb className="absolute top-[1px] left-[1px] size-3.5 rounded-full bg-paper-raised shadow-[0_1px_1px_oklch(0.2_0.01_60/0.25)] transition-transform duration-[var(--dur-state)] ease-[var(--ease-out)] data-[state=checked]:translate-x-3.5" />
+              </Switch>
               Allow changes
             </label>
             <div className="flex items-center gap-1.5 text-sm text-ink-3">
@@ -353,7 +347,28 @@ export function ResultTable({ r }: { r: PgStatement }) {
   return (
     <div className="overflow-hidden rounded-[10px] border border-rule-2 bg-paper-raised">
       <DataGrid cols={cols} rows={rows} rowKey={(_, i) => String(i)} label="Query results" height={Math.min(rows.length * 32 + 46, 520)} />
-      {r.truncated && <p className="border-t border-rule px-3 py-1.5 text-xs text-ink-3">More than {int(rows.length)} rows matched; only these came back. Add a LIMIT or narrow the query.</p>}
+      <div className="flex items-center gap-3 border-t border-rule px-3 py-1">
+        <p className="min-w-0 flex-1 text-xs text-ink-3">
+          {r.truncated ? `More than ${int(rows.length)} rows matched; only these came back. Add a LIMIT or narrow the query.` : count(rows.length, "row")}
+        </p>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-6 text-xs"
+          disabled={rows.length === 0}
+          onClick={() => {
+            const url = URL.createObjectURL(new Blob([toCSV(cols.map((c) => c.name), rows)], { type: "text/csv;charset=utf-8" }));
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "query.csv";
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 10_000);
+          }}
+        >
+          <Download />
+          Download CSV
+        </Button>
+      </div>
     </div>
   );
 }

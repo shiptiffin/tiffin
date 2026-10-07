@@ -3,9 +3,18 @@ import { Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { ProblemNote } from "./problem";
 import { Button } from "./ui/button";
-import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 
-/** A small confirm dialog for one-line actions. Destructive by default. */
+/** A small confirm dialog for one-line actions (an alert dialog: a click outside doesn't dismiss it). Destructive by default. */
 export function Confirm({
   open,
   onClose,
@@ -26,11 +35,11 @@ export function Confirm({
   tone?: "danger" | "normal";
 }) {
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+    <AlertDialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <AlertDialogContent className="max-w-md">
         {open && <ConfirmBody title={title} body={body} action={action} run={run} done={done} onClose={onClose} tone={tone} />}
-      </DialogContent>
-    </Dialog>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -60,24 +69,24 @@ function ConfirmBody({
   });
   return (
     <>
-      <DialogHeader>
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{body}</DialogDescription>
-      </DialogHeader>
+      <AlertDialogHeader>
+        <AlertDialogTitle>{title}</AlertDialogTitle>
+        <AlertDialogDescription>{body}</AlertDialogDescription>
+      </AlertDialogHeader>
       {m.isError && (
-        <DialogBody>
+        <AlertDialogBody>
           <ProblemNote error={m.error} />
-        </DialogBody>
+        </AlertDialogBody>
       )}
-      <DialogFooter>
-        <Button variant="ghost" onClick={onClose} autoFocus>
-          Keep it
-        </Button>
+      <AlertDialogFooter>
+        <AlertDialogCancel asChild>
+          <Button variant="ghost">Keep it</Button>
+        </AlertDialogCancel>
         <Button variant={tone === "danger" ? "danger" : "primary"} disabled={m.isPending} onClick={() => m.mutate()}>
           {tone === "danger" && <Trash2 />}
           {m.isPending ? "Working…" : action}
         </Button>
-      </DialogFooter>
+      </AlertDialogFooter>
     </>
   );
 }

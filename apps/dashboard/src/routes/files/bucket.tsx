@@ -337,7 +337,7 @@ function BucketView({ project, bucket, prefix, file }: { project: string; bucket
                 placeholder={prefix ? `Find in ${parts[parts.length - 1]} by name` : "Find files by name"}
                 aria-label="Find files whose names start with"
                 spellCheck={false}
-                className="h-8 w-full rounded-[7px] border border-rule-2 bg-paper-raised pr-8 pl-8 text-sm text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass"
+                className="h-8 w-full rounded-[7px] border border-rule-2 bg-paper-raised pr-8 pl-8 text-sm text-ink outline-hidden placeholder:text-ink-4 focus-visible:border-brass"
               />
               {search ? (
                 <button

@@ -9,7 +9,7 @@ import { NameAsk } from "@/components/name-ask";
 import { Page, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/choice";
+import { RadioGroup, RadioItem, Select } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
 import { words } from "@/lib/format";
 import { toneClass, useProjectPulse } from "@/lib/pulse";
@@ -87,7 +87,7 @@ export function HomePage() {
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Find a project"
                 aria-label="Find a project"
-                className="h-8 w-full max-w-[18rem] rounded-[7px] border border-rule-2 bg-paper-raised pr-2 pl-8 text-[0.8125rem] text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass"
+                className="h-8 w-full max-w-[18rem] rounded-[7px] border border-rule-2 bg-paper-raised pr-2 pl-8 text-[0.8125rem] text-ink outline-hidden placeholder:text-ink-4 focus-visible:border-brass"
               />
             </label>
           )}
@@ -104,27 +104,30 @@ export function HomePage() {
                 { value: "size", label: "Most resources" },
               ]}
             />
-            <div role="radiogroup" aria-label="View" className="flex rounded-[7px] border border-rule-2 bg-paper-raised p-0.5">
+            <RadioGroup
+              aria-label="View"
+              orientation="horizontal"
+              value={view}
+              onValueChange={(v) => setView(v as typeof view)}
+              className="flex rounded-[7px] border border-rule-2 bg-paper-raised p-0.5"
+            >
               {(
                 [
                   ["grid", <LayoutGrid key="g" />, "Cards"],
                   ["list", <List key="l" />, "List"],
                 ] as const
               ).map(([v, icon, label]) => (
-                <button
+                <RadioItem
                   key={v}
-                  type="button"
-                  role="radio"
-                  aria-checked={view === v}
+                  value={v}
                   aria-label={label}
                   title={label}
-                  onClick={() => setView(v)}
-                  className={cn("grid size-7 place-items-center rounded-[5px] [&_svg]:size-3.5", view === v ? "bg-paper-select text-ink" : "text-ink-3")}
+                  className="grid size-7 place-items-center rounded-[5px] text-ink-3 data-[state=checked]:bg-paper-select data-[state=checked]:text-ink [&_svg]:size-3.5"
                 >
                   {icon}
-                </button>
+                </RadioItem>
               ))}
-            </div>
+            </RadioGroup>
           </div>
         </div>
       )}
@@ -252,14 +255,14 @@ function ProjectCard({ project, shares }: { project: string; shares?: Shares }) 
       {preview && <img src={preview} alt="" className="aspect-[1200/630] w-full border-b border-rule object-cover" loading="lazy" />}
       <div className="flex flex-1 flex-col p-4 pb-3.5">
         <div className="flex items-center gap-2.5">
-          <ProjectIcon project={project} size={22} />
+          <ProjectIcon project={project} size={24} />
           <h2 className="min-w-0 truncate text-[1.0625rem] leading-6 font-[550] tracking-[-0.01em] text-ink">
-            <Link to={home.to as "/projects/$project"} params={home.params} className="outline-none after:absolute after:inset-0 after:rounded-[12px] focus-visible:after:shadow-[0_0_0_2px_var(--brass)]">
+            <Link to={home.to} params={home.params} className="outline-hidden after:absolute after:inset-0 after:rounded-[12px] focus-visible:after:shadow-[0_0_0_2px_var(--brass)]">
               {project}
             </Link>
           </h2>
         </div>
-        <div className="mt-1 min-h-5 pl-[32px] text-[0.8125rem]">
+        <div className="mt-1 min-h-5 pl-[34px] text-[0.8125rem]">
           {pulse.url ? (
             <a href={pulse.url} target="_blank" rel="noopener noreferrer" className="ident relative z-10 inline-flex max-w-full items-center gap-1 text-[0.75rem] text-ink-3 hover:text-brass-ink">
               <span className="truncate">{host(pulse.url)}</span>
@@ -293,8 +296,8 @@ function ProjectRow({ project, shares }: { project: string; shares?: Shares }) {
   return (
     <li className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 py-3 transition-colors hover:bg-paper-hover sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto_5rem] sm:px-2">
       <span className="flex min-w-0 items-center gap-2.5">
-        <ProjectIcon project={project} size={18} />
-        <Link to={home.to as "/projects/$project"} params={home.params} className="truncate text-[0.9375rem] font-[550] text-ink outline-none after:absolute after:inset-0 focus-visible:underline">
+        <ProjectIcon project={project} size={20} />
+        <Link to={home.to} params={home.params} className="truncate text-[0.9375rem] font-[550] text-ink outline-hidden after:absolute after:inset-0 focus-visible:underline">
           {project}
         </Link>
       </span>

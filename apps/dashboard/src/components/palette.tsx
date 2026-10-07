@@ -62,9 +62,11 @@ const box: Array<[string, string, string[]]> = [
 ];
 
 /** A project's pages: label, path, the part it needs (none: every project has it), words it answers to, its shortcut. */
-const pages: Array<{ label: string; to: string; part?: Part; kw: string[]; keys?: string }> = [
+const pages: Array<{ label: string; to: string; search?: Record<string, string>; part?: Part; kw: string[]; keys?: string }> = [
   { label: "Overview", to: "/projects/$project", kw: ["resources", "home"], keys: "g o" },
-  { label: "Apps and deploys", to: "/projects/$project/apps", part: "apps", kw: ["app", "deploy", "rollback", "preview", "restart"] },
+  { label: "Deployments", to: "/projects/$project/deployments", part: "apps", kw: ["app", "deploy", "build", "build log", "rollback", "preview", "restart"] },
+  { label: "Logs", to: "/projects/$project/logs", kw: ["logs", "tail", "errors", "output", "stdout"], keys: "g l" },
+  { label: "Environment Variables", to: "/projects/$project/env", kw: ["env", "secrets", "api key", ".env", "config"] },
   { label: "Database", to: "/projects/$project/data", part: "postgres", kw: ["tables", "postgres", "db", "rows"], keys: "g d" },
   { label: "Database: SQL", to: "/projects/$project/data/sql", part: "postgres", kw: ["query", "postgres", "db"] },
   { label: "Database: copies", to: "/projects/$project/data/branches", part: "postgres", kw: ["branches", "clone", "preview", "db"] },
@@ -81,11 +83,12 @@ const pages: Array<{ label: string; to: string; part?: Part; kw: string[]; keys?
   { label: "Jobs: schedules", to: "/projects/$project/jobs/schedules", part: "jobs", kw: ["cron", "schedule", "timer", "pause"] },
   { label: "Jobs: queues", to: "/projects/$project/jobs/queues", part: "jobs", kw: ["queues", "topics", "concurrency", "rate limit"] },
   { label: "Jobs: failed", to: "/projects/$project/jobs/failed", part: "jobs", kw: ["dead letter", "dlq", "retry", "failed"] },
-  { label: "Usage", to: "/projects/$project/usage", kw: ["memory", "cpu", "limit", "resources", "copies", "scale"], keys: "g u" },
+  { label: "Jobs: workers", to: "/projects/$project/jobs/workers", part: "jobs", kw: ["workers", "apps", "alive", "instances"] },
+  { label: "Observability", to: "/projects/$project/observability", kw: ["metrics", "charts", "requests", "latency", "errors", "traces", "usage"], keys: "g u" },
+  { label: "Observability: resources", to: "/projects/$project/observability", search: { tab: "resources" }, kw: ["memory", "cpu", "limit", "resources", "usage", "disk"] },
   { label: "History", to: "/projects/$project/history", kw: ["changes", "undo", "ledger"], keys: "g h" },
-  { label: "Settings", to: "/projects/$project/settings", kw: ["env", "colour", "addresses", "delete"], keys: "g s" },
+  { label: "Settings", to: "/projects/$project/settings", kw: ["colour", "addresses", "delete", "rename", "copy", "move"], keys: "g s" },
   { label: "Domains", to: "/projects/$project/domains", kw: ["domain", "dns", "https", "certificate", "www", "custom domain"] },
-  { label: "Secrets", to: "/projects/$project/secrets", kw: ["env", "api key"] },
 ];
 
 /**
@@ -179,7 +182,7 @@ export function CommandPalette({ open, onOpenChange, initialSearch = "", onShort
     if (!e.stay) close();
     e.run();
   };
-  const go = (to: string, params?: Record<string, string>) => () => void navigate({ to: to as "/", params: params as never });
+  const go = (to: string, params?: Record<string, string>, search?: Record<string, string>) => () => void navigate({ to: to as "/", params: params as never, search: search as never });
 
   /** Everything one project offers: its pages and its parts' actions. */
   const projectEntries = (p: string, here: boolean): Entry[] => {
@@ -188,13 +191,13 @@ export function CommandPalette({ open, onOpenChange, initialSearch = "", onShort
     const out: Entry[] = pages
       .filter((x) => !x.part || parts.has(x.part))
       .map((x) => ({
-        id: `page:${p}:${x.to}`,
+        id: `page:${p}:${x.to}${x.search ? `?${new URLSearchParams(x.search)}` : ""}`,
         label: here ? x.label : <>{x.label}<span className="ml-2 text-xs text-ink-3">{p}</span></>,
         text: `${p} ${x.label}`,
         icon: here ? <FolderClosed /> : <ProjectGlyph project={p} />,
         kw: x.kw,
         keys: here ? x.keys : undefined,
-        run: go(x.to, { project: p }),
+        run: go(x.to, { project: p }, x.search),
       }));
     // Each bucket is a page of its own.
     for (const r of st?.resources ?? []) {
@@ -218,7 +221,7 @@ export function CommandPalette({ open, onOpenChange, initialSearch = "", onShort
         kw: a.kw,
         run: () => {
           requestCommand(a.id);
-          void navigate({ to: PART_PAGE[a.part].to as "/", params: { project: p } as never });
+          void navigate({ to: PART_PAGE[a.part].to, params: { project: p } });
         },
       });
     }
@@ -261,7 +264,7 @@ export function CommandPalette({ open, onOpenChange, initialSearch = "", onShort
     text: `project ${p}`,
     icon: <ProjectGlyph project={p} />,
     aside: p === current ? "here" : undefined,
-    run: () => void (current ? switchTo(p) : navigate({ to: projectHome(p, stateOf(p)).to as "/", params: { project: p } as never })),
+    run: () => void (current ? switchTo(p) : navigate(projectHome(p, stateOf(p)))),
   }));
   const general: Entry[] = [
     { id: "go:projects", label: "Projects", text: "Projects", icon: <ScrollText />, kw: ["home", "all projects"], run: go("/") },
@@ -272,7 +275,7 @@ export function CommandPalette({ open, onOpenChange, initialSearch = "", onShort
       text: `New project ${s.title}`,
       icon: <Plus />,
       kw: ["create", "standalone", "only", "console"],
-      run: () => void navigate({ to: "/new", search: { starter: `part:${s.part}` } as never }),
+      run: () => void navigate({ to: "/new", search: { starter: `part:${s.part}` } }),
     })),
     { id: "go:activity", label: "Activity: every project’s changes", text: "Activity", icon: <ScrollText />, kw: ["activity", "changes", "ledger", "undo"], run: () => void navigate({ to: "/ledger", search: {} }) },
     { id: "go:health", label: "Health", text: "Health", icon: <Gauge />, kw: ["status", "checks"], run: go("/status") },
@@ -336,7 +339,7 @@ export function CommandPalette({ open, onOpenChange, initialSearch = "", onShort
         <D.Overlay className="fixed inset-0 z-50 bg-[var(--scrim)] data-[state=open]:animate-[fade_80ms_linear_both]" />
         <D.Content
           aria-describedby={undefined}
-          className="fixed top-[12vh] left-1/2 z-50 w-[calc(100vw-2rem)] max-w-[600px] -translate-x-1/2 overflow-hidden rounded-[12px] border border-rule-2 bg-paper-raised shadow-raised outline-none data-[state=open]:animate-[fade_80ms_linear_both]"
+          className="fixed top-[12vh] left-1/2 z-50 w-[calc(100vw-2rem)] max-w-[600px] -translate-x-1/2 overflow-hidden rounded-[12px] border border-rule-2 bg-paper-raised shadow-raised outline-hidden data-[state=open]:animate-[fade_80ms_linear_both]"
         >
           <D.Title className="sr-only">Command palette</D.Title>
           <Command label="Command palette" loop className="flex max-h-[min(70vh,520px)] flex-col" filter={score}>
@@ -346,7 +349,7 @@ export function CommandPalette({ open, onOpenChange, initialSearch = "", onShort
                 value={search}
                 onValueChange={setSearch}
                 placeholder={current ? `Jump to a page, project or action… try “${current} database”` : "Jump to a page, project or action…"}
-                className="h-13 w-full bg-transparent text-md text-ink outline-none placeholder:text-ink-3"
+                className="h-13 w-full bg-transparent text-md text-ink outline-hidden placeholder:text-ink-3"
               />
               <kbd className="kbd">esc</kbd>
             </div>
@@ -460,7 +463,7 @@ function score(value: string, search: string, keywords?: string[]): number {
 function ProjectGlyph({ project }: { project: string }) {
   return (
     <span className="grid size-4 place-items-center">
-      <ProjectIcon project={project} size={14} />
+      <ProjectIcon project={project} size={16} />
     </span>
   );
 }

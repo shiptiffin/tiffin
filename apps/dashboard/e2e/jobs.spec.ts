@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { ownerToken, port, signIn } from "./helpers";
+import { ownerToken, pick, port, signIn } from "./helpers";
 
 // The Jobs area against a box whose queue really runs (e2e/serve-jobs.sh):
 //   E2E_PORT=7393 E2E_SERVE=e2e/serve-jobs.sh bunx playwright test jobs
@@ -42,8 +42,8 @@ test("a project with no apps: schedules and queues that call web addresses", asy
   await page.getByRole("link", { name: "Jobs", exact: true }).first().click();
   await expect(page).toHaveURL(/\/projects\/hooks\/jobs$/);
   await expect(page.getByRole("heading", { level: 1, name: "Jobs" })).toBeVisible();
-  for (const tab of ["Runs", "Schedules", "Queues", "Failed"]) await expect(page.getByRole("navigation", { name: "Jobs" }).getByRole("link", { name: new RegExp(`^${tab}`) })).toBeVisible();
-  await expect(page.getByRole("link", { name: /^orders/ }).first()).toBeVisible();
+  for (const tab of ["Runs", "Schedules", "Queues", "Workers", "Failed"]) await expect(page.getByRole("navigation", { name: "Jobs" }).getByRole("link", { name: new RegExp(`^${tab}`) })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Latest runs" }).getByRole("link", { name: / orders job_\d+ / }).first()).toBeVisible();
   await axe(page, "runs");
 
   await page.getByRole("navigation", { name: "Jobs" }).getByRole("link", { name: "Schedules" }).click();
@@ -93,7 +93,7 @@ test("create, edit, pause and delete a schedule", async ({ page }) => {
   await row.getByRole("button", { name: "Edit" }).click();
   await expect(dialog.getByRole("heading", { name: "Edit nightly-sync" })).toBeVisible();
   await dialog.getByRole("radio", { name: "Every N minutes" }).click();
-  await dialog.getByRole("combobox").first().selectOption("5");
+  await pick(page, dialog.getByRole("combobox", { name: "Every how many minutes" }), "5");
   await dialog.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Changed the nightly-sync schedule")).toBeVisible();
   await expect(row.getByText("Every 5 minutes")).toBeVisible();
@@ -133,7 +133,7 @@ test("send a test job and watch it", async ({ page }) => {
   await page.keyboard.press("t");
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading", { name: "Send a test job" })).toBeVisible();
-  await dialog.getByLabel("Queue").selectOption("reports");
+  await pick(page, dialog.getByRole("combobox", { name: "Queue" }), "reports");
   await dialog.getByLabel("Payload (JSON)").fill('{ "pages": }');
   await expect(dialog.getByText(/That isn’t JSON yet \(line 1, column/)).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Send to reports" })).toBeDisabled();

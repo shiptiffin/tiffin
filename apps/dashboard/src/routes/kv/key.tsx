@@ -131,7 +131,7 @@ export function KeyPanel({ k, onBack, onGone, onRenamed }: { k: string; onBack: 
                 spellCheck={false}
                 onChange={(e) => setRenaming(e.target.value)}
                 onKeyDown={(e) => e.key === "Escape" && setRenaming(null)}
-                className="h-8 min-w-0 flex-1 rounded-[7px] border border-brass bg-paper-raised px-2 font-mono text-[0.875rem] text-ink shadow-[0_0_0_3px_var(--brass-wash)] outline-none"
+                className="h-8 min-w-0 flex-1 rounded-[7px] border border-brass bg-paper-raised px-2 font-mono text-[0.875rem] text-ink shadow-[0_0_0_3px_var(--brass-wash)] outline-hidden"
               />
               <Button size="sm" type="submit">
                 Rename
@@ -183,7 +183,7 @@ export function KeyPanel({ k, onBack, onGone, onRenamed }: { k: string; onBack: 
             placeholder={first.type === "hash" ? "Find fields" : "Find members"}
             aria-label={first.type === "hash" ? "Find fields" : "Find members"}
             spellCheck={false}
-            className="min-w-0 flex-1 bg-transparent font-mono text-[0.78125rem] text-ink outline-none placeholder:font-sans placeholder:text-ink-4"
+            className="min-w-0 flex-1 bg-transparent font-mono text-[0.78125rem] text-ink outline-hidden placeholder:font-sans placeholder:text-ink-4"
           />
         </label>
       )}
@@ -215,9 +215,10 @@ function Expiry({ k, ttlMs, at }: { k: string; ttlMs: number; at: number }) {
     return () => clearInterval(t);
   }, [kept]);
   const left = ttlMs - (now - at);
+  const expired = !kept && left <= 0;
   useEffect(() => {
-    if (!kept && left <= 0) refresh();
-  }, [kept, left <= 0, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (expired) refresh();
+  }, [expired, refresh]);
   const start = () => {
     const [n, unit] = kept ? [1, "hours"] : splitSeconds(Math.max(60, Math.round(left / 1000)));
     setEdit({ n: String(n), unit });
@@ -251,7 +252,7 @@ function Expiry({ k, ttlMs, at }: { k: string; ttlMs: number; at: number }) {
             value={edit.n}
             onChange={(e) => setEdit({ ...edit, n: e.target.value.replace(/[^\d.]/g, "") })}
             onKeyDown={(e) => e.key === "Escape" && setEdit(null)}
-            className="h-7 w-16 rounded-[6px] border border-rule-2 bg-paper-raised px-2 text-right text-ink tnum outline-none focus-visible:border-brass"
+            className="h-7 w-16 rounded-[6px] border border-rule-2 bg-paper-raised px-2 text-right text-ink tnum outline-hidden focus-visible:border-brass"
           />
           <Select size="sm" aria-label="Unit" value={edit.unit} onValueChange={(v) => setEdit({ ...edit, unit: v })} className="w-24 font-mono" options={UNITS.map((u) => ({ value: u.unit, label: u.unit }))} />
           <Button size="sm" type="submit" disabled={!(Number(edit.n) > 0)}>

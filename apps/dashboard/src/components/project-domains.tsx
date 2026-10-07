@@ -78,22 +78,3 @@ export function DomainsSummary({ project, className }: { project: string; classN
     </section>
   );
 }
-
-/** One line in a project's Settings: how many domains, and the way to them. */
-export function DomainsLink({ project }: { project: string }) {
-  const q = useQuery(projectDomainsQuery(project));
-  if (q.isError) return null;
-  const rows = q.data ? withWww(q.data) : undefined;
-  const waiting = rows?.filter((r) => r.d.state !== "live").length ?? 0;
-  return (
-    <Link to="/projects/$project/domains" params={{ project }} className="group mt-3 flex items-center justify-between gap-3 border-y border-rule py-2.5">
-      <span className="min-w-0">
-        <span className="block text-[0.875rem] text-ink group-hover:underline group-hover:decoration-rule-3 group-hover:underline-offset-4">
-          {!rows ? "Domains" : rows.length === 0 ? "Use your own domain" : rows.length === 1 ? `Your domain: ${rows[0].d.domain}` : `${rows.length} domains of your own`}
-        </span>
-        <span className="block text-xs text-ink-3">{waiting ? `${waiting === 1 ? "One is" : `${waiting} are`} still being set up.` : "Like example.com, with HTTPS that renews itself."}</span>
-      </span>
-      <ChevronRight className="size-4 shrink-0 text-ink-4" />
-    </Link>
-  );
-}

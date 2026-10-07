@@ -1,10 +1,12 @@
 import { Plus } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
+import { Segmented } from "@/components/segmented";
 import { jsonLine } from "@/components/data-parts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { int } from "@/lib/format";
 import { ValueGrid, type GridRow } from "./grid";
+import { JsonTree } from "./json-view";
 import { asJSON, jsonProblem, streamTime, unixHint } from "./words";
 import { useKv } from "./write";
 
@@ -63,7 +65,7 @@ function Field({ className, ...props }: React.ComponentProps<"input">) {
     <input
       spellCheck={false}
       className={cn(
-        "h-7 min-w-0 rounded-[6px] border border-rule-2 bg-paper-raised px-2 font-mono text-[0.78125rem] text-ink outline-none placeholder:font-sans placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]",
+        "h-7 min-w-0 rounded-[6px] border border-rule-2 bg-paper-raised px-2 font-mono text-[0.78125rem] text-ink outline-hidden placeholder:font-sans placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]",
         className,
       )}
       {...props}
@@ -86,6 +88,9 @@ export function TextEditor({ k, text, truncated }: { k: string; text: string; tr
   const dirty = draft !== text;
   const json = asJSON(draft);
   const problem = jsonProblem(draft);
+  // JSON opens as a tree to read; Text edits it.
+  const [mode, setMode] = useState<"tree" | "text">(() => (asJSON(text) ? "tree" : "text"));
+  const tree = mode === "tree" && json !== null;
   const save = async () => {
     if (!dirty || busy) return;
     setBusy(true);
@@ -108,34 +113,57 @@ export function TextEditor({ k, text, truncated }: { k: string; text: string; tr
     );
   return (
     <div>
-      <div className="overflow-hidden rounded-[10px] border border-rule-2 bg-paper-raised focus-within:border-brass focus-within:shadow-[0_0_0_3px_var(--brass-wash)]">
-        <div className="flex items-center justify-between gap-2 border-b border-rule bg-paper-sunk px-3 py-1">
+      <div
+        className={cn(
+          "overflow-hidden rounded-[10px] border border-rule-2 bg-paper-raised",
+          !tree && "focus-within:border-brass focus-within:shadow-[0_0_0_3px_var(--brass-wash)]",
+        )}
+      >
+        <div className="flex min-h-9 items-center justify-between gap-2 border-b border-rule bg-paper-sunk py-1 pr-1.5 pl-3">
           <span className="text-xs text-ink-3">{json ? "JSON" : "Text"}</span>
-          {json !== null && canWrite && (
-            <Button size="sm" variant="ghost" className="h-6" onClick={() => setDraft(JSON.stringify(json, null, 2))}>
-              Format
-            </Button>
-          )}
+          <span className="flex items-center gap-1.5">
+            {json !== null && !tree && canWrite && (
+              <Button size="sm" variant="ghost" className="h-6" onClick={() => setDraft(JSON.stringify(json, null, 2))}>
+                Format
+              </Button>
+            )}
+            {json !== null && (
+              <Segmented
+                label="Show as"
+                value={tree ? "tree" : "text"}
+                onChange={setMode}
+                className="[&_button]:h-6 [&_button]:text-xs"
+                options={[
+                  { value: "tree", label: "Tree" },
+                  { value: "text", label: canWrite ? "Edit" : "Text" },
+                ]}
+              />
+            )}
+          </span>
         </div>
-        <textarea
-          aria-label={`Value of ${k}`}
-          value={draft}
-          readOnly={!canWrite}
-          spellCheck={false}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              void save();
-            }
-            if (e.key === "Escape" && dirty) {
-              e.preventDefault();
-              setDraft(text);
-            }
-          }}
-          rows={Math.min(22, Math.max(6, draft.split("\n").length + 1))}
-          className="block w-full resize-y bg-transparent px-3.5 py-3 font-mono text-[0.78125rem] leading-5 text-ink outline-none"
-        />
+        {tree ? (
+          <JsonTree value={json} label={`Value of ${k}, as a tree`} className="max-h-[60vh] min-h-[9rem]" />
+        ) : (
+          <textarea
+            aria-label={`Value of ${k}`}
+            value={draft}
+            readOnly={!canWrite}
+            spellCheck={false}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                void save();
+              }
+              if (e.key === "Escape" && dirty) {
+                e.preventDefault();
+                setDraft(text);
+              }
+            }}
+            rows={Math.min(22, Math.max(6, draft.split("\n").length + 1))}
+            className="block w-full resize-y bg-transparent px-3.5 py-3 font-mono text-[0.78125rem] leading-5 text-ink outline-hidden"
+          />
+        )}
       </div>
       {problem && (
         <p className="mt-2 text-sm text-warn-ink" role="status">
@@ -144,9 +172,11 @@ export function TextEditor({ k, text, truncated }: { k: string; text: string; tr
       )}
       {canWrite && (
         <div className="mt-2.5 flex items-center gap-2">
-          <Button size="sm" variant="primary" disabled={!dirty || busy} onClick={save} title="Save (⌘↵)">
-            {busy ? "Saving…" : "Save"}
-          </Button>
+          {(!tree || dirty) && (
+            <Button size="sm" variant="primary" disabled={!dirty || busy} onClick={save} title="Save (⌘↵)">
+              {busy ? "Saving…" : "Save"}
+            </Button>
+          )}
           {dirty && (
             <Button size="sm" variant="ghost" onClick={() => setDraft(text)} title="Revert (Esc)">
               Revert

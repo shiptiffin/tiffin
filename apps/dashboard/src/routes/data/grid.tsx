@@ -1,6 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp, ArrowUpRight, KeyRound, Link2, Maximize2 } from "lucide-react";
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Checkbox } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
 import { copyText } from "@/lib/clipboard";
@@ -297,7 +297,7 @@ export const DataGrid = memo(function DataGrid({
         aria-multiselectable={selectable || undefined}
         onKeyDown={onKey}
         onPaste={onPasteEvent}
-        className="h-full overflow-auto overscroll-contain font-mono text-[0.78125rem] leading-[1.1875rem] focus:outline-none"
+        className="h-full overflow-auto overscroll-contain font-mono text-[0.78125rem] leading-[1.1875rem] focus:outline-hidden"
       >
         <div style={{ minWidth: width, height: virt.getTotalSize() }} className="relative">
           <div role="rowgroup" className="sticky top-0 z-[2]">
@@ -308,7 +308,7 @@ export const DataGrid = memo(function DataGrid({
                   id={cellId({ r: -1, c: -1 })}
                   tabIndex={cur.r === -1 && cur.c === -1 ? 0 : -1}
                   onFocus={() => setActive({ r: -1, c: -1 })}
-                  className="sticky left-0 z-[1] grid place-items-center bg-paper-sunk outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--focus)]"
+                  className="sticky left-0 z-[1] grid place-items-center bg-paper-sunk outline-hidden focus-visible:shadow-[inset_0_0_0_2px_var(--focus)]"
                 >
                   <Checkbox
                     tabIndex={-1}
@@ -341,7 +341,7 @@ export const DataGrid = memo(function DataGrid({
                     }}
                     title={onSort ? `Sort by ${c.name}` : undefined}
                     className={cn(
-                      "group/h flex min-w-0 flex-col justify-end border-l border-rule px-3 pb-1.5 outline-none select-none focus-visible:shadow-[inset_0_0_0_2px_var(--focus)]",
+                      "group/h flex min-w-0 flex-col justify-end border-l border-rule px-3 pb-1.5 outline-hidden select-none focus-visible:shadow-[inset_0_0_0_2px_var(--focus)]",
                       onSort && "cursor-pointer hover:bg-paper-press/60",
                       c.numeric && "items-end text-right",
                     )}
@@ -490,7 +490,7 @@ const GridRow = memo(function GridRow({
           }}
           onClick={(e) => onCell(-1, e)}
           onDoubleClick={() => onDouble(-1)}
-          className={cn("sticky left-0 z-[1] flex items-center justify-center gap-1.5 outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--focus)]", selected ? "bg-brass-wash" : "bg-inherit")}
+          className={cn("sticky left-0 z-[1] flex items-center justify-center gap-1.5 outline-hidden focus-visible:shadow-[inset_0_0_0_2px_var(--focus)]", selected ? "bg-brass-wash" : "bg-inherit")}
         >
           <Checkbox tabIndex={-1} checked={selected} aria-label={`Select row ${offset + i + 1}`} className="pointer-events-none" />
           <button
@@ -535,7 +535,7 @@ const GridRow = memo(function GridRow({
             onDoubleClick={() => onDouble(j)}
             title={isTimestamp(v) ? String(v) : text.length > 32 ? text.slice(0, 500) : undefined}
             className={cn(
-              "group/c relative flex min-w-0 items-center border-l border-rule px-3 outline-none",
+              "group/c relative flex min-w-0 items-center border-l border-rule px-3 outline-hidden",
               c.numeric && "justify-end tnum",
               v === null ? "text-ink-3 italic" : typeof v === "object" || c.category === "array" ? "text-ink-2" : "text-ink",
               on && "z-[1] shadow-[inset_0_0_0_2px_var(--focus)]",
@@ -599,14 +599,15 @@ function Editor({
   onBlur: () => void;
 }) {
   const ref = useRef<HTMLInputElement & HTMLSelectElement>(null);
-  useEffect(() => {
+  // On open only: focus the editor, selecting a longer starting draft so typing replaces it.
+  const focusIn = useEffectEvent(() => {
     const el = ref.current;
     if (!el) return;
     el.focus();
     if (el.tagName === "INPUT" && (el as HTMLInputElement).type === "text" && draft.length > 1) (el as HTMLInputElement).select();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  const cls = "absolute inset-0 h-full w-full bg-paper-raised pl-2.5 font-mono text-[0.78125rem] text-ink outline-none shadow-[inset_0_0_0_2px_var(--focus)]";
+  });
+  useEffect(() => focusIn(), []);
+  const cls = "absolute inset-0 h-full w-full bg-paper-raised pl-2.5 font-mono text-[0.78125rem] text-ink outline-hidden shadow-[inset_0_0_0_2px_var(--focus)]";
   if (col.category === "enum")
     return (
       <select ref={ref} aria-label={`New ${col.name}`} value={draft} onChange={(e) => onDraft(e.target.value)} onKeyDown={onKey} onBlur={onBlur} className={cn(cls, "select-native")}>

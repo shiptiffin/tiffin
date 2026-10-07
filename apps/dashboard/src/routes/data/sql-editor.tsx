@@ -7,7 +7,7 @@ import { bracketMatching, HighlightStyle, indentOnInput, syntaxHighlighting } fr
 import { Compartment, EditorState, Prec } from "@codemirror/state";
 import { drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers, placeholder } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef } from "react";
 
 const highlight = HighlightStyle.define([
   { tag: [t.keyword, t.operatorKeyword, t.modifier], color: "var(--graphite)", fontWeight: "550" },
@@ -69,9 +69,11 @@ export default function SqlEditor({
     change.current = onChange;
   });
 
-  useEffect(() => {
-    const v = new EditorView({
-      parent: host.current!,
+  // The editor is made once; its first doc, schema, wrap and label are read then (later schema changes reconfigure below).
+  const create = useEffectEvent(
+    (parent: HTMLElement) =>
+      new EditorView({
+      parent,
       state: EditorState.create({
         doc: value,
         extensions: [
@@ -97,10 +99,12 @@ export default function SqlEditor({
           }),
         ],
       }),
-    });
+    }),
+  );
+  useEffect(() => {
+    const v = create(host.current!);
     view.current = v;
     return () => v.destroy();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // New tables: new completions.

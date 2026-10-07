@@ -12,12 +12,12 @@ export type Row = { type: string; name: string; host?: string; value: string; ok
  * each value with a copy button. With `ok`, a row that DNS already answers
  * gets a tick. On a phone each record is a small block instead of a row.
  */
-export function RecordsTable({ records, className }: { records: Row[]; className?: string }) {
+export function RecordsTable({ records, className, wideNames }: { records: Row[]; className?: string; wideNames?: boolean }) {
   const showOk = records.some((r) => r.ok !== undefined);
   // The same name and type twice (an A and an AAAA under @) reads better adjacent; keep the box's order.
   return (
     <div className={cn("overflow-hidden rounded-[10px] border border-rule-2 bg-paper-raised", className)} role="table" aria-label="Records to add">
-      <div role="row" className="hidden grid-cols-[3.75rem_6.5rem_minmax(0,1fr)_auto] gap-x-4 border-b border-rule bg-paper-sunk px-3.5 py-1.5 text-xs text-ink-3 sm:grid">
+      <div role="row" className={cn("hidden gap-x-4 border-b border-rule bg-paper-sunk px-3.5 py-1.5 text-xs text-ink-3 sm:grid", wideNames ? "grid-cols-[3.75rem_11rem_minmax(0,1fr)_auto]" : "grid-cols-[3.75rem_6.5rem_minmax(0,1fr)_auto]")}>
         <span role="columnheader">Type</span>
         <span role="columnheader">Name</span>
         <span role="columnheader">Value</span>
@@ -28,7 +28,10 @@ export function RecordsTable({ records, className }: { records: Row[]; className
           <div
             key={i}
             role="row"
-            className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 px-3.5 py-2 sm:grid-cols-[3.75rem_6.5rem_minmax(0,1fr)_auto]"
+            className={cn(
+              "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 px-3.5 py-2",
+              wideNames ? "sm:grid-cols-[3.75rem_11rem_minmax(0,1fr)_auto]" : "sm:grid-cols-[3.75rem_6.5rem_minmax(0,1fr)_auto]",
+            )}
           >
             <span role="cell" className="ident text-[0.8125rem] text-ink max-sm:col-start-1 max-sm:row-start-1">
               <span className="sm:hidden">

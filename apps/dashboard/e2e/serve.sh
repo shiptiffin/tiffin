@@ -29,6 +29,8 @@ if [ -z "$BIN" ]; then
 fi
 
 export TIFFIN_HOME="$DIR/box"
+# A second box beside the usual one (another PORT) needs its own SMTP port.
+[ "$PORT" = 7392 ] || export TIFFIN_SMTP_PORT="${TIFFIN_SMTP_PORT:-$((PORT + 10000))}"
 SEED_SPREAD=1 bash "$HERE/seed.sh" "$BIN" >&2
 bun "$HERE/seed-analytics.ts" "$DIR" >&2
 # --box turns on passkeys and secrets. The public URL must be the

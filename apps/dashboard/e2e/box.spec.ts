@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { signIn } from "./helpers";
+import { needsServices, signIn } from "./helpers";
 
 // The module pages against a real, seeded dev box (tiffin up + e2e/seed-box*.sh):
 //   E2E_BOX=1 E2E_BASE_URL=https://dashboard.tiffin.localhost:18448 E2E_OWNER_TOKEN=... bunx playwright test box
 // It changes things on that box (uploads, under-attack mode), so never point it at a box you care about.
-test.skip(!process.env.E2E_BOX || !process.env.E2E_OWNER_TOKEN, "set E2E_BOX=1 and E2E_OWNER_TOKEN for a seeded dev box");
+test.skip(!process.env.E2E_BOX, "set E2E_BOX=1 for a seeded dev box");
+needsServices("shop", ["postgres", "storage"]);
 
 test("modules: storage, data, email, queues, workflows, users, analytics, protection", async ({ page, baseURL }) => {
   test.setTimeout(180_000);
@@ -27,7 +28,7 @@ test("modules: storage, data, email, queues, workflows, users, analytics, protec
   await page.getByRole("button", { name: /^hello-from-e2e.txt / }).click();
   await expect(page.getByText("Hello from the dashboard e2e")).toBeVisible();
   await page.getByRole("button", { name: "Delete", exact: true }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Delete file" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete file" }).click();
   await expect(page.getByRole("button", { name: /^hello-from-e2e.txt / })).toHaveCount(0);
 
   // Data: a read-only query.

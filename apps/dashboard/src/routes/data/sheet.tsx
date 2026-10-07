@@ -41,7 +41,7 @@ export function Sheet({
             }
           }}
           className={cn(
-            "fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-rule-2 bg-paper-raised shadow-overlay outline-none data-[state=open]:animate-[sheet-from-right_var(--dur-tray)_var(--ease-tray)_both]",
+            "fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-rule-2 bg-paper-raised shadow-overlay outline-hidden data-[state=open]:animate-[sheet-from-right_var(--dur-tray)_var(--ease-tray)_both]",
             wide ? "sm:max-w-[44rem]" : "sm:max-w-[30rem]",
           )}
         >

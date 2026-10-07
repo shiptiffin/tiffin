@@ -18,7 +18,7 @@ export function useSwitchToProject() {
   const router = useRouter();
   const qc = useQueryClient();
   return async (project: string) => {
-    const state = await qc.fetchQuery(q.project(project)).catch(() => undefined);
+    const state = await qc.query(q.project(project)).catch(() => undefined);
     const to = landing(router.state.location.pathname, project, state, Object.keys(router.routesByPath));
     const a = to.missing ? { project, part: to.missing } : null;
     arrival = a;
@@ -29,7 +29,7 @@ export function useSwitchToProject() {
         arrival = null;
         subs.forEach((f) => f());
       }, 30_000);
-    await router.navigate({ to: to.to as "/", params: to.params as never });
+    await router.navigate({ to: to.to, params: to.params });
   };
 }
 

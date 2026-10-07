@@ -1,12 +1,13 @@
 import { mkdirSync } from "node:fs";
 import { test, type Page } from "@playwright/test";
-import { signIn } from "./helpers";
+import { needsServices, signIn } from "./helpers";
 
 // Visual review of the simple dashboard (Projects home, a project's pages,
 // the confirm dialog, Settings) against a seeded dev box:
 //   SCREENS=1 E2E_BASE_URL=http://localhost:5391 E2E_OWNER_TOKEN=... bunx playwright test screens-simple
 // It opens the confirm dialog for turning a service off and cancels it; it changes nothing.
-test.skip(!process.env.SCREENS || !process.env.E2E_OWNER_TOKEN, "set SCREENS=1 and E2E_OWNER_TOKEN for a seeded box");
+test.skip(!process.env.SCREENS, "set SCREENS=1 for screenshots");
+needsServices("shop", ["postgres"]);
 
 const out = process.env.SHOTS_DIR ?? "screenshots/simple";
 const only = process.env.SHOTS?.split(",");
@@ -91,8 +92,8 @@ const pages: Array<{
     act: (p) => p.getByRole("button", { name: /^Add/ }).last().click(),
     full: false,
   },
-  { name: "usage", url: "/projects/shop/usage", wait: (p) => p.getByText(/is using/).waitFor() },
-  { name: "usage-limit", url: "/projects/shop/usage", stub: withUsage, wait: (p) => p.getByText(/can grow to/).waitFor() },
+  { name: "observability", url: "/projects/shop/observability", wait: (p) => p.getByRole("heading", { level: 1 }).waitFor() },
+  { name: "observability-limit", url: "/projects/shop/observability", stub: withUsage, wait: (p) => p.getByRole("heading", { level: 1 }).waitFor() },
   { name: "history", url: "/projects/shop/history", wait: (p) => p.getByRole("heading", { name: "History" }).waitFor() },
   { name: "project-settings", url: "/projects/shop/settings", wait: (p) => p.getByRole("heading", { name: "Built-in parts" }).waitFor() },
   {

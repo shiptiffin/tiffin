@@ -3,9 +3,10 @@
 // upload, mail stream, attachments) are typed by hand.
 import { queryOptions } from "@tanstack/react-query";
 import { ApiError, request } from "./client";
-import type { components } from "./schema";
+import type { components, operations } from "./schema";
 
 type S = components["schemas"];
+type O = operations;
 export type StorageInfo = S["StorageInfo"];
 export type StorageBucket = S["StorageBucketInfo"];
 export type StorageObject = S["StorageObject"];
@@ -193,7 +194,7 @@ export const mod = {
     request<Suppression>("POST", `${P(p)}/email/suppressions`, { address, reason }),
   unsuppress: (p: string, address: string) => request<void>("DELETE", `${P(p)}/email/suppressions/${e(address)}`),
   setRelay: (body: S["Email-relay-setRequest"]) => request<S["EmailRelay"]>("PUT", "/v1/email/relay", body),
-  testRelay: (to: string) => request<S["Email-relay-testResponse"]>("POST", "/v1/email/relay/test", { to }),
+  testRelay: (to: string) => request<S["EmailRelayTestResult"]>("POST", "/v1/email/relay/test", { to }),
   removeRelay: () => request<void>("DELETE", "/v1/email/relay"),
   attachmentUrl: (p: string, id: string, index: number) => `${P(p)}/email/messages/${e(id)}/attachments/${index}`,
   streamUrl: (p: string) => `${P(p)}/email/stream`,
@@ -381,3 +382,166 @@ export const mq = {
   crons: (p: string) => queryOptions({ queryKey: ["crons", p], queryFn: () => mod2.crons(p), refetchInterval: 30_000 }),
   topics: (p: string) => queryOptions({ queryKey: ["topics", p], queryFn: () => mod2.topics(p) }),
 };
+
+// ------------------------------------------------------------------ deployments (project-wide)
+
+export type ProjectDeployList = S["RuntimeProjectDeployList"];
+/** What the project's Deployments list can narrow to. */
+export type DeployFilter = NonNullable<O["project-deploys"]["parameters"]["query"]>;
+
+export const deploysApi = {
+  /** Every app's deploys in one list, newest first; `next` pages back. */
+  projectDeploys: (p: string, f: DeployFilter = {}) =>
+    request<ProjectDeployList>("GET", `${P(p)}/deploys${qs({ ...f, env: f.env === "all" ? undefined : f.env, limit: f.limit ?? 100 })}`).then((r) => ({ deploys: r.deploys ?? [], next: r.next })),
+  /** One deploy's runtime log lines, followed as server-sent events. */
+  deployLogStream: (p: string, app: string, deploy: string, o: { preview?: string; since?: string }) => `${P(p)}/apps/${e(app)}/logs${qs({ ...o, deploy, follow: true })}`,
+};
+
+// ------------------------------------------------------------------ DNS records (a domain's zone)
+
+export type ZoneRecords = S["DomainsZoneRecords"];
+export type ZoneRecord = S["DomainsZoneRecord"];
+export type DnsLookup = S["DomainsDNSLookup"];
+export type DnsLookupType = NonNullable<NonNullable<O["dns-lookup"]["parameters"]["query"]>["type"]>;
+type DnsRecordInput = S["Record"];
+
+export const dnsApi = {
+  /** Every record in the zone that holds `name`, from the connected DNS provider. 412: no provider holds it (admins only). */
+  records: (name: string) => request<ZoneRecords>("GET", `/v1/dns/records${qs({ name })}`),
+  /** Each name and type ends up with exactly these values: send every value you want to keep. */
+  setRecords: (records: DnsRecordInput[]) => request<S["Dns-records-setResponse"]>("PUT", "/v1/dns/records", { records } satisfies S["Dns-records-setRequest"]),
+  /** Deletes exactly these (name, type, value); 409 for records the box relies on. */
+  deleteRecords: (records: DnsRecordInput[]) =>
+    request<S["Dns-records-deleteResponse"]>("POST", "/v1/dns/records/delete", { records } satisfies S["Dns-records-deleteRequest"]),
+  /** What public DNS answers now (the box's resolvers). */
+  lookup: (name: string, type: DnsLookupType) => request<DnsLookup>("GET", `/v1/dns/lookup${qs({ name, type })}`),
+};
+
+// ------------------------------------------------------------------ email relay providers and delivery events (box-wide)
+
+export type EmailPreset = S["EmailPreset"];
+export type EmailWebhook = S["EmailWebhook"];
+export type EmailEvent = S["EmailEvent"];
+export type EmailProvider = EmailPreset["id"];
+export type EmailEventsProvider = EmailWebhook["provider"];
+
+export const emailApi = {
+  /** The mail services the box can fill in, with where to get keys and how events come back. */
+  providers: () => arr(request<EmailPreset[] | null>("GET", "/v1/email/providers")),
+  /** Point the box at a relay; with a provider, only the key (plus region or username for some) is needed. */
+  setRelay: (body: S["Email-relay-setRequest"]) => request<EmailStatus>("PUT", "/v1/email/relay", body),
+  /** Save the key the box checks a provider's event requests with. Postmark: the box makes it, and secretUrl comes back once. */
+  setWebhook: (provider: EmailEventsProvider, key?: string) =>
+    request<S["EmailWebhookOut"]>("PUT", `/v1/email/webhooks/${e(provider)}`, key ? { key } : {}),
+  removeWebhook: (provider: EmailEventsProvider) => request<void>("DELETE", `/v1/email/webhooks/${e(provider)}`),
+};
+
+export const emailQ = {
+  providers: queryOptions({ queryKey: ["email-providers"], queryFn: emailApi.providers, staleTime: Infinity }),
+};
+
+// ------------------------------------------------------------------ sign-in providers (box-wide keys for every project's apps)
+
+export type BoxProviders = S["AuthBoxProviders"];
+export type BoxProvider = S["AuthBoxProviderState"];
+export type ProviderState = S["AuthProviderState"];
+/** What the box owner sets for a provider; omit clientSecret/privateKey to keep the stored one. */
+export type BoxProviderInput = S["Auth-provider-setRequest"];
+
+export const signInApi = {
+  /** Every provider with its box-wide setup (never a secret) and the one callback URL. */
+  providers: () => request<BoxProviders>("GET", "/v1/auth/providers"),
+  /** Box admins only. */
+  set: (id: string, body: BoxProviderInput) => request<BoxProvider>("PUT", `/v1/auth/providers/${e(id)}`, body),
+  /** Box admins only. Projects in usedBy lose the button until they get keys again. */
+  remove: (id: string) => request<BoxProvider>("DELETE", `/v1/auth/providers/${e(id)}`),
+  /** This app's own keys, saved as the project's secrets (one change, with Undo). Empty fields keep stored values. */
+  setAppKeys: (project: string, id: string, body: S["AppKeysInBody"]) =>
+    request<ProviderState>("PUT", `/v1/projects/${e(project)}/auth/providers/${e(id)}/keys`, body),
+  /** Back to the box-wide keys: deletes the project's own secrets for the provider. */
+  removeAppKeys: (project: string, id: string) => request<ProviderState>("DELETE", `/v1/projects/${e(project)}/auth/providers/${e(id)}/keys`),
+  /** The app's current redirect URI is registered with the provider. */
+  confirmCallback: (project: string, id: string) => request<ProviderState>("POST", `/v1/projects/${e(project)}/auth/providers/${e(id)}/callback-confirm`, {}),
+};
+
+export const signInQ = {
+  providers: queryOptions({ queryKey: ["signin-providers"], queryFn: signInApi.providers, staleTime: 30_000 }),
+};
+
+// ------------------------------------------------------------------ the box's own mail, email sign-in, sending domains
+
+export type BoxMailResult = S["BoxMailResult"];
+export type BoxSender = S["EmailBoxSender"];
+export type BoxMessage = EmailSummary;
+export type SendingDomain = S["EmailSendingDomain"];
+export type SendingRecord = S["EmailSendingRecord"];
+export type SendingView = S["EmailSendingView"];
+
+const SD = (p: string) => `${P(p)}/email/sending-domain`;
+
+export const boxMail = {
+  sender: () => request<BoxSender>("GET", "/v1/email/box"),
+  setSender: (body: S["Email-box-setRequest"]) => request<BoxSender>("PUT", "/v1/email/box", body),
+  messages: (limit = 20) => arr(request<BoxMessage[] | null>("GET", `/v1/email/box/messages?limit=${limit}`)),
+  message: (id: string) => request<EmailDetail>("GET", `/v1/email/box/messages/${e(id)}`),
+  setEmail: (person: string, email: string) => request<S["Person"]>("PUT", `/v1/people/${e(person)}/email`, { email } satisfies S["Person-email-setRequest"]),
+  /** A fresh sign-in link, emailed to them too. */
+  emailLink: (person: string) => request<S["Invite"]>("POST", `/v1/people/${e(person)}/login-link?email=true`),
+  signInAvailable: () => request<S["EmailSignInStatus"]>("GET", "/v1/session/email"),
+  emailSignIn: (email: string) => request<S["EmailSignInAnswer"]>("POST", "/v1/session/email", { email } satisfies S["Session-emailRequest"]),
+  sending: (project: string, domain?: string) => request<SendingView>("GET", `${SD(project)}${qs({ domain })}`),
+  startSending: (project: string, domain: string, local: string) =>
+    request<SendingView>("POST", SD(project), { domain, local } satisfies S["Email-sending-domain-setRequest"]),
+  checkSending: (project: string) => request<SendingView>("POST", `${SD(project)}/check`),
+  stopSending: (project: string) => request<SendingView>("DELETE", SD(project)),
+};
+
+export const boxMailQ = {
+  sender: queryOptions({ queryKey: ["box-mail-sender"], queryFn: boxMail.sender, retry: false }),
+  messages: queryOptions({ queryKey: ["box-mail-messages"], queryFn: () => boxMail.messages(), retry: false }),
+  signIn: queryOptions({ queryKey: ["session-email"], queryFn: boxMail.signInAvailable, retry: false, staleTime: 60_000 }),
+  sending: (project: string) =>
+    queryOptions({
+      queryKey: ["email-sending", project],
+      queryFn: () => boxMail.sending(project),
+      retry: false,
+      // While the box waits for the provider, follow along.
+      refetchInterval: (q) => (q.state.data?.setup?.state === "verifying" ? 20_000 : false),
+    }),
+};
+
+// ------------------------------------------------------------------ project icons
+
+/** One of a project's icons. `url` changes with the image, so the browser keeps it for good. */
+export type IconImage = S["RuntimeIconImage"];
+export type IconInfo = S["RuntimeIconInfo"];
+
+const iconPath = (project: string) => `${P(project)}/icon`;
+
+export const iconQuery = (project: string) =>
+  queryOptions({
+    queryKey: ["project-icon", project],
+    queryFn: () => request<IconInfo>("GET", iconPath(project)),
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+
+const base64 = async (b: Blob) => {
+  const bytes = new Uint8Array(await b.arrayBuffer());
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+};
+
+/** Uploads an image (PNG, JPEG, GIF, WebP, ICO or SVG, ≤ 512 KB); with an SVG, a PNG of it for email. */
+export async function uploadIcon(project: string, image: Blob, png?: Blob) {
+  const body: S["Icon-uploadRequest"] = { image: await base64(image), ...(png ? { png: await base64(png) } : {}) };
+  return request<IconInfo>("PUT", iconPath(project), body);
+}
+
+/** app: the app's own icon (the box looks again now); letter: the initials. Removes an upload. */
+export const resetIcon = (project: string, use: S["Icon-resetRequest"]["use"]) =>
+  request<IconInfo>("POST", `${iconPath(project)}/reset`, { use } satisfies S["Icon-resetRequest"]);
+
+/** The most a file may weigh. */
+export const ICON_MAX_BYTES = 512 * 1024;

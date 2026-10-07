@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import emptyBackups from "@/assets/illustrations/empty-backups.webp";
 import { cn } from "@/lib/cn";
 import { Mascot } from "./mascot";
+import { RadioGroup, RadioItem } from "./ui/choice";
 import { Crumbs } from "./page";
 
 // Small page-local pieces shared by the Health, Access and Settings pages
@@ -43,7 +44,7 @@ export function Group({
   flush?: boolean;
 }) {
   return (
-    <section className={cn(flush ? "" : "mt-11", className)} aria-labelledby={id}>
+    <section className={cn(flush ? "" : "[:where(&)]:mt-11", className)} aria-labelledby={id}>
       <div className="mb-2.5 flex min-h-5 flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <h2 id={id} className="label">
           {label}
@@ -77,7 +78,7 @@ export function Facts({ items, className, narrow }: { items: Array<[ReactNode, R
   );
 }
 
-/** A small set of choices in one control: theme, sounds, time window. */
+/** A small set of choices in one control: theme, sounds, time window. A Radix radio group: arrow keys move and choose. */
 export function Segmented<T extends string>({
   value,
   onChange,
@@ -94,24 +95,24 @@ export function Segmented<T extends string>({
   disabled?: boolean;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className={cn("inline-flex w-max gap-0.5 rounded-[8px] border border-rule-2 p-0.5", disabled && "opacity-50", className)}>
+    <RadioGroup
+      aria-label={label}
+      orientation="horizontal"
+      value={value}
+      onValueChange={(v) => onChange(v as T)}
+      disabled={disabled}
+      className={cn("inline-flex w-max gap-0.5 rounded-[8px] border border-rule-2 p-0.5", disabled && "opacity-50", className)}
+    >
       {options.map((o) => (
-        <button
+        <RadioItem
           key={o.v}
-          type="button"
-          role="radio"
-          aria-checked={value === o.v}
-          disabled={disabled}
-          onClick={() => onChange(o.v)}
-          className={cn(
-            "h-7 rounded-[6px] px-2.5 text-[0.8125rem] whitespace-nowrap transition-colors duration-[var(--dur-state)] hover:text-ink",
-            value === o.v ? "bg-paper-select font-[550] text-ink" : "text-ink-3",
-          )}
+          value={o.v}
+          className="h-7 rounded-[6px] px-2.5 text-[0.8125rem] whitespace-nowrap text-ink-3 transition-colors duration-[var(--dur-state)] hover:text-ink data-[state=checked]:bg-paper-select data-[state=checked]:font-[550] data-[state=checked]:text-ink"
         >
           {o.label}
-        </button>
+        </RadioItem>
       ))}
-    </div>
+    </RadioGroup>
   );
 }
 

@@ -102,8 +102,8 @@ export function Throttle({
           aria-busy={busy || undefined}
           onKeyDown={onKey}
           className={cn(
-            "flex min-w-[2.75rem] items-center justify-center gap-1.5 border-x border-rule px-2 text-[0.875rem] font-[550] text-ink tnum outline-none focus-visible:bg-brass-wash",
-            size === "mini" && "text-[0.8125rem]",
+            "flex min-w-[2.75rem] items-center justify-center gap-1.5 border-x border-rule px-2 font-[550] text-ink tnum outline-hidden focus-visible:bg-brass-wash",
+            size === "mini" ? "text-[0.8125rem]" : "text-[0.875rem]",
           )}
         >
           {format(stops[idx])}

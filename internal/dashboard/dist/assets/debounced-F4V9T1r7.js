@@ -1,0 +1,1 @@
+import{a as e,n as t}from"./jsx-runtime-D3jfb0Ew.js";var n=e(t(),1);function r(e,t){let r=JSON.stringify(e),[i,a]=(0,n.useState)(e),o=(0,n.useEffectEvent)(()=>a(e));return(0,n.useEffect)(()=>{let e=setTimeout(()=>o(),t);return()=>clearTimeout(e)},[r,t]),i}export{r as t};

@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronRight, Plus, RotateCcw, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { ApiError } from "@/api/client";
 import { mq } from "@/api/modules";
 import { ProblemNote } from "@/components/problem";
@@ -384,10 +384,11 @@ const clipDef = (d: string) => {
 
 function NewColumnRow({ c, targets, onChange, onRemove }: { c: Draft; targets: string[]; onChange: (p: Partial<Draft>) => void; onRemove: () => void }) {
   const defaults = c.type === "link" ? [] : (DEFAULTS[c.type] ?? []);
-  useEffect(() => {
-    if (c.type === "link" && !c.ref && targets[0]) onChange({ ref: targets[0] });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [c.type]);
+  // A new link column points at the first table until one is picked; only a type change triggers it.
+  const linkFirst = useEffectEvent((type: string) => {
+    if (type === "link" && !c.ref && targets[0]) onChange({ ref: targets[0] });
+  });
+  useEffect(() => linkFirst(c.type), [c.type]);
   return (
     <li className="py-3">
       <div className="flex flex-wrap items-center gap-2">

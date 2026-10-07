@@ -141,7 +141,7 @@ export function ProjectHistoryPage({ project }: { project: string }) {
                       <Link
                         to="/changes/$id"
                         params={{ id: c.id }}
-                        className={cn("block text-[0.9375rem] leading-[1.375rem] outline-none after:absolute after:inset-0 focus-visible:underline", c.undoneBy ? "text-ink-3" : "text-ink")}
+                        className={cn("block text-[0.9375rem] leading-[1.375rem] outline-hidden after:absolute after:inset-0 focus-visible:underline", c.undoneBy ? "text-ink-3" : "text-ink")}
                       >
                         {splitIntent(intentWords(c)).head}
                       </Link>

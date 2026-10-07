@@ -1,36 +1,52 @@
-// One job or one workflow run: live progress, output and the waterfall up
-// top (streamed while it runs), then what it is, its tries or steps, and its
-// payload or input. The same view sits in the Runs tab's right half (compact)
-// and on its own page.
+// One job or one workflow run: what it is (status, where, how long, tries),
+// why it failed (message first, stack folded), live progress and logs, the
+// tries or steps over time, and its payload and output as copyable JSON.
+// Retry, Cancel, Discard and Replay sit in the header. The same view sits,
+// shorter, in the Runs tab's right half.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import { ArrowUpRight } from "lucide-react";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { ArrowUpRight, MoreHorizontal } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { ApiError } from "@/api/client";
-import { jq } from "@/api/jobs";
+import { jobsApi, jq } from "@/api/jobs";
 import { mod2, type QueueJob, type WorkflowRun, type WorkflowStep } from "@/api/modules";
 import { Confirm } from "@/components/confirm";
+import { CopyButton } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
-import { ErrorText, jobError, StateSentence, waitingFor } from "@/components/jobs-words";
+import { ErrorBlock } from "@/components/jobs-error";
+import { JsonView } from "@/components/jobs-json";
+import { jobStatus, runStatus, StatusLabel } from "@/components/jobs-status";
+import { ErrorText, StateSentence, waitingFor } from "@/components/jobs-words";
 import { Crumbs, Page, PageHeader, Skeleton } from "@/components/page";
 import { PilotLight } from "@/components/pilot";
 import { ProblemNote, sentence } from "@/components/problem";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/dropdown";
 import { cn } from "@/lib/cn";
 import { countWords, int, ms, words } from "@/lib/format";
+import { jobsSearch } from "@/lib/jobs-search";
 import { useMe } from "@/lib/me";
 import { clock, full, relative } from "@/lib/time";
 import { ApprovalCard, SendEvent } from "./approvals";
-import { jobRows, Output, Progress, runRows, useLive, useNow, Waterfall } from "./live";
-import { clockSec, elapsed, Json, Label, timelineWords, useOwnerName, whoWords } from "./shared";
+import { jobRows, Output, Progress, runRows, useLive, useNow, Waterfall, type Chunk } from "./live";
+import { jobDuration, runDuration, took } from "./model";
+import { clockSec, Label, timelineWords, useOwnerName, whoWords } from "./shared";
+import { WorkersTab } from "./workers";
 
 const finishedJob = (s?: string) => s === "completed" || s === "dead" || s === "cancelled";
 const finishedRun = (s?: string) => s === "completed" || s === "failed" || s === "cancelled";
+const problem = (e: unknown) => (e instanceof ApiError ? (e.problem.detail ?? e.message) : String(e));
 
-/** A job or a run, by its ID. */
+/** A job or a run, by its ID. /jobs/workers lands here too until Workers has a route of its own. */
 export function JobOrRunPage({ project, id }: { project: string; id: string }) {
+  if (id === "workers") return <WorkersRoute project={project} />;
   return id.startsWith("run_") ? <RunPage project={project} id={id} /> : <JobPage project={project} id={id} />;
+}
+
+function WorkersRoute({ project }: { project: string }) {
+  const raw = useSearch({ strict: false }) as Record<string, unknown>;
+  return <WorkersTab project={project} search={jobsSearch(raw)} />;
 }
 
 function Crumbed({ project, title, lede, actions }: { project: string; title: ReactNode; lede?: ReactNode; actions?: ReactNode }) {
@@ -51,6 +67,47 @@ function Crumbed({ project, title, lede, actions }: { project: string; title: Re
   );
 }
 
+/** The facts strip under a title: label over value, in a row that wraps. */
+function Facts({ items, className, compact }: { items: Array<[string, ReactNode]>; className?: string; /** In the Runs pane: three across at most. */ compact?: boolean }) {
+  return (
+    <dl className={cn("grid grid-cols-2 gap-x-6 gap-y-3 border-y border-rule py-3.5 sm:grid-cols-3", !compact && "lg:flex lg:flex-wrap lg:gap-x-10", className)}>
+      {items.map(([k, v]) => (
+        <div key={k} className="min-w-0">
+          <dt className="text-xs text-ink-3">{k}</dt>
+          <dd className="mt-0.5 truncate text-[0.875rem] text-ink tnum">{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** The ID in mono with a copy button. */
+function IdLine({ id, extra }: { id: string; extra?: ReactNode }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1 font-mono text-[0.75rem] text-ink-3">
+      <span className="truncate">{id}</span>
+      <CopyButton value={id} label="Copy the ID" className="size-6" />
+      {extra}
+    </span>
+  );
+}
+
+/** Logs: what the app wrote with job.log / ctx.stream, or how to write some. */
+function Logs({ chunks, live, call }: { chunks: Chunk[]; live: boolean; call: string }) {
+  return (
+    <section aria-labelledby="logs-h">
+      <Label id="logs-h">Logs</Label>
+      {chunks.length > 0 ? (
+        <Output chunks={chunks} live={live} />
+      ) : (
+        <p className="rounded-[10px] border border-dashed border-rule-3 px-4 py-3 text-[0.8125rem] text-ink-3">
+          {live ? "Nothing written yet." : "This one wrote no logs."} Lines written with <code className="ident text-[0.75rem] text-ink-2">{call}</code> show here as they happen.
+        </p>
+      )}
+    </section>
+  );
+}
+
 // ------------------------------------------------------------------ a job
 
 function useJob(project: string, id: string) {
@@ -64,6 +121,7 @@ function useJob(project: string, id: string) {
 
 function JobActions({ project, d, compact }: { project: string; d: QueueJob; compact?: boolean }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const { can } = useMe();
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["job", project, d.id] });
@@ -71,12 +129,12 @@ function JobActions({ project, d, compact }: { project: string; d: QueueJob; com
     void qc.invalidateQueries({ queryKey: ["queue-stats", project] });
   };
   const act = useMutation({
-    mutationFn: (a: "retry" | "cancel") => (a === "retry" ? mod2.retryJob(project, d.id) : mod2.cancelJob(project, d.id)),
+    mutationFn: (a: "retry" | "cancel" | "discard") => (a === "retry" ? mod2.retryJob(project, d.id) : mod2.cancelJob(project, d.id)),
     onSuccess: (_, a) => {
       refresh();
       toast({
-        title: a === "retry" ? `Sent ${d.id} back to its queue.` : `Cancelled ${d.id}.`,
-        detail: a === "retry" ? "It gets a fresh set of tries." : "It won’t run unless you send it again.",
+        title: a === "retry" ? `Sent ${d.id} back to its queue.` : a === "discard" ? `Discarded ${d.id}.` : `Cancelled ${d.id}.`,
+        detail: a === "retry" ? "It gets a fresh set of tries." : a === "discard" ? "It left Failed. Its tries stay on record." : "It won’t run unless you send it again.",
         action: {
           label: "Undo",
           run: async () => {
@@ -86,27 +144,69 @@ function JobActions({ project, d, compact }: { project: string; d: QueueJob; com
         },
       });
     },
-    onError: (e) => toast({ title: "That didn’t work.", detail: e instanceof ApiError ? (e.problem.detail ?? e.message) : String(e), tone: "danger" }),
+    onError: (e) => toast({ title: "That didn’t work.", detail: problem(e), tone: "danger" }),
+  });
+  // Replay: a new job with the same payload and options, so this one stays as it was.
+  const replay = useMutation({
+    mutationFn: () =>
+      d.cron
+        ? jobsApi.triggerCron(project, d.cron).then((r) => r.job)
+        : jobsApi.send(project, { name: d.topic ?? d.queue, payload: d.payload, key: d.key, groupKey: d.groupKey, priority: d.priority }).then((r) => r.jobs?.[0] ?? ""),
+    onSuccess: (id) => {
+      refresh();
+      toast({
+        title: d.cron ? `Started ${d.cron} now.` : `Sent a copy of ${d.id} to ${d.topic ?? d.queue}.`,
+        detail: d.cron ? "Its regular runs stay as they are." : "Same payload, a new job.",
+        action: id ? { label: "Open it", run: () => void navigate({ to: "/projects/$project/jobs/$id", params: { project, id } }) } : undefined,
+      });
+    },
+    onError: (e) => toast({ title: "Couldn’t replay it.", detail: problem(e), tone: "danger" }),
   });
   if (!can("apply:reversible")) return null;
+  const size = compact ? "sm" : "md";
+  const cancellable = ["queued", "scheduled", "retrying", "running"].includes(d.state);
+  const retriable = ["dead", "cancelled", "retrying", "scheduled"].includes(d.state);
+  const replayable = d.kind !== "workflow" && finishedJob(d.state);
   return (
     <>
-      {["queued", "scheduled", "retrying", "running"].includes(d.state) && (
-        <Button variant="ghost" size={compact ? "sm" : "md"} onClick={() => act.mutate("cancel")} disabled={act.isPending}>
+      {cancellable && (
+        <Button variant="ghost" size={size} onClick={() => act.mutate("cancel")} disabled={act.isPending}>
           Cancel
         </Button>
       )}
-      {["dead", "completed", "cancelled", "retrying", "scheduled"].includes(d.state) && (
-        <Button size={compact ? "sm" : "md"} onClick={() => act.mutate("retry")} disabled={act.isPending}>
-          {d.state === "completed" ? "Run again" : d.state === "scheduled" ? "Run it now" : "Retry now"}
+      {retriable && (
+        <Button size={size} variant={d.state === "dead" ? "primary" : "secondary"} onClick={() => act.mutate("retry")} disabled={act.isPending}>
+          {d.state === "scheduled" ? "Run it now" : d.state === "retrying" ? "Retry now" : "Retry"}
         </Button>
+      )}
+      {replayable && d.state === "completed" && (
+        <Button size={size} onClick={() => replay.mutate()} disabled={replay.isPending} title={d.cron ? "Run the schedule once more" : "Send a new job with the same payload"}>
+          Replay
+        </Button>
+      )}
+      {(d.state === "dead" || (replayable && d.state !== "completed")) && (
+        <Menu>
+          <MenuTrigger asChild>
+            <Button variant="ghost" size={compact ? "icon-sm" : "icon"} aria-label={`More for ${d.id}`}>
+              <MoreHorizontal />
+            </Button>
+          </MenuTrigger>
+          <MenuContent align="end" className="min-w-56">
+            {replayable && <MenuItem onSelect={() => replay.mutate()}>{d.cron ? "Run the schedule now" : "Replay as a new job"}</MenuItem>}
+            {d.state === "dead" && (
+              <MenuItem onSelect={() => act.mutate("discard")} variant="danger">
+                Discard
+              </MenuItem>
+            )}
+          </MenuContent>
+        </Menu>
       )}
     </>
   );
 }
 
 function jobSentence(d: QueueJob): ReactNode {
-  const ran = elapsed(d.startedAt, d.finishedAt);
+  const ran = jobDuration(d);
   const tries = (n: number) => countWords(n, "try", "tries");
   switch (d.state) {
     case "completed":
@@ -131,7 +231,7 @@ function jobSentence(d: QueueJob): ReactNode {
   }
 }
 
-/** Progress, output and tries as they happen. */
+/** Progress and the tries over time, as they happen. */
 function JobLive({ d, live }: { d: QueueJob; live: ReturnType<typeof useLive> }) {
   const running = !finishedJob(d.state);
   const progress = live.state?.progress ?? d.progress;
@@ -141,13 +241,41 @@ function JobLive({ d, live }: { d: QueueJob; live: ReturnType<typeof useLive> })
     <div className="grid gap-6">
       {progress !== undefined && progress !== null && <Progress value={progress} live={running && live.connected} at={live.at} source="job.progress()" />}
       <Waterfall rows={rows} start={start} end={end} label={`${d.id}: its tries over time`} />
-      <Output chunks={live.chunks} live={running} />
     </div>
   );
 }
 
 const jobName = (d: QueueJob) => (d.cron ? d.cron : d.queue);
-const jobKind = (d: QueueJob) => (d.cron ? "a scheduled run" : d.topic ? `from topic ${d.topic}` : `on ${d.queue}`);
+const lastStatus = (d: QueueJob) => d.lastStatus ?? d.attempts?.[d.attempts.length - 1]?.status;
+
+function jobFacts(project: string, d: QueueJob, short?: boolean): Array<[string, ReactNode]> {
+  const ran = jobDuration(d);
+  const out: Array<[string, ReactNode]> = [
+    ["Status", <StatusLabel key="s" status={jobStatus(d)} />],
+    [
+      d.cron ? "Schedule" : "Queue",
+      d.cron ? (
+        <Link key="c" to="/projects/$project/jobs/schedules" params={{ project }} className="ident hover:underline">
+          {d.cron}
+        </Link>
+      ) : (
+        <Link key="q" to="/projects/$project/jobs" params={{ project }} search={{ queue: d.queue }} className="ident hover:underline">
+          {d.queue}
+        </Link>
+      ),
+    ],
+    ["Took", ran !== undefined ? took(ran) : "–"],
+    ["Tries", `${int(d.attempt)} of ${int(d.maxAttempts)}`],
+    [
+      "Sent",
+      <time key="t" dateTime={d.enqueuedAt} title={full(d.enqueuedAt)}>
+        {relative(d.enqueuedAt)}
+      </time>,
+    ],
+  ];
+  if (!short && d.enqueuedBy) out.push(["Sent by", whoWords(d.enqueuedBy)]);
+  return out;
+}
 
 /** The Runs tab's right half for a job. */
 export function JobPane({ project, id }: { project: string; id: string }) {
@@ -155,22 +283,24 @@ export function JobPane({ project, id }: { project: string; id: string }) {
   if (j.isPending) return <Skeleton className="h-64" />;
   if (j.isError) return <ProblemNote error={j.error} title={j.error instanceof ApiError && j.error.status === 404 ? "There’s no job with that ID" : undefined} />;
   const d = j.data;
-  const err = jobError(d.lastError);
   return (
     <section aria-label={`${jobName(d)} ${d.id}`} className="grid gap-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-[1.0625rem] font-[550] text-ink">
-            <span className="ident">{jobName(d)}</span> <span className="ident text-[0.8125rem] font-normal text-ink-3">{d.id}</span>
-          </h2>
-          <p className="mt-0.5 text-[0.84375rem] text-ink-2">{jobSentence(d)}</p>
+          <h2 className="ident truncate text-[1.0625rem] font-[550] text-ink">{jobName(d)}</h2>
+          <IdLine id={d.id} />
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5">
           <JobActions project={project} d={d} compact />
         </div>
       </div>
-      {err && <p className="rounded-[8px] border border-danger-rule bg-danger-wash px-3 py-2 font-mono text-[0.78rem] break-words text-ink">{err.text}</p>}
+      <Facts items={jobFacts(project, d, true)} compact />
+      <p className="text-[0.875rem] text-ink-2">{jobSentence(d)}</p>
+      {d.lastError && <ErrorBlock error={d.lastError} status={lastStatus(d)} title={d.state === "completed" ? "An earlier try failed" : "Why it failed"} />}
       <JobLive d={d} live={live} />
+      {live.chunks.length > 0 && <Output chunks={live.chunks} live={!finishedJob(d.state)} />}
+      <JsonView title="Payload" value={d.payload} />
+      {d.output !== undefined && <JsonView title="Output" value={d.output} />}
       <Link to="/projects/$project/jobs/$id" params={{ project, id }} className="inline-flex items-center gap-1 text-[0.8125rem] font-[550] text-brass-ink hover:underline">
         Payload, output and every try <ArrowUpRight className="size-3.5" />
       </Link>
@@ -186,33 +316,22 @@ export function JobPage({ project, id }: { project: string; id: string }) {
     return (
       <Page wide>
         <Skeleton className="h-10 w-80" />
+        <Skeleton className="mt-6 h-16" />
+        <Skeleton className="mt-6 h-48" />
       </Page>
     );
   if (j.isError)
     return (
       <Page wide>
-        <ProblemNote error={j.error} title={j.error instanceof ApiError && j.error.status === 404 ? "There’s no job with that ID" : undefined} />
+        <Crumbed project={project} title={id} />
+        <ProblemNote className="mt-6" error={j.error} title={j.error instanceof ApiError && j.error.status === 404 ? "There’s no job with that ID" : undefined} />
       </Page>
     );
   const d = j.data;
-  const err = jobError(d.lastError);
   const attempts = d.attempts ?? [];
-  const facts: Array<[string, ReactNode]> = [
-    [
-      d.cron ? "Schedule" : "Queue",
-      d.cron ? (
-        <Link key="c" to="/projects/$project/jobs/schedules" params={{ project }} className="ident hover:underline">
-          {d.cron}
-        </Link>
-      ) : (
-        <Link key="q" to="/projects/$project/jobs" params={{ project }} search={{ queue: d.queue }} className="ident hover:underline">
-          {d.queue}
-        </Link>
-      ),
-    ],
+  const about: Array<[string, ReactNode]> = [
     ["Delivered to", <code key="t" className="ident break-all">{d.target}</code>],
-    ...(d.enqueuedBy ? ([["Sent by", whoWords(d.enqueuedBy)]] as Array<[string, ReactNode]>) : []),
-    ["Sent", <time key="s" dateTime={d.enqueuedAt} title={full(d.enqueuedAt)}>{`${clockSec(d.enqueuedAt)}, ${relative(d.enqueuedAt)}`}</time>],
+    ...(d.topic ? ([["Topic", <code key="tp" className="ident">{d.topic}</code>]] as Array<[string, ReactNode]>) : []),
     ...(d.runId
       ? ([
           [
@@ -224,52 +343,28 @@ export function JobPage({ project, id }: { project: string; id: string }) {
         ] as Array<[string, ReactNode]>)
       : []),
     ...(d.key ? ([["Key", <code key="k" className="ident">{d.key}</code>]] as Array<[string, ReactNode]>) : []),
+    ...(d.groupKey ? ([["In order with", <code key="g" className="ident">{d.groupKey}</code>]] as Array<[string, ReactNode]>) : []),
+    ...(d.dedupe ? ([["Dedupe", <code key="dd" className="ident">{d.dedupe}</code>]] as Array<[string, ReactNode]>) : []),
     ...(d.priority !== "normal" ? ([["Priority", d.priority]] as Array<[string, ReactNode]>) : []),
-    ["Tries", `${int(d.attempt)} of ${int(d.maxAttempts)}`],
+    ["Sent at", <time key="s" dateTime={d.enqueuedAt} title={full(d.enqueuedAt)}>{clockSec(d.enqueuedAt)}</time>],
     ...(d.release ? ([["Release", <code key="rel" className="ident text-ink-2">{d.release}</code>]] as Array<[string, ReactNode]>) : []),
   ];
   return (
     <Page wide>
-      <Crumbed
-        project={project}
-        title={
-          <>
-            A {d.cron ? "run of" : "job on"} {jobName(d)}
-            <span className="ident ml-2.5 align-middle text-[0.8125rem] font-normal tracking-normal text-ink-3">{d.id}</span>
-          </>
-        }
-        actions={<JobActions project={project} d={d} />}
-      />
-      <StateSentence className="mt-5">{jobSentence(d)}</StateSentence>
-      {err && (
-        <div className="mt-4 max-w-[48rem] rounded-[10px] border border-danger-rule bg-danger-wash px-4 py-3">
-          <p className="font-mono text-[0.8125rem] break-words text-ink">{err.text}</p>
-          {err.gaveUp && <p className="mt-1 text-[0.8125rem] text-ink-2">The receiver answered “don’t retry”, so Tiffin stopped there.</p>}
-        </div>
-      )}
-      <section className="mt-8 max-w-[52rem]" aria-label="Live">
-        <JobLive d={d} live={live} />
-      </section>
+      <Crumbed project={project} title={<span className="font-mono tracking-[-0.03em]">{jobName(d)}</span>} lede={<IdLine id={d.id} extra={<span className="font-sans">· {d.cron ? "a scheduled run" : d.topic ? `from topic ${d.topic}` : "a job"}</span>} />} actions={<JobActions project={project} d={d} />} />
+      <Facts className="mt-6" items={jobFacts(project, d)} />
+      <StateSentence className="mt-6">{jobSentence(d)}</StateSentence>
+      {d.lastError && <ErrorBlock className="mt-5 max-w-[52rem]" error={d.lastError} status={lastStatus(d)} title={d.state === "completed" ? "An earlier try failed" : "Why it failed"} />}
 
       <div className="mt-10 grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="flex flex-col gap-10">
-          <section aria-labelledby="facts">
-            <Label id="facts">About this {jobKind(d).startsWith("a scheduled") ? "run" : "job"}</Label>
-            <dl className="divide-y divide-rule border-y border-rule">
-              {facts.map(([k, v]) => (
-                <div key={k} className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-4 py-2 text-[0.84375rem]">
-                  <dt className="text-ink-3">{k}</dt>
-                  <dd className="min-w-0 truncate text-ink">{v}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
+        <div className="flex min-w-0 flex-col gap-10">
           <section aria-labelledby="attempts">
             <Label id="attempts">Tries</Label>
+            <JobLive d={d} live={live} />
             {attempts.length === 0 ? (
-              <p className="border-y border-rule py-4 text-[0.875rem] text-ink-3">{d.state === "scheduled" ? `None yet. Due ${relative(d.runAt)}.` : "None yet."}</p>
+              <p className="mt-4 border-y border-rule py-4 text-[0.875rem] text-ink-3">{d.state === "scheduled" ? `No tries yet. Due ${relative(d.runAt)}.` : "No tries yet."}</p>
             ) : (
-              <ol className="divide-y divide-rule border-y border-rule">
+              <ol className="mt-4 divide-y divide-rule border-y border-rule">
                 {attempts.map((a) => {
                   const bad = a.outcome !== "ok";
                   return (
@@ -290,7 +385,7 @@ export function JobPage({ project, id }: { project: string; id: string }) {
                             {a.status && (a.status < 200 || a.status > 299) ? ` · answered ${a.status === 489 ? "don’t retry" : `HTTP ${a.status}`}` : ""}
                           </span>
                         </p>
-                        {a.error && a.error !== d.lastError && <ErrorText e={a.error} className="mt-0.5 block font-mono text-[0.75rem] break-words text-ink-2" />}
+                        {a.error && a.error !== d.lastError && <ErrorText e={a.error.split("\n")[0]} className="mt-0.5 block truncate font-mono text-[0.75rem] text-ink-2" />}
                       </div>
                     </li>
                   );
@@ -298,11 +393,23 @@ export function JobPage({ project, id }: { project: string; id: string }) {
               </ol>
             )}
           </section>
+          <Logs chunks={live.chunks} live={!finishedJob(d.state)} call="job.log()" />
+          <section aria-labelledby="facts">
+            <Label id="facts">Details</Label>
+            <dl className="divide-y divide-rule border-y border-rule">
+              {about.map(([k, v]) => (
+                <div key={k} className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-4 py-2 text-[0.84375rem]">
+                  <dt className="text-ink-3">{k}</dt>
+                  <dd className="min-w-0 truncate text-ink">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
         </div>
-        <section className="flex flex-col gap-8">
-          <Json title="Payload" value={d.payload} label="Sent with the job. Shown as plain text." />
-          {d.output !== undefined && <Json title="Output" value={d.output} label="Returned by the receiver. Shown as plain text." />}
-        </section>
+        <div className="flex min-w-0 flex-col gap-6">
+          <JsonView title="Payload" value={d.payload} note="sent with the job, shown as plain text" />
+          <JsonView title="Output" value={d.output} note="what the handler returned" empty={finishedJob(d.state) ? "The handler returned nothing." : "Shows when the job finishes."} />
+        </div>
       </div>
     </Page>
   );
@@ -359,6 +466,7 @@ function runSentence(run: WorkflowRun): string {
 
 function RunActions({ project, run, compact }: { project: string; run: WorkflowRun; compact?: boolean }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const { can } = useMe();
   const [cancelling, setCancelling] = useState(false);
   const refresh = () => {
@@ -373,16 +481,30 @@ function RunActions({ project, run, compact }: { project: string; run: WorkflowR
     },
     onError: (e) => toast({ title: "Couldn’t retry it.", detail: e instanceof ApiError ? (e.problem.detail ?? e.message) : String(e), tone: "danger" }),
   });
+  // Replay: a new run of the same workflow with the same input; this one stays as it was.
+  const replay = useMutation({
+    mutationFn: () => jobsApi.startRun(project, { workflow: run.workflow, app: run.app, input: run.input }),
+    onSuccess: (r) => {
+      refresh();
+      toast({ title: `Started a new ${run.workflow} run.`, detail: "Same input, from the first step.", action: { label: "Open it", run: () => void navigate({ to: "/projects/$project/jobs/$id", params: { project, id: r.id } }) } });
+    },
+    onError: (e) => toast({ title: "Couldn’t start it.", detail: problem(e), tone: "danger" }),
+  });
   if (!can("apply:reversible")) return null;
   return (
     <>
+      {finishedRun(run.state) && (
+        <Button size={compact ? "sm" : "md"} variant={run.state === "failed" ? "ghost" : "secondary"} onClick={() => replay.mutate()} disabled={replay.isPending} title="Start a new run with the same input">
+          Replay
+        </Button>
+      )}
       {(run.state === "running" || run.state === "waiting") && (
         <Button variant="ghost" size={compact ? "sm" : "md"} onClick={() => setCancelling(true)}>
           Cancel run…
         </Button>
       )}
       {run.state === "failed" && (
-        <Button size={compact ? "sm" : "md"} onClick={() => retry.mutate()} disabled={retry.isPending}>
+        <Button size={compact ? "sm" : "md"} variant="primary" onClick={() => retry.mutate()} disabled={retry.isPending}>
           Retry from the failed step
         </Button>
       )}
@@ -411,9 +533,26 @@ function RunLive({ run, live }: { run: WorkflowRun; live: ReturnType<typeof useL
     <div className="grid gap-6">
       {progress !== undefined && progress !== null && <Progress value={progress} live={going && live.connected} at={live.at} source="ctx.progress()" />}
       <Waterfall rows={rows} start={start} end={end} label={`${run.workflow}: its steps over time`} />
-      <Output chunks={live.chunks} live={going} />
     </div>
   );
+}
+
+function runFacts(run: WorkflowRun, short?: boolean): Array<[string, ReactNode]> {
+  const w = waitingFor(run.waitingFor);
+  const out: Array<[string, ReactNode]> = [
+    ["Status", <StatusLabel key="s" status={runStatus(run)} word={run.state === "waiting" && w?.kind === "sleep" ? "Sleeping" : undefined} />],
+    ["Took", `${took(runDuration(run))}${finishedRun(run.state) ? "" : " so far"}`],
+    ["Steps", `${int((run.steps ?? []).filter((x) => x.kind !== "patch").length)} in ${run.turns === 1 ? "one turn" : `${int(run.turns)} turns`}`],
+    [
+      "Started",
+      <time key="t" dateTime={run.createdAt} title={full(run.createdAt)}>
+        {relative(run.createdAt)}
+      </time>,
+    ],
+  ];
+  if (!short) out.push(["App", <span key="a" className="ident">{run.app}</span>]);
+  if (!short && run.startedBy) out.push(["Started by", whoWords(run.startedBy)]);
+  return out;
 }
 
 /** The Runs tab's right half for a workflow run. */
@@ -426,16 +565,20 @@ export function RunPane({ project, id }: { project: string; id: string }) {
     <section aria-label={`${run.workflow} ${run.id}`} className="grid gap-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-[1.0625rem] font-[550] text-ink">
-            <span className="ident">{run.workflow}</span> <span className="ident text-[0.8125rem] font-normal text-ink-3">{run.idempotencyKey ?? run.id.slice(0, 12)}</span>
-          </h2>
-          <p className="mt-0.5 text-[0.84375rem] text-ink-2">{runSentence(run)}</p>
+          <h2 className="ident truncate text-[1.0625rem] font-[550] text-ink">{run.workflow}</h2>
+          <IdLine id={run.idempotencyKey ?? run.id} />
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5">
           <RunActions project={project} run={run} compact />
         </div>
       </div>
+      <Facts items={runFacts(run, true)} compact />
+      <p className="text-[0.875rem] text-ink-2">{runSentence(run)}</p>
+      {run.error && <ErrorBlock error={run.error} title="Why it failed" />}
       <RunLive run={run} live={live} />
+      {live.chunks.length > 0 && <Output chunks={live.chunks} live={!finishedRun(run.state)} />}
+      <JsonView title="Input" value={run.input} />
+      {run.output !== undefined && <JsonView title="Output" value={run.output} />}
       <Link to="/projects/$project/jobs/$id" params={{ project, id }} className="inline-flex items-center gap-1 text-[0.8125rem] font-[550] text-brass-ink hover:underline">
         Every step, its history and input <ArrowUpRight className="size-3.5" />
       </Link>
@@ -471,16 +614,13 @@ export function RunPage({ project, id }: { project: string; id: string }) {
     <Page wide>
       <Crumbed
         project={project}
-        title={run.workflow}
-        lede={
-          <span className="font-mono text-[0.75rem] text-ink-3">
-            {run.idempotencyKey ? `${run.idempotencyKey} · ` : ""}
-            {run.id} · on {run.app}
-          </span>
-        }
+        title={<span className="font-mono tracking-[-0.03em]">{run.workflow}</span>}
+        lede={<IdLine id={run.id} extra={run.idempotencyKey ? <span className="truncate">· {run.idempotencyKey}</span> : undefined} />}
         actions={<RunActions project={project} run={run} />}
       />
-      <StateSentence className="mt-5">{runSentence(run)}</StateSentence>
+      <Facts className="mt-6" items={runFacts(run)} />
+      <StateSentence className="mt-6">{runSentence(run)}</StateSentence>
+      {run.error && <ErrorBlock className="mt-5 max-w-[52rem]" error={run.error} title="Why it failed" />}
       <section className="mt-8 max-w-[52rem]" aria-label="Live">
         <RunLive run={run} live={live} />
       </section>
@@ -490,7 +630,7 @@ export function RunPage({ project, id }: { project: string; id: string }) {
           <h2 id="tl" className="label">
             Steps
           </h2>
-          <span className="text-[0.8125rem] text-ink-3 tnum">{run.state === "completed" ? `${ms(total)} in all` : `${ms(total)} so far`}</span>
+          <span className="text-[0.8125rem] text-ink-3 tnum">{finishedRun(run.state) ? `${took(total)} in all` : `${took(total)} so far`}</span>
         </div>
         <ol className="border-y border-rule">
           {steps.map((s, k) => {
@@ -520,7 +660,7 @@ export function RunPage({ project, id }: { project: string; id: string }) {
                 )}
                 {s.kind === "event" && s.state === "waiting" && can("apply:reversible") && <SendEvent project={project} runId={id} event={s.event ?? ""} />}
                 {s.kind === "event" && s.state !== "waiting" && s.event && <p className="mt-0.5 font-mono text-[0.75rem] text-ink-3">event {s.event}</p>}
-                {s.error && <ErrorText e={s.error} className="mt-1 block font-mono text-[0.75rem] break-words text-danger" />}
+                {s.error && (s.state === "failed" && s.error !== run.error ? <ErrorBlock className="mt-2 max-w-[44rem]" error={s.error} title="This step failed" /> : <ErrorText e={s.error} className="mt-1 block font-mono text-[0.75rem] break-words text-danger" />)}
                 {s.output !== undefined && s.kind === "step" && (
                   <p className="mt-0.5 truncate font-mono text-[0.75rem] text-ink-3" title={JSON.stringify(s.output)}>
                     → {JSON.stringify(s.output)}
@@ -589,7 +729,11 @@ export function RunPage({ project, id }: { project: string; id: string }) {
             </p>
           )}
         </section>
-        <Json title="Input" value={run.input} label="Sent by whoever started the run. Shown as plain text." />
+        <div className="flex min-w-0 flex-col gap-6">
+          <JsonView title="Input" value={run.input} note="sent by whoever started the run" />
+          <JsonView title="Output" value={run.output} note="what the workflow returned" empty={run.state === "completed" ? "The workflow returned nothing." : finishedRun(run.state) ? "It stopped before returning anything." : "Shows when the run finishes."} />
+          <Logs chunks={live.chunks} live={!finishedRun(run.state)} call="ctx.stream()" />
+        </div>
       </div>
     </Page>
   );

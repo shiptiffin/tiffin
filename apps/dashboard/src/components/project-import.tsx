@@ -238,7 +238,7 @@ export function ImportSteps({ imp }: { imp: ProjectImport }) {
           spellCheck={false}
           aria-invalid={!imp.check.ok}
           aria-describedby="iname-note"
-          className="ident h-10 w-full rounded-[8px] border border-rule-2 bg-paper-raised px-3 text-[0.9375rem] text-ink outline-none transition-[border-color,box-shadow] focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] aria-invalid:border-danger"
+          className="ident h-10 w-full rounded-[8px] border border-rule-2 bg-paper-raised px-3 text-[0.9375rem] text-ink outline-hidden transition-[border-color,box-shadow] focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] aria-invalid:border-danger"
         />
         <p id="iname-note" className="mt-2 min-h-5 text-sm" aria-live="polite">
           {!imp.check.ok ? (
@@ -286,7 +286,7 @@ export function ImportSteps({ imp }: { imp: ProjectImport }) {
               autoComplete="off"
               aria-label="The old box’s key"
               placeholder="AGE-SECRET-KEY-1…"
-              className="ident mt-3 w-full rounded-[8px] border border-rule-2 bg-paper-raised px-3 py-2 text-[0.8125rem] text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]"
+              className="ident mt-3 w-full rounded-[8px] border border-rule-2 bg-paper-raised px-3 py-2 text-[0.8125rem] text-ink outline-hidden placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]"
             />
           )}
         </section>

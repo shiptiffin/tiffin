@@ -1,12 +1,13 @@
 import { mkdirSync } from "node:fs";
 import { test, type Page } from "@playwright/test";
-import { signIn } from "./helpers";
+import { needsServices, signIn } from "./helpers";
 
 // Visual review of the data tiers (Data, table browser, SQL, branches, Key-value,
 // Storage, a bucket, the dev inbox, email settings) against a seeded dev box:
 //   SCREENS=1 E2E_BASE_URL=http://localhost:5403 E2E_OWNER_TOKEN=... bunx playwright test screens-data
 // Read-only: it runs one SELECT and opens things, nothing else.
-test.skip(!process.env.SCREENS || !process.env.E2E_OWNER_TOKEN, "set SCREENS=1 and E2E_OWNER_TOKEN for a seeded box");
+test.skip(!process.env.SCREENS, "set SCREENS=1 for screenshots");
+needsServices("shop", ["postgres", "valkey", "storage"]);
 
 const out = process.env.SHOTS_DIR ?? "screenshots/fusion";
 const only = process.env.SHOTS?.split(",");
@@ -22,7 +23,8 @@ async function shot(page: Page, name: string, fullPage = true) {
 }
 
 const pages: Array<{ name: string; url: string; wait: (p: Page) => Promise<unknown>; act?: (p: Page) => Promise<unknown>; full?: boolean }> = [
-  { name: "data", url: "/projects/shop/data", wait: (p) => p.getByRole("grid").waitFor() },
+  { name: "data", url: "/projects/shop/data", wait: (p) => p.getByText("Connection string").first().waitFor() },
+  { name: "data-table", url: "/projects/shop/data/tables/orders", wait: (p) => p.getByRole("grid").waitFor() },
   {
     name: "data-table",
     url: "/projects/shop/data/tables/orders",
@@ -73,7 +75,7 @@ const pages: Array<{ name: string; url: string; wait: (p: Page) => Promise<unkno
         .getByRole("radiogroup", { name: /^uploads/ })
         .getByRole("radio", { name: "public" })
         .click();
-      await p.getByRole("dialog").getByRole("button", { name: "Confirm" }).waitFor();
+      await p.getByRole("alertdialog").getByRole("button", { name: "Confirm" }).waitFor();
     },
     full: false,
   },

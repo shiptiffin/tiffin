@@ -3,7 +3,7 @@ import type { BoxServer, ServerOffer } from "@/api/client";
 import { Command } from "@/components/copy";
 import { Segmented } from "@/components/health-kit";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/cn";
+import { RadioGroup, RadioItem } from "@/components/ui/choice";
 import { relative } from "@/lib/time";
 
 /** "€7.99", in the currency Hetzner bills in. */
@@ -63,19 +63,13 @@ export function BoxSize({ server }: { server?: BoxServer }) {
         </Line>
         {open === "type" && pick && (
           <div className="py-3">
-            <div role="radiogroup" aria-label="Server type" className="flex flex-col gap-1">
+            <RadioGroup aria-label="Server type" value={pick.name} onValueChange={setType} className="flex flex-col gap-1">
               {upgrades.map((o) => (
-                <button
+                <RadioItem
                   key={o.name}
-                  type="button"
-                  role="radio"
-                  aria-checked={o.name === pick.name}
+                  value={o.name}
                   disabled={o.soldOut}
-                  onClick={() => setType(o.name)}
-                  className={cn(
-                    "flex items-baseline justify-between gap-4 rounded-[8px] border px-3 py-2 text-left transition-colors duration-[var(--dur-state)]",
-                    o.soldOut ? "border-rule text-ink-3 opacity-70" : o.name === pick.name ? "border-brass bg-paper-select" : "border-rule hover:bg-paper-hover",
-                  )}
+                  className="flex items-baseline justify-between gap-4 rounded-[8px] border border-rule px-3 py-2 text-left transition-colors duration-[var(--dur-state)] hover:bg-paper-hover disabled:text-ink-3 disabled:opacity-70 disabled:hover:bg-transparent data-[state=checked]:border-brass data-[state=checked]:bg-paper-select"
                 >
                   <span className="min-w-0">
                     <span className="ident text-ink">{o.name}</span>
@@ -85,9 +79,9 @@ export function BoxSize({ server }: { server?: BoxServer }) {
                   <span className="shrink-0 text-ink-2 tnum">
                     {money(o.monthlyNet, m.currency)} <span className="text-ink-3">a month</span>
                   </span>
-                </button>
+                </RadioItem>
               ))}
-            </div>
+            </RadioGroup>
             <p className="mt-3 text-[0.8125rem] text-ink-3">
               Run this on the computer that set the box up. It shows the plan and asks first; the box is back in about 2 minutes.
             </p>

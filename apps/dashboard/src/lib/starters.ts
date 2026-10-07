@@ -2,6 +2,7 @@ import { queryOptions } from "@tanstack/react-query";
 import type { Manifest } from "@/api/client";
 import { request } from "@/api/client";
 import type { components } from "@/api/schema";
+import { pickBuild, type BuildOverrides } from "@/lib/build-config";
 import thumbApi from "@/assets/illustrations/starter-api.webp";
 import thumbWeb from "@/assets/illustrations/starter-web.webp";
 import thumbStatic from "@/assets/illustrations/starter-static.webp";
@@ -22,36 +23,40 @@ export const startersQuery = queryOptions({
   retry: false,
 });
 
-/**
- * Thumbnails by starter id, named for what you make rather than the
- * framework: a browser window with its database (a web app), a plug meeting
- * a socket (an API), a single page (a static site). The guestbook demo is a
- * web app too. Transparent; put them in an .art-well so dark mode gives them
- * a paper ground.
- */
-export const starterThumb: Record<string, string> = {
-  "static-site": thumbStatic,
-  "hono-postgres": thumbApi,
-  guestbook: thumbWeb,
-  "next-postgres": thumbWeb,
-};
+/** What a starter makes: the choice people start from. */
+export type StarterKind = Starter["kind"];
 
 /**
- * The starters people pick from, in order: a full-stack site, an API, a static
- * site. (The guestbook ships as a demo; it isn't offered as a starting point.)
+ * The kinds, named for what you make rather than the framework, in the order
+ * they're offered, each with its drawing (a browser window with its database,
+ * a single page, a plug meeting a socket), its one line and a first name for
+ * the project. The framework is a quiet choice inside the kind; each kind's
+ * default comes from the API (`default`). Drawings are transparent: put them
+ * in an .art-well so dark mode gives them a paper ground.
  */
-export const starterOrder = ["next-postgres", "hono-postgres", "static-site"];
-/** Only the starters worth starting from, in their order. */
-export const pickable = <T extends { id: string }>(list: T[]) =>
-  list.filter((s) => starterOrder.includes(s.id)).sort((a, b) => starterOrder.indexOf(a.id) - starterOrder.indexOf(b.id));
+export const KINDS: Array<{ kind: StarterKind; title: string; line: string; thumb: string; name: string }> = [
+  { kind: "web", title: "Web app", line: "A website with pages and a database.", thumb: thumbWeb, name: "web" },
+  { kind: "static", title: "Static site", line: "A landing page, docs or portfolio. No server to run.", thumb: thumbStatic, name: "site" },
+  { kind: "api", title: "API", line: "Endpoints for your mobile app or frontend.", thumb: thumbApi, name: "notes" },
+];
+export const kindOf = (k: string) => KINDS.find((x) => x.kind === k);
+export const isKind = (k: string | undefined): k is StarterKind => !!k && KINDS.some((x) => x.kind === k);
 
-/** What each starter is called in the picker. */
-export const starterTitle: Record<string, string> = {
-  "next-postgres": "Web app",
-  "hono-postgres": "API",
-  "static-site": "Static site",
-  guestbook: "Guestbook",
-};
+/** A starter's drawing: its kind's. */
+export const thumbOf = (s: Pick<Starter, "kind">) => kindOf(s.kind)?.thumb ?? thumbWeb;
+
+/** The frameworks a kind offers: its listed starters, the default first. */
+export const frameworksOf = (list: Starter[], kind: StarterKind) =>
+  list.filter((s) => s.listed && s.kind === kind).sort((a, b) => Number(b.default) - Number(a.default));
+
+/** A kind's default starter. */
+export const defaultOf = (list: Starter[], kind: StarterKind) => frameworksOf(list, kind)[0];
+
+/** The starter an id names. */
+export const starterFor = (list: Starter[], id: string | undefined) => (id ? list.find((s) => s.id === id) : undefined);
+
+/** The starters worth starting from, in kind order, each kind's default first. */
+export const pickable = (list: Starter[]) => KINDS.flatMap((k) => frameworksOf(list, k.kind));
 
 export const frameworkNames: Record<string, string> = {
   next: "Next.js",
@@ -59,25 +64,15 @@ export const frameworkNames: Record<string, string> = {
   bun: "Bun",
   static: "Static site",
   node: "Node",
+  fastapi: "FastAPI",
+  python: "Python",
 };
 export const frameworkName = (f?: string) => (f ? (frameworkNames[f] ?? f) : "App");
 
-/** What each starter is for, in one line. */
+/** One line for the other ways to bring code. */
 export const starterLine: Record<string, string> = {
-  "next-postgres": "A website with pages and a database.",
-  "hono-postgres": "Endpoints for your mobile app or frontend.",
-  "static-site": "A landing page, docs or portfolio. Live instantly.",
-  guestbook: "A page, an API, a database, a KV store and analytics in one app.",
   git: "A one-time copy of any public repository: GitLab, Codeberg, anywhere.",
   none: "Just the parts below. Add an app whenever you’re ready.",
-};
-
-/** The file to change first in each starter's source (what tiffin pull writes). */
-export const starterEdit: Record<string, string> = {
-  "next-postgres": "app/page.jsx",
-  "hono-postgres": "index.ts",
-  "static-site": "public/index.html",
-  guestbook: "public/index.html",
 };
 
 /** Hostnames the box keeps for itself. */
@@ -110,9 +105,10 @@ export function slugify(s: string): string {
     .slice(0, 40);
 }
 
-/** A first name to suggest for a starter, free on this box. */
+/** A first name to suggest for a starter, free on this box: its kind's (the guestbook demo keeps its own). */
 export function suggestName(starter: Starter | undefined, taken: { projects: string[]; routes: string[] }): string {
-  return freeName(starter ? ({ "static-site": "site", "hono-postgres": "notes", guestbook: "guestbook", "next-postgres": "web" }[starter.id] ?? starter.app) : "project", taken);
+  const base = !starter ? "project" : starter.listed ? (kindOf(starter.kind)?.name ?? starter.app) : starter.app;
+  return freeName(base, taken);
 }
 
 /** base, or the first free variant of it (base-app, base-2…). */
@@ -148,8 +144,8 @@ export const soloParts: Array<{ part: SoloPart; title: string; name: string }> =
 export type Source =
   | { kind: "starter"; starter: Starter }
   | { kind: "none" }
-  | { kind: "git"; url: string; ref: string; path: string; framework: string }
-  | { kind: "github"; repo: string; branch: string; path: string; framework: string; env: Array<{ k: string; v: string }> };
+  | { kind: "git"; url: string; ref: string; path: string; framework: string; preset: string }
+  | { kind: "github"; repo: string; branch: string; path: string; framework: string; preset: string; env: Array<{ k: string; v: string }>; build?: BuildOverrides };
 
 /** The parts a source can't do without: a starter's own services. */
 export function neededParts(source: Source): NewPart[] {
@@ -191,7 +187,7 @@ export function newProjectManifest(project: string, source: Source, parts: NewPa
   } else if (source.kind === "github") {
     const path = source.path.trim().replace(/^\/+|\/+$/g, "");
     const git = { repo: source.repo, branch: source.branch, ...(path ? { path } : {}) };
-    m.apps = { web: { framework: source.framework, git } } as unknown as Manifest["apps"];
+    m.apps = { web: { framework: source.framework, git, ...pickBuild(source.build, source.framework) } } as unknown as Manifest["apps"];
   }
   for (const p of NEW_PARTS) {
     if (!parts.includes(p)) delete services[p];

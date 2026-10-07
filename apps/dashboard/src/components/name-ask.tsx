@@ -69,7 +69,7 @@ export function NameAsk() {
         maxLength={64}
         autoComplete="name"
         placeholder="Your name"
-        className="h-8 w-48 rounded-[7px] border border-rule-2 bg-paper px-2.5 text-[0.875rem] text-ink placeholder:text-ink-3 focus-visible:border-brass focus-visible:outline-none"
+        className="h-8 w-48 rounded-[7px] border border-rule-2 bg-paper px-2.5 text-[0.875rem] text-ink placeholder:text-ink-3 focus-visible:border-brass focus-visible:outline-hidden"
       />
       <Button type="submit" variant="primary" disabled={!name.trim() || rename.isPending}>
         Save
@@ -114,7 +114,7 @@ export function RenameSelf({ current }: { current: string }) {
         maxLength={64}
         autoFocus
         aria-label="Your name"
-        className="h-8 w-48 rounded-[7px] border border-rule-2 bg-paper px-2.5 text-[0.875rem] text-ink focus-visible:border-brass focus-visible:outline-none"
+        className="h-8 w-48 rounded-[7px] border border-rule-2 bg-paper px-2.5 text-[0.875rem] text-ink focus-visible:border-brass focus-visible:outline-hidden"
       />
       <Button type="submit" variant="primary" size="sm" disabled={!name.trim() || rename.isPending}>
         Save

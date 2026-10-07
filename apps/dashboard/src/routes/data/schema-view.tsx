@@ -130,9 +130,11 @@ export function SchemaMap({ project, branch, tables }: { project: string; branch
 
   const fit = useCallback(() => {
     const el = box.current;
-    if (!el) return;
+    if (!el || el.clientWidth === 0) return;
     const pad = 24;
-    const k = Math.min(1.1, (el.clientWidth - pad * 2) / Math.max(g.width, 1), (el.clientHeight - pad * 2) / Math.max(g.height, 1));
+    const k = Math.max(0.15, Math.min(1.1, (el.clientWidth - pad * 2) / Math.max(g.width, 1), (el.clientHeight - pad * 2) / Math.max(g.height, 1)));
+    // A phone can't fit a wide diagram legibly: start readable at the top left, and pan.
+    if (el.clientWidth < 640 && k < 0.55) return setTf({ k: 0.55, x: 12, y: 12 });
     setTf({ k, x: (el.clientWidth - g.width * k) / 2, y: (el.clientHeight - g.height * k) / 2 });
   }, [g]);
   useLayoutEffect(fit, [fit]);
@@ -250,7 +252,7 @@ export function SchemaMap({ project, branch, tables }: { project: string; branch
               return (
                 <g
                   key={n.slug}
-                  className="node cursor-pointer outline-none"
+                  className="node cursor-pointer outline-hidden"
                   role="link"
                   tabIndex={0}
                   aria-label={`${n.slug}, ${n.t.columns?.length ?? 0} columns${links.length ? `, links to ${[...new Set(links)].join(", ")}` : ""}. Open it`}

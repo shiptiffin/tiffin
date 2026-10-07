@@ -197,7 +197,7 @@ export function RowPanel({
           spellCheck={c.category === "text"}
           rows={Math.min(12, Math.max(3, d.split("\n").length + 1))}
           aria-invalid={!!errs[c.name] || undefined}
-          className="block w-full resize-y rounded-md border border-rule bg-paper px-3 py-2 font-mono text-[0.8125rem] leading-5 text-ink outline-none placeholder:text-ink-4 hover:border-rule-2 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] aria-invalid:border-danger"
+          className="block w-full resize-y rounded-md border border-rule bg-paper px-3 py-2 font-mono text-[0.8125rem] leading-5 text-ink outline-hidden placeholder:text-ink-4 hover:border-rule-2 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] aria-invalid:border-danger"
         />
       );
     const type = c.category === "date" ? "date" : c.category === "time" ? "time" : c.category === "timestamp" ? "datetime-local" : "text";

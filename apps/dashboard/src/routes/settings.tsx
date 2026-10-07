@@ -21,6 +21,8 @@ import { NotOnBox, Page, PageHeader, Skeleton } from "@/components/page";
 import { accessCrumbs, Facts, Group, Rows } from "@/components/health-kit";
 import { countWords } from "@/lib/format";
 import { StateSentence } from "@/components/jobs-words";
+import { boxMail, type BoxMailResult } from "@/api/modules";
+import { EmailDialog, MailOutcome } from "@/components/person-email";
 
 // ---------------------------------------------------------------- passkeys
 
@@ -156,6 +158,7 @@ export function PeoplePage() {
   const [inviting, setInviting] = useState(false);
   const [link, setLink] = useState<Invite | null>(null);
   const [removing, setRemoving] = useState<Person | null>(null);
+  const [emailing, setEmailing] = useState<Person | null>(null);
   const [error, setError] = useState<unknown>(null);
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["people"] });
@@ -168,10 +171,10 @@ export function PeoplePage() {
       setError(e);
     }
   };
-  const newLink = async (p: Person) => {
+  const newLink = async (p: Person, email = false) => {
     setError(null);
     try {
-      setLink(await api.personLink(p.id));
+      setLink(email ? ((await boxMail.emailLink(p.id)) as Invite) : await api.personLink(p.id));
     } catch (e) {
       setError(e);
     }
@@ -211,7 +214,18 @@ export function PeoplePage() {
                   <p className="truncate text-[0.8125rem] text-ink-3">
                     {p.email ? `${p.email} · ` : ""}joined {relative(p.createdAt)}
                   </p>
-                  {you && admin && <RenameSelf current={p.name} />}
+                  {you && (
+                    <div className="flex flex-wrap items-baseline gap-x-4">
+                      {admin && <RenameSelf current={p.name} />}
+                      <button
+                        type="button"
+                        onClick={() => setEmailing(p)}
+                        className="mt-0.5 text-[0.8125rem] text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink"
+                      >
+                        {p.email ? "Change your email" : "Add your email"}
+                      </button>
+                    </div>
+                  )}
                 </div>
                 {admin && p.role !== "owner" && !you ? (
                   <Menu>
@@ -235,7 +249,9 @@ export function PeoplePage() {
                       </MenuRadioGroup>
                       <MenuSeparator />
                       <MenuItem onSelect={() => newLink(p)}>New sign-in link</MenuItem>
-                      <MenuItem onSelect={() => setRemoving(p)} className="text-danger data-[highlighted]:text-danger">
+                      {p.email && <MenuItem onSelect={() => newLink(p, true)}>Email a new sign-in link</MenuItem>}
+                      <MenuItem onSelect={() => setEmailing(p)}>{p.email ? "Change email…" : "Add email…"}</MenuItem>
+                      <MenuItem variant="danger" onSelect={() => setRemoving(p)}>
                         Remove from this box…
                       </MenuItem>
                     </MenuContent>
@@ -255,6 +271,7 @@ export function PeoplePage() {
       </Group>
 
       <InviteDialog open={inviting} onOpenChange={setInviting} onDone={refresh} />
+      <EmailDialog person={emailing} self={!!emailing && me?.person === emailing.id} onClose={() => setEmailing(null)} onDone={refresh} />
       <Dialog open={!!link} onOpenChange={(o) => !o && setLink(null)}>
         <DialogContent>{link && <LinkView invite={link} onDone={() => setLink(null)} />}</DialogContent>
       </Dialog>
@@ -300,7 +317,7 @@ function InviteForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
     >
       <DialogHeader>
         <DialogTitle>Invite someone</DialogTitle>
-        <DialogDescription>You'll get a sign-in link to send them. It works once, for 7 days.</DialogDescription>
+        <DialogDescription>They get a sign-in link that works once, for 7 days. Add their email and the box sends it to them.</DialogDescription>
       </DialogHeader>
       <DialogBody className="flex flex-col gap-5">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -369,20 +386,22 @@ function InviteForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   );
 }
 
-function LinkView({ invite, onDone }: { invite: Invite; onDone: () => void }) {
+function LinkView({ invite, onDone }: { invite: Invite & { email?: BoxMailResult }; onDone: () => void }) {
+  const sent = invite.email?.delivery === "relay";
   return (
     <>
       <DialogHeader>
-        <DialogTitle>
-          Send this to {invite.person.name}
-        </DialogTitle>
+        <DialogTitle>{sent ? `Sent to ${invite.person.name}` : `Send this to ${invite.person.name}`}</DialogTitle>
         <DialogDescription>
           It signs them in as {roleCopy[invite.person.role].label.toLowerCase()}, once. It expires {expiry(invite.expiresAt)}.
         </DialogDescription>
       </DialogHeader>
       <DialogBody>
+        {invite.email && <MailOutcome result={invite.email} className="mb-4" />}
         <Command cmd={invite.url} />
-        <p className="mt-3 text-sm text-ink-3">Anyone with the link can use it, so send it somewhere private.</p>
+        <p className="mt-3 text-sm text-ink-3">
+          {sent ? "The same link, if you’d rather send it another way. " : ""}Anyone with the link can use it, so send it somewhere private.
+        </p>
       </DialogBody>
       <DialogFooter>
         <Button variant="primary" onClick={onDone}>

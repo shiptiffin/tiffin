@@ -5,6 +5,7 @@
 import type { ReactNode } from "react";
 import type { QueueJob, WorkflowRun } from "@/api/modules";
 import emptyJobs from "@/assets/illustrations/mascot-night.webp";
+import { RadioGroup, RadioItem } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
 import { int } from "@/lib/format";
 import { relative } from "@/lib/time";
@@ -221,27 +222,28 @@ export function FilterWords<T extends string | undefined>({
   label: string;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className="flex flex-wrap items-center gap-x-1 gap-y-1">
+    // A Radix radio group: arrow keys move and choose, one tab stop. "" stands for "all" (no state).
+    <RadioGroup
+      aria-label={label}
+      orientation="horizontal"
+      value={value ?? ""}
+      onValueChange={(v) => onPick(items.find((it) => (it.state ?? "") === v)?.state)}
+      className="flex flex-wrap items-center gap-x-1 gap-y-1"
+    >
       {items.map((it) => {
-        const on = it.state === value;
         const n = it.state ? counts?.[it.state as NonNullable<T>] : undefined;
         return (
-          <button
+          <RadioItem
             key={it.label}
-            role="radio"
-            aria-checked={on}
-            onClick={() => onPick(it.state)}
-            className={cn(
-              "relative inline-flex h-8 items-center gap-1.5 rounded-[6px] px-2.5 text-[0.84375rem] transition-colors duration-[var(--dur-state)]",
-              on ? "bg-paper-select font-[550] text-ink" : "text-ink-3 hover:text-ink",
-            )}
+            value={it.state ?? ""}
+            className="relative inline-flex h-8 items-center gap-1.5 rounded-[6px] px-2.5 text-[0.84375rem] text-ink-3 transition-colors duration-[var(--dur-state)] hover:text-ink data-[state=checked]:bg-paper-select data-[state=checked]:font-[550] data-[state=checked]:text-ink"
           >
             {it.label}
             {n !== undefined && n > 0 && <span className={cn("text-xs tnum", it.state === "dead" ? "text-danger" : "text-ink-3")}>{int(n)}</span>}
-          </button>
+          </RadioItem>
         );
       })}
-    </div>
+    </RadioGroup>
   );
 }
 

@@ -11,7 +11,7 @@ import { useKv } from "./write";
 type Pair = [string, string];
 
 const input =
-  "h-8 w-full min-w-0 rounded-[7px] border border-rule-2 bg-paper-raised px-2.5 font-mono text-[0.8125rem] text-ink outline-none placeholder:font-sans placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]";
+  "h-8 w-full min-w-0 rounded-[7px] border border-rule-2 bg-paper-raised px-2.5 font-mono text-[0.8125rem] text-ink outline-hidden placeholder:font-sans placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]";
 
 /** New key: choose the type first, then a name, the value and whether it's kept or cache. */
 export function NewKeyDialog({ open, onOpenChange, prefix, onMade }: { open: boolean; onOpenChange: (o: boolean) => void; prefix: string; onMade: (key: string) => void }) {
@@ -196,7 +196,7 @@ function NewKey({ prefix, onMade, close }: { prefix: string; onMade: (key: strin
                       inputMode="numeric"
                       value={n}
                       onChange={(e) => setN(e.target.value.replace(/[^\d.]/g, ""))}
-                      className="h-7 w-14 rounded-[6px] border border-rule-2 bg-paper-raised px-2 text-right text-ink tnum outline-none focus-visible:border-brass"
+                      className="h-7 w-14 rounded-[6px] border border-rule-2 bg-paper-raised px-2 text-right text-ink tnum outline-hidden focus-visible:border-brass"
                     />
                     <Select size="sm" aria-label="Unit" value={unit} onValueChange={setUnit} className="w-24 font-mono" options={UNITS.map((u) => ({ value: u.unit, label: u.unit }))} />
                   </span>

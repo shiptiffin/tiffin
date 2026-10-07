@@ -309,7 +309,7 @@ export function ImportBox({ boxName, projects, isOwner }: { boxName: string; pro
                     rows={2}
                     spellCheck={false}
                     autoComplete="off"
-                    className="ident mt-2 w-full rounded-md border border-rule bg-paper px-3 py-2 text-ink outline-none focus-visible:border-brass"
+                    className="ident mt-2 w-full rounded-md border border-rule bg-paper px-3 py-2 text-ink outline-hidden focus-visible:border-brass"
                   />
                 </label>
               )}

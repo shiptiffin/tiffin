@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Activity as ActivityIcon, ArchiveRestore, ArrowLeft, ChevronsUpDown, Gauge, HeartPulse, KeyRound, LayoutGrid, Menu as MenuIcon, Search, Settings as SettingsIcon } from "lucide-react";
-import { forwardRef, lazy, Suspense, useEffect, useState, type ComponentProps, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
 import { mq } from "@/api/modules";
 import { q } from "@/api/queries";
@@ -9,7 +9,7 @@ import { boxName } from "@/lib/box";
 import { cn } from "@/lib/cn";
 import { setNavigator, useConfirmRequest } from "@/lib/staged";
 import { rememberProject } from "@/lib/recent";
-import { PART_PAGE, partsOf, standalonePart, type Part } from "@/lib/sections";
+import { PART_PAGE, partsOf, standalonePart, type Part, type ProjectPage } from "@/lib/sections";
 import { listen, useShortcut } from "@/lib/shortcuts";
 import { useFavicon } from "./favicon";
 import { Logo } from "./logo";
@@ -156,9 +156,9 @@ function useGoKeys(project: string | undefined, openPalette: (search: string) =>
   const navigate = useNavigate();
   const state = useQuery({ ...q.project(project ?? ""), enabled: !!project }).data;
   const parts = partsOf(state);
-  const go = (to: string, fallback: () => void) => () => (project ? void navigate({ to: to as "/", params: { project } as never }) : fallback());
+  const go = (to: ProjectPage, fallback: () => void) => () => (project ? void navigate({ to, params: { project } }) : fallback());
   const part = (p: Part, word: string) => () =>
-    project && parts.has(p) ? void navigate({ to: PART_PAGE[p].to as "/", params: { project } as never }) : openPalette(`${word} `);
+    project && parts.has(p) ? void navigate({ to: PART_PAGE[p].to, params: { project } }) : openPalette(`${word} `);
   useShortcut("g n", "New project", () => void navigate({ to: "/new" }), "Go to");
   useShortcut("g o", "Overview", go("/projects/$project", () => void navigate({ to: "/" })), "Go to");
   useShortcut("g d", "Database", part("postgres", "database"), "Go to");
@@ -166,7 +166,7 @@ function useGoKeys(project: string | undefined, openPalette: (search: string) =>
   useShortcut("g f", "Files", part("storage", "files"), "Go to");
   useShortcut("g j", "Jobs", part("jobs", "jobs"), "Go to");
   useShortcut("g l", "Logs", go("/projects/$project/logs", () => void navigate({ to: "/logs", search: {} })), "Go to");
-  useShortcut("g u", "Usage", go("/projects/$project/usage", () => void navigate({ to: "/usage" })), "Go to");
+  useShortcut("g u", "Observability", go("/projects/$project/observability", () => void navigate({ to: "/usage" })), "Go to");
   useShortcut("g h", "History", go("/projects/$project/history", () => void navigate({ to: "/ledger", search: {} })), "Go to");
   useShortcut("g s", "Settings", go("/projects/$project/settings", () => void navigate({ to: "/settings" })), "Go to");
 }
@@ -175,10 +175,8 @@ const isDesktop = () => typeof window !== "undefined" && window.matchMedia("(min
 
 // ───────────────────────── the switcher ─────────────────────────
 
-const SwitcherButton = forwardRef<HTMLButtonElement, ComponentProps<"button"> & { project?: string; compact?: boolean }>(function SwitcherButton(
-  { project, compact, ...props },
-  ref,
-) {
+// React 19: ref is a plain prop (Radix's asChild trigger passes one).
+function SwitcherButton({ project, compact, ref, ...props }: ComponentProps<"button"> & { project?: string; compact?: boolean }) {
   const status = useQuery(q.status());
   return (
     <button
@@ -193,7 +191,7 @@ const SwitcherButton = forwardRef<HTMLButtonElement, ComponentProps<"button"> & 
     >
       {project ? (
         <span className="grid size-6 shrink-0 place-items-center rounded-[6px] bg-paper-sunk">
-          <ProjectIcon project={project} size={14} />
+          <ProjectIcon project={project} size={16} />
         </span>
       ) : (
         <Logo className="size-6 shrink-0 text-ink" />
@@ -205,7 +203,7 @@ const SwitcherButton = forwardRef<HTMLButtonElement, ComponentProps<"button"> & 
       <ChevronsUpDown className="size-3.5 shrink-0 text-ink-3" />
     </button>
   );
-});
+}
 
 function Switcher({ open, onOpenChange, compact }: { open: boolean; onOpenChange: (o: boolean) => void; compact?: boolean }) {
   const project = useProjectInPath();
@@ -374,7 +372,7 @@ function ProjectNav({ project, path }: { project: string; path: string }) {
 }
 
 function NavHeading({ children }: { children: ReactNode }) {
-  return <p className="mt-4 mb-1 px-2.5 text-[0.6875rem] font-[550] tracking-[0.06em] text-ink-4 uppercase">{children}</p>;
+  return <p className="mt-4 mb-1 px-2.5 text-[0.6875rem] font-[550] tracking-[0.06em] text-ink-3 uppercase">{children}</p>;
 }
 
 function NavItem({

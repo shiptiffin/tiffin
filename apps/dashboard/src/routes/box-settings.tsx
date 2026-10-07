@@ -11,7 +11,9 @@ import { Nameplate } from "@/components/nameplate";
 import { Page, PageHeader } from "@/components/page";
 import { ExportBox, ImportBox } from "@/components/settings-move";
 import { BoxDomainSection } from "@/components/box-domain";
+import { BoxEmailSection } from "@/components/email-relay";
 import { BoxSize } from "@/components/box-size";
+import { SignInProviders } from "@/components/signin-providers";
 import { boxDomainQuery } from "@/lib/domains";
 import { boxName, boxUp, tiffinStarted, versionLabel, whereItRuns } from "@/lib/box";
 import { useMe } from "@/lib/me";
@@ -75,6 +77,17 @@ export function SettingsPage() {
       </Section>
 
       <BoxDomainSection admin={admin} Wrap={Section} />
+
+      {/* Email: the box-wide mail service and its delivery events (components/email-relay.tsx). */}
+      <BoxEmailSection admin={admin} Wrap={Section} />
+
+      <Section
+        id="sign-in"
+        title="Sign-in providers"
+        note="A shortcut for side projects: set a provider’s keys once and any project can turn it on. People see this box’s app name on the provider’s screen, so a product with its own name uses its own keys, set on its Auth page. Users and sessions always stay in each project."
+      >
+        <SignInProviders admin={admin} />
+      </Section>
 
       <Section title="Look and sound" note="Auto follows your system. Sounds are off until you turn them on, and stay on this browser.">
         <div className="flex flex-col gap-4">

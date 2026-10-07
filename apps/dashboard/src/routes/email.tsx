@@ -1,19 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, ArrowUpRight, Download, Paperclip, Search, Send, Settings2, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, Download, Paperclip, Search, Send, Settings2, Trash2, X } from "lucide-react";
+import { useEffect, useEffectEvent, useMemo, useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
-import { mod, mq, type EmailDetail, type EmailSummary, type Suppression } from "@/api/modules";
+import { mod, mq, type EmailDetail, type EmailEvent, type EmailSummary, type Suppression } from "@/api/modules";
 import emptyInbox from "@/assets/illustrations/empty-inbox.webp";
 import { Confirm } from "@/components/confirm";
 import { Command, CopyButton } from "@/components/copy";
+import { EmailDomain } from "@/components/email-domain";
+import { EmailSending } from "@/components/email-sending";
+import { isMailFilter, MAIL_STATUS, MailFilters, MailStatus, PROVIDER_NAME, SendTest, type MailFilter } from "@/components/email-parts";
 import { Rows, Section } from "@/components/data-parts";
 import { useTitle } from "@/components/favicon";
 import { Crumbs, Page, PageHeader, Skeleton, Untrusted, NotOnBox } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/choice";
-import { Input, Label } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { bytes, count, int, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
@@ -32,23 +34,10 @@ function when(iso: string) {
   return dayKey(iso) === dayKey(new Date().toISOString()) ? clock(iso) : shortDay.format(new Date(iso));
 }
 
-/** Words for a status that isn't the calm default (captured in the dev inbox). */
-const statusWords: Record<EmailSummary["status"], { text: string; tone: string } | null> = {
-  captured: null,
-  queued: { text: "Queued for the relay", tone: "text-warn-ink" },
-  sent: { text: "Sent", tone: "text-ink-3" },
-  failed: { text: "Not delivered", tone: "text-danger" },
-  suppressed: { text: "Held back", tone: "text-warn-ink" },
-};
-
-function StatusLabel({ m }: { m: Pick<EmailSummary, "status"> }) {
-  const w = statusWords[m.status];
-  return w ? <span className={cn("text-xs font-[550]", w.tone)}>{w.text}</span> : null;
-}
-
 /** Live: new mail arrives over server-sent events while the page is open. */
 function useMailStream(project: string, onMessage: (s: EmailSummary) => void) {
   const [live, setLive] = useState<boolean | null>(null);
+  const arrived = useEffectEvent(onMessage);
   useEffect(() => {
     if (typeof EventSource === "undefined") return;
     const es = new EventSource(mod.streamUrl(project));
@@ -56,13 +45,12 @@ function useMailStream(project: string, onMessage: (s: EmailSummary) => void) {
     es.onerror = () => setLive(false);
     es.addEventListener("message", (e) => {
       try {
-        onMessage(JSON.parse((e as MessageEvent).data));
+        arrived(JSON.parse((e as MessageEvent).data));
       } catch {
         /* a ping or a malformed event: ignore */
       }
     });
     return () => es.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project]);
   return live;
 }
@@ -74,21 +62,20 @@ function Truth({ project }: { project: string }) {
   if (st.data.mode === "relay")
     return (
       <>
-        <span className="text-ink">Mail goes out for real</span> through <code className="ident text-ink">{st.data.relay?.host}</code>. Preview
-        deployments still land here.
-        {st.data.queued > 0 && <span className="text-warn-ink"> {count(st.data.queued, "message")} queued.</span>}
-        {st.data.failedLastDay > 0 && <span className="text-danger"> {int(st.data.failedLastDay)} not delivered in the last day.</span>}
+        <span className="text-ink">Mail goes out for real</span> through{" "}
+        {st.data.relay?.provider && st.data.relay.provider !== "other" ? (
+          <span className="text-ink">{PROVIDER_NAME[st.data.relay.provider]}</span>
+        ) : (
+          <code className="ident text-ink">{st.data.relay?.host}</code>
+        )}
+        . Mail from preview deployments lands in the dev inbox instead.
       </>
     );
   return (
     <>
       <span className="text-ink">Nothing leaves this box.</span> Every message {project} sends is caught here until you{" "}
-      <Link
-        to="/projects/$project/email/settings"
-        params={{ project }}
-        className="text-brass-ink underline decoration-brass/40 underline-offset-[3px] hover:decoration-brass"
-      >
-        add a relay
+      <Link to="/settings" hash="email" className="text-brass-ink underline decoration-brass/40 underline-offset-[3px] hover:decoration-brass">
+        connect a mail service
       </Link>
       .
     </>
@@ -97,27 +84,36 @@ function Truth({ project }: { project: string }) {
 
 // ------------------------------------------------------------------ inbox
 
-export function InboxPage({ project, q = "", m }: { project: string; q?: string; m?: string }) {
+export function InboxPage({ project, q = "", m, status }: { project: string; q?: string; m?: string; status?: string }) {
   useTitle(`${project} · Email`);
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const { can, admin } = useMe();
   const [query, setQuery] = useState(q);
+  const filter: MailFilter = isMailFilter(status) ? status : "all";
+  const [composing, setComposing] = useState(false);
   const list = useQuery(mq.messages(project, q));
+  const st = useQuery(mq.emailStatus);
+  const relay = st.data?.mode === "relay";
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const live = useMailStream(project, (s) => {
     setFresh((f) => new Set(f).add(s.id));
     qc.invalidateQueries({ queryKey: ["messages", project] });
   });
   const go = (o: { q?: string; m?: string }) =>
-    navigate({ to: "/projects/$project/email", params: { project }, search: { q: o.q || undefined, m: o.m }, replace: !!o.q !== !!q });
+    navigate({ to: "/projects/$project/email", params: { project }, search: { q: o.q || undefined, m: o.m, status }, replace: !!o.q !== !!q });
+  const setFilter = (f: MailFilter) =>
+    void navigate({ to: "/projects/$project/email", params: { project }, search: { q: q || undefined, m, status: f === "all" ? undefined : f }, replace: true });
 
+  // Typing searches; the URL catching up with the box doesn't.
+  const search = useEffectEvent((v: string) => v !== q && go({ q: v, m }));
   useEffect(() => {
-    const t = setTimeout(() => query !== q && go({ q: query, m }), 250);
+    const t = setTimeout(() => search(query), 250);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
-  const msgs = list.data ?? [];
+  const all = list.data ?? [];
+  const msgs = filter === "all" ? all : all.filter((x) => x.status === filter);
   // j / k move through the list, like a mail client.
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
@@ -132,7 +128,9 @@ export function InboxPage({ project, q = "", m }: { project: string; q?: string;
   });
 
   if (list.isError && notOnBox(list.error)) return <NotOnBox what="The dev inbox and relay" />;
-  const empty = list.isSuccess && msgs.length === 0 && !q;
+  const empty = list.isSuccess && all.length === 0 && !q;
+  // Sending for real reaches outside the box; the dev inbox is a reversible write.
+  const canSend = can(relay ? "apply:outbound" : "apply:reversible");
 
   return (
     <Page full>
@@ -141,14 +139,24 @@ export function InboxPage({ project, q = "", m }: { project: string; q?: string;
         title="Email"
         lede={<Truth project={project} />}
         actions={
-          <Button asChild variant="secondary">
-            <Link to="/projects/$project/email/settings" params={{ project }}>
-              <Settings2 />
-              Settings
-            </Link>
-          </Button>
+          <>
+            <Button asChild variant="secondary">
+              <Link to="/projects/$project/email/settings" params={{ project }}>
+                <Settings2 />
+                Settings
+              </Link>
+            </Button>
+            {canSend && st.data && (
+              <Button variant="primary" onClick={() => setComposing(true)}>
+                <Send />
+                Send a test
+              </Button>
+            )}
+          </>
         }
       />
+      <SendTest project={project} open={composing} onOpenChange={setComposing} relay={relay} onSent={(id) => go({ q: "", m: id })} />
+      {list.isError && <ProblemNote className="mt-8" error={list.error} title="Couldn’t load the mail" />}
 
       {empty ? (
         <div className="mt-10 flex flex-col items-center border-y border-rule px-6 py-14 text-center">
@@ -159,100 +167,132 @@ export function InboxPage({ project, q = "", m }: { project: string; q?: string;
           <p className="mt-1 max-w-[30rem] text-base text-ink-3">
             When {project} sends a sign-up link or a receipt, it shows up here the moment it's sent, rendered the way the recipient would see it.
           </p>
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            {canSend && st.data && (
+              <Button onClick={() => setComposing(true)}>
+                <Send />
+                Send a test
+              </Button>
+            )}
+            {st.data && !relay && admin && (
+              <Button asChild variant="ghost">
+                <Link to="/settings" hash="email">
+                  Connect a mail service
+                </Link>
+              </Button>
+            )}
+          </div>
+          {st.data && !relay && !admin && <p className="mt-3 text-sm text-ink-3">To send for real, the box’s owner connects a mail service in Settings.</p>}
         </div>
       ) : (
-        <div className="mt-8 grid border-y border-rule lg:h-[calc(100dvh-15.5rem)] lg:min-h-[32rem] lg:grid-cols-[minmax(19rem,24rem)_minmax(0,1fr)]">
-          <section className={cn("flex min-h-0 flex-col lg:border-r lg:border-rule", m && "hidden lg:flex")} aria-label="Messages">
-            <label className="flex h-11 shrink-0 items-center gap-2.5 border-b border-rule lg:px-3">
-              <Search className="size-4 shrink-0 text-ink-3" aria-hidden />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search subject, people, text"
-                aria-label="Search mail"
-                className="h-8 min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-ink-4"
-              />
-              {query && (
-                <button
-                  onClick={() => setQuery("")}
-                  aria-label="Clear search"
-                  className="grid size-6 place-items-center rounded-[5px] text-ink-3 hover:bg-paper-hover"
-                >
-                  <X className="size-3.5" />
-                </button>
-              )}
-            </label>
-            <ul className="min-h-0 flex-1 divide-y divide-rule overflow-y-auto">
-              {list.isPending &&
-                [0, 1, 2, 3].map((i) => (
-                  <li key={i} className="space-y-2 py-3">
-                    <Skeleton className="h-4 w-1/2" />
-                    <Skeleton className="h-3 w-5/6 opacity-60" />
-                  </li>
-                ))}
-              {msgs.map((s) => {
-                const active = s.id === m;
-                return (
-                  <li key={s.id}>
-                    <button
-                      onClick={() => go({ q, m: s.id })}
-                      className={cn(
-                        "relative block w-full py-3 text-left transition-colors duration-[var(--dur-state)] hover:bg-paper-hover lg:pr-4 lg:pl-3",
-                        active && "bg-paper-select",
-                        fresh.has(s.id) && "animate-rise",
-                      )}
-                      aria-current={active}
-                    >
-                      {active && <span aria-hidden className="absolute inset-y-2 left-0 w-[2px] rounded-full bg-brass max-lg:hidden" />}
-                      <span className="flex items-baseline gap-3">
-                        <span className="min-w-0 flex-1 truncate text-base font-[550] text-ink">{s.subject || "(no subject)"}</span>
-                        <time dateTime={s.createdAt} className="shrink-0 text-xs text-ink-3 tnum" title={full(s.createdAt)}>
-                          {when(s.createdAt)}
-                        </time>
-                      </span>
-                      <span className="mt-0.5 flex items-center gap-1.5 text-sm text-ink-2">
-                        <span className="min-w-0 truncate">to {(s.to ?? []).map(displayName).join(", ")}</span>
-                        {s.attachments > 0 && <Paperclip className="size-3.5 shrink-0 text-ink-3" aria-label={count(s.attachments, "attachment")} />}
-                        <span className="ml-auto shrink-0">
-                          <StatusLabel m={s} />
-                        </span>
-                      </span>
-                      <span className="mt-0.5 line-clamp-1 text-sm text-ink-3">{s.snippet}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            {list.isSuccess && msgs.length === 0 && (
-              <div className="px-6 py-12 text-center">
-                <p className="text-base text-ink">Nothing matches “{q}”.</p>
-                <p className="mt-1 text-sm text-ink-3">Search looks at subjects, addresses and the text of each message.</p>
-              </div>
-            )}
-            {msgs.length > 0 && (
-              <p className="shrink-0 border-t border-rule py-2 text-xs text-ink-3 lg:px-3" title="The newest 1,000 messages are kept">
-                {count(msgs.length, "message")}.{" "}
-                {live === false ? <span className="text-warn-ink">Not connected: refresh to see new mail.</span> : "New mail shows up as it arrives."}
+        !list.isError && (
+          <>
+            <div className="mt-7 flex min-h-8 items-center justify-between gap-4">
+              <MailFilters messages={all} value={filter} onChange={setFilter} />
+              <p className="shrink-0 text-xs text-ink-3 max-md:hidden" aria-live="polite">
+                {live === false ? <span className="text-warn-ink">Not connected. Refresh to see new mail.</span> : "Live: new mail shows up as it’s sent."}
               </p>
-            )}
-          </section>
-
-          <section className={cn("min-h-0 min-w-0", !m && "hidden lg:block")} aria-label="Message">
-            {m ? (
-              <Message key={m} project={project} id={m} onBack={() => go({ q })} onDeleted={() => go({ q })} />
-            ) : (
-              <div className="grid h-full place-items-center p-10 text-center">
-                <div>
-                  <p className="text-md text-ink-2">Pick a message to read it.</p>
-                  <p className="mt-1 text-sm text-ink-3">
-                    Follow its links, check how it renders, read its headers. <kbd className="kbd">j</kbd> <kbd className="kbd">k</kbd> move through
-                    the list.
+            </div>
+            <div className="mt-2 grid border-y border-rule lg:h-[calc(100dvh-17.5rem)] lg:min-h-[32rem] lg:grid-cols-[minmax(19rem,25rem)_minmax(0,1fr)]">
+              <section className={cn("flex min-h-0 flex-col lg:border-r lg:border-rule", m && "hidden lg:flex")} aria-label="Messages">
+                <label className="flex h-11 shrink-0 items-center gap-2.5 border-b border-rule lg:px-3">
+                  <Search className="size-4 shrink-0 text-ink-3" aria-hidden />
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search subject, people, text"
+                    aria-label="Search mail"
+                    className="h-8 min-w-0 flex-1 bg-transparent text-base text-ink outline-hidden placeholder:text-ink-4"
+                  />
+                  {query && (
+                    <button
+                      onClick={() => setQuery("")}
+                      aria-label="Clear search"
+                      className="grid size-6 place-items-center rounded-[5px] text-ink-3 hover:bg-paper-hover"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
+                </label>
+                <ul className="min-h-0 flex-1 divide-y divide-rule overflow-y-auto">
+                  {list.isPending &&
+                    [0, 1, 2, 3].map((i) => (
+                      <li key={i} className="space-y-2 py-3 lg:px-3">
+                        <Skeleton className="h-4 w-1/2" />
+                        <Skeleton className="h-3 w-5/6 opacity-60" />
+                      </li>
+                    ))}
+                  {msgs.map((s) => {
+                    const active = s.id === m;
+                    return (
+                      <li key={s.id}>
+                        <button
+                          onClick={() => go({ q, m: s.id })}
+                          className={cn(
+                            "relative block w-full py-3 text-left transition-colors duration-[var(--dur-state)] hover:bg-paper-hover lg:pr-4 lg:pl-3",
+                            active && "bg-paper-select",
+                            fresh.has(s.id) && "animate-rise",
+                          )}
+                          aria-current={active}
+                        >
+                          {active && <span aria-hidden className="absolute inset-y-2 left-0 w-[2px] rounded-full bg-brass max-lg:hidden" />}
+                          <span className="flex items-baseline gap-3">
+                            <span className="min-w-0 flex-1 truncate text-base font-[550] text-ink">{s.subject || "(no subject)"}</span>
+                            <time dateTime={s.createdAt} className="shrink-0 text-xs text-ink-3 tnum" title={full(s.createdAt)}>
+                              {when(s.createdAt)}
+                            </time>
+                          </span>
+                          <span className="mt-0.5 flex items-center gap-1.5 text-sm text-ink-2">
+                            <span className="min-w-0 truncate">to {(s.to ?? []).map(displayName).join(", ")}</span>
+                            {s.attachments > 0 && <Paperclip className="size-3.5 shrink-0 text-ink-3" aria-label={count(s.attachments, "attachment")} />}
+                            {(relay || s.status !== "captured") && <MailStatus status={s.status} className="ml-auto shrink-0" />}
+                          </span>
+                          <span className="mt-0.5 line-clamp-1 text-sm text-ink-3">{s.snippet}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {list.isSuccess && msgs.length === 0 && (
+                  <div className="px-6 py-12 text-center">
+                    {q ? (
+                      <>
+                        <p className="text-base text-ink">Nothing matches “{q}”.</p>
+                        <p className="mt-1 text-sm text-ink-3">Search looks at subjects, addresses and the text of each message.</p>
+                      </>
+                    ) : (
+                      <p className="text-base text-ink-3">No messages are {MAIL_STATUS[filter as keyof typeof MAIL_STATUS]?.word.toLowerCase() ?? "here"}.</p>
+                    )}
+                    {filter !== "all" && (
+                      <Button size="sm" variant="ghost" className="mt-2" onClick={() => setFilter("all")}>
+                        Show all mail
+                      </Button>
+                    )}
+                  </div>
+                )}
+                {all.length > 0 && (
+                  <p className="shrink-0 border-t border-rule py-2 text-xs text-ink-3 lg:px-3" title="The newest 1,000 messages are kept">
+                    {filter === "all" ? count(all.length, "message") : `${int(msgs.length)} of ${count(all.length, "message")}`}
+                    {all.length >= 200 ? ", the newest 200" : ""}. <kbd className="kbd">j</kbd> <kbd className="kbd">k</kbd> move through them.
                   </p>
-                </div>
-              </div>
-            )}
-          </section>
-        </div>
+                )}
+              </section>
+
+              <section className={cn("min-h-0 min-w-0", !m && "hidden lg:block")} aria-label="Message">
+                {m ? (
+                  <Message key={m} project={project} id={m} onBack={() => go({ q })} onDeleted={() => go({ q })} />
+                ) : (
+                  <div className="grid h-full place-items-center p-10 text-center">
+                    <div>
+                      <p className="text-md text-ink-2">Pick a message to read it.</p>
+                      <p className="mt-1 text-sm text-ink-3">See how it renders, follow its links and read its headers.</p>
+                    </div>
+                  </div>
+                )}
+              </section>
+            </div>
+          </>
+        )
       )}
     </Page>
   );
@@ -264,9 +304,40 @@ function ProjectCrumb({ project }: { project: string }) {
 
 type Tab = "preview" | "text" | "links" | "headers";
 
-/** What happened to a message, in order, from the fields the box keeps. */
-function timeline(msg: EmailDetail): Array<{ at?: string; text: ReactNode; tone?: string }> {
-  const out: Array<{ at?: string; text: ReactNode; tone?: string }> = [
+type Mark = "ok" | "warn" | "bad" | "quiet";
+type Step = { at?: string; text: ReactNode; mark?: Mark };
+
+/** One delivery event from the mail service, in words. */
+function eventStep(e: EmailEvent, who: string, many: boolean): Step {
+  const to = many && e.recipient ? <span className="ident">{e.recipient}</span> : null;
+  const said = e.detail ? <span className="text-ink-3"> {e.detail}</span> : null;
+  switch (e.type) {
+    case "delivered":
+      return { at: e.at, mark: "ok", text: <>Delivered{to && <> to {to}</>}</> };
+    case "deferred":
+      return { at: e.at, mark: "warn", text: <>Delayed{to && <> for {to}</>}; {who} keeps trying.{said}</> };
+    case "bounced":
+      return e.hard
+        ? { at: e.at, mark: "bad", text: <>Bounced{to && <> from {to}</>}: the address doesn’t take mail. Now on the won’t-write list.{said}</> }
+        : { at: e.at, mark: "warn", text: <>Bounced for now{to && <> from {to}</>}.{said}</> };
+    case "dropped":
+      return { at: e.at, mark: "bad", text: <>Not sent by {who}{to && <> to {to}</>}.{said}</> };
+    case "complained":
+      return { at: e.at, mark: "bad", text: <>{to ?? "The recipient"} marked it as spam. Now on the won’t-write list.</> };
+    case "unsubscribed":
+      return { at: e.at, mark: "warn", text: <>{to ?? "The recipient"} unsubscribed. Now on the won’t-write list.</> };
+    case "opened":
+      return { at: e.at, mark: "quiet", text: <>Opened{to && <> by {to}</>}</> };
+    case "clicked":
+      return { at: e.at, mark: "quiet", text: <>Link clicked{to && <> by {to}</>}{e.detail ? <span className="ident text-ink-3"> {e.detail}</span> : null}</> };
+    case "failed":
+      return { at: e.at, mark: "bad", text: <>{who} couldn’t send it.{said}</> };
+  }
+}
+
+/** What happened to a message, in order: what the box did, then what the mail service reported. */
+function timeline(msg: EmailDetail, waitingFor?: string): Step[] {
+  const out: Step[] = [
     {
       at: msg.createdAt,
       text: (
@@ -285,7 +356,7 @@ function timeline(msg: EmailDetail): Array<{ at?: string; text: ReactNode; tone?
           {msg.reason ? `: ${msg.reason}` : ", on the won't-write list"}
         </>
       ),
-      tone: "text-warn-ink",
+      mark: "warn",
     });
   if (msg.status === "queued")
     out.push({
@@ -296,20 +367,29 @@ function timeline(msg: EmailDetail): Array<{ at?: string; text: ReactNode; tone?
           {msg.nextAttempt ? `; next try ${relative(msg.nextAttempt)}` : ""}
         </>
       ),
-      tone: "text-warn-ink",
+      mark: "warn",
     });
-  if (msg.status === "sent") out.push({ at: msg.sentAt, text: "Handed to the relay" });
-  if (msg.status === "failed")
+  const who = PROVIDER_NAME[msg.provider ?? ""] ?? "The relay";
+  if (msg.sentAt) out.push({ at: msg.sentAt, text: msg.provider && msg.provider !== "other" ? `Handed to ${who}` : "Handed to the relay" });
+  if (msg.status === "failed" && !(msg.events ?? []).some((e) => e.type === "failed"))
     out.push({
       text: <>Not delivered{msg.attempts ? ` after ${words(msg.attempts)} ${msg.attempts === 1 ? "try" : "tries"}` : ""}</>,
-      tone: "text-danger",
+      mark: "bad",
     });
+  const events = msg.events ?? [];
+  const many = (msg.envelope.to ?? []).length > 1;
+  for (const e of events) out.push(eventStep(e, who, many));
+  if (msg.status === "sent" && events.length === 0 && waitingFor) out.push({ text: `Waiting for ${waitingFor} to report delivery`, mark: "quiet" });
   return out;
 }
+
+const MARK: Record<Mark, string> = { ok: "bg-ok", warn: "bg-warn", bad: "bg-danger", quiet: "shadow-[inset_0_0_0_1.5px_var(--ink-4)]" };
+const MARK_TEXT: Record<Mark, string> = { ok: "text-ink-2", warn: "text-warn-ink", bad: "text-danger", quiet: "text-ink-3" };
 
 function Message({ project, id, onBack, onDeleted }: { project: string; id: string; onBack: () => void; onDeleted: () => void }) {
   const qc = useQueryClient();
   const d = useQuery(mq.message(project, id));
+  const st = useQuery(mq.emailStatus);
   const [tab, setTab] = useState<Tab | null>(null);
   const [deleting, setDeleting] = useState(false);
   const { can } = useMe();
@@ -326,7 +406,8 @@ function Message({ project, id, onBack, onDeleted }: { project: string; id: stri
   const msg = d.data;
   const t: Tab = tab ?? (msg.html ? "preview" : "text");
   const links = msg.links ?? [];
-  const events = timeline(msg);
+  const hook = st.data?.webhooks?.find((h) => h.provider === msg.provider && h.receiving);
+  const events = timeline(msg, hook ? PROVIDER_NAME[hook.provider] : undefined);
 
   return (
     <article className="flex h-full min-h-0 flex-col">
@@ -363,7 +444,11 @@ function Message({ project, id, onBack, onDeleted }: { project: string; id: stri
           </span>
         </div>
         <div className="mt-3 grid gap-x-8 gap-y-4 xl:grid-cols-[minmax(0,1fr)_minmax(14rem,18rem)]">
-          <dl className="grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)] content-start gap-x-3 gap-y-1 text-sm">
+          <dl className="grid min-w-0 grid-cols-[3.25rem_minmax(0,1fr)] content-start gap-x-3 gap-y-1 text-sm">
+            <dt className="text-ink-3">Status</dt>
+            <dd title={MAIL_STATUS[msg.status].about}>
+              <MailStatus status={msg.status} className="text-sm" />
+            </dd>
             <dt className="text-ink-3">From</dt>
             <dd className="truncate text-ink-2">{msg.from}</dd>
             <dt className="text-ink-3">To</dt>
@@ -372,26 +457,44 @@ function Message({ project, id, onBack, onDeleted }: { project: string; id: stri
             <dd className="text-ink-2" title={full(msg.createdAt)}>
               {full(msg.createdAt)}
             </dd>
+            <dt className="text-ink-3">ID</dt>
+            <dd className="flex min-w-0 items-center gap-0.5">
+              <code className="truncate font-mono text-[0.75rem] text-ink-3">{msg.id}</code>
+              <CopyButton value={msg.id} label="Copy the message ID" className="size-6" />
+            </dd>
           </dl>
           <ol className="relative min-w-0 text-sm" aria-label="What happened to it">
             {events.map((e, i) => (
               <li key={i} className="relative grid grid-cols-[2.75rem_0.75rem_minmax(0,1fr)] gap-x-2 pb-1.5 last:pb-0">
-                <time className="text-ink-3 tnum" dateTime={e.at}>
+                <time className="text-ink-3 tnum" dateTime={e.at} title={e.at ? full(e.at) : undefined}>
                   {e.at ? clock(e.at) : ""}
                 </time>
-                <span aria-hidden className="relative flex justify-center pt-[7px]">
-                  <i className={cn("block size-[5px] rounded-full", e.tone ? "bg-current " + e.tone : "bg-ink-3")} />
+                <span aria-hidden className="relative flex justify-center pt-[6px]">
+                  <i className={cn("block size-[6px] rounded-full", e.mark ? MARK[e.mark] : "bg-ink-3")} />
                   {i < events.length - 1 && <i className="absolute top-[14px] -bottom-[6px] w-px bg-rule-2" />}
                 </span>
-                <span className={cn("min-w-0", e.tone ?? "text-ink-2")}>{e.text}</span>
+                <span className={cn("min-w-0 break-words", e.mark ? MARK_TEXT[e.mark] : "text-ink-2")}>{e.text}</span>
               </li>
             ))}
           </ol>
         </div>
-        {msg.lastError && (
-          <p className="mt-3 text-sm text-ink-2">
-            <span className="text-danger">Last attempt failed:</span> {msg.lastError}
-          </p>
+        {/* A bounce the mail service reported is already in the timeline, with its reason. */}
+        {msg.lastError && !(msg.status === "bounced" && (msg.events ?? []).some((e) => e.type === "bounced" || e.type === "dropped")) && (
+          <div className={cn("mt-4 rounded-[8px] border px-3.5 py-2.5 text-sm", msg.status === "failed" || msg.status === "bounced" ? "border-danger-rule bg-danger-wash" : "border-rule-2 bg-paper-sunk")}>
+            <p className={msg.status === "failed" || msg.status === "bounced" ? "font-[550] text-danger" : "font-[550] text-warn-ink"}>
+              {msg.status === "bounced"
+                ? "The receiving server refused it"
+                : msg.status === "failed"
+                  ? "The relay refused it"
+                  : msg.status === "queued"
+                    ? "The last try failed"
+                    : "Some recipients were refused"}
+            </p>
+            <p className="mt-0.5 font-mono text-[0.75rem] leading-5 break-words text-ink-2">{msg.lastError}</p>
+            {msg.status === "failed" && /^5\d\d/.test(msg.lastError) && (
+              <p className="mt-1 text-xs text-ink-3">A 5xx answer is permanent: the box won’t write to that address again until you allow it in Settings.</p>
+            )}
+          </div>
         )}
         {(msg.attachmentList ?? []).length > 0 && (
           <ul className="mt-3 flex flex-wrap gap-2">
@@ -435,7 +538,7 @@ function Message({ project, id, onBack, onDeleted }: { project: string; id: stri
             </button>
           ))}
       </nav>
-      <div className="min-h-0 flex-1 overflow-auto py-4 lg:bg-paper-sunk/50 lg:p-5">
+      <div tabIndex={0} aria-label="Message body" className="min-h-0 flex-1 overflow-auto py-4 outline-hidden focus-visible:shadow-[inset_0_0_0_2px_var(--focus)] lg:bg-paper-sunk/50 lg:p-5">
         {t === "preview" && <HtmlView html={msg.html} />}
         {t === "text" && (
           <Untrusted label="Message text, as the sender wrote it">
@@ -558,165 +661,70 @@ export function EmailSettingsPage({ project }: { project: string }) {
           />
         }
         title="Email settings"
-        lede="How mail leaves the box, the credentials your apps use, and the addresses this project won't write to."
+        lede="How mail leaves the box, the domain it comes from, the credentials your apps use, and the addresses this project won't write to."
       />
       <div className="mt-10 grid gap-x-14 gap-y-12 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-        <RelaySection admin={admin} />
+        <RelaySummary admin={admin} />
         <div className="flex min-w-0 flex-col gap-12">
           <SmtpSection project={project} />
           <Suppressions project={project} />
+        </div>
+        <div className="min-w-0 lg:col-span-2">
+          <EmailSending project={project} />
+        </div>
+        <div className="min-w-0 lg:col-span-2">
+          <EmailDomain project={project} relay={st.data?.mode === "relay"} />
         </div>
       </div>
     </Page>
   );
 }
 
-function RelaySection({ admin }: { admin: boolean }) {
-  const qc = useQueryClient();
+/** Where mail goes, box-wide, with the way to change it: the relay lives in Settings › Email. */
+function RelaySummary({ admin }: { admin: boolean }) {
   const st = useQuery(mq.emailStatus);
-  const relay = st.data?.relay;
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState("587");
-  const [tls, setTls] = useState<"starttls" | "tls" | "none">("starttls");
-  const [username, setUser] = useState("");
-  const [password, setPass] = useState("");
-  const [to, setTo] = useState("");
-  const [removing, setRemoving] = useState(false);
-  const save = useMutation({
-    mutationFn: () => mod.setRelay({ host: host.trim(), port: Number(port), tls, username: username || undefined, password: password || undefined }),
-    onSuccess: () => {
-      setPass("");
-      qc.invalidateQueries({ queryKey: ["email-status"] });
-    },
-  });
-  const test = useMutation({ mutationFn: () => mod.testRelay(to.trim()) });
-  const isRelay = st.data?.mode === "relay" && !!relay;
-
+  const relay = st.data?.mode === "relay" ? st.data.relay : undefined;
+  const hook = relay ? st.data?.webhooks?.find((h) => h.provider === relay.provider) : undefined;
+  const name = relay ? (relay.provider && relay.provider !== "other" ? PROVIDER_NAME[relay.provider] : relay.host) : "";
   return (
-    <Section id="relay" label="Sending for real" aside={isRelay ? "box-wide, for every project" : undefined}>
+    <Section id="relay" label="Sending for real" aside="box-wide, for every project">
       <div className="border-t border-rule pt-4">
-        {isRelay ? (
+        {!st.data ? (
+          <Skeleton className="h-12" />
+        ) : relay ? (
           <>
-            <p className="text-base text-ink">
-              Relaying through <code className="ident">{relay.host}</code>:{relay.port} (
-              {relay.tls === "none" ? "no encryption" : relay.tls.toUpperCase()}){relay.username ? ` as ${relay.username}` : ""}.
+            <p className="flex items-center gap-2 text-base text-ink">
+              <span aria-hidden className="size-[7px] shrink-0 rounded-full bg-ok" />
+              Production mail goes out through {name}.
             </p>
             <p className="mt-1 text-sm text-ink-3">
-              Password {relay.passwordSet ? "stored encrypted, never shown" : "not set"}; changed {relative(relay.updatedAt)}.
+              {hook?.receiving
+                ? `Delivery events are on: each message shows delivered, bounced or marked as spam, and bad addresses are suppressed for you.`
+                : hook?.keySet
+                  ? `Delivery events are set up, but none has arrived yet.`
+                  : hook
+                    ? `Delivery events are off, so a message’s status stops at Sent.`
+                    : `${name} doesn’t send delivery events to the box, so a message’s status stops at Sent.`}{" "}
+              Preview deployments keep using the dev inbox.
             </p>
           </>
         ) : (
           <p className="text-base text-ink-2">
-            No relay yet, so every project's mail stays in its dev inbox. Point the box at any SMTP relay (Resend, Postmark, SES or your provider) and
-            production mail goes out for real; preview deployments keep using the dev inbox.
+            No mail service yet, so every project’s mail stays in its dev inbox. Connect SendGrid, Resend, Postmark, Amazon SES, Mailgun, Brevo, Cloudflare or any SMTP
+            server, and production mail goes out for real.
           </p>
         )}
         {admin ? (
-          <form
-            className="mt-6 grid gap-x-3 gap-y-4 sm:grid-cols-[minmax(0,1fr)_7.5rem]"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (host.trim()) save.mutate();
-            }}
-          >
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="r-host">SMTP host</Label>
-              <Input
-                id="r-host"
-                value={host}
-                onChange={(e) => setHost(e.target.value)}
-                placeholder={relay?.host ?? "smtp.resend.com"}
-                autoComplete="off"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="r-port">Port</Label>
-              <Input id="r-port" value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} inputMode="numeric" className="tnum" />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="r-user">Username</Label>
-              <Input id="r-user" value={username} onChange={(e) => setUser(e.target.value)} placeholder="resend" autoComplete="off" />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="r-tls">Security</Label>
-              <Select
-                id="r-tls"
-                value={tls}
-                onValueChange={(v) => setTls(v as typeof tls)}
-                options={[
-                  { value: "starttls", label: "STARTTLS" },
-                  { value: "tls", label: "TLS" },
-                  { value: "none", label: "None" },
-                ]}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5 sm:col-span-2">
-              <Label htmlFor="r-pass">Password or API key</Label>
-              <Input
-                id="r-pass"
-                type="password"
-                value={password}
-                onChange={(e) => setPass(e.target.value)}
-                autoComplete="new-password"
-                placeholder={relay?.passwordSet ? "Leave empty to keep the stored one" : ""}
-              />
-            </div>
-            {save.isError && <ProblemNote className="sm:col-span-2" error={save.error} />}
-            <div className="flex flex-col-reverse gap-3 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-ink-3">Stored encrypted on the box. Changing it applies at once.</p>
-              <Button type="submit" variant="primary" disabled={!host.trim() || save.isPending} className="self-start sm:self-auto">
-                <Send />
-                {save.isPending
-                  ? "Saving…"
-                  : relay
-                    ? `Relay through ${host.trim() || "the new host"}`
-                    : `Send through ${host.trim() || "this relay"}`}
-              </Button>
-            </div>
-          </form>
+          <Button asChild size="md" variant={relay ? "secondary" : "primary"} className="mt-4">
+            <Link to="/settings" hash="email">
+              {relay ? "Change in Settings" : "Connect a mail service"}
+              <ArrowRight className="text-ink-3" />
+            </Link>
+          </Button>
         ) : (
-          <p className="mt-4 text-sm text-ink-3">Only the box owner and admins can set the relay.</p>
-        )}
-        {admin && relay && (
-          <div className="mt-8 border-t border-rule pt-5">
-            <p className="label mb-2.5">Send a test</p>
-            <form
-              className="flex flex-col gap-2 sm:flex-row"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (to.trim()) test.mutate();
-              }}
-            >
-              <Input
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                placeholder="you@example.com"
-                type="email"
-                aria-label="Send a test email to"
-              />
-              <Button type="submit" disabled={!to.trim() || test.isPending}>
-                <Send />
-                {test.isPending ? "Sending…" : "Send a test"}
-              </Button>
-            </form>
-            {test.data && <p className={cn("mt-2 text-sm", test.data.ok ? "text-ink-2" : "text-danger")}>{test.data.detail}</p>}
-            {test.isError && <ProblemNote className="mt-2" error={test.error} />}
-            <Button variant="danger-quiet" size="sm" className="mt-5 -ml-2.5" onClick={() => setRemoving(true)}>
-              Remove the relay
-            </Button>
-          </div>
+          <p className="mt-3 text-sm text-ink-3">The box’s owner or an admin sets this in Settings.</p>
         )}
       </div>
-      <Confirm
-        open={removing}
-        onClose={() => setRemoving(false)}
-        title="Remove the relay?"
-        body="The box goes back to catching every message in the dev inbox. Nothing will be sent for real until you connect one again."
-        action="Remove relay"
-        tone="normal"
-        run={() => mod.removeRelay()}
-        done={() => qc.invalidateQueries({ queryKey: ["email-status"] })}
-      />
     </Section>
   );
 }
@@ -779,7 +787,9 @@ function Suppressions({ project }: { project: string }) {
   const items = list.data ?? [];
   return (
     <Section id="supp" label="Won't write to" aside={items.length ? count(items.length, "address", "addresses") : undefined}>
-      <p className="mb-3 text-sm text-ink-3">Hard bounces land here on their own. Add unsubscribes and complaints yourself.</p>
+      <p className="mb-3 text-sm text-ink-3">
+        Hard bounces land here on their own; with delivery events on, so do spam complaints and unsubscribes. You can add addresses yourself.
+      </p>
       <Rows>
         {items.map((s) => (
           <li key={s.address} className="flex items-center gap-3 py-2.5">

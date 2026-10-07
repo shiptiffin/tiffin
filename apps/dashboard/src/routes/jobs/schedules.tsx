@@ -1,21 +1,24 @@
-// Schedules: each cron with when it runs (in its time zone), what it calls,
-// how its recent runs went, and its next run. A switch pauses it; Run now
-// runs it once; Edit opens the form.
+// Schedules: each cron in plain words and as written, what it calls, how
+// its last ten runs went, and its next three runs (in its own time zone,
+// with the reader's clock when it differs). A switch pauses it; Run now runs
+// it once; Edit opens the form.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { notOnBox, ApiError } from "@/api/client";
 import { jobsApi, jq, type CronRun, type QueueCron } from "@/api/jobs";
 import { Breaker } from "@/components/breaker";
 import { useTitle } from "@/components/favicon";
-import { cronHuman, EmptyJobs, StateSentence } from "@/components/jobs-words";
+import { cronHuman, StateSentence } from "@/components/jobs-words";
+import { JobsStart, JobsTrouble, likelyApp } from "@/components/jobs-start";
+import { q as api } from "@/api/queries";
 import { NotOnBox, Skeleton } from "@/components/page";
-import { ProblemNote } from "@/components/problem";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { ms, pct, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { relative } from "@/lib/time";
+import { retryUnlessDown } from "./model";
 import { JobsArea, TargetWords, whoWords, type JobsSearch } from "./shared";
 
 const nextFmt = (tz: string) => {
@@ -79,7 +82,10 @@ function health(c: QueueCron): { text: string; bad: boolean } {
 
 export function SchedulesTab({ project, search }: { project: string; search: JobsSearch }) {
   useTitle(`${project} · Schedules`);
-  const crons = useQuery(jq.crons(project));
+  const navigate = useNavigate();
+  const { can } = useMe();
+  const crons = useQuery({ ...jq.crons(project), retry: retryUnlessDown });
+  const manifest = useQuery({ ...api.manifest(project), retry: false });
   if (crons.isError && notOnBox(crons.error)) return <NotOnBox what="Jobs" />;
   const list = crons.data ?? [];
   const paused = list.filter((c) => c.paused);
@@ -92,14 +98,23 @@ export function SchedulesTab({ project, search }: { project: string; search: Job
           {paused.length > 0 && next ? ` ${paused.map((c) => c.name).join(" and ")} ${paused.length === 1 ? "is" : "are"} paused.` : ""}
         </StateSentence>
       )}
-      {crons.isError && <ProblemNote className="mt-6" error={crons.error} />}
+      {crons.isError && <JobsTrouble className="mt-8" error={crons.error} retry={() => void crons.refetch()} />}
       <section className="mt-8" aria-label="Schedules">
         {crons.isPending ? (
           <Skeleton className="h-32" />
-        ) : list.length === 0 ? (
-          <EmptyJobs title="No schedules yet.">
-            A schedule calls an app route or any web address on a timetable: every morning, every five minutes, weekdays at nine. Make one with New schedule.
-          </EmptyJobs>
+        ) : crons.isError ? null : list.length === 0 ? (
+          <JobsStart
+            title="No schedules yet."
+            focus="schedule"
+            app={likelyApp(manifest.data?.manifest.apps)}
+            actions={
+              can("apply:reversible") ? (
+                <Button size="md" onClick={() => void navigate({ to: ".", search: (s: JobsSearch) => ({ ...s, do: "schedule" }) } as never)}>
+                  New schedule
+                </Button>
+              ) : undefined
+            }
+          />
         ) : (
           <ul className="divide-y divide-rule border-y border-rule-2">
             {list.map((c) => (
@@ -151,9 +166,12 @@ function CronRow({ project, c }: { project: string; c: QueueCron }) {
           {c.paused && <span className="text-[0.8125rem] font-[550] text-warn-ink">Paused</span>}
           {c.origin === "vercel.json" && <span className="text-xs text-ink-3">from {c.app}’s vercel.json</span>}
         </p>
-        <p className="mt-0.5 text-[0.875rem] text-ink-2">
-          {w.words}
-          {w.zone && <span className="text-ink-3"> · {w.zone}</span>}
+        <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-[0.875rem] text-ink-2">
+          <span>{w.words}</span>
+          <code className="rounded-[4px] bg-paper-sunk px-1.5 font-mono text-[0.72rem] text-ink-3" title="As written in the config">
+            {c.schedule}
+          </code>
+          {w.zone && <span className="text-[0.8125rem] text-ink-3">{w.zone}</span>}
         </p>
         <p className="mt-0.5 truncate text-xs text-ink-3">
           <TargetWords app={c.app} path={c.path} url={c.url} />
@@ -163,7 +181,7 @@ function CronRow({ project, c }: { project: string; c: QueueCron }) {
       <div className="grid gap-1 text-[0.8125rem]">
         <Recent project={project} runs={c.recent ?? []} />
         <span className={cn(h.bad ? "text-danger" : "text-ink-3")}>{h.text}</span>
-        <span className="text-ink-3 tnum">{c.paused ? "Won’t run while paused" : `Next ${nextFmt(c.timezone).format(new Date(c.nextAt))} (${relative(c.nextAt)})`}</span>
+        <NextRuns project={project} c={c} />
       </div>
       {edit && (
         <div className="flex items-center gap-1.5 md:justify-end">
@@ -180,5 +198,27 @@ function CronRow({ project, c }: { project: string; c: QueueCron }) {
         </div>
       )}
     </li>
+  );
+}
+
+/** The next three runs: the first with how long until it, the others as times. */
+function NextRuns({ project, c }: { project: string; c: QueueCron }) {
+  const preview = useQuery({
+    queryKey: ["schedule-preview", project, c.schedule, c.timezone],
+    queryFn: () => jobsApi.preview(project, c.schedule, c.timezone),
+    enabled: !c.paused,
+    staleTime: 300_000,
+    retry: false,
+  });
+  if (c.paused) return <span className="text-ink-3">Won’t run while paused</span>;
+  const fmt = nextFmt(c.timezone);
+  const next = (preview.data?.next ?? []).filter((t) => new Date(t).getTime() >= new Date(c.nextAt).getTime() - 1000);
+  const first = next[0] ?? c.nextAt;
+  const later = next.slice(1, 3);
+  return (
+    <span className="text-ink-3 tnum">
+      Next <span className="text-ink-2">{fmt.format(new Date(first))}</span> ({relative(first)})
+      {later.length > 0 && <span className="block text-xs">then {later.map((t) => fmt.format(new Date(t))).join(", ")}</span>}
+    </span>
   );
 }

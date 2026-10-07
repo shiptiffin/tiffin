@@ -8,22 +8,28 @@ import { cn } from "@/lib/cn";
  *   secondary  paper with a rule: everything else that acts
  *   ghost      words only: cancel, dismiss, secondary navigation
  *   danger     red: only after an irreversible action is armed
+ *
+ * Disabled: primary turns to pressed paper; the others fade to 45%.
+ *
+ * Variant and size classes are zero-specificity ([:where(&)]:…), so a caller's
+ * className (h-9, text-ink-3, hover:text-danger) always wins without
+ * tailwind-merge. `bun run check:overrides` keeps it that way.
  */
 const variants = {
   primary:
-    "bg-brass text-on-brass shadow-[inset_0_1px_0_oklch(1_0_0/0.2),0_1px_1px_oklch(0.3_0.05_70/0.2)] hover:bg-[color-mix(in_oklch,var(--brass)_92%,var(--ink))] disabled:bg-paper-press disabled:text-ink-3 disabled:shadow-none disabled:opacity-100",
-  secondary: "bg-paper-raised text-ink border border-rule-2 shadow-[var(--top-light),0_1px_0_oklch(0.235_0.014_60/0.04)] hover:bg-paper-hover",
-  ghost: "text-ink-2 hover:text-ink hover:bg-paper-hover",
-  danger: "bg-danger text-on-danger shadow-[inset_0_1px_0_oklch(1_0_0/0.16)] hover:bg-[color-mix(in_oklch,var(--danger)_90%,var(--ink))]",
-  "danger-quiet": "text-danger hover:bg-danger-wash",
+    "[:where(&)]:bg-brass [:where(&)]:text-on-brass [:where(&)]:shadow-[inset_0_1px_0_oklch(1_0_0/0.2),0_1px_1px_oklch(0.3_0.05_70/0.2)] [:where(&)]:hover:bg-[color-mix(in_oklch,var(--brass)_92%,var(--ink))] [:where(&)]:disabled:bg-paper-press [:where(&)]:disabled:text-ink-3 [:where(&)]:disabled:shadow-none",
+  secondary: "[:where(&)]:bg-paper-raised [:where(&)]:text-ink [:where(&)]:border [:where(&)]:border-rule-2 [:where(&)]:shadow-[var(--top-light),0_1px_0_oklch(0.235_0.014_60/0.04)] [:where(&)]:hover:bg-paper-hover [:where(&)]:disabled:opacity-45",
+  ghost: "[:where(&)]:text-ink-2 [:where(&)]:hover:text-ink [:where(&)]:hover:bg-paper-hover [:where(&)]:disabled:opacity-45",
+  danger: "[:where(&)]:bg-danger [:where(&)]:text-on-danger [:where(&)]:shadow-[inset_0_1px_0_oklch(1_0_0/0.16)] [:where(&)]:hover:bg-[color-mix(in_oklch,var(--danger)_90%,var(--ink))] [:where(&)]:disabled:opacity-45",
+  "danger-quiet": "[:where(&)]:text-danger [:where(&)]:hover:bg-danger-wash [:where(&)]:disabled:opacity-45",
 } as const;
 
 const sizes = {
-  sm: "h-7 px-2.5 text-[0.8125rem] gap-1.5 rounded-[6px]",
-  md: "h-8 px-3 text-[0.84375rem] gap-2 rounded-[7px]",
-  lg: "h-[38px] px-4 text-[0.875rem] gap-2 rounded-[8px]",
-  icon: "size-8 rounded-[7px] justify-center",
-  "icon-sm": "size-7 rounded-[6px] justify-center",
+  sm: "[:where(&)]:h-7 [:where(&)]:px-2.5 [:where(&)]:text-[0.8125rem] [:where(&)]:gap-1.5 [:where(&)]:rounded-[6px]",
+  md: "[:where(&)]:h-8 [:where(&)]:px-3 [:where(&)]:text-[0.84375rem] [:where(&)]:gap-2 [:where(&)]:rounded-[7px]",
+  lg: "[:where(&)]:h-[38px] [:where(&)]:px-4 [:where(&)]:text-[0.875rem] [:where(&)]:gap-2 [:where(&)]:rounded-[8px]",
+  icon: "[:where(&)]:size-8 [:where(&)]:rounded-[7px] [:where(&)]:justify-center",
+  "icon-sm": "[:where(&)]:size-7 [:where(&)]:rounded-[6px] [:where(&)]:justify-center",
 } as const;
 
 export type ButtonProps = ComponentProps<"button"> & {
@@ -36,10 +42,13 @@ export function Button({ variant = "secondary", size = "md", asChild, className,
   const Comp = asChild ? Slot.Root : "button";
   return (
     <Comp
+      data-slot="button"
+      data-variant={variant}
+      data-size={size}
       className={cn(
         "inline-flex shrink-0 items-center justify-center font-[550] whitespace-nowrap select-none",
         "transition-[background-color,border-color,color,transform,opacity] duration-[var(--dur-state)] ease-[var(--ease-out)] active:scale-[0.97] active:duration-[var(--dur-press)]",
-        "disabled:pointer-events-none disabled:opacity-45 [&_svg]:size-4 [&_svg]:shrink-0",
+        "disabled:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
         variants[variant],
         sizes[size],
         className,

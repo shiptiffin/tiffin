@@ -1,1 +1,0 @@
-import{t as e}from"./jsx-runtime-Dk72oS4N.js";import{n as t}from"./createLucideIcon-CY_lUtjw.js";var n=e();function r({state:e,label:r,className:i}){return(0,n.jsx)(`span`,{className:t(`pilot`,i),"data-state":e,role:r?`img`:void 0,"aria-label":r,"aria-hidden":!r||void 0})}export{r as t};

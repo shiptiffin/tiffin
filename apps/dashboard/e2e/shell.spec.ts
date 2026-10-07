@@ -12,6 +12,8 @@ const MB = 1048576;
 
 /** Zero serious or critical axe violations on what is on screen now. */
 async function axe(page: Page, what: string) {
+  // Measure once nothing is fading in: mid-animation colours aren't the page's.
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity));
   const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
   const bad = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
   expect(bad.map((v) => `${what}: ${v.id} ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
@@ -181,7 +183,7 @@ test("Connect shows the env, the tunnel and what's not open yet", async ({ page 
   await page.goto("/projects/hello/data/kv");
   await page.getByRole("button", { name: "Connect" }).click();
   const kv = page.getByRole("dialog", { name: "Connect to KV" });
-  for (const lang of ["ioredis", "Bun.redis", "@upstash/redis"]) await expect(kv.getByRole("tab", { name: lang })).toBeVisible();
+  for (const lang of ["@shiptiffin/sdk", "iovalkey", "From Vercel KV"]) await expect(kv.getByRole("tab", { name: lang })).toBeVisible();
   await kv.getByRole("tab", { name: "From your computer" }).click();
   await expect(kv.getByText("tiffin kv tunnel hello")).toBeVisible();
 });
@@ -223,7 +225,7 @@ test("shell screens", async ({ page }) => {
       await shot("connect");
       await page.keyboard.press("Escape");
       await page.goto("/new?starter=part:postgres");
-      await page.getByText("What it needs").scrollIntoViewIfNeeded();
+      await page.getByRole("heading", { name: "What it needs" }).scrollIntoViewIfNeeded();
       await shot("new-solo");
       await page.goto("/usage");
       await page.getByRole("region", { name: "Every project’s usage" }).waitFor();

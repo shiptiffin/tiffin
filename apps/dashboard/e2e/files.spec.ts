@@ -3,14 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { ownerToken, signIn } from "./helpers";
+import { needsServices, ownerToken, pick, signIn } from "./helpers";
 
 // The Files console against a box with storage (a dev box, see seed-box.sh):
 //   FILES=1 E2E_BASE_URL=https://dashboard.<domain>:<port> E2E_OWNER_TOKEN=... bunx playwright test files
 // It makes a bucket called e2e-media in the project (E2E_FILES_PROJECT,
 // default shop), works in it, and deletes it (and its trash) at the end.
 // SHOTS_DIR gets screenshots at 1440 and 390, light and dark.
-test.skip(!process.env.FILES || !process.env.E2E_OWNER_TOKEN, "set FILES=1 and E2E_OWNER_TOKEN for a box with storage");
+test.skip(!process.env.FILES, "set FILES=1 for a box with storage");
+needsServices(process.env.E2E_FILES_PROJECT ?? "shop", ["storage"]);
 test.describe.configure({ mode: "serial" });
 
 const project = process.env.E2E_FILES_PROJECT ?? "shop";
@@ -125,7 +126,7 @@ test("upload files and a folder, with the bucket's rules checked first", async (
   // Rules: images only, up to 1 MB. A file over them is refused before a byte moves.
   await page.getByRole("button", { name: "Settings" }).click();
   const s = page.getByRole("dialog", { name: `${bucket} settings` });
-  await s.getByRole("combobox", { name: "Largest file" }).selectOption({ label: "1 MB" });
+  await pick(page, s.getByRole("combobox", { name: "Largest file" }), "1 MB");
   await expect(toast(page, `Limited files in ${bucket} to 1 MB`)).toBeVisible({ timeout: 30_000 });
   await s.getByRole("checkbox", { name: "Images" }).click();
   await expect(toast(page, `Let ${bucket} take images only`)).toBeVisible({ timeout: 30_000 });
@@ -146,7 +147,7 @@ test("upload files and a folder, with the bucket's rules checked first", async (
   expect(res.status()).toBe(422);
   // Undo the rules from the toast-less way: open settings and clear them.
   await page.getByRole("button", { name: "Settings" }).click();
-  await s.getByRole("combobox", { name: "Largest file" }).selectOption({ label: "No limit" });
+  await pick(page, s.getByRole("combobox", { name: "Largest file" }), "No limit");
   await s.getByRole("checkbox", { name: "Images" }).click();
   await expect(toast(page, `Let ${bucket} take any type of file`)).toBeVisible({ timeout: 30_000 });
   await page.keyboard.press("Escape");
@@ -233,7 +234,7 @@ test("file panel: previews, a private link with an expiry, the resized-link buil
   await expect(panel.getByText("image/png")).toBeVisible();
   await expect(panel.getByText(/\d×\d/).first()).toBeVisible(); // pixel size
   // Private bucket: a signed link that works for a day.
-  await panel.getByRole("combobox", { name: "How long the link works" }).selectOption({ label: "1 day" });
+  await pick(page, panel.getByRole("combobox", { name: "How long the link works" }), "1 day");
   await panel.getByRole("button", { name: "Copy private link" }).click();
   await expect(panel.getByText(/Works until/)).toBeVisible();
   const link = await page.evaluate(() => navigator.clipboard.readText());
@@ -293,7 +294,7 @@ test("rename, move and delete, each with Undo; a folder delete names what goes",
   // A folder: the dialog says how many files and how much, first.
   await cell(page, "covers").focus();
   await page.keyboard.press("Delete");
-  const c = page.getByRole("dialog", { name: "Delete the covers folder?" });
+  const c = page.getByRole("alertdialog", { name: "Delete the covers folder?" });
   await expect(c).toContainText("2 files");
   await axe(page, "folder delete");
   await c.getByRole("button", { name: "Delete 2 files" }).click();

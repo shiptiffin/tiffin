@@ -38,21 +38,21 @@ export function SwitcherPopover({ open, onOpenChange, trigger, current }: { open
         <P.Content
           align="start"
           sideOffset={6}
-          className="z-50 w-[min(18rem,calc(100vw-2rem))] overflow-hidden rounded-[10px] border border-rule-2 bg-paper-raised shadow-overlay outline-none data-[state=open]:animate-pop"
+          className="z-50 w-[min(18rem,calc(100vw-2rem))] overflow-hidden rounded-[10px] border border-rule-2 bg-paper-raised shadow-overlay outline-hidden data-[state=open]:animate-pop"
         >
           <Command label="Switch project" loop>
             <Command.Input
               value={query}
               onValueChange={setQuery}
               placeholder="Find a project…"
-              className="h-10 w-full border-b border-rule bg-transparent px-3 text-[0.875rem] text-ink outline-none placeholder:text-ink-4"
+              className="h-10 w-full border-b border-rule bg-transparent px-3 text-[0.875rem] text-ink outline-hidden placeholder:text-ink-4"
             />
             <Command.List className="max-h-[320px] overflow-y-auto p-1.5">
               <Command.Empty className="px-2.5 py-3 text-sm text-ink-3">No project called that.</Command.Empty>
               <Command.Group heading={query ? undefined : "Recent"} className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pt-1 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-ink-3">
                 {list.map((p) => (
                   <Row key={p} value={p} onSelect={() => go(() => switchTo(p))}>
-                    <ProjectIcon project={p} size={14} />
+                    <ProjectIcon project={p} size={16} />
                     <span className="truncate">{p}</span>
                     {p === current && <span className="ml-auto text-xs text-ink-3">here</span>}
                   </Row>

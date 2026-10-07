@@ -8,7 +8,16 @@ import { ProblemNote } from "./problem";
 import { Skeleton } from "./page";
 import { toast } from "./toast";
 import { Button } from "./ui/button";
-import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 
 const destroy = (project: string, confirm?: string) =>
   request<ApplyResult>("POST", `/v1/projects/${encodeURIComponent(project)}/destroy`, confirm ? { confirm, intent: `Delete ${project}` } : {});
@@ -25,11 +34,11 @@ export function DeleteProject({ project, label, onDeleted }: { project: string; 
       <Button variant="danger-quiet" size="md" onClick={() => setOpen(true)}>
         {label ?? `Delete ${project}…`}
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md" tone="danger">
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogContent tone="danger" className="max-w-md">
           {open && <Body project={project} onClose={() => setOpen(false)} onDeleted={onDeleted} />}
-        </DialogContent>
-      </Dialog>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
@@ -66,11 +75,11 @@ function Body({ project, onClose, onDeleted }: { project: string; onClose: () =>
   const losses = (plan.data?.ops ?? []).filter((o) => asTier(o.risk) === "irreversible" && o.loss && !lossEmpty(o.loss)).flatMap((o) => lossParts(o.loss!));
   return (
     <>
-      <DialogHeader>
-        <DialogTitle>Delete {project}?</DialogTitle>
-        <DialogDescription>Its apps stop and its address goes away. Everything in it is deleted.</DialogDescription>
-      </DialogHeader>
-      <DialogBody className="flex flex-col gap-4">
+      <AlertDialogHeader>
+        <AlertDialogTitle>Delete {project}?</AlertDialogTitle>
+        <AlertDialogDescription>Its apps stop and its address goes away. Everything in it is deleted.</AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogBody className="flex flex-col gap-4">
         {plan.isPending ? (
           <Skeleton className="h-14" />
         ) : plan.isError ? (
@@ -95,19 +104,19 @@ function Body({ project, onClose, onDeleted }: { project: string; onClose: () =>
             autoComplete="off"
             spellCheck={false}
             aria-label={`Type ${project} to confirm`}
-            className="ident mt-1.5 h-9 w-full rounded-[8px] border border-rule-2 bg-paper px-2.5 text-ink focus-visible:border-danger focus-visible:outline-none"
+            className="ident mt-1.5 h-9 w-full rounded-[8px] border border-rule-2 bg-paper px-2.5 text-ink focus-visible:border-danger focus-visible:outline-hidden"
           />
         </label>
         {run.isError && <ProblemNote error={run.error} />}
-      </DialogBody>
-      <DialogFooter>
-        <Button variant="ghost" onClick={onClose}>
-          Cancel
-        </Button>
+      </AlertDialogBody>
+      <AlertDialogFooter>
+        <AlertDialogCancel asChild>
+          <Button variant="ghost">Cancel</Button>
+        </AlertDialogCancel>
         <Button variant="danger" disabled={typed.trim() !== project || !plan.data || run.isPending} onClick={() => run.mutate()}>
           {run.isPending ? "Deleting…" : `Delete ${project}`}
         </Button>
-      </DialogFooter>
+      </AlertDialogFooter>
     </>
   );
 }

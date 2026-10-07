@@ -1,34 +1,36 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { AppWindow, ArrowUpRight, BarChart3, Clock, Database, FolderOpen, Mail, Plus, UserRound, Zap } from "lucide-react";
+import { ArrowUpRight, BarChart3, Clock, Database, FolderOpen, Mail, Moon, Plus, UserRound, Zap } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
-import { ApiError, type Manifest } from "@/api/client";
+import { ApiError } from "@/api/client";
 import { mod, mod2, mod3, mq } from "@/api/modules";
 import { q } from "@/api/queries";
+import { allDeploysQuery, appKind, DeployRow, inFlight, sourceWords, startedBy, useNow, useProjectDeploys, versions } from "@/components/deploy-parts";
 import { useTitle } from "@/components/favicon";
-import { Page, Skeleton } from "@/components/page";
-import { PilotLight } from "@/components/pilot";
+import { Empty, Page, Skeleton } from "@/components/page";
+import { PilotLight, type PilotState } from "@/components/pilot";
 import { ProblemNote } from "@/components/problem";
 import { ReadOnlyBanner } from "@/components/read-only";
 import { AddMenu } from "@/components/start-add-menu";
 import { Button } from "@/components/ui/button";
 import { addressesOf } from "@/lib/addresses";
 import { cn } from "@/lib/cn";
-import { bytes, count, cronWords, int } from "@/lib/format";
-import { appPulse, deploysQuery, runtimeQuery, toneClass, useProjectPulse } from "@/lib/pulse";
+import { bytes, count, cronWords, dec, int } from "@/lib/format";
+import { useMe, useWho } from "@/lib/me";
+import { appPulse, runtimeQuery, toneClass, useProjectPulse } from "@/lib/pulse";
 import { useArrival } from "@/lib/switch";
 import { progressWords, usePending } from "@/lib/staged";
-import { frameworkName } from "@/lib/starters";
+import { startersQuery } from "@/lib/starters";
 import { PARTS } from "@/lib/names";
 import { relative, sinceWhen } from "@/lib/time";
 import { ProjectIcon } from "@/components/project-icon";
 import { DomainsSummary } from "@/components/project-domains";
 
 /**
- * A project's overview: its name, live address and one status line, then
- * what's in it as tiles (apps, database, files, email, sign-in, analytics,
- * jobs; only the ones it has) and a quiet Add. Each tile opens its own page;
- * the levers (instances, memory, limits) live in Usage, the config in Settings.
+ * A project's overview, like Vercel's: its name, one status line and live
+ * address; then Production (each app: what's live and where, its last
+ * deploy, requests and errors) and the latest deployments; on the side its
+ * services with a fact and a way straight in, and its domains.
  */
 export function ProjectPage({ project }: { project: string }) {
   useTitle(project);
@@ -60,6 +62,10 @@ export function ProjectPage({ project }: { project: string }) {
   const crons = res.filter((r) => r.address.startsWith("cron/"));
   const queues = res.filter((r) => r.address.startsWith("queue/"));
   const empty = p.data && res.filter((r) => r.address !== "project").length === 0;
+  const services = (["postgres", "valkey", "storage", "email", "auth", "analytics"] as const).filter((x) => has(`service/${x}`));
+  const hasJobs = crons.length > 0 || queues.length > 0;
+  const addingApps = staged.flatMap((e) => (e.kind === "set" && e.path[0] === "apps" && e.path.length === 2 && e.to !== undefined && !apps.some((a) => a.name === e.path[1]) ? [e.path[1] as string] : []));
+  const addingParts = staged.flatMap((e) => (e.kind === "service" && e.to === "on" && !has(`service/${e.service}`) ? [progressWords(e, project)] : []));
 
   return (
     <Page wide>
@@ -67,7 +73,7 @@ export function ProjectPage({ project }: { project: string }) {
         <div className="flex min-w-0 items-center gap-4">
           <div className="min-w-0">
             <h1 className="title flex items-center gap-3 text-ink">
-              <ProjectIcon project={project} size={14} />
+              <ProjectIcon project={project} size={32} />
               {project}
             </h1>
             <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.9375rem] text-ink-2">
@@ -113,337 +119,370 @@ export function ProjectPage({ project }: { project: string }) {
         </p>
       )}
 
-      <h2 className="label mt-10 mb-3">What’s in it</h2>
-      {m.isError && <ProblemNote className="mb-4" error={m.error} title="The project’s config can’t be read." />}
-      <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label={`What’s in ${project}`}>
-        {!p.data &&
-          [0, 1, 2].map((i) => (
-            <li key={i}>
-              <Skeleton className="h-[148px] rounded-[12px]" />
-            </li>
-          ))}
-        {apps.map((a) => (
-          <AppTile key={a.name} project={project} app={a.name} role={a.spec?.role} framework={a.spec?.framework} />
-        ))}
-        {has("service/postgres") && <DatabaseTile project={project} />}
-        {has("service/valkey") && <CacheTile project={project} />}
-        {has("service/storage") && <FilesTile project={project} />}
-        {has("service/email") && <EmailTile project={project} />}
-        {has("service/auth") && <SignInTile project={project} />}
-        {has("service/analytics") && <AnalyticsTile project={project} />}
-        {(crons.length > 0 || queues.length > 0) && <JobsTile project={project} crons={crons.map((c) => c.spec as { schedule?: string })} queues={queues.length} />}
-        {staged.map((e) =>
-          e.kind === "service" && e.to === "on" && !has(`service/${e.service}`) ? (
-            <PendingTile key={e.service} words={progressWords(e, project)} />
-          ) : e.kind === "set" && e.path[0] === "apps" && e.path.length === 2 && e.to !== undefined && !apps.some((a) => a.name === e.path[1]) ? (
-            <PendingTile key={e.path.join("/")} words={`Adding the ${e.path[1]} app…`} />
-          ) : null,
-        )}
-        {p.data && <AddTile project={project} manifest={man} routes={routes} empty={!!empty} />}
-      </ul>
-      {apps.some((a) => a.spec?.role !== "worker") && <DomainsSummary project={project} className="mt-10 max-w-[44rem]" />}
+
+      {m.isError && <ProblemNote className="mt-8" error={m.error} title="The project’s config can’t be read." />}
+      {!p.data ? (
+        <div className="mt-10 grid gap-3">
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="h-20" />
+          <Skeleton className="h-20" />
+        </div>
+      ) : empty && addingApps.length === 0 && addingParts.length === 0 ? (
+        <Empty className="mt-10" title={`Nothing in ${project} yet.`}>
+          <p>Add an app from a starter, GitHub or a git URL, or a database, files, email or sign-in. Each part is ready in seconds.</p>
+          <div className="mt-4 flex justify-center">
+            <AddMenu project={project} manifest={man} routes={routes} trigger={<Button variant="primary" size="lg" disabled={!man}><Plus />Add the first part</Button>} />
+          </div>
+        </Empty>
+      ) : (
+        <div className="mt-10 grid items-start gap-x-12 gap-y-12 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="min-w-0">
+            <section aria-labelledby="prod-h">
+              <SectionHead id="prod-h" title="Production">
+                {apps.length > 0 && (
+                  <Link to="/projects/$project/deployments" params={{ project }} className="text-[0.8125rem] text-ink-3 hover:text-ink">
+                    Deployments
+                  </Link>
+                )}
+              </SectionHead>
+              {apps.length === 0 && addingApps.length === 0 ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-y border-rule py-4">
+                  <p className="text-sm text-ink-2">No app yet. An app is the code the box builds and runs: a site, an API or a worker.</p>
+                  <AddMenu project={project} manifest={man} routes={routes} only="app" trigger={<Button size="md" disabled={!man}><Plus />Add app</Button>} />
+                </div>
+              ) : (
+                <ul className="divide-y divide-rule border-y border-rule">
+                  {apps.map((a) => (
+                    <AppRow key={a.name} project={project} app={a.name} role={a.spec?.role} framework={a.spec?.framework} />
+                  ))}
+                  {addingApps.map((a) => (
+                    <PendingRow key={a} words={`Adding the ${a} app…`} />
+                  ))}
+                </ul>
+              )}
+            </section>
+            {apps.length > 0 && <RecentDeploys project={project} apps={apps.map((a) => a.name)} />}
+          </div>
+
+          <aside className="flex min-w-0 flex-col gap-10">
+            <section aria-labelledby="svc-h">
+              <SectionHead id="svc-h" title="Services">
+                <AddMenu
+                  project={project}
+                  manifest={man}
+                  routes={routes}
+                  trigger={
+                    <button type="button" disabled={!man} className="inline-flex items-center gap-1 text-[0.8125rem] text-ink-3 hover:text-ink disabled:opacity-50">
+                      <Plus className="size-3.5" />
+                      Add
+                    </button>
+                  }
+                />
+              </SectionHead>
+              {services.length === 0 && !hasJobs && addingParts.length === 0 ? (
+                <p className="border-y border-rule py-4 text-sm text-ink-3">No database, files or email yet. Add one and it’s ready in seconds.</p>
+              ) : (
+                <ul className="divide-y divide-rule border-y border-rule">
+                  {services.includes("postgres") && <DatabaseRow project={project} />}
+                  {services.includes("valkey") && <CacheRow project={project} />}
+                  {services.includes("storage") && <FilesRow project={project} />}
+                  {services.includes("email") && <EmailRow project={project} />}
+                  {services.includes("auth") && <SignInRow project={project} />}
+                  {services.includes("analytics") && <AnalyticsRow project={project} />}
+                  {hasJobs && <JobsRow project={project} crons={crons.map((c) => c.spec as { schedule?: string })} queues={queues.length} />}
+                  {addingParts.map((w) => (
+                    <PendingRow key={w} words={w} />
+                  ))}
+                </ul>
+              )}
+            </section>
+            {apps.some((a) => a.spec?.role !== "worker") && <DomainsSummary project={project} />}
+          </aside>
+        </div>
+      )}
     </Page>
   );
 }
 
-// ───────────────────────── tiles ─────────────────────────
+// ───────────────────────── parts ─────────────────────────
 
 const quiet = { retry: false, refetchOnWindowFocus: false, staleTime: 15_000 } as const;
 
-function Tile({
-  icon,
-  title,
-  kind,
-  to,
-  params,
-  fact,
-  tone,
-  actions,
-}: {
-  icon: ReactNode;
-  title: string;
-  kind?: string;
-  to: string;
-  params: Record<string, string>;
-  fact: ReactNode;
-  tone?: "bad" | "busy";
-  actions?: ReactNode;
-}) {
+function SectionHead({ id, title, children }: { id: string; title: string; children?: ReactNode }) {
   return (
-    <li
-      className={cn(
-        "group relative flex flex-col rounded-[12px] border bg-paper-raised p-4 pb-3 sm:min-h-[148px] shadow-[var(--top-light)] transition-[border-color,box-shadow] duration-[var(--dur-state)] hover:shadow-raised",
-        tone === "bad" ? "border-danger-rule" : "border-rule-2 hover:border-rule-3",
-      )}
-    >
-      <div className="flex items-center gap-2.5">
-        <span className="grid size-8 shrink-0 place-items-center rounded-[8px] bg-paper-sunk text-ink-2 [&_svg]:size-[17px]">{icon}</span>
-        <div className="min-w-0">
-          <h3 className="truncate text-[0.9375rem] leading-5 font-[550] text-ink">
-            <Link to={to as "/"} params={params as never} className="outline-none after:absolute after:inset-0 after:rounded-[12px] focus-visible:after:shadow-[0_0_0_2px_var(--brass)]">
-              {title}
-            </Link>
-          </h3>
-          {kind && <p className="truncate text-xs text-ink-3">{kind}</p>}
-        </div>
+    <div className="mb-2 flex items-baseline justify-between gap-4">
+      <h2 id={id} className="label">
+        {title}
+      </h2>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * One app in production: what's live and where, its last deploy, and how
+ * it's doing (requests and errors in the last hour). The row opens the app.
+ */
+function AppRow({ project, app, role, framework }: { project: string; app: string; role?: string; framework?: string }) {
+  const who = useWho();
+  const writer = useMe().can("apply:reversible");
+  const d = useQuery(allDeploysQuery(project, app));
+  const rt = useQuery(runtimeQuery(project, app));
+  const metrics = useQuery({ queryKey: ["observe-apps", project], queryFn: () => mod.apps(project, "1h"), ...quiet, refetchInterval: 30_000 });
+  const list = useMemo(() => [...(d.data ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [d.data]);
+  const pulse = appPulse(d.data, role);
+  const vs = versions(list);
+  const prod = list.filter((x) => !x.preview);
+  const live = prod.find((x) => x.status === "live");
+  const latest = prod[0];
+  const url = rt.data?.production?.url;
+  const asleep = !!rt.data?.production?.sleeping;
+  const mm = (metrics.data ?? []).find((x) => x.app === app);
+  const pilot: PilotState = asleep ? "off" : pulse?.tone === "ok" ? "on" : pulse?.tone === "busy" ? "busy" : pulse?.tone === "bad" ? "fault" : "off";
+  const by = latest ? startedBy(latest, who) : undefined;
+
+  let state: ReactNode = <Skeleton className="h-4 w-32" />;
+  if (d.isError) state = <span className="text-ink-3">Its deploys can’t be read here.</span>;
+  else if (pulse) {
+    if (pulse.tone === "bad")
+      state = <span className="text-danger">{pulse.servingOld ? `v${vs.get(latest!.id)} didn’t start. v${live ? vs.get(live.id) : "?"} is still serving.` : `It didn’t start${pulse.failedWhy ? `: ${pulse.failedWhy}` : "."}`}</span>;
+    else if (pulse.tone === "busy") state = <span className="text-brass-ink">{pulse.words} v{vs.get(latest!.id)}…</span>;
+    else if (pulse.tone === "quiet")
+      state = (
+        <span className="text-ink-3">
+          Not live yet
+          {writer && (
+            <>
+              {" · "}
+              <Link to="/projects/$project/apps/$app" params={{ project, app }} search={{ deploy: true }} className="relative z-[1] font-[550] text-ink-2 underline decoration-rule-3 underline-offset-4 hover:text-ink">
+                Deploy it
+              </Link>
+            </>
+          )}
+        </span>
+      );
+    else if (asleep) state = `v${live ? vs.get(live.id) : "?"} · asleep${rt.data?.production?.sleepingSince ? ` since ${sinceWhen(rt.data.production.sleepingSince)}` : ""}`;
+    else state = `v${live ? vs.get(live.id) : "?"} live ${relative(pulse.since!)}`;
+  }
+
+  let health: ReactNode = null;
+  if (role === "worker") health = <span className="text-ink-3">Background worker</span>;
+  else if (framework === "static") health = <span className="text-ink-3">Served by the edge</span>;
+  else if (asleep) health = <span className="text-ink-3">Wakes on the next visit</span>;
+  else if (live && mm && mm.requests > 0)
+    health = (
+      <>
+        <span className="tnum">{mm.rps * 60 >= 1 ? `${int(mm.rps * 60)} requests a minute` : `${count(mm.requests, "request")} this hour`}</span>
+        <span className={cn("block text-xs tnum", mm.errors > 0 ? "text-danger" : "text-ink-3")}>{mm.errors > 0 ? `${count(mm.errors, "error")} (${dec(mm.errorRate * 100, 1)}%)` : "No errors"}</span>
+      </>
+    );
+  else if (live) health = <span className="text-ink-3">No requests this hour</span>;
+
+  return (
+    <li className="group relative grid grid-cols-[1rem_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 py-3.5 pr-1 transition-colors hover:bg-paper-hover md:grid-cols-[1rem_minmax(0,14rem)_minmax(0,1fr)_minmax(0,10rem)] md:gap-x-5">
+      <span className="grid h-5 place-items-center">{asleep ? <Moon className="size-3 text-ink-3" aria-label="Asleep" /> : <PilotLight state={pilot} label={pulse?.words} />}</span>
+      <div className="min-w-0">
+        <Link
+          to="/projects/$project/apps/$app"
+          params={{ project, app }}
+          className="block truncate text-[0.9375rem] leading-5 font-[550] text-ink outline-hidden after:absolute after:inset-0 focus-visible:after:shadow-[inset_0_0_0_2px_var(--brass)]"
+        >
+          {app}
+        </Link>
+        <p className="truncate text-xs text-ink-3">{appKind(framework, role)}</p>
+        {url && (
+          <a href={url} target="_blank" rel="noopener noreferrer" className="ident relative z-[1] mt-1 inline-flex max-w-full items-center gap-1 text-[0.75rem] text-brass-ink hover:text-ink">
+            <span className="truncate">{url.replace(/^https?:\/\//, "")}</span>
+            <ArrowUpRight className="size-3 shrink-0" />
+          </a>
+        )}
       </div>
-      <div className={cn("mt-3 text-[0.875rem] leading-5 text-ink-2 sm:min-h-10", tone === "bad" && "text-danger")}>{fact}</div>
-      {actions && <div className="relative z-10 mt-auto flex flex-wrap items-center gap-1 pt-2 -ml-2">{actions}</div>}
+      <div className="min-w-0 text-[0.8125rem] text-ink max-md:col-span-2 max-md:col-start-2 max-md:row-start-2">
+        <p className="truncate">{state}</p>
+        {latest && (
+          <Link
+            to="/projects/$project/apps/$app/deploys/$id"
+            params={{ project, app, id: latest.id }}
+            className="relative z-[1] mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-ink-3 hover:text-ink"
+          >
+            <span className="shrink-0">Last deploy</span>
+            <span className="truncate">
+              {latest.message ? `“${latest.message}”` : sourceWords(latest)}
+              {latest.commit && !latest.message ? "" : latest.commit ? ` · ${latest.commit.slice(0, 7)}` : ""} · {relative(latest.createdAt)}
+              {by ? ` by ${by}` : ""}
+            </span>
+          </Link>
+        )}
+      </div>
+      <div className="min-w-0 text-right text-[0.8125rem] text-ink max-md:col-start-3 max-md:row-start-1">{health}</div>
     </li>
   );
 }
 
-function TileAction({ children, ...rest }: { children: ReactNode } & ({ href: string } | { to: string; params: Record<string, string>; search?: Record<string, unknown> })) {
-  const cls = "inline-flex h-7 items-center gap-1 rounded-[6px] px-2 text-[0.8125rem] font-[550] text-ink-2 transition-colors hover:bg-paper-hover hover:text-ink [&_svg]:size-3.5";
-  if ("href" in rest)
-    return (
-      <a href={rest.href} target="_blank" rel="noopener noreferrer" className={cls}>
-        {children}
-      </a>
-    );
+/** The project's last few deploys, every app, with the Deployments rows. */
+function RecentDeploys({ project, apps }: { project: string; apps: string[] }) {
+  const { can } = useMe();
+  const who = useWho();
+  const all = useProjectDeploys(project, apps);
+  const starters = useQuery(startersQuery);
+  const now = useNow(all.rows.some((d) => inFlight(d.status)));
+  const rows = all.rows.slice(0, 5);
+  if (!all.pending && rows.length === 0) return null;
   return (
-    <Link to={rest.to as "/"} params={rest.params as never} search={rest.search as never} className={cls}>
-      {children}
-    </Link>
-  );
-}
-
-function AppTile({ project, app, role, framework }: { project: string; app: string; role?: string; framework?: string }) {
-  const d = useQuery(deploysQuery(project, app));
-  const rt = useQuery(runtimeQuery(project, app));
-  const pulse = appPulse(d.data, role);
-  const url = rt.data?.production?.url;
-  const kind = framework === "static" ? "Website, static" : role === "worker" ? `Background worker · ${frameworkName(framework)}` : `Web app · ${frameworkName(framework)}`;
-  let fact: ReactNode = <Skeleton className="h-4 w-40" />;
-  if (d.isError) fact = <span className="text-ink-3">Its versions can’t be read here.</span>;
-  else if (pulse) {
-    if (pulse.tone === "bad")
-      fact = pulse.servingOld ? (
-        <>
-          The new version didn’t start{pulse.failedWhy ? `: ${pulse.failedWhy}` : ""}. <span className="text-ink-2">The one before it is still up.</span>
-        </>
+    <section className="mt-12" aria-labelledby="recent-h">
+      <SectionHead id="recent-h" title="Recent deployments">
+        <Link to="/projects/$project/deployments" params={{ project }} className="text-[0.8125rem] text-ink-3 hover:text-ink">
+          All deployments
+        </Link>
+      </SectionHead>
+      {all.pending ? (
+        <Skeleton className="h-40" />
       ) : (
-        <>It didn’t start{pulse.failedWhy ? `: ${pulse.failedWhy}` : ""}.</>
-      );
-    else if (pulse.tone === "busy") fact = <span className="text-brass-ink">{pulse.words} a new version…</span>;
-    else if (pulse.tone === "quiet") fact = "Not live yet. Deploy it to put it online.";
-    else if (rt.data?.production?.sleeping) {
-      const since = rt.data.production.sleepingSince;
-      fact = `Asleep${since ? ` since ${sinceWhen(since)}` : ""} · wakes on ${role === "worker" ? "its next job" : "the next visit"}`;
-    } else fact = `${pulse.words} · updated ${relative(pulse.since!)}`;
-  }
-  return (
-    <Tile
-      icon={<AppWindow />}
-      title={app}
-      kind={kind}
-      to="/projects/$project/apps/$app"
-      params={{ project, app }}
-      fact={fact}
-      tone={pulse?.tone === "bad" ? "bad" : pulse?.tone === "busy" ? "busy" : undefined}
-      actions={
-        <>
-          {url && (
-            <TileAction href={url}>
-              Open <ArrowUpRight />
-            </TileAction>
-          )}
-          <TileAction to="/projects/$project/apps/$app" params={{ project, app }} search={{ deploy: true }}>
-            Deploy
-          </TileAction>
-          <TileAction to="/projects/$project/apps/$app/logs" params={{ project, app }}>
-            Logs
-          </TileAction>
-        </>
-      }
-    />
+        <ol className="divide-y divide-rule border-y border-rule">
+          {rows.map((d) => (
+            <DeployRow
+              key={d.id}
+              project={project}
+              d={d}
+              v={all.byApp.get(d.app)?.get(d.id)}
+              showApp={apps.length > 1}
+              current={all.live.get(d.app)?.id === d.id}
+              who={startedBy(d, who)}
+              starters={starters.data}
+              now={now}
+              writer={can("apply:reversible")}
+            />
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 
-function DatabaseTile({ project }: { project: string }) {
+/** A service in the side list: its name, one fact, and a link or two straight in. */
+function ServiceRow({ icon, title, sub, to, fact, links }: { icon: ReactNode; title: string; sub?: string; to: string; fact: ReactNode; links?: Array<{ label: string; to: string }> }) {
+  return (
+    <li className="group relative grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-start gap-x-3 py-3 pr-1 transition-colors hover:bg-paper-hover">
+      <span className="grid size-7 place-items-center rounded-[7px] bg-paper-sunk text-ink-2 [&_svg]:size-[15px]">{icon}</span>
+      <div className="min-w-0">
+        <Link to={to as "/"} className="block truncate text-[0.875rem] leading-5 font-[550] text-ink outline-hidden after:absolute after:inset-0 focus-visible:after:shadow-[inset_0_0_0_2px_var(--brass)]">
+          {title}
+          {sub && <span className="ml-1.5 text-xs font-[400] text-ink-3">{sub}</span>}
+        </Link>
+        <div className="truncate text-[0.8125rem] text-ink-2">{fact}</div>
+      </div>
+      {links && (
+        <span className="relative z-[1] flex items-center gap-2 pt-0.5">
+          {links.map((l) => (
+            <Link key={l.label} to={l.to as "/"} className="text-xs text-ink-3 hover:text-ink">
+              {l.label}
+            </Link>
+          ))}
+        </span>
+      )}
+    </li>
+  );
+}
+
+const pth = (project: string, rest = "") => `/projects/${encodeURIComponent(project)}${rest}`;
+
+function DatabaseRow({ project }: { project: string }) {
   const tables = useQuery({ ...mq.tables(project), ...quiet });
   const pg = useQuery({ ...mq.pg(project), ...quiet });
   const n = tables.data?.length;
   return (
-    <Tile
+    <ServiceRow
       icon={<Database />}
       title={PARTS.postgres.name}
-      kind={PARTS.postgres.sub}
-      to="/projects/$project/data"
-      params={{ project }}
-      fact={
-        tables.isError ? (
-          <span className="text-ink-3">The database isn’t answering.</span>
-        ) : n === undefined ? (
-          <Skeleton className="h-4 w-32" />
-        ) : n === 0 ? (
-          "No tables yet."
-        ) : (
-          <>
-            {count(n, "table")}
-            {pg.data && <> · {bytes(pg.data.sizeBytes)}</>}
-          </>
-        )
-      }
-      actions={
-        <>
-          <TileAction to="/projects/$project/data" params={{ project }}>
-            Tables
-          </TileAction>
-          <TileAction to="/projects/$project/data/sql" params={{ project }}>
-            SQL
-          </TileAction>
-        </>
-      }
+      sub={PARTS.postgres.sub}
+      to={pth(project, "/data")}
+      links={[{ label: "SQL", to: pth(project, "/data/sql") }]}
+      fact={tables.isError ? <span className="text-danger">Not answering</span> : n === undefined ? <Skeleton className="mt-1 h-3.5 w-24" /> : n === 0 ? "No tables yet" : <>{count(n, "table")}{pg.data && <> · {bytes(pg.data.sizeBytes)}</>}</>}
     />
   );
 }
 
-function CacheTile({ project }: { project: string }) {
+function CacheRow({ project }: { project: string }) {
   const kv = useQuery({ queryKey: ["kv-stats", project], queryFn: () => mod.kvStats(project), ...quiet });
   return (
-    <Tile
+    <ServiceRow
       icon={<Zap />}
       title={PARTS.valkey.name}
-      kind={PARTS.valkey.sub}
-      to="/projects/$project/data/kv"
-      params={{ project }}
-      fact={kv.isError ? <span className="text-ink-3">The KV store isn’t answering.</span> : kv.data ? `${count(kv.data.keys, "key")} · ${bytes(kv.data.memoryBytes)}` : <Skeleton className="h-4 w-28" />}
+      to={pth(project, "/data/kv")}
+      links={[{ label: "Console", to: pth(project, "/data/kv/console") }]}
+      fact={kv.isError ? <span className="text-danger">Not answering</span> : kv.data ? `${count(kv.data.keys, "key")} · ${bytes(kv.data.memoryBytes)}` : <Skeleton className="mt-1 h-3.5 w-24" />}
     />
   );
 }
 
-function FilesTile({ project }: { project: string }) {
+function FilesRow({ project }: { project: string }) {
   const st = useQuery({ ...mq.storage(project), ...quiet });
   const b = st.data?.buckets ?? [];
-  const files = b.reduce((s, x) => s + (x.objects ?? 0), 0);
+  const files = b.reduce((n, x) => n + (x.objects ?? 0), 0);
   return (
-    <Tile
+    <ServiceRow
       icon={<FolderOpen />}
       title={PARTS.storage.name}
-      kind={st.data ? `${PARTS.storage.sub} · ${count(b.length, "bucket")}` : PARTS.storage.sub}
-      to="/projects/$project/storage"
-      params={{ project }}
-      fact={st.isError ? <span className="text-ink-3">Files aren’t answering.</span> : st.data ? `${count(files, "file")} · ${bytes(st.data.filesBytes)}` : <Skeleton className="h-4 w-28" />}
+      to={pth(project, "/storage")}
+      fact={st.isError ? <span className="text-danger">Not answering</span> : st.data ? `${count(files, "file")} · ${bytes(st.data.filesBytes)} · ${count(b.length, "bucket")}` : <Skeleton className="mt-1 h-3.5 w-24" />}
     />
   );
 }
 
-function EmailTile({ project }: { project: string }) {
+function EmailRow({ project }: { project: string }) {
   const status = useQuery({ ...mq.emailStatus, ...quiet });
   const msgs = useQuery({ queryKey: ["messages", project, ""], queryFn: () => mod.messages(project, undefined, true), ...quiet });
   const n = msgs.data?.length;
   const inbox = status.data?.mode === "inbox";
   return (
-    <Tile
+    <ServiceRow
       icon={<Mail />}
       title={PARTS.email.name}
-      kind={status.data ? (inbox ? "Catching email: nothing is sent yet" : "Sending for real") : PARTS.email.sub}
-      to="/projects/$project/email"
-      params={{ project }}
-      fact={
-        msgs.isError ? (
-          <span className="text-ink-3">Email isn’t answering.</span>
-        ) : n === undefined ? (
-          <Skeleton className="h-4 w-28" />
-        ) : inbox ? (
-          n === 0 ? "No mail caught yet." : `${n >= 200 ? "200+" : int(n)} ${n === 1 ? "message" : "messages"} caught`
-        ) : (
-          `${count(n, "message")} recently`
-        )
-      }
+      sub={status.data ? (inbox ? "catching, not sending" : "sending") : undefined}
+      to={pth(project, "/email")}
+      fact={msgs.isError ? <span className="text-danger">Not answering</span> : n === undefined ? <Skeleton className="mt-1 h-3.5 w-24" /> : inbox ? (n === 0 ? "No mail caught yet" : `${n >= 200 ? "200+" : int(n)} caught`) : `${count(n, "message")} recently`}
     />
   );
 }
 
-function SignInTile({ project }: { project: string }) {
+function SignInRow({ project }: { project: string }) {
   const a = useQuery({ queryKey: ["auth", project], queryFn: () => mod3.auth(project), ...quiet });
   const s = a.data?.stats;
   return (
-    <Tile
+    <ServiceRow
       icon={<UserRound />}
       title={PARTS.auth.name}
-      kind={PARTS.auth.sub}
-      to="/projects/$project/users"
-      params={{ project }}
-      fact={
-        a.isError ? (
-          <span className="text-ink-3">Sign-in isn’t answering.</span>
-        ) : !s ? (
-          <Skeleton className="h-4 w-28" />
-        ) : s.users === 0 ? (
-          "No one has signed up yet."
-        ) : (
-          <>
-            {count(s.users, "person", "people")}
-            {s.signups7d > 0 && <> · {int(s.signups7d)} new this week</>}
-          </>
-        )
-      }
+      to={pth(project, "/users")}
+      fact={a.isError ? <span className="text-danger">Not answering</span> : !s ? <Skeleton className="mt-1 h-3.5 w-24" /> : s.users === 0 ? "No one has signed up yet" : <>{count(s.users, "person", "people")}{s.signups7d > 0 && <> · {int(s.signups7d)} new this week</>}</>}
     />
   );
 }
 
-function AnalyticsTile({ project }: { project: string }) {
+function AnalyticsRow({ project }: { project: string }) {
   const a = useQuery({ queryKey: ["analytics", project, "24h", "box"], queryFn: () => mod2.analytics(project, "24h"), ...quiet });
   const t = a.data?.totals;
   return (
-    <Tile
+    <ServiceRow
       icon={<BarChart3 />}
       title={PARTS.analytics.name}
-      kind={`${PARTS.analytics.sub} · last 24 hours`}
-      to="/projects/$project/analytics"
-      params={{ project }}
-      fact={
-        a.isError ? (
-          <span className="text-ink-3">Analytics isn’t answering.</span>
-        ) : !t ? (
-          <Skeleton className="h-4 w-28" />
-        ) : t.pageviews === 0 ? (
-          "No visits yet today."
-        ) : (
-          <>
-            {count(t.visitors, "visitor")} · {count(t.pageviews, "page view")}
-          </>
-        )
-      }
+      sub="last 24 hours"
+      to={pth(project, "/analytics")}
+      fact={a.isError ? <span className="text-danger">Not answering</span> : !t ? <Skeleton className="mt-1 h-3.5 w-24" /> : t.pageviews === 0 ? "No visits yet today" : <>{count(t.visitors, "visitor")} · {count(t.pageviews, "page view")}</>}
     />
   );
 }
 
-function JobsTile({ project, crons, queues }: { project: string; crons: Array<{ schedule?: string }>; queues: number }) {
+function JobsRow({ project, crons, queues }: { project: string; crons: Array<{ schedule?: string }>; queues: number }) {
   const bits = [crons.length === 1 && crons[0].schedule ? `Runs ${cronWords(crons[0].schedule)}` : crons.length > 1 ? count(crons.length, "schedule") : "", queues > 0 ? count(queues, "queue") : ""].filter(Boolean);
-  return <Tile icon={<Clock />} title={PARTS.jobs.name} kind={PARTS.jobs.sub} to="/projects/$project/jobs" params={{ project }} fact={bits.join(" · ")} />;
+  return <ServiceRow icon={<Clock />} title={PARTS.jobs.name} to={pth(project, "/jobs")} fact={bits.join(" · ")} />;
 }
 
-/** Something being added right now: where its tile will be, with a spinner. */
-function PendingTile({ words }: { words: string }) {
+/** Something being added right now, where its row will be. */
+function PendingRow({ words }: { words: string }) {
   return (
-    <li className="flex min-h-[148px] items-center justify-center gap-2.5 rounded-[12px] border border-rule-2 bg-paper-raised text-[0.875rem] text-brass-ink" role="status">
+    <li className="flex items-center gap-2.5 py-3.5 text-[0.875rem] text-brass-ink" role="status">
       <span className="spinner" aria-hidden />
       {words}
-    </li>
-  );
-}
-
-function AddTile({ project, manifest, routes, empty }: { project: string; manifest?: Manifest; routes: string[]; empty: boolean }) {
-  return (
-    <li className="flex min-h-[112px] sm:min-h-[148px]">
-      <AddMenu
-        project={project}
-        manifest={manifest}
-        routes={routes}
-        trigger={
-          <button
-            disabled={!manifest}
-            className="flex w-full flex-col items-center justify-center gap-1.5 rounded-[12px] border border-dashed border-rule-3 px-4 text-center text-ink-3 transition-colors duration-[var(--dur-state)] hover:border-ink-4 hover:bg-paper-hover hover:text-ink disabled:opacity-50"
-          >
-            <Plus className="size-5" />
-            <span className="text-[0.9375rem] font-[550]">{empty ? "Add the first part" : "Add"}</span>
-            <span className="text-xs">An app, a database, files, email, auth…</span>
-          </button>
-        }
-      />
     </li>
   );
 }

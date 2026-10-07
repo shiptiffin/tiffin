@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { test, type Page } from "@playwright/test";
-import { signIn } from "./helpers";
+import { needsServices, signIn } from "./helpers";
 
 // Visual review of Health, Access and Settings on the Fusion against a seeded dev box:
 //   SCREENS=1 E2E_BASE_URL=http://localhost:5405 E2E_OWNER_TOKEN=... bunx playwright test screens-health
 // Narrow it with SHOTS=status,logs THEMES=light SIZES=1440. It reads; it never applies, restores or imports.
-test.skip(!process.env.SCREENS || !process.env.E2E_OWNER_TOKEN, "set SCREENS=1 and E2E_OWNER_TOKEN for a seeded box");
+test.skip(!process.env.SCREENS, "set SCREENS=1 for screenshots");
+needsServices("shop", ["postgres"]);
 
 const out = process.env.SHOTS_DIR ?? "screenshots/fusion";
 const only = process.env.SHOTS ? process.env.SHOTS.split(",") : undefined;

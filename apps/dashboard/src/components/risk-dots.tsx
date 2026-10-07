@@ -15,6 +15,6 @@ export function RiskDots({ tier, label, className }: { tier: Tier; label?: strin
   const text = label === "Low" ? words.reversible : (label ?? words[tier]);
   if (label === false) return <span className="sr-only">{words[tier]}</span>;
   return (
-    <span className={cn("text-[0.8125rem]", tier === "irreversible" ? "text-danger" : tier === "outbound" ? "text-warn-ink" : "text-ink-3", className)}>{text}</span>
+    <span className={cn("[:where(&)]:text-[0.8125rem]", tier === "irreversible" ? "text-danger" : tier === "outbound" ? "text-warn-ink" : "text-ink-3", className)}>{text}</span>
   );
 }

@@ -1,7 +1,7 @@
 import { useQueries } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight, Search, Trash2, X } from "lucide-react";
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { mod, type KVTree } from "@/api/modules";
 import { Select } from "@/components/ui/choice";
 import { ProblemNote } from "@/components/problem";
@@ -31,13 +31,21 @@ export type BrowserHandle = { focusSearch: () => void };
  * ARIA tree pattern (arrows move, → opens a group, ← closes it, Enter opens
  * a key, Delete deletes the key or everything under the group).
  */
-export const KeyBrowser = forwardRef<BrowserHandle, {
+export function KeyBrowser({
+  ref,
+  selected,
+  onOpen,
+  filters,
+  onFilters,
+  className,
+}: {
+  ref?: Ref<BrowserHandle>;
   selected?: string;
   onOpen: (key: string) => void;
   filters: Filters;
   onFilters: (f: Filters) => void;
   className?: string;
-}>(function KeyBrowser({ selected, onOpen, filters, onFilters, className }, ref) {
+}) {
   const { project, run, canWrite } = useKv();
   const [open, setOpen] = useState<Set<string>>(() => new Set(selected?.includes(":") ? parents(selected) : []));
   const [pages, setPages] = useState<Record<string, number>>({});
@@ -95,6 +103,7 @@ export const KeyBrowser = forwardRef<BrowserHandle, {
   build("", 0);
 
   const scroller = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line react-hooks/incompatible-library
   const v = useVirtualizer({ count: rows.length, getScrollElement: () => scroller.current, estimateSize: () => 32, overscan: 12 });
   const items = v.getVirtualItems();
   // A "more" row scrolled into view loads the level's next page.
@@ -188,7 +197,7 @@ export const KeyBrowser = forwardRef<BrowserHandle, {
           placeholder="Find keys, or a pattern like cart:*"
           aria-label="Find keys"
           spellCheck={false}
-          className="h-8 min-w-0 flex-1 bg-transparent font-mono text-[0.8125rem] text-ink outline-none placeholder:font-sans placeholder:text-ink-4"
+          className="h-8 min-w-0 flex-1 bg-transparent font-mono text-[0.8125rem] text-ink outline-hidden placeholder:font-sans placeholder:text-ink-4"
         />
         {search ? (
           <button type="button" onClick={() => setSearch("")} aria-label="Clear search" className="grid size-6 place-items-center rounded-[5px] text-ink-3 hover:bg-paper-hover">
@@ -257,7 +266,7 @@ export const KeyBrowser = forwardRef<BrowserHandle, {
               onFocus: () => setFocus(i),
               style: { transform: `translateY(${it.start}px)`, paddingLeft: `${r.depth * 14 + 6}px` },
               className:
-                "group absolute inset-x-0 top-0 flex h-8 items-center gap-2 rounded-[6px] pr-1.5 text-left outline-none transition-colors duration-[var(--dur-state)] hover:bg-paper-hover focus-visible:bg-paper-hover focus-visible:shadow-[inset_0_0_0_2px_var(--focus)]",
+                "group absolute inset-x-0 top-0 flex h-8 items-center gap-2 rounded-[6px] pr-1.5 text-left outline-hidden transition-colors duration-[var(--dur-state)] hover:bg-paper-hover focus-visible:bg-paper-hover focus-visible:shadow-[inset_0_0_0_2px_var(--focus)]",
             };
             if (r.kind === "loading" || r.kind === "more")
               return (
@@ -324,7 +333,9 @@ export const KeyBrowser = forwardRef<BrowserHandle, {
                     {ttl.replace(/^in /, "")}
                   </span>
                 )}
-                <span className="w-11 shrink-0 text-right font-mono text-[0.71875rem] text-ink-3">{r.type}</span>
+                <span className="flex w-12 shrink-0 justify-end">
+                  <span className="rounded-[4px] border border-rule-2 px-1 font-mono text-[0.6875rem] leading-4 text-ink-3">{r.type}</span>
+                </span>
               </div>
             );
           })}
@@ -332,7 +343,7 @@ export const KeyBrowser = forwardRef<BrowserHandle, {
       </div>
     </div>
   );
-});
+}
 
 /** "a:b:c" → ["a:", "a:b:"]: the groups a key sits in. */
 function parents(key: string): string[] {

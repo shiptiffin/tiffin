@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
-import { Dialog as D } from "radix-ui";
+import { AlertDialog as D } from "radix-ui";
 import { useMemo, useState, type ReactNode } from "react";
 import { api, ApiError, type ManifestApp, type Op } from "@/api/client";
 import { q } from "@/api/queries";
@@ -22,6 +22,9 @@ import { ProjectIcon } from "@/components/project-icon";
  * is lost ("18,204 rows will be gone for good"), and asks for the project's
  * name when real data goes. Confirm applies that same plan's hash. The
  * steps, the tiffin.config.ts diff and the plan id sit behind Details.
+ *
+ * It is an alert dialog: a click outside doesn't dismiss it (Cancel and
+ * Escape do), and focus starts on Cancel.
  *
  * Mount <ChangeConfirm /> once (the Shell does, lazily, when a plan asks).
  */
@@ -65,8 +68,10 @@ function Sheet({ req }: { req: ConfirmRequest }) {
   return (
     <D.Content
       aria-describedby={undefined}
+      // An alert dialog focuses Cancel; when the project's name must be typed, the field keeps its autofocus instead.
+      onOpenAutoFocus={(e) => needsName && allowed && e.preventDefault()}
       className={cn(
-        "tray fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full max-w-[34rem] flex-col overflow-hidden rounded-t-[16px] border bg-paper-raised shadow-overlay outline-none",
+        "tray fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full max-w-[34rem] flex-col overflow-hidden rounded-t-[16px] border bg-paper-raised shadow-overlay outline-hidden",
         "sm:top-[max(1rem,14vh)] sm:bottom-auto sm:w-[calc(100%-2rem)] sm:rounded-[14px]",
         irreversible ? "border-danger-rule" : "border-rule-2",
       )}
@@ -130,7 +135,7 @@ function Sheet({ req }: { req: ConfirmRequest }) {
               spellCheck={false}
               autoFocus
               aria-label={`Type ${project} to confirm`}
-              className="ident mt-1.5 h-9 w-full rounded-[8px] border border-rule-2 bg-paper px-2.5 text-ink focus-visible:border-danger focus-visible:outline-none"
+              className="ident mt-1.5 h-9 w-full rounded-[8px] border border-rule-2 bg-paper px-2.5 text-ink focus-visible:border-danger focus-visible:outline-hidden"
             />
           </label>
         )}
@@ -163,11 +168,11 @@ function Sheet({ req }: { req: ConfirmRequest }) {
       </div>
 
       <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-rule px-5 py-3.5 sm:px-6">
-        <D.Close asChild>
+        <D.Cancel asChild>
           <Button variant="ghost" size="lg">
             Cancel
           </Button>
-        </D.Close>
+        </D.Cancel>
         <Button
           variant={irreversible ? "danger" : "primary"}
           size="lg"

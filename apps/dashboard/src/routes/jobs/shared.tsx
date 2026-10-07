@@ -1,4 +1,4 @@
-// The Jobs area's frame: one header with Runs · Schedules · Queues · Failed,
+// The Jobs area's frame: one header with Runs · Schedules · Queues · Workers · Failed,
 // the actions every tab shares (send a test job, a new schedule or queue, a
 // workflow run) with their keys, and the dialogs those open. Dialogs are in
 // the URL (?do=schedule), so the command palette can open them too.
@@ -19,14 +19,17 @@ import { int, words } from "@/lib/format";
 import type { JobsDo, JobsSearch } from "@/lib/jobs-search";
 import { useMe } from "@/lib/me";
 import { useCommand } from "@/lib/shortcuts";
+import { handlersOf, ownQueues, retryUnlessDown } from "./model";
 
-export type JobsTab = "runs" | "schedules" | "queues" | "failed";
+export type JobsTab = "runs" | "schedules" | "queues" | "workers" | "failed";
 export type { JobsDo, JobsSearch };
 
-const tabs: Array<{ tab: JobsTab; label: string; to: string }> = [
+// Workers has no route of its own yet: /jobs/workers lands on the $id route, which opens it (see detail.tsx).
+const tabs: Array<{ tab: JobsTab; label: string; to: string; params?: Record<string, string> }> = [
   { tab: "runs", label: "Runs", to: "/projects/$project/jobs" },
   { tab: "schedules", label: "Schedules", to: "/projects/$project/jobs/schedules" },
   { tab: "queues", label: "Queues", to: "/projects/$project/jobs/queues" },
+  { tab: "workers", label: "Workers", to: "/projects/$project/jobs/$id", params: { id: "workers" } },
   { tab: "failed", label: "Failed", to: "/projects/$project/jobs/failed" },
 ];
 
@@ -127,33 +130,59 @@ function MoreMenu({ hasApps, open }: { hasApps: boolean; open: (d: JobsDo) => vo
   );
 }
 
-/** Runs · Schedules · Queues · Failed, with what failed counted in red. */
+/** Runs · Schedules · Queues · Workers · Failed, each with its count: what runs now, how many, and what failed (in red). */
 function JobsTabs({ project, tab }: { project: string; tab: JobsTab }) {
-  const stats = useQuery(jq.stats(project));
-  const failedRuns = useQuery(jq.runs(project, "failed"));
-  const dead = (stats.data ?? []).reduce((n, x) => n + x.dead, 0) + (failedRuns.data?.length ?? 0);
+  const stats = useQuery({ ...jq.stats(project), retry: retryUnlessDown });
+  const crons = useQuery({ ...jq.crons(project), retry: retryUnlessDown });
+  const runs = useQuery({ ...jq.runs(project), retry: retryUnlessDown });
+  const manifest = useQuery({ ...api.manifest(project), retry: false });
+  const all = stats.data ?? [];
+  const failedRuns = (runs.data ?? []).filter((r) => r.state === "failed").length;
+  const dead = all.reduce((n, x) => n + x.dead, 0) + failedRuns;
+  const running = all.reduce((n, x) => n + x.running, 0);
+  const handlers = handlersOf(manifest.data?.manifest.apps, all, crons.data ?? [], runs.data ?? []).length;
+  const count: Partial<Record<JobsTab, number | undefined>> = {
+    runs: stats.isSuccess ? running : undefined,
+    schedules: crons.data?.length,
+    queues: stats.isSuccess ? ownQueues(all).length : undefined,
+    workers: stats.isSuccess && manifest.isSuccess ? handlers : undefined,
+    failed: stats.isSuccess ? dead : undefined,
+  };
   return (
-    <nav className="mt-7 -mb-px flex gap-1 overflow-x-auto border-b border-rule [scrollbar-width:none]" aria-label="Jobs">
-      {tabs.map((t) => (
-        <Link
-          key={t.tab}
-          to={t.to as "/"}
-          params={{ project } as never}
-          aria-current={t.tab === tab ? "page" : undefined}
-          className={cn(
-            "relative flex h-10 shrink-0 items-center gap-2 px-3 text-[0.875rem] transition-colors first:pl-0 hover:text-ink",
-            "after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full first:after:left-0",
-            t.tab === tab ? "font-[550] text-ink after:bg-ink" : "after:bg-transparent text-ink-3",
-          )}
-        >
-          {t.label}
-          {t.tab === "failed" && dead > 0 && (
-            <span className="rounded-full bg-danger-wash px-1.5 text-xs font-[550] text-danger tnum" aria-label={`${dead} failed`}>
-              {int(dead)}
-            </span>
-          )}
-        </Link>
-      ))}
+    <nav className="mt-7 -mb-px flex gap-0.5 overflow-x-auto border-b border-rule [scrollbar-width:none] sm:gap-1" aria-label="Jobs">
+      {tabs.map((t) => {
+        const n = count[t.tab];
+        return (
+          <Link
+            key={t.tab}
+            to={t.to as "/"}
+            params={{ project, ...t.params } as never}
+            search={{} as never}
+            aria-current={t.tab === tab ? "page" : undefined}
+            className={cn(
+              "relative flex h-10 shrink-0 items-center gap-1.5 px-2 text-[0.875rem] transition-colors first:pl-0 hover:text-ink sm:px-3",
+              "after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full first:after:left-0",
+              t.tab === tab ? "font-[550] text-ink after:bg-ink" : "after:bg-transparent text-ink-3",
+            )}
+          >
+            {t.label}
+            {t.tab === "runs" && n ? (
+              <span className="inline-flex items-center gap-1 text-xs font-normal text-ink-2 tnum" aria-label={`${n} running now`}>
+                <span aria-hidden className="size-1.5 rounded-full bg-brass" />
+                {int(n)}
+              </span>
+            ) : t.tab === "failed" ? (
+              n ? (
+                <span className="rounded-full bg-danger-wash px-1.5 text-xs font-[550] text-danger tnum" aria-label={`${n} failed`}>
+                  {int(n)}
+                </span>
+              ) : null
+            ) : n && t.tab !== "runs" ? (
+              <span className="text-xs font-normal text-ink-3 tnum max-sm:hidden">{int(n)}</span>
+            ) : null}
+          </Link>
+        );
+      })}
     </nav>
   );
 }

@@ -125,7 +125,7 @@ async function flush(project: string, retried = false) {
   delete queued[project];
   set({ ...state, queued, inflight: { ...state.inflight, [project]: [...(state.inflight[project] ?? []), ...edits] } });
   try {
-    const man = await queryClient.fetchQuery({ ...q.manifest(project), staleTime: 0 });
+    const man = await queryClient.query({ ...q.manifest(project), staleTime: 0 });
     const desired = applyEdits(man.manifest, edits);
     const plan = await api.plan(desired);
     if (!plan.ops?.length) {

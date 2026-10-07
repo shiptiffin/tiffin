@@ -14,6 +14,8 @@ import { signIn } from "./helpers";
 const out = process.env.SHOTS_DIR ?? "screenshots/analytics";
 
 async function noSeriousA11y(page: Page, what: string) {
+  // Measure once nothing is fading in: mid-animation colours aren't the page's.
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity));
   const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
   const bad = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
   expect(bad.map((v) => `${what}: ${v.id} (${v.impact}) ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
@@ -33,9 +35,9 @@ test("analytics: period, comparison, filters in the URL, readout by keyboard", a
   page.on("pageerror", (e) => problems.push(e.message));
   await signIn(page, baseURL!);
   await page.goto("/projects/hello/analytics?period=30d");
-  const sentence = page.getByText(/visitors in the last 30 days, \d+\s?% (more|fewer) than the 30 days before\./);
-  await expect(sentence).toBeVisible();
-  await expect(page.getByRole("radio", { name: "30 days", exact: true })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("button", { name: "Days: Last 30 days, compared with the 30 days before. Change" })).toBeVisible();
+  // Each headline number says how it compares with the days before.
+  await expect(page.getByRole("radio", { name: /^Visitors [\d,]+ \d+\s?% , against [\d,]+ the 30 days before$/ })).toBeVisible();
 
   // The headline numbers choose the chart.
   const visitors = Number((await page.getByRole("radio", { name: /^Visitors/ }).innerText()).match(/[\d,]+/)![0].replace(/,/g, ""));
@@ -49,19 +51,20 @@ test("analytics: period, comparison, filters in the URL, readout by keyboard", a
   await chart.focus();
   await page.keyboard.press("End");
   await page.keyboard.press("ArrowLeft");
-  await expect(page.locator("[aria-live=polite]").filter({ hasText: /Bounce rate \d+\s?%, Before/ })).toHaveCount(1);
+  await expect(page.locator("[aria-live=polite]").filter({ hasText: /Bounce rate \d+\s?%, The 30 days before \d+\s?%/ })).toHaveCount(1);
   // The table view has every day.
-  await page.getByRole("button", { name: "Table", exact: true }).click();
+  await page.getByRole("button", { name: "Show as a table" }).click();
   await expect(page.getByRole("table", { name: "Bounce rate per day" }).locator("tbody tr")).toHaveCount(30);
-  await page.getByRole("button", { name: "Table", exact: true }).click();
+  await page.getByRole("button", { name: "Show as charts" }).click();
 
   // A country filters the whole page and lands in the URL; the chip takes it off.
   await page.getByRole("button", { name: /^Filter by country Germany/ }).click();
   await expect(page).toHaveURL(/country=DE/);
   await expect(page.getByRole("button", { name: "Remove filter: Country is Germany" })).toBeVisible();
-  await expect(page.getByText(/matching visitors in the last 30 days/)).toBeVisible();
-  const de = Number((await page.getByRole("radio", { name: /^Visitors/ }).innerText()).match(/[\d,]+/)![0].replace(/,/g, ""));
-  expect(de).toBeLessThan(visitors);
+  // The numbers follow the filter once its answer is in.
+  await expect
+    .poll(async () => Number((await page.getByRole("radio", { name: /^Visitors/ }).innerText()).match(/[\d,]+/)![0].replace(/,/g, "")))
+    .toBeLessThan(visitors);
   // Two filters: Germany and visits that started on the blog.
   await page.getByRole("tab", { name: "Entry pages" }).click();
   await page.getByRole("button", { name: /^Filter by entry page \/blog\/shipping-on-a-budget/ }).click();
@@ -71,19 +74,22 @@ test("analytics: period, comparison, filters in the URL, readout by keyboard", a
   await page.getByRole("button", { name: "Clear all" }).click();
   await expect(page).not.toHaveURL(/country=/);
 
-  // Days of one's own choosing.
-  await page.getByRole("button", { name: "Choose days" }).click();
+  // Days of one's own choosing: the last 7, today included.
+  await page.getByRole("button", { name: /^Days: / }).click();
+  await page.getByRole("menuitem", { name: "Choose days…" }).click();
   const today = new Date().toISOString().slice(0, 10);
   const weekAgo = new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10);
-  await page.getByLabel("From", { exact: true }).fill(weekAgo);
-  await page.getByLabel("To", { exact: true }).fill(today);
+  await page.getByLabel("First day", { exact: true }).fill(weekAgo);
+  await page.getByLabel("Last day", { exact: true }).fill(today);
   await page.getByRole("button", { name: "Show these days" }).click();
   await expect(page).toHaveURL(new RegExp(`from=${weekAgo}`));
-  await expect(page.getByText(/visitors from \d+ \w+ to \d+ \w+/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Days: .+, compared with the 7 days before\. Change$/ })).toBeVisible();
 
   // Custom events and page speed, coloured by rating.
   await expect(page.getByText("Signup", { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole("img", { name: "slow" }).first()).toBeVisible();
+  const vitals = page.getByRole("region", { name: "Web Vitals" });
+  await expect(vitals.getByRole("radio", { name: /^LCP (Good|Needs work|Poor) / })).toBeVisible();
+  await expect(vitals.getByRole("img", { name: "Needs work" }).first()).toBeVisible();
   expect(problems).toEqual([]);
 });
 
@@ -120,18 +126,16 @@ test("analytics: 90 days by the hour stays smooth", async ({ page, baseURL }) =>
 test("usage: charts over time against limits, ranges, tables", async ({ page, baseURL }) => {
   await stubHistory(page);
   await signIn(page, baseURL!);
-  await page.goto("/projects/hello/usage");
+  await page.goto("/projects/hello/observability?tab=resources");
   await expect(page.getByRole("heading", { name: "Over time" })).toBeVisible();
-  for (const name of ["Memory", "CPU", "Requests", "Response time", "Errors"]) await expect(page.getByRole("figure", { name: new RegExp(`^${name}`) })).toBeVisible();
-  await expect(page.getByText(/^Limit 512\s?MB$/).first()).toBeVisible();
+  for (const name of ["Memory", "CPU"]) await expect(page.getByRole("figure", { name: new RegExp(`^${name}`) })).toBeVisible();
   const asked = page.waitForRequest((r) => r.url().includes("/usage/history") && r.url().includes("range=7d"));
-  await page.getByRole("radio", { name: "7 days", exact: true }).click();
+  await page.getByRole("radiogroup", { name: "Time range" }).getByRole("radio", { name: "7 days" }).click();
   await asked;
-  await page.getByRole("button", { name: "Tables", exact: true }).click();
+  await page.getByRole("button", { name: "Show as a table" }).click();
   await expect(page.getByRole("table", { name: /^Memory, the last 7 days/ }).locator("tbody tr")).toHaveCount(168);
-  await page.getByRole("button", { name: "Tables", exact: true }).click();
-  // The page's own controls are still there.
-  await expect(page.getByRole("button", { name: "Details" })).toBeVisible();
+  await page.getByRole("button", { name: "Show as charts" }).click();
+  await expect(page.getByRole("figure", { name: /^Memory/ })).toBeVisible();
 });
 
 test("analytics and usage: no serious accessibility problems, screenshots", async ({ page, baseURL }) => {
@@ -153,12 +157,12 @@ test("analytics and usage: no serious accessibility problems, screenshots", asyn
 
       await page.goto("/projects/hello/analytics?period=30d&country=US&source=Google");
       await page.getByRole("button", { name: "Remove filter: Country is United States" }).waitFor();
-      await page.getByText(/matching visitors in the last 30 days/).waitFor();
+      await page.getByRole("radio", { name: /^Visitors/ }).waitFor();
       await page.waitForTimeout(500);
       await noSeriousA11y(page, `analytics filtered ${scheme} ${width}`);
       if (width === 1440) await page.screenshot({ path: `${out}/analytics-filtered-${width}-${scheme}.png`, fullPage: false });
 
-      await page.goto("/projects/hello/usage");
+      await page.goto("/projects/hello/observability?tab=resources");
       await page.getByRole("heading", { name: "Over time" }).scrollIntoViewIfNeeded();
       await page.getByRole("figure", { name: /^Memory/ }).locator("svg").waitFor();
       await page.waitForTimeout(500);

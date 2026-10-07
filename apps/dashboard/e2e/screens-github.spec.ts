@@ -1,13 +1,14 @@
 import { mkdirSync } from "node:fs";
 import { test, type Page } from "@playwright/test";
-import { signIn } from "./helpers";
+import { needsServices, signIn } from "./helpers";
 
 // Visual review of Connect GitHub (Settings › Git), Import from GitHub (New
 // project) and an app deploying from GitHub, against a box the GitHub e2e
 // (e2e/github_test.go) left connected to its fake GitHub:
 //   SCREENS=1 E2E_BASE_URL=https://dashboard.tiffin.localhost:8473 E2E_OWNER_TOKEN=... bunx playwright test screens-github
 // It changes nothing: the not-connected states are the API's answers replayed.
-test.skip(!process.env.SCREENS || !process.env.E2E_OWNER_TOKEN, "set SCREENS=1 and E2E_OWNER_TOKEN for a box connected to GitHub");
+test.skip(!process.env.SCREENS, "set SCREENS=1 for screenshots");
+needsServices("ghshop", [], "a box e2e/github_test.go left connected to its fake GitHub");
 
 const out = process.env.SHOTS_DIR ?? "screenshots/github";
 

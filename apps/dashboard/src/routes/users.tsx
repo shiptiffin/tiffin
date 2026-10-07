@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ChevronLeft, ChevronRight, Search, Settings2 } from "lucide-react";
+import { useEffect, useEffectEvent, useState, type ReactNode } from "react";
 import { ApiError, notOnBox } from "@/api/client";
-import { mod3, type AuthUser } from "@/api/modules";
-import { Breaker } from "@/components/breaker";
+import { mod3, type AuthOverview, type AuthUser } from "@/api/modules";
+import { AuthSettings, methodName } from "@/components/auth-settings";
 import { Confirm } from "@/components/confirm";
-import type { SetEdit } from "@/components/project-rows";
+import { CopyButton } from "@/components/copy";
+import { Reading, Readings } from "@/components/data-parts";
 import { useTitle } from "@/components/favicon";
 import { StateSentence } from "@/components/jobs-words";
 import { Crumbs, NotOnBox, Page, PageHeader, Skeleton, Tabs } from "@/components/page";
@@ -15,9 +16,9 @@ import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
-import { countWords, int, pct, words } from "@/lib/format";
+import { countWords, int, pct } from "@/lib/format";
 import { useMe } from "@/lib/me";
-import { change, usePending } from "@/lib/staged";
+import { useShortcut } from "@/lib/shortcuts";
 import { clock, dayKey, full, relative } from "@/lib/time";
 
 // ------------------------------------------------------------------ shared
@@ -81,7 +82,7 @@ function SearchBox({ value, onChange, label, placeholder }: { value: string; onC
         placeholder={placeholder}
         aria-label={label}
         type="search"
-        className="h-full min-w-0 flex-1 bg-transparent text-[0.875rem] text-ink outline-none placeholder:text-ink-3"
+        className="h-full min-w-0 flex-1 bg-transparent text-[0.875rem] text-ink outline-hidden placeholder:text-ink-3"
       />
     </label>
   );
@@ -89,10 +90,11 @@ function SearchBox({ value, onChange, label, placeholder }: { value: string; onC
 
 function useSearchBox(initial: string, onSearch: (q: string) => void) {
   const [q, setQ] = useState(initial);
+  // Only typing searches: a new initial value or callback alone doesn't.
+  const search = useEffectEvent((v: string) => v !== initial && onSearch(v));
   useEffect(() => {
-    const t = setTimeout(() => q !== initial && onSearch(q), 250);
+    const t = setTimeout(() => search(q), 250);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
   return [q, setQ] as const;
 }
@@ -123,61 +125,10 @@ const err = (e: unknown) => (e instanceof ApiError ? (e.problem.detail ?? e.mess
 
 // ------------------------------------------------------------------ users
 
-const VERIFY_PATH = ["services", "auth", "emailVerification"];
-
-const verifyNote: Record<string, string> = {
-  manifest: "Set for this project.",
-  relay: "On by itself: the box sends real mail, so new people confirm their address.",
-  "no-relay": "Off by itself while mail only reaches the dev inbox, so test sign-ups work at once. It turns on once the box has an SMTP relay.",
-  "no-email": "Off: the project has no email service to send the confirmation.",
-};
-
-/** One switch: must new people confirm their email before they can sign in? Writes auth.emailVerification. */
-function VerificationSwitch({ project, ev }: { project: string; ev: { required: boolean; source: string } }) {
-  const { can } = useMe();
-  const qc = useQueryClient();
-  const pending = usePending(project);
-  const staged = pending.find((e) => e.kind === "set" && e.path.join("/") === VERIFY_PATH.join("/")) as SetEdit | undefined;
-  const live = ev.required ? "on" : "off";
-  const was = useRef(staged);
-  useEffect(() => {
-    if (was.current && !staged) void qc.invalidateQueries({ queryKey: ["auth", project] });
-    was.current = staged;
-  }, [staged, qc, project]);
-  return (
-    <div className="mt-5 flex max-w-[48rem] items-start gap-3">
-      <Breaker
-        label="Require email verification"
-        state={live}
-        staged={staged ? (staged.to ? "on" : "off") : undefined}
-        disabled={!can("apply:reversible")}
-        className="mt-0.5"
-        onFlip={(next) =>
-          change(
-            project,
-            {
-              kind: "set",
-              path: VERIFY_PATH,
-              from: ev.source === "manifest" ? ev.required : undefined,
-              to: next === "on",
-              what: next === "on" ? `Require email verification for ${project}` : `Let people sign in to ${project} without confirming their email`,
-              undo: next === "on" ? "new people sign in without confirming again" : "new people confirm their email again",
-            },
-            { immediate: true },
-          )
-        }
-      />
-      <div>
-        <p className="text-[0.875rem] text-ink">Require email verification</p>
-        <p className="mt-0.5 text-xs text-ink-3">{verifyNote[ev.source] ?? ""}</p>
-      </div>
-    </div>
-  );
-}
-
 export function UsersPage({ project, search = "", page = 1 }: { project: string; search?: string; page?: number }) {
   useTitle(`${project} · Users`);
   const navigate = useNavigate();
+  const [settings, setSettings] = useState(false);
   const overview = useQuery({ queryKey: ["auth", project], queryFn: () => mod3.auth(project) });
   const list = useQuery({
     queryKey: ["auth-users", project, search, page],
@@ -187,20 +138,12 @@ export function UsersPage({ project, search = "", page = 1 }: { project: string;
   const go = (o: { search?: string; page?: number }) =>
     navigate({ to: "/projects/$project/users", params: { project }, search: { search: o.search || undefined, page: o.page && o.page > 1 ? o.page : undefined } });
   const [q, setQ] = useSearchBox(search, (v) => go({ search: v }));
+  useShortcut("/", "Search users", () => document.getElementById("user-search")?.focus());
   if (overview.isError && notOnBox(overview.error)) return <NotOnBox what="Sign-in for your apps" />;
-  const st = overview.data?.stats;
+  const o = overview.data;
+  const st = o?.stats;
   const total = list.data?.total ?? 0;
   const users = list.data?.users ?? [];
-  const methods = (overview.data?.methods ?? []).map((m) => ({ email: "email and password", "magic-link": "a magic link", passkey: "a passkey" })[m] ?? m);
-
-  let said = "";
-  if (st) {
-    said =
-      st.users === 0
-        ? `Nobody has signed up to ${project} yet.`
-        : `${countWords(st.users, "person", "people", true)} can sign in to ${project}${st.signups7d ? `; ${words(st.signups7d)} joined this week` : ""}.`;
-    if (st.bannedUsers) said += ` ${countWords(st.bannedUsers, "account", "accounts", true)} ${st.bannedUsers === 1 ? "is" : "are"} suspended.`;
-  }
 
   return (
     <Page wide>
@@ -210,22 +153,48 @@ export function UsersPage({ project, search = "", page = 1 }: { project: string;
         lede={
           <>
             The people who sign in to {project}’s apps. The box’s own team is under{" "}
-            <Link to="/settings/people" className="text-brass-ink hover:underline hover:underline-offset-4">
+            <Link to="/settings/people" className="text-brass-ink underline decoration-brass/40 underline-offset-[3px] hover:decoration-brass">
               Access
             </Link>
             .
           </>
         }
+        actions={
+          o && (
+            <Button onClick={() => setSettings(true)}>
+              <Settings2 />
+              Sign-in settings
+            </Button>
+          )
+        }
       />
-      {said && <StateSentence className="mt-8">{said}</StateSentence>}
-      {st && overview.data && (
-        <p className="mt-2 max-w-[48rem] text-[0.84375rem] text-ink-3">
-          They sign in with {methods.length > 1 ? `${methods.slice(0, -1).join(", ")} or ${methods[methods.length - 1]}` : methods[0]} ·{" "}
-          {st.users ? `${pct(st.verifiedUsers / st.users)} have verified their email` : "no one to verify yet"} · {countWords(st.activeSessions, "session")} open
-          {overview.data.organizations && <> · {countWords(st.organizations, "organization")}</>}
-        </p>
+      {overview.isError && <ProblemNote className="mt-8" error={overview.error} title="Couldn’t load sign-in for this project" />}
+      {overview.isPending && (
+        <div className="mt-8 grid grid-cols-2 gap-6 border-b border-rule pb-7 lg:grid-cols-4" aria-busy>
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-14" />
+          ))}
+        </div>
       )}
-      {overview.data?.emailVerification && <VerificationSwitch project={project} ev={overview.data.emailVerification} />}
+      {st && (
+        <Readings className="grid-cols-2 lg:grid-cols-4">
+          <Reading label="People" value={int(st.users)} sub={st.bannedUsers ? `${int(st.bannedUsers)} suspended` : st.users ? "None suspended" : "Nobody yet"} />
+          <Reading label="New this week" value={int(st.signups7d)} sub={st.users ? `${pct(st.signups7d / st.users)} of everyone` : undefined} />
+          <Reading
+            label="Verified email"
+            value={st.users ? pct(st.verifiedUsers / st.users) : "—"}
+            sub={st.users ? `${int(st.verifiedUsers)} of ${int(st.users)}` : undefined}
+          />
+          <Reading
+            label="Signed in now"
+            value={int(st.activeSessions)}
+            unit={st.activeSessions === 1 ? "session" : "sessions"}
+            sub={o.organizations ? countWords(st.organizations, "organization", "organizations", true) : "Organizations are off"}
+          />
+        </Readings>
+      )}
+      {o && <MailBanner project={project} o={o} />}
+      {o && <MethodsLine o={o} onOpen={() => setSettings(true)} />}
 
       <div className="mt-8 flex items-center justify-between gap-4">
         <SearchBox value={q} onChange={setQ} label="Search users" placeholder="Search by name or email" />
@@ -233,33 +202,106 @@ export function UsersPage({ project, search = "", page = 1 }: { project: string;
       </div>
       {list.isError && <ProblemNote className="mt-4" error={list.error} />}
       <div className="mt-4">
-        <div aria-hidden className="label hidden grid-cols-[1.75rem_minmax(0,1fr)_10rem_6.5rem] gap-x-4 pb-2 sm:grid">
+        <div aria-hidden className="label hidden grid-cols-[1.75rem_minmax(0,1fr)_9rem_10rem_6.5rem] gap-x-4 pb-2 sm:grid">
           <span />
           <span>Person</span>
+          <span>Account</span>
           <span>Last seen</span>
           <span className="text-right">Joined</span>
         </div>
         <ul className={cn("divide-y divide-rule border-y border-rule-2 transition-opacity", list.isPlaceholderData && "opacity-60")}>
-          {list.isPending && (
-            <li className="py-3">
-              <Skeleton className="h-40" />
-            </li>
-          )}
+          {list.isPending &&
+            [0, 1, 2, 3, 4].map((i) => (
+              <li key={i} className="flex items-center gap-4 py-3">
+                <Skeleton className="size-7 rounded-full" />
+                <Skeleton className="h-4 w-1/3" />
+              </li>
+            ))}
           {users.map((u) => (
             <UserRow key={u.id} project={project} u={u} />
           ))}
           {list.isSuccess && users.length === 0 && (
-            <li className="py-10 text-center">
+            <li className="py-12 text-center">
               <p className="text-md text-ink">{search ? "Nobody matches that." : "No users yet."}</p>
-              <p className="mt-1 text-[0.875rem] text-ink-3">
-                {search ? "Search looks at names and email addresses." : <>When people sign up in your app, they show up here.</>}
+              <p className="mx-auto mt-1 max-w-[32rem] text-[0.875rem] text-ink-3">
+                {search ? (
+                  "Search looks at names and email addresses."
+                ) : o ? (
+                  <>
+                    When people sign up in your app, they show up here. Your apps reach sign-in at <code className="ident text-ink-2">{o.endpoint}</code>.
+                  </>
+                ) : (
+                  "When people sign up in your app, they show up here."
+                )}
               </p>
             </li>
           )}
         </ul>
       </div>
       <Pager page={page} total={total} onPage={(p) => go({ search, page: p })} />
+      {o && <AuthSettings project={project} o={o} open={settings} onOpenChange={setSettings} />}
     </Page>
+  );
+}
+
+/** Email sign-in is on but the box can't send email: production refuses it until a mail service is connected. */
+function MailBanner({ project, o }: { project: string; o: AuthOverview }) {
+  const on = (o.methods ?? []).filter((m) => m === "email" || m === "magic-link" || m === "otp");
+  if (!o.emailBlocked || on.length === 0) return null;
+  return (
+    <div role="status" className="mt-6 flex flex-col gap-x-4 gap-y-2 rounded-[10px] border border-warn/40 bg-warn-wash px-4 py-3 sm:flex-row sm:items-center">
+      <div className="min-w-0 flex-1">
+        <p className="text-[0.875rem] font-[550] text-warn-ink">Email sign-in is off in production: this box can’t send email yet.</p>
+        <p className="mt-0.5 text-[0.8125rem] text-ink-2">
+          Sign-up, sign-in links, codes and password resets answer “This app can’t send email yet” until you connect your mail service. Passkeys and sign-in
+          providers work meanwhile; previews keep using the dev inbox.
+        </p>
+      </div>
+      <Link
+        to="/projects/$project/email/settings"
+        params={{ project }}
+        className="shrink-0 text-[0.8125rem] font-[550] text-warn-ink underline decoration-current/40 underline-offset-2 hover:decoration-current"
+      >
+        Connect a mail service
+      </Link>
+    </div>
+  );
+}
+
+/** The sign-in methods that are on, in a line, with what still needs setting up. */
+function MethodsLine({ o, onOpen }: { o: AuthOverview; onOpen: () => void }) {
+  const methods = o.methods ?? [];
+  // Sign-in providers that are on with no keys yet (box-wide or the project's own).
+  const missing = methods.filter((m) => m in (o.social ?? {}) && !o.social?.[m]);
+  return (
+    <div className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-2 text-[0.8125rem]">
+      <span className="mr-1 text-ink-3">Sign in with</span>
+      {methods.map((m) => {
+        const broken = missing.includes(m);
+        return (
+          <button
+            key={m}
+            type="button"
+            onClick={onOpen}
+            title={broken ? `${methodName(m)} needs keys: box-wide ones in Box settings, or this project’s own` : undefined}
+            className={cn(
+              "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 transition-colors hover:bg-paper-hover",
+              broken ? "border-warn/50 text-warn-ink" : "border-rule-2 text-ink-2",
+            )}
+          >
+            {broken && <span aria-hidden className="size-1.5 rounded-full bg-warn" />}
+            {methodName(m)}
+            {broken && <span className="sr-only">: needs setting up</span>}
+          </button>
+        );
+      })}
+      {o.emailVerification.required && <span className="ml-1 text-ink-3">Email verification is on.</span>}
+      {missing.length > 0 && (
+        <button type="button" onClick={onOpen} className="ml-1 text-warn-ink underline decoration-current/40 underline-offset-2 hover:decoration-current">
+          {missing.length === 1 ? `${methodName(missing[0]!)} needs keys` : `${missing.length} providers need keys`}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -269,18 +311,32 @@ function UserRow({ project, u }: { project: string; u: AuthUser }) {
       <Link
         to="/projects/$project/users/$id"
         params={{ project, id: u.id }}
-        className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-4 py-2.5 transition-colors duration-[var(--dur-state)] hover:bg-paper-hover/60 sm:grid-cols-[1.75rem_minmax(0,1fr)_10rem_6.5rem]"
+        className="grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-4 py-2.5 transition-colors duration-[var(--dur-state)] hover:bg-paper-hover/60 sm:grid-cols-[1.75rem_minmax(0,1fr)_9rem_10rem_6.5rem]"
       >
         <Avatar name={u.name} />
         <span className="min-w-0">
           <span className="flex items-baseline gap-2">
             <span className="truncate text-[0.9375rem] text-ink">{u.name}</span>
-            {u.banned && <span className="shrink-0 text-[0.8125rem] font-[550] text-danger">suspended</span>}
+            {u.banned && <span className="shrink-0 text-[0.8125rem] font-[550] text-danger sm:hidden">suspended</span>}
           </span>
           <span className="block truncate text-[0.8125rem] text-ink-3">
             {u.email}
-            {!u.emailVerified && <span className="text-ink-3"> · not verified</span>}
+            {!u.emailVerified && <span className="sm:hidden"> · not verified</span>}
           </span>
+        </span>
+        <span className="hidden min-w-0 items-center gap-2 text-[0.8125rem] sm:flex">
+          {u.banned ? (
+            <span className="font-[550] text-danger">Suspended</span>
+          ) : u.emailVerified ? (
+            <span className="text-ink-2">Verified</span>
+          ) : (
+            <span className="text-ink-3">Not verified</span>
+          )}
+          {u.twoFactorEnabled && (
+            <span className="rounded-[4px] border border-rule-2 px-1 text-[0.6875rem] font-[550] tracking-[0.02em] text-ink-2" title="Two-factor codes are on">
+              2FA
+            </span>
+          )}
         </span>
         <span className={cn("text-right text-[0.8125rem] sm:text-left", u.lastSeenAt ? "text-ink-2" : "text-ink-3")}>
           {u.lastSeenAt ? seen(u.lastSeenAt) : "never signed in"}
@@ -399,9 +455,9 @@ export function UserPage({ project, id }: { project: string; id: string }) {
       a.providerId + a.accountId,
       a.providerId === "credential" ? "Email and password" : a.providerId.charAt(0).toUpperCase() + a.providerId.slice(1),
     ]),
-    ...(passkeys > 0 ? ([["passkeys", countWords(passkeys, "passkey")]] as Array<[string, ReactNode]>) : []),
+    ...(passkeys > 0 ? ([["passkeys", countWords(passkeys, "passkey", "passkeys", true)]] as Array<[string, ReactNode]>) : []),
     ...(u.twoFactorEnabled ? ([["2fa", "Two-factor codes, as a second step"]] as Array<[string, ReactNode]>) : []),
-    ...((apiKeys ?? []).length ? ([["keys", `${countWords((apiKeys ?? []).length, "API key")} for scripts`]] as Array<[string, ReactNode]>) : []),
+    ...((apiKeys ?? []).length ? ([["keys", `${countWords((apiKeys ?? []).length, "API key", "API keys", true)} for scripts`]] as Array<[string, ReactNode]>) : []),
   ];
 
   return (
@@ -531,12 +587,31 @@ export function UserPage({ project, id }: { project: string; id: string }) {
               </ul>
             )}
           </section>
-          <dl className="grid grid-cols-[6rem_minmax(0,1fr)] gap-x-4 gap-y-1 text-[0.8125rem]">
-            <dt className="text-ink-3">User ID</dt>
-            <dd className="font-mono text-[0.75rem] text-ink-2">{u.id}</dd>
-            <dt className="text-ink-3">Joined</dt>
-            <dd className="text-ink-2">{longDate(u.createdAt)}</dd>
-          </dl>
+          <section aria-labelledby="about">
+            <Label id="about">Account</Label>
+            <dl className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-4 border-y border-rule py-1 text-[0.84375rem] [&>dd]:py-1.5 [&>dt]:py-1.5">
+              <dt className="text-ink-3">User ID</dt>
+              <dd className="flex min-w-0 items-center gap-0.5">
+                <code className="truncate font-mono text-[0.75rem] text-ink-2">{u.id}</code>
+                <CopyButton value={u.id} label="Copy the user ID" className="-my-1 size-6" />
+              </dd>
+              <dt className="text-ink-3">Email</dt>
+              <dd className="flex min-w-0 items-center gap-0.5">
+                <span className="truncate text-ink-2">{u.email}</span>
+                <CopyButton value={u.email} label="Copy the email address" className="-my-1 size-6" />
+              </dd>
+              <dt className="text-ink-3">Verified</dt>
+              <dd className={u.emailVerified ? "text-ink-2" : "text-ink-3"}>{u.emailVerified ? "Yes" : "Not yet"}</dd>
+              <dt className="text-ink-3">Two-factor</dt>
+              <dd className={u.twoFactorEnabled ? "text-ink-2" : "text-ink-3"}>{u.twoFactorEnabled ? "On" : "Off"}</dd>
+              <dt className="text-ink-3">Joined</dt>
+              <dd className="text-ink-2">{longDate(u.createdAt)}</dd>
+              <dt className="text-ink-3">Last change</dt>
+              <dd className="text-ink-2" title={full(u.updatedAt)}>
+                {relative(u.updatedAt)}
+              </dd>
+            </dl>
+          </section>
         </div>
       </div>
       <Confirm

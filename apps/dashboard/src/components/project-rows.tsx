@@ -23,6 +23,7 @@ import { count, countWords, dec, int, withUnit } from "@/lib/format";
 import { change, type StagedEdit } from "@/lib/staged";
 import { frameworkName } from "@/lib/starters";
 import { PARTS } from "@/lib/names";
+import type { ProjectPage } from "@/lib/sections";
 
 // The rows a project's deeper tabs are made of: an app with its instances
 // throttle, a service with its breaker, a config entry with remove, and a
@@ -34,7 +35,7 @@ export const RESERVE_MB = 512; // kept free for spikes, as the Box and the tray 
 export const MEMORY_STOPS = [256, 512, 1024, 2048, 4096];
 export const mbWords = (n: number) => (n >= 1024 ? withUnit(dec(n / 1024, 1), "GB") : withUnit(int(n), "MB"));
 
-export const SERVICES: Array<{ key: string; label: string; sub: string; to: string }> = [
+export const SERVICES: Array<{ key: string; label: string; sub: string; to: ProjectPage }> = [
   { key: "postgres", label: PARTS.postgres.name, sub: PARTS.postgres.sub, to: "/projects/$project/data" },
   { key: "storage", label: PARTS.storage.name, sub: PARTS.storage.sub, to: "/projects/$project/storage" },
   { key: "auth", label: PARTS.auth.name, sub: PARTS.auth.sub, to: "/projects/$project/users" },
@@ -228,7 +229,7 @@ export function ServiceRow({
   staged,
 }: {
   project: string;
-  s: { key: string; label: string; sub: string; to: string };
+  s: { key: string; label: string; sub: string; to: ProjectPage };
   live: "on" | "off" | "tripped";
   message?: string;
   staged?: StagedEdit;
@@ -242,7 +243,7 @@ export function ServiceRow({
         off ? (
           s.label
         ) : (
-          <Link to={s.to as "/"} params={{ project } as never} className="hover:underline hover:decoration-rule-3 hover:underline-offset-4">
+          <Link to={s.to} params={{ project }} className="hover:underline hover:decoration-rule-3 hover:underline-offset-4">
             {s.label}
           </Link>
         )
@@ -286,13 +287,13 @@ export function ConfigRow({
   status: ReactNode;
   value: unknown;
   staged?: SetEdit;
-  to?: string;
+  to?: ProjectPage;
 }) {
   const removing = staged && staged.to === undefined;
   const label = path[0] === "env" ? path[1] : `${path[0] === "crons" ? "the schedule" : "the queue"} ${path[1]}`;
   return (
     <Row
-      name={to && !removing ? <Link to={to as "/"} params={{ project } as never} className="hover:underline hover:decoration-rule-3 hover:underline-offset-4">{name}</Link> : name}
+      name={to && !removing ? <Link to={to} params={{ project }} className="hover:underline hover:decoration-rule-3 hover:underline-offset-4">{name}</Link> : name}
       sub={sub}
       status={removing ? <Working>Removing…</Working> : status}
       busy={!!staged}
@@ -354,7 +355,7 @@ export function SecretsLink({ project }: { project: string }) {
   return (
     <section aria-label="Secrets">
       <h2 className="label mb-1.5">Secrets</h2>
-      <Link to="/projects/$project/secrets" params={{ project }} className="group flex items-center justify-between gap-3 border-y border-rule py-2.5">
+      <Link to="/projects/$project/env" params={{ project }} className="group flex items-center justify-between gap-3 border-y border-rule py-2.5">
         <span className="min-w-0">
           <span className="block text-[0.875rem] text-ink group-hover:underline group-hover:decoration-rule-3 group-hover:underline-offset-4">
             {n === undefined ? "Secrets" : n === 0 ? "None set" : countWords(n, "secret", "secrets", true)}

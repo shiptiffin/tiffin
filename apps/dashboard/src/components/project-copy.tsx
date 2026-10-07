@@ -19,7 +19,7 @@ import { checkName, slugify } from "@/lib/starters";
 import { undoChange } from "@/lib/staged";
 
 const field =
-  "ident h-9 w-full rounded-[7px] border border-rule-2 bg-paper-raised px-2.5 text-[0.84375rem] text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] aria-invalid:border-danger";
+  "ident h-9 w-full rounded-[7px] border border-rule-2 bg-paper-raised px-2.5 text-[0.84375rem] text-ink outline-hidden placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] aria-invalid:border-danger";
 
 /** A duplicate or import on its way: what it is doing, and how far along. */
 export function JobProgress({ job }: { job: ProjectJob }) {
@@ -78,8 +78,8 @@ export function JobOutcome({ job, children }: { job: ProjectJob; children?: Reac
         <p className="text-warn-ink">
           Set these secrets by hand: <span className="ident text-[0.8125rem]">{job.secretsMissing!.join(", ")}</span>.{" "}
           {job.created && (
-            <Link to="/projects/$project/secrets" params={{ project: name }} className="underline underline-offset-2">
-              Secrets of {name}
+            <Link to="/projects/$project/env" params={{ project: name }} className="underline underline-offset-2">
+              {name}’s environment variables
             </Link>
           )}
         </p>

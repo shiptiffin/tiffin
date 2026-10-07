@@ -189,7 +189,7 @@ export function ValueGrid({
                       onDoubleClick={() => editable && startEdit(r, ci, pend ?? row.edit![ci]!)}
                       title={editable && !isEditing ? "Enter or double-click to edit" : undefined}
                       className={cn(
-                        "min-w-0 px-3 py-[7px] font-mono text-[0.78125rem] leading-5 text-ink outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--focus)] focus-visible:[border-radius:0]",
+                        "min-w-0 px-3 py-[7px] font-mono text-[0.78125rem] leading-5 text-ink outline-hidden focus-visible:shadow-[inset_0_0_0_2px_var(--focus)] focus-visible:[border-radius:0]",
                         c.quiet && "text-ink-3",
                         c.align === "right" && "text-right",
                         editable && "cursor-text hover:bg-paper-hover/60",
@@ -218,7 +218,7 @@ export function ValueGrid({
                           }}
                           onBlur={() => void save()}
                           className={cn(
-                            "block w-full resize-none rounded-[5px] border border-brass bg-paper px-2 py-[5px] font-mono text-[0.78125rem] leading-5 text-ink shadow-[0_0_0_3px_var(--brass-wash)] outline-none",
+                            "block w-full resize-none rounded-[5px] border border-brass bg-paper px-2 py-[5px] font-mono text-[0.78125rem] leading-5 text-ink shadow-[0_0_0_3px_var(--brass-wash)] outline-hidden",
                             c.align === "right" && "text-right",
                           )}
                         />

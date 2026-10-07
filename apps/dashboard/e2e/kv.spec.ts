@@ -1,13 +1,14 @@
 import { mkdirSync } from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { ownerToken, signIn } from "./helpers";
+import { needsServices, ownerToken, pick, signIn } from "./helpers";
 
 // The KV console against a box with a KV (a dev box, see seed-box.sh):
 //   KV=1 E2E_BASE_URL=http://localhost:5471 E2E_OWNER_TOKEN=... bunx playwright test kv
 // It writes keys under e2e: in the project (E2E_KV_PROJECT, default shop) and
 // deletes them again. SHOTS_DIR gets screenshots at 1440 and 390, light and dark.
-test.skip(!process.env.KV || !process.env.E2E_OWNER_TOKEN, "set KV=1 and E2E_OWNER_TOKEN for a box with a KV");
+test.skip(!process.env.KV, "set KV=1 for a box with a KV");
+needsServices(process.env.E2E_KV_PROJECT ?? "shop", ["valkey"]);
 test.describe.configure({ mode: "serial" });
 
 const project = process.env.E2E_KV_PROJECT ?? "shop";
@@ -76,6 +77,9 @@ test("make a key of every type with New key", async ({ page }) => {
   await make("Text", "e2e:settings", async () => {
     await d().getByRole("textbox", { name: "Value", exact: true }).fill('{"theme":"dark","beta":true}');
   });
+  // JSON opens as a tree; Edit shows the text.
+  await expect(page.getByRole("group", { name: "Value of e2e:settings, as a tree" })).toContainText('"theme": "dark"');
+  await page.getByRole("radio", { name: "Edit" }).click();
   await expect(page.getByLabel("Value of e2e:settings", { exact: true })).toHaveValue('{"theme":"dark","beta":true}');
   await axe(page, "text key");
 
@@ -128,6 +132,7 @@ test("make a key of every type with New key", async ({ page }) => {
 test("edit values, with Undo", async ({ page }) => {
   // Text: save, then Undo puts it back.
   await openKey(page, "e2e:settings");
+  await page.getByRole("radio", { name: "Edit" }).click();
   const box = page.getByLabel("Value of e2e:settings", { exact: true });
   await page.getByRole("button", { name: "Format" }).click();
   await expect(box).toHaveValue(/\n {2}"theme": "dark"/);
@@ -187,7 +192,7 @@ test("expiry: add one, keep forever", async ({ page }) => {
   await expect(page.getByText("Kept until deleted", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Add an expiry" }).click();
   await page.getByLabel("Expire in", { exact: true }).fill("2");
-  await page.getByLabel("Unit", { exact: true }).selectOption("hours");
+  await pick(page, page.getByRole("combobox", { name: "Unit", exact: true }), "hours");
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText(/in (1 h 59 min|2 h)/)).toBeVisible();
   await page.getByRole("button", { name: "Keep forever" }).click();

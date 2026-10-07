@@ -35,20 +35,22 @@ for (const theme of ["dark", "light"] as const) {
 
       await signIn(page, baseURL!);
       await page.getByRole("heading", { level: 1 }).first().waitFor();
+      await shot(page, `projects-${tag}`);
+      await page.goto("/ledger");
+      await page.locator("a[href^='/changes/']").first().waitFor();
       await shot(page, `activity-${tag}`);
 
-      const irr = page.locator("a[href^='/changes/']").first();
-      await irr.click();
-      await page.getByRole("heading", { name: "What changed" }).waitFor();
+      await page.getByRole("link", { name: /Drop the uploads bucket/ }).click();
+      await page.getByRole("heading", { name: "What it did, in order" }).waitFor();
       await shot(page, `change-${tag}`);
 
       await page.getByRole("button", { name: "Undo this change" }).click();
-      await page.getByRole("dialog").waitFor();
+      await page.getByRole("alertdialog").waitFor();
       await page.waitForTimeout(400);
       await shot(page, `undo-${tag}`, false);
       await page.keyboard.press("Escape");
 
-      await page.goto("/");
+      await page.goto("/ledger");
       await page.getByRole("link", { name: /Add a thumbnails bucket/ }).click();
       await page.getByRole("button", { name: "Undo this change" }).click();
       await page.getByLabel("Type notes to confirm").fill("not");
@@ -56,7 +58,7 @@ for (const theme of ["dark", "light"] as const) {
       await page.keyboard.press("Escape");
 
       await page.goto("/status");
-      await page.getByRole("heading", { name: "Checks" }).waitFor();
+      await page.getByRole("heading", { name: "Checks", exact: true }).waitFor();
       await shot(page, `status-${tag}`);
 
       await page.goto("/settings/keys");
@@ -76,17 +78,17 @@ for (const theme of ["dark", "light"] as const) {
       }
 
       await page.goto("/projects/hello");
-      await page.getByRole("list", { name: "What’s in hello" }).waitFor();
+      await page.getByRole("region", { name: "Services" }).waitFor();
       await shot(page, `project-${tag}`);
-      await page.goto("/projects/hello/secrets");
+      await page.goto("/projects/hello/env");
       await page.getByText("STRIPE_SECRET_KEY").waitFor();
-      await shot(page, `secrets-${tag}`);
+      await shot(page, `env-${tag}`);
 
       await page.goto("/settings/people");
       await page.getByText("Maya Okafor").waitFor();
       await shot(page, `people-${tag}`);
       await page.goto("/settings/passkeys");
-      await page.getByRole("heading", { name: "Your passkeys" }).waitFor();
+      await page.getByRole("heading", { level: 1, name: /Touch ID|Windows Hello|passkey/i }).waitFor();
       await shot(page, `passkeys-${tag}`);
 
       await page.goto("/");

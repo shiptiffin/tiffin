@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ChevronRight, Plus, Settings2 } from "lucide-react";
+import { ChevronRight, Globe, Lock, Plus, Settings2 } from "lucide-react";
 import { useState } from "react";
 import { ApiError, notOnBox } from "@/api/client";
 import { mod, mq, type StorageBucket, type StorageInfo, type TrashEntry } from "@/api/modules";
 import { Confirm } from "@/components/confirm";
 import { ConnectButton } from "@/components/connect";
+import { FilesAccess } from "@/components/files-access";
 import { Reading, Readings, Rows, Section } from "@/components/data-parts";
 import { useTitle } from "@/components/favicon";
 import { Crumbs, Empty, NotOnBox, Page, PageHeader, Skeleton } from "@/components/page";
@@ -16,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Radio, RadioGroup } from "@/components/ui/choice";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/cn";
 import { bytes, bytesParts, count, int, pct } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { PARTS } from "@/lib/names";
@@ -118,7 +120,7 @@ export function FilesPage({ project, isNew }: { project: string; isNew?: boolean
             <Rows>
               <li aria-hidden className="hidden grid-cols-[minmax(0,1fr)_9rem_6rem_6rem_7rem_2rem] gap-x-5 py-2 sm:grid">
                 <span className="label">Bucket</span>
-                <span className="label">Who can read</span>
+                <span className="label">Access</span>
                 <span className="label text-right">Size</span>
                 <span className="label text-right">Files</span>
                 <span className="label">Made</span>
@@ -131,6 +133,7 @@ export function FilesPage({ project, isNew }: { project: string; isNew?: boolean
           )}
         </Section>
       )}
+      {s && buckets.length > 0 && <FilesAccess project={project} s={s} />}
       {(trash.data ?? []).length > 0 && (
         <TrashList project={project} entries={trash.data ?? []} canPurge={can("apply:irreversible")} canRestore={writer} />
       )}
@@ -194,21 +197,28 @@ function BucketRow({ project, b, onSettings }: { project: string; b: StorageBuck
           <Link
             to="/projects/$project/storage/$bucket"
             params={{ project, bucket: b.name }}
-            className="font-mono text-[0.875rem] text-ink outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:rounded-[8px] focus-visible:after:shadow-[inset_0_0_0_2px_var(--focus)]"
+            className="font-mono text-[0.875rem] text-ink outline-hidden after:absolute after:inset-0 after:content-[''] focus-visible:after:rounded-[8px] focus-visible:after:shadow-[inset_0_0_0_2px_var(--focus)]"
           >
             {b.name}
           </Link>
           {b.state === "pending" && <span className="ml-2 text-sm text-brass-ink">being made…</span>}
           {staged?.kind === "bucket" && staged.to === "absent" && <span className="ml-2 text-sm text-brass-ink">deleting…</span>}
-          <span className="mt-0.5 block truncate text-sm text-ink-3">{rules.length ? `Takes ${rules.join(", ")}` : "Takes any file"}</span>
+          <span className="mt-0.5 block truncate text-sm text-ink-3">
+            <span className="sm:hidden">{isPublic ? "Public · " : "Private · "}</span>
+            {rules.length ? `Takes ${rules.join(", ")}` : "Takes any file"}
+          </span>
         </span>
-        <span className={isPublic ? "text-sm text-ink" : "text-sm text-ink-2"}>
+        <span
+          className={cn("inline-flex items-center gap-1.5 text-sm max-sm:hidden", isPublic ? "text-ink" : "text-ink-2")}
+          title={isPublic ? "Anyone with a file's address can open it" : "Files open only with a signed link that expires"}
+        >
           {staged?.kind === "bucket" && staged.to !== "absent" ? (
-            <span className="text-brass-ink">{isPublic ? "Opening…" : "Closing…"}</span>
-          ) : isPublic ? (
-            "Anyone with the link"
+            <span className="text-brass-ink">{isPublic ? "Making it public…" : "Making it private…"}</span>
           ) : (
-            "Only with a link"
+            <>
+              {isPublic ? <Globe className="size-3.5 text-brass-ink" aria-hidden /> : <Lock className="size-3.5 text-ink-3" aria-hidden />}
+              {isPublic ? "Public" : "Private"}
+            </>
           )}
         </span>
         <span className="col-start-1 text-sm text-ink-2 tnum sm:col-start-auto sm:text-right sm:text-base">

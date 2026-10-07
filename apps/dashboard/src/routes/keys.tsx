@@ -10,6 +10,7 @@ import { Page, PageHeader, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
+import { RadioGroup, RadioItem } from "@/components/ui/choice";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { actorName } from "@/lib/actors";
 import { cn } from "@/lib/cn";
@@ -128,7 +129,7 @@ export function KeyList({ keys, empty }: { keys: Token[]; empty: string }) {
 }
 
 const field =
-  "h-9 w-full rounded-[8px] border border-rule-2 bg-paper-raised px-2.5 text-[0.875rem] text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]";
+  "h-9 w-full rounded-[8px] border border-rule-2 bg-paper-raised px-2.5 text-[0.875rem] text-ink outline-hidden placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]";
 
 /** Create key: a name, and whole box or one project. The secret shows once. */
 export function CreateKeyDialog({ open, onOpenChange, project }: { open: boolean; onOpenChange: (o: boolean) => void; project?: string }) {
@@ -174,9 +175,9 @@ function CreateKey({ onClose, fixed }: { onClose: () => void; fixed?: string }) 
           <span className="mb-1 block text-xs font-[550] text-ink-2">Name</span>
           <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" spellCheck={false} className={cn(field, "ident")} />
         </label>
-        <Choices label="Projects">
-          <Pick checked={all} onPick={() => setAll(true)} title="All projects" note="Including ones you make later." />
-          <Pick checked={!all} onPick={() => setAll(false)} title="Only these">
+        <Choices label="Projects" value={all ? "all" : "some"} onValueChange={(v) => setAll(v === "all")}>
+          <Pick value="all" title="All projects" note="Including ones you make later." />
+          <Pick value="some" title="Only these">
             {!all && (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {names.map((p) => {
@@ -201,14 +202,14 @@ function CreateKey({ onClose, fixed }: { onClose: () => void; fixed?: string }) 
             )}
           </Pick>
         </Choices>
-        <Choices label="Access" row>
-          <Pick checked={access === "full"} onPick={() => setAccess("full")} title="Full access" />
-          <Pick checked={access === "read"} onPick={() => setAccess("read")} title="Read only" />
+        <Choices label="Access" row value={access} onValueChange={(v) => setAccess(v as typeof access)}>
+          <Pick value="full" title="Full access" />
+          <Pick value="read" title="Read only" />
         </Choices>
-        <Choices label="Expires" row>
-          <Pick checked={expires === 0} onPick={() => setExpires(0)} title="Never" />
-          <Pick checked={expires === 30} onPick={() => setExpires(30)} title="30 days" />
-          <Pick checked={expires === 90} onPick={() => setExpires(90)} title="90 days" />
+        <Choices label="Expires" row value={String(expires)} onValueChange={(v) => setExpires(Number(v) as typeof expires)}>
+          <Pick value="0" title="Never" />
+          <Pick value="30" title="30 days" />
+          <Pick value="90" title="90 days" />
         </Choices>
         {make.isError && <ProblemNote error={make.error} />}
       </DialogBody>
@@ -224,29 +225,48 @@ function CreateKey({ onClose, fixed }: { onClose: () => void; fixed?: string }) 
   );
 }
 
-function Choices({ label, row, children }: { label: string; row?: boolean; children: ReactNode }) {
+/** A Radix radio group of Picks: arrow keys move and choose, one tab stop. */
+function Choices({
+  label,
+  row,
+  value,
+  onValueChange,
+  children,
+}: {
+  label: string;
+  row?: boolean;
+  value: string;
+  onValueChange: (v: string) => void;
+  children: ReactNode;
+}) {
   return (
     <fieldset>
       <legend className="mb-1.5 text-xs font-[550] text-ink-2">{label}</legend>
-      <div role="radiogroup" aria-label={label} className={cn("flex gap-1.5", row ? "flex-row flex-wrap" : "flex-col")}>
+      <RadioGroup
+        aria-label={label}
+        orientation={row ? "horizontal" : "vertical"}
+        value={value}
+        onValueChange={onValueChange}
+        className={cn("flex gap-1.5", row ? "flex-row flex-wrap" : "flex-col")}
+      >
         {children}
-      </div>
+      </RadioGroup>
     </fieldset>
   );
 }
 
-function Pick({ checked, onPick, title, note, children }: { checked: boolean; onPick: () => void; title: string; note?: string; children?: ReactNode }) {
+function Pick({ value, title, note, children }: { value: string; title: string; note?: string; children?: ReactNode }) {
   return (
-    <div className={cn("rounded-[10px] border px-3 py-2", checked ? "border-brass bg-brass-wash" : "border-rule-2")}>
-      <button type="button" role="radio" aria-checked={checked} onClick={onPick} className="flex w-full items-center gap-2.5 text-left">
-        <span className={cn("grid size-4 shrink-0 place-items-center rounded-full border", checked ? "border-brass" : "border-rule-3")} aria-hidden>
-          {checked && <span className="size-2 rounded-full bg-brass" />}
+    <div className="rounded-[10px] border border-rule-2 px-3 py-2 has-[>[role=radio][data-state=checked]]:border-brass has-[>[role=radio][data-state=checked]]:bg-brass-wash">
+      <RadioItem value={value} className="group flex w-full items-center gap-2.5 text-left">
+        <span className="grid size-4 shrink-0 place-items-center rounded-full border border-rule-3 group-data-[state=checked]:border-brass" aria-hidden>
+          <span className="hidden size-2 rounded-full bg-brass group-data-[state=checked]:block" />
         </span>
         <span>
           <span className="block text-[0.875rem] font-[550] text-ink">{title}</span>
           {note && <span className="block text-xs text-ink-3">{note}</span>}
         </span>
-      </button>
+      </RadioItem>
       {children}
     </div>
   );

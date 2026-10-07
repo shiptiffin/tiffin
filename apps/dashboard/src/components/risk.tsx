@@ -9,7 +9,7 @@ import { cn } from "@/lib/cn";
  *   irreversible — a solid diamond: one way, sharp edges
  */
 export function RiskMark({ tier, className }: { tier: Tier; className?: string }) {
-  const common = { viewBox: "0 0 16 16", "aria-hidden": true, className: cn("size-3.5 shrink-0", toneText[tier], className) } as const;
+  const common = { viewBox: "0 0 16 16", "aria-hidden": true, className: cn("[:where(&)]:size-3.5 shrink-0", toneText[tier], className) } as const;
   switch (tier) {
     case "read":
       return (

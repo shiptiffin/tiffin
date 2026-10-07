@@ -1,13 +1,14 @@
 import AxeBuilder from "@axe-core/playwright";
 import { mkdirSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { signIn } from "./helpers";
+import { needsServices, pick, signIn } from "./helpers";
 
 // The Database console against a dev box seeded by e2e/seed-box-db.sh (a real
 // Postgres: the box's database module runs only on a box):
 //   DB_E2E=1 E2E_BASE_URL=http://localhost:5471 E2E_OWNER_TOKEN=… bunx playwright test db-console
 // It edits rows and makes tables, and puts back what it changed.
-test.skip(!process.env.DB_E2E || !process.env.E2E_OWNER_TOKEN, "set DB_E2E=1 and E2E_OWNER_TOKEN for a box seeded by seed-box-db.sh");
+test.skip(!process.env.DB_E2E, "set DB_E2E=1 for a box seeded by seed-box-db.sh");
+needsServices("bookshop", ["postgres"]);
 
 
 const P = "/projects/bookshop/data";
@@ -93,7 +94,7 @@ test("add rows, delete two (it asks with the count), Undo brings them back", asy
   await expect(row(page, "books", `${tag} 1`)).toBeVisible();
   for (const n of [1, 2]) await row(page, "books", `${tag} ${n}`).getByRole("gridcell").first().click(); // the checkbox cell
   await page.getByRole("button", { name: "Delete 2 rows" }).click();
-  const confirm = page.getByRole("dialog", { name: "Delete 2 rows from books?" });
+  const confirm = page.getByRole("alertdialog", { name: "Delete 2 rows from books?" });
   await confirm.getByRole("button", { name: "Delete 2 rows" }).click();
   await expect(toasts(page)).toContainText("Deleted 2 rows from books");
   await expect(row(page, "books", tag)).toHaveCount(0);
@@ -107,7 +108,7 @@ test("add rows, delete two (it asks with the count), Undo brings them back", asy
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Shift+Space");
   await page.keyboard.press("Backspace");
-  await page.getByRole("dialog", { name: "Delete 2 rows from books?" }).getByRole("button", { name: "Delete 2 rows" }).click();
+  await page.getByRole("alertdialog", { name: "Delete 2 rows from books?" }).getByRole("button", { name: "Delete 2 rows" }).click();
   await expect(row(page, "books", tag)).toHaveCount(0);
 });
 
@@ -115,9 +116,9 @@ test("filters live in the URL", async ({ page }) => {
   await open(page, `${P}/tables/books`);
   await page.getByRole("button", { name: "Filter", exact: true }).click();
   const form = page.getByRole("form", { name: "Filter" });
-  await form.getByLabel("Column").selectOption("in_stock");
-  await form.getByLabel("Matches").selectOption("eq");
-  await form.getByLabel("Value").selectOption("false");
+  await pick(page, form.getByRole("combobox", { name: "Column" }), "in_stock");
+  await pick(page, form.getByRole("combobox", { name: "Matches" }), "is");
+  await pick(page, form.getByRole("combobox", { name: "Value" }), "false");
   await form.getByRole("button", { name: "Add filter" }).click();
   await expect(page).toHaveURL(/f=in_stock\.eq\.false/);
   await expect(page.getByText(/rows match/)).toBeVisible();
@@ -168,8 +169,8 @@ test("make a table from the form, see its SQL, then delete it", async ({ page })
   await sheet.getByLabel("Name", { exact: true }).fill(name);
   await sheet.getByRole("button", { name: "Add a column" }).click();
   await sheet.getByLabel("Column name").last().fill("book_id");
-  await sheet.getByLabel("Type").last().selectOption("link");
-  await sheet.getByLabel("Linked table").selectOption("public.books");
+  await pick(page, sheet.getByRole("combobox", { name: "Type" }).last(), "Link to another table");
+  await pick(page, sheet.getByRole("combobox", { name: "Linked table" }), "books");
   await sheet.getByText("Details: the SQL this runs").click();
   await expect(sheet.locator("pre")).toContainText(`CREATE TABLE "public"."${name}"`);
   await expect(sheet.locator("pre")).toContainText(`REFERENCES "public"."books" ("id")`);
@@ -179,7 +180,7 @@ test("make a table from the form, see its SQL, then delete it", async ({ page })
   await expect(page.getByText("No rows yet.")).toBeVisible();
   await page.getByRole("button", { name: `More for ${name}` }).click();
   await page.getByRole("menuitem", { name: "Delete table…" }).click();
-  const hazard = page.getByRole("dialog");
+  const hazard = page.getByRole("alertdialog");
   await hazard.getByRole("textbox").fill(name);
   await hazard.getByRole("button", { name: `Delete ${name}` }).click();
   await expect(toasts(page)).toContainText(`Deleted ${name}`);

@@ -1,5 +1,12 @@
+import type { RegisteredRouter } from "@tanstack/react-router";
 import type { ProjectState } from "@/api/client";
 import { PARTS } from "./names";
+
+/** Every page of one project whose only path param is $project: `{ to, params: { project } }` type-checks for each. */
+export type ProjectPage = Exclude<
+  Extract<keyof RegisteredRouter["routesByPath"], "/projects/$project" | `/projects/$project/${string}`>,
+  `/projects/$project/${string}$${string}`
+>;
 
 /**
  * A project's sections: which parts it has, where each one's page is, which
@@ -8,7 +15,7 @@ import { PARTS } from "./names";
  */
 export type Part = "apps" | "postgres" | "valkey" | "storage" | "email" | "auth" | "analytics" | "jobs";
 
-export const PART_PAGE: Record<Part, { to: string; label: string }> = {
+export const PART_PAGE: Record<Part, { to: ProjectPage; label: string }> = {
   apps: { to: "/projects/$project/apps", label: "Apps" },
   postgres: { to: "/projects/$project/data", label: PARTS.postgres.name },
   valkey: { to: "/projects/$project/data/kv", label: PARTS.valkey.name },
@@ -49,7 +56,7 @@ export function standalonePart(state?: ProjectState): Part | null {
 }
 
 /** Where a project opens: its one part when it is standalone, else its Overview. */
-export function projectHome(project: string, state?: ProjectState): { to: string; params: { project: string } } {
+export function projectHome(project: string, state?: ProjectState): { to: ProjectPage; params: { project: string } } {
   const one = standalonePart(state);
   return { to: one ? PART_PAGE[one].to : "/projects/$project", params: { project } };
 }
@@ -60,16 +67,17 @@ export function projectHome(project: string, state?: ProjectState): { to: string
  * blog › Database › SQL; a table or a job is left behind), when the target
  * has that part. `pages` are the router's project page paths.
  */
-export function landing(path: string, target: string, state: ProjectState | undefined, pages: string[]): { to: string; params: { project: string }; missing?: Part } {
+export function landing(path: string, target: string, state: ProjectState | undefined, pages: string[]): { to: ProjectPage; params: { project: string }; missing?: Part } {
   const tail = path.match(/^\/projects\/[^/]+\/?(.*)$/)?.[1];
   if (tail === undefined || tail === "") return projectHome(target, state);
   const part = partOfPath(tail);
   if (part && !partsOf(state).has(part)) return { to: "/projects/$project", params: { project: target }, missing: part };
   const segs = tail.split("/").filter(Boolean);
-  let best = "/projects/$project";
+  let best: string = "/projects/$project";
   for (const p of pages) {
     const rest = p.replace(/^\/projects\/\$project\/?/, "").split("/").filter(Boolean);
     if (p.startsWith("/projects/$project") && !rest.some((s) => s.startsWith("$")) && rest.length <= segs.length && rest.every((s, i) => s === segs[i]) && p.length > best.length) best = p;
   }
-  return { to: best, params: { project: target } };
+  // best is one of the router's own paths with no param but $project (filtered above).
+  return { to: best as ProjectPage, params: { project: target } };
 }

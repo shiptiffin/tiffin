@@ -60,7 +60,7 @@ export function SignedEntry({
   const who = actorName(actor);
   const tag = actor.model ?? who.tag;
   const sentence = (
-    <span className={cn("entry block [overflow-wrap:anywhere]", agent ? "text-graphite" : "text-ink", muted && "text-ink-3 line-through decoration-ink-4/60")}>{intent}</span>
+    <span className={cn("entry block [overflow-wrap:anywhere]", muted ? "text-ink-3 line-through decoration-ink-4/60" : agent ? "text-graphite" : "text-ink")}>{intent}</span>
   );
   return (
     <article className={cn("grid grid-cols-[44px_minmax(0,1fr)] gap-x-3 py-3", className)}>

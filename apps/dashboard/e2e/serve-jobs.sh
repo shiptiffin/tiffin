@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Starts a throwaway box whose Jobs module really runs, for the Jobs specs
 # (jobs.spec.ts): a Postgres for the queue (the build the Go tests download
-# into ~/.embedded-postgres-go), `tiffin serve --box` (one at a time per machine: its
-# SMTP and OTLP ports are fixed), and e2e/jobs-worker.ts
+# into ~/.embedded-postgres-go), `tiffin serve --box` (beside e2e/serve.sh's box: TIFFIN_SMTP_PORT moves
+# its SMTP port; the queue, OTLP and KV REST ports are fixed, so the other box
+# must not run a queue), and e2e/jobs-worker.ts
 # as the outside world (schedules and queues call it) and as the app
 # `worker` (workflows run in it). Projects:
 #   hooks    no apps: a schedule and two queues that call web addresses
@@ -19,6 +20,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../../.." && pwd)"
 DIR="${TMPDIR:-/tmp}"
 DIR="${DIR%/}/tiffin-dash-e2e-$PORT"
+# A run killed before its cleanup leaves its Postgres holding PGPORT.
+pkill -f "tiffin-dash-e2e-$PORT/pg/bin/postgres" 2>/dev/null && sleep 1
 rm -rf "$DIR"
 mkdir -p "$DIR/pg"
 cleanup() {
@@ -47,6 +50,8 @@ if [ -z "$BIN" ]; then
 fi
 
 export TIFFIN_HOME="$DIR/box"
+# Beside the usual box on 7392, it needs its own SMTP port.
+[ "$PORT" = 7392 ] || export TIFFIN_SMTP_PORT="${TIFFIN_SMTP_PORT:-$((PORT + 10000))}"
 export TIFFIN_QUEUE_DATABASE_URL="postgres://tiffin@127.0.0.1:$PGPORT/postgres"
 # The worker plays the outside world on loopback, which jobs may not call on a real box.
 export TIFFIN_QUEUE_ALLOW_NETS="127.0.0.1/32"

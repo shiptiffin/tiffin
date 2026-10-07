@@ -1,14 +1,16 @@
 import { takeLoginCode } from "@/lib/login-code";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ApiError, api } from "@/api/client";
+import { boxMailQ } from "@/api/modules";
 import { Command } from "@/components/copy";
 import { Wordmark } from "@/components/logo";
 import { Mascot } from "@/components/mascot";
 import { Button } from "@/components/ui/button";
 import { ProblemNote } from "@/components/problem";
+import { EmailSignIn } from "@/components/signin-email";
 import { cn } from "@/lib/cn";
 import { getAssertion, passkeyWords, webauthnSupported } from "@/lib/webauthn";
 import { Fingerprint } from "lucide-react";
@@ -61,6 +63,8 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
   const [passkeyErr, setPasskeyErr] = useState<unknown>(null);
   const canPasskey = webauthnSupported();
   const words = passkeyWords();
+  // With a mail service connected, the box can email people a sign-in link.
+  const byEmail = useQuery({ ...boxMailQ.signIn, enabled: state === "no-code" || state === "bad-link" }).data?.available ?? false;
   // With a passkey on offer, the terminal link is the small fallback (open at once after a bad link).
   const [linkOpen, setLinkOpen] = useState(false);
   if (state === "bad-link" && !linkOpen) setLinkOpen(true);
@@ -90,7 +94,7 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
         ? "Your session has ended."
         : reason === "signed-out"
           ? "Signed out. See you soon."
-          : canPasskey
+          : canPasskey || byEmail
             ? "Sign in to your box."
             : "Sign in with a link from your terminal.",
     "bad-link": "That link has been used, or it expired.",
@@ -139,21 +143,22 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
                     {passkeyBusy ? `Waiting for ${words.button}…` : `Sign in with ${words.button}`}
                   </Button>
                   {!!passkeyErr && <ProblemNote className="mt-4" error={passkeyErr} />}
-                  {!linkOpen && (
-                    <button type="button" onClick={() => setLinkOpen(true)} className="mt-4 block text-[0.875rem] text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink">
-                      or use a sign-in link
-                    </button>
-                  )}
                 </>
               )}
-              {(!canPasskey || linkOpen) && (
+              {byEmail && <EmailSignIn primary={!canPasskey} className={canPasskey ? "mt-7 border-t border-rule pt-6" : "mt-2.5"} />}
+              {(canPasskey || byEmail) && !linkOpen && (
+                <button type="button" onClick={() => setLinkOpen(true)} className={cn("block text-[0.875rem] text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink", byEmail ? "mt-6" : "mt-4")}>
+                  {byEmail ? "or sign in from your terminal" : "or use a sign-in link"}
+                </button>
+              )}
+              {((!canPasskey && !byEmail) || linkOpen) && (
                 <>
-                  <p className={cn("text-md text-ink-2", canPasskey ? "mt-8 text-[0.875rem]" : "mt-2.5")}>
+                  <p className={cn("text-md text-ink-2", canPasskey || byEmail ? "mt-8 text-[0.875rem]" : "mt-2.5")}>
                     {state === "bad-link"
                       ? "Sign-in links work once, for ten minutes. Get a fresh one where Tiffin is installed:"
                       : "Run this where Tiffin is installed. It prints a link that signs you in once, within ten minutes."}
                   </p>
-                  <Command cmd="tiffin login" className={canPasskey ? "mt-3" : "mt-5"} />
+                  <Command cmd="tiffin login" className={canPasskey || byEmail ? "mt-3" : "mt-5"} />
                   <p className="mt-4 text-sm text-ink-3">
                     Signing in to a box on another machine? Set <code className="ident text-ink-2">TIFFIN_URL</code> and an owner{" "}
                     <code className="ident text-ink-2">TIFFIN_TOKEN</code> first, or ask its owner to invite you.

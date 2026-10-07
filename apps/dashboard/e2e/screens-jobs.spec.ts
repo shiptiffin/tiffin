@@ -1,13 +1,14 @@
 import { mkdirSync } from "node:fs";
 import { test, type Page } from "@playwright/test";
-import { signIn } from "./helpers";
+import { needsServices, signIn } from "./helpers";
 
 // Visual review of the jobs, people and audience pages (Jobs: queues, runs, a
 // job, workflow runs, a run, Users, a user, Organizations, an organization, Analytics)
 // against the seeded dev box:
 //   SCREENS=1 E2E_BASE_URL=http://localhost:5404 E2E_OWNER_TOKEN=... bunx playwright test screens-jobs
 // SHOTS=queues,run limits it to some pages. Nothing is changed on the box.
-test.skip(!process.env.SCREENS || !process.env.E2E_OWNER_TOKEN, "set SCREENS=1 and E2E_OWNER_TOKEN for a seeded box");
+test.skip(!process.env.SCREENS, "set SCREENS=1 for screenshots");
+needsServices("shop", ["postgres"]);
 
 const out = process.env.SHOTS_DIR ?? "screenshots/fusion";
 const only = process.env.SHOTS?.split(",");

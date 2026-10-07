@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { test, type Page, type Route } from "@playwright/test";
-import { signIn } from "./helpers";
+import { needsServices, signIn } from "./helpers";
 
 // Visual review of domains: Project › Settings › Domains (every state), the
 // overview's Domains, Settings › Your box › Domain (automatic, checking,
@@ -9,7 +9,8 @@ import { signIn } from "./helpers";
 // and DNS answers are stubbed as a server's would be:
 //   SCREENS=1 E2E_BASE_URL=http://localhost:5391 E2E_OWNER_TOKEN=... bunx playwright test screens-domains
 // It changes nothing on the box.
-test.skip(!process.env.SCREENS || !process.env.E2E_OWNER_TOKEN, "set SCREENS=1 and E2E_OWNER_TOKEN for a seeded box");
+test.skip(!process.env.SCREENS, "set SCREENS=1 for screenshots");
+needsServices("shop", []);
 
 const out = process.env.SHOTS_DIR ?? "screenshots/domains";
 const only = process.env.SHOTS?.split(",");
@@ -150,13 +151,13 @@ const scenes: Array<{ name: string; url: string; stub: (p: Page) => Promise<unkn
     name: "project-domains",
     url: "/projects/shop/domains",
     stub: async (p) => (await domains(p, mixed), await boxDomain(p, sslip)),
-    wait: (p) => p.getByText("Getting a certificate").first().waitFor(),
+    wait: (p) => p.getByText("Getting a certificate").filter({ visible: true }).first().waitFor(),
   },
   {
     name: "project-domains-hosts",
     url: "/projects/shop/domains",
     stub: async (p) => (await domains(p, mixed), await boxDomain(p, sslip)),
-    wait: (p) => p.getByText("Waiting for DNS").first().waitFor(),
+    wait: (p) => p.getByText("Waiting for DNS").filter({ visible: true }).first().waitFor(),
     act: (p) => p.getByRole("button", { name: "Namecheap" }).click(),
   },
   {
@@ -187,7 +188,7 @@ const scenes: Array<{ name: string; url: string; stub: (p: Page) => Promise<unkn
     name: "project-domains-local",
     url: "/projects/shop/domains",
     stub: async (p) => (await domains(p, [dom("shop.com", "waiting_for_dns", { reason: "this box has no public IP address (a local box); custom domains need a server", records: [] })]), await boxDomain(p, local)),
-    wait: (p) => p.getByText("Waiting for DNS").first().waitFor(),
+    wait: (p) => p.getByText("Waiting for DNS").filter({ visible: true }).first().waitFor(),
   },
   {
     name: "project-overview",
@@ -216,7 +217,7 @@ const scenes: Array<{ name: string; url: string; stub: (p: Page) => Promise<unkn
       await p.getByRole("button", { name: "Use your own domain" }).click();
       await p.getByLabel("Your own domain").fill("example.com");
       await p.getByRole("button", { name: "Check" }).click();
-      await p.getByText("Not yet").first().waitFor();
+      await p.getByText("Not yet").filter({ visible: true }).first().waitFor();
       await p.locator("#domain").scrollIntoViewIfNeeded();
     },
   },

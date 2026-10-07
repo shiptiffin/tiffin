@@ -32,6 +32,8 @@ export default defineConfig({
         url: `http://127.0.0.1:${port}/v1/health`, // signIn() also waits for seed-live.sh to finish
         timeout: 180_000,
         reuseExistingServer: false,
+        // SIGTERM first, so the serve script's cleanup stops its box (and Postgres).
+        gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 },
         stdout: "pipe",
       },
 });

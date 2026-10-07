@@ -362,7 +362,7 @@ export function TableView({ project, schema, name, branch }: { project: string; 
               {writer && !t.managed && (
                 <>
                   <MenuSeparator />
-                  <MenuItem onSelect={() => setDropping(true)} className="text-danger data-[highlighted]:text-danger [&_svg]:text-danger">
+                  <MenuItem onSelect={() => setDropping(true)} variant="danger">
                     <Trash2 />
                     Delete {t.kind === "table" ? "table" : kindWord}…
                   </MenuItem>
@@ -377,7 +377,7 @@ export function TableView({ project, schema, name, branch }: { project: string; 
         <p className="mt-3 flex items-start gap-2 rounded-md border border-rule-2 bg-paper-sunk px-3 py-2 text-sm text-ink-2">
           <Lock className="mt-0.5 size-3.5 shrink-0 text-ink-3" aria-hidden />
           <span>
-            {t.schema === "auth"
+            {t.schema === "tiffin_auth"
               ? "Sign-in data, kept by Tiffin. Read it freely; change people on the Users page so their sessions stay right."
               : "Kept by Tiffin or a framework your app uses."}{" "}
             {unlocked ? <span className="text-warn-ink">Editing is on for this visit.</span> : "Read-only here."}

@@ -192,7 +192,7 @@ export function KvConsole({ project }: { project: string }) {
                 if (recall(1)) e.preventDefault();
               }
             }}
-            className={cn("min-h-5 w-full resize-none bg-transparent font-mono text-[0.8125rem] leading-5 text-ink outline-none placeholder:text-ink-4")}
+            className={cn("min-h-5 w-full resize-none bg-transparent font-mono text-[0.8125rem] leading-5 text-ink outline-hidden placeholder:text-ink-4")}
           />
         </div>
         <Button variant="primary" onClick={runIt} disabled={!text.trim() || busy} title="Run (Enter; Shift+Enter for a new line)">

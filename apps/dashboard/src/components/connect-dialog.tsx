@@ -351,13 +351,13 @@ export function ConnectDialog({ part, project, open, onOpenChange }: { part: Con
             ))}
           </T.List>
           <DialogBody className="min-h-[min(26rem,60dvh)] pt-5">
-            <T.Content value="apps" className="outline-none">
+            <T.Content value="apps" className="outline-hidden">
               <FromApps spec={s} project={project} />
             </T.Content>
-            <T.Content value="computer" className="outline-none">
+            <T.Content value="computer" className="outline-hidden">
               {s.computer}
             </T.Content>
-            <T.Content value="anywhere" className="outline-none">
+            <T.Content value="anywhere" className="outline-hidden">
               {s.anywhere}
             </T.Content>
           </DialogBody>
@@ -443,7 +443,7 @@ function FromApps({ spec: s, project }: { spec: Spec; project: string }) {
           <CopyButton value={snippet.code} label={`Copy the ${snippet.label} code`} />
         </div>
         {s.snippets.map((x) => (
-          <T.Content key={x.label} value={x.label} className="outline-none">
+          <T.Content key={x.label} value={x.label} className="outline-hidden">
             <pre className="max-h-72 overflow-auto px-4 py-3 font-mono text-[0.75rem] leading-5 text-ink" tabIndex={0}>
               {x.code}
             </pre>

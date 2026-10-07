@@ -30,7 +30,7 @@ type Queue = NonNullable<Manifest["queues"]>[string];
 type FormProps = { project: string; name?: string; done: () => void };
 
 const field =
-  "h-9 w-full min-w-0 rounded-[7px] border border-rule-2 bg-paper px-2.5 text-[0.84375rem] text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] aria-invalid:border-danger disabled:opacity-60";
+  "h-9 w-full min-w-0 rounded-[7px] border border-rule-2 bg-paper px-2.5 text-[0.84375rem] text-ink outline-hidden placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] aria-invalid:border-danger disabled:opacity-60";
 
 const slugOk = (s: string) => /^[a-z][a-z0-9-]{0,39}$/.test(s) && !s.endsWith("-");
 const urlOk = (s: string) => {
@@ -72,7 +72,7 @@ function Segmented<T extends string>({ label, value, onChange, items }: { label:
           value={it.value}
           disabled={it.disabled}
           className={cn(
-            "h-8 rounded-full border px-3 text-[0.8125rem] transition-colors duration-[var(--dur-state)] outline-none focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] disabled:opacity-45",
+            "h-8 rounded-full border px-3 text-[0.8125rem] transition-colors duration-[var(--dur-state)] outline-hidden focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] disabled:opacity-45",
             value === it.value ? "border-brass bg-brass-wash font-[550] text-ink" : "border-rule-2 text-ink-2 hover:border-rule-3 hover:text-ink",
           )}
         >

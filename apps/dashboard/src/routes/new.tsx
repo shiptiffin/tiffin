@@ -1,7 +1,7 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowUpRight, BarChart3, Check, Database, FolderOpen, KeyRound, Mail, Plus, Zap } from "lucide-react";
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError, request, type Manifest, type Op } from "@/api/client";
 import type { components } from "@/api/schema";
 import { mod3, type Deploy } from "@/api/modules";
@@ -14,7 +14,8 @@ import { Crumbs, Page } from "@/components/page";
 import { PilotLight } from "@/components/pilot";
 import { ProblemNote } from "@/components/problem";
 import { Qty } from "@/components/qty";
-import { BuildSettings, buildAs, buildNote } from "@/components/build-settings";
+import { BuildSettings, buildNote } from "@/components/build-settings";
+import { FrameworkLabel, FrameworkSelect } from "@/components/framework-select";
 import { BuildLogView, firstError, useBuildLog } from "@/components/start-build-log";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioItem } from "@/components/ui/choice";
@@ -32,32 +33,35 @@ import { useDebounced } from "@/lib/debounced";
 import { PARTS, partA, partName, partSub } from "@/lib/names";
 import { PART_PAGE } from "@/lib/sections";
 import { countWords, dec, int, NNBSP } from "@/lib/format";
+import { buildFor, isTested, presetName, presetOf, PRESETS } from "@/lib/frameworks";
 import {
   appFor,
   checkGitUrl,
   checkName,
+  defaultOf,
   deployGit,
   deployTemplate,
   frameworkName,
+  frameworksOf,
+  isKind,
+  KINDS,
   nameFromGit,
   newProjectManifest,
   slugify,
+  starterFor,
   starterLine,
-  starterEdit,
-  starterOrder,
-  pickable,
-  starterTitle,
   startersQuery,
-  starterThumb,
   suggestName,
   freeName,
   soloParts,
   defaultParts,
   neededParts,
+  thumbOf,
   NEW_PARTS,
   type NewPart,
   type Source,
   type Starter,
+  type StarterKind,
 } from "@/lib/starters";
 
 const MB = 1048576;
@@ -78,11 +82,16 @@ type Phase = "compose" | "launching" | "live" | "failed";
  * this page until the app answers at its own address. A project with no app
  * and one part opens straight on that part.
  */
-export function NewProjectPage() {
+/**
+ * ?starter= preselects the code: a kind ("web", "static", "api"), a starter id or an older alias ("astro", "next-postgres"),
+ * "github", "git", "none", "import", "empty" or "part:<part>".
+ */
+export type NewSearch = { starter?: string };
+
+export function NewProjectPage({ search }: { search: NewSearch }) {
   useTitle("New project");
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const search = useRouterState({ select: (s) => s.location.search as Record<string, unknown> });
   const projects = useQuery(q.projects);
   const names = useMemo(() => (projects.data ?? []).map((p) => p.name), [projects.data]);
   const manifests = useQueries({ queries: names.map((n) => ({ ...q.manifest(n), staleTime: 60_000 })) });
@@ -93,31 +102,50 @@ export function NewProjectPage() {
   );
   const taken = useMemo(() => ({ projects: names, routes }), [names, routes]);
   const starters = useQuery(startersQuery);
-  const list = useMemo(() => pickable(starters.data ?? []), [starters.data]);
+  const list = useMemo(() => starters.data ?? [], [starters.data]);
   const firstRun = projects.isSuccess && names.length === 0;
   const probe = manifests
     .map((m, i) => ({ project: names[i], app: Object.entries(m.data?.manifest.apps ?? {}).find(([, a]) => a.role !== "worker")?.[0] }))
     .find((x) => x.app) as { project: string; app: string } | undefined;
   const dom = useBoxDomain(probe);
 
-  // The code: a starter id, "github", "git", "none" or "import". A ?starter= link preselects one
-  // ("part:postgres" is no code and just that part; "empty" is no code and nothing ticked).
-  const asked = typeof search.starter === "string" ? search.starter : undefined;
+  // The code: a kind of starter ("web", "static", "api"), "github", "git", "none" or "import". A ?starter= link
+  // preselects one ("part:postgres" is no code and just that part; "empty" is no code and nothing ticked); a starter's
+  // own id opens its kind with that framework picked.
+  const asked = search.starter;
   const askedPart = asked?.startsWith("part:") ? (asked.slice(5) as NewPart) : undefined;
-  const [code, setCodeOnly] = useState<string>(askedPart || asked === "empty" ? "none" : (asked ?? "next-postgres"));
+  const plainCode = !!asked && (isKind(asked) || CODE_WORDS.includes(asked));
+  const [code, setCodeOnly] = useState<string>(askedPart || asked === "empty" ? "none" : plainCode ? asked : "web");
+  // The framework picked in each kind (a starter id); a kind not in here uses its default.
+  const [chosen, setChosen] = useState<Partial<Record<StarterKind, string>>>({});
+  const [linked, setLinked] = useState(asked && !plainCode && !askedPart && asked !== "empty" ? asked : undefined);
+  if (linked && starters.data) {
+    const s = starterFor(starters.data, linked);
+    setLinked(undefined);
+    if (s) {
+      setCodeOnly(s.kind);
+      setChosen((c) => ({ ...c, [s.kind]: s.id }));
+    }
+  }
   // The ticked parts; null until changed by hand, so picking other code resets them to its defaults.
   const [ticked, setTicked] = useState<NewPart[] | null>(askedPart ? [askedPart] : asked === "empty" ? [] : null);
   const setCode = (c: string) => {
     setCodeOnly(c);
     setTicked(null);
   };
-  const [git, setGit] = useState({ url: "", ref: "", path: "", framework: "next" });
+  // Another framework brings its own needs (Next.js wants a database, Astro none): the parts follow it.
+  const setFramework = (kind: StarterKind, id: string) => {
+    setChosen((c) => ({ ...c, [kind]: id }));
+    setTicked(null);
+  };
+  const [git, setGit] = useState({ url: "", ref: "", path: "", framework: "next", preset: "nextjs" });
   const [gh, setGh] = useState<GitHubPick>(emptyPick);
   const { admin } = useMe();
   const [typed, setTyped] = useState<string | null>(null);
   const imp = useProjectImport(taken);
 
-  const starter = list.find((s) => s.id === code);
+  const starterIn = (kind: StarterKind) => starterFor(list, chosen[kind]) ?? defaultOf(list, kind);
+  const starter = isKind(code) ? starterIn(code) : undefined;
   const source: Source | null =
     code === "none"
       ? { kind: "none" }
@@ -161,7 +189,7 @@ export function NewProjectPage() {
   if (found && found !== applied) {
     setApplied(found);
     setOverridden(false);
-    setGit((g) => ({ ...g, framework: found.framework, path: found.path }));
+    setGit((g) => ({ ...g, framework: found.framework, preset: presetOf(found), path: found.path }));
   }
   const gitUnsupported = code === "git" && !overridden ? found?.unsupported : undefined;
   const urlCheck = checkGitUrl(git.url);
@@ -211,7 +239,7 @@ export function NewProjectPage() {
       if (solo) {
         // A standalone project opens straight on its part, like a console.
         await qc.invalidateQueries({ queryKey: ["project", name] });
-        await navigate({ to: PART_PAGE[solo.part].to as "/", params: { project: name } as never });
+        await navigate({ to: PART_PAGE[solo.part].to, params: { project: name } });
         return null;
       }
       setPhase("launching");
@@ -296,7 +324,7 @@ export function NewProjectPage() {
                   <Step n={1} label="Import a .tiffin file">
                     <p className="text-sm text-ink-3">A project exported from this box or another one, with its data.</p>
                     <ImportFile imp={imp} />
-                    <button type="button" onClick={() => setCode("next-postgres")} className="mt-3 text-sm text-ink-3 hover:text-ink">
+                    <button type="button" onClick={() => setCode("web")} className="mt-3 text-sm text-ink-3 hover:text-ink">
                       Start a new project instead
                     </button>
                   </Step>
@@ -316,7 +344,7 @@ export function NewProjectPage() {
                       spellCheck={false}
                       aria-invalid={!check.ok}
                       aria-describedby="pname-note"
-                      className="ident h-10 w-full rounded-[8px] border border-rule-2 bg-paper-raised px-3 text-[0.9375rem] text-ink outline-none transition-[border-color,box-shadow] focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] aria-invalid:border-danger"
+                      className="ident h-10 w-full rounded-[8px] border border-rule-2 bg-paper-raised px-3 text-[0.9375rem] text-ink outline-hidden transition-[border-color,box-shadow] focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] aria-invalid:border-danger"
                     />
                     <p id="pname-note" className="mt-2 min-h-5 text-sm" aria-live="polite">
                       {check.ok ? (
@@ -339,8 +367,17 @@ export function NewProjectPage() {
                         <ProblemNote error={starters.error} title="The starters can’t be listed right now." />
                       ) : (
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
-                          {(list.length ? list : placeholders).map((s) => (
-                            <StarterTile key={s.id} s={s} picked={code === s.id} loading={!list.length} />
+                          {KINDS.map((k) => (
+                            <KindTile
+                              key={k.kind}
+                              kind={k}
+                              picked={code === k.kind}
+                              loading={!starters.data}
+                              frameworks={frameworksOf(list, k.kind)}
+                              value={starterIn(k.kind)}
+                              onFramework={(id) => setFramework(k.kind, id)}
+                              onPick={() => code !== k.kind && setCode(k.kind)}
+                            />
                           ))}
                         </div>
                       )}
@@ -350,7 +387,7 @@ export function NewProjectPage() {
                           picked={code === "github" || code === "git"}
                           icon={<GitHubMark />}
                           title="Your GitHub repository"
-                          line="Private ones too. Every push deploys; each pull request gets a preview."
+                          line="Every push deploys. Each pull request gets a preview."
                         />
                         <OptionRow value="none" picked={code === "none"} icon={<Plus />} title="No code yet" line={starterLine.none} />
                       </div>
@@ -367,7 +404,7 @@ export function NewProjectPage() {
                         <GitFields
                           git={git}
                           setGit={(g) => {
-                            if (g.framework !== git.framework) setOverridden(true);
+                            if (g.preset !== git.preset) setOverridden(true);
                             setGit(g);
                           }}
                           check={urlCheck}
@@ -379,7 +416,7 @@ export function NewProjectPage() {
                   </Step>
 
                   <Step n={3} label="What it needs">
-                    <PartChecklist parts={parts} needed={needed} neededBy={starter ? (starterTitle[starter.id] ?? starter.name) : ""} onToggle={toggle} />
+                    <PartChecklist parts={parts} needed={needed} neededBy={starter?.presetName ?? ""} onToggle={toggle} />
                     <p className="mt-3 text-sm text-ink-3">Add or remove any of these later from the project. Jobs and schedules are always there.</p>
                   </Step>
 
@@ -418,7 +455,7 @@ export function NewProjectPage() {
                 creating={create.isPending}
                 source={source}
                 parts={parts}
-                blockedWhy={gitUnsupported ? unsupportedWhy(gitUnsupported) : undefined}
+                blockedWhy={gitUnsupported ? unsupportedWhy(gitUnsupported) : code === "github" && gh.unsupported ? unsupportedWhy(gh.unsupported) : undefined}
               />
             )}
           </div>
@@ -470,38 +507,77 @@ function Step({ n, label, children }: { n: number; label: string; children: Reac
   );
 }
 
-const placeholders = starterOrder.map((id) => ({ id, name: "", app: "", framework: "static", services: [], description: "", fragment: { apps: {} }, files: 0, bytes: 0 })) as Starter[];
-
-/** A starter as a tile: its drawing over its name. On a phone, a compact row with a small drawing. */
-function StarterTile({ s, picked, loading }: { s: Starter; picked: boolean; loading?: boolean }) {
+/**
+ * A kind of starter as a tile: its drawing over its name and line, then its
+ * framework. The picked tile's framework is a quiet dropdown (a kind with one
+ * framework just names it); the others show their default. On a phone, a
+ * compact row with a small drawing, the framework beneath.
+ */
+function KindTile({
+  kind,
+  picked,
+  loading,
+  frameworks,
+  value,
+  onFramework,
+  onPick,
+}: {
+  kind: (typeof KINDS)[number];
+  picked: boolean;
+  loading: boolean;
+  frameworks: Starter[];
+  value?: Starter;
+  onFramework: (id: string) => void;
+  onPick: () => void;
+}) {
+  // A starter linked by id but not offered (an older one) still shows as the pick.
+  const options = (value && !frameworks.includes(value) ? [...frameworks, value] : frameworks).map((s) => ({ id: s.id, preset: s.preset, name: s.presetName }));
   return (
-    <RadioItem
-      value={s.id}
-      disabled={loading}
+    <div
+      data-kind={kind.kind}
       className={cn(
-        "group relative flex overflow-hidden rounded-[12px] border bg-paper-raised text-left transition-[border-color,box-shadow,transform] duration-[var(--dur-state)] ease-[var(--ease-out)] active:scale-[0.985] sm:flex-col",
+        "group/tile flex flex-col overflow-hidden rounded-[12px] border bg-paper-raised transition-[border-color,box-shadow] duration-[var(--dur-state)] ease-[var(--ease-out)]",
         picked ? "border-brass shadow-[0_0_0_1px_var(--brass)]" : "border-rule-2 hover:border-rule-3",
       )}
     >
-      <span className="art-well block w-20 shrink-0 bg-paper-sunk sm:aspect-[16/10] sm:w-full">
-        {starterThumb[s.id] && <img src={starterThumb[s.id]} alt="" width={320} height={200} className="size-full object-contain p-1.5 transition-transform duration-[var(--dur-enter)] ease-[var(--ease-out)] group-hover:scale-[1.03]" />}
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-1 border-l border-rule px-3 pt-2.5 pb-3 sm:border-t sm:border-l-0">
-        <span className="flex items-center justify-between gap-2 text-[0.875rem] font-[550] text-ink">
-          {loading ? <span className="h-4 w-20 rounded bg-paper-sunk" /> : (starterTitle[s.id] ?? s.name)}
-          <span
-            aria-hidden
-            className={cn(
-              "grid size-4 shrink-0 place-items-center rounded-full border transition-colors",
-              picked ? "border-brass bg-brass text-on-brass" : "border-rule-3 text-transparent",
-            )}
-          >
-            <Check className="size-2.5" strokeWidth={3} />
-          </span>
+      <RadioItem value={kind.kind} className="group flex flex-1 text-left outline-hidden active:scale-[0.99] sm:flex-col">
+        <span className="art-well block w-20 shrink-0 bg-paper-sunk sm:aspect-[16/10] sm:w-full">
+          <img src={kind.thumb} alt="" width={320} height={200} className="size-full object-contain p-1.5 transition-transform duration-[var(--dur-enter)] ease-[var(--ease-out)] group-hover:scale-[1.03]" />
         </span>
-        <span className="text-[0.78125rem] leading-[1.125rem] text-ink-3">{starterLine[s.id] ?? s.description}</span>
-      </span>
-    </RadioItem>
+        <span className="flex min-w-0 flex-1 flex-col gap-1 border-l border-rule px-3 pt-2.5 pb-2.5 sm:border-t sm:border-l-0">
+          <span className="flex items-center justify-between gap-2 text-[0.875rem] font-[550] text-ink">
+            {kind.title}
+            <span
+              aria-hidden
+              className={cn(
+                "grid size-4 shrink-0 place-items-center rounded-full border transition-colors group-focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]",
+                picked ? "border-brass bg-brass text-on-brass" : "border-rule-3 text-transparent",
+              )}
+            >
+              <Check className="size-2.5" strokeWidth={3} />
+            </span>
+          </span>
+          <span className="text-[0.78125rem] leading-[1.125rem] text-ink-3">{kind.line}</span>
+        </span>
+      </RadioItem>
+      <div className="flex h-11 items-center gap-2 border-t border-rule px-3" onClick={picked ? undefined : onPick}>
+        <span className="text-xs text-ink-3">Framework</span>
+        {loading ? (
+          <span className="h-3.5 w-20 rounded bg-paper-sunk" />
+        ) : picked && options.length > 1 ? (
+          <FrameworkSelect
+            size="sm"
+            aria-label={`${kind.title} framework`}
+            value={value?.id ?? ""}
+            onChange={onFramework}
+            options={options.map((o) => ({ id: o.id, logo: o.preset, name: o.name }))}
+            className="-my-1 min-w-0 flex-1"
+          />
+        ) : value ? (
+          <FrameworkLabel id={value.preset} name={value.presetName} className={cn("text-[0.8125rem]", picked ? "text-ink-2" : "text-ink-3")} />
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -555,6 +631,9 @@ function PartChecklist({ parts, needed, neededBy, onToggle }: { parts: NewPart[]
   );
 }
 
+/** Words in ?starter= that aren't a kind or a starter. */
+const CODE_WORDS = ["github", "git", "none", "import"];
+
 function SwitchLink({ onClick, children }: { onClick: () => void; children: ReactNode }) {
   return (
     <button type="button" onClick={onClick} className="mt-3 text-sm font-[550] text-brass-ink hover:underline hover:underline-offset-4">
@@ -591,12 +670,13 @@ function GitFields({
   check,
   inspect,
 }: {
-  git: { url: string; ref: string; path: string; framework: string };
+  git: { url: string; ref: string; path: string; framework: string; preset: string };
   setGit: (g: typeof git) => void;
   check: { ok: boolean; why?: string };
   inspect: { loading: boolean; error: unknown; found?: RepoRoot; unsupported?: string };
 }) {
-  const field = "h-9 w-full rounded-[7px] border border-rule-2 bg-paper-raised px-2.5 text-[0.84375rem] text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]";
+  const field = "h-9 w-full rounded-[7px] border border-rule-2 bg-paper-raised px-2.5 text-[0.84375rem] text-ink outline-hidden placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]";
+  const uid = useId();
   return (
     <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
       <label>
@@ -616,23 +696,34 @@ function GitFields({
         <span className="mb-1 block text-xs text-ink-3">Branch, tag or commit</span>
         <input value={git.ref} onChange={(e) => setGit({ ...git, ref: e.target.value })} placeholder="default branch" spellCheck={false} className={cn(field, "ident")} />
       </label>
-      <p className="text-sm text-ink-3 sm:col-span-3">
+      <div className="sm:col-span-2 sm:max-w-[22rem]">
+        <span id={`${uid}-fw`} className="mb-1 block text-xs text-ink-3">
+          Framework{inspect.found && !inspect.loading && git.preset === presetOf(inspect.found) ? " · detected" : ""}
+        </span>
+        <FrameworkSelect
+          aria-labelledby={`${uid}-fw`}
+          value={git.preset}
+          onChange={(preset) => setGit({ ...git, preset, framework: buildFor(preset, inspect.found) })}
+          options={PRESETS}
+        />
+      </div>
+      <p className="text-sm text-ink-3 sm:col-span-2">
         {inspect.loading ? (
           "Looking inside the repository…"
         ) : inspect.unsupported ? (
           <span className="text-danger">{unsupportedWhy(inspect.unsupported)}</span>
         ) : inspect.found ? (
           <>
-            Found {buildAs(git.framework)} {inspect.found.path ? <>in <span className="ident text-[0.75rem] text-ink-2">{inspect.found.path}</span></> : "at the top"}: {inspect.found.why}.{" "}
-            {buildNote(git.framework)}
+            Found {inspect.found.path ? <>in <span className="ident text-[0.75rem] text-ink-2">{inspect.found.path}</span></> : "at the top of the repository"}: {inspect.found.why}.{" "}
+            {!isTested(git.preset) && buildNote(git.framework)}
           </>
         ) : inspect.error ? (
-          <>Tiffin couldn’t look inside it ({inspect.error instanceof Error ? inspect.error.message : "no answer"}), so it will build it as {buildAs(git.framework)}.</>
+          <>Tiffin couldn’t look inside it ({inspect.error instanceof Error ? inspect.error.message : "no answer"}), so it will build it as {presetName(git.preset)}.</>
         ) : (
-          <>Tiffin builds it as {buildAs(git.framework)}. {buildNote(git.framework) ?? "Something else? Change it under Build settings."}</>
+          <>Paste the address and Tiffin looks inside to pick the framework.</>
         )}
       </p>
-      <BuildSettings className="sm:col-span-3" framework={git.framework} onFramework={(framework) => setGit({ ...git, framework })} path={git.path} onPath={(path) => setGit({ ...git, path })} />
+      <BuildSettings className="sm:col-span-2" path={git.path} onPath={(path) => setGit({ ...git, path })} />
     </div>
   );
 }
@@ -692,7 +783,7 @@ function PlanPanel({
               ? "Pick a repository to see the plan."
               : source?.kind === "git"
                 ? (blockedWhy ?? "Paste a repository address to see the plan.")
-                : "Pick a free name to see the plan."
+                : (blockedWhy ?? "Pick a free name to see the plan.")
             : clash
               ? `There’s already a project called ${name}. Pick another name.`
               : planError
@@ -708,7 +799,7 @@ function PlanPanel({
         ) : (
           <ol className={cn("divide-y divide-rule transition-opacity duration-[var(--dur-state)]", (pending || blocked) && "opacity-50")}>
             {sortOps(plan ? ops : skeletonOps(source, parts)).map((o, i) => (
-              <OpRow key={o.address + i} op={o} project={name} />
+              <OpRow key={o.address + i} op={o} project={name} framework={frameworkOfSource(source)} />
             ))}
           </ol>
         )}
@@ -770,7 +861,14 @@ function skeletonOps(source: Source | null, parts: NewPart[]): Op[] {
   return ops;
 }
 
-function OpRow({ op, project }: { op: Op; project: string }) {
+/** The framework the app is made with, as people know it: the starter's, or the one picked for a repository. */
+function frameworkOfSource(source: Source | null): string | undefined {
+  if (source?.kind === "starter") return source.starter.presetName;
+  if (source?.kind === "git" || source?.kind === "github") return presetName(source.preset);
+  return undefined;
+}
+
+function OpRow({ op, project, framework }: { op: Op; project: string; framework?: string }) {
   const { kind, name } = splitAddress(op.address);
   const a = (op.after ?? {}) as Record<string, unknown>;
   let title: ReactNode = name || kind;
@@ -791,7 +889,12 @@ function OpRow({ op, project }: { op: Op; project: string }) {
       </>
     );
     const git = a.git as { repo?: string; branch?: string } | undefined;
-    line = a.framework === "static" ? "Static files, served instantly" : `${frameworkName(String(a.framework ?? ""))}${n > 1 ? `, ${countWords(n, "copy", "copies")}` : ""}`;
+    line =
+      a.framework === "static"
+        ? framework
+          ? `${framework}, built to static files and served instantly`
+          : "Static files, served instantly"
+        : `${framework ?? frameworkName(String(a.framework ?? ""))}${n > 1 ? `, ${countWords(n, "copy", "copies")}` : ""}`;
     if (git?.repo) line = `${line}, from ${git.repo} (deploys on every push to ${git.branch ?? "main"})`;
     amount = a.framework === "static" || !a.memoryMB ? null : <Qty value={`+${int(n * Number(a.memoryMB))}`} unit="MB" />;
   } else if (kind === "service") {
@@ -990,7 +1093,7 @@ function Live({
 }) {
   const url = deploy?.url;
   const host = url?.replace(/^https?:\/\//, "");
-  const thumb = L.source.kind === "starter" ? starterThumb[L.source.starter.id] : undefined;
+  const thumb = L.source.kind === "starter" ? thumbOf(L.source.starter) : undefined;
   const { admin } = useMe();
   const agent = (
     <NextStep
@@ -1115,7 +1218,7 @@ function Live({
 /** What "Make your first change" says: where the source comes from and which file to open. */
 function firstChange(L: Launched): string {
   if (L.source.kind === "git") return `Clone your code, add ${L.project}’s config beside it, change something, then deploy it to the same address.`;
-  const file = L.source.kind === "starter" ? starterEdit[L.source.starter.id] : undefined;
+  const file = L.source.kind === "starter" ? L.source.starter.edit : undefined;
   return `This writes ${L.app}’s source and config into a folder. Change ${file ? file : "a file"}, then deploy it to the same address.`;
 }
 

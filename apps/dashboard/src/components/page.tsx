@@ -47,7 +47,7 @@ export function Crumbs({ items }: { items: Array<{ label: ReactNode; to?: string
 function ProjectLabel({ project }: { project: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
-      <ProjectIcon project={project} size={14} />
+      <ProjectIcon project={project} size={16} />
       {project}
     </span>
   );
@@ -124,7 +124,7 @@ export function Untrusted({
   className?: string;
 }) {
   return (
-    <div className={cn("overflow-hidden rounded-[10px] border border-rule-2 bg-paper-sunk", className)}>
+    <div className={cn("overflow-hidden [:where(&)]:rounded-[10px] [:where(&)]:border border-rule-2 bg-paper-sunk", className)}>
       <p className="flex items-center gap-2 border-b border-rule px-3 py-1.5 text-xs text-ink-3">
         <span aria-hidden className="shrink-0 font-mono whitespace-nowrap text-ink-3">
           {"{ }"}
@@ -137,7 +137,7 @@ export function Untrusted({
 }
 
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn("animate-pulse rounded-[6px] bg-paper-sunk", className)} />;
+  return <div className={cn("animate-pulse [:where(&)]:rounded-[6px] bg-paper-sunk", className)} />;
 }
 
 /** For pages whose module only runs on a real box (tiffin serve --box). */

@@ -1,5 +1,6 @@
 import type { ComponentProps } from "react";
 import { cn } from "@/lib/cn";
+import { Switch, SwitchThumb } from "./ui/switch";
 
 export type BreakerState = "on" | "off" | "tripped";
 
@@ -12,7 +13,7 @@ export type BreakerState = "on" | "off" | "tripped";
  *   <Breaker label="Database" state="on" onFlip={(next) => change(project, …)} />
  *
  * `staged` is the position on its way (the change is applying): the switch
- * shows it, with a small spinner. Keyboard: Space/Enter toggles it.
+ * shows it, with a small spinner. A Radix Switch underneath: Space toggles it.
  * (The file keeps its old name so every caller changed at once.)
  */
 export function Breaker({
@@ -36,30 +37,26 @@ export function Breaker({
   size?: "sm" | "md";
   /** Print the label beside the switch. */
   printed?: "below" | "beside" | false;
-} & Omit<ComponentProps<"button">, "onClick" | "children">) {
+} & Omit<ComponentProps<typeof Switch>, "onClick" | "children" | "checked" | "onCheckedChange" | "defaultChecked">) {
   const live = state === "tripped" ? "on" : state;
   const shown = staged ?? live;
   const busy = !!staged && staged !== live;
   const words = busy ? `${label}: turning ${staged}` : `${label}: ${live}`;
   const button = (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={shown === "on"}
+    <Switch
+      checked={shown === "on"}
+      onCheckedChange={(on) => onFlip?.(on ? "on" : "off")}
+      onClick={(e) => e.stopPropagation()}
       aria-label={words}
       aria-busy={busy || undefined}
       data-size={size}
       className={cn("toggle", className)}
-      onClick={(e) => {
-        e.stopPropagation();
-        onFlip?.(shown === "on" ? "off" : "on");
-      }}
       {...rest}
     >
-      <span className="toggle-thumb" aria-hidden>
+      <SwitchThumb className="toggle-thumb" aria-hidden>
         {busy && <span className="spinner" />}
-      </span>
-    </button>
+      </SwitchThumb>
+    </Switch>
   );
   if (!printed) return button;
   return (

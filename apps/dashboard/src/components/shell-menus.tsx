@@ -19,7 +19,7 @@ export function NavSheet({ open, onOpenChange, children }: { open: boolean; onOp
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>
         <D.Overlay className="fixed inset-0 z-40 bg-[var(--scrim)] data-[state=open]:animate-fade lg:hidden" />
-        <D.Content className="fixed inset-y-0 left-0 z-50 w-[min(84vw,300px)] border-r border-rule-2 bg-paper shadow-overlay outline-none data-[state=open]:animate-[sheet-in_var(--dur-tray)_var(--ease-tray)_both] lg:hidden">
+        <D.Content className="fixed inset-y-0 left-0 z-50 w-[min(84vw,300px)] border-r border-rule-2 bg-paper shadow-overlay outline-hidden data-[state=open]:animate-[sheet-in_var(--dur-tray)_var(--ease-tray)_both] lg:hidden">
           <D.Title className="sr-only">Navigation</D.Title>
           <D.Description className="sr-only">Pages and projects</D.Description>
           {children}

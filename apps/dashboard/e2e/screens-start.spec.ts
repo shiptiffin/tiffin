@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { test, type Page } from "@playwright/test";
-import { signIn } from "./helpers";
+import { needsServices, signIn } from "./helpers";
 
 // Visual review of the moments that sell the product: starting a project,
 // the project overview, apps and deploys, and signing in. Against a seeded
@@ -8,7 +8,8 @@ import { signIn } from "./helpers";
 //   SCREENS=1 E2E_BASE_URL=http://localhost:5402 E2E_OWNER_TOKEN=... bunx playwright test screens-start
 // SHOTS=new,login limits it to some pages; THEMES=light and SIZES=1440 narrow it further.
 // It never applies anything (the first-run shot fakes an empty box in the browser only).
-test.skip(!process.env.SCREENS || !process.env.E2E_OWNER_TOKEN, "set SCREENS=1 and E2E_OWNER_TOKEN for a seeded box");
+test.skip(!process.env.SCREENS, "set SCREENS=1 for screenshots");
+needsServices("shop", ["postgres"]);
 
 const out = process.env.SHOTS_DIR ?? "screenshots/fusion";
 const only = process.env.SHOTS ? process.env.SHOTS.split(",") : undefined;
@@ -31,7 +32,7 @@ const liveDeploy = process.env.LIVE_DEPLOY ?? ""; // project/app/id
 
 type Shot = { name: string; url: string; wait: (p: Page) => Promise<unknown>; act?: (p: Page) => Promise<unknown>; full?: boolean; before?: (p: Page) => Promise<unknown> };
 const pages: Shot[] = [
-  { name: "new", url: "/new", wait: (p) => p.getByText(/will be created/).waitFor() },
+  { name: "new", url: "/new", wait: (p) => p.getByRole("heading", { name: "What you’ll get" }).waitFor() },
   {
     name: "new-first",
     url: "/new",
@@ -40,22 +41,23 @@ const pages: Shot[] = [
     // The box isn't really empty: pick a starter whose name is free.
     act: async (p) => {
       await p.getByRole("radio", { name: /^Static site/ }).click();
-      await p.getByText(/Three things will be created|Two things will be created/).waitFor();
+      await p.getByRole("button", { name: /^Create (?!project$)/ }).waitFor();
     },
   },
   {
     name: "new-git",
     url: "/new",
-    wait: (p) => p.getByText(/will be created/).waitFor(),
+    wait: (p) => p.getByRole("heading", { name: "What you’ll get" }).waitFor(),
     act: async (p) => {
-      await p.getByRole("radio", { name: /From a git URL/ }).click();
+      await p.getByRole("radio", { name: /^Your GitHub repository/ }).click();
+      await p.getByRole("button", { name: "Not on GitHub? Paste a public git URL" }).click();
       await p.getByPlaceholder("https://github.com/owner/repo").fill("https://github.com/vercel/next-learn");
-      await p.getByText(/will be created/).waitFor();
+      await p.getByRole("button", { name: /^Create (?!project$)/ }).waitFor();
     },
   },
   { name: "project", url: "/projects/shop", wait: (p) => p.getByRole("heading", { level: 1 }).waitFor() },
-  { name: "secrets", url: "/projects/shop/secrets", wait: (p) => p.getByRole("heading", { level: 1 }).waitFor() },
-  { name: "apps", url: "/projects/shop/apps", wait: (p) => p.getByRole("heading", { level: 1 }).waitFor() },
+  { name: "env", url: "/projects/shop/env", wait: (p) => p.getByRole("heading", { level: 1 }).waitFor() },
+  { name: "deployments", url: "/projects/shop/deployments", wait: (p) => p.getByRole("heading", { level: 1 }).waitFor() },
   { name: "app", url: "/projects/shop/apps/web", wait: (p) => p.getByRole("heading", { level: 1 }).waitFor() },
   {
     name: "deploy-tray",
@@ -131,7 +133,6 @@ test("start flow", async ({ page, baseURL }) => {
   await page.getByLabel("Project name").fill(name);
   await page.getByRole("radio", { name: process.env.ENAMEL ?? "Plum" }).click();
   await page.getByRole("button", { name: `Create ${name}` }).waitFor();
-  await page.getByText(/will be created/).waitFor();
   const t0 = Date.now();
   await page.getByRole("button", { name: `Create ${name}` }).click();
   await page.getByText("Build log", { exact: true }).waitFor();

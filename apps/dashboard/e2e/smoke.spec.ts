@@ -35,9 +35,10 @@ test("login → projects → history → change → undo → health → keys →
   // Every project's changes: Activity, in the sidebar.
   await page.getByRole("link", { name: "Activity" }).first().click();
   await expect(page).toHaveURL(/\/ledger$/);
-  await expect(page.getByRole("heading", { level: 1 })).toContainText(/changes (today |since [\w ]+? )?across two projects/);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(/changes (today |since [\w ]+? )?across \w+ projects/);
   await expect(page).toHaveTitle(/Activity · Tiffin$/);
-  await expect(page.getByRole("heading", { name: /Today/ })).toBeVisible();
+  // The newest day leads (the seeded history is minutes old: today, or yesterday just after midnight).
+  await expect(page.getByRole("heading", { name: /^(Today|Yesterday)/ }).first()).toBeVisible();
 
   // Filtering by risk.
   await page.getByRole("button", { name: /Can’t be undone/ }).click();
@@ -54,7 +55,7 @@ test("login → projects → history → change → undo → health → keys →
 
   // Undo: review the plan first, then confirm it.
   await page.getByRole("button", { name: "Undo this change" }).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("alertdialog");
   await expect(dialog.getByRole("heading", { name: "Review the undo" })).toBeVisible();
   await expect(dialog.getByText("Add the uploads bucket")).toBeVisible();
   await expect(dialog.getByText("The original change deleted data.")).toBeVisible();
@@ -67,7 +68,7 @@ test("login → projects → history → change → undo → health → keys →
   await page.goto("/ledger");
   await page.getByRole("link", { name: /Set up the hello project/ }).click();
   await page.getByRole("button", { name: "Undo this change" }).click();
-  await expect(page.getByRole("dialog").getByText("Something changed since, so undo would overwrite newer work")).toBeVisible();
+  await expect(page.getByRole("alertdialog").getByText("Something changed since, so undo would overwrite newer work")).toBeVisible();
   await page.getByRole("button", { name: "Close", exact: true }).first().click();
 
   // An undo that destroys data asks you to type the project name.
@@ -103,7 +104,7 @@ test("login → projects → history → change → undo → health → keys →
   const row = page.getByRole("listitem").filter({ hasText: "Smoke Agent" });
   await expect(row).toContainText("Read only");
   await row.getByRole("button", { name: "Revoke smoke-agent" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Revoke Smoke Agent" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Revoke Smoke Agent" }).click();
   await expect(page.getByRole("listitem").filter({ hasText: "Smoke Agent" })).toHaveCount(0);
 
   // Sign out; afterwards any page sends you back to /login with a kind word.
@@ -141,23 +142,27 @@ test("touch id → project → secrets → people → touch id sign-in", async (
 
   // A project's overview: what's in it, as tiles.
   await page.goto("/projects/hello");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("hello");
-  await expect(page.getByRole("list", { name: "What’s in hello" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Database" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "hello", exact: true })).toBeVisible(); // the icon's letters are hidden
+  await expect(page.getByRole("region", { name: "Production" }).getByRole("link", { name: "web", exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Services" }).getByRole("link", { name: /^Database/ })).toBeVisible();
 
-  // Secrets are write-only (Settings › Secrets).
-  await page.getByRole("link", { name: "Settings" }).first().click();
-  await page.getByRole("link", { name: /^Secrets/ }).click();
+  // Secrets are write-only (the project's Environment Variables page).
+  await page.goto("/projects/hello/env");
   await expect(page.getByText("STRIPE_SECRET_KEY")).toBeVisible();
-  await page.getByLabel("Name").fill("smoke_token");
-  await expect(page.getByLabel("Name")).toHaveValue("SMOKE_TOKEN");
-  await page.getByRole("textbox", { name: "Value" }).fill("s3cret");
-  await page.getByRole("button", { name: "Save SMOKE_TOKEN" }).click();
-  await expect(page.getByText("SMOKE_TOKEN", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Add variable" }).click();
+  const add = page.getByRole("dialog", { name: "Add a variable" });
+  await add.getByLabel("Name").fill("smoke_token");
+  await expect(add.getByLabel("Name")).toHaveValue("SMOKE_TOKEN");
+  await add.getByRole("textbox", { name: "Value" }).fill("s3cret");
+  const secret = add.getByRole("switch", { name: /^Secret/ });
+  if ((await secret.getAttribute("aria-checked")) !== "true") await secret.click();
+  await add.getByRole("button", { name: "Add SMOKE_TOKEN" }).click();
+  await expect(add).toBeHidden();
+  await expect(page.getByRole("cell", { name: "SMOKE_TOKEN", exact: true })).toBeVisible();
   await expect(page.getByText("s3cret")).toHaveCount(0);
   await page.getByRole("button", { name: "Delete SMOKE_TOKEN" }).click();
-  await page.getByRole("dialog").getByRole("button", { name: "Delete SMOKE_TOKEN" }).click();
-  await expect(page.getByText("SMOKE_TOKEN", { exact: true })).toHaveCount(0);
+  await page.getByRole("alertdialog").getByRole("button", { name: /^Delete/ }).click();
+  await expect(page.getByRole("cell", { name: "SMOKE_TOKEN", exact: true })).toHaveCount(0);
 
   // People: invite with a role, get a one-time link.
   await page.goto("/settings/people");
@@ -211,9 +216,9 @@ test("usage → copies apply at once → undo → removing a database asks first
   await expect(page.getByRole("link", { name: "Run search on 2 copies instead of 1." })).toBeVisible();
 
   // Turning the database off would delete data: the dialog says what, and Cancel leaves it on.
-  await page.goto("/projects/notes/settings");
+  await page.goto("/projects/notes/settings#services");
   await page.getByRole("switch", { name: /^Database: on/ }).click();
-  const dialog = page.getByRole("dialog");
+  const dialog = page.getByRole("alertdialog");
   await expect(dialog.getByRole("heading", { name: "Remove the database from notes?" })).toBeVisible();
   await expect(dialog.getByText("This can’t be undone.")).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Delete for good" })).toBeDisabled();

@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Check, Link2, Printer, Undo2 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useState, type ReactNode } from "react";
 import { ApiError, api, type Change, type Plan } from "@/api/client";
 import { q } from "@/api/queries";
 import { CopyValue } from "@/components/copy";
@@ -28,7 +28,16 @@ import { Page } from "@/components/page";
 import { Code, ProblemNote, sentence } from "@/components/problem";
 import { RiskDots } from "@/components/risk-dots";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { actorWords } from "@/lib/actors";
 import { asTier, intentWords, tierCopy, tierRank } from "@/lib/changes";
@@ -312,9 +321,9 @@ function UndoDialog({
   onUndone: (id: string) => void;
 }) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
       {open && <UndoBody change={change} onOpenChange={onOpenChange} onUndone={onUndone} />}
-    </Dialog>
+    </AlertDialog>
   );
 }
 
@@ -333,11 +342,12 @@ function UndoBody({ change, onOpenChange, onUndone }: { change: Change; onOpenCh
   };
 
   // Ask for the undo plan: without a confirm hash the API answers 428 with it.
+  const undone = useEffectEvent(() => done());
   useEffect(() => {
     let live = true;
     api
       .undo(change.id)
-      .then(() => live && done())
+      .then(() => live && undone())
       .catch((e) => {
         if (!live) return;
         if (e instanceof ApiError && e.status === 428 && e.problem.plan) setPhase({ k: "review", plan: e.problem.plan });
@@ -346,7 +356,6 @@ function UndoBody({ change, onOpenChange, onUndone }: { change: Change; onOpenCh
     return () => {
       live = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [change.id, attempt]);
 
   const fetchPlan = () => {
@@ -372,10 +381,10 @@ function UndoBody({ change, onOpenChange, onUndone }: { change: Change; onOpenCh
   const typedOk = !serious || typed.trim() === change.project;
 
   return (
-    <DialogContent tone={serious ? "danger" : "default"} className="max-w-2xl" onOpenAutoFocus={(e) => e.preventDefault()}>
-      <DialogHeader>
-        <DialogTitle className={cn(serious && "text-danger")}>{serious ? "This undo destroys data" : "Review the undo"}</DialogTitle>
-        <DialogDescription>
+    <AlertDialogContent tone={serious ? "danger" : "default"} className="max-w-2xl" onOpenAutoFocus={(e) => e.preventDefault()}>
+      <AlertDialogHeader>
+        <AlertDialogTitle className={cn(serious && "text-danger")}>{serious ? "This undo destroys data" : "Review the undo"}</AlertDialogTitle>
+        <AlertDialogDescription>
           {phase.k === "loading" ? (
             "Working out what undo would do. Nothing changes until you confirm."
           ) : plan ? (
@@ -386,9 +395,9 @@ function UndoBody({ change, onOpenChange, onUndone }: { change: Change; onOpenCh
           ) : (
             "Undo couldn’t be planned."
           )}
-        </DialogDescription>
-      </DialogHeader>
-      <DialogBody>
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogBody>
         {phase.k === "loading" && (
           <div className="space-y-2">
             <div className="h-12 animate-pulse rounded-[8px] bg-paper-sunk" />
@@ -435,11 +444,11 @@ function UndoBody({ change, onOpenChange, onUndone }: { change: Change; onOpenCh
             )}
           </>
         )}
-      </DialogBody>
-      <DialogFooter>
-        <Button variant="ghost" onClick={() => onOpenChange(false)}>
-          {phase.k === "error" ? "Close" : "Keep it"}
-        </Button>
+      </AlertDialogBody>
+      <AlertDialogFooter>
+        <AlertDialogCancel asChild>
+          <Button variant="ghost">{phase.k === "error" ? "Close" : "Keep it"}</Button>
+        </AlertDialogCancel>
         {phase.k === "error" && !plan && (
           <Button variant="secondary" onClick={fetchPlan}>
             Plan again
@@ -456,8 +465,8 @@ function UndoBody({ change, onOpenChange, onUndone }: { change: Change; onOpenCh
             {phase.k === "applying" ? "Undoing…" : serious ? "Destroy and undo" : "Confirm undo"}
           </Button>
         )}
-      </DialogFooter>
-    </DialogContent>
+      </AlertDialogFooter>
+    </AlertDialogContent>
   );
 }
 

@@ -1,6 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp, Download, File, FileAudio, FileImage, FileText, FileVideo, Folder, Link2, Trash2 } from "lucide-react";
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import type { StorageObject } from "@/api/modules";
 import { Checkbox } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
@@ -19,7 +19,7 @@ const ICONS: Record<Kind, typeof File> = { image: FileImage, video: FileVideo, a
 
 export function FileGlyph({ name, className }: { name: string; className?: string }) {
   const C = ICONS[kindOf(name)];
-  return <C aria-hidden className={cn("size-4 shrink-0 text-ink-3", className)} />;
+  return <C aria-hidden className={cn("[:where(&)]:size-4 shrink-0 [:where(&)]:text-ink-3", className)} />;
 }
 
 const listCols = "grid-cols-[minmax(0,1fr)_4.5rem] @lg:grid-cols-[minmax(0,1fr)_5.5rem_8rem] @2xl:grid-cols-[minmax(0,1fr)_6rem_9rem_7rem]";
@@ -33,32 +33,33 @@ const TILE = 176; // tile height, image and two lines
  * opens, Space selects, Shift with arrows extends the selection, ⌘A selects
  * all, Delete deletes, F2 renames, Alt+↑ goes up a folder.
  */
-export const Browser = forwardRef<
-  BrowserHandle,
-  {
-    label: string;
-    entries: Entry[];
-    view: View;
-    sort: Sort;
-    onSort: (s: Sort) => void;
-    selected: Set<string>;
-    onSelect: (s: Set<string>) => void;
-    active?: string;
-    onOpen: (e: Entry) => void;
-    onUp?: () => void;
-    /** Escape with nothing selected (closes the open file). */
-    onEscape?: () => void;
-    /** "/" from the list: the page's search. */
-    onFind?: () => void;
-    onDelete?: (ids: string[]) => void;
-    onRename?: (e: Entry) => void;
-    onLink: (e: Entry) => void;
-    download: (key: string) => string;
-    thumb: (o: StorageObject, w: number) => string | undefined;
-    className?: string;
-    footer?: ReactNode;
-  }
->(function Browser(props, ref) {
+export function Browser({
+  ref,
+  ...props
+}: {
+  ref?: Ref<BrowserHandle>;
+  label: string;
+  entries: Entry[];
+  view: View;
+  sort: Sort;
+  onSort: (s: Sort) => void;
+  selected: Set<string>;
+  onSelect: (s: Set<string>) => void;
+  active?: string;
+  onOpen: (e: Entry) => void;
+  onUp?: () => void;
+  /** Escape with nothing selected (closes the open file). */
+  onEscape?: () => void;
+  /** "/" from the list: the page's search. */
+  onFind?: () => void;
+  onDelete?: (ids: string[]) => void;
+  onRename?: (e: Entry) => void;
+  onLink: (e: Entry) => void;
+  download: (key: string) => string;
+  thumb: (o: StorageObject, w: number) => string | undefined;
+  className?: string;
+  footer?: ReactNode;
+}) {
   const {
     label,
     entries,
@@ -310,7 +311,7 @@ export const Browser = forwardRef<
           title={x.kind === "file" ? x.o.key : x.prefix}
           onClick={(e) => click(e, i)}
           className={cn(
-            "group relative flex h-[176px] cursor-default flex-col overflow-hidden rounded-[10px] border bg-paper-raised outline-none transition-colors",
+            "group relative flex h-[176px] cursor-default flex-col overflow-hidden rounded-[10px] border bg-paper-raised outline-hidden transition-colors",
             "focus-visible:shadow-[0_0_0_2px_var(--focus)]",
             isActive ? "border-brass shadow-[0_0_0_1px_var(--brass)]" : isOn ? "border-ink-3" : "border-rule-2 hover:border-rule-3",
           )}
@@ -351,7 +352,7 @@ export const Browser = forwardRef<
         <span
           {...common}
           title={x.kind === "file" ? x.o.key : x.prefix}
-          className="relative flex min-w-0 items-center gap-2 self-stretch rounded-[5px] outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--focus)]"
+          className="relative flex min-w-0 items-center gap-2 self-stretch rounded-[5px] outline-hidden focus-visible:shadow-[inset_0_0_0_2px_var(--focus)]"
         >
           {check}
           {x.kind === "folder" ? (
@@ -444,7 +445,7 @@ export const Browser = forwardRef<
       </div>
     </div>
   );
-});
+}
 
 function kindWord(name: string): string {
   const k = kindOf(name);

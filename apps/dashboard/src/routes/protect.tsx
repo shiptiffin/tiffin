@@ -347,7 +347,7 @@ function NumberBox({ value, onChange, label }: { value: number; onChange: (v: nu
       onChange={(e) => onChange(Number(e.target.value.replace(/\D/g, "")) || 0)}
       inputMode="numeric"
       aria-label={label}
-      className="h-8 w-[4.5rem] rounded-md border border-rule bg-paper px-2 text-right text-[0.875rem] text-ink tnum outline-none hover:border-rule-2 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]"
+      className="h-8 w-[4.5rem] rounded-md border border-rule bg-paper px-2 text-right text-[0.875rem] text-ink tnum outline-hidden hover:border-rule-2 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]"
     />
   );
 }

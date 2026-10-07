@@ -76,7 +76,7 @@ export function LinkPicker({
         <Command shouldFilter={false} label={`Rows of ${link.table}`} className="flex min-h-0 flex-col">
           <div className="mx-6 flex items-center gap-2 rounded-md border border-rule-2 bg-paper px-3 focus-within:border-brass">
             <Search className="size-4 shrink-0 text-ink-3" aria-hidden />
-            <Command.Input value={q} onValueChange={setQ} placeholder={label ? `Search ${link.table} by ${label}…` : "Search…"} className="h-9 w-full bg-transparent text-base text-ink outline-none placeholder:text-ink-4" />
+            <Command.Input value={q} onValueChange={setQ} placeholder={label ? `Search ${link.table} by ${label}…` : "Search…"} className="h-9 w-full bg-transparent text-base text-ink outline-hidden placeholder:text-ink-4" />
           </div>
           <Command.List className="mt-2 max-h-[min(22rem,50vh)] overflow-y-auto px-3 pb-3">
             <Command.Empty className="px-3 py-6 text-center text-base text-ink-3">{rows.isFetching ? "Looking…" : "No rows match."}</Command.Empty>

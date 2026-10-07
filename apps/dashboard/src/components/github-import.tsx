@@ -6,25 +6,33 @@ import { GitHubMark } from "@/components/github-mark";
 import { Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/choice";
+import { RadioGroup, RadioItem, Select } from "@/components/ui/choice";
 import { cn } from "@/lib/cn";
 import { connectGitHub, ENV_NAME, githubQuery, installGitHub, parseEnv, repoQuery, reposQuery, shortSha, type GitHubRepo, type RepoRoot } from "@/lib/github";
-import { BuildSettings, buildNote, UNKNOWN_BUILD } from "@/components/build-settings";
-import { frameworkName } from "@/lib/starters";
+import { buildNote, UNKNOWN_BUILD } from "@/components/build-settings";
+import { ImportBuild, overridesProblem } from "@/components/import-build";
+import type { BuildOverrides } from "@/lib/build-config";
+import { FrameworkSelect } from "@/components/framework-select";
+import { buildFor, isTested, presetOf, PRESETS } from "@/lib/frameworks";
 import { relative } from "@/lib/time";
 
-/** What the person picked: a repository, its branch and folder, how to build it, its env. */
+/** What the person picked: a repository, its branch and folder, its framework and how that builds, its env. */
 export type GitHubPick = {
   repo: string;
   branch: string;
   path: string;
+  /** The framework as people know it (lib/frameworks), detected and overridable. */
+  preset: string;
+  /** How the box builds it: the detected build for the detected preset, else the preset's own. */
   framework: string;
   env: Array<{ k: string; v: string }>;
   /** A framework found in the picked folder that the box can't run yet (SvelteKit…); cleared by choosing how it's built. */
   unsupported?: string;
+  /** Build settings detection got wrong, overridden (builder, commands): spread into the app with pickBuild. */
+  build?: BuildOverrides;
 };
 
-export const emptyPick: GitHubPick = { repo: "", branch: "", path: "", framework: "next", env: [] };
+export const emptyPick: GitHubPick = { repo: "", branch: "", path: "", preset: "nextjs", framework: "next", env: [] };
 
 /** Why a framework the box can't run yet stops the import. */
 export const unsupportedWhy = (name: string) => `${name} isn’t supported yet; it’s coming soon. Tiffin runs Next.js apps best today.`;
@@ -34,13 +42,15 @@ export function checkPick(p: GitHubPick): { ok: true } | { ok: false; why: strin
   if (!p.repo) return { ok: false, why: "Pick a repository." };
   if (!p.branch) return { ok: false, why: "Pick a branch." };
   if (p.unsupported) return { ok: false, why: unsupportedWhy(p.unsupported) };
+  const ob = overridesProblem(p.build);
+  if (ob) return { ok: false, why: ob };
   const bad = p.env.find((e) => (e.k || e.v) && !ENV_NAME.test(e.k));
   if (bad) return { ok: false, why: `${bad.k || "A variable"} isn’t a valid name: capital letters, digits and _, not starting with a digit.` };
   return { ok: true };
 }
 
 const field =
-  "h-9 w-full rounded-[7px] border border-rule-2 bg-paper-raised px-2.5 text-[0.84375rem] text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]";
+  "h-9 w-full rounded-[7px] border border-rule-2 bg-paper-raised px-2.5 text-[0.84375rem] text-ink outline-hidden placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]";
 
 /**
  * Import from GitHub, inside New project: connect (if needed), pick a
@@ -105,7 +115,7 @@ function RepoPicker({ onPick, admin }: { onPick: (r: GitHubRepo) => void; admin:
   const [all, setAll] = useState(false);
   const install = useMutation({ mutationFn: installGitHub });
   const refresh = useMutation({
-    mutationFn: () => qc.fetchQuery({ ...reposQuery(true), staleTime: 0 }),
+    mutationFn: () => qc.query({ ...reposQuery(true), staleTime: 0 }),
   });
   const list = useMemo(() => repos.data?.repos ?? [], [repos.data]);
   const shown = useMemo(() => {
@@ -202,12 +212,21 @@ function RepoSetup({ value, onChange }: { value: GitHubPick; onChange: (p: GitHu
     if (!d || seeded.current === value.repo) return;
     seeded.current = value.repo;
     const root = (d.roots ?? []).find((r) => r.path === d.suggested) ?? d.roots?.[0];
-    onChange({ ...value, branch: value.branch || d.defaultBranch, path: root?.path ?? "", framework: root?.framework ?? value.framework, unsupported: root?.unsupported });
+    onChange({
+      ...value,
+      branch: value.branch || d.defaultBranch,
+      path: root?.path ?? "",
+      preset: root ? presetOf(root) : value.preset,
+      framework: root?.framework ?? value.framework,
+      unsupported: root?.unsupported,
+    });
   }, [d, value, onChange]);
 
   const set = (patch: Partial<GitHubPick>) => onChange({ ...value, ...patch });
-  const pickRoot = (r: RepoRoot) => set({ path: r.path, framework: r.framework, unsupported: r.unsupported });
+  const pickRoot = (r: RepoRoot) => set({ path: r.path, preset: presetOf(r), framework: r.framework, unsupported: r.unsupported });
   const appRoots = roots.filter((r) => !r.workspace);
+  // What the box found in the picked folder: its preset shows as detected, and keeps the detected build.
+  const found = roots.find((r) => r.path === value.path);
 
   return (
     <div className="mt-4">
@@ -235,57 +254,75 @@ function RepoSetup({ value, onChange }: { value: GitHubPick; onChange: (p: GitHu
       {det.isError && <ProblemNote className="mt-3" error={det.error} />}
       {d && (d.connected ?? []).length > 0 && <p className="mt-2 text-sm text-warn-ink">It already deploys to {d.connected!.join(", ")}. Importing again makes a second copy.</p>}
 
-      <div className="mt-4 max-w-[22rem]">
-        <span id={`${uid}-branch`} className="mb-1 block text-xs text-ink-3">
-          Production branch · every push to it goes live
-        </span>
-        <Select
-          aria-labelledby={`${uid}-branch`}
-          value={value.branch}
-          onValueChange={(v) => set({ branch: v })}
-          disabled={!d}
-          placeholder="Pick a branch"
-          className="font-mono"
-          options={(d?.branches?.length ? d.branches : [value.branch]).filter(Boolean).map((b) => ({ value: b, label: `${b}${b === d?.defaultBranch ? " (default)" : ""}` }))}
-        />
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="min-w-0">
+          <span id={`${uid}-fw`} className="mb-1 block text-xs text-ink-3">
+            Framework{found && value.preset === presetOf(found) && !found.unsupported ? " · detected" : ""}
+          </span>
+          <FrameworkSelect
+            aria-labelledby={`${uid}-fw`}
+            value={value.preset}
+            onChange={(preset) => set({ preset, framework: buildFor(preset, found), unsupported: undefined })}
+            options={PRESETS}
+          />
+        </div>
+        <div className="min-w-0">
+          <span id={`${uid}-branch`} className="mb-1 block text-xs text-ink-3">
+            Production branch · every push to it goes live
+          </span>
+          <Select
+            aria-labelledby={`${uid}-branch`}
+            value={value.branch}
+            onValueChange={(v) => set({ branch: v })}
+            disabled={!d}
+            placeholder="Pick a branch"
+            className="font-mono"
+            options={(d?.branches?.length ? d.branches : [value.branch]).filter(Boolean).map((b) => ({ value: b, label: `${b}${b === d?.defaultBranch ? " (default)" : ""}` }))}
+          />
+        </div>
       </div>
 
       {appRoots.length > 1 && (
         <fieldset className="mt-4">
           <legend className="mb-1 text-xs text-ink-3">Which app? This repository has several.</legend>
-          <div className="divide-y divide-rule border-y border-rule" role="radiogroup">
-            {appRoots.map((r) => {
-              const on = r.path === value.path;
-              return (
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  key={r.path || "."}
-                  onClick={() => pickRoot(r)}
-                  className="grid w-full grid-cols-[minmax(0,1fr)_16px] items-center gap-x-3 py-2 text-left hover:bg-[color-mix(in_oklch,var(--ink)_2.5%,transparent)]"
+          <RadioGroup
+            aria-label="Which app"
+            value={value.path || "."}
+            onValueChange={(v) => {
+              const r = appRoots.find((x) => (x.path || ".") === v);
+              if (r) pickRoot(r);
+            }}
+            className="divide-y divide-rule border-y border-rule"
+          >
+            {appRoots.map((r) => (
+              <RadioItem
+                key={r.path || "."}
+                value={r.path || "."}
+                className="group grid w-full grid-cols-[minmax(0,1fr)_16px] items-center gap-x-3 py-2 text-left hover:bg-[color-mix(in_oklch,var(--ink)_2.5%,transparent)]"
+              >
+                <span className="min-w-0">
+                  <span className="ident block truncate text-[0.8125rem] text-ink">{r.path || "the top of the repository"}</span>
+                  <span className="block truncate text-xs text-ink-3">
+                    {r.name && r.name !== r.path.split("/").pop() ? `${r.name} · ` : ""}
+                    {r.why}
+                  </span>
+                </span>
+                <span
+                  aria-hidden
+                  className="grid size-4 place-items-center rounded-full border border-rule-3 text-transparent group-data-[state=checked]:border-brass group-data-[state=checked]:bg-brass group-data-[state=checked]:text-on-brass"
                 >
-                  <span className="min-w-0">
-                    <span className="ident block truncate text-[0.8125rem] text-ink">{r.path || "the top of the repository"}</span>
-                    <span className="block truncate text-xs text-ink-3">
-                      {r.name && r.name !== r.path.split("/").pop() ? `${r.name} · ` : ""}
-                      {r.why}
-                    </span>
-                  </span>
-                  <span aria-hidden className={cn("grid size-4 place-items-center rounded-full border", on ? "border-brass bg-brass text-on-brass" : "border-rule-3 text-transparent")}>
-                    <Check className="size-2.5" strokeWidth={3} />
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                  <Check className="size-2.5" strokeWidth={3} />
+                </span>
+              </RadioItem>
+            ))}
+          </RadioGroup>
         </fieldset>
       )}
-      {appRoots.length <= 1 && d && (
+      {appRoots.length <= 1 && d && !value.unsupported && (
         <p className="mt-3 text-sm text-ink-3">
           {appRoots[0] ? (
             <>
-              Found {frameworkName(appRoots[0].framework)} {appRoots[0].path ? <>in <span className="ident text-[0.75rem] text-ink-2">{appRoots[0].path}</span></> : "at the top"}: {appRoots[0].why}.
+              Found {appRoots[0].path ? <>in <span className="ident text-[0.75rem] text-ink-2">{appRoots[0].path}</span></> : "at the top of the repository"}: {appRoots[0].why}.
             </>
           ) : (
             UNKNOWN_BUILD
@@ -295,9 +332,9 @@ function RepoSetup({ value, onChange }: { value: GitHubPick; onChange: (p: GitHu
       {value.unsupported ? (
         <p className="mt-2 text-sm text-danger">{unsupportedWhy(value.unsupported)}</p>
       ) : (
-        appRoots.length > 0 && buildNote(value.framework) && <p className="mt-2 text-sm text-ink-3">{buildNote(value.framework)}</p>
+        appRoots.length > 0 && !isTested(value.preset) && buildNote(value.framework) && <p className="mt-2 text-sm text-ink-3">{buildNote(value.framework)}</p>
       )}
-      <BuildSettings className="mt-3" framework={value.framework} onFramework={(framework) => set({ framework, unsupported: undefined })} path={value.path} onPath={(path) => set({ path })} />
+      <ImportBuild className="mt-4" detail={d} path={value.path} onPath={(path) => set({ path })} framework={value.framework} value={value.build} onChange={(build) => set({ build })} />
 
       <EnvRows env={value.env} onChange={(env) => set({ env })} />
 

@@ -1,9 +1,11 @@
-// Queues: each queue with its depth, throughput, failures, last run and its
-// limit on jobs at once; a switch pauses it. Topics below, with their
-// subscribers added and removed in place.
+// Queues: each queue with its depth, its last hour (5-minute bars, failures
+// in red), how often it fails, its limits (at once, per key, rate) and a
+// switch that pauses it. Topics below, with their subscribers added and
+// removed in place.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { MoreHorizontal, X } from "lucide-react";
+import { Tooltip } from "radix-ui";
 import { useState } from "react";
 import { ApiError, notOnBox } from "@/api/client";
 import { jobsApi, jq } from "@/api/jobs";
@@ -11,9 +13,7 @@ import { mod2, type QueueStats, type QueueTopic } from "@/api/modules";
 import { q as api } from "@/api/queries";
 import { Breaker } from "@/components/breaker";
 import { useTitle } from "@/components/favicon";
-import { EmptyJobs } from "@/components/jobs-words";
 import { NotOnBox, Skeleton } from "@/components/page";
-import { ProblemNote } from "@/components/problem";
 import { Throttle } from "@/components/throttle";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,8 @@ import { int, ms, pct } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { change, editKey, usePending } from "@/lib/staged";
 import { relative } from "@/lib/time";
+import { JobsStart, JobsTrouble, likelyApp } from "@/components/jobs-start";
+import { ownQueues, series, took, retryUnlessDown } from "./model";
 import { JobsArea, Label, TargetWords, type JobsSearch } from "./shared";
 
 /** Concurrency detents. 0 means no limit; the throttle shows it as the last stop. */
@@ -33,19 +35,64 @@ const toStop = (c: number) => (c <= 0 ? NO_LIMIT : c);
 const fromStop = (s: number) => (s >= NO_LIMIT ? 0 : s);
 const letRun = (c: number) => (c <= 0 ? "any number of jobs" : `${int(c)} ${c === 1 ? "job" : "jobs"}`);
 
-const cols = "md:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5.5rem_6rem_9.5rem_7.5rem]";
+const cols = "md:grid-cols-[minmax(0,1fr)_5.5rem_4rem_9rem_5rem_9.5rem_6.5rem]";
+
+/** "1 at a time per key · 10 a minute per key": the limits beyond jobs at once, in words. */
+function limitWords(x: QueueStats): string {
+  const out: string[] = [];
+  if (x.keyConcurrency > 0) out.push(`${x.keyConcurrency === 1 ? "one at a time" : `${int(x.keyConcurrency)} at once`} per key`);
+  if (x.rateLimit > 0) {
+    const per = x.ratePeriodSeconds === 60 ? "a minute" : x.ratePeriodSeconds === 3600 ? "an hour" : x.ratePeriodSeconds === 1 ? "a second" : `per ${ms(x.ratePeriodSeconds * 1000)}`;
+    out.push(`${int(x.rateLimit)} ${per} per key`);
+  }
+  return out.join(" · ");
+}
+
+/** The last hour as twelve 5-minute bars: done in ink, failed tries stacked in red. */
+function HourBars({ x }: { x: QueueStats }) {
+  const s = series(x);
+  if (!s) return null;
+  const top = Math.max(1, ...s.done.map((d, i) => d + (s.failed[i] ?? 0)));
+  const failed = s.failed.reduce((n, v) => n + v, 0);
+  const busiest = Math.max(...s.done);
+  const label = `Last hour: ${int(x.completedLastHour)} done${failed ? `, ${int(failed)} failed tries` : ""}`;
+  return (
+    <Tooltip.Provider delayDuration={200}>
+      <Tooltip.Root>
+        <Tooltip.Trigger asChild>
+          <span role="img" tabIndex={0} aria-label={label} className="flex h-5 w-[4.5rem] shrink-0 items-end gap-px rounded-[2px] outline-hidden focus-visible:shadow-[0_0_0_2px_var(--brass-wash)]">
+            {s.done.map((d, i) => {
+              const f = s.failed[i] ?? 0;
+              return (
+                <span key={i} className="flex h-full flex-1 flex-col justify-end">
+                  {f > 0 && <span className="block w-full rounded-t-[1px] bg-danger" style={{ height: `${(f / top) * 100}%` }} />}
+                  <span className={cn("block w-full", f > 0 ? "" : "rounded-t-[1px]", d + f === 0 ? "h-px bg-rule-2" : "bg-ink-3")} style={d ? { height: `${(d / top) * 100}%` } : undefined} />
+                </span>
+              );
+            })}
+          </span>
+        </Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content side="top" sideOffset={6} collisionPadding={12} className="z-50 rounded-[8px] border border-rule-2 bg-paper-raised px-2.5 py-1.5 text-xs text-ink-2 shadow-overlay data-[state=delayed-open]:animate-pop">
+            {label}. Busiest 5 minutes: {int(busiest)} done. Oldest window on the left.
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
+  );
+}
 
 export function QueuesTab({ project, search }: { project: string; search: JobsSearch }) {
   useTitle(`${project} · Queues`);
   const navigate = useNavigate();
   const { can } = useMe();
-  const stats = useQuery(jq.stats(project));
-  const topics = useQuery(jq.topics(project));
+  const stats = useQuery({ ...jq.stats(project), retry: retryUnlessDown });
+  const topics = useQuery({ ...jq.topics(project), retry: retryUnlessDown });
   const manifest = useQuery({ ...api.manifest(project), retry: false });
   const edits = usePending(project);
   if (stats.isError && notOnBox(stats.error)) return <NotOnBox what="Jobs" />;
   const all = stats.data ?? [];
-  const visible = all.filter((x) => !x.name.startsWith("_") && !x.topic);
+  const visible = ownQueues(all);
   const system = all.filter((x) => x.name.startsWith("_"));
   const declared = manifest.data?.manifest.queues ?? {};
   const open = (d: "queue" | "send", name?: string) => void navigate({ to: ".", search: (s: JobsSearch) => ({ ...s, do: d, name }) } as never);
@@ -95,7 +142,7 @@ export function QueuesTab({ project, search }: { project: string; search: JobsSe
         ) : undefined
       }
     >
-      {stats.isError && <ProblemNote className="mt-6" error={stats.error} />}
+      {stats.isError && <JobsTrouble className="mt-8" error={stats.error} retry={() => void stats.refetch()} />}
       <section className="mt-8" aria-labelledby="queues-h">
         <h2 id="queues-h" className="label mb-2.5 md:sr-only">
           Queues
@@ -104,12 +151,12 @@ export function QueuesTab({ project, search }: { project: string; search: JobsSe
           <span>Queue</span>
           <span className="text-right">Waiting</span>
           <span className="text-right">Running</span>
-          <span className="text-right">Done, hour</span>
+          <span className="text-right">Last hour</span>
           <span className="text-right">Failing</span>
           <span className="pl-1">At once</span>
           <span className="pr-9 text-right">On</span>
         </div>
-        <ul className="divide-y divide-rule border-y border-rule-2">
+        <ul className={cn("divide-y divide-rule", visible.length > 0 || stats.isPending ? "border-y border-rule-2" : "")}>
           {stats.isPending && (
             <li className="py-3">
               <Skeleton className="h-24" />
@@ -129,15 +176,21 @@ export function QueuesTab({ project, search }: { project: string; search: JobsSe
               onSend={() => open("send", x.name)}
             />
           ))}
-          {stats.isSuccess && visible.length === 0 && (
-            <li>
-              <EmptyJobs title="No queues yet.">
-                A queue delivers jobs one by one to an app route or a web address, with retries. Make one with New queue, or send from an app:{" "}
-                <code className="ident text-ink">queue.send("emails", …)</code>.
-              </EmptyJobs>
-            </li>
-          )}
         </ul>
+        {stats.isSuccess && visible.length === 0 && (
+          <JobsStart
+            className="mt-8"
+            title="No queues yet."
+            app={likelyApp(manifest.data?.manifest.apps)}
+            actions={
+              can("apply:reversible") ? (
+                <Button size="md" onClick={() => open("queue")}>
+                  New queue
+                </Button>
+              ) : undefined
+            }
+          />
+        )}
         {system.length > 0 && <SystemLine project={project} system={system} />}
       </section>
       <Topics project={project} list={topics.data} stats={visible} declared={manifest.data?.manifest.topics ?? {}} />
@@ -234,11 +287,12 @@ function QueueRow({
       </Menu>
     </span>
   ) : null;
+  const limits = limitWords(x);
   const where = (
     <span className="truncate">
       <TargetWords app={x.app} path={x.path} url={x.url} />
       {x.lastRunAt && <span> · last ran {relative(x.lastRunAt)}</span>}
-      {x.p95Ms > 0 && <span> · p95 {ms(x.p95Ms)}</span>}
+      {x.p95Ms > 0 && <span title={`Median ${ms(x.p50Ms)}`}> · p95 {ms(x.p95Ms)}</span>}
     </span>
   );
   return (
@@ -250,13 +304,17 @@ function QueueRow({
             {x.paused && <span className="text-[0.8125rem] font-[550] text-warn-ink">Paused</span>}
           </Link>
           <p className="mt-0.5 flex text-xs text-ink-3">{where}</p>
+          {limits && <p className="mt-0.5 truncate text-xs text-ink-3">Limits: {limits}</p>}
         </div>
         <span className="text-right">
           <Count n={waiting} tone={x.oldestQueuedSeconds > 300 ? "warn" : undefined} />
-          {x.oldestQueuedSeconds > 300 && <span className="block text-xs text-warn-ink">oldest {ms(x.oldestQueuedSeconds * 1000)}</span>}
+          {x.oldestQueuedSeconds > 300 && <span className="block text-xs whitespace-nowrap text-warn-ink">oldest {took(x.oldestQueuedSeconds * 1000)}</span>}
         </span>
         <Count n={x.running} />
-        <Count n={x.completedLastHour} />
+        <span className="flex items-center justify-end gap-2.5">
+          <HourBars x={x} />
+          <Count n={x.completedLastHour} className="min-w-8" />
+        </span>
         <span className="text-right">
           {failing ? <span className={cn("text-[0.875rem] tnum", x.failureRate >= 0.2 ? "text-danger" : "text-ink-2")}>{pct(x.failureRate)}</span> : <span className="text-[0.875rem] text-ink-4">–</span>}
           {x.dead > 0 && <span className="block text-xs text-danger">{int(x.dead)} gave up</span>}
@@ -274,8 +332,12 @@ function QueueRow({
               {x.paused && <span className="text-[0.8125rem] font-[550] text-warn-ink">Paused</span>}
             </span>
             <span className="mt-0.5 flex text-xs text-ink-3">{where}</span>
+            {limits && <span className="mt-0.5 block truncate text-xs text-ink-3">Limits: {limits}</span>}
           </Link>
           {actions}
+        </div>
+        <div className="mt-2 flex items-center gap-3">
+          <HourBars x={x} />
         </div>
         <p className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[0.8125rem] text-ink-2 tnum">
           <span className={x.completedLastHour ? "" : "text-ink-3"}>{x.completedLastHour ? `${int(x.completedLastHour)} done this hour` : "Quiet this hour"}</span>
@@ -421,7 +483,7 @@ function Topics({ project, list, stats, declared }: { project: string; list?: Qu
             placeholder="order.created"
             aria-label="New topic name"
             spellCheck={false}
-            className="h-8 w-44 rounded-[7px] border border-rule-2 bg-paper px-2.5 font-mono text-[0.78rem] text-ink outline-none focus-visible:border-brass"
+            className="h-8 w-44 rounded-[7px] border border-rule-2 bg-paper px-2.5 font-mono text-[0.78rem] text-ink outline-hidden focus-visible:border-brass"
           />
           <Select
             size="sm"

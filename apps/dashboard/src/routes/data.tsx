@@ -1,15 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Check, ChevronDown, ChevronRight, GitBranch, Lock, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { Check, ChevronDown, ChevronRight, GitBranch, Lock, Plus, Search, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
 import { q as core } from "@/api/queries";
-import { mod, mq, type PgBranchCreated, type PgSnapshot, type PgTable } from "@/api/modules";
+import { mod, mq, type PgBranchCreated, type PgTable } from "@/api/modules";
 import { Confirm } from "@/components/confirm";
 import { Rows, Section } from "@/components/data-parts";
 import { Select } from "@/components/ui/choice";
 import { useTitle } from "@/components/favicon";
-import { HazardDialog } from "@/components/hazard";
 import { Crumbs, Empty, Page, PageHeader, Skeleton, NotOnBox } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
@@ -18,11 +17,13 @@ import { Input } from "@/components/ui/input";
 import { ConnectButton } from "@/components/connect";
 import { useCommand, useKeyHelp } from "@/lib/shortcuts";
 import { cn } from "@/lib/cn";
-import { bytes, count, int, ms, NNBSP, num, words } from "@/lib/format";
+import { bytes, count, int, ms, NNBSP, num } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { PARTS } from "@/lib/names";
-import { clock, dayKey, full, relative } from "@/lib/time";
+import { relative } from "@/lib/time";
 import { parseSlug, slugOf } from "./data/api";
+import { DataOverview } from "./data/overview";
+import { RestorePoints } from "./data/restore-points";
 import { SchemaMap } from "./data/schema-view";
 import { SqlPanel } from "./data/sql-page";
 import { TableForm } from "./data/table-form";
@@ -38,11 +39,16 @@ function useServices(project: string) {
   return { postgres: has("service/postgres"), valkey: has("service/valkey"), loaded: p.isSuccess };
 }
 
-/** The Database tabs; each keeps the copy you're looking at. */
+/** The Database tabs; each keeps the copy you're looking at. Tables opens your first table. */
 function DataTabs({ project, branch }: { project: string; branch: string }) {
   const search = (branch ? { branch } : {}) as never;
-  const items: Array<{ to: string; label: string; exact?: boolean; also?: string }> = [
-    { to: "/projects/$project/data", label: "Tables", exact: true, also: "/projects/$project/data/tables/$table" },
+  const tables = useQuery(mq.tables(project, branch || undefined));
+  const list = tables.data ?? [];
+  const first = list.find((t) => !t.managed) ?? list[0];
+  const items: Array<{ to: string; label: string; exact?: boolean; also?: string; params?: Record<string, string> }> = [
+    { to: "/projects/$project/data", label: "Overview", exact: true },
+    // With no table to open, the Overview says how to make one.
+    ...(first ? [{ to: "/projects/$project/data/tables/$table", label: "Tables", also: "/tables/", params: { table: slugOf(first) } }] : []),
     { to: "/projects/$project/data/sql", label: "SQL" },
     { to: "/projects/$project/data/schema", label: "Schema" },
     { to: "/projects/$project/data/branches", label: "Copies" },
@@ -51,7 +57,7 @@ function DataTabs({ project, branch }: { project: string; branch: string }) {
   return (
     <nav className="mt-7 -mb-px flex gap-1 overflow-x-auto border-b border-rule [scrollbar-width:none]" aria-label="Database">
       {items.map((t) => (
-        <TabLink key={t.to} to={t.to} also={t.also} exact={t.exact} project={project} search={search}>
+        <TabLink key={t.label} to={t.to} also={t.also} exact={t.exact} project={project} params={t.params} search={search}>
           {t.label}
         </TabLink>
       ))}
@@ -59,15 +65,38 @@ function DataTabs({ project, branch }: { project: string; branch: string }) {
   );
 }
 
-function TabLink({ to, also, exact, project, search, children }: { to: string; also?: string; exact?: boolean; project: string; search: never; children: ReactNode }) {
+function TabLink({
+  to,
+  also,
+  exact,
+  project,
+  params,
+  search,
+  children,
+}: {
+  to: string;
+  also?: string;
+  exact?: boolean;
+  project: string;
+  params?: Record<string, string>;
+  search: never;
+  children: ReactNode;
+}) {
   const cls =
     "relative flex h-10 shrink-0 items-center gap-2 px-3 text-[0.875rem] text-ink-3 transition-colors first:pl-0 first:after:left-0 hover:text-ink data-[status=active]:font-[550] data-[status=active]:text-ink after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full after:bg-transparent data-[status=active]:after:bg-ink";
   const path = useRouterState({ select: (s) => s.location.pathname });
-  const onAlso = !!also && path.startsWith(`/projects/${project}/data/tables/`);
+  const onAlso = !!also && path.startsWith(`/projects/${project}/data${also}`);
+  const ref = useRef<HTMLAnchorElement>(null);
+  // On a phone the tabs scroll sideways: keep the open one in view.
+  useEffect(() => {
+    const el = ref.current;
+    if (el?.getAttribute("data-status") === "active") el.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [path]);
   return (
     <Link
+      ref={ref}
       to={to as "/"}
-      params={{ project } as never}
+      params={{ project, ...params } as never}
       search={search}
       activeOptions={{ exact: !!exact, includeSearch: false }}
       data-status={onAlso ? "active" : undefined}
@@ -192,7 +221,7 @@ function DataShell({ project, children, wide }: { project: string; children: Rea
           info.data ? (
             <span className="tnum">
               {bytes(info.data.sizeBytes)} · {count(own, "table")}
-              <span className="text-ink-3"> · {PARTS.postgres.sub}</span>
+              <span className="text-ink-3"> · Postgres {info.data.version.match(/^\d+(\.\d+)?/)?.[0] ?? info.data.version}</span>
             </span>
           ) : undefined
         }
@@ -249,12 +278,12 @@ const SCHEMA_KEYS: Array<[string, string]> = [
 
 // ------------------------------------------------------------------ tables
 
-/** The Tables tab: your tables on the left, the open one on the right. */
+/** The Overview tab: how to connect, what's in it, what to do next. */
 export function DataPage({ project }: { project: string }) {
   useTitle(`${project} · Database`);
   return (
     <DataShell project={project}>
-      <TablesLayout project={project} />
+      <DataOverview project={project} />
     </DataShell>
   );
 }
@@ -353,7 +382,7 @@ function TableNav({ project, list, loaded, current, branch }: { project: string;
         {list.length > 10 && (
           <div className="mb-2 flex h-8 items-center gap-2 rounded-md border border-rule bg-paper px-2.5 focus-within:border-brass">
             <Search className="size-3.5 shrink-0 text-ink-3" aria-hidden />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a table" aria-label="Find a table" className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-4" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a table" aria-label="Find a table" className="w-full bg-transparent text-sm text-ink outline-hidden placeholder:text-ink-4" />
           </div>
         )}
         <h2 className="label mb-1 px-2.5">Your tables</h2>
@@ -556,79 +585,7 @@ export function RestorePage({ project }: { project: string }) {
   const snaps = useQuery(mq.snapshots(project));
   return (
     <DataShell project={project} wide>
-      <Snapshots project={project} list={snaps.data ?? []} loaded={snaps.isSuccess} />
+      {snaps.isError ? <ProblemNote error={snaps.error} /> : <RestorePoints project={project} list={snaps.data ?? []} loaded={snaps.isSuccess} />}
     </DataShell>
-  );
-}
-
-function Snapshots({ project, list, loaded }: { project: string; list: PgSnapshot[]; loaded: boolean }) {
-  const qc = useQueryClient();
-  const { can } = useMe();
-  const [restoring, setRestoring] = useState<PgSnapshot | null>(null);
-  const [done, setDone] = useState<string | null>(null);
-  const [all, setAll] = useState(false);
-  const shown = all ? list : list.slice(0, 12);
-  const today = dayKey(new Date().toISOString());
-  return (
-    <Section id="snaps" label="Restore points" aside="taken before anything risky, kept for 7 days">
-      {done && <p className="mb-3 text-base text-ink">{done}</p>}
-      {loaded && list.length === 0 ? (
-        <p className="border-y border-rule py-4 text-base text-ink-3">None yet. One is taken before SQL that changes data, before deleting many rows or a table, and before a restore.</p>
-      ) : (
-        <Rows>
-          {shown.map((s) => (
-            <li key={s.id} className="group grid grid-cols-[3.25rem_minmax(0,1fr)_auto_auto] items-center gap-x-3 py-1.5 sm:grid-cols-[3.25rem_minmax(0,1fr)_6rem_7rem] sm:gap-x-4">
-              <time dateTime={s.at} title={full(s.at)} className="text-sm text-ink-3 tnum">
-                {dayKey(s.at) === today ? clock(s.at) : new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" }).format(new Date(s.at))}
-              </time>
-              <span className="min-w-0 truncate text-base text-ink">
-                {s.reason.charAt(0).toUpperCase() + s.reason.slice(1).replace("an SQL write", "SQL that changed data")}
-                {s.branch && <span className="text-ink-3"> on {s.branch}</span>}
-              </span>
-              <span className="text-right text-sm text-ink-3 tnum">{bytes(s.sizeBytes)}</span>
-              {can("apply:irreversible") && (
-                <span className="flex justify-end">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setRestoring(s)}
-                    aria-label={`Restore the database to ${full(s.at)}`}
-                    className="max-sm:w-7 max-sm:px-0 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
-                  >
-                    <RotateCcw />
-                    <span className="max-sm:sr-only">Restore</span>
-                  </Button>
-                </span>
-              )}
-            </li>
-          ))}
-        </Rows>
-      )}
-      {list.length > shown.length && (
-        <button type="button" onClick={() => setAll(true)} className="mt-2 text-sm text-ink-3 hover:text-ink">
-          Show {words(list.length - shown.length)} more
-        </button>
-      )}
-      <HazardDialog<{ overwrites: string; takenAt: string; database: string }, { restored: string; before?: string }>
-        open={!!restoring}
-        onOpenChange={(o) => !o && setRestoring(null)}
-        title="Go back to this restore point?"
-        word={project}
-        action="Replace the database"
-        run={(confirm) => mod.restoreSnapshot(project, restoring!.id, confirm)}
-        renderPreview={(p) => (
-          <div className="rounded-lg border border-danger-rule bg-danger-wash px-4 py-3 text-base text-ink">
-            <p>Everything in the database is replaced by how it was {relative(p.takenAt)}.</p>
-            <p className="mt-2 text-sm text-ink-2">A restore point of what's there now is taken first, so you can come back.</p>
-          </div>
-        )}
-        onDone={() => {
-          setDone("Restored. What was there before is the newest restore point.");
-          qc.invalidateQueries({ queryKey: ["snapshots", project] });
-          qc.invalidateQueries({ queryKey: ["tables", project] });
-          qc.invalidateQueries({ queryKey: ["pg-rows", project] });
-        }}
-      />
-    </Section>
   );
 }

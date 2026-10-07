@@ -8,7 +8,9 @@ import { Shell } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import type { ActivitySearch } from "@/routes/activity";
 import type { GitSearch } from "@/routes/git-settings";
+import type { NewSearch } from "@/routes/new";
 import { jobsSearch, type JobsSearch } from "@/lib/jobs-search";
+import { observeTab, type ObserveSearch } from "@/components/observe-search";
 import { analyticsSearch, type AnalyticsSearch } from "@/routes/analytics-search";
 import { HomePage } from "@/routes/home";
 import { Page } from "@/components/page";
@@ -49,7 +51,7 @@ const ProjectHistoryPage = lz<{ project: string }>(() => import("@/routes/projec
 const ProjectSettingsPage = lz<{ project: string }>(() => import("@/routes/project-settings"), "ProjectSettingsPage");
 const ActivityPage = lz<{ search: ActivitySearch }>(() => import("@/routes/activity"), "ActivityPage");
 const SettingsPage = lz(() => import("@/routes/box-settings"), "SettingsPage");
-const NewProjectPage = lz(() => import("@/routes/new"), "NewProjectPage");
+const NewProjectPage = lz<{ search: NewSearch }>(() => import("@/routes/new"), "NewProjectPage");
 const GitSettingsPage = lz<{ search: GitSearch }>(() => import("@/routes/git-settings"), "GitSettingsPage");
 const KitPage = lz(() => import("@/routes/kit"), "KitPage");
 const ChangePage = lz<{ id: string }>(() => import("@/routes/change"), "ChangePage");
@@ -58,7 +60,7 @@ const KeysPage = lz<{ create?: boolean }>(() => import("@/routes/keys"), "KeysPa
 const ProjectPage = lz<{ project: string }>(() => import("@/routes/project"), "ProjectPage");
 const DeploymentsPage = lz<{ project: string }>(() => import("@/routes/deployments"), "DeploymentsPage");
 const EnvVarsPage = lz<{ project: string }>(() => import("@/routes/env-vars"), "EnvVarsPage");
-const ObservabilityPage = lz<{ project: string }>(() => import("@/routes/project-observe"), "ObservabilityPage");
+const ObservabilityPage = lz<{ project: string; search: ObserveSearch }>(() => import("@/routes/project-observe"), "ObservabilityPage");
 const SecretsPage = lz<{ project: string }>(() => import("@/routes/project-settings"), "SecretsPage");
 const DomainsPage = lz<{ project: string }>(() => import("@/routes/domains"), "DomainsPage");
 const DnsSettingsPage = lz(() => import("@/routes/dns-settings"), "DnsSettingsPage");
@@ -66,7 +68,7 @@ const PeoplePage = lz(() => import("@/routes/settings"), "PeoplePage");
 const PasskeysPage = lz(() => import("@/routes/settings"), "PasskeysPage");
 const FilesPage = lz<{ project: string; isNew?: boolean }>(() => import("@/routes/files"), "FilesPage");
 const BucketPage = lz<{ project: string; bucket: string; prefix?: string; file?: string }>(() => import("@/routes/files"), "BucketPage");
-const InboxPage = lz<{ project: string; q?: string; m?: string }>(() => import("@/routes/email"), "InboxPage");
+const InboxPage = lz<{ project: string; q?: string; m?: string; status?: string }>(() => import("@/routes/email"), "InboxPage");
 const EmailSettingsPage = lz<{ project: string }>(() => import("@/routes/email"), "EmailSettingsPage");
 const DataPage = lz<{ project: string }>(() => import("@/routes/data"), "DataPage");
 const TablePage = lz<{ project: string; table: string }>(() => import("@/routes/data"), "TablePage");
@@ -90,6 +92,7 @@ const RunsTab = lz<{ project: string; search: JobsSearch }>(() => import("@/rout
 const SchedulesTab = lz<{ project: string; search: JobsSearch }>(() => import("@/routes/jobs"), "SchedulesTab");
 const QueuesTab = lz<{ project: string; search: JobsSearch }>(() => import("@/routes/jobs"), "QueuesTab");
 const FailedTab = lz<{ project: string; search: JobsSearch }>(() => import("@/routes/jobs"), "FailedTab");
+const WorkersTab = lz<{ project: string; search: JobsSearch }>(() => import("@/routes/jobs"), "WorkersTab");
 const JobOrRunPage = lz<{ project: string; id: string }>(() => import("@/routes/jobs"), "JobOrRunPage");
 const AnalyticsPage = lz<{ project: string; search: AnalyticsSearch }>(() => import("@/routes/analytics"), "AnalyticsPage");
 const ProtectPage = lz(() => import("@/routes/protect"), "ProtectPage");
@@ -168,8 +171,15 @@ const status = createRoute({ getParentRoute: () => app, path: "/status", loader:
   component: StatusPage });
 const settings = createRoute({ getParentRoute: () => app, path: "/settings", loader: () => void SettingsPage.preload(),
   component: SettingsPage });
-const newProject = createRoute({ getParentRoute: () => app, path: "/new", loader: () => void NewProjectPage.preload(),
-  component: NewProjectPage });
+const newProject = createRoute({
+  getParentRoute: () => app,
+  path: "/new",
+  validateSearch: (s: Record<string, unknown>): NewSearch => (typeof s.starter === "string" && s.starter ? { starter: s.starter.slice(0, 80) } : {}),
+  loader: () => void NewProjectPage.preload(),
+  component: function NewProject() {
+    return <NewProjectPage search={newProject.useSearch()} />;
+  },
+});
 const gitSettings = createRoute({
   getParentRoute: () => app,
   path: "/settings/git",
@@ -212,13 +222,16 @@ const approvals = createRoute({
     throw redirect({ to: "/ledger" });
   },
 });
+/** A warm-up failing is fine: the page fetches again and shows the error itself. */
+const noop = () => {};
+
 /** Warms a project page: its code and the project's state and config. */
 const warm =
   (page: { preload: () => Promise<void> }) =>
   ({ params, context }: { params: { project: string }; context: { queryClient: QueryClient } }) => {
     void page.preload();
-    void context.queryClient.prefetchQuery(q.project(params.project));
-    void context.queryClient.prefetchQuery(q.manifest(params.project));
+    void context.queryClient.query(q.project(params.project)).catch(noop);
+    void context.queryClient.query(q.manifest(params.project)).catch(noop);
   };
 const project = createRoute({
   getParentRoute: () => app,
@@ -241,6 +254,12 @@ const projectUsage = createRoute({
 const deploymentsRoute = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/deployments",
+  validateSearch: (s: Record<string, unknown>): { app?: string; env?: "production" | "preview"; status?: "live" | "running" | "failed" | "past"; branch?: string } => ({
+    app: str(s.app),
+    env: s.env === "production" || s.env === "preview" ? s.env : undefined,
+    status: s.status === "live" || s.status === "running" || s.status === "failed" || s.status === "past" ? s.status : undefined,
+    branch: s.branch === undefined ? undefined : String(s.branch),
+  }),
   loader: warm(DeploymentsPage),
   component: function Deployments() {
     const { project: p } = deploymentsRoute.useParams();
@@ -259,10 +278,17 @@ const envRoute = createRoute({
 const observabilityRoute = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/observability",
+  validateSearch: (s: Record<string, unknown>): ObserveSearch => {
+    const tab = observeTab(s.tab);
+    const range = typeof s.range === "string" && ["1h", "7d", "30d"].includes(s.range) ? (s.range as ObserveSearch["range"]) : undefined;
+    const app = typeof s.app === "string" && s.app ? s.app : undefined;
+    return { ...(tab && { tab }), ...(range && { range }), ...(app && { app }) };
+  },
   loader: warm(ObservabilityPage),
   component: function Observability() {
     const { project: p } = observabilityRoute.useParams();
-    return <ObservabilityPage key={p} project={p} />;
+    const search = observabilityRoute.useSearch();
+    return <ObservabilityPage key={p} project={p} search={search} />;
   },
 });
 const projectHistory = createRoute({
@@ -270,7 +296,7 @@ const projectHistory = createRoute({
   path: "/projects/$project/history",
   loader: ({ params, context }) => {
     void ProjectHistoryPage.preload();
-    void context.queryClient.prefetchQuery(q.changes(params.project));
+    void context.queryClient.query(q.changes(params.project)).catch(noop);
   },
   component: function History() {
     const { project: p } = projectHistory.useParams();
@@ -298,6 +324,7 @@ const secrets = createRoute({
 const domainsRoute = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/domains",
+  validateSearch: (s: Record<string, unknown>): { domain?: string } => (str(s.domain) ? { domain: str(s.domain) } : {}),
   loader: warm(DomainsPage),
   component: function Domains() {
     const { project: p } = domainsRoute.useParams();
@@ -337,14 +364,14 @@ const bucket = createRoute({
 const inbox = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/email",
-  validateSearch: (s: Record<string, unknown>): { q?: string; m?: string } => ({ q: str(s.q), m: str(s.m) }),
+  validateSearch: (s: Record<string, unknown>): { q?: string; m?: string; status?: string } => ({ q: str(s.q), m: str(s.m), status: str(s.status) }),
   loader: () => void InboxPage.preload(),
   component: function Inbox() {
     const { project: p } = inbox.useParams();
-    const { q, m } = inbox.useSearch();
+    const { q, m, status } = inbox.useSearch();
     return (
       <PartGate project={p} part="email">
-        <InboxPage key={p} project={p} q={q} m={m} />
+        <InboxPage key={p} project={p} q={q} m={m} status={status} />
       </PartGate>
     );
   },
@@ -554,7 +581,7 @@ const alerts = createRoute({ getParentRoute: () => app, path: "/alerts", loader:
 const backups = createRoute({ getParentRoute: () => app, path: "/backups", loader: () => void BackupsPage.preload(),
   component: BackupsPage });
 /** The Jobs area: one route per tab, all reading the same search (dialogs, the selected run, filters). */
-const jobsTab = (path: "/projects/$project/jobs" | "/projects/$project/jobs/schedules" | "/projects/$project/jobs/queues" | "/projects/$project/jobs/failed", Comp: typeof RunsTab) => {
+const jobsTab = (path: "/projects/$project/jobs" | "/projects/$project/jobs/schedules" | "/projects/$project/jobs/queues" | "/projects/$project/jobs/failed" | "/projects/$project/jobs/workers", Comp: typeof RunsTab) => {
   const r = createRoute({
     getParentRoute: () => app,
     path,
@@ -571,6 +598,7 @@ const jobsRuns = jobsTab("/projects/$project/jobs", RunsTab);
 const jobsSchedules = jobsTab("/projects/$project/jobs/schedules", SchedulesTab);
 const jobsQueues = jobsTab("/projects/$project/jobs/queues", QueuesTab);
 const jobsFailed = jobsTab("/projects/$project/jobs/failed", FailedTab);
+const jobsWorkers = jobsTab("/projects/$project/jobs/workers", WorkersTab);
 const jobDetail = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/jobs/$id",
@@ -654,6 +682,7 @@ const appRoute = createRoute({
 const deployRoute = createRoute({
   getParentRoute: () => app,
   path: "/projects/$project/apps/$app/deploys/$id",
+  validateSearch: (s: Record<string, unknown>): { tab?: "runtime" } => (s.tab === "runtime" ? { tab: "runtime" } : {}),
   loader: () => void DeployPage.preload(),
   component: function DeployView() {
     const { project: p, app: a, id } = deployRoute.useParams();
@@ -832,6 +861,7 @@ const tree = root.addChildren([
     jobsSchedules,
     jobsQueues,
     jobsFailed,
+    jobsWorkers,
     jobDetail,
     oldQueues,
     oldJobs,

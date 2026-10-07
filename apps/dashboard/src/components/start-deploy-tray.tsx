@@ -1,16 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Check, GitBranch, X } from "lucide-react";
-import { Dialog as D } from "radix-ui";
+import { Dialog as D, Tabs } from "radix-ui";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { mod3 } from "@/api/modules";
-import { cn } from "@/lib/cn";
 import { mcpCommand } from "@/lib/mcp";
-import { checkGitUrl, deployGit, deployTemplate, frameworkName, rememberNextDeploy, starterLine, pickable, startersQuery, starterThumb, type NextDeploy } from "@/lib/starters";
+import { checkGitUrl, deployGit, deployTemplate, frameworkName, kindOf, rememberNextDeploy, pickable, startersQuery, thumbOf, type NextDeploy } from "@/lib/starters";
 import { Command } from "./copy";
 import { MorphLabel } from "./morph-label";
 import { ProblemNote } from "./problem";
 import { Button } from "./ui/button";
+import { RadioGroup, RadioItem } from "./ui/choice";
 
 /**
  * Deploy an app without a terminal: a starter that matches its framework, or
@@ -43,7 +43,7 @@ export function DeployTray({
         <D.Overlay className="tray-scrim fixed inset-0 z-40 bg-[var(--scrim)]" />
         <D.Content
           aria-describedby={undefined}
-          className="tray fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full max-w-[760px] flex-col overflow-hidden rounded-t-[16px] border border-rule-2 bg-paper-raised shadow-overlay outline-none sm:bottom-5 sm:w-[calc(100%-2.5rem)] sm:rounded-[16px] lg:left-[232px] lg:w-[calc(100%-232px-5rem)]"
+          className="tray fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92dvh] w-full max-w-[760px] flex-col overflow-hidden rounded-t-[16px] border border-rule-2 bg-paper-raised shadow-overlay outline-hidden sm:bottom-5 sm:w-[calc(100%-2.5rem)] sm:rounded-[16px] lg:left-[232px] lg:w-[calc(100%-232px-5rem)]"
         >
           {open && <Body project={project} app={app} framework={framework} suggest={suggest} hasVersions={hasVersions} close={() => onOpenChange(false)} />}
         </D.Content>
@@ -124,76 +124,77 @@ function Body({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7">
-        <div role="tablist" aria-label="Build it from" className="mb-4 inline-flex rounded-[8px] border border-rule-2 bg-paper p-0.5 text-[0.8125rem]">
-          <Tab on={mode === "starter"} onClick={() => setMode("starter")}>
-            A starter
-          </Tab>
-          <Tab on={mode === "git"} onClick={() => setMode("git")}>
-            A git URL
-          </Tab>
-        </div>
+        {/* Manual activation: the git URL field takes focus when its tab opens, so arrows only move between tabs. */}
+        <Tabs.Root value={mode} onValueChange={(m) => setMode(m as typeof mode)} activationMode="manual">
+          <Tabs.List aria-label="Build it from" className="mb-4 inline-flex rounded-[8px] border border-rule-2 bg-paper p-0.5 text-[0.8125rem]">
+            <Tabs.Trigger value="starter" className={tab}>
+              A starter
+            </Tabs.Trigger>
+            <Tabs.Trigger value="git" className={tab}>
+              A git URL
+            </Tabs.Trigger>
+          </Tabs.List>
 
-        {mode === "starter" && hasVersions && fits.length > 0 && (
-          <p className="mb-3 max-w-[36rem] text-[0.8125rem] text-ink-2">
-            A starter replaces {app}’s code with a sample. To ship your own code, deploy from its folder or with git push (below).
-          </p>
-        )}
-        {mode === "starter" ? (
-          fits.length === 0 ? (
-            <p className="text-sm text-ink-2">
-              No starter is built with {frameworkName(framework)}, which is what {app} runs. Deploy it from a git URL or from your terminal.
-            </p>
-          ) : (
-            <div role="radiogroup" aria-label="Starter" className="grid gap-2.5 sm:grid-cols-2">
-              {fits.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={chosen?.id === s.id}
-                  onClick={() => setPick(s.id)}
-                  className={cn(
-                    "grid grid-cols-[96px_minmax(0,1fr)_16px] items-center gap-3 rounded-[10px] border bg-paper p-2 pr-3 text-left transition-[border-color]",
-                    chosen?.id === s.id ? "border-brass shadow-[0_0_0_1px_var(--brass)]" : "border-rule-2 hover:border-rule-3",
-                  )}
-                >
-                  <img src={starterThumb[s.id]} alt="" className="art-well aspect-[16/10] w-full rounded-[6px] bg-paper-sunk object-contain" />
-                  <span className="min-w-0">
-                    <span className="block text-[0.875rem] font-[550] text-ink">{s.name}</span>
-                    <span className="block text-xs text-ink-3">{starterLine[s.id]}</span>
-                  </span>
-                  <span aria-hidden className={cn("grid size-4 place-items-center rounded-full border", chosen?.id === s.id ? "border-brass bg-brass text-on-brass" : "border-rule-3 text-transparent")}>
-                    <Check className="size-2.5" strokeWidth={3} />
-                  </span>
-                </button>
-              ))}
+          <Tabs.Content value="starter" className="outline-hidden">
+            {hasVersions && fits.length > 0 && (
+              <p className="mb-3 max-w-[36rem] text-[0.8125rem] text-ink-2">
+                A starter replaces {app}’s code with a sample. To ship your own code, deploy from its folder or with git push (below).
+              </p>
+            )}
+            {fits.length === 0 ? (
+              <p className="text-sm text-ink-2">
+                No starter is built with {frameworkName(framework)}, which is what {app} runs. Deploy it from a git URL or from your terminal.
+              </p>
+            ) : (
+              <RadioGroup aria-label="Starter" value={chosen?.id ?? ""} onValueChange={setPick} className="grid gap-2.5 sm:grid-cols-2">
+                {fits.map((s) => (
+                  <RadioItem
+                    key={s.id}
+                    value={s.id}
+                    className="group grid grid-cols-[96px_minmax(0,1fr)_16px] items-center gap-3 rounded-[10px] border border-rule-2 bg-paper p-2 pr-3 text-left transition-[border-color] hover:border-rule-3 data-[state=checked]:border-brass data-[state=checked]:shadow-[0_0_0_1px_var(--brass)]"
+                  >
+                    <img src={thumbOf(s)} alt="" className="art-well aspect-[16/10] w-full rounded-[6px] bg-paper-sunk object-contain" />
+                    <span className="min-w-0">
+                      <span className="block text-[0.875rem] font-[550] text-ink">{s.name}</span>
+                      <span className="block text-xs text-ink-3">{kindOf(s.kind)?.title}</span>
+                    </span>
+                    <span
+                      aria-hidden
+                      className="grid size-4 place-items-center rounded-full border border-rule-3 text-transparent group-data-[state=checked]:border-brass group-data-[state=checked]:bg-brass group-data-[state=checked]:text-on-brass"
+                    >
+                      <Check className="size-2.5" strokeWidth={3} />
+                    </span>
+                  </RadioItem>
+                ))}
+              </RadioGroup>
+            )}
+          </Tabs.Content>
+          <Tabs.Content value="git" className="outline-hidden">
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem_10rem]">
+              <label className="sm:col-span-3">
+                <span className="mb-1 block text-xs font-[550] text-ink-2">Repository</span>
+                <input
+                  autoFocus
+                  value={git.url}
+                  onChange={(e) => setGit({ ...git, url: e.target.value })}
+                  placeholder="https://github.com/owner/repo"
+                  spellCheck={false}
+                  className={input}
+                />
+                {git.url && !gitCheck.ok && <span className="mt-1 block text-xs text-danger">{"why" in gitCheck ? gitCheck.why : ""}</span>}
+              </label>
+              <label>
+                <span className="mb-1 block text-xs font-[550] text-ink-2">Branch, tag or commit</span>
+                <input value={git.ref} onChange={(e) => setGit({ ...git, ref: e.target.value })} placeholder="default branch" spellCheck={false} className={input} />
+              </label>
+              <label>
+                <span className="mb-1 block text-xs font-[550] text-ink-2">Folder</span>
+                <input value={git.path} onChange={(e) => setGit({ ...git, path: e.target.value })} placeholder="the top" spellCheck={false} className={input} />
+              </label>
+              <p className="self-end pb-2 text-xs text-ink-3">Public https only. The clone shows in the build log.</p>
             </div>
-          )
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem_10rem]">
-            <label className="sm:col-span-3">
-              <span className="mb-1 block text-xs font-[550] text-ink-2">Repository</span>
-              <input
-                autoFocus
-                value={git.url}
-                onChange={(e) => setGit({ ...git, url: e.target.value })}
-                placeholder="https://github.com/owner/repo"
-                spellCheck={false}
-                className={input}
-              />
-              {git.url && !gitCheck.ok && <span className="mt-1 block text-xs text-danger">{"why" in gitCheck ? gitCheck.why : ""}</span>}
-            </label>
-            <label>
-              <span className="mb-1 block text-xs font-[550] text-ink-2">Branch, tag or commit</span>
-              <input value={git.ref} onChange={(e) => setGit({ ...git, ref: e.target.value })} placeholder="default branch" spellCheck={false} className={input} />
-            </label>
-            <label>
-              <span className="mb-1 block text-xs font-[550] text-ink-2">Folder</span>
-              <input value={git.path} onChange={(e) => setGit({ ...git, path: e.target.value })} placeholder="the top" spellCheck={false} className={input} />
-            </label>
-            <p className="self-end pb-2 text-xs text-ink-3">Public https only. The clone shows in the build log.</p>
-          </div>
-        )}
+          </Tabs.Content>
+        </Tabs.Root>
 
         {go.isError && <ProblemNote className="mt-4" error={go.error} />}
 
@@ -236,21 +237,10 @@ function Body({
 }
 
 const input =
-  "ident h-9 w-full rounded-[7px] border border-rule-2 bg-paper px-2.5 text-[0.8125rem] text-ink outline-none placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]";
+  "ident h-9 w-full rounded-[7px] border border-rule-2 bg-paper px-2.5 text-[0.8125rem] text-ink outline-hidden placeholder:text-ink-4 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)]";
 
-function Tab({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={on}
-      onClick={onClick}
-      className={cn("h-7 rounded-[6px] px-3 font-[550] transition-colors", on ? "bg-paper-raised text-ink shadow-[var(--top-light),0_0_0_1px_var(--rule-2)]" : "text-ink-3 hover:text-ink")}
-    >
-      {children}
-    </button>
-  );
-}
+const tab =
+  "h-7 rounded-[6px] px-3 font-[550] text-ink-3 transition-colors hover:text-ink data-[state=active]:bg-paper-raised data-[state=active]:text-ink data-[state=active]:shadow-[var(--top-light),0_0_0_1px_var(--rule-2)]";
 
 function Way({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
   return (

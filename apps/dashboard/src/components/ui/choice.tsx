@@ -6,33 +6,40 @@ import { cn } from "@/lib/cn";
 export function Checkbox({ className, ...props }: ComponentProps<typeof C.Root>) {
   return (
     <C.Root
+      data-slot="checkbox"
       className={cn(
         "grid size-4 shrink-0 place-items-center rounded-[4px] border border-rule-2 bg-paper transition-colors hover:border-ink-3 data-[state=checked]:border-ink data-[state=checked]:bg-ink",
         className,
       )}
       {...props}
     >
-      <C.Indicator className="animate-pop text-paper">
+      <C.Indicator data-slot="checkbox-indicator" className="animate-pop text-paper">
         <Check className="size-3" strokeWidth={3} />
       </C.Indicator>
     </C.Root>
   );
 }
 
-export const RadioGroup = R.Root;
+export function RadioGroup(props: ComponentProps<typeof R.Root>) {
+  return <R.Root data-slot="radio-group" {...props} />;
+}
+
 /** A bare radio item to style as a tile or row (arrow keys move through its group). */
-export const RadioItem = R.Item;
+export function RadioItem(props: ComponentProps<typeof R.Item>) {
+  return <R.Item data-slot="radio-group-item" {...props} />;
+}
 
 export function Radio({ className, ...props }: ComponentProps<typeof R.Item>) {
   return (
     <R.Item
+      data-slot="radio"
       className={cn(
         "grid size-4 shrink-0 place-items-center rounded-full border border-rule-2 bg-paper transition-colors hover:border-ink-3 data-[state=checked]:border-ink data-[state=checked]:bg-ink",
         className,
       )}
       {...props}
     >
-      <R.Indicator className="size-1.5 animate-pop rounded-full bg-paper" />
+      <R.Indicator data-slot="radio-indicator" className="size-1.5 animate-pop rounded-full bg-paper" />
     </R.Item>
   );
 }
@@ -70,14 +77,15 @@ export function Select({
 }) {
   return (
     <S.Root value={value} onValueChange={onValueChange} disabled={disabled}>
-      {/* The fill-width default is zero-specificity (:where) so a width in className (w-44, sm:w-36) wins without tailwind-merge. */}
+      {/* Width, min-width and height are zero-specificity (:where) so a caller's w-44, sm:w-36 or min-w-[8rem] wins without tailwind-merge. */}
       <S.Trigger
+        data-slot="select-trigger"
         id={id}
         aria-label={ariaLabel}
         aria-labelledby={labelledBy}
         className={cn(
-          "flex min-w-0 items-center [:where(&)]:w-full justify-between gap-2 rounded-[7px] border border-rule-2 bg-paper-raised pr-2.5 pl-3 text-left text-ink outline-none transition-[border-color,box-shadow] hover:border-rule-3 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] disabled:cursor-not-allowed disabled:opacity-55 data-[state=open]:border-rule-3 data-[placeholder]:text-ink-4",
-          size === "sm" ? "h-8 text-[0.8125rem]" : "h-9 text-[0.84375rem]",
+          "flex [:where(&)]:min-w-0 items-center [:where(&)]:w-full justify-between gap-2 rounded-[7px] border border-rule-2 bg-paper-raised pr-2.5 pl-3 text-left text-ink outline-hidden transition-[border-color,box-shadow] hover:border-rule-3 focus-visible:border-brass focus-visible:shadow-[0_0_0_3px_var(--brass-wash)] disabled:cursor-not-allowed disabled:opacity-55 data-[state=open]:border-rule-3 data-[placeholder]:text-ink-3",
+          size === "sm" ? "[:where(&)]:h-8 [:where(&)]:text-[0.8125rem]" : "[:where(&)]:h-9 [:where(&)]:text-[0.84375rem]",
           className,
         )}
       >
@@ -90,6 +98,7 @@ export function Select({
       </S.Trigger>
       <S.Portal>
         <S.Content
+          data-slot="select-content"
           position="popper"
           sideOffset={6}
           collisionPadding={12}
@@ -98,11 +107,12 @@ export function Select({
           <S.Viewport>
             {options.map((o) => (
               <S.Item
+                data-slot="select-item"
                 key={o.value}
                 value={o.value}
                 disabled={o.disabled}
                 className={cn(
-                  "relative flex cursor-default items-center rounded-[6px] pr-8 pl-2.5 text-ink-2 outline-none select-none data-[disabled]:opacity-45 data-[highlighted]:bg-paper-hover data-[highlighted]:text-ink data-[state=checked]:text-ink",
+                  "relative flex cursor-default items-center rounded-[6px] pr-8 pl-2.5 text-ink-2 outline-hidden select-none data-[disabled]:opacity-45 data-[highlighted]:bg-paper-hover data-[highlighted]:text-ink data-[state=checked]:text-ink",
                   size === "sm" ? "h-8 text-[0.8125rem]" : "h-9 text-[0.84375rem]",
                 )}
               >

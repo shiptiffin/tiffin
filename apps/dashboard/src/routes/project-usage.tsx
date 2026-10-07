@@ -1,12 +1,14 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Navigate } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { request, type ManifestApp } from "@/api/client";
 import { mq } from "@/api/modules";
 import { q } from "@/api/queries";
 import { BoxBar } from "@/components/box-bar";
-import { useTitle } from "@/components/favicon";
-import { Crumbs, Page, PageHeader, Skeleton } from "@/components/page";
+import { StateLine } from "@/components/health-kit";
+import { InfoTip } from "@/components/info-tip";
+import { Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { AppRow, Group, RESERVE_MB, Working } from "@/components/project-rows";
 import { ReadOnlyBanner } from "@/components/read-only";
@@ -15,26 +17,33 @@ import { toast } from "@/components/toast";
 import { cn } from "@/lib/cn";
 import { bytes, count, dec } from "@/lib/format";
 import { useMe } from "@/lib/me";
-import { rememberProject } from "@/lib/recent";
 import { change, changeMany, pendingFor, usePending, type StagedEdit } from "@/lib/staged";
 import { partName, partSub } from "@/lib/names";
 import { Button } from "@/components/ui/button";
-import { UsageCharts } from "@/components/usage-charts";
+import { Select } from "@/components/ui/choice";
+import { UsageCharts, type Range } from "@/components/usage-charts";
 import { boxSettingsQuery, cpuWords, memWords, missing, shareMeans, shareWords, useBoxShares, usageQuery, type ProjectResources, type ProjectUsage } from "@/lib/usage";
 
 const MB = 1048576;
 
 /**
- * Usage: how much of the box this project takes (memory, CPU, disk; its
- * database, cache and builds against their limits), and the one control a
- * person needs: no limit, or a share of the box that holds all of it. Its
- * storage, cache and query time limits sit under the limit's Advanced;
- * per-app copies and exact numbers under Details. The limit is a manifest
- * edit (resources), applied when you let go.
+ * The old address of a project's usage: it lives on the Observability page's
+ * Resources tab now. Keeps a #storage link (the read-only banner's) working.
  */
 export function ProjectUsagePage({ project }: { project: string }) {
-  useTitle(`${project} · Usage`);
-  useEffect(() => rememberProject(project), [project]);
+  const hash = typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
+  return <Navigate to="/projects/$project/observability" params={{ project }} search={{ tab: "resources" } as never} hash={hash || undefined} replace />;
+}
+
+/**
+ * Resources: how much of the box this project takes (memory, CPU, disk; its
+ * database, cache and builds against their limits), and the one control a
+ * person needs: no limit, a share of the box, or a fixed amount, for all of
+ * it. Its storage, cache and query time limits sit under the limit's
+ * Advanced; per-app copies and exact numbers under Details. The limit is a
+ * manifest edit (resources), applied on Save.
+ */
+export function ResourcesView({ project, range, app, tables }: { project: string; range: Range; app?: string; tables: boolean }) {
   const usage = useQuery(usageQuery(project));
   const m = useQuery({ ...q.manifest(project), staleTime: 5_000 });
   const projects = useQuery(q.projects);
@@ -61,16 +70,16 @@ export function ProjectUsagePage({ project }: { project: string }) {
   const cpus = shares?.cpuCount ?? res?.cpu.count ?? 1;
   const storage = usage.data?.storage;
 
-  let sentence: ReactNode = <Skeleton className="h-7 w-80" />;
+  let sentence: ReactNode = <Skeleton className="mt-3 h-7 w-80" />;
   if (memMB !== undefined && totalMB) {
     const grow = headroomMB !== undefined ? memMB + headroomMB : limitMB;
     sentence = (
-      <>
+      <StateLine>
         {project} is using {memWords(memMB)} of memory
         {grow ? <> and can grow to about {memWords(grow)}.</> : <>, {shareWords(memMB / totalMB)} of the box.</>}
-      </>
+      </StateLine>
     );
-  } else if (unmeasured) sentence = "Memory and CPU are measured on a running box.";
+  } else if (unmeasured) sentence = <StateLine>Memory and CPU are measured on a running box.</StateLine>;
 
   // The limit as the config says it; a box that reports a budget the config doesn't show yet wins.
   const budget = usage.data?.budget;
@@ -81,9 +90,8 @@ export function ProjectUsagePage({ project }: { project: string }) {
   const resources = staged?.kind === "set" ? (staged.to as ProjectResources | undefined) : live;
 
   return (
-    <Page wide>
-      <PageHeader eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params: { project } }, { label: "Usage" }]} />} title="Usage" />
-      <div className="mt-3 max-w-[44rem] text-[1.0625rem] leading-7 text-ink">{sentence}</div>
+    <>
+      <div className="mt-4">{sentence}</div>
       <ReadOnlyBanner project={project} className="mt-5" />
       {usage.data?.storage?.diskWarning && !usage.data.storage.readOnly && (
         <p role="status" className="mt-5 max-w-[46rem] rounded-[10px] bg-warn-wash px-4 py-3 text-[0.9375rem] text-ink">
@@ -116,6 +124,8 @@ export function ProjectUsagePage({ project }: { project: string }) {
           full={!!storage?.readOnly}
         />
       </div>
+      {(usage.data?.apps?.filter((a) => !a.preview).length ?? 0) > 1 && <AppsNow apps={usage.data!.apps!.filter((a) => !a.preview)} />}
+      <UsageCharts project={project} apps={Object.keys(m.data?.manifest.apps ?? {}).sort()} app={app} usage={usage.data} only="resources" title={app ? `${app} over time` : "Over time"} range={range} tables={tables} className="mt-12" />
       {usage.data?.memory.pressure === "oom" && totalMB && (
         <OutOfMemory project={project} live={live} source={usage.data.limitSource} />
       )}
@@ -127,16 +137,38 @@ export function ProjectUsagePage({ project }: { project: string }) {
         </Limit>
       )}
 
-      <UsageCharts project={project} apps={Object.keys(m.data?.manifest.apps ?? {}).sort()} usage={usage.data} />
 
       <Details
         project={project}
         free={res && res.memory.totalBytes > 0 ? res.memory.availableBytes / MB - RESERVE_MB : undefined}
         apps={(m.data?.manifest.apps ?? {}) as Record<string, ManifestApp>}
         status={usage.data}
-        exact={hasUsage ? { live, cpus } : undefined}
       />
-    </Page>
+    </>
+  );
+}
+
+/** Each app right now: copies, memory and CPU, a bar of its share of the project's memory. */
+function AppsNow({ apps }: { apps: NonNullable<ProjectUsage["apps"]> }) {
+  const total = apps.reduce((t, a) => t + a.memoryBytes, 0) || 1;
+  const sorted = [...apps].sort((a, b) => b.memoryBytes - a.memoryBytes);
+  return (
+    <section className="mt-8 max-w-[46rem]" aria-label="Each app now">
+      <h2 className="label mb-1.5">Each app now</h2>
+      <div className="divide-y divide-rule border-y border-rule">
+        {sorted.map((a) => (
+          <div key={a.app} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 py-2.5 text-[0.875rem] sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)_5.5rem_4.5rem]">
+            <span className="min-w-0">
+              <span className="block truncate font-mono text-[0.84375rem] text-ink">{a.app}</span>
+              <span className="block text-xs text-ink-3">{a.state === "running" ? (a.instances > 1 ? `${a.instances} copies running` : "Running") : a.state.charAt(0).toUpperCase() + a.state.slice(1)}</span>
+            </span>
+            <SegMeter size="row" className="col-span-2 row-start-2 sm:col-span-1 sm:row-start-auto" label={`${a.app}’s share of the project’s memory`} value={a.memoryBytes} max={total} warnAt={2} fullAt={2} />
+            <span className="col-start-2 row-start-1 text-right text-ink tnum sm:col-start-auto sm:row-start-auto">{a.memoryBytes > 0 ? memWords(a.memoryBytes / MB) : "–"}</span>
+            <span className="hidden text-right text-ink-2 tnum sm:block">{a.cpuPercent < 1 ? "idle" : `${dec(a.cpuPercent, 0)}%`}</span>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -151,9 +183,35 @@ function Stat({ label, value, of, bar, warn, full }: { label: string; value?: st
   );
 }
 
+/** The shares OutOfMemory steps up through when it gives a project more. */
 const STOPS = [5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 90];
+/** What the Limit offers: a few round shares, memory in doublings, whole CPUs. */
+const SHARE_STOPS = [10, 25, 50, 75];
+const MEMORY_STOPS = [256, 512, 1024, 2048, 4096, 8192];
+const CPU_STOPS = [0.5, 1, 2, 4, 8];
 
-/** The one control: no limit, or a share of the box (for its apps, database, cache and builds alike). */
+type LimitKind = "none" | "share" | "fixed";
+type LimitDraft = { kind: LimitKind; share: number; memoryMB: number; cpus: number };
+
+/** The limit the project has, as the three choices say it. */
+function draftOf(r: ProjectResources | undefined, totalMB: number): LimitDraft {
+  const quarter = MEMORY_STOPS.filter((x) => x <= totalMB / 4).pop() ?? MEMORY_STOPS[0];
+  if (r?.maxSharePercent) return { kind: "share", share: r.maxSharePercent, memoryMB: quarter, cpus: 0 };
+  if (r?.memoryMB || r?.cpus) return { kind: "fixed", share: 25, memoryMB: r.memoryMB ?? 0, cpus: r.cpus ?? 0 };
+  return { kind: "none", share: 25, memoryMB: quarter, cpus: 0 };
+}
+
+const same = (a: LimitDraft, b: LimitDraft) =>
+  a.kind === b.kind && (a.kind === "none" || (a.kind === "share" ? a.share === b.share : a.memoryMB === b.memoryMB && a.cpus === b.cpus));
+
+const mbLabel = (n: number) => (n >= 1024 ? `${dec(n / 1024, n % 1024 ? 1 : 0)} GB` : `${n} MB`);
+const cpuLabel = (n: number) => (n === 0 ? "No CPU limit" : n === 0.5 ? "Half a CPU" : n === 1 ? "1 CPU" : `${dec(n, n % 1 ? 1 : 0)} CPUs`);
+
+/**
+ * The one control, chosen like an app's Scale: the kind of limit (none, a
+ * share of the box, a fixed amount), then how much from a short list, a line
+ * saying what that means, and nothing changes until Save.
+ */
 function Limit({
   project,
   resources,
@@ -165,7 +223,9 @@ function Limit({
   children,
 }: {
   project: string;
+  /** The limit as it is, or as it's about to be while a change applies. */
   resources?: ProjectResources;
+  /** The limit as applied: what Undo goes back to. */
   live?: ProjectResources;
   busy: boolean;
   totalMB: number;
@@ -174,50 +234,134 @@ function Limit({
   children?: ReactNode;
 }) {
   const settings = useQuery(boxSettingsQuery);
+  const { can } = useMe();
+  const writer = can("apply:reversible");
   const boxDefault = settings.data?.defaultMaxSharePercent;
   // A share is of the memory the box keeps for apps (not counting what Tiffin keeps for itself).
   const base = settings.data?.appMemoryMB || totalMB;
-  const limited = !!resources && (!!resources.maxSharePercent || !!resources.memoryMB || !!resources.cpus);
-  const pct = resources?.maxSharePercent ?? 25;
-  const [drag, setDrag] = useState<number | null>(null);
-  const shown = drag ?? pct;
-  const set = (to: ProjectResources | undefined, what: string, undo: string) => change(project, { kind: "set", path: ["resources"], from: live, to, what, undo }, { immediate: true });
-  const grow = () => set(undefined, `Let ${project} grow as it needs`, `${project} gets its limit back`);
-  const limit = (p: number) => set({ maxSharePercent: p }, `Limit ${project} to ${p}% of the box`, live?.maxSharePercent ? `${project} goes back to ${live.maxSharePercent}%` : `${project} grows as it needs again`);
+  const applied = draftOf(resources, base);
+  const appliedKey = JSON.stringify(applied);
+  // A choice here is a draft until Save; when the limit changes underneath (saved, undone, elsewhere), start again from it.
+  const [draft, setDraft] = useState(applied);
+  const [was, setWas] = useState(appliedKey);
+  if (was !== appliedKey) {
+    setWas(appliedKey);
+    setDraft(applied);
+  }
+  const dirty = !same(draft, applied);
+  const edit = (d: Partial<LimitDraft>) => setDraft((x) => ({ ...x, ...d }));
 
+  const shareOptions = [...new Set([...SHARE_STOPS, applied.share])].sort((a, b) => a - b);
+  const memOptions = [...new Set([...MEMORY_STOPS.filter((x) => x <= base), ...(applied.kind === "fixed" && applied.memoryMB ? [applied.memoryMB] : [])])].sort((a, b) => a - b);
+  const cpuOptions = [...new Set([0, ...CPU_STOPS.filter((x) => x <= cpus), ...(applied.kind === "fixed" ? [applied.cpus] : [])])].sort((a, b) => a - b);
+  const byDefault = source === "box default" && !!boxDefault && boxDefault < 100;
+
+  const save = () => {
+    const was = live?.maxSharePercent ? `${project} goes back to ${live.maxSharePercent}% of the box` : live?.memoryMB || live?.cpus ? `${project}’s limit goes back as it was` : `${project} grows as it needs again`;
+    const set = (to: ProjectResources | undefined, what: string) => change(project, { kind: "set", path: ["resources"], from: live, to, what, undo: was }, { immediate: true });
+    if (draft.kind === "none") set(undefined, `Let ${project} grow as it needs`);
+    else if (draft.kind === "share") set({ maxSharePercent: draft.share }, `Limit ${project} to ${draft.share}% of the box`);
+    else {
+      const to: ProjectResources = { ...(draft.memoryMB ? { memoryMB: draft.memoryMB } : {}), ...(draft.cpus ? { cpus: draft.cpus } : {}) };
+      set(to, `Limit ${project} to ${[draft.memoryMB && memWords(draft.memoryMB), draft.cpus && cpuWords(draft.cpus)].filter(Boolean).join(" and ")}`);
+    }
+  };
+
+  let means: ReactNode;
+  if (draft.kind === "none")
+    means = byDefault
+      ? `No limit of its own, so the box’s limit for every project holds it: ${boxDefault}% of the box, ${shareMeans(boxDefault, base, cpus)} right now.`
+      : "It shares the box with your other projects and takes what it needs. The box keeps a safety margin.";
+  else if (draft.kind === "share") means = `Up to ${shareMeans(draft.share, base, cpus).replace(" and ", " of memory and ")} right now, for its apps, database, KV store and builds together. It grows with the box.`;
+  else
+    means = `Up to ${draft.memoryMB ? `${memWords(draft.memoryMB)} of memory` : "any amount of memory"}${draft.cpus ? ` and ${cpuWords(draft.cpus)}` : ", with no CPU limit"}, for its apps, database, KV store and builds together, whatever the size of the box.`;
+
+  const field = "mb-1.5 flex items-center gap-1 text-xs text-ink-3";
   return (
-    <section className="mt-10 max-w-[46rem]" aria-label="Limit">
-      <h2 className="text-[0.9375rem] font-[550] text-ink">Limit</h2>
-      <div role="radiogroup" aria-label={`How much of the box ${project} may use`} className="mt-3 flex flex-col gap-2">
-        <Choice checked={!limited} onSelect={grow} title="No limit" note={source === "box default" && boxDefault && boxDefault < 100 ? `It shares the box with the others, up to the box’s limit of ${boxDefault}% for every project.` : "It shares the box with the others and uses what it needs. The box keeps a safety margin."} />
-        <Choice
-          checked={limited}
-          onSelect={() => !limited && limit(25)}
-          title={limited && !resources?.maxSharePercent ? "Limited to exact numbers" : `Limit to ${shown}% of the box`}
-          note={limited && !resources?.maxSharePercent ? `${resources?.memoryMB ? memWords(resources.memoryMB) : "no memory limit"}${resources?.cpus ? ` and ${cpuWords(resources.cpus)}` : ""}. Change it under Details.` : "Its apps, database, KV store and builds each get at most this share, so it can’t crowd out your other projects. At the limit it slows down first."}
-        >
-          {limited && !!resources?.maxSharePercent && (
-            <div className="mt-3">
-              <input
-                type="range"
-                min={0}
-                max={STOPS.length - 1}
-                step={1}
-                value={STOPS.indexOf(STOPS.reduce((a, b) => (Math.abs(b - shown) < Math.abs(a - shown) ? b : a)))}
-                onChange={(e) => setDrag(STOPS[Number(e.target.value)])}
-                onPointerUp={() => drag !== null && drag !== pct && (limit(drag), setDrag(null))}
-                onKeyUp={() => drag !== null && drag !== pct && (limit(drag), setDrag(null))}
-                aria-label={`${project}’s share of the box`}
-                aria-valuetext={`${shown}%, ${shareMeans(shown, base, cpus)}`}
-                className="range w-full max-w-[24rem]"
-              />
-              <p className="mt-1.5 text-sm text-ink-2">
-                Right now that’s {shareMeans(shown, base, cpus)}.{busy && <Working> Saving…</Working>}
-              </p>
-            </div>
-          )}
-        </Choice>
+    <section className="mt-10 max-w-[46rem]" aria-labelledby={`${project}-limit`}>
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="flex items-center gap-1">
+          <h2 id={`${project}-limit`} className="text-[0.9375rem] font-[550] text-ink">
+            Limit
+          </h2>
+          <InfoTip label="About the limit">
+            The most of the box {project} may use, so it can’t crowd out your other projects. Near the limit it slows down first; an app that still needs more memory is restarted.
+          </InfoTip>
+        </div>
+        {busy && <Working>Saving…</Working>}
       </div>
+      <div className={cn("mt-3 grid gap-3", draft.kind === "fixed" ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+        <div>
+          <p id={`${project}-limit-kind`} className={field}>
+            Kind of limit
+          </p>
+          <Select
+            aria-labelledby={`${project}-limit-kind`}
+            disabled={!writer}
+            value={draft.kind}
+            onValueChange={(v) => edit({ kind: v as LimitKind })}
+            options={[
+              { value: "none", label: "No limit" },
+              { value: "share", label: "A share of the box" },
+              { value: "fixed", label: "A fixed amount" },
+            ]}
+          />
+        </div>
+        {draft.kind === "share" && (
+          <div>
+            <p id={`${project}-limit-share`} className={field}>
+              Share of the box
+            </p>
+            <Select
+              aria-labelledby={`${project}-limit-share`}
+              disabled={!writer}
+              value={String(draft.share)}
+              onValueChange={(v) => edit({ share: Number(v) })}
+              options={shareOptions.map((n) => ({ value: String(n), label: `${n}%` }))}
+            />
+          </div>
+        )}
+        {draft.kind === "fixed" && (
+          <>
+            <div>
+              <p id={`${project}-limit-mem`} className={field}>
+                Memory
+              </p>
+              <Select
+                aria-labelledby={`${project}-limit-mem`}
+                disabled={!writer}
+                value={String(draft.memoryMB)}
+                onValueChange={(v) => edit({ memoryMB: Number(v) })}
+                options={[...(draft.memoryMB ? [] : [{ value: "0", label: "No memory limit" }]), ...memOptions.map((n) => ({ value: String(n), label: mbLabel(n) }))]}
+              />
+            </div>
+            <div>
+              <p id={`${project}-limit-cpu`} className={field}>
+                CPU
+              </p>
+              <Select
+                aria-labelledby={`${project}-limit-cpu`}
+                disabled={!writer}
+                value={String(draft.cpus)}
+                onValueChange={(v) => edit({ cpus: Number(v) })}
+                options={cpuOptions.map((n) => ({ value: String(n), label: cpuLabel(n) }))}
+              />
+            </div>
+          </>
+        )}
+      </div>
+      <p className="mt-3 border-t border-rule pt-3 text-sm text-ink-2">{means}</p>
+      {writer && dirty && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button variant="primary" size="sm" onClick={save} disabled={busy}>
+            Save
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setDraft(applied)}>
+            Cancel
+          </Button>
+          <span className="text-xs text-ink-3">Applies now; History can undo it.</span>
+        </div>
+      )}
       {children}
     </section>
   );
@@ -230,7 +374,7 @@ type Services = { postgres?: { statementTimeoutSeconds?: number }; valkey?: { ma
 
 const DEFAULT_QUERY_SECONDS = 30;
 const DEFAULT_CACHE_MB = 64;
-const field = "ident mt-1 block h-8 w-28 rounded-[7px] border border-rule-2 bg-paper-raised px-2 text-[0.8125rem] text-ink outline-none focus-visible:border-brass";
+const field = "ident mt-1 block h-8 w-28 rounded-[7px] border border-rule-2 bg-paper-raised px-2 text-[0.8125rem] text-ink outline-hidden focus-visible:border-brass";
 
 /**
  * The limit's finer settings, closed by default: storage (databases and files,
@@ -427,41 +571,17 @@ function Meter({ name, value, sub, bar, warn, full }: { name: string; value: str
   );
 }
 
-function Choice({ checked, onSelect, title, note, children }: { checked: boolean; onSelect: () => void; title: string; note: string; children?: ReactNode }) {
-  return (
-    <div
-      className={cn(
-        "rounded-[12px] border px-4 py-3.5 transition-colors duration-[var(--dur-state)]",
-        checked ? "border-brass bg-[color-mix(in_oklch,var(--brass)_5%,var(--paper-raised))]" : "border-rule-2 bg-paper-raised hover:border-rule-3",
-      )}
-    >
-      <button type="button" role="radio" aria-checked={checked} onClick={onSelect} className="flex w-full items-start gap-3 text-left">
-        <span className={cn("mt-0.5 grid size-[18px] shrink-0 place-items-center rounded-full border", checked ? "border-brass" : "border-rule-3")} aria-hidden>
-          {checked && <span className="size-2.5 rounded-full bg-brass" />}
-        </span>
-        <span className="min-w-0">
-          <span className="block text-[0.9375rem] font-[550] text-ink">{title}</span>
-          <span className="block text-sm text-ink-3">{note}</span>
-        </span>
-      </button>
-      {children && <div className="pl-[30px]">{children}</div>}
-    </div>
-  );
-}
-
-/** Per-app copies, exact limits and what each part uses: one click away, closed by default. */
+/** Per-app copies and what each part uses: one click away, closed by default. */
 function Details({
   project,
   apps,
   free,
   status,
-  exact,
 }: {
   project: string;
   apps: Record<string, ManifestApp>;
   free?: number;
   status?: ProjectUsage;
-  exact?: { live?: ProjectResources; cpus: number };
 }) {
   const [open, setOpen] = useState(false);
   const pending = usePending(project);
@@ -491,7 +611,6 @@ function Details({
               ))}
             </Group>
           )}
-          {exact && <ExactLimit project={project} live={exact.live} cpus={exact.cpus} />}
           {status?.services && (status.services.postgres || status.services.valkey || status.services.storage) && (
             <Group label="Its data">
               {status.services.postgres && (
@@ -506,41 +625,6 @@ function Details({
         </>
       )}
     </section>
-  );
-}
-
-/** The exact form of a limit: memory in MB and CPUs, instead of a share of the box. */
-function ExactLimit({ project, live, cpus }: { project: string; live?: ProjectResources; cpus: number }) {
-  const [mem, setMem] = useState(String(live?.memoryMB ?? ""));
-  const [cpu, setCpu] = useState(String(live?.cpus ?? ""));
-  const m = Number(mem);
-  const c = Number(cpu);
-  const ok = (mem === "" || (m >= 64 && Number.isFinite(m))) && (cpu === "" || (c > 0 && c <= cpus)) && (mem !== "" || cpu !== "");
-  const field = "ident h-8 w-28 rounded-[7px] border border-rule-2 bg-paper-raised px-2 text-[0.8125rem] text-ink outline-none focus-visible:border-brass";
-  return (
-    <Group label="An exact limit" note="Instead of a share of the box.">
-      <form
-        className="flex flex-wrap items-end gap-3 py-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!ok) return;
-          const to: ProjectResources = { ...(mem ? { memoryMB: m } : {}), ...(cpu ? { cpus: c } : {}) };
-          change(project, { kind: "set", path: ["resources"], from: live, to, what: `Limit ${project} to ${[mem && memWords(m), cpu && cpuWords(c)].filter(Boolean).join(" and ")}`, undo: `${project}’s limit goes back as it was` }, { immediate: true });
-        }}
-      >
-        <label className="text-xs text-ink-3">
-          Memory (MB)
-          <input value={mem} onChange={(e) => setMem(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="no limit" className={cn(field, "mt-1 block")} />
-        </label>
-        <label className="text-xs text-ink-3">
-          CPUs
-          <input value={cpu} onChange={(e) => setCpu(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="no limit" className={cn(field, "mt-1 block")} />
-        </label>
-        <Button type="submit" size="md" disabled={!ok}>
-          Set this limit
-        </Button>
-      </form>
-    </Group>
   );
 }
 

@@ -8,7 +8,7 @@ export function ProblemNote({ error, className, title }: { error: unknown; class
   const p = error instanceof ApiError ? error.problem : undefined;
   const detail = p?.detail ?? (error instanceof Error ? error.message : "Something went wrong.");
   return (
-    <div role="alert" className={cn("flex gap-3 rounded-lg border border-danger-rule bg-danger-wash px-4 py-3", className)}>
+    <div role="alert" className={cn("flex gap-3 rounded-lg [:where(&)]:border border-danger-rule [:where(&)]:bg-danger-wash [:where(&)]:px-4 [:where(&)]:py-3", className)}>
       <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
       <div className="min-w-0 text-base">
         <p className="font-medium text-ink">{title ?? sentence(detail)}</p>

@@ -39,7 +39,7 @@ export function GitSettingsPage({ search }: { search: GitSearch }) {
       toast({
         title: "GitHub is connected.",
         detail: "Import a repository from New project; every push to its branch deploys.",
-        action: { label: "Import a repository", run: () => void navigate({ to: "/new", search: { starter: "github" } as never }) },
+        action: { label: "Import a repository", run: () => void navigate({ to: "/new", search: { starter: "github" } }) },
       });
     if (search.requested) toast({ title: "GitHub asked an organization owner to approve the install.", detail: "It shows up here once they do." });
     void navigate({ to: "/settings/git", search: {}, replace: true });
@@ -160,7 +160,7 @@ function Connected({ s }: { s: GitHubStatus }) {
         <div className="flex flex-wrap gap-2 max-sm:w-full max-sm:pl-14">
           {installs.length > 0 && (
             <Button asChild variant="primary" size="lg">
-              <Link to="/new" search={{ starter: "github" } as never}>
+              <Link to="/new" search={{ starter: "github" }}>
                 Import a repository
               </Link>
             </Button>

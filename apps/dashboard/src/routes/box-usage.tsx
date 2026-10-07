@@ -168,9 +168,9 @@ function ByProject({ names, totals, held }: { names: string[]; totals: Map<strin
                 <tr key={r.name} className="group cursor-pointer" onClick={() => void navigate({ to: "/projects/$project/usage", params: { project: r.name } })}>
                   <td className="sticky left-0 z-[1] border-b border-rule bg-paper py-2.5 pr-3 group-hover:bg-paper-hover">
                     <span className="flex min-w-0 items-center gap-2.5">
-                      <ProjectIcon project={r.name} size={18} />
+                      <ProjectIcon project={r.name} size={20} />
                       <span className="min-w-0">
-                        <Link to="/projects/$project/usage" params={{ project: r.name }} className="block truncate font-[550] text-ink outline-none focus-visible:underline">
+                        <Link to="/projects/$project/usage" params={{ project: r.name }} className="block truncate font-[550] text-ink outline-hidden focus-visible:underline">
                           {r.name}
                         </Link>
                         <span className="block truncate text-xs text-ink-3">
