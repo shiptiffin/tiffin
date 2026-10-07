@@ -44,7 +44,7 @@ func (m *Module) registerCreate(a huma.API) {
 
 	huma.Register(a, api.Op("templates-list", http.MethodGet, "/v1/templates", "templates list", api.RiskRead, "List starter templates",
 		"Small, working starter apps shipped inside tiffin. Each has a kind (web: a web app with a server; static: a static site; "+
-			"api: a JSON API) and a preset (the framework: nextjs, tanstack-start, astro, vite-react, hono); listed ones are offered "+
+			"api: a JSON API) and a preset (the framework: nextjs, tanstack-start, astro, vite-react, hono, fastapi); listed ones are offered "+
 			"when starting a project, and default marks each kind's usual pick. Also: the services they need and the manifest fragment "+
 			"to merge into a project (apps + services). To start a project from one: merge the fragment into the project's manifest "+
 			"(projects manifest), plan and apply it, then deploys template with the template id, e.g. "+

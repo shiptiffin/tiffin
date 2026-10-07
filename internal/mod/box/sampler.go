@@ -304,20 +304,21 @@ func disk(mount string) Disk {
 
 // known names and describes the units modules install.
 var known = map[string][2]string{
-	"tiffin.service":                  {"tiffin", "Tiffin itself: the API, dashboard, email, queues, workflows and analytics"},
-	"tiffin-edge.service":             {"edge", "The HTTPS edge: serves every site and routes requests to app instances"},
-	"tiffin-postgres.service":         {"postgres", "PostgreSQL: every project's database"},
-	"tiffin-pgbouncer.service":        {"pgbouncer", "PgBouncer: pools apps' database connections"},
-	"tiffin-valkey.service":           {"valkey", "Valkey: caches, sessions and KV for every project"},
-	"tiffin-storage.service":          {"storage", "S3-compatible object storage for buckets"},
-	"tiffin-auth.service":             {"auth", "The auth engine: users, sessions and organizations"},
-	"tiffin-metrics.service":          {"victoria-metrics", "VictoriaMetrics: the metrics store"},
-	"tiffin-logs.service":             {"victoria-logs", "VictoriaLogs: the logs store"},
-	"tiffin-firewall.service":         {"firewall", "Host firewall rules (applied once at boot)"},
-	"tiffin-runtime-firewall.service": {"app-firewall", "Keeps app ports private (applied once at boot)"},
-	"containerd.service":              {"containerd", "Runs the app containers"},
-	"buildkit.service":                {"buildkit", "Builds app images"},
-	"crowdsec.service":                {"crowdsec", "CrowdSec: detects and bans abusive IPs"},
+	"tiffin.service":                    {"tiffin", "Tiffin itself: the API, dashboard, email, queues, workflows and analytics"},
+	"tiffin-edge.service":               {"edge", "The HTTPS edge: serves every site and routes requests to app instances"},
+	"tiffin-postgres.service":           {"postgres", "PostgreSQL: every project's database"},
+	"tiffin-pgbouncer.service":          {"pgbouncer", "PgBouncer: pools apps' database connections"},
+	"tiffin-valkey.service":             {"valkey", "Valkey: caches, sessions and KV for every project"},
+	"tiffin-storage.service":            {"storage", "S3-compatible object storage for buckets"},
+	"tiffin-auth.service":               {"auth", "The auth engine: users, sessions and organizations"},
+	"tiffin-metrics.service":            {"victoria-metrics", "VictoriaMetrics: the metrics store"},
+	"tiffin-logs.service":               {"victoria-logs", "VictoriaLogs: the logs store"},
+	"tiffin-firewall.service":           {"firewall", "Host firewall rules (applied once at boot)"},
+	"tiffin-runtime-firewall.service":   {"app-firewall", "Keeps app ports private (applied once at boot)"},
+	"containerd.service":                {"containerd", "Runs the app containers"},
+	"buildkit.service":                  {"buildkit", "Builds app images"},
+	"crowdsec.service":                  {"crowdsec", "CrowdSec: detects and bans abusive IPs"},
+	"crowdsec-firewall-bouncer.service": {"crowdsec-firewall-bouncer", "Drops traffic from the IPs CrowdSec bans, at the firewall"},
 }
 
 // units are the services modules installed (regular unit files in
