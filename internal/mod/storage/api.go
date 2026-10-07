@@ -220,7 +220,20 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	form := api.Op("storage-object-upload", http.MethodPost, "/v1/projects/{project}/storage/buckets/{bucket}/objects", "storage objects upload", api.RiskWrite,
 		"Upload a file (multipart form)", "For browsers: multipart/form-data with a \"key\" field and a \"file\" field.", tag)
 	form.Hidden = true
-	form.MaxBodyBytes = MaxAPIUpload + 1<<20
+	form.MaxBodyBytes = MaxAPIUpload + 1<<20 // held to it before parsing (api.limitMultipart)
+	// The right to write is checked before the form is read, not after.
+	form.Middlewares = huma.Middlewares{func(ctx huma.Context, next func(huma.Context)) {
+		pr := api.PrincipalFrom(ctx.Context())
+		if pr == nil {
+			_ = huma.WriteErr(a, ctx, http.StatusUnauthorized, "")
+			return
+		}
+		if err := pr.Require(tokens.ScopeApplyReversible, ctx.Param("project")); err != nil {
+			_ = huma.WriteErr(a, ctx, http.StatusForbidden, err.Error())
+			return
+		}
+		next(ctx)
+	}}
 	huma.Register(a, form, api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$"`
 		Bucket  string `path:"bucket" pattern:"^[a-z][a-z0-9-]{0,39}$"`

@@ -1,8 +1,11 @@
 package storage
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -176,6 +179,25 @@ func TestFilesUnder(t *testing.T) {
 // apiRig serves the real API with the package's module wired to the rig's
 // fake gateway and front, and an owner token.
 func apiRig(t *testing.T) (*frontRig, func(method, target, body string) (int, map[string]any, http.Header, []byte)) {
+	r, h, owner, _ := apiServer(t)
+	return r, func(method, target, body string) (int, map[string]any, http.Header, []byte) {
+		req := httptest.NewRequest(method, target, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+owner)
+		if body != "" && body[0] == '{' {
+			req.Header.Set("Content-Type", "application/json")
+		} else {
+			req.Header.Set("Content-Type", "application/octet-stream")
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		var out map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &out)
+		return w.Code, out, w.Header(), w.Body.Bytes()
+	}
+}
+
+// apiServer is the API handler of apiRig, with the owner's token.
+func apiServer(t *testing.T) (*frontRig, http.Handler, string, *tokens.Manager) {
 	r := newFrontRig(t)
 	tm := tokens.NewManager(r.p.DB)
 	owner, _, err := tm.Bootstrap(r.ctx)
@@ -192,20 +214,65 @@ func apiRig(t *testing.T) (*frontRig, func(method, target, body string) (int, ma
 		mod.mu.Unlock()
 	})
 	go mod.runEvents(r.ctx, r.p)
-	h := api.New(api.Deps{DB: r.p.DB, Engine: r.p.Engine, Tokens: tm, Platform: r.p}).Handler()
-	return r, func(method, target, body string) (int, map[string]any, http.Header, []byte) {
-		req := httptest.NewRequest(method, target, strings.NewReader(body))
-		req.Header.Set("Authorization", "Bearer "+owner)
-		if body != "" && body[0] == '{' {
-			req.Header.Set("Content-Type", "application/json")
-		} else {
-			req.Header.Set("Content-Type", "application/octet-stream")
+	return r, api.New(api.Deps{DB: r.p.DB, Engine: r.p.Engine, Tokens: tm, Platform: r.p}).Handler(), owner, tm
+}
+
+// countingReader counts what is read of a request body.
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
+// The multipart upload is held to its body limit before the form is
+// parsed (huma's form parser spools any size to disk), and a caller who
+// may not write gets 403 before a byte of it is read.
+func TestMultipartUploadLimits(t *testing.T) {
+	r, h, owner, tm := apiServer(t)
+	form := func(size int) (string, []byte) {
+		var b bytes.Buffer
+		mw := multipart.NewWriter(&b)
+		_ = mw.WriteField("key", "a.png")
+		fw, _ := mw.CreateFormFile("file", "a.png")
+		_, _ = fw.Write(bytes.Repeat([]byte("x"), size))
+		_ = mw.Close()
+		return mw.FormDataContentType(), b.Bytes()
+	}
+	send := func(token string, size int, chunked bool) (int, int64) {
+		ct, body := form(size)
+		cr := &countingReader{r: bytes.NewReader(body)}
+		req := httptest.NewRequest("POST", "/v1/projects/shop/storage/buckets/pics/objects", cr)
+		req.ContentLength = int64(len(body))
+		if chunked {
+			req.ContentLength = -1
 		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", ct)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
-		var out map[string]any
-		_ = json.Unmarshal(w.Body.Bytes(), &out)
-		return w.Code, out, w.Header(), w.Body.Bytes()
+		return w.Code, cr.n
+	}
+	if code, _ := send(owner, 10, false); code != 200 {
+		t.Fatalf("a small upload: %d", code)
+	}
+	if code, read := send(owner, MaxAPIUpload+2<<20, false); code != 413 || read != 0 {
+		t.Fatalf("over the limit, length known: %d, read %d", code, read)
+	}
+	if code, read := send(owner, MaxAPIUpload+4<<20, true); code < 400 || read > MaxAPIUpload+2<<20 {
+		t.Fatalf("over the limit, length unknown: %d, read %d", code, read)
+	}
+	op, _ := tm.Authenticate(r.ctx, owner)
+	viewer, _, err := tm.Create(r.ctx, op, tokens.CreateRequest{Name: "viewer", Scopes: []tokens.Scope{tokens.ScopeRead}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, read := send(viewer, 1<<20, false); code != 403 || read != 0 {
+		t.Fatalf("a viewer: %d, read %d", code, read)
 	}
 }
 

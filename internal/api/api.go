@@ -114,7 +114,7 @@ func New(d Deps) *API {
 	cfg.CreateHooks = nil // no $schema links injected into responses
 	cfg.Formats = map[string]huma.Format{"application/json": jsonFormat, "json": jsonFormat}
 	a := &API{api: humago.New(mux, cfg), mux: mux, deps: d}
-	a.api.UseMiddleware(a.authenticate, a.projectAccess, a.idempotent)
+	a.api.UseMiddleware(a.authenticate, a.projectAccess, a.limitMultipart, a.idempotent)
 	a.register()
 	a.registerIdempotency()
 	a.registerBox()
@@ -210,6 +210,25 @@ func (a *API) authenticate(ctx huma.Context, next func(huma.Context)) {
 		a.deps.Platform.OwnerSeen(ctx.Context(), clientIP(ctx.RemoteAddr(), ctx.Header("X-Forwarded-For")))
 	}
 	next(huma.WithValue(ctx, ctxKey{}, p))
+}
+
+// limitMultipart holds a multipart form to its operation's MaxBodyBytes.
+// huma enforces that limit on other bodies, but hands forms to
+// ParseMultipartForm, which spools a file of any size to temporary disk
+// before the handler runs.
+func (a *API) limitMultipart(ctx huma.Context, next func(huma.Context)) {
+	op := ctx.Operation()
+	if op == nil || op.MaxBodyBytes <= 0 || !strings.HasPrefix(strings.ToLower(ctx.Header("Content-Type")), "multipart/") {
+		next(ctx)
+		return
+	}
+	r, w := humago.Unwrap(ctx)
+	if r.ContentLength > op.MaxBodyBytes {
+		_ = huma.WriteErr(a.api, ctx, http.StatusRequestEntityTooLarge, fmt.Sprintf("the request is over %d bytes", op.MaxBodyBytes))
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, op.MaxBodyBytes)
+	next(ctx)
 }
 
 var bearer = []map[string][]string{{"bearer": {}}}
