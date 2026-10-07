@@ -52,6 +52,12 @@ fsok() { # warn when reflink branches will not work
   echo "data: $(findmnt -n -o SOURCE,FSTYPE --target "$root" | tr -s ' ')"
 }
 sudo mkdir -p "$root"
+hidden() { # a new data disk must never hide the box's data already on the root disk
+  first="$(sudo find "$root" -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)"
+  [ -z "$first" ] && return 0
+  echo "$root already holds this box's data on the root disk (e.g. $first); mounting $1 there would hide it. Run up without the data option to keep it there, or stop Tiffin (sudo systemctl stop tiffin tiffin-edge.socket tiffin-edge.service) and move the data onto $1 first" >&2
+  exit 3
+}
 `
 	switch {
 	case d.Device != "":
@@ -78,6 +84,8 @@ if mountpoint -q "$root"; then grow; quota; fsok; exit 0; fi
 for i in $(seq 1 90); do [ -b "$dev" ] && break; sleep 1; done
 [ -b "$dev" ] || { echo "the data disk $dev does not exist on this server" >&2; exit 3; }
 real="$(readlink -f "$dev")"
+# A disk Tiffin labelled holds the box's data already: mounting it again is fine.
+if [ "$(sudo blkid -o value -s LABEL "$real" 2>/dev/null || true)" != %[2]s ]; then hidden "$dev"; fi
 moved=0
 cur="$(findmnt -n -o TARGET -S "$real" 2>/dev/null | head -n1 || true)"
 if [ -n "$cur" ]; then
@@ -123,6 +131,8 @@ fsok
 	case d.Dir != "":
 		return head + fmt.Sprintf(`dir=%q
 if mountpoint -q "$root"; then fsok; exit 0; fi
+# A folder that holds files already is the box's data moved there.
+if [ -z "$(sudo find "$dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then hidden "$dir"; fi
 sudo mkdir -p "$dir"
 sudo sed -i '\| /var/lib/tiffin |d' /etc/fstab
 echo "$dir $root none bind,nofail 0 0" | sudo tee -a /etc/fstab >/dev/null

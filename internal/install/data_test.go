@@ -78,3 +78,53 @@ func TestCAScript(t *testing.T) {
 		t.Fatalf("a stale CA on a box with public certificates was read: %q %v", out, err)
 	}
 }
+
+// Adding a data disk or folder to a box whose data is on the root disk
+// would hide that data under an empty mount: refused, before any change.
+func TestDataNeverHidesExistingData(t *testing.T) {
+	run := func(populate, dirHasFiles bool) (string, bool) {
+		tmp := t.TempDir()
+		root, dir := filepath.Join(tmp, "root"), filepath.Join(tmp, "new")
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if populate {
+			if err := os.WriteFile(filepath.Join(root, "state.db"), []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if dirHasFiles {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "state.db"), []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		s, err := dataScript(DataSpec{Dir: "/srv/tiffin"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		s = strings.ReplaceAll(s, "root="+DataRoot, "root="+root)
+		s = strings.ReplaceAll(s, `dir="/srv/tiffin"`, `dir="`+dir+`"`)
+		s = strings.ReplaceAll(s, "/etc/fstab", filepath.Join(tmp, "fstab"))
+		mounted := filepath.Join(tmp, "mounted")
+		shims := "sudo() { \"$@\"; }\nmountpoint() { return 1; }\nfindmnt() { :; }\nsystemctl() { :; }\nsed() { :; }\nmount() { touch " + mounted + "; }\n"
+		out, _ := exec.Command("bash", "-c", shims+s).CombinedOutput()
+		_, err = os.Stat(mounted)
+		return string(out), err == nil
+	}
+	if out, mounted := run(true, false); mounted || !strings.Contains(out, "would hide it") {
+		t.Fatalf("an empty folder was mounted over the box's data: %s", out)
+	}
+	if out, mounted := run(false, false); !mounted {
+		t.Fatalf("a new box must get its data folder: %s", out)
+	}
+	if out, mounted := run(true, true); !mounted {
+		t.Fatalf("a folder holding the moved data must be mounted: %s", out)
+	}
+	s, _ := dataScript(DataSpec{Device: "/dev/sdb"})
+	if i, j := strings.Index(s, `then hidden "$dev"`), strings.Index(s, "mkfs.xfs"); i < 0 || i > j || !strings.Contains(s, `-s LABEL "$real" 2>/dev/null || true)" != tiffin-data ]; then hidden`) {
+		t.Fatal("a disk Tiffin did not label must be checked before anything is formatted or mounted")
+	}
+}
