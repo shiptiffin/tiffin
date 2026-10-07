@@ -64,7 +64,7 @@ const (
 // Default retention, overridable with the observe-settings-set operation.
 const (
 	DefaultMetricsRetention = "30d"
-	DefaultLogsRetention    = "14d"
+	DefaultLogsRetention    = "30d"
 )
 
 func vmURL(v string) string {
@@ -102,7 +102,7 @@ After=network.target local-fs.target
 [Service]
 User=tiffin-observe
 Group=tiffin-observe
-Environment=LOGS_RETENTION=14d
+Environment=LOGS_RETENTION=30d
 EnvironmentFile=-` + settingsFile + `
 EnvironmentFile=` + authFile + `
 ExecStart=` + binDir + `/victoria-logs-%s -envflag.enable -storageDataPath=` + DataDir + `/logs -retentionPeriod=${LOGS_RETENTION} -retention.maxDiskUsagePercent=80 -httpListenAddr=` + VLAddr + ` -memory.allowedPercent=15 -loggerLevel=WARN

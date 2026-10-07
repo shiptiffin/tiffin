@@ -187,6 +187,13 @@ func (s *Store) savePos(path string, p logtail.Position) {
 		ON CONFLICT(path) DO UPDATE SET inode = excluded.inode, off = excluded.off`, path, p.Inode, p.Offset)
 }
 
+// deletePos forgets a tailed file's position (the file is gone).
+func (s *Store) deletePos(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, _ = s.db.Exec(`DELETE FROM tail_positions WHERE path = ?`, path)
+}
+
 // ---- settings ----
 
 // Setting reads a setting.

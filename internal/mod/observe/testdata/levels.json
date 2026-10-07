@@ -1,0 +1,304 @@
+[
+ {
+  "note": "errors"
+ },
+ {
+  "line": "error: connect ECONNREFUSED 127.0.0.1:5432",
+  "level": "error"
+ },
+ {
+  "line": "ERROR: relation \"users\" does not exist",
+  "level": "error"
+ },
+ {
+  "line": "Error: Cannot find module 'next'",
+  "level": "error"
+ },
+ {
+  "line": "[error] upstream timed out",
+  "level": "error"
+ },
+ {
+  "line": "[ERROR]something",
+  "level": "error"
+ },
+ {
+  "line": "10:01:02 [Error] boom",
+  "level": "error"
+ },
+ {
+  "line": "FATAL: password authentication failed for user \"app\"",
+  "level": "error"
+ },
+ {
+  "line": "2026-10-06 10:00:00.123 UTC [57] ERROR:  duplicate key value violates unique constraint",
+  "level": "error"
+ },
+ {
+  "line": "2026-10-06 10:00:00.123 UTC [57] FATAL:  the database system is starting up",
+  "level": "error"
+ },
+ {
+  "line": "server FATAL crash",
+  "level": "error"
+ },
+ {
+  "line": "panic: runtime error: invalid memory address or nil pointer dereference",
+  "level": "error"
+ },
+ {
+  "line": "fatal error: all goroutines are asleep - deadlock!",
+  "level": "error"
+ },
+ {
+  "line": "Uncaught TypeError: x is not a function",
+  "level": "error"
+ },
+ {
+  "line": "TypeError: Cannot read properties of undefined (reading 'id')",
+  "level": "error"
+ },
+ {
+  "line": "(node:1) UnhandledPromiseRejectionWarning: Error: boom",
+  "level": "error"
+ },
+ {
+  "line": "npm ERR! code ENOENT",
+  "level": "error"
+ },
+ {
+  "line": "npm error code ELIFECYCLE",
+  "level": "error"
+ },
+ {
+  "line": "  error  ",
+  "level": "error"
+ },
+ {
+  "line": "\u001b[31merror\u001b[39m Command failed with exit code 1.",
+  "level": "error"
+ },
+ {
+  "line": "time=2026-10-06T10:00:00Z level=ERROR msg=\"db down\"",
+  "level": "error"
+ },
+ {
+  "note": "build output: BuildKit steps, tiffin's markers"
+ },
+ {
+  "line": "#12 ERROR: process \"/bin/sh -c npm run build\" did not complete successfully: exit code: 1",
+  "level": "error"
+ },
+ {
+  "line": "#12 3.214 Error: ENOENT: no such file or directory, open '/app/.env'",
+  "level": "error"
+ },
+ {
+  "line": "#9 12.5 npm warn deprecated inflight@1.0.6",
+  "level": "warning"
+ },
+ {
+  "line": "==> FAILED: build: exit status 1",
+  "level": "error"
+ },
+ {
+  "line": "==> warning: disk folder data holds 2 GB",
+  "level": "warning"
+ },
+ {
+  "line": "ERROR: failed to solve: process did not complete successfully",
+  "level": "error"
+ },
+ {
+  "line": "build script exited with code 2",
+  "level": "error"
+ },
+ {
+  "line": "worker exited with code 0",
+  "level": ""
+ },
+ {
+  "note": "warnings"
+ },
+ {
+  "line": "warn: slow query 812ms",
+  "level": "warning"
+ },
+ {
+  "line": "WARNING: there is no transaction in progress",
+  "level": "warning"
+ },
+ {
+  "line": "2026-10-06 10:00:00 UTC [57] WARNING:  could not flush",
+  "level": "warning"
+ },
+ {
+  "line": "[warn] retrying",
+  "level": "warning"
+ },
+ {
+  "line": "npm WARN deprecated rimraf@3.0.2",
+  "level": "warning"
+ },
+ {
+  "line": "Warning: React version not specified",
+  "level": "warning"
+ },
+ {
+  "line": "level=warn msg=retry",
+  "level": "warning"
+ },
+ {
+  "note": "logfmt says otherwise"
+ },
+ {
+  "line": "level=info msg=\"ERROR: handled\"",
+  "level": "info"
+ },
+ {
+  "line": "time=x level=debug msg=hi",
+  "level": "debug"
+ },
+ {
+  "note": "Python: Uvicorn, logging's default format, tracebacks, Alembic"
+ },
+ {
+  "line": "ERROR:    Exception in ASGI application",
+  "level": "error"
+ },
+ {
+  "line": "WARNING:  Invalid HTTP request received.",
+  "level": "warning"
+ },
+ {
+  "line": "CRITICAL: Could not bind to port",
+  "level": "error"
+ },
+ {
+  "line": "INFO:     Started server process [7]",
+  "level": ""
+ },
+ {
+  "line": "INFO:     203.0.113.9:0 - \"GET /notes HTTP/1.1\" 500 Internal Server Error",
+  "level": ""
+ },
+ {
+  "line": "INFO:     203.0.113.9:0 - \"GET /errors HTTP/1.1\" 200 OK",
+  "level": ""
+ },
+ {
+  "line": "ERROR:root:payment failed",
+  "level": "error"
+ },
+ {
+  "line": "WARNING:notes:slow query 812ms",
+  "level": "warning"
+ },
+ {
+  "line": "Traceback (most recent call last):",
+  "level": ""
+ },
+ {
+  "line": "  File \"/app/app/main.py\", line 42, in create_note",
+  "level": ""
+ },
+ {
+  "line": "ValueError: invalid literal for int() with base 10: 'x'",
+  "level": "error"
+ },
+ {
+  "line": "psycopg.errors.UndefinedTable: relation \"notes\" does not exist",
+  "level": "error"
+ },
+ {
+  "line": "sqlalchemy.exc.OperationalError: (psycopg.OperationalError) connection failed",
+  "level": "error"
+ },
+ {
+  "line": "Exception: boom",
+  "level": "error"
+ },
+ {
+  "line": "INFO  [alembic.runtime.migration] Running upgrade  -> 0001, Create notes.",
+  "level": ""
+ },
+ {
+  "line": "ERROR [alembic.util.messaging] Can't locate revision identified by 'abc1'",
+  "level": "error"
+ },
+ {
+  "line": "  FAILED: Can't locate revision identified by 'abc1'",
+  "level": "error"
+ },
+ {
+  "line": "raise ValueError(\"bad\")",
+  "level": ""
+ },
+ {
+  "note": "not errors: counts, field names, words inside words, mentions"
+ },
+ {
+  "line": "0 errors",
+  "level": ""
+ },
+ {
+  "line": "Found 0 errors. Watching for file changes.",
+  "level": ""
+ },
+ {
+  "line": "error_count=0",
+  "level": ""
+ },
+ {
+  "line": "errors: 0",
+  "level": ""
+ },
+ {
+  "line": "Error-free build",
+  "level": ""
+ },
+ {
+  "line": "compiled with no errors or warnings",
+  "level": ""
+ },
+ {
+  "line": "warnings: 0",
+  "level": ""
+ },
+ {
+  "line": "handled an error gracefully",
+  "level": ""
+ },
+ {
+  "line": "TypeErrors are fun",
+  "level": ""
+ },
+ {
+  "line": "ERROR_RATE=0.0",
+  "level": ""
+ },
+ {
+  "line": "FATALITY",
+  "level": ""
+ },
+ {
+  "line": "#7 [2/5] RUN npm ci",
+  "level": ""
+ },
+ {
+  "line": "==> building the image (BuildKit)",
+  "level": ""
+ },
+ {
+  "line": "GET /api/errors 200 3ms",
+  "level": ""
+ },
+ {
+  "line": "listening on :3000",
+  "level": ""
+ },
+ {
+  "line": "",
+  "level": ""
+ }
+]

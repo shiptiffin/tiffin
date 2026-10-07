@@ -86,7 +86,7 @@ func parseDur(s string) (time.Duration, error) {
 
 type logsQueryBody struct {
 	Project string `json:"project,omitempty" doc:"Project whose logs to search (its apps, its edge traffic and its reported errors). Leave empty for the box's own logs (tiffin, the stores, the system journal): box admins only."`
-	Query   string `json:"query" minLength:"1" maxLength:"4000" doc:"LogsQL, e.g. 'error', 'app:web level:error', '_msg:~\"timeout\" | stats count() by (app)'. Fields: _msg, _time, level, app, source (app = stdout/stderr, edge = requests, errors = reported errors, otlp), deploy, env (prod or pr-<preview>), instance, stream; edge rows add host, method, path, status, duration_ms, user_agent; error rows add issue, culprit, release. Box logs (no project) have unit and level."`
+	Query   string `json:"query" minLength:"1" maxLength:"4000" doc:"LogsQL, e.g. 'error', 'app:web level:error', '_msg:~\"timeout\" | stats count() by (app)'. Fields: _msg, _time, level, app, source (app = stdout/stderr, edge = requests, errors = reported errors, otlp, build = build output), deploy, env (prod or pr-<preview>), instance, stream; edge rows add host, method, path, status, duration_ms, user_agent; error rows add issue, culprit, release. Box logs (no project) have unit and level."`
 	Since   string `json:"since,omitempty" doc:"How far back to look, e.g. 15m, 6h, 7d. Default 1h. Ignored when start is set."`
 	Start   string `json:"start,omitempty" doc:"Range start, RFC 3339"`
 	End     string `json:"end,omitempty" doc:"Range end, RFC 3339 (default now)"`
@@ -156,7 +156,7 @@ type Settings struct {
 	Email              string  `json:"email" doc:"Alert email address. Empty: alerts@<box domain>."`
 	EmailProject       string  `json:"emailProject" doc:"Project whose email service sends box alerts (they land in its dev inbox until an SMTP relay is set up). Project alerts use their own project's email when it has one. Empty: box alerts are not emailed."`
 	MetricsRetention   string  `json:"metricsRetention" doc:"How long metrics are kept, e.g. 30d"`
-	LogsRetention      string  `json:"logsRetention" doc:"How long logs are kept, e.g. 14d"`
+	LogsRetention      string  `json:"logsRetention" doc:"How long logs are kept, e.g. 30d"`
 	TracesRetention    string  `json:"tracesRetention" doc:"How long traces are kept, e.g. 3d"`
 	TracesSampleRate   float64 `json:"tracesSampleRate" doc:"Share of ordinary traces kept, 0-1. Traces with an error or a span of a second or more are always kept."`
 	TracesMaxMegabytes int64   `json:"tracesMaxMegabytes" doc:"Trace storage per project, in MB; the oldest traces go first"`
@@ -201,7 +201,7 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 	m.registerHistory(a)
 	huma.Register(a, api.Untrusted(api.Op("logs-query", http.MethodPost, "/v1/observe/logs/query", "logs query", api.RiskRead,
 		"Search logs",
-		"Searches a project's logs with LogsQL: its apps' output (source:app), its edge requests (source:edge), errors its apps reported (source:errors) and OTLP logs (source:otlp). "+
+		"Searches a project's logs with LogsQL: its apps' output (source:app), its edge requests (source:edge), errors its apps reported (source:errors), OTLP logs (source:otlp) and its deploys' build output (source:build, one line each, with deploy). "+
 			"Leave project empty for the box's own logs (box admins). Newest first."+untrusted, "observe")),
 		api.Wrap(func(ctx context.Context, in *struct{ Body logsQueryBody }) (*struct{ Body LogsResult }, error) {
 			if err := m.ready(); err != nil {

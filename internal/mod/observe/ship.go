@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -178,10 +180,18 @@ func sleepCtx(ctx context.Context, d time.Duration) {
 // AppLog are the labels of one app log file, from its path under the apps
 // dir. The runtime writes <project>/<app>/<env>/<deploy>.<instance>.log (env
 // is prod or pr-<preview>); shallower layouts (<project>/<app>.log,
-// <project>/<app>/<deploy>.log) work too.
+// <project>/<app>/<deploy>.log) work too. Build output goes to
+// <project>/<app>/build/<deploy>.log (Build is set): "build" is never an
+// env folder, which are prod or pr-<preview>.
 type AppLog struct {
 	Project, App, Env, Deploy, Instance string
+	Build                               bool
 }
+
+// BuildLogDir is the folder under an app's log folder that holds its build
+// output for the shipper, one <deploy>.log of JSON lines per deploy. The
+// runtime writes it (see runtime.buildLog).
+const BuildLogDir = "build"
 
 func appLogLabels(root, path string) (AppLog, bool) {
 	rel, err := filepath.Rel(root, path)
@@ -195,6 +205,9 @@ func appLogLabels(root, path string) (AppLog, bool) {
 	case 3:
 		return AppLog{Project: parts[0], App: parts[1], Deploy: parts[2]}, true
 	case 4:
+		if parts[2] == BuildLogDir {
+			return AppLog{Project: parts[0], App: parts[1], Deploy: parts[3], Build: true}, true
+		}
 		l := AppLog{Project: parts[0], App: parts[1], Env: parts[2], Deploy: parts[3]}
 		if d, n, ok := strings.Cut(parts[3], "."); ok {
 			l.Deploy, l.Instance = d, n
@@ -242,7 +255,7 @@ func appLogRecord(line []byte, l AppLog) map[string]any {
 				case "msg", "message":
 					rec["_msg"] = fmt.Sprint(v)
 				case "level", "severity", "lvl":
-					rec["level"] = strings.ToLower(fmt.Sprint(v))
+					rec["level"] = jsonLevel(v)
 				case "time", "timestamp", "ts", "_time":
 					if s, ok := v.(string); ok {
 						if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
@@ -265,10 +278,32 @@ func appLogRecord(line []byte, l AppLog) map[string]any {
 			if _, ok := rec["_msg"]; !ok {
 				rec["_msg"] = string(trim)
 			}
-			return rec
+			return withLevel(rec)
 		}
 	}
 	rec["_msg"] = string(line)
+	return withLevel(rec)
+}
+
+// jsonLevel is a JSON line's level field: lowercased as written, with
+// pino's numbers (30 info, 50 error, …) named.
+func jsonLevel(v any) string {
+	s := strings.ToLower(fmt.Sprint(v))
+	if _, err := strconv.Atoi(s); err == nil {
+		return levelName(s)
+	}
+	return s
+}
+
+// withLevel infers a level from the message when the line has no level field.
+func withLevel(rec map[string]any) map[string]any {
+	if l, _ := rec["level"].(string); l != "" {
+		return rec
+	}
+	msg, _ := rec["_msg"].(string)
+	if l := inferLevel(msg); l != "" {
+		rec["level"] = l
+	}
 	return rec
 }
 
@@ -307,6 +342,10 @@ func (m *Module) runAppLogs(ctx context.Context, root string) {
 					if err != nil {
 						return
 					}
+					if l.Build {
+						m.batch.Add(t, "source,app,env", buildLogRecord(line, l))
+						return
+					}
 					m.batch.Add(t, "source,app,env", appLogRecord(line, l))
 				}}
 			go tl.Run(tctx)
@@ -315,6 +354,11 @@ func (m *Module) runAppLogs(ctx context.Context, root string) {
 			if !want[path] {
 				cancel()
 				delete(running, path)
+				// Pruned for good (a rotated file reappears under a new
+				// inode anyway): forget where its tail stopped.
+				if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+					m.store.deletePos(path)
+				}
 			}
 		}
 		sleepCtx(ctx, 5*time.Second)
