@@ -230,6 +230,27 @@ func appNode(name string, a App, implied string) *node {
 	if a.Command != "" {
 		n.set("command", str(a.Command))
 	}
+	if a.Builder != "" && a.Builder != BuilderAuto {
+		n.set("builder", str(string(a.Builder)))
+	}
+	if a.Dockerfile != "" {
+		n.set("dockerfile", str(a.Dockerfile))
+	}
+	if a.Target != "" {
+		n.set("target", str(a.Target))
+	}
+	if a.Install != "" {
+		n.set("install", str(a.Install))
+	}
+	if a.Build != "" {
+		n.set("build", str(a.Build))
+	}
+	if a.Output != "" {
+		n.set("output", str(a.Output))
+	}
+	if len(a.Watch) > 0 {
+		n.set("watch", strs(a.Watch))
+	}
 	if a.Release != "" {
 		n.set("release", str(a.Release))
 	}

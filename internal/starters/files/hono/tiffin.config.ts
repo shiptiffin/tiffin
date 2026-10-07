@@ -1,6 +1,6 @@
 import { defineConfig } from "@shiptiffin/sdk";
 
-// A notes API: Hono on Bun, with its own Postgres database.
+// An API: a small notes service in Hono on Bun, with its own Postgres database.
 export default defineConfig({
   project: "notes",
   apps: {

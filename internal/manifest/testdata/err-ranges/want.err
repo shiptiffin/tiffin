@@ -2,7 +2,7 @@
 /apps/a/memoryMB: must be at least 64 (got 32)
 /apps/b/instances: must be at most 16 (got 17)
 /apps/b/memoryMB: must be at most 8192 (got 9000)
-/apps/c/framework: value must be one of 'next', 'hono', 'bun', 'static'
+/apps/c/framework: value must be one of 'next', 'hono', 'bun', 'static', 'fastapi', 'python'
 /apps/c/instances: expected integer, got number
 /apps/c/role: value must be one of 'web', 'worker'
 /apps/d/healthcheck: "health" must start with "/"

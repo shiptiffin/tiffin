@@ -8,6 +8,7 @@ package manifest
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 )
 
 // Version is the manifest format version this build understands.
@@ -70,7 +71,17 @@ const (
 	FrameworkHono   Framework = "hono"
 	FrameworkBun    Framework = "bun"    // any Bun server listening on $PORT
 	FrameworkStatic Framework = "static" // served straight by Caddy
+	// FrameworkFastAPI is a FastAPI app (Python), built by Railpack's Python
+	// provider and started as one Uvicorn process on $PORT.
+	FrameworkFastAPI Framework = "fastapi"
+	// FrameworkPython is any other Python server listening on $PORT (Flask,
+	// Django, Litestar...): Railpack's start command, or the app's command.
+	FrameworkPython Framework = "python"
 )
+
+// IsPython reports whether the framework is a Python one: it builds with
+// Railpack's Python provider and runs on no JavaScript runtime.
+func (f Framework) IsPython() bool { return f == FrameworkFastAPI || f == FrameworkPython }
 
 // Role is what an app instance does.
 type Role string
@@ -79,6 +90,19 @@ const (
 	RoleWeb    Role = "web"    // serves HTTP on routes
 	RoleWorker Role = "worker" // receives queue and workflow pushes only
 )
+
+// Builder is how an app's image is made.
+type Builder string
+
+const (
+	BuilderAuto       Builder = "auto" // Railpack (or a Dockerfile it finds); stored as absent
+	BuilderDockerfile Builder = "dockerfile"
+	BuilderStatic     Builder = "static" // an alias: Normalize turns it into framework "static"
+	BuilderPrebuilt   Builder = "prebuilt"
+)
+
+// DefaultDockerfile is the Dockerfile a dockerfile app builds when it names none.
+const DefaultDockerfile = "Dockerfile"
 
 // Runtime is the JavaScript runtime an app builds and runs on.
 type Runtime string
@@ -115,13 +139,51 @@ type App struct {
 	// app that needs Node.js (a native module built for it, a library that
 	// leans on Node internals). Bun runs scripts under --bun, so a package's
 	// node shebang runs on Bun too. Applies from the next deploy. Not for
-	// static apps.
+	// static or Python apps (.python-version picks their Python).
 	Runtime Runtime `json:"runtime,omitempty"`
 	// Command starts the app instead of the start command the build
 	// detects (package.json "start"), e.g. "bun run worker.ts": one source
-	// folder can run a web app and a worker. Applies from the next deploy.
-	// Not for static apps.
+	// folder can run a web app and a worker. For a Dockerfile or prebuilt
+	// image it replaces the image's own command (run with /bin/sh -c).
+	// Applies from the next deploy. Not for static apps.
 	Command string `json:"command,omitempty"`
+	// Builder is how the app's image is made: "auto" (the default, stored
+	// as absent: Railpack, or a Dockerfile at the app's folder when the
+	// folder has no package.json or Python project), "dockerfile" (BuildKit
+	// builds the app's Dockerfile; it picks the runtime, install and build
+	// steps), "static" (the same as framework "static": the files are
+	// served) or "prebuilt" (only `tiffin deploy --prebuilt image.tar`;
+	// nothing is built on the box). Applies from the next deploy.
+	Builder Builder `json:"builder,omitempty"`
+	// Dockerfile is the Dockerfile's path, relative to the app's folder.
+	// Default "Dockerfile". Builder "dockerfile" only.
+	Dockerfile string `json:"dockerfile,omitempty"`
+	// Target is the Dockerfile stage to build (docker build --target).
+	// Default: the last stage. Builder "dockerfile" only.
+	Target string `json:"target,omitempty"`
+	// Install replaces the detected install command (bun install, or the
+	// lockfile's package manager), run at the top of the app's workspace,
+	// e.g. "pnpm install --frozen-lockfile". Wins over vercel.json's
+	// installCommand. Not for builder "dockerfile" or "prebuilt".
+	Install string `json:"install,omitempty"`
+	// Build replaces the detected build command (package.json "build"), run
+	// in the app's folder, e.g. "bun run build:web". Wins over vercel.json's
+	// buildCommand. Not for builder "dockerfile" or "prebuilt".
+	Build string `json:"build,omitempty"`
+	// Output is the folder, relative to the app, that a static site (or a
+	// Next.js static export) serves, e.g. "dist" or "out". Default: the
+	// first of dist, build, out and public (a static export: out) with an
+	// index.html. Wins over vercel.json and a Staticfile. Static sites and
+	// Next.js apps only.
+	Output string `json:"output,omitempty"`
+	// Watch limits which GitHub pushes and pull requests deploy the app:
+	// only those that change a file matching one of these patterns, relative
+	// to the top of the repository ("apps/web/**", "packages/ui/**",
+	// "!**/*.md"). * matches within a folder, ** across folders, a pattern
+	// without wildcards matches that file or folder, and a pattern starting
+	// with ! excludes; the last pattern that matches a file decides. Absent:
+	// every push deploys. Redeploys and `tiffin deploy` always build.
+	Watch []string `json:"watch,omitempty"`
 	// Release runs once per deploy, after the build and before the new
 	// version takes traffic, in a one-off container of the new image with
 	// the app's env, e.g. "bunx drizzle-kit migrate". A failure stops the
@@ -276,7 +338,8 @@ type Bucket struct {
 	AllowedTypes []string `json:"allowedTypes,omitempty"`
 }
 
-// Auth Method values.
+// Auth Method values. The social ones are Better Auth's provider IDs, so
+// the callback path is /api/auth/callback/<method>.
 const (
 	AuthEmail     = "email"      // email + password
 	AuthMagicLink = "magic-link" // one-time sign-in link sent by email
@@ -284,18 +347,42 @@ const (
 	AuthPasskey   = "passkey"    // WebAuthn passkeys
 	AuthGoogle    = "google"     // Sign in with Google
 	AuthGitHub    = "github"     // Sign in with GitHub
+	AuthApple     = "apple"      // Sign in with Apple
+	AuthMicrosoft = "microsoft"  // Microsoft accounts (Entra ID, personal and work)
+	AuthDiscord   = "discord"    // Sign in with Discord
+	AuthFacebook  = "facebook"   // Sign in with Facebook
+	AuthTwitter   = "twitter"    // Sign in with X (Twitter)
+	AuthLinkedIn  = "linkedin"   // Sign in with LinkedIn
+	AuthGitLab    = "gitlab"     // Sign in with GitLab
+	AuthSlack     = "slack"      // Sign in with Slack
+	AuthTwitch    = "twitch"     // Sign in with Twitch
+	AuthOIDC      = "oidc"       // any OpenID Connect provider (Okta, Auth0, Keycloak, company SSO)
 )
 
 // AuthMethods lists every valid Auth.Methods value, in sorted order.
-var AuthMethods = []string{AuthEmail, AuthGitHub, AuthGoogle, AuthMagicLink, AuthOTP, AuthPasskey}
+var AuthMethods = []string{AuthApple, AuthDiscord, AuthEmail, AuthFacebook, AuthGitHub, AuthGitLab, AuthGoogle, AuthLinkedIn,
+	AuthMagicLink, AuthMicrosoft, AuthOIDC, AuthOTP, AuthPasskey, AuthSlack, AuthTwitch, AuthTwitter}
+
+// SocialAuthMethods are the methods that sign in through another service
+// (OAuth or OpenID Connect), in sorted order. Each needs that service's
+// client ID and secret: the box's own (set once in Box settings) or the
+// project's secrets.
+var SocialAuthMethods = []string{AuthApple, AuthDiscord, AuthFacebook, AuthGitHub, AuthGitLab, AuthGoogle, AuthLinkedIn,
+	AuthMicrosoft, AuthOIDC, AuthSlack, AuthTwitch, AuthTwitter}
+
+// IsSocialAuthMethod reports whether m signs in through another service.
+func IsSocialAuthMethod(m string) bool { return slices.Contains(SocialAuthMethods, m) }
 
 // Auth gives the project user accounts and sessions. The box serves the auth
 // endpoint at "/api/auth" on each app's own routes and exposes its base URL to
 // every app as TIFFIN_AUTH_URL.
 type Auth struct {
 	// Methods users can sign in with: "email" (email + password),
-	// "magic-link", "otp" (one-time code), "passkey", "google" or "github".
-	// Default ["email", "magic-link"]. Sorted and de-duplicated.
+	// "magic-link", "otp" (one-time code), "passkey", or a sign-in service:
+	// "google", "github", "apple", "microsoft", "discord", "facebook",
+	// "twitter" (X), "linkedin", "gitlab", "slack", "twitch" or "oidc"
+	// (any OpenID Connect provider). Default ["email", "magic-link"].
+	// Sorted and de-duplicated.
 	Methods []string `json:"methods"`
 	// Organizations enables teams (organizations) with the roles owner, admin,
 	// member and viewer. Default true.

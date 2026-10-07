@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -55,9 +56,12 @@ func (h *harness) buildLog(app, id string) string {
 	return string(text)
 }
 
+// The API's enum (and so the CLI, MCP and dashboard types generated from
+// it) takes every starter id.
 func TestTemplateEnumMatchesStarters(t *testing.T) {
-	if got := strings.Join(starters.IDs(), ","); got != "static-site,hono-postgres,guestbook,next-postgres" {
-		t.Fatalf("update templateBody's enum tag: starters are %s", got)
+	f, _ := reflect.TypeFor[templateBody]().FieldByName("Template")
+	if got, want := f.Tag.Get("enum"), strings.Join(starters.IDs(), ","); got != want {
+		t.Fatalf("update templateBody's enum tag to %q (it is %q)", want, got)
 	}
 }
 
@@ -66,7 +70,7 @@ func TestDeployTemplate(t *testing.T) {
 	call := h.apiCall(t)
 
 	code, list := call("GET", "/v1/templates", "")
-	if code != 200 || len(list["templates"].([]any)) != 4 {
+	if code != 200 || len(list["templates"].([]any)) != len(starters.IDs()) {
 		t.Fatalf("templates: %d %v", code, list)
 	}
 
@@ -82,13 +86,13 @@ func TestDeployTemplate(t *testing.T) {
 	if code, body := h.get("shop.tiffin.localhost", "/"); code != 200 || !strings.Contains(body, "It's live.") {
 		t.Fatalf("served: %d %s", code, body)
 	}
-	if log := h.buildLog("site", live.ID); !strings.Contains(log, "==> template static-site (Static site)") || !strings.Contains(log, "==> deploy "+live.ID) {
+	if log := h.buildLog("site", live.ID); !strings.Contains(log, "==> template static-site (HTML)") || !strings.Contains(log, "==> deploy "+live.ID) {
 		t.Fatalf("build log:\n%s", log)
 	}
 
 	// Preconditions come back as 409s with a hint, before anything is queued.
 	for _, c := range []struct{ app, tmpl, want string }{
-		{"api", "next-postgres", "framework hono"},
+		{"api", "nextjs", "framework hono"},
 		{"api", "guestbook", "needs analytics, postgres, valkey"},
 		{"nope", "guestbook", ""},
 	} {
@@ -110,12 +114,12 @@ func TestDeployTemplate(t *testing.T) {
 	// Switch Postgres on, then the notes API deploys to the hono app.
 	h.mf.Services.Postgres = &manifest.Postgres{}
 	h.apply()
-	code, d = call("POST", "/v1/projects/shop/apps/api/deploys/template?preview=try-it", `{"template":"hono-postgres"}`)
-	if code != 202 {
-		t.Fatalf("hono-postgres: %d %v", code, d)
+	code, d = call("POST", "/v1/projects/shop/apps/api/deploys/template?preview=try-it", `{"template":"hono"}`)
+	if code != 202 || d["template"] != "hono" {
+		t.Fatalf("hono: %d %v", code, d)
 	}
 	if got := h.wait("api", d["id"].(string)); got.Status != StatusLive || got.Preview != "try-it" || got.Image == "" {
-		t.Fatalf("hono-postgres: %+v\n%s", got, h.buildLog("api", got.ID))
+		t.Fatalf("hono: %+v\n%s", got, h.buildLog("api", got.ID))
 	}
 }
 

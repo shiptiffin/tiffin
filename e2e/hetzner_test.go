@@ -112,7 +112,7 @@ func TestHetzner(t *testing.T) {
 	_ = json.Unmarshal([]byte(out), &tl)
 	var app string
 	for _, tp := range tl.Templates {
-		if tp.ID == "hono-postgres" {
+		if tp.ID == "hono" {
 			raw, _ := json.Marshal(map[string]any{"project": "shop", "apps": tp.Fragment.Apps, "services": tp.Fragment.Services})
 			b.apply("shop", string(raw))
 			b.waitReady("service/postgres")

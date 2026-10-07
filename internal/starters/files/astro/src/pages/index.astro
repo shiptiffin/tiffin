@@ -1,0 +1,40 @@
+---
+import { Image } from "astro:assets";
+import Base from "../layouts/Base.astro";
+import page from "../assets/page.webp";
+
+// Runs at build time: the date is baked into the HTML.
+const built = new Date().toISOString().slice(0, 16).replace("T", " ");
+---
+
+<Base title="A new site">
+  <p class="eyebrow">Astro</p>
+  <h1>It's live.</h1>
+  <p class="lede">
+    Astro built this page into plain HTML, and the box's edge serves it over HTTPS. No server runs, and no JavaScript
+    ships unless a page asks for it.
+  </p>
+
+  <!-- The image service resizes this at build time and writes modern formats with hashed names. -->
+  <Image src={page} alt="" widths={[320, 640]} sizes="(min-width: 40rem) 32rem, 90vw" class="art" loading="eager" />
+
+  <ol class="steps">
+    <li>
+      <h2>Make it yours</h2>
+      <p>Run <code>bun install</code> and <code>bun run dev</code>, then edit <code>src/pages/index.astro</code>.</p>
+    </li>
+    <li>
+      <h2>Add pages</h2>
+      <p>
+        Every file in <code>src/pages/</code> is a page: <a href="/about/">about.astro</a> is <code>/about/</code>. Markdown
+        works too.
+      </p>
+    </li>
+    <li>
+      <h2>Ship it</h2>
+      <p>Run <code>tiffin deploy</code> in this folder. The box runs <code>bun run build</code> and serves <code>dist/</code>.</p>
+    </li>
+  </ol>
+
+  <footer>Built {built} UTC.</footer>
+</Base>

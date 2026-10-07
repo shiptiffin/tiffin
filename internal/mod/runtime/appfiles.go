@@ -30,7 +30,15 @@ func (r *rt) readApp(d *Deploy, spec *manifest.App, req *BuildRequest, log io.Wr
 		fmt.Fprintf(log, "==> workspace: the app is %s/ in a workspace (monorepo): dependencies install at its top, the app builds in its folder\n", d.Dir)
 	}
 	appDir := req.appDir()
-	req.Export = spec.Role != manifest.RoleWorker && nextExport(appDir)
+	if file, why := dockerfileOf(*spec, req.SrcDir, d.Dir); file != "" {
+		req.Dockerfile, d.Builder, d.Dockerfile = file, string(manifest.BuilderDockerfile), file
+		req.Spec.Builder = manifest.BuilderDockerfile
+		fmt.Fprintf(log, "==> builder: the Dockerfile %s (%s)\n", file, why)
+	}
+	req.Export = req.Dockerfile == "" && spec.Role != manifest.RoleWorker && nextExport(appDir)
+	if spec.Output != "" && spec.Framework == manifest.FrameworkNext && !req.Export {
+		fmt.Fprintf(log, "==> note: the output folder (%s) is only served for a Next.js static export (output: \"export\"); this app runs as a server\n", spec.Output)
+	}
 	if req.Export {
 		d.Framework = "next+export"
 	}

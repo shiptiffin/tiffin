@@ -1,0 +1,16 @@
+/apps/a/builder: static apps are files served by the edge, not an image; remove "builder" or pick another framework (got builder "dockerfile")
+/apps/b/builder: builder "static" serves files, but framework is "next"; remove one of them
+/apps/c/dockerfile: a Dockerfile path is only used with builder "dockerfile"; set builder to "dockerfile" or remove "dockerfile"
+/apps/c/target: a build target is a Dockerfile stage, only used with builder "dockerfile"; set builder to "dockerfile" or remove "target"
+/apps/d/build: the Dockerfile builds the app: put that step in it; remove "build" or the builder
+/apps/d/dockerfile: "../Dockerfile" must be a file inside the app's folder, like "Dockerfile" or "docker/web.Dockerfile" (no ".." or leading /)
+/apps/d/install: the Dockerfile builds the app: put that step in it; remove "install" or the builder
+/apps/d/packages: the Dockerfile builds the image: install the packages in it (RUN apt-get install ...); remove "packages"
+/apps/d/runtime: the image brings its own runtime (builder "dockerfile"); remove "runtime"
+/apps/e/builder: a prebuilt app only takes images (tiffin deploy --prebuilt), so pushes to its repository would have nothing to build; remove "git" or the builder
+/apps/e/output: an output folder is what a static site (or a Next.js static export) serves; framework "bun" runs a server, so remove "output"
+/apps/f/build: the build command is blank; remove "build" to use the detected one
+/apps/f/output: an output folder is what a static site (or a Next.js static export) serves; framework "hono" runs a server, so remove "output"
+/apps/g/output: "../www" must be a folder inside the app, like "dist" (no ".." or leading /)
+/apps/h/watch/0: "apps/../secret" must be a path pattern inside the repository, like "apps/web/**" or "!**/*.md"
+/apps/h/watch/1: "!" must be a path pattern inside the repository, like "apps/web/**" or "!**/*.md"

@@ -1,6 +1,6 @@
 import { defineConfig } from "@shiptiffin/sdk";
 
-// A Next.js app (App Router) on Bun, reading and writing Postgres.
+// A web app: Next.js (App Router) on Bun, reading and writing Postgres.
 export default defineConfig({
   project: "next-notes",
   apps: {

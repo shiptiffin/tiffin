@@ -104,6 +104,9 @@ func semanticErrors(m *Manifest) []FieldError {
 		case app.Runtime == RuntimeNode && app.Framework == FrameworkHono:
 			errs = append(errs, FieldError{Path: base + "/runtime",
 				Message: "framework \"hono\" is Hono on Bun; for Hono on Node.js use framework \"bun\" with @hono/node-server and a start script"})
+		case app.Runtime != "" && app.Framework.IsPython():
+			errs = append(errs, FieldError{Path: base + "/runtime",
+				Message: fmt.Sprintf("framework %q is a Python app: runtime picks Bun or Node.js for JavaScript apps; remove \"runtime\" (set the Python version in .python-version)", app.Framework)})
 		}
 		switch {
 		case app.Command != "" && app.Framework == FrameworkStatic:
@@ -124,6 +127,7 @@ func semanticErrors(m *Manifest) []FieldError {
 				Message: "static apps are files served by the edge and run no programs; remove \"packages\" or pick another framework"})
 		}
 		errs = append(errs, diskErrors(base, app)...)
+		errs = append(errs, buildErrors(base, app)...)
 		if app.TimeoutSeconds != 0 && app.Framework == FrameworkStatic {
 			errs = append(errs, FieldError{Path: base + "/timeoutSeconds",
 				Message: "static apps are files served by the edge, which has no time limit to set; remove \"timeoutSeconds\""})
@@ -444,6 +448,11 @@ func Warnings(m *Manifest) []string {
 	for _, name := range sortedKeys(m.Apps) {
 		over("apps."+name+".env", m.Apps[name].Env)
 	}
+	for _, name := range sortedKeys(m.Apps) {
+		if a := m.Apps[name]; len(a.Watch) > 0 && a.Git == nil {
+			out = append(out, fmt.Sprintf("apps.%s.watch filters GitHub pushes, and the app has no repository (git): it does nothing until one is connected", name))
+		}
+	}
 	if pg := m.Services.Postgres; pg != nil && pg.Previews == PreviewDBShared {
 		for _, name := range sortedKeys(m.Apps) {
 			if m.Apps[name].Release != "" {
@@ -496,4 +505,80 @@ func diskErrors(base string, app App) []FieldError {
 		}
 	}
 	return errs
+}
+
+// buildErrors checks how an app is built: the builder's own fields, and
+// the build overrides that only some builders honour.
+func buildErrors(base string, app App) []FieldError {
+	var errs []FieldError
+	add := func(field, msg string) { errs = append(errs, FieldError{Path: base + "/" + field, Message: msg}) }
+	image := app.Builder == BuilderDockerfile || app.Builder == BuilderPrebuilt
+	switch {
+	case app.Builder == BuilderStatic && app.Framework != FrameworkStatic:
+		add("builder", fmt.Sprintf("builder \"static\" serves files, but framework is %q; remove one of them", app.Framework))
+	case image && app.Framework == FrameworkStatic:
+		add("builder", fmt.Sprintf("static apps are files served by the edge, not an image; remove \"builder\" or pick another framework (got builder %q)", app.Builder))
+	}
+	if app.Builder != BuilderDockerfile {
+		if app.Dockerfile != "" {
+			add("dockerfile", "a Dockerfile path is only used with builder \"dockerfile\"; set builder to \"dockerfile\" or remove \"dockerfile\"")
+		}
+		if app.Target != "" {
+			add("target", "a build target is a Dockerfile stage, only used with builder \"dockerfile\"; set builder to \"dockerfile\" or remove \"target\"")
+		}
+	}
+	if app.Dockerfile != "" && !relPath(app.Dockerfile) {
+		add("dockerfile", fmt.Sprintf("%q must be a file inside the app's folder, like \"Dockerfile\" or \"docker/web.Dockerfile\" (no \"..\" or leading /)", app.Dockerfile))
+	}
+	how := map[Builder]string{BuilderDockerfile: "the Dockerfile builds the app: put that step in it", BuilderPrebuilt: "a prebuilt image is built elsewhere: nothing installs or builds on the box"}[app.Builder]
+	for _, f := range []struct{ name, v string }{{"install", app.Install}, {"build", app.Build}} {
+		switch {
+		case f.v == "":
+		case strings.TrimSpace(f.v) == "":
+			add(f.name, fmt.Sprintf("the %s command is blank; remove \"%s\" to use the detected one", f.name, f.name))
+		case image:
+			add(f.name, fmt.Sprintf("%s; remove \"%s\" or the builder", how, f.name))
+		}
+	}
+	if image && app.Runtime != "" {
+		add("runtime", fmt.Sprintf("the image brings its own runtime (builder %q); remove \"runtime\"", app.Builder))
+	}
+	if app.Builder == BuilderDockerfile && len(app.Packages) > 0 {
+		add("packages", "the Dockerfile builds the image: install the packages in it (RUN apt-get install ...); remove \"packages\"")
+	}
+	if app.Output != "" {
+		switch {
+		case app.Framework != FrameworkStatic && app.Framework != FrameworkNext:
+			add("output", fmt.Sprintf("an output folder is what a static site (or a Next.js static export) serves; framework %q runs a server, so remove \"output\"", app.Framework))
+		case image:
+			add("output", fmt.Sprintf("an output folder is for sites built on the box, not with builder %q; remove \"output\"", app.Builder))
+		case app.Output != "." && !relPath(app.Output):
+			add("output", fmt.Sprintf("%q must be a folder inside the app, like \"dist\" (no \"..\" or leading /)", app.Output))
+		}
+	}
+	if app.Builder == BuilderPrebuilt && app.Git != nil {
+		add("builder", "a prebuilt app only takes images (tiffin deploy --prebuilt), so pushes to its repository would have nothing to build; remove \"git\" or the builder")
+	}
+	for i, w := range app.Watch {
+		p := strings.TrimPrefix(strings.TrimPrefix(w, "!"), "/")
+		if p == "" || slices.Contains(strings.Split(p, "/"), "..") {
+			errs = append(errs, FieldError{Path: fmt.Sprintf("%s/watch/%d", base, i),
+				Message: fmt.Sprintf("%q must be a path pattern inside the repository, like \"apps/web/**\" or \"!**/*.md\"", w)})
+		}
+	}
+	return errs
+}
+
+// relPath reports whether p is a path inside a folder: relative, without
+// "..", "." or empty parts.
+func relPath(p string) bool {
+	if p == "" || strings.HasPrefix(p, "/") {
+		return false
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return true
 }

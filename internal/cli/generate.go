@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -113,6 +114,7 @@ var groupShort = map[string]string{
 	"projects exports": "Inspect project exports",
 	"projects imports": "Apply or discard an uploaded project export",
 	"projects jobs":    "Follow a duplicate or an import",
+	"projects icon":    "A project's icon: the app's own, an uploaded image, or its letters",
 	"backups offsite":  "Copy backups off the box to an S3-compatible bucket, encrypted",
 }
 
@@ -135,6 +137,9 @@ type bodyFlag struct {
 	// words are the string values a "word or list" field takes as a bare
 	// string (projects: "all" or a list): --projects all sends "all".
 	words []string
+	// file: a base64 field (an image, say) also takes @path, which sends
+	// that file's bytes.
+	file bool
 }
 
 // wordOrList returns the enum of a oneOf {string enum, array of strings}
@@ -268,6 +273,9 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 					if n == "intent" && cmd.Flags().ShorthandLookup("m") == nil {
 						// -m, as in apply and git commit: every op with an intent takes it.
 						values[n] = cmd.Flags().StringP(fn, "m", "", ps.Description)
+					} else if ps.ContentEncoding == "base64" {
+						f.file = true
+						values[n] = cmd.Flags().String(fn, "", ps.Description+" (@path sends a file)")
 					} else {
 						values[n] = cmd.Flags().String(fn, "", ps.Description)
 					}
@@ -331,6 +339,13 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 					m[f.name] = *v
 					if f.kind == "json" && json.Valid([]byte(*v)) {
 						m[f.name] = json.RawMessage(*v)
+					}
+					if path, ok := strings.CutPrefix(*v, "@"); ok && f.file {
+						b, err := os.ReadFile(path)
+						if err != nil {
+							return &exitError{ExitInvalid, err.Error()}
+						}
+						m[f.name] = base64.StdEncoding.EncodeToString(b)
 					}
 				case *int:
 					m[f.name] = *v

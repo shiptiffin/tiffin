@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "project": "pyshop",
+  "apps": {
+    "admin": {
+      "path": "admin",
+      "framework": "python",
+      "role": "web",
+      "routes": [
+        "pyshop-admin"
+      ],
+      "instances": 1,
+      "healthcheck": "/",
+      "command": "gunicorn --bind 0.0.0.0:$PORT shop.wsgi"
+    },
+    "api": {
+      "path": ".",
+      "framework": "fastapi",
+      "role": "web",
+      "routes": [
+        "pyshop"
+      ],
+      "instances": 1,
+      "healthcheck": "/healthz",
+      "release": "alembic upgrade head"
+    }
+  },
+  "services": {
+    "postgres": {}
+  }
+}

@@ -25,7 +25,10 @@ func TestGuessFramework(t *testing.T) {
 		{`{"devDependencies":{"@sveltejs/kit":"2","vite":"7"},"scripts":{"build":"vite build"}}`, "bun", "SvelteKit", false},
 		{`{"devDependencies":{"@react-router/dev":"7","vite":"7"},"scripts":{"build":"react-router build","start":"react-router-serve ./build/server/index.js"}}`, "bun", "React Router (framework mode)", false},
 		{`{"dependencies":{"nuxt":"4"},"scripts":{"build":"nuxt build"}}`, "bun", "Nuxt", false},
-		{`{"dependencies":{"astro":"5","@astrojs/node":"9"},"scripts":{"build":"astro build"}}`, "bun", "Astro with server rendering", false},
+		{`{"dependencies":{"astro":"7","@astrojs/node":"11"},"scripts":{"build":"astro build"}}`, "bun", "", false},
+		{`{"dependencies":{"astro":"7","@astrojs/vercel":"9"},"scripts":{"build":"astro build"}}`, "bun", "Astro with the @astrojs/vercel adapter", false},
+		{`{"dependencies":{"@tanstack/react-start":"1","nitro":"3"},"scripts":{"build":"vite build","start":"node .output/server/index.mjs"}}`, "bun", "", false},
+		{`{"dependencies":{"@tanstack/solid-start":"1"},"scripts":{"build":"vite build"}}`, "bun", "TanStack Start for Solid", false},
 		{`{"dependencies":{"astro":"5"},"scripts":{"build":"astro build"}}`, "static", "", false},
 		{`{"dependencies":{"react":"19","react-router":"7"},"devDependencies":{"vite":"7"},"scripts":{"build":"vite build"}}`, "static", "", true},
 		{`{"dependencies":{"react-scripts":"5"},"scripts":{"build":"react-scripts build","start":"react-scripts start"}}`, "static", "", true},
@@ -36,6 +39,31 @@ func TestGuessFramework(t *testing.T) {
 		if g.Framework != c.framework || g.Unsupported != c.unsupported {
 			t.Errorf("%s: got %s/%q (%s), want %s/%q", c.pkg, g.Framework, g.Unsupported, g.Why, c.framework, c.unsupported)
 		}
+	}
+}
+
+// The preset is the framework as people know it, with the starters' ids, so
+// a picker can show it and offer the rest.
+func TestGuessPreset(t *testing.T) {
+	for pkg, want := range map[string]string{
+		`{"dependencies":{"next":"16"}}`:                                                                  "nextjs",
+		`{"dependencies":{"@tanstack/react-start":"1"}}`:                                                  "tanstack-start",
+		`{"dependencies":{"astro":"7"},"scripts":{"build":"astro build"}}`:                                "astro",
+		`{"dependencies":{"astro":"7","@astrojs/node":"11"}}`:                                             "astro",
+		`{"dependencies":{"react":"19"},"devDependencies":{"vite":"8"},"scripts":{"build":"vite build"}}`: "vite-react",
+		`{"dependencies":{"vue":"3"},"devDependencies":{"vite":"8"},"scripts":{"build":"vite build"}}`:    "vite",
+		`{"dependencies":{"hono":"4"}}`:                                                                   "hono",
+		`{"dependencies":{"express":"5"},"scripts":{"start":"node server.js"}}`:                           "",
+		`{"dependencies":{"@sveltejs/kit":"2"}}`:                                                          "",
+	} {
+		if g := guessFramework([]byte(pkg), false); g.Preset != want {
+			t.Errorf("%s: preset %q, want %q", pkg, g.Preset, want)
+		}
+	}
+	// A folder of files with no package.json is plain HTML.
+	tree := []ghapp.TreeEntry{{Path: "site/index.html", Type: "blob"}}
+	if r := detectRoots(tree, func(string) ([]byte, error) { return nil, os.ErrNotExist }); len(r) != 1 || r[0].Preset != "html" || r[0].Framework != "static" {
+		t.Fatalf("plain html: %+v", r)
 	}
 }
 

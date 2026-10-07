@@ -106,10 +106,16 @@ type GitHubCommit struct {
 // RepoRoot is a folder of a repository that looks like an app.
 type RepoRoot struct {
 	Path      string `json:"path" doc:"Folder inside the repository; empty for the top"`
-	Framework string `json:"framework" enum:"next,hono,bun,static" doc:"How the box would build it"`
+	Framework string `json:"framework" enum:"next,hono,bun,static,fastapi,python" doc:"How the box would build it"`
+	// Preset is the framework as people know it, for a picker to show and
+	// let them override (Vercel's Framework Preset).
+	Preset    string `json:"preset,omitempty" example:"astro" doc:"The framework as people know it, with the same ids as templates list: nextjs, tanstack-start, astro, vite-react, vite, hono, html; empty for any other server or static build"`
 	Name      string `json:"name,omitempty" doc:"The package name, if any"`
 	Why       string `json:"why" doc:"What the guess is based on, in plain words"`
 	Workspace bool   `json:"workspace,omitempty" doc:"A monorepo's top: its apps are in the folders below"`
+	// Builder is "dockerfile" for a folder the box would build with its
+	// Dockerfile (it has nothing else the box knows how to build).
+	Builder string `json:"builder,omitempty" enum:"dockerfile," doc:"dockerfile: the folder has a Dockerfile and nothing else the box builds, so it builds with the Dockerfile (builder \"dockerfile\")"`
 	// Unsupported names a framework the box can't run yet (SvelteKit,
 	// Nuxt…): it needs a server the box doesn't set up for it, and serving
 	// its build as files would fail. Framework is only a placeholder then.
@@ -127,6 +133,7 @@ type GitHubRepoDetail struct {
 	Roots         []RepoRoot    `json:"roots" doc:"Folders that look like apps, the most likely first"`
 	Suggested     string        `json:"suggested" doc:"The folder to deploy, if unsure"`
 	Truncated     bool          `json:"truncated,omitempty" doc:"The repository is very large; only part of it was looked at"`
+	Folders       []string      `json:"folders" doc:"The repository's folders (up to 4 deep, at most 500; build output, dependencies and hidden folders left out), for picking the app's folder by hand when detection gets it wrong"`
 	Connected     []string      `json:"connected" doc:"project/app already deploying from it"`
 }
 
@@ -326,7 +333,7 @@ func (m *Module) registerGitHubOps(a huma.API) {
 	}))
 
 	rl := api.Outbound(api.Op("github-repos", http.MethodGet, "/v1/github/repos", "github repos", api.RiskRead, "List GitHub repositories",
-		"Repositories the box's GitHub App can reach (private ones included), most recently pushed first, with their default "+
+		"Repositories the box's GitHub App can reach, most recently pushed first, with their default "+
 			"branch and which apps already deploy from them. Filter with q. To deploy one: github repo for its folders and framework, "+
 			"then add an app with git: {repo, branch, path} to the project's manifest, plan, apply, and deploys github.", "github"))
 	rl.Errors = append(rl.Errors, 409)
@@ -729,7 +736,7 @@ func (r *rt) inspectRepo(ctx context.Context, c *ghConn, full, branch string) (*
 	if branch == "" {
 		branch = repo.DefaultBranch
 	}
-	out := &GitHubRepoDetail{FullName: repo.FullName, Private: repo.Private, DefaultBranch: repo.DefaultBranch, Branch: branch, Roots: []RepoRoot{},
+	out := &GitHubRepoDetail{FullName: repo.FullName, Private: repo.Private, DefaultBranch: repo.DefaultBranch, Branch: branch, Roots: []RepoRoot{}, Folders: []string{},
 		Connected: orEmpty(r.connectedIndex(ctx)[strings.ToLower(repo.FullName)])}
 	if out.Branches, err = c.App.Branches(ctx, inst, full); err != nil {
 		return nil, err
@@ -752,6 +759,7 @@ func (r *rt) inspectRepo(ctx context.Context, c *ghConn, full, branch string) (*
 	}
 	out.Truncated = truncated
 	out.Roots = detectRoots(tree, func(p string) ([]byte, error) { return c.App.File(ctx, inst, full, cm.SHA, p) })
+	out.Folders = repoFolders(tree)
 	if len(out.Roots) > 0 {
 		out.Suggested = out.Roots[0].Path
 	}
@@ -759,13 +767,15 @@ func (r *rt) inspectRepo(ctx context.Context, c *ghConn, full, branch string) (*
 }
 
 var skipDirs = map[string]bool{"node_modules": true, ".git": true, "vendor": true, "dist": true, "build": true, ".next": true, "out": true,
-	"coverage": true, ".turbo": true, ".vercel": true, "test": true, "tests": true, "__tests__": true, "fixtures": true}
+	"coverage": true, ".turbo": true, ".vercel": true, "test": true, "tests": true, "__tests__": true, "fixtures": true,
+	"venv": true, "__pycache__": true, "site-packages": true}
 
 // detectRoots finds the folders of a repository that look like apps and
 // guesses each one's framework. read fetches a file's content.
 func detectRoots(tree []ghapp.TreeEntry, read func(string) ([]byte, error)) []RepoRoot {
 	pkgs, htmls := map[string]bool{}, map[string]bool{}
 	workspaceFiles, pnpmFiles := map[string]bool{}, map[string]bool{}
+	py := pyFiles{} // Python apps (pydetect.go)
 	for _, e := range tree {
 		if e.Type != "blob" {
 			continue
@@ -789,20 +799,27 @@ func detectRoots(tree []ghapp.TreeEntry, read func(string) ([]byte, error)) []Re
 		case "pnpm-workspace.yaml":
 			pnpmFiles[dir] = true
 		}
+		py.add(dir, base)
 	}
 	type cand struct {
-		dir string
-		pkg bool
+		dir     string
+		pkg, py bool
 	}
 	var cands []cand
 	for d := range pkgs {
-		cands = append(cands, cand{d, true})
+		cands = append(cands, cand{dir: d, pkg: true})
+	}
+	pyDirs := py.dirs()
+	for d := range pyDirs {
+		if !pkgs[d] {
+			cands = append(cands, cand{dir: d, py: true})
+		}
 	}
 	for d := range htmls {
-		if pkgs[d] || hasPkgAbove(d, pkgs) {
-			continue // built by its package
+		if pkgs[d] || hasPkgAbove(d, pkgs) || pyDirs[d] || hasPkgAbove(d, pyDirs) {
+			continue // built by its package (or a Python app's templates)
 		}
-		cands = append(cands, cand{d, false})
+		cands = append(cands, cand{dir: d})
 	}
 	sort.Slice(cands, func(i, j int) bool {
 		di, dj := depth(cands[i].dir), depth(cands[j].dir)
@@ -816,8 +833,12 @@ func detectRoots(tree []ghapp.TreeEntry, read func(string) ([]byte, error)) []Re
 	}
 	var out []RepoRoot
 	for _, cd := range cands {
+		if cd.py {
+			out = append(out, guessPython(cd.dir, py[cd.dir], read))
+			continue
+		}
 		if !cd.pkg {
-			out = append(out, RepoRoot{Path: cd.dir, Framework: string(manifest.FrameworkStatic), Why: "index.html and no package.json: served as files"})
+			out = append(out, RepoRoot{Path: cd.dir, Framework: string(manifest.FrameworkStatic), Preset: "html", Why: "index.html and no package.json: served as files"})
 			continue
 		}
 		file := "package.json"
@@ -832,7 +853,10 @@ func detectRoots(tree []ghapp.TreeEntry, read func(string) ([]byte, error)) []Re
 			continue
 		}
 		g := guessFramework(raw, htmls[cd.dir])
-		root.Framework, root.Name, root.Why, root.Workspace, root.Unsupported = g.Framework, g.Name, g.Why, g.Workspace, g.Unsupported
+		if g.Framework == string(manifest.FrameworkBun) && g.Unsupported == "" && !g.Workspace && pyDirs[cd.dir] {
+			g = guessPython(cd.dir, py[cd.dir], read) // a Python app with a package.json for its tooling
+		}
+		root.Framework, root.Preset, root.Name, root.Why, root.Workspace, root.Unsupported = g.Framework, g.Preset, g.Name, g.Why, g.Workspace, g.Unsupported
 		if workspaceFiles[cd.dir] || (pnpmFiles[cd.dir] && pnpmWorkspace(read, cd.dir)) {
 			root.Workspace = true
 		}
@@ -841,6 +865,7 @@ func detectRoots(tree []ghapp.TreeEntry, read func(string) ([]byte, error)) []Re
 		}
 		out = append(out, root)
 	}
+	out = append(out, dockerRoots(tree, out)...)
 	// The most likely app first: not a monorepo's top, shallowest.
 	sort.SliceStable(out, func(i, j int) bool { return !out[i].Workspace && out[j].Workspace })
 	if len(out) == 0 {
@@ -893,12 +918,13 @@ var fullStack = []struct{ dep, name string }{
 	{"nuxt", "Nuxt"},
 	{"@react-router/dev", "React Router (framework mode)"},
 	{"@remix-run/dev", "Remix"},
-	{"@tanstack/react-start", "TanStack Start"},
+	{"@tanstack/solid-start", "TanStack Start for Solid"},
 	{"@solidjs/start", "SolidStart"},
 }
 
-// astroServer are Astro's server adapters: with one, Astro renders on a server.
-var astroServer = []string{"@astrojs/node", "@astrojs/vercel", "@astrojs/netlify", "@astrojs/cloudflare"}
+// astroServer are Astro's server adapters for other hosts: with one, Astro
+// renders on a server the box doesn't run. @astrojs/node is the one it does.
+var astroServer = []string{"@astrojs/vercel", "@astrojs/netlify", "@astrojs/cloudflare"}
 
 // guessFramework reads a package.json.
 func guessFramework(raw []byte, hasHTML bool) RepoRoot {
@@ -918,8 +944,8 @@ func guessFramework(raw []byte, hasHTML bool) RepoRoot {
 		return a || b
 	}
 	out := RepoRoot{Name: pj.Name, Workspace: len(pj.Workspaces) > 0 && string(pj.Workspaces) != "null"}
-	is := func(f manifest.Framework, why string) RepoRoot {
-		out.Framework, out.Why = string(f), why
+	is := func(f manifest.Framework, preset, why string) RepoRoot {
+		out.Framework, out.Preset, out.Why = string(f), preset, why
 		return out
 	}
 	soon := func(name, dep string) RepoRoot {
@@ -928,7 +954,12 @@ func guessFramework(raw []byte, hasHTML bool) RepoRoot {
 		return out
 	}
 	if has("next") {
-		return is(manifest.FrameworkNext, "Next.js (next in package.json)")
+		return is(manifest.FrameworkNext, "nextjs", "Next.js (next in package.json)")
+	}
+	// TanStack Start builds a server (Nitro's .output/server, or dist/server
+	// with srvx) that runs on Bun like any other; the box serves its client assets.
+	if has("@tanstack/react-start") {
+		return is(manifest.FrameworkBun, "tanstack-start", "TanStack Start (@tanstack/react-start in package.json): its server runs on Bun")
 	}
 	for _, f := range fullStack {
 		if has(f.dep) {
@@ -936,22 +967,29 @@ func guessFramework(raw []byte, hasHTML bool) RepoRoot {
 		}
 	}
 	if has("astro") {
+		if has("@astrojs/node") {
+			return is(manifest.FrameworkBun, "astro", "Astro with server rendering (@astrojs/node): its standalone server runs on Bun")
+		}
 		for _, a := range astroServer {
 			if has(a) {
-				return soon("Astro with server rendering", a)
+				return soon("Astro with the "+a+" adapter", a)
 			}
 		}
 	}
 	if has("hono") {
-		return is(manifest.FrameworkHono, "Hono (hono in package.json)")
+		return is(manifest.FrameworkHono, "hono", "Hono (hono in package.json)")
 	}
 	for _, d := range []string{"vite", "astro", "react-scripts", "@11ty/eleventy", "gatsby", "parcel", "@docusaurus/core", "vitepress"} {
 		if has(d) && pj.Scripts["build"] != "" {
-			return is(manifest.FrameworkStatic, "a static site ("+d+" builds it to files)")
+			preset := map[string]string{"vite": "vite", "astro": "astro"}[d]
+			if d == "vite" && has("react") {
+				preset = "vite-react"
+			}
+			return is(manifest.FrameworkStatic, preset, "a static site ("+d+" builds it to files)")
 		}
 	}
 	if pj.Scripts["start"] == "" && pj.Scripts["build"] != "" && hasHTML {
-		return is(manifest.FrameworkStatic, "a static site (a build script and index.html)")
+		return is(manifest.FrameworkStatic, "", "a static site (a build script and index.html)")
 	}
-	return is(manifest.FrameworkBun, "a Bun or Node server (package.json without Next.js or Hono)")
+	return is(manifest.FrameworkBun, "", "a Bun or Node server (package.json without Next.js or Hono)")
 }

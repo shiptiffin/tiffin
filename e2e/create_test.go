@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -36,48 +37,84 @@ func TestCreate(t *testing.T) {
 
 	// ---- templates → one manifest → plan/apply ----
 	p := time.Now()
-	var tl struct {
-		Templates []struct {
-			ID, Name, Framework, App string
-			Services                 []string
-			Fragment                 struct {
-				Apps     map[string]any `json:"apps"`
-				Services map[string]any `json:"services"`
-			}
+	type tmpl struct {
+		ID, Name, Framework, App string
+		Services                 []string
+		Fragment                 struct {
+			Apps     map[string]any `json:"apps"`
+			Services map[string]any `json:"services"`
 		}
 	}
+	var tl struct{ Templates []tmpl }
 	_, out := b.run("templates", "list")
-	if err := json.Unmarshal([]byte(out), &tl); err != nil || len(tl.Templates) != 4 {
+	if err := json.Unmarshal([]byte(out), &tl); err != nil || len(tl.Templates) != len(wantTemplates) {
 		t.Fatalf("templates list: %v\n%s", err, out)
 	}
-	apps, services := map[string]any{}, map[string]any{}
 	for _, tp := range tl.Templates {
-		for k, v := range tp.Fragment.Apps {
-			apps[k] = v
-		}
-		for k, v := range tp.Fragment.Services {
-			services[k] = v
+		if !slices.Contains(wantTemplates, tp.ID) {
+			t.Fatalf("unexpected template %s", tp.ID)
 		}
 	}
-	doc := map[string]any{"project": "starter", "apps": apps, "services": services}
-	raw, _ := json.Marshal(doc)
+	// Each template gets an app of its own (the fragment's app name is only a
+	// suggestion): the Next.js one is the main app, at the project's own name.
+	// FastAPI's Alembic migration creates its notes table itself, so it gets a
+	// project (and database) of its own; the rest share one. Hono's notes table
+	// is the widest, so it deploys first and the web apps' create-if-missing
+	// finds it.
+	type target struct{ id, project, app string }
+	var targets []target
+	slices.SortStableFunc(tl.Templates, func(a, b2 tmpl) int {
+		return boolInt(b2.ID == "hono") - boolInt(a.ID == "hono")
+	})
+	docs := map[string]map[string]any{}
+	for _, tp := range tl.Templates {
+		tg := target{tp.ID, "starter", tp.ID}
+		if tp.ID == "nextjs" {
+			tg.app = "web"
+		}
+		if tp.ID == "fastapi" {
+			tg.project = "starter-py"
+		}
+		targets = append(targets, tg)
+		doc := docs[tg.project]
+		if doc == nil {
+			doc = map[string]any{"project": tg.project, "apps": map[string]any{}, "services": map[string]any{}}
+			docs[tg.project] = doc
+		}
+		for _, v := range tp.Fragment.Apps {
+			doc["apps"].(map[string]any)[tg.app] = v
+		}
+		for k, v := range tp.Fragment.Services {
+			doc["services"].(map[string]any)[k] = v
+		}
+	}
+	raw, _ := json.Marshal(docs["starter"])
 	b.apply("starter", string(raw))
 	b.waitReady("service/postgres", "service/valkey", "service/analytics")
+	if py := docs["starter-py"]; py != nil {
+		rawPy, _ := json.Marshal(py)
+		b.apply("starter-py", string(rawPy))
+	}
 	phase("plan+apply", p)
 	// An app's status says whether production has a release, not just that its config is applied.
 	releases := func() map[string]string {
 		t.Helper()
-		var st struct {
-			Status map[string]struct{ State, Message, Release string } `json:"status"`
-		}
-		_, out := b.run("projects", "get", "starter")
-		_ = json.Unmarshal([]byte(out), &st)
 		got := map[string]string{}
-		for _, tp := range tl.Templates {
-			s := st.Status["app/"+tp.App]
-			got[tp.App] = s.Release
-			if s.Release == "none" && s.State == "ready" && s.Message != "not deployed yet" {
-				t.Fatalf("%s: ready with no release, message %q", tp.App, s.Message)
+		for _, project := range []string{"starter", "starter-py"} {
+			var st struct {
+				Status map[string]struct{ State, Message, Release string } `json:"status"`
+			}
+			_, out := b.run("projects", "get", project)
+			_ = json.Unmarshal([]byte(out), &st)
+			for _, tg := range targets {
+				if tg.project != project {
+					continue
+				}
+				s := st.Status["app/"+tg.app]
+				got[project+"/"+tg.app] = s.Release
+				if s.Release == "none" && s.State == "ready" && s.Message != "not deployed yet" {
+					t.Fatalf("%s/%s: ready with no release, message %q", project, tg.app, s.Message)
+				}
 			}
 		}
 		return got
@@ -90,17 +127,17 @@ func TestCreate(t *testing.T) {
 
 	// ---- deploy each template; each answers over HTTPS ----
 	c := b.https()
-	for _, tp := range tl.Templates {
+	for _, tg := range targets {
 		p = time.Now()
-		d := b.ok("deploys", "template", "starter", tp.App, "--template", tp.ID)
+		d := b.ok("deploys", "template", tg.project, tg.app, "--template", tg.id)
 		id, _ := d["id"].(string)
 		// A fast build (warm cache) may already be building when the call returns.
-		if (d["status"] != "queued" && d["status"] != "building") || d["template"] != tp.ID || id == "" {
-			t.Fatalf("deploy %s: %v", tp.ID, d)
+		if (d["status"] != "queued" && d["status"] != "building") || d["template"] != tg.id || id == "" {
+			t.Fatalf("deploy %s: %v", tg.id, d)
 		}
-		live := waitDeploy(t, b, "starter", tp.App, id, 10*time.Minute)
-		t.Logf("template %-14s → app %-9s build %vs, total %vs, %s", tp.ID, tp.App, orZero(live["buildSeconds"]), orZero(live["durationSeconds"]), live["url"])
-		phase("deploy "+tp.ID, p)
+		live := waitDeploy(t, b, tg.project, tg.app, id, 10*time.Minute)
+		t.Logf("template %-14s → %s/%-14s build %vs, total %vs, %s", tg.id, tg.project, tg.app, orZero(live["buildSeconds"]), orZero(live["durationSeconds"]), live["url"])
+		phase("deploy "+tg.id, p)
 	}
 	for app, r := range releases() {
 		if r != "live" {
@@ -108,21 +145,31 @@ func TestCreate(t *testing.T) {
 		}
 	}
 	checks := []struct{ app, method, path, body, want string }{
-		{"site", "GET", "/", "", "It's live."},
-		{"api", "GET", "/", "", `"name":"notes"`},
-		{"api", "POST", "/notes", `{"text":"from e2e"}`, `"text":"from e2e"`},
-		{"api", "GET", "/notes", "", `"text":"from e2e"`},
+		{"static-site", "GET", "/", "", "It's live."},
+		{"astro", "GET", "/", "", "It's live."},
+		{"astro", "GET", "/about/", "", "about.astro"},
+		{"vite-react", "GET", "/", "", `<div id="root">`},
+		{"hono", "GET", "/", "", `"name":"notes"`},
+		{"hono", "POST", "/notes", `{"text":"from e2e"}`, `"text":"from e2e"`},
+		{"hono", "GET", "/notes", "", `"text":"from e2e"`},
 		{"guestbook", "GET", "/", "", "Sign the book"},
 		{"guestbook", "GET", "/", "", "/script.js"}, // analytics is on: the tracker is injected
 		{"guestbook", "POST", "/api/entries", `{"name":"e2e","message":"hello box"}`, `"message":"hello box"`},
 		{"guestbook", "GET", "/api/entries", "", `"visits":`},
 		{"web", "GET", "/", "", "Postgres"},
+		{"tanstack-start", "GET", "/", "", "from e2e"}, // the notes Hono wrote, read by a loader on the same database
+		{"tanstack-start", "GET", "/healthz", "", "ok"},
+		{"tanstack-start", "GET", "/about", "", "rendered once"}, // prerendered at build
+		{"starter-py", "GET", "/healthz", "", "ok"},
 	}
-	// Apps that set no routes: the main app (web) at the project's name, the
-	// others at <project>-<app>.
+	// Apps that set no routes: a project's main app (web; FastAPI is alone in
+	// its project) at the project's name, the others at <project>-<app>.
 	addr := func(app string) string {
-		if app == "web" {
+		switch app {
+		case "web":
 			return "starter"
+		case "starter-py":
+			return "starter-py"
 		}
 		return "starter-" + app
 	}
@@ -136,7 +183,7 @@ func TestCreate(t *testing.T) {
 			t.Fatalf("%s %s%s: %d %s", ck.method, ck.app, ck.path, code, got)
 		}
 	}
-	t.Logf("all four templates answer over HTTPS")
+	t.Logf("all %d templates answer over HTTPS", len(targets))
 
 	// ---- the manifest round-trips ----
 	p = time.Now()
@@ -223,8 +270,8 @@ func TestCreate(t *testing.T) {
 			running++
 		}
 	}
-	if running < 3 { // api, guestbook, web (static sites run no container)
-		t.Errorf("want the 3 container apps running, got %d: %v", running, r["apps"])
+	if running < 4 { // web, tanstack-start, hono, guestbook (static sites run no container)
+		t.Errorf("want the 4 container apps running, got %d: %v", running, r["apps"])
 	}
 	// Timed through the CLI (process start + HTTPS); the sample is cached.
 	t0 := time.Now()
@@ -274,4 +321,14 @@ func writeJSON(t *testing.T, dir, name string, raw []byte) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// wantTemplates is the starter catalogue a fresh box lists.
+var wantTemplates = []string{"nextjs", "tanstack-start", "astro", "vite-react", "hono", "fastapi", "static-site", "guestbook"}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { sql } from "bun";
 
-// A small notes API: Hono on Bun, with Postgres on the same box.
+// An API: a small notes service in Hono on Bun, with Postgres on the same box.
 // Tiffin sets DATABASE_URL; Bun's built-in `sql` client reads it.
 
 // Migrate on boot. Idempotent, so every deploy can run it, and serialized

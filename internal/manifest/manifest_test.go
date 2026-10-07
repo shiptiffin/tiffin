@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -664,5 +665,49 @@ throw new Error(name + JSON.stringify(s))`)
 export default { project: name, apps: { web: {} } }`)
 	if _, err := EvaluateJSONWithin(filepath.Join(dir, "tiffin.config.ts"), dir, nil); err != nil {
 		t.Fatalf("an import inside the repository: %v", err)
+	}
+}
+
+// TestAuthMethods: every sign-in method the Go types know is in the schema's
+// enum and the other way round, the social ones are Better Auth's provider
+// IDs, and a name that isn't one (X is "twitter") is refused with the list.
+func TestAuthMethods(t *testing.T) {
+	var doc map[string]any
+	_ = json.Unmarshal(Schema(), &doc)
+	enum := get(doc["$defs"].(map[string]any), "services", "properties", "auth", "properties", "methods", "items")["enum"].([]any)
+	var inSchema []string
+	for _, v := range enum {
+		inSchema = append(inSchema, v.(string))
+	}
+	slices.Sort(inSchema)
+	if !slices.Equal(inSchema, AuthMethods) {
+		t.Fatalf("schema enum %v != AuthMethods %v", inSchema, AuthMethods)
+	}
+	if !slices.IsSorted(AuthMethods) || !slices.IsSorted(SocialAuthMethods) {
+		t.Fatal("AuthMethods and SocialAuthMethods must be sorted")
+	}
+	for _, m := range SocialAuthMethods {
+		if !slices.Contains(AuthMethods, m) {
+			t.Errorf("social method %s is not an auth method", m)
+		}
+	}
+	for _, m := range []string{AuthEmail, AuthMagicLink, AuthOTP, AuthPasskey} {
+		if IsSocialAuthMethod(m) {
+			t.Errorf("%s is not a sign-in service", m)
+		}
+	}
+	m, err := Parse([]byte(`{"project":"p","services":{"postgres":{},"auth":{"methods":["twitter","apple","oidc","microsoft","google"]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"apple", "google", "microsoft", "oidc", "twitter"}; !slices.Equal(m.Services.Auth.Methods, want) {
+		t.Errorf("methods = %v, want %v", m.Services.Auth.Methods, want)
+	}
+	if _, err := Parse([]byte(`{"project":"p","services":{"auth":{"methods":["x"]}}}`)); err == nil || !strings.Contains(err.Error(), "methods") {
+		t.Errorf("method x: %v", err)
+	}
+	m.Services.Auth.Methods = []string{"okta"}
+	if err := Validate(m); err == nil {
+		t.Error("Validate took an unknown method")
 	}
 }

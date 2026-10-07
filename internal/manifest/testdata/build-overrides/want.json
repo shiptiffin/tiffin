@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "project": "builds",
+  "apps": {
+    "api": {
+      "path": ".",
+      "framework": "bun",
+      "role": "web",
+      "routes": [
+        "builds-api"
+      ],
+      "instances": 1,
+      "healthcheck": "/",
+      "command": "./api --port $PORT",
+      "builder": "dockerfile",
+      "dockerfile": "docker/api.Dockerfile",
+      "target": "runner"
+    },
+    "image": {
+      "path": ".",
+      "framework": "bun",
+      "role": "web",
+      "routes": [
+        "builds-image"
+      ],
+      "instances": 1,
+      "healthcheck": "/",
+      "command": "bun run start",
+      "builder": "prebuilt"
+    },
+    "plain": {
+      "path": ".",
+      "framework": "bun",
+      "role": "web",
+      "routes": [
+        "builds-plain"
+      ],
+      "instances": 1,
+      "healthcheck": "/",
+      "builder": "dockerfile"
+    },
+    "site": {
+      "path": ".",
+      "framework": "static",
+      "role": "web",
+      "routes": [
+        "builds-site"
+      ],
+      "instances": 1,
+      "output": "dist"
+    },
+    "web": {
+      "path": ".",
+      "framework": "next",
+      "role": "web",
+      "routes": [
+        "builds"
+      ],
+      "instances": 1,
+      "healthcheck": "/api/health",
+      "command": "node server.js",
+      "install": "pnpm install --frozen-lockfile",
+      "build": "pnpm --filter web build",
+      "output": "out",
+      "watch": [
+        "apps/web/**",
+        "packages/ui",
+        "!**/*.md"
+      ],
+      "release": "pnpm db:migrate",
+      "git": {
+        "repo": "acme/mono",
+        "branch": "main",
+        "path": "apps/web",
+        "previews": "same-repo"
+      }
+    }
+  }
+}

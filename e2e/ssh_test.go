@@ -218,7 +218,7 @@ sudo systemctl daemon-reload; sudo mount /mnt/HC_Volume_123`)
 	}
 	var app string
 	for _, tp := range tl.Templates {
-		if tp.ID != "hono-postgres" {
+		if tp.ID != "hono" {
 			continue
 		}
 		raw, _ := json.Marshal(map[string]any{"project": "shop", "apps": tp.Fragment.Apps, "services": tp.Fragment.Services})

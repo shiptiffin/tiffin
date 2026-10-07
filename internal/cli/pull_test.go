@@ -138,11 +138,11 @@ func TestPullStarterSource(t *testing.T) {
 			fmt.Fprint(w, `{"project":"notes","version":2,"config":"export default {}\n","manifest":{"project":"notes",`+
 				`"apps":{"web":{"framework":"next","path":"."},"api":{"framework":"hono","path":"api"},"bad":{"framework":"hono","path":"../out"}}}}`)
 		case "/v1/projects/notes/apps/web/deploys":
-			fmt.Fprint(w, `{"deploys":[{"status":"failed","source":"upload"},{"status":"live","source":"template","template":"next-postgres"}]}`)
+			fmt.Fprint(w, `{"deploys":[{"status":"failed","source":"upload"},{"status":"live","source":"template","template":"nextjs"}]}`)
 		case "/v1/projects/notes/apps/api/deploys":
-			fmt.Fprint(w, `{"deploys":[{"status":"live","source":"upload"},{"status":"superseded","source":"template","template":"hono-postgres"}]}`)
+			fmt.Fprint(w, `{"deploys":[{"status":"live","source":"upload"},{"status":"superseded","source":"template","template":"hono"}]}`)
 		case "/v1/projects/notes/apps/bad/deploys":
-			fmt.Fprint(w, `{"deploys":[{"status":"live","source":"template","template":"hono-postgres"}]}`)
+			fmt.Fprint(w, `{"deploys":[{"status":"live","source":"template","template":"hono"}]}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -164,7 +164,7 @@ func TestPullStarterSource(t *testing.T) {
 		t.Fatalf("sources: %s", out)
 	}
 	s := res.Sources[0]
-	if s.App != "web" || s.Starter != "next-postgres" || s.Dir != dir || s.Error != "" || len(s.Kept) != 1 || s.Kept[0] != "app/page.jsx" {
+	if s.App != "web" || s.Starter != "nextjs" || s.Dir != dir || s.Error != "" || len(s.Kept) != 1 || s.Kept[0] != "app/page.jsx" {
 		t.Fatalf("source: %+v", s)
 	}
 	for _, f := range []string{"package.json", "app/layout.jsx", "lib/db.js"} {

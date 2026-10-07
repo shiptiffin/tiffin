@@ -97,8 +97,8 @@
           "minLength": 1
         },
         "framework": {
-          "description": "How the app is built and run. \"next\" = Next.js, \"hono\" = Hono on Bun, \"bun\" = any Bun server listening on $PORT, \"static\" = static files served directly by the proxy. Default \"bun\".",
-          "enum": ["next", "hono", "bun", "static"]
+          "description": "How the app is built and run. \"next\" = Next.js, \"hono\" = Hono on Bun, \"bun\" = any Bun server listening on $PORT, \"static\" = static files served directly by the proxy, \"fastapi\" = FastAPI (Python) run by Uvicorn, \"python\" = any Python server listening on $PORT (Flask, Django...). Default \"bun\".",
+          "enum": ["next", "hono", "bun", "static", "fastapi", "python"]
         },
         "role": {
           "description": "What an instance does. \"web\" serves HTTP on its routes; \"worker\" only receives queue and workflow pushes and must not have routes. Default \"web\".",
@@ -135,10 +135,54 @@
           "enum": ["bun", "node"]
         },
         "command": {
-          "description": "Starts the app instead of the start command the build detects (package.json `start`), e.g. \"bun run worker.ts\", so one source folder can run a web app and a worker. Applies from the next deploy. Not for static apps.",
+          "description": "Starts the app instead of the start command the build detects (package.json `start`), e.g. \"bun run worker.ts\", so one source folder can run a web app and a worker. For a Dockerfile or prebuilt image it replaces the image's own command (run with /bin/sh -c). Applies from the next deploy. Not for static apps.",
           "type": "string",
           "minLength": 1,
           "maxLength": 1000
+        },
+        "builder": {
+          "description": "How the app's image is made: \"auto\" (the default: Railpack, or a Dockerfile at the app's folder when the folder has no package.json or Python project), \"dockerfile\" (BuildKit builds the app's Dockerfile, which picks the runtime, install and build steps; the app listens on $PORT), \"static\" (the same as framework \"static\") or \"prebuilt\" (only `tiffin deploy --prebuilt image.tar`; nothing is built on the box). Applies from the next deploy.",
+          "enum": ["auto", "dockerfile", "static", "prebuilt"]
+        },
+        "dockerfile": {
+          "description": "The Dockerfile's path, relative to the app's folder, which is the build context. Default \"Dockerfile\". Builder \"dockerfile\" only.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "target": {
+          "description": "The Dockerfile stage to build, as `docker build --target`. Default: the last stage. Builder \"dockerfile\" only.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$"
+        },
+        "install": {
+          "description": "Replaces the detected install command (bun install, or the lockfile's package manager), run at the top of the app's workspace, e.g. \"pnpm install --frozen-lockfile\". Wins over vercel.json's installCommand. Applies from the next deploy. Not for builder \"dockerfile\" or \"prebuilt\".",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "build": {
+          "description": "Replaces the detected build command (package.json `build`), run in the app's folder, e.g. \"bun run build:web\". Wins over vercel.json's buildCommand. Applies from the next deploy. Not for builder \"dockerfile\" or \"prebuilt\".",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "output": {
+          "description": "The folder, relative to the app, that a static site (or a Next.js static export) serves, e.g. \"dist\". Default: the first of dist, build, out and public (a static export: out) with an index.html. Wins over vercel.json's outputDirectory and a Staticfile. Static sites and Next.js apps only.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "watch": {
+          "description": "Only GitHub pushes and pull requests that change a file matching one of these patterns deploy the app (monorepos). Patterns are relative to the top of the repository: * matches within a folder, ** across folders, a pattern without wildcards matches that file or folder, and a leading ! excludes; the last pattern that matches a file decides. Absent: every push deploys. Redeploys and `tiffin deploy` always build.",
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "A path pattern, e.g. \"apps/web/**\", \"packages/ui\" or \"!**/*.md\"."
+          }
         },
         "release": {
           "description": "Runs once per deploy, after the build and before the new version takes traffic, in a one-off container of the new image with the app's env, e.g. \"bunx drizzle-kit migrate\". A failure stops the deploy and the running version keeps serving. Rollbacks do not run it, so migrations must work with the previous version too. Previews run it only against their own database branch. Not for static apps.",
@@ -500,11 +544,11 @@
           "additionalProperties": false,
           "properties": {
             "methods": {
-              "description": "Methods users can sign in with: \"email\" (email + password), \"magic-link\", \"otp\" (one-time code), \"passkey\", \"google\" or \"github\". Sorted and de-duplicated on normalization. Default [\"email\", \"magic-link\"].",
+              "description": "Methods users can sign in with: \"email\" (email + password), \"magic-link\", \"otp\" (one-time code), \"passkey\", or a sign-in service: \"google\", \"github\", \"apple\", \"microsoft\", \"discord\", \"facebook\", \"twitter\" (X), \"linkedin\", \"gitlab\", \"slack\", \"twitch\" or \"oidc\" (any OpenID Connect provider: Okta, Auth0, Keycloak, company SSO). A sign-in service uses the box-wide keys set in Box settings, or the project's own <PROVIDER>_CLIENT_ID and <PROVIDER>_CLIENT_SECRET secrets, which win. Sorted and de-duplicated on normalization. Default [\"email\", \"magic-link\"].",
               "type": "array",
               "minItems": 1,
               "items": {
-                "enum": ["email", "magic-link", "otp", "passkey", "google", "github"]
+                "enum": ["email", "magic-link", "otp", "passkey", "google", "github", "apple", "microsoft", "discord", "facebook", "twitter", "linkedin", "gitlab", "slack", "twitch", "oidc"]
               }
             },
             "organizations": {

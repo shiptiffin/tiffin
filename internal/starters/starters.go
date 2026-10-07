@@ -30,18 +30,27 @@ var files embed.FS
 
 // Starter describes one starter app.
 type Starter struct {
-	ID          string `json:"id" example:"guestbook" doc:"Pass as template to deploys template"`
-	Name        string `json:"name" example:"Guestbook"`
+	ID          string `json:"id" example:"astro" doc:"Pass as template to deploys template"`
+	Name        string `json:"name" example:"Astro"`
 	Description string `json:"description" doc:"One line on what it is"`
-	Framework   string `json:"framework" enum:"bun,hono,next,static" doc:"The app's framework; the target app must use the same one"`
+	// Kind is what you make, the choice people start from; Preset is the
+	// framework within it (several per kind, one of them the default).
+	Kind       string `json:"kind" enum:"web,static,api" doc:"What it makes: web (a web app with a server), static (a static site: built files, no server), api (a JSON API)"`
+	Preset     string `json:"preset" example:"astro" doc:"The framework as people know it (nextjs, tanstack-start, astro, vite-react, hono, html); the same ids as a repository's detected preset"`
+	PresetName string `json:"presetName" example:"Astro" doc:"The framework's display name"`
+	Default    bool   `json:"default" doc:"The framework picked for its kind unless someone chooses another"`
+	Listed     bool   `json:"listed" doc:"Offered when starting a project; false for demos"`
+	Framework  string `json:"framework" enum:"bun,hono,next,static,fastapi,python" doc:"How the box builds and runs it (the manifest's framework); the target app must use the same one"`
 	// App is the app name the fragment uses. Any name works: rename the key
 	// in apps when merging the fragment.
-	App      string   `json:"app" example:"guestbook" doc:"The app name the fragment uses (rename it freely when merging)"`
+	App      string   `json:"app" example:"site" doc:"The app name the fragment uses (rename it freely when merging)"`
 	Services []string `json:"services" doc:"Services the app needs on, e.g. postgres, valkey, analytics"`
 	// Fragment is the manifest part to merge into the project's manifest.
 	Fragment ManifestFragment `json:"fragment" doc:"Merge into the project's manifest (apps, services, env), plan and apply, then deploy the template to the app"`
 	Files    int              `json:"files" doc:"Source files shipped"`
 	Bytes    int64            `json:"bytes" doc:"Source size"`
+	// Edit is the file to change first.
+	Edit string `json:"edit" example:"src/pages/index.astro" doc:"The file to open first"`
 }
 
 // ManifestFragment is a partial manifest: only apps and services (and env, if any).
@@ -51,11 +60,32 @@ type ManifestFragment struct {
 	Env      map[string]string         `json:"env,omitempty"`
 }
 
-var meta = []struct{ id, name, desc string }{
-	{"static-site", "Static site", "Plain HTML and CSS served by the box's edge over HTTPS; no container runs."},
-	{"hono-postgres", "Notes API", "A Hono JSON API on Bun with a Postgres table it creates on boot: list, create, update and delete notes."},
-	{"guestbook", "Guestbook", "A full-stack Hono app: a page, a JSON API, Postgres for entries, Valkey for a visit counter and cookieless analytics."},
-	{"next-postgres", "Next.js + Postgres", "A minimal Next.js App Router app on Bun: a server component reads notes from Postgres and a server action adds them."},
+// meta is the catalog, in display order: per kind, its default framework
+// first. A framework is listed only once its starter builds and deploys
+// cleanly on a box; adding one is a folder in files/ plus a line here.
+// Each starter's folder is named after its id.
+type starterMeta struct {
+	id, kind, preset, presetName, desc, edit string
+	isDefault, listed                        bool
+}
+
+var meta = []starterMeta{
+	{id: "nextjs", kind: "web", preset: "nextjs", presetName: "Next.js", isDefault: true, listed: true, edit: "app/page.jsx",
+		desc: "Next.js App Router on Bun: a server component reads notes from Postgres and a server action adds them."},
+	{id: "tanstack-start", kind: "web", preset: "tanstack-start", presetName: "TanStack Start", listed: true, edit: "src/routes/index.tsx",
+		desc: "TanStack Start on Bun: a loader reads notes from Postgres, a server function adds them, stats stream in, and /about is prerendered."},
+	{id: "astro", kind: "static", preset: "astro", presetName: "Astro", isDefault: true, listed: true, edit: "src/pages/index.astro",
+		desc: "Astro built to plain HTML: no JavaScript unless a page asks, images resized at build time, a self-hosted font."},
+	{id: "vite-react", kind: "static", preset: "vite-react", presetName: "Vite + React", listed: true, edit: "src/App.tsx",
+		desc: "A React single-page app built by Vite into hashed, code-split files; the box serves them."},
+	{id: "hono", kind: "api", preset: "hono", presetName: "Hono", isDefault: true, listed: true, edit: "index.ts",
+		desc: "A JSON API in Hono on Bun, with a Postgres table it creates on boot (list, create, update and delete notes)."},
+	{id: "fastapi", kind: "api", preset: "fastapi", presetName: "FastAPI", listed: true, edit: "app/main.py",
+		desc: "A JSON API in Python: FastAPI with typed Pydantic models, async SQLAlchemy on Postgres, Alembic migrations run before each release, and docs at /docs."},
+	{id: "static-site", kind: "static", preset: "html", presetName: "HTML", edit: "public/index.html",
+		desc: "Plain HTML and CSS served by the box's edge over HTTPS; no build and no container."},
+	{id: "guestbook", kind: "web", preset: "hono", presetName: "Hono", edit: "public/index.html",
+		desc: "A full-stack Hono app: a page, a JSON API, Postgres for entries, Valkey for a visit counter and cookieless analytics."},
 }
 
 // List returns every starter, in display order. Evaluating the embedded
@@ -68,7 +98,7 @@ func List() ([]Starter, error) {
 var loadAll = sync.OnceValues(func() ([]Starter, error) {
 	out := make([]Starter, 0, len(meta))
 	for _, m := range meta {
-		s, err := load(m.id, m.name, m.desc)
+		s, err := load(m)
 		if err != nil {
 			return nil, err
 		}
@@ -77,7 +107,7 @@ var loadAll = sync.OnceValues(func() ([]Starter, error) {
 	return out, nil
 })
 
-// Get returns one starter, or false.
+// Get returns one starter by its id, or false.
 func Get(id string) (Starter, bool) {
 	all, err := loadAll()
 	if err != nil {
@@ -100,7 +130,8 @@ func IDs() []string {
 	return ids
 }
 
-func load(id, name, desc string) (Starter, error) {
+func load(sm starterMeta) (Starter, error) {
+	id := sm.id
 	root := path.Join("files", id)
 	raw, err := fs.ReadFile(files, path.Join(root, "tiffin.config.ts"))
 	if err != nil {
@@ -113,7 +144,8 @@ func load(id, name, desc string) (Starter, error) {
 	if len(m.Apps) != 1 {
 		return Starter{}, fmt.Errorf("starter %s: tiffin.config.ts must declare exactly one app", id)
 	}
-	s := Starter{ID: id, Name: name, Description: desc, Services: []string{}}
+	s := Starter{ID: id, Name: sm.presetName, Description: sm.desc, Kind: sm.kind, Preset: sm.preset, PresetName: sm.presetName,
+		Default: sm.isDefault, Listed: sm.listed, Edit: sm.edit, Services: []string{}}
 	// The fragment is the starter's own config, minus the project name and
 	// with defaults left out (what a person would write).
 	frag, err := fragment(m)

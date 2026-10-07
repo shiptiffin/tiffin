@@ -39,6 +39,9 @@ var DefaultAuthMethods = []string{AuthEmail, AuthMagicLink}
 //   - web apps that set no routes get [<project>] for the main app and
 //     [<project>-<app>] for the others (see MainApp); workers get none
 //   - app git: branch "main", previews "same-repo", path without slashes at the ends
+//   - builder "auto" is stored as absent; builder "static" becomes framework
+//     "static"; dockerfile "Dockerfile" is stored as absent; output and
+//     watch patterns are trimmed (watch keeps its order, without repeats)
 //   - web, non-static apps get healthcheck "/"
 //   - valkey maxMemoryMB 64
 //   - postgres extensions are sorted and de-duplicated
@@ -73,8 +76,34 @@ func normalize(m *Manifest, onBox map[string][]string) []string {
 		if app.Path == "" {
 			app.Path = DefaultAppPath
 		}
+		switch app.Builder {
+		case BuilderAuto:
+			app.Builder = "" // the default, stored as absent
+		case BuilderStatic:
+			// An alias for framework "static"; another framework is a conflict Validate reports.
+			if app.Framework == "" || app.Framework == FrameworkStatic {
+				app.Framework, app.Builder = FrameworkStatic, ""
+			}
+		}
 		if app.Framework == "" {
 			app.Framework = DefaultFramework
+		}
+		app.Dockerfile = strings.TrimPrefix(strings.TrimSpace(app.Dockerfile), "./")
+		if app.Dockerfile == DefaultDockerfile {
+			app.Dockerfile = "" // the default, stored as absent
+		}
+		app.Output = strings.Trim(strings.TrimPrefix(strings.TrimSpace(app.Output), "./"), "/")
+		if len(app.Watch) > 0 {
+			var watch []string
+			for _, w := range app.Watch {
+				w = strings.TrimSpace(w)
+				if w != "" && !slices.Contains(watch, w) {
+					watch = append(watch, w)
+				}
+			}
+			app.Watch = watch
+		} else {
+			app.Watch = nil
 		}
 		if app.Role == "" {
 			app.Role = DefaultRole

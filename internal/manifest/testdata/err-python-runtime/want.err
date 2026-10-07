@@ -1,0 +1,2 @@
+/apps/api/runtime: framework "fastapi" is a Python app: runtime picks Bun or Node.js for JavaScript apps; remove "runtime" (set the Python version in .python-version)
+/apps/site/runtime: framework "python" is a Python app: runtime picks Bun or Node.js for JavaScript apps; remove "runtime" (set the Python version in .python-version)

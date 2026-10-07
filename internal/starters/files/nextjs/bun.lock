@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "next-postgres",
+      "name": "web",
       "dependencies": {
         "next": "16.3.8",
         "postgres": "3.4.9",

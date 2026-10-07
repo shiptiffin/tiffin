@@ -19,10 +19,14 @@ func TestList(t *testing.T) {
 		framework, app string
 		services       []string
 	}{
-		"static-site":   {"static", "site", []string{}},
-		"hono-postgres": {"hono", "api", []string{"postgres"}},
-		"guestbook":     {"hono", "guestbook", []string{"analytics", "postgres", "valkey"}},
-		"next-postgres": {"next", "web", []string{"postgres"}},
+		"nextjs":         {"next", "web", []string{"postgres"}},
+		"tanstack-start": {"bun", "web", []string{"postgres"}},
+		"astro":          {"static", "site", []string{}},
+		"vite-react":     {"static", "site", []string{}},
+		"hono":           {"hono", "api", []string{"postgres"}},
+		"fastapi":        {"fastapi", "api", []string{"postgres"}},
+		"static-site":    {"static", "site", []string{}},
+		"guestbook":      {"hono", "guestbook", []string{"analytics", "postgres", "valkey"}},
 	}
 	if len(all) != len(want) {
 		t.Fatalf("%d starters", len(all))
@@ -76,7 +80,12 @@ func TestWriteTo(t *testing.T) {
 			t.Errorf("%s: %v", id, err)
 		}
 		if id != "static-site" {
-			for _, f := range []string{"package.json", "bun.lock", ".gitignore"} {
+			// Built starters ship their lockfile, so a box installs exactly what was tested.
+			files := []string{"package.json", "bun.lock", ".gitignore"}
+			if id == "fastapi" {
+				files = []string{"pyproject.toml", "uv.lock", ".python-version", ".gitignore"}
+			}
+			for _, f := range files {
 				if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 					t.Errorf("%s: %v", id, err)
 				}
@@ -85,5 +94,66 @@ func TestWriteTo(t *testing.T) {
 	}
 	if err := WriteTo("nope", t.TempDir()); err == nil {
 		t.Fatal("unknown starter written")
+	}
+}
+
+// Each kind offers its frameworks with exactly one default, every listed
+// starter names a preset with a display name, and the file to edit exists.
+func TestKindsAndPresets(t *testing.T) {
+	all, err := List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaults := map[string][]string{}
+	listed := map[string][]string{}
+	for _, s := range all {
+		if s.Preset == "" || s.PresetName == "" || s.Name != s.PresetName || s.Edit == "" {
+			t.Errorf("%s: %+v", s.ID, s)
+		}
+		if !slices.Contains([]string{"web", "static", "api"}, s.Kind) {
+			t.Errorf("%s: kind %q", s.ID, s.Kind)
+		}
+		if _, err := os.Stat(filepath.Join("files", s.ID, filepath.FromSlash(s.Edit))); err != nil {
+			t.Errorf("%s: edit file: %v", s.ID, err)
+		}
+		// A static site runs no container; everything else does.
+		if (s.Kind == "static") != (s.Framework == "static") {
+			t.Errorf("%s: kind %s with framework %s", s.ID, s.Kind, s.Framework)
+		}
+		if !s.Listed {
+			if s.Default {
+				t.Errorf("%s: an unlisted starter can't be a default", s.ID)
+			}
+			continue
+		}
+		listed[s.Kind] = append(listed[s.Kind], s.Preset)
+		if s.Default {
+			defaults[s.Kind] = append(defaults[s.Kind], s.Preset)
+		}
+	}
+	wantListed := map[string][]string{
+		"web":    {"nextjs", "tanstack-start"},
+		"static": {"astro", "vite-react"},
+		"api":    {"hono", "fastapi"},
+	}
+	wantDefault := map[string][]string{"web": {"nextjs"}, "static": {"astro"}, "api": {"hono"}}
+	for k, w := range wantListed {
+		if !slices.Equal(listed[k], w) {
+			t.Errorf("%s lists %v, want %v (the default first)", k, listed[k], w)
+		}
+		if !slices.Equal(defaults[k], wantDefault[k]) {
+			t.Errorf("%s defaults %v, want %v", k, defaults[k], wantDefault[k])
+		}
+	}
+}
+
+// No build output or installed packages ride along in the binary.
+func TestNoBuildOutput(t *testing.T) {
+	for _, id := range IDs() {
+		for _, d := range []string{"node_modules", "dist", ".output", ".next", ".astro", ".tanstack", ".nitro"} {
+			if _, err := os.Stat(filepath.Join("files", id, d)); err == nil {
+				t.Errorf("%s ships %s", id, d)
+			}
+		}
 	}
 }

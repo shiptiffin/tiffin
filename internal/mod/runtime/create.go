@@ -30,7 +30,7 @@ type TemplateList struct {
 }
 
 type templateBody struct {
-	Template string `json:"template" enum:"static-site,hono-postgres,guestbook,next-postgres" doc:"Starter ID from templates list"`
+	Template string `json:"template" enum:"nextjs,tanstack-start,astro,vite-react,hono,fastapi,static-site,guestbook" doc:"Starter ID from templates list (e.g. astro)"`
 }
 
 type gitDeployBody struct {
@@ -43,9 +43,12 @@ func (m *Module) registerCreate(a huma.API) {
 	appPath := "/v1/projects/{project}/apps/{app}"
 
 	huma.Register(a, api.Op("templates-list", http.MethodGet, "/v1/templates", "templates list", api.RiskRead, "List starter templates",
-		"Small, working starter apps shipped inside tiffin: id, name, description, framework, the services they need and the manifest "+
-			"fragment to merge into a project (apps + services). To start a project from one: merge the fragment into the project's "+
-			"manifest (projects manifest), plan and apply it, then deploys template with the template id.", "apps"),
+		"Small, working starter apps shipped inside tiffin. Each has a kind (web: a web app with a server; static: a static site; "+
+			"api: a JSON API) and a preset (the framework: nextjs, tanstack-start, astro, vite-react, hono); listed ones are offered "+
+			"when starting a project, and default marks each kind's usual pick. Also: the services they need and the manifest fragment "+
+			"to merge into a project (apps + services). To start a project from one: merge the fragment into the project's manifest "+
+			"(projects manifest), plan and apply it, then deploys template with the template id, e.g. "+
+			"`tiffin deploys template shop site --template astro`.", "apps"),
 		api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body TemplateList }, error) {
 			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, ""); err != nil {
 				return nil, err
