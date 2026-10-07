@@ -51,6 +51,7 @@ type buildLog struct {
 	ship *os.File // nil when the copy cannot be written: the build goes on
 	env  string   // prod or pr-<preview>
 	part []byte
+	out  []byte // the copy's lines of one Write, written at once
 	now  func() time.Time
 }
 
@@ -89,8 +90,18 @@ func (b *buildLog) Write(p []byte) (int, error) {
 			b.part = b.part[:0]
 		}
 		b.part = append([]byte(nil), b.part...)
+		b.flush()
 	}
 	return n, err
+}
+
+// flush writes the lines emit gathered in one write: whole lines only, so
+// appends from several writers never interleave.
+func (b *buildLog) flush() {
+	if len(b.out) > 0 {
+		_, _ = b.ship.Write(b.out)
+		b.out = b.out[:0]
+	}
 }
 
 // emit writes one line to the copy: what a terminal would show (the text
@@ -110,7 +121,7 @@ func (b *buildLog) emit(line []byte) {
 	if err != nil {
 		return
 	}
-	_, _ = b.ship.Write(append(j, '\n')) // one write per line: appends from several writers never interleave
+	b.out = append(append(b.out, j...), '\n')
 }
 
 // Close writes out an unfinished last line and closes both files.
@@ -122,6 +133,7 @@ func (b *buildLog) Close() error {
 			b.emit(b.part)
 			b.part = nil
 		}
+		b.flush()
 		b.ship.Close()
 		b.ship = nil
 	}
