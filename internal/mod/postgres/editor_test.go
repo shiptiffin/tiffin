@@ -511,3 +511,18 @@ func TestEncodeValue(t *testing.T) {
 		t.Error("an object for a text column")
 	}
 }
+
+// The box owns tiffin_*; libraries own their own schemas; the rest, auth
+// and a bare "tiffin" included, is the app's.
+func TestManagedSchemas(t *testing.T) {
+	for _, s := range []string{"tiffin_auth", "tiffin_queue", "workflow", "workflow_drizzle", "graphile_worker", "pgboss"} {
+		if !Managed(s) {
+			t.Errorf("Managed(%q) = false", s)
+		}
+	}
+	for _, s := range []string{"public", "auth", "queue", "tiffin", "tiffinx", "my_tiffin", "app"} {
+		if Managed(s) {
+			t.Errorf("Managed(%q) = true", s)
+		}
+	}
+}

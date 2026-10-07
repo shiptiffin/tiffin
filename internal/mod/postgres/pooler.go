@@ -339,6 +339,22 @@ func pausePooler(ctx context.Context, db string, wait time.Duration) (resume fun
 	return resume, nil
 }
 
+// forgetPooled has the pooler drop what it holds for a database (KILL, then
+// RESUME). Called when a project's role is created: PgBouncer can keep the
+// pool, and the SCRAM keys, of a role of the same name that was dropped
+// (a project destroyed and made again), and then fails every login with
+// "password authentication failed" until the pool is killed. Errors are
+// ignored: the pooler may not know the database yet, or not run at all.
+func forgetPooled(ctx context.Context, db string) {
+	if db == "" || strings.Trim(db, "abcdefghijklmnopqrstuvwxyz0123456789_") != "" || !poolerRunning(ctx) {
+		return
+	}
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	_ = poolerCommand(cctx, "KILL "+db)
+	_ = poolerCommand(cctx, "RESUME "+db)
+}
+
 // unitPaused installs Postgres's unit and (re)starts the server when the
 // unit changed or it is not running; a restart pauses the pooler, so apps'
 // queries wait instead of failing. It reports whether it (re)started.

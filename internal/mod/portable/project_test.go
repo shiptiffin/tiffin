@@ -362,7 +362,7 @@ func TestProjectExport(t *testing.T) {
 	if strings.Contains(files["secrets.json"], "sk-shop") || !strings.Contains(files["secrets.json"], man.Recipient) {
 		t.Fatalf("sealed secrets: %s", files["secrets.json"])
 	}
-	if !strings.Contains(files["database-setup.sql"], `CREATE EXTENSION IF NOT EXISTS "vector"`) || !strings.Contains(files["database-setup.sql"], "tiffin.org_id()") {
+	if !strings.Contains(files["database-setup.sql"], `CREATE EXTENSION IF NOT EXISTS "vector"`) || strings.Contains(files["database-setup.sql"], "SCHEMA") {
 		t.Fatalf("setup: %s", files["database-setup.sql"])
 	}
 	if lines := strings.Split(strings.TrimSpace(files["cache.jsonl"]), "\n"); len(lines) != 2 || !strings.Contains(lines[0], `"key":"greeting"`) {

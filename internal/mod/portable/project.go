@@ -15,7 +15,7 @@ package portable
 //	docker-compose.yml      Postgres, Valkey, MinIO and the apps, with standard env vars
 //	history/changes.jsonl   the project's History (--with-history)
 //	secrets.json | .env     secrets sealed to the box key, or plain with --include-secrets
-//	database-setup.sql      extensions and Tiffin's helper functions (runs first)
+//	database-setup.sql      the extensions the database uses (runs first)
 //	database.sql            pg_dump of the database: plain SQL, no owners or grants
 //	cache.jsonl             the project's Valkey keys (DUMP payloads, base64)
 //	files/<bucket>/...      every object, one file each (content types in xattrs)

@@ -18,23 +18,16 @@ const (
 	composeS3Secret = "change-me-please"
 )
 
-// databaseSetup is database-setup.sql: what database.sql expects to exist
-// (the box makes it for every project database).
+// databaseSetup is database-setup.sql: the extensions database.sql expects
+// to exist (the box adds them to the project database). Sign-in's helpers
+// (tiffin_auth.org_id() and the rest) are in database.sql itself.
 func databaseSetup(pg *PostgresInfo) string {
 	var b strings.Builder
-	b.WriteString("-- Run before database.sql: the extensions the database used, and Tiffin's helpers for\n")
-	b.WriteString("-- row-level security (SET LOCAL app.org_id = '...' / app.user_id). The official Postgres\n")
+	b.WriteString("-- Run before database.sql: the extensions the database used. The official Postgres\n")
 	b.WriteString("-- image runs it first (docker-compose.yml mounts it as 00-setup.sql).\n")
 	for _, e := range pg.Extensions {
 		fmt.Fprintf(&b, "CREATE EXTENSION IF NOT EXISTS %s CASCADE;\n", qi(e))
 	}
-	b.WriteString(`CREATE SCHEMA IF NOT EXISTS tiffin;
-CREATE OR REPLACE FUNCTION tiffin.org_id() RETURNS text LANGUAGE sql STABLE PARALLEL SAFE
-  AS $$ SELECT nullif(current_setting('app.org_id', true), '') $$;
-CREATE OR REPLACE FUNCTION tiffin.user_id() RETURNS text LANGUAGE sql STABLE PARALLEL SAFE
-  AS $$ SELECT nullif(current_setting('app.user_id', true), '') $$;
-GRANT USAGE ON SCHEMA tiffin TO PUBLIC;
-`)
 	return b.String()
 }
 
@@ -232,7 +225,7 @@ func readme(info *ProjectInfo) string {
 		w("| `secrets.json` | Secrets (%s), sealed to the source box's key; not readable without it |", strings.Join(info.Secrets.Names, ", "))
 	}
 	if pg := info.Postgres; pg != nil {
-		w("| `database-setup.sql` | Extensions and Tiffin's helper functions; run it before `database.sql` |")
+		w("| `database-setup.sql` | The extensions the database uses; run it before `database.sql` |")
 		w("| `database.sql` | The database (`pg_dump`, plain SQL, no owners or grants): `psql -f database.sql` |")
 	}
 	if info.Valkey != nil {
@@ -279,7 +272,7 @@ func readme(info *ProjectInfo) string {
 	w("")
 	w("Not covered by the compose file:")
 	w("")
-	w("- Sign-in (Tiffin auth): the users are in the database's `auth` schema, but the auth endpoint (`TIFFIN_AUTH_URL`) is the box's.")
+	w("- Sign-in (Tiffin auth): the users are in the database's `tiffin_auth` schema, but the auth endpoint (`TIFFIN_AUTH_URL`) is the box's.")
 	w("- Email: set `SMTP_URL` to a mail relay of your own.")
 	if info.Postgres != nil && len(info.Postgres.Cron) > 0 {
 		w("- pg_cron jobs (in `project.json`): the official image has no pg_cron.")

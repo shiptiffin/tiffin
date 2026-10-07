@@ -25,7 +25,7 @@ type PGTable struct {
 	RowEstimate *int64          `json:"rowEstimate" doc:"Planner estimate (exact for small tables never analyzed); null when unknown"`
 	SizeBytes   int64           `json:"sizeBytes" doc:"Table plus indexes and TOAST"`
 	RLS         bool            `json:"rls" doc:"Row-level security is enabled"`
-	Managed     bool            `json:"managed" doc:"In a schema Tiffin or a framework manages (auth, tiffin, graphile_worker, pgboss)"`
+	Managed     bool            `json:"managed" doc:"In a schema Tiffin or a library manages (tiffin, tiffin_*, workflow, workflow_drizzle, graphile_worker, pgboss)"`
 	Columns     []PGTableColumn `json:"columns"`
 	ForeignKeys []PGForeignKey  `json:"foreignKeys" doc:"Links from this table to others (for the schema diagram)"`
 }
@@ -50,7 +50,9 @@ WHERE c.relkind IN ('r','p','v','m','f')
   AND n.nspname NOT LIKE 'pg\_%'
   AND NOT c.relispartition
   AND has_schema_privilege(n.oid, 'USAGE')
-ORDER BY n.nspname = 'public' DESC, n.nspname IN ('auth', 'tiffin', 'graphile_worker', 'pgboss'), n.nspname, c.relname
+ORDER BY n.nspname = 'public' DESC,
+  (n.nspname LIKE 'tiffin\_%' OR n.nspname IN ('workflow', 'workflow_drizzle', 'graphile_worker', 'pgboss')),
+  n.nspname, c.relname
 LIMIT 1000`)
 	if err != nil {
 		return nil, sqlError(err)

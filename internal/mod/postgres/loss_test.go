@@ -61,13 +61,13 @@ func TestMeasureTables(t *testing.T) {
 		t.Fatalf("empty database: %d tables, %d rows, approx %v, err %v", tables, rows, approx, err)
 	}
 	for _, s := range []string{
-		`CREATE SCHEMA auth`,
+		`CREATE SCHEMA tiffin_auth`,
 		`CREATE TABLE orders (id int)`,
 		`CREATE TABLE "Mixed Case" (id int)`,
-		`CREATE TABLE auth.users (id int)`,
+		`CREATE TABLE tiffin_auth.users (id int)`,
 		`INSERT INTO orders SELECT generate_series(1, 1180)`,
 		`INSERT INTO "Mixed Case" VALUES (1), (2)`,
-		`INSERT INTO auth.users SELECT generate_series(1, 22)`,
+		`INSERT INTO tiffin_auth.users SELECT generate_series(1, 22)`,
 	} {
 		if _, err := c.Exec(ctx, s); err != nil {
 			t.Fatal(s, err)

@@ -81,6 +81,9 @@ func ensure(ctx context.Context, p *platform.Platform, project string, s manifes
 		verb, quoteIdent(role), limits.Connections, quoteLiteral(pw))); err != nil {
 		return fmt.Errorf("%s role: %w", strings.ToLower(verb), err)
 	}
+	if !exists {
+		forgetPooled(ctx, db)
+	}
 	if err := applyRoleLimits(ctx, admin, role, limits); err != nil {
 		return err
 	}
@@ -115,33 +118,7 @@ func ensure(ctx context.Context, p *platform.Platform, project string, s manifes
 	if _, err := admin.Exec(ctx, fmt.Sprintf(`REVOKE ALL ON DATABASE %[1]s FROM PUBLIC; GRANT ALL ON DATABASE %[1]s TO %[2]s`, quoteIdent(db), quoteIdent(role))); err != nil {
 		return err
 	}
-	if err := setupDatabase(ctx, db, role); err != nil {
-		return err
-	}
 	return reconcileExtensions(ctx, p, project, admin, s.Extensions)
-}
-
-// setupDatabase adds the tiffin helper schema: RLS helpers reading the
-// per-request settings an app sets with SET LOCAL app.org_id = '...'.
-func setupDatabase(ctx context.Context, db, role string) error {
-	c, err := Admin(ctx, db)
-	if err != nil {
-		return err
-	}
-	defer c.Close(ctx)
-	_, err = c.Exec(ctx, fmt.Sprintf(`
-CREATE SCHEMA IF NOT EXISTS tiffin;
-COMMENT ON SCHEMA tiffin IS 'Tiffin helpers (managed by the box)';
-GRANT USAGE ON SCHEMA tiffin TO %[1]s;
-CREATE OR REPLACE FUNCTION tiffin.org_id() RETURNS text LANGUAGE sql STABLE PARALLEL SAFE
-  AS $$ SELECT nullif(current_setting('app.org_id', true), '') $$;
-COMMENT ON FUNCTION tiffin.org_id() IS 'The current organization for row-level security: SET LOCAL app.org_id = ''org_123''. NULL when unset.';
-CREATE OR REPLACE FUNCTION tiffin.user_id() RETURNS text LANGUAGE sql STABLE PARALLEL SAFE
-  AS $$ SELECT nullif(current_setting('app.user_id', true), '') $$;
-COMMENT ON FUNCTION tiffin.user_id() IS 'The current user for row-level security: SET LOCAL app.user_id = ''usr_123''. NULL when unset.';
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA tiffin TO %[1]s;
-`, quoteIdent(role)))
-	return err
 }
 
 func reconcileExtensions(ctx context.Context, p *platform.Platform, project string, admin *pgx.Conn, wanted []string) error {

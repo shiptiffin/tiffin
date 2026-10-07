@@ -15,12 +15,17 @@ import (
 // pick a cell editor (base type, enum labels, identity, generated), keys,
 // links to and from other tables, indexes and a row count.
 
-// managedSchemas hold tables the box or a framework owns (sign-in, the
-// outbox, job runners). The dashboard shows them read-only unless asked.
-var managedSchemas = []string{"auth", "tiffin", "graphile_worker", "pgboss"}
+// The box owns every schema named tiffin_* in a project database
+// (tiffin_auth: sign-in and its RLS helpers, tiffin_queue: the outbox);
+// everything else is the app's. libraryManagedSchemas are the app's too, but
+// a library it uses names and migrates them (the Workflow DevKit's Postgres
+// world, pg-boss). The dashboard shows both read-only unless asked.
+var libraryManagedSchemas = []string{"workflow", "workflow_drizzle", "graphile_worker", "pgboss"}
 
-// Managed reports whether a schema is managed by Tiffin or a framework.
-func Managed(schema string) bool { return slices.Contains(managedSchemas, schema) }
+// Managed reports whether a schema is managed by Tiffin or a library.
+func Managed(schema string) bool {
+	return strings.HasPrefix(schema, "tiffin_") || slices.Contains(libraryManagedSchemas, schema)
+}
 
 // PGForeignKey is a link from some columns of one table to another table.
 type PGForeignKey struct {
@@ -64,7 +69,7 @@ type PGTableDetail struct {
 	Schema       string           `json:"schema"`
 	Name         string           `json:"name"`
 	Kind         string           `json:"kind" enum:"table,partitioned,view,materialized-view,foreign"`
-	Managed      bool             `json:"managed" doc:"In a schema Tiffin or a framework manages (auth, tiffin, graphile_worker, pgboss)"`
+	Managed      bool             `json:"managed" doc:"In a schema Tiffin or a library manages (tiffin, tiffin_*, workflow, workflow_drizzle, graphile_worker, pgboss)"`
 	Rows         int64            `json:"rows" doc:"Row count: exact when rowsExact, else Postgres's estimate"`
 	RowsExact    bool             `json:"rowsExact"`
 	SizeBytes    int64            `json:"sizeBytes"`

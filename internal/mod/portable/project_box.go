@@ -80,12 +80,11 @@ func (b boxBackend) databaseInfo(ctx context.Context, project string) (*Postgres
 	return info, nil
 }
 
-// dumpDatabase is a plain pg_dump without owners, grants, extensions or
-// Tiffin's helper schema: SQL any Postgres (and any role) can load, after
-// database-setup.sql.
+// dumpDatabase is a plain pg_dump without owners, grants or extensions: SQL
+// any Postgres (and any role) can load, after database-setup.sql.
 func (b boxBackend) dumpDatabase(ctx context.Context, project string, w io.Writer) error {
 	cmd := pgTool(ctx, "pg_dump", "--format=plain", "--no-sync", "--no-owner", "--no-privileges", "--quote-all-identifiers",
-		"--exclude-schema=tiffin", "--exclude-extension=*", "-d", postgres.Database(project))
+		"--exclude-extension=*", "-d", postgres.Database(project))
 	var errb tailBuffer
 	cmd.Stdout, cmd.Stderr = w, &errb
 	if err := cmd.Run(); err != nil {
