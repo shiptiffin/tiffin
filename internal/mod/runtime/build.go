@@ -280,6 +280,9 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 		env["RAILPACK_START_CMD"] = req.inApp("bun --bun run start")
 	case serverEntry(appDir, onNode) != "":
 		env["RAILPACK_START_CMD"] = req.inApp(serverEntry(appDir, onNode))
+	case !onNode && !req.Spec.Framework.IsPython() && bunEntry(appDir) != "":
+		env["RAILPACK_START_CMD"] = req.inApp(bunEntry(appDir))
+		fmt.Fprintf(req.Log, "==> start command: %s (no start script; the app's entry file)\n", bunEntry(appDir))
 	}
 	wfEnv, wfInstall, err := prepareWorkflow(req)
 	if err != nil {
@@ -357,6 +360,9 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 	if err := runLoggedEnv(ctx, req.Log, req.SrcDir, extra, b.tool("railpack"), args...); err != nil {
 		return BuildResult{}, &BuildError{Msg: "Railpack could not plan a build for this app: " + err.Error(),
 			Hint: planHint(req.Spec)}
+	}
+	if err := checkStartCommand(planPath, req, env["RAILPACK_START_CMD"]); err != nil {
+		return BuildResult{}, err
 	}
 	if imageEnv != nil {
 		if err := setDeployEnv(planPath, imageEnv); err != nil {
@@ -708,6 +714,29 @@ func execLast(cmd string) string {
 		return cmd
 	}
 	return prefix + "exec " + last
+}
+
+// checkStartCommand fails a build Railpack planned without a start
+// command (none given, none detected) before it runs: the image would
+// build (minutes) and then exit at once with no output.
+func checkStartCommand(planPath string, req BuildRequest, given string) error {
+	if given != "" || req.Export || req.Spec.Framework == manifest.FrameworkStatic {
+		return nil
+	}
+	raw, err := os.ReadFile(planPath)
+	if err != nil {
+		return nil
+	}
+	var plan struct {
+		Deploy struct {
+			StartCommand string `json:"startCommand"`
+		} `json:"deploy"`
+	}
+	if json.Unmarshal(raw, &plan) != nil || strings.TrimSpace(plan.Deploy.StartCommand) != "" {
+		return nil
+	}
+	return &BuildError{Msg: "no start command: the app's package.json has no start script and Railpack found no file to run",
+		Hint: "Add a start script to package.json (\"start\": \"bun src/index.ts\", say), or set the app's start command (command in tiffin.config.ts, or Start command in its Build and deploy settings), and deploy again."}
 }
 
 func packageScript(dir, name string) string {
