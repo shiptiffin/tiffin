@@ -52,15 +52,22 @@ export function TableView({ project, schema, name, branch }: { project: string; 
   const key = [...tableRows, search.f ?? "", search.s ?? ""] as const;
   const rows = useInfiniteQuery({
     queryKey: key,
-    queryFn: ({ pageParam }) =>
-      db.rows(project, schema, name, {
-        filters: view.filters,
-        sort: view.sort,
-        after: pageParam || undefined,
-        limit: PAGE,
-        count: !pageParam,
-        ...(branch ? { branch } : {}),
-      }),
+    // The signal cancels a read nobody waits for any more: a superseded filter or search, or one a write cancels.
+    queryFn: ({ pageParam, signal }) =>
+      db.rows(
+        project,
+        schema,
+        name,
+        {
+          filters: view.filters,
+          sort: view.sort,
+          after: pageParam || undefined,
+          limit: PAGE,
+          count: !pageParam,
+          ...(branch ? { branch } : {}),
+        },
+        signal,
+      ),
     initialPageParam: "",
     getNextPageParam: (last) => last.next || undefined,
     enabled: !!t,

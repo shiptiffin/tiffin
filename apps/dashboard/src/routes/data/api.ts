@@ -33,7 +33,7 @@ const withBranch = <B extends object>(body: B, branch?: string) => (branch ? { .
 
 export const db = {
   table: (p: string, schema: string, table: string, branch?: string) => request<TableDetail>("GET", `${T(p, schema, table)}${branchQ(branch)}`),
-  rows: (p: string, schema: string, table: string, body: RowsRequest) => request<Rows>("POST", `${T(p, schema, table)}/rows/query`, body),
+  rows: (p: string, schema: string, table: string, body: RowsRequest, signal?: AbortSignal) => request<Rows>("POST", `${T(p, schema, table)}/rows/query`, body, signal),
   insert: (p: string, schema: string, table: string, values: Record<string, unknown>, branch?: string) =>
     request<EditResult>("POST", `${T(p, schema, table)}/rows`, withBranch({ values }, branch)),
   update: (p: string, schema: string, table: string, changes: RowChange[], branch?: string) =>
