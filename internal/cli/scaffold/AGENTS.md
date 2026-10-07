@@ -50,10 +50,12 @@ tiffin apply --confirm <hash> -m "why, in one sentence"
 - Apps get everything as env vars (`DATABASE_URL`, `REDIS_URL`, `S3_*` for `Bun.s3`,
   `S3_PUBLIC_ENDPOINT` for presigned URLs, `SMTP_URL`, `TIFFIN_AUTH_INTERNAL_URL`,
   `TIFFIN_QUEUE_*`). Don't set those yourself; the plan warns if you do.
-- Auth (add `email: {}` too): new users must confirm their email only once the box has an SMTP
-  relay (or with `auth: {emailVerification: true}`); until then test sign-ups sign in at once. The
-  signed-in user is `GET $TIFFIN_AUTH_INTERNAL_URL/tiffin/session` with the request's cookie and
-  `x-tiffin-host`; sign-up/sign-in POSTs need `x-captcha-response` (solve
+- Auth (add `email: {}` too): email sign-up, magic links and codes need a mail relay
+  (Settings › Email). Until one is connected, production refuses them with `EMAIL_NOT_SET_UP`
+  (`authConfig()` reports `emailReady: false`: hide those forms; passkeys and sign-in providers
+  still work); previews and local boxes use the dev inbox, so test sign-ups work there. With a
+  relay, new users confirm their email. The signed-in user is
+  `GET $TIFFIN_AUTH_INTERNAL_URL/tiffin/session` with the request's cookie and `x-tiffin-host`; sign-up/sign-in POSTs need `x-captcha-response` (solve
   `GET /api/auth/altcha/challenge` with altcha-lib, send base64 of `{challenge, solution}`).
 - Jobs: send with `POST $TIFFIN_QUEUE_URL/v1/queue-internal/send` (`Bearer $TIFFIN_QUEUE_KEY`,
   `{name, payload}`); the box POSTs each job and cron to your route with
