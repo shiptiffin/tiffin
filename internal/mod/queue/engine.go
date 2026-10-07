@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -96,6 +97,8 @@ type Engine struct {
 	ready    chan struct{}
 
 	outboxKick chan struct{}
+
+	afterAdmit atomic.Pointer[func(jobID int64)] // tests: runs between admission and delivery
 
 	hub       *hub // live streams to browsers (live.go)
 	hubCancel context.CancelFunc

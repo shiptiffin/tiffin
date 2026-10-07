@@ -956,3 +956,41 @@ func TestAppRedirectNotFollowed(t *testing.T) {
 		t.Errorf("error %q", j.LastError)
 	}
 }
+
+// A cancel that lands after admission but before the delivery is
+// registered still stops it: the app never gets the job.
+func TestCancelBetweenAdmitAndDelivery(t *testing.T) {
+	e := newEngine(t, nil)
+	a := newApp(t, e.Engine, proj)
+	e.configure(proj, QueueConfig{Name: "c", URL: a.url("/c")})
+	ctx := context.Background()
+	hook := func(id int64) {
+		if _, err := e.CancelJob(ctx, proj, id); err != nil {
+			t.Error(err)
+		}
+	}
+	e.afterAdmit.Store(&hook)
+	id := e.send(proj, SendRequest{Name: "c"}).Jobs[0]
+	j := e.waitState(proj, id, stateCancelled, 10*time.Second)
+	eventually(t, 10*time.Second, "the attempt to be recorded", func() bool {
+		j = e.job(proj, id)
+		return len(j.Attempts) == 1
+	})
+	if n := len(a.deliveries()); n != 0 {
+		t.Errorf("a cancelled job was delivered %d time(s)", n)
+	}
+	if j.Attempts[0].Outcome != "cancelled" {
+		t.Errorf("attempts %+v", j.Attempts)
+	}
+	var slots int
+	_ = e.pool.QueryRow(ctx, `SELECT count(*) FROM tq_slots`).Scan(&slots)
+	if slots != 0 {
+		t.Errorf("%d slots still held", slots)
+	}
+	// Replayed, it runs (and is not cut off by the old attempt's cleanup).
+	e.afterAdmit.Store(nil)
+	if _, err := e.RetryJob(ctx, proj, mustJobID(t, id)); err != nil {
+		t.Fatal(err)
+	}
+	e.waitState(proj, id, stateCompleted, 10*time.Second)
+}

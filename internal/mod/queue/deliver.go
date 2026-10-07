@@ -108,15 +108,33 @@ func (e *Engine) workDeliver(ctx context.Context, rj *river.Job[deliverArgs]) er
 	if err != nil || !ok {
 		return err
 	}
+	if f := e.afterAdmit.Load(); f != nil {
+		(*f)(j.ID)
+	}
+	// Register first, then check the job is still this attempt's: a cancel
+	// that committed before the check is seen by it; one after finds the
+	// delivery to cut off.
+	rctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	d := &delivery{extend: make(chan time.Time, 4), cancel: cancel}
+	e.active.Store(j.ID, d)
+	defer e.active.CompareAndDelete(j.ID, d)
+	attempt := j.TotalAttempts + 1
 	j, err = e.loadJob(ctx, e.pool, j.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // the project was deleted
+	}
 	if err != nil {
 		return err
 	}
-	rctx, cancel := context.WithCancelCause(ctx)
-	d := &delivery{extend: make(chan time.Time, 4), cancel: cancel}
-	e.active.Store(j.ID, d)
-	oc := e.deliver(rctx, j, d)
-	e.active.Delete(j.ID)
+	var oc outcome
+	if j.State != stateRunning || j.Seq != rj.Args.Seq || j.TotalAttempts != attempt {
+		oc = outcome{kind: outcomeDead, err: "cancelled by an operator before it started"}
+		j.TotalAttempts = attempt // finish records this attempt, if the job hasn't moved on
+	} else {
+		oc = e.deliver(rctx, j, d)
+	}
+	e.active.CompareAndDelete(j.ID, d)
 	cancel(nil)
 	if ctx.Err() != nil && oc.kind != outcomeOK {
 		oc.kind, oc.err = outcomeInterrupted, "the box is shutting down; the attempt will run again"

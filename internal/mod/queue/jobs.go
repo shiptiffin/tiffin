@@ -784,6 +784,11 @@ func (e *Engine) retryTx(ctx context.Context, tx pgx.Tx, project string, id int6
 		}
 		return conflict(jobID(id)+" is already queued", "")
 	}
+	if _, busy := e.active.Load(id); busy {
+		// A cancelled attempt that is still being cut off: replaying now
+		// would run two attempts of the job at once.
+		return conflict(jobID(id)+"'s cancelled attempt is still stopping", "retry in a moment")
+	}
 	replay := j.State == stateDead || j.State == stateCancelled || j.State == stateCompleted
 	prio := j.Priority
 	rid, err := e.insertRiver(ctx, tx, id, j.Seq+1, prio, e.now())
