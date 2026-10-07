@@ -183,12 +183,18 @@ func (p *Platform) ResourceStatuses(ctx context.Context, project string) (map[st
 	if err != nil {
 		return nil, err
 	}
+	p.ReportStatuses(ctx, project, st)
+	return st, nil
+}
+
+// ReportStatuses adds what every StatusReporter says to a project's stored
+// statuses (for callers that read many projects' statuses at once).
+func (p *Platform) ReportStatuses(ctx context.Context, project string, st map[string]state.ResourceStatus) {
 	for _, m := range Modules() {
 		if r, ok := m.(StatusReporter); ok {
 			r.ReportStatus(ctx, p, project, st)
 		}
 	}
-	return st, nil
 }
 
 // PlanChecker can refuse a manifest before it is planned: the desired state

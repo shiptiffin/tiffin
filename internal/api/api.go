@@ -444,26 +444,33 @@ func (a *API) register() {
 			if err := p.Require(tokens.ScopeRead, ""); err != nil {
 				return nil, err
 			}
-			names, err := a.deps.DB.ListProjects(ctx)
+			// Two queries for the whole list (plus what modules add to apps'
+			// statuses), not a project load and a status query per project.
+			counts, err := a.deps.DB.ProjectCounts(ctx)
+			if err != nil {
+				return nil, err
+			}
+			statuses, err := a.deps.DB.AllResourceStatuses(ctx)
 			if err != nil {
 				return nil, err
 			}
 			out := []ProjectSummary{}
-			for _, n := range names {
-				if !p.CanProject(n) {
+			for _, pc := range counts {
+				if !p.CanProject(pc.Name) {
 					continue
 				}
-				v, res, err := a.deps.DB.Load(ctx, n)
-				if err != nil {
-					return nil, err
+				ps := ProjectSummary{Name: pc.Name, Version: pc.Version, Resources: pc.Resources}
+				st := statuses[pc.Name]
+				if st == nil {
+					st = map[string]state.ResourceStatus{}
 				}
-				ps := ProjectSummary{Name: n, Version: v, Resources: len(res)}
-				if st, err := a.statuses(ctx, n); err == nil {
-					for _, addr := range slices.Sorted(maps.Keys(st)) {
-						if rs := st[addr]; rs.State == "failed" {
-							msg, _, _ := strings.Cut(rs.Message, "\n")
-							ps.Failing = append(ps.Failing, addr+": "+truncate(msg, 200))
-						}
+				if a.deps.Platform != nil {
+					a.deps.Platform.ReportStatuses(ctx, pc.Name, st)
+				}
+				for _, addr := range slices.Sorted(maps.Keys(st)) {
+					if rs := st[addr]; rs.State == "failed" {
+						msg, _, _ := strings.Cut(rs.Message, "\n")
+						ps.Failing = append(ps.Failing, addr+": "+truncate(msg, 200))
 					}
 				}
 				out = append(out, ps)

@@ -563,6 +563,33 @@ func (s *DB) ListProjects(ctx context.Context) ([]string, error) {
 	return s.projects(ctx, `SELECT DISTINCT project FROM resources ORDER BY project`)
 }
 
+// ProjectCount is a project's version and how many resources it has.
+type ProjectCount struct {
+	Name      string
+	Version   int64
+	Resources int
+}
+
+// ProjectCounts returns ListProjects' projects with their versions and
+// resource counts, in one query.
+func (s *DB) ProjectCounts(ctx context.Context) ([]ProjectCount, error) {
+	rows, err := s.sql.QueryContext(ctx, `SELECT r.project, COALESCE(p.version, 0), COUNT(*) FROM resources r
+		LEFT JOIN projects p ON p.name = r.project GROUP BY r.project ORDER BY r.project`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ProjectCount
+	for rows.Next() {
+		var c ProjectCount
+		if err := rows.Scan(&c.Name, &c.Version, &c.Resources); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // ListConvergingProjects lists ListProjects plus the projects that have no
 // resources left but still have live statuses: a deletion the machine has
 // not finished (the box restarted, or a delete failed).
@@ -659,20 +686,40 @@ func (s *DB) DeleteResourceStatus(ctx context.Context, project, address string) 
 
 // ResourceStatuses returns a project's live resource states by address.
 func (s *DB) ResourceStatuses(ctx context.Context, project string) (map[string]ResourceStatus, error) {
-	rows, err := s.sql.QueryContext(ctx, `SELECT address, state, message, updated_at FROM resource_status WHERE project = ?`, project)
+	all, err := s.resourceStatuses(ctx, `WHERE project = ?`, project)
+	if err != nil {
+		return nil, err
+	}
+	if all[project] == nil {
+		return map[string]ResourceStatus{}, nil
+	}
+	return all[project], nil
+}
+
+// AllResourceStatuses returns every project's live resource states, by
+// project and address, in one query.
+func (s *DB) AllResourceStatuses(ctx context.Context) (map[string]map[string]ResourceStatus, error) {
+	return s.resourceStatuses(ctx, ``)
+}
+
+func (s *DB) resourceStatuses(ctx context.Context, where string, args ...any) (map[string]map[string]ResourceStatus, error) {
+	rows, err := s.sql.QueryContext(ctx, `SELECT project, address, state, message, updated_at FROM resource_status `+where, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]ResourceStatus{}
+	out := map[string]map[string]ResourceStatus{}
 	for rows.Next() {
 		var r ResourceStatus
-		var at string
-		if err := rows.Scan(&r.Address, &r.State, &r.Message, &at); err != nil {
+		var project, at string
+		if err := rows.Scan(&project, &r.Address, &r.State, &r.Message, &at); err != nil {
 			return nil, err
 		}
 		r.UpdatedAt, _ = time.Parse(time.RFC3339Nano, at)
-		out[r.Address] = r
+		if out[project] == nil {
+			out[project] = map[string]ResourceStatus{}
+		}
+		out[project][r.Address] = r
 	}
 	return out, rows.Err()
 }
