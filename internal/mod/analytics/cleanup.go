@@ -18,5 +18,5 @@ func (m *Module) ProjectDeleted(ctx context.Context, _ *platform.Platform, proje
 	if m.sites != nil {
 		m.sites.Invalidate()
 	}
-	return m.store.DeleteProject(ctx, project)
+	return m.deleteProject(ctx, project)
 }

@@ -215,8 +215,10 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 	}
 	m.sites.Invalidate()
 	if spec == nil {
-		return m.store.DeleteProject(ctx, project)
+		return m.deleteProject(ctx, project)
 	}
+	m.pipe.Revive(project)
+	m.vit.Revive(project)
 	var s serviceSpec
 	if err := json.Unmarshal(spec, &s); err != nil {
 		return fmt.Errorf("analytics spec: %w", err)
@@ -226,6 +228,19 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 	}
 	_, err := m.store.Purge(ctx, project, time.Now().AddDate(0, 0, -s.RetentionDays))
 	return err
+}
+
+// deleteProject deletes a project's analytics data, after dropping what
+// is pending for it: a buffered event or a flush in flight must not write
+// it back.
+func (m *Module) deleteProject(ctx context.Context, project string) error {
+	if m.pipe != nil {
+		m.pipe.Forget(project)
+	}
+	if m.vit != nil {
+		m.vit.Forget(project)
+	}
+	return m.store.DeleteProject(ctx, project)
 }
 
 // Routes publishes the collector (script, beacons) at t.<domain>, and

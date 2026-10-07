@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btahir/tiffin/internal/mod/analytics/enrich"
@@ -53,12 +54,25 @@ type Stats struct {
 	OptedOut int64 `json:"optedOut" doc:"Hits not counted because the browser sent Global Privacy Control"`
 	Invalid  int64 `json:"invalid"`
 	Buffered int   `json:"buffered"`
-	Failed   int64 `json:"failed" doc:"Events lost because the store refused them"`
+	Failed   int64 `json:"failed" doc:"Events lost because the store refused them, or because the store fell so far behind that the buffer was full"`
+}
+
+// Buffer limits: past them, new events are dropped (and counted as
+// failed) instead of growing the box's memory while the store is slow.
+const (
+	maxBufferedEvents = 100000
+	maxBufferedBytes  = 64 << 20
+)
+
+// size approximates an event's memory.
+func (e *Event) size() int {
+	return 160 + len(e.Project) + len(e.App) + len(e.Name) + len(e.Host) + len(e.Path) + len(e.RefSource) + len(e.RefHost) +
+		len(e.UTMSource) + len(e.UTMMedium) + len(e.UTMCamp) + len(e.Props)
 }
 
 // Pipeline enriches hits, assigns visitors and sessions, buffers events and
-// writes them to the store in batches (every second or 1000 events). It
-// also feeds the realtime view.
+// writes them to the store in batches (every second or 1000 events), one
+// batch at a time. It also feeds the realtime view.
 type Pipeline struct {
 	Store  Store
 	Bots   *enrich.Bots
@@ -69,10 +83,13 @@ type Pipeline struct {
 
 	mu       sync.Mutex
 	buf      []Event
+	bufBytes int
 	sessions map[sessKey]*sess
-	dirty    map[[3]string]bool // project, app, day needing a rollup
+	dirty    map[[3]string]bool // project, app, day with stored events needing a rollup
+	gone     map[string]bool    // projects whose analytics was deleted: their hits are dropped
 	stats    Stats
-	flushMu  sync.Mutex
+	flushMu  sync.Mutex  // one flush (or deletion) at a time
+	flushing atomic.Bool // a flush started by a full buffer is running
 }
 
 func (pl *Pipeline) now() time.Time {
@@ -179,6 +196,15 @@ func (pl *Pipeline) Add(ctx context.Context, h Hit) (bool, string) {
 		ev.Props = string(b)
 	}
 	pl.mu.Lock()
+	if pl.gone[h.Project] {
+		pl.mu.Unlock()
+		return false, "analytics is off for this project"
+	}
+	if len(pl.buf) >= maxBufferedEvents || pl.bufBytes+ev.size() > maxBufferedBytes {
+		pl.stats.Failed++
+		pl.mu.Unlock()
+		return false, "the store is behind; try again shortly"
+	}
 	if vis != 0 {
 		if pl.sessions == nil {
 			pl.sessions = map[sessKey]*sess{}
@@ -195,18 +221,20 @@ func (pl *Pipeline) Add(ctx context.Context, h Hit) (bool, string) {
 		ev.Session = s.id
 	}
 	pl.buf = append(pl.buf, ev)
+	pl.bufBytes += ev.size()
 	pl.stats.Accepted++
-	if pl.dirty == nil {
-		pl.dirty = map[[3]string]bool{}
-	}
-	pl.dirty[[3]string{h.Project, h.App, day}] = true
 	full := len(pl.buf) >= 1000
 	pl.mu.Unlock()
 	if pl.RT != nil {
 		pl.RT.Add(ev)
 	}
-	if full {
-		go pl.Flush(context.WithoutCancel(ctx))
+	// One early flush at a time: a flood must not stack up goroutines
+	// waiting for the store.
+	if full && pl.flushing.CompareAndSwap(false, true) {
+		go func() {
+			defer pl.flushing.Store(false)
+			_ = pl.Flush(context.WithoutCancel(ctx))
+		}()
 	}
 	return true, ""
 }
@@ -215,43 +243,112 @@ func (pl *Pipeline) Add(ctx context.Context, h Hit) (bool, string) {
 func (pl *Pipeline) Flush(ctx context.Context) error {
 	pl.flushMu.Lock()
 	defer pl.flushMu.Unlock()
+	return pl.flush(ctx)
+}
+
+func (pl *Pipeline) flush(ctx context.Context) error {
 	pl.mu.Lock()
-	batch := pl.buf
-	pl.buf = nil
+	batch, bytes := pl.buf, pl.bufBytes
+	pl.buf, pl.bufBytes = nil, 0
 	pl.mu.Unlock()
 	if len(batch) == 0 {
 		return nil
 	}
 	if err := pl.Store.Insert(ctx, batch); err != nil {
 		pl.mu.Lock()
-		if len(pl.buf)+len(batch) <= 100000 {
+		if len(pl.buf)+len(batch) <= maxBufferedEvents && pl.bufBytes+bytes <= maxBufferedBytes {
 			pl.buf = append(batch, pl.buf...)
+			pl.bufBytes += bytes
 		} else {
 			pl.stats.Failed += int64(len(batch))
 		}
 		pl.mu.Unlock()
 		return err
 	}
+	// The days are dirty once their events are stored: marked earlier, a
+	// rollup could run before the event it was for is in the store.
+	pl.mu.Lock()
+	if pl.dirty == nil {
+		pl.dirty = map[[3]string]bool{}
+	}
+	for i := range batch {
+		pl.dirty[[3]string{batch[i].Project, batch[i].App, dayOf(batch[i].TS)}] = true
+	}
+	pl.mu.Unlock()
 	return nil
+}
+
+// Forget drops everything pending for project (buffered events, days to
+// roll up, sessions, realtime) after any flush or rollup in progress, and drops its
+// hits from now on, until Revive. Call it before deleting the project's
+// stored data, so nothing pending writes it back.
+func (pl *Pipeline) Forget(project string) {
+	pl.flushMu.Lock()
+	defer pl.flushMu.Unlock()
+	pl.mu.Lock()
+	if pl.gone == nil {
+		pl.gone = map[string]bool{}
+	}
+	pl.gone[project] = true
+	keep, bytes := pl.buf[:0], 0
+	for _, e := range pl.buf {
+		if e.Project != project {
+			keep = append(keep, e)
+			bytes += e.size()
+		}
+	}
+	clear(pl.buf[len(keep):])
+	pl.buf, pl.bufBytes = keep, bytes
+	for k := range pl.dirty {
+		if k[0] == project {
+			delete(pl.dirty, k)
+		}
+	}
+	for k := range pl.sessions {
+		if k.project == project {
+			delete(pl.sessions, k)
+		}
+	}
+	pl.mu.Unlock()
+	if pl.RT != nil {
+		pl.RT.Forget(project)
+	}
+}
+
+// Revive accepts project's hits again (analytics was turned back on).
+func (pl *Pipeline) Revive(project string) {
+	pl.mu.Lock()
+	delete(pl.gone, project)
+	pl.mu.Unlock()
 }
 
 // RollupDirty flushes and recomputes the rollups of every day that got
 // events since the last call.
 func (pl *Pipeline) RollupDirty(ctx context.Context) error {
-	if err := pl.Flush(ctx); err != nil {
+	pl.flushMu.Lock() // a deletion waits for the rollups too
+	defer pl.flushMu.Unlock()
+	if err := pl.flush(ctx); err != nil {
 		return err
 	}
 	pl.mu.Lock()
-	dirty := pl.dirty
+	days := make([][3]string, 0, len(pl.dirty))
+	for k := range pl.dirty {
+		days = append(days, k)
+	}
 	pl.dirty = nil
 	pl.mu.Unlock()
-	for k := range dirty {
+	for i, k := range days {
 		if err := pl.Store.Rollup(ctx, k[0], k[1], k[2]); err != nil {
+			// This day and every one not reached yet stay due.
 			pl.mu.Lock()
 			if pl.dirty == nil {
 				pl.dirty = map[[3]string]bool{}
 			}
-			pl.dirty[k] = true
+			for _, k := range days[i:] {
+				if !pl.gone[k[0]] {
+					pl.dirty[k] = true
+				}
+			}
 			pl.mu.Unlock()
 			return err
 		}
@@ -317,6 +414,9 @@ func (pl *Pipeline) Run(ctx context.Context) {
 		}
 		if n%60 == 0 {
 			pl.Prune()
+			if pl.RT != nil {
+				pl.RT.Sweep(pl.now())
+			}
 		}
 	}
 }
@@ -336,11 +436,20 @@ type rtMinute struct {
 }
 
 // Realtime keeps the last hour per app in memory, minute by minute. It is
-// what "right now" reads, so dashboards never touch the event store.
+// what "right now" reads, so dashboards never touch the event store. Each
+// minute counts at most maxRTVisitors visitors and maxRTKeys pages and
+// sources (the rest of the pages count as "(other)"), and Sweep frees
+// minutes that left the window, so a flood cannot grow it without bound.
 type Realtime struct {
 	mu   sync.Mutex
 	apps map[[2]string]*[rtMinutes]rtMinute
 }
+
+// Realtime limits per app and minute.
+const (
+	maxRTVisitors = 5000
+	maxRTKeys     = 500
+)
 
 // Add records one event.
 func (r *Realtime) Add(e Event) {
@@ -368,15 +477,54 @@ func (r *Realtime) Add(e Event) {
 		return
 	}
 	b.pageviews++
-	if e.Visitor != 0 {
+	if e.Visitor != 0 && len(b.visitors) < maxRTVisitors {
 		b.visitors[e.Visitor] = struct{}{}
 	}
-	b.pages[e.Path]++
+	bump(b.pages, e.Path)
 	if e.RefSource != "" {
-		b.refs[e.RefSource]++
+		bump(b.refs, e.RefSource)
 	}
 	if e.Country != "" {
-		b.countries[e.Country]++
+		bump(b.countries, e.Country)
+	}
+}
+
+// bump counts k in m, or "(other)" once m holds maxRTKeys keys.
+func bump(m map[string]int64, k string) {
+	if _, ok := m[k]; !ok && len(m) >= maxRTKeys {
+		k = "(other)"
+	}
+	m[k]++
+}
+
+// Sweep frees the minutes that left the window, and apps with none left.
+func (r *Realtime) Sweep(now time.Time) {
+	oldest := now.Unix()/60 - rtMinutes + 1
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for k, ring := range r.apps {
+		live := false
+		for i := range ring {
+			if ring[i].minute < oldest {
+				ring[i] = rtMinute{}
+			} else {
+				live = true
+			}
+		}
+		if !live {
+			delete(r.apps, k)
+		}
+	}
+}
+
+// Forget drops a project's realtime view.
+func (r *Realtime) Forget(project string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for k := range r.apps {
+		if k[0] == project {
+			delete(r.apps, k)
+		}
 	}
 }
 

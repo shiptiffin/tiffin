@@ -82,10 +82,37 @@ type Vitals struct {
 
 	mu      sync.Mutex
 	counts  map[vitalKey]int64
+	gone    map[string]bool // projects whose analytics was deleted
 	minute  int64
 	perIP   map[string]int
 	total   int
 	limited int64
+	flushMu sync.Mutex // one flush (or deletion) at a time
+}
+
+// Forget drops project's pending samples, after any flush in progress,
+// and its samples from now on, until Revive.
+func (v *Vitals) Forget(project string) {
+	v.flushMu.Lock()
+	defer v.flushMu.Unlock()
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.gone == nil {
+		v.gone = map[string]bool{}
+	}
+	v.gone[project] = true
+	for k := range v.counts {
+		if k.project == project {
+			delete(v.counts, k)
+		}
+	}
+}
+
+// Revive accepts project's samples again.
+func (v *Vitals) Revive(project string) {
+	v.mu.Lock()
+	delete(v.gone, project)
+	v.mu.Unlock()
 }
 
 func (v *Vitals) allow(ip string, now time.Time) bool {
@@ -106,6 +133,9 @@ func (v *Vitals) allow(ip string, now time.Time) bool {
 func (v *Vitals) add(project, app, path string, at time.Time, metrics map[string]float64) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	if v.gone[project] {
+		return
+	}
 	if v.counts == nil {
 		v.counts = map[vitalKey]int64{}
 	}
@@ -116,6 +146,8 @@ func (v *Vitals) add(project, app, path string, at time.Time, metrics map[string
 
 // Flush writes the counted samples.
 func (v *Vitals) Flush(ctx context.Context) error {
+	v.flushMu.Lock()
+	defer v.flushMu.Unlock()
 	v.mu.Lock()
 	counts := v.counts
 	v.counts = nil

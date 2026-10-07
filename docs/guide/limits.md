@@ -282,3 +282,11 @@ Router, TanStack Start) cover the files the build wrote, as they are:
 
 Not yet: funnels and retention, goals, share links, excluding your own visits, and
 automatic events from sign-ups and deploys.
+
+- "Right now" counts at most 5,000 visitors and 500 pages and sources per app and
+  minute; past that it undercounts visitors and shows the rest of the pages as
+  `(other)`. Daily stats are not affected.
+- When the analytics store falls behind, the collector holds up to 100,000 events
+  (64 MiB) and then drops new ones, counted as lost in `tiffin status`. There is no
+  per-project share yet: one app flooding the collector can crowd out other projects'
+  events while the store catches up.
