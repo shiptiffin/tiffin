@@ -366,19 +366,23 @@ export function NewProjectPage({ search }: { search: NewSearch }) {
                       {starters.isError ? (
                         <ProblemNote error={starters.error} title="The starters can’t be listed right now." />
                       ) : (
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
-                          {KINDS.map((k) => (
-                            <KindTile
-                              key={k.kind}
-                              kind={k}
-                              picked={code === k.kind}
-                              loading={!starters.data}
-                              frameworks={frameworksOf(list, k.kind)}
-                              value={starterIn(k.kind)}
-                              onFramework={(id) => setFramework(k.kind, id)}
-                              onPick={() => code !== k.kind && setCode(k.kind)}
-                            />
-                          ))}
+                        // Side by side only when the column fits each tile's framework picker (TanStack Start, its longest
+                        // name, needs ~185 px a tile); narrower (a phone, or 1024-1280 px beside the summary) they stack as rows.
+                        <div className="@container">
+                          <div className="grid grid-cols-1 gap-2 @min-[37rem]:grid-cols-3 @min-[37rem]:gap-3">
+                            {KINDS.map((k) => (
+                              <KindTile
+                                key={k.kind}
+                                kind={k}
+                                picked={code === k.kind}
+                                loading={!starters.data}
+                                frameworks={frameworksOf(list, k.kind)}
+                                value={starterIn(k.kind)}
+                                onFramework={(id) => setFramework(k.kind, id)}
+                                onPick={() => code !== k.kind && setCode(k.kind)}
+                              />
+                            ))}
+                          </div>
                         </div>
                       )}
                       <div className="mt-4 divide-y divide-rule border-y border-rule">
@@ -510,8 +514,9 @@ function Step({ n, label, children }: { n: number; label: string; children: Reac
 /**
  * A kind of starter as a tile: its drawing over its name and line, then its
  * framework. The picked tile's framework is a quiet dropdown (a kind with one
- * framework just names it); the others show their default. On a phone, a
- * compact row with a small drawing, the framework beneath.
+ * framework just names it); the others show their default. In a narrow
+ * column (a phone, or beside the summary at 1024-1280 px), a compact row
+ * with a small drawing, the framework beneath.
  */
 function KindTile({
   kind,
@@ -540,11 +545,11 @@ function KindTile({
         picked ? "border-brass shadow-[0_0_0_1px_var(--brass)]" : "border-rule-2 hover:border-rule-3",
       )}
     >
-      <RadioItem value={kind.kind} className="group flex flex-1 text-left outline-hidden active:scale-[0.99] sm:flex-col">
-        <span className="art-well block w-20 shrink-0 bg-paper-sunk sm:aspect-[16/10] sm:w-full">
+      <RadioItem value={kind.kind} className="group flex flex-1 text-left outline-hidden active:scale-[0.99] @min-[37rem]:flex-col">
+        <span className="art-well block w-20 shrink-0 bg-paper-sunk @min-[37rem]:aspect-[16/10] @min-[37rem]:w-full">
           <img src={kind.thumb} alt="" width={320} height={200} className="size-full object-contain p-1.5 transition-transform duration-[var(--dur-enter)] ease-[var(--ease-out)] group-hover:scale-[1.03]" />
         </span>
-        <span className="flex min-w-0 flex-1 flex-col gap-1 border-l border-rule px-3 pt-2.5 pb-2.5 sm:border-t sm:border-l-0">
+        <span className="flex min-w-0 flex-1 flex-col gap-1 border-l border-rule px-3 pt-2.5 pb-2.5 @min-[37rem]:border-t @min-[37rem]:border-l-0">
           <span className="flex items-center justify-between gap-2 text-[0.875rem] font-[550] text-ink">
             {kind.title}
             <span
@@ -560,10 +565,17 @@ function KindTile({
           <span className="text-[0.78125rem] leading-[1.125rem] text-ink-3">{kind.line}</span>
         </span>
       </RadioItem>
-      <div className="flex h-11 items-center gap-2 border-t border-rule px-3" onClick={picked ? undefined : onPick}>
-        <span className="text-xs text-ink-3">Framework</span>
+      {/* The picker sizes to its framework's name. Side by side, every tile puts "Framework" on a line of its own so the
+          tiles' footers line up; as rows, the label leads and the picker wraps below it only if the row is too narrow. */}
+      <div
+        className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-1 border-t border-rule px-3 py-1.5 @min-[37rem]:pt-2.5 @min-[37rem]:pb-2"
+        onClick={picked ? undefined : onPick}
+      >
+        <span className="text-xs text-ink-3 @min-[37rem]:basis-full">Framework</span>
         {loading ? (
-          <span className="h-3.5 w-20 rounded bg-paper-sunk" />
+          <span className="flex h-8 items-center">
+            <span className="h-3.5 w-20 rounded bg-paper-sunk" />
+          </span>
         ) : picked && options.length > 1 ? (
           <FrameworkSelect
             size="sm"
@@ -571,10 +583,10 @@ function KindTile({
             value={value?.id ?? ""}
             onChange={onFramework}
             options={options.map((o) => ({ id: o.id, logo: o.preset, name: o.name }))}
-            className="-my-1 min-w-0 flex-1"
+            className="w-auto max-w-full"
           />
         ) : value ? (
-          <FrameworkLabel id={value.preset} name={value.presetName} className={cn("text-[0.8125rem]", picked ? "text-ink-2" : "text-ink-3")} />
+          <FrameworkLabel id={value.preset} name={value.presetName} className={cn("h-8 text-[0.8125rem]", picked ? "text-ink-2" : "text-ink-3")} />
         ) : null}
       </div>
     </div>
