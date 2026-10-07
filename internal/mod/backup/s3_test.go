@@ -177,14 +177,14 @@ func storeRoundTrip(t *testing.T, cl *s3Client, prefix string) {
 	}
 	src := t.TempDir()
 	writeTree(t, src)
-	known, memo := map[string]bool{}, map[string]fileMemo{}
+	known := map[string]bool{}
 	rec := &offsiteSet{Backup: Backup{ID: ids.New("bk"), Status: "ok"}}
-	entries, err := v.putSet(ctx, rec, src, known, memo)
+	entries, err := v.putSet(ctx, rec, src, known)
 	if err != nil {
 		fatalR2(t, "%v", err)
 	}
 	rec2 := &offsiteSet{Backup: Backup{ID: ids.New("bk"), Status: "ok"}}
-	if _, err := v.putSet(ctx, rec2, src, known, memo); err != nil || rec2.Upload.NewChunks != 0 {
+	if _, err := v.putSet(ctx, rec2, src, known); err != nil || rec2.Upload.NewChunks != 0 {
 		fatalR2(t, "second upload: %+v %v", rec2.Upload, err)
 	}
 	listed, err := v.chunkIDs(ctx)

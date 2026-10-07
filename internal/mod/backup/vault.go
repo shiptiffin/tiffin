@@ -36,9 +36,9 @@ import (
 // A chunk's ID is HMAC-SHA256 of its plain content under a key in the
 // bundle: the same content is stored once however many sets and files hold
 // it, and the names say nothing about the content to whoever can list the
-// bucket. A set is uploaded by walking its directory: files whose size and
-// time match the previous upload reuse its chunk IDs without being read,
-// and only chunks the bucket lacks are sent.
+// bucket. A set is uploaded by walking its directory: every file is read
+// and chunked (size and time do not prove a file unchanged: they can be
+// kept or set back), and only chunks the bucket lacks are sent.
 const (
 	chunkSize    = 4 << 20
 	vaultVersion = 1
@@ -246,27 +246,18 @@ func (e *treeEntry) header() *tar.Header {
 		ModTime: time.Unix(0, e.MTime), Size: e.Size, Linkname: e.Link, PAXRecords: e.Xattrs, Format: tar.FormatPAX}
 }
 
-// fileMemo is what the previous upload learnt about one file.
-type fileMemo struct {
-	Size   int64    `json:"s"`
-	MTime  int64    `json:"mt"`
-	Chunks []string `json:"c"`
-}
-
 // uploadStats says what an upload did.
 type uploadStats struct {
-	Files      int64 `json:"files"`
-	Bytes      int64 `json:"bytes" doc:"Size of the files in the set"`
-	Chunks     int   `json:"chunks"`
-	NewChunks  int   `json:"newChunks" doc:"Chunks the destination did not have yet"`
-	SentBytes  int64 `json:"sentBytes" doc:"Bytes uploaded (compressed and encrypted)"`
-	ReusedRead int64 `json:"reusedFiles" doc:"Files unchanged since the last upload (not read again)"`
+	Files     int64 `json:"files"`
+	Bytes     int64 `json:"bytes" doc:"Size of the files in the set"`
+	Chunks    int   `json:"chunks"`
+	NewChunks int   `json:"newChunks" doc:"Chunks the destination did not have yet"`
+	SentBytes int64 `json:"sentBytes" doc:"Bytes uploaded (compressed and encrypted)"`
 }
 
 // putTree uploads the files under dir: chunks the destination lacks (known
-// says which it has; it gains the new ones) and returns the tree. memo maps
-// a path to what the last upload found; it is updated.
-func (v *vault) putTree(ctx context.Context, dir string, known map[string]bool, memo map[string]fileMemo) ([]treeEntry, uploadStats, error) {
+// says which it has; it gains the new ones) and returns the tree.
+func (v *vault) putTree(ctx context.Context, dir string, known map[string]bool) ([]treeEntry, uploadStats, error) {
 	var st uploadStats
 	var entries []treeEntry
 	ctx, cancel := context.WithCancel(ctx)
@@ -336,21 +327,11 @@ func (v *vault) putTree(ctx context.Context, dir string, known map[string]bool, 
 			e.Size = hd.Size
 			st.Files++
 			st.Bytes += hd.Size
-			m, ok := memo[rel]
-			mu.Lock()
-			reuse := ok && m.Size == hd.Size && m.MTime == e.MTime && allKnown(known, m.Chunks)
-			mu.Unlock()
-			if reuse {
-				e.Chunks = m.Chunks
-				st.ReusedRead++
-			} else {
-				ids, err := v.chunkFile(src, hd.Size, send)
-				if err != nil {
-					return fmt.Errorf("%s: %w", rel, err)
-				}
-				e.Chunks = ids
-				memo[rel] = fileMemo{Size: hd.Size, MTime: e.MTime, Chunks: ids}
+			ids, err := v.chunkFile(src, hd.Size, send)
+			if err != nil {
+				return fmt.Errorf("%s: %w", rel, err)
 			}
+			e.Chunks = ids
 			st.Chunks += len(e.Chunks)
 		}
 		entries = append(entries, e)
@@ -365,15 +346,6 @@ func (v *vault) putTree(ctx context.Context, dir string, known map[string]bool, 
 		return nil, st, walkErr
 	}
 	return entries, st, nil
-}
-
-func allKnown(known map[string]bool, ids []string) bool {
-	for _, id := range ids {
-		if !known[id] {
-			return false
-		}
-	}
-	return true
 }
 
 // chunkFile reads a file in chunks and hands each to send.
@@ -568,8 +540,8 @@ type offsiteSet struct {
 
 // putSet uploads the set directory dir and then its tree and record; a set
 // counts as copied once its record exists.
-func (v *vault) putSet(ctx context.Context, rec *offsiteSet, dir string, known map[string]bool, memo map[string]fileMemo) ([]treeEntry, error) {
-	entries, st, err := v.putTree(ctx, dir, known, memo)
+func (v *vault) putSet(ctx context.Context, rec *offsiteSet, dir string, known map[string]bool) ([]treeEntry, error) {
+	entries, st, err := v.putTree(ctx, dir, known)
 	if err != nil {
 		return nil, err
 	}

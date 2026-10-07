@@ -292,9 +292,9 @@ What is copied, and how:
 - **Everything else** in the set (the Valkey snapshot, the platform state and box key, and
   registered files: buckets, mail, analytics, issues, apps' disk folders) goes to
   `<prefix>/tiffin/` as compressed, encrypted chunks of up to 4 MiB, named by a keyed
-  hash of their content. A chunk the bucket already has is not sent again, and a file
-  whose size and time have not changed is not even read, so a copy sends only what
-  changed since the last one.
+  hash of their content. A chunk the bucket already has is not sent again, so a copy
+  sends only what changed since the last one. Every file is read each time (a file's
+  size and time can stay the same while its content changes).
 - Copies keep **30 days** by default (`--retention-days`); older sets, and chunks no
   remaining set uses, are deleted once a day. The newest copy is never deleted.
 

@@ -220,16 +220,16 @@ func TestTreeRoundTripAndDedup(t *testing.T) {
 	v := testVault(t, st)
 	src := t.TempDir()
 	writeTree(t, src)
-	known, memo := map[string]bool{}, map[string]fileMemo{}
+	known := map[string]bool{}
 
 	// 1. First upload: every chunk is new.
 	rec := &offsiteSet{Backup: Backup{ID: ids.New("bk"), Status: "ok"}}
-	entries, err := v.putSet(ctx, rec, src, known, memo)
+	entries, err := v.putSet(ctx, rec, src, known)
 	if err != nil {
 		t.Fatal(err)
 	}
 	up := rec.Upload
-	if up.Files != 5 || up.Chunks != 3+1+1+1 || up.NewChunks != 6 || up.ReusedRead != 0 || up.SentBytes == 0 {
+	if up.Files != 5 || up.Chunks != 3+1+1+1 || up.NewChunks != 6 || up.SentBytes == 0 {
 		t.Fatalf("first upload: %+v", up)
 	}
 	if n := st.count(v.prefix + "chunks/"); n != 6 {
@@ -253,12 +253,12 @@ func TestTreeRoundTripAndDedup(t *testing.T) {
 	}
 	sameTree(t, src, dst)
 
-	// 3. The same set again: no file is read, no chunk is sent.
+	// 3. The same set again: no chunk is sent.
 	rec2 := &offsiteSet{Backup: Backup{ID: ids.New("bk"), Status: "ok"}}
-	if _, err := v.putSet(ctx, rec2, src, known, memo); err != nil {
+	if _, err := v.putSet(ctx, rec2, src, known); err != nil {
 		t.Fatal(err)
 	}
-	if u := rec2.Upload; u.NewChunks != 0 || u.ReusedRead != 5 || u.SentBytes != 0 {
+	if u := rec2.Upload; u.NewChunks != 0 || u.Chunks != 6 || u.SentBytes != 0 {
 		t.Fatalf("unchanged upload: %+v", u)
 	}
 
@@ -267,10 +267,10 @@ func TestTreeRoundTripAndDedup(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec3 := &offsiteSet{Backup: Backup{ID: ids.New("bk"), Status: "ok"}}
-	if _, err := v.putSet(ctx, rec3, src, known, memo); err != nil {
+	if _, err := v.putSet(ctx, rec3, src, known); err != nil {
 		t.Fatal(err)
 	}
-	if u := rec3.Upload; u.NewChunks != 1 || u.ReusedRead != 4 {
+	if u := rec3.Upload; u.NewChunks != 1 {
 		t.Fatalf("one file changed: %+v", u)
 	}
 
@@ -286,10 +286,10 @@ func TestTreeRoundTripAndDedup(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec4 := &offsiteSet{Backup: Backup{ID: ids.New("bk"), Status: "ok"}}
-	if _, err := v.putSet(ctx, rec4, src, listed, map[string]fileMemo{}); err != nil {
+	if _, err := v.putSet(ctx, rec4, src, listed); err != nil {
 		t.Fatal(err)
 	}
-	if u := rec4.Upload; u.NewChunks != 1 || u.ReusedRead != 0 {
+	if u := rec4.Upload; u.NewChunks != 1 {
 		t.Fatalf("one chunk of a big file changed: %+v", u)
 	}
 
@@ -327,6 +327,50 @@ func TestTreeRoundTripAndDedup(t *testing.T) {
 	delete(st.objs, key)
 	if _, err := v.getTree(ctx, entries, filepath.Join(t.TempDir(), "gone")); err == nil || !strings.Contains(err.Error(), "missing") {
 		t.Fatalf("missing chunk: %v", err)
+	}
+}
+
+// A file whose content changes while its size and time stay the same (cp -p,
+// rsync -t, touch -r, an archive unpacked again) is uploaded with its new
+// content: size and time do not prove a file unchanged.
+func TestTreeSameSizeAndTime(t *testing.T) {
+	ctx := context.Background()
+	v := testVault(t, newMem())
+	src := t.TempDir()
+	f := filepath.Join(src, "files", "data.txt")
+	if err := os.MkdirAll(filepath.Dir(f), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(f, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(f, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	known := map[string]bool{}
+	write("AAAA")
+	if _, err := v.putSet(ctx, &offsiteSet{Backup: Backup{ID: ids.New("bk"), Status: "ok"}}, src, known); err != nil {
+		t.Fatal(err)
+	}
+	write("BBBB")
+	rec := &offsiteSet{Backup: Backup{ID: ids.New("bk"), Status: "ok"}}
+	entries, err := v.putSet(ctx, rec, src, known)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Upload.NewChunks != 1 {
+		t.Fatalf("the changed file was not sent: %+v", rec.Upload)
+	}
+	dst := filepath.Join(t.TempDir(), "restore")
+	if _, err := v.getTree(ctx, entries, dst); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dst, "files", "data.txt")); string(got) != "BBBB" {
+		t.Fatalf("restored %q, want the new content", got)
 	}
 }
 
@@ -373,7 +417,7 @@ func TestPruneRetention(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(dir, "kept.txt"), data, 0o600)
 		_ = os.WriteFile(filepath.Join(dir, "own.txt"), []byte(extra), 0o600)
 		rec := &offsiteSet{Backup: Backup{ID: idAt(now.Add(-age)), Status: "ok"}}
-		e, err := v.putSet(ctx, rec, dir, map[string]bool{}, map[string]fileMemo{})
+		e, err := v.putSet(ctx, rec, dir, map[string]bool{})
 		if err != nil {
 			t.Fatal(err)
 		}

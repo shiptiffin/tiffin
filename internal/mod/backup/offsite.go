@@ -553,13 +553,11 @@ func ensureWAL(ctx context.Context, start, stop string) error {
 
 // ---- copies ----
 
-// fileCache is what earlier uploads learnt: the chunks the destination
-// has and every file's chunks (by its path in a set).
+// fileCache is what earlier uploads learnt: the chunks the destination has.
 type fileCache struct {
-	Dest     string              `json:"dest"`
-	ListedAt time.Time           `json:"listedAt"`
-	Chunks   []string            `json:"chunks"`
-	Files    map[string]fileMemo `json:"files"`
+	Dest     string    `json:"dest"`
+	ListedAt time.Time `json:"listedAt"`
+	Chunks   []string  `json:"chunks"`
 }
 
 func cachePath() string { return filepath.Join(offsiteRoot, "cache.json") }
@@ -569,7 +567,7 @@ func loadCache(c *OffsiteConfig) *fileCache {
 	if raw, err := os.ReadFile(cachePath()); err == nil && json.Unmarshal(raw, &fc) == nil && fc.Dest == c.dest() {
 		return &fc
 	}
-	return &fileCache{Dest: c.dest(), Files: map[string]fileMemo{}}
+	return &fileCache{Dest: c.dest()}
 }
 
 func saveCache(fc *fileCache, known map[string]bool) error {
@@ -740,7 +738,7 @@ func copyParts(ctx context.Context, p *platform.Platform, c *OffsiteConfig, s *o
 	}
 	rec := &offsiteSet{Backup: *b, Box: hostname(), Version: version.Version}
 	rec.Backup.Offsite = &BackupOffsiteCopy{Backup: b.ID, Status: "ok", PostgresLabel: cp.PostgresLabel, PostgresType: cp.PostgresType}
-	entries, err := v.putSet(ctx, rec, b.dir(), known, fc.Files)
+	entries, err := v.putSet(ctx, rec, b.dir(), known)
 	if err != nil {
 		return fmt.Errorf("files: %w", err)
 	}
