@@ -364,7 +364,7 @@ func TestOAuthSignInGoogle(t *testing.T) {
 	e.signedInAs(res, body, maya, "/")
 	e.a.WaitBackground()
 	sent := e.mail.all()
-	if len(sent) != 1 || sent[0].Kind != api.BoxMailNewDevice || sent[0].Via != "a Google account" || sent[0].To != "maya@example.com" {
+	if len(sent) != 1 || sent[0].Kind != api.BoxMailNewDevice || sent[0].Via != "Google" || sent[0].To != "maya@example.com" {
 		t.Fatalf("new sign-in notice: %+v", sent)
 	}
 

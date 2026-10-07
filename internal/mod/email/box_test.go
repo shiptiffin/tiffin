@@ -40,8 +40,10 @@ func TestRenderBoxMail(t *testing.T) {
 			"Your new sign-in link for dashboard.shiptiffin.com", []string{"Bilal made you a new sign-in link", "for the next 10 minutes"}},
 		{api.BoxMail{Kind: api.BoxMailSignIn, Name: "Maya", URL: link, ExpiresAt: now.Add(15 * time.Minute), IP: "203.0.113.9", Dashboard: "https://dashboard.shiptiffin.com"},
 			"Sign in to dashboard.shiptiffin.com", []string{"the sign-in link you asked for", "for the next 15 minutes", "203.0.113.9", "Nobody can sign in without the link"}},
-		{api.BoxMail{Kind: api.BoxMailNewDevice, Name: "Owner", Role: "owner", Device: "Safari on iPhone", IP: "198.51.100.7", Via: "a passkey", At: now, Dashboard: "https://dashboard.shiptiffin.com"},
-			"New sign-in to dashboard.shiptiffin.com", []string{"Hi there,", "Safari on iPhone", "6 October 2026, 21:00 UTC", "a passkey", "198.51.100.7", "API keys"}},
+		{api.BoxMail{Kind: api.BoxMailNewDevice, Name: "Owner", Role: "owner", Device: "Safari on iPhone", IP: "198.51.100.7", Where: "United Kingdom", Via: "Passkey", At: now, Dashboard: "https://dashboard.shiptiffin.com"},
+			"New sign-in to ShipTiffin from Safari on iPhone", []string{"\nSomeone just signed in as you", "Device: Safari on iPhone", "When: Tuesday 6 October, 21:00 UTC",
+				"How: Passkey", "Where: United Kingdom · 198.51.100.7", "Review passkeys: https://dashboard.shiptiffin.com/settings/passkeys",
+				"revoke API keys you didn't make: https://dashboard.shiptiffin.com/settings/keys", "Sent once per new browser · ShipTiffin"}},
 	}
 	for _, c := range cases {
 		e, err := renderBoxMail(c.m, "shiptiffin.com", now)
@@ -75,6 +77,44 @@ func TestRenderBoxMail(t *testing.T) {
 	e, _ := renderBoxMail(api.BoxMail{Kind: api.BoxMailInvite, Name: "<b>x</b>", By: "<script>", URL: link, Role: "viewer"}, "x", now)
 	if strings.Contains(e.HTML, "<script>") || strings.Contains(e.HTML, "<b>x</b>") {
 		t.Fatal("html not escaped")
+	}
+}
+
+// The new sign-in notice: one opening line, the facts, and what to do, with
+// the dashboard's address written once (under the button), never as bare text.
+func TestNewSignInVariants(t *testing.T) {
+	now := time.Date(2026, 10, 7, 19, 54, 0, 0, time.UTC)
+	base := api.BoxMail{Kind: api.BoxMailNewDevice, Name: "Maya Okafor", Role: "member", Device: "Chrome on macOS", IP: "203.0.113.4",
+		Via: "Google", At: now, Dashboard: "https://dashboard.shiptiffin.com"}
+	e, err := renderBoxMail(base, "shiptiffin.com", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Subject != "New sign-in to ShipTiffin from Chrome on macOS" {
+		t.Errorf("subject: %q", e.Subject)
+	}
+	for _, h := range []string{"Maya, someone just signed in as you from a new browser.", "How: Google", "Where: 203.0.113.4",
+		"tell the box's owner now", "Review passkeys: https://dashboard.shiptiffin.com/settings/passkeys"} {
+		if !strings.Contains(e.Text, h) {
+			t.Errorf("member text lacks %q:\n%s", h, e.Text)
+		}
+	}
+	if strings.Contains(e.Text, "/settings/keys") || strings.Contains(e.HTML, "/settings/keys") {
+		t.Error("a member was sent to API keys")
+	}
+	// The address shows once, as the link under the button; nothing else names the dashboard.
+	if n := strings.Count(e.HTML, ">dashboard.shiptiffin.com"); n != 1 || !strings.Contains(e.HTML, ">dashboard.shiptiffin.com/settings/passkeys</a>") {
+		t.Errorf("the address shows %d times", n)
+	}
+	if strings.Contains(e.HTML, "Security notice") || strings.Contains(e.Text, "Hi ") {
+		t.Error("old copy left")
+	}
+
+	// Without a dashboard address: no button, no links; an unknown browser reads in the subject.
+	e, _ = renderBoxMail(api.BoxMail{Kind: api.BoxMailNewDevice, Name: "Owner", Role: "owner", At: now}, "shiptiffin.com", now)
+	if e.Subject != "New sign-in to ShipTiffin from an unknown browser" || strings.Contains(e.HTML, "href=") ||
+		!strings.Contains(e.Text, "Device: An unknown browser") || !strings.Contains(e.Text, "How: Sign-in link") || strings.Contains(e.Text, "Where:") {
+		t.Errorf("bare notice: %q\n%s", e.Subject, e.Text)
 	}
 }
 

@@ -266,13 +266,20 @@ func TestNewSignInNotice(t *testing.T) {
 	if res.StatusCode != 200 || len(e.f.all()) != 0 {
 		t.Fatalf("same browser: %d %+v", res.StatusCode, e.f.all())
 	}
-	// A new browser: Maya hears about it.
+	// A new browser: Maya hears about it, with the country the box's database gives.
+	api.SetLocator(func(ip string) string {
+		if ip == "198.51.100.77" {
+			return "Canada"
+		}
+		return ""
+	})
+	t.Cleanup(func() { api.SetLocator(nil) })
 	_, l, _ = e.call(e.owner, "POST", "/v1/people/"+id+"/login-link", nil)
 	res, _ = e.send("/v1/session", "198.51.100.77", map[string]any{"code": codeOf(l["url"].(string))}, phone)
 	e.a.WaitBackground()
 	sent := e.f.all()
 	if res.StatusCode != 200 || len(sent) != 1 || sent[0].Kind != api.BoxMailNewDevice || sent[0].To != "maya@example.com" ||
-		sent[0].Device != "Safari on iPhone" || sent[0].IP != "198.51.100.77" || sent[0].Via != "a sign-in link" {
+		sent[0].Device != "Safari on iPhone" || sent[0].IP != "198.51.100.77" || sent[0].Via != "Sign-in link" || sent[0].Where != "Canada" {
 		t.Fatalf("new browser: %d %+v", res.StatusCode, sent)
 	}
 	// Someone without an address is never mailed.

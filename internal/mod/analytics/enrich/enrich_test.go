@@ -98,3 +98,15 @@ func TestGeo(t *testing.T) {
 		t.Fatalf("loopback → %q", c)
 	}
 }
+
+func TestCountryName(t *testing.T) {
+	for code, want := range map[string]string{"US": "United States", "GB": "United Kingdom", "HK": "Hong Kong", "XK": "Kosovo",
+		"BA": "Bosnia and Herzegovina", "": "", "ZZ": "", "us": ""} {
+		if got := CountryName(code); got != want {
+			t.Errorf("CountryName(%q) = %q, want %q", code, got, want)
+		}
+	}
+	if n := len(countryNames); n != 250 {
+		t.Errorf("%d countries, want 249 ISO 3166-1 codes and XK", n)
+	}
+}

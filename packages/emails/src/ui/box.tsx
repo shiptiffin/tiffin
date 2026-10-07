@@ -18,7 +18,8 @@ export const boxSample: BoxBase = {
   markUrl: "https://dashboard.shiptiffin.com/email-mark.png",
 };
 
-export function Box<P extends BoxBase>({ p, preview, why, children }: { p: P; preview: string; why: ReactNode; children: ReactNode }) {
+/** `oneLine`: the footer is the one line "{why} · {brand}", without the dashboard's address. */
+export function Box<P extends BoxBase>({ p, preview, why, oneLine, children }: { p: P; preview: string; why: ReactNode; oneLine?: boolean; children: ReactNode }) {
   return (
     <BoxLayout
       preview={preview}
@@ -26,6 +27,13 @@ export function Box<P extends BoxBase>({ p, preview, why, children }: { p: P; pr
       host={p.host}
       mark={when(p, "markUrl", <MarkCell src={p.markUrl} />)}
       why={<Small>{why}</Small>}
+      footer={
+        oneLine ? (
+          <Small last>
+            {why} · {p.brand}
+          </Small>
+        ) : undefined
+      }
     >
       {children}
     </BoxLayout>

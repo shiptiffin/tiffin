@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/mod/analytics/enrich"
@@ -109,6 +110,9 @@ func (m *Module) Start(ctx context.Context, p *platform.Platform) error {
 	}
 	geo, _ := enrich.OpenGeo(geoPath(root))
 	m.setup(p, st, geo)
+	if geo.Loaded() { // "New sign-in" emails name the country a sign-in came from
+		api.SetLocator(func(ip string) string { return enrich.CountryName(geo.Country(ip)) })
+	}
 	if err := m.pipe.Restore(ctx); err != nil {
 		p.Log.Error("analytics restore", "err", err)
 	}

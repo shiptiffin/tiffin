@@ -42,7 +42,7 @@ func TestSamplesRender(t *testing.T) {
 // Values are escaped for where they land: text, attributes and links.
 func TestValuesAreEscaped(t *testing.T) {
 	evil := `<script>alert("x")</script>&'`
-	e, err := NewSignIn(NewSignInData{Brand: evil, Host: evil, First: evil, Device: evil, When: evil, Via: evil, IP: evil,
+	e, err := NewSignIn(NewSignInData{Brand: evil, Host: evil, First: evil, Device: evil, From: evil, When: evil, How: evil, Where: evil, IP: evil, ShownURL: evil,
 		URL: `javascript:alert(1)`, MarkURL: `" onerror="alert(1)`})
 	if err != nil {
 		t.Fatal(err)

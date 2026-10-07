@@ -48,6 +48,8 @@ export function BoxLayout(props: {
   mark: ReactNode;
   children: ReactNode;
   why: ReactNode;
+  /** Replaces the whole footer (why, then brand · host). */
+  footer?: ReactNode;
 }) {
   return (
     <Shell
@@ -62,12 +64,14 @@ export function BoxLayout(props: {
         </Row>
       }
       footer={
-        <>
-          {props.why}
-          <Text className="tf-ink3 m-0 font-sans text-[12px] leading-[18px] text-ink-3">
-            {props.brand} · {props.host}
-          </Text>
-        </>
+        props.footer ?? (
+          <>
+            {props.why}
+            <Text className="tf-ink3 m-0 font-sans text-[12px] leading-[18px] text-ink-3">
+              {props.brand} · {props.host}
+            </Text>
+          </>
+        )
       }
     >
       {props.children}

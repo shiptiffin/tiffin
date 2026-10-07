@@ -57,17 +57,45 @@ func renderBoxMail(m api.BoxMail, boxDomain string, now time.Time) (*boxEmail, e
 		return templates.SignIn(templates.SignInData{Brand: brand, Host: host, MarkURL: mark, First: firstName(m.Name),
 			URL: m.URL, Until: until(m.ExpiresAt, now), IP: m.IP})
 	case api.BoxMailNewDevice:
-		via := m.Via
-		if via == "" {
-			via = "a sign-in link"
-		}
-		review := "" // owners and admins get a button to Settings, where passkeys and keys live
-		if dash != "" && (m.Role == "owner" || m.Role == "admin") {
-			review = dash + "/settings"
-		}
-		return templates.NewSignIn(templates.NewSignInData{Brand: brand, Host: host, MarkURL: mark, First: firstName(m.Name),
-			Device: m.Device, When: templates.When(m.At), Via: via, IP: m.IP, Owner: m.Role == "owner", URL: review})
+		return newSignIn(m, dash, brand, host, mark)
 	default:
 		return nil, fmt.Errorf("unknown box mail %q", m.Kind)
 	}
 }
+
+// newSignIn writes the "New sign-in" notice. The dashboard has no list of
+// sign-ins, so the button opens the person's passkeys (what can sign them in)
+// and owners and admins also get a link to API keys.
+func newSignIn(m api.BoxMail, dash, brand, host, mark string) (*boxEmail, error) {
+	first := firstName(m.Name)
+	if first == "there" {
+		first = "" // "Someone just signed in as you", not "there, someone…"
+	}
+	device := m.Device
+	if device == "" {
+		device = "An unknown browser"
+	}
+	from := device // inside the subject: "from an unknown browser"
+	if strings.HasPrefix(from, "A ") || strings.HasPrefix(from, "An ") {
+		from = strings.ToLower(from[:1]) + from[1:]
+	}
+	how := m.Via
+	if how == "" {
+		how = "Sign-in link"
+	}
+	admin := m.Role == "owner" || m.Role == "admin"
+	var url, shown, keys string
+	if dash != "" {
+		url = dash + "/settings/passkeys"
+		shown = strings.TrimPrefix(strings.TrimPrefix(url, "https://"), "http://")
+		if admin {
+			keys = dash + "/settings/keys"
+		}
+	}
+	return templates.NewSignIn(templates.NewSignInData{Brand: brand, Host: host, MarkURL: mark, First: first,
+		Device: device, From: from, When: friendlyWhen(m.At), How: how, Where: m.Where, IP: m.IP,
+		Admin: admin, URL: url, ShownURL: shown, KeysURL: keys})
+}
+
+// friendlyWhen: "Wednesday 7 October, 19:54 UTC". The email's own date gives the year.
+func friendlyWhen(t time.Time) string { return t.UTC().Format("Monday 2 January, 15:04 UTC") }

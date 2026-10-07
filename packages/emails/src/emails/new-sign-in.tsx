@@ -1,57 +1,125 @@
+import { Link, Text } from "react-email";
 import { Box, boxSample, boxVars } from "../ui/box";
-import { defineEmail, v, when, type PropsOf } from "../ui/compile";
-import { Cta, Eyebrow, Facts, H1, P } from "../ui/parts";
+import { defineEmail, getMode, v, when, whenInline, type PropsOf } from "../ui/compile";
+import { Cta, Facts, H1, P } from "../ui/parts";
 
+// A notice, not an alarm: what happened in one line, the facts, and what to
+// do if it wasn't them. The box is named once (the brand line); no address
+// is written out as bare text, so mail apps don't turn it into a raw link.
 export const spec = defineEmail({
   id: "new-sign-in",
   family: "box",
   title: "Someone signed in from a browser the box hasn't seen them use",
   vars: {
     ...boxVars,
-    first: v.text('First name, or "there"'),
+    first: v.optText("First name; empty when the box doesn't know it"),
     device: v.text('"Chrome on macOS"'),
-    when: v.text('"7 October 2026, 14:32 UTC"'),
-    via: v.text('"a sign-in link", "a passkey"'),
+    from: v.text('The device inside a sentence, for the subject: "Chrome on macOS", "an unknown browser"'),
+    when: v.text('"Wednesday 7 October, 14:32 UTC"'),
+    how: v.text('"Google", "GitHub", "Passkey", "Sign-in link"'),
+    where: v.optText('The country the address is in, "United States"; empty when unknown'),
     ip: v.optText("The address it came from; empty to leave it out"),
-    owner: v.flag("They own the box (what to do if it wasn't them differs)"),
-    url: v.optUrl("Where to check sign-ins and keys (the dashboard's Settings); empty for no button"),
+    admin: v.flag("An owner or admin: they can revoke API keys themselves"),
+    url: v.optUrl("Their passkeys page in the dashboard; empty for no button"),
+    shownUrl: v.text('The same address without https://, to show under the button: "dashboard.example.com/settings/passkeys"'),
+    keysUrl: v.optUrl("The dashboard's API keys page (owners and admins); empty for none"),
   },
-  subject: (p) => `New sign-in to ${p.host}`,
+  subject: (p) => `New sign-in to ${p.brand} from ${p.from}`,
   preview: {
     ...boxSample,
     first: "Sam",
     device: "Safari on iPhone",
-    when: "7 October 2026, 14:32 UTC",
-    via: "a passkey",
+    from: "Safari on iPhone",
+    when: "Wednesday 7 October, 14:32 UTC",
+    how: "Passkey",
+    where: "United Kingdom",
     ip: "198.51.100.7",
-    owner: true,
-    url: "https://dashboard.shiptiffin.com/settings",
+    admin: true,
+    url: "https://dashboard.shiptiffin.com/settings/passkeys",
+    shownUrl: "dashboard.shiptiffin.com/settings/passkeys",
+    keysUrl: "https://dashboard.shiptiffin.com/settings/keys",
   },
 });
 
+const muted = "tf-ink3 text-ink-3 text-[13px]";
+const link = "tf-link text-link underline";
+
 export default function NewSignIn(p: PropsOf<typeof spec.vars>) {
+  const text = getMode() === "text";
   return (
-    <Box p={p} preview={`You signed in from ${p.device}. If that was you, there's nothing to do.`} why="The box sends this once for each new browser, not on every sign-in.">
-      <Eyebrow>Security notice</Eyebrow>
-      <H1 serif>New sign-in to {p.host}</H1>
-      <P>Hi {p.first},</P>
-      <P>You just signed in to {p.host} from a browser the box hasn't seen you use before.</P>
+    <Box p={p} preview={`${p.when}. If this was you, there's nothing to do.`} why="Sent once per new browser" oneLine>
+      <H1 serif>New sign-in</H1>
+      <P>
+        {whenInline(p, "first", <>{p.first}, someone</>, <>Someone</>)} just signed in as you from a new browser.
+      </P>
       <Facts
+        narrow
         rows={[
-          { label: "Browser", value: p.device },
+          { label: "Device", value: p.device },
           { label: "When", value: p.when },
-          { label: "With", value: p.via },
-          { label: "From", value: p.ip, wrap: (row) => when(p, "ip", row) },
+          { label: "How", value: p.how },
+          {
+            label: "Where",
+            value: whenInline(
+              p,
+              "where",
+              <>
+                {p.where}
+                <span className={muted}>
+                  {" · "}
+                  {p.ip}
+                </span>
+              </>,
+              <span className={muted}>{p.ip}</span>,
+            ),
+            wrap: (row) => when(p, "ip", row),
+          },
         ]}
       />
       <P>If this was you, there's nothing to do.</P>
       {when(
         p,
-        "owner",
-        <P>If it wasn't, sign in now and check Settings for passkeys and API keys you don't recognise.</P>,
-        <P>If it wasn't, tell the box's owner straight away. Removing your access ends every session.</P>,
+        "url",
+        <>
+          <Cta href={p.url} tight>
+            Review passkeys
+          </Cta>
+          {text ? null : (
+            <Text className={`${muted} m-0 mt-[10px] mb-[22px] font-sans leading-[20px]`}>
+              Or open{" "}
+              <Link href={p.url} className="tf-ink2 text-ink-2 no-underline [word-break:break-word]">
+                {p.shownUrl}
+              </Link>
+            </Text>
+          )}
+        </>,
       )}
-      {when(p, "url", <Cta href={p.url}>Review sign-ins</Cta>)}
+      {when(
+        p,
+        "admin",
+        <P quiet tight>
+          <b className="tf-ink text-ink font-semibold">Wasn't you?</b> Remove any passkey you don't recognise, then{" "}
+          {whenInline(
+            p,
+            "keysUrl",
+            text ? (
+              <>revoke API keys you didn't make: {p.keysUrl}</>
+            ) : (
+              <>
+                <Link href={p.keysUrl} className={link}>
+                  revoke API keys you didn't make
+                </Link>
+                .
+              </>
+            ),
+            <>revoke API keys you didn't make.</>,
+          )}
+        </P>,
+        <P quiet tight>
+          <b className="tf-ink text-ink font-semibold">Wasn't you?</b> Remove any passkey you don't recognise and tell the box's owner now. They can end every
+          session by removing your access.
+        </P>,
+      )}
     </Box>
   );
 }

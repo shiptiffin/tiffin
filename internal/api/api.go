@@ -842,7 +842,7 @@ func (a *API) registerBox() {
 		out.SetCookie = []http.Cookie{{Name: SessionCookie, Value: secret, Path: "/", HttpOnly: true, Secure: true,
 			SameSite: http.SameSiteStrictMode, Expires: *t.ExpiresAt}}
 		if p.Person != "" {
-			if dc := a.signedIn(ctx, p.Person, in.Device, in.UA, clientIPFrom(ctx), "a sign-in link"); dc != nil {
+			if dc := a.signedIn(ctx, p.Person, in.Device, in.UA, clientIPFrom(ctx), "Sign-in link"); dc != nil {
 				out.SetCookie = append(out.SetCookie, *dc)
 			}
 		}

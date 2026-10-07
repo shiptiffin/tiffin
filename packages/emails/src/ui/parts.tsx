@@ -42,7 +42,8 @@ export function P({ children, quiet, tight }: { children: ReactNode; quiet?: boo
  */
 const ctaShadow = "inset 0 1px 0 rgba(255,255,255,0.2),0 1px 1px rgba(62,41,15,0.2)"; // oklch(1 0 0/.2), oklch(.3 .05 70/.2)
 
-export function Cta({ href, children, style }: { href: string; children: ReactNode; style?: CSSProperties }) {
+/** `tight`: no space under the button, for a line that belongs to it (the link written out). */
+export function Cta({ href, children, style, tight }: { href: string; children: ReactNode; style?: CSSProperties; tight?: boolean }) {
   if (textMode()) {
     return (
       <p>
@@ -51,7 +52,7 @@ export function Cta({ href, children, style }: { href: string; children: ReactNo
     );
   }
   return (
-    <Section className="mt-[22px] mb-[22px]">
+    <Section className={`mt-[22px] ${tight ? "mb-0" : "mb-[22px]"}`}>
       <Button
         href={href}
         className="tf-btn box-border rounded-[8px] bg-accent px-[22px] py-[13px] font-sans text-[15px] leading-[20px] font-semibold text-on-accent no-underline"
@@ -93,8 +94,8 @@ export function Code({ children }: { children: ReactNode }) {
 
 export type Fact = { label: string; value: ReactNode; wrap?: (row: ReactNode) => ReactNode };
 
-/** Label / value rows: where, when, which browser. `wrap` makes a row conditional. */
-export function Facts({ rows }: { rows: Fact[] }) {
+/** Label / value rows: where, when, which browser. `wrap` makes a row conditional; `narrow` is for short labels. */
+export function Facts({ rows, narrow }: { rows: Fact[]; narrow?: boolean }) {
   const w = (f: Fact, node: ReactNode) => (f.wrap ? f.wrap(node) : node);
   if (textMode()) {
     return (
@@ -113,7 +114,7 @@ export function Facts({ rows }: { rows: Fact[] }) {
             {w(
               f,
               <tr>
-                <td className="tf-ink3 tf-rule w-[96px] border-0 border-b border-solid border-rule py-[9px] pr-[12px] align-top font-sans text-[13px] leading-[20px] text-ink-3">
+                <td className={`tf-ink3 tf-rule ${narrow ? "w-[72px]" : "w-[96px]"} border-0 border-b border-solid border-rule py-[9px] pr-[12px] align-top font-sans text-[13px] leading-[20px] text-ink-3`}>
                   {f.label}
                 </td>
                 <td className="tf-ink tf-rule border-0 border-b border-solid border-rule py-[9px] align-top font-sans text-[14px] leading-[20px] [word-break:break-word] text-ink">

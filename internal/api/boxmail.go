@@ -47,7 +47,8 @@ type BoxMail struct {
 	By        string    // who invited them or made the link
 	Device    string    // new-sign-in: "Chrome on macOS"
 	IP        string    // new-sign-in: the address it came from
-	Via       string    // new-sign-in: "a sign-in link", "a passkey"
+	Where     string    // new-sign-in: the country that address is in ("United States"); empty when unknown
+	Via       string    // new-sign-in: how they signed in: "Sign-in link", "Passkey", "Google", "GitHub"
 	At        time.Time // new-sign-in: when
 	Dashboard string    // the dashboard's address
 }
@@ -76,6 +77,30 @@ func SetBoxMailer(m BoxMailer) {
 	mailerMu.Lock()
 	mailer = m
 	mailerMu.Unlock()
+}
+
+var (
+	locatorMu sync.RWMutex
+	locator   func(ip string) string
+)
+
+// SetLocator installs a lookup from an IP address to the name of the country
+// it is in ("" when unknown). The analytics module installs one when it has its
+// country database; nil turns it off. Nothing leaves the box.
+func SetLocator(f func(ip string) string) {
+	locatorMu.Lock()
+	locator = f
+	locatorMu.Unlock()
+}
+
+func locate(ip string) string {
+	locatorMu.RLock()
+	f := locator
+	locatorMu.RUnlock()
+	if f == nil || ip == "" {
+		return ""
+	}
+	return f(ip)
 }
 
 func boxMailer() BoxMailer {
@@ -315,7 +340,7 @@ func (a *API) signedIn(ctx context.Context, personID, cookie, ua, ip, via string
 	}
 	if notify && person.Email != "" {
 		a.sendLater(BoxMail{Kind: BoxMailNewDevice, To: person.Email, Name: person.Name, Role: person.Role,
-			Device: label, IP: ip, Via: via, At: now})
+			Device: label, IP: ip, Where: locate(ip), Via: via, At: now})
 	}
 	return &http.Cookie{Name: DeviceCookie, Value: id, Path: "/", HttpOnly: true, Secure: true,
 		SameSite: http.SameSiteLaxMode, MaxAge: 400 * 24 * 60 * 60}

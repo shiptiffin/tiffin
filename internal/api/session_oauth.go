@@ -453,7 +453,7 @@ func (a *API) DashboardOAuthCallback(w http.ResponseWriter, r *http.Request) boo
 	if dc, err := r.Cookie(DeviceCookie); err == nil {
 		device = dc.Value
 	}
-	if dc := a.signedIn(ctx, person.ID, device, r.UserAgent(), ip, "a "+name+" account"); dc != nil {
+	if dc := a.signedIn(ctx, person.ID, device, r.UserAgent(), ip, name); dc != nil {
 		http.SetCookie(w, dc)
 	}
 	// A page, not a redirect: the next request starts on the dashboard
