@@ -141,7 +141,7 @@ must accept the sender's domain.
 ```bash
 tiffin email box get
 tiffin email box set --from "ShipTiffin <hello@shiptiffin.com>" --reply-to help@shiptiffin.com
-tiffin email box messages            # owners and admins: it holds sign-in links
+tiffin email box messages            # owners and admins: it holds invites
 tiffin people email <usr_id> --email maya@example.com   # the owner token; API keys can't
 ```
 
@@ -150,7 +150,8 @@ the box**), and the invite dialog says so: copy the link and send it yourself. T
 exception is a sign-in link someone asks for on the login page: it counts as proof they
 read their inbox, so the box only makes one when the email leaves through the relay (one
 that would stay in the dev inbox, say for an address at a reserved test domain, is
-cancelled at once).
+cancelled at once), and **Mail from the box** shows only that it was sent, never its text
+or link, so no owner or admin can read it and sign in as that person.
 
 ## Send from your own domain
 
