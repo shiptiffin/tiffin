@@ -192,9 +192,9 @@ type Page struct {
 	RawQuery string // kept query: only utm_* and ref
 }
 
-// redactEmails replaces path segments holding an email address (a sign-up
+// RedactEmails replaces path segments holding an email address (a sign-up
 // confirmation page, say) with [email], so none is stored.
-func redactEmails(path string) string {
+func RedactEmails(path string) string {
 	if !strings.Contains(path, "@") && !strings.Contains(path, "%40") {
 		return path
 	}
@@ -233,7 +233,7 @@ func ParsePage(rawURL, host string) Page {
 	if h == "" {
 		h = host
 	}
-	p := Page{Host: StripPort(strings.ToLower(h)), Path: redactEmails(u.EscapedPath()), UTM: map[string]string{}, Valid: true}
+	p := Page{Host: StripPort(strings.ToLower(h)), Path: RedactEmails(u.EscapedPath()), UTM: map[string]string{}, Valid: true}
 	if p.Path == "" {
 		p.Path = "/"
 	}

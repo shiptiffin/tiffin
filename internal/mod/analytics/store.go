@@ -703,11 +703,11 @@ func (s *sqliteStore) AddVitals(ctx context.Context, rows []VitalCount) error {
 
 func (s *sqliteStore) Vitals(ctx context.Context, q Query) ([]VitalCount, error) {
 	where, args := appFilter(q)
-	args = append(args, dayOf(q.From), dayOf(q.To.Add(-time.Millisecond)))
 	if q.Filters.Page != "" { // the only filter vitals keep: they have no visits
 		where += ` AND path = ?`
 		args = append(args, q.Filters.Page)
 	}
+	args = append(args, dayOf(q.From), dayOf(q.To.Add(-time.Millisecond))) // in placeholder order
 	rows, err := s.db.QueryContext(ctx, `SELECT project, app, day, path, metric, bucket, n FROM vitals WHERE `+where+` AND day >= ? AND day <= ?`, args...)
 	if err != nil {
 		return nil, err

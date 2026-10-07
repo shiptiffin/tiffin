@@ -83,6 +83,9 @@ export class VitalsQueue {
             return;
         const body = JSON.stringify({ path: this.path, metrics: this.metrics });
         this.metrics = {};
+        // The visitor asked not to be tracked (Global Privacy Control): send nothing.
+        if (typeof navigator !== "undefined" && navigator.globalPrivacyControl)
+            return;
         try {
             if (typeof navigator !== "undefined" && navigator.sendBeacon?.(this.endpoint, body))
                 return;

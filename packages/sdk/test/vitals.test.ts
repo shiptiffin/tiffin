@@ -40,6 +40,25 @@ describe("VitalsQueue", () => {
     ]);
   });
 
+  test("sends nothing when the browser sends Global Privacy Control", () => {
+    let sent = 0;
+    globalThis.fetch = (async () => {
+      sent++;
+      return new Response(null, { status: 204 });
+    }) as unknown as typeof fetch;
+    const nav = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    Object.defineProperty(globalThis, "navigator", { value: { globalPrivacyControl: true }, configurable: true });
+    try {
+      const q = new VitalsQueue("/_tiffin/vitals", "/");
+      q.add("LCP", 1000);
+      q.flush();
+    } finally {
+      if (nav) Object.defineProperty(globalThis, "navigator", nav);
+      else delete (globalThis as { navigator?: unknown }).navigator;
+    }
+    expect(sent).toBe(0);
+  });
+
   test("reportWebVitals does nothing outside a browser", () => {
     const stop = reportWebVitals();
     expect(typeof stop).toBe("function");

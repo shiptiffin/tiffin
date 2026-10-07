@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/btahir/tiffin/internal/mod/analytics/enrich"
 )
 
 // Web Vitals arrive as beacons on each app's own origin, at VitalsPath (the
@@ -206,7 +208,7 @@ func vitalPath(p string) string {
 		p = "/" + p
 	}
 	p = multiSlash.ReplaceAllString(pathClean.ReplaceAllString(p, ""), "/")
-	segs := strings.Split(p, "/")
+	segs := strings.Split(enrich.RedactEmails(p), "/")
 	for i, s := range segs {
 		if isID(s) {
 			segs[i] = "[id]"
@@ -239,6 +241,10 @@ func (m *Module) vitalsBeacon(w http.ResponseWriter, r *http.Request) {
 	var b vitalsBeacon
 	if err := json.NewDecoder(io.LimitReader(r.Body, maxVitalsBody)).Decode(&b); err != nil || len(b.Metrics) == 0 {
 		reply(w, http.StatusBadRequest, map[string]string{"error": `body must be JSON {"path": "/", "metrics": {"LCP": 1840, "CLS": 0.02}}`})
+		return
+	}
+	if r.Header.Get("Sec-GPC") == "1" { // the visitor asked not to be counted
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	path := vitalPath(b.Path)

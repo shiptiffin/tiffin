@@ -51,9 +51,13 @@ func TestVitalsBeaconsToP75(t *testing.T) {
 	apiSrv := httptest.NewServer(api.New(api.Deps{DB: db, Engine: p.Engine, Tokens: tm, Platform: p}).Handler())
 	defer apiSrv.Close()
 
+	var gpc bool
 	send := func(host, ip, ua, body string) int {
 		t.Helper()
 		req, _ := http.NewRequest("POST", coll.URL+VitalsPath, strings.NewReader(body))
+		if gpc {
+			req.Header.Set("Sec-GPC", "1")
+		}
 		req.Host = host + ":8443" // the edge keeps the app's host
 		req.Header.Set("Content-Type", "text/plain;charset=UTF-8")
 		req.Header.Set("User-Agent", ua)
@@ -91,6 +95,16 @@ func TestVitalsBeaconsToP75(t *testing.T) {
 		if c != want {
 			t.Errorf("%s: %d, want %d", name, c, want)
 		}
+	}
+	// Global Privacy Control: not counted.
+	gpc = true
+	if c := send("shop.box.test", "10.4.0.1", human(1), `{"path":"/users/ada@example.com","metrics":{"LCP":100}}`); c != 204 {
+		t.Fatalf("gpc beacon: %d", c)
+	}
+	gpc = false
+	// An email in the path is not stored.
+	if c := send("shop.box.test", "10.4.0.2", human(1), `{"path":"/users/ada@example.com/settings","metrics":{"TTFB":100}}`); c != 204 {
+		t.Fatalf("email path beacon: %d", c)
 	}
 	// One address may send 60 a minute.
 	if time.Now().Second() >= 58 { // not across a minute
@@ -148,6 +162,14 @@ func TestVitalsBeaconsToP75(t *testing.T) {
 	first := pages[0].(map[string]any)
 	if first["path"] != "/products/[id]" || first["samples"].(float64) != 100 || !near(first["p75"].(map[string]any)["LCP"].(float64), 1750) {
 		t.Fatalf("pages: %v", pages)
+	}
+	for _, x := range pages {
+		if p := x.(map[string]any)["path"].(string); strings.Contains(p, "ada") || (p != "/users/[email]/settings" && strings.HasPrefix(p, "/users")) {
+			t.Fatalf("page %q stored (gpc or email)", p)
+		}
+	}
+	if pv := get("project=shop&period=today&page=%2Fproducts%2F%5Bid%5D"); len(pv["metrics"].([]any)) == 0 {
+		t.Fatalf("page filter found nothing: %v", pv)
 	}
 	if days := v["days"].([]any); len(days) != 1 || days[0].(map[string]any)["day"] != time.Now().UTC().Format("2006-01-02") {
 		t.Fatalf("days: %v", days)
