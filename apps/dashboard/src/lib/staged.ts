@@ -94,6 +94,7 @@ export function change(project: string, e: StagedEdit, opts: { immediate?: boole
   else delete q2[project];
   set({ ...state, queued: q2 });
   clearTimeout(timers.get(project));
+  timers.delete(project);
   if (!queued.length) return;
   timers.set(
     project,
@@ -116,54 +117,74 @@ function clearInflight(project: string) {
   const inflight = { ...state.inflight };
   delete inflight[project];
   set({ ...state, inflight });
+  // One change per project at a time: edits that queued up meanwhile go now, planned from the manifest that change left.
+  if (state.queued[project]?.length && !timers.has(project)) void flush(project);
 }
 
-async function flush(project: string, retried = false) {
-  const edits = state.queued[project] ?? [];
-  if (!edits.length) return;
-  const queued = { ...state.queued };
-  delete queued[project];
-  set({ ...state, queued, inflight: { ...state.inflight, [project]: [...(state.inflight[project] ?? []), ...edits] } });
-  try {
+/**
+ * Reads the project's manifest, applies the edits and plans the result. The
+ * plan's base version must be the version the manifest was read at: if the
+ * project moved on in between (another tab, an agent, the CLI), the edits are
+ * replayed on a fresh read, so a change never quietly reverts someone else's.
+ */
+export async function planEdits(project: string, edits: StagedEdit[]): Promise<{ desired: Manifest; plan: Plan }> {
+  for (let tries = 0; ; tries++) {
     const man = await queryClient.query({ ...q.manifest(project), staleTime: 0 });
     const desired = applyEdits(man.manifest, edits);
     const plan = await api.plan(desired);
-    if (!plan.ops?.length) {
-      clearInflight(project);
-      return;
-    }
-    if (tierRank[asTier(plan.risk)] > tierRank.reversible) {
-      // It deletes data or reaches outside the box: the dialog asks first. The control keeps showing the edit until then.
-      set({ ...state, confirm: { project, edits, desired, plan } });
-      return;
-    }
-    await applyPlan(project, edits, desired, plan);
-  } catch (err) {
-    if (!retried && err instanceof ApiError && err.status === 428) {
-      // Someone (or an agent) changed the project in between: plan again once.
-      set({ ...state, queued: { ...state.queued, [project]: [...edits, ...(state.queued[project] ?? [])] } });
-      clearInflight(project);
-      return flush(project, true);
+    if (plan.baseVersion === man.version) return { desired, plan };
+    if (tries >= 2) throw new Error(`${project} keeps changing under this edit; try again in a moment.`);
+  }
+}
+
+async function flush(project: string) {
+  timers.delete(project);
+  const edits = state.queued[project] ?? [];
+  if (!edits.length) return;
+  // One change per project at a time: wait for the one already on its way (or in the confirm dialog); clearInflight starts this one after it.
+  if (state.inflight[project]?.length) return;
+  const queued = { ...state.queued };
+  delete queued[project];
+  set({ ...state, queued, inflight: { ...state.inflight, [project]: edits } });
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const { desired, plan } = await planEdits(project, edits);
+      if (plan.ops?.length) {
+        if (tierRank[asTier(plan.risk)] > tierRank.reversible) {
+          // It deletes data or reaches outside the box: the dialog asks first. The control keeps showing the edit until then.
+          set({ ...state, confirm: { project, edits, desired, plan } });
+          return;
+        }
+        await commit(project, edits, desired, plan);
+      }
+    } catch (err) {
+      // Someone (or an agent) changed the project between plan and apply: plan again once.
+      if (attempt === 0 && err instanceof ApiError && err.status === 428) continue;
+      toast({ title: `Couldn’t ${lower(intentFor(edits, project))}.`, detail: err instanceof ApiError ? (err.problem.detail ?? err.message) : String(err), tone: "danger" });
     }
     clearInflight(project);
-    toast({ title: `Couldn’t ${lower(intentFor(edits, project))}.`, detail: err instanceof ApiError ? (err.problem.detail ?? err.message) : String(err), tone: "danger" });
+    return;
   }
 }
 
 /** Applies a plan the person has seen (or one that didn't need asking), then says so with Undo. */
 export async function applyPlan(project: string, edits: StagedEdit[], desired: Manifest, plan: Plan) {
   try {
-    const r = await api.apply(desired, plan.hash, intentFor(edits, project));
-    await invalidate(project);
-    const id = r.change?.id;
-    toast({
-      title: r.applied ? doneWords(edits, project) : "Nothing to change: it already looks like that.",
-      action: id && r.change && asTier(r.change.plan.risk) !== "irreversible" ? { label: "Undo", run: () => undoChange(id) } : undefined,
-    });
+    await commit(project, edits, desired, plan);
   } finally {
-    clearInflight(project);
     if (state.confirm?.plan.hash === plan.hash) set({ ...state, confirm: null });
+    clearInflight(project);
   }
+}
+
+async function commit(project: string, edits: StagedEdit[], desired: Manifest, plan: Plan) {
+  const r = await api.apply(desired, plan.hash, intentFor(edits, project));
+  await invalidate(project);
+  const id = r.change?.id;
+  toast({
+    title: r.applied ? doneWords(edits, project) : "Nothing to change: it already looks like that.",
+    action: id && r.change && asTier(r.change.plan.risk) !== "irreversible" ? { label: "Undo", run: () => undoChange(id) } : undefined,
+  });
 }
 
 /** The person said no in the confirm dialog: nothing happens, the control goes back. */

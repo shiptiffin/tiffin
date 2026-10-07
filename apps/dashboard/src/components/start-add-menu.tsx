@@ -2,8 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { BarChart3, ChevronDown, Clock, Database, FolderPlus, Inbox, KeyRound, LayoutTemplate, Mail, Zap } from "lucide-react";
 import { lazy, Suspense, useState, type FormEvent, type ReactNode } from "react";
-import { api, ApiError, request, type Manifest } from "@/api/client";
-import { q, queryClient } from "@/api/queries";
+import { ApiError, request, type Manifest } from "@/api/client";
+import { queryClient } from "@/api/queries";
 import type { components } from "@/api/schema";
 import { BuildSettings, buildNote } from "@/components/build-settings";
 import { FrameworkSelect } from "@/components/framework-select";
@@ -21,7 +21,7 @@ import { useDebounced } from "@/lib/debounced";
 import { deployGitHub, nameFromRepo, setSecret, type RepoRoot } from "@/lib/github";
 import { useMe } from "@/lib/me";
 import { PARTS } from "@/lib/names";
-import { applyEdits, applyPlan, change, serviceWords, type StagedEdit } from "@/lib/staged";
+import { applyPlan, change, planEdits, serviceWords, type StagedEdit } from "@/lib/staged";
 import { pickBuild } from "@/lib/build-config";
 import { buildFor, isTested, presetName, presetOf, PRESETS } from "@/lib/frameworks";
 import { checkGitUrl, defaultOf, frameworkName, frameworksOf, isKind, KINDS, nameFromGit, rememberNextDeploy, slugify, starterFor, starterLine, startersQuery, type Starter, type StarterKind } from "@/lib/starters";
@@ -394,9 +394,7 @@ function AddApp({ project, manifest, routes, done }: { project: string; manifest
 async function addFromGitHub(project: string, app: string, edit: StagedEdit, env: GitHubPick["env"], gh: GitHubPick, watch: (id: string) => void) {
   const why = (err: unknown) => (err instanceof ApiError ? (err.problem.detail ?? err.message) : err instanceof Error ? err.message : String(err));
   try {
-    const man = await queryClient.query({ ...q.manifest(project), staleTime: 0 });
-    const desired = applyEdits(man.manifest, [edit]);
-    const plan = await api.plan(desired);
+    const { desired, plan } = await planEdits(project, [edit]);
     if (tierRank[asTier(plan.risk)] > tierRank.reversible) {
       change(project, edit, { immediate: true });
       return;
