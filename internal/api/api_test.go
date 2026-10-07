@@ -516,3 +516,82 @@ func TestCookieChangesOnlyFromTheDashboard(t *testing.T) {
 		t.Fatal("a read was refused")
 	}
 }
+
+// A sibling app can't swap the dashboard's session: the cookie is __Host-
+// (no Domain= cookie from another host can shadow it), and signing in with a
+// code from another site is refused before the code is spent.
+func TestSessionCreateRefusesOtherSites(t *testing.T) {
+	e := newEnv(t)
+	_, inv, _ := e.call(e.owner, "POST", "/v1/people", map[string]any{"name": "Sam", "role": "member"})
+	code := strings.SplitN(inv["url"].(string), "#", 2)[1]
+	post := func(site string) *http.Response {
+		t.Helper()
+		req, _ := http.NewRequest("POST", e.srv.URL+"/v1/session", strings.NewReader(`{"code":"`+code+`"}`))
+		if site != "" {
+			req.Header.Set("Sec-Fetch-Site", site)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res
+	}
+	if res := post("same-site"); res.StatusCode != 403 {
+		t.Fatalf("sign-in from a sibling app: %d", res.StatusCode)
+	}
+	res := post("same-origin")
+	if res.StatusCode != 200 {
+		t.Fatalf("sign-in from the dashboard: %d", res.StatusCode)
+	}
+	var c *http.Cookie
+	for _, x := range res.Cookies() {
+		if x.Name == "__Host-tiffin_session" {
+			c = x
+		}
+	}
+	if c == nil || !c.Secure || c.Path != "/" || c.Domain != "" {
+		t.Fatalf("session cookie: %+v", res.Cookies())
+	}
+	// A planted plain tiffin_session cookie is not read.
+	req, _ := http.NewRequest("GET", e.srv.URL+"/v1/whoami", nil)
+	req.AddCookie(&http.Cookie{Name: "tiffin_session", Value: e.owner})
+	r2, _ := http.DefaultClient.Do(req)
+	r2.Body.Close()
+	if r2.StatusCode != 401 {
+		t.Fatalf("plain tiffin_session cookie read: %d", r2.StatusCode)
+	}
+}
+
+// An admin can neither make a sign-in link for the owner nor end the owner's
+// sessions through the API key revoke.
+func TestAdminCannotActAsOwner(t *testing.T) {
+	e := newEnv(t)
+	_, inv, _ := e.call(e.owner, "POST", "/v1/people", map[string]any{"name": "Ann", "role": "admin"})
+	code := strings.SplitN(inv["url"].(string), "#", 2)[1]
+	res, _ := http.Post(e.srv.URL+"/v1/session", "application/json", strings.NewReader(`{"code":"`+code+`"}`))
+	res.Body.Close()
+	var ann string
+	for _, c := range res.Cookies() {
+		if c.Name == api.SessionCookie {
+			ann = c.Value
+		}
+	}
+	if c, _, _ := e.call(ann, "POST", "/v1/people/usr_owner/login-link", nil); c != 403 {
+		t.Fatalf("admin's link for the owner: %d", c)
+	}
+	_, l, _ := e.call(e.owner, "POST", "/v1/login-links", nil)
+	res, _ = http.Post(e.srv.URL+"/v1/session", "application/json", strings.NewReader(`{"code":"`+l["code"].(string)+`"}`))
+	res.Body.Close()
+	_, _, sessions := e.call(ann, "GET", "/v1/sessions?person=usr_owner", nil)
+	if len(sessions) != 1 {
+		t.Fatalf("owner sessions: %v", sessions)
+	}
+	id := sessions[0].(map[string]any)["id"].(string)
+	if c, _, _ := e.call(ann, "DELETE", "/v1/tokens/"+id, nil); c != 403 {
+		t.Fatalf("admin revoked the owner's session as a key: %d", c)
+	}
+	if c, _, _ := e.call(ann, "DELETE", "/v1/sessions/"+id, nil); c != 403 {
+		t.Fatalf("admin ended the owner's session: %d", c)
+	}
+}

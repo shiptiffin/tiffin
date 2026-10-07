@@ -181,7 +181,7 @@ func (a *API) registerPasskeySignIn() {
 			"Removed people cannot sign in. Used by the dashboard's login page.", "system")
 	f.Security = nil
 	f.Errors = append(f.Errors, 429, 501)
-	f.Middlewares = huma.Middlewares{a.limitPerIP(finLimit, "finish")}
+	f.Middlewares = huma.Middlewares{a.sameOriginOnly, a.limitPerIP(finLimit, "finish")}
 	huma.Register(api, f, wrap(func(ctx context.Context, in *struct {
 		Device string `cookie:"tiffin_device"`
 		UA     string `header:"User-Agent"`

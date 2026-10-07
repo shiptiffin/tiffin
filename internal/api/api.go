@@ -60,8 +60,11 @@ const (
 	RiskDestructive = "destructive"
 )
 
-// SessionCookie holds a dashboard session token.
-const SessionCookie = "tiffin_session"
+// SessionCookie holds a dashboard session token. The __Host- prefix makes
+// browsers refuse it unless the dashboard's own host set it (Secure, Path=/,
+// no Domain): an app on a sibling host can't plant a cookie the API reads as
+// the dashboard's session.
+const SessionCookie = "__Host-tiffin_session"
 
 // SessionHeader carries an agent's session label into the change log.
 const SessionHeader = "X-Tiffin-Session"
@@ -858,7 +861,7 @@ func (a *API) registerBox() {
 	sc := op("session-create", http.MethodPost, "/v1/session", "-", RiskWrite, "Start a dashboard session",
 		"Exchanges a one-time login code for a session cookie. Used by the dashboard's login page.", "system")
 	sc.Security = nil
-	sc.Middlewares = huma.Middlewares{withClientIP}
+	sc.Middlewares = huma.Middlewares{a.sameOriginOnly, withClientIP}
 	huma.Register(api, sc, wrap(func(ctx context.Context, in *struct {
 		Device string `cookie:"tiffin_device"`
 		UA     string `header:"User-Agent"`
@@ -1098,6 +1101,16 @@ func (a *API) Operations() []*huma.Operation {
 // always, changes only from the dashboard's own origin. Browsers say where a
 // request came from (Sec-Fetch-Site, or else Origin); clients that say
 // neither are not browsers, which carry no cookie of their own accord.
+// sameOriginOnly refuses a change from another site, signed in or not: a
+// sibling app must not swap the dashboard's session for one it chose.
+func (a *API) sameOriginOnly(ctx huma.Context, next func(huma.Context)) {
+	if !sameOrigin(ctx) {
+		_ = huma.WriteErr(a.api, ctx, http.StatusForbidden, "This request came from another site.")
+		return
+	}
+	next(ctx)
+}
+
 func sameOrigin(ctx huma.Context) bool {
 	switch ctx.Method() {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
