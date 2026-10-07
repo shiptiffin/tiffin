@@ -2,6 +2,7 @@ package edge
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -294,7 +295,9 @@ func hasStar(hosts []string) bool {
 	return false
 }
 
-// errorRoutes render the protection layer's refusals as small pages.
+// errorRoutes render the protection layer's refusals as small pages, or
+// as JSON for API calls (a client that asks for JSON and not HTML, or
+// sends JSON): a fetch from an app's code gets an error it can read.
 func (p *Protection) errorRoutes() []obj {
 	page := func(status int, body string) obj {
 		return obj{
@@ -309,23 +312,44 @@ func (p *Protection) errorRoutes() []obj {
 			"body": body,
 		}
 	}
-	return []obj{
-		{
-			"match":    []obj{{"expression": "{http.error.status_code} == 429"}},
-			"handle":   []obj{page(429, tooManyPage)},
-			"terminal": true,
-		},
-		{
-			"match":    []obj{{"expression": "{http.error.status_code} == 403 && {http.error.message} == 'banned by crowdsec'"}},
-			"handle":   []obj{page(403, blockedPage)},
-			"terminal": true,
-		},
-		{
-			"match":    []obj{{"expression": "{http.error.status_code} == 403 && {http.error.message} == 'interruption triggered'"}},
-			"handle":   []obj{page(403, wafPage)},
-			"terminal": true,
-		},
+	jsonBody := func(status int, code, message string) obj {
+		b, _ := json.Marshal(map[string]string{"code": code, "message": message})
+		return obj{
+			"handler":     "static_response",
+			"status_code": status,
+			"headers": obj{
+				"Content-Type":           []string{"application/json"},
+				"Cache-Control":          []string{"no-store"},
+				"X-Content-Type-Options": []string{"nosniff"},
+			},
+			"body": string(b),
+		}
 	}
+	var out []obj
+	for _, e := range []struct {
+		when, code, message, page string
+		status                    int
+	}{
+		{"{http.error.status_code} == 429", "RATE_LIMITED", "Too many requests from this address. Try again after the seconds in Retry-After.", tooManyPage, 429},
+		{"{http.error.status_code} == 403 && {http.error.message} == 'banned by crowdsec'", "BLOCKED", "This address is blocked for now after suspicious traffic.", blockedPage, 403},
+		{"{http.error.status_code} == 403 && {http.error.message} == 'interruption triggered'", "REQUEST_BLOCKED", "The site's firewall refused this request.", wafPage, 403},
+	} {
+		out = append(out,
+			obj{
+				"match": []obj{
+					{"expression": e.when, "header": obj{"Accept": []string{"*application/json*"}}, "not": []obj{{"header": obj{"Accept": []string{"*text/html*"}}}}},
+					{"expression": e.when, "header": obj{"Content-Type": []string{"application/json*"}}},
+				},
+				"handle":   []obj{jsonBody(e.status, e.code, e.message)},
+				"terminal": true,
+			},
+			obj{
+				"match":    []obj{{"expression": e.when}},
+				"handle":   []obj{page(e.status, e.page)},
+				"terminal": true,
+			})
+	}
+	return out
 }
 
 func (p *Protection) apps() obj {

@@ -291,6 +291,16 @@ func TestProtectEndToEnd(t *testing.T) {
 		if !strings.Contains(body, "Easy there") || !strings.HasPrefix(r.Header.Get("Content-Type"), "text/html") {
 			t.Errorf("429 page: %s %q", r.Header.Get("Content-Type"), body)
 		}
+		// API calls get JSON: asking for it (and not HTML), or sending it.
+		for _, h := range []map[string]string{{"Accept": "application/json"}, {"Content-Type": "application/json", "Accept": "*/*"}} {
+			r, body := do(t, c, "POST", shopURL+"/api/x", h, "{}")
+			if r.StatusCode != 429 || r.Header.Get("Content-Type") != "application/json" || !strings.Contains(body, `"RATE_LIMITED"`) || r.Header.Get("Retry-After") == "" {
+				t.Errorf("429 for %v: %d %s %q", h, r.StatusCode, r.Header.Get("Content-Type"), body)
+			}
+		}
+		if r, body := do(t, c, "GET", shopURL+"/", map[string]string{"Accept": "text/html,application/json"}, ""); r.StatusCode != 429 || !strings.Contains(body, "Easy there") {
+			t.Errorf("a browser gets the page: %d %q", r.StatusCode, body)
+		}
 		// The dashboard has its own, generous zone.
 		if r, _ := get(t, c, dashURL+"/"); r.StatusCode != 200 {
 			t.Errorf("dashboard during app flood: %d", r.StatusCode)

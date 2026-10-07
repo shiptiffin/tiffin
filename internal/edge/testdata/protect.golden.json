@@ -54,6 +54,54 @@
               {
                 "handle": [
                   {
+                    "body": "{\"code\":\"RATE_LIMITED\",\"message\":\"Too many requests from this address. Try again after the seconds in Retry-After.\"}",
+                    "handler": "static_response",
+                    "headers": {
+                      "Cache-Control": [
+                        "no-store"
+                      ],
+                      "Content-Type": [
+                        "application/json"
+                      ],
+                      "X-Content-Type-Options": [
+                        "nosniff"
+                      ]
+                    },
+                    "status_code": 429
+                  }
+                ],
+                "match": [
+                  {
+                    "expression": "{http.error.status_code} == 429",
+                    "header": {
+                      "Accept": [
+                        "*application/json*"
+                      ]
+                    },
+                    "not": [
+                      {
+                        "header": {
+                          "Accept": [
+                            "*text/html*"
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "expression": "{http.error.status_code} == 429",
+                    "header": {
+                      "Content-Type": [
+                        "application/json*"
+                      ]
+                    }
+                  }
+                ],
+                "terminal": true
+              },
+              {
+                "handle": [
+                  {
                     "body": "\u003c!doctype html\u003e\u003chtml lang=\"en\"\u003e\u003chead\u003e\u003cmeta charset=\"utf-8\"\u003e\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\"\u003e\u003cmeta name=\"robots\" content=\"noindex\"\u003e\u003ctitle\u003eToo many requests\u003c/title\u003e\u003cstyle\u003e\n:root{--bg:#f5f1ea;--ink:#2a2620;--muted:#6d6457;--line:#ddd3c4;--brass:#a8761e;--brass-soft:#ecdcbc;color-scheme:light dark}\n@media (prefers-color-scheme:dark){:root{--bg:#1b1916;--ink:#ede6da;--muted:#a59a8a;--line:#3a352e;--brass:#d6a64e;--brass-soft:#3b3122}}\n*{box-sizing:border-box}\nhtml,body{margin:0;background:var(--bg);color:var(--ink)}\nbody{font:16px/1.55 system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;min-height:100vh;display:grid;place-items:center;padding:24px 16px}\nmain{width:100%;max-width:30rem}\nh1{font-family:ui-rounded,\"SF Pro Rounded\",\"Nunito\",\"Varela Round\",system-ui,sans-serif;font-weight:650;font-size:1.65rem;line-height:1.2;letter-spacing:-.01em;margin:20px 0 10px}\np{margin:0 0 12px;color:var(--muted)}\np.lead{color:var(--ink)}\n.mark{display:block;width:44px;height:52px;color:var(--brass)}\n.fine{font-size:.85rem;margin-top:22px;padding-top:14px;border-top:1px solid var(--line)}\na{color:var(--brass)}\n\u003c/style\u003e\u003c/head\u003e\u003cbody\u003e\u003cmain\u003e\u003csvg class=\"mark\" viewBox=\"0 0 44 52\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"\u003e\u003cpath d=\"M15 9V5.5a2.5 2.5 0 0 1 2.5-2.5h9A2.5 2.5 0 0 1 29 5.5V9\"/\u003e\u003cg class=\"t t1\"\u003e\u003crect x=\"7\" y=\"9\" width=\"30\" height=\"11\" rx=\"3\"/\u003e\u003c/g\u003e\u003cg class=\"t t2\"\u003e\u003crect x=\"7\" y=\"22\" width=\"30\" height=\"11\" rx=\"3\"/\u003e\u003c/g\u003e\u003cg class=\"t t3\"\u003e\u003crect x=\"7\" y=\"35\" width=\"30\" height=\"13\" rx=\"3\"/\u003e\u003c/g\u003e\u003cpath d=\"M4 14v28M40 14v28\"/\u003e\u003c/svg\u003e\u003ch1\u003eEasy there, one moment\u003c/h1\u003e\u003cp class=\"lead\"\u003eYou've sent a lot of requests in a short time, so this site is pausing yours for a few seconds.\u003c/p\u003e\u003cp class=\"fine\"\u003eWait a moment, then reload. If you were signing in, give it a minute before trying again.\u003c/p\u003e\u003c/main\u003e\u003c/body\u003e\u003c/html\u003e",
                     "handler": "static_response",
                     "headers": {
@@ -83,6 +131,54 @@
               {
                 "handle": [
                   {
+                    "body": "{\"code\":\"BLOCKED\",\"message\":\"This address is blocked for now after suspicious traffic.\"}",
+                    "handler": "static_response",
+                    "headers": {
+                      "Cache-Control": [
+                        "no-store"
+                      ],
+                      "Content-Type": [
+                        "application/json"
+                      ],
+                      "X-Content-Type-Options": [
+                        "nosniff"
+                      ]
+                    },
+                    "status_code": 403
+                  }
+                ],
+                "match": [
+                  {
+                    "expression": "{http.error.status_code} == 403 \u0026\u0026 {http.error.message} == 'banned by crowdsec'",
+                    "header": {
+                      "Accept": [
+                        "*application/json*"
+                      ]
+                    },
+                    "not": [
+                      {
+                        "header": {
+                          "Accept": [
+                            "*text/html*"
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "expression": "{http.error.status_code} == 403 \u0026\u0026 {http.error.message} == 'banned by crowdsec'",
+                    "header": {
+                      "Content-Type": [
+                        "application/json*"
+                      ]
+                    }
+                  }
+                ],
+                "terminal": true
+              },
+              {
+                "handle": [
+                  {
                     "body": "\u003c!doctype html\u003e\u003chtml lang=\"en\"\u003e\u003chead\u003e\u003cmeta charset=\"utf-8\"\u003e\u003cmeta name=\"viewport\" content=\"width=device-width,initial-scale=1\"\u003e\u003cmeta name=\"robots\" content=\"noindex\"\u003e\u003ctitle\u003eBlocked for now\u003c/title\u003e\u003cstyle\u003e\n:root{--bg:#f5f1ea;--ink:#2a2620;--muted:#6d6457;--line:#ddd3c4;--brass:#a8761e;--brass-soft:#ecdcbc;color-scheme:light dark}\n@media (prefers-color-scheme:dark){:root{--bg:#1b1916;--ink:#ede6da;--muted:#a59a8a;--line:#3a352e;--brass:#d6a64e;--brass-soft:#3b3122}}\n*{box-sizing:border-box}\nhtml,body{margin:0;background:var(--bg);color:var(--ink)}\nbody{font:16px/1.55 system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;min-height:100vh;display:grid;place-items:center;padding:24px 16px}\nmain{width:100%;max-width:30rem}\nh1{font-family:ui-rounded,\"SF Pro Rounded\",\"Nunito\",\"Varela Round\",system-ui,sans-serif;font-weight:650;font-size:1.65rem;line-height:1.2;letter-spacing:-.01em;margin:20px 0 10px}\np{margin:0 0 12px;color:var(--muted)}\np.lead{color:var(--ink)}\n.mark{display:block;width:44px;height:52px;color:var(--brass)}\n.fine{font-size:.85rem;margin-top:22px;padding-top:14px;border-top:1px solid var(--line)}\na{color:var(--brass)}\n\u003c/style\u003e\u003c/head\u003e\u003cbody\u003e\u003cmain\u003e\u003csvg class=\"mark\" viewBox=\"0 0 44 52\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"\u003e\u003cpath d=\"M15 9V5.5a2.5 2.5 0 0 1 2.5-2.5h9A2.5 2.5 0 0 1 29 5.5V9\"/\u003e\u003cg class=\"t t1\"\u003e\u003crect x=\"7\" y=\"9\" width=\"30\" height=\"11\" rx=\"3\"/\u003e\u003c/g\u003e\u003cg class=\"t t2\"\u003e\u003crect x=\"7\" y=\"22\" width=\"30\" height=\"11\" rx=\"3\"/\u003e\u003c/g\u003e\u003cg class=\"t t3\"\u003e\u003crect x=\"7\" y=\"35\" width=\"30\" height=\"13\" rx=\"3\"/\u003e\u003c/g\u003e\u003cpath d=\"M4 14v28M40 14v28\"/\u003e\u003c/svg\u003e\u003ch1\u003eThis connection is blocked for now\u003c/h1\u003e\u003cp class=\"lead\"\u003eToo many suspicious requests came from your network, so this site has stopped answering it for a while.\u003c/p\u003e\u003cp class=\"fine\"\u003eBlocks lift on their own. If you think this is a mistake, tell the site's owner; they can lift it sooner.\u003c/p\u003e\u003c/main\u003e\u003c/body\u003e\u003c/html\u003e",
                     "handler": "static_response",
                     "headers": {
@@ -105,6 +201,54 @@
                 "match": [
                   {
                     "expression": "{http.error.status_code} == 403 \u0026\u0026 {http.error.message} == 'banned by crowdsec'"
+                  }
+                ],
+                "terminal": true
+              },
+              {
+                "handle": [
+                  {
+                    "body": "{\"code\":\"REQUEST_BLOCKED\",\"message\":\"The site's firewall refused this request.\"}",
+                    "handler": "static_response",
+                    "headers": {
+                      "Cache-Control": [
+                        "no-store"
+                      ],
+                      "Content-Type": [
+                        "application/json"
+                      ],
+                      "X-Content-Type-Options": [
+                        "nosniff"
+                      ]
+                    },
+                    "status_code": 403
+                  }
+                ],
+                "match": [
+                  {
+                    "expression": "{http.error.status_code} == 403 \u0026\u0026 {http.error.message} == 'interruption triggered'",
+                    "header": {
+                      "Accept": [
+                        "*application/json*"
+                      ]
+                    },
+                    "not": [
+                      {
+                        "header": {
+                          "Accept": [
+                            "*text/html*"
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "expression": "{http.error.status_code} == 403 \u0026\u0026 {http.error.message} == 'interruption triggered'",
+                    "header": {
+                      "Content-Type": [
+                        "application/json*"
+                      ]
+                    }
                   }
                 ],
                 "terminal": true
