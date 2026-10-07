@@ -223,6 +223,21 @@ The box adds nothing for LLMs:
   empty) and imports only files of its repository. Values that differ per environment
   belong in secrets or `env`.
 
+## API
+
+- **Request bodies:** a JSON body holds at most 200,000 values (array items and object
+  members); bigger batches go in several requests. An error lists the first 50 field
+  problems.
+- **Raw uploads** (deploy tarballs, box and project imports, storage parts) must keep moving:
+  at least 64 KiB every 30 seconds, or the box ends the upload. There is no limit on how long
+  a steady upload takes.
+- **Connections:** idle keep-alive connections close after 2 minutes; request headers are at
+  most 64 KiB.
+- **Idempotency-Key:** the answer is kept for 24 hours when it is at most 1 MiB (larger
+  answers are sent but not kept). Whether a request is still running is known only to the
+  running box: after a restart, a request that was running reads `none`, and its work may
+  be partly done.
+
 ## Limits per project and per box
 
 | | Default | Change it |
