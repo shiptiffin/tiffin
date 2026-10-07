@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -108,42 +109,35 @@ func idemID(p *tokens.Principal, key string) string {
 }
 
 func (a *API) idemLoad(ctx context.Context, id string) (*idemRecord, error) {
-	raw, ok, err := a.deps.DB.KVGet(ctx, idemNS, id)
-	if err != nil || !ok {
+	raw, at, ok, err := a.deps.DB.IdemGet(ctx, id)
+	if err != nil || !ok || time.Since(at) > idemTTL {
 		return nil, err
 	}
 	var rec idemRecord
-	if json.Unmarshal(raw, &rec) != nil || time.Since(rec.CreatedAt) > idemTTL {
+	if json.Unmarshal(raw, &rec) != nil {
 		return nil, nil
 	}
 	return &rec, nil
 }
 
-func (a *API) idemStore(ctx context.Context, id string, rec *idemRecord) {
+func (a *API) idemStore(ctx context.Context, id string, rec *idemRecord) error {
 	raw, err := json.Marshal(rec)
 	if err != nil {
-		return
+		return err
 	}
-	_ = a.deps.DB.KVPut(ctx, idemNS, id, raw)
+	if err := a.deps.DB.IdemPut(ctx, id, rec.CreatedAt, raw); err != nil {
+		return err
+	}
 	a.idem.mu.Lock()
 	purge := time.Since(a.idem.lastPurge) > time.Hour
 	if purge {
 		a.idem.lastPurge = time.Now()
 	}
 	a.idem.mu.Unlock()
-	if !purge {
-		return
+	if purge {
+		_ = a.deps.DB.IdemPurge(ctx, time.Now().Add(-idemTTL))
 	}
-	all, err := a.deps.DB.KVList(ctx, idemNS)
-	if err != nil {
-		return
-	}
-	for k, v := range all {
-		var r idemRecord
-		if json.Unmarshal(v, &r) != nil || time.Since(r.CreatedAt) > idemTTL {
-			_ = a.deps.DB.KVDelete(ctx, idemNS, k)
-		}
-	}
+	return nil
 }
 
 // idempotent is the middleware behind Idempotency-Key: on an operation
@@ -188,13 +182,18 @@ func (a *API) idempotent(ctx huma.Context, next func(huma.Context)) {
 		_, _ = ctx.BodyWriter().Write(rec.Body)
 		return
 	}
+	// The answer is kept before it is sent: a client that is gone by then
+	// (the reason it will ask again) must not lose it.
 	rc := &recordingContext{innerContext: ctx}
 	next(rc)
-	if rc.status >= 200 && rc.status < 300 && !rc.over {
-		// Stored even when the client has gone: that is when it is needed.
-		a.idemStore(context.WithoutCancel(ctx.Context()), id, &idemRecord{Method: method, Path: path, Status: rc.status,
+	if !rc.over && rc.status >= 200 && rc.status < 300 {
+		err := a.idemStore(context.WithoutCancel(ctx.Context()), id, &idemRecord{Method: method, Path: path, Status: rc.status,
 			ContentType: rc.contentType, Body: rc.body.Bytes(), CreatedAt: time.Now().UTC()})
+		if err != nil {
+			slog.Error("idempotency: keeping the answer", "path", path, "err", err)
+		}
 	}
+	rc.flush()
 }
 
 func writeProblem(ctx huma.Context, p *Problem, headers map[string]string) {
@@ -210,20 +209,35 @@ func writeProblem(ctx huma.Context, p *Problem, headers map[string]string) {
 // Context method would clash with the field name).
 type innerContext huma.Context
 
-// recordingContext keeps a copy of the answer written through it.
+// recordingContext holds the answer written through it until flush, so it
+// can be kept whatever happens to the connection: a write that fails because
+// the client left (huma then reports 499) does not stop it being recorded.
+// An answer larger than idemMaxBody is not kept: it goes straight through.
 type recordingContext struct {
 	innerContext
 	status      int
 	contentType string
 	body        bytes.Buffer
-	over        bool // too large to keep
+	over        bool // too large to keep: passing through
 }
 
 func (c *recordingContext) Unwrap() huma.Context { return c.innerContext }
 
 func (c *recordingContext) SetStatus(code int) {
-	c.status = code
-	c.innerContext.SetStatus(code)
+	if c.over {
+		c.innerContext.SetStatus(code)
+		return
+	}
+	if c.status == 0 {
+		c.status = code // the first status is the answer's (huma may try 499 later)
+	}
+}
+
+func (c *recordingContext) Status() int {
+	if c.status != 0 && !c.over {
+		return c.status
+	}
+	return c.innerContext.Status()
 }
 
 func (c *recordingContext) SetHeader(name, value string) {
@@ -233,22 +247,34 @@ func (c *recordingContext) SetHeader(name, value string) {
 	c.innerContext.SetHeader(name, value)
 }
 
-func (c *recordingContext) BodyWriter() io.Writer {
-	return io.MultiWriter(c.innerContext.BodyWriter(), (*recordingBody)(c))
+func (c *recordingContext) BodyWriter() io.Writer { return (*recordingBody)(c) }
+
+// flush sends what was held.
+func (c *recordingContext) flush() {
+	if c.over {
+		return
+	}
+	c.over = true
+	if c.status != 0 {
+		c.innerContext.SetStatus(c.status)
+	}
+	if c.body.Len() > 0 {
+		_, _ = c.innerContext.BodyWriter().Write(c.body.Bytes())
+	}
 }
 
 type recordingBody recordingContext
 
 func (b *recordingBody) Write(p []byte) (int, error) {
-	if !b.over {
-		if b.body.Len()+len(p) > idemMaxBody {
-			b.over = true
-			b.body.Reset()
-		} else {
-			b.body.Write(p)
-		}
+	c := (*recordingContext)(b)
+	if !c.over && c.body.Len()+len(p) > idemMaxBody {
+		c.flush()
+		c.body = bytes.Buffer{}
 	}
-	return len(p), nil
+	if c.over {
+		return c.innerContext.BodyWriter().Write(p)
+	}
+	return c.body.Write(p)
 }
 
 // IdempotentRequest is what became of a request sent with an Idempotency-Key.

@@ -176,3 +176,55 @@ func TestIdempotencyKey(t *testing.T) {
 		t.Fatalf("a key reused elsewhere: %d %s", code, raw)
 	}
 }
+
+// brokenWriter is a connection the client has left: every write fails.
+type brokenWriter struct{ h http.Header }
+
+func (w *brokenWriter) Header() http.Header       { return w.h }
+func (w *brokenWriter) WriteHeader(int)           {}
+func (w *brokenWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+
+// A request whose client leaves while the answer is written still has its
+// answer kept: the retry with the same key gets it instead of doing the
+// work again (huma marks such a write 499; that is not the answer).
+func TestIdempotencyKeptWhenClientLeaves(t *testing.T) {
+	ctx := context.Background()
+	db, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	tm := tokens.NewManager(db)
+	owner, _, err := tm.Bootstrap(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := New(Deps{DB: db, Engine: change.NewEngine(db), Tokens: tm, Version: "test"})
+	var runs atomic.Int32
+	o := op("thing-make", http.MethodPost, "/v1/made-things", "-", RiskWrite, "Make a thing", "A test create.", "system")
+	o.DefaultStatus = http.StatusAccepted
+	var cancel context.CancelFunc
+	huma.Register(a.api, Idempotent(o), wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body map[string]int }, error) {
+		cancel() // the client goes away once the work is done
+		return &struct{ Body map[string]int }{map[string]int{"id": int(runs.Add(1))}}, nil
+	}))
+	const key = "key-gone-000000000001"
+	rctx, c := context.WithCancel(ctx)
+	cancel = c
+	req := httptest.NewRequestWithContext(rctx, "POST", "/v1/made-things", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer "+owner)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(IdempotencyHeader, key)
+	a.Handler().ServeHTTP(&brokenWriter{h: http.Header{}}, req)
+	if runs.Load() != 1 {
+		t.Fatalf("runs %d", runs.Load())
+	}
+	req = httptest.NewRequest("POST", "/v1/made-things", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer "+owner)
+	req.Header.Set(IdempotencyHeader, key)
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+	if rec.Code != 202 || rec.Header().Get(IdempotencyStatusHeader) != "replayed" || runs.Load() != 1 || !strings.Contains(rec.Body.String(), `"id":1`) {
+		t.Fatalf("retry: %d %v %q, runs %d", rec.Code, rec.Header(), rec.Body.String(), runs.Load())
+	}
+}

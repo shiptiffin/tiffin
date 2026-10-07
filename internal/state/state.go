@@ -223,6 +223,14 @@ var migrations = []string{
 		(SELECT 1 FROM resources r WHERE r.project = secrets.project AND r.address = 'secret/' || secrets.name)`,
 	// Dashboard sessions: how and where they signed in, as JSON (see internal/tokens/sessions.go).
 	`ALTER TABLE tokens ADD COLUMN client TEXT`,
+	// Answers kept for Idempotency-Keys (internal/api/idempotency.go), with
+	// their time indexed so expired ones are deleted without reading them.
+	`CREATE TABLE idempotency (
+		id         TEXT PRIMARY KEY,
+		created_at TEXT NOT NULL,
+		record     BLOB NOT NULL
+	) STRICT, WITHOUT ROWID`,
+	`CREATE INDEX idempotency_created ON idempotency(created_at)`,
 }
 
 // SchemaVersion is the state schema this build writes (box exports record
@@ -592,4 +600,35 @@ func (s *DB) KVList(ctx context.Context, ns string) (map[string][]byte, error) {
 		out[k] = v
 	}
 	return out, rows.Err()
+}
+
+// idemTime has a fixed width, so created_at sorts as time does.
+const idemTime = "2006-01-02T15:04:05.000000000Z"
+
+// IdemGet returns the answer kept for an Idempotency-Key id, if any.
+func (s *DB) IdemGet(ctx context.Context, id string) ([]byte, time.Time, bool, error) {
+	var rec []byte
+	var at string
+	err := s.sql.QueryRowContext(ctx, `SELECT record, created_at FROM idempotency WHERE id = ?`, id).Scan(&rec, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, time.Time{}, false, nil
+	} else if err != nil {
+		return nil, time.Time{}, false, err
+	}
+	t, _ := time.Parse(idemTime, at)
+	return rec, t, true, nil
+}
+
+// IdemPut keeps the answer for an Idempotency-Key id.
+func (s *DB) IdemPut(ctx context.Context, id string, at time.Time, record []byte) error {
+	_, err := s.sql.ExecContext(ctx, `INSERT INTO idempotency(id, created_at, record) VALUES (?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET created_at = excluded.created_at, record = excluded.record`,
+		id, at.UTC().Format(idemTime), record)
+	return err
+}
+
+// IdemPurge deletes the answers kept since before t.
+func (s *DB) IdemPurge(ctx context.Context, t time.Time) error {
+	_, err := s.sql.ExecContext(ctx, `DELETE FROM idempotency WHERE created_at < ?`, t.UTC().Format(idemTime))
+	return err
 }
