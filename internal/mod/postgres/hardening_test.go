@@ -45,7 +45,7 @@ func (tc *tenantCluster) superuser(ctx context.Context, db string) (*pgx.Conn, e
 	if err != nil {
 		return nil, err
 	}
-	secureAdmin(cfg)
+	SecureAdmin(cfg)
 	return pgx.ConnectConfig(ctx, cfg)
 }
 

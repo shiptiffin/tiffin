@@ -749,6 +749,7 @@ func (s *scratchServer) connect(ctx context.Context, db string) (*pgx.Conn, erro
 	if err != nil {
 		return nil, err
 	}
+	postgres.SecureAdmin(cfg) // the restored databases are the apps': their search_path must not reach this superuser
 	cfg.RuntimeParams["application_name"] = "tiffin-drill"
 	return pgx.ConnectConfig(ctx, cfg)
 }

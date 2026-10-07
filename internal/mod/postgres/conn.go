@@ -47,16 +47,16 @@ func Admin(ctx context.Context, db string) (*pgx.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	secureAdmin(cfg)
+	SecureAdmin(cfg)
 	return pgx.ConnectConfig(ctx, cfg)
 }
 
-// secureAdmin pins what a superuser session must not take from the database
+// SecureAdmin pins what a superuser session must not take from the database
 // it connects to. A project owns its databases, so it can give them any
 // search_path (ALTER DATABASE ... SET search_path = public, pg_catalog) and
 // shadow functions the box's queries call, which would then run as the
 // superuser. Settings sent at connection start win over the database's.
-func secureAdmin(cfg *pgx.ConnConfig) {
+func SecureAdmin(cfg *pgx.ConnConfig) {
 	cfg.RuntimeParams["application_name"] = "tiffin"
 	cfg.RuntimeParams["search_path"] = "pg_catalog, pg_temp"
 }
