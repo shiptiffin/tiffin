@@ -319,3 +319,33 @@ func tail(s string, n int) string {
 	}
 	return s
 }
+
+// nerdctlBin and appNamespace are where the runtime keeps app containers
+// (internal/mod/runtime: newNerdctl, Namespace).
+const (
+	nerdctlBin   = "/usr/local/bin/nerdctl"
+	appNamespace = "tiffin"
+)
+
+// StopScript stops a box on a server that stays (tiffin down on an SSH
+// box): Tiffin, its edge (which would keep serving every site) and every
+// app container (which would keep running and start again after a
+// reboot). Data and packages stay. It fails when anything still runs.
+func StopScript() string { return stopScript(nerdctlBin) }
+
+func stopScript(nerdctl string) string {
+	units := strings.Join(Units, " ")
+	n := "sudo " + nerdctl + " --namespace " + appNamespace
+	return `set -u
+sudo systemctl disable --now ` + units + ` >/dev/null 2>&1 || true
+if [ -x ` + nerdctl + ` ]; then
+  ids="$(` + n + ` ps -q 2>/dev/null || true)"
+  if [ -n "$ids" ]; then ` + n + ` stop $ids >/dev/null || true; fi
+fi
+sudo rm -f ` + platform.ServerConfigPath + `
+left=""
+for u in ` + units + `; do if systemctl is-active --quiet "$u"; then left="$left $u"; fi; done
+if [ -x ` + nerdctl + ` ] && [ -n "$(` + n + ` ps -q 2>/dev/null || true)" ]; then left="$left app-containers"; fi
+if [ -n "$left" ]; then echo "still running:$left" >&2; exit 4; fi
+`
+}

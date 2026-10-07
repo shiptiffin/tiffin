@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -678,21 +679,28 @@ func (a *app) downServer(ctx context.Context, name string, bx *boxConfig, confir
 			return &exitError{ExitInvalid, "Tiffin does not delete data on a server it did not create; after down, remove " + install.DataRoot + " on the server yourself"}
 		}
 		if !confirmed {
-			return confirmLater(fmt.Sprintf("%s this stops Tiffin on %s and forgets the box %s on this computer. The server, its data in %s and the installed packages stay.",
+			return confirmLater(fmt.Sprintf("%s this stops Tiffin, its sites and its apps on %s and forgets the box %s on this computer. The server, its data in %s and the installed packages stay.",
 				a.paint("down:", red), sb.SSH, name, install.DataRoot), nil)
 		}
 		t, err := remote.ParseTarget(sb.SSH)
 		var warn string
 		if err == nil {
 			t.Identity, t.KnownHosts, t.TrustOwn = sb.Identity, sb.KnownHosts, true
-			a.progress("stopping Tiffin on " + t.String())
-			if _, stderr, err := remote.New(t).Exec(ctx, "sudo systemctl disable --now tiffin >/dev/null 2>&1; sudo rm -f "+platform.ServerConfigPath); err != nil {
-				warn = "could not reach the server to stop Tiffin (" + strings.TrimSpace(stderr) + "); stop it there with: sudo systemctl disable --now tiffin"
+			a.progress("stopping Tiffin, its sites and its apps on " + t.String())
+			if _, stderr, err := remote.New(t).Exec(ctx, install.StopScript()); err != nil {
+				var ee *exec.ExitError
+				if !errors.As(err, &ee) || ee.ExitCode() != 255 {
+					// Reached but not stopped: keep the box, so down can run again.
+					return &exitError{ExitError, fmt.Sprintf("could not stop everything on %s (%s): %s; nothing was forgotten, run tiffin down --confirm %s again",
+						t, err, strings.TrimSpace(stderr), name)}
+				}
+				warn = "could not reach the server (" + strings.TrimSpace(stderr) + "); if it still runs, stop Tiffin there with: " +
+					"sudo systemctl disable --now tiffin tiffin-edge.socket tiffin-edge.service && sudo nerdctl -n tiffin stop $(sudo nerdctl -n tiffin ps -q)"
 			}
 		}
 		forget()
 		if a.tty() {
-			fmt.Fprintf(a.io.Out, "%s Tiffin is stopped on %s and %s is forgotten. Its data is still in %s on the server.\n", a.paint("✓", green), sb.SSH, name, install.DataRoot)
+			fmt.Fprintf(a.io.Out, "%s Tiffin, its sites and its apps are stopped on %s and %s is forgotten. Its data is still in %s on the server.\n", a.paint("✓", green), sb.SSH, name, install.DataRoot)
 			if warn != "" {
 				fmt.Fprintf(a.io.Out, "%s %s\n", a.paint("!", amber), warn)
 			}

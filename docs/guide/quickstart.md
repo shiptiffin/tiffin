@@ -160,7 +160,14 @@ tiffin up --provider ssh --name shop --host root@203.0.113.5 --data-disk /dev/sd
 
 `--data-disk` is optional: a blank disk is formatted XFS for your data (one with a
 filesystem is used as it is). Without one, data lives on the root disk; that works, but
-database branches copy files instead of sharing them unless the disk is XFS.
+database branches copy files instead of sharing them unless the disk is XFS. A data disk
+added later never hides data already on the root disk: `up` refuses and says how to move it.
+
+Tiffin checks the server's SSH host key against your own `~/.ssh/known_hosts` too, so
+connect once with `ssh` first and check the fingerprint: Tiffin then uses the key you
+accepted. A server you never reached is trusted on first use, and a different key is
+refused after that. `tiffin down --confirm shop` stops Tiffin, its sites and its apps and
+forgets the box on your computer; the server and its data stay.
 
 To make it bigger, resize it at your host (more memory or CPUs, a bigger data disk), then
 run `tiffin up --name shop`: it retunes Postgres, Valkey and the memory apps share to the

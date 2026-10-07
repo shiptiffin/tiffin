@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/btahir/tiffin/internal/mod/runtime"
 )
 
 // An update that added units (the edge's own, on the first update to that
@@ -99,5 +102,46 @@ func TestCrashLoopRollsBackEarly(t *testing.T) {
 	}
 	if time.Since(began) > 10*time.Second {
 		t.Fatalf("waited %s for a crash-looping build", time.Since(began))
+	}
+}
+
+// ssh down stops what serves the box's sites and runs its apps, not only
+// the control plane, and says when something kept running.
+func TestStopScript(t *testing.T) {
+	if appNamespace != runtime.Namespace {
+		t.Fatalf("namespace %q is not the runtime's %q", appNamespace, runtime.Namespace)
+	}
+	run := func(stoppable bool) (string, string, error) {
+		tmp := t.TempDir()
+		log := filepath.Join(tmp, "log")
+		stopped := filepath.Join(tmp, "stopped")
+		nerd := filepath.Join(tmp, "nerdctl")
+		stop := ""
+		if stoppable {
+			stop = "touch " + stopped
+		}
+		fake := "#!/bin/bash\necho \"nerdctl $*\" >> " + log + "\ncase \"$3\" in\n  ps) [ -e " + stopped + " ] || echo c1; ;;\n  stop) " + stop + " ;;\nesac\n"
+		if err := os.WriteFile(nerd, []byte(fake), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		shims := "sudo() { if [ \"$1\" = rm ]; then return 0; fi; \"$@\"; }\nsystemctl() { echo \"systemctl $*\" >> " + log + "; [ \"$1\" != is-active ] || return 3; }\n"
+		var errb strings.Builder
+		cmd := exec.Command("bash", "-c", shims+stopScript(nerd))
+		cmd.Stderr = &errb
+		err := cmd.Run()
+		raw, _ := os.ReadFile(log)
+		return string(raw), errb.String(), err
+	}
+	log, _, err := run(true)
+	if err != nil {
+		t.Fatalf("stop failed: %v\n%s", err, log)
+	}
+	for _, want := range []string{"systemctl disable --now tiffin.service tiffin-edge.service tiffin-edge.socket", "nerdctl --namespace tiffin stop c1"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("stop did not run %q:\n%s", want, log)
+		}
+	}
+	if _, stderr, err := run(false); err == nil || !strings.Contains(stderr, "app-containers") {
+		t.Fatalf("a container that kept running must fail the stop: %v %s", err, stderr)
 	}
 }
