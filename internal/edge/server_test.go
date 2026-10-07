@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -347,5 +348,46 @@ func TestDNSChallengeThroughTheControlPlane(t *testing.T) {
 	d = &controlDNS{c: newControlClient(filepath.Join(dir, "gone.sock")), key: "test-key"}
 	if _, err := d.AppendRecords(t.Context(), "box.test.", got); err == nil {
 		t.Fatal("no control plane, yet the record was set")
+	}
+}
+
+// On a box the switchboard listens on a socket (no app can take it while
+// the edge restarts), and a client learns a moved switchboard from the
+// edge's hello and says so, for the routes to be made again.
+func TestSwitchboardOnASocket(t *testing.T) {
+	dir := shortDir(t)
+	sock := filepath.Join(dir, SwitchboardSocket)
+	s, _ := startServer(t, dir, "unix/"+sock)
+	if s.SwitchboardAddr() != "unix/"+sock {
+		t.Fatalf("switchboard at %q", s.SwitchboardAddr())
+	}
+	hc := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", sock)
+	}}}
+	res, err := hc.Get("http://switchboard/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("an empty switchboard: %d", res.StatusCode)
+	}
+	if _, err := ConfigJSON(Config{Domain: "box.test", Upstream: "127.0.0.1:7070", DataDir: "/x", Internal: true,
+		Routes: []Route{{Host: "shop.box.test", Upstream: "unix/" + sock}}}); err != nil {
+		t.Fatalf("a route to the switchboard's socket: %v", err)
+	}
+	moved := make(chan struct{}, 1)
+	cl := NewClient(ClientOptions{Socket: s.Socket, Switchboard: "127.0.0.1:7069", Local: true})
+	cl.OnSwitchboardMoved(func() { moved <- struct{}{} })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cl.Start(ctx, 5*time.Second)
+	select {
+	case <-moved:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the client did not report the switchboard's new address")
+	}
+	if cl.Switchboard() != "unix/"+sock {
+		t.Fatalf("client's switchboard: %q", cl.Switchboard())
 	}
 }

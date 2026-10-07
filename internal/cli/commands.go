@@ -475,6 +475,11 @@ func (a *app) serveCmd() *cobra.Command {
 				}
 				if plat != nil {
 					plat.Edge = ecl
+					ecl.OnSwitchboardMoved(func() {
+						if err := plat.RefreshRoutes(ctx); err != nil {
+							plat.Log.Warn("routes after the switchboard moved", "err", err)
+						}
+					})
 				}
 				if publicURL != "" {
 					base = publicURL
@@ -585,7 +590,7 @@ func isTerminal(w io.Writer) bool {
 // drives it over its socket, the same way.
 func (a *app) startEdge(ctx context.Context, cfg edge.Config, external bool) (*edge.Client, error) {
 	log := slog.New(slog.NewJSONHandler(a.io.Err, nil))
-	sock, sb := filepath.Join(a.home, edge.EdgeSocket), edge.SwitchboardAddr
+	sock, sb := filepath.Join(a.home, edge.EdgeSocket), "unix/"+filepath.Join(a.home, edge.SwitchboardSocket)
 	if !external {
 		srv := &edge.Server{Socket: sock, Control: filepath.Join(a.home, edge.ControlSocket), State: filepath.Join(a.home, edge.SnapshotFile),
 			Switchboard: "127.0.0.1:0", Build: version.Version, Log: log}
@@ -657,6 +662,9 @@ func (a *app) edgeCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			if sb == "" {
+				sb = "unix/" + filepath.Join(a.home, edge.SwitchboardSocket)
+			}
 			srv := &edge.Server{Socket: filepath.Join(a.home, edge.EdgeSocket), Control: filepath.Join(a.home, edge.ControlSocket),
 				State: filepath.Join(a.home, edge.SnapshotFile), Switchboard: sb, Build: version.Version, Log: slog.New(slog.NewJSONHandler(a.io.Err, nil))}
 			if err := srv.Start(ctx); err != nil {
@@ -667,7 +675,7 @@ func (a *app) edgeCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&sb, "switchboard", edge.SwitchboardAddr, "where the switchboard listens (loopback)")
+	cmd.Flags().StringVar(&sb, "switchboard", "", "where the switchboard listens: unix/<path> or a loopback host:port (default: a socket in --home)")
 	return cmd
 }
 

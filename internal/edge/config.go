@@ -143,6 +143,16 @@ func (c Config) dashboardName() string {
 	return c.Dashboard
 }
 
+// validDial reports whether addr is an upstream Caddy can dial: host:port,
+// or "unix/<absolute path>" (Caddy's notation for a Unix socket).
+func validDial(addr string) bool {
+	if sock, ok := strings.CutPrefix(addr, "unix/"); ok {
+		return filepath.IsAbs(sock)
+	}
+	_, _, err := net.SplitHostPort(addr)
+	return err == nil
+}
+
 // appsDomain is the domain of the one-label app hosts.
 func (c Config) appsDomain() string {
 	if c.Apps != "" {
@@ -212,12 +222,8 @@ func (c Config) normalized() (Config, error) {
 	} else if c.Apps != "" && (validHost(c.Apps) != nil || strings.Contains(c.Apps, "*")) {
 		return c, fmt.Errorf("edge: invalid apps domain %q", c.Apps)
 	}
-	if sock, ok := strings.CutPrefix(c.Upstream, "unix/"); ok {
-		if !filepath.IsAbs(sock) {
-			return c, fmt.Errorf("edge: invalid Upstream %q: want unix/<absolute path>", c.Upstream)
-		}
-	} else if _, _, err := net.SplitHostPort(c.Upstream); err != nil {
-		return c, fmt.Errorf("edge: invalid Upstream %q: want host:port or unix/<path>", c.Upstream)
+	if !validDial(c.Upstream) {
+		return c, fmt.Errorf("edge: invalid Upstream %q: want host:port or unix/<absolute path>", c.Upstream)
 	}
 	if strings.TrimSpace(c.DataDir) == "" {
 		return c, errors.New("edge: DataDir is required")
@@ -310,8 +316,8 @@ func (c Config) normalized() (Config, error) {
 				return c, fmt.Errorf("edge: route %q: needs an upstream or a file root", r.Host)
 			}
 			for _, u := range ups {
-				if _, _, err := net.SplitHostPort(u); err != nil {
-					return c, fmt.Errorf("edge: route %q: invalid upstream %q: want host:port", r.Host, u)
+				if !validDial(u) {
+					return c, fmt.Errorf("edge: route %q: invalid upstream %q: want host:port or unix/<path>", r.Host, u)
 				}
 			}
 		}

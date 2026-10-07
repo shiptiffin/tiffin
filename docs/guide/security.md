@@ -18,7 +18,8 @@ Plainly, so you can decide what to trust it with.
   request, and a wake starts the app on a new port. App containers run without raw
   sockets (they can't read loopback traffic), without ports below 1024 (they can't join
   the edge's sockets on 80 and 443) and can't gain privileges through setuid programs.
-  The edge reaches the dashboard and API on a Unix socket no app can reach. What this
+  Inside the box, the edge reaches the dashboard and API, and its own switchboard (which
+  passes requests to apps), on Unix sockets no app can reach or take over. What this
   does not cover yet is in [Limits](limits.md#isolation-between-apps).
 - **HTTPS everywhere.** A server with a public address gets certificates from a public CA
   (Let's Encrypt). Locally the box has its own certificate authority, created on the box

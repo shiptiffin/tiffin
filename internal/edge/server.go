@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,7 +32,7 @@ type Server struct {
 	Socket      string // the API the control plane drives
 	Control     string // the control plane's socket
 	State       string // where the last snapshot is kept
-	Switchboard string // the switchboard's listen address (loopback)
+	Switchboard string // where the switchboard listens: "unix/<path>" or a loopback host:port (tests)
 	Build       string
 	Log         *slog.Logger
 
@@ -66,11 +67,19 @@ func (s *Server) Start(ctx context.Context) error {
 	remoteDNS = func(key string) certmagic.DNSProvider { return &controlDNS{c: s.ctl, key: key} }
 	s.events.init()
 	cancelEvents := OnCertEvent(s.events.add)
-	sbln, err := net.Listen("tcp", s.Switchboard)
+	var sbln net.Listener
+	if sock, ok := strings.CutPrefix(s.Switchboard, "unix/"); ok {
+		sbln, err = listenUnix(sock)
+		s.sbAddr = s.Switchboard
+	} else {
+		sbln, err = net.Listen("tcp", s.Switchboard)
+		if err == nil {
+			s.sbAddr = sbln.Addr().String()
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("edge: switchboard: %w", err)
 	}
-	s.sbAddr = sbln.Addr().String()
 	sb := &http.Server{Handler: s.board, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = sb.Serve(sbln) }()
 	if raw, err := os.ReadFile(s.State); err == nil {

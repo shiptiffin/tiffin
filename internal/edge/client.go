@@ -41,6 +41,7 @@ type Client struct {
 	mu       sync.Mutex
 	source   func() switchboard.Table
 	sb       string    // the switchboard's address
+	sbMoved  func()    // called when the edge reports another switchboard address
 	caddy    *rendered // the config to serve (the last one the edge did not refuse)
 	version  uint64    // the last snapshot sent
 	acked    uint64    // the last snapshot the edge served
@@ -130,8 +131,12 @@ func (c *Client) check(ctx context.Context) error {
 	c.up, c.helloErr = err == nil, err
 	if err == nil {
 		c.hello = h
-		if h.Switchboard != "" {
+		if h.Switchboard != "" && h.Switchboard != c.sb {
 			c.sb = h.Switchboard
+			if c.sbMoved != nil {
+				// Routes point at the switchboard: they must be made again.
+				go c.sbMoved()
+			}
 		}
 	}
 	switch {
@@ -169,6 +174,15 @@ func (c *Client) Switchboard() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.sb
+}
+
+// OnSwitchboardMoved registers what to do when the edge reports a new
+// switchboard address (a restarted edge of another build): refresh the
+// routes, which point at it.
+func (c *Client) OnSwitchboardMoved(fn func()) {
+	c.mu.Lock()
+	c.sbMoved = fn
+	c.mu.Unlock()
 }
 
 // TableSource registers where the switchboard table comes from.

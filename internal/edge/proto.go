@@ -39,17 +39,19 @@ import (
 // control plane asks for it.
 
 // Protocol is the version of the API between the two processes. A change
-// that an edge of the previous version would misread bumps it.
-const Protocol = 1
-
-// SwitchboardAddr is where the box's edge process runs the switchboard.
-const SwitchboardAddr = "127.0.0.1:7069"
+// that an edge of the previous version would misread bumps it. 2: the
+// switchboard's address may be a Unix socket ("unix/<path>").
+const Protocol = 2
 
 // Socket paths in the platform directory.
 const (
-	EdgeSocket    = "edge.sock"
-	ControlSocket = "control.sock"
-	SnapshotFile  = "edge-snapshot.json"
+	// SwitchboardSocket is where the box's edge process runs the
+	// switchboard: a socket, not a loopback port, which an app (they share
+	// the host network) could take while the edge restarts.
+	SwitchboardSocket = "switchboard.sock"
+	EdgeSocket        = "edge.sock"
+	ControlSocket     = "control.sock"
+	SnapshotFile      = "edge-snapshot.json"
 )
 
 // Snapshot is everything the edge serves. Version increases with every
