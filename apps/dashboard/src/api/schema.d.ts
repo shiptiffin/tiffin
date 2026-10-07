@@ -12396,7 +12396,7 @@ export interface components {
             key: string;
             /**
              * Format: int64
-             * @description Expire after this many seconds (cache); 0 keeps the key until it is deleted
+             * @description Expire after this many seconds (cache, at most 100 years); 0 keeps the key until it is deleted
              */
             ttlSeconds: number;
         };
