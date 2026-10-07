@@ -250,21 +250,27 @@ func (s *sqliteStore) Insert(ctx context.Context, evs []Event) error {
 
 // Rollup recomputes one day of one app from raw events.
 func (s *sqliteStore) Rollup(ctx context.Context, project, app, day string) error {
+	// The ts bounds let the (project, app, ts) index find the day's events
+	// instead of scanning the app's whole history for the day column.
+	start, err := time.Parse("2006-01-02", day)
+	if err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.ExecContext(ctx, `INSERT INTO daily(project, app, day, visitors, pageviews, sessions, bounces, duration_ms, events, updated_at)
+	_, err = s.db.ExecContext(ctx, `INSERT INTO daily(project, app, day, visitors, pageviews, sessions, bounces, duration_ms, events, updated_at)
 		SELECT ?, ?, ?,
-			(SELECT COUNT(DISTINCT visitor) FROM events WHERE project = ?1 AND app = ?2 AND day = ?3 AND kind = 'pageview'),
-			(SELECT COUNT(*) FROM events WHERE project = ?1 AND app = ?2 AND day = ?3 AND kind = 'pageview'),
+			(SELECT COUNT(DISTINCT visitor) FROM events WHERE project = ?1 AND app = ?2 AND ts >= ?5 AND ts < ?6 AND day = ?3 AND kind = 'pageview'),
+			(SELECT COUNT(*) FROM events WHERE project = ?1 AND app = ?2 AND ts >= ?5 AND ts < ?6 AND day = ?3 AND kind = 'pageview'),
 			COALESCE(SUM(1), 0), COALESCE(SUM(pv = 1), 0), COALESCE(SUM(dur), 0),
-			(SELECT COUNT(*) FROM events WHERE project = ?1 AND app = ?2 AND day = ?3 AND kind = 'event'),
+			(SELECT COUNT(*) FROM events WHERE project = ?1 AND app = ?2 AND ts >= ?5 AND ts < ?6 AND day = ?3 AND kind = 'event'),
 			?4
 		FROM (SELECT session, COUNT(*) AS pv, MAX(ts) - MIN(ts) AS dur FROM events
-			WHERE project = ?1 AND app = ?2 AND day = ?3 AND kind = 'pageview' GROUP BY session) WHERE true
+			WHERE project = ?1 AND app = ?2 AND ts >= ?5 AND ts < ?6 AND day = ?3 AND kind = 'pageview' GROUP BY session) WHERE true
 		ON CONFLICT(project, app, day) DO UPDATE SET visitors = excluded.visitors, pageviews = excluded.pageviews,
 			sessions = excluded.sessions, bounces = excluded.bounces, duration_ms = excluded.duration_ms,
 			events = excluded.events, updated_at = excluded.updated_at`,
-		project, app, day, time.Now().UnixMilli())
+		project, app, day, time.Now().UnixMilli(), start.UnixMilli(), start.AddDate(0, 0, 1).UnixMilli())
 	return err
 }
 

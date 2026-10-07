@@ -87,6 +87,7 @@ type Pipeline struct {
 	sessions map[sessKey]*sess
 	dirty    map[[3]string]bool // project, app, day with stored events needing a rollup
 	gone     map[string]bool    // projects whose analytics was deleted: their hits are dropped
+	salts    map[string][]byte  // day -> visitor salt, the last few days
 	stats    Stats
 	flushMu  sync.Mutex  // one flush (or deletion) at a time
 	flushing atomic.Bool // a flush started by a full buffer is running
@@ -112,7 +113,7 @@ func (pl *Pipeline) visitor(ctx context.Context, day, project, app, ip, ua strin
 	if ip == "" && ua == "" {
 		return 0
 	}
-	salt, err := pl.Store.Salt(ctx, day)
+	salt, err := pl.salt(ctx, day)
 	if err != nil {
 		return 0
 	}
@@ -123,6 +124,33 @@ func (pl *Pipeline) visitor(ctx context.Context, day, project, app, ip, ua strin
 		v = 1
 	}
 	return v
+}
+
+// salt is the store's salt for day, cached: one fewer query per hit.
+func (pl *Pipeline) salt(ctx context.Context, day string) ([]byte, error) {
+	pl.mu.Lock()
+	salt, ok := pl.salts[day]
+	pl.mu.Unlock()
+	if ok {
+		return salt, nil
+	}
+	salt, err := pl.Store.Salt(ctx, day)
+	if err != nil {
+		return nil, err
+	}
+	pl.mu.Lock()
+	if pl.salts == nil {
+		pl.salts = map[string][]byte{}
+	}
+	pl.salts[day] = salt
+	old := dayOf(pl.now().Add(-48 * time.Hour))
+	for d := range pl.salts { // the store forgets salts after two days; so does the cache
+		if d < old {
+			delete(pl.salts, d)
+		}
+	}
+	pl.mu.Unlock()
+	return salt, nil
 }
 
 func randID() int64 {
