@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { Check, ChevronDown, ChevronRight, GitBranch, Lock, Plus, Search, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
 import { q as core } from "@/api/queries";
 import { mod, mq, type PgBranchCreated, type PgTable } from "@/api/modules";
@@ -23,13 +23,25 @@ import { PARTS } from "@/lib/names";
 import { relative } from "@/lib/time";
 import { parseSlug, slugOf } from "./data/api";
 import { DataOverview } from "./data/overview";
-import { RestorePoints } from "./data/restore-points";
-import { SchemaMap } from "./data/schema-view";
-import { SqlPanel } from "./data/sql-page";
-import { TableForm } from "./data/table-form";
-import { TableView } from "./data/table-view";
 import { useBranch, useDataSearch, useSetSearch } from "./data/view";
 import "./data/data.css";
+
+/**
+ * The heavy panels (the table editor, the SQL editor, the schema map…) load
+ * with the page that shows them, so opening one page doesn't download them
+ * all. The router preloads a page's panel with its page on intent.
+ */
+export const panels = {
+  table: () => import("./data/table-view"),
+  sql: () => import("./data/sql-page"),
+  schema: () => import("./data/schema-view"),
+  restore: () => import("./data/restore-points"),
+};
+const TableView = lazy(() => panels.table().then((m) => ({ default: m.TableView })));
+const SqlPanel = lazy(() => panels.sql().then((m) => ({ default: m.SqlPanel })));
+const SchemaMap = lazy(() => panels.schema().then((m) => ({ default: m.SchemaMap })));
+const RestorePoints = lazy(() => panels.restore().then((m) => ({ default: m.RestorePoints })));
+const TableForm = lazy(() => import("./data/table-form").then((m) => ({ default: m.TableForm })));
 
 // ------------------------------------------------------------------ the frame
 
@@ -247,8 +259,14 @@ function DataShell({ project, children, wide }: { project: string; children: Rea
         </p>
       )}
       {info.isError && <ProblemNote className="mt-6" error={info.error} />}
-      <div className="mt-6">{children}</div>
-      {search.new === "table" && <TableForm project={project} branch={branch} onClose={() => setSearch({ new: undefined })} />}
+      <div className="mt-6">
+        <Suspense fallback={<Skeleton className="h-64" />}>{children}</Suspense>
+      </div>
+      {search.new === "table" && (
+        <Suspense fallback={null}>
+          <TableForm project={project} branch={branch} onClose={() => setSearch({ new: undefined })} />
+        </Suspense>
+      )}
     </Page>
   );
 }
