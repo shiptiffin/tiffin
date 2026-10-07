@@ -1,4 +1,4 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryOptions, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { mod3, type Deploy } from "@/api/modules";
 import { q } from "@/api/queries";
 import { toast } from "@/components/toast";
@@ -15,19 +15,29 @@ import { liveSince, relative, sinceWhen } from "./time";
  */
 
 const quiet = { retry: false, refetchOnWindowFocus: false, staleTime: 15_000 } as const;
-export const deploysQuery = (project: string, app: string) => ({
-  queryKey: ["deploys", project, app, ""],
-  queryFn: () => mod3.deploys(project, app),
-  ...quiet,
-  refetchInterval: 10_000,
-});
-export const runtimeQuery = (project: string, app: string) => ({
-  queryKey: ["runtime", project, app],
-  queryFn: () => mod3.runtime(project, app),
-  ...quiet,
-  staleTime: 60_000,
-  refetchInterval: 60_000, // apps of a project that lets them sleep fall asleep on their own
-});
+const inFlight = (list?: Deploy[]) => !!list?.some((d) => ["queued", "building", "starting"].includes(d.status));
+
+/**
+ * An app's deploy history: the one query (and key) every view of it shares.
+ * Polled every 5s while a deploy is in flight, every 30s otherwise (this
+ * dashboard's own deploy actions refresh it at once); `active` false (a home
+ * card scrolled out of view) stops the polling, not the first read.
+ */
+export const deploysQuery = (project: string, app: string, active = true) =>
+  queryOptions({
+    queryKey: ["deploys", project, app, ""],
+    queryFn: () => mod3.deploys(project, app),
+    ...quiet,
+    refetchInterval: (query) => (!active ? false : inFlight(query.state.data) ? 5_000 : 30_000),
+  });
+export const runtimeQuery = (project: string, app: string, active = true) =>
+  queryOptions({
+    queryKey: ["runtime", project, app],
+    queryFn: () => mod3.runtime(project, app),
+    ...quiet,
+    staleTime: 60_000,
+    refetchInterval: active ? 60_000 : false, // apps of a project that lets them sleep fall asleep on their own
+  });
 
 export type Tone = "ok" | "busy" | "bad" | "quiet" | "unknown";
 export type AppPulse = { tone: Tone; words: string; since?: string; failedWhy?: string; servingOld?: boolean };
@@ -72,14 +82,18 @@ export type ProjectPulse = {
   waking: boolean;
 };
 
-/** A project's one-line state and live link. */
-export function useProjectPulse(project: string): ProjectPulse {
-  const p = useQuery(q.project(project));
+/**
+ * A project's one-line state and live link. `active` false (a home card out
+ * of view) keeps what's cached but stops polling until it's back in view.
+ */
+export function useProjectPulse(project: string, active = true): ProjectPulse {
+  // The project's own pages poll its state every 5s; a status line needs less.
+  const p = useQuery({ ...q.project(project), refetchInterval: active ? 15_000 : false });
   const res = p.data?.resources ?? [];
   const apps = res.filter((r) => r.address.startsWith("app/")).map((r) => ({ name: r.address.slice(4), spec: r.spec as { role?: string; framework?: string } }));
   const services = res.filter((r) => r.address.startsWith("service/")).map((r) => r.address.slice(8));
-  const deploys = useQueries({ queries: apps.map((a) => deploysQuery(project, a.name)) });
-  const rts = useQueries({ queries: apps.map((a) => runtimeQuery(project, a.name)) });
+  const deploys = useQueries({ queries: apps.map((a) => deploysQuery(project, a.name, active)) });
+  const rts = useQueries({ queries: apps.map((a) => runtimeQuery(project, a.name, active)) });
   const qc = useQueryClient();
   const wake = useMutation({
     mutationFn: () => mod3.wake(project),

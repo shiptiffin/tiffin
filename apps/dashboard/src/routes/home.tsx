@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, Navigate } from "@tanstack/react-router";
 import { ArrowUpRight, LayoutGrid, List, Plus, Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { q } from "@/api/queries";
 import { BoxBar } from "@/components/box-bar";
 import { useTitle } from "@/components/favicon";
@@ -244,14 +244,35 @@ function Status({ project, pulse }: { project: string; pulse: ReturnType<typeof 
 
 const host = (url: string) => url.replace(/^https?:\/\//, "").replace(/:\d+$/, "");
 
+/**
+ * Whether an element is on screen (or nearly): a card out of view keeps what
+ * it read but stops polling, so a box with many projects asks for little.
+ */
+function useOnScreen<T extends Element>() {
+  const ref = useRef<T>(null);
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setOn(e.isIntersecting), { rootMargin: "200px 0px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return [ref, on] as const;
+}
+
 function ProjectCard({ project, shares }: { project: string; shares?: Shares }) {
-  const pulse = useProjectPulse(project);
+  const [ref, onScreen] = useOnScreen<HTMLLIElement>();
+  const pulse = useProjectPulse(project, onScreen);
   const preview = usePreview(project, pulse.tone === "ok" && !!pulse.url);
   const home = useProjectHome(project);
   const share = shares ? (shares.projects[project] ?? 0) / shares.totalMB : undefined;
   const cap = shares?.caps[project];
   return (
-    <li className="group relative flex min-h-[176px] flex-col overflow-hidden rounded-[12px] border border-rule-2 bg-paper-raised shadow-[var(--top-light)] transition-[border-color,box-shadow] duration-[var(--dur-state)] hover:border-rule-3 hover:shadow-raised">
+    <li
+      ref={ref}
+      className="group relative flex min-h-[176px] flex-col overflow-hidden rounded-[12px] border border-rule-2 bg-paper-raised shadow-[var(--top-light)] transition-[border-color,box-shadow] duration-[var(--dur-state)] hover:border-rule-3 hover:shadow-raised"
+    >
       {preview && <img src={preview} alt="" className="aspect-[1200/630] w-full border-b border-rule object-cover" loading="lazy" />}
       <div className="flex flex-1 flex-col p-4 pb-3.5">
         <div className="flex items-center gap-2.5">
@@ -290,11 +311,15 @@ function ProjectCard({ project, shares }: { project: string; shares?: Shares }) 
 
 /** One project as a list row, for boxes with many projects. */
 function ProjectRow({ project, shares }: { project: string; shares?: Shares }) {
-  const pulse = useProjectPulse(project);
+  const [ref, onScreen] = useOnScreen<HTMLLIElement>();
+  const pulse = useProjectPulse(project, onScreen);
   const home = useProjectHome(project);
   const share = shares ? (shares.projects[project] ?? 0) / shares.totalMB : undefined;
   return (
-    <li className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 py-3 transition-colors hover:bg-paper-hover sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto_5rem] sm:px-2">
+    <li
+      ref={ref}
+      className="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 py-3 transition-colors hover:bg-paper-hover sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto_5rem] sm:px-2"
+    >
       <span className="flex min-w-0 items-center gap-2.5">
         <ProjectIcon project={project} size={20} />
         <Link to={home.to} params={home.params} className="truncate text-[0.9375rem] font-[550] text-ink outline-hidden after:absolute after:inset-0 focus-visible:underline">
