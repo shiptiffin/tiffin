@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Download, Search } from "lucide-react";
 import { Toggle } from "radix-ui";
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { notOnBox } from "@/api/client";
+import { ApiError, notOnBox } from "@/api/client";
 import { mod, type LogsResult } from "@/api/modules";
 import { q as core } from "@/api/queries";
 import { useTitle } from "@/components/favicon";
@@ -12,6 +12,7 @@ import { LogsBuilds } from "@/components/logs-builds";
 import { LogsContext } from "@/components/logs-context";
 import { FacetChip, RangePicker, type FacetOption } from "@/components/logs-filters";
 import { LogsHistogram } from "@/components/logs-histogram";
+import { appendLive, drainSince, type LiveTail, type LogGap } from "@/components/observe-data";
 import {
   absRange,
   asNdjson,
@@ -56,7 +57,12 @@ import { relative } from "@/lib/time";
 import type { LogsSearch } from "@/router";
 
 const PAGE = 500;
+/** Lines a live tail keeps; the oldest go first. */
 const LIVE_CAP = 3000;
+/** Pages one live poll reads before it gives up and marks a gap (PAGE × this stays under LIVE_CAP). */
+const LIVE_PAGES = 4;
+/** Lines a range keeps as older pages load; past it, narrowing the search is the way. */
+const MAX_LINES = 20_000;
 const KEYS: Array<[string, string]> = [
   ["/", "Search"],
   ["J  K", "Next or previous line"],
@@ -64,7 +70,7 @@ const KEYS: Array<[string, string]> = [
   ["L", "Live on or off"],
 ];
 
-type Buf = { lines: Line[]; fresh: Set<string>; truncated: boolean; from: string; to: string };
+type Buf = LiveTail & { truncated: boolean; from: string };
 
 const days = (v?: string) => {
   const m = /^(\d+)([dwy])$/.exec(v ?? "");
@@ -134,20 +140,39 @@ export function LogsPage({ q = "*", project, since = "1h", live, inProject }: Lo
     queryFn: async (): Promise<Buf> => {
       const prev = isLive ? qc.getQueryData<Buf>(key) : undefined;
       if (prev?.lines.length) {
-        let r: LogsResult;
+        // Everything since the newest line shown, however many pages that
+        // takes (up to LIVE_PAGES); what's out of reach shows as a gap.
+        const since = prev.lines[prev.lines.length - 1];
+        const project = scope || undefined;
+        let got: Awaited<ReturnType<typeof drainSince>>;
         try {
-          r = await mod.logs({ query: q, project: scope || undefined, start: prev.lines[prev.lines.length - 1].iso, limit: PAGE });
-        } catch {
-          r = await mod.logs({ query: q, project: scope || undefined, since: "1m", limit: PAGE });
+          got = await drainSince((end) => mod.logs({ query: q, project, start: since.iso, end, limit: PAGE }), since, hasPipes(q) ? 1 : LIVE_PAGES);
+        } catch (e) {
+          // Only for a newest line stamped ahead of the box's clock (start after
+          // now); anything else fails the poll, and the next one resumes here.
+          if (!(e instanceof ApiError && e.status === 422)) throw e;
+          const r: LogsResult = await mod.logs({ query: q, project, since: "1m", limit: PAGE });
+          got = { lines: (r.rows ?? []).map(toLine) };
         }
-        const before = new Set(prev.lines.map((l) => l.key));
-        const add = (r.rows ?? []).map(toLine);
-        const fresh = new Set(add.filter((l) => !before.has(l.key)).map((l) => l.key));
-        if (!fresh.size) return { ...prev, fresh };
-        return { ...prev, lines: merge(prev.lines, add).slice(-LIVE_CAP), fresh, to: r.to };
+        let gap: LogGap | undefined;
+        if (got.gap) {
+          gap = { after: since.key, ...got.gap };
+          if (!hasPipes(q)) {
+            try {
+              const c = await mod.logs({ query: `${filterOf(q)} | stats count() hits`, project, start: got.gap.from, end: got.gap.to, limit: 1 });
+              const t0 = Date.parse(got.gap.from);
+              const t1 = Date.parse(got.gap.to);
+              const held = [since, ...got.lines].filter((l) => l.t >= t0 && l.t <= t1).length;
+              gap.skipped = Math.max(0, (Number(c.rows?.[0]?.hits) || 0) - held);
+            } catch {
+              // Uncounted: the marker still says lines are missing.
+            }
+          }
+        }
+        return appendLive(prev, got.lines, gap?.skipped === 0 ? undefined : gap, LIVE_CAP);
       }
       const r = await mod.logs({ query: q, project: scope || undefined, ...(isLive ? { since: "15m" } : rangeBody(range)), limit: isLive ? 300 : PAGE });
-      return { lines: merge((r.rows ?? []).map(toLine)), fresh: new Set(), truncated: r.truncated, from: r.from, to: r.to };
+      return { lines: merge((r.rows ?? []).map(toLine)), fresh: new Set(), gaps: [], truncated: r.truncated, from: r.from };
     },
     refetchInterval: isLive ? 2000 : false,
     placeholderData: (d, prevQuery) => (prevQuery && prevQuery.queryKey[1] === scope ? d : undefined),
@@ -159,7 +184,7 @@ export function LogsPage({ q = "*", project, since = "1h", live, inProject }: Lo
   const kstr = key.join("\u0000");
   const olderNow = older.key === kstr ? older : { key: kstr, lines: [] as Line[], more: true, busy: false };
   const lines = useMemo(() => (olderNow.lines.length ? merge(olderNow.lines, res.data?.lines ?? []) : (res.data?.lines ?? [])), [olderNow.lines, res.data]);
-  const canOlder = !isLive && !!res.data?.truncated && olderNow.more;
+  const canOlder = !isLive && !!res.data?.truncated && olderNow.more && lines.length < MAX_LINES;
   const loadOlder = async () => {
     if (!res.data || !lines.length) return;
     setOlder({ ...olderNow, busy: true });
@@ -463,6 +488,8 @@ export function LogsPage({ q = "*", project, since = "1h", live, inProject }: Lo
                     onToggle={toggle}
                     onMove={move}
                     renderDetail={renderDetail}
+                    gaps={isLive ? res.data?.gaps : undefined}
+                    onGap={(g) => set({ since: absRange(Date.parse(g.from), Date.parse(g.to) + 1), live: undefined })}
                     older={
                       canOlder ? (
                         <div className="flex items-center justify-center gap-3 border-b border-rule px-3 py-2 text-xs text-ink-3">
@@ -471,6 +498,10 @@ export function LogsPage({ q = "*", project, since = "1h", live, inProject }: Lo
                             {olderNow.busy ? "Loading…" : `Load ${PAGE} older lines`}
                           </Button>
                         </div>
+                      ) : !isLive && res.data?.truncated && olderNow.more ? (
+                        <p className="border-b border-rule px-3 py-2 text-center text-xs text-ink-3">
+                          Showing the newest {int(lines.length)}. Narrow the search or the range to see older lines.
+                        </p>
                       ) : !isLive && res.data && lines.length > 0 ? (
                         <p className="border-b border-rule px-3 py-2 text-center text-xs text-ink-4">Start of {rangeWords(range).replace(/^L/, "l")}</p>
                       ) : null

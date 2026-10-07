@@ -3,6 +3,7 @@ import { request } from "@/api/client";
 import { mod, mod3, type Deploy, type LogsResult } from "@/api/modules";
 import type { Bucket } from "@/components/charts/bars";
 import type { XY } from "@/components/charts/core";
+import { merge, toLine, type Line, type Row } from "@/components/logs-query";
 import { deploysQuery } from "@/lib/pulse";
 
 /**
@@ -215,5 +216,76 @@ export function buildBuckets(deploys: Array<Pick<Deploy, "status" | "buildSecond
     if (i < 0 || i >= n) continue;
     out[i].values[d.status === "failed" ? "failed" : "ok"]++;
   }
+  return out;
+}
+
+// ---- live logs ----
+
+/** One page of a logs query: newest first, and whether the limit cut it. */
+export type LogPage = { rows?: Row[] | null; truncated: boolean };
+
+/**
+ * A stretch of a live tail that came too fast to read in full: some lines
+ * logged after the line `after` (from) and before `to` were never fetched.
+ * `skipped` is how many, when the store could count them.
+ */
+export type LogGap = { after: string; from: string; to: string; skipped?: number };
+
+/**
+ * Everything logged since the checkpoint line (the start is inclusive),
+ * newest page first: while a page comes back full, asks again for the lines
+ * up to its oldest one, at most maxPages times. What it couldn't reach is
+ * returned as a gap, never dropped silently.
+ */
+export async function drainSince(
+  page: (end?: string) => Promise<LogPage>,
+  since: Line,
+  maxPages: number,
+): Promise<{ lines: Line[]; gap?: { from: string; to: string } }> {
+  const got: Line[] = [];
+  let end: string | undefined;
+  for (let i = 0; i < maxPages; i++) {
+    const r = await page(end);
+    const rows = (r.rows ?? []).map(toLine);
+    got.push(...rows);
+    if (!r.truncated) return { lines: merge(got) };
+    const oldest = rows.reduce<Line | undefined>((o, l) => (Number.isFinite(l.t) && (!o || l.t < o.t) ? l : o), undefined);
+    if (!oldest || oldest.t <= since.t) return { lines: merge(got) }; // back at the checkpoint (or rows with no time to page by)
+    if (oldest.iso === end) break; // a whole page from one instant: there's no paging past it
+    end = oldest.iso;
+  }
+  return { lines: merge(got), gap: end ? { from: since.iso, to: end } : undefined };
+}
+
+/** A live tail's state: its lines (oldest first), the ones that just arrived, and its gaps. */
+export type LiveTail = { lines: Line[]; fresh: Set<string>; gaps: LogGap[] };
+
+/**
+ * Adds what a poll read to a live tail: new lines marked fresh, at most cap
+ * lines kept (the oldest go first), and a gap kept only while the line it
+ * follows is still shown.
+ */
+export function appendLive<T extends LiveTail>(prev: T, add: Line[], gap: LogGap | undefined, cap: number): T {
+  const before = new Set(prev.lines.map((l) => l.key));
+  const fresh = new Set(add.filter((l) => !before.has(l.key)).map((l) => l.key));
+  if (!fresh.size && !gap) return { ...prev, fresh };
+  const lines = merge(prev.lines, add).slice(-cap);
+  const shown = new Set(lines.map((l) => l.key));
+  const gaps = [...prev.gaps, ...(gap ? [gap] : [])].filter((g) => shown.has(g.after));
+  return { ...prev, lines, fresh, gaps };
+}
+
+/** A row of the logs list: a line, or the marker of a gap after one. */
+export type LogItem = { type: "line"; key: string; line: Line; pos: number } | { type: "gap"; key: string; gap: LogGap };
+
+/** The logs list's rows: every line (numbered), and a marker after each line a live tail lost lines after. */
+export function logItems(lines: Line[], gaps?: LogGap[]): LogItem[] {
+  const after = new Map<string, LogGap[]>();
+  for (const g of gaps ?? []) after.set(g.after, [...(after.get(g.after) ?? []), g]);
+  const out: LogItem[] = [];
+  lines.forEach((line, i) => {
+    out.push({ type: "line", key: line.key, line, pos: i + 1 });
+    for (const gap of after.get(line.key) ?? []) out.push({ type: "gap", key: `\u0000gap|${gap.after}|${gap.to}`, gap });
+  });
   return out;
 }
