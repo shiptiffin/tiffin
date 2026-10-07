@@ -600,7 +600,10 @@ with Next.js 16.2 or later, the box adds its adapter to every build
   have their own cache and revalidations. It takes effect on the next deploy after adding
   Valkey. Pages and route handlers `next build` prerendered are served from the build's
   files until the cache has a newer copy, as with Next.js's own cache: the first request
-  after a deploy is not a render, and an ISR page's age counts from the build.
+  after a deploy is not a render, and an ISR page's age counts from the build. A build
+  file older than 30 days (the longest a cache entry lives, and so how long the box keeps
+  a tag's revalidations) is rendered anew instead, so a revalidation from long ago can't
+  bring it back.
 - `compress: false`: the edge compresses.
 - `poweredByHeader: false` (no `X-Powered-By`; add it with `headers()` if you want it).
 - `supportsImmutableAssets: true` (Next.js 16.3+, Turbopack builds): chunks are served
@@ -609,7 +612,9 @@ with Next.js 16.2 or later, the box adds its adapter to every build
 - `images.maximumDiskCacheSize`: 512 MB. Optimized images live in a directory per app
   environment, shared by its instances and kept across deploys (deleted with the
   preview or app). They stay on disk, never in Valkey, also when the app sets
-  `images.customCacheHandler`.
+  `images.customCacheHandler`. Each instance enforces the size from its own view of the
+  directory, refreshed at most a minute old, so instances together can overshoot it by
+  what they write in that minute.
 
 Without the adapter's help:
 
@@ -652,14 +657,15 @@ Postgres: see [Already using Vercel Workflow?](queues.md#already-using-vercel-wo
 ## SvelteKit
 
 SvelteKit 2 and 3 run as a server, picked by the adapter the app's config imports
-(`vite.config` in SvelteKit 3, `svelte.config.js` in 2), or the one `package.json` lists:
+(`vite.config` in SvelteKit 3, `svelte.config.js` in 2: the file that names an adapter
+wins), or the one `package.json` lists:
 
 | Adapter | What the box does |
 |---|---|
 | `@sveltejs/adapter-bun` (SvelteKit 3, Bun 1.4+) | `exec bun ./build/index.js`: one `Bun.serve` process. The default to use. |
 | `@sveltejs/adapter-node` | `exec bun ./build/index.js` (`node` with `runtime: "node"`) |
 | `@sveltejs/adapter-auto` | The build sets `GCP_BUILDPACKS`, so adapter-auto installs adapter-node and uses it; the deploy carries a warning pointing at adapter-bun |
-| `@sveltejs/adapter-static` | Built to files and served by the edge; with a `fallback` page, paths without a file serve it |
+| `@sveltejs/adapter-static` | Built to files and served by the edge; with a `fallback` page, paths without a file serve it (and `/` too when nothing is prerendered, so there is no `index.html`) |
 | Any other (Vercel, Netlify, Cloudflare) | The build stops and says to switch |
 
 The adapter's `out` folder is read from the config (default `build`). A `start` script that
@@ -697,8 +703,10 @@ command with `exec`.
 - `NITRO_SHUTDOWN_TIMEOUT=25000`, inside the box's 30 seconds.
 - `/_nuxt/` and `/_fonts/` are served by the box for a year, except
   `/_nuxt/builds/latest.json`, which the app polls for new versions and is revalidated.
-- A `build` script that runs `nuxt generate` makes a static site (`.output/public`), served
-  by the edge; with `ssr: false` in `nuxt.config`, paths without a file serve `200.html`.
+- A build that runs `nuxt generate` makes a static site (`.output/public`), served by the
+  edge; with `ssr: false` in `nuxt.config`, paths without a file serve `200.html`. The build
+  that counts is the one that runs: the app's Build command, else vercel.json's
+  `buildCommand`, else the `build` script (`npm run generate` reads the `generate` script).
 
 **Bun or Node.js:** measured on the live box with the `nuxt` starter (its home page renders
 on the server and fetches its API route, two Postgres queries), 32 connections, three
@@ -761,8 +769,9 @@ repository finds them by `fastapi` (or Flask, Django...) in `pyproject.toml`,
   programs go in `packages`, as for any app. `.venv`, `__pycache__` and tool caches are
   never uploaded.
 - **Python version.** `.python-version` (what `uv python pin` writes), `.tool-versions`,
-  `mise.toml` or `runtime.txt`; without one, the lowest version `requires-python` in
-  `pyproject.toml` accepts when Railpack's default (3.13) does not; `RAILPACK_PYTHON_VERSION`
+  `mise.toml` or `runtime.txt`; without one, when Railpack's default (3.13) does not meet
+  `requires-python` in `pyproject.toml` (upper bounds and exclusions count), the newest of
+  3.9 to 3.14 that does; `RAILPACK_PYTHON_VERSION`
   in the app's env wins. Python 3.14 is current, and FastAPI, Pydantic, uvloop, psycopg and
   asyncpg ship wheels for it. `runtime` is for JavaScript apps only.
 - **Start.** The box starts a `fastapi` app as one Uvicorn process:

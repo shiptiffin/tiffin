@@ -55,6 +55,11 @@ set `runtime: "node"` for them:
 - Nuxt with a `nitro.preset` in `nuxt.config` builds that preset; `bun` (Nitro 2) is not
   recommended (no graceful shutdown, buffered request bodies).
 - React Router's RSC framework mode (unstable) isn't tested.
+- Hashed asset folders (`/assets/` of React Router and TanStack Start, `/_app/immutable/`,
+  `/_nuxt/`, `/_astro/`) are cached for a year, except what the app's own `public/` (SvelteKit
+  `static/`) puts there, which is revalidated. A Vite `publicDir` other than `public/` isn't
+  read: its files under `/assets/` would be cached as hashed. Keep such files outside
+  `assets/`, or rename them on change.
 
 ## Builds
 
@@ -98,6 +103,10 @@ set `runtime: "node"` for them:
 FastAPI is first-class; other Python servers run as generic `python` apps (see the table
 above). Installs follow the lockfile (`uv.lock`, `poetry.lock`, `pdm.lock`, `Pipfile`,
 `requirements.txt`). uv workspaces: see Monorepos.
+
+Without a pinned version (`.python-version` and the like), the box picks a Python from
+3.9 to 3.14 that meets `requires-python`; one that needs anything else (3.8, 3.15, a
+pre-release) needs a pin.
 
 ## Sleep and wake
 
@@ -229,6 +238,13 @@ the box unless you [copy them off it](data.md#copies-off-the-box).
   with sharp).
 
 Both are planned.
+
+- **Next.js cache:** a page `next build` prerendered more than 30 days ago is rendered
+  anew on its first request rather than served from the build, since the box keeps a tag's
+  revalidations for 30 days only.
+- **Next.js image cache:** `images.maximumDiskCacheSize` is enforced by each instance from
+  its view of the shared directory, refreshed at most a minute old; instances together may
+  overshoot it by what they write in that minute.
 
 **Prerendered pages at the edge** (Astro with `@astrojs/node`, SvelteKit, Nuxt, React
 Router, TanStack Start) cover the files the build wrote, as they are:
