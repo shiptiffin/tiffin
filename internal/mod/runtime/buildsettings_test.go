@@ -389,3 +389,48 @@ func TestRedeployLiveBuildsItsSourceAgain(t *testing.T) {
 		t.Fatalf("image deploy of a prebuilt app: %v", perr)
 	}
 }
+
+// An app in a workspace installs only itself, the workspace packages it
+// uses and the root's dependencies, falling back to the whole workspace.
+func TestWorkspaceInstall(t *testing.T) {
+	write := func(t *testing.T, dir string, files map[string]string) string {
+		for name, body := range files {
+			p := filepath.Join(dir, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+	app := `{"name":"@acme/web"}`
+	cases := []struct {
+		name  string
+		files map[string]string
+		dir   string
+		want  string
+	}{
+		{"pnpm with a lockfile", map[string]string{"pnpm-lock.yaml": "", "package.json": `{}`, "apps/web/package.json": app}, "apps/web",
+			"pnpm install --frozen-lockfile --prefer-offline --filter '{./apps/web}...' || { echo '==> the install of apps/web alone failed (above); installing the whole workspace instead'; pnpm install --frozen-lockfile --prefer-offline; }"},
+		{"pnpm without one", map[string]string{"package.json": `{"packageManager":"pnpm@11.9.0"}`, "templates/bun/package.json": `{}`}, "templates/bun",
+			"pnpm install --filter '{./templates/bun}...' || { echo '==> the install of templates/bun alone failed (above); installing the whole workspace instead'; pnpm install; }"},
+		{"bun", map[string]string{"bun.lock": "", "package.json": `{}`, "apps/web/package.json": app}, "apps/web",
+			"bun install --frozen-lockfile --filter ./ --filter './apps/web' || { echo '==> the install of apps/web alone failed (above); installing the whole workspace instead'; bun install --frozen-lockfile; }"},
+		{"npm", map[string]string{"package-lock.json": "", "package.json": `{}`, "apps/web/package.json": app}, "apps/web",
+			"npm install --workspace 'apps/web' --include-workspace-root || { echo '==> the install of apps/web alone failed (above); installing the whole workspace instead'; npm install; }"},
+		{"yarn 4", map[string]string{"yarn.lock": "", ".yarnrc.yml": "", "package.json": `{"name":"acme"}`, "apps/web/package.json": app}, "apps/web",
+			"yarn workspaces focus '@acme/web' 'acme' || { echo '==> the install of apps/web alone failed (above); installing the whole workspace instead'; yarn install --check-cache; }"},
+		{"yarn 1 has no filter", map[string]string{"yarn.lock": "", "package.json": `{"packageManager":"yarn@1.22.22"}`, "apps/web/package.json": app}, "apps/web", ""},
+		{"not in a workspace", map[string]string{"bun.lock": "", "package.json": `{}`}, "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			top := write(t, t.TempDir(), c.files)
+			if got := workspaceInstall(top, c.dir, packageManager(top)); got != c.want {
+				t.Fatalf("got  %s\nwant %s", got, c.want)
+			}
+		})
+	}
+}

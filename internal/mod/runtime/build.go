@@ -303,6 +303,10 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 			return BuildResult{}, err
 		}
 	}
+	if c := workspaceInstall(req.SrcDir, req.Dir, pm); c != "" {
+		env["RAILPACK_INSTALL_CMD"] = c
+		fmt.Fprintf(req.Log, "==> install: only %s and the workspace packages it uses (%s), not the whole workspace\n", req.Dir, pm)
+	}
 	if v := req.Vercel; v != nil {
 		if v.InstallCommand != "" {
 			env["RAILPACK_INSTALL_CMD"] = v.InstallCommand
@@ -425,6 +429,9 @@ func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildRe
 	install, build := "", ""
 	if exists(filepath.Join(req.SrcDir, "package.json")) {
 		install = "bun install"
+		if c := workspaceInstall(req.SrcDir, req.Dir, "bun"); c != "" && packageManager(req.SrcDir) == "bun" {
+			install = c
+		}
 	}
 	if packageScript(appDir, "build") != "" {
 		build = "bun run build"
@@ -549,6 +556,85 @@ func railpackSite(req BuildRequest) bool {
 		return true
 	}
 	return req.Dir != "" && packageManager(req.SrcDir) != "bun" && packageScript(req.appDir(), "build") != ""
+}
+
+// workspaceInstall is the install command for an app in a workspace
+// (monorepo) at dir, the app's folder in top: it installs the app, the
+// workspace packages it depends on and the workspace's own (root)
+// dependencies, not every other package. If that install fails, the whole
+// workspace installs as Railpack would, and the log says so. "": no
+// workspace, or a package manager that cannot install one package (Yarn 1).
+//
+//	pnpm  pnpm install --filter '{./apps/web}...'   (the root comes along)
+//	bun   bun install --filter ./ --filter ./apps/web   (workspace deps come along)
+//	npm   npm install --workspace apps/web --include-workspace-root
+//	yarn  yarn workspaces focus web root   (Yarn 2+)
+func workspaceInstall(top, dir, pm string) string {
+	if dir == "" || dir == "." {
+		return ""
+	}
+	locked := func(f string) bool { return exists(filepath.Join(top, f)) }
+	q := shellQuote
+	var filtered, full string
+	switch pm {
+	case "pnpm":
+		flags := ""
+		if locked("pnpm-lock.yaml") {
+			flags = " --frozen-lockfile --prefer-offline"
+		}
+		filtered = "pnpm install" + flags + " --filter " + q("{./"+dir+"}...")
+		full = "pnpm install" + flags
+	case "bun":
+		flags := ""
+		if locked("bun.lock") || locked("bun.lockb") {
+			flags = " --frozen-lockfile"
+		}
+		filtered = "bun install" + flags + " --filter ./ --filter " + q("./"+dir)
+		full = "bun install" + flags
+	case "npm":
+		filtered = "npm install --workspace " + q(dir) + " --include-workspace-root"
+		full = "npm install"
+	case "yarn":
+		if !yarnBerry(top) {
+			return ""
+		}
+		name := packageName(filepath.Join(top, filepath.FromSlash(dir)))
+		if name == "" {
+			return ""
+		}
+		filtered = "yarn workspaces focus " + q(name)
+		if root := packageName(top); root != "" {
+			filtered += " " + q(root)
+		}
+		full = "yarn install --check-cache"
+	default:
+		return ""
+	}
+	return filtered + " || { echo '==> the install of " + strings.ReplaceAll(dir, "'", "") + " alone failed (above); installing the whole workspace instead'; " + full + "; }"
+}
+
+// yarnBerry reports whether a Yarn workspace uses Yarn 2 or later.
+func yarnBerry(top string) bool {
+	if exists(filepath.Join(top, ".yarnrc.yml")) {
+		return true
+	}
+	raw, _ := os.ReadFile(filepath.Join(top, "package.json"))
+	var pkg struct {
+		PackageManager string `json:"packageManager"`
+	}
+	_ = json.Unmarshal(raw, &pkg)
+	pm, v, _ := strings.Cut(pkg.PackageManager, "@")
+	return pm == "yarn" && v != "" && !strings.HasPrefix(v, "1.")
+}
+
+// packageName is the name in dir's package.json ("" without one).
+func packageName(dir string) string {
+	raw, _ := os.ReadFile(filepath.Join(dir, "package.json"))
+	var pkg struct {
+		Name string `json:"name"`
+	}
+	_ = json.Unmarshal(raw, &pkg)
+	return pkg.Name
 }
 
 // packageManager is the command that runs a workspace's scripts, by its
