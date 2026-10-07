@@ -26,6 +26,9 @@ const idTokenFor = (email: string, n: number) =>
 let issued = 0;
 const refreshesSeen: string[] = [];
 let githubPeople = new Map<string, string>(); // access token -> email
+const SSO = "https://sso.example.com";
+const ssoIdToken = (email: string, n: number) =>
+  `${b64url({ alg: "RS256", kid: "k" })}.${b64url({ iss: SSO, aud: "shop-sso", sub: `sso-${email}`, email, email_verified: true, name: "Ada SSO", n })}.sig`;
 
 beforeAll(async () => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -59,6 +62,15 @@ beforeAll(async () => {
       githubPeople.set(`ghu_github-at-${n}`, f.get("code")!.replace(/^code-/, ""));
       return Response.json({ access_token: `ghu_github-at-${n}`, refresh_token: `ghr_github-rt-${n}`, token_type: "bearer", expires_in: 28800, scope: "read:user,user:email" });
     }
+    // A company SSO (OpenID Connect) with no userinfo endpoint: the ID token is the only profile.
+    if (url === `${SSO}/.well-known/openid-configuration`) {
+      return Response.json({ issuer: SSO, authorization_endpoint: `${SSO}/authorize`, token_endpoint: `${SSO}/token`, end_session_endpoint: `${SSO}/logout` });
+    }
+    if (url.startsWith(`${SSO}/token`)) {
+      const n = ++issued;
+      const email = form().get("code")!.replace(/^code-/, "");
+      return Response.json({ access_token: `sso-at-${n}`, token_type: "Bearer", expires_in: 3600, id_token: ssoIdToken(email, n) });
+    }
     if (url.startsWith("https://api.github.com/user")) {
       const auth = new Headers(init?.headers).get("authorization") ?? "";
       const email = githubPeople.get(auth.replace(/^Bearer /, ""));
@@ -76,10 +88,12 @@ beforeAll(async () => {
     projects: {
       shop: projectConfig(url, {
         secret: SECRET,
-        methods: ["email", "google", "github"],
+        methods: ["email", "google", "github", "oidc"],
         captcha: false,
         requireEmailVerification: false,
-        social: { google: { clientId: "shop-google", clientSecret: "shop-google-secret", proxied: false }, github: { clientId: "shop-gh", clientSecret: "shop-gh-secret", proxied: false } },
+        social: { google: { clientId: "shop-google", clientSecret: "shop-google-secret", proxied: false }, github: { clientId: "shop-gh", clientSecret: "shop-gh-secret", proxied: false },
+          oidc: { clientId: "shop-sso", clientSecret: "shop-sso-secret", issuer: SSO, proxied: false },
+        },
       }),
     },
   });
@@ -111,7 +125,7 @@ const open = (data: string) => symmetricDecrypt({ key: SECRET, data });
 const hex = /^[0-9a-f]+$/;
 
 /** Signs in (or links, when `link`) with a provider; `email` is who the fake provider says it is. */
-async function signIn(c: Client, provider: "google" | "github", email: string, link = false) {
+async function signIn(c: Client, provider: "google" | "github" | "oidc", email: string, link = false) {
   const r = await c.json(link ? "/link-social" : "/sign-in/social", { body: { provider, callbackURL: "/welcome" } });
   expect(r.status).toBe(200);
   const state = new URL(r.body.url as string).searchParams.get("state")!;
@@ -279,6 +293,30 @@ describe("provider tokens at rest", () => {
     const r = await c.json("/refresh-token", { body: { accountId: row.id } });
     expect(r.status).toBe(200);
     expect(refreshesSeen.at(-1)).toBe(await open(row.refreshToken!));
+  });
+
+  test("account-info reads the person from the stored tokens for Google, GitHub and SSO; sign-out hints SSO with the real ID token", async () => {
+    for (const [provider, email, name] of [
+      ["google", "hal@example.com", "Ada"],
+      ["github", "ivy@example.com", "Ada"],
+      ["oidc", "jon@example.com", "Ada SSO"],
+    ] as const) {
+      const c = new Client(handle);
+      await signIn(c, provider, email);
+      const row = await rowFor(provider, email);
+      if (provider !== "github") expect(row.idToken!).toMatch(hex);
+      const info = await c.json(`/account-info?accountId=${row.id}`);
+      expect(info.status).toBe(200);
+      expect(info.body.user).toMatchObject({ email, name });
+      expect(info.body.account).toEqual({ id: row.id, providerId: provider, accountId: expect.any(String) });
+      if (provider === "oidc") {
+        const out = await c.json("/sign-out", { body: { disableRedirect: true } });
+        expect(out.status).toBe(200);
+        const hint = new URL(out.body.url).searchParams.get("id_token_hint");
+        expect(hint).toBe(await open(row.idToken!));
+        expect(hint).toStartWith(`${b64url({ alg: "RS256", kid: "k" })}.`);
+      }
+    }
   });
 
   test("only the account's own user can read its tokens", async () => {

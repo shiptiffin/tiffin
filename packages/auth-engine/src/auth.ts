@@ -137,6 +137,45 @@ async function sealIdToken<T extends { idToken?: string | null }>(key: SecretCon
   return { ...data, idToken: await symmetricEncrypt({ key, data: data.idToken }) };
 }
 
+const OPENED = Symbol("tiffin.idTokenOpened");
+type IdTokenProvider = {
+  getUserInfo?: (t: { idToken?: string | null }) => unknown;
+  createEndSessionURL?: (d: { idToken?: string | null }) => unknown;
+  [OPENED]?: true;
+};
+
+/**
+ * Better Auth hands providers the account's ID token as stored: to
+ * getUserInfo for /account-info (Google, Apple, Microsoft and OpenID Connect
+ * read the person from it) and to createEndSessionURL at sign-out (the
+ * id_token_hint). Each provider's two methods open a sealed one first. A
+ * token that won't open is passed as absent, never as ciphertext. Goes after
+ * every plugin that adds providers (genericOAuth adds OpenID Connect's in init).
+ */
+function openIdTokens(): BetterAuthPlugin {
+  return {
+    id: "tiffin-open-id-tokens",
+    init(ctx) {
+      const key = ctx.secretConfig as SecretConfig;
+      const open = async <T extends { idToken?: string | null }>(t: T): Promise<T> => {
+        if (!t || typeof t.idToken !== "string" || !t.idToken || !sealed(t.idToken)) return t;
+        try {
+          return { ...t, idToken: await symmetricDecrypt({ key, data: t.idToken }) };
+        } catch {
+          return { ...t, idToken: undefined };
+        }
+      };
+      for (const p of ctx.socialProviders as unknown as IdTokenProvider[]) {
+        if (p[OPENED]) continue;
+        const { getUserInfo, createEndSessionURL } = p;
+        if (getUserInfo) p.getUserInfo = async (t) => getUserInfo.call(p, await open(t));
+        if (createEndSessionURL) p.createEndSessionURL = async (d) => createEndSessionURL.call(p, await open(d));
+        p[OPENED] = true;
+      }
+    },
+  } satisfies BetterAuthPlugin;
+}
+
 /** Endpoints that hand an account's provider tokens back (decrypted) to its signed-in owner. */
 const TOKEN_PATHS = new Set(["/get-access-token", "/refresh-token"]);
 
@@ -548,6 +587,7 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
     plugins.push(bindProxyState(c.oauthProxy));
     plugins.push(oauthProxies(c.oauthProxy, c.oauthProxy.url ? proxied : new Set(), viaApp));
   }
+  plugins.push(openIdTokens()); // last: after every plugin that adds providers
 
   const hosts = c.hosts.flatMap((h) => [h, `${h}:*`]);
 
