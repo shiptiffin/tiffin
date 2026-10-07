@@ -367,7 +367,7 @@ func (m *Module) ProjectDeleted(ctx context.Context, p *platform.Platform, proje
 // previews, stopping drained releases, saving activity every minute (and
 // on the way out), every 5 minutes removing orphaned containers and
 // database branches of previews that are gone, and hourly the image sweep
-// (sweepImages).
+// (sweepImages), first 5 minutes after start.
 func (r *rt) loop(ctx context.Context) {
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
@@ -397,7 +397,9 @@ func (r *rt) loop(ctx context.Context) {
 				r.emptyDiskTrash()
 				r.sweepPreviewBranches(ctx)
 			}
-			if tick%sweepEveryTicks == 0 {
+			// Hourly, and once 5 minutes after start: a box updated more
+			// often than hourly would otherwise never sweep.
+			if tick%sweepEveryTicks == 0 || tick == sweepFirstTick {
 				if _, err := r.sweepImages(ctx, false); err != nil {
 					r.p.Log.Warn("runtime: image sweep", "err", err)
 				}

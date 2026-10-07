@@ -45,6 +45,8 @@ const (
 	deletedAppKeep = diskTrashKeep
 	// sweepEveryTicks: the housekeeping loop ticks every 15 seconds.
 	sweepEveryTicks = 240
+	// sweepFirstTick: the first sweep, 5 minutes after start.
+	sweepFirstTick = 20
 )
 
 // projectName is what a project (or app) folder must be called for the
