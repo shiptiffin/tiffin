@@ -637,3 +637,65 @@ func TestDelivering(t *testing.T) {
 		t.Fatal("api has nothing running")
 	}
 }
+
+// An event emitted while a wait for it is being registered is not lost: the
+// emit either lands before the wait looks for it, or finds the waiting step.
+func TestEmitDuringWaitRegistration(t *testing.T) {
+	e := newEngine(t, nil)
+	ctx := context.Background()
+	run, _, err := e.StartRun(ctx, proj, StartRequest{Workflow: "w", URL: "https://example.com/wf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Stop Wait at its insert, after it has looked for the event: a trigger
+	// takes an advisory lock this test holds.
+	if _, err := e.pool.Exec(ctx, `CREATE FUNCTION test_gate() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN PERFORM pg_advisory_xact_lock(4242); RETURN NEW; END $$;
+		CREATE TRIGGER test_gate BEFORE INSERT ON wf_steps FOR EACH ROW EXECUTE FUNCTION test_gate()`); err != nil {
+		t.Fatal(err)
+	}
+	gate, err := e.pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gate.Release()
+	if _, err := gate.Exec(ctx, `SELECT pg_advisory_lock(4242)`); err != nil {
+		t.Fatal(err)
+	}
+	waited := make(chan *Step, 1)
+	go func() {
+		s, err := e.Wait(ctx, proj, run.ID, WaitRequest{Name: "paid", Kind: stepEvent, Event: "paid-1"})
+		if err != nil {
+			t.Error(err)
+		}
+		waited <- s
+	}()
+	locked := func() bool {
+		var n int
+		_ = e.pool.QueryRow(ctx, `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid = 4242 AND NOT granted`).Scan(&n)
+		return n > 0
+	}
+	eventually(t, 10*time.Second, "the wait to reach its insert", locked)
+	emitted := make(chan *EmitResult, 1)
+	go func() {
+		r, err := e.Emit(ctx, proj, "paid-1", json.RawMessage(`{"amount":5}`), "test")
+		if err != nil {
+			t.Error(err)
+		}
+		emitted <- r
+	}()
+	select { // fixed: the emit queues behind the registering wait
+	case r := <-emitted:
+		t.Logf("the emit went first: %+v", r)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if _, err := gate.Exec(ctx, `SELECT pg_advisory_unlock(4242)`); err != nil {
+		t.Fatal(err)
+	}
+	<-waited
+	eventually(t, 5*time.Second, "the waiting step to get its event", func() bool {
+		var st string
+		_ = e.pool.QueryRow(ctx, `SELECT state FROM wf_steps WHERE run_id = $1 AND name = 'paid'`, run.ID).Scan(&st)
+		return st == stepCompleted
+	})
+}

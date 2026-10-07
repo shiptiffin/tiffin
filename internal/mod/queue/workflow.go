@@ -580,6 +580,17 @@ func (e *Engine) Wait(ctx context.Context, project, runID string, w WaitRequest)
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
+	event := w.Event
+	if w.Kind == stepApproval {
+		event = "approval:" + runID + ":" + w.Name
+	}
+	if w.Kind == stepEvent || w.Kind == stepApproval {
+		// Before the run, as emitTx: an emit either committed before we
+		// look for its event, or finds the step we register.
+		if err := lockKey(ctx, tx, eventKey(project, event)); err != nil {
+			return nil, err
+		}
+	}
 	run, err := e.loadRun(ctx, tx, project, runID, true)
 	if err != nil {
 		return nil, err
@@ -644,12 +655,8 @@ func (e *Engine) Wait(ctx context.Context, project, runID string, w WaitRequest)
 			err = insert(stepCompleted, map[string]string{"url": url, "event": "hook:" + token}, nil, "", "", "", false)
 		}
 	case stepEvent, stepApproval:
-		event := w.Event
-		if w.Kind == stepApproval {
-			event = "approval:" + runID + ":" + w.Name
-			if w.Title == "" {
-				w.Title = w.Name
-			}
+		if w.Kind == stepApproval && w.Title == "" {
+			w.Title = w.Name
 		}
 		var payload json.RawMessage
 		perr := tx.QueryRow(ctx, `SELECT payload FROM wf_events WHERE project = $1 AND name = $2`, project, event).Scan(&payload)
@@ -764,7 +771,13 @@ func (e *Engine) emit(ctx context.Context, project, name string, payload json.Ra
 	return res, tx.Commit(ctx)
 }
 
+// eventKey serializes an event's emit with waits registering for it.
+func eventKey(project, name string) string { return "e:" + project + "/" + name }
+
 func (e *Engine) emitTx(ctx context.Context, tx pgx.Tx, project, name string, payload json.RawMessage, by string) (*EmitResult, error) {
+	if err := lockKey(ctx, tx, eventKey(project, name)); err != nil {
+		return nil, err
+	}
 	tag, err := tx.Exec(ctx, `INSERT INTO wf_events (project, name, payload, emitted_by) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
 		project, name, []byte(payload), by)
 	if err != nil {
