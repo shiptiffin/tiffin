@@ -93,6 +93,17 @@ set `runtime: "node"` for them:
   env never reaches its environment, but a bug in Railpack or mise parsing a repository
   is a bug on the host. Planning in a container is planned.
 
+## Deploys and changes
+
+- The box converges projects one at a time. An app whose new settings keep failing their
+  health check holds up other projects' changes for up to about 2 minutes per attempt;
+  its retries back off from 30 seconds to 30 minutes.
+- A workflow run that starts at the moment a new release takes over can find its release
+  already stopped. It then runs on the new release from its first step, and its timeline
+  says so.
+- A static preview's requests are counted from the edge's access log. While the box
+  cannot read that log, a static preview expires 7 days after its last deploy, used or not.
+
 ## Monorepos
 
 - **JavaScript workspaces** (pnpm, Bun, npm, Yarn 2 or later): an app in a workspace
