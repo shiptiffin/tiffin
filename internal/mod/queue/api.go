@@ -675,7 +675,8 @@ func (m *Module) registerWorkflowAPI(a huma.API, plat *platform.Platform) {
 		"A run with its input, output or error, every step in call order (state, timing, output, attempts), the timeline of turns, waits, "+
 			"events, approvals and operator actions, and the queue job behind each turn.", 404)),
 		api.Wrap(func(ctx context.Context, in *runPath) (*out[*Run], error) {
-			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
+			p := api.PrincipalFrom(ctx)
+			if err := p.Require(tokens.ScopeRead, in.Project); err != nil {
 				return nil, err
 			}
 			e, err := m.ready()
@@ -683,6 +684,9 @@ func (m *Module) registerWorkflowAPI(a huma.API, plat *platform.Platform) {
 				return nil, err
 			}
 			r, err := e.GetRun(ctx, in.Project, in.ID, true)
+			if err == nil && p.Require(tokens.ScopeApplyReversible, in.Project) != nil {
+				r.RedactHooks() // a webhook URL resumes the run: writers only
+			}
 			return ok(r), toProblem(err)
 		}))
 

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -663,6 +664,9 @@ func (e *Engine) Wait(ctx context.Context, project, runID string, w WaitRequest)
 		}
 		if err == nil {
 			msg := "waiting for event " + strconv.Quote(event)
+			if strings.HasPrefix(event, "hook:") {
+				msg = "waiting for a webhook call (" + w.Name + ")" // the token stays out of the timeline
+			}
 			if w.Kind == stepApproval {
 				who := "anyone with write access"
 				if w.HumanOnly {
@@ -1150,6 +1154,28 @@ func (e *Engine) GetRun(ctx context.Context, project, id string, full bool) (*Ru
 		return nil, err
 	}
 	return &run, nil
+}
+
+// hookToken matches a webhook's token (wh_ and 40 hex digits; see Wait).
+var hookToken = regexp.MustCompile(`wh_[0-9a-f]{40}`)
+
+// RedactHooks hides webhook tokens in a run: a token resumes the run with
+// whatever its holder posts, so callers who may only read must not see it.
+func (r *Run) RedactHooks() {
+	hide := func(s string) string { return hookToken.ReplaceAllString(s, "wh_(hidden)") }
+	for i := range r.Steps {
+		s := &r.Steps[i]
+		s.Event = hide(s.Event)
+		if len(s.Output) > 0 && hookToken.Match(s.Output) {
+			s.Output = json.RawMessage(hide(string(s.Output)))
+		}
+	}
+	for i := range r.Timeline {
+		r.Timeline[i].Message = hide(r.Timeline[i].Message)
+		if d := r.Timeline[i].Detail; len(d) > 0 && hookToken.Match(d) {
+			r.Timeline[i].Detail = json.RawMessage(hide(string(d)))
+		}
+	}
 }
 
 // PinnedReleases lists releases of an app that unfinished runs are pinned to.

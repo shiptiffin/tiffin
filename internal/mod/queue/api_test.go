@@ -149,6 +149,33 @@ func TestAPI(t *testing.T) {
 	if !strings.Contains(string(tl), "approved") || !strings.Contains(string(tl), "owner (owner)") {
 		t.Errorf("timeline %s", tl)
 	}
+	// A read-only token sees a waiting webhook but not its token: the URL
+	// resumes the run with whatever is posted to it.
+	viewer, _, err := tm.Create(t.Context(), &tokens.Principal{TokenID: "x", Name: "owner", Kind: tokens.KindOwner, Scopes: []tokens.Scope{tokens.ScopeAll}, Projects: []string{"*"}},
+		tokens.CreateRequest{Name: "viewer", Kind: tokens.KindAgent, Scopes: []tokens.Scope{tokens.ScopeRead}, Projects: []string{"shop"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sdk.defs["hooked"] = func(c *wctx) (any, error) {
+		h := c.wait(WaitRequest{Name: "confirm", Kind: stepWebhook})
+		var hk struct{ Event string }
+		_ = json.Unmarshal(h.Output, &hk)
+		return c.wait(WaitRequest{Name: "confirm:wait", Kind: stepEvent, Event: hk.Event}).Output, nil
+	}
+	_, hrun, _ := call(owner, "POST", "/v1/projects/shop/workflows/runs", map[string]any{"workflow": "hooked", "url": wf.URL + "/wf"})
+	hookRun := hrun["id"].(string)
+	eventually(t, 10*time.Second, "webhook run waiting", func() bool {
+		_, r, _ := call(owner, "GET", "/v1/projects/shop/workflows/runs/"+hookRun, nil)
+		return r["state"] == "waiting"
+	})
+	_, full, _ := call(owner, "GET", "/v1/projects/shop/workflows/runs/"+hookRun, nil)
+	if raw, _ := json.Marshal(full); !hookToken.Match(raw) {
+		t.Errorf("a writer should see the webhook URL: %s", raw)
+	}
+	code, seen, _ := call(viewer, "GET", "/v1/projects/shop/workflows/runs/"+hookRun, nil)
+	if raw, _ := json.Marshal(seen); code != 200 || hookToken.Match(raw) || !strings.Contains(string(raw), "wh_(hidden)") {
+		t.Errorf("read-only view %d: %s", code, raw)
+	}
 	// Mutations are audited.
 	ev, _ := db.AuditLog(t.Context(), 50)
 	found := false
