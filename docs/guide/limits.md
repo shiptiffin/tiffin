@@ -170,7 +170,11 @@ first byte (runs vary by about 0.1 s):
 
 Starting a container costs about 0.35 s of that (creating one cost about 0.65 s); the
 rest is the app's own boot (FastAPI's imports alone take about 1.1 s on this box). A
-bigger app takes as long as it needs to boot and pass its health check. A deploy, a
+bigger app takes as long as it needs to boot and pass its health check. A wake while the
+box is busy (builds running) is slower: a sweep deploying three starters at once measured
+1.7 to 2.1 s for the Next.js starter. The Next.js starter's health check is its home page,
+which a cheaper route would not speed up: the visitor's request then pays the first render
+instead. A deploy, a
 rollback, or a change to the app's env or settings while it sleeps makes the next start
 a fresh container.
 

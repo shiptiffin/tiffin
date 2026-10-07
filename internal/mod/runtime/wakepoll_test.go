@@ -83,6 +83,34 @@ func TestWaitHealthySeesTheAppAtOnce(t *testing.T) {
 	}
 }
 
+// A slow inspect (nerdctl on a busy box) runs beside the checks: an app
+// that answers while one is under way is seen healthy at once, not when
+// the inspect returns.
+func TestWaitHealthyDoesNotWaitForInspect(t *testing.T) {
+	r := &rt{opt: Options{HealthTimeout: 5 * time.Second}, eng: runningEngine{inspect: func() { time.Sleep(1500 * time.Millisecond) }}, ports: map[int]string{}}
+	spec := &manifest.App{Role: manifest.RoleWeb, Healthcheck: "/"}
+	port := freePort(t)
+	r.ports[port] = "x"
+	upc := make(chan time.Time, 1)
+	go func() {
+		time.Sleep(1100 * time.Millisecond) // just after the first inspect started
+		ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
+		if err != nil {
+			return
+		}
+		upc <- time.Now()
+		srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "ok") })}
+		t.Cleanup(func() { srv.Close() })
+		srv.Serve(ln)
+	}()
+	if err := r.waitHealthy(context.Background(), Instance{Name: "x", Port: port}, spec, ""); err != nil {
+		t.Fatal(err)
+	}
+	if late := time.Since(<-upc); late > 100*time.Millisecond {
+		t.Errorf("healthy %s after the app answered: the check waited for the inspect", late)
+	}
+}
+
 // TestWakeTimeBun measures a wake's start on a small Bun app: from spawning
 // the process to the health check passing, with the 200ms poll the box used
 // before (and its inspect first) and with waitHealthy as it is. It is a

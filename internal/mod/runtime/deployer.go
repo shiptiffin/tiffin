@@ -883,22 +883,44 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 	client, dialer := r.appClient(3*time.Second), r.appDialer(time.Second)
 	worker := spec.Role == manifest.RoleWorker
 	upSince := time.Now()
-	// The first inspect waits a second: it runs nerdctl, which would delay
-	// the first checks of a start that is over in a few hundred ms (a
-	// process that exits at once is still caught then).
-	lastInspect := upSince
+	// The container is inspected every second, from a second in, beside the
+	// checks: an inspect runs nerdctl, which takes from a few hundred ms to
+	// over a second on a busy small box, and a check waiting for it held
+	// back a start that was done (a Next.js wake at ~1 s took 2.5). A
+	// process that exits at once is still caught then.
+	inspected := make(chan inspectResult, 1)
+	ictx, stopInspect := context.WithCancel(ctx)
+	defer stopInspect()
+	go func() {
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ictx.Done():
+				return
+			case <-t.C:
+			}
+			c, err := r.eng.Inspect(ictx, in.Name)
+			select {
+			case inspected <- inspectResult{c, err}:
+			case <-ictx.Done():
+				return
+			}
+		}
+	}()
 	lastStatus := ""
 	var exited *Container // seen exited, even if its restart policy brought it back
 	for {
-		if time.Since(lastInspect) > time.Second {
-			lastInspect = time.Now()
-			c, err := r.eng.Inspect(ctx, in.Name)
+		select {
+		case ir := <-inspected:
+			c, err := ir.c, ir.err
 			if err == nil && (c == nil || (!c.Running && c.Status != "restarting" && c.Status != "created")) {
 				return exitedError(in.Name, c, logPath, spec)
 			}
 			if err == nil && c.Status == "restarting" {
 				exited = c
 			}
+		default:
 		}
 		if worker {
 			// Workers need not serve HTTP; one that stays up for 3s (or answers) is healthy.
@@ -948,6 +970,12 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 		case <-time.After(healthPoll(time.Since(upSince))):
 		}
 	}
+}
+
+// inspectResult is one Inspect of an instance waitHealthy waits for.
+type inspectResult struct {
+	c   *Container
+	err error
 }
 
 // healthPoll is how long waitHealthy waits between checks: 10ms for the
