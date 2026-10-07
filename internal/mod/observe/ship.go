@@ -334,14 +334,20 @@ func (m *Module) runAppLogs(ctx context.Context, root string) {
 			tctx, cancel := context.WithCancel(ctx)
 			running[path] = cancel
 			path := path
+			var tenant Tenant // a tailer calls Line from one goroutine
 			tl := &logtail.Tailer{Path: path, FromStart: true,
 				Load: func() (logtail.Position, bool) { return m.store.loadPos(path) },
 				Save: func(p logtail.Position) { m.store.savePos(path, p) },
 				Line: func(line []byte) {
-					t, err := m.store.TenantFor(ctx, l.Project)
-					if err != nil {
-						return
+					// A project's tenant never changes: look it up once per file.
+					if tenant == 0 {
+						t, err := m.store.TenantFor(ctx, l.Project)
+						if err != nil {
+							return
+						}
+						tenant = t
 					}
+					t := tenant
 					if l.Build {
 						m.batch.Add(t, "source,app,env", buildLogRecord(line, l))
 						return

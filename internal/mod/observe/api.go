@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/btahir/tiffin/internal/api"
@@ -838,16 +839,6 @@ func (m *Module) appMetrics(ctx context.Context, project, app string, from, to t
 		}
 		return out, nil
 	}
-	reqs, err := instant(fmt.Sprintf(`sum by (app) (increase(tiffin_http_requests_total{%s}[%s]))`, sel, ws))
-	if err != nil {
-		return nil, err
-	}
-	errs, _ := instant(fmt.Sprintf(`sum by (app) (increase(tiffin_http_requests_total{%s,code="5xx"}[%s]))`, sel, ws))
-	q := func(p float64) map[string]float64 {
-		v, _ := instant(fmt.Sprintf(`histogram_quantile(%g, sum by (app, le) (increase(tiffin_http_request_duration_seconds_bucket{%s}[%s]))) * 1000`, p, sel, ws))
-		return v
-	}
-	p50, p95, p99 := q(0.5), q(0.95), q(0.99)
 	step := win / 60
 	if step < 15*time.Second {
 		step = 15 * time.Second
@@ -869,9 +860,39 @@ func (m *Module) appMetrics(ctx context.Context, project, app string, from, to t
 		return out
 	}
 	rw := fmt.Sprintf("%ds", int(max(step, time.Minute).Seconds()))
-	rpsS := rng(fmt.Sprintf(`sum by (app) (rate(tiffin_http_requests_total{%s}[%s]))`, sel, rw))
-	errS := rng(fmt.Sprintf(`sum by (app) (rate(tiffin_http_requests_total{%s,code="5xx"}[%s]))`, sel, rw))
-	p95S := rng(fmt.Sprintf(`histogram_quantile(0.95, sum by (app, le) (rate(tiffin_http_request_duration_seconds_bucket{%s}[%s]))) * 1000`, sel, rw))
+	q := func(p float64) string {
+		return fmt.Sprintf(`histogram_quantile(%g, sum by (app, le) (increase(tiffin_http_request_duration_seconds_bucket{%s}[%s]))) * 1000`, p, sel, ws)
+	}
+	// Eight independent queries: run them together, so the answer takes
+	// about as long as the slowest instead of their sum.
+	var reqs, errs, p50, p95, p99 map[string]float64
+	var rpsS, errS, p95S map[string][][2]any
+	var err error
+	var wg sync.WaitGroup
+	for _, f := range []func(){
+		func() {
+			reqs, err = instant(fmt.Sprintf(`sum by (app) (increase(tiffin_http_requests_total{%s}[%s]))`, sel, ws))
+		},
+		func() {
+			errs, _ = instant(fmt.Sprintf(`sum by (app) (increase(tiffin_http_requests_total{%s,code="5xx"}[%s]))`, sel, ws))
+		},
+		func() { p50, _ = instant(q(0.5)) },
+		func() { p95, _ = instant(q(0.95)) },
+		func() { p99, _ = instant(q(0.99)) },
+		func() { rpsS = rng(fmt.Sprintf(`sum by (app) (rate(tiffin_http_requests_total{%s}[%s]))`, sel, rw)) },
+		func() {
+			errS = rng(fmt.Sprintf(`sum by (app) (rate(tiffin_http_requests_total{%s,code="5xx"}[%s]))`, sel, rw))
+		},
+		func() {
+			p95S = rng(fmt.Sprintf(`histogram_quantile(0.95, sum by (app, le) (rate(tiffin_http_request_duration_seconds_bucket{%s}[%s]))) * 1000`, sel, rw))
+		},
+	} {
+		wg.Go(f)
+	}
+	wg.Wait()
+	if err != nil {
+		return nil, err
+	}
 	apps := make([]string, 0, len(reqs))
 	for a := range reqs {
 		apps = append(apps, a)

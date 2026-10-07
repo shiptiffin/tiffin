@@ -132,3 +132,24 @@ func TestWebhookErrorsHideTheURL(t *testing.T) {
 		t.Fatalf("bad URL error %v", err)
 	}
 }
+
+// observe_apps runs its metric queries together and assembles one row per app.
+func TestAppMetricsQueriesTogether(t *testing.T) {
+	stores := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/query_range") {
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"app":"web"},"values":[[1,"2.5"]]}]}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[{"metric":{"app":"web"},"value":[1,"5"]}]}}`))
+	}))
+	defer stores.Close()
+	h := newHarness(t, &Victoria{VM: stores.URL, VL: stores.URL})
+	code, _, rows := h.call(h.owner, "GET", "/v1/observe/apps?project=shop&since=1h", nil)
+	if code != 200 || len(rows) != 1 {
+		t.Fatalf("apps: %d %v", code, rows)
+	}
+	r := rows[0].(map[string]any)
+	if r["app"] != "web" || r["requests"] != 5.0 || r["errors"] != 5.0 || r["p99ms"] != 5.0 || len(r["series"].(map[string]any)["p95ms"].([]any)) != 1 {
+		t.Fatalf("row %v", r)
+	}
+}

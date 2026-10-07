@@ -137,6 +137,10 @@ func (t *Tailer) drain() {
 	if t.f == nil {
 		return
 	}
+	// Nothing new (the common case for an idle app): no read buffer needed.
+	if fi, err := t.f.Stat(); err == nil && fi.Size() <= t.offset {
+		return
+	}
 	max := t.MaxLine
 	if max == 0 {
 		max = 256 << 10
