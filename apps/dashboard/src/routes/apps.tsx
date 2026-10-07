@@ -35,6 +35,7 @@ import { ProblemNote } from "@/components/problem";
 import { firstError, firstErrorIn } from "@/components/start-build-log";
 import { BuildLogViewer, saveText, type BuildLogHandle } from "@/components/build-log-viewer";
 import { useBuildLog } from "@/components/build-log-stream";
+import { followLogLines } from "@/lib/log-follow";
 import { DeployTray } from "@/components/start-deploy-tray";
 import { AppRepo, useRedeploy } from "@/components/app-github";
 import { INSTANCE_STOPS } from "@/components/throttle";
@@ -940,13 +941,14 @@ function DeployRuntimeLogs({ project, app, dep, name }: { project: string; app: 
 
   useEffect(() => {
     if (!follow || !page.data) return;
-    const es = new EventSource(deploysApi.deployLogStream(project, app, dep.id, { preview, since: page.data.next }));
-    es.addEventListener("log", (e) => {
-      const l = JSON.parse((e as MessageEvent).data) as LogLine;
-      if (l.deploy !== dep.id) return;
-      setExtra((x) => (x.key === key ? { key, lines: [...x.lines.slice(-1500), l] } : { key, lines: [l] }));
+    return followLogLines<LogLine>({
+      open: (since) => new EventSource(deploysApi.deployLogStream(project, app, dep.id, { preview, since })),
+      since: page.data.next,
+      onLines: (got) => {
+        const mine = got.filter((l) => l.deploy === dep.id);
+        if (mine.length) setExtra((x) => (x.key === key ? { key, lines: [...x.lines, ...mine].slice(-1500) } : { key, lines: mine.slice(-1500) }));
+      },
     });
-    return () => es.close();
   }, [follow, page.data, project, app, preview, dep.id, key]);
 
   const lines = useMemo(() => [...(page.data?.lines ?? []), ...(extra.key === key ? extra.lines : [])], [page.data, extra, key]);
@@ -1105,12 +1107,11 @@ export function AppLogsPage({ project, app }: { project: string; app: string }) 
 
   useEffect(() => {
     if (!follow || !page.data) return;
-    const es = new EventSource(mod3.appLogStream(project, app, { since: page.data.next }));
-    es.addEventListener("log", (e) => {
-      const l = JSON.parse((e as MessageEvent).data) as LogLine;
-      setExtra((x) => (x.key === key ? { key, lines: [...x.lines.slice(-1500), l] } : { key, lines: [l] }));
+    return followLogLines<LogLine>({
+      open: (since) => new EventSource(mod3.appLogStream(project, app, { since })),
+      since: page.data.next,
+      onLines: (got) => setExtra((x) => (x.key === key ? { key, lines: [...x.lines, ...got].slice(-1500) } : { key, lines: got.slice(-1500) })),
     });
-    return () => es.close();
   }, [follow, page.data, project, app, key]);
 
   const all = useMemo(() => [...(page.data?.lines ?? []), ...(extra.key === key ? extra.lines : [])].map((l) => ({ ...l, level: levelOf(l) })), [page.data, extra, key]);
