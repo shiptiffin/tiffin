@@ -29,7 +29,8 @@ Honesty matters more than a big claim:
 [What works and what doesn't](limits.md) lists every framework, limit and gap in one place.
 
 Start with the [quickstart](quickstart.md), then [concepts](concepts.md) and
-[working with agents](agents.md).
+[working with agents](agents.md). To run an agent of your own on the box, see
+[always-on agents](always-on-agents.md).
 
 Services: [apps and deploys](apps.md) · [Postgres, Valkey and backups](data.md) ·
 [storage](storage.md) · [email](email.md) · [sign-in](auth.md) ·

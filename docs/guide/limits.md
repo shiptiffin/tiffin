@@ -128,6 +128,28 @@ Not yet: serving pages from the edge while the app sleeps, or Early Hints during
   anyone who signs up on a preview is a user of the app, and a preview's emails reach
   real people. Treat a preview of someone else's branch as you would deploying it.
 
+## Agents
+
+An agent is an app you write ([Run an always-on agent on your box](always-on-agents.md)).
+The box adds nothing for LLMs:
+
+- **No model settings or spending records.** Your app calls the provider with your key. The
+  box doesn't count tokens or cost; cap them in your code and with the provider's own
+  limits.
+- **No approval step for API keys.** A full key applies changes with nobody asked. Give an
+  unattended agent a read-only key for one project. Workflow approvals (`ctx.approval`)
+  cover your app's own actions, not the box's.
+- **Apps get no Tiffin API key or address.** An agent that reads the box needs its own key
+  and the dashboard's address as secrets.
+- **Outbound connections are open,** except port 25. The box doesn't limit which hosts an app
+  or its tools reach.
+- **Long-lived connections** (a Discord gateway) work from a worker, with caveats: during a
+  deploy the old and new releases overlap for a moment, so both can receive the same events;
+  a sleeping project (`sleepAfter`) drops the connection, and a worker wakes only for queue
+  deliveries. Not tested end to end yet.
+- **No inbound email** (see Email above), so inbox agents need a mail provider's inbound
+  webhook to an app route.
+
 ## Limits per project and per box
 
 | | Default | Change it |
@@ -139,6 +161,10 @@ Not yet: serving pages from the edge while the app sleeps, or Early Hints during
 | KV memory (Valkey) | 64 MB, held while the project has a limit | `maxMemoryMB` |
 | Storage (databases + files) | no limit; the disk guard warns at 85% and makes the fastest-growing project read-only at 95% | `tiffin storage quota set` |
 | Request time | 15 minutes, up to 24 hours | `timeoutSeconds` |
+| Queue job attempt | 60 s without a response or heartbeat (5 to 3600); heartbeats extend it up to 24 hours | `leaseSeconds` |
+| Cron call | 60 s (5 to 3600) | `timeoutSeconds` on the cron |
+| Calls to web addresses (`url` crons and queues) | 600 a minute per project | `TIFFIN_QUEUE_URL_RATE` on the box |
+| Live progress streams | 200 open per project | |
 | Email | 300 messages an hour | `tiffin email rate-limit set` |
 | Rollbacks | the last 3 production deploys; previews keep none | |
 | Previews | deleted after 7 days with no request or deploy | |

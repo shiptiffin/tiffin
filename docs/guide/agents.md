@@ -1,6 +1,8 @@
 # Working with agents
 
-Tiffin is built to be operated by AI agents, safely.
+Tiffin is built to be operated by AI agents, safely. This page is about agents that run
+the box (Claude Code and others, through the CLI and MCP). For an agent that runs inside a
+project on its own schedule, see [Run an always-on agent on your box](always-on-agents.md).
 
 ## Connect
 
@@ -46,7 +48,8 @@ tiffin tokens revoke <id>
 
 The key `tiffin up` makes for `tiffin mcp` has full access to all projects: it is your
 own agent. Give anything that should only touch one project (an unattended cloud agent,
-a teammate's agent, CI) a narrower key. A key with full access to all projects is the
+a teammate's agent, CI) a narrower key, and an [always-on agent](always-on-agents.md#security)
+a read-only one. A key with full access to all projects is the
 box admin: it also manages keys, people and exports. No other key can manage keys.
 
 Outside its reach, a call fails with `403 forbidden`, a plain reason ("this key is read
