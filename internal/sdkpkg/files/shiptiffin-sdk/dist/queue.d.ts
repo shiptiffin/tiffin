@@ -65,7 +65,7 @@ export interface ClientOptions {
 /** Overrides the box connection (tests, scripts outside the box). */
 export declare function configure(opts: ClientOptions): void;
 /** @internal Calls an app-facing box endpoint. */
-export declare function boxCall<T>(method: string, path: string, body?: unknown): Promise<T>;
+export declare function boxCall<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T>;
 /** @internal */
 export declare function currentApp(): string;
 /** Sends a job to a queue, or publishes to a topic (one job per subscriber). */
@@ -169,17 +169,16 @@ export interface Job<T = unknown> {
 export { verifySignature };
 /** Signs a body the way the box does (tests, local tools). */
 export declare function sign(secret: string, body: string, now?: number): string;
-/** @internal Reads and verifies a push. Returns a Response to send back on failure. */
-export declare function readDelivery(req: Request, secret?: string): Promise<Delivery | Response>;
+/**
+ * @internal Reads and verifies a push. Returns a Response to send back on
+ * failure. A request without a well-formed, fresh signature header is
+ * refused before its body is read, and no more than maxBytes is buffered.
+ */
+export declare function readDelivery(req: Request, secret?: string, maxBytes?: number): Promise<Delivery | Response>;
 /** @internal Maps an error to the box's retry protocol. */
 export declare function errorResponse(err: unknown): Response;
 /** @internal Heartbeats for one attempt; aborts the controller when the attempt is over. */
 export declare function heartbeater(d: Delivery, ctrl: AbortController): () => Promise<void>;
-/**
- * @internal Sends progress and output chunks to the box in call order. The
- * returned promises never reject (a failure is logged), so callers need not
- * await them; flush() waits for everything sent so far.
- */
 export declare function reporter(base: string, extra?: Record<string, unknown>): {
     progress: (v: unknown) => Promise<void>;
     output: (v: unknown) => Promise<void>;
@@ -190,6 +189,8 @@ export interface HandlerOptions {
     autoHeartbeat?: boolean;
     /** Signing secret; default TIFFIN_QUEUE_SIGNING_SECRET. */
     secret?: string;
+    /** Largest delivery read, in bytes (default 2 MB; job payloads are at most 1 MB). */
+    maxBytes?: number;
 }
 /**
  * Wraps a job function as a fetch handler `(Request) => Promise<Response>`

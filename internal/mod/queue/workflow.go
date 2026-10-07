@@ -374,9 +374,14 @@ func orDash(s string) string {
 }
 
 func (e *Engine) steps(ctx context.Context, runID string) ([]Step, error) {
+	return e.stepsWhere(ctx, runID, "")
+}
+
+// stepsWhere reads a run's steps in call order, or only the one named.
+func (e *Engine) stepsWhere(ctx context.Context, runID, name string) ([]Step, error) {
 	rows, err := e.pool.Query(ctx, `SELECT id, name, seq, kind, state, output, coalesce(error, ''), attempts, started_at, finished_at, wait_until,
 		coalesce(event, ''), coalesce(title, ''), coalesce(description, ''), human_only, coalesce(decided_by, ''), release
-		FROM wf_steps WHERE run_id = $1 ORDER BY seq, id`, runID)
+		FROM wf_steps WHERE run_id = $1 AND ($2 = '' OR name = $2) ORDER BY seq, id`, runID, name)
 	if err != nil {
 		return nil, err
 	}
@@ -482,6 +487,40 @@ type StepRecord struct {
 	Error      string          `json:"error,omitempty"`
 	StartedAt  time.Time       `json:"startedAt"`
 	DurationMS int             `json:"durationMs"`
+	Turn
+}
+
+// Turn names the delivery (job and attempt) a step or wait comes from. The
+// SDK always sends it: a turn whose lease ran out, or that was cancelled,
+// may still be running in the app, and must not write the run's history
+// under the turn that replaced it.
+type Turn struct {
+	JobID     string `json:"jobId,omitempty"`
+	AttemptID int    `json:"attemptId,omitempty"`
+}
+
+// checkTurn refuses a write from a turn that is no longer the run's
+// current delivery (inside the write's transaction, after the run lock).
+func (e *Engine) checkTurn(ctx context.Context, tx pgx.Tx, project, runID string, t Turn) error {
+	if t.JobID == "" {
+		return nil // the engine's own callers (tests)
+	}
+	id, err := ParseJobID(t.JobID)
+	if err != nil {
+		return err
+	}
+	var state string
+	var attempt int
+	var run *string
+	err = tx.QueryRow(ctx, `SELECT state, total_attempts, run_id FROM tq_jobs WHERE id = $1 AND project = $2`, id, project).Scan(&state, &attempt, &run)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if err != nil || run == nil || *run != runID || state != stateRunning || attempt != t.AttemptID {
+		return conflict("this turn of run "+runID+" is no longer current (its lease ran out, or it was cancelled)",
+			"stop: another turn carries the run on")
+	}
+	return nil
 }
 
 // RecordStep checkpoints a step. It returns the step as stored: a step that
@@ -508,6 +547,9 @@ func (e *Engine) RecordStep(ctx context.Context, project, runID string, s StepRe
 	if finalRun(run.State) {
 		return nil, conflict("run "+runID+" is "+run.State, "stop: the run will not continue")
 	}
+	if err := e.checkTurn(ctx, tx, project, runID, s.Turn); err != nil {
+		return nil, err
+	}
 	if s.StartedAt.IsZero() {
 		s.StartedAt = e.now().Add(-time.Duration(s.DurationMS) * time.Millisecond)
 	}
@@ -533,16 +575,14 @@ func (e *Engine) RecordStep(ctx context.Context, project, runID string, s StepRe
 }
 
 func (e *Engine) step(ctx context.Context, runID, name string) (*Step, error) {
-	steps, err := e.steps(ctx, runID)
+	steps, err := e.stepsWhere(ctx, runID, name)
 	if err != nil {
 		return nil, err
 	}
-	for _, s := range steps {
-		if s.Name == name {
-			return &s, nil
-		}
+	if len(steps) == 0 {
+		return nil, notFound("no step " + strconv.Quote(name))
 	}
-	return nil, notFound("no step " + strconv.Quote(name))
+	return &steps[0], nil
 }
 
 // WaitRequest creates a suspension point (idempotent by step name).
@@ -556,6 +596,7 @@ type WaitRequest struct {
 	Title       string    `json:"title,omitempty"`
 	Description string    `json:"description,omitempty"`
 	HumanOnly   bool      `json:"humanOnly,omitempty"`
+	Turn
 }
 
 // Wait records a sleep, event wait, approval, webhook or patch marker and
@@ -593,6 +634,9 @@ func (e *Engine) Wait(ctx context.Context, project, runID string, w WaitRequest)
 	}
 	run, err := e.loadRun(ctx, tx, project, runID, true)
 	if err != nil {
+		return nil, err
+	}
+	if err := e.checkTurn(ctx, tx, project, runID, w.Turn); err != nil {
 		return nil, err
 	}
 	var kind string

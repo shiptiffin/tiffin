@@ -28,6 +28,7 @@ class FakeBox {
   beats = 0;
   runningJob = "job_1";
   seq = 0;
+  reportDelay = 0;
 
   fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = new URL(typeof input === "string" ? input : input instanceof URL ? input : input.url);
@@ -50,7 +51,7 @@ class FakeBox {
       return Response.json({ leaseUntil: new Date(Date.now() + 60000).toISOString() });
     }
     if (/^\/v1\/queue-internal\/(jobs|workflows\/runs)\/[^/]+\/(progress|output)$/.test(p)) {
-      await new Promise((r) => setTimeout(r, Math.random() * 5)); // out-of-order networks must not reorder
+      await new Promise((r) => setTimeout(r, this.reportDelay || Math.random() * 5)); // out-of-order networks must not reorder
       return Response.json(p.endsWith("output") ? { id: ++this.seq } : { ok: true });
     }
     if (p === "/v1/queue-internal/workflows/start") {
@@ -293,6 +294,39 @@ describe("@shiptiffin/sdk/queue", () => {
     expect(sent.every((c) => c.body.attemptId === 3)).toBe(true);
   });
 
+  test("heartbeats keep going while progress and output are still being sent", async () => {
+    box.reportDelay = 1200;
+    const h = defineHandler(
+      async (job) => {
+        job.log("one"); // not awaited: flushed after the function returns
+        job.log("two");
+        return { done: true };
+      },
+      { autoHeartbeat: true },
+    );
+    const res = await push(h, { leaseSeconds: 3 });
+    expect(res.status).toBe(200);
+    expect(box.beats).toBeGreaterThanOrEqual(2);
+  });
+
+  test("unsigned deliveries are refused before their body is read; oversized ones are not buffered", async () => {
+    const h = defineHandler(() => ({ ok: true }));
+    let pulled = 0;
+    const stream = new ReadableStream({
+      pull(c) {
+        pulled++;
+        c.enqueue(new Uint8Array(1 << 20));
+      },
+    });
+    const unsigned = await h(new Request("http://app/queues/emails", { method: "POST", body: stream, duplex: "half" } as RequestInit));
+    expect(unsigned.status).toBe(401);
+    expect(pulled).toBeLessThanOrEqual(1); // at most what the runtime pre-reads
+    const big = JSON.stringify({ type: "job", id: "job_1", queue: "emails", attempt: 1, maxAttempts: 1, attemptId: 1, leaseSeconds: 3, enqueuedAt: "", payload: "x".repeat(3 << 20) });
+    const res = await h(new Request("http://app/queues/emails", { method: "POST", body: big, headers: { "tiffin-signature": sign(SECRET, big) } }));
+    expect(res.status).toBe(413);
+    expect(await verifyRequest(new Request("http://x", { method: "POST", body: big, headers: { "tiffin-signature": sign(SECRET, big) } }), SECRET)).toBeNull();
+  });
+
   test("heartbeats extend the lease; a finished attempt aborts the job", async () => {
     const h = defineHandler(async (job) => {
       await job.heartbeat();
@@ -460,6 +494,56 @@ describe("@shiptiffin/sdk/workflow", () => {
     const res = await box.turn(h, run.id);
     expect(res.status).toBe(489);
     expect((await res.json() as any).error).toContain("failed 2 time(s)");
+  });
+
+  test("a failing branch fails the turn even while another branch waits", async () => {
+    let tries = 0;
+    workflow.define("par", async (ctx) => {
+      await ctx.all([
+        () => ctx.waitForEvent("never", { event: "never" }),
+        () =>
+          ctx.step("charge", async () => {
+            await new Promise((r) => setTimeout(r, 20)); // fails after the wait has suspended
+            tries++;
+            throw new NonRetryableError("card declined");
+          }),
+      ]);
+    });
+    const { run } = await workflow.start("par");
+    const res = await box.turn(workflow.handler(), run.id);
+    expect(res.status).toBe(489);
+    expect(((await res.json()) as any).error).toBe("card declined");
+    expect(tries).toBe(1);
+  });
+
+  test("steps carry their turn, and a step's stored result wins over this turn's", async () => {
+    let runId = "";
+    workflow.define("raced", async (ctx) => {
+      const v = await ctx.step("pick", () => {
+        // A turn the box replaced records the step first.
+        box.runs.get(runId).steps.push({ name: "pick", seq: 0, kind: "step", state: "completed", output: "from the other turn", attempts: 0 });
+        return "from this turn";
+      });
+      await ctx.sleep("nap", "1h");
+      return v;
+    });
+    runId = (await workflow.start("raced")).run.id;
+    const res = await box.turn(workflow.handler(), runId);
+    expect(await res.json()).toEqual({ status: "suspended" });
+    const writes = box.calls.filter((c) => /\/(steps|waits)$/.test(c.path));
+    expect(writes.length).toBe(2);
+    expect(writes.every((c) => c.body.jobId === "job_1" && c.body.attemptId === 1)).toBe(true);
+    box.wakeSleeps();
+    const done = (await (await box.turn(workflow.handler(), runId)).json()) as any;
+    expect(done.output).toBe("from the other turn");
+    workflow.define("raced2", async (ctx) => {
+      return ctx.step("pick", () => {
+        box.runs.get(runId).steps.push({ name: "pick", seq: 0, kind: "step", state: "completed", output: "stored", attempts: 0 });
+        return "local";
+      });
+    });
+    runId = (await workflow.start("raced2")).run.id;
+    expect(((await (await box.turn(workflow.handler(), runId)).json()) as any).output).toBe("stored");
   });
 
   test("timed-out waits and rejected approvals", async () => {

@@ -34,6 +34,7 @@ type wctx struct {
 	seq     int
 	byName  map[string]Step
 	release string
+	turn    Turn
 }
 
 type suspend struct{}
@@ -78,7 +79,7 @@ func (s *fakeSDK) handler(release string, hits *atomic.Int64) http.HandlerFunc {
 		}
 		var b deliveryBody
 		_ = json.NewDecoder(r.Body).Decode(&b)
-		c := &wctx{sdk: s, run: b.Run, byName: map[string]Step{}, release: release}
+		c := &wctx{sdk: s, run: b.Run, byName: map[string]Step{}, release: release, turn: Turn{JobID: b.ID, AttemptID: b.AttemptID}}
 		for _, st := range b.Run.Steps {
 			c.byName[st.Name] = st
 		}
@@ -123,7 +124,7 @@ func (c *wctx) step(name string, fn func() (any, error)) (json.RawMessage, error
 		return st.Output, nil
 	}
 	v, err := fn()
-	rec := StepRecord{Name: name, Seq: seq, OK: err == nil, StartedAt: time.Now()}
+	rec := StepRecord{Name: name, Seq: seq, OK: err == nil, StartedAt: time.Now(), Turn: c.turn}
 	if err != nil {
 		rec.Error = err.Error()
 	} else {
@@ -141,6 +142,7 @@ func (c *wctx) step(name string, fn func() (any, error)) (json.RawMessage, error
 
 func (c *wctx) wait(w WaitRequest) Step {
 	w.Seq = c.next()
+	w.Turn = c.turn
 	if st, ok := c.byName[w.Name]; ok && st.State != stepWaiting {
 		return st
 	}
@@ -164,7 +166,7 @@ func (c *wctx) patched(id string) bool {
 			return false
 		}
 	}
-	c.sdk.call("POST", "/v1/queue-internal/workflows/runs/"+c.run.ID+"/waits", WaitRequest{Name: "patch:" + id, Kind: stepPatch, Seq: c.seq}, nil)
+	c.sdk.call("POST", "/v1/queue-internal/workflows/runs/"+c.run.ID+"/waits", WaitRequest{Name: "patch:" + id, Kind: stepPatch, Seq: c.seq, Turn: c.turn}, nil)
 	return true
 }
 
@@ -698,4 +700,48 @@ func TestEmitDuringWaitRegistration(t *testing.T) {
 		_ = e.pool.QueryRow(ctx, `SELECT state FROM wf_steps WHERE run_id = $1 AND name = 'paid'`, run.ID).Scan(&st)
 		return st == stepCompleted
 	})
+}
+
+// Steps and waits are written only by the run's current turn: one whose
+// lease ran out or that was cancelled is refused, even while the app keeps
+// running it.
+func TestStaleTurnCannotWrite(t *testing.T) {
+	e := newEngine(t, nil)
+	ctx := context.Background()
+	got := make(chan deliveryBody, 1)
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b deliveryBody
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		select {
+		case got <- b:
+		default:
+		}
+		<-r.Context().Done() // holds the turn until the box cuts it off
+	}))
+	defer app.Close()
+	run, _, err := e.StartRun(ctx, proj, StartRequest{Workflow: "w", URL: app.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := <-got
+	cur := Turn{JobID: b.ID, AttemptID: b.AttemptID}
+	if _, err := e.RecordStep(ctx, proj, run.ID, StepRecord{Name: "a", OK: true, Turn: cur}); err != nil {
+		t.Fatalf("current turn refused: %v", err)
+	}
+	stale := Turn{JobID: b.ID, AttemptID: b.AttemptID + 1}
+	if _, err := e.RecordStep(ctx, proj, run.ID, StepRecord{Name: "b", OK: true, Turn: stale}); err == nil || !strings.Contains(err.Error(), "no longer current") {
+		t.Errorf("another attempt's step: %v", err)
+	}
+	if _, err := e.CancelJob(ctx, proj, mustJobID(t, b.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Wait(ctx, proj, run.ID, WaitRequest{Name: "nap", Kind: stepSleep, Until: time.Now().Add(time.Hour), Turn: cur}); err == nil {
+		t.Error("a cancelled turn registered a wait")
+	}
+	// The SDK must say which turn it is.
+	sdk := newFakeSDK(t, e.Engine)
+	var prob map[string]any
+	if code := sdk.call("POST", "/v1/queue-internal/workflows/runs/"+run.ID+"/steps", StepRecord{Name: "c", OK: true}, &prob); code != 422 {
+		t.Errorf("a step without its turn: %d %v", code, prob)
+	}
 }

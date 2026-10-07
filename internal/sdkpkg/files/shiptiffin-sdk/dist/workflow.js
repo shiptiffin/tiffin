@@ -44,6 +44,12 @@ import { boxCall, currentApp, errorResponse, heartbeater, NonRetryableError, rea
 export { NonRetryableError, subscribeToken } from "./queue.js";
 /** Where the box POSTs workflow turns by default. */
 export const DEFAULT_PATH = "/_tiffin/workflows";
+/**
+ * The largest turn the handler reads by default: a turn carries the run's
+ * whole history (every step's result, up to 1 MB each). Pass maxBytes to
+ * handler() for runs that keep more.
+ */
+export const MAX_TURN_BYTES = 64 << 20;
 /** The code took a different path than this run's recorded history. */
 export class NonDeterminismError extends NonRetryableError {
     name = "NonDeterminismError";
@@ -97,14 +103,20 @@ class Suspend {
 }
 class Turn {
     run;
+    fence;
+    signal;
     seq = 0;
     byName = new Map();
     bySeq = new Map();
     inflight = new Set();
+    /** Failed writes no workflow code awaits (patch markers): they fail the turn. */
+    failures = [];
     maxRecordedSeq;
     report;
-    constructor(run) {
+    constructor(run, fence, signal) {
         this.run = run;
+        this.fence = fence;
+        this.signal = signal;
         this.report = reporter(`/v1/queue-internal/workflows/runs/${run.id}`);
         let max = -1;
         for (const s of run.steps) {
@@ -141,7 +153,7 @@ class Turn {
         return { seq, rec };
     }
     async wait(body) {
-        const rec = await boxCall("POST", `/v1/queue-internal/workflows/runs/${this.run.id}/waits`, body);
+        const rec = await boxCall("POST", `/v1/queue-internal/workflows/runs/${this.run.id}/waits`, { ...body, ...this.fence });
         this.byName.set(rec.name, rec);
         return rec;
     }
@@ -163,6 +175,7 @@ function ctxFor(t) {
     const ctx = {
         runId: run.id,
         workflow: run.workflow,
+        signal: t.signal,
         release: run.release,
         step(name, fn, opts = {}) {
             return t.track((async () => {
@@ -177,15 +190,18 @@ function ctxFor(t) {
                 try {
                     const value = await fn();
                     const output = value === undefined ? null : JSON.parse(JSON.stringify(value));
-                    await boxCall("POST", `/v1/queue-internal/workflows/runs/${run.id}/steps`, {
+                    const stored = await boxCall("POST", `/v1/queue-internal/workflows/runs/${run.id}/steps`, {
                         name,
                         seq,
                         ok: true,
                         output,
                         startedAt: started.toISOString(),
                         durationMs: Date.now() - started.getTime(),
+                        ...t.fence,
                     });
-                    return output;
+                    // The checkpoint wins: if another turn recorded this step first,
+                    // carry on with its result, as every later replay will.
+                    return stored?.state === "completed" ? (stored.output ?? null) : output;
                 }
                 catch (err) {
                     if (err instanceof Suspend)
@@ -197,6 +213,7 @@ function ctxFor(t) {
                         error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
                         startedAt: started.toISOString(),
                         durationMs: Date.now() - started.getTime(),
+                        ...t.fence,
                     }).catch(() => { });
                     throw err;
                 }
@@ -250,8 +267,20 @@ function ctxFor(t) {
             };
         },
         async all(branches) {
-            const ps = branches.map((b) => t.track(Promise.resolve(typeof b === "function" ? b() : b)));
-            return (await Promise.all(ps));
+            const ps = branches.map((b) => t.track((async () => {
+                // A branch that throws synchronously still lets the others finish.
+                return await (typeof b === "function" ? b() : b);
+            })()));
+            const settled = await Promise.allSettled(ps);
+            const failed = settled.flatMap((r) => (r.status === "rejected" ? [r.reason] : []));
+            // A failure decides the turn before a wait does: suspending would hide
+            // it until the wait resolves (and a NonRetryableError never fails the run).
+            const errors = failed.filter((e) => !(e instanceof Suspend));
+            if (errors.length)
+                throw errors.find((e) => e instanceof NonRetryableError) ?? errors[0];
+            if (failed.length)
+                throw failed[0];
+            return settled.map((r) => r.value);
         },
         patched(id) {
             const key = `patch:${id}`;
@@ -262,7 +291,7 @@ function ctxFor(t) {
                 return false;
             const rec = { name: key, seq: t.seq, kind: "patch", state: "completed", attempts: 0 };
             t.byName.set(key, rec);
-            t.track(t.wait({ name: key, seq: t.seq, kind: "patch" }));
+            t.track(t.wait({ name: key, seq: t.seq, kind: "patch" }).catch((err) => void t.failures.push(err)));
             return true;
         },
         progress(value) {
@@ -275,23 +304,29 @@ function ctxFor(t) {
     return ctx;
 }
 /** @internal Runs one turn; returns the response body for the box. */
-export async function runTurn(run) {
+export async function runTurn(run, fence, signal = new AbortController().signal) {
     const wf = registry.get(run.workflow);
     if (!wf) {
         throw new NonRetryableError(`workflow "${run.workflow}" is not defined in this app (defined: ${[...registry.keys()].join(", ") || "none"})`);
     }
-    const t = new Turn(run);
+    const t = new Turn(run, fence, signal);
     try {
         const out = await wf.fn(ctxFor(t), run.input);
-        await Promise.allSettled([...t.inflight]);
+        while (t.inflight.size)
+            await Promise.allSettled([...t.inflight]);
+        if (t.failures.length)
+            throw t.failures[0];
         return { status: "completed", output: out === undefined ? null : out };
     }
     catch (err) {
         // Let parallel branches finish and checkpoint before the turn ends.
         while (t.inflight.size)
             await Promise.allSettled([...t.inflight]);
-        if (err instanceof Suspend)
+        if (err instanceof Suspend) {
+            if (t.failures.length)
+                throw t.failures[0];
             return { status: "suspended" };
+        }
         throw err;
     }
     finally {
@@ -304,7 +339,7 @@ export async function runTurn(run) {
  */
 export function handler(opts = {}) {
     return async (req) => {
-        const d = await readDelivery(req, opts.secret);
+        const d = await readDelivery(req, opts.secret, opts.maxBytes ?? MAX_TURN_BYTES);
         if (d instanceof Response)
             return d;
         if (d.type !== "workflow" || !d.run)
@@ -313,7 +348,7 @@ export function handler(opts = {}) {
         const beat = heartbeater(d, ctrl);
         const timer = setInterval(() => beat().catch(() => { }), Math.max(1000, (d.leaseSeconds * 1000) / 3));
         try {
-            return Response.json(await runTurn(d.run));
+            return Response.json(await runTurn(d.run, { jobId: d.id, attemptId: d.attemptId }, ctrl.signal));
         }
         catch (err) {
             return errorResponse(err);

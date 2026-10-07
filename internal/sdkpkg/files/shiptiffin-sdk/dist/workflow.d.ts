@@ -44,6 +44,12 @@ import { NonRetryableError, subscribeToken, type Duration, type TokenOptions } f
 export { NonRetryableError, subscribeToken } from "./queue.js";
 /** Where the box POSTs workflow turns by default. */
 export declare const DEFAULT_PATH = "/_tiffin/workflows";
+/**
+ * The largest turn the handler reads by default: a turn carries the run's
+ * whole history (every step's result, up to 1 MB each). Pass maxBytes to
+ * handler() for runs that keep more.
+ */
+export declare const MAX_TURN_BYTES: number;
 /** The code took a different path than this run's recorded history. */
 export declare class NonDeterminismError extends NonRetryableError {
     name: string;
@@ -93,6 +99,8 @@ export interface Webhook<T = unknown> {
 export interface WorkflowContext {
     runId: string;
     workflow: string;
+    /** Aborted when the box ends this turn (its lease ran out, or it was cancelled): stop work in progress. */
+    signal: AbortSignal;
     /** The app release this run is pinned to. */
     release?: string | undefined;
     /** Runs fn once and checkpoints its JSON result. */
@@ -116,7 +124,10 @@ export interface WorkflowContext {
     }): Promise<ApprovalDecision>;
     /** A signed URL that resumes the run when called. */
     webhook<T = unknown>(name: string): Promise<Webhook<T>>;
-    /** Runs branches in parallel (Promise.all that keeps every finished step even if one branch waits). */
+    /**
+     * Runs branches in parallel and waits for all of them, so every finished step is kept even if
+     * one branch waits. A branch's failure wins over another's wait: the turn fails and retries.
+     */
     all<T extends readonly unknown[]>(branches: {
         [K in keyof T]: Promise<T[K]> | (() => Promise<T[K]>);
     }): Promise<T>;
@@ -184,8 +195,13 @@ export declare function emit(event: string, payload?: unknown): Promise<{
 }>;
 /** Reads a run's state and steps. */
 export declare function get(runId: string): Promise<RunInfo>;
+/** The delivery a turn came in (the box refuses writes from a turn it has replaced). */
+interface TurnFence {
+    jobId: string;
+    attemptId: number;
+}
 /** @internal Runs one turn; returns the response body for the box. */
-export declare function runTurn(run: TurnRun): Promise<{
+export declare function runTurn(run: TurnRun, fence: TurnFence, signal?: AbortSignal): Promise<{
     status: "completed";
     output: unknown;
 } | {
@@ -197,6 +213,7 @@ export declare function runTurn(run: TurnRun): Promise<{
  */
 export declare function handler(opts?: {
     secret?: string;
+    maxBytes?: number;
 }): (req: Request) => Promise<Response>;
 export declare const workflow: {
     define: typeof define;

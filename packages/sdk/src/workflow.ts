@@ -60,6 +60,13 @@ export { NonRetryableError, subscribeToken } from "./queue";
 /** Where the box POSTs workflow turns by default. */
 export const DEFAULT_PATH = "/_tiffin/workflows";
 
+/**
+ * The largest turn the handler reads by default: a turn carries the run's
+ * whole history (every step's result, up to 1 MB each). Pass maxBytes to
+ * handler() for runs that keep more.
+ */
+export const MAX_TURN_BYTES = 64 << 20;
+
 /** The code took a different path than this run's recorded history. */
 export class NonDeterminismError extends NonRetryableError {
   override name = "NonDeterminismError";
@@ -108,6 +115,8 @@ export interface Webhook<T = unknown> {
 export interface WorkflowContext {
   runId: string;
   workflow: string;
+  /** Aborted when the box ends this turn (its lease ran out, or it was cancelled): stop work in progress. */
+  signal: AbortSignal;
   /** The app release this run is pinned to. */
   release?: string | undefined;
   /** Runs fn once and checkpoints its JSON result. */
@@ -121,7 +130,10 @@ export interface WorkflowContext {
   approval(name: string, opts: { title?: string; description?: string; timeout?: Duration; humanOnly?: boolean }): Promise<ApprovalDecision>;
   /** A signed URL that resumes the run when called. */
   webhook<T = unknown>(name: string): Promise<Webhook<T>>;
-  /** Runs branches in parallel (Promise.all that keeps every finished step even if one branch waits). */
+  /**
+   * Runs branches in parallel and waits for all of them, so every finished step is kept even if
+   * one branch waits. A branch's failure wins over another's wait: the turn fails and retries.
+   */
   all<T extends readonly unknown[]>(branches: { [K in keyof T]: Promise<T[K]> | (() => Promise<T[K]>) }): Promise<T>;
   /** True for runs that reach this point with the new code, false for runs whose history predates it. */
   patched(id: string): boolean;
@@ -213,15 +225,27 @@ class Suspend {
   constructor(readonly reason: string) {}
 }
 
+/** The delivery a turn came in (the box refuses writes from a turn it has replaced). */
+interface TurnFence {
+  jobId: string;
+  attemptId: number;
+}
+
 class Turn {
   seq = 0;
   readonly byName = new Map<string, StepRecord>();
   readonly bySeq = new Map<number, StepRecord>();
   readonly inflight = new Set<Promise<unknown>>();
+  /** Failed writes no workflow code awaits (patch markers): they fail the turn. */
+  readonly failures: unknown[] = [];
   readonly maxRecordedSeq: number;
   readonly report: ReturnType<typeof reporter>;
 
-  constructor(readonly run: TurnRun) {
+  constructor(
+    readonly run: TurnRun,
+    readonly fence: TurnFence,
+    readonly signal: AbortSignal,
+  ) {
     this.report = reporter(`/v1/queue-internal/workflows/runs/${run.id}`);
     let max = -1;
     for (const s of run.steps) {
@@ -266,7 +290,7 @@ class Turn {
   }
 
   async wait(body: Record<string, unknown>): Promise<StepRecord> {
-    const rec = await boxCall<StepRecord>("POST", `/v1/queue-internal/workflows/runs/${this.run.id}/waits`, body);
+    const rec = await boxCall<StepRecord>("POST", `/v1/queue-internal/workflows/runs/${this.run.id}/waits`, { ...body, ...this.fence });
     this.byName.set(rec.name, rec);
     return rec;
   }
@@ -287,6 +311,7 @@ function ctxFor(t: Turn): WorkflowContext {
   const ctx: WorkflowContext = {
     runId: run.id,
     workflow: run.workflow,
+    signal: t.signal,
     release: run.release,
     step(name, fn, opts = {}) {
       return t.track(
@@ -301,15 +326,18 @@ function ctxFor(t: Turn): WorkflowContext {
           try {
             const value = await fn();
             const output = value === undefined ? null : JSON.parse(JSON.stringify(value));
-            await boxCall("POST", `/v1/queue-internal/workflows/runs/${run.id}/steps`, {
+            const stored = await boxCall<StepRecord>("POST", `/v1/queue-internal/workflows/runs/${run.id}/steps`, {
               name,
               seq,
               ok: true,
               output,
               startedAt: started.toISOString(),
               durationMs: Date.now() - started.getTime(),
+              ...t.fence,
             });
-            return output;
+            // The checkpoint wins: if another turn recorded this step first,
+            // carry on with its result, as every later replay will.
+            return stored?.state === "completed" ? (stored.output ?? null) : output;
           } catch (err) {
             if (err instanceof Suspend) throw err;
             await boxCall("POST", `/v1/queue-internal/workflows/runs/${run.id}/steps`, {
@@ -319,6 +347,7 @@ function ctxFor(t: Turn): WorkflowContext {
               error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
               startedAt: started.toISOString(),
               durationMs: Date.now() - started.getTime(),
+              ...t.fence,
             }).catch(() => {});
             throw err;
           }
@@ -365,8 +394,22 @@ function ctxFor(t: Turn): WorkflowContext {
       } satisfies Webhook<T>;
     },
     async all(branches) {
-      const ps = (branches as readonly unknown[]).map((b) => t.track(Promise.resolve(typeof b === "function" ? (b as () => unknown)() : b)));
-      return (await Promise.all(ps)) as any;
+      const ps = (branches as readonly unknown[]).map((b) =>
+        t.track(
+          (async () => {
+            // A branch that throws synchronously still lets the others finish.
+            return await (typeof b === "function" ? (b as () => unknown)() : b);
+          })(),
+        ),
+      );
+      const settled = await Promise.allSettled(ps);
+      const failed = settled.flatMap((r) => (r.status === "rejected" ? [r.reason] : []));
+      // A failure decides the turn before a wait does: suspending would hide
+      // it until the wait resolves (and a NonRetryableError never fails the run).
+      const errors = failed.filter((e) => !(e instanceof Suspend));
+      if (errors.length) throw errors.find((e) => e instanceof NonRetryableError) ?? errors[0];
+      if (failed.length) throw failed[0];
+      return settled.map((r) => (r as PromiseFulfilledResult<unknown>).value) as any;
     },
     patched(id) {
       const key = `patch:${id}`;
@@ -375,7 +418,7 @@ function ctxFor(t: Turn): WorkflowContext {
       if (t.maxRecordedSeq >= t.seq) return false;
       const rec: StepRecord = { name: key, seq: t.seq, kind: "patch", state: "completed", attempts: 0 };
       t.byName.set(key, rec);
-      t.track(t.wait({ name: key, seq: t.seq, kind: "patch" }));
+      t.track(t.wait({ name: key, seq: t.seq, kind: "patch" }).catch((err) => void t.failures.push(err)));
       return true;
     },
     progress(value) {
@@ -389,20 +432,28 @@ function ctxFor(t: Turn): WorkflowContext {
 }
 
 /** @internal Runs one turn; returns the response body for the box. */
-export async function runTurn(run: TurnRun): Promise<{ status: "completed"; output: unknown } | { status: "suspended" }> {
+export async function runTurn(
+  run: TurnRun,
+  fence: TurnFence,
+  signal: AbortSignal = new AbortController().signal,
+): Promise<{ status: "completed"; output: unknown } | { status: "suspended" }> {
   const wf = registry.get(run.workflow);
   if (!wf) {
     throw new NonRetryableError(`workflow "${run.workflow}" is not defined in this app (defined: ${[...registry.keys()].join(", ") || "none"})`);
   }
-  const t = new Turn(run);
+  const t = new Turn(run, fence, signal);
   try {
     const out = await wf.fn(ctxFor(t), run.input);
-    await Promise.allSettled([...t.inflight]);
+    while (t.inflight.size) await Promise.allSettled([...t.inflight]);
+    if (t.failures.length) throw t.failures[0];
     return { status: "completed", output: out === undefined ? null : out };
   } catch (err) {
     // Let parallel branches finish and checkpoint before the turn ends.
     while (t.inflight.size) await Promise.allSettled([...t.inflight]);
-    if (err instanceof Suspend) return { status: "suspended" };
+    if (err instanceof Suspend) {
+      if (t.failures.length) throw t.failures[0];
+      return { status: "suspended" };
+    }
     throw err;
   } finally {
     await t.report.flush(); // progress lands before the run moves on
@@ -413,16 +464,16 @@ export async function runTurn(run: TurnRun): Promise<{ status: "completed"; outp
  * The fetch handler the box pushes turns to. Mount it at /_tiffin/workflows
  * (or pass that path to start()).
  */
-export function handler(opts: { secret?: string } = {}): (req: Request) => Promise<Response> {
+export function handler(opts: { secret?: string; maxBytes?: number } = {}): (req: Request) => Promise<Response> {
   return async (req) => {
-    const d = await readDelivery(req, opts.secret);
+    const d = await readDelivery(req, opts.secret, opts.maxBytes ?? MAX_TURN_BYTES);
     if (d instanceof Response) return d;
     if (d.type !== "workflow" || !d.run) return Response.json({ error: "not a workflow turn" }, { status: 400 });
     const ctrl = new AbortController();
     const beat = heartbeater(d as Delivery, ctrl);
     const timer = setInterval(() => beat().catch(() => {}), Math.max(1000, (d.leaseSeconds * 1000) / 3));
     try {
-      return Response.json(await runTurn(d.run as TurnRun));
+      return Response.json(await runTurn(d.run as TurnRun, { jobId: d.id, attemptId: d.attemptId }, ctrl.signal));
     } catch (err) {
       return errorResponse(err);
     } finally {

@@ -31,7 +31,7 @@
  * Durations are milliseconds (numbers) or strings like "30s", "5m", "2h", "1d".
  */
 import { createHmac } from "node:crypto";
-import { verifySignature } from "./verify.js";
+import { MAX_CALL_BYTES, readSigned, verifySignature } from "./verify.js";
 /** Throw from a handler (or a workflow step) to fail without retrying. */
 export class NonRetryableError extends Error {
     name = "NonRetryableError";
@@ -88,7 +88,7 @@ function settings() {
     };
 }
 /** @internal Calls an app-facing box endpoint. */
-export async function boxCall(method, path, body) {
+export async function boxCall(method, path, body, signal) {
     const s = settings();
     if (!s.url || !s.key) {
         throw new QueueError(0, "precondition", "TIFFIN_QUEUE_URL and TIFFIN_QUEUE_KEY are not set", "run on a Tiffin box, or call configure({ url, key })");
@@ -97,6 +97,7 @@ export async function boxCall(method, path, body) {
         method,
         headers: { "content-type": "application/json", authorization: `Bearer ${s.key}` },
         body: body === undefined ? null : JSON.stringify(body),
+        ...(signal ? { signal } : {}),
     });
     const text = await res.text();
     let data = undefined;
@@ -207,13 +208,20 @@ export function sign(secret, body, now = Date.now()) {
     const ts = Math.floor(now / 1000).toString();
     return `t=${ts},v1=${createHmac("sha256", secret).update(`${ts}.${body}`).digest("hex")}`;
 }
-/** @internal Reads and verifies a push. Returns a Response to send back on failure. */
-export async function readDelivery(req, secret) {
+/**
+ * @internal Reads and verifies a push. Returns a Response to send back on
+ * failure. A request without a well-formed, fresh signature header is
+ * refused before its body is read, and no more than maxBytes is buffered.
+ */
+export async function readDelivery(req, secret, maxBytes = MAX_CALL_BYTES) {
     if (req.method !== "POST")
         return new Response("method not allowed", { status: 405 });
-    const body = await req.text();
+    const body = await readSigned(req, maxBytes);
+    if (body === "too large") {
+        return Response.json({ error: `the delivery is over ${maxBytes} bytes (raise maxBytes on the handler)` }, { status: 413 });
+    }
     const key = secret ?? settings().secret;
-    if (!verifySignature(key, req.headers.get("tiffin-signature"), body)) {
+    if (body === null || !verifySignature(key, req.headers.get("tiffin-signature"), body)) {
         return Response.json({ error: "invalid or missing Tiffin-Signature" }, { status: 401 });
     }
     try {
@@ -252,6 +260,7 @@ export function heartbeater(d, ctrl) {
  * returned promises never reject (a failure is logged), so callers need not
  * await them; flush() waits for everything sent so far.
  */
+const REPORT_TIMEOUT_MS = 10_000;
 export function reporter(base, extra = {}) {
     let chain = Promise.resolve();
     const post = (kind, value) => {
@@ -261,7 +270,9 @@ export function reporter(base, extra = {}) {
         if (size > limit)
             throw new TypeError(`${kind === "progress" ? "progress" : "an output chunk"} is ${size} bytes; the limit is ${limit >> 10} KB`);
         const body = { ...extra, [kind === "progress" ? "progress" : "data"]: JSON.parse(json) };
-        chain = chain.then(() => boxCall("POST", `${base}/${kind}`, body).then(() => { }, (err) => console.warn(`tiffin: ${kind} not recorded: ${err instanceof Error ? err.message : err}`)));
+        chain = chain.then(() => 
+        // Bounded: telemetry must not hold up the job's answer for long.
+        boxCall("POST", `${base}/${kind}`, body, AbortSignal.timeout(REPORT_TIMEOUT_MS)).then(() => { }, (err) => console.warn(`tiffin: ${kind} not recorded: ${err instanceof Error ? err.message : err}`)));
         return chain;
     };
     return { progress: (v) => post("progress", v), output: (v) => post("output", v), flush: () => chain };
@@ -273,7 +284,7 @@ export function reporter(base, extra = {}) {
  */
 export function defineHandler(fn, opts = {}) {
     return async (req) => {
-        const d = await readDelivery(req, opts.secret);
+        const d = await readDelivery(req, opts.secret, opts.maxBytes);
         if (d instanceof Response)
             return d;
         const ctrl = new AbortController();
@@ -305,9 +316,13 @@ export function defineHandler(fn, opts = {}) {
             return errorResponse(err);
         }
         finally {
-            if (timer)
-                clearInterval(timer);
-            await rep.flush(); // progress lands before the job finishes
+            try {
+                await rep.flush(); // progress lands before the job finishes, still heartbeating
+            }
+            finally {
+                if (timer)
+                    clearInterval(timer);
+            }
         }
     };
 }

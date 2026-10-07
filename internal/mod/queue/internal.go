@@ -130,11 +130,17 @@ func internalRoutes() []internalRoute {
 			if err := decode(r, &b); err != nil {
 				return nil, err
 			}
+			if err := needTurn(b.Turn); err != nil {
+				return nil, err
+			}
 			return e.RecordStep(r.Context(), c.project, r.PathValue("id"), b)
 		}},
 		{method: "POST", path: "/v1/queue-internal/workflows/runs/{id}/waits", h: func(e *Engine, c caller, w http.ResponseWriter, r *http.Request) (any, error) {
 			var b WaitRequest
 			if err := decode(r, &b); err != nil {
+				return nil, err
+			}
+			if err := needTurn(b.Turn); err != nil {
 				return nil, err
 			}
 			return e.Wait(r.Context(), c.project, r.PathValue("id"), b)
@@ -176,6 +182,14 @@ func internalRoutes() []internalRoute {
 			return map[string]any{"accepted": res.Accepted, "message": res.Message}, nil
 		}},
 	}
+}
+
+// needTurn requires the delivery a workflow write comes from (see Turn).
+func needTurn(t Turn) error {
+	if t.JobID == "" || t.AttemptID <= 0 {
+		return invalid("jobId and attemptId (the turn's delivery) are required", "update @shiptiffin/sdk")
+	}
+	return nil
 }
 
 // caller is who called an app-facing endpoint: the project its key belongs
