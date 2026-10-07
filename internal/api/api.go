@@ -632,40 +632,31 @@ func (a *API) register() {
 			if err := p.Require(tokens.ScopeRead, in.Project); err != nil {
 				return nil, err
 			}
-			// A token scoped to some projects lists each of them, so busy
-			// projects it cannot see don't use up the limit.
-			projects := []string{in.Project}
+			f := change.ListFilter{Project: in.Project, Limit: in.Limit}
 			if in.Project == "" && !p.CanProject("*") {
-				projects = p.Projects
+				// A token scoped to some projects lists theirs, so busy
+				// projects it cannot see don't use up the limit.
+				f.Projects = p.Projects
+				if len(f.Projects) == 0 {
+					return &struct{ Body []*change.Change }{[]*change.Change{}}, nil
+				}
 			}
-			var before int64
 			if in.Before != "" {
 				seq, err := a.deps.DB.ChangeSeq(ctx, in.Before)
 				if err != nil {
 					return nil, err
 				}
-				before = seq
+				f.Before = seq
 			}
-			out := []*change.Change{}
-			for _, proj := range projects {
-				cs, err := a.deps.DB.ListChanges(ctx, change.ListFilter{Project: proj, Limit: in.Limit, Before: before})
-				if err != nil {
-					return nil, err
-				}
-				for _, c := range cs {
-					if p.CanProject(c.Project) {
-						out = append(out, c)
-					}
-				}
+			cs, err := a.deps.DB.ListChanges(ctx, f)
+			if err != nil {
+				return nil, err
 			}
-			if len(projects) > 1 {
-				slices.SortStableFunc(out, func(x, y *change.Change) int {
-					if c := y.At.Compare(x.At); c != 0 {
-						return c
-					}
-					return strings.Compare(y.ID, x.ID)
-				})
-				out = out[:min(len(out), max(in.Limit, 1))]
+			out := make([]*change.Change, 0, len(cs))
+			for _, c := range cs {
+				if p.CanProject(c.Project) {
+					out = append(out, c)
+				}
 			}
 			return &struct{ Body []*change.Change }{out}, nil
 		}))

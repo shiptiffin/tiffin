@@ -3,6 +3,7 @@ package change
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"sort"
 	"sync"
 )
@@ -90,6 +91,9 @@ func (m *MemStore) ListChanges(_ context.Context, f ListFilter) ([]*Change, erro
 		c := m.changes[i]
 		seq := int64(i + 1)
 		if f.Project != "" && c.Project != f.Project {
+			continue
+		}
+		if len(f.Projects) > 0 && !slices.Contains(f.Projects, c.Project) {
 			continue
 		}
 		if f.Before > 0 && seq >= f.Before {

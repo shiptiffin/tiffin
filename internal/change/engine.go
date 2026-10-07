@@ -36,8 +36,11 @@ type Store interface {
 // ListFilter narrows ListChanges.
 type ListFilter struct {
 	Project string
-	Limit   int   // 0 means 50
-	Before  int64 // only changes with a sequence number below this; 0 means no bound
+	// Projects, when set, lists the changes of any of these projects (in one
+	// commit order, so paging with Before skips none).
+	Projects []string
+	Limit    int   // 0 means 50
+	Before   int64 // only changes with a sequence number below this; 0 means no bound
 }
 
 // Authorizer decides whether a plan may be applied. It returns nil to allow

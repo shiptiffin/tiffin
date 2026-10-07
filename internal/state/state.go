@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
@@ -418,9 +419,26 @@ func (s *DB) ListChanges(ctx context.Context, f change.ListFilter) ([]*change.Ch
 	if before <= 0 {
 		before = 1<<62 - 1
 	}
-	rows, err := s.sql.QueryContext(ctx, `SELECT body, undone_by FROM changes
-		WHERE (? = '' OR project = ?) AND seq < ? ORDER BY seq DESC LIMIT ?`,
-		f.Project, f.Project, before, limit)
+	// One query per shape, so a project's page seeks its (project, seq)
+	// index instead of scanning the whole box's history.
+	var rows *sql.Rows
+	var err error
+	switch {
+	case f.Project != "":
+		rows, err = s.sql.QueryContext(ctx, `SELECT body, undone_by FROM changes
+			WHERE project = ? AND seq < ? ORDER BY seq DESC LIMIT ?`, f.Project, before, limit)
+	case len(f.Projects) > 0:
+		args := make([]any, 0, len(f.Projects)+2)
+		for _, p := range f.Projects {
+			args = append(args, p)
+		}
+		args = append(args, before, limit)
+		rows, err = s.sql.QueryContext(ctx, `SELECT body, undone_by FROM changes
+			WHERE project IN (?`+strings.Repeat(`, ?`, len(f.Projects)-1)+`) AND seq < ? ORDER BY seq DESC LIMIT ?`, args...)
+	default:
+		rows, err = s.sql.QueryContext(ctx, `SELECT body, undone_by FROM changes
+			WHERE seq < ? ORDER BY seq DESC LIMIT ?`, before, limit)
+	}
 	if err != nil {
 		return nil, err
 	}
