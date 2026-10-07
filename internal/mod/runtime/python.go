@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -43,7 +42,7 @@ func fastapiStart(entry string) string { return "uvicorn " + entry + " " + uvico
 // start command of a FastAPI app that sets no command.
 func preparePython(req BuildRequest, env map[string]string) error {
 	dir := req.appDir()
-	pyproject, _ := os.ReadFile(filepath.Join(dir, "pyproject.toml"))
+	pyproject, _ := readSrc(filepath.Join(dir, "pyproject.toml"))
 	if v, why := pythonVersion(dir, pyproject); v != "" {
 		env["RAILPACK_PYTHON_VERSION"] = v
 		fmt.Fprintf(req.Log, "==> Python %s (%s)\n", v, why)
@@ -215,7 +214,7 @@ func fastapiEntry(dir string, pyproject []byte) (entry, from string) {
 		}
 	}
 	for _, f := range fastapiFiles {
-		raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(f)))
+		raw, err := readSrc(filepath.Join(dir, filepath.FromSlash(f)))
 		if err != nil {
 			continue
 		}
@@ -242,7 +241,7 @@ func fastapiEntry(dir string, pyproject []byte) (entry, from string) {
 // deps (a prefix such as "fastapi[standard" matches its extras too).
 func pyUses(dir string, deps ...string) bool {
 	for _, f := range []string{"pyproject.toml", "requirements.txt", "uv.lock", "Pipfile", "poetry.lock", "pdm.lock"} {
-		raw, err := os.ReadFile(filepath.Join(dir, f))
+		raw, err := readSrc(filepath.Join(dir, f))
 		if err != nil {
 			continue
 		}

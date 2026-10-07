@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/btahir/tiffin/internal/edge"
+	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
 	"github.com/robfig/cron/v3"
 )
 
@@ -44,7 +45,7 @@ type Config struct {
 
 // Read reads dir/vercel.json; it returns nil, nil when there is none.
 func Read(dir string) (*Config, error) {
-	raw, err := os.ReadFile(filepath.Join(dir, File))
+	raw, err := srcpack.ReadFile(filepath.Join(dir, File), true)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}

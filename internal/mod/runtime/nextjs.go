@@ -86,7 +86,7 @@ func writeNextAdapter(srcDir string, box nextBox) error {
 // build context).
 func keepInBuild(srcDir, dir string) error {
 	di := filepath.Join(srcDir, ".dockerignore")
-	if raw, err := os.ReadFile(di); err == nil {
+	if raw, err := readSrc(di); err == nil {
 		raw = append(raw, "\n!.tiffin\n!"+dir+"\n!"+dir+"/**\n"...)
 		return os.WriteFile(di, raw, 0o644)
 	}
@@ -130,7 +130,7 @@ var nextVersionRe = regexp.MustCompile(`^\s*(?:[\^~]|>=?)?\s*v?(\d+)(?:\.(\d+))?
 // nextBefore162 reports the app's Next.js version when package.json pins one
 // older than 16.2 (tags like "latest" or "canary" are taken to be new).
 func nextBefore162(dir string) (string, bool) {
-	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	raw, err := readSrc(filepath.Join(dir, "package.json"))
 	if err != nil {
 		return "", false
 	}

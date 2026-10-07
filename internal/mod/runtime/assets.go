@@ -145,7 +145,7 @@ func withPublicFiles(srcDir string, dirs []AssetDir) []AssetDir {
 }
 
 func packageDeps(dir string) map[string]bool {
-	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	raw, err := readSrc(filepath.Join(dir, "package.json"))
 	if err != nil {
 		return nil
 	}

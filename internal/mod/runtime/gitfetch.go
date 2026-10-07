@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -15,8 +16,11 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
 )
 
 // Deploying from a git URL: the box shallow-clones one commit of a public
@@ -31,6 +35,9 @@ const (
 	maxRepoURL   = 2048
 	maxCloneSize = 512 << 20 // .git plus checkout
 	cloneTimeout = 3 * time.Minute
+	// maxProgressLine is the longest line of git's progress kept for the
+	// build log; the rest of a longer one is dropped.
+	maxProgressLine = 4 << 10
 )
 
 var (
@@ -39,6 +46,8 @@ var (
 	gitAllowPrivate = false
 	// gitExtraConfig is extra `git -c` settings (tests trust their own CA).
 	gitExtraConfig []string
+	// cloneLimit is maxCloneSize (tests lower it).
+	cloneLimit int64 = maxCloneSize
 )
 
 // gitSource is a validated repository to deploy from.
@@ -247,7 +256,7 @@ func fetchGit(ctx context.Context, src *gitSource, dir string, log io.Writer) (s
 	fmt.Fprintf(log, "==> cloning %s (%s, depth 1)\n", src, describeRef(src.Ref))
 	began := time.Now()
 	fetch := git("-C", dir, "fetch", "--depth", "1", "--no-tags", "--no-recurse-submodules", "--progress", "--", src.String(), ref)
-	var out strings.Builder
+	var out tailBuffer // the server's messages are its own: only the end is kept
 	fetch.Stdout = io.MultiWriter(log, &out)
 	fetch.Stderr = io.MultiWriter(&lineWriter{w: log}, &out)
 	if err := fetch.Start(); err != nil {
@@ -265,24 +274,37 @@ wait:
 		case err = <-done:
 			break wait
 		case <-tick.C:
-			if dirSize(dir) > maxCloneSize {
+			if dirSize(dir) > cloneLimit {
 				tooBig = true
 				_ = fetch.Process.Kill()
 			}
 		}
 	}
 	if tooBig {
-		return "", &BuildError{Msg: fmt.Sprintf("the repository is larger than %s", humanBytes(maxCloneSize)), Hint: "Deploy a smaller repository, or push just the app with tiffin deploy."}
+		return "", &BuildError{Msg: fmt.Sprintf("the repository is larger than %s", humanBytes(cloneLimit)), Hint: "Deploy a smaller repository, or push just the app with tiffin deploy."}
 	}
 	if err != nil {
 		return "", cloneError(ctx, out.String(), err)
 	}
-	co := git("-C", dir, "checkout", "-q", "--detach", "FETCH_HEAD")
-	if b, err := co.CombinedOutput(); err != nil {
-		return "", &BuildError{Msg: "git checkout failed: " + strings.TrimSpace(lastLines(string(b), 3)), Hint: "The commit could not be checked out on this box."}
+	// A small download can check out far bigger (one blob at many paths):
+	// the commit's tree is measured before any of it is written.
+	files, size, err := treeSize(git("-C", dir, "ls-tree", "-r", "-l", "-z", "FETCH_HEAD"))
+	switch {
+	case err != nil:
+		return "", &BuildError{Msg: "could not read the commit's files: " + err.Error(), Hint: "The commit could not be checked out on this box."}
+	case files > srcpack.DefaultLimits.MaxFiles:
+		return "", &BuildError{Msg: fmt.Sprintf("the commit has more than %d files", srcpack.DefaultLimits.MaxFiles), Hint: "Deploy a smaller repository."}
+	case size+dirSize(dir) > cloneLimit:
+		return "", &BuildError{Msg: fmt.Sprintf("the checkout would be larger than %s", humanBytes(cloneLimit)), Hint: "Deploy a smaller repository."}
 	}
-	if dirSize(dir) > maxCloneSize {
-		return "", &BuildError{Msg: fmt.Sprintf("the checkout is larger than %s", humanBytes(maxCloneSize)), Hint: "Deploy a smaller repository."}
+	co := git("-C", dir, "checkout", "-q", "--detach", "FETCH_HEAD")
+	var coOut tailBuffer
+	co.Stdout, co.Stderr = &coOut, &coOut
+	if err := co.Run(); err != nil {
+		return "", &BuildError{Msg: "git checkout failed: " + strings.TrimSpace(lastLines(coOut.String(), 3)), Hint: "The commit could not be checked out on this box."}
+	}
+	if dirSize(dir) > cloneLimit {
+		return "", &BuildError{Msg: fmt.Sprintf("the checkout is larger than %s", humanBytes(cloneLimit)), Hint: "Deploy a smaller repository."}
 	}
 	sha, err := git("-C", dir, "rev-parse", "HEAD").Output()
 	if err != nil {
@@ -293,12 +315,65 @@ wait:
 	return commit, nil
 }
 
+// treeSize runs ls (git ls-tree -r -l -z) and adds up the files of the
+// tree it lists and their sizes, reading entry by entry. Submodules (no
+// size) count as files of none.
+func treeSize(ls *exec.Cmd) (files int, size int64, err error) {
+	var errOut tailBuffer
+	ls.Stderr = &errOut
+	pipe, err := ls.StdoutPipe()
+	if err != nil {
+		return 0, 0, err
+	}
+	if err := ls.Start(); err != nil {
+		return 0, 0, err
+	}
+	sc := bufio.NewScanner(pipe)
+	sc.Buffer(make([]byte, 0, 4<<10), 64<<10)
+	sc.Split(func(data []byte, atEOF bool) (int, []byte, error) {
+		if i := bytes.IndexByte(data, 0); i >= 0 {
+			return i + 1, data[:i], nil
+		}
+		if atEOF && len(data) > 0 {
+			return len(data), data, nil
+		}
+		return 0, nil, nil
+	})
+	for sc.Scan() {
+		// <mode> SP <type> SP <object> SP+ <size> TAB <path>
+		meta, _, _ := bytes.Cut(sc.Bytes(), []byte{'\t'})
+		f := strings.Fields(string(meta))
+		files++
+		if len(f) == 4 {
+			if n, err := strconv.ParseInt(f[3], 10, 64); err == nil {
+				size += n
+			}
+		}
+		if files > srcpack.DefaultLimits.MaxFiles || size > cloneLimit {
+			break // enough to refuse it
+		}
+	}
+	scanErr := sc.Err()
+	_ = ls.Process.Kill()
+	werr := ls.Wait()
+	if scanErr != nil {
+		return files, size, scanErr
+	}
+	if files <= srcpack.DefaultLimits.MaxFiles && size <= cloneLimit && werr != nil {
+		return files, size, fmt.Errorf("git ls-tree: %v: %s", werr, strings.TrimSpace(lastLines(errOut.String(), 3)))
+	}
+	return files, size, nil
+}
+
 func describeRef(ref string) string {
 	if ref == "" {
 		return "default branch"
 	}
 	return "ref " + ref
 }
+
+// httpDenied is an HTTP 401 or 403 in git's output (not digits of a port).
+var httpDenied = regexp.MustCompile(`\b40[13]\b`)
 
 // cloneError turns git's output into a deploy failure with a useful hint.
 func cloneError(ctx context.Context, out string, err error) error {
@@ -307,7 +382,7 @@ func cloneError(ctx context.Context, out string, err error) error {
 	switch {
 	case ctx.Err() != nil:
 		return &BuildError{Msg: fmt.Sprintf("the clone did not finish within %s", cloneTimeout), Hint: "The repository may be very large or the host slow. Try again, or push with tiffin deploy."}
-	case strings.Contains(low, "could not read username") || strings.Contains(low, "authentication") || strings.Contains(low, "403") || strings.Contains(low, "401"):
+	case strings.Contains(low, "could not read username") || strings.Contains(low, "authentication") || httpDenied.MatchString(low):
 		return &BuildError{Msg: "the repository needs credentials: " + msg, Hint: publicRepoHint}
 	case strings.Contains(low, "not found") || strings.Contains(low, "404"):
 		return &BuildError{Msg: "repository not found: " + msg, Hint: "Check the URL (it must be public)."}
@@ -337,7 +412,9 @@ func (l *lineWriter) Write(p []byte) (int, error) {
 			}
 			l.buf = l.buf[:0]
 		default:
-			l.buf = append(l.buf, c)
+			if len(l.buf) < maxProgressLine {
+				l.buf = append(l.buf, c)
+			}
 		}
 	}
 	return len(p), nil

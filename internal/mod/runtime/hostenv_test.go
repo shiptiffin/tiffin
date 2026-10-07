@@ -74,3 +74,31 @@ func TestContainerEnvNeverReachesNerdctlEnv(t *testing.T) {
 		}
 	}
 }
+
+// Two apps never share a cache namespace, however their names split.
+func TestCacheNamespaceIsUnambiguous(t *testing.T) {
+	a, b := cacheNamespace("shop-api", "web"), cacheNamespace("shop", "api-web")
+	if a == b || len(a) != len(b) || strings.ContainsAny(strings.TrimPrefix(a, "tiffin-"), "-/") {
+		t.Fatalf("%s %s", a, b)
+	}
+}
+
+// buildOutput keeps what the box reads from buildctl, not the output.
+func TestBuildOutputIsBounded(t *testing.T) {
+	o := &buildOutput{marks: []string{"could not be found"}}
+	noise := []byte(strings.Repeat("#7 0.1 compiling a module that prints a lot\n", 1000))
+	for range 200 { // ~9 MB of lines
+		_, _ = o.Write(noise)
+	}
+	_, _ = o.Write([]byte(strings.Repeat("x", 4<<20))) // one huge line
+	_, _ = o.Write([]byte("\n#9 1.2 src/app.ts(3,1): error TS2304: Cannot find name 'x'.\n"))
+	_, _ = o.Write([]byte("#9 ERROR: process did not complete successfully: exit code: 137\n"))
+	_, _ = o.Write([]byte("exporting manifest sha256:" + strings.Repeat("d", 64)))
+	if cap(o.line) > 2*maxBuildLine {
+		t.Errorf("line buffer grew to %d", cap(o.line))
+	}
+	first, oom, dg := o.result()
+	if !strings.Contains(first, "error TS2304") || !oom || dg != "sha256:"+strings.Repeat("d", 64) || o.saw("could not be found") {
+		t.Fatalf("first %q oom %v digest %q", first, oom, dg)
+	}
+}

@@ -42,7 +42,7 @@ var workflowInstrJS string
 // the app does not use the DevKit), and whether the app depends on the
 // Postgres world itself.
 func workflowDeps(dir string) (version string, ownWorld bool) {
-	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	raw, err := readSrc(filepath.Join(dir, "package.json"))
 	if err != nil {
 		return "", false
 	}

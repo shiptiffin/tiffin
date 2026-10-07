@@ -5,7 +5,8 @@ package srcpack
 
 import (
 	"bufio"
-	"os"
+	"bytes"
+	"errors"
 	"path"
 	"path/filepath"
 	"strings"
@@ -93,13 +94,17 @@ func (m *Matcher) Add(base, line string) {
 }
 
 // AddFile reads a .gitignore-style file found in directory base.
+// As git does, it reads only a plain file, never one through a link
+// (which could lead anywhere on the box, /dev/urandom included).
 func (m *Matcher) AddFile(base, file string) error {
-	f, err := os.Open(file)
+	raw, err := ReadFile(file, false)
+	if errors.Is(err, ErrNotPlain) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(bytes.NewReader(raw))
 	for sc.Scan() {
 		m.Add(base, sc.Text())
 	}

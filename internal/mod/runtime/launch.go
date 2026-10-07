@@ -145,7 +145,7 @@ var (
 // readConfig is the first of names in dir that exists, comments removed.
 func readConfig(dir string, names []string) string {
 	for _, n := range names {
-		if raw, err := os.ReadFile(filepath.Join(dir, n)); err == nil {
+		if raw, err := readSrc(filepath.Join(dir, n)); err == nil {
 			return string(jsComments.ReplaceAll(raw, []byte("$1")))
 		}
 	}
@@ -332,7 +332,7 @@ var rrVersionRe = regexp.MustCompile(`^\s*(?:[\^~]|>=?)?\s*v?(\d+)\.(\d+)(?:\.(\
 // with the streaming memory leak (@react-router/node before 8.4.0, or
 // 7.18.4 on v7).
 func rrBeforeFix(dir string) (string, bool) {
-	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	raw, err := readSrc(filepath.Join(dir, "package.json"))
 	if err != nil {
 		return "", false
 	}

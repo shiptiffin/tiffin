@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -794,7 +795,7 @@ func yarnBerry(top string) bool {
 	if exists(filepath.Join(top, ".yarnrc.yml")) {
 		return true
 	}
-	raw, _ := os.ReadFile(filepath.Join(top, "package.json"))
+	raw, _ := readSrc(filepath.Join(top, "package.json"))
 	var pkg struct {
 		PackageManager string `json:"packageManager"`
 	}
@@ -805,7 +806,7 @@ func yarnBerry(top string) bool {
 
 // packageName is the name in dir's package.json ("" without one).
 func packageName(dir string) string {
-	raw, _ := os.ReadFile(filepath.Join(dir, "package.json"))
+	raw, _ := readSrc(filepath.Join(dir, "package.json"))
 	var pkg struct {
 		Name string `json:"name"`
 	}
@@ -821,7 +822,7 @@ func packageManager(dir string) string {
 			return l[1]
 		}
 	}
-	raw, _ := os.ReadFile(filepath.Join(dir, "package.json"))
+	raw, _ := readSrc(filepath.Join(dir, "package.json"))
 	var pkg struct {
 		PackageManager string `json:"packageManager"`
 	}
@@ -845,7 +846,7 @@ func nextExport(dir string) bool {
 		return false
 	}
 	for _, n := range nextConfigs {
-		if raw, err := os.ReadFile(filepath.Join(dir, n)); err == nil {
+		if raw, err := readSrc(filepath.Join(dir, n)); err == nil {
 			return exportRe.Match(jsComments.ReplaceAll(raw, []byte("$1")))
 		}
 	}
@@ -861,12 +862,11 @@ type staticfile struct {
 // readStaticfile reads Railpack's Staticfile (root:, index_fallback:).
 func readStaticfile(dir string) staticfile {
 	var sf staticfile
-	f, err := os.Open(filepath.Join(dir, "Staticfile"))
+	raw, err := readSrc(filepath.Join(dir, "Staticfile"))
 	if err != nil {
 		return sf
 	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(bytes.NewReader(raw))
 	for sc.Scan() {
 		k, v, ok := strings.Cut(sc.Text(), ":")
 		if !ok {
@@ -907,7 +907,7 @@ func spaFallback(req BuildRequest, sf staticfile) bool {
 	if l := req.Launch; l != nil && l.Files != nil {
 		return l.Files.SPA // the framework's own setting (ssr: false, a fallback page)
 	}
-	raw, err := os.ReadFile(filepath.Join(req.appDir(), "package.json"))
+	raw, err := readSrc(filepath.Join(req.appDir(), "package.json"))
 	if err != nil {
 		return false
 	}
@@ -1065,7 +1065,7 @@ func checkStartCommand(planPath string, req BuildRequest, given string) error {
 }
 
 func packageScript(dir, name string) string {
-	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	raw, err := readSrc(filepath.Join(dir, "package.json"))
 	if err != nil {
 		return ""
 	}
@@ -1100,7 +1100,7 @@ func pinsBun(dir string) bool {
 	if exists(filepath.Join(dir, ".bun-version")) || exists(filepath.Join(dir, "mise.toml")) || exists(filepath.Join(dir, ".tool-versions")) {
 		return true
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	raw, err := readSrc(filepath.Join(dir, "package.json"))
 	if err != nil {
 		return false
 	}

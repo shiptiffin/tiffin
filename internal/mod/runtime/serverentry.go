@@ -36,7 +36,7 @@ func bunEntry(appDir string) string {
 	if packageScript(appDir, "start") != "" || packageScript(appDir, "build") != "" {
 		return ""
 	}
-	raw, err := os.ReadFile(filepath.Join(appDir, "package.json"))
+	raw, err := readSrc(filepath.Join(appDir, "package.json"))
 	if err != nil {
 		return ""
 	}

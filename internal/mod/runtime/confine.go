@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
 )
 
 // Builds and images run the app's own code, so whatever they leave on the
@@ -86,3 +88,8 @@ func noLinks(root, rel string) error {
 	}
 	return nil
 }
+
+// readSrc reads a file of an app's unpacked source (whose links Extract
+// keeps inside it) that the box parses itself: a plain file of at most
+// srcpack.MaxMeta bytes, never a whole multi-gigabyte one.
+func readSrc(p string) ([]byte, error) { return srcpack.ReadFile(p, true) }

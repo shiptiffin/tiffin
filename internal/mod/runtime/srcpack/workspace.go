@@ -76,10 +76,10 @@ func member(globs []string, rel string) bool {
 // workspaceGlobs reads a workspace root's package globs; isRoot is false
 // when dir is not one.
 func workspaceGlobs(dir string) (globs []string, isRoot bool) {
-	if raw, err := os.ReadFile(filepath.Join(dir, "pnpm-workspace.yaml")); err == nil {
+	if raw, err := ReadFile(filepath.Join(dir, "pnpm-workspace.yaml"), false); err == nil {
 		return yamlPackages(raw), true
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	raw, err := ReadFile(filepath.Join(dir, "package.json"), false)
 	if err != nil {
 		return nil, false
 	}
@@ -136,7 +136,7 @@ func yamlPackages(raw []byte) []string {
 func unquote(s string) string { return strings.Trim(strings.TrimSpace(s), `"'`) }
 
 func usesWorkspace(dir string) bool {
-	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	raw, err := ReadFile(filepath.Join(dir, "package.json"), false)
 	if err != nil {
 		return false
 	}
