@@ -105,11 +105,16 @@ var rrRunnerJS string
 
 // launchFor reads the app in appDir (the app's folder, the build context's
 // top for single apps) and returns what the box does for its framework,
-// nil for an app it starts like any other.
-func launchFor(appDir string, onNode bool) *launch {
+// nil for an app it starts like any other. build is the build command that
+// runs (the app's settings, else vercel.json's), "" for its build script.
+func launchFor(appDir string, onNode bool, build string) *launch {
 	deps := packageDeps(appDir)
 	start := packageScript(appDir, "start")
-	build := packageScript(appDir, "build")
+	if build == "" {
+		build = packageScript(appDir, "build")
+	} else if m := runScriptRe.FindStringSubmatch(build); m != nil && packageScript(appDir, m[1]) != "" {
+		build = packageScript(appDir, m[1]) // `npm run generate`: what the script runs
+	}
 	switch {
 	case deps["@sveltejs/kit"]:
 		return svelteKitLaunch(appDir, deps, start, onNode)
@@ -120,6 +125,10 @@ func launchFor(appDir string, onNode bool) *launch {
 	}
 	return nil
 }
+
+// runScriptRe is a command that runs one of package.json's scripts (`bun
+// build` is Bun's bundler and `npm build` no script, so those need run).
+var runScriptRe = regexp.MustCompile(`^(?:(?:bun(?: --bun)?|npm) run|(?:pnpm|yarn)(?: run)?) ([\w:.-]+)$`)
 
 // --- SvelteKit -------------------------------------------------------------
 
@@ -143,6 +152,24 @@ func readConfig(dir string, names []string) string {
 	return ""
 }
 
+// kitConfig is the SvelteKit config that sets the adapter: SvelteKit 3
+// configures it in vite.config, SvelteKit 2 in svelte.config next to an
+// ordinary vite.config, so the first file that names an adapter wins, else
+// the first that exists.
+func kitConfig(dir string) string {
+	first := ""
+	for _, n := range kitConfigs {
+		cfg := readConfig(dir, []string{n})
+		if kitAdapterRe.MatchString(cfg) {
+			return cfg
+		}
+		if first == "" {
+			first = cfg
+		}
+	}
+	return first
+}
+
 // svelteKitAdapter is the adapter the app's config imports (bun, node,
 // static, auto...), else the one it depends on.
 func svelteKitAdapter(cfg string, deps map[string]bool) string {
@@ -158,7 +185,7 @@ func svelteKitAdapter(cfg string, deps map[string]bool) string {
 }
 
 func svelteKitLaunch(appDir string, deps map[string]bool, start string, onNode bool) *launch {
-	cfg := readConfig(appDir, kitConfigs)
+	cfg := kitConfig(appDir)
 	adapter := svelteKitAdapter(cfg, deps)
 	out := "build"
 	if m := kitOutRe.FindStringSubmatch(cfg); m != nil && safeRel(m[1]) {

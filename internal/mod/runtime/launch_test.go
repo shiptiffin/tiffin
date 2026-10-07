@@ -22,6 +22,7 @@ func TestLaunchFor(t *testing.T) {
 		page   string
 		env    string // one Run key the launch must set
 		build  string // one Build key
+		build_ string // the build command that runs ("" for the build script)
 		warn   bool
 		err    bool
 	}{
@@ -33,6 +34,16 @@ func TestLaunchFor(t *testing.T) {
 			"package.json":     `{"devDependencies":{"@sveltejs/kit":"2.40.0","@sveltejs/adapter-node":"5.0.0"}}`,
 			"svelte.config.js": `import adapter from '@sveltejs/adapter-node'; export default { kit: { adapter: adapter({ out: 'server' }) } }`,
 		}, id: "sveltekit", start: "bun ./server/index.js", env: "KEEP_ALIVE_TIMEOUT"},
+		{name: "SvelteKit 2, adapter-node in svelte.config next to vite.config", files: map[string]string{
+			"package.json":     `{"devDependencies":{"@sveltejs/kit":"2.40.0","@sveltejs/adapter-node":"5.0.0"}}`,
+			"vite.config.ts":   `import { sveltekit } from '@sveltejs/kit/vite'; export default { plugins: [sveltekit()] }`,
+			"svelte.config.js": `import adapter from '@sveltejs/adapter-node'; export default { kit: { adapter: adapter({ out: 'server' }) } }`,
+		}, id: "sveltekit", start: "bun ./server/index.js", env: "KEEP_ALIVE_TIMEOUT"},
+		{name: "SvelteKit 2, adapter-static in svelte.config next to vite.config", files: map[string]string{
+			"package.json":     `{"devDependencies":{"@sveltejs/kit":"2.40.0","@sveltejs/adapter-static":"3.0.0"}}`,
+			"vite.config.js":   `import { sveltekit } from '@sveltejs/kit/vite'; export default { plugins: [sveltekit()] }`,
+			"svelte.config.js": `import adapter from '@sveltejs/adapter-static'; export default { kit: { adapter: adapter({ pages: 'site', fallback: '200.html' }) } }`,
+		}, id: "sveltekit", files_: "site", page: "/200.html"},
 		{name: "SvelteKit, adapter-node on Node.js", files: map[string]string{
 			"package.json": `{"devDependencies":{"@sveltejs/kit":"3.0.0","@sveltejs/adapter-node":"6.0.0"}}`,
 		}, node: true, id: "sveltekit", start: "node ./build/index.js", env: "PROTOCOL_HEADER"},
@@ -64,6 +75,15 @@ sveltekit({ adapter: adapter({ fallback: '200.html' }) })`,
 		{name: "Nuxt generate", files: map[string]string{
 			"package.json": `{"dependencies":{"nuxt":"4.6.0"},"scripts":{"build":"nuxt generate"}}`,
 		}, id: "nuxt", files_: ".output/public"},
+		{name: "Nuxt, its build setting runs nuxt generate", files: map[string]string{
+			"package.json": `{"dependencies":{"nuxt":"4.6.0"},"scripts":{"build":"nuxt build"}}`,
+		}, build_: "nuxt generate", id: "nuxt", files_: ".output/public"},
+		{name: "Nuxt, its build setting runs the generate script", files: map[string]string{
+			"package.json": `{"dependencies":{"nuxt":"4.6.0"},"scripts":{"build":"nuxt build","generate":"nuxt generate"}}`,
+		}, build_: "npm run generate", id: "nuxt", files_: ".output/public"},
+		{name: "Nuxt, its build setting runs nuxt build over a generate script", files: map[string]string{
+			"package.json": `{"dependencies":{"nuxt":"4.6.0"},"scripts":{"build":"nuxt generate"}}`,
+		}, build_: "bun run nuxt:build", id: "nuxt", start: "bun .output/server/index.mjs"},
 		{name: "Nuxt generate, ssr: false", files: map[string]string{
 			"package.json":   `{"dependencies":{"nuxt":"4.6.0"},"scripts":{"build":"nuxt generate"}}`,
 			"nuxt.config.ts": `export default defineNuxtConfig({ ssr: false })`,
@@ -86,7 +106,7 @@ sveltekit({ adapter: adapter({ fallback: '200.html' }) })`,
 	} {
 		dir := t.TempDir()
 		writeFiles(t, dir, c.files)
-		l := launchFor(dir, c.node)
+		l := launchFor(dir, c.node, c.build_)
 		if c.id == "" {
 			if l != nil {
 				t.Errorf("%s: got %+v, want none", c.name, l)
@@ -148,7 +168,7 @@ func TestLaunchRailpackBuild(t *testing.T) {
 		bin, log := fakeTools(t)
 		b := &boxBuilder{eng: newFakeEngine(), binDir: bin, memoryMB: 2048}
 		req := buildReq(t, manifest.App{Framework: manifest.FrameworkBun}, c.files)
-		req.Launch = launchFor(req.SrcDir, false)
+		req.Launch = launchFor(req.SrcDir, false, "")
 		if _, err := b.Build(context.Background(), req); err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
@@ -188,7 +208,7 @@ func TestLaunchFilesFromAServerApp(t *testing.T) {
 		"package.json":           `{"dependencies":{"react-router":"8.4.0"},"devDependencies":{"@react-router/dev":"8.4.0"},"scripts":{"build":"react-router build"}}`,
 		"react-router.config.ts": `export default { ssr: false, prerender: ["/"] }`,
 	})
-	req.Launch = launchFor(req.SrcDir, false)
+	req.Launch = launchFor(req.SrcDir, false, "")
 	res, err := b.Build(context.Background(), req)
 	if err != nil {
 		t.Fatalf("%v\n%s", err, readCalls(t, log))
@@ -209,5 +229,30 @@ func TestSmokeName(t *testing.T) {
 	if smokeName(bun, &Deploy{}) != "" || smokeName(bun, &Deploy{Launch: "nuxt"}) != "Nuxt" ||
 		smokeName(&manifest.App{Framework: manifest.FrameworkNext}, &Deploy{}) != "Next.js" {
 		t.Error("smoke tests: Next.js and the launched frameworks only")
+	}
+}
+
+// SvelteKit's adapter-static SPA (a fallback page, nothing prerendered)
+// writes no index.html: the fallback is the site's entry, and / serves it.
+func TestLaunchFilesWithOnlyAFallbackPage(t *testing.T) {
+	bin, log := fakeTools(t)
+	writeFiles(t, bin, map[string]string{"railpack": "#!/bin/sh\n" + `while [ $# -gt 0 ]; do if [ "$1" = --plan-out ]; then echo '{"steps":[{"name":"install"},{"name":"build"}],"deploy":{}}' > "$2"; fi; shift; done` + "\n",
+		"buildctl": "#!/bin/sh\n" + `for a in "$@"; do case "$a" in type=local,dest=*) d="${a#type=local,dest=}"; mkdir -p "$d/tiffin-out/0/_app" && echo shell > "$d/tiffin-out/0/200.html" && echo js > "$d/tiffin-out/0/_app/a.js";; esac; done` + "\n"})
+	b := &boxBuilder{eng: newFakeEngine(), binDir: bin, staticDir: t.TempDir(), memoryMB: 2048}
+	req := buildReq(t, manifest.App{Framework: manifest.FrameworkBun}, map[string]string{
+		"package.json":     `{"devDependencies":{"@sveltejs/kit":"2.40.0","@sveltejs/adapter-static":"3.0.0"},"scripts":{"build":"vite build"}}`,
+		"vite.config.ts":   `import { sveltekit } from '@sveltejs/kit/vite'; export default { plugins: [sveltekit()] }`,
+		"svelte.config.js": `import adapter from '@sveltejs/adapter-static'; export default { kit: { adapter: adapter({ fallback: '200.html' }) } }`,
+	})
+	req.Launch = launchFor(req.SrcDir, false, "")
+	res, err := b.Build(context.Background(), req)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, readCalls(t, log))
+	}
+	if res.StaticRoot == "" || !res.SPA || res.SPAPage != "/200.html" {
+		t.Fatalf("got %+v", res)
+	}
+	if got, _ := os.ReadFile(filepath.Join(res.StaticRoot, "index.html")); string(got) != "shell\n" {
+		t.Errorf("/ serves %q, want the fallback page", got)
 	}
 }

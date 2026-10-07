@@ -535,9 +535,9 @@ func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildRe
 	}
 	root := sf.root
 	if l := req.Launch; root == "" && l != nil && l.Files != nil {
-		root = firstWithIndex(appDir, l.Files.Dirs)
+		root = firstWithEntry(appDir, l.Files.Dirs, req.Launch)
 	}
-	rootRel := staticRootOf(appDir, root)
+	rootRel := staticRootOf(appDir, root, req.Launch)
 	if rootRel == "" {
 		return BuildResult{}, &BuildError{Msg: "no index.html found to serve",
 			Hint: "Put index.html at the top of the app, in public/, dist/, build/ or out/, or name the folder: Output directory in the app's Build and deploy settings (output in tiffin.config.ts)."}
@@ -613,6 +613,9 @@ func (b *boxBuilder) serveFiles(req BuildRequest, root, from, name string, spa b
 	if err := os.Rename(from, dest); err != nil {
 		return BuildResult{}, err
 	}
+	if err := indexFromPage(dest, req.Launch); err != nil {
+		return BuildResult{}, err
+	}
 	n, size := countFiles(dest)
 	fmt.Fprintf(req.Log, "==> serving %d files (%s) from %s/\n", n, humanBytes(size), name)
 	finishStatic(dest, req.Log)
@@ -641,7 +644,7 @@ func (b *boxBuilder) buildFiles(ctx context.Context, req BuildRequest, ref strin
 		return BuildResult{}, fmt.Errorf("the built files: %w", err)
 	}
 	for i, dir := range dirs {
-		if from := filepath.Join(out, strconv.Itoa(i)); exists(filepath.Join(from, "index.html")) {
+		if from := filepath.Join(out, strconv.Itoa(i)); hasEntry(from, req.Launch) {
 			return b.serveFiles(req, out, from, dir, spa)
 		}
 	}
@@ -920,15 +923,46 @@ func spaFallback(req BuildRequest, sf staticfile) bool {
 	return false
 }
 
-// firstWithIndex is the first of dirs (relative to dir) with an
-// index.html, "" for none.
-func firstWithIndex(dir string, dirs []string) string {
+// firstWithEntry is the first of dirs (relative to dir) with an entry
+// page (see hasEntry), "" for none.
+func firstWithEntry(dir string, dirs []string, l *launch) string {
 	for _, d := range dirs {
-		if exists(filepath.Join(dir, filepath.FromSlash(d), "index.html")) {
+		if hasEntry(filepath.Join(dir, filepath.FromSlash(d)), l) {
 			return d
 		}
 	}
 	return ""
+}
+
+// hasEntry reports whether a built site in dir has a page to start from:
+// index.html, or the framework's SPA page (an adapter-static fallback such
+// as 200.html, which SvelteKit writes without an index.html when it
+// prerenders nothing).
+func hasEntry(dir string, l *launch) bool {
+	if isFile(filepath.Join(dir, "index.html")) {
+		return true
+	}
+	return l != nil && l.Files != nil && l.Files.Page != "" && isFile(filepath.Join(dir, filepath.FromSlash(l.Files.Page)))
+}
+
+// indexFromPage gives a site with an SPA page but no index.html one, a
+// copy of the page: the edge answers / with index.html (a folder without
+// one is a 404), and without a prerendered home page the SPA page is it.
+func indexFromPage(dir string, l *launch) error {
+	if isFile(filepath.Join(dir, "index.html")) || !hasEntry(dir, l) {
+		return nil
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(l.Files.Page)))
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "index.html"), raw, 0o644)
+}
+
+// isFile reports whether p is a file (a link to one counts).
+func isFile(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.Mode().IsRegular()
 }
 
 // spaPage is the page a single-page app built to root serves for paths
@@ -948,8 +982,9 @@ func spaPage(root string, l *launch) string {
 	return ""
 }
 
-// staticRootOf picks the directory to serve, relative to dir ("." for dir itself).
-func staticRootOf(dir, configured string) string {
+// staticRootOf picks the directory to serve, relative to dir ("." for dir
+// itself): the first with an entry page (see hasEntry).
+func staticRootOf(dir, configured string, l *launch) string {
 	cands := []string{"dist", "build", "out", "public", "."}
 	if configured != "" {
 		cands = []string{configured}
@@ -959,7 +994,7 @@ func staticRootOf(dir, configured string) string {
 		if strings.HasPrefix(c, "..") || filepath.IsAbs(c) {
 			continue
 		}
-		if fi, err := os.Stat(filepath.Join(dir, c, "index.html")); err == nil && fi.Mode().IsRegular() {
+		if hasEntry(filepath.Join(dir, c), l) {
 			return c
 		}
 	}
