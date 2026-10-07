@@ -222,3 +222,47 @@ func TestOldDomainAliasesReachTheApp(t *testing.T) {
 		}
 	}
 }
+
+// WebSockets go through, and CloseStreams (the edge stopping) ends them.
+func TestCloseStreamsEndsWebSockets(t *testing.T) {
+	echo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, rw, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+		rw.Flush()
+		io.Copy(c, rw)
+	}))
+	defer echo.Close()
+	b := New(nil, nil)
+	b.Set(Table{
+		Hosts: map[string][]Route{"app.test": {{Env: "p/a"}}},
+		Envs:  map[string]*Env{"p/a": {Project: "p", App: "a", Live: "d1", Instances: []Instance{{Name: "p-a-1", Port: portOf(t, echo.Listener.Addr().String())}}}},
+	})
+	srv := httptest.NewServer(b)
+	defer srv.Close()
+	c, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	io.WriteString(c, "GET /ws HTTP/1.1\r\nHost: app.test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+	br := bufio.NewReader(c)
+	if res, err := http.ReadResponse(br, nil); err != nil || res.StatusCode != 101 {
+		t.Fatalf("upgrade: %v %v", res, err)
+	}
+	c.SetDeadline(time.Now().Add(3 * time.Second))
+	io.WriteString(c, "ping")
+	buf := make([]byte, 4)
+	if _, err := io.ReadFull(br, buf); err != nil || string(buf) != "ping" {
+		t.Fatalf("echo: %q %v", buf, err)
+	}
+	b.CloseStreams()
+	if _, err := br.ReadByte(); err == nil {
+		t.Fatal("the stream is still open")
+	} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		t.Fatal("the stream was not closed")
+	}
+}

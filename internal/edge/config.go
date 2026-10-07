@@ -394,6 +394,9 @@ func ConfigJSON(cfg Config) ([]byte, error) {
 	return json.MarshalIndent(buildConfig(c), "", "  ")
 }
 
+// streamCloseDelay is how long a stream outlives the config it began under.
+const streamCloseDelay = 24 * time.Hour
+
 func proxy(upstream string) obj { return proxyMany([]string{upstream}) }
 
 func proxyMany(upstreams []string) obj {
@@ -405,6 +408,11 @@ func proxyMany(upstreams []string) obj {
 		"handler":        "reverse_proxy",
 		"upstreams":      ups,
 		"flush_interval": -1, // stream SSE and chunked responses straight through
+		// A config reload (a new preview's host, say) would close every
+		// WebSocket on the box; streams are kept until they end instead, up
+		// to the longest time limit a request may have (the switchboard
+		// ends an app's own at its timeoutSeconds).
+		"stream_close_delay": streamCloseDelay.String(),
 		"headers": obj{"request": obj{"set": obj{
 			// The access log's request_id: apps can log it, and the runtime
 			// makes it the trace ID of the request's OpenTelemetry spans.

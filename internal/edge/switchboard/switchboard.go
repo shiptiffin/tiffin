@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net"
@@ -137,6 +138,9 @@ type Board struct {
 	// those retired within AssetsKept, as of the last Set); only these
 	// are cached.
 	served map[string]bool
+
+	streamMu sync.Mutex
+	streams  map[io.Closer]struct{} // upgraded connections (WebSockets) to apps
 }
 
 // New returns an empty switchboard: every request is a 404 until Set.
@@ -144,7 +148,8 @@ func New(ctl Control, log *slog.Logger) *Board {
 	if log == nil {
 		log = slog.Default()
 	}
-	b := &Board{ctl: ctl, log: log, inflight: map[string]*atomic.Int64{}, seen: map[string]time.Time{}, metas: map[string]releaseMeta{}}
+	b := &Board{ctl: ctl, log: log, inflight: map[string]*atomic.Int64{}, seen: map[string]time.Time{}, metas: map[string]releaseMeta{},
+		streams: map[io.Closer]struct{}{}}
 	// Each request names its app's cgroup (serveApp); the dialer checks
 	// every new connection against it.
 	d := &peer.Dialer{Dialer: net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}}
@@ -418,6 +423,14 @@ func (b *Board) serveApp(w http.ResponseWriter, req *http.Request, key string) {
 		},
 		Transport:     b.proxy,
 		FlushInterval: -1,
+		ModifyResponse: func(res *http.Response) error {
+			if res.StatusCode == http.StatusSwitchingProtocols {
+				if c, ok := res.Body.(io.ReadWriteCloser); ok {
+					res.Body = b.stream(c)
+				}
+			}
+			return nil
+		},
 		ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
 			if errors.Is(context.Cause(req.Context()), errTooLong) {
 				http.Error(w, tooLong(limit), http.StatusGatewayTimeout)
@@ -436,6 +449,45 @@ func (b *Board) serveApp(w http.ResponseWriter, req *http.Request, key string) {
 		}
 	}()
 	rp.ServeHTTP(w, req)
+}
+
+// stream counts an upgraded connection until it closes (CloseStreams).
+func (b *Board) stream(c io.ReadWriteCloser) io.ReadWriteCloser {
+	s := &streamConn{ReadWriteCloser: c, b: b}
+	b.streamMu.Lock()
+	b.streams[s] = struct{}{}
+	b.streamMu.Unlock()
+	return s
+}
+
+type streamConn struct {
+	io.ReadWriteCloser
+	b    *Board
+	once sync.Once
+}
+
+func (s *streamConn) Close() error {
+	s.once.Do(func() {
+		s.b.streamMu.Lock()
+		delete(s.b.streams, s)
+		s.b.streamMu.Unlock()
+	})
+	return s.ReadWriteCloser.Close()
+}
+
+// CloseStreams ends every WebSocket (any upgraded connection) to an app:
+// the edge stopping (its config reloads keep them, see the edge's proxy).
+// Requests under way are left to finish.
+func (b *Board) CloseStreams() {
+	b.streamMu.Lock()
+	all := make([]io.Closer, 0, len(b.streams))
+	for s := range b.streams {
+		all = append(all, s)
+	}
+	b.streamMu.Unlock()
+	for _, s := range all {
+		_ = s.Close()
+	}
 }
 
 func tooLong(limit time.Duration) string {

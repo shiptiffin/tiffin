@@ -193,6 +193,7 @@
                       }
                     }
                   },
+                  "stream_close_delay": "24h0m0s",
                   "upstreams": [
                     {
                       "dial": "127.0.0.1:7070"
@@ -244,6 +245,7 @@
                       }
                     }
                   },
+                  "stream_close_delay": "24h0m0s",
                   "upstreams": [
                     {
                       "dial": "127.0.0.1:9002"
@@ -295,6 +297,7 @@
                       }
                     }
                   },
+                  "stream_close_delay": "24h0m0s",
                   "upstreams": [
                     {
                       "dial": "127.0.0.1:9001"

@@ -111,6 +111,9 @@ func (s *Server) Start(ctx context.Context) error {
 		// for good. With socket activation, connections that arrive
 		// meanwhile wait in the kernel for the next edge.
 		_ = caddy.Stop()
+		// WebSockets outlive config reloads (stream_close_delay); stopping,
+		// they end now rather than hold the restart up.
+		s.board.CloseStreams()
 		if !waitConns(10 * time.Second) {
 			s.Log.Warn("edge: requests still under way after 10s; stopping anyway")
 		}
