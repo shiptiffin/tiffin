@@ -61,32 +61,43 @@ func (f headerField) value() string {
 // markForRelay adds what lets the provider's events be matched back to the
 // message: our ID as a header (and, for SendGrid, a unique argument; for
 // Postmark, metadata), and a Message-ID when the message has none. It
-// returns the message and its Message-ID.
+// returns the message and its Message-ID. Correlation fields the sender put
+// in itself are dropped first: events trust them, so only the box sets them.
 func markForRelay(raw []byte, id, domain, provider string) ([]byte, string) {
 	fields, rest := splitHeader(raw)
-	has := func(name string) int {
-		return slices.IndexFunc(fields, func(f headerField) bool { return f.name == name })
-	}
 	var add bytes.Buffer
 	msgID := ""
-	if i := has("Message-Id"); i >= 0 {
+	if i := slices.IndexFunc(fields, func(f headerField) bool { return f.name == "Message-Id" }); i >= 0 {
 		msgID = normMessageID(fields[i].value())
 	} else {
 		msgID = "<" + id + "@" + domain + ">"
 		add.WriteString("Message-ID: " + msgID + "\r\n")
 	}
-	if has("X-Tiffin-Message-Id") < 0 {
-		add.WriteString("X-Tiffin-Message-Id: " + id + "\r\n")
-	}
+	add.WriteString("X-Tiffin-Message-Id: " + id + "\r\n")
+	var smtpAPI []string // the sender's X-SMTPAPI headers
+	fields = slices.DeleteFunc(fields, func(f headerField) bool {
+		switch {
+		case f.name == "X-Tiffin-Message-Id":
+			return true
+		case provider == ProviderSendGrid && f.name == "X-Smtpapi":
+			smtpAPI = append(smtpAPI, f.value())
+			return true
+		case provider == ProviderPostmark && strings.EqualFold(f.name, "X-Pm-Metadata-"+postmarkMetaKey):
+			return true
+		}
+		return false
+	})
 	switch provider {
 	case ProviderSendGrid:
 		// X-SMTPAPI unique_args come back as top-level fields of every event.
+		// The sender's own header (the first one that is JSON) is kept, with
+		// our ID set in it.
 		args := map[string]any{}
-		if i := has("X-Smtpapi"); i >= 0 {
-			if json.Unmarshal([]byte(fields[i].value()), &args) != nil {
-				break // the app's own header is not JSON: leave it, smtp-id still matches
+		for _, v := range smtpAPI {
+			if json.Unmarshal([]byte(v), &args) == nil {
+				break
 			}
-			fields = slices.Delete(fields, i, i+1)
+			args = map[string]any{}
 		}
 		ua, _ := args["unique_args"].(map[string]any)
 		if ua == nil {
@@ -95,13 +106,12 @@ func markForRelay(raw []byte, id, domain, provider string) ([]byte, string) {
 		ua[tiffinArg] = id
 		args["unique_args"] = ua
 		b, _ := json.Marshal(args)
-		if len(b) <= 980 { // SendGrid: keep the header line under 1,000 characters
-			add.WriteString("X-SMTPAPI: " + string(b) + "\r\n")
+		if len(b) > 980 { // SendGrid: keep the header line under 1,000 characters
+			b, _ = json.Marshal(map[string]any{"unique_args": map[string]any{tiffinArg: id}})
 		}
+		add.WriteString("X-SMTPAPI: " + string(b) + "\r\n")
 	case ProviderPostmark:
-		if has("X-Pm-Metadata-"+postmarkMetaKey) < 0 {
-			add.WriteString("X-PM-Metadata-" + postmarkMetaKey + ": " + id + "\r\n")
-		}
+		add.WriteString("X-PM-Metadata-" + postmarkMetaKey + ": " + id + "\r\n")
 	}
 	out := make([]byte, 0, len(raw)+add.Len())
 	out = append(out, add.Bytes()...)
@@ -140,18 +150,39 @@ var msgIDRE = regexp.MustCompile(`^msg_[0-9A-Z]{26}$`)
 // matchEvent finds the message an event is about: by our ID, then the
 // Message-ID header, then the provider's message ID, then (once, for the
 // first event of a message from a provider that echoes none of those) by
-// recipient and subject within an hour of sending.
+// recipient and subject within an hour of sending. A message only matches
+// when it went through this provider and the event's recipient is one of
+// its recipients. The Message-ID is the sender's to choose, so one shared by
+// messages of different projects matches none of them.
 func matchEvent(ctx context.Context, db *sql.DB, provider string, ev *inEvent) (id, project string) {
+	const sel = `SELECT m.id, m.project, m.rcpt FROM email_tracking t JOIN email_messages m ON m.id = t.id WHERE t.provider = ? AND `
 	one := func(q string, args ...any) bool {
-		return db.QueryRowContext(ctx, q, args...).Scan(&id, &project) == nil
+		rows, err := db.QueryContext(ctx, sel+q+` ORDER BY t.sent_at DESC LIMIT 20`, append([]any{provider}, args...)...)
+		if err != nil {
+			return false
+		}
+		defer rows.Close()
+		var hits [][2]string
+		for rows.Next() {
+			var mid, proj, rcpt string
+			if rows.Scan(&mid, &proj, &rcpt) != nil || !hasRecipient(rcpt, ev.Recipient) {
+				continue
+			}
+			hits = append(hits, [2]string{mid, proj})
+		}
+		if len(hits) == 0 || slices.ContainsFunc(hits, func(h [2]string) bool { return h[1] != hits[0][1] }) {
+			return false // none, or messages of different projects: better unmatched than wrong
+		}
+		id, project = hits[0][0], hits[0][1] // the newest
+		return true
 	}
-	if msgIDRE.MatchString(ev.TiffinID) && one(`SELECT id, project FROM email_messages WHERE id = ?`, ev.TiffinID) {
+	if msgIDRE.MatchString(ev.TiffinID) && one(`m.id = ?`, ev.TiffinID) {
 		return
 	}
-	if ev.HeaderID != "" && one(`SELECT id, project FROM email_tracking WHERE header_id = ? AND provider = ? ORDER BY sent_at DESC LIMIT 1`, ev.HeaderID, provider) {
+	if ev.HeaderID != "" && one(`t.header_id = ?`, ev.HeaderID) {
 		return
 	}
-	if ev.ProviderID != "" && one(`SELECT id, project FROM email_tracking WHERE provider = ? AND provider_id = ? LIMIT 1`, provider, ev.ProviderID) {
+	if ev.ProviderID != "" && one(`t.provider_id = ?`, ev.ProviderID) {
 		return
 	}
 	if ev.Subject == "" || ev.Recipient == "" || ev.At.IsZero() {
@@ -170,9 +201,7 @@ func matchEvent(ctx context.Context, db *sql.DB, provider string, ev *inEvent) (
 		if rows.Scan(&mid, &proj, &rcpt) != nil {
 			continue
 		}
-		var list []string
-		_ = json.Unmarshal([]byte(rcpt), &list)
-		if slices.ContainsFunc(list, func(a string) bool { return normAddr(a) == ev.Recipient }) {
+		if hasRecipient(rcpt, ev.Recipient) {
 			hits = append(hits, [2]string{mid, proj})
 		}
 	}
@@ -180,6 +209,17 @@ func matchEvent(ctx context.Context, db *sql.DB, provider string, ev *inEvent) (
 		return "", "" // none, or ambiguous: better unmatched than wrong
 	}
 	return hits[0][0], hits[0][1]
+}
+
+// hasRecipient reports whether addr ("" for an event without one) is in a
+// message's JSON recipient list.
+func hasRecipient(rcpt, addr string) bool {
+	if addr == "" {
+		return true
+	}
+	var list []string
+	_ = json.Unmarshal([]byte(rcpt), &list)
+	return slices.ContainsFunc(list, func(a string) bool { return normAddr(a) == normAddr(addr) })
 }
 
 // statusRank orders relayed statuses: an event only moves a message forward.

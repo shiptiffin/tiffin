@@ -169,7 +169,6 @@ type resendPayload struct {
 			Type    string `json:"type"`
 			Message string `json:"message"`
 		} `json:"suppressed"`
-		Tags map[string]any `json:"tags"`
 	} `json:"data"`
 }
 
@@ -182,9 +181,6 @@ func parseResend(body []byte, deliveryID string) ([]inEvent, error) {
 	}
 	ev := inEvent{Event: Event{Provider: ProviderResend, At: p.CreatedAt.UTC()}, HeaderID: normMessageID(p.Data.MessageID),
 		ProviderID: p.Data.EmailID, Subject: p.Data.Subject}
-	if v, ok := p.Data.Tags[tiffinArg].(string); ok {
-		ev.TiffinID = v
-	}
 	switch p.Type {
 	case "email.delivered":
 		ev.Type = EventDelivered
