@@ -223,7 +223,7 @@ func (m *Module) otlpHTTP(signal string) http.HandlerFunc {
 			hdr.Set("AccountID", strconv.FormatUint(uint64(t), 10))
 			hdr.Set("ProjectID", "0")
 		}
-		res, err := forward(r.Context(), target, r.Header, hdr, raw)
+		res, err := m.vic.forward(r.Context(), target, r.Header, hdr, raw)
 		if err != nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "the " + signal + " store is not reachable; try again shortly"})
 			return
@@ -281,10 +281,11 @@ func (m *Module) otlpTraces(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func forward(ctx context.Context, target string, in, extra http.Header, body []byte) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
+func (v *Victoria) forward(ctx context.Context, target string, in, extra http.Header, body []byte) (*http.Response, error) {
+	// The stores' password: without it they answer 401 to every export.
+	req := v.newReq(ctx, http.MethodPost, target, bytes.NewReader(body))
+	if req == nil {
+		return nil, errors.New("bad store URL " + target)
 	}
 	for _, h := range []string{"Content-Type", "Content-Encoding"} {
 		if v := in.Get(h); v != "" {

@@ -158,3 +158,46 @@ func TestBuildLinesShipped(t *testing.T) {
 	}
 	t.Fatal("tail position of a removed file kept")
 }
+
+// TestOTLPForwardSendsStorePassword: the stores answer 401 without their
+// password, so OTLP metrics and logs exports must carry it (they did not:
+// every app's metrics and logs export failed with 401 on a box).
+func TestOTLPForwardSendsStorePassword(t *testing.T) {
+	var mu sync.Mutex
+	got := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, pw, ok := r.BasicAuth()
+		mu.Lock()
+		defer mu.Unlock()
+		if !ok || u != authUser || pw != "s3cret" {
+			got["401"]++
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		got[r.URL.Path]++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	h := newHarness(t, &Victoria{VM: srv.URL, VL: srv.URL, Password: "s3cret"})
+	env, _ := h.m.Env(context.Background(), h.m.p, "shop", "web")
+	key := strings.TrimPrefix(env["OTEL_EXPORTER_OTLP_HEADERS"], "x-tiffin-key=")
+	for _, signal := range []string{"metrics", "logs"} {
+		r, _ := http.NewRequest("POST", h.ingest.URL+"/v1/"+signal, strings.NewReader(""))
+		r.Header.Set("Content-Type", "application/x-protobuf")
+		r.Header.Set("X-Tiffin-Key", key)
+		res, err := http.DefaultClient.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, res.Body)
+		res.Body.Close()
+		if res.StatusCode/100 != 2 {
+			t.Fatalf("otlp %s: HTTP %d", signal, res.StatusCode)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if got["401"] != 0 || got["/opentelemetry/v1/metrics"] != 1 || got["/insert/opentelemetry/v1/logs"] != 1 {
+		t.Fatalf("store saw %v", got)
+	}
+}
