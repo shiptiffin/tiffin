@@ -106,6 +106,8 @@ type ghState struct {
 	// private CA set their own).
 	HTTP *http.Client
 	q    ghQueue
+	// inflight are the deliveries being handled (by deliveryKey).
+	inflight map[string]bool
 }
 
 type cachedRepos struct {
@@ -487,26 +489,58 @@ func (r *rt) events(ctx context.Context) []GitHubEvent {
 	return evs
 }
 
-// seen records a delivery id and reports whether it was already handled.
-func (r *rt) seen(ctx context.Context, id string) (bool, error) {
-	if _, ok, err := r.p.DB.KVGet(ctx, nsGitHubDeliveries, id); err != nil || ok {
-		return ok, err
+// deliveryKey identifies a delivery by its signed content: a replay
+// under a fresh X-GitHub-Delivery id (the header is not signed) is the same
+// delivery, and GitHub's own redeliveries carry the same body.
+func deliveryKey(event string, body []byte) string {
+	h := sha256.New()
+	h.Write([]byte(event + "\n"))
+	h.Write(body)
+	return hex.EncodeToString(h.Sum(nil)[:16])
+}
+
+// claimDelivery reports whether a delivery was already handled or is being
+// handled right now; otherwise it claims it. done(true) records it as
+// handled; done(false) lets a redelivery try again (it failed on the box's
+// side, a database error say, and GitHub shows it as failed).
+func (r *rt) claimDelivery(ctx context.Context, key string) (dup bool, done func(handled bool), err error) {
+	r.gh.mu.Lock()
+	if r.gh.inflight[key] {
+		r.gh.mu.Unlock()
+		return true, nil, nil
 	}
-	now := time.Now().UTC()
-	if err := r.p.DB.KVPut(ctx, nsGitHubDeliveries, id, []byte(now.Format(time.RFC3339))); err != nil {
-		return false, err
+	if r.gh.inflight == nil {
+		r.gh.inflight = map[string]bool{}
 	}
-	// Keep a day of ids; older replays fail the age check anyway.
-	if now.Unix()%16 == 0 {
-		if all, err := r.p.DB.KVList(ctx, nsGitHubDeliveries); err == nil {
-			for k, v := range all {
-				if t, err := time.Parse(time.RFC3339, string(v)); err != nil || now.Sub(t) > 24*time.Hour {
-					_ = r.p.DB.KVDelete(ctx, nsGitHubDeliveries, k)
+	r.gh.inflight[key] = true
+	r.gh.mu.Unlock()
+	release := func() {
+		r.gh.mu.Lock()
+		delete(r.gh.inflight, key)
+		r.gh.mu.Unlock()
+	}
+	if _, ok, err := r.p.DB.KVGet(ctx, nsGitHubDeliveries, key); err != nil || ok {
+		release()
+		return ok, nil, err
+	}
+	return false, func(handled bool) {
+		defer release()
+		if !handled {
+			return
+		}
+		now := time.Now().UTC()
+		_ = r.p.DB.KVPut(ctx, nsGitHubDeliveries, key, []byte(now.Format(time.RFC3339)))
+		// Keep a day of deliveries; older replays fail the age check anyway.
+		if now.Unix()%16 == 0 {
+			if all, err := r.p.DB.KVList(ctx, nsGitHubDeliveries); err == nil {
+				for k, v := range all {
+					if t, err := time.Parse(time.RFC3339, string(v)); err != nil || now.Sub(t) > 24*time.Hour {
+						_ = r.p.DB.KVDelete(ctx, nsGitHubDeliveries, k)
+					}
 				}
 			}
 		}
-	}
-	return false, nil
+	}, nil
 }
 
 // hostIPs resolves a GitHub host for the pinned clone.

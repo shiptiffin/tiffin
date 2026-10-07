@@ -449,6 +449,31 @@ func TestGitHubWebhookSecurity(t *testing.T) {
 	if d := send("aaaaaaaa-4", body, ghapp.Sign(secret, body)); d.Status != 200 || !strings.Contains(d.Reply, "already handled") {
 		t.Fatalf("replayed id: %+v", d)
 	}
+	// The delivery id header is not signed: a replay under a fresh id is the same delivery.
+	if d := send("bbbbbbbb-4", body, ghapp.Sign(secret, body)); d.Status != 200 || !strings.Contains(d.Reply, "already handled") {
+		t.Fatalf("replayed body under a new id: %+v", d)
+	}
+	// A delivery that failed on the box's side is not "handled": GitHub's
+	// redelivery tries again. One being handled right now is a duplicate.
+	{
+		ctx := context.Background()
+		dup, done, err := g.r.claimDelivery(ctx, "k1")
+		if err != nil || dup {
+			t.Fatalf("first claim: %v %v", dup, err)
+		}
+		if dup2, _, _ := g.r.claimDelivery(ctx, "k1"); !dup2 {
+			t.Fatal("a delivery being handled must not be handled twice at once")
+		}
+		done(false)
+		dup, done, _ = g.r.claimDelivery(ctx, "k1")
+		if dup {
+			t.Fatal("a failed delivery must be handled again")
+		}
+		done(true)
+		if dup, _, _ = g.r.claimDelivery(ctx, "k1"); !dup {
+			t.Fatal("a handled delivery is a duplicate")
+		}
+	}
 	payload["repository"].(map[string]any)["pushed_at"] = time.Now().Add(-3 * time.Hour).Unix()
 	old, _ := json.Marshal(payload)
 	if d := send("aaaaaaaa-5", old, ghapp.Sign(secret, old)); d.Status != 422 || !strings.Contains(d.Reply, "stale") {

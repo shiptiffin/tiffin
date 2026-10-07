@@ -558,14 +558,17 @@ func (r *rt) handleWebhook(w http.ResponseWriter, req *http.Request) {
 		reply(http.StatusBadRequest, "missing X-GitHub-Delivery or X-GitHub-Event")
 		return
 	}
-	if dup, err := r.seen(ctx, id); err != nil {
+	dup, done, err := r.claimDelivery(ctx, deliveryKey(event, body))
+	if err != nil {
 		reply(http.StatusInternalServerError, err.Error())
 		return
-	} else if dup {
+	}
+	if dup {
 		reply(http.StatusOK, "already handled this delivery")
 		return
 	}
 	status, msg := r.dispatchEvent(context.WithoutCancel(ctx), c, event, body)
+	done(status < http.StatusInternalServerError)
 	reply(status, msg)
 }
 
