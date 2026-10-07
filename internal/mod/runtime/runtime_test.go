@@ -70,6 +70,25 @@ type fakeEngine struct {
 	// held: app ports bound for containers that don't listen (yet), each
 	// port's socket (fakeports_test.go).
 	held map[int]int
+	// gate holds builds whose source has a BUILD_GATE file, and container
+	// starts of images whose source has a RUN_GATE file, until it is
+	// closed; each says so on gated first (races_test.go).
+	gate  chan struct{}
+	gated chan string
+	// rmiFails: RemoveImage fails, as nerdctl rmi can.
+	rmiFails bool
+}
+
+// waitGate holds a build or start at the gate, if the test set one.
+func (e *fakeEngine) waitGate(what string) {
+	e.mu.Lock()
+	gate, gated := e.gate, e.gated
+	e.mu.Unlock()
+	if gate == nil {
+		return
+	}
+	gated <- what
+	<-gate
 }
 
 // fakeTask is one RunTask call, and how many containers had run before it.
@@ -131,6 +150,12 @@ func appendLog(path, stream, text string) {
 }
 
 func (e *fakeEngine) Run(ctx context.Context, s RunSpec) error {
+	e.mu.Lock()
+	tree := e.trees[dockerName(s.Image)]
+	e.mu.Unlock()
+	if exists(filepath.Join(tree, "RUN_GATE")) {
+		e.waitGate("run " + s.Name)
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if _, dup := e.ctrs[s.Name]; dup || e.leaked[s.Name] {
@@ -311,6 +336,9 @@ func (e *fakeEngine) ImageDigest(ctx context.Context, ref string) (string, error
 func (e *fakeEngine) RemoveImage(ctx context.Context, ref string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.rmiFails {
+		return fmt.Errorf("nerdctl rmi: exit status 1: image is being used by a running container")
+	}
 	name, ok := e.image(ref)
 	if !ok {
 		return fmt.Errorf("nerdctl rmi: exit status 1: no such image: %s", ref)
@@ -439,6 +467,9 @@ func (b *fakeBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult,
 	if req.Prebuilt != "" {
 		ref := imageRef(req.Deploy.Project, req.Deploy.App, req.Deploy.ID)
 		return BuildResult{Image: ref}, loadImage(ctx, b.eng, req.Prebuilt, ref, req.Log)
+	}
+	if exists(filepath.Join(req.SrcDir, "BUILD_GATE")) {
+		b.eng.waitGate("build " + req.Deploy.ID)
 	}
 	if exists(filepath.Join(req.SrcDir, "FAIL")) {
 		fmt.Fprintln(req.Log, "error: Cannot find module 'hono'")
@@ -1705,14 +1736,19 @@ func TestGitHelpers(t *testing.T) {
 type pinTest struct {
 	mu   sync.Mutex
 	rels []string
+	down bool // the queue does not answer
 }
 
 func (*pinTest) Name() string { return "zz-pin-test" }
 func (p *pinTest) PinnedReleases(ctx context.Context, _ *platform.Platform, project, app string) ([]string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.down {
+		return nil, errors.New("queue: database unavailable")
+	}
 	return append([]string(nil), p.rels...), nil
 }
+func (p *pinTest) setDown(v bool)  { p.mu.Lock(); p.down = v; p.mu.Unlock() }
 func (p *pinTest) set(r ...string) { p.mu.Lock(); p.rels = r; p.mu.Unlock() }
 
 var pins = &pinTest{}

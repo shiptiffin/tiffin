@@ -504,8 +504,10 @@ func (n *nerdctl) LoadImage(ctx context.Context, tarball io.Reader, ref string, 
 	c := n.cmd(ctx, "load")
 	c.Stdin = tarball
 	var out bytes.Buffer
-	c.Stdout = io.MultiWriter(&out, log)
-	c.Stderr = io.MultiWriter(&out, log)
+	// One writer for both streams: exec then never writes to it from two
+	// goroutines at once (out is no safer than log for that).
+	w := io.MultiWriter(&out, log)
+	c.Stdout, c.Stderr = w, w
 	if err := c.Run(); err != nil {
 		return fmt.Errorf("load image: %w", err)
 	}

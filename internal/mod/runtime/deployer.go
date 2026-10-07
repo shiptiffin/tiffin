@@ -162,6 +162,10 @@ func (r *rt) startFrom(queued *Deploy, kind string, fetch func(ctx context.Conte
 			if errors.As(err, &re) {
 				hint = releaseHint
 			}
+			var ste *stateError
+			if errors.As(err, &ste) {
+				hint = ste.hint
+			}
 			r.fail(ctx, d, err, hint, log)
 		}
 	}()
@@ -189,7 +193,9 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 	_ = r.st.putDeploy(ctx, d)
 	began := time.Now()
 	req := BuildRequest{Deploy: d, Spec: *spec, WorkDir: r.workDir(d), Log: log}
-	req.Env, _ = r.plainEnv(ctx, d.Project, d.App)
+	if req.Env, err = r.plainEnv(ctx, d.Project, d.App); err != nil {
+		return err
+	}
 	all, err := r.p.ProjectEnv(ctx, d.Project, d.App)
 	if err == nil {
 		// Env built into browser code is public: the build gets it from
@@ -295,17 +301,28 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 
 	d.Status = StatusStarting
 	_ = r.st.putDeploy(ctx, d)
+	// From here to the switch, one deploy of an environment at a time: its
+	// release command and switch never overlap another's, and a deploy a
+	// newer one overtook (it went live meanwhile) stops before either.
+	unlock := r.lock(deployLock(d.Project, d.App, d.Preview))
+	defer unlock()
+	if err := r.current(ctx, d); err != nil {
+		return err
+	}
 	if d.StaticRoot == "" {
 		if kind == SourcePrebuilt {
 			if branch, err = r.ensurePreviewBranch(ctx, d, log); err != nil {
 				return err
 			}
 		}
+		if spec, err = r.runnable(ctx, d.Project, d.App); err != nil {
+			return err // deleted or stopped while it built: no release command
+		}
 		if err := r.runRelease(ctx, d, spec, branch, log); err != nil {
 			return err
 		}
 	}
-	if err := r.promote(ctx, d, spec, modeDeploy, log); err != nil {
+	if err := r.promote(ctx, d, modeDeploy, log); err != nil {
 		return err
 	}
 	fmt.Fprintf(log, "==> live in %.1fs total%s\n", d.TotalSecs, urlNote(d.URL))
@@ -318,6 +335,12 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 }
 
 func (r *rt) fail(ctx context.Context, d *Deploy, err error, hint string, log io.Writer) {
+	var oe *overtakenError
+	if errors.As(err, &oe) {
+		r.dropFailedImage(ctx, d)
+		r.markSkipped(ctx, d, oe.Error(), log)
+		return
+	}
 	now := time.Now().UTC()
 	d.Status, d.Error, d.Hint = StatusFailed, err.Error(), hint
 	d.FinishedAt = &now
@@ -360,24 +383,100 @@ const (
 	modeWake     = "wake"
 )
 
+// deployLock names the lock a deploy of an app environment holds from its
+// build's end to its switch (release command included).
+func deployLock(project, app, preview string) string {
+	return "deploy " + envKey(project, app, preview)
+}
+
+// overtakenError is a deploy a newer deploy of its environment overtook:
+// that one went live first, so this one never does (it is skipped).
+type overtakenError struct{ id, live string }
+
+func (e *overtakenError) Error() string {
+	return "deploy " + e.live + ", which is newer, went live first"
+}
+
+// current returns an overtakenError when a deploy made after d is live in
+// d's environment. Deploy IDs sort by creation time. A rollback to an
+// older deploy does not count: a deploy made after it still goes live.
+func (r *rt) current(ctx context.Context, d *Deploy) error {
+	st, err := r.st.getState(ctx, d.Project, d.App, d.Preview)
+	if err != nil {
+		return err
+	}
+	if st.Live != "" && st.Live > d.ID {
+		return &overtakenError{id: d.ID, live: st.Live}
+	}
+	return nil
+}
+
+// markSkipped ends a deploy that will not go live, without failing it.
+func (r *rt) markSkipped(ctx context.Context, d *Deploy, why string, log io.Writer) {
+	now := time.Now().UTC()
+	d.Status, d.FinishedAt, d.Error, d.Hint = StatusSkipped, &now, "skipped: "+why, ""
+	d.TotalSecs = round1(now.Sub(d.CreatedAt).Seconds())
+	_ = r.st.putDeploy(ctx, d)
+	fmt.Fprintf(log, "==> skipped: %s\n", why)
+}
+
+// runnable returns an app's spec as it is now, or a stateError when the app
+// may not run: its project is stopped, or the app was deleted.
+func (r *rt) runnable(ctx context.Context, project, app string) (*manifest.App, error) {
+	_, res, err := r.p.DB.Load(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := res[change.KindStopped]; ok {
+		return nil, &stateError{"project " + project + " is stopped, so its apps do not start (was it moved to another box?)",
+			"Start it again with `tiffin projects start " + project + "`, then deploy."}
+	}
+	rs, ok := res[change.KindApp+"/"+app]
+	if !ok {
+		return nil, &stateError{"app " + app + " was deleted from project " + project + ", so it does not start",
+			"Add apps." + app + " to tiffin.config.ts again and apply, then deploy."}
+	}
+	var a manifest.App
+	if err := json.Unmarshal(rs.Spec, &a); err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
 // promote makes d serve its app environment with zero downtime: start new
 // instances, wait until healthy, switch the edge to them, let the old ones
 // drain, then stop them. Any failure before the switch leaves the old
-// instances serving.
-func (r *rt) promote(ctx context.Context, d *Deploy, spec *manifest.App, mode string, log io.Writer) error {
+// instances serving. It starts d with the app's settings as they are now
+// (a deploy's build may have taken minutes), and not at all once the app
+// is deleted or its project stopped.
+func (r *rt) promote(ctx context.Context, d *Deploy, mode string, log io.Writer) error {
 	unlock := r.lock(envKey(d.Project, d.App, d.Preview))
 	defer unlock()
+	spec, err := r.runnable(ctx, d.Project, d.App)
+	if err != nil {
+		return err
+	}
+	if d.Builder != "" {
+		spec.Builder = manifest.Builder(d.Builder) // this deploy's hints and checks
+	}
 	return r.promoteLocked(ctx, d, spec, mode, log)
 }
 
 func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, mode string, log io.Writer) error {
-	if r.stopped(ctx, d.Project) {
-		return &stateError{"project " + d.Project + " is stopped, so its apps do not start (was it moved to another box?)",
-			"Start it again with `tiffin projects start " + d.Project + "`, then deploy."}
+	if _, err := r.runnable(ctx, d.Project, d.App); err != nil {
+		return err
 	}
 	st, err := r.st.getState(ctx, d.Project, d.App, d.Preview)
 	if err != nil {
 		return err
+	}
+	switch {
+	case mode == modeDeploy && st.Live != "" && st.Live > d.ID:
+		// A newer deploy went live while this one started (an import, a
+		// release that took no build slot): never put an older one over it.
+		return &overtakenError{id: d.ID, live: st.Live}
+	case (mode == modeRestart || mode == modeWake) && st.Live != d.ID:
+		return &stateError{"deploy " + d.ID + " is no longer live (" + st.Live + " is)", "Try again: it restarts the live deploy."}
 	}
 	prev := *st
 	env, hash, err := r.instanceEnv(ctx, d.Project, d.App, d.Preview, spec)
@@ -454,6 +553,20 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 		}
 	}
 	if err := r.st.putState(ctx, st); err != nil {
+		undo()
+		return err
+	}
+	// Deleted or stopped while it started: the stop that change made read
+	// the app's states before this one was saved, so it left this start
+	// alone. Undo it here. (A stop that reads them after this save waits
+	// for the lock, then stops it itself.)
+	if _, err := r.runnable(ctx, d.Project, d.App); err != nil {
+		if prev.UpdatedAt.IsZero() {
+			_ = r.st.deleteState(ctx, &prev)
+		} else {
+			_ = r.st.putState(ctx, &prev)
+		}
+		_ = r.refreshIfNeeded(ctx)
 		undo()
 		return err
 	}
@@ -1162,15 +1275,25 @@ func (r *rt) stopEnv(ctx context.Context, st *AppState) error {
 	return nil
 }
 
-// rollback makes an earlier deploy live again.
+// rollback makes an earlier deploy live again. It checks the deploy under
+// its environment's lock, which gc holds while it removes builds: a build
+// it finds is still there when it starts.
 func (r *rt) rollback(ctx context.Context, project, app, id string) (*Deploy, error) {
 	d, err := r.st.getDeploy(ctx, project, app, id)
 	if err != nil {
 		return nil, err
 	}
-	spec, err := r.appSpec(ctx, project, app)
+	unlock := r.lock(envKey(project, app, d.Preview))
+	defer unlock()
+	if d, err = r.st.getDeploy(ctx, project, app, id); err != nil {
+		return nil, err
+	}
+	spec, err := r.runnable(ctx, project, app)
 	if err != nil {
 		return nil, err
+	}
+	if d.Builder != "" {
+		spec.Builder = manifest.Builder(d.Builder)
 	}
 	if d.Status == StatusLive {
 		return d, nil
@@ -1193,7 +1316,7 @@ func (r *rt) rollback(ctx context.Context, project, app, id string) (*Deploy, er
 		w = log
 		fmt.Fprintf(w, "==> rollback to %s requested %s\n", d.ID, time.Now().UTC().Format(time.RFC3339))
 	}
-	if err := r.promote(ctx, d, spec, modeRollback, w); err != nil {
+	if err := r.promoteLocked(ctx, d, spec, modeRollback, w); err != nil {
 		return nil, err
 	}
 	if d.Preview == "" {
@@ -1229,7 +1352,17 @@ func (r *rt) rollbackTargets(preview string) int {
 }
 
 // gcKeeping is gc with the environment's newest rollbacks rollback targets.
+// It holds the environment's lock: what it keeps (the live deploy above
+// all) cannot change between choosing and removing, and a rollback checks
+// its target under the same lock.
 func (r *rt) gcKeeping(ctx context.Context, project, app, preview string, rollbacks int) {
+	unlock := r.lock(envKey(project, app, preview))
+	defer unlock()
+	r.gcLocked(ctx, project, app, preview, rollbacks)
+}
+
+// gcLocked is gcKeeping for a caller holding the environment's lock.
+func (r *rt) gcLocked(ctx context.Context, project, app, preview string, rollbacks int) {
 	ds, err := r.st.listDeploys(ctx, project, app, preview)
 	if err != nil {
 		return
@@ -1266,7 +1399,10 @@ func (r *rt) keptDeploys(ctx context.Context, project, app, preview string, ds [
 		}
 	}
 	if preview == "" {
-		rels, _ := r.pinnedReleases(ctx, project, app)
+		rels, ok := r.pinnedReleases(ctx, project, app)
+		if !ok {
+			rollbacks = len(ds) // no answer on workflow pins: keep every rollback target
+		}
 		for _, rel := range rels {
 			keep[rel] = true
 		}
@@ -1285,14 +1421,17 @@ func (r *rt) keptDeploys(ctx context.Context, project, app, preview string, ds [
 }
 
 // dropBuild removes what a deploy's build left (source archive, image,
-// static files) and clears them from the record; the caller saves it.
+// static files) and clears them from the record; the caller saves it. An
+// image that would not go stays in the record, for the next gc or the
+// hourly sweep.
 func (r *rt) dropBuild(ctx context.Context, d *Deploy) {
 	_ = os.Remove(filepath.Join(r.workDir(d), sourceFile))
 	if d.Image != "" {
 		if err := r.eng.RemoveImage(ctx, d.Image); err != nil && !noSuchImage(err) {
 			r.p.Log.Warn("runtime: remove an image (the hourly sweep tries again)", "image", d.Image, "err", err)
+		} else {
+			d.Image = ""
 		}
-		d.Image = ""
 	}
 	if d.StaticRoot != "" {
 		_ = os.RemoveAll(d.StaticRoot)

@@ -59,7 +59,9 @@ type ghSlot struct {
 	next    *ghJob
 }
 
-// enqueue records j's deploy (queued) and runs it when its environment is free.
+// enqueue records j's deploy (queued) and runs it when its environment is
+// free. It returns a copy: the queue's own changes as it runs or skips the
+// deploy (on another goroutine) never reach a response being written.
 func (r *rt) enqueue(ctx context.Context, j *ghJob) (*Deploy, error) {
 	spec, err := r.appSpec(ctx, j.Project, j.App)
 	if err != nil {
@@ -74,6 +76,7 @@ func (r *rt) enqueue(ctx context.Context, j *ghJob) (*Deploy, error) {
 	if err := r.st.putDeploy(ctx, d); err != nil {
 		return nil, err
 	}
+	out := *d
 	j.d = d
 	q := &r.gh.q
 	q.mu.Lock()
@@ -97,21 +100,19 @@ func (r *rt) enqueue(ctx context.Context, j *ghJob) (*Deploy, error) {
 	}
 	q.mu.Unlock()
 	if skipped != nil {
-		r.skip(ctx, skipped, fmt.Sprintf("a newer commit (%s) arrived before this one was built; deploy %s builds it instead", short(j.SHA), d.ID))
+		r.skip(ctx, skipped, fmt.Sprintf("a newer commit (%s) arrived before this one was built; deploy %s builds it instead", short(j.SHA), out.ID))
 	}
-	return d, nil
+	return &out, nil
 }
 
 // skip marks a waiting deploy as skipped.
 func (r *rt) skip(ctx context.Context, old *ghJob, why string) {
-	now := time.Now().UTC()
-	d := old.d
-	d.Status, d.FinishedAt, d.Error = StatusSkipped, &now, "skipped: "+why
-	_ = r.st.putDeploy(ctx, d)
-	if f, err := r.openBuildLog(d); err == nil {
-		fmt.Fprintf(f, "==> skipped: %s\n", why)
-		f.Close()
+	var log io.Writer = io.Discard
+	if f, err := r.openBuildLog(old.d); err == nil {
+		defer f.Close()
+		log = f
 	}
+	r.markSkipped(ctx, old.d, why, log)
 }
 
 // runJobs runs j, then whatever arrived for its environment meanwhile.

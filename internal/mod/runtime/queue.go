@@ -89,7 +89,8 @@ type pinnedReleaser interface {
 }
 
 // pinnedReleases asks the queue module (if any) which releases have
-// unfinished workflow runs. ok is false when there is no answer.
+// unfinished workflow runs. ok is false when the queue gave no answer
+// (without a queue module nothing is pinned).
 func (r *rt) pinnedReleases(ctx context.Context, project, app string) ([]string, bool) {
 	for _, mod := range platform.Modules() {
 		if pr, ok := mod.(pinnedReleaser); ok {
@@ -103,12 +104,14 @@ func (r *rt) pinnedReleases(ctx context.Context, project, app string) ([]string,
 			return rels, true
 		}
 	}
-	return nil, false
+	return nil, true
 }
 
+// pinned reports whether workflow runs may be pinned to release: they are,
+// or the queue gave no answer (the reaper asks again).
 func (r *rt) pinned(ctx context.Context, project, app, release string) bool {
 	rels, ok := r.pinnedReleases(ctx, project, app)
-	return ok && slices.Contains(rels, release)
+	return !ok || slices.Contains(rels, release)
 }
 
 // drainMax caps how long an old release may run for pinned workflows.
@@ -131,14 +134,16 @@ func (r *rt) reapDrained(ctx context.Context) {
 		if len(s.Draining) == 0 {
 			continue
 		}
-		rels, ok := r.pinnedReleases(ctx, s.Project, s.App)
 		func() {
 			unlock := r.lock(envKey(s.Project, s.App, s.Preview))
 			defer unlock()
 			st, err := r.st.getState(ctx, s.Project, s.App, s.Preview)
-			if err != nil {
+			if err != nil || len(st.Draining) == 0 {
 				return
 			}
+			// Asked under the lock: a deploy that adds a release to
+			// Draining (it had pins then) cannot slip in between.
+			rels, ok := r.pinnedReleases(ctx, s.Project, s.App)
 			var keep []DrainSet
 			var stop []Instance
 			for _, ds := range st.Draining {

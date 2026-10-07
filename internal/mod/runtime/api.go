@@ -909,12 +909,16 @@ func (r *rt) appRuntime(ctx context.Context, project, app string) (*AppRuntime, 
 	return out, nil
 }
 
-// restart replaces an environment's instances (same deploy, fresh containers).
+// restart replaces an environment's instances (same deploy, fresh
+// containers). It reads the live deploy under the environment's lock: a
+// deploy that goes live while it waits is the one it restarts.
 func (r *rt) restart(ctx context.Context, project, app, preview string) (*Deploy, error) {
 	spec, err := r.appSpec(ctx, project, app)
 	if err != nil {
 		return nil, err
 	}
+	unlock := r.lock(envKey(project, app, preview))
+	defer unlock()
 	st, err := r.st.getState(ctx, project, app, preview)
 	if err != nil {
 		return nil, err
@@ -929,7 +933,7 @@ func (r *rt) restart(ctx context.Context, project, app, preview string) (*Deploy
 	if d.StaticRoot != "" {
 		return d, nil // files have nothing to restart
 	}
-	if err := r.promote(ctx, d, spec, modeRestart, io.Discard); err != nil {
+	if err := r.promoteLocked(ctx, d, spec, modeRestart, io.Discard); err != nil {
 		return nil, err
 	}
 	return d, nil
@@ -965,7 +969,7 @@ func (r *rt) deletePreview(ctx context.Context, project, app, name string) error
 	r.removeDir(r.diskDir(project, app, name))
 	r.quotas.forget(ctx, project+"/"+app+"/"+envDirName(name)+"/")
 	forgetDiskBytes(project)
-	r.gc(ctx, project, app, name)
+	r.gcLocked(ctx, project, app, name, r.rollbackTargets(name))
 	r.dropPreviewBranch(ctx, project, name)
 	return nil
 }

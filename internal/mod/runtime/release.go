@@ -132,7 +132,7 @@ func (r *rt) release(ctx context.Context, d *Deploy, spec *manifest.App, src Rel
 	d.BuildSecs = round1(time.Since(began).Seconds())
 	d.Status = StatusStarting
 	_ = r.st.putDeploy(ctx, d)
-	if err := r.promote(ctx, d, spec, modeDeploy, log); err != nil {
+	if err := r.promote(ctx, d, modeDeploy, log); err != nil {
 		return err
 	}
 	fmt.Fprintf(log, "==> live in %.1fs total%s\n", d.TotalSecs, urlNote(d.URL))

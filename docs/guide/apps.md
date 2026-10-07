@@ -198,7 +198,8 @@ cap and disk folders, in the app's folder. Its
 output is in the deploy log (`tiffin deploys build-log`). If it exits non-zero, or runs
 over 10 minutes, the deploy fails and the running version keeps serving. Any command
 works (`bun run db:migrate`, `bunx prisma migrate deploy`); releases of one app run one
-at a time. Static apps have none.
+at a time. Static apps have none. Deploys of an app go live in the order they were made:
+one that finishes after a newer one went live is *skipped*, before its release runs.
 
 - **Old and new side by side.** The old version keeps serving while the release runs
   and while the new one starts, and a rollback does not run it again (nor undo it). Write

@@ -252,7 +252,8 @@ const releaseHint = "The running version keeps serving: nothing was switched. Th
 // traffic: a one-off container of the new image with the app's env (a
 // preview's own database branch), its memory cap, project slice and disk
 // folders, its output in the deploy log. Releases of one app environment
-// run one at a time. A preview without its own branch skips it.
+// run one at a time: the caller holds the environment's deployLock. A
+// preview without its own branch skips it.
 func (r *rt) runRelease(ctx context.Context, d *Deploy, spec *manifest.App, branch string, log io.Writer) error {
 	cmd := strings.TrimSpace(spec.Release)
 	if cmd == "" || d.Image == "" || d.StaticRoot != "" {
@@ -262,8 +263,6 @@ func (r *rt) runRelease(ctx context.Context, d *Deploy, spec *manifest.App, bran
 		fmt.Fprintf(log, "==> release: skipped: this preview has no database of its own (services.postgres.previews is \"shared\", or there is no postgres service), so it does not run `%s`\n", cmd)
 		return nil
 	}
-	unlock := r.lock("release " + envKey(d.Project, d.App, d.Preview))
-	defer unlock()
 	env, _, err := r.instanceEnv(ctx, d.Project, d.App, d.Preview, spec)
 	if err != nil {
 		return err
