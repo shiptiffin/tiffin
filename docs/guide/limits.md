@@ -277,6 +277,8 @@ The box adds nothing for LLMs:
 | Cron call | 60 s (5 to 3600) | `timeoutSeconds` on the cron |
 | Calls to web addresses (`url` crons and queues) | 600 a minute per project | `TIFFIN_QUEUE_URL_RATE` on the box |
 | Queue deliveries at once (jobs, cron calls and workflow turns together) | 50 per project, of 200 on the box; the rest wait their turn | `TIFFIN_QUEUE_PROJECT_CONCURRENCY` on the box |
+| A delivery the SDK reads | 2 MB for a job or cron call; 64 MB for a workflow turn, which carries the run's whole history (each step's result up to 1 MB); more answers 413 and retries | `maxBytes` on `defineHandler`, `workflow.handler()` or `verifyRequest` |
+| `sendTx` outbox rows | payload 1 MB, options 16 KB; a larger row goes to the dead-letter queue without its payload | |
 | Live progress streams | 200 open per project | |
 | Email | 300 messages an hour | `tiffin email rate-limit set` |
 | Rollbacks | the last 3 production deploys; previews keep none | |

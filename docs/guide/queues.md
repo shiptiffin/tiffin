@@ -149,15 +149,18 @@ call fails at once and says why. Up to three redirects to other public addresses
 followed; the signature is not passed on to a different host. On a box whose receivers sit on
 its own network, `TIFFIN_QUEUE_ALLOW_NETS=192.168.1.0/24` lets calls reach that range.
 
-**Check the signature** where the call lands, with the project's signing secret
-(`tiffin queue signing-secret <project>`; apps on the box have it as
-`TIFFIN_QUEUE_SIGNING_SECRET`):
+**Check the signature** where the call lands, with the project's signing secret. Apps on the
+box have it as `TIFFIN_QUEUE_SIGNING_SECRET`; a receiver elsewhere gets it from
+`tiffin queue signing-secret <project>` and should set it under the same name:
 
 ```ts
 import { verifyRequest } from "@shiptiffin/sdk/verify";
 
+const secret = process.env.TIFFIN_QUEUE_SIGNING_SECRET;
+if (!secret) throw new Error("TIFFIN_QUEUE_SIGNING_SECRET is not set");
+
 export async function POST(req: Request) {
-  const call = await verifyRequest(req, process.env.TIFFIN_SIGNING_SECRET!);
+  const call = await verifyRequest(req, secret);
   if (!call) return new Response("bad signature", { status: 401 });
   // call.id is the same on every retry of one job: use it to skip duplicates.
   await sendDigest(call.payload);
@@ -184,7 +187,10 @@ await workflow.start("onboard", { userId: "42" });
 await workflow.emit(`paid-42`, { amount: 900 });
 ```
 
-Everything with side effects (I/O, `Date.now()`, randomness) goes inside `ctx.step`.
+Everything with side effects (I/O, `Date.now()`, randomness) goes inside `ctx.step`. A step
+can run more than once: a turn whose lease ran out may still be running in your app when the
+next one starts. The first result recorded is the one the run keeps, and the box refuses the
+old turn's later writes; `ctx.signal` aborts when the box ends a turn.
 
 Runs survive app restarts, redeploys (a run finishes on the release it started on) and
 box restarts. The dashboard shows each run as a timeline.

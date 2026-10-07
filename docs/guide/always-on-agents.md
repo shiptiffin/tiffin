@@ -142,9 +142,14 @@ guards:
   and never picks an address.
 - **Fixed reach.** The page-reading tool fetches only URLs from the run's own candidate
   list, so text on a page can't send the agent to another address (with your data in the
-  query string, say).
+  query string, say). That is a filter, not a sandbox: the feeds you follow choose the
+  candidate URLs, and a fetch follows redirects. Follow feeds you trust; the box doesn't
+  limit where apps connect (see [limits](limits.md#agents)).
 - **No retries into a wall.** A 401 or 402 from the provider (a bad key, credit used up) ends
-  the job without retries. A run that already sent its email never retries into a second one.
+  the job without retries. A run that sent its email and recorded it doesn't send another.
+  Delivery is at least once, though: if the app dies after the mail server took the digest
+  and before the database recorded it, the retry sends it again. Email has no way to
+  deduplicate, so a rare second digest is the price of never losing one.
 - **A hard spend cap at the provider.** On OpenRouter, give the agent its own API key with a
   [credit limit](https://openrouter.ai/docs/api/reference/limits): at the limit OpenRouter
   answers 402, which the example treats as final. That cap holds even if your code has a bug.
@@ -399,7 +404,7 @@ export async function runDigest(job: Job<{ trigger: string }>) {
         read_page: tool({
           description: "Read the text of a candidate item's page.",
           inputSchema: z.object({ url: z.string() }),
-          // Candidate URLs only, so text on a page can't send the agent anywhere else.
+          // Candidate URLs only, so text on a page can't pick the address (the feeds still do).
           execute: async ({ url }) => (byUrl.has(url) ? pageText(await get(url)) : "Not a candidate URL."),
         }),
         send_digest: tool({
@@ -482,7 +487,7 @@ export async function feedItems(url: string): Promise<Item[]> {
   const entries = [doc.rss?.channel?.item ?? doc.feed?.entry ?? doc["rdf:RDF"]?.item ?? []].flat();
   return entries.flatMap((e: any): Item[] => {
     const link = typeof e.link === "string" ? e.link : [e.link].flat().find((l: any) => (l?.["@_rel"] ?? "alternate") === "alternate")?.["@_href"];
-    if (!link) return [];
+    if (!link || !/^https?:\/\//i.test(link)) return [];
     return [{ id: link, url: link, title: String(e.title?.["#text"] ?? e.title ?? link), date: e.pubDate ?? e.updated ?? e.published }];
   });
 }
