@@ -345,7 +345,7 @@ func (a *app) upServer(cmd *cobra.Command, prov string, o upOptions) error {
 				sb.Identity = abs
 			}
 		}
-		t.Identity, t.KnownHosts = sb.Identity, sb.KnownHosts
+		t.Identity, t.KnownHosts, t.TrustOwn = sb.Identity, sb.KnownHosts, true
 		sb.DataDisk, sb.DataDir = pick(o.dataDisk, prev.DataDisk), pick(o.dataDir, prev.DataDir)
 		if o.dataDisk != "" {
 			sb.DataDir = ""
@@ -676,7 +676,7 @@ func (a *app) downServer(ctx context.Context, name string, bx *boxConfig, confir
 		t, err := remote.ParseTarget(sb.SSH)
 		var warn string
 		if err == nil {
-			t.Identity, t.KnownHosts = sb.Identity, sb.KnownHosts
+			t.Identity, t.KnownHosts, t.TrustOwn = sb.Identity, sb.KnownHosts, true
 			a.progress("stopping Tiffin on " + t.String())
 			if _, stderr, err := remote.New(t).Exec(ctx, "sudo systemctl disable --now tiffin >/dev/null 2>&1; sudo rm -f "+platform.ServerConfigPath); err != nil {
 				warn = "could not reach the server to stop Tiffin (" + strings.TrimSpace(stderr) + "); stop it there with: sudo systemctl disable --now tiffin"

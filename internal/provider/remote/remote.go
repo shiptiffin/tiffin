@@ -36,6 +36,11 @@ type Target struct {
 	Port       int    // default 22
 	Identity   string // private key file; empty uses the person's ssh defaults
 	KnownHosts string // known_hosts file for this box (host keys are pinned on first use)
+	// TrustOwn also checks the person's own known_hosts (a server they
+	// already reach over SSH): a key they trust there is honoured and a
+	// different one refused. Off for servers Tiffin creates, whose
+	// addresses a deleted server may have had.
+	TrustOwn bool
 }
 
 var (
@@ -112,15 +117,33 @@ func (m *Machine) args(remote ...string) []string {
 		"-o", "LogLevel=ERROR",
 		"-p", strconv.Itoa(m.T.Port),
 	}
-	if m.T.KnownHosts != "" {
-		// Pin the host key the first time, refuse a changed one after.
-		a = append(a, "-o", "StrictHostKeyChecking=accept-new", "-o", "UserKnownHostsFile="+m.T.KnownHosts, "-o", "GlobalKnownHostsFile=/dev/null")
-	}
+	a = append(a, HostKeyOptions(m.T.KnownHosts, m.T.TrustOwn)...)
 	if m.T.Identity != "" {
 		a = append(a, "-i", m.T.Identity, "-o", "IdentitiesOnly=yes")
 	}
 	a = append(a, "--", m.T.User+"@"+m.T.Host)
 	return append(a, remote...)
+}
+
+// HostKeyOptions are the ssh options that check a box's host key against
+// knownHosts: pinned the first time, a changed one refused after. With
+// trustOwn the person's own known_hosts files (and the system's) are checked
+// too, read-only: a key they already trust is used and a different one
+// refused before Tiffin sends anything.
+func HostKeyOptions(knownHosts string, trustOwn bool) []string {
+	if knownHosts == "" {
+		return nil
+	}
+	files := knownHosts
+	if strings.ContainsAny(files, " \t") {
+		files = `"` + files + `"`
+	}
+	o := []string{"-o", "StrictHostKeyChecking=accept-new"}
+	if trustOwn {
+		// New keys go to the first file only.
+		return append(o, "-o", "UserKnownHostsFile="+files+" ~/.ssh/known_hosts ~/.ssh/known_hosts2")
+	}
+	return append(o, "-o", "UserKnownHostsFile="+files, "-o", "GlobalKnownHostsFile=/dev/null")
 }
 
 // run runs ssh with stdin and returns stdout and stderr.
@@ -196,7 +219,15 @@ func (m *Machine) Wait(ctx context.Context, d time.Duration) error {
 			last = err.Error()
 		}
 		if strings.Contains(last, "REMOTE HOST IDENTIFICATION HAS CHANGED") || strings.Contains(last, "Host key verification failed") {
-			return fmt.Errorf("the server's SSH host key changed since Tiffin first connected (%s); if you rebuilt the server, remove its line from %s", m.T, m.T.KnownHosts)
+			where := m.T.KnownHosts
+			if m.T.TrustOwn {
+				name := m.T.Host
+				if m.T.Port != 22 {
+					name = fmt.Sprintf("'[%s]:%d'", m.T.Host, m.T.Port)
+				}
+				where += " (or your ~/.ssh/known_hosts: ssh-keygen -R " + name + ")"
+			}
+			return fmt.Errorf("the server's SSH host key is not the one trusted for %s; if you rebuilt the server, remove its line from %s", m.T, where)
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("could not reach %s over SSH after %s: %s", m.T, d.Round(time.Second), last)

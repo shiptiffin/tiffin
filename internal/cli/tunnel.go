@@ -137,9 +137,7 @@ func tunnelSSH(bx *boxConfig, localPort int, remoteAddr, limaHome, instance stri
 			return nil, err
 		}
 		a := append([]string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-p", strconv.Itoa(t.Port)}, fwd...)
-		if bx.Server.KnownHosts != "" {
-			a = append(a, "-o", "StrictHostKeyChecking=accept-new", "-o", "UserKnownHostsFile="+bx.Server.KnownHosts, "-o", "GlobalKnownHostsFile=/dev/null")
-		}
+		a = append(a, remote.HostKeyOptions(bx.Server.KnownHosts, bx.Provider == "ssh")...)
 		if bx.Server.Identity != "" {
 			a = append(a, "-i", bx.Server.Identity, "-o", "IdentitiesOnly=yes")
 		}

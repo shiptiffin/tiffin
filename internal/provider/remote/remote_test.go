@@ -83,3 +83,30 @@ func TestSSHArgs(t *testing.T) {
 		}
 	}
 }
+
+// A server the person already reaches over SSH keeps the trust they gave
+// it: their known_hosts files are checked too, and new keys still go only
+// to the box's own file. Servers Tiffin creates ignore them (a deleted
+// server's address may come back with another key).
+func TestHostKeyOptions(t *testing.T) {
+	own := strings.Join(HostKeyOptions("/k/known hosts", true), " ")
+	if !strings.Contains(own, `UserKnownHostsFile="/k/known hosts" ~/.ssh/known_hosts ~/.ssh/known_hosts2`) || strings.Contains(own, "GlobalKnownHostsFile") {
+		t.Fatalf("an adopted server must also check the person's known_hosts: %s", own)
+	}
+	made := strings.Join(HostKeyOptions("/k/kh", false), " ")
+	if !strings.Contains(made, "UserKnownHostsFile=/k/kh -o GlobalKnownHostsFile=/dev/null") {
+		t.Fatalf("a created server checks only its own file: %s", made)
+	}
+	for _, o := range [][]string{HostKeyOptions("/k/kh", true), HostKeyOptions("/k/kh", false)} {
+		if !strings.Contains(strings.Join(o, " "), "StrictHostKeyChecking=accept-new") {
+			t.Fatalf("a changed key must be refused: %v", o)
+		}
+	}
+	if HostKeyOptions("", true) != nil {
+		t.Fatal("no pin file, no options")
+	}
+	a := strings.Join(New(Target{User: "me", Host: "203.0.113.5", KnownHosts: "/k/kh", TrustOwn: true}).args("true"), " ")
+	if !strings.Contains(a, "~/.ssh/known_hosts") {
+		t.Fatalf("ssh args ignore TrustOwn: %s", a)
+	}
+}
