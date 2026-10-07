@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -394,5 +395,26 @@ func TestStaticPreviewsExpire(t *testing.T) {
 	}
 	if code, _ := h.get(host, "/"); code != 404 {
 		t.Fatalf("expired static preview still served: %d", code)
+	}
+}
+
+// A request that slipped in just before the app fell asleep runs to its
+// end (up to its time limit, not 5 seconds): the sleep is called off.
+func TestSleepNeverCutsARequestUnderWay(t *testing.T) {
+	h := newHarness(t)
+	h.deploy("api", "", map[string]string{"index.ts": "v1"})
+	h.sleepy("1h")
+	done := make(chan string, 1)
+	go func() {
+		code, body := h.get("shop.tiffin.localhost", "/api/slow?sleep=6s")
+		done <- fmt.Sprint(code, " ", body)
+	}()
+	waitFor(t, func() bool { return h.r.busy(h.state("api", "").Instances) > 0 })
+	h.r.sleep(context.Background(), "shop", "api", "", 0)
+	if got := <-done; !strings.HasPrefix(got, "200 ") {
+		t.Fatalf("the request under way was cut: %s", got)
+	}
+	if st := h.state("api", ""); st.Sleeping || len(st.Instances) != 2 {
+		t.Fatalf("an app busy with a request went to sleep: %+v", st)
 	}
 }

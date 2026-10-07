@@ -282,10 +282,24 @@ func (r *rt) sleep(ctx context.Context, project, app, preview string, idle time.
 	if r.st.putState(ctx, st) != nil {
 		return
 	}
-	// From here new requests wait for a wake; one that got in just before
-	// finishes first.
-	for i := 0; i < 200 && r.busy(ins) > 0; i++ {
+	awake := func() {
+		st.Instances, st.Sleeping, st.SleptAt, st.Parked = ins, false, nil, nil
+		_ = r.st.putState(ctx, st)
+	}
+	// From here, once the edge serves the table that says so, new requests
+	// wait for a wake. One that got in just before may take as long as its
+	// time limit: a request under way keeps the app awake, so the sleep is
+	// called off rather than cutting it.
+	if r.syncEdge() != nil {
+		awake()
+		return
+	}
+	for i := 0; i < 40 && r.busy(ins) > 0; i++ {
 		time.Sleep(25 * time.Millisecond)
+	}
+	if r.busy(ins) > 0 {
+		awake()
+		return
 	}
 	if failed := r.park(ctx, ins); len(failed) > 0 {
 		// Not kept: removed instead, and the wake creates new ones.
