@@ -289,7 +289,7 @@ The box adds nothing for LLMs:
 | Postgres connections | 80 per project; a limited project gets its share of 100 | |
 | Idle in transaction | closed after 60 s | |
 | KV memory (Valkey) | 64 MB, held while the project has a limit | `maxMemoryMB` |
-| KV Lua script | 1 s, then killed (one that already wrote: Valkey restarts, every project's KV drops for a few seconds); no functions (`FUNCTION`, `FCALL`) | |
+| KV Lua script | 1 s, then killed; one that already wrote can't be, so Valkey restarts and every project's KV drops for a few seconds (the box can't tell which project's script it was, so one that keeps doing it keeps restarting it). No functions (`FUNCTION`, `FCALL`) | |
 | KV REST request | 16 MB and 10,000 commands in; about 16 MB of replies out | |
 | Storage (databases + files) | no limit; the disk guard warns at 85% and makes the fastest-growing project read-only at 95% | `tiffin storage quota set` |
 | A read-only hold on a database | transactions default to read-only, which an app can override; one whose databases still grow by more than 64 MiB is locked out of them, reads included, until the hold lifts (checked every 30 s, so a determined app writes for up to that long) | |
