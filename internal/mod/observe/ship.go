@@ -45,6 +45,20 @@ func noteActivity(project, app string, at time.Time) {
 	}
 }
 
+// hostActivityNoter is the runtime's too: a request to a host no app's
+// routes name, such as a static preview's (the runtime knows its hosts).
+type hostActivityNoter interface {
+	NoteHostActivity(host string, at time.Time)
+}
+
+// noteHostActivity tells the runtime, if there is one, about a request to
+// a host that is not an app's production host.
+func noteHostActivity(host string, at time.Time) {
+	if n, ok := runtimeNoter().(hostActivityNoter); ok {
+		n.NoteHostActivity(host, at)
+	}
+}
+
 // ---- journald: the box's own services, tiffin included ----
 
 var priorities = []string{"emerg", "alert", "crit", "error", "warning", "notice", "info", "debug"}
@@ -473,6 +487,9 @@ func (m *Module) handleAccess(ctx context.Context, line []byte) {
 	}
 	var t Tenant
 	stream := "source,host"
+	if !mapped {
+		noteHostActivity(e.Host, e.Time)
+	}
 	if mapped {
 		noteActivity(site.Project, site.App, e.Time)
 		rec["app"] = site.App

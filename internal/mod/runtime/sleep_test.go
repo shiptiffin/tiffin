@@ -368,3 +368,31 @@ func TestParseSleepAfterBounds(t *testing.T) {
 		}
 	}
 }
+
+// A static preview counts its requests (the edge's access log) and
+// expires like any other preview once nobody uses it.
+func TestStaticPreviewsExpire(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	pv := h.deploy("site", "pr-1", map[string]string{"index.html": "<h1>preview</h1>"})
+	if pv.Status != StatusLive || pv.StaticRoot == "" {
+		t.Fatalf("preview: %s %s", pv.Status, pv.Error)
+	}
+	spec, _ := h.r.appSpec(ctx, "shop", "site")
+	host := previewHost("pr-1", "shop", "site", spec, h.p.AppsDomain())
+	h.r.opt.PreviewExpire = 50 * time.Millisecond
+	time.Sleep(60 * time.Millisecond)
+	h.m.NoteHostActivity(host, time.Now()) // someone looked at it
+	h.r.expirePreviews(ctx)
+	if h.state("site", "pr-1").Live != pv.ID {
+		t.Fatal("a static preview used within PreviewExpire was deleted")
+	}
+	time.Sleep(60 * time.Millisecond)
+	h.r.expirePreviews(ctx)
+	if st := h.state("site", "pr-1"); st.Live != "" {
+		t.Fatalf("unused static preview kept: %+v", st)
+	}
+	if code, _ := h.get(host, "/"); code != 404 {
+		t.Fatalf("expired static preview still served: %d", code)
+	}
+}

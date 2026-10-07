@@ -104,6 +104,9 @@ type rt struct {
 	orphanAt  map[string]time.Time           // leftover container → when status first saw it
 	actAddr   string                         // the runtime's own listener (git hooks)
 	dispatch  map[string][]switchboard.Route // the switchboard's routes: host → environments
+	// previewFiles: the hosts of static previews (the edge serves their
+	// files, so the switchboard never sees their requests) → environment.
+	previewFiles map[string]string
 	// loadedRoutes is the hash of the routes the edge last loaded from us.
 	loadedRoutes string
 	hooks        *hookTokens

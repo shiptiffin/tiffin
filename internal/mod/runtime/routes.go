@@ -105,6 +105,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) 
 	sb := r.switchboardAddr()
 	owner := map[string]string{}
 	table := map[string][]switchboard.Route{}
+	files := map[string]string{} // static previews' hosts → environment
 	add := func(rt edge.Route, who, env string) {
 		key := rt.Host + rt.PathPrefix
 		if w, taken := owner[key]; taken {
@@ -148,6 +149,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) 
 			who += "@" + st.Preview
 			rt := edge.Route{Host: previewHost(st.Preview, st.Project, st.App, spec, r.p.AppsDomain()), Rules: rules, NextCache: next}
 			if static {
+				files[rt.Host] = env
 				rt.FileRoot, rt.SPA, rt.SPAPage = r.staticLink(st.Project, st.App, st.Preview), spa, d.SPAPage
 			} else {
 				rt.Upstream = sb // the switchboard wakes the preview if it sleeps
@@ -169,6 +171,9 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) 
 	out = append(out, liveRoutes(out, owner, sb)...)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Host+out[i].PathPrefix < out[j].Host+out[j].PathPrefix })
 	r.setDispatch(table)
+	r.mu.Lock()
+	r.previewFiles = files
+	r.mu.Unlock()
 	for _, c := range conflicts {
 		r.p.Log.Warn("route conflict", "route", c.Key, "served_by", c.Winner, "ignored", c.Loser)
 	}
@@ -326,10 +331,12 @@ func (r *rt) serveInternal(ctx context.Context, ln net.Listener) {
 }
 
 // expirePreviews deletes the previews nobody requested or deployed to for
-// PreviewExpire, as closing their pull request would. Only sleeping
-// previews qualify: a preview's state is last written when it falls asleep,
-// after its last request, so the clock survives a restart. Static previews
-// never sleep (the edge serves them) and are kept.
+// PreviewExpire, as closing their pull request would. Previews with
+// instances qualify once asleep: their state is last written when they
+// fall asleep, after their last request, so the clock survives a restart.
+// Static previews never sleep (the edge serves their files): their
+// requests come from the edge's access log (NoteHostActivity), saved with
+// the rest of the activity every minute.
 func (r *rt) expirePreviews(ctx context.Context) {
 	r.pullActivity()
 	states, err := r.st.allStates(ctx)
@@ -337,8 +344,13 @@ func (r *rt) expirePreviews(ctx context.Context) {
 		return
 	}
 	for _, s := range states {
-		if s.Preview == "" || !s.Sleeping || s.Stopped || time.Since(s.UpdatedAt) < r.opt.PreviewExpire {
+		if s.Preview == "" || s.Stopped || s.Live == "" || time.Since(s.UpdatedAt) < r.opt.PreviewExpire {
 			continue
+		}
+		if !s.Sleeping {
+			if d, err := r.st.getDeploy(ctx, s.Project, s.App, s.Live); err != nil || d.StaticRoot == "" {
+				continue
+			}
 		}
 		r.mu.Lock()
 		seen := r.lastSeen[envKey(s.Project, s.App, s.Preview)]

@@ -61,6 +61,27 @@ func (m *Module) NoteActivity(project, app string, at time.Time) {
 	}
 }
 
+// NoteHostActivity counts a request the edge served on host at at, when
+// host is a static preview's: the edge serves those files itself, so this
+// (the observe module reads the access log) is how such a preview counts
+// as used and does not expire. Other hosts are ignored.
+func (m *Module) NoteHostActivity(host string, at time.Time) {
+	r, err := m.rt()
+	if err != nil {
+		return
+	}
+	r.mu.Lock()
+	env, ok := r.previewFiles[host]
+	r.mu.Unlock()
+	if !ok {
+		return
+	}
+	if now := time.Now(); at.After(now) {
+		at = now
+	}
+	r.touchAt(env, at)
+}
+
 // lastActive is when s last had a request or delivery. Unknown since the
 // box started: a preview counts from its last change; production from now,
 // so turning sleep on never puts an app to sleep at once.
