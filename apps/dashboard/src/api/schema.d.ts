@@ -6417,6 +6417,8 @@ export interface components {
         BackupOffsiteCopy: {
             /** @description The backup set copied */
             backup: string;
+            /** @description Where it was copied: a copy to an earlier destination does not count for the current one */
+            destination?: string;
             /** Format: int64 */
             durationMs: number;
             error?: string;
@@ -6601,11 +6603,6 @@ export interface components {
              * @description Chunks the destination did not have yet
              */
             newChunks: number;
-            /**
-             * Format: int64
-             * @description Files unchanged since the last upload (not read again)
-             */
-            reusedFiles: number;
             /**
              * Format: int64
              * @description Bytes uploaded (compressed and encrypted)
