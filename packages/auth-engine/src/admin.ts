@@ -105,24 +105,29 @@ export function adminHandler(reg: Registry) {
         );
         if (!user) return problem(404, "not_found", `no user ${id} in project ${project}`);
         if (m === "GET" && rest.length === 2) {
-          const accounts = await q(pool, `SELECT "providerId", "accountId", "createdAt" FROM ${T("account")} WHERE "userId" = $1 ORDER BY "createdAt"`, [id]);
-          const sessions = await q(
-            pool,
-            `SELECT id, "ipAddress", "userAgent", "createdAt", "updatedAt", "expiresAt" FROM ${T("session")} WHERE "userId" = $1 AND "expiresAt" > now() ORDER BY "updatedAt" DESC LIMIT 50`,
-            [id],
-          );
-          const memberships =
-            cfg.organizations && (await tableExists(pool, "member"))
-              ? await q(
-                  pool,
-                  `SELECT o.id AS "organizationId", o.name, o.slug, m.role, m."createdAt" FROM ${T("member")} m JOIN ${T("organization")} o ON o.id = m."organizationId" WHERE m."userId" = $1 ORDER BY m."createdAt"`,
-                  [id],
-                )
-              : [];
-          const passkeys = (await tableExists(pool, "passkey")) ? Number((await q<{ n: string }>(pool, `SELECT count(*) AS n FROM ${T("passkey")} WHERE "userId" = $1`, [id]))[0]?.n ?? 0) : 0;
-          const apiKeys = (await tableExists(pool, "apikey"))
-            ? await q(pool, `SELECT id, name, start, prefix, enabled, "expiresAt", "createdAt", "lastRequest", metadata FROM ${T("apikey")} WHERE "referenceId" = $1 ORDER BY "createdAt" DESC`, [id])
-            : [];
+          // Independent reads: at once, within the project's small pool.
+          const [accounts, sessions, memberships, passkeys, apiKeys] = await Promise.all([
+            q(pool, `SELECT "providerId", "accountId", "createdAt" FROM ${T("account")} WHERE "userId" = $1 ORDER BY "createdAt"`, [id]),
+            q(
+              pool,
+              `SELECT id, "ipAddress", "userAgent", "createdAt", "updatedAt", "expiresAt" FROM ${T("session")} WHERE "userId" = $1 AND "expiresAt" > now() ORDER BY "updatedAt" DESC LIMIT 50`,
+              [id],
+            ),
+            (async () =>
+              cfg.organizations && (await tableExists(pool, "member"))
+                ? q(
+                    pool,
+                    `SELECT o.id AS "organizationId", o.name, o.slug, m.role, m."createdAt" FROM ${T("member")} m JOIN ${T("organization")} o ON o.id = m."organizationId" WHERE m."userId" = $1 ORDER BY m."createdAt"`,
+                    [id],
+                  )
+                : [])(),
+            (async () =>
+              (await tableExists(pool, "passkey")) ? Number((await q<{ n: string }>(pool, `SELECT count(*) AS n FROM ${T("passkey")} WHERE "userId" = $1`, [id]))[0]?.n ?? 0) : 0)(),
+            (async () =>
+              (await tableExists(pool, "apikey"))
+                ? q(pool, `SELECT id, name, start, prefix, enabled, "expiresAt", "createdAt", "lastRequest", metadata FROM ${T("apikey")} WHERE "referenceId" = $1 ORDER BY "createdAt" DESC`, [id])
+                : [])(),
+          ]);
           return json({ user, accounts, sessions, memberships, passkeys, apiKeys });
         }
         if (m === "POST" && rest[2] === "ban" && rest.length === 3) {
