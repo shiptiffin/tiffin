@@ -19,11 +19,23 @@ const engineFetch = ((url: string, init?: RequestInit) => {
 }) as unknown as typeof fetch;
 const opts = { url: "http://127.0.0.1:7393/api/auth", host: HOST, fetch: engineFetch };
 
+// Another project on the box, with its own users.
+const EVIL = "evil.tiffin.localhost";
+
 beforeAll(async () => {
   dbUrl = await freshDatabase("sdk_test");
-  reg = new Registry(null, { version: 1, listen: [], projects: { shop: projectConfig(dbUrl) } });
+  const evilUrl = await freshDatabase("sdk_test_evil");
+  const evil = projectConfig(evilUrl, {
+    hosts: [EVIL],
+    primaryUrl: `https://${EVIL}:8443`,
+    origins: [`https://${EVIL}:8443`],
+    captcha: false,
+    requireEmailVerification: false,
+  });
+  reg = new Registry(null, { version: 1, listen: [], projects: { shop: projectConfig(dbUrl), evil } });
   handle = publicHandler(reg);
   await adminHandler(reg)(new Request("http://admin/projects/shop/migrate", { method: "POST" }));
+  await adminHandler(reg)(new Request("http://admin/projects/evil/migrate", { method: "POST" }));
 }, 60_000);
 
 afterAll(async () => {
@@ -121,4 +133,41 @@ test("fast path: the signed session cookie is read without the engine, and stays
   const engine = await time(() => getSession(r(), { ...o, fresh: true }));
   console.log(JSON.stringify({ getSessionMs: { signedCookie: +fast.toFixed(3), engine: +engine.toFixed(3) } }));
   expect(fast).toBeLessThan(engine);
+}, 60_000);
+
+test("a request naming another project's host is still checked against this app's project", async () => {
+  // Mallory owns an account on the evil app, and calls the shop app's
+  // server directly (apps reach each other on the box), naming evil's host.
+  const mallory = new Client(handle);
+  const up = await mallory.json(`https://${EVIL}:8443/api/auth/sign-up/email`, { body: { email: "mallory@example.com", password: "correct horse battery", name: "M" } });
+  expect(up.status).toBe(200);
+  expect(mallory.cookies.size).toBeGreaterThan(0);
+  const direct = (extra: Record<string, string> = {}) =>
+    new Request(`http://10.0.0.5:3000/admin`, { headers: { host: EVIL, "x-forwarded-host": EVIL, "x-forwarded-proto": "https", cookie: mallory.cookieHeader(), ...extra } });
+  const appOpts = { url: "http://127.0.0.1:7393/api/auth", fetch: engineFetch };
+  const was = process.env.TIFFIN_AUTH_HOST;
+  process.env.TIFFIN_AUTH_HOST = HOST; // what the box gives the shop app
+  try {
+    expect(await getSession(direct(), appOpts)).toBeNull();
+    expect(await getSession(direct(), { ...appOpts, fresh: true })).toBeNull();
+    expect((await requireRole(direct(), "viewer", appOpts).catch((e) => e)).status).toBe(401);
+    // The engine itself: a pinned call names a host of another project: answered for the pinned one.
+    const res = await engineFetch("http://127.0.0.1:7393/api/auth/tiffin/session", { headers: { cookie: mallory.cookieHeader(), "x-tiffin-host": EVIL, "x-tiffin-auth-host": HOST } });
+    expect(await res.json()).toBeNull();
+  } finally {
+    if (was === undefined) delete process.env.TIFFIN_AUTH_HOST;
+    else process.env.TIFFIN_AUTH_HOST = was;
+  }
+  // Without the pin (no TIFFIN_AUTH_HOST, outside a box) the named host is used, as before.
+  expect((await getSession(direct(), appOpts))?.user.email).toBe("mallory@example.com");
+}, 60_000);
+
+test("an Authorization header is never the session's identity in the SDK's memory", async () => {
+  const ana2 = await person(handle, "ana2@example.com", "Ana Two");
+  const appReq = (h: Record<string, string>) => new Request(`${ORIGIN}/dashboard`, { headers: h });
+  const shared = { authorization: "Basic c2hhcmVkOnZhbHVl" };
+  const s = await getSession(appReq({ cookie: ana2.cookieHeader(), ...shared }), { ...opts, fresh: true });
+  expect(s?.user.email).toBe("ana2@example.com");
+  // Same header, no cookie, within the SDK's 5-second memory: nobody.
+  expect(await getSession(appReq(shared), opts)).toBeNull();
 }, 60_000);

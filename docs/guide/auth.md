@@ -228,8 +228,11 @@ request: keep that part inside `<Suspense>`.
 Everything above is plain HTTP, so any language works:
 
 - **Who is signed in:** `GET $TIFFIN_AUTH_INTERNAL_URL/tiffin/session` with the request's
-  `cookie` (or `x-api-key`) and `x-tiffin-host: <the app's host>`; it answers the session
-  (`user`, `organization`) or 401.
+  `cookie` (or `x-api-key`), `x-tiffin-host: <the request's host>` and
+  `x-tiffin-auth-host: $TIFFIN_AUTH_HOST`; it answers the session (`user`, `organization`)
+  or 401. Always send `x-tiffin-auth-host`: other apps on the box can reach yours directly
+  with any `Host`, and the engine answers for that header's project whatever host the
+  request names.
 - **Bot check:** sign-up, sign-in, magic links and resets need a proof of work. Fetch
   `GET /api/auth/altcha/challenge`, solve it with
   [altcha-lib](https://github.com/altcha-org/altcha-lib) (`solveChallenge`), and send

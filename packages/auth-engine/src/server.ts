@@ -1,6 +1,7 @@
 // The public side: the edge sends /api/auth/* for every web app host of an
 // auth-enabled project here, keeping the Host header. Host picks the project.
-// Apps calling from inside the box can name the host in x-tiffin-host.
+// Apps calling from inside the box can name the host in x-tiffin-host, held to
+// their own project by x-tiffin-auth-host.
 import { SCHEMA } from "./auth";
 import { requestFacts, type RequestFacts } from "./context";
 import type { Registry } from "./registry";
@@ -52,6 +53,18 @@ export function publicHandler(reg: Registry) {
     if (!project) {
       internal = req.headers.get("x-tiffin-host");
       project = reg.projectForHost(internal);
+      // The SDK pins internal calls to its app's own project (TIFFIN_AUTH_HOST):
+      // x-tiffin-host comes from the request the app got, which another app
+      // on the box can send it directly with any Host.
+      const pin = req.headers.get("x-tiffin-auth-host");
+      if (pin) {
+        const pinned = reg.projectForHost(pin);
+        if (!pinned) return problem(404, "unknown_host", "No auth-enabled project serves the host in x-tiffin-auth-host.");
+        if (pinned !== project) {
+          project = pinned;
+          internal = pin;
+        }
+      }
       host = internal;
     }
     if (!project) return problem(404, "unknown_host", "No auth-enabled project serves this host. Turn on services.auth in tiffin.config.ts and apply.");

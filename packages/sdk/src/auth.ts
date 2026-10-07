@@ -67,7 +67,7 @@ export class AuthError extends Error {
 export type AuthOptions = {
   /** Engine base URL. Default: TIFFIN_AUTH_INTERNAL_URL, else TIFFIN_AUTH_URL. */
   url?: string;
-  /** The app host to act for on internal calls. Default: the request's Host, else TIFFIN_AUTH_HOST. */
+  /** The app host to act for on internal calls. Default: the request's Host, held to TIFFIN_AUTH_HOST's project. */
   host?: string;
   fetch?: typeof fetch;
 };
@@ -80,7 +80,8 @@ function base(o: AuthOptions): string {
   return u.replace(/\/+$/, "");
 }
 
-const FORWARD = ["cookie", "x-api-key", "authorization", "user-agent", "x-forwarded-for", "x-forwarded-proto"];
+// The engine authenticates by the session cookie or x-api-key, never Authorization.
+const FORWARD = ["cookie", "x-api-key", "user-agent", "x-forwarded-for", "x-forwarded-proto"];
 
 type HeadersLike = { get(name: string): string | null };
 
@@ -115,15 +116,16 @@ export async function sessionFor(from: HeadersLike, opts: SessionOptions = {}): 
   const headers = forwardHeaders(from, opts);
   const cookies = parseCookies(headers.get("cookie"));
   const token = cookies.get(cookieName(TOKEN, headers));
-  const key = headers.get("x-api-key") ?? headers.get("authorization");
+  // What the engine will authenticate by: the API key when there is one, else the session cookie.
+  const key = headers.get("x-api-key");
   if (!key && !token) return { session: null, setCookie: [] };
   const url = base(opts);
   if (!key && !opts.fresh) {
     const jwt = chunked(cookies, cookieName(DATA, headers));
-    const s = jwt ? await fromSessionCookie(jwt, token!, url, headers.get("x-tiffin-host"), opts) : undefined;
+    const s = jwt ? await fromSessionCookie(jwt, token!, url, headers.get(PIN) ?? headers.get("x-tiffin-host"), opts) : undefined;
     if (s) return { session: s, setCookie: [] };
   }
-  const cacheKey = `${url}|${headers.get("x-tiffin-host")}|${opts.organizationId ?? ""}|${key ?? token}`;
+  const cacheKey = `${url}|${headers.get(PIN) ?? ""}|${headers.get("x-tiffin-host")}|${opts.organizationId ?? ""}|${key ? "k:" + key : "s:" + token}`;
   const hit = recent.get(cacheKey);
   if (!opts.fresh && hit && Date.now() - hit.at < RECENT_MS) return { session: hit.session, setCookie: [] };
   const q = opts.organizationId ? `?organizationId=${encodeURIComponent(opts.organizationId)}` : "";
@@ -141,12 +143,22 @@ export async function sessionFor(from: HeadersLike, opts: SessionOptions = {}): 
 
 /** Drops what this process remembers about a session token (after signing out). */
 export function forgetSession(token: string) {
-  for (const k of recent.keys()) if (k.endsWith("|" + token)) recent.delete(k);
+  for (const k of recent.keys()) if (k.endsWith("|s:" + token)) recent.delete(k);
 }
+
+/** The header that pins an internal call to this app's project (TIFFIN_AUTH_HOST). */
+const PIN = "x-tiffin-auth-host";
 
 /**
  * Headers for a server-side call to the engine on behalf of a request: its
  * credentials, client address and user agent, and the app host it came to.
+ *
+ * The request's Host can be anything: other apps on the box reach this one
+ * directly, not through the edge. So the call also names the box-given
+ * TIFFIN_AUTH_HOST, and the engine answers for that project whatever host
+ * the request names (the request's host only picks which of the project's
+ * hosts links and passkeys use). A session from another project never
+ * passes here.
  */
 export function forwardHeaders(from: HeadersLike, opts: AuthOptions = {}): Headers {
   const headers = new Headers();
@@ -154,8 +166,10 @@ export function forwardHeaders(from: HeadersLike, opts: AuthOptions = {}): Heade
     const v = from.get(h);
     if (v) headers.set(h, v);
   }
-  const host = opts.host ?? from.get("x-forwarded-host") ?? from.get("host") ?? env("TIFFIN_AUTH_HOST");
+  const pin = opts.host ? undefined : env("TIFFIN_AUTH_HOST");
+  const host = opts.host ?? from.get("x-forwarded-host") ?? from.get("host") ?? pin;
   if (host) headers.set("x-tiffin-host", host);
+  if (pin) headers.set(PIN, pin);
   return headers;
 }
 
