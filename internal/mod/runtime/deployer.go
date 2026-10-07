@@ -928,6 +928,8 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 				lastStatus = fmt.Sprintf("HTTP %d", res.StatusCode)
 			} else if foreign(err) {
 				return portTakenError(in, err)
+			} else if _, msg, ok := strings.Cut(err.Error(), "peer: "); ok {
+				lastStatus = "the box could not tell who answers: " + msg
 			} else {
 				lastStatus = "not answering"
 			}
