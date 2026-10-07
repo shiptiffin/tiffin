@@ -88,7 +88,9 @@ func (b *Board) assetMeta(dir string) releaseMeta {
 		_ = json.Unmarshal(raw, &m.pages)
 	}
 	b.metaMu.Lock()
-	b.metas[dir] = m
+	if b.served[dir] { // a release the table no longer serves is read, not kept
+		b.metas[dir] = m
+	}
 	b.metaMu.Unlock()
 	return m
 }

@@ -315,3 +315,49 @@ func TestPrecompressIsBounded(t *testing.T) {
 		}
 	}
 }
+
+// What serving reads from each release (its pages map can be large) is
+// kept only for releases the table still serves from: the live ones and
+// those retired within AssetsKept.
+func TestReleaseMetaKeptOnlyWhileServed(t *testing.T) {
+	b := New(nil, nil)
+	base := t.TempDir()
+	meta := `[{"dir":"public","path":"/","immutable":["/assets/"],"pages":true}]`
+	for _, id := range []string{"dep_1", "dep_2", "dep_3"} {
+		writeRelease(t, filepath.Join(base, id), meta, map[string]string{"index.html": id})
+		os.WriteFile(filepath.Join(base, id, PagesFile), []byte(`{"/":"index.html"}`), 0o644)
+	}
+	cached := func() map[string]bool {
+		b.metaMu.Lock()
+		defer b.metaMu.Unlock()
+		out := map[string]bool{}
+		for d := range b.metas {
+			out[filepath.Base(d)] = true
+		}
+		return out
+	}
+	set := func(live string, retired ...Retired) *Env {
+		st := &Env{Project: "shop", App: "web", Live: live, Assets: base, Retired: retired}
+		b.Set(Table{Envs: map[string]*Env{"shop/web": st}})
+		return st
+	}
+	read := func(st *Env) {
+		w := httptest.NewRecorder()
+		b.ServeAsset(w, httptest.NewRequest("GET", "/assets/x.js", nil), st, "")
+	}
+	read(set("dep_2", Retired{Deploy: "dep_1", At: time.Now()}))
+	if c := cached(); !c["dep_1"] || !c["dep_2"] || len(c) != 2 {
+		t.Fatalf("live and retired releases not cached: %v", c)
+	}
+	// dep_1 retired over a day ago: it goes; dep_2 (retired now) stays.
+	read(set("dep_3", Retired{Deploy: "dep_2", At: time.Now()}, Retired{Deploy: "dep_1", At: time.Now().Add(-AssetsKept - time.Minute)}))
+	if c := cached(); c["dep_1"] || !c["dep_2"] || !c["dep_3"] {
+		t.Fatalf("after a deploy: %v", c)
+	}
+	// A request for a release the table no longer has (a stale table) is
+	// answered but not kept.
+	read(&Env{Live: "dep_1", Assets: base})
+	if c := cached(); c["dep_1"] {
+		t.Fatalf("a release the table does not serve was cached: %v", c)
+	}
+}

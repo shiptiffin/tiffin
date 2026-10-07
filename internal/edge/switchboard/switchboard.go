@@ -118,6 +118,10 @@ type Board struct {
 
 	metaMu sync.Mutex
 	metas  map[string]releaseMeta // release dir → its assets.json and pages.json
+	// served: the release dirs ServeAsset may read (live releases and
+	// those retired within AssetsKept, as of the last Set); only these
+	// are cached.
+	served map[string]bool
 }
 
 // New returns an empty switchboard: every request is a 404 until Set.
@@ -144,12 +148,22 @@ func (b *Board) Set(t Table) {
 		t.Envs = map[string]*Env{}
 	}
 	live := map[string]bool{}
-	dirs := map[string]bool{}
+	served := map[string]bool{}
 	for _, e := range t.Envs {
 		for _, in := range e.Instances {
 			live[in.Name] = true
 		}
-		dirs[e.Assets] = true
+		if e.Assets == "" {
+			continue
+		}
+		if e.Live != "" {
+			served[filepath.Join(e.Assets, e.Live)] = true
+		}
+		for _, rt := range e.Retired {
+			if time.Since(rt.At) < AssetsKept {
+				served[filepath.Join(e.Assets, rt.Deploy)] = true
+			}
+		}
 	}
 	b.mu.Lock()
 	b.t = t
@@ -174,9 +188,10 @@ func (b *Board) Set(t Table) {
 	}
 	b.seenMu.Unlock()
 	b.metaMu.Lock()
+	b.served = served
 	for d := range b.metas {
-		if !dirs[filepath.Dir(d)] {
-			delete(b.metas, d)
+		if !served[d] {
+			delete(b.metas, d) // a retired release's pages map can be large
 		}
 	}
 	b.metaMu.Unlock()
