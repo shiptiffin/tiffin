@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/state"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -39,16 +40,23 @@ type RenderedConfig struct {
 const appearanceNS = "appearance"
 
 func (a *API) appearance(ctx context.Context, project string) (Appearance, error) {
+	return appearanceOf(ctx, a.deps.DB, project)
+}
+
+// EnamelOf is a project's colour: the one picked for it, else its default.
+func EnamelOf(ctx context.Context, db *state.DB, project string) string {
+	out, _ := appearanceOf(ctx, db, project)
+	return out.Enamel
+}
+
+func appearanceOf(ctx context.Context, db *state.DB, project string) (Appearance, error) {
 	out := Appearance{Project: project, Enamel: DefaultEnamel(project)}
-	v, ok, err := a.deps.DB.KVGet(ctx, appearanceNS, project)
+	v, ok, err := db.KVGet(ctx, appearanceNS, project)
 	if err != nil {
 		return out, err
 	}
 	if ok && slices.Contains(Enamels, string(v)) {
 		out.Enamel, out.Chosen = string(v), true
-		if out.Enamel == "kokum" { // the colour's old name
-			out.Enamel = "plum"
-		}
 	}
 	return out, nil
 }
