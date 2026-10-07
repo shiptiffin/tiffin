@@ -32,6 +32,8 @@ type Message struct {
 	HTML        string            `json:"html,omitempty" doc:"HTML body (render react-email templates with @shiptiffin/sdk/email render())"`
 	Headers     map[string]string `json:"headers,omitempty" doc:"Extra headers, e.g. List-Unsubscribe. Structural headers (From, To, Subject, Content-*, ...) are refused"`
 	Attachments []Attachment      `json:"attachments,omitempty" maxItems:"20"`
+
+	private bool // box mail only: hide its body from box mail history (see privateHeader)
 }
 
 // Attachment is a file attached to a message.
@@ -119,6 +121,9 @@ func compose(m Message, defaultFrom, id, domain string, now time.Time) ([]byte, 
 	h.SetSubject(m.Subject)
 	h.SetMessageID(id + "@" + domain)
 	h.Set("X-Tiffin-Message-Id", id)
+	if m.private {
+		h.Set(privateHeader, "sign-in link")
+	}
 	names := make([]string, 0, len(m.Headers))
 	for k := range m.Headers {
 		names = append(names, k)

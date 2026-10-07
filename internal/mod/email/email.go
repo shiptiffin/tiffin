@@ -380,9 +380,13 @@ func (m *Module) accept(ctx context.Context, p *platform.Platform, project, prev
 			return nil, err
 		}
 	}
+	snippet := parsed.snippet()
+	if privateBox(project, parsed) {
+		snippet = hiddenBody
+	}
 	now := time.Now().UTC()
 	rec := &record{Summary: Summary{ID: id, Project: project, CreatedAt: now, Source: source, From: parsed.From, To: parsed.To,
-		Subject: parsed.Subject, Snippet: parsed.snippet(), Size: int64(len(raw)), Attachments: len(parsed.Attachments),
+		Subject: parsed.Subject, Snippet: snippet, Size: int64(len(raw)), Attachments: len(parsed.Attachments),
 		Delivery: delivery, Status: status, Reason: reason, Suppressed: dropped}, MailFrom: mailFrom, Rcpt: keep}
 	if status == StatusQueued {
 		rec.NextAttempt = now

@@ -27,6 +27,29 @@ const boxProject = "_box"
 
 func init() { api.SetBoxMailer(mod) }
 
+// privateHeader marks box mail whose body holds a credential nobody but its
+// recipient may see: a sign-in link the person asked for by email, which
+// counts as a strong sign-in. Box mail history (which every owner and admin
+// can read) shows such a message's metadata only: no text, HTML, links or
+// snippet, while it waits in the relay queue or after.
+const privateHeader = "X-Tiffin-Private"
+
+// hiddenBody stands in for a private box message's text.
+const hiddenBody = "Hidden: this email holds a sign-in link for its recipient only."
+
+// privateBox reports whether a message of project is private box mail.
+func privateBox(project string, parsed *Parsed) bool {
+	if project != boxProject {
+		return false
+	}
+	for _, h := range parsed.Headers {
+		if strings.EqualFold(h.Name, privateHeader) {
+			return true
+		}
+	}
+	return false
+}
+
 // BoxSender is who the box's own mail comes from.
 type BoxSender struct {
 	From        string    `json:"from" doc:"The sender, e.g. \"ShipTiffin <hello@shiptiffin.com>\""`
@@ -114,8 +137,10 @@ func (m *Module) SendBoxMail(ctx context.Context, p *platform.Platform, bm api.B
 		to = (&mail.Address{Name: bm.Name, Address: bm.To}).String()
 	}
 	id := ids.New("msg")
+	// A link the person asked for is a strong sign-in: its body must not be
+	// readable in box mail history (see privateBox).
 	raw, from, rcpt, err := compose(Message{To: []string{to}, ReplyTo: s.ReplyTo, Subject: e.Subject, Text: e.Text, HTML: e.HTML,
-		Headers: boxHeaders(provider)}, s.From, id, p.Domain, time.Now())
+		Headers: boxHeaders(provider), private: bm.Kind == api.BoxMailSignIn}, s.From, id, p.Domain, time.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +237,7 @@ func (m *Module) registerBoxAPI(a huma.API, p *platform.Platform, tag string) {
 
 	huma.Register(a, api.Untrusted(api.Op("email-box-messages-list", http.MethodGet, "/v1/email/box/messages", "email box messages", api.RiskRead,
 		"List box mail", "The box's own mail, newest first: invites, sign-in links and new sign-in notices, sent or kept in its dev inbox. "+
-			"Box admins only: it holds sign-in links.", tag)),
+			"Box admins only: it holds invites. A sign-in link someone asked for by email shows its metadata only (the link is theirs alone).", tag)),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Limit int `query:"limit" minimum:"1" maximum:"200" default:"50"`
 		}) (*struct{ Body []Summary }, error) {

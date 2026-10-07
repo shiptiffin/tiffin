@@ -722,6 +722,10 @@ func (m *Module) detail(ctx context.Context, p *platform.Platform, project, id s
 	if err != nil {
 		return d, nil
 	}
+	if privateBox(project, parsed) {
+		d.Headers, d.Text = parsed.Headers, hiddenBody
+		return d, nil
+	}
 	d.Headers, d.Text, d.HTML, d.Links, d.AttachList = parsed.Headers, parsed.Text, sanitize(parsed.HTML), parsed.links(), parsed.Attachments
 	if d.Headers == nil {
 		d.Headers = []Header{}

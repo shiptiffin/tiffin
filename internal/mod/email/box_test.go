@@ -220,9 +220,11 @@ func TestBoxMailInboxAndRelay(t *testing.T) {
 	if len(recs) != 1 || recs[0].Source != "box" || !strings.Contains(recs[0].From, "Tiffin") || !strings.Contains(recs[0].From, "<hello@tiffin.localhost>") || recs[0].Subject != "Sign in to dashboard.tiffin.localhost" {
 		t.Fatalf("box inbox: %+v", recs)
 	}
+	// A sign-in link the person asked for is theirs alone: box mail history
+	// (which admins read) shows no body, links or snippet.
 	d, _ := mod.detail(r.ctx, r.p, boxProject, recs[0].ID, true)
-	if len(d.Links) == 0 || d.Links[0] != link {
-		t.Fatalf("links: %v", d.Links)
+	if len(d.Links) != 0 || d.HTML != "" || d.Text != hiddenBody || recs[0].Snippet != hiddenBody || strings.Contains(recs[0].Snippet, "tfl_") {
+		t.Fatalf("sign-in mail readable: links %v snippet %q text %q", d.Links, recs[0].Snippet, d.Text)
 	}
 	// Project inboxes don't see box mail.
 	if len(r.inbox(true)) != 0 {
@@ -246,6 +248,31 @@ func TestBoxMailInboxAndRelay(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("relayed message lacks %q:\n%s", want, got)
 		}
+	}
+	// An invite stays readable (an admin could make one anyway).
+	recs, _ = listRecords(r.ctx, r.p.DB.SQL(), ListFilter{Project: boxProject, All: true})
+	if d, _ := mod.detail(r.ctx, r.p, boxProject, recs[0].ID, true); len(d.Links) == 0 || d.Links[0] != link {
+		t.Fatalf("invite links: %v", d.Links)
+	}
+
+	// A relayed sign-in link reaches its recipient but stays hidden here,
+	// queued or sent.
+	if res, err := mod.SendBoxMail(r.ctx, r.p, api.BoxMail{Kind: api.BoxMailSignIn, To: "maya@inbox.dev", Name: "Maya", URL: link, ExpiresAt: time.Now().Add(15 * time.Minute)}); err != nil || res.Delivery != DeliveryRelay {
+		t.Fatalf("relay sign-in: %+v %v", res, err)
+	}
+	recs, _ = listRecords(r.ctx, r.p.DB.SQL(), ListFilter{Project: boxProject, All: true})
+	if d, _ := mod.detail(r.ctx, r.p, boxProject, recs[0].ID, true); len(d.Links) != 0 || d.Text != hiddenBody || recs[0].Snippet != hiddenBody {
+		t.Fatalf("queued sign-in mail readable: %v %q", d.Links, recs[0].Snippet)
+	}
+	waitFor(t, "relay delivery", func() bool { return s.count() == 2 })
+	s.mu.Lock()
+	got = s.got[1]
+	s.mu.Unlock()
+	if !strings.Contains(got, "tfl_abc") {
+		t.Fatalf("relayed sign-in mail lacks its link:\n%s", got)
+	}
+	if d, _ := mod.detail(r.ctx, r.p, boxProject, recs[0].ID, true); len(d.Links) != 0 || d.Text != hiddenBody {
+		t.Fatalf("sent sign-in mail readable: %v", d.Links)
 	}
 }
 
