@@ -37,7 +37,7 @@ func registerOffsite(a huma.API, p *platform.Platform, tag string) {
 		"The off-box destination (S3-compatible bucket; never its secret or passphrase), its state (off, active, foreign) and the newest copy: "+
 			"when, what was sent, and any error.", tag)
 	huma.Register(a, sh, api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body *BackupOffsite }, error) {
-		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, ""); err != nil {
+		if err := api.PrincipalFrom(ctx).RequireBox(tokens.ScopeRead); err != nil {
 			return nil, err
 		}
 		if err := onBox(p); err != nil {
@@ -230,7 +230,7 @@ func registerOffsite(a huma.API, p *platform.Platform, tag string) {
 			"`tiffin restore <id> --from offsite`.", tag))
 	ls.Errors = append(ls.Errors, 409)
 	huma.Register(a, ls, api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body []BackupOffsiteSet }, error) {
-		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, ""); err != nil {
+		if err := api.PrincipalFrom(ctx).RequireBox(tokens.ScopeRead); err != nil {
 			return nil, err
 		}
 		if err := onBox(p); err != nil {

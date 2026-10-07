@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,8 +13,11 @@ import (
 	"time"
 
 	"filippo.io/age"
+	"github.com/btahir/tiffin/internal/api"
+	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/state"
+	"github.com/btahir/tiffin/internal/tokens"
 )
 
 func TestNormalizeOffsite(t *testing.T) {
@@ -322,5 +327,50 @@ func TestCopyBoundToDestination(t *testing.T) {
 	}
 	if drillable(&list[0], SourceOffsite, a) != "" || drillable(&list[0], SourceOffsite, b) == "" {
 		t.Fatal("drillable: an off-box drill at B of a set only copied to A")
+	}
+}
+
+// Backups cover every project: listing them, the drills (every database's
+// tables and rows) and the off-box copies needs a key for all projects.
+func TestReadsNeedAllProjects(t *testing.T) {
+	ctx := context.Background()
+	db, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	tm := tokens.NewManager(db)
+	owner, _, _ := tm.Bootstrap(ctx)
+	admin, err := tm.Authenticate(ctx, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := func(projects tokens.Projects) string {
+		secret, _, err := tm.CreateKey(ctx, admin, tokens.KeyRequest{Name: "k", Projects: projects, Access: tokens.LevelRead})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return secret
+	}
+	shop, all := key(tokens.Projects{"shop"}), key(tokens.Projects{tokens.AllProjects})
+	srv := httptest.NewServer(api.New(api.Deps{DB: db, Engine: change.NewEngine(db), Tokens: tm}).Handler())
+	defer srv.Close()
+	status := func(tok, path string) int {
+		req, _ := http.NewRequest("GET", srv.URL+path, nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	for _, path := range []string{"/v1/backups", "/v1/backups/drills", "/v1/backups/drills/dr_01K000000000000000000000AA", "/v1/backups/offsite", "/v1/backups/offsite/sets"} {
+		if got := status(shop, path); got != http.StatusForbidden {
+			t.Errorf("%s with a key for shop: %d, want 403", path, got)
+		}
+		if got := status(all, path); got == http.StatusForbidden {
+			t.Errorf("%s with a read key for all projects: 403", path)
+		}
 	}
 }
