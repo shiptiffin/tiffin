@@ -73,6 +73,10 @@ type Config struct {
 	// URLRatePerMinute caps the calls one project makes to URLs outside the
 	// box per minute, across its queues and crons (0 = no cap).
 	URLRatePerMinute int
+	// OwnerGrace is how long a new owner waits before failing attempts a
+	// previous owner left running (default 10 s, more than the 4 s an owner
+	// that lost its lock takes to stop; tests shorten it).
+	OwnerGrace time.Duration
 	// Resolve looks up the hosts of URL targets (tests; nil: the system resolver).
 	Resolve func(ctx context.Context, host string) ([]netip.Addr, error)
 }
@@ -89,12 +93,12 @@ type Engine struct {
 	outside *http.Client
 	now     func() time.Time
 
-	lockConn *pgx.Conn
-	active   sync.Map // job id → *delivery
-	retryAt  sync.Map // river job id → time.Time
-	cancel   context.CancelFunc
-	done     chan struct{}
-	ready    chan struct{}
+	active    sync.Map // job id → *delivery
+	retryAt   sync.Map // river job id → time.Time
+	cancel    context.CancelFunc
+	done      chan struct{}
+	ready     chan struct{}
+	readyOnce sync.Once
 
 	outboxKick chan struct{}
 
@@ -141,6 +145,9 @@ func Open(ctx context.Context, cfg Config) (*Engine, error) {
 	}
 	if cfg.Workers <= 0 {
 		cfg.Workers = 200
+	}
+	if cfg.OwnerGrace == 0 {
+		cfg.OwnerGrace = 10 * time.Second
 	}
 	if cfg.ProjectConcurrency <= 0 || cfg.ProjectConcurrency > cfg.Workers {
 		cfg.ProjectConcurrency = max(1, cfg.Workers/4)
@@ -200,37 +207,89 @@ func (e *Engine) NextRetry(job *riverRow) time.Time {
 
 // Start takes the single-owner lock (one process works this database at a
 // time; a second waits), recovers deliveries orphaned by a crash and starts
-// working. It returns at once; work begins when the lock is held.
+// working. It returns at once; work begins when the lock is held. If the
+// lock's connection is lost, work stops (deliveries in flight are cut off
+// and run again) and the engine waits for the lock again: another process
+// may own the queue by then.
 func (e *Engine) Start(ctx context.Context) {
 	ctx, e.cancel = context.WithCancel(ctx)
 	e.done = make(chan struct{})
 	go func() {
 		defer close(e.done)
-		if err := e.acquireOwner(ctx); err != nil {
-			if ctx.Err() == nil {
-				e.log.Error("queue: owner lock", "err", err)
+		for ctx.Err() == nil {
+			conn, err := e.acquireOwner(ctx)
+			if err != nil {
+				if ctx.Err() == nil {
+					e.log.Error("queue: owner lock", "err", err)
+				}
+				return
 			}
-			return
+			started := e.runOwned(ctx, conn)
+			_ = conn.Close(context.Background())
+			if ctx.Err() != nil {
+				return
+			}
+			e.log.Error("queue: lost the single-owner lock; stopped working jobs until it is taken again")
+			if !started {
+				select { // don't spin on a failing start
+				case <-ctx.Done():
+				case <-time.After(5 * time.Second):
+				}
+			}
 		}
-		if err := e.recover(ctx); err != nil {
-			e.log.Error("queue: recover", "err", err)
-		}
-		if err := e.river.Start(ctx); err != nil {
-			e.log.Error("queue: start river", "err", err)
-			return
-		}
-		close(e.ready)
-		var wg sync.WaitGroup
-		for _, loop := range []func(context.Context){e.reaperLoop, e.cronLoop, e.pruneLoop, e.outboxLoop} {
-			wg.Add(1)
-			go func() { defer wg.Done(); loop(ctx) }()
-		}
-		<-ctx.Done()
-		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = e.river.Stop(sctx)
-		cancel()
-		wg.Wait()
 	}()
+}
+
+// ownerPing is how often the owner checks its lock's connection (and how
+// long it gives the check): an owner that lost it stops within two pings,
+// well inside the next owner's OwnerGrace.
+const ownerPing = 2 * time.Second
+
+// runOwned works jobs while conn holds the owner lock. It returns when ctx
+// ends or the lock's connection fails; started reports River ran.
+func (e *Engine) runOwned(ctx context.Context, conn *pgx.Conn) (started bool) {
+	wctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		t := time.NewTicker(ownerPing)
+		defer t.Stop()
+		for {
+			select {
+			case <-wctx.Done():
+				return
+			case <-t.C:
+			}
+			pctx, pcancel := context.WithTimeout(wctx, ownerPing)
+			_, err := conn.Exec(pctx, `SELECT 1`)
+			pcancel()
+			if err != nil && wctx.Err() == nil {
+				e.log.Error("queue: the owner lock's connection failed", "err", err)
+				cancel()
+				return
+			}
+		}
+	}()
+	if err := e.recover(wctx); err != nil {
+		e.log.Error("queue: recover", "err", err)
+	}
+	if err := e.river.Start(wctx); err != nil {
+		if wctx.Err() == nil {
+			e.log.Error("queue: start river", "err", err)
+		}
+		return false
+	}
+	e.readyOnce.Do(func() { close(e.ready) })
+	var wg sync.WaitGroup
+	for _, loop := range []func(context.Context){e.reaperLoop, e.cronLoop, e.pruneLoop, e.outboxLoop} {
+		wg.Add(1)
+		go func() { defer wg.Done(); loop(wctx) }()
+	}
+	<-wctx.Done()
+	sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_ = e.river.Stop(sctx)
+	scancel()
+	wg.Wait()
+	return true
 }
 
 // Ready is closed once the engine works jobs.
@@ -243,33 +302,29 @@ func (e *Engine) Close() {
 		e.cancel()
 		<-e.done
 	}
-	if e.lockConn != nil {
-		_ = e.lockConn.Close(context.Background())
-	}
 	e.pool.Close()
 }
 
-// acquireOwner holds a session advisory lock on a dedicated connection. If
+// acquireOwner takes a session advisory lock on a dedicated connection. If
 // tiffin is killed the connection drops and Postgres releases the lock.
-func (e *Engine) acquireOwner(ctx context.Context) error {
+func (e *Engine) acquireOwner(ctx context.Context) (*pgx.Conn, error) {
 	conn, err := pgx.Connect(ctx, e.cfg.DSN)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for {
 		var ok bool
 		if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock(7357001)`).Scan(&ok); err != nil {
 			conn.Close(context.Background())
-			return err
+			return nil, err
 		}
 		if ok {
-			e.lockConn = conn
-			return nil
+			return conn, nil
 		}
 		select {
 		case <-ctx.Done():
 			conn.Close(context.Background())
-			return ctx.Err()
+			return nil, ctx.Err()
 		case <-time.After(time.Second):
 		}
 	}
@@ -280,6 +335,19 @@ func (e *Engine) acquireOwner(ctx context.Context) error {
 // gets a failed attempt ("the box restarted") and is retried; limit slots
 // held by the dead process are freed.
 func (e *Engine) recover(ctx context.Context) error {
+	// A previous owner that lost its lock's connection (rather than dying)
+	// may still be delivering for a moment: wait until it has noticed.
+	var running bool
+	if err := e.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM tq_jobs WHERE state = 'running')`).Scan(&running); err != nil {
+		return err
+	}
+	if running && e.cfg.OwnerGrace > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(e.cfg.OwnerGrace):
+		}
+	}
 	if _, err := e.pool.Exec(ctx, `DELETE FROM tq_slots`); err != nil {
 		return err
 	}

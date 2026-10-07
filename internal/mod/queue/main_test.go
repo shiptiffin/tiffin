@@ -101,7 +101,7 @@ func newEngine(t testing.TB, mod func(*Config)) *testEngine {
 
 func startEngine(t testing.TB, dsn string, mod func(*Config)) *testEngine {
 	t.Helper()
-	cfg := Config{DSN: dsn, RetryBase: 50 * time.Millisecond, PublicURL: "https://dashboard.tiffin.localhost",
+	cfg := Config{DSN: dsn, RetryBase: 50 * time.Millisecond, PublicURL: "https://dashboard.tiffin.localhost", OwnerGrace: 100 * time.Millisecond,
 		AllowNets: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}, // test apps listen on loopback
 		Log:       slog.New(slog.NewTextHandler(io.Discard, nil))}
 	if testing.Verbose() {

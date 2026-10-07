@@ -994,3 +994,41 @@ func TestCancelBetweenAdmitAndDelivery(t *testing.T) {
 	}
 	e.waitState(proj, id, stateCompleted, 10*time.Second)
 }
+
+// An owner whose lock connection dies stops delivering (so a new owner
+// can't overlap with it), then takes the lock again and carries on.
+func TestOwnerLockLost(t *testing.T) {
+	e := newEngine(t, nil)
+	a := newApp(t, e.Engine, proj)
+	cut := make(chan struct{}, 1)
+	var calls atomic.Int64
+	a.handle("/slow", func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			<-r.Context().Done() // the first attempt hangs until the box cuts it off
+			cut <- struct{}{}
+			return
+		}
+		w.WriteHeader(200)
+	})
+	e.configure(proj, QueueConfig{Name: "slow", URL: a.url("/slow"), LeaseS: 600})
+	id := e.send(proj, SendRequest{Name: "slow"}).Jobs[0]
+	eventually(t, 10*time.Second, "the first attempt to start", func() bool { return calls.Load() == 1 })
+	ctx := context.Background()
+	if _, err := e.pool.Exec(ctx, `SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND objid = 7357001 AND granted`); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-cut:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the delivery kept going after the owner lock was lost")
+	}
+	j := e.waitState(proj, id, stateCompleted, 20*time.Second)
+	if calls.Load() != 2 {
+		t.Errorf("%d calls", calls.Load())
+	}
+	if len(j.Attempts) < 2 || j.Attempts[0].Outcome != outcomeInterrupted {
+		t.Errorf("attempts %+v", j.Attempts)
+	}
+	// Still the owner: new jobs run.
+	e.waitState(proj, e.send(proj, SendRequest{Name: "slow"}).Jobs[0], stateCompleted, 10*time.Second)
+}
