@@ -72,10 +72,24 @@ Plainly, so you can decide what to trust it with.
 - **Dashboard sign-in** is a one-time link (`tiffin login`, an invite, or one emailed on
   request), a passkey, or Google or GitHub (see below).
   Each gives a 12-hour session with exactly that person's role, in an HttpOnly,
-  Secure, SameSite=Strict cookie. Passkey sign-in needs user verification (Face ID,
-  fingerprint or PIN), uses a single-use challenge that expires after 2 minutes, refuses
-  people who were removed and passkeys whose signature counter goes backwards (a sign of
-  a copied key), is limited to 10 attempts a minute per address, and is in the audit log.
+  Secure, SameSite=Strict cookie named `__Host-tiffin_session` (browsers only take it
+  from the dashboard's own host, so an app on a sibling host can't plant one). Signing
+  in is refused from other sites. Passkey sign-in needs user verification (Face ID,
+  fingerprint or PIN), uses a single-use challenge that expires after 2 minutes (the box
+  keeps nothing per challenge until a passkey signs it, so floods of requests can't
+  crowd anyone out), refuses people who were removed and passkeys whose signature
+  counter goes backwards (a sign of a copied key), is limited to 10 attempts a minute
+  per address, and is in the audit log.
+- **Who may sign in as whom.** Only the owner (the owner token or an owner's session)
+  makes a sign-in link for the owner. An API key acts for nobody, so it gets no
+  `tiffin login` link. An invite or admin's link (7 days) signs the person in with their
+  own role, and works while whoever made it is still an owner or admin (a key: while it
+  works), even after the session that sent it signs out or expires. A link a session
+  makes for itself works while that session is open.
+- **Client addresses.** Apps share the server's network, so the API only believes the
+  address the edge forwards when the request carries the edge's key (made fresh at each
+  start, sent only to the dashboard): an app calling the API directly counts as
+  `127.0.0.1`, and can't pick its address for rate limits or the audit log.
 - **Sign-in links by email.** With a mail service connected, the login page offers
   *Email me a sign-in link*. The answer is the same whether or not the address belongs
   to anyone, and the lookup and the mail happen after it. Each link works once, for 15
@@ -84,6 +98,10 @@ Plainly, so you can decide what to trust it with.
   sites. A link only exists if its email left the box through the relay: one that would
   wait in the box's dev inbox (which owners and admins can read) is never made, or is
   cancelled at once, because an emailed link counts as proof that you read that inbox.
+  Box mail history (Settings › Email) shows such an email's sender, time and delivery
+  only, never its text or link. Changing someone's address cancels every unspent link
+  of theirs (emailed or invite), and a link is only made while the address it goes to
+  is still theirs.
 - **Google and GitHub sign-in** only signs in people already on the box, matched the first
   time by an email the provider vouches for, then by the linked provider account. It
   never makes an account. See
@@ -121,7 +139,10 @@ Plainly, so you can decide what to trust it with.
 
 A session that is signed out is refused on its very next request. API keys made while
 signed in there keep working: revoke them on **Settings › API keys**. Other people's
-sessions, even ones signed in with a link this session sent, stay.
+sessions, even ones signed in with a link this session sent, stay. Ending a session here
+(or on People) also cancels the sign-in links it made that nobody used yet, such as
+invites; signing out of your own browser doesn't. A session is not an API key:
+`DELETE /v1/tokens/{id}` refuses one.
 
 Owners and admins can do the same for anyone: **People › (their role menu) › End
 sessions…** lists where that person is signed in, with **Sign out** on each and **Sign

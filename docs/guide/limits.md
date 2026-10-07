@@ -234,6 +234,14 @@ Next.js pages, pages rendered on request, and Early Hints during a wake.
   and neither do inviting people or making sign-in links for them.
 - Admins can see the owner's sessions but not end them. There is no "sign everyone out"
   for the whole box; end each person's sessions in turn.
+- **An invite lives as long as its sender's access**, not its session: it stops working if
+  the person who sent it is removed or no longer an owner or admin, or an owner ends the
+  session that sent it, but not when that session just signs out or expires. To stop one
+  sooner, change or clear the person's email (that cancels their unspent links) or
+  remove them.
+- **Restarting Tiffin** (not the edge) makes a new edge key: for the moment until the
+  edge has its new configuration, dashboard requests count as coming from `127.0.0.1`
+  for rate limits and the audit log.
 - Browsers the box knows can't be forgotten one at a time, and the box doesn't name
   browsers beyond "Chrome on macOS".
 - **Previews share real users.** A preview signs in against the project's own accounts:
