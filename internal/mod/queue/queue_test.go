@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func bytesReader(b []byte) *bytes.Reader { return bytes.NewReader(b) }
@@ -826,5 +828,71 @@ func TestCutOffSuccessIsRetried(t *testing.T) {
 	j := e.waitState(proj, id, stateCompleted, 10*time.Second)
 	if len(j.Attempts) != 2 || !strings.Contains(j.Attempts[0].Error, "cut off") {
 		t.Errorf("attempts %+v", j.Attempts)
+	}
+}
+
+// Draining takes one bounded batch per project per pass, so a project whose
+// outbox never empties cannot hold up another's; payloads over the limit
+// are dead-lettered without being loaded.
+func TestOutboxFairAndBounded(t *testing.T) {
+	e := newEngine(t, nil)
+	ctx := context.Background()
+	dsns := map[string]string{"busy": newDB(t), "quiet": newDB(t)}
+	ps := &outboxPools{pools: map[string]*pgxpool.Pool{}, dsns: map[string]string{}}
+	defer ps.close(nil)
+	pools := map[string]*pgxpool.Pool{}
+	for p, dsn := range dsns {
+		pool, err := ps.get(ctx, p, dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pools[p] = pool
+	}
+	if _, err := pools["busy"].Exec(ctx, `INSERT INTO tiffin_queue.outbox (name, payload, options)
+		SELECT 'emails', '{}', '{"delaySeconds":3600,"app":"web"}' FROM generate_series(1, $1)`, outboxBatch+50); err != nil {
+		t.Fatal(err)
+	}
+	big := `"` + strings.Repeat("x", maxPayload) + `"`
+	if _, err := pools["quiet"].Exec(ctx, outboxInsert, "emails", big, `{"delaySeconds":3600,"app":"web"}`, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pools["quiet"].Exec(ctx, outboxInsert, "emails", `{"n":1}`, `{"delaySeconds":3600,"app":"web"}`, "web"); err != nil {
+		t.Fatal(err)
+	}
+	left := func(p string) (n int) {
+		_ = pools[p].QueryRow(ctx, `SELECT count(*) FROM tiffin_queue.outbox`).Scan(&n)
+		return n
+	}
+	if more := e.drainPass(ctx, ps, dsns, 0); !more {
+		t.Error("a pass that moved rows should look again")
+	}
+	if n := left("busy"); n != 50 {
+		t.Errorf("busy project: %d rows left after one pass, want 50", n)
+	}
+	if n := left("quiet"); n != 0 {
+		t.Errorf("quiet project waited behind the busy one: %d rows left", n)
+	}
+	js, _ := e.ListJobs(ctx, "quiet", ListFilter{})
+	if len(js) != 2 {
+		t.Fatalf("quiet jobs %+v", js)
+	}
+	for _, j := range js {
+		if j.State == stateDead {
+			full, _ := e.GetJob(ctx, "quiet", mustJobID(t, j.ID))
+			if string(full.Payload) != "null" || !strings.Contains(full.LastError, "the limit is") {
+				t.Errorf("oversized row: payload %d bytes, error %q", len(full.Payload), full.LastError)
+			}
+		} else if j.State != stateScheduled {
+			t.Errorf("job %+v", j)
+		}
+	}
+	e.drainPass(ctx, ps, dsns, 1)
+	if n := left("busy"); n != 0 {
+		t.Errorf("busy project: %d rows left after two passes", n)
+	}
+	// Pools of projects that went away are closed.
+	ps.close(map[string]string{"quiet": dsns["quiet"]})
+	if len(ps.pools) != 1 || ps.pools["quiet"] == nil {
+		t.Errorf("pools %v", ps.pools)
 	}
 }
