@@ -290,7 +290,7 @@ func (a *API) registerOAuthSignIn() {
 	o.Security = nil
 	o.Errors = append(o.Errors, 404, 429)
 	o.Middlewares = huma.Middlewares{func(ctx huma.Context, next func(huma.Context)) {
-		ip := clientIP(ctx.RemoteAddr(), ctx.Header("X-Forwarded-For"))
+		ip := callerIP(ctx)
 		if !sameOrigin(ctx) {
 			_ = huma.WriteErr(a.api, ctx, http.StatusForbidden, "This request came from another site.")
 			return
@@ -369,7 +369,7 @@ func (a *API) DashboardOAuthCallback(w http.ResponseWriter, r *http.Request) boo
 		return false
 	}
 	ctx := r.Context()
-	ip := clientIP(r.RemoteAddr, r.Header.Get("X-Forwarded-For"))
+	ip := clientIP(r.RemoteAddr, r.Header.Get("X-Forwarded-For"), r.Header.Get(EdgeKeyHeader))
 	h := w.Header()
 	h.Set("Cache-Control", "no-store")
 	h.Set("Referrer-Policy", "no-referrer") // the URL carries the code

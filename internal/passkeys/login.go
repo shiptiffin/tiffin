@@ -3,8 +3,12 @@ package passkeys
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,29 +21,25 @@ import (
 
 // Passkey sign-in: the dashboard asks for a discoverable credential (no
 // username), the person picks a passkey, and the box finds who they are from
-// the credential ID and user handle. The challenge lives in memory only: it
-// is single use, expires after LoginChallengeTTL and is bound to the box's
-// RP ID and origin (from PublicURL) like every other ceremony here.
+// the credential ID and user handle. The challenge is bound to the box's RP
+// ID and origin (from PublicURL) like every other ceremony here, expires
+// after LoginChallengeTTL and works once.
+//
+// The box keeps nothing per challenge it hands out: a challenge carries its
+// own expiry and a MAC under a key only this process holds, so anyone may ask
+// for as many as the rate limits allow without crowding out anyone else's.
+// Only challenges a real passkey has signed are remembered (spent), until
+// they expire, so a replayed assertion is refused.
 
 // LoginChallengeTTL is how long a sign-in challenge stays valid.
 const LoginChallengeTTL = 2 * time.Minute
 
-// maxLoginCeremonies caps challenges waiting in memory, so unauthenticated
-// callers cannot grow it without bound (the API also rate-limits per IP).
-const maxLoginCeremonies = 2048
-
 // Sign-in errors. All mean "not signed in"; the text says what to do.
 var (
 	ErrLoginExpired   = errors.New("the passkey prompt expired or was already used; start again")
-	ErrLoginBusy      = errors.New("too many passkey sign-ins are in progress; try again in a minute")
 	ErrUnknownPasskey = errors.New("this passkey is not registered on this box. Sign in with a link (`tiffin login`), then add it in Settings › Passkeys; passkeys added before passkey sign-in may need adding again")
 	ErrLoginFailed    = errors.New("the passkey check failed; try again")
 )
-
-type loginCeremony struct {
-	session webauthn.SessionData
-	expires time.Time
-}
 
 // SignIn is who a passkey assertion proved to be.
 type SignIn struct {
@@ -48,42 +48,75 @@ type SignIn struct {
 	PasskeyName string
 }
 
+// A challenge is expiry (8 bytes, Unix milliseconds) | nonce (16) | MAC (16).
+const (
+	challengeNonce = 16
+	challengeMAC   = 16
+	challengeLen   = 8 + challengeNonce + challengeMAC
+)
+
+func (m *Manager) challengeMAC(payload []byte) []byte {
+	h := hmac.New(sha256.New, m.loginKey[:])
+	h.Write(payload)
+	return h.Sum(nil)[:challengeMAC]
+}
+
+// loginOptions makes assertion options (and their session data) for
+// challenge, or a fresh challenge when it is nil.
+func (m *Manager) loginOptions(challenge []byte) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
+	if challenge == nil {
+		challenge = make([]byte, challengeLen)
+		binary.BigEndian.PutUint64(challenge, uint64(m.now().Add(LoginChallengeTTL).UnixMilli()))
+		_, _ = rand.Read(challenge[8 : 8+challengeNonce])
+		copy(challenge[8+challengeNonce:], m.challengeMAC(challenge[:8+challengeNonce]))
+	}
+	return m.wa.BeginDiscoverableLogin(webauthn.WithUserVerification(protocol.VerificationRequired), webauthn.WithChallenge(challenge))
+}
+
 // BeginLogin returns assertion options for a discoverable passkey: no
 // allowCredentials, user verification required, a fresh challenge.
 func (m *Manager) BeginLogin(ctx context.Context) (*protocol.CredentialAssertion, error) {
-	ca, s, err := m.wa.BeginDiscoverableLogin(webauthn.WithUserVerification(protocol.VerificationRequired))
+	ca, _, err := m.loginOptions(nil)
 	if err != nil {
 		return nil, err
 	}
 	ca.Response.Timeout = int(LoginChallengeTTL.Milliseconds())
-	now := m.now()
-	m.loginMu.Lock()
-	defer m.loginMu.Unlock()
-	for k, c := range m.logins {
-		if !now.Before(c.expires) {
-			delete(m.logins, k)
-		}
-	}
-	if len(m.logins) >= maxLoginCeremonies {
-		return nil, ErrLoginBusy
-	}
-	m.logins[s.Challenge] = loginCeremony{session: *s, expires: now.Add(LoginChallengeTTL)}
 	return ca, nil
 }
 
-// takeLogin removes and returns the ceremony for challenge (once).
-func (m *Manager) takeLogin(challenge string) (*webauthn.SessionData, bool) {
+// openChallenge checks that challenge (base64url, from clientDataJSON) is one
+// of ours, unexpired and not yet spent, and returns its bytes.
+func (m *Manager) openChallenge(challenge string) ([]byte, time.Time, bool) {
+	b, err := base64.RawURLEncoding.DecodeString(challenge)
+	if err != nil || len(b) != challengeLen || !hmac.Equal(b[8+challengeNonce:], m.challengeMAC(b[:8+challengeNonce])) {
+		return nil, time.Time{}, false
+	}
+	exp := time.UnixMilli(int64(binary.BigEndian.Uint64(b)))
+	if !m.now().Before(exp) {
+		return nil, time.Time{}, false
+	}
+	m.loginMu.Lock()
+	_, spent := m.spent[challenge]
+	m.loginMu.Unlock()
+	return b, exp, !spent
+}
+
+// spend marks challenge used, once: false if it already was (a replay racing
+// the first use). Expired entries are dropped as it goes.
+func (m *Manager) spend(challenge string, exp time.Time) bool {
 	m.loginMu.Lock()
 	defer m.loginMu.Unlock()
-	c, ok := m.logins[challenge]
-	if !ok {
-		return nil, false
+	if _, ok := m.spent[challenge]; ok {
+		return false
 	}
-	delete(m.logins, challenge)
-	if !m.now().Before(c.expires) {
-		return nil, false
+	now := m.now()
+	for k, e := range m.spent {
+		if !now.Before(e) {
+			delete(m.spent, k)
+		}
 	}
-	return &c.session, true
+	m.spent[challenge] = exp
+	return true
 }
 
 // FinishLogin verifies a discoverable assertion against the stored passkeys
@@ -94,11 +127,16 @@ func (m *Manager) FinishLogin(ctx context.Context, response json.RawMessage) (*S
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrLoginFailed, err)
 	}
-	// The challenge in clientDataJSON names the ceremony; the signature over
-	// it is checked below, so a forged one finds nothing or fails.
-	s, ok := m.takeLogin(parsed.Response.CollectedClientData.Challenge)
+	// The challenge in clientDataJSON must be one of ours (its MAC), live
+	// and unspent; the signature over it is checked below.
+	challenge := parsed.Response.CollectedClientData.Challenge
+	raw, exp, ok := m.openChallenge(challenge)
 	if !ok {
 		return nil, ErrLoginExpired
+	}
+	_, s, err := m.loginOptions(raw)
+	if err != nil {
+		return nil, err
 	}
 	var found struct {
 		person, name string
@@ -125,13 +163,16 @@ func (m *Manager) FinishLogin(ctx context.Context, response json.RawMessage) (*S
 		}
 		return nil, fmt.Errorf("%w: %v", ErrLoginFailed, err)
 	}
+	if !m.spend(challenge, exp) {
+		return nil, ErrLoginExpired
+	}
 	id := base64.RawURLEncoding.EncodeToString(cred.ID)
 	if cred.Authenticator.CloneWarning {
 		_ = m.db.Audit(ctx, found.person, "passkey.clone_warning", id, map[string]any{"ceremony": "sign-in"})
 		return nil, ErrCloned
 	}
-	raw, _ := json.Marshal(cred)
-	if _, err := m.db.SQL().ExecContext(ctx, `UPDATE passkeys SET credential = ?, last_used = ? WHERE id = ?`, string(raw), ts(m.now().UTC()), cred.ID); err != nil {
+	stored, _ := json.Marshal(cred)
+	if _, err := m.db.SQL().ExecContext(ctx, `UPDATE passkeys SET credential = ?, last_used = ? WHERE id = ?`, string(stored), ts(m.now().UTC()), cred.ID); err != nil {
 		return nil, err
 	}
 	return &SignIn{Person: found.person, PasskeyID: id, PasskeyName: found.name}, nil

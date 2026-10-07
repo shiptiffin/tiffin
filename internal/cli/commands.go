@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -440,7 +442,14 @@ func (a *app) serveCmd() *cobra.Command {
 			base := "http://" + ln.Addr().String()
 			withEdge = withEdge || edgeExternal
 			if withEdge {
-				ecfg := edge.Config{Domain: domain, Apps: reach.AppsDomain, Dashboard: reach.Dashboard, DashboardURL: publicURL, Upstream: ln.Addr().String(), DataDir: filepath.Join(a.home, "edge"),
+				// The edge proves itself to the API with a key only this process
+				// and the edge know, so apps on the host's network can't forge
+				// X-Forwarded-For (see api.SetEdgeKey).
+				var k [24]byte
+				_, _ = rand.Read(k[:])
+				edgeKey := base64.RawURLEncoding.EncodeToString(k[:])
+				api.SetEdgeKey(edgeKey)
+				ecfg := edge.Config{Domain: domain, Apps: reach.AppsDomain, Dashboard: reach.Dashboard, DashboardURL: publicURL, Upstream: ln.Addr().String(), UpstreamKey: edgeKey, DataDir: filepath.Join(a.home, "edge"),
 					HTTPPort: httpPort, HTTPSPort: httpsPort, Internal: !reach.ACME, AccessLog: accessLog(onBox)}
 				if reach.ACME {
 					ecfg.ACME = &edge.ACME{CA: reach.ACMEDirectory, Email: reach.ACMEEmail, TrustedRoots: reach.ACMERoots}

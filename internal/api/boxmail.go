@@ -210,7 +210,7 @@ func (a *API) registerBoxMail() {
 	o.Security = nil
 	o.Errors = append(o.Errors, 429)
 	o.Middlewares = huma.Middlewares{func(ctx huma.Context, next func(huma.Context)) {
-		ip := clientIP(ctx.RemoteAddr(), ctx.Header("X-Forwarded-For"))
+		ip := callerIP(ctx)
 		if !sameOrigin(ctx) {
 			_ = huma.WriteErr(a.api, ctx, http.StatusForbidden, "This request came from another site.")
 			return
@@ -470,5 +470,5 @@ func deviceLabel(ua string) string {
 
 // withClientIP puts the caller's address in the context.
 func withClientIP(ctx huma.Context, next func(huma.Context)) {
-	next(huma.WithValue(ctx, clientIPKey{}, clientIP(ctx.RemoteAddr(), ctx.Header("X-Forwarded-For"))))
+	next(huma.WithValue(ctx, clientIPKey{}, callerIP(ctx)))
 }

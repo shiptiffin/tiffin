@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"math"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btahir/tiffin/internal/passkeys"
@@ -46,16 +48,35 @@ type clientIPKey struct{}
 
 func clientIPFrom(ctx context.Context) string { s, _ := ctx.Value(clientIPKey{}).(string); return s }
 
+// EdgeKeyHeader carries the edge's key (SetEdgeKey) on requests it proxies
+// to the API (edge.Config.UpstreamKey).
+const EdgeKeyHeader = "X-Tiffin-Edge"
+
+var edgeKey atomic.Pointer[string]
+
+// SetEdgeKey sets the key the box's edge sends in EdgeKeyHeader ("" turns
+// trust in X-Forwarded-For off). Apps share the host's network, so loopback
+// alone doesn't mean the edge: without the key, an app could pick its own
+// address for every rate limit and audit line.
+func SetEdgeKey(k string) { edgeKey.Store(&k) }
+
+// fromEdge reports whether key is the edge's.
+func fromEdge(key string) bool {
+	k := edgeKey.Load()
+	return k != nil && *k != "" && subtle.ConstantTimeCompare([]byte(key), []byte(*k)) == 1
+}
+
 // clientIP is the caller's address. The API listens on loopback behind the
 // edge, which replaces any client-sent X-Forwarded-For with the real address
-// (Caddy trusts no proxies by default), so the last entry is used only when
-// the request comes from loopback. IPv6 addresses count per /64.
-func clientIP(remoteAddr, xff string) string {
+// (Caddy trusts no proxies by default), so its last entry is used only when
+// the request comes from loopback with the edge's key. IPv6 addresses count
+// per /64.
+func clientIP(remoteAddr, xff, key string) string {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
 		host = remoteAddr
 	}
-	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() && xff != "" {
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() && xff != "" && fromEdge(key) {
 		parts := strings.Split(xff, ",")
 		if last := strings.TrimSpace(parts[len(parts)-1]); net.ParseIP(last) != nil {
 			host = last
@@ -65,6 +86,11 @@ func clientIP(remoteAddr, xff string) string {
 		return ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
 	}
 	return host
+}
+
+// callerIP is clientIP for a huma request.
+func callerIP(ctx huma.Context) string {
+	return clientIP(ctx.RemoteAddr(), ctx.Header("X-Forwarded-For"), ctx.Header(EdgeKeyHeader))
 }
 
 // ipLimiter is a small in-memory token bucket per key.
@@ -120,7 +146,7 @@ func (l *ipLimiter) allow(key string) (bool, time.Duration) {
 // puts their IP in the context for the audit log.
 func (a *API) limitPerIP(l *ipLimiter, op string) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
-		ip := clientIP(ctx.RemoteAddr(), ctx.Header("X-Forwarded-For"))
+		ip := callerIP(ctx)
 		if ok, wait := l.allow(op + " " + ip); !ok {
 			secs := int(math.Ceil(wait.Seconds()))
 			p := problem(http.StatusTooManyRequests, "rate_limited", "too many passkey sign-in attempts from your address")
@@ -138,8 +164,6 @@ func (a *API) limitPerIP(l *ipLimiter, op string) func(huma.Context, func(huma.C
 func signInProblem(err error) error {
 	out := problem(401, "unauthenticated", err.Error())
 	switch {
-	case errors.Is(err, passkeys.ErrLoginBusy):
-		out = problem(429, "rate_limited", err.Error())
 	case errors.Is(err, passkeys.ErrLoginExpired), errors.Is(err, passkeys.ErrLoginFailed):
 		out.Hint = "start again: POST /v1/session/passkey/options, then sign with the passkey within 2 minutes"
 	case errors.Is(err, passkeys.ErrUnknownPasskey), errors.Is(err, passkeys.ErrCloned):

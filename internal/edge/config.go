@@ -35,6 +35,10 @@ type Config struct {
 	AccessLog    string  // file for JSON access logs (rolled); empty disables them
 	// ACME configures public certificates; required when Internal is false.
 	ACME *ACME
+	// UpstreamKey is sent to Upstream (only) as the EdgeKeyHeader, so the API
+	// can tell the edge's requests from an app's on the same host (apps share
+	// the host's network) before trusting X-Forwarded-For.
+	UpstreamKey string
 	// Aliases are earlier box and apps domains still served while a domain
 	// switch completes: the dashboard and every one-label host under the
 	// apps domain also answer under each alias ("shop.<alias>"). Nil: the ones the registered
@@ -515,6 +519,19 @@ func hostRoute(hosts []string, upstream string) obj {
 	}
 }
 
+// EdgeKeyHeader carries Config.UpstreamKey to the API.
+const EdgeKeyHeader = "X-Tiffin-Edge"
+
+// dashboardRoute proxies the dashboard hosts to the API, with the edge's key.
+func dashboardRoute(c Config) obj {
+	r := hostRoute(c.dashboardHosts(), c.Upstream)
+	if c.UpstreamKey != "" {
+		p := r["handle"].([]obj)[1]
+		p["headers"].(obj)["request"].(obj)["set"].(obj)[EdgeKeyHeader] = []string{c.UpstreamKey}
+	}
+	return r
+}
+
 func buildConfig(c Config) obj {
 	httpsPort := strconv.Itoa(c.HTTPSPort)
 	portSuffix := ""
@@ -585,7 +602,7 @@ func buildConfig(c Config) obj {
 	if c.Protect != nil {
 		routes = append(routes, c.Protect.protectRoutes(c)...)
 	}
-	routes = append(routes, hostRoute(c.dashboardHosts(), c.Upstream))
+	routes = append(routes, dashboardRoute(c))
 	for _, r := range c.paths {
 		routes = append(routes, routeFor(c, r, portSuffix))
 	}

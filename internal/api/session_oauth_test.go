@@ -238,6 +238,7 @@ func (e *oauthEnv) start(provider, next, ip string) (*http.Response, string, *ht
 	e.t.Helper()
 	req, _ := http.NewRequest("POST", e.srv.URL+"/v1/session/oauth/"+provider+"?next="+url.QueryEscape(next), nil)
 	req.Header.Set("X-Forwarded-For", ip)
+	req.Header.Set(api.EdgeKeyHeader, testEdgeKey)
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
 	res, err := noRedirects.Do(req)
 	if err != nil {
@@ -255,6 +256,7 @@ func (e *oauthEnv) back(callback, ip string, cookies ...*http.Cookie) (*http.Res
 	u, _ := url.Parse(callback) // on the dashboard host: send it to the test server
 	req, _ := http.NewRequest("GET", e.srv.URL+u.RequestURI(), nil)
 	req.Header.Set("X-Forwarded-For", ip)
+	req.Header.Set(api.EdgeKeyHeader, testEdgeKey)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/140.0 Safari/537.36")
 	for _, c := range cookies {
 		if c != nil {

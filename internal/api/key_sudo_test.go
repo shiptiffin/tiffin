@@ -26,6 +26,7 @@ func (e *env) callFrom(token, ip, method, path string, body any) (int, map[strin
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Forwarded-For", ip)
+	req.Header.Set(api.EdgeKeyHeader, testEdgeKey)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		e.t.Fatal(err)

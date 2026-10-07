@@ -210,7 +210,7 @@ func (a *API) authenticate(ctx huma.Context, next func(huma.Context)) {
 	}
 	if p.Kind == tokens.KindOwner && a.deps.Platform != nil {
 		// On a server, the address the owner's CLI uses is never banned.
-		a.deps.Platform.OwnerSeen(ctx.Context(), clientIP(ctx.RemoteAddr(), ctx.Header("X-Forwarded-For")))
+		a.deps.Platform.OwnerSeen(ctx.Context(), callerIP(ctx))
 	}
 	next(huma.WithValue(ctx, ctxKey{}, p))
 }

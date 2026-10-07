@@ -78,6 +78,7 @@ func (e *mailEnv) send(path, ip string, body any, hdr map[string]string, cookies
 	req, _ := http.NewRequest("POST", e.srv.URL+path, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Forwarded-For", ip)
+	req.Header.Set(api.EdgeKeyHeader, testEdgeKey)
 	for k, v := range hdr {
 		req.Header.Set(k, v)
 	}

@@ -11,6 +11,7 @@
 package passkeys
 
 import (
+	"crypto/rand"
 	"errors"
 	"sync"
 	"time"
@@ -33,9 +34,11 @@ type Manager struct {
 	wa  *webauthn.WebAuthn
 	now func() time.Time
 
-	// logins holds passkey sign-in challenges in memory (see BeginLogin).
-	loginMu sync.Mutex
-	logins  map[string]loginCeremony
+	// loginKey signs sign-in challenges; spent holds the ones a passkey
+	// signed, until they expire (see BeginLogin).
+	loginKey [32]byte
+	loginMu  sync.Mutex
+	spent    map[string]time.Time
 }
 
 // New returns a manager. rpID is the dashboard host (e.g.
@@ -57,7 +60,9 @@ func New(db *state.DB, rpID, origin string) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{db: db, wa: wa, now: time.Now, logins: map[string]loginCeremony{}}, nil
+	m := &Manager{db: db, wa: wa, now: time.Now, spent: map[string]time.Time{}}
+	_, _ = rand.Read(m.loginKey[:])
+	return m, nil
 }
 
 func ts(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }

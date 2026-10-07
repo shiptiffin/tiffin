@@ -183,20 +183,42 @@ func TestPasskeySignInRefusals(t *testing.T) {
 	})
 }
 
-func TestLoginChallengesAreBounded(t *testing.T) {
+// Challenges cost the box nothing until a passkey signs one, so callers
+// asking for many (from many addresses) can't crowd out anyone's sign-in;
+// forged or tampered ones are refused.
+func TestLoginChallengesAreStateless(t *testing.T) {
 	m := newTestManager(t)
-	for range maxLoginCeremonies {
+	a := passkeytest.New(testOrigin)
+	cred := register(t, m, a, ownerP)
+	for range 5000 {
 		if _, err := m.BeginLogin(t.Context()); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := m.BeginLogin(t.Context()); !errors.Is(err, ErrLoginBusy) {
-		t.Fatalf("over the cap: %v", err)
+	if len(m.spent) != 0 {
+		t.Fatalf("challenges kept: %d", len(m.spent))
 	}
-	// Expired ones are pruned.
+	if _, _, err := signIn(t, m, a, cred); err != nil {
+		t.Fatalf("sign-in after a flood: %v", err)
+	}
+	// Another box's (another key's) challenge, or a tampered one, is refused.
+	other := newTestManager(t)
+	opts, _ := other.BeginLogin(t.Context())
+	resp, _ := a.Get(mustJSON(t, opts), cred)
+	if _, err := m.FinishLogin(t.Context(), resp); !errors.Is(err, ErrLoginExpired) {
+		t.Fatalf("foreign challenge: %v", err)
+	}
+	opts, _ = m.BeginLogin(t.Context())
+	opts.Response.Challenge[0] ^= 0xff // a later expiry
+	resp, _ = a.Get(mustJSON(t, opts), cred)
+	if _, err := m.FinishLogin(t.Context(), resp); !errors.Is(err, ErrLoginExpired) {
+		t.Fatalf("tampered challenge: %v", err)
+	}
+	// Spent challenges are forgotten once expired.
 	m.now = func() time.Time { return time.Now().Add(LoginChallengeTTL + time.Second) }
-	if _, err := m.BeginLogin(t.Context()); err != nil {
-		t.Fatalf("after expiry: %v", err)
+	defer func() { m.now = time.Now }()
+	if !m.spend("x", m.now().Add(time.Minute)) || len(m.spent) != 1 {
+		t.Fatalf("spent not pruned: %d", len(m.spent))
 	}
 }
 

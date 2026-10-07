@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -491,5 +492,47 @@ func TestNotFoundLinksThePublicDashboard(t *testing.T) {
 		if !strings.Contains(string(got), strings.ReplaceAll(tc.want, `"`, `\"`)) {
 			t.Errorf("DashboardURL %q: no %s in the 404 page", tc.url, tc.want)
 		}
+	}
+}
+
+// The edge's key goes to the API (the dashboard route) and nowhere else, so
+// apps never see it.
+func TestUpstreamKeyOnlyToDashboard(t *testing.T) {
+	got, err := ConfigJSON(Config{
+		Domain: "tiffin.localhost", Upstream: "127.0.0.1:7070", UpstreamKey: "sekrit", DataDir: "/x", Internal: true,
+		Routes: []Route{{Host: "shop.tiffin.localhost", Upstream: "127.0.0.1:9001"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(got), `"sekrit"`); n != 1 {
+		t.Fatalf("key appears %d times", n)
+	}
+	var cfg struct {
+		Apps struct {
+			HTTP struct {
+				Servers map[string]struct {
+					Routes []json.RawMessage `json:"routes"`
+				} `json:"servers"`
+			} `json:"http"`
+		} `json:"apps"`
+	}
+	if err := json.Unmarshal(got, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, srv := range cfg.Apps.HTTP.Servers {
+		for _, r := range srv.Routes {
+			if strings.Contains(string(r), `"sekrit"`) {
+				found = true
+				if !strings.Contains(string(r), `"dashboard.tiffin.localhost"`) || !strings.Contains(string(r), `"127.0.0.1:7070"`) ||
+					strings.Contains(string(r), "9001") || !strings.Contains(string(r), `"`+EdgeKeyHeader+`"`) {
+					t.Fatalf("key on the wrong route: %s", r)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("key not on the dashboard route")
 	}
 }

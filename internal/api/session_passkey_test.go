@@ -47,6 +47,7 @@ func (e *env) post(path, ip string, body any) (*http.Response, map[string]any) {
 	req, _ := http.NewRequest("POST", e.srv.URL+path, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Forwarded-For", ip)
+	req.Header.Set(api.EdgeKeyHeader, testEdgeKey)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		e.t.Fatal(err)
