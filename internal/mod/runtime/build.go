@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btahir/tiffin/internal/edge/switchboard"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/mod/budget"
 	"github.com/btahir/tiffin/internal/mod/runtime/vercelcfg"
@@ -102,6 +103,7 @@ func (e *BuildError) Error() string { return e.Msg }
 type boxBuilder struct {
 	eng       Engine
 	staticDir string // where static deploys' files live
+	cacheDir  string // static builds' caches, a folder per app ("": none)
 	memoryMB  int    // cap for static build containers
 	cgroupDir string // the build cgroup ("" → /sys/fs/cgroup/tiffin-build)
 	binDir    string // where railpack, buildctl and nerdctl are ("" → /usr/local/bin)
@@ -224,6 +226,13 @@ func (b *boxBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult, 
 var manifestDigest = regexp.MustCompile(`exporting manifest (sha256:[0-9a-f]{64})`)
 
 func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref string) (BuildResult, error) {
+	return b.railpack(ctx, req, ref, nil, "")
+}
+
+// railpack builds with Railpack. With files (directories relative to the
+// app) it makes no image: BuildKit writes those directories of the built
+// app to filesDest (filesDest/tiffin-out/<i>), and nothing else.
+func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string, files []string, filesDest string) (BuildResult, error) {
 	d := req.Deploy
 	planDir := filepath.Join(req.WorkDir, "plan")
 	if err := os.MkdirAll(planDir, 0o755); err != nil {
@@ -378,8 +387,19 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 			return BuildResult{}, fmt.Errorf("add the Workflow DevKit's world to the build plan: %w", err)
 		}
 	}
+	output := "type=image,name=" + ref + ",unpack=true"
+	if files != nil {
+		if err := filesOnlyPlan(planPath, files); err != nil {
+			return BuildResult{}, fmt.Errorf("make the build plan write files only: %w", err)
+		}
+		output = "type=local,dest=" + filesDest
+	}
 	defer b.limitBuild(d.Project, req.Log)()
-	fmt.Fprintf(req.Log, "==> building the image (BuildKit)\n")
+	if files != nil {
+		fmt.Fprintf(req.Log, "==> building the site (BuildKit): only %s comes out, no image\n", strings.Join(files, ", "))
+	} else {
+		fmt.Fprintf(req.Log, "==> building the image (BuildKit)\n")
+	}
 	// Railpack mounts env vars into build steps as BuildKit secrets (so they
 	// never land in image layers); their values travel in buildctl's env.
 	bargs := []string{"build",
@@ -390,7 +410,7 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 		"--opt", "source=" + RailpackFrontend,
 		"--opt", "build-arg:cache-key=" + d.Project + "-" + d.App,
 		"--opt", "build-arg:secrets-hash=" + envHash(env, keys),
-		"--output", "type=image,name=" + ref + ",unpack=true"}
+		"--output", output}
 	for _, k := range keys {
 		bargs = append(bargs, "--secret", "id="+k+",env="+k)
 	}
@@ -410,6 +430,9 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 			hint += onNodeHint(req.Spec)
 		}
 		return BuildResult{}, &BuildError{Msg: msg, Hint: hint}
+	}
+	if files != nil {
+		return BuildResult{}, nil
 	}
 	dg := ""
 	if m := manifestDigest.FindStringSubmatch(out.String()); m != nil {
@@ -452,6 +475,7 @@ func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildRe
 			"--memory", strconv.Itoa(b.memoryMB) + "m",
 			"--volume", req.SrcDir + ":/app", "--workdir", "/app",
 			"--env", "CI=true", "--env", "NODE_ENV=production"}
+		args = append(args, b.staticCaches(req)...)
 		if lim := buildLimitFor(d.Project); lim.cpus > 0 {
 			args = append(args, lim.staticBuildArgs()...)
 			fmt.Fprint(req.Log, lim.words(d.Project))
@@ -480,6 +504,55 @@ func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildRe
 	return b.serveFiles(req, req.SrcDir, filepath.Join(appDir, rootRel), rootRel, spaFallback(req, sf))
 }
 
+// staticCacheDirs are the folders, relative to the app, where the tools a
+// static site builds with keep work worth keeping between builds: Astro's
+// optimized images, content layer and fonts, Vite's, and the general cache
+// of babel, imagetools and the like.
+var staticCacheDirs = []string{"node_modules/.astro", "node_modules/.vite", "node_modules/.cache", ".next/cache"}
+
+// buildCacheDir is where static builds keep their caches, under the data
+// directory: a folder per project and app, as Railpack's cache-key keeps
+// BuildKit's cache mounts per app.
+const buildCacheDir = "build-cache"
+
+// maxStaticCache is how big an app's static build cache may grow; past it,
+// the next build starts from an empty one.
+const maxStaticCache = 2 << 30
+
+// staticCaches are the nerdctl run flags that give a static build its
+// app's caches: Bun's package cache and staticCacheDirs, each a folder of
+// the box's mounted where the build looks for it.
+func (b *boxBuilder) staticCaches(req BuildRequest) []string {
+	if b.cacheDir == "" {
+		return nil
+	}
+	d := req.Deploy
+	dir := filepath.Join(b.cacheDir, d.Project, d.App)
+	if size := dirSize(dir); size > maxStaticCache {
+		fmt.Fprintf(req.Log, "==> build cache: %s is over %s, so this build starts it afresh\n", humanBytes(size), humanBytes(maxStaticCache))
+		_ = os.RemoveAll(dir)
+	}
+	app := path.Join("/app", filepath.ToSlash(req.Dir))
+	args := []string{"--env", "BUN_INSTALL_CACHE_DIR=/tiffin-cache/bun", "--volume", filepath.Join(dir, "bun") + ":/tiffin-cache/bun"}
+	warm := exists(filepath.Join(dir, "bun"))
+	for i, c := range staticCacheDirs {
+		host := filepath.Join(dir, strconv.Itoa(i))
+		if err := os.MkdirAll(host, 0o755); err != nil {
+			return nil
+		}
+		args = append(args, "--volume", host+":"+path.Join(app, c))
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "bun"), 0o755); err != nil {
+		return nil
+	}
+	if warm {
+		fmt.Fprintf(req.Log, "==> build cache: warm (packages, and %s from the last build)\n", strings.Join(staticCacheDirs, ", "))
+	} else {
+		fmt.Fprintf(req.Log, "==> build cache: cold (the first build of this app keeps packages and %s for the next)\n", strings.Join(staticCacheDirs, ", "))
+	}
+	return args
+}
+
 // serveFiles moves a build's output (from, inside root) to where the edge
 // serves it.
 func (b *boxBuilder) serveFiles(req BuildRequest, root, from, name string, spa bool) (BuildResult, error) {
@@ -498,40 +571,89 @@ func (b *boxBuilder) serveFiles(req BuildRequest, root, from, name string, spa b
 	}
 	n, size := countFiles(dest)
 	fmt.Fprintf(req.Log, "==> serving %d files (%s) from %s/\n", n, humanBytes(size), name)
+	finishStatic(dest, req.Log)
 	return BuildResult{StaticRoot: dest, SPA: spa}, nil
 }
 
-// buildFiles builds with Railpack (the app's package manager and Node.js),
-// copies the first of dirs (relative to the app) that has an index.html out
-// of the image, and serves it as files. The image is removed: nothing runs.
+// buildFiles builds with Railpack (the app's package manager and Node.js)
+// and serves the first of dirs (relative to the app) that has an
+// index.html. No image is made: BuildKit hands over those directories
+// alone (filesOnlyPlan), so there are no layers to compress and unpack.
 func (b *boxBuilder) buildFiles(ctx context.Context, req BuildRequest, ref string, dirs []string, spa bool) (BuildResult, error) {
-	if _, err := b.buildRailpack(ctx, req, ref); err != nil {
-		return BuildResult{}, err
-	}
-	defer func() { _ = b.eng.RemoveImage(context.WithoutCancel(ctx), ref) }()
-	tmp := filepath.Join(req.WorkDir, "files")
-	if err := os.MkdirAll(tmp, 0o755); err != nil {
-		return BuildResult{}, err
-	}
 	in := make([]string, len(dirs))
 	for i, dir := range dirs {
 		in[i] = path.Join(req.Dir, dir)
 	}
-	cctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	if err := b.eng.CopyOut(cctx, ref, in, tmp); err != nil {
-		return BuildResult{}, fmt.Errorf("copy the built files out of the image: %w", err)
+	tmp := filepath.Join(req.WorkDir, "files")
+	_ = os.RemoveAll(tmp)
+	if err := os.MkdirAll(tmp, 0o755); err != nil {
+		return BuildResult{}, err
 	}
-	if err := plainTree(tmp); err != nil {
-		return BuildResult{}, fmt.Errorf("copy the built files out of the image: %w", err)
+	if _, err := b.railpack(ctx, req, ref, in, tmp); err != nil {
+		return BuildResult{}, err
+	}
+	out := filepath.Join(tmp, "tiffin-out")
+	if err := plainTree(out); err != nil {
+		return BuildResult{}, fmt.Errorf("the built files: %w", err)
 	}
 	for i, dir := range dirs {
-		if from := filepath.Join(tmp, strconv.Itoa(i)); exists(filepath.Join(from, "index.html")) {
-			return b.serveFiles(req, tmp, from, dir, spa)
+		if from := filepath.Join(out, strconv.Itoa(i)); exists(filepath.Join(from, "index.html")) {
+			return b.serveFiles(req, out, from, dir, spa)
 		}
 	}
 	return BuildResult{}, &BuildError{Msg: "the build wrote no index.html in " + strings.Join(dirs, ", "),
 		Hint: "A Next.js static export writes out/ (or distDir); name another folder as the Output directory in the app's Build and deploy settings (output in tiffin.config.ts)."}
+}
+
+// filesStep is the step filesOnlyPlan adds to a Railpack plan.
+const filesStep = "tiffin:files"
+
+// filesScript copies each directory it is given (relative to /app, where
+// the build ran) that exists to /tiffin-out/<its index>, following links
+// the way nerdctl CopyOut does.
+const filesScript = `mkdir -p /tiffin-out || exit 1; i=0; for d in "$@"; do if [ -d "$d" ]; then mkdir -p /tiffin-out/$i && cp -RL "$d"/. /tiffin-out/$i/ || exit 1; fi; i=$((i+1)); done`
+
+// filesOnlyPlan rewrites a Railpack plan so its result is dirs of the built
+// app and nothing else: a step after the build copies them to /tiffin-out,
+// and the deploy stage is that folder on an empty base. BuildKit then never
+// runs the runtime image's steps nor exports layers.
+func filesOnlyPlan(planPath string, dirs []string) error {
+	raw, err := os.ReadFile(planPath)
+	if err != nil {
+		return err
+	}
+	var plan map[string]any
+	if err := json.Unmarshal(raw, &plan); err != nil {
+		return err
+	}
+	steps, _ := plan["steps"].([]any)
+	from := ""
+	for _, s := range steps {
+		if step, _ := s.(map[string]any); step != nil && step["name"] == "build" {
+			from = "build"
+		}
+	}
+	if from == "" {
+		return fmt.Errorf("the plan has no build step")
+	}
+	cmd := "sh -c " + shellQuote(filesScript) + " sh"
+	for _, d := range dirs {
+		cmd += " " + shellQuote(d)
+	}
+	plan["steps"] = append(steps, map[string]any{
+		"name":     filesStep,
+		"inputs":   []any{map[string]any{"step": from}},
+		"commands": []any{map[string]any{"cmd": cmd, "customName": "copy the built files out"}},
+	})
+	plan["deploy"] = map[string]any{
+		"base":   map[string]any{},
+		"inputs": []any{map[string]any{"step": filesStep, "include": []any{"/tiffin-out"}}},
+	}
+	out, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(planPath, out, 0o644)
 }
 
 // vercelOut is vercel.json's outputDirectory ("" without one).
@@ -978,4 +1100,28 @@ func envHash(env map[string]string, keys []string) string {
 		fmt.Fprintf(h, "%s=%s\x00", k, env[k])
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// finishStatic readies a static site's files for the edge: it drops what
+// is not the site's to serve (Vite's .vite/ build manifest) and writes a
+// zstd and a gzip copy of each text file, which the edge sends as they are
+// instead of compressing every response.
+func finishStatic(root string, log io.Writer) {
+	if exists(filepath.Join(root, ".vite")) {
+		_ = os.RemoveAll(filepath.Join(root, ".vite"))
+		fmt.Fprintf(log, "==> .vite/ (Vite's build manifest) is left out: it is not served\n")
+	}
+	began := time.Now()
+	n, err := switchboard.Precompress(root)
+	if err != nil {
+		fmt.Fprintf(log, "==> note: could not compress the files ahead (%v); the edge compresses them as it sends them\n", err)
+		return
+	}
+	if n > 0 {
+		files := "files"
+		if n == 1 {
+			files = "file"
+		}
+		fmt.Fprintf(log, "==> compressed %d text %s ahead (zstd and gzip) in %.1fs\n", n, files, time.Since(began).Seconds())
+	}
 }

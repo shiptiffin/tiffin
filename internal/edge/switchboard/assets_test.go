@@ -160,7 +160,7 @@ func TestPrecompressedAssets(t *testing.T) {
 	js := strings.Repeat("console.log('hello from a chunk');\n", 200)
 	writeRelease(t, dir, `[{"dir":".next/static","path":"/_next/static","immutable":["/_next/static/"]}]`,
 		map[string]string{"_next/static/chunks/a.js": js, "_next/static/chunks/tiny.js": "x()", "_next/static/media/f.woff2": js})
-	if err := Precompress(filepath.Join(dir, "www")); err != nil {
+	if _, err := Precompress(filepath.Join(dir, "www")); err != nil {
 		t.Fatal(err)
 	}
 	for f, want := range map[string]bool{"chunks/a.js.zst": true, "chunks/a.js.gz": true, "chunks/tiny.js.gz": false, "media/f.woff2.gz": false} {
@@ -210,6 +210,67 @@ func TestTraceparentFromRequestID(t *testing.T) {
 	for _, id := range []string{"", "abc", "00000000-0000-0000-0000-000000000000", "zz7c4e2a-9f1d-4c3b-8a6e-2d5f7e9a1b3c"} {
 		if tp := traceparent(http.Header{"X-Request-Id": {id}}); tp != "" {
 			t.Fatalf("request ID %q gave %q", id, tp)
+		}
+	}
+}
+
+// Prerendered pages are found once, at extraction, and answered at the
+// paths the frameworks' own servers answer them at, from the live release.
+func TestPrerenderedPages(t *testing.T) {
+	www := t.TempDir()
+	for f, b := range map[string]string{"index.html": "home", "about/index.html": "about", "blog.html": "blog flat", "blog/index.html": "blog dir",
+		"404.html": "nope", "_shell.html": "shell", "assets/x.html": "hashed dir", "robots.txt": "r", "sub/deep/index.html": "deep"} {
+		os.MkdirAll(filepath.Dir(filepath.Join(www, f)), 0o755)
+		os.WriteFile(filepath.Join(www, f), []byte(b), 0o644)
+	}
+	dirs := []AssetDir{{Dir: ".output/public", Path: "/", Immutable: []string{"/assets/"}, Pages: true}}
+	got := Pages(www, dirs)
+	want := map[string]string{"/": "index.html", "/about": "about/index.html", "/about/": "about/index.html", "/blog": "blog.html", "/blog/": "blog/index.html",
+		"/sub/deep": "sub/deep/index.html", "/sub/deep/": "sub/deep/index.html"}
+	if len(got) != len(want) {
+		t.Fatalf("pages: %v", got)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s: %q, want %q", k, got[k], v)
+		}
+	}
+	if p := Pages(www, []AssetDir{{Dir: "public", Path: "/"}}); len(p) != 0 {
+		t.Errorf("a folder without Pages has pages: %v", p)
+	}
+
+	b := New(nil, nil)
+	base := t.TempDir()
+	meta := `[{"dir":".output/public","path":"/","immutable":["/assets/"],"pages":true}]`
+	writeRelease(t, filepath.Join(base, "dep_1"), meta, map[string]string{"old.html": "old page"})
+	os.WriteFile(filepath.Join(base, "dep_1", PagesFile), []byte(`{"/old":"old.html"}`), 0o644)
+	writeRelease(t, filepath.Join(base, "dep_2"), meta, map[string]string{"index.html": "home", "about/index.html": "about"})
+	os.WriteFile(filepath.Join(base, "dep_2", PagesFile), []byte(`{"/":"index.html","/about":"about/index.html","/about/":"about/index.html"}`), 0o644)
+	st := &Env{Live: "dep_2", Assets: base, Retired: []Retired{{Deploy: "dep_1", At: time.Now()}}}
+	for _, c := range []struct{ method, path, prefix, body string }{
+		{"GET", "/", "", "home"},
+		{"GET", "/about", "", "about"},
+		{"GET", "/about/", "", "about"},
+		{"HEAD", "/about", "", ""},
+		{"GET", "/shop", "/shop", "home"},
+		{"GET", "/shop/about", "/shop", "about"},
+		{"GET", "/old", "", "-"},            // pages are the live release's only
+		{"GET", "/about//", "", "-"},        // not a clean path
+		{"GET", "/nope/", "", "-"},          // the app's
+		{"POST", "/about", "", "-"},         // only reads
+		{"GET", "/contact", "", "-"},        // no file: the app's
+		{"GET", "/about/../about", "", "-"}, // never cleaned for the app
+	} {
+		w := httptest.NewRecorder()
+		ok := b.ServeAsset(w, httptest.NewRequest(c.method, c.path, nil), st, c.prefix)
+		if c.body == "-" {
+			if ok {
+				t.Errorf("%s %s: served %q, want it passed to the app", c.method, c.path, w.Body.String())
+			}
+			continue
+		}
+		if !ok || w.Body.String() != c.body || w.Header().Get("Cache-Control") != "public, max-age=0, must-revalidate" || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") {
+			t.Errorf("%s %s: %v %q %v", c.method, c.path, ok, w.Body.String(), w.Header())
 		}
 	}
 }

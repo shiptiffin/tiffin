@@ -47,12 +47,20 @@ var knownAssets = []assetKind{
 	{[]string{"next"}, nextAssets},
 	// Nuxt's build manifest keeps its name (the client polls it for a new
 	// version); its fonts (@nuxt/fonts) are named by hash.
-	{[]string{"nuxt"}, []AssetDir{{Dir: ".output/public", Path: "/", Immutable: []string{"/_nuxt/", "/_fonts/", "!/_nuxt/builds/latest.json"}}}},
-	{[]string{"@tanstack/react-start", "@tanstack/solid-start"}, []AssetDir{{Dir: ".output/public", Path: "/", Immutable: []string{"/assets/"}}}},
+	// Pages: the framework's own server answers its prerendered pages from
+	// these files before any app code runs, so the box may too (not
+	// Next.js, whose proxy.ts runs first).
+	{[]string{"nuxt"}, []AssetDir{{Dir: ".output/public", Path: "/", Immutable: []string{"/_nuxt/", "/_fonts/", "!/_nuxt/builds/latest.json"}, Pages: true}}},
+	// TanStack Start on Nitro writes .output/public; without Nitro, dist/client.
+	{[]string{"@tanstack/react-start", "@tanstack/solid-start"}, []AssetDir{
+		{Dir: ".output/public", Path: "/", Immutable: []string{"/assets/"}, Pages: true},
+		{Dir: "dist/client", Path: "/", Immutable: []string{"/assets/"}, Pages: true}}},
 	{[]string{"@solidjs/start"}, []AssetDir{{Dir: ".output/public", Path: "/", Immutable: []string{"/_build/assets/"}}}},
-	{[]string{"@react-router/dev", "@remix-run/dev"}, []AssetDir{{Dir: "build/client", Path: "/", Immutable: []string{"/assets/"}}}},
-	{[]string{"@sveltejs/adapter-node"}, []AssetDir{{Dir: "build/client", Path: "/", Immutable: []string{"/_app/immutable/"}}}},
-	{[]string{"@astrojs/node"}, []AssetDir{{Dir: "dist/client", Path: "/", Immutable: []string{"/_astro/"}}}},
+	{[]string{"@react-router/dev", "@remix-run/dev"}, []AssetDir{{Dir: "build/client", Path: "/", Immutable: []string{"/assets/"}, Pages: true}}},
+	{[]string{"@sveltejs/adapter-node", "@sveltejs/adapter-bun"}, []AssetDir{
+		{Dir: "build/client", Path: "/", Immutable: []string{"/_app/immutable/"}},
+		{Dir: "build/prerendered", Path: "/", Immutable: []string{"/_app/immutable/"}, Pages: true}}},
+	{[]string{"@astrojs/node"}, []AssetDir{{Dir: "dist/client", Path: "/", Immutable: []string{"/_astro/"}, Pages: true}}},
 }
 
 var nextAssets = []AssetDir{
@@ -175,30 +183,60 @@ func (r *rt) extractAssets(ctx context.Context, d *Deploy, dir string) (int, int
 			continue
 		}
 		to := filepath.Join(www, filepath.FromSlash(strings.TrimPrefix(d.Assets[i].Path, "/")))
-		if to == www {
-			_ = os.Remove(www)
-		} else {
-			_ = os.RemoveAll(to)
-			if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
-				return 0, 0, err
-			}
-		}
-		if err := os.Rename(from, to); err != nil {
+		if err := moveInto(from, to); err != nil {
 			return 0, 0, err
 		}
 	}
+	_ = os.RemoveAll(filepath.Join(www, ".vite")) // Vite's build manifest: not the site's to serve
 	meta, _ := json.Marshal(d.Assets)
 	if err := os.WriteFile(filepath.Join(tmp, switchboard.MetaFile), meta, 0o644); err != nil {
 		return 0, 0, err
 	}
+	if pages := switchboard.Pages(www, d.Assets); len(pages) > 0 {
+		raw, _ := json.Marshal(pages)
+		if err := os.WriteFile(filepath.Join(tmp, switchboard.PagesFile), raw, 0o644); err != nil {
+			return 0, 0, err
+		}
+	}
 	n, size := countFiles(www)
-	if err := switchboard.Precompress(www); err != nil {
+	if _, err := switchboard.Precompress(www); err != nil {
 		return 0, 0, err
 	}
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return 0, 0, err
 	}
 	return n, size, os.Rename(tmp, dir)
+}
+
+// moveInto moves the folder from to to, or into it when it exists: two
+// asset folders served at one path (SvelteKit's build/client and
+// build/prerendered) share it. A file both have stays the first one's.
+func moveInto(from, to string) error {
+	if !exists(to) {
+		if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+			return err
+		}
+		return os.Rename(from, to)
+	}
+	entries, err := os.ReadDir(from)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		src, dst := filepath.Join(from, e.Name()), filepath.Join(to, e.Name())
+		fi, err := os.Lstat(dst)
+		switch {
+		case err != nil:
+			if err := os.Rename(src, dst); err != nil {
+				return err
+			}
+		case e.IsDir() && fi.IsDir():
+			if err := moveInto(src, dst); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // retire records that release prev stopped serving at now: its hashed

@@ -316,10 +316,42 @@ func (r *rt) reportStart(ctx context.Context, c *ghConn, d *Deploy, tr *ghTracke
 	}
 }
 
+// siteURL is where people see a live deploy: a production app's first
+// route on a domain of its own (https://example.com, not
+// web.<apps domain>) when it has one, else its URL.
+func (r *rt) siteURL(ctx context.Context, d *Deploy) string {
+	if d.Preview != "" || d.URL == "" {
+		return d.URL
+	}
+	spec, err := r.appSpec(ctx, d.Project, d.App)
+	if err != nil {
+		return d.URL
+	}
+	return ownDomainURL(r.p.URL, r.p.AppsDomain(), appRoutes(d.Project, d.App, spec), d.URL)
+}
+
+// ownDomainURL is the URL of the first of routes on a domain of its own
+// (not the apps domain nor under it), else fallback.
+func ownDomainURL(url func(host string) string, appsDomain string, routes []string, fallback string) string {
+	for _, rt := range routes {
+		host, rest, _ := strings.Cut(rt, "/")
+		host = strings.ToLower(host)
+		if !strings.Contains(host, ".") || host == appsDomain || strings.HasSuffix(host, "."+appsDomain) {
+			continue
+		}
+		if rest = strings.Trim(rest, "/"); rest != "" {
+			return url(host) + "/" + rest
+		}
+		return url(host)
+	}
+	return fallback
+}
+
 func (r *rt) reportEnd(ctx context.Context, c *ghConn, d *Deploy, tr *ghTracker) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	state, desc, target := "success", fmt.Sprintf("Live in %s", seconds(d.TotalSecs)), d.URL
+	site := r.siteURL(ctx, d)
+	state, desc, target := "success", fmt.Sprintf("Live in %s", seconds(d.TotalSecs)), site
 	dstate := "success"
 	switch d.Status {
 	case StatusLive:
@@ -335,7 +367,7 @@ func (r *rt) reportEnd(ctx context.Context, c *ghConn, d *Deploy, tr *ghTracker)
 	if tr.Deployment != 0 {
 		ds := ghapp.DeploymentStatus{State: dstate, LogURL: r.logURL(d), Description: desc, AutoInactive: dstate == "success"}
 		if dstate == "success" {
-			ds.EnvironmentURL = d.URL
+			ds.EnvironmentURL = site
 		}
 		r.ghWarn(d, "update the deployment", c.App.SetDeploymentStatus(ctx, tr.Installation, tr.Repo, tr.Deployment, ds))
 	}

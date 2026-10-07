@@ -117,7 +117,7 @@ type Board struct {
 	seen   map[string]time.Time // env → last request
 
 	metaMu sync.Mutex
-	metas  map[string][]AssetDir // release dir → its assets.json
+	metas  map[string]releaseMeta // release dir → its assets.json and pages.json
 }
 
 // New returns an empty switchboard: every request is a 404 until Set.
@@ -125,7 +125,7 @@ func New(ctl Control, log *slog.Logger) *Board {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Board{ctl: ctl, log: log, inflight: map[string]*atomic.Int64{}, seen: map[string]time.Time{}, metas: map[string][]AssetDir{}}
+	return &Board{ctl: ctl, log: log, inflight: map[string]*atomic.Int64{}, seen: map[string]time.Time{}, metas: map[string]releaseMeta{}}
 }
 
 // Set switches to a new table. Selection and counting (acquire) happen

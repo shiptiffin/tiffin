@@ -42,7 +42,7 @@ func fakeTools(t *testing.T) (binDir, log string) {
 		"railpack": "#!/bin/sh\n" + rec + `while [ $# -gt 0 ]; do if [ "$1" = --plan-out ]; then echo '{"deploy":{}}' > "$2"; fi; shift; done` + "\n",
 		"buildctl": "#!/bin/sh\n" + rec + "echo 'exporting manifest sha256:" + strings.Repeat("c", 64) + "'\n",
 		// nerdctl run ... --volume <src>:/app ... <image> sh -c <script>: runs the script in src.
-		"nerdctl": "#!/bin/sh\n" + rec + `src=""; prev=""; for a in "$@"; do if [ "$prev" = --volume ]; then src="${a%%:/app}"; fi; prev="$a"; last="$a"; done; cd "$src" && sh -c "$last"` + "\n",
+		"nerdctl": "#!/bin/sh\n" + rec + `src=""; prev=""; for a in "$@"; do if [ "$prev" = --volume ]; then case "$a" in *:/app) src="${a%:/app}";; esac; fi; prev="$a"; last="$a"; done; cd "$src" && sh -c "$last"` + "\n",
 	})
 	return binDir, log
 }

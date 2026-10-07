@@ -87,7 +87,9 @@ func (r *rt) release(ctx context.Context, d *Deploy, spec *manifest.App, src Rel
 		}
 		n, size := countFiles(dest)
 		fmt.Fprintf(log, "==> serving %d files (%s)\n", n, humanBytes(size))
+		finishStatic(dest, log)
 		d.StaticRoot = dest
+		r.keepHashed(d, log)
 		if src.Framework != "" {
 			d.Framework = src.Framework
 		}

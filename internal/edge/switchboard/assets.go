@@ -11,8 +11,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/klauspost/compress/zstd"
@@ -40,6 +43,12 @@ type AssetDir struct {
 	// LiveOnly: files that keep their names across releases (Next.js's
 	// public/), served from the live release only.
 	LiveOnly bool `json:"liveOnly,omitempty" doc:"Served from the live release only (files that keep their names across releases)"`
+	// Pages: the .html files in it are pages the framework prerendered,
+	// which its own server answers from the files before any app code runs
+	// (Astro, SvelteKit, Nuxt, React Router, TanStack Start). The box
+	// answers them at their paths (/about for about/index.html or
+	// about.html) from the live release, so a sleeping app need not wake.
+	Pages bool `json:"pages,omitempty" doc:"Its .html files are prerendered pages, answered at their paths without the app"`
 }
 
 // AssetsKept is how long an earlier release's hashed files stay served.
@@ -48,8 +57,21 @@ const AssetsKept = 24 * time.Hour
 // MetaFile is a release's list of AssetDirs, next to its www directory.
 const MetaFile = "assets.json"
 
-// assetMeta is what serving needs from one release's MetaFile.
-func (b *Board) assetMeta(dir string) []AssetDir {
+// PagesFile maps the paths of a release's prerendered pages to their files
+// in www ("/about" → "about/index.html"), next to MetaFile. The runtime
+// writes it (see AssetDir.Pages); the edge serves exact matches only, so
+// it never looks for files on a request it passes to the app.
+const PagesFile = "pages.json"
+
+// releaseMeta is what serving needs from one release: its MetaFile and
+// PagesFile.
+type releaseMeta struct {
+	dirs  []AssetDir
+	pages map[string]string
+}
+
+// assetMeta reads (once) what serving needs from one release.
+func (b *Board) assetMeta(dir string) releaseMeta {
 	b.metaMu.Lock()
 	m, ok := b.metas[dir]
 	b.metaMu.Unlock()
@@ -58,9 +80,12 @@ func (b *Board) assetMeta(dir string) []AssetDir {
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, MetaFile))
 	if err != nil {
-		return nil // not extracted (yet): asked again next time
+		return m // not extracted (yet): asked again next time
 	}
-	_ = json.Unmarshal(raw, &m)
+	_ = json.Unmarshal(raw, &m.dirs)
+	if raw, err := os.ReadFile(filepath.Join(dir, PagesFile)); err == nil {
+		_ = json.Unmarshal(raw, &m.pages)
+	}
 	b.metaMu.Lock()
 	b.metas[dir] = m
 	b.metaMu.Unlock()
@@ -75,7 +100,21 @@ func (b *Board) ServeAsset(w http.ResponseWriter, req *http.Request, st *Env, pr
 		return false
 	}
 	p := strings.TrimPrefix(req.URL.Path, prefix)
-	if p == "" || p[0] != '/' || strings.HasSuffix(p, "/") || path.Clean(p) != p {
+	if p == "" && prefix != "" {
+		p = "/"
+	}
+	if p == "" || p[0] != '/' {
+		return false
+	}
+	if clean := path.Clean(p); clean != p && clean+"/" != p {
+		return false
+	}
+	// A prerendered page: the live release's only, revalidated on every use.
+	live := filepath.Join(st.Assets, st.Live)
+	if f, ok := b.assetMeta(live).pages[p]; ok && serveFile(w, req, filepath.Join(live, "www"), "/"+f, false) {
+		return true
+	}
+	if strings.HasSuffix(p, "/") {
 		return false
 	}
 	releases := []string{st.Live}
@@ -86,8 +125,7 @@ func (b *Board) ServeAsset(w http.ResponseWriter, req *http.Request, st *Env, pr
 	}
 	for i, id := range releases {
 		dir := filepath.Join(st.Assets, id)
-		meta := b.assetMeta(dir)
-		hashed, bridged := assetClass(meta, p)
+		hashed, bridged := assetClass(b.assetMeta(dir).dirs, p)
 		if i > 0 && !bridged {
 			continue // only hashed files outlive their release
 		}
@@ -132,38 +170,78 @@ var (
 	minCompressLen = int64(1024)
 )
 
-// Precompress writes the compressed copies of the text files in dir. A copy
-// that saves less than a tenth is not kept.
-func Precompress(dir string) error {
-	zw, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedBestCompression))
+// Precompress writes the compressed copies of the text files in dir, on
+// every CPU, and reports how many files it compressed. A copy that saves
+// less than a tenth is not kept.
+func Precompress(dir string) (int, error) {
+	zw, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedBestCompression), zstd.WithEncoderConcurrency(1))
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer zw.Close()
-	return filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
-		if err != nil || !e.Type().IsRegular() || !compressible[strings.ToLower(filepath.Ext(p))] {
-			return err
+	var files []string
+	err = filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
+		if err == nil && e.Type().IsRegular() && compressible[strings.ToLower(filepath.Ext(p))] {
+			files = append(files, p)
 		}
-		raw, err := os.ReadFile(p)
-		if err != nil || int64(len(raw)) <= minCompressLen {
-			return err
-		}
-		var gz bytes.Buffer
-		gw, _ := gzip.NewWriterLevel(&gz, gzip.BestCompression)
-		_, _ = gw.Write(raw)
-		_ = gw.Close()
-		for _, out := range []struct {
-			ext string
-			b   []byte
-		}{{".zst", zw.EncodeAll(raw, nil)}, {".gz", gz.Bytes()}} {
-			if len(out.b) < len(raw)*9/10 {
-				if err := os.WriteFile(p+out.ext, out.b, 0o644); err != nil {
-					return err
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	var (
+		next     atomic.Int64
+		done     atomic.Int64
+		firstErr error
+		errOnce  sync.Once
+		wg       sync.WaitGroup
+	)
+	for range min(runtime.GOMAXPROCS(0), max(1, len(files))) {
+		wg.Go(func() {
+			for {
+				i := int(next.Add(1)) - 1
+				if i >= len(files) {
+					return
+				}
+				ok, err := precompressFile(zw, files[i])
+				if err != nil {
+					errOnce.Do(func() { firstErr = err })
+					return
+				}
+				if ok {
+					done.Add(1)
 				}
 			}
+		})
+	}
+	wg.Wait()
+	return int(done.Load()), firstErr
+}
+
+// precompressFile writes p's zstd and gzip copies (zw is safe for
+// concurrent EncodeAll), and reports whether it kept one.
+func precompressFile(zw *zstd.Encoder, p string) (bool, error) {
+	raw, err := os.ReadFile(p)
+	if err != nil || int64(len(raw)) <= minCompressLen {
+		return false, err
+	}
+	var gz bytes.Buffer
+	gw, _ := gzip.NewWriterLevel(&gz, gzip.BestCompression)
+	_, _ = gw.Write(raw)
+	_ = gw.Close()
+	kept := false
+	for _, out := range []struct {
+		ext string
+		b   []byte
+	}{{".zst", zw.EncodeAll(raw, nil)}, {".gz", gz.Bytes()}} {
+		if len(out.b) < len(raw)*9/10 {
+			if err := os.WriteFile(p+out.ext, out.b, 0o644); err != nil {
+				return kept, err
+			}
+			kept = true
 		}
-		return nil
-	})
+	}
+	return kept, nil
 }
 
 // accepts reports whether an Accept-Encoding header allows coding.
@@ -239,4 +317,50 @@ func serveFile(w http.ResponseWriter, req *http.Request, www, p string, hashed b
 	}
 	http.ServeContent(w, req, fi.Name(), fi.ModTime(), f)
 	return true
+}
+
+// notPages are prerendered files a framework's server does not answer at
+// their own path: error pages and SPA shells, which it sends for other
+// paths (with their own status).
+var notPages = map[string]bool{"404.html": true, "500.html": true, "200.html": true, "_shell.html": true, "__spa-fallback.html": true}
+
+// Pages finds the prerendered pages under www of the dirs with Pages set:
+// the path each .html file answers at, as the frameworks' own servers do
+// (/ for index.html, /a and /a/ for a/index.html, /a for a.html; a.html
+// wins /a), mapped to the file relative to www. Files under an immutable
+// prefix are not pages.
+func Pages(www string, dirs []AssetDir) map[string]string {
+	pages := map[string]string{}
+	for _, a := range dirs {
+		if !a.Pages {
+			continue
+		}
+		root := filepath.Join(www, filepath.FromSlash(strings.TrimPrefix(a.Path, "/")))
+		_ = filepath.WalkDir(root, func(p string, e fs.DirEntry, err error) error {
+			if err != nil || !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".html") || notPages[e.Name()] {
+				return nil
+			}
+			rel, err := filepath.Rel(www, p)
+			if err != nil {
+				return nil
+			}
+			rel = filepath.ToSlash(rel)
+			if hashed, _ := assetClass(dirs, "/"+rel); hashed {
+				return nil
+			}
+			if dir, ok := strings.CutSuffix(rel, "index.html"); ok && (dir == "" || strings.HasSuffix(dir, "/")) {
+				url := "/" + dir
+				pages[url] = rel
+				if dir != "" {
+					if _, taken := pages[strings.TrimSuffix(url, "/")]; !taken {
+						pages[strings.TrimSuffix(url, "/")] = rel
+					}
+				}
+				return nil
+			}
+			pages["/"+strings.TrimSuffix(rel, ".html")] = rel
+			return nil
+		})
+	}
+	return pages
 }

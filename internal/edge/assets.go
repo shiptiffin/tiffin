@@ -27,6 +27,11 @@ func (HashedAssetMatcher) MatchWithError(r *http.Request) (bool, error) {
 	return hashedAsset(r.URL.Path), nil
 }
 
+// HashedAsset reports whether a URL path names a fingerprinted build file
+// (see hashedAsset): cached for a year, and kept a while for pages of an
+// earlier release.
+func HashedAsset(p string) bool { return hashedAsset(p) }
+
 // hashedDirs only ever hold content-hashed files: Next.js, SvelteKit and
 // Astro build output.
 var hashedDirs = []string{"/_next/static/", "/_app/immutable/", "/_astro/"}

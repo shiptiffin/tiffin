@@ -5742,6 +5742,8 @@ export interface components {
             immutable?: string[] | null;
             /** @description Served from the live release only (files that keep their names across releases) */
             liveOnly?: boolean;
+            /** @description Its .html files are prerendered pages, answered at their paths without the app */
+            pages?: boolean;
             /** @description URL path its files are served at */
             path: string;
         };
