@@ -78,8 +78,15 @@ function creds(env: Env): S3Creds {
   return { accessKeyId: need(env, "S3_ACCESS_KEY_ID"), secretAccessKey: need(env, "S3_SECRET_ACCESS_KEY"), region: env.S3_REGION ?? "us-east-1" };
 }
 
+/**
+ * Bun's S3Client where Bun's types are loaded, else unknown: the package's
+ * declarations name no Bun type, so a Node app type-checks them without
+ * installing @types/bun.
+ */
+export type BunS3Client = typeof globalThis extends { Bun: { S3Client: new (...args: never[]) => infer C } } ? C : unknown;
+
 /** A Bun.S3Client for one of the project's buckets, on the box-internal endpoint (Bun only). */
-export function bucket(name: string, o?: StorageOptions): Bun.S3Client {
+export function bucket(name: string, o?: StorageOptions): BunS3Client {
   const env = envOf(o);
   if (typeof Bun === "undefined") throw new Error("bucket() returns a Bun.S3Client; on Node use upload()/presign() or the AWS SDK with the S3_* env");
   const c = creds(env);

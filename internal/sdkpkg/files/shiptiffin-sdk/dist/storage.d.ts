@@ -10,8 +10,18 @@ export interface StorageOptions {
 export declare function bucketName(name: string, o?: StorageOptions): string;
 /** Whether a bucket is public (readable at its publicUrl without a signature). */
 export declare function isPublic(name: string, o?: StorageOptions): boolean;
+/**
+ * Bun's S3Client where Bun's types are loaded, else unknown: the package's
+ * declarations name no Bun type, so a Node app type-checks them without
+ * installing @types/bun.
+ */
+export type BunS3Client = typeof globalThis extends {
+    Bun: {
+        S3Client: new (...args: never[]) => infer C;
+    };
+} ? C : unknown;
 /** A Bun.S3Client for one of the project's buckets, on the box-internal endpoint (Bun only). */
-export declare function bucket(name: string, o?: StorageOptions): Bun.S3Client;
+export declare function bucket(name: string, o?: StorageOptions): BunS3Client;
 export interface UploadOptions extends StorageOptions {
     /** MIME type; default the Blob's type, else guessed from the key's extension. */
     contentType?: string;

@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -153,5 +154,28 @@ func TestNextCacheHandlers(t *testing.T) {
 				t.Errorf("%s imports %s, which is not next to it", name, m[1])
 			}
 		}
+	}
+}
+
+// The declarations name no Bun type: a Node app that type-checks its
+// dependencies (skipLibCheck: false) has no @types/bun to resolve one.
+func TestDeclarationsNeedNoBunTypes(t *testing.T) {
+	comment := regexp.MustCompile(`(?s)/\*.*?\*/|//[^\n]*`)
+	bunType := regexp.MustCompile(`\bBun\.[A-Z]`)
+	err := fs.WalkDir(files, "files", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !strings.HasSuffix(p, ".d.ts") {
+			return err
+		}
+		raw, err := files.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		if m := bunType.Find(comment.ReplaceAll(raw, nil)); m != nil {
+			t.Errorf("%s names %s", p, m)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
