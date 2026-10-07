@@ -67,10 +67,31 @@ set `runtime: "node"` for them:
   secrets and service URLs only as BuildKit secrets (`RUN --mount=type=secret`), never as
   build args. There is no SSH forwarding (`RUN --mount=type=ssh`), no named or extra build
   contexts, no `RUN --network=host` and no privileged steps. Nothing outside the build
-  context can be mounted.
+  context can be mounted. BuildKit's own Dockerfile frontend (BuildKit 0.33) always builds
+  it: a `# syntax=` line is ignored, so `docker/dockerfile:1-labs` features don't work.
+  Env names starting `BUILDKIT_` don't reach the build as build args.
+- **Build caches** (`RUN --mount=type=cache`, Railpack's install caches) belong to one
+  app: another app, or another project, never shares them, whatever cache id it names.
+- **Build resources:** all builds share one memory cap and 4,096 processes and threads;
+  a static site's build gets the same task cap. An app's project may use a quarter of the
+  box's task limit, all apps together half.
 - **Prebuilt images:** one image per tarball (`docker save` / `nerdctl save`).
 - **Git imports:** public https repositories only, no submodules, 512 MB and 3 minutes
-  at most. For private code, push to the box or connect GitHub.
+  at most, checked out (files at their full size) as well as downloaded, and 200,000
+  files. For private code, push to the box or connect GitHub.
+- **Uploads:** 4 GB of files, 200,000 files and 300,000 entries in all (files, links and
+  folders) per source.
+- **Files the box reads itself** (`package.json`, framework configs, lock files,
+  `vercel.json`, `.gitignore`/`.tiffinignore`, workspace files) must be plain files of at
+  most 16 MB; a bigger one, or a link in a fresh clone, is treated as missing. Like git,
+  the box never follows an ignore file that is a link.
+- **Static sites** may hold only folders, plain files and links inside the site (no
+  FIFOs or devices). Text files over 32 MB, and anything past 512 MB in all, are served
+  without a precompressed copy.
+- **Railpack plans on the box itself:** it reads your repository's files (and runs mise,
+  in its safe mode, to resolve versions) as root on the host, outside a container. Your
+  env never reaches its environment, but a bug in Railpack or mise parsing a repository
+  is a bug on the host. Planning in a container is planned.
 
 ## Monorepos
 

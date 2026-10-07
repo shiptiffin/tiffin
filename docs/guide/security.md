@@ -22,6 +22,14 @@ Plainly, so you can decide what to trust it with.
 - **SSH to servers.** Tiffin pins each server's SSH host key the first time it connects
   and refuses a different one after. For a server you bring (`--provider ssh`) it also
   honours the keys in your own `~/.ssh/known_hosts`; see [limits](limits.md#servers).
+- **Builds run your code in containers.** BuildKit runs the build steps; a static site
+  builds in a container capped in memory and tasks. Your env reaches a build only inside
+  those containers (as BuildKit secrets, build args or container env), never the
+  environment of the box's own tools (Railpack, BuildKit's client, nerdctl), which run
+  as root: a variable such as `PATH`, `DOCKER_CONFIG` or `LD_PRELOAD` can't reconfigure
+  them. Each app's build caches are its own. What a build writes is checked before the
+  box uses it (links must stay inside, no FIFOs or devices) and read with size caps.
+  Known gap: Railpack plans on the host (see [limits](limits.md#builds)).
 - **Only HTTPS leaves a local box,** and only to `127.0.0.1:8443` on your Mac. Postgres,
   Valkey and the rest are not reachable from outside the VM.
 - **API keys** are random 200-bit secrets; only their SHA-256 is stored. Each reaches
