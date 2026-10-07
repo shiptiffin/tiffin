@@ -377,6 +377,15 @@ func safeRel(p string) bool {
 	return p != "" && !strings.HasPrefix(p, "/") && !strings.Contains(p, "..") && plainWord.MatchString(p)
 }
 
+// execPackageBin runs a package's bin with node, wherever the workspace
+// keeps the package (the app's node_modules or one above it, as Node
+// resolves it), exec'd: node is the container's process, without the
+// npx launcher (npm exec), which stays resident at about 85 MB next to the
+// app. bin is relative to the package; args start with a space.
+func execPackageBin(pkg, bin, args string) string {
+	return `exec node "$(node -p "require('path').join(require.resolve('` + pkg + `/package.json'), '../` + bin + `')")"` + args
+}
+
 func merge(ms ...map[string]string) map[string]string {
 	out := map[string]string{}
 	for _, m := range ms {
@@ -416,8 +425,8 @@ func prepareLaunch(req BuildRequest, l *launch, env map[string]string) (map[stri
 		}
 	}
 	if req.Dir != "" && strings.HasPrefix(l.Start, "node ./node_modules/@react-router/serve/") {
-		// A workspace may keep the package at its top: by name instead.
-		l.Start = "npx --no-install react-router-serve " + strings.Fields(l.Start)[2]
+		// A workspace may keep the package at its top: found from the app's folder.
+		l.Start = execPackageBin("@react-router/serve", "bin.cjs", " "+strings.Fields(l.Start)[2])
 	}
 	if len(l.Run) == 0 {
 		return nil, nil

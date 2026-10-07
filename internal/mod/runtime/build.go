@@ -312,7 +312,7 @@ func (b *boxBuilder) railpack(ctx context.Context, req BuildRequest, ref string,
 			next := "./node_modules/next/dist/bin/next"
 			switch {
 			case onNode && req.Dir != "":
-				env["RAILPACK_START_CMD"] = req.inApp("npx --no-install next start" + args)
+				env["RAILPACK_START_CMD"] = req.inApp(execPackageBin("next", "dist/bin/next", " start"+args))
 			case onNode:
 				env["RAILPACK_START_CMD"] = req.inApp("node " + next + " start" + args)
 			default:

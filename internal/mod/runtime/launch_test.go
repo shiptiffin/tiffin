@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -254,5 +255,30 @@ func TestLaunchFilesWithOnlyAFallbackPage(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(filepath.Join(res.StaticRoot, "index.html")); string(got) != "shell\n" {
 		t.Errorf("/ serves %q, want the fallback page", got)
+	}
+}
+
+// A workspace app on Node.js starts a package's bin with node itself (no
+// resident npx launcher), found where the workspace hoisted it, even when
+// the package exports nothing but its package.json.
+func TestExecPackageBin(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not found")
+	}
+	ws := t.TempDir()
+	writeFiles(t, ws, map[string]string{
+		"node_modules/@scope/serve/package.json": `{"name":"@scope/serve","exports":{"./package.json":"./package.json"}}`,
+		"node_modules/@scope/serve/bin.cjs":      `console.log("args", process.argv.slice(2).join(" "))`,
+		"apps/web/package.json":                  `{}`,
+	})
+	cmd := "cd apps/web && " + execPackageBin("@scope/serve", "bin.cjs", " ./build/server/index.js")
+	if execLast(cmd) != cmd {
+		t.Errorf("execLast changed %q", cmd)
+	}
+	c := exec.Command("bash", "-c", cmd)
+	c.Dir = ws
+	out, err := c.CombinedOutput()
+	if err != nil || string(out) != "args ./build/server/index.js\n" {
+		t.Fatalf("%v: %s", err, out)
 	}
 }
