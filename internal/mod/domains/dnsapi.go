@@ -204,4 +204,6 @@ func (m *Module) registerDNS(a huma.API, p *platform.Platform, ready func() erro
 		out.Body.Summary = fmt.Sprintf("Set %d record(s); public DNS usually shows them within a minute.", len(recs))
 		return out, nil
 	}))
+
+	m.registerRecords(a, p, ready)
 }
