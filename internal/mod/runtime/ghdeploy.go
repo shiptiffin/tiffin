@@ -157,7 +157,15 @@ type ghTracker struct {
 	Context      string `json:"context"`
 }
 
-func statusContext(project, app string) string { return "tiffin/" + project + "/" + app }
+// statusContext names a deploy's commit status. Production and previews
+// have their own: the same commit can be on the production branch and in a
+// pull request, and one outcome must not overwrite the other.
+func statusContext(project, app, preview string) string {
+	if preview != "" {
+		return "tiffin/" + project + "/" + app + "/preview"
+	}
+	return "tiffin/" + project + "/" + app
+}
 
 func (r *rt) logURL(d *Deploy) string {
 	return fmt.Sprintf("%s/projects/%s/apps/%s/deploys/%s", r.publicBase(), d.Project, d.App, d.ID)
@@ -178,7 +186,7 @@ func (r *rt) runJob(j *ghJob) {
 			return
 		}
 	}
-	tr := &ghTracker{Repo: j.Repo, SHA: j.SHA, Installation: j.Installation, PR: j.PR, Context: statusContext(j.Project, j.App)}
+	tr := &ghTracker{Repo: j.Repo, SHA: j.SHA, Installation: j.Installation, PR: j.PR, Context: statusContext(j.Project, j.App, j.Preview)}
 	r.reportStart(ctx, c, d, tr, j)
 	raw, _ := json.Marshal(tr)
 	_ = r.p.DB.KVPut(ctx, nsGitHubJobs, d.Project+"/"+d.App+"/"+d.ID, raw)

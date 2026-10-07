@@ -425,8 +425,9 @@ apps: {
 
 **3. Push.** That's it. What happens on GitHub:
 
-- the commit gets a status `tiffin/<project>/<app>`: *pending* while it builds, then
-  *success* (linking the live address) or *failure* (linking the build log);
+- the commit gets a status `tiffin/<project>/<app>` (a preview's: `tiffin/<project>/<app>/preview`):
+  *pending* while it builds, then *success* (linking the live address) or *failure* (linking the
+  build log);
 - a GitHub deployment per deploy (`tiffin/<project>/<app>`, previews as transient
   environments `…/pr-12`);
 - a pull request's preview lives at `pr-12--<app address>.<domain>` (`pr-12--shop` for the app at

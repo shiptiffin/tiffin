@@ -324,6 +324,12 @@ func TestGitHubConnectPushAndPreviews(t *testing.T) {
 	if pv.Status != StatusLive || pv.PullRequest != 7 || pv.URL != "https://pr-7--shop.tiffin.localhost:8443" {
 		t.Fatalf("preview: %+v\n%s", pv, g.buildLog("site", pv.ID))
 	}
+	g.settle()
+	for _, s := range g.f.Recorded().Statuses {
+		if strings.HasSuffix(s.Path, pv.Commit) && s.Body["context"] != "tiffin/shop/site/preview" {
+			t.Fatalf("a preview has its own status context: %v", s.Body)
+		}
+	}
 	if _, body := g.get("pr-7--shop.tiffin.localhost", "/"); body != "<h1>feature</h1>" {
 		t.Fatalf("preview serves: %q", body)
 	}
