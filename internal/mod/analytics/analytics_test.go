@@ -264,7 +264,7 @@ func TestTrackerScript(t *testing.T) {
 	if len(trackerJS) > 1600 {
 		t.Fatalf("tracker is %d bytes; keep it under 1.6 KB", len(trackerJS))
 	}
-	for _, s := range []string{"sendBeacon", "pushState", "popstate", "data-initial", "Outbound Link: Click", "File Download"} {
+	for _, s := range []string{"sendBeacon", "pushState", "replaceState", "popstate", "data-initial", "Outbound Link: Click", "File Download"} {
 		if !bytes.Contains(trackerJS, []byte(s)) {
 			t.Fatalf("tracker lacks %q", s)
 		}

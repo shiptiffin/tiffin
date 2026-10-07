@@ -2,7 +2,7 @@
 //
 // The box counts the first page load of every visit from its own edge logs,
 // so this script only reports what the edge cannot see:
-//   - client-side navigations in single-page apps (pushState, popstate)
+//   - client-side navigations in single-page apps (pushState, replaceState, popstate)
 //   - custom events: tiffin.track("Signup", { plan: "pro" })
 //   - outbound link clicks and file downloads
 // Add data-initial to the script tag when the page itself is NOT served by
@@ -31,11 +31,18 @@
     send('pageview')
   }
 
-  var push = history.pushState
-  history.pushState = function () {
-    push.apply(this, arguments)
-    nav()
+  // Routers navigate with pushState and also with replaceState (redirects,
+  // search params); nav() ignores calls that keep the same address.
+  function wrap(name) {
+    var orig = history[name]
+    history[name] = function () {
+      var r = orig.apply(this, arguments)
+      nav()
+      return r
+    }
   }
+  wrap('pushState')
+  wrap('replaceState')
   w.addEventListener('popstate', nav)
 
   d.addEventListener('click', function (e) {
