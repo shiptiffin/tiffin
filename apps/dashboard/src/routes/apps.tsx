@@ -32,8 +32,9 @@ import { lineLevel } from "@/components/logs-query";
 import { Crumbs, NotOnBox, Page, PageHeader, Skeleton, Untrusted } from "@/components/page";
 import { PilotLight } from "@/components/pilot";
 import { ProblemNote } from "@/components/problem";
-import { firstError } from "@/components/start-build-log";
-import { BuildLogViewer, isErrorLine, saveText, stripAnsi, useRawBuildLog, type BuildLogHandle } from "@/components/build-log-viewer";
+import { firstError, firstErrorIn } from "@/components/start-build-log";
+import { BuildLogViewer, saveText, type BuildLogHandle } from "@/components/build-log-viewer";
+import { useBuildLog } from "@/components/build-log-stream";
 import { DeployTray } from "@/components/start-deploy-tray";
 import { AppRepo, useRedeploy } from "@/components/app-github";
 import { INSTANCE_STOPS } from "@/components/throttle";
@@ -651,7 +652,7 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
   const deploys = useAppDeploys(project, app);
   const starters = useQuery(startersQuery);
   const dep = d.data;
-  const log = useRawBuildLog(project, app, id);
+  const log = useBuildLog(project, app, id);
   const [ui, setUi] = useUrlState(["tab"] as const);
   const tab = ui.tab === "runtime" ? "runtime" : "build";
   const viewer = useRef<BuildLogHandle>(null);
@@ -681,9 +682,9 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
   const failedAt = dep?.status === "failed" ? (dep.buildSeconds !== undefined ? 2 : 1) : -1;
   const reached = !dep ? -1 : dep.status === "failed" ? failedAt - 1 : ["live", "superseded", "rolled_back", "stopped"].includes(dep.status) ? 3 : phases.indexOf(dep.status as (typeof phases)[number]);
   const elapsed = dep ? Math.max(0, (now - Date.parse(dep.createdAt)) / 1000) : 0;
-  const plain = log.lines.map((l) => stripAnsi(l.raw));
-  const cause = dep?.status === "failed" ? (firstError(dep.error ?? "") ?? firstError(plain.join("\n"))) : null;
-  const errorsInLog = plain.some(isErrorLine);
+  const failed = dep?.status === "failed";
+  const cause = failed ? (firstError(dep.error ?? "") ?? firstErrorIn(log)) : null;
+  const errorsInLog = log.model.errors.length > 0;
   const canAgain = can("apply:reversible") && canBuildAgain(dep);
   const name = v ? `v${v}` : dep?.preview ? `Preview ${dep.preview}` : "Deploy";
   const startedRun = !!dep && dep.buildSeconds !== undefined && dep.status !== "skipped";
@@ -860,7 +861,7 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
           <Tabs.List aria-label="Logs" className="mb-3 flex gap-1 border-b border-rule">
             {(
               [
-                ["build", "Build log", log.lines.length ? int(log.lines.length) : ""],
+                ["build", "Build log", log.model.lines.length ? int(log.model.dropped + log.model.lines.length) : ""],
                 ["runtime", "Runtime logs", ""],
               ] as const
             ).map(([k, label, n]) => (
@@ -878,12 +879,11 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
           <Tabs.Content value="build" className="outline-hidden">
             <BuildLogViewer
               handle={viewer}
-              lines={log.lines}
-              live={log.live}
+              log={log}
+              source={{ project, app, id }}
               running={running}
               t0={dep ? Date.parse(dep.createdAt) : undefined}
               failed={dep?.status === "failed"}
-              loadError={log.error}
               file={`${project}-${app}-${v ? `v${v}` : id}-build.log`}
               summary={
                 dep && (dep.buildSeconds !== undefined || dep.durationSeconds !== undefined) ? (

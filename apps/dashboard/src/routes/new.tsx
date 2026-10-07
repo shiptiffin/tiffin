@@ -16,7 +16,8 @@ import { ProblemNote } from "@/components/problem";
 import { Qty } from "@/components/qty";
 import { BuildSettings, buildNote } from "@/components/build-settings";
 import { FrameworkLabel, FrameworkSelect } from "@/components/framework-select";
-import { BuildLogView, firstError, useBuildLog } from "@/components/start-build-log";
+import { BuildLogView, firstError, firstErrorIn, useLaunchBuildLog } from "@/components/start-build-log";
+import type { BuildLogState } from "@/components/build-log-stream";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioItem } from "@/components/ui/choice";
 import { GitHubMark } from "@/components/github-mark";
@@ -962,7 +963,7 @@ function Launch({
   error: unknown;
   retry: () => void;
 }) {
-  const log = useBuildLog(L.project, L.app ?? "", deployId, deploy?.createdAt);
+  const log = useLaunchBuildLog(L.project, L.app ?? "", deployId, deploy?.createdAt);
   const status = deploy?.status;
   const now = useNow(phase === "launching");
   const since = (now - L.started) / 1000;
@@ -1022,15 +1023,15 @@ function Launch({
           ))}
         </ol>
 
-        {phase === "failed" && <Failed L={L} deploy={deploy} error={error} logText={log.lines.map((l) => l.text).join("\n")} retry={retry} />}
+        {phase === "failed" && <Failed L={L} deploy={deploy} error={error} log={log} retry={retry} />}
 
         {L.app && deployId && (
           <section className="mt-8" aria-label="Build log">
             <div className="mb-2 flex items-baseline justify-between gap-3">
               <h2 className="label">Build log</h2>
-              <span className="text-xs text-ink-3">{log.live ? "Following as it builds" : log.done ? `${countWords(log.lines.length, "line")}` : "Connecting…"}</span>
+              <span className="text-xs text-ink-3">{log.live ? "Following as it builds" : log.done ? `${countWords(log.model.dropped + log.model.lines.length, "line")}` : "Connecting…"}</span>
             </div>
-            <BuildLogView lines={log.lines} live={log.live} t0={log.t0} waiting={phase === "launching"} maxHeight="22rem" />
+            <BuildLogView log={log} t0={log.t0} waiting={phase === "launching"} maxHeight="22rem" />
           </section>
         )}
       </div>
@@ -1046,8 +1047,8 @@ function Launch({
   );
 }
 
-function Failed({ L, deploy, error, logText, retry }: { L: { project: string; app?: string }; deploy?: Deploy; error: unknown; logText: string; retry: () => void }) {
-  const cause = firstError(deploy?.error ?? "") ?? firstError(logText);
+function Failed({ L, deploy, error, log, retry }: { L: { project: string; app?: string }; deploy?: Deploy; error: unknown; log: BuildLogState; retry: () => void }) {
+  const cause = firstError(deploy?.error ?? "") ?? firstErrorIn(log);
   return (
     <div role="alert" className="mt-6 rounded-[10px] border border-danger-rule bg-danger-wash px-5 py-4">
       {deploy ? (
@@ -1101,7 +1102,7 @@ function Live({
   hero: ReactNode;
   L: Launched;
   deploy?: Deploy;
-  log: ReturnType<typeof useBuildLog>;
+  log: ReturnType<typeof useLaunchBuildLog>;
 }) {
   const url = deploy?.url;
   const host = url?.replace(/^https?:\/\//, "");
@@ -1193,9 +1194,9 @@ function Live({
             </ol>
             <details className="group mt-6">
               <summary className="cursor-pointer list-none text-sm text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
-                <span className="inline-block transition-transform group-open:rotate-90">›</span> Build log, {countWords(log.lines.length, "line")}
+                <span className="inline-block transition-transform group-open:rotate-90">›</span> Build log, {countWords(log.model.dropped + log.model.lines.length, "line")}
               </summary>
-              <BuildLogView lines={log.lines} live={log.live} t0={log.t0} className="mt-2" maxHeight="20rem" />
+              <BuildLogView log={log} t0={log.t0} className="mt-2" maxHeight="20rem" />
             </details>
           </div>
           <div className="min-w-0">

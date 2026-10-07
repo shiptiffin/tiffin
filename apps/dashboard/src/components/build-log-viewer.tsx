@@ -1,10 +1,10 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, Check, ChevronDown, ChevronRight, ChevronUp, Copy, Download, Search, WrapText } from "lucide-react";
 import { Toggle } from "radix-ui";
 import { useEffect, useEffectEvent, useImperativeHandle, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
-import { mod3 } from "@/api/modules";
-import { inferLevel } from "@/components/logs-query";
+import { stripAnsi, type Group, type Kind, type Line, type Seg } from "@/components/build-log-model";
+import { buildLogText, type BuildLogState } from "@/components/build-log-stream";
+import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
@@ -16,190 +16,10 @@ import { count, dec, int, NNBSP } from "@/lib/format";
  * collapsible steps with their timings, search with next/previous, error and
  * warning counts with "next error", follow-tail with a pill back to the
  * bottom, a wrap toggle, copy and download. Rows are virtualised, so a
- * 10,000-line log scrolls as smoothly as a short one.
+ * 10,000-line log scrolls as smoothly as a short one; the log itself is
+ * parsed as it arrives and bounded (components/build-log-model.ts), with
+ * Download fetching the whole of it from the box.
  */
-
-// ------------------------------------------------------------------ the data
-
-export type RawLine = { raw: string; at: number | null };
-
-/** The log as it stands, then followed over server-sent events, ANSI kept. */
-export function useRawBuildLog(project: string, app: string, id: string | undefined) {
-  const qc = useQueryClient();
-  const [log, setLog] = useState<{ id?: string; lines: RawLine[]; live: boolean; done: boolean; error?: boolean }>({ lines: [], live: false, done: false });
-  const partial = useRef("");
-
-  useEffect(() => {
-    if (!id) return;
-    let es: EventSource | null = null;
-    let cancelled = false;
-    partial.current = "";
-    type L = { lines: RawLine[]; live: boolean; done: boolean; error?: boolean };
-    const update = (f: (l: L) => Partial<L>) =>
-      setLog((prev) => {
-        const base = prev.id === id ? prev : { id, lines: [], live: false, done: false };
-        return { ...base, ...f(base), id };
-      });
-    const push = (text: string, at: number | null) => {
-      const parts = (partial.current + text).split("\n");
-      partial.current = parts.pop() ?? "";
-      if (parts.length) update((l) => ({ lines: [...l.lines, ...parts.map((t) => ({ raw: t.replace(/\r/g, ""), at }))] }));
-    };
-    const flush = (at: number | null) => {
-      const rest = partial.current;
-      partial.current = "";
-      if (rest) update((l) => ({ lines: [...l.lines, { raw: rest.replace(/\r/g, ""), at }] }));
-    };
-    mod3
-      .buildLog(project, app, id)
-      .then((b) => {
-        if (cancelled) return;
-        update(() => ({ lines: [] }));
-        push(b.text, null);
-        if (b.done) {
-          flush(null);
-          update(() => ({ done: true }));
-          return;
-        }
-        es = new EventSource(mod3.buildLogStream(project, app, id, b.offset));
-        es.onopen = () => update(() => ({ live: true }));
-        es.addEventListener("log", (e) => push((JSON.parse((e as MessageEvent).data) as { text: string }).text, Date.now()));
-        es.addEventListener("done", () => {
-          flush(Date.now());
-          update(() => ({ live: false, done: true }));
-          es?.close();
-          void qc.invalidateQueries({ queryKey: ["deploy", project, app, id] });
-          void qc.invalidateQueries({ queryKey: ["deploys", project, app] });
-          void qc.invalidateQueries({ queryKey: ["project-deploys", project] });
-        });
-        es.onerror = () => update(() => ({ live: false }));
-      })
-      .catch(() => !cancelled && update(() => ({ error: true })));
-    return () => {
-      cancelled = true;
-      es?.close();
-    };
-  }, [project, app, id, qc]);
-
-  const cur = log.id === id ? log : { lines: [] as RawLine[], live: false, done: false, error: false };
-  return cur;
-}
-
-// ------------------------------------------------------------------ ANSI
-
-type Seg = { text: string; color?: string; bold?: boolean; dim?: boolean };
-
-const FG: Record<number, string> = {
-  31: "var(--danger)",
-  32: "var(--ok)",
-  33: "var(--warn-ink)",
-  34: "var(--enamel-indigo)",
-  35: "var(--enamel-plum)",
-  36: "var(--enamel-teal)",
-  90: "var(--ink-4)",
-  91: "var(--danger)",
-  92: "var(--ok)",
-  93: "var(--warn-ink)",
-  94: "var(--enamel-indigo)",
-  95: "var(--enamel-plum)",
-  96: "var(--enamel-teal)",
-};
-
-// eslint-disable-next-line no-control-regex
-const CSI = /\x1b\[([0-9;?]*)([A-Za-z])/g;
-// eslint-disable-next-line no-control-regex
-const ESC = /\x1b/;
-
-/** Colours and weight from SGR codes; every other escape sequence is dropped. */
-export function parseAnsi(raw: string): Seg[] {
-  if (!ESC.test(raw)) return [{ text: raw }];
-  const out: Seg[] = [];
-  let st: Omit<Seg, "text"> = {};
-  let at = 0;
-  for (const m of raw.matchAll(CSI)) {
-    if (m.index! > at) out.push({ text: raw.slice(at, m.index), ...st });
-    at = m.index! + m[0].length;
-    if (m[2] !== "m") continue;
-    const codes = (m[1] || "0").split(";").map(Number);
-    for (let i = 0; i < codes.length; i++) {
-      const c = codes[i];
-      if (c === 0) st = {};
-      else if (c === 1) st = { ...st, bold: true };
-      else if (c === 2) st = { ...st, dim: true };
-      else if (c === 22) st = { ...st, bold: false, dim: false };
-      else if (c === 39) st = { ...st, color: undefined };
-      else if (c === 38 || c === 48) i += codes[i + 1] === 5 ? 2 : codes[i + 1] === 2 ? 4 : 0;
-      else if (FG[c]) st = { ...st, color: FG[c] };
-      else if ((c >= 30 && c <= 37) || c === 97) st = { ...st, color: undefined };
-    }
-  }
-  if (at < raw.length) out.push({ text: raw.slice(at), ...st });
-  return out.filter((s) => s.text);
-}
-
-// eslint-disable-next-line no-control-regex
-export const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
-
-// ------------------------------------------------------------------ the model
-
-type Kind = "phase" | "end" | "step" | "quiet" | "error" | "warn" | "plain" | "blank";
-
-/** Does this (plain) line read as an error, as the viewer paints it? */
-export const isErrorLine = (t: string) => kindOf(t) === "error";
-
-/** Errors and warnings by the box's one level rule (inferLevel), as the Logs page and the log store read them. */
-function kindOf(t: string): Kind {
-  const s = t.trim();
-  if (!s) return "blank";
-  const level = inferLevel(t);
-  if (level === "error") return "error";
-  if (level === "warn") return "warn";
-  if (t.startsWith("==>")) return /^==> (built in|live in|release done in)\b/.test(t) ? "end" : "phase";
-  if (/^#\d+ (CACHED|DONE [\d.]+s|\.\.\.)$/.test(t) || /^#\d+ (resolve|transferring|sha256:)/.test(t)) return "quiet";
-  if (/^#\d+ \[/.test(t)) return "step";
-  return "plain";
-}
-
-type Line = { n: number; text: string; segs: Seg[]; kind: Kind; at: number | null; group: number; stepSecs?: number };
-type Group = { i: number; title: string; first: number; last: number; at: number | null; secs?: number; errors: number; warns: number; /** A phase line with nothing under it: shown as a note, not a step. */ note: boolean };
-
-function build(raw: RawLine[]) {
-  const lines: Line[] = [];
-  const groups: Group[] = [];
-  const stepDone = new Map<string, number>();
-  for (const r of raw) {
-    const m = /^#(\d+) DONE ([\d.]+)s/.exec(stripAnsi(r.raw));
-    if (m) stepDone.set(m[1], Number(m[2]));
-  }
-  const firstStep = new Set<string>();
-  raw.forEach((r, i) => {
-    const text = stripAnsi(r.raw);
-    const kind = kindOf(text);
-    if (kind === "phase" || groups.length === 0) {
-      groups.push({ i: groups.length, title: kind === "phase" ? text.replace(/^==>\s*/, "") : "Output", first: i, last: i, at: r.at, errors: 0, warns: 0, note: false });
-    }
-    const g = groups[groups.length - 1];
-    g.last = i;
-    if (kind === "error") g.errors++;
-    if (kind === "warn") g.warns++;
-    const line: Line = { n: i + 1, text, segs: parseAnsi(r.raw), kind, at: r.at, group: g.i };
-    if (kind === "step") {
-      const id = /^#(\d+)/.exec(text)![1];
-      if (!firstStep.has(id)) {
-        firstStep.add(id);
-        line.stepSecs = stepDone.get(id);
-      }
-    }
-    lines.push(line);
-  });
-  // A step's time: from its first line to the next step's, when the lines arrived live.
-  groups.forEach((g, k) => {
-    g.note = g.first === g.last && lines[g.first]?.kind === "phase";
-    const next = groups[k + 1];
-    if (g.at !== null && next && next.at !== null) g.secs = (next.at - g.at) / 1000;
-  });
-  return { lines, groups, timed: raw.some((r) => r.at !== null) };
-}
 
 type Row = { type: "group"; g: Group } | { type: "line"; l: Line };
 
@@ -208,20 +28,20 @@ type Row = { type: "group"; g: Group } | { type: "line"; l: Line };
 export type BuildLogHandle = { jumpToFirstError: () => void };
 
 export function BuildLogViewer({
-  lines: raw,
-  live,
+  log,
+  source,
   running,
   t0,
   file,
   failed,
-  loadError,
   summary,
   handle,
   initialQuery,
   initialLine,
 }: {
-  lines: RawLine[];
-  live: boolean;
+  log: BuildLogState;
+  /** The deploy whose log this is, for Download (the whole log, from the box). */
+  source: { project: string; app: string; id: string };
   /** The deploy is still queued, building or starting. */
   running: boolean;
   t0?: number;
@@ -229,7 +49,6 @@ export function BuildLogViewer({
   file: string;
   /** The deploy failed: errors are pointed at from the start. */
   failed?: boolean;
-  loadError?: boolean;
   /** Timings from the deploy, shown on the toolbar. */
   summary?: ReactNode;
   handle?: Ref<BuildLogHandle>;
@@ -238,7 +57,13 @@ export function BuildLogViewer({
   /** Opens at this line (its text, as the log store keeps it), else at the first match. */
   initialLine?: string;
 }) {
-  const { lines, groups, timed } = useMemo(() => build(raw), [raw]);
+  const { live, error: loadError } = log;
+  // The model grows in place; each published version is a new `log`. Fresh array identities per version
+  // (a copy of references, not a re-parse) let everything below memoise on them.
+  const { lines, groups, timed, dropped, errors, warns } = useMemo(() => {
+    const m = log.model;
+    return { lines: m.lines.slice(), groups: m.groups.slice(), timed: m.timed, dropped: m.dropped, errors: m.errors.slice(), warns: m.warns.slice() };
+  }, [log]);
   const [closed, setClosed] = useState<Set<number>>(() => new Set());
   const [wrap, setWrap] = useState(true);
   const [query, setQuery] = useState(initialQuery ?? "");
@@ -259,9 +84,7 @@ export function BuildLogViewer({
   }, [groups, lines, closed]);
 
   const needle = query.trim().toLowerCase();
-  const matches = useMemo(() => (needle ? lines.filter((l) => l.text.toLowerCase().includes(needle)).map((l) => l.n - 1) : []), [lines, needle]);
-  const errors = useMemo(() => lines.filter((l) => l.kind === "error").map((l) => l.n - 1), [lines]);
-  const warns = useMemo(() => lines.filter((l) => l.kind === "warn").map((l) => l.n - 1), [lines]);
+  const matches = useMemo(() => (needle ? lines.flatMap((l, i) => (l.text.toLowerCase().includes(needle) ? [i] : [])) : []), [lines, needle]);
   const cur = matches.length ? Math.min(hit, matches.length - 1) : -1;
 
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -324,7 +147,8 @@ export function BuildLogViewer({
   // Try again whenever more of the log (or its matches) arrives.
   useEffect(() => land(), [lines, matches, live]);
 
-  const text = useMemo(() => lines.map((l) => l.text).join("\n"), [lines]);
+  const empty = lines.length === 0;
+  const [saving, setSaving] = useState(false);
   const steps = groups.filter((g) => !g.note);
   const allClosed = steps.length > 0 && steps.every((g) => closed.has(g.i));
   const items = v.getVirtualItems();
@@ -389,10 +213,10 @@ export function BuildLogViewer({
           <Button
             size="sm"
             variant="ghost"
-            disabled={!text}
+            disabled={empty}
             aria-label="Copy the log"
             onClick={async () => {
-              if (await copyText(text)) {
+              if (await copyText(log.model.text())) {
                 setCopied(true);
                 setTimeout(() => setCopied(false), 1400);
               }
@@ -401,13 +225,33 @@ export function BuildLogViewer({
             {copied ? <Check className="text-ok" /> : <Copy />}
             <span className="max-sm:hidden">{copied ? "Copied" : "Copy"}</span>
           </Button>
-          <Button size="sm" variant="ghost" disabled={!text} onClick={() => saveText(file, text)} aria-label="Download the log">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={empty || saving}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                saveText(file, await buildLogText(source.project, source.app, source.id));
+              } catch {
+                toast({ title: "Couldn’t download the build log.", tone: "danger" });
+              } finally {
+                setSaving(false);
+              }
+            }}
+            aria-label="Download the log"
+          >
             <Download />
             <span className="max-sm:hidden">Download</span>
           </Button>
         </span>
       </div>
       {summary && <div className="border-b border-rule px-3.5 py-1.5 text-xs text-ink-3">{summary}</div>}
+      {dropped > 0 && (
+        <div className="border-b border-rule px-3.5 py-1.5 text-xs text-ink-3">
+          The first {count(dropped, "line")} aren’t shown here, to keep this page quick. Download has the whole log.
+        </div>
+      )}
 
       <div className="relative">
         <div
@@ -462,7 +306,7 @@ export function BuildLogViewer({
                     style={style}
                     className={cn(
                       timed ? "grid grid-cols-[3.25rem_3.5rem_minmax(0,1fr)] pr-4 max-sm:grid-cols-[2.75rem_minmax(0,1fr)]" : "grid grid-cols-[3.25rem_minmax(0,1fr)] pr-4 max-sm:grid-cols-[2.75rem_minmax(0,1fr)]",
-                      flash === l.n - 1
+                      flash === l.n - 1 - dropped
                         ? "bg-brass-wash"
                         : l.kind === "error"
                           ? "bg-danger-wash shadow-[inset_2px_0_0_var(--danger)]"
@@ -482,6 +326,7 @@ export function BuildLogViewer({
                         <Segs segs={l.segs} needle={needle} />
                       )}
                       {l.stepSecs !== undefined && <span className="ml-3 font-sans text-[0.6875rem] text-ink-4 tnum">{dec(l.stepSecs, 1)}{NNBSP}s</span>}
+                      {l.cut !== undefined && <span className="ml-2 font-sans text-[0.6875rem] text-ink-4">… {count(l.cut, "more character")} (Download has them)</span>}
                     </span>
                   </div>
                 );
@@ -504,7 +349,7 @@ export function BuildLogViewer({
       </div>
       <div className="flex items-center justify-between border-t border-rule px-3.5 py-1.5 text-[0.6875rem] text-ink-3">
         <span className="tnum">
-          {count(lines.length, "line")}
+          {count(dropped + lines.length, "line")}
           {failed && errors.length === 0 ? " · no line reads as an error; see what the box saw below" : ""}
         </span>
         <span>{live ? "Following as it builds" : running ? "Connecting…" : ""}</span>

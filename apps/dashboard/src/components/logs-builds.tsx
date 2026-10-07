@@ -3,7 +3,8 @@ import { Link } from "@tanstack/react-router";
 import { SquareArrowOutUpRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { mod, type Deploy } from "@/api/modules";
-import { BuildLogViewer, useRawBuildLog } from "@/components/build-log-viewer";
+import { BuildLogViewer } from "@/components/build-log-viewer";
+import { useBuildLog } from "@/components/build-log-stream";
 import { inFlight, secs, statusWord, useProjectDeploys, viaWords } from "@/components/deploy-parts";
 import { LogsHistogram } from "@/components/logs-histogram";
 import { compose, emptyBuckets, hasPipes, merge, rangeBody, stepFor, toLine, type Line, type Range } from "@/components/logs-query";
@@ -292,17 +293,16 @@ function Hits({
 }
 
 function BuildLog({ project, d, query, line }: { project: string; d: Deploy; query?: string; line?: string }) {
-  const log = useRawBuildLog(project, d.app, d.id);
+  const log = useBuildLog(project, d.app, d.id);
   return (
     <div className="border-y border-rule bg-paper-raised px-3 py-3 font-sans">
       <BuildLogViewer
-        lines={log.lines}
-        live={log.live}
+        log={log}
+        source={{ project, app: d.app, id: d.id }}
         running={inFlight(d.status)}
         t0={Date.parse(d.createdAt)}
         file={`${project}-${d.app}-${d.id}-build.log`}
         failed={d.status === "failed"}
-        loadError={log.error}
         initialQuery={query}
         initialLine={line}
         summary={

@@ -1,92 +1,24 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { mod3 } from "@/api/modules";
+import type { Kind as ModelKind } from "@/components/build-log-model";
+import { useBuildLog, type BuildLogState } from "@/components/build-log-stream";
 import { cn } from "@/lib/cn";
-import { dec, NNBSP } from "@/lib/format";
+import { dec, int, NNBSP } from "@/lib/format";
 
 /**
- * A deploy's build log: what's there so far, then followed over server-sent
- * events while the deploy runs. Each line remembers when it arrived, so the
- * phase lines ("==> building the image") carry an honest elapsed time.
+ * A deploy's build log while it launches: the shared reader (read, then
+ * followed over server-sent events, bounded), with the deploy's start time
+ * so phase lines ("==> building the image") carry an honest elapsed time.
  */
-export function useBuildLog(project: string, app: string, id: string | undefined, createdAt?: string) {
-  const qc = useQueryClient();
-  // Keyed by deploy, so a new deploy starts from an empty log without resetting state in the effect.
-  const [log, setLog] = useState<{ id?: string; lines: Line[]; live: boolean; done: boolean }>({ lines: [], live: false, done: false });
-  const partial = useRef("");
-
-  useEffect(() => {
-    if (!id) return;
-    let es: EventSource | null = null;
-    let cancelled = false;
-    partial.current = "";
-    const update = (f: (l: { lines: Line[]; live: boolean; done: boolean }) => Partial<{ lines: Line[]; live: boolean; done: boolean }>) =>
-      setLog((prev) => {
-        const base = prev.id === id ? prev : { id, lines: [], live: false, done: false };
-        return { ...base, ...f(base), id };
-      });
-    const push = (text: string, at: number | null) => {
-      const all = partial.current + text;
-      const parts = all.split("\n");
-      partial.current = parts.pop() ?? "";
-      if (parts.length) update((l) => ({ lines: [...l.lines, ...parts.map((t) => ({ text: clean(t), at }))] }));
-    };
-    const flush = () => {
-      const rest = partial.current;
-      partial.current = "";
-      if (rest) update((l) => ({ lines: [...l.lines, { text: clean(rest), at: Date.now() }] }));
-    };
-    mod3
-      .buildLog(project, app, id)
-      .then((b) => {
-        if (cancelled) return;
-        update(() => ({ lines: [] }));
-        push(b.text, null);
-        if (b.done) {
-          flush();
-          update(() => ({ done: true }));
-          return;
-        }
-        es = new EventSource(mod3.buildLogStream(project, app, id, b.offset));
-        es.onopen = () => update(() => ({ live: true }));
-        es.addEventListener("log", (e) => push((JSON.parse((e as MessageEvent).data) as { text: string }).text, Date.now()));
-        es.addEventListener("done", () => {
-          flush();
-          update(() => ({ live: false, done: true }));
-          es?.close();
-          void qc.invalidateQueries({ queryKey: ["deploy", project, app, id] });
-          void qc.invalidateQueries({ queryKey: ["deploys", project, app] });
-        });
-        es.onerror = () => update(() => ({ live: false }));
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      es?.close();
-    };
-  }, [project, app, id, qc]);
-
-  const cur = log.id === id ? log : { lines: [] as Line[], live: false, done: false };
-  const { lines, live, done } = cur;
-  const t0 = createdAt ? Date.parse(createdAt) : undefined;
-  return { lines, live, done, t0 };
+export function useLaunchBuildLog(project: string, app: string, id: string | undefined, createdAt?: string) {
+  const log = useBuildLog(project, app, id);
+  return { ...log, t0: createdAt ? Date.parse(createdAt) : undefined };
 }
 
-type Line = { text: string; at: number | null };
-
-// eslint-disable-next-line no-control-regex
-const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
-const clean = (s: string) => s.replace(ANSI, "").replace(/\r/g, "");
+/** Lines shown here; the deploy's own page has the full viewer. */
+const TAIL = 1000;
 
 type Kind = "phase" | "step" | "quiet" | "error" | "plain" | "blank";
-function kindOf(t: string): Kind {
-  if (!t.trim()) return "blank";
-  if (t.startsWith("==>")) return "phase";
-  if (/^(error|Error|[A-Z][a-zA-Z]+Error|fatal|panic|ERR!?)\b[:\s]/.test(t.trim()) || /exited with code [1-9]/.test(t)) return "error";
-  if (/^#\d+ (CACHED|DONE [\d.]+s|\.\.\.)$/.test(t) || /^#\d+ (resolve|transferring)/.test(t)) return "quiet";
-  if (/^#\d+ \[?[a-z]/i.test(t) && !/^#\d+ \d/.test(t)) return "step";
-  return "plain";
-}
+const kindHere = (k: ModelKind): Kind => (k === "end" ? "phase" : k === "warn" ? "plain" : k);
 
 /** Seconds a phase line states itself ("built in 7.3s", "live in 7.6s total"). */
 function stated(t: string): number | undefined {
@@ -100,15 +32,13 @@ function stated(t: string): number | undefined {
  * while you're at the bottom; scroll up and it stays put until you come back.
  */
 export function BuildLogView({
-  lines,
-  live,
+  log,
   t0,
   waiting,
   className,
   maxHeight = "60vh",
 }: {
-  lines: Line[];
-  live: boolean;
+  log: BuildLogState;
   t0?: number;
   waiting?: boolean;
   className?: string;
@@ -116,20 +46,20 @@ export function BuildLogView({
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
+  const { live } = log;
+  const rows = useMemo(() => {
+    const all = log.model.lines;
+    return all.slice(-TAIL).map((l) => {
+      const k = kindHere(l.kind);
+      let secs: number | undefined;
+      if (k === "phase") secs = l.n === 1 ? 0 : (stated(l.text) ?? (l.at !== null && t0 ? (l.at - t0) / 1000 : undefined));
+      return { text: l.text, k, secs, n: l.n };
+    });
+  }, [log, t0]);
+  const hidden = log.model.dropped + Math.max(0, log.model.lines.length - TAIL);
   useEffect(() => {
     if (follow && box.current) box.current.scrollTop = box.current.scrollHeight;
-  }, [lines.length, follow]);
-
-  const rows = useMemo(
-    () =>
-      lines.map((l, i) => {
-        const k = kindOf(l.text);
-        let secs: number | undefined;
-        if (k === "phase") secs = i === 0 ? 0 : (stated(l.text) ?? (l.at !== null && t0 ? (l.at - t0) / 1000 : undefined));
-        return { ...l, k, secs, n: i + 1 };
-      }),
-    [lines, t0],
-  );
+  }, [rows, follow]);
 
   return (
     <div className={cn("relative overflow-hidden rounded-[10px] border border-rule-2 bg-paper-sunk", className)}>
@@ -146,6 +76,7 @@ export function BuildLogView({
         style={{ maxHeight }}
         className="overflow-auto py-2 font-mono text-[0.75rem] leading-[1.25rem] [font-variant-ligatures:none] focus-visible:outline-offset-[-2px]"
       >
+        {hidden > 0 && <p className="px-4 pb-1 font-sans text-xs text-ink-3">{int(hidden)} earlier lines are on the deploy’s page.</p>}
         {rows.length === 0 ? (
           <p className="px-4 py-3 font-sans text-sm text-ink-3">{waiting ? "Waiting for the first line…" : "No output."}</p>
         ) : (
@@ -197,10 +128,24 @@ export function BuildLogView({
 /** The first line in build or start output that reads like the cause, not the runner's echo of it. */
 export function firstError(text: string): string | null {
   for (const raw of text.split("\n")) {
-    const l = raw.trim();
-    if (!/^(error|Error|[A-Z][a-zA-Z]+Error|fatal|panic|ERR!?)\b[:\s]/.test(l)) continue;
-    if (/script ".*" (exited|was terminated)|exited with code|Polite quit/.test(l)) continue;
-    return l.length > 220 ? `${l.slice(0, 220)}…` : l;
+    const l = cause(raw);
+    if (l) return l;
   }
   return null;
+}
+
+/** firstError over the lines of a build log as kept. */
+export function firstErrorIn(log: BuildLogState): string | null {
+  for (const line of log.model.lines) {
+    const l = cause(line.text);
+    if (l) return l;
+  }
+  return null;
+}
+
+function cause(raw: string): string | null {
+  const l = raw.trim();
+  if (!/^(error|Error|[A-Z][a-zA-Z]+Error|fatal|panic|ERR!?)\b[:\s]/.test(l)) return null;
+  if (/script ".*" (exited|was terminated)|exited with code|Polite quit/.test(l)) return null;
+  return l.length > 220 ? `${l.slice(0, 220)}…` : l;
 }
