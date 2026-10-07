@@ -254,7 +254,7 @@ func TestStaticFiles(t *testing.T) {
 		{site + "/_next/static/chunks/app.js", "", 200, immutable, "", js},
 		{site + "/logo.png", "gzip, zstd", 200, "no-cache", "", bigText},
 		{site + "/assets/index-0000ffff.js", "", 404, "no-cache", "", ""}, // not there (yet): never kept
-		{spa + "/assets/index-0000ffff.js", "", 200, "no-cache", "", files["index.html"]},
+		{spa + "/assets/index-0000ffff.js", "", 404, "no-cache", "", ""},  // never the page in a script's place
 		{spa + "/settings", "", 200, "no-cache", "", files["index.html"]},
 	} {
 		resp, body := fetch(t, c, tc.url, tc.ae)
@@ -264,6 +264,26 @@ func TestStaticFiles(t *testing.T) {
 		}
 		if tc.code == 200 && body != tc.body {
 			t.Errorf("%s (%q): body of %d bytes differs", tc.url, tc.ae, len(body))
+		}
+	}
+
+	// An SPA's index.html answers navigations only: no file extension, and
+	// HTML (or anything) accepted.
+	for _, tc := range []struct {
+		path, accept string
+		code         int
+	}{
+		{"/settings/profile", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", 200},
+		{"/settings", "*/*", 200},
+		{"/settings/", "text/html", 200},
+		{"/api/settings", "application/json", 404},
+		{"/assets/index-0000ffff.js", "text/html,*/*", 404},
+		{"/assets/index-0000ffff.css", "text/css,*/*;q=0.1", 404},
+		{"/missing.png", "image/avif,image/webp,*/*", 404},
+	} {
+		resp, body := fetch(t, c, spa+tc.path, "", "Accept", tc.accept)
+		if resp.StatusCode != tc.code || (tc.code == 200 && body != files["index.html"]) {
+			t.Errorf("SPA %s (Accept %q): %d, want %d", tc.path, tc.accept, resp.StatusCode, tc.code)
 		}
 	}
 

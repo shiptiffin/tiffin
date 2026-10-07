@@ -29,6 +29,10 @@ type RunSpec struct {
 	// CgroupParent is the systemd slice the container runs in (its
 	// project's budget); "" leaves nerdctl's default.
 	CgroupParent string
+	// Command, when set, runs instead of the image's entrypoint and
+	// command, with /bin/sh -c (a Dockerfile or prebuilt image whose app
+	// sets command).
+	Command string
 }
 
 // Container is what the engine reports about one container.
@@ -38,6 +42,14 @@ type Container struct {
 	Status   string            `json:"status"`
 	ExitCode int               `json:"exitCode,omitempty"` // of its last run, once it exited
 	Labels   map[string]string `json:"labels,omitempty"`
+}
+
+// Image is one name in the image store.
+type Image struct {
+	Name    string    // as stored: docker.io/tiffin/<project>-<app>:<deploy>, docker.io/oven/bun:..., import@sha256:...
+	Digest  string    // what it points at (index or manifest)
+	Created time.Time // when this box stored the name (zero: unknown)
+	Size    int64     // unpacked size, layers it shares with other images included
 }
 
 // Engine runs app containers. The box uses nerdctl over containerd; tests
@@ -53,7 +65,14 @@ type Engine interface {
 	Inspect(ctx context.Context, name string) (*Container, error) // nil if missing
 	List(ctx context.Context) ([]Container, error)                // tiffin app containers
 	ImageDigest(ctx context.Context, ref string) (string, error)
+	// RemoveImage deletes one image name (the content goes once no other
+	// name holds it). It refuses an image a container was created from.
 	RemoveImage(ctx context.Context, ref string) error
+	// Images lists every image name in the namespace, as stored.
+	Images(ctx context.Context) ([]Image, error)
+	// UsedImages names the images the namespace's containers (running or
+	// not, app instances or anything else) were created from.
+	UsedImages(ctx context.Context) (map[string]bool, error)
 	// LoadImage imports a docker/OCI image tarball whose every image is
 	// named ref (see loadImage) and makes sure ref is the one name it left
 	// in the store.
@@ -116,8 +135,14 @@ func (n *nerdctl) Run(ctx context.Context, s RunSpec) error {
 		"--log-opt", "max-size=5m",
 		"--log-opt", "max-file=3",
 	}
+	if s.Command != "" {
+		args = append(args, "--entrypoint", "/bin/sh")
+	}
 	c := n.withSpec(ctx, args, s)
 	c.Args = append(c.Args, s.Image)
+	if s.Command != "" {
+		c.Args = append(c.Args, "-c", execLast(s.Command)) // exec: the app gets tini's signals
+	}
 	var out bytes.Buffer
 	c.Stdout, c.Stderr = &out, &out
 	if err := c.Run(); err != nil {
@@ -266,9 +291,87 @@ func (n *nerdctl) ImageDigest(ctx context.Context, ref string) (string, error) {
 	return strings.TrimSpace(id), err
 }
 
+// RemoveImage deletes a name with nerdctl rmi, which refuses an image a
+// container (running or stopped) uses and waits for containerd's garbage
+// collection. nerdctl cannot address a digest name a load stored
+// ("import@sha256:..."): those go through ctr, which deletes the name
+// exactly as stored, after the same check that no container uses it.
 func (n *nerdctl) RemoveImage(ctx context.Context, ref string) error {
-	_, err := n.run(ctx, "rmi", ref)
-	return err
+	if !isLoadDigestName(ref) {
+		_, err := n.run(ctx, "rmi", ref)
+		return err
+	}
+	used, err := n.UsedImages(ctx)
+	if err != nil {
+		return err
+	}
+	if used[ref] {
+		return fmt.Errorf("image %s is used by a container", ref)
+	}
+	var out bytes.Buffer
+	c := exec.CommandContext(ctx, ctrBin, "--namespace", Namespace, "images", "rm", "--sync", ref)
+	c.Stdout, c.Stderr = &out, &out
+	if err := c.Run(); err != nil {
+		return fmt.Errorf("ctr images rm %s: %w: %s", ref, err, strings.TrimSpace(lastLines(out.String(), 3)))
+	}
+	return nil
+}
+
+// ctrBin is containerd's own CLI (from the same nerdctl-full bundle).
+const ctrBin = "/usr/local/bin/ctr"
+
+// Images lists the namespace's image names (nerdctl image ls, one JSON
+// object per line). Sizes come as nerdctl prints them ("544.5MB").
+func (n *nerdctl) Images(ctx context.Context) ([]Image, error) {
+	out, err := n.run(ctx, "image", "ls", "--format", "{{json .}}")
+	if err != nil {
+		return nil, err
+	}
+	return parseImageList(out), nil
+}
+
+func parseImageList(out string) []Image {
+	var imgs []Image
+	for _, line := range strings.Split(out, "\n") {
+		var row struct{ Name, Digest, CreatedAt, Size string }
+		if json.Unmarshal([]byte(strings.TrimSpace(line)), &row) != nil || row.Name == "" {
+			continue
+		}
+		created, _ := time.Parse("2006-01-02 15:04:05 -0700 MST", row.CreatedAt)
+		imgs = append(imgs, Image{Name: row.Name, Digest: row.Digest, Created: created, Size: parseSize(row.Size)})
+	}
+	return imgs
+}
+
+// UsedImages reads the image of every container in the namespace.
+func (n *nerdctl) UsedImages(ctx context.Context) (map[string]bool, error) {
+	out, err := n.run(ctx, "ps", "--all", "--format", "{{.Image}}")
+	if err != nil {
+		return nil, err
+	}
+	used := map[string]bool{}
+	for _, name := range strings.Fields(out) {
+		used[name] = true
+	}
+	return used, nil
+}
+
+// parseSize reads a size as nerdctl and buildctl print them: decimal
+// units (go-units HumanSize: "544.5MB", "1.551GB", "0B") or binary ones
+// ("175.3MiB"). Unreadable: 0.
+func parseSize(s string) int64 {
+	s = strings.TrimSpace(s)
+	i := strings.IndexFunc(s, func(r rune) bool { return (r < '0' || r > '9') && r != '.' })
+	if i <= 0 {
+		return 0
+	}
+	v, err := strconv.ParseFloat(s[:i], 64)
+	if err != nil {
+		return 0
+	}
+	mult := map[string]float64{"B": 1, "kB": 1e3, "KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12,
+		"KiB": 1 << 10, "MiB": 1 << 20, "GiB": 1 << 30, "TiB": 1 << 40}[strings.TrimSpace(s[i:])]
+	return int64(v * mult)
 }
 
 func (n *nerdctl) TagImage(ctx context.Context, src, ref string) error {
@@ -327,10 +430,8 @@ func (n *nerdctl) LoadImage(ctx context.Context, tarball io.Reader, ref string, 
 		_, err := n.run(ctx, "image", "inspect", "--format", "{{.ID}}", name)
 		return err == nil
 	}
-	remove := func(name string) error {
-		_, err := n.run(ctx, "rmi", name)
-		return err
-	}
+	// Through RemoveImage: nerdctl rmi cannot address the digest name.
+	remove := func(name string) error { return n.RemoveImage(ctx, name) }
 	if err := settleLoad(loadedNames(out.String()), ref, has, remove, log); err != nil {
 		return fmt.Errorf("%w (nerdctl load said: %s)", err, strings.TrimSpace(lastLines(out.String(), 3)))
 	}

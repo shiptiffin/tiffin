@@ -176,8 +176,9 @@ func (r *Rules) redirectHandlers(static bool) []obj {
 // fileHandlers resolve a static site's request to a file: the path itself,
 // path.html, then (for an SPA, or a site that wants no trailing slash)
 // path/index.html; a folder asked for without its slash is redirected to it
-// by the file server. Without a file, the site's rewrites apply, then its
-// 404.html (with status 404) when it has one, or index.html for an SPA.
+// by the file server. Without a file, an SPA's index.html answers
+// navigations (spaNavigation), then the site's rewrites apply, then its
+// 404.html (with status 404) when it has one.
 func fileHandlers(rt Route) []obj {
 	tries := []string{"{http.request.uri.path}", "{http.request.uri.path}.html"}
 	exists := []string{tries[0], tries[1], "{http.request.uri.path}/index.html"}
@@ -185,15 +186,20 @@ func fileHandlers(rt Route) []obj {
 	if rt.SPA || (r != nil && r.TrailingSlash != nil && !*r.TrailingSlash) {
 		tries = append(tries, exists[2])
 	}
-	if rt.SPA {
-		tries = append(tries, "/index.html")
-	}
 	file := func(try []string) obj { return obj{"root": rt.FileRoot, "try_files": try} }
 	routes := []obj{{
 		"group":  "file",
 		"match":  []obj{{"file": file(tries)}},
 		"handle": []obj{{"handler": "rewrite", "uri": "{http.matchers.file.relative}"}},
 	}}
+	if rt.SPA {
+		var match []obj
+		for _, m := range spaNavigation() {
+			m["file"] = file([]string{"/index.html"})
+			match = append(match, m)
+		}
+		routes = append(routes, obj{"group": "file", "match": match, "handle": []obj{{"handler": "rewrite", "uri": "/index.html"}}})
+	}
 	if r != nil {
 		for i, w := range r.Rewrites {
 			name := "w" + strconv.Itoa(i)
@@ -216,4 +222,19 @@ func fileHandlers(rt Route) []obj {
 		})
 	}
 	return []obj{{"handler": "subroute", "routes": routes}}
+}
+
+// spaNavigation matches the requests an SPA's index.html answers when no
+// file does: a path whose last segment has no file extension, from a client
+// that takes HTML (a browser navigating, or one that sends no Accept, or
+// */*). A missing /assets/index-B1x9Qa2c.js stays a 404: HTML in its place
+// would be run as a script and cached, and Vite's recovery from a chunk
+// that failed to load (vite:preloadError) would never fire. Nor does a
+// fetch for JSON get the page. The sets are alternatives.
+func spaNavigation() []obj {
+	noExt := obj{"pattern": `^(.*/)?[^/.]*$`}
+	return []obj{
+		{"path_regexp": noExt, "header_regexp": obj{"Accept": obj{"pattern": `text/html|\*/\*`}}},
+		{"path_regexp": noExt, "header": obj{"Accept": nil}},
+	}
 }

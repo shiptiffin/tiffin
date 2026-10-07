@@ -32,7 +32,10 @@ type AssetDir struct {
 	Dir  string `json:"dir" doc:"Directory in the build, relative to the app"`
 	Path string `json:"path" doc:"URL path its files are served at"`
 	// Immutable are URL prefixes whose files have content hashes in their
-	// names: cached for a year, and kept for pages of earlier releases.
+	// names: cached for a year, and kept for pages of earlier releases. An
+	// entry starting with "!" is a path under one of them that keeps its
+	// name across releases (Nuxt's /_nuxt/builds/latest.json): revalidated,
+	// and the live release's only.
 	Immutable []string `json:"immutable,omitempty" doc:"URL prefixes of files named by content hash: cached for a year, and still served for pages of the previous release"`
 	// LiveOnly: files that keep their names across releases (Next.js's
 	// public/), served from the live release only.
@@ -102,7 +105,14 @@ func (b *Board) ServeAsset(w http.ResponseWriter, req *http.Request, st *Env, pr
 func assetClass(meta []AssetDir, p string) (hashed, bridged bool) {
 	for _, a := range meta {
 		for _, pre := range a.Immutable {
-			if strings.HasPrefix(p, pre) {
+			if not, ok := strings.CutPrefix(pre, "!"); ok && strings.HasPrefix(p, not) {
+				return false, false
+			}
+		}
+	}
+	for _, a := range meta {
+		for _, pre := range a.Immutable {
+			if !strings.HasPrefix(pre, "!") && strings.HasPrefix(p, pre) {
 				return true, true
 			}
 		}

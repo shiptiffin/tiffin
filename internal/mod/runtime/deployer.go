@@ -36,6 +36,13 @@ func (r *rt) newDeploy(ctx context.Context, project, app, preview, source, by st
 	d := &Deploy{ID: ids.New("dep"), Project: project, App: app, Preview: preview, Status: StatusQueued, Source: source,
 		Framework: string(spec.Framework), CreatedAt: time.Now().UTC(), CreatedBy: by}
 	d.URL = r.deployURL(d, spec)
+	if preview == "" {
+		v, err := r.st.nextVersion(ctx, project, app)
+		if err != nil {
+			return nil, err
+		}
+		d.Version = v
+	}
 	if err := os.MkdirAll(r.workDir(d), 0o755); err != nil {
 		return nil, err
 	}
@@ -117,7 +124,7 @@ func (r *rt) start(d *Deploy, src string, kind string) {
 func (r *rt) startFrom(d *Deploy, kind string, fetch func(ctx context.Context, log io.Writer) (string, error)) {
 	go func() {
 		ctx := r.ctx
-		log, err := os.OpenFile(r.buildLogPath(d), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		log, err := r.openBuildLog(d)
 		if err != nil {
 			r.fail(ctx, d, err, "", io.Discard)
 			return
@@ -231,8 +238,13 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 			return err
 		}
 	}
+	if req.Dockerfile != "" {
+		spec.Builder = manifest.BuilderDockerfile // this deploy's hints and checks
+	}
 	d.Assets = nil
-	if !req.Export {
+	if !req.Export && (req.Dockerfile == "" || spec.Assets != nil) {
+		// A Dockerfile lays its image out its own way: the box serves its
+		// client files only when the app names their folder (assets).
 		for _, a := range clientAssets(req.appDir(), spec) {
 			a.Dir = path.Join(d.Dir, a.Dir)
 			d.Assets = append(d.Assets, a)
@@ -254,7 +266,7 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 	now := time.Now().UTC()
 	d.BuiltAt = &now
 	d.BuildSecs = round1(time.Since(began).Seconds())
-	d.Image, d.Digest, d.StaticRoot = res.Image, res.Digest, res.StaticRoot
+	d.Image, d.Digest, d.StaticRoot, d.Start = res.Image, res.Digest, res.StaticRoot, res.Start
 	if res.SPA {
 		d.Framework = string(manifest.FrameworkStatic) + "+spa"
 	}
@@ -279,6 +291,7 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 	fmt.Fprintf(log, "==> live in %.1fs total%s\n", d.TotalSecs, urlNote(d.URL))
 	if d.Preview == "" {
 		_ = r.syncCrons(ctx, d.Project, d.App, log)
+		r.refreshIconLater(d.Project, d.App, d.ID)
 	}
 	r.gc(ctx, d.Project, d.App, d.Preview)
 	return nil
@@ -289,12 +302,35 @@ func (r *rt) fail(ctx context.Context, d *Deploy, err error, hint string, log io
 	d.Status, d.Error, d.Hint = StatusFailed, err.Error(), hint
 	d.FinishedAt = &now
 	d.TotalSecs = round1(now.Sub(d.CreatedAt).Seconds())
+	r.dropFailedImage(ctx, d)
 	_ = r.st.putDeploy(ctx, d)
 	fmt.Fprintf(log, "==> FAILED: %s\n", err)
 	if hint != "" {
 		fmt.Fprintf(log, "    hint: %s\n", hint)
 	}
 	r.p.Log.Info("deploy failed", "deploy", d.ID, "project", d.Project, "app", d.App, "err", err)
+}
+
+// dropFailedImage removes the image a failed deploy built: it never served
+// and cannot be rolled back to, and an app that keeps failing would
+// otherwise keep one image per attempt until a deploy succeeds. Its
+// instances were removed already; an image a leftover container still uses
+// is refused by the engine and stays for the hourly sweep. Static files
+// stay for gc: the edge's link may point at them already.
+func (r *rt) dropFailedImage(ctx context.Context, d *Deploy) {
+	if d.Image == "" {
+		return
+	}
+	if st, err := r.st.getState(ctx, d.Project, d.App, d.Preview); err != nil || st.Live == d.ID {
+		return
+	}
+	cctx, cancel := cleanupContext(ctx)
+	defer cancel()
+	if err := r.eng.RemoveImage(cctx, d.Image); err != nil && !noSuchImage(err) {
+		r.p.Log.Warn("runtime: remove a failed deploy's image (the hourly sweep tries again)", "deploy", d.ID, "image", d.Image, "err", err)
+		return
+	}
+	d.Image = ""
 }
 
 const (
@@ -492,8 +528,9 @@ func (r *rt) runInstance(ctx context.Context, st *AppState, d *Deploy, app *mani
 		spec := RunSpec{Name: name, Image: d.Image, Port: port, MemoryMB: app.MemoryMB, Env: ienv, LogPath: logPath,
 			CgroupParent: budget.Slice(d.Project),
 			Labels:       map[string]string{"tiffin.project": d.Project, "tiffin.app": d.App, "tiffin.preview": d.Preview, "tiffin.deploy": d.ID, "tiffin.port": strconv.Itoa(port)},
-			Mounts:       append([]string(nil), mounts...)}
-		if app.Framework == manifest.FrameworkNext {
+			Mounts:       append([]string(nil), mounts...),
+			Command:      d.Start}
+		if app.Framework == manifest.FrameworkNext && d.Builder == "" {
 			// Optimized images outlive the release; the environment's instances share them.
 			dir := r.nextCacheDir(d.Project, d.App, d.Preview)
 			if err := os.MkdirAll(dir, 0o755); err == nil {
@@ -614,7 +651,10 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 	client := &http.Client{Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	worker := spec.Role == manifest.RoleWorker
 	upSince := time.Now()
-	lastInspect := time.Time{}
+	// The first inspect waits a second: it runs nerdctl, which would delay
+	// the first checks of a start that is over in a few hundred ms (a
+	// process that exits at once is still caught then).
+	lastInspect := upSince
 	lastStatus := ""
 	var exited *Container // seen exited, even if its restart policy brought it back
 	for {
@@ -660,14 +700,25 @@ func (r *rt) waitHealthy(ctx context.Context, in Instance, spec *manifest.App, l
 			}
 			return &healthError{msg: fmt.Sprintf("instance %s did not pass its health check (GET %s: %s) within %s. Last log lines:\n%s",
 				in.Name, path, lastStatus, r.opt.HealthTimeout, tailLog(logPath, 15)),
-				hint: "Make sure the app listens on the port in $PORT and answers " + path + healthWant(path) + " (set healthcheck in tiffin.config.ts)." + onNodeHint(*spec)}
+				hint: "Make sure the app listens on the port in $PORT and answers " + path + healthWant(path) + " (set healthcheck in tiffin.config.ts)." + imageHint(*spec) + onNodeHint(*spec)}
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(healthPoll(time.Since(upSince))):
 		}
 	}
+}
+
+// healthPoll is how long waitHealthy waits between checks: 10ms for the
+// first 2s, which is when a wake (a request waiting) or a deploy is usually
+// done, then 200ms. A check before the app listens is a refused connect on
+// localhost, a few microseconds; 200 of them cost no measurable CPU.
+func healthPoll(since time.Duration) time.Duration {
+	if since < 2*time.Second {
+		return 10 * time.Millisecond
+	}
+	return 200 * time.Millisecond
 }
 
 // smokeNext asks a Next.js instance that passed its health check for two
@@ -971,8 +1022,10 @@ func (r *rt) converge(ctx context.Context, project, app, preview string, spec *m
 	return r.promoteLocked(ctx, d, spec, modeRestart, io.Discard)
 }
 
-// stopEnv stops an app environment (its app was deleted). Deploys and images
-// are kept: undoing the delete starts the same deploy again.
+// stopEnv stops an app environment (its app was deleted, or its project
+// stopped). The live deploy and its image are kept: undoing the delete (or
+// starting the project) starts the same deploy again. A deleted app keeps
+// it for deletedAppKeep (see sweepImages).
 func (r *rt) stopEnv(ctx context.Context, st *AppState) error {
 	unlock := r.lock(envKey(st.Project, st.App, st.Preview))
 	defer unlock()
@@ -1025,7 +1078,7 @@ func (r *rt) rollback(ctx context.Context, project, app, id string) (*Deploy, er
 	if d.Image != "" && !r.imageExists(ctx, d.Image) {
 		return nil, &stateError{fmt.Sprintf("the image of deploy %s was cleaned up", d.ID), "Deploy that version again."}
 	}
-	log, _ := os.OpenFile(r.buildLogPath(d), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	log, _ := r.openBuildLog(d)
 	var w io.Writer = io.Discard
 	if log != nil {
 		defer log.Close()
@@ -1037,6 +1090,7 @@ func (r *rt) rollback(ctx context.Context, project, app, id string) (*Deploy, er
 	}
 	if d.Preview == "" {
 		_ = r.syncCrons(ctx, project, app, w)
+		r.refreshIconLater(project, app, d.ID)
 	}
 	return d, nil
 }
@@ -1052,50 +1106,32 @@ type stateError struct{ msg, hint string }
 func (e *stateError) Error() string { return e.msg }
 
 // gc removes images, source archives, static files and work dirs of old
-// deploys. It keeps
-// the live deploy, production's newest KeepImages rollback targets (a
-// preview keeps only its live build) and any release still running or
-// pinned for workflow runs.
+// deploys of an app environment: everything keptDeploys does not keep.
 func (r *rt) gc(ctx context.Context, project, app, preview string) {
+	r.gcKeeping(ctx, project, app, preview, r.rollbackTargets(preview))
+}
+
+// rollbackTargets is how many earlier builds an environment keeps to roll
+// back to: KeepImages for production, none for a preview.
+func (r *rt) rollbackTargets(preview string) int {
+	if preview != "" {
+		return 0
+	}
+	return r.opt.KeepImages
+}
+
+// gcKeeping is gc with the environment's newest rollbacks rollback targets.
+func (r *rt) gcKeeping(ctx context.Context, project, app, preview string, rollbacks int) {
 	ds, err := r.st.listDeploys(ctx, project, app, preview)
 	if err != nil {
 		return
 	}
-	keep, busy := r.opt.KeepImages, map[string]bool{}
-	if preview != "" {
-		keep = 0
-	} else {
-		if st, err := r.st.getState(ctx, project, app, ""); err == nil {
-			for _, dr := range st.Draining {
-				busy[dr.Release] = true
-			}
-		}
-		rels, _ := r.pinnedReleases(ctx, project, app)
-		for _, rel := range rels {
-			busy[rel] = true
-		}
-	}
-	kept := 0
+	keep := r.keptDeploys(ctx, project, app, preview, ds, rollbacks)
 	for i, d := range ds {
-		if !d.Terminal() || d.Status == StatusLive {
+		if keep[d.ID] {
 			continue
 		}
-		if d.Rollbackable() && kept < keep {
-			kept++
-			continue
-		}
-		if busy[d.ID] {
-			continue
-		}
-		_ = os.Remove(filepath.Join(r.workDir(d), sourceFile))
-		if d.Image != "" {
-			_ = r.eng.RemoveImage(ctx, d.Image)
-			d.Image = ""
-		}
-		if d.StaticRoot != "" {
-			_ = os.RemoveAll(d.StaticRoot)
-			d.StaticRoot = ""
-		}
+		r.dropBuild(ctx, d)
 		if i >= 50 { // keep the newest 50 records (and their build logs)
 			_ = os.RemoveAll(r.workDir(d))
 			_ = r.st.deleteDeploy(ctx, d)
@@ -1104,6 +1140,61 @@ func (r *rt) gc(ctx context.Context, project, app, preview string) {
 		_ = r.st.putDeploy(ctx, d)
 	}
 	r.pruneLogs(project, app, preview, ds)
+}
+
+// keptDeploys picks the deploys of one app environment (ds, newest first)
+// whose builds stay: unfinished ones, the environment's live deploy (also
+// once its app is deleted and it is stopped: an undo starts it again), the
+// newest rollbacks rollback targets, and releases still draining or pinned
+// for workflow runs.
+func (r *rt) keptDeploys(ctx context.Context, project, app, preview string, ds []*Deploy, rollbacks int) map[string]bool {
+	keep := map[string]bool{}
+	if st, err := r.st.getState(ctx, project, app, preview); err == nil {
+		if st.Live != "" {
+			keep[st.Live] = true
+		}
+		for _, dr := range st.Draining {
+			keep[dr.Release] = true
+		}
+	}
+	if preview == "" {
+		rels, _ := r.pinnedReleases(ctx, project, app)
+		for _, rel := range rels {
+			keep[rel] = true
+		}
+	}
+	kept := 0
+	for _, d := range ds {
+		switch {
+		case !d.Terminal() || d.Status == StatusLive:
+			keep[d.ID] = true
+		case d.Rollbackable() && kept < rollbacks:
+			kept++
+			keep[d.ID] = true
+		}
+	}
+	return keep
+}
+
+// dropBuild removes what a deploy's build left (source archive, image,
+// static files) and clears them from the record; the caller saves it.
+func (r *rt) dropBuild(ctx context.Context, d *Deploy) {
+	_ = os.Remove(filepath.Join(r.workDir(d), sourceFile))
+	if d.Image != "" {
+		if err := r.eng.RemoveImage(ctx, d.Image); err != nil && !noSuchImage(err) {
+			r.p.Log.Warn("runtime: remove an image (the hourly sweep tries again)", "image", d.Image, "err", err)
+		}
+		d.Image = ""
+	}
+	if d.StaticRoot != "" {
+		_ = os.RemoveAll(d.StaticRoot)
+		d.StaticRoot = ""
+	}
+}
+
+func noSuchImage(err error) bool {
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "no such image") || strings.Contains(s, "not found")
 }
 
 func previewSuffix(p string) string {

@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -109,7 +108,7 @@ func (r *rt) skip(ctx context.Context, old *ghJob, why string) {
 	d := old.d
 	d.Status, d.FinishedAt, d.Error = StatusSkipped, &now, "skipped: "+why
 	_ = r.st.putDeploy(ctx, d)
-	if f, err := os.OpenFile(r.buildLogPath(d), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+	if f, err := r.openBuildLog(d); err == nil {
 		fmt.Fprintf(f, "==> skipped: %s\n", why)
 		f.Close()
 	}
@@ -137,7 +136,7 @@ func (r *rt) failNow(ctx context.Context, d *Deploy, err error) {
 	if errors.As(err, &se) {
 		hint = se.hint
 	}
-	f, ferr := os.OpenFile(r.buildLogPath(d), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, ferr := r.openBuildLog(d)
 	if ferr != nil {
 		r.fail(ctx, d, err, hint, io.Discard)
 		return
@@ -289,7 +288,7 @@ func (r *rt) ghWarn(d *Deploy, what string, err error) {
 	if err == nil {
 		return
 	}
-	if f, ferr := os.OpenFile(r.buildLogPath(d), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); ferr == nil {
+	if f, ferr := r.openBuildLog(d); ferr == nil {
 		fmt.Fprintf(f, "==> note: could not %s on GitHub: %v\n", what, err)
 		f.Close()
 	}
@@ -454,6 +453,9 @@ func (r *rt) resumeReports(ctx context.Context) {
 type connectedApp struct {
 	Project, App string
 	Git          manifest.Git
+	// Watch are the app's watch paths: a push or pull request that
+	// changes none of their files does not deploy it.
+	Watch []string
 }
 
 // appsFor finds the apps connected to a repository.
@@ -476,7 +478,7 @@ func (r *rt) appsFor(ctx context.Context, repo string) ([]connectedApp, error) {
 			if json.Unmarshal(rs.Spec, &a) != nil || a.Git == nil || !strings.EqualFold(a.Git.Repo, repo) {
 				continue
 			}
-			out = append(out, connectedApp{Project: pr, App: change.Name(addr), Git: *a.Git})
+			out = append(out, connectedApp{Project: pr, App: change.Name(addr), Git: *a.Git, Watch: a.Watch})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Project+"/"+out[i].App < out[j].Project+"/"+out[j].App })
@@ -624,9 +626,14 @@ func (r *rt) onPush(ctx context.Context, c *ghConn, body []byte) (int, string) {
 		r.logEvent(ctx, GitHubEvent{Event: "push", Repo: repo, Summary: fmt.Sprintf("Push to %s (%s) asked to skip deploys", branch, short(ev.After)), OK: true})
 		return http.StatusAccepted, "skipped: the commit message asks to skip deploys"
 	}
-	var started, names []string
+	var started, names, unchanged []string
+	changed := r.changedFiles(ctx, c, ev.Installation.ID, repo, ev.Before, ev.After)
 	for _, a := range apps {
 		if a.Git.Branch != branch {
+			continue
+		}
+		if !changed.touches(a.Watch) {
+			unchanged = append(unchanged, a.Project+"/"+a.App)
 			continue
 		}
 		d, err := r.enqueue(ctx, &ghJob{Project: a.Project, App: a.App, Repo: repo, SHA: ev.After, Branch: branch, Message: msg, Author: author,
@@ -638,7 +645,13 @@ func (r *rt) onPush(ctx context.Context, c *ghConn, body []byte) (int, string) {
 		started = append(started, a.Project+"/"+a.App+" "+d.ID)
 		names = append(names, a.Project+"/"+a.App)
 	}
+	if len(unchanged) > 0 {
+		r.logEvent(ctx, GitHubEvent{Event: "push", Repo: repo, Summary: fmt.Sprintf("Push to %s (%s): nothing under the watch paths of %s changed, so it was not deployed", branch, short(ev.After), andList(unchanged)), OK: true})
+	}
 	if len(started) == 0 {
+		if len(unchanged) > 0 {
+			return http.StatusAccepted, "skipped: nothing under the watch paths of " + strings.Join(unchanged, ", ") + " changed"
+		}
 		r.logEvent(ctx, GitHubEvent{Event: "push", Repo: repo, Summary: fmt.Sprintf("Push to %s (%s): no app deploys from this branch", branch, short(ev.After)), OK: true})
 		return http.StatusAccepted, "no app deploys from " + branch
 	}
@@ -672,8 +685,8 @@ func (r *rt) onPullRequest(ctx context.Context, c *ghConn, body []byte) (int, st
 		return http.StatusInternalServerError, err.Error()
 	}
 	preview := prPreview(n)
-	var did []string                             // the reply to GitHub (with deploy ids)
-	var built, skipped, removed, failed []string // for people
+	var did []string                                        // the reply to GitHub (with deploy ids)
+	var built, skipped, removed, failed, unwatched []string // for people
 	who := ev.PullRequest.User.Login
 	switch ev.Action {
 	case "opened", "reopened", "synchronize", "ready_for_review":
@@ -681,9 +694,14 @@ func (r *rt) onPullRequest(ctx context.Context, c *ghConn, body []byte) (int, st
 		if !ghapp.ValidSHA(sha) {
 			return http.StatusBadRequest, "bad head commit"
 		}
+		changed := r.changedFiles(ctx, c, ev.Installation.ID, repo, ev.PullRequest.Base.SHA, sha)
 		for _, a := range apps {
 			switch {
 			case a.Git.Previews == manifest.PreviewsOff:
+				continue
+			case !changed.touches(a.Watch):
+				did = append(did, a.Project+"/"+a.App+": not built (nothing under its watch paths changed)")
+				unwatched = append(unwatched, a.Project+"/"+a.App)
 				continue
 			case ev.FromFork() && a.Git.Previews != manifest.PreviewsForks:
 				did = append(did, a.Project+"/"+a.App+": not built (pull requests from forks are off)")
@@ -755,6 +773,9 @@ func (r *rt) onPullRequest(ctx context.Context, c *ghConn, body []byte) (int, st
 	}
 	if len(skipped) > 0 {
 		parts = append(parts, "no preview of "+andList(skipped)+": it comes from a fork, and previews of forks are off")
+	}
+	if len(unwatched) > 0 {
+		parts = append(parts, "no preview of "+andList(unwatched)+": nothing under its watch paths changed")
 	}
 	if len(failed) > 0 {
 		parts = append(parts, "could not preview "+andList(failed))
@@ -831,4 +852,21 @@ func andList(xs []string) string {
 		return xs[0]
 	}
 	return strings.Join(xs[:len(xs)-1], ", ") + " and " + xs[len(xs)-1]
+}
+
+// changedFiles is what changed between base and head, fetched from GitHub
+// only if an app has watch paths. A base of zeros (a new branch) or a
+// failed comparison counts as unknown: every app deploys.
+func (r *rt) changedFiles(ctx context.Context, c *ghConn, installation int64, repo, base, head string) *changeSet {
+	return &changeSet{load: func() ([]string, bool) {
+		if !ghapp.ValidSHA(base) || strings.Trim(base, "0") == "" || base == head {
+			return nil, false
+		}
+		files, complete, err := c.App.ChangedFiles(ctx, installation, repo, base, head)
+		if err != nil {
+			r.p.Log.Warn("github: could not list the changed files; deploying apps with watch paths anyway", "repo", repo, "err", err)
+			return nil, false
+		}
+		return files, complete
+	}}
 }

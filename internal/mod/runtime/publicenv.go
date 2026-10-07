@@ -144,7 +144,10 @@ func (r *rt) rebuildIfStale(ctx context.Context, d *Deploy, spec *manifest.App) 
 		return false
 	}
 	_ = r.st.putDeploy(ctx, nd)
-	_ = os.WriteFile(r.buildLogPath(nd), []byte(fmt.Sprintf("==> rebuild of %s: env built into browser code changed (%s)\n", d.ID, publicEnvNames(pub))), 0o644)
+	if log, err := r.openBuildLog(nd); err == nil {
+		fmt.Fprintf(log, "==> rebuild of %s: env built into browser code changed (%s)\n", d.ID, publicEnvNames(pub))
+		log.Close()
+	}
 	r.p.Log.Info("rebuilding: browser-visible env changed", "project", d.Project, "app", d.App, "preview", d.Preview, "from", d.ID, "deploy", nd.ID)
 	r.start(nd, dst, d.Source)
 	return true

@@ -45,7 +45,9 @@ type assetKind struct {
 // kind with a dependency the app has wins.
 var knownAssets = []assetKind{
 	{[]string{"next"}, nextAssets},
-	{[]string{"nuxt"}, []AssetDir{{Dir: ".output/public", Path: "/", Immutable: []string{"/_nuxt/"}}}},
+	// Nuxt's build manifest keeps its name (the client polls it for a new
+	// version); its fonts (@nuxt/fonts) are named by hash.
+	{[]string{"nuxt"}, []AssetDir{{Dir: ".output/public", Path: "/", Immutable: []string{"/_nuxt/", "/_fonts/", "!/_nuxt/builds/latest.json"}}}},
 	{[]string{"@tanstack/react-start", "@tanstack/solid-start"}, []AssetDir{{Dir: ".output/public", Path: "/", Immutable: []string{"/assets/"}}}},
 	{[]string{"@solidjs/start"}, []AssetDir{{Dir: ".output/public", Path: "/", Immutable: []string{"/_build/assets/"}}}},
 	{[]string{"@react-router/dev", "@remix-run/dev"}, []AssetDir{{Dir: "build/client", Path: "/", Immutable: []string{"/assets/"}}}},

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -74,6 +75,48 @@ console.log(JSON.stringify({ name: a.name, out }));`
 	if mine["deploymentId"] != "mine" || mine["cacheHandler"] != "/my.js" || mine["cacheMaxMemorySize"] != 5.0 ||
 		hs["default"] != "/d.js" || mine["images"].(map[string]any)["maximumDiskCacheSize"] != 7.0 || mine["compress"] != false {
 		t.Errorf("the app's own config must win: %v", mine)
+	}
+}
+
+// Next.js 16.3+ builds get immutable assets, and `next start` follows what
+// the build decided (Next.js turns them off for webpack builds).
+func TestNextAdapterImmutableAssets(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not found: adapter logic not exercised")
+	}
+	src := t.TempDir()
+	if err := writeNextAdapter(src, nextBox{DeploymentID: "dep_1"}); err != nil {
+		t.Fatal(err)
+	}
+	on, off, none := t.TempDir(), t.TempDir(), t.TempDir()
+	for dir, v := range map[string]bool{on: true, off: false} {
+		os.MkdirAll(filepath.Join(dir, ".next"), 0o755)
+		os.WriteFile(filepath.Join(dir, ".next", "required-server-files.json"), []byte(`{"config":{"supportsImmutableAssets":`+strconv.FormatBool(v)+`}}`), 0o644)
+	}
+	script := `const a = (await import(process.argv[1])).default;
+const [on, off, none] = process.argv.slice(2);
+const v = (cfg, ctx) => a.modifyConfig({ distDir: ".next", images: {}, ...cfg }, ctx).supportsImmutableAssets ?? null;
+const build = { phase: "phase-production-build", nextVersion: "16.3.8", projectDir: none };
+const start = (dir, nextVersion = "16.4.0") => ({ phase: "phase-production-server", nextVersion, projectDir: dir });
+console.log(JSON.stringify([
+  v({}, build),
+  v({}, { ...build, nextVersion: "16.2.4" }),
+  v({ supportsImmutableAssets: false }, build),
+  v({ experimental: { supportsImmutableAssets: false } }, build),
+  v({}, start(on)),
+  v({}, start(off)),
+  v({}, start(none)),
+  v({}, start(on, "16.5.0-canary.2")),
+  v({}, { phase: "phase-development-server", nextVersion: "16.3.8", projectDir: on }),
+]));`
+	raw, err := exec.Command(node, "--input-type=module", "-e", script, filepath.Join(src, nextDir, "adapter.js"), on, off, none).CombinedOutput()
+	if err != nil {
+		t.Fatalf("node: %v\n%s", err, raw)
+	}
+	want := `[true,null,false,null,true,false,null,true,null]`
+	if got := strings.TrimSpace(string(raw)); got != want {
+		t.Errorf("supportsImmutableAssets: %s, want %s\n(build 16.3, build 16.2, user false, user experimental false, start after an immutable build, after a build without, without a build, canary, dev)", got, want)
 	}
 }
 

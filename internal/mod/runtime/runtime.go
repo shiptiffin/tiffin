@@ -19,6 +19,7 @@ import (
 	"github.com/btahir/tiffin/internal/edge/switchboard"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/platform"
+	"github.com/btahir/tiffin/internal/projicon"
 )
 
 func init() { platform.Register(&Module{}) }
@@ -335,8 +336,11 @@ func (r *rt) orphans(cs []Container) []string {
 	return out
 }
 
-// ProjectDeleted stops a destroyed project's app environments and removes
-// every container labelled for it, live or not.
+// ProjectDeleted stops a destroyed project's app environments, removes
+// every container labelled for it, live or not, then everything else the
+// runtime kept for it (forget): images, deploy records, app states, work
+// folders and build logs, static files, logs, client assets and image
+// caches. Disk folders go to the trash for diskTrashKeep.
 func (m *Module) ProjectDeleted(ctx context.Context, p *platform.Platform, project string) error {
 	r, err := m.rt()
 	if err != nil {
@@ -353,16 +357,17 @@ func (m *Module) ProjectDeleted(ctx context.Context, p *platform.Platform, proje
 		}
 	}
 	r.sweep(ctx, func(c Container, _ bool) bool { return c.Labels["tiffin.project"] == project })
-	r.forgetFiles(project, "", "", true)
-	r.trashDisks(project, "")
+	errs = append(errs, r.forget(ctx, project, ""))
 	errs = append(errs, r.forgetNextKeys(ctx, project))
+	errs = append(errs, projicon.Delete(ctx, p.DB, project))
 	return errors.Join(errs...)
 }
 
 // loop runs housekeeping: sleeping idle apps, deleting long-unused
 // previews, stopping drained releases, saving activity every minute (and
-// on the way out) and, every 5 minutes, removing orphaned containers and
-// database branches of previews that are gone.
+// on the way out), every 5 minutes removing orphaned containers and
+// database branches of previews that are gone, and hourly the image sweep
+// (sweepImages).
 func (r *rt) loop(ctx context.Context) {
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
@@ -391,6 +396,11 @@ func (r *rt) loop(ctx context.Context) {
 				r.pruneAssets(ctx)
 				r.emptyDiskTrash()
 				r.sweepPreviewBranches(ctx)
+			}
+			if tick%sweepEveryTicks == 0 {
+				if _, err := r.sweepImages(ctx, false); err != nil {
+					r.p.Log.Warn("runtime: image sweep", "err", err)
+				}
 			}
 		}
 	}
@@ -455,8 +465,9 @@ func (*Module) Kinds() []string { return []string{change.KindApp, change.KindSto
 
 // Reconcile makes running instances match the app spec and the project's
 // env and secrets: a changed env hash, instance count or memory cap
-// restarts the app with zero downtime; a deleted app is stopped (its images
-// and deploys are kept so an undo brings it back).
+// restarts the app with zero downtime; a deleted app is stopped and keeps
+// only each environment's live build, so an undo brings it back, for
+// deletedAppKeep (the hourly sweep then forgets the app).
 func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, address string, spec json.RawMessage) error {
 	r, err := m.rt()
 	if err != nil {
@@ -485,6 +496,10 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 			// Caches only: an undo copies the assets out of the image again.
 			r.forgetFiles(project, app, "", true)
 			r.trashDisks(project, app)
+			// Rollback targets and failed builds go now; the live build stays for an undo.
+			for _, s := range states {
+				r.gcKeeping(ctx, s.Project, s.App, s.Preview, 0)
+			}
 		}
 		// The app's vercel.json crons go with it. A queue that is not
 		// running yet converges every project once it is, which comes back here.

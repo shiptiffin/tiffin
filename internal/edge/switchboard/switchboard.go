@@ -317,11 +317,20 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	b.serveApp(w, req, key)
 }
 
+// upstreamIdle is how long a connection to an app stays pooled unused. It
+// is below the shortest keep-alive timeout of the servers apps run (Node's
+// http and uvicorn close idle connections after 5s, Bun.serve after 10s):
+// a connection the app closed while it sat in the pool would take the next
+// request and fail it, and Go retries only requests without a body, so a
+// POST after a quiet spell would get a 502. A new connection on localhost
+// costs some 50µs.
+const upstreamIdle = 4 * time.Second
+
 var proxyTransport = &http.Transport{
 	DialContext:           (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 	MaxIdleConns:          1024,
 	MaxIdleConnsPerHost:   128,
-	IdleConnTimeout:       60 * time.Second,
+	IdleConnTimeout:       upstreamIdle,
 	ResponseHeaderTimeout: 0, // apps may stream
 	ForceAttemptHTTP2:     false,
 }
@@ -360,6 +369,11 @@ func (b *Board) serveApp(w http.ResponseWriter, req *http.Request, key string) {
 			if tp := traceparent(pr.In.Header); tp != "" {
 				pr.Out.Header.Set("Traceparent", tp)
 			}
+			// The edge compresses (zstd or gzip, as the client takes it), so
+			// apps need not: no CPU spent twice, and no gzip-only response
+			// where the client takes zstd. One an app compresses anyway
+			// passes through as it is.
+			pr.Out.Header.Set("Accept-Encoding", "identity")
 		},
 		Transport:     proxyTransport,
 		FlushInterval: -1,

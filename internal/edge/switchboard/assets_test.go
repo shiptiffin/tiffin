@@ -112,6 +112,47 @@ func TestServeAssetAcrossReleases(t *testing.T) {
 	}
 }
 
+// Next.js 16.3+ immutable assets load without ?dpl from one shared path: a
+// chunk two releases have is the live one's, a chunk only the retired
+// release has is still found for a day; build manifests (with ?dpl) too.
+// Nuxt's build manifest keeps its name, so it is revalidated and live only.
+func TestServeAssetImmutableAndExceptions(t *testing.T) {
+	b := New(nil, nil)
+	base := t.TempDir()
+	next := `[{"dir":".next/static","path":"/_next/static","immutable":["/_next/static/"]},{"dir":"public","path":"/","liveOnly":true}]`
+	writeRelease(t, filepath.Join(base, "dep_1"), next, map[string]string{"_next/static/immutable/chunks/0cz1d0mv5g_q7.js": "same", "_next/static/immutable/chunks/1rj7ns8rte9vc.js": "only in 1"})
+	writeRelease(t, filepath.Join(base, "dep_2"), next, map[string]string{"_next/static/immutable/chunks/0cz1d0mv5g_q7.js": "same", "_next/static/immutable/chunks/22i43cg4l4-dq.js": "only in 2"})
+	nuxt := `[{"dir":".output/public","path":"/","immutable":["/_nuxt/","/_fonts/","!/_nuxt/builds/latest.json"]}]`
+	writeRelease(t, filepath.Join(base, "nux_1"), nuxt, map[string]string{"_nuxt/B1x9Qa2c.js": "old chunk", "_nuxt/builds/latest.json": `{"id":"1"}`, "_nuxt/builds/meta/1.json": "{}"})
+	writeRelease(t, filepath.Join(base, "nux_2"), nuxt, map[string]string{"_nuxt/C2y8Rb3d.js": "chunk", "_nuxt/builds/latest.json": `{"id":"2"}`, "_fonts/inter-4a2b9c1d.woff2": "font"})
+	st := &Env{Live: "dep_2", Assets: base, Retired: []Retired{{Deploy: "dep_1", At: time.Now()}}}
+	nst := &Env{Live: "nux_2", Assets: base, Retired: []Retired{{Deploy: "nux_1", At: time.Now()}}}
+	for _, c := range []struct {
+		st                *Env
+		path, body, cache string
+	}{
+		{st, "/_next/static/immutable/chunks/0cz1d0mv5g_q7.js", "same", "immutable"},
+		{st, "/_next/static/immutable/chunks/22i43cg4l4-dq.js", "only in 2", "immutable"},
+		{st, "/_next/static/immutable/chunks/1rj7ns8rte9vc.js", "only in 1", "immutable"},
+		{nst, "/_nuxt/C2y8Rb3d.js", "chunk", "immutable"},
+		{nst, "/_nuxt/B1x9Qa2c.js", "old chunk", "immutable"},
+		{nst, "/_fonts/inter-4a2b9c1d.woff2", "font", "immutable"},
+		{nst, "/_nuxt/builds/latest.json", `{"id":"2"}`, "public, max-age=0, must-revalidate"},
+		{nst, "/_nuxt/builds/meta/1.json", "{}", "immutable"}, // named by build ID
+	} {
+		w := httptest.NewRecorder()
+		ok := b.ServeAsset(w, httptest.NewRequest("GET", c.path, nil), c.st, "")
+		if !ok || w.Body.String() != c.body || !strings.Contains(w.Header().Get("Cache-Control"), c.cache) {
+			t.Errorf("%s: %v %q %q", c.path, ok, w.Body.String(), w.Header().Get("Cache-Control"))
+		}
+	}
+	// With latest.json gone from the live release, the retired one's is not served.
+	os.Remove(filepath.Join(base, "nux_2", "www", "_nuxt", "builds", "latest.json"))
+	if b.ServeAsset(httptest.NewRecorder(), httptest.NewRequest("GET", "/_nuxt/builds/latest.json", nil), nst, "") {
+		t.Error("an earlier release's latest.json was served")
+	}
+}
+
 func TestPrecompressedAssets(t *testing.T) {
 	b := New(nil, nil)
 	base := t.TempDir()

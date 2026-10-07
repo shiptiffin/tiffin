@@ -665,6 +665,36 @@ func (a *App) File(ctx context.Context, installation int64, fullName, ref, path 
 	return base64.StdEncoding.DecodeString(strings.ReplaceAll(r.Content, "\n", ""))
 }
 
+// CompareLimit is the most files GitHub's compare lists: a comparison
+// that reaches it may have changed more.
+const CompareLimit = 300
+
+// ChangedFiles lists the files that differ between base and head (as
+// GitHub compares them: from their merge base), renamed files under both
+// names. complete is false when GitHub listed only part of them.
+func (a *App) ChangedFiles(ctx context.Context, installation int64, fullName, base, head string) (files []string, complete bool, err error) {
+	p, err := repoPath(fullName)
+	if err != nil {
+		return nil, false, err
+	}
+	var r struct {
+		Files []struct {
+			Filename         string `json:"filename"`
+			PreviousFilename string `json:"previous_filename"`
+		} `json:"files"`
+	}
+	if err := a.asInstallation(ctx, installation, http.MethodGet, p+"/compare/"+url.PathEscape(base)+"..."+url.PathEscape(head)+"?per_page=1", nil, &r); err != nil {
+		return nil, false, err
+	}
+	for _, f := range r.Files {
+		files = append(files, f.Filename)
+		if f.PreviousFilename != "" {
+			files = append(files, f.PreviousFilename)
+		}
+	}
+	return files, len(r.Files) < CompareLimit, nil
+}
+
 // Commit is a commit's head line.
 type Commit struct {
 	SHA     string `json:"sha"`

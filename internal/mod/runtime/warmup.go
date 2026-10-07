@@ -175,7 +175,7 @@ func (r *rt) warmUpOnce(ctx context.Context) (preempted bool) {
 	}
 	defer os.RemoveAll(dir)
 	src := filepath.Join(dir, "src")
-	if err := starters.WriteTo("next-postgres", src); err != nil {
+	if err := starters.WriteTo("nextjs", src); err != nil {
 		r.p.Log.Error("build warm-up", "err", err)
 		return false
 	}
