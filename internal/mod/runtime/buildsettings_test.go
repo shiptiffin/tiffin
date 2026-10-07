@@ -413,17 +413,18 @@ func TestWorkspaceInstall(t *testing.T) {
 		want  string
 	}{
 		{"pnpm with a lockfile", map[string]string{"pnpm-lock.yaml": "", "package.json": `{}`, "apps/web/package.json": app}, "apps/web",
-			"pnpm install --frozen-lockfile --prefer-offline --filter '{./apps/web}...' || { echo '==> the install of apps/web alone failed (above); installing the whole workspace instead'; pnpm install --frozen-lockfile --prefer-offline; }"},
+			"pnpm install --frozen-lockfile --prefer-offline --filter {./apps/web}... || { echo tiffin: installing apps/web alone failed, so the whole workspace installs instead; pnpm install --frozen-lockfile --prefer-offline; }"},
 		{"pnpm without one", map[string]string{"package.json": `{"packageManager":"pnpm@11.9.0"}`, "templates/bun/package.json": `{}`}, "templates/bun",
-			"pnpm install --filter '{./templates/bun}...' || { echo '==> the install of templates/bun alone failed (above); installing the whole workspace instead'; pnpm install; }"},
+			"pnpm install --filter {./templates/bun}... || { echo tiffin: installing templates/bun alone failed, so the whole workspace installs instead; pnpm install; }"},
 		{"bun", map[string]string{"bun.lock": "", "package.json": `{}`, "apps/web/package.json": app}, "apps/web",
-			"bun install --frozen-lockfile --filter ./ --filter './apps/web' || { echo '==> the install of apps/web alone failed (above); installing the whole workspace instead'; bun install --frozen-lockfile; }"},
+			"bun install --frozen-lockfile --filter ./ --filter ./apps/web || { echo tiffin: installing apps/web alone failed, so the whole workspace installs instead; bun install --frozen-lockfile; }"},
 		{"npm", map[string]string{"package-lock.json": "", "package.json": `{}`, "apps/web/package.json": app}, "apps/web",
-			"npm install --workspace 'apps/web' --include-workspace-root || { echo '==> the install of apps/web alone failed (above); installing the whole workspace instead'; npm install; }"},
+			"npm install --workspace apps/web --include-workspace-root || { echo tiffin: installing apps/web alone failed, so the whole workspace installs instead; npm install; }"},
 		{"yarn 4", map[string]string{"yarn.lock": "", ".yarnrc.yml": "", "package.json": `{"name":"acme"}`, "apps/web/package.json": app}, "apps/web",
-			"yarn workspaces focus '@acme/web' 'acme' || { echo '==> the install of apps/web alone failed (above); installing the whole workspace instead'; yarn install --check-cache; }"},
+			"yarn workspaces focus @acme/web acme || { echo tiffin: installing apps/web alone failed, so the whole workspace installs instead; yarn install --check-cache; }"},
 		{"yarn 1 has no filter", map[string]string{"yarn.lock": "", "package.json": `{"packageManager":"yarn@1.22.22"}`, "apps/web/package.json": app}, "apps/web", ""},
 		{"not in a workspace", map[string]string{"bun.lock": "", "package.json": `{}`}, "", ""},
+		{"a folder the shell would split", map[string]string{"bun.lock": "", "package.json": `{}`, "apps/my web/package.json": app}, "apps/my web", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

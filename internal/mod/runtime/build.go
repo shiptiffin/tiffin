@@ -565,16 +565,17 @@ func railpackSite(req BuildRequest) bool {
 // workspace installs as Railpack would, and the log says so. "": no
 // workspace, or a package manager that cannot install one package (Yarn 1).
 //
-//	pnpm  pnpm install --filter '{./apps/web}...'   (the root comes along)
+//	pnpm  pnpm install --filter {./apps/web}...   (the root comes along)
 //	bun   bun install --filter ./ --filter ./apps/web   (workspace deps come along)
 //	npm   npm install --workspace apps/web --include-workspace-root
 //	yarn  yarn workspaces focus web root   (Yarn 2+)
 func workspaceInstall(top, dir, pm string) string {
-	if dir == "" || dir == "." {
+	// Railpack drops quotes from an install command, so only plain words
+	// go in it (a folder or name with other characters installs whole).
+	if dir == "" || dir == "." || !plainWord.MatchString(dir) {
 		return ""
 	}
 	locked := func(f string) bool { return exists(filepath.Join(top, f)) }
-	q := shellQuote
 	var filtered, full string
 	switch pm {
 	case "pnpm":
@@ -582,36 +583,36 @@ func workspaceInstall(top, dir, pm string) string {
 		if locked("pnpm-lock.yaml") {
 			flags = " --frozen-lockfile --prefer-offline"
 		}
-		filtered = "pnpm install" + flags + " --filter " + q("{./"+dir+"}...")
+		filtered = "pnpm install" + flags + " --filter {./" + dir + "}..."
 		full = "pnpm install" + flags
 	case "bun":
 		flags := ""
 		if locked("bun.lock") || locked("bun.lockb") {
 			flags = " --frozen-lockfile"
 		}
-		filtered = "bun install" + flags + " --filter ./ --filter " + q("./"+dir)
+		filtered = "bun install" + flags + " --filter ./ --filter ./" + dir
 		full = "bun install" + flags
 	case "npm":
-		filtered = "npm install --workspace " + q(dir) + " --include-workspace-root"
+		filtered = "npm install --workspace " + dir + " --include-workspace-root"
 		full = "npm install"
 	case "yarn":
-		if !yarnBerry(top) {
-			return ""
-		}
 		name := packageName(filepath.Join(top, filepath.FromSlash(dir)))
-		if name == "" {
+		if !yarnBerry(top) || !plainWord.MatchString(name) {
 			return ""
 		}
-		filtered = "yarn workspaces focus " + q(name)
-		if root := packageName(top); root != "" {
-			filtered += " " + q(root)
+		filtered = "yarn workspaces focus " + name
+		if root := packageName(top); plainWord.MatchString(root) {
+			filtered += " " + root
 		}
 		full = "yarn install --check-cache"
 	default:
 		return ""
 	}
-	return filtered + " || { echo '==> the install of " + strings.ReplaceAll(dir, "'", "") + " alone failed (above); installing the whole workspace instead'; " + full + "; }"
+	return filtered + " || { echo tiffin: installing " + dir + " alone failed, so the whole workspace installs instead; " + full + "; }"
 }
+
+// plainWord is a folder or package name a shell reads as one word as it is.
+var plainWord = regexp.MustCompile(`^[A-Za-z0-9@][A-Za-z0-9._/@+-]*$`)
 
 // yarnBerry reports whether a Yarn workspace uses Yarn 2 or later.
 func yarnBerry(top string) bool {
