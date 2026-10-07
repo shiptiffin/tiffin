@@ -78,7 +78,8 @@ tiffin email status
 ```
 
 The key is stored encrypted and never shown. Omit `--password` to keep the stored
-one. A relay test reports what the server said and, when it fails, what that means
+one. A relay test sends as the box's sender (`tiffin email box get`, or `--from`) and
+reports what the server said and, when it fails, what that means
 (a refused key, a blocked port, an unverified sender domain). Mail to the relay is
 queued and retried with backoff (30 s, 1 min, 2 min ... up to 8 attempts).
 `tiffin email relay delete` goes back to capturing everything.

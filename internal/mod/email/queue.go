@@ -214,7 +214,7 @@ func testRelay(ctx context.Context, p *platform.Platform, to, from string) (*sen
 		return nil, err
 	}
 	if from == "" {
-		from = "tiffin@" + p.Domain
+		from = defaultBoxFrom(p)
 	}
 	relay := r.Host
 	if pr := PresetByID(r.provider()); pr != nil && pr.ID != ProviderOther {

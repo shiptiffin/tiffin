@@ -619,7 +619,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		api.Wrap(func(ctx context.Context, in *struct {
 			Body struct {
 				To   string `json:"to" minLength:"3" maxLength:"320" doc:"Where to send the test"`
-				From string `json:"from,omitempty" maxLength:"320" doc:"Default tiffin@<box domain>"`
+				From string `json:"from,omitempty" maxLength:"320" doc:"Default: the box's sender (email box get)"`
 			}
 		}) (*struct {
 			Body relayTestResult
@@ -634,7 +634,14 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			out := &struct {
 				Body relayTestResult
 			}{}
-			res, err := testRelay(ctx, p, in.Body.To, in.Body.From)
+			from := in.Body.From
+			if from == "" {
+				// The sender box mail uses: the one the relay must accept.
+				if s, err := m.boxSender(ctx, p); err == nil {
+					from = s.From
+				}
+			}
+			res, err := testRelay(ctx, p, in.Body.To, from)
 			relay, _ := getRelay(ctx, p)
 			switch {
 			case err != nil:
