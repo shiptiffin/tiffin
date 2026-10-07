@@ -309,7 +309,12 @@ type Suppression struct {
 
 func normAddr(a string) string { return strings.ToLower(strings.TrimSpace(a)) }
 
-func addSuppression(ctx context.Context, db *sql.DB, project string, s Suppression) error {
+// execer is a *sql.DB or a *sql.Tx.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func addSuppression(ctx context.Context, db execer, project string, s Suppression) error {
 	_, err := db.ExecContext(ctx, `INSERT INTO email_suppressions(project, address, reason, detail, created_at) VALUES (?,?,?,?,?)
 		ON CONFLICT(project, address) DO UPDATE SET reason = excluded.reason, detail = excluded.detail`,
 		project, normAddr(s.Address), s.Reason, s.Detail, ts(time.Now()))

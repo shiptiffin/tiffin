@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -258,39 +259,13 @@ func (m *Module) applyEvents(ctx context.Context, p *platform.Platform, provider
 		if id == "" {
 			continue
 		}
-		res, err := db.ExecContext(ctx, `INSERT INTO email_events(provider, key, project, message, type, recipient, detail, hard, at, received_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(provider, key) DO NOTHING`,
-			provider, ev.Key, project, id, ev.Type, ev.Recipient, ev.Detail, ev.Hard, ts(ev.At), ts(time.Now()))
+		isNew, err := applyEvent(ctx, db, name, provider, ev, id, project)
 		if err != nil {
 			return matched, err
 		}
-		if n, _ := res.RowsAffected(); n == 0 {
-			continue // seen before: a retry or a replay
-		}
-		matched++
-		touched[id] = project
-		if ev.ProviderID != "" {
-			_, _ = db.ExecContext(ctx, `UPDATE email_tracking SET provider_id = ? WHERE id = ? AND provider_id = ''`, ev.ProviderID, id)
-		}
-		if st := eventStatus(ev); st != "" {
-			var cur string
-			if db.QueryRowContext(ctx, `SELECT status FROM email_messages WHERE id = ?`, id).Scan(&cur) == nil {
-				if r, ok := statusRank[cur]; ok && statusRank[st] > r {
-					lastErr := ""
-					if st == StatusBounced || st == StatusFailed {
-						lastErr = strings.TrimSpace(ev.Recipient + ": " + ev.Detail)
-					}
-					_, _ = db.ExecContext(ctx, `UPDATE email_messages SET status = ?, last_error = CASE WHEN ? != '' THEN ? ELSE last_error END WHERE id = ?`,
-						st, lastErr, lastErr, id)
-				}
-			}
-		}
-		if ev.suppress != "" && ev.Recipient != "" {
-			detail := name + " reported the address " + suppressWords[ev.suppress]
-			if ev.Detail != "" {
-				detail += ": " + ev.Detail
-			}
-			_ = addSuppression(ctx, db, project, Suppression{Address: ev.Recipient, Reason: ev.suppress, Detail: clip(detail, 480)})
+		if isNew {
+			matched++
+			touched[id] = project
 		}
 	}
 	_, h := m.state()
@@ -300,6 +275,62 @@ func (m *Module) applyEvents(ctx context.Context, p *platform.Platform, provider
 		}
 	}
 	return matched, nil
+}
+
+// applyEvent records one matched event and everything it implies (the
+// provider's ID, the message's status, a suppression) in one transaction,
+// so an event is only ever marked seen together with its effects: a
+// failure leaves nothing behind, and the provider's retry applies it all.
+// It reports whether the event was new.
+func applyEvent(ctx context.Context, db *sql.DB, name, provider string, ev *inEvent, id, project string) (bool, error) {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `INSERT INTO email_events(provider, key, project, message, type, recipient, detail, hard, at, received_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(provider, key) DO NOTHING`,
+		provider, ev.Key, project, id, ev.Type, ev.Recipient, ev.Detail, ev.Hard, ts(ev.At), ts(time.Now()))
+	if err != nil {
+		return false, err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return false, err // seen before: a retry or a replay
+	}
+	if ev.ProviderID != "" {
+		if _, err := tx.ExecContext(ctx, `UPDATE email_tracking SET provider_id = ? WHERE id = ? AND provider_id = ''`, ev.ProviderID, id); err != nil {
+			return false, err
+		}
+	}
+	if st := eventStatus(ev); st != "" {
+		var cur string
+		switch err := tx.QueryRowContext(ctx, `SELECT status FROM email_messages WHERE id = ?`, id).Scan(&cur); {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return false, err
+		default:
+			if r, ok := statusRank[cur]; ok && statusRank[st] > r {
+				lastErr := ""
+				if st == StatusBounced || st == StatusFailed {
+					lastErr = strings.TrimSpace(ev.Recipient + ": " + ev.Detail)
+				}
+				if _, err := tx.ExecContext(ctx, `UPDATE email_messages SET status = ?, last_error = CASE WHEN ? != '' THEN ? ELSE last_error END WHERE id = ?`,
+					st, lastErr, lastErr, id); err != nil {
+					return false, err
+				}
+			}
+		}
+	}
+	if ev.suppress != "" && ev.Recipient != "" {
+		detail := name + " reported the address " + suppressWords[ev.suppress]
+		if ev.Detail != "" {
+			detail += ": " + ev.Detail
+		}
+		if err := addSuppression(ctx, tx, project, Suppression{Address: ev.Recipient, Reason: ev.suppress, Detail: clip(detail, 480)}); err != nil {
+			return false, err
+		}
+	}
+	return true, tx.Commit()
 }
 
 // messageEvents lists a message's events, oldest first.

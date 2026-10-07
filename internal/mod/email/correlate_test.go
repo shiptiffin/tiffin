@@ -69,3 +69,42 @@ func TestMatchEventAcrossProjects(t *testing.T) {
 		}
 	}
 }
+
+// An event is marked seen only together with its effects: when recording
+// the suppression fails, the provider's retry still adds it.
+func TestEventEffectsAreAtomic(t *testing.T) {
+	r := newRig(t)
+	db := r.p.DB.SQL()
+	const id = "msg_01CCCCCCCCCCCCCCCCCCCCCCCC"
+	if err := insertRecord(r.ctx, db, &record{Summary: Summary{ID: id, Project: "shop", CreatedAt: time.Now(), Source: "api", Delivery: DeliveryRelay,
+		Status: StatusSent, To: []string{}}, Rcpt: []string{"ada@inbox.dev"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := track(r.ctx, db, id, "shop", ProviderPostmark, "<x@y>"); err != nil {
+		t.Fatal(err)
+	}
+	ev := func() []inEvent {
+		return []inEvent{{Event: Event{Provider: ProviderPostmark, Type: EventComplained, Recipient: "ada@inbox.dev", At: time.Now()},
+			Key: "SpamComplaint/1", TiffinID: id, suppress: "complaint"}}
+	}
+	if _, err := db.ExecContext(r.ctx, `CREATE TRIGGER fail_sup BEFORE INSERT ON email_suppressions BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mod.applyEvents(r.ctx, r.p, ProviderPostmark, ev()); err == nil {
+		t.Fatal("a failed suppression was ignored")
+	}
+	if _, err := db.ExecContext(r.ctx, `DROP TRIGGER fail_sup`); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := mod.applyEvents(r.ctx, r.p, ProviderPostmark, ev()); err != nil || n != 1 {
+		t.Fatalf("retry: %d %v", n, err)
+	}
+	sup, _ := suppressed(r.ctx, db, "shop", []string{"ada@inbox.dev"})
+	rec, _ := getRecord(r.ctx, db, "shop", id)
+	if !sup["ada@inbox.dev"] || rec.Status != StatusComplained {
+		t.Fatalf("after the retry: suppressed %v, status %s", sup, rec.Status)
+	}
+	if n, _ := mod.applyEvents(r.ctx, r.p, ProviderPostmark, ev()); n != 0 {
+		t.Fatal("a replay counted again")
+	}
+}
