@@ -25,7 +25,7 @@ export function ProviderMark({ id, className }: { id: string; className?: string
     <span
       aria-hidden
       className={cn(
-        "grid [:where(&)]:size-8 shrink-0 place-items-center [:where(&)]:rounded-[8px] border border-rule-2 bg-paper text-[0.8125rem] font-[600] tracking-[-0.02em] text-ink-2 shadow-[var(--top-light)]",
+        "grid [:where(&)]:size-8 shrink-0 place-items-center [:where(&)]:rounded-[8px] border border-rule-2 bg-paper text-[0.8125rem] font-[600] tracking-[-0.02em] [:where(&)]:text-ink-2 shadow-[var(--top-light)]",
         className,
       )}
     >
