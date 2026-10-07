@@ -314,7 +314,8 @@ var assetDirName = regexp.MustCompile(`^dep_[0-9A-Za-z]+$`)
 // pruneAssets removes client assets no release serves any more: releases
 // neither live nor retired within assetsKept (left an hour, so a deploy
 // copying its assets right now keeps them), and environments that are gone.
-// The same goes for Next.js image caches of environments that are gone.
+// The same goes for Next.js image caches of environments that are gone,
+// and static build caches of apps that are gone.
 func (r *rt) pruneAssets(ctx context.Context) {
 	states, err := r.st.allStates(ctx)
 	if err != nil {
@@ -331,6 +332,7 @@ func (r *rt) pruneAssets(ctx context.Context) {
 			}
 		}
 		keep[filepath.Dir(r.nextCacheDir(s.Project, s.App, s.Preview))] = true
+		keep[filepath.Join(r.opt.DataDir, buildCacheDir, s.Project, s.App)] = true
 	}
 	recent := func(p string) bool {
 		fi, err := os.Stat(p)
@@ -359,6 +361,14 @@ func (r *rt) pruneAssets(ctx context.Context) {
 			}
 		}
 	}
+	// Static build caches of apps that are gone (removed before destroys
+	// forgot them too).
+	apps, _ := filepath.Glob(filepath.Join(r.opt.DataDir, buildCacheDir, "*", "*"))
+	for _, app := range apps {
+		if !keep[app] && !recent(app) {
+			r.removeDir(app)
+		}
+	}
 }
 
 func (r *rt) removeDir(dir string) {
@@ -368,10 +378,15 @@ func (r *rt) removeDir(dir string) {
 }
 
 // forgetFiles removes the client assets and image cache of an app
-// environment (preview "" with all true: every environment of the app;
-// app "" too: the whole project).
+// environment (preview "" with all true: every environment of the app,
+// and the app's static build cache, which its environments share; app ""
+// too: the whole project).
 func (r *rt) forgetFiles(project, app, preview string, all bool) {
-	for _, root := range []string{"assets", "next-cache"} {
+	roots := []string{"assets", "next-cache"}
+	if all {
+		roots = append(roots, buildCacheDir)
+	}
+	for _, root := range roots {
 		dir := filepath.Join(r.opt.DataDir, root, project)
 		if app != "" {
 			dir = filepath.Join(dir, app)

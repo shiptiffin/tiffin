@@ -75,7 +75,7 @@ func (m *Module) DiskUse(ctx context.Context) (*RuntimeDisk, error) {
 			out.UnusedImageBytes += im.Size
 		}
 	}
-	for _, root := range []string{"deploys", "static", "assets", "next-cache"} {
+	for _, root := range []string{"deploys", "static", "assets", "next-cache", buildCacheDir} {
 		es, _ := os.ReadDir(filepath.Join(r.opt.DataDir, root))
 		for _, e := range es {
 			if e.IsDir() && projectName.MatchString(e.Name()) {

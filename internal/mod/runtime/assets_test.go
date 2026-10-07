@@ -121,8 +121,20 @@ func TestClientAssetsThroughDeploys(t *testing.T) {
 	if st := h.state("api", ""); st.Live != d2.ID || len(st.Retired) != 1 || st.Retired[0].Deploy != d1.ID {
 		t.Fatalf("state: %+v", st)
 	}
+	// A static build cache of an app with no environment left (a project
+	// destroyed before destroys removed it) goes; the live app's stays.
+	gone, kept := filepath.Join(h.r.opt.DataDir, buildCacheDir, "gone", "web"), filepath.Join(h.r.opt.DataDir, buildCacheDir, "shop", "api")
+	for _, dir := range []string{gone, kept} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		os.Chtimes(dir, time.Now().Add(-2*time.Hour), time.Now().Add(-2*time.Hour))
+	}
 	// Pruning keeps both; once d1 retired over a day ago, it goes.
 	h.r.pruneAssets(context.Background())
+	if exists(gone) || !exists(kept) {
+		t.Fatalf("build caches after the prune: gone %v, kept %v", exists(gone), exists(kept))
+	}
 	d1dir := filepath.Join(h.r.assetsDir("shop", "api", ""), d1.ID)
 	if !exists(d1dir) {
 		t.Fatal("pruned a retired release's assets within the day")

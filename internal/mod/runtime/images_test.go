@@ -114,6 +114,11 @@ func TestDestroyForgetsEverything(t *testing.T) {
 	if len(h.imageNames()) == 0 {
 		t.Fatal("no images to start with")
 	}
+	// A static build's caches (staticCaches) are per app, outside the deploy.
+	buildCache := filepath.Join(h.r.opt.DataDir, buildCacheDir, "shop")
+	if err := os.MkdirAll(filepath.Join(buildCache, "site", "bun"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	for _, app := range []string{"api", "site", "jobs"} {
 		if err := h.m.Reconcile(ctx, h.p, "shop", "app/"+app, nil); err != nil {
 			t.Fatal(err)
@@ -135,7 +140,7 @@ func TestDestroyForgetsEverything(t *testing.T) {
 		}
 	}
 	for _, dir := range []string{filepath.Join(h.r.opt.DataDir, "deploys", "shop"), filepath.Join(h.r.opt.DataDir, "static", "shop"),
-		filepath.Join(h.r.opt.LogDir, "shop")} {
+		filepath.Join(h.r.opt.LogDir, "shop"), buildCache} {
 		if exists(dir) {
 			t.Errorf("%s survived the destroy", dir)
 		}
@@ -378,6 +383,14 @@ func TestDiskUse(t *testing.T) {
 	h.deploy("api", "", map[string]string{"index.ts": "v1"})
 	h.deploy("site", "", map[string]string{"index.html": "<h1>hi</h1>"})
 	h.eng.putImage(imageRef("gone", "web", "dep_01x"))
+	// A static build cache counts toward its project's build files.
+	cache := filepath.Join(h.r.opt.DataDir, buildCacheDir, "cached", "web", "bun")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cache, "pkg.tgz"), make([]byte, 5000), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	rd, err := h.m.DiskUse(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -385,6 +398,9 @@ func TestDiskUse(t *testing.T) {
 	u := rd.Projects["shop"]
 	if u == nil || u.Images != 1 || u.ImageBytes != 1<<20 || u.BuildBytes == 0 {
 		t.Fatalf("shop: %+v", u)
+	}
+	if c := rd.Projects["cached"]; c == nil || c.BuildBytes < 5000 {
+		t.Fatalf("build cache not counted: %+v", c)
 	}
 	if rd.UnusedImages != 1 || rd.UnusedImageBytes != 1<<20 {
 		t.Fatalf("unused: %d %d", rd.UnusedImages, rd.UnusedImageBytes)
