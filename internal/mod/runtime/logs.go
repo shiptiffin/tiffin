@@ -183,7 +183,8 @@ func tailLog(path string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
-// pruneLogs keeps log files of the newest 10 deploys of an environment.
+// pruneLogs keeps log files (and build output copies, see buildlog.go) of
+// the newest 10 deploys of an environment.
 func (r *rt) pruneLogs(project, app, preview string, newestFirst []*Deploy) {
 	keep := map[string]bool{}
 	for i, d := range newestFirst {
@@ -191,6 +192,7 @@ func (r *rt) pruneLogs(project, app, preview string, newestFirst []*Deploy) {
 			keep[d.ID] = true
 		}
 	}
+	r.pruneBuildLogs(project, app, keep, newestFirst)
 	for _, src := range r.logSources(project, app, preview, "") {
 		if !keep[src.deploy] {
 			for _, p := range []string{src.path, src.path + ".1", src.path + ".2"} {

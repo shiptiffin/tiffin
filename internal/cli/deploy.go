@@ -172,7 +172,7 @@ func (a *app) deployCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "deploy [dir]",
 		Short: "Build and release apps on the box (zero downtime)",
-		Long: "Uploads each app's directory (from tiffin.config.ts; .gitignore, .tiffinignore, node_modules, .next, .git and local .env files are skipped), " +
+		Long: "Uploads each app's directory (from tiffin.config.ts; .gitignore, .tiffinignore, node_modules, .next, .venv, __pycache__, .git and local .env files are skipped), " +
 			"builds it on the box (Railpack + BuildKit; static sites are served as files), starts the new instances, waits for their health check, " +
 			"switches traffic and drains the old ones. A failed deploy leaves the running version untouched.\n\n" +
 			"Streams the build, exits 0 only when every deploy is live, and prints the URL.\n\n" +

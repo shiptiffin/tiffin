@@ -27,6 +27,7 @@ import (
 	"github.com/btahir/tiffin/internal/edge/switchboard"
 	"github.com/btahir/tiffin/internal/manifest"
 	tmcp "github.com/btahir/tiffin/internal/mcp"
+	authmod "github.com/btahir/tiffin/internal/mod/auth"
 	"github.com/btahir/tiffin/internal/mod/runtime/vercelcfg"
 	"github.com/btahir/tiffin/internal/passkeys"
 	"github.com/btahir/tiffin/internal/platform"
@@ -597,6 +598,7 @@ func serveMux(b *box) http.Handler {
 	all := tmcp.NewServer(b.api, b.api.Handler(), version.Version, tmcp.FromHeader, tmcp.GroupAll)
 	mux := http.NewServeMux()
 	mux.Handle("/v1/", b.api.Handler())
+	mux.Handle("/api/auth/", authmod.DashboardHandler()) // sign-in callbacks for the box's keys
 	mux.Handle("/", dashboard.Handler())
 	mux.Handle("/mcp", requireKey(b, sdk.NewStreamableHTTPHandler(func(r *http.Request) *sdk.Server {
 		if r.URL.Query().Get("tools") == tmcp.GroupAll {

@@ -50,7 +50,11 @@ type BuildRequest struct {
 	Vercel *vercelcfg.Config
 	// Export: a Next.js static export (output: "export"), served as files.
 	Export bool
-	Log    io.Writer
+	// Dockerfile is the Dockerfile to build, relative to SrcDir, when the
+	// app builds with one (builder "dockerfile", or one found in an app
+	// folder Railpack has nothing for); "" builds with Railpack.
+	Dockerfile string
+	Log        io.Writer
 }
 
 // appDir is the app's own folder in the source.
@@ -76,6 +80,9 @@ type BuildResult struct {
 	Digest     string
 	StaticRoot string
 	SPA        bool
+	// Start replaces the image's own command (a Dockerfile or prebuilt
+	// image whose app sets command).
+	Start string
 }
 
 // Builder turns sources into something runnable.
@@ -97,6 +104,12 @@ type boxBuilder struct {
 	staticDir string // where static deploys' files live
 	memoryMB  int    // cap for static build containers
 	cgroupDir string // the build cgroup ("" → /sys/fs/cgroup/tiffin-build)
+	binDir    string // where railpack, buildctl and nerdctl are ("" → /usr/local/bin)
+}
+
+// tool is the path of one of the build tools.
+func (b *boxBuilder) tool(name string) string {
+	return filepath.Join(orDefaultStr(b.binDir, "/usr/local/bin"), name)
 }
 
 // buildLimit is what one project's builds may use while it has a limit:
@@ -147,6 +160,25 @@ func (l buildLimit) apply(dir string) (undo func(), err error) {
 	return undo, nil
 }
 
+// limitBuild holds the build cgroup to a limited project's share while one
+// of its BuildKit builds runs, and returns what lets it go. Builds run one
+// at a time, so the shared build cgroup is this build's while it runs.
+func (b *boxBuilder) limitBuild(project string, log io.Writer) (undo func()) {
+	lim := buildLimitFor(project)
+	if lim.cpus <= 0 {
+		return func() {}
+	}
+	dir := b.cgroupDir
+	if dir == "" {
+		dir = filepath.Join("/sys/fs/cgroup", buildCgroup)
+	}
+	undo, err := lim.apply(dir)
+	if err == nil {
+		fmt.Fprint(log, lim.words(project))
+	}
+	return undo
+}
+
 func (l buildLimit) words(project string) string {
 	return fmt.Sprintf("==> %s is limited to %d%% of the box: this build may use %s CPUs and slows down past %d MB\n",
 		project, l.pct, strconv.FormatFloat(l.cpus, 'f', -1, 64), l.highMB)
@@ -165,15 +197,20 @@ func (b *boxBuilder) Build(ctx context.Context, req BuildRequest) (BuildResult, 
 			return BuildResult{}, &BuildError{Msg: err.Error(), Hint: "Pass a tarball from `docker save <image>` or `nerdctl save`, built for this box's CPU (" + hostArch() + ")."}
 		}
 		dg, _ := b.eng.ImageDigest(ctx, ref)
-		return BuildResult{Image: ref, Digest: dg}, nil
+		return BuildResult{Image: ref, Digest: dg, Start: startOverride(req.Spec)}, nil
+	case req.Spec.Builder == manifest.BuilderPrebuilt:
+		return BuildResult{}, &BuildError{Msg: "this app takes prebuilt images only (builder \"prebuilt\"), so there is nothing to build from its source",
+			Hint: "Deploy an image built elsewhere (tiffin deploy --prebuilt image.tar), or pick another builder in the app's Build and deploy settings."}
+	case req.Dockerfile != "":
+		return b.buildDockerfile(ctx, req, ref)
 	case req.Export:
 		fmt.Fprintf(req.Log, "==> Next.js static export (output: \"export\" in next.config): next build, then the edge serves the files (no container)\n")
-		return b.buildFiles(ctx, req, ref, []string{orDefaultStr(vercelOut(req.Vercel), "out")}, false)
+		return b.buildFiles(ctx, req, ref, []string{orDefaultStr(req.Spec.Output, orDefaultStr(vercelOut(req.Vercel), "out"))}, false)
 	case req.Spec.Framework == manifest.FrameworkStatic && railpackSite(req):
 		fmt.Fprintf(req.Log, "==> the site builds with npm, pnpm or yarn: building with Railpack, then serving the files\n")
 		dirs := []string{"dist", "build", "out", "public"}
 		sf := readStaticfile(req.appDir())
-		if out := orDefaultStr(vercelOut(req.Vercel), sf.root); out != "" {
+		if out := orDefaultStr(req.Spec.Output, orDefaultStr(vercelOut(req.Vercel), sf.root)); out != "" {
 			dirs = []string{out}
 		}
 		return b.buildFiles(ctx, req, ref, dirs, spaFallback(req, sf))
@@ -241,6 +278,8 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 		imageEnv = prepareNext(req, env)
 	case start != "" && !onNode:
 		env["RAILPACK_START_CMD"] = req.inApp("bun --bun run start")
+	case serverEntry(appDir, onNode) != "":
+		env["RAILPACK_START_CMD"] = req.inApp(serverEntry(appDir, onNode))
 	}
 	wfEnv, wfInstall, err := prepareWorkflow(req)
 	if err != nil {
@@ -256,6 +295,11 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 		// A workspace: Railpack installs at its top; the app starts in its own folder.
 		env["RAILPACK_START_CMD"] = req.inApp(pm + " run start")
 	}
+	if req.Spec.Framework.IsPython() {
+		if err := preparePython(req, env); err != nil { // python.go
+			return BuildResult{}, err
+		}
+	}
 	if v := req.Vercel; v != nil {
 		if v.InstallCommand != "" {
 			env["RAILPACK_INSTALL_CMD"] = v.InstallCommand
@@ -263,6 +307,15 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 		if v.BuildCommand != "" {
 			env["RAILPACK_BUILD_CMD"] = req.inApp(v.BuildCommand)
 		}
+	}
+	// The app's own settings win over vercel.json and detection.
+	if c := req.Spec.Install; c != "" {
+		env["RAILPACK_INSTALL_CMD"] = c
+		fmt.Fprintf(req.Log, "==> install command: %s (the app's settings)\n", c)
+	}
+	if c := req.Spec.Build; c != "" {
+		env["RAILPACK_BUILD_CMD"] = req.inApp(c)
+		fmt.Fprintf(req.Log, "==> build command: %s (the app's settings)\n", c)
 	}
 	if req.Export || req.Spec.Framework == manifest.FrameworkStatic {
 		env["RAILPACK_START_CMD"] = "true" // the image only carries the built files: it never runs
@@ -301,9 +354,9 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 		extra = append(extra, k+"="+env[k])
 	}
 	fmt.Fprintf(req.Log, "==> planning the build (Railpack %s)\n", RailpackVersion)
-	if err := runLoggedEnv(ctx, req.Log, req.SrcDir, extra, "/usr/local/bin/railpack", args...); err != nil {
+	if err := runLoggedEnv(ctx, req.Log, req.SrcDir, extra, b.tool("railpack"), args...); err != nil {
 		return BuildResult{}, &BuildError{Msg: "Railpack could not plan a build for this app: " + err.Error(),
-			Hint: "Make sure the app has a package.json with a start script (or an index.ts), and a lockfile. See the build log for details."}
+			Hint: planHint(req.Spec)}
 	}
 	if imageEnv != nil {
 		if err := setDeployEnv(planPath, imageEnv); err != nil {
@@ -315,19 +368,7 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 			return BuildResult{}, fmt.Errorf("add the Workflow DevKit's world to the build plan: %w", err)
 		}
 	}
-	// A limited project's build counts against its share. Builds run one at
-	// a time, so the shared build cgroup is this build's while it runs.
-	if lim := buildLimitFor(d.Project); lim.cpus > 0 {
-		dir := b.cgroupDir
-		if dir == "" {
-			dir = filepath.Join("/sys/fs/cgroup", buildCgroup)
-		}
-		undo, err := lim.apply(dir)
-		defer undo()
-		if err == nil {
-			fmt.Fprint(req.Log, lim.words(d.Project))
-		}
-	}
+	defer b.limitBuild(d.Project, req.Log)()
 	fmt.Fprintf(req.Log, "==> building the image (BuildKit)\n")
 	// Railpack mounts env vars into build steps as BuildKit secrets (so they
 	// never land in image layers); their values travel in buildctl's env.
@@ -345,7 +386,7 @@ func (b *boxBuilder) buildRailpack(ctx context.Context, req BuildRequest, ref st
 	}
 	var out strings.Builder
 	w := io.MultiWriter(req.Log, &out)
-	err = runLoggedEnv(ctx, w, req.SrcDir, extra, "/usr/local/bin/buildctl", bargs...)
+	err = runLoggedEnv(ctx, w, req.SrcDir, extra, b.tool("buildctl"), bargs...)
 	if err != nil {
 		hint := "Read the build log (deploys build-log): the first error is usually the cause."
 		msg := "the build failed: " + err.Error()
@@ -386,6 +427,8 @@ func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildRe
 		install, build = orDefaultStr(v.InstallCommand, install), orDefaultStr(v.BuildCommand, build)
 		sf.root = orDefaultStr(v.OutputDirectory, sf.root)
 	}
+	install, build = orDefaultStr(req.Spec.Install, install), orDefaultStr(req.Spec.Build, build)
+	sf.root = orDefaultStr(req.Spec.Output, sf.root)
 	if build != "" {
 		script := req.inApp(build)
 		if install != "" {
@@ -409,14 +452,14 @@ func (b *boxBuilder) buildStatic(ctx context.Context, req BuildRequest) (BuildRe
 			args = append(args, "--env", k+"="+req.Env[k])
 		}
 		args = append(args, BunImage, "sh", "-c", script)
-		if err := runLogged(ctx, req.Log, req.SrcDir, "/usr/local/bin/nerdctl", args...); err != nil {
+		if err := runLogged(ctx, req.Log, req.SrcDir, b.tool("nerdctl"), args...); err != nil {
 			return BuildResult{}, &BuildError{Msg: "the static build failed: " + err.Error(), Hint: "Run `" + script + "` locally to reproduce."}
 		}
 	}
 	rootRel := staticRootOf(appDir, sf.root)
 	if rootRel == "" {
 		return BuildResult{}, &BuildError{Msg: "no index.html found to serve",
-			Hint: "Put index.html at the top of the app, in public/, dist/, build/ or out/, or name the folder in a Staticfile (root: <dir>) or vercel.json (outputDirectory)."}
+			Hint: "Put index.html at the top of the app, in public/, dist/, build/ or out/, or name the folder: Output directory in the app's Build and deploy settings (output in tiffin.config.ts)."}
 	}
 	if rootRel == "." {
 		_ = os.Remove(filepath.Join(appDir, vercelcfg.File)) // config, not content (as on Vercel)
@@ -475,7 +518,7 @@ func (b *boxBuilder) buildFiles(ctx context.Context, req BuildRequest, ref strin
 		}
 	}
 	return BuildResult{}, &BuildError{Msg: "the build wrote no index.html in " + strings.Join(dirs, ", "),
-		Hint: "A Next.js static export writes out/ (or distDir); name another folder with outputDirectory in vercel.json."}
+		Hint: "A Next.js static export writes out/ (or distDir); name another folder as the Output directory in the app's Build and deploy settings (output in tiffin.config.ts)."}
 }
 
 // vercelOut is vercel.json's outputDirectory ("" without one).
@@ -492,7 +535,11 @@ var otherPMs = regexp.MustCompile(`\b(npm|npx|pnpm|yarn)\b`)
 // yarn, which the Bun image that builds static sites does not have: its
 // vercel.json commands use one, or it builds in a workspace managed by one.
 func railpackSite(req BuildRequest) bool {
-	if v := req.Vercel; v != nil && otherPMs.MatchString(v.InstallCommand+" "+v.BuildCommand) {
+	install, build := req.Spec.Install, req.Spec.Build
+	if v := req.Vercel; v != nil {
+		install, build = orDefaultStr(install, v.InstallCommand), orDefaultStr(build, v.BuildCommand)
+	}
+	if otherPMs.MatchString(install + " " + build) {
 		return true
 	}
 	return req.Dir != "" && packageManager(req.SrcDir) != "bun" && packageScript(req.appDir(), "build") != ""
@@ -571,7 +618,7 @@ func readStaticfile(dir string) staticfile {
 // onNodeHint is the way out for an app that fails on Bun: Node.js. None
 // for apps already on Node or served as files.
 func onNodeHint(spec manifest.App) string {
-	if spec.Runtime == manifest.RuntimeNode || spec.Framework == manifest.FrameworkStatic {
+	if spec.Runtime == manifest.RuntimeNode || spec.Framework == manifest.FrameworkStatic || spec.Builder == manifest.BuilderDockerfile || spec.Builder == manifest.BuilderPrebuilt || spec.Framework.IsPython() {
 		return ""
 	}
 	return " If it works on Node.js, switch the app to Node.js (its Runtime setting, or runtime: \"node\" in tiffin.config.ts) and deploy again."

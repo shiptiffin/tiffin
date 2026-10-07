@@ -22,6 +22,11 @@ var DefaultIgnore = []string{
 	".turbo/",
 	".vercel/",
 	".tiffin/",
+	".venv/", // Python: the box installs from pyproject.toml/uv.lock or requirements.txt
+	"__pycache__/",
+	".pytest_cache/",
+	".mypy_cache/",
+	".ruff_cache/",
 	".DS_Store",
 	".env",
 	".env.local",

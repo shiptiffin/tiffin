@@ -104,6 +104,9 @@ type GitInfo struct {
 
 func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	appPath := "/v1/projects/{project}/apps/{app}"
+	m.registerProjectDeploys(a)
+	m.registerRedeploy(a, appPath)
+	m.registerIcon(a, p)
 
 	create := api.Op("deploy-create", http.MethodPost, appPath+"/deploys", "deploys create", api.RiskWrite, "Deploy an app",
 		"Builds and releases a new version of an app with zero downtime: the source is built on the box (Railpack + BuildKit; "+
@@ -184,6 +187,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			if len(ds) > in.Limit {
 				ds = ds[:in.Limit]
 			}
+			r.st.backfillVersions(ctx, ds)
 			return &struct{ Body DeployList }{DeployList{ds}}, nil
 		}))
 
@@ -223,6 +227,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 				return nil, err
 			}
 		}
+		r.st.backfillVersions(ctx, []*Deploy{d})
 		return &struct{ Body *Deploy }{d}, nil
 	}))
 
@@ -497,6 +502,10 @@ func (r *rt) checkDeployable(ctx context.Context, project, app, preview string, 
 	}
 	if prebuilt && spec.Framework == manifest.FrameworkStatic {
 		return nil, problem(422, "validation", "static apps are served as files; --prebuilt takes an image tarball for container apps", "")
+	}
+	if !prebuilt && spec.Builder == manifest.BuilderPrebuilt {
+		return nil, problem(422, "validation", "app "+app+" takes prebuilt images only (builder \"prebuilt\"): there is no source to build",
+			"Deploy an image with tiffin deploy --prebuilt image.tar, or change the app's builder in its Build and deploy settings.")
 	}
 	return spec, nil
 }
@@ -943,6 +952,9 @@ func (r *rt) deletePreview(ctx context.Context, project, app, name string) error
 		_ = r.st.putDeploy(ctx, d)
 	}
 	_ = os.RemoveAll(r.envLogDir(project, app, name))
+	if ds, err := r.st.listDeploys(ctx, project, app, name); err == nil {
+		r.pruneBuildLogs(project, app, nil, ds) // the preview's build output copies too (shipped already)
+	}
 	r.forgetFiles(project, app, name, false)
 	r.removeDir(r.diskDir(project, app, name))
 	r.quotas.forget(ctx, project+"/"+app+"/"+envDirName(name)+"/")

@@ -40,6 +40,7 @@ type Deploy struct {
 	Project     string     `json:"project"`
 	App         string     `json:"app"`
 	Preview     string     `json:"preview,omitempty" doc:"Preview name, empty for production"`
+	Version     int        `json:"version,omitempty" doc:"The app's production version: 1 for its first production deploy, then 2, 3… in the order they were made. Previews have none."`
 	Status      string     `json:"status" enum:"queued,building,starting,live,failed,superseded,rolled_back,stopped,skipped" doc:"queued → building → starting → live; failed keeps the previous deploy serving; superseded and rolled_back deploys can be rolled back to; skipped: a newer push arrived before it was built"`
 	Source      string     `json:"source" enum:"upload,files,prebuilt,git,template"`
 	Framework   string     `json:"framework,omitempty"`
@@ -72,6 +73,14 @@ type Deploy struct {
 	// Dir is the app's folder in its source when the source is a whole
 	// workspace (a monorepo whose packages the app uses).
 	Dir string `json:"dir,omitempty" doc:"The app's folder inside the uploaded source, when the source is the whole workspace (monorepo) the app builds in"`
+	// Builder is "dockerfile" for an image built from the app's Dockerfile
+	// (empty for Railpack, static and prebuilt deploys).
+	Builder string `json:"builder,omitempty" enum:"dockerfile," doc:"dockerfile: the image was built from the app's Dockerfile; empty for Railpack builds, static sites and prebuilt images"`
+	// Dockerfile is the Dockerfile it was built from, relative to its source.
+	Dockerfile string `json:"dockerfile,omitempty" doc:"The Dockerfile the image was built from, inside the uploaded source"`
+	// Start replaces the image's own command (Dockerfile and prebuilt
+	// images of an app that sets command). Railpack builds bake theirs in.
+	Start string `json:"start,omitempty" doc:"The command the instances run instead of the image's own (Dockerfile and prebuilt images of an app that sets command)"`
 	// Vercel is what the build took from the app's vercel.json.
 	Vercel *vercelcfg.Config `json:"vercel,omitempty" doc:"What the deploy took from the app's vercel.json (build settings, crons, headers, redirects, rewrites) and what it ignored"`
 	// PublicEnv identifies the browser-visible env the build had.

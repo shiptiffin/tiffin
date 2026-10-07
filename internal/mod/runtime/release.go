@@ -51,7 +51,7 @@ func (m *Module) Release(ctx context.Context, project, app string, src ReleaseSo
 		return nil, err
 	}
 	d.Commit, d.Repo = src.Commit, src.Repo
-	log, err := os.OpenFile(r.buildLogPath(d), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	log, err := r.openBuildLog(d)
 	if err != nil {
 		r.fail(ctx, d, err, "", io.Discard)
 		return d, nil
@@ -109,6 +109,12 @@ func (r *rt) release(ctx context.Context, d *Deploy, spec *manifest.App, src Rel
 		return errors.New("nothing to release: no image and no site")
 	}
 	d.Dir, d.Vercel = src.Dir, src.Vercel
+	if d.Image != "" && (spec.Builder == manifest.BuilderDockerfile || spec.Builder == manifest.BuilderPrebuilt) {
+		d.Start = startOverride(*spec) // the image's own command, unless the app sets one
+		if spec.Builder == manifest.BuilderDockerfile {
+			d.Builder = string(manifest.BuilderDockerfile)
+		}
+	}
 	if d.Image != "" {
 		d.Digest, _ = r.eng.ImageDigest(ctx, d.Image)
 		// No source to look at: the app's setting or Next.js's.
