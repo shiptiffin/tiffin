@@ -227,7 +227,10 @@ the box unless you [copy them off it](data.md#copies-off-the-box).
 - Usage trends cover only the last hour.
 - Per-project image sizes count layers that images share once per project, so the
   projects' totals can add up to more than the image store.
-- A token without box-wide read access can't see the disk breakdown.
+- A key limited to some projects can't see box-wide reports: the disk breakdown, the
+  box's resources, backups and restore drills. In observe it sees the machine's CPU,
+  memory, disks and services, but only its own projects' containers, alerts and
+  error-spike rules.
 - Database snapshots of deleted projects are kept for 7 days.
 
 ## Caching and images

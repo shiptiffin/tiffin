@@ -138,7 +138,7 @@ func registerDrills(a huma.API, p *platform.Platform, tag string) {
 		"Restore drills, newest first (the last 30 are kept): which backup, status (running, passed, failed), phase, timings in seconds "+
 			"(restore, start, verify, total), sizes, per-database table and row counts compared with the live database, and the outcome in plain words.", tag)
 	huma.Register(a, ls, api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body []BackupDrill }, error) {
-		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, ""); err != nil {
+		if err := api.PrincipalFrom(ctx).RequireBox(tokens.ScopeRead); err != nil {
 			return nil, err
 		}
 		if err := onBox(p); err != nil {
@@ -164,7 +164,7 @@ func registerDrills(a huma.API, p *platform.Platform, tag string) {
 	huma.Register(a, gt, api.Wrap(func(ctx context.Context, in *struct {
 		ID string `path:"id" pattern:"^dr_[0-9A-Z]{26}$" doc:"Drill ID"`
 	}) (*struct{ Body *BackupDrill }, error) {
-		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, ""); err != nil {
+		if err := api.PrincipalFrom(ctx).RequireBox(tokens.ScopeRead); err != nil {
 			return nil, err
 		}
 		if err := onBox(p); err != nil {

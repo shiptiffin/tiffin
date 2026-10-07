@@ -24,7 +24,10 @@ Plainly, so you can decide what to trust it with.
   destructive); Tiffin records everything in History and can undo it. Give agents that
   run unattended, or that should only touch one project, a narrower key: read access,
   or only that project. Outside its reach a key gets `403 forbidden`; there is no
-  approval step to get around it.
+  approval step to get around it. A key for some projects also gets no box-wide reports
+  (the disk breakdown, the box's resources, backups and restore drills), and the
+  observe overview, alerts and alert rules show it only its own projects' containers
+  and alerts.
 - **Secrets** (env vars) are encrypted with the box's own age key and are never shown
   after you set them.
 - **App sign-in tokens.** The access, refresh and ID tokens that Google, GitHub and the

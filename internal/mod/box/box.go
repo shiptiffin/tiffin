@@ -108,7 +108,7 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 			"running tiffin serve without --box answers 503.", "system")
 	op.Errors = append(op.Errors, 503)
 	huma.Register(a, op, api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body *Resources }, error) {
-		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, ""); err != nil {
+		if err := api.PrincipalFrom(ctx).RequireBox(tokens.ScopeRead); err != nil {
 			return nil, err
 		}
 		s := m.sampler()

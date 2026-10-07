@@ -50,7 +50,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	bl := api.Op("backups-list", http.MethodGet, "/v1/backups", "backups list", api.RiskRead,
 		"List backups", "Backup sets (Postgres via pgBackRest, Valkey snapshot, platform state), newest first, with the schedule.", tag)
 	huma.Register(a, bl, api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body *BackupOverview }, error) {
-		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, ""); err != nil {
+		if err := api.PrincipalFrom(ctx).RequireBox(tokens.ScopeRead); err != nil {
 			return nil, err
 		}
 		if err := onBox(p); err != nil {

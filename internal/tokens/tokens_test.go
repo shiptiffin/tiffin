@@ -302,3 +302,21 @@ func TestRemovedOrDemotedPersonLosesTheirKeys(t *testing.T) {
 	works("removed", false, bobKeys...)
 	works("owner key", true, ownerKey)
 }
+
+// Box-wide reports need read on every project, not just some.
+func TestRequireBox(t *testing.T) {
+	for _, c := range []struct {
+		p  Principal
+		ok bool
+	}{
+		{Principal{Scopes: []Scope{ScopeRead}, Projects: []string{"*"}}, true},
+		{Principal{Scopes: []Scope{ScopeAll}, Projects: []string{"*"}}, true},
+		{Principal{Scopes: []Scope{ScopeRead, ScopePlan}, Projects: []string{"shop"}}, false},
+		{Principal{Scopes: []Scope{ScopeAll}, Projects: []string{"shop", "blog"}}, false},
+		{Principal{Projects: []string{"*"}}, false},
+	} {
+		if err := c.p.RequireBox(ScopeRead); (err == nil) != c.ok || (err != nil && !errors.Is(err, ErrForbidden)) {
+			t.Errorf("%+v: %v", c.p, err)
+		}
+	}
+}

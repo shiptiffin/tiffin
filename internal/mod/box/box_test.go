@@ -168,9 +168,9 @@ func TestAPI(t *testing.T) {
 	owner, _, _ := tm.Bootstrap(context.Background())
 	srv := httptest.NewServer(api.New(api.Deps{DB: db, Engine: change.NewEngine(db), Tokens: tm}).Handler())
 	defer srv.Close()
-	get := func() (int, map[string]any) {
-		req, _ := http.NewRequest("GET", srv.URL+"/v1/box/resources", nil)
-		req.Header.Set("Authorization", "Bearer "+owner)
+	getAs := func(token, path string) (int, map[string]any) {
+		req, _ := http.NewRequest("GET", srv.URL+path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -181,6 +181,7 @@ func TestAPI(t *testing.T) {
 		_ = json.Unmarshal(b, &out)
 		return res.StatusCode, out
 	}
+	get := func() (int, map[string]any) { return getAs(owner, "/v1/box/resources") }
 	var m *Module
 	for _, mod := range platform.Modules() {
 		if bm, ok := mod.(*Module); ok {
@@ -198,5 +199,16 @@ func TestAPI(t *testing.T) {
 	code, out := get()
 	if code != 200 || out["cpu"].(map[string]any)["count"].(float64) != 2 || len(out["services"].([]any)) != 3 || len(out["apps"].([]any)) != 2 {
 		t.Fatalf("on box: %d %v", code, out)
+	}
+	// Box-wide reports name every project: a key for some projects gets none.
+	op, _ := tm.Authenticate(context.Background(), owner)
+	shop, _, err := tm.CreateKey(context.Background(), op, tokens.KeyRequest{Name: "shop", Projects: tokens.Projects{"shop"}, Access: tokens.LevelRead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/v1/box/resources", "/v1/box/disk"} {
+		if code, out := getAs(shop, path); code != 403 {
+			t.Fatalf("%s for a project key: %d %v", path, code, out)
+		}
 	}
 }

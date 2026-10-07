@@ -119,6 +119,19 @@ func (p *Principal) Require(s Scope, project string) error {
 	return nil
 }
 
+// RequireBox is Require for box-wide reports, which mix every project's
+// data (the disk breakdown, the box's resources, backups and restore
+// drills): s on all projects.
+func (p *Principal) RequireBox(s Scope) error {
+	if err := p.Require(s, ""); err != nil {
+		return err
+	}
+	if !p.CanProject("*") {
+		return fmt.Errorf("%w: this key (%q) is limited to some projects; this box-wide report needs a key for all projects", ErrForbidden, p.Name)
+	}
+	return nil
+}
+
 // ScopeForTier is the scope needed to apply a plan of the given risk.
 func ScopeForTier(t change.Tier) Scope {
 	switch t {

@@ -93,7 +93,7 @@ func (m *Module) registerDisk(a huma.API) {
 			"counted here. Box only: a laptop running tiffin serve without --box answers 503.", "system")
 	op.Errors = append(op.Errors, 503)
 	huma.Register(a, op, api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body *DiskReport }, error) {
-		if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, ""); err != nil {
+		if err := api.PrincipalFrom(ctx).RequireBox(tokens.ScopeRead); err != nil {
 			return nil, err
 		}
 		s := m.sampler()
