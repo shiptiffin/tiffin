@@ -63,7 +63,9 @@ func (*Module) PlanWarnings(ctx context.Context, p *platform.Platform, project s
 		uses = uses || contains(a.Methods, m)
 	}
 	_, hasEmail := desired[change.KindService+"/email"]
-	if !uses || !EmailBlocked(ctx, p, project, hasEmail) {
+	// Without an email service the manifest's own warning says to add one;
+	// this one is about the box, and would wrongly say it has no relay.
+	if !uses || !hasEmail || !EmailBlocked(ctx, p, project, hasEmail) {
 		return nil
 	}
 	return []string{"services.auth: this box can't send email yet, so in production email + password sign-up, magic links, one-time codes and password resets " +

@@ -488,6 +488,16 @@ func TestEmailBlockedWithoutRelay(t *testing.T) {
 	if c, _, _ := buildEngineConfig(ctx, p); c.Projects["shop"].EmailBlocked {
 		t.Fatal("blocked with a relay")
 	}
+	// A relay but no email service in the project: refused, and the plan
+	// does not claim the box has no relay (the manifest says add email).
+	delete(res, change.KindService+"/email")
+	if !EmailBlocked(ctx, p, "shop", false) {
+		t.Fatal("no email service, not blocked")
+	}
+	res[change.KindService+"/auth"] = change.Resource{Spec: []byte(`{"methods":["email"]}`)}
+	if w := (&Module{}).PlanWarnings(ctx, p, "shop", nil, res); len(w) != 0 {
+		t.Fatalf("relay set, no email service: %v", w)
+	}
 	fakeRelay = false
 	p.Domain = "tiffin.localhost"
 	if c, _, _ := buildEngineConfig(ctx, p); c.Projects["shop"].EmailBlocked {
