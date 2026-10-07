@@ -92,6 +92,15 @@ own box (`e2e/serve.sh`; `E2E_PORT` for a second one beside it). Specs that need
 Postgres, Valkey or storage skip on a Mac's local box and say why; point them at a dev box
 seeded by `e2e/seed-box.sh` (`E2E_BASE_URL`, `E2E_OWNER_TOKEN`).
 
+`scripts/live-sweep.sh` checks a real box instead of a VM: it deploys every starter
+template and a Dockerfile app as `sweep-*` projects on the CLI's current box, records
+build and deploy time, first-response and wake time, idle memory, the asset cache
+headers, failed requests during a redeploy, logs and the database, destroys what it
+made and looks for leftovers. With `SWEEP_SSH=root@<box ip>` (and `SWEEP_SSH_KEY`) it also
+checks sleep and wake and inspects the box itself. The table goes to stdout and to
+`notes/<date>-live-sweep.md`; `SWEEP_ONLY="nextjs hono"` runs a few templates. The header
+of the script lists the other settings and the `inventory`, `cleanup` and `reset` commands.
+
 ## Releases
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`: `make release` builds
