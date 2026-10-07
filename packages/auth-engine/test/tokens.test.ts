@@ -241,6 +241,46 @@ describe("provider tokens at rest", () => {
     expect(accounts.body.find((a: { providerId: string }) => a.providerId === "google").id).toBe(row.id);
   });
 
+  test("an API key can't read, refresh or spend its sponsor's provider tokens; their session can", async () => {
+    const c = new Client(handle);
+    await signIn(c, "github", "gus@example.com");
+    const row = await rowFor("github", "gus@example.com");
+    const k = await c.json("/api-key/create", { body: { name: "agent" } });
+    expect(k.status).toBe(200);
+    expect(k.body.key).toStartWith("tfk_");
+    const agent = new Client(handle, { "x-api-key": k.body.key });
+    expect((await agent.json("/tiffin/session")).body.via).toBe("api-key");
+
+    const refreshes = refreshesSeen.length;
+    for (const [path, init] of [
+      ["/get-access-token", { body: { accountId: row.id } }],
+      ["/refresh-token", { body: { accountId: row.id } }],
+      [`/account-info?accountId=${row.id}`, {}],
+    ] as const) {
+      const r = await agent.json(path, init);
+      expect(r.status).toBe(403);
+      expect(r.body.code).toBe("API_KEY_NOT_ALLOWED");
+      expect(JSON.stringify(r.body)).not.toContain("ghu_");
+    }
+    expect(refreshesSeen.length).toBe(refreshes); // nothing reached GitHub
+    // Still a working key: it lists the accounts (never their tokens).
+    const accounts = await agent.json("/list-accounts");
+    expect(accounts.status).toBe(200);
+    expect(accounts.body.map((a: { providerId: string }) => a.providerId)).toEqual(["github"]);
+    expect(JSON.stringify(accounts.body)).not.toContain("ghu_");
+
+    // The person, signed in, still can.
+    const t = await c.json("/get-access-token", { body: { accountId: row.id } });
+    expect(t.status).toBe(200);
+    expect(t.body.accessToken).toBe(await open(row.accessToken!));
+    const info = await c.json(`/account-info?accountId=${row.id}`);
+    expect(info.status).toBe(200);
+    expect(info.body.user.email).toBe("gus@example.com");
+    const r = await c.json("/refresh-token", { body: { accountId: row.id } });
+    expect(r.status).toBe(200);
+    expect(refreshesSeen.at(-1)).toBe(await open(row.refreshToken!));
+  });
+
   test("only the account's own user can read its tokens", async () => {
     const row = await rowFor("google", "ada@example.com");
     expect((await new Client(handle).json("/get-access-token", { body: { accountId: row.id } })).status).toBe(401);

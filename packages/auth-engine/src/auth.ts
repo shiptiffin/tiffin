@@ -26,7 +26,31 @@ export const SCHEMA = "tiffin_auth";
 
 type Adapter = Parameters<typeof effectiveRole>[0];
 
-/** Paths an API key may never call: account security and joining orgs need a person. */
+/**
+ * Environment variables Better Auth would apply to every project in the
+ * process. BETTER_AUTH_SECRETS beats the `secret` option (it's read whenever
+ * the `secrets` option is absent), and the others fill in where an option is
+ * unset, so one stray variable on the box would key, trust or address every
+ * project alike. Each project's own config is the only source: these are
+ * deleted from process.env (Better Auth reads it live) before any instance
+ * is built.
+ */
+export const IGNORED_ENV = ["BETTER_AUTH_SECRETS", "BETTER_AUTH_SECRET", "AUTH_SECRET", "BETTER_AUTH_TRUSTED_ORIGINS", "BETTER_AUTH_URL"] as const;
+
+export function scrubAuthEnv(): void {
+  for (const name of IGNORED_ENV) {
+    if (process.env[name] === undefined) continue;
+    delete process.env[name];
+    console.error(JSON.stringify({ level: "warn", msg: "ignoring environment variable: each project's auth config comes from engine.json", name }));
+  }
+}
+scrubAuthEnv();
+
+/**
+ * Paths an API key may never call: account security, sign-in provider tokens
+ * and joining orgs need a person. A key acts as its sponsor, so without this
+ * it could read (and refresh) their Google or GitHub tokens.
+ */
 const KEY_DENY = [
   "/api-key",
   "/passkey",
@@ -34,9 +58,15 @@ const KEY_DENY = [
   "/change-password",
   "/set-password",
   "/change-email",
+  "/email-otp/request-email-change",
+  "/email-otp/change-email",
   "/delete-user",
   "/link-social",
   "/unlink-account",
+  // Provider tokens, decrypted (and account-info, which spends them on the provider).
+  "/get-access-token",
+  "/refresh-token",
+  "/account-info",
   "/revoke-session",
   "/revoke-sessions",
   "/revoke-other-sessions",
@@ -264,6 +294,7 @@ const ORG_CHANGES = new Set([
 
 /** The Better Auth options for a project; also what migrations are computed from. */
 export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): BetterAuthOptions {
+  scrubAuthEnv();
   const methods = new Set(c.methods);
   const holder: { adapter?: Adapter; secret?: SecretConfig } = {};
   const mail = (m: Parameters<typeof send>[3]) => send(project, c.smtpUrl, `${c.appName} <${c.emailFrom}>`, m);
@@ -355,11 +386,15 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
         },
         {
           // API keys act for the person who made them, never above them.
-          matcher: () => !!currentFacts().apiKey,
+          // Any request carrying a key header counts, even one the engine couldn't look up first.
+          matcher: (ctx) => !!currentFacts().apiKey || !!ctx.headers?.get("x-api-key"),
           handler: createAuthMiddleware(async (ctx) => {
             const path = ctx.path;
             if (KEY_DENY.some((p) => path === p || path.startsWith(p + "/"))) {
-              throw forbid("API_KEY_NOT_ALLOWED", "API keys can't do this. Sign in as a person to manage keys, passkeys, two-factor, passwords, sessions or memberships.");
+              throw forbid(
+                "API_KEY_NOT_ALLOWED",
+                "API keys can't do this. Sign in as a person to manage keys, passkeys, two-factor, passwords, sessions, memberships or sign-in provider tokens.",
+              );
             }
           }),
         },

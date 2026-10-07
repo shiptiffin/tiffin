@@ -27,8 +27,12 @@ Plainly, so you can decide what to trust it with.
 - **App sign-in tokens.** The access, refresh and ID tokens that Google, GitHub and the
   other providers return when someone signs in to an app are encrypted (XChaCha20-Poly1305)
   with the project's auth key before they reach the app's database. The key stays in the
-  auth engine's config, out of the database and the app's environment. See
-  [Sign-in providers](auth.md#sign-in-providers).
+  auth engine's config, out of the database and the app's environment. Only the
+  signed-in person gets them back: an app's API key (`tfk_`) is refused
+  (`API_KEY_NOT_ALLOWED`) on `/get-access-token`, `/refresh-token` and `/account-info`.
+  Each project's auth secret comes only from that config: the engine ignores
+  `BETTER_AUTH_SECRET(S)`, `AUTH_SECRET`, `BETTER_AUTH_TRUSTED_ORIGINS` and
+  `BETTER_AUTH_URL` in its environment. See [Sign-in providers](auth.md#sign-in-providers).
 - **Dashboard sign-in** is a one-time link (`tiffin login`, an invite, or one emailed on
   request), a passkey, or Google or GitHub (see below).
   Each gives a 12-hour session with exactly that person's role, in an HttpOnly,
