@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btahir/tiffin/internal/mod/datakit"
 	"github.com/btahir/tiffin/internal/mod/postgres"
 	"github.com/jackc/pgx/v5"
 )
@@ -203,17 +204,7 @@ func pgTool(ctx context.Context, tool string, args ...string) *exec.Cmd {
 }
 
 // tailBuffer keeps the last bytes of a tool's stderr for error messages.
-type tailBuffer struct{ b []byte }
-
-func (t *tailBuffer) Write(p []byte) (int, error) {
-	t.b = append(t.b, p...)
-	if len(t.b) > 8192 {
-		t.b = t.b[len(t.b)-8192:]
-	}
-	return len(p), nil
-}
-
-func (t *tailBuffer) String() string { return strings.TrimSpace(string(t.b)) }
+type tailBuffer = datakit.TailBuffer
 
 // dumpRoles is `pg_dumpall --roles-only` (role attributes, password hashes
 // and memberships).

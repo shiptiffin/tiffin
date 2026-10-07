@@ -86,7 +86,12 @@ func TestReopenBlocked(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close(ctx)
-	for _, s := range []string{`CREATE DATABASE p_shop`, `CREATE DATABASE p_shop__pr_1`, `CREATE DATABASE other`,
+	old := dbAdmin
+	dbAdmin = func(ctx context.Context, db string) (*pgx.Conn, error) {
+		return pgx.Connect(ctx, fmt.Sprintf("postgres://tiffin:tiffin@127.0.0.1:%d/%s", port, db))
+	}
+	defer func() { dbAdmin = old }()
+	for _, s := range []string{`CREATE ROLE p_shop`, `CREATE DATABASE p_shop OWNER p_shop`, `CREATE DATABASE p_shop__pr_1 OWNER p_shop`, `CREATE DATABASE other`,
 		`ALTER DATABASE p_shop WITH ALLOW_CONNECTIONS false`, `ALTER DATABASE other WITH ALLOW_CONNECTIONS false`} {
 		if _, err := c.Exec(ctx, s); err != nil {
 			t.Fatal(s, err)

@@ -99,31 +99,19 @@ func DatabaseSizes(ctx context.Context, projects []string) (map[string]int64, er
 }
 
 func databaseSizes(ctx context.Context, admin *pgx.Conn, projects []string) (map[string]int64, error) {
-	mains := map[string]string{}
+	known := map[string]bool{}
 	for _, pr := range projects {
-		mains[Database(pr)] = pr
+		known[pr] = true
 	}
-	rows, err := admin.Query(ctx, `SELECT datname, shobj_description(oid, 'pg_database'), pg_database_size(oid) FROM pg_database WHERE NOT datistemplate`)
+	dbs, err := listDatabases(ctx, admin, "", true)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := map[string]int64{}
-	for rows.Next() {
-		var name string
-		var comment *string
-		var size int64
-		if err := rows.Scan(&name, &comment, &size); err != nil {
-			return nil, err
-		}
-		m, ok := parseMeta(comment)
-		if pr, main := mains[name]; main && (!ok || m.Project == pr) {
-			out[pr] += size
-		} else if ok && m.Tiffin == "branch" {
-			if _, known := mains[Database(m.Project)]; known {
-				out[m.Project] += size
-			}
+	for _, d := range dbs {
+		if known[d.Project] {
+			out[d.Project] += d.Size
 		}
 	}
-	return out, rows.Err()
+	return out, nil
 }

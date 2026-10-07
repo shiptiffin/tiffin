@@ -2,9 +2,9 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"github.com/btahir/tiffin/internal/api"
@@ -123,7 +123,8 @@ func createBranch(ctx context.Context, p *platform.Platform, project, name, from
 		return nil, err
 	}
 	clone := time.Now()
-	if _, err := admin.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %s TEMPLATE %s STRATEGY FILE_COPY OWNER %s`,
+	// Closed to every connection until openDatabase below (create.go).
+	if _, err := admin.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %s TEMPLATE %s STRATEGY FILE_COPY OWNER %s ALLOW_CONNECTIONS false`,
 		quoteIdent(dst), quoteIdent(src), quoteIdent(Role(project)))); err != nil {
 		return nil, fmt.Errorf("clone %s: %w", src, err)
 	}
@@ -136,7 +137,7 @@ func createBranch(ctx context.Context, p *platform.Platform, project, name, from
 	if err := setMeta(ctx, admin, dst, meta); err != nil {
 		return nil, err
 	}
-	if _, err := admin.Exec(ctx, fmt.Sprintf(`REVOKE ALL ON DATABASE %[1]s FROM PUBLIC; GRANT ALL ON DATABASE %[1]s TO %[2]s`, quoteIdent(dst), quoteIdent(Role(project)))); err != nil {
+	if err := openDatabase(ctx, admin, dst, Role(project)); err != nil {
 		return nil, err
 	}
 	poolsChanged()
@@ -149,26 +150,32 @@ func createBranch(ctx context.Context, p *platform.Platform, project, name, from
 }
 
 // reopenBlocked lets connections back into every project database that
-// refuses them. Only a branch clone blocks one, and only while it runs (it
-// holds mu), so any found here was left by a crash or a broken connection.
+// refuses them, with its owner-only ACL first. Only a branch clone or a new
+// database blocks one, and only while it runs (it holds mu), so any found
+// here was left by a crash or a broken connection.
 func reopenBlocked(ctx context.Context, admin *pgx.Conn, log *slog.Logger) error {
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	mu.Lock()
 	defer mu.Unlock()
-	rows, err := admin.Query(cctx, `SELECT datname FROM pg_database WHERE NOT datallowconn AND NOT datistemplate AND datname LIKE 'p\_%'`)
+	rows, err := admin.Query(cctx, `SELECT d.datname, r.rolname FROM pg_database d JOIN pg_roles r ON r.oid = d.datdba
+		WHERE NOT d.datallowconn AND NOT d.datistemplate`)
 	if err != nil {
 		return err
 	}
-	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	type closed struct{ DB, Owner string }
+	list, err := pgx.CollectRows(rows, pgx.RowToStructByPos[closed])
 	if err != nil {
 		return err
 	}
-	for _, db := range names {
-		if _, err := admin.Exec(cctx, fmt.Sprintf(`ALTER DATABASE %s WITH ALLOW_CONNECTIONS true`, quoteIdent(db))); err != nil {
-			return fmt.Errorf("reopen %s: %w", db, err)
+	for _, d := range list {
+		if _, _, ok := classifyDB(d.DB, d.Owner); !ok {
+			continue
 		}
-		log.Warn("postgres: reopened a database an interrupted branch clone left blocked", "database", db)
+		if err := openDatabase(cctx, admin, d.DB, d.Owner); err != nil {
+			return fmt.Errorf("reopen %s: %w", d.DB, err)
+		}
+		log.Warn("postgres: reopened a database an interrupted clone or restore left closed", "database", d.DB)
 	}
 	return nil
 }
@@ -205,28 +212,22 @@ func ListBranches(ctx context.Context, p *platform.Platform, project string) ([]
 		return nil, fmt.Errorf("connect to postgres: %w", err)
 	}
 	defer admin.Close(ctx)
-	main := Database(project)
-	rows, err := admin.Query(ctx, `SELECT datname, shobj_description(oid, 'pg_database'), pg_database_size(oid) FROM pg_database
-		WHERE left(datname, $1) = $2 ORDER BY oid`, len(main)+2, main+"__")
+	return listBranches(ctx, admin, project)
+}
+
+func listBranches(ctx context.Context, admin *pgx.Conn, project string) ([]PGBranch, error) {
+	dbs, err := listDatabases(ctx, admin, Role(project), true)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	sort.SliceStable(dbs, func(i, j int) bool { return dbs[i].OID < dbs[j].OID })
 	out := []PGBranch{}
-	for rows.Next() {
-		var b PGBranch
-		var comment *string
-		if err := rows.Scan(&b.Database, &comment, &b.SizeBytes); err != nil {
-			return nil, err
+	for _, d := range dbs {
+		if d.Branch != "" {
+			out = append(out, PGBranch{Name: d.Branch, Database: d.Name, From: d.Meta.From, CreatedAt: d.Meta.CreatedAt, SizeBytes: d.Size, Preview: d.Meta.Preview})
 		}
-		m, ok := parseMeta(comment)
-		if !ok || m.Tiffin != "branch" || m.Project != project {
-			continue
-		}
-		b.Name, b.From, b.CreatedAt, b.Preview = m.Branch, m.From, m.CreatedAt, m.Preview
-		out = append(out, b)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // targetDatabase resolves "" (main) or a branch name to a database of the
@@ -251,15 +252,11 @@ func targetDatabase(ctx context.Context, p *platform.Platform, project, branch s
 		return "", err
 	}
 	defer admin.Close(ctx)
-	var comment *string
-	err = admin.QueryRow(ctx, `SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = $1`, db).Scan(&comment)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", api.NewProblem(404, "not_found", fmt.Sprintf("branch %q does not exist in project %s", branch, project))
-	}
+	owner, err := databaseOwner(ctx, admin, db)
 	if err != nil {
 		return "", err
 	}
-	if m, ok := parseMeta(comment); !ok || m.Project != project {
+	if owner != Role(project) {
 		return "", api.NewProblem(404, "not_found", fmt.Sprintf("branch %q does not exist in project %s", branch, project))
 	}
 	return db, nil

@@ -121,6 +121,20 @@ func Run(ctx context.Context, name string, args ...string) (string, error) {
 	return out.String(), nil
 }
 
+// TailBuffer keeps the last 8 KiB written to it: a tool's output for an
+// error message, whatever the tool prints.
+type TailBuffer struct{ b []byte }
+
+func (t *TailBuffer) Write(p []byte) (int, error) {
+	t.b = append(t.b, p...)
+	if len(t.b) > 8192 {
+		t.b = append(t.b[:0], t.b[len(t.b)-8192:]...)
+	}
+	return len(p), nil
+}
+
+func (t *TailBuffer) String() string { return strings.TrimSpace(string(t.b)) }
+
 // ErrOffBox is returned by operations that need the box's services.
 var ErrOffBox = errors.New("this needs the box's data services; it only works on a box")
 

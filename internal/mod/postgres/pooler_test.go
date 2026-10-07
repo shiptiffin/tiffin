@@ -27,10 +27,10 @@ func TestPoolerBudget(t *testing.T) {
 	// A project limited to 10% of a 100-connection box: role 10, pooler 8,
 	// each preview branch 1.
 	l := roleLimits(10, 0, 100, 0)
-	pools, caps := desiredPools(map[string]dbMeta{
-		"p_shop":         {Tiffin: "main", Project: "shop"},
-		"p_shop__pv_pr1": {Tiffin: "branch", Project: "shop", Branch: "pv-pr1"},
-		"p_blog":         {Tiffin: "main", Project: "blog"},
+	pools, caps := desiredPools([]projectDB{
+		{Name: "p_shop", Project: "shop"},
+		{Name: "p_shop__pv_pr1", Project: "shop", Branch: "pv-pr1"},
+		{Name: "p_blog", Project: "blog"},
 	}, func(project string) int {
 		if project == "shop" {
 			return l.Connections

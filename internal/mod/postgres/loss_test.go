@@ -19,6 +19,29 @@ import (
 // "postgres" and a function connecting to another database.
 func embedded(t *testing.T) (*pgx.Conn, func(db string) *pgx.Conn) {
 	t.Helper()
+	port := embeddedPort(t)
+	connect := func(db string) *pgx.Conn {
+		t.Helper()
+		return connectAs(t, port, "tiffin", "tiffin", db)
+	}
+	return connect("postgres"), connect
+}
+
+// connectAs connects to the embedded Postgres on port as user.
+func connectAs(t *testing.T, port int, user, password, db string) *pgx.Conn {
+	t.Helper()
+	c, err := pgx.Connect(context.Background(), fmt.Sprintf("postgres://%s:%s@127.0.0.1:%d/%s", user, password, port, db))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close(context.Background()) })
+	return c
+}
+
+// embeddedPort starts a real Postgres whose superuser is tiffin/tiffin and
+// returns its port.
+func embeddedPort(t *testing.T) int {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("needs an embedded Postgres")
 	}
@@ -39,16 +62,7 @@ func embedded(t *testing.T) (*pgx.Conn, func(db string) *pgx.Conn) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pg.Stop() })
-	connect := func(db string) *pgx.Conn {
-		t.Helper()
-		c, err := pgx.Connect(context.Background(), fmt.Sprintf("postgres://tiffin:tiffin@127.0.0.1:%d/%s", port, db))
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { c.Close(context.Background()) })
-		return c
-	}
-	return connect("postgres"), connect
+	return port
 }
 
 // TestMeasureTables counts tables and rows on a real Postgres.

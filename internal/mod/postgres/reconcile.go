@@ -89,17 +89,15 @@ func ensure(ctx context.Context, p *platform.Platform, project string, s manifes
 	}
 	noteApplied(project, s.StatementTimeoutSeconds, limits)
 
-	var comment *string
-	err = admin.QueryRow(ctx, `SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = $1`, db).Scan(&comment)
-	exists = err == nil
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	owner, err := databaseOwner(ctx, admin, db)
+	if err != nil {
 		return err
 	}
-	if m, ok := parseMeta(comment); exists && ok && m.Project != project {
-		return fmt.Errorf("database %s already belongs to project %q (branch %q); rename one of the projects", db, m.Project, m.Branch)
+	if owner != "" && owner != role {
+		return fmt.Errorf("database %s already exists and belongs to role %s; rename the project", db, owner)
 	}
-	if !exists {
-		if _, err := admin.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %s OWNER %s`, quoteIdent(db), quoteIdent(role))); err != nil {
+	if owner == "" {
+		if err := createDatabase(ctx, admin, db, role, ""); err != nil {
 			return fmt.Errorf("create database: %w", err)
 		}
 		if err := setMeta(ctx, admin, db, dbMeta{Tiffin: "main", Project: project, CreatedAt: time.Now().UTC()}); err != nil {
@@ -114,8 +112,7 @@ func ensure(ctx context.Context, p *platform.Platform, project string, s manifes
 			return fmt.Errorf("bring back the data from when Postgres was deleted: %w (to start with an empty database instead, "+
 				"remove postgres from the project, apply, then add it back)", err)
 		}
-	}
-	if _, err := admin.Exec(ctx, fmt.Sprintf(`REVOKE ALL ON DATABASE %[1]s FROM PUBLIC; GRANT ALL ON DATABASE %[1]s TO %[2]s`, quoteIdent(db), quoteIdent(role))); err != nil {
+	} else if err := openDatabase(ctx, admin, db, role); err != nil {
 		return err
 	}
 	return reconcileExtensions(ctx, p, project, admin, s.Extensions)
@@ -170,7 +167,7 @@ func reconcileExtensions(ctx context.Context, p *platform.Platform, project stri
 			}
 			continue
 		}
-		if _, err := c.Exec(ctx, fmt.Sprintf(`CREATE EXTENSION IF NOT EXISTS %s CASCADE`, quoteIdent(e))); err != nil {
+		if err := CreateExtension(ctx, c, e); err != nil {
 			return fmt.Errorf("enable extension %s: %w", e, err)
 		}
 	}
@@ -286,7 +283,7 @@ func restoreAfterUndo(ctx context.Context, p *platform.Platform, project string)
 	}
 	if err == nil {
 		p.Log.Info("postgres: restoring the data from when the service was deleted", "project", project, "snapshot", snap.ID)
-		err = pgRestore(ctx, snap.Path, Database(project))
+		err = pgRestore(ctx, p, project, snap.Path, Database(project))
 	}
 	if err != nil {
 		rec.Failed = true
@@ -322,51 +319,6 @@ func setMeta(ctx context.Context, admin *pgx.Conn, db string, m dbMeta) error {
 	return err
 }
 
-// projectDB is one database of a project: the main one (Branch "") or a branch.
-type projectDB struct {
-	Name   string
-	Branch string
-}
-
-// projectDatabases lists the main database and branch databases of a
-// project, main first. Branch databases are recognised by their comment,
-// so a project slug that happens to look like "<other>__<branch>" never
-// claims another project's branches.
-func projectDatabases(ctx context.Context, c *pgx.Conn, project string) ([]projectDB, error) {
-	main := Database(project)
-	rows, err := c.Query(ctx, `SELECT datname, shobj_description(oid, 'pg_database') FROM pg_database
-		WHERE datname = $1 OR left(datname, $2) = $3 ORDER BY datname = $1 DESC, datname`, main, len(main)+2, main+"__")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []projectDB
-	for rows.Next() {
-		var name string
-		var comment *string
-		if err := rows.Scan(&name, &comment); err != nil {
-			return nil, err
-		}
-		m, ok := parseMeta(comment)
-		switch {
-		case name == main && (!ok || m.Project == project):
-			out = append(out, projectDB{Name: name})
-		case ok && m.Tiffin == "branch" && m.Project == project:
-			out = append(out, projectDB{Name: name, Branch: m.Branch})
-		}
-	}
-	return out, rows.Err()
-}
-
-func hasDB(list []projectDB, name string) bool {
-	for _, d := range list {
-		if d.Name == name {
-			return true
-		}
-	}
-	return false
-}
-
 // cronFuncs grants (or revokes) the pg_cron functions a project role needs
 // beyond schedule/unschedule: scheduling into its own database and altering
 // its own jobs. pg_cron itself refuses databases the role cannot CONNECT
@@ -378,6 +330,19 @@ func cronFuncs(verb, prep string) string {
            WHERE n.nspname = 'cron' AND p.proname IN ('schedule_in_database', 'alter_job') LOOP
     EXECUTE format('` + verb + ` EXECUTE ON FUNCTION %%s ` + prep + ` %[1]s', f);
   END LOOP; END $cron$;`
+}
+
+// CreateExtension creates an extension (and what it needs) in the public
+// schema of the database c is connected to as the superuser. Admin
+// connections search only pg_catalog, so the schema is named here.
+func CreateExtension(ctx context.Context, c *pgx.Conn, name string) error {
+	return pgx.BeginFunc(ctx, c, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SET LOCAL search_path = public`); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, fmt.Sprintf(`CREATE EXTENSION IF NOT EXISTS %s CASCADE`, quoteIdent(name)))
+		return err
+	})
 }
 
 func isUndefinedTable(err error) bool { return err != nil && strings.Contains(err.Error(), "42P01") }

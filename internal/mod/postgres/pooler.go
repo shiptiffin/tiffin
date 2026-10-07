@@ -83,12 +83,16 @@ type pool struct {
 // poolsConfig renders pools.ini: one entry per project database and the
 // per-role cap on server connections. Anything else (a branch made since
 // the last sync) falls back to a small pool.
+// Names it writes must be plain identifiers (p_[a-z0-9_]+): anything else is
+// left out rather than written into an INI file PgBouncer trusts.
 func poolsConfig(pools []pool, userCap map[string]int) string {
 	var b strings.Builder
 	b.WriteString("; Managed by Tiffin (the postgres module syncs it). Edits are overwritten.\n[databases]\n")
 	sort.Slice(pools, func(i, j int) bool { return pools[i].Database < pools[j].Database })
 	for _, p := range pools {
-		fmt.Fprintf(&b, "%s = host=%s port=%d pool_size=%d\n", p.Database, SocketDir, Port, p.Size)
+		if plainIdent(p.Database) {
+			fmt.Fprintf(&b, "%s = host=%s port=%d pool_size=%d\n", p.Database, SocketDir, Port, p.Size)
+		}
 	}
 	fmt.Fprintf(&b, "* = host=%s port=%d pool_size=%d\n\n[users]\n", SocketDir, Port, fallbackPoolSize)
 	roles := make([]string, 0, len(userCap))
@@ -97,9 +101,17 @@ func poolsConfig(pools []pool, userCap map[string]int) string {
 	}
 	sort.Strings(roles)
 	for _, r := range roles {
-		fmt.Fprintf(&b, "%s = max_user_connections=%d\n", r, userCap[r])
+		if plainIdent(r) {
+			fmt.Fprintf(&b, "%s = max_user_connections=%d\n", r, userCap[r])
+		}
 	}
 	return b.String()
+}
+
+// plainIdent reports whether s is a project database or role name: p_
+// followed by lowercase letters, digits and underscores.
+func plainIdent(s string) bool {
+	return len(s) > 2 && len(s) <= 63 && strings.HasPrefix(s, "p_") && strings.Trim(s, "abcdefghijklmnopqrstuvwxyz0123456789_") == ""
 }
 
 // poolerConfig renders pgbouncer.ini for a box with memMB of RAM. Roles not
@@ -462,18 +474,18 @@ func poolsChanged() {
 
 // desiredPools lists the pools for the project databases in the cluster.
 // limit gives a project's role connection limit.
-func desiredPools(dbs map[string]dbMeta, limit func(project string) int) ([]pool, map[string]int) {
+func desiredPools(dbs []projectDB, limit func(project string) int) ([]pool, map[string]int) {
 	var pools []pool
 	caps := map[string]int{}
-	for name, m := range dbs {
-		server := PoolerServerLimit(limit(m.Project))
-		role := Role(m.Project)
+	for _, d := range dbs {
+		server := PoolerServerLimit(limit(d.Project))
+		role := Role(d.Project)
 		caps[role] = server
 		size := server
-		if m.Tiffin == "branch" {
+		if d.Branch != "" {
 			size = branchPoolSize(server)
 		}
-		pools = append(pools, pool{Database: name, Role: role, Size: size})
+		pools = append(pools, pool{Database: d.Name, Role: role, Size: size})
 	}
 	return pools, caps
 }
@@ -488,27 +500,9 @@ func syncPools(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	rows, err := admin.Query(ctx, `SELECT datname, shobj_description(oid, 'pg_database') FROM pg_database WHERE datname LIKE 'p\_%'`)
-	if err != nil {
-		admin.Close(ctx)
-		return err
-	}
-	dbs := map[string]dbMeta{}
-	for rows.Next() {
-		var name string
-		var comment *string
-		if err := rows.Scan(&name, &comment); err != nil {
-			rows.Close()
-			admin.Close(ctx)
-			return err
-		}
-		if m, ok := parseMeta(comment); ok && m.Project != "" {
-			dbs[name] = m
-		}
-	}
-	rows.Close()
+	dbs, err := listDatabases(ctx, admin, "", false)
 	admin.Close(ctx)
-	if err := rows.Err(); err != nil {
+	if err != nil {
 		return err
 	}
 	pools, caps := desiredPools(dbs, func(project string) int { return LimitUsage(project).ConnectionLimit })

@@ -113,7 +113,7 @@ func (b boxBackend) prepareDatabase(ctx context.Context, project string, manifes
 		if !available {
 			return fmt.Errorf("the database uses extension %s, which this box does not have", e)
 		}
-		if _, err := c.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS `+qi(e)+` CASCADE`); err != nil {
+		if err := postgres.CreateExtension(ctx, c, e); err != nil {
 			return fmt.Errorf("extension %s: %w", e, err)
 		}
 	}
