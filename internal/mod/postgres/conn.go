@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/mod/budget"
 	"github.com/btahir/tiffin/internal/mod/datakit"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/jackc/pgx/v5"
@@ -147,11 +148,17 @@ func ReadEnv(ctx context.Context, p *platform.Platform, project, branch string) 
 	if !exists {
 		verb = "CREATE"
 	}
-	if _, err := admin.Exec(ctx, fmt.Sprintf(`%[1]s ROLE %[2]s WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 20 PASSWORD %[3]s;
+	limits := readLimits(roleLimits(budget.SharedLimit(project).Percent, 0, MaxConnections(memTotalMB()), dataDiskBytes()))
+	if _, err := admin.Exec(ctx, fmt.Sprintf(`%[1]s ROLE %[2]s WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD %[3]s;
 ALTER ROLE %[2]s SET default_transaction_read_only = on;
 GRANT pg_read_all_data TO %[2]s;
 GRANT CONNECT ON DATABASE %[4]s TO %[2]s`, verb, quoteIdent(role), quoteLiteral(pw), quoteIdent(db))); err != nil {
 		return nil, fmt.Errorf("read-only role: %w", err)
+	}
+	// The project's safety settings and a share of its connections; the
+	// watcher keeps them in step (cgroups.go).
+	if err := applyRoleLimits(ctx, admin, role, limits); err != nil {
+		return nil, err
 	}
 	return connEnv(role, pw, db, false, false), nil // builds are short; they connect directly
 }

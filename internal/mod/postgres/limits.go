@@ -68,6 +68,17 @@ func roleLimits(share, timeout, maxConn int, disk uint64) RoleLimits {
 	return l
 }
 
+// readConnections caps a project's read role (its builds): no more than the
+// project's own role may hold.
+const readConnections = 20
+
+// readLimits are the settings a project's read role runs with: the same
+// safety settings as the project's role, and at most readConnections.
+func readLimits(l RoleLimits) RoleLimits {
+	l.Connections = min(l.Connections, readConnections)
+	return l
+}
+
 // statements are the SQL that give role these settings. They apply to new
 // sessions; open ones keep theirs (nothing is cut off when a limit changes).
 func (l RoleLimits) statements(role string) []string {

@@ -195,6 +195,22 @@ func TestTenantHardening(t *testing.T) {
 		c.Close(ctx)
 	})
 
+	t.Run("retuning leaves read roles their share", func(t *testing.T) {
+		tc.exec(t, `ALTER ROLE p_shop__read CONNECTION LIMIT 5`)
+		tc.exec(t, retuneRoles(77))
+		var own, read int
+		if err := tc.admin.QueryRow(ctx, `SELECT (SELECT rolconnlimit FROM pg_roles WHERE rolname = 'p_shop'),
+			(SELECT rolconnlimit FROM pg_roles WHERE rolname = 'p_shop__read')`).Scan(&own, &read); err != nil || own != 77 || read != 5 {
+			t.Fatalf("p_shop %d, p_shop__read %d: %v", own, read, err)
+		}
+		if l := readLimits(roleLimits(5, 0, 100, 0)); l.Connections != 5 || l.StatementTimeoutSeconds != LimitedStatementTimeout {
+			t.Fatalf("a 5%% project's read role: %+v", l)
+		}
+		if l := readLimits(roleLimits(0, 0, 400, 0)); l.Connections != readConnections {
+			t.Fatalf("an open project's read role: %+v", l)
+		}
+	})
+
 	t.Run("ownership ignores the comment", func(t *testing.T) {
 		// The app rewrites its database's metadata to name a role line
 		// that would add a superuser pool, and hides a branch.

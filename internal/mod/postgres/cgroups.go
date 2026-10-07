@@ -207,24 +207,25 @@ type Usage struct {
 }
 
 type watcher struct {
-	mu        sync.Mutex
-	cg        *cgroups
-	conn      *pgx.Conn
-	retryAt   time.Time
-	gen       uint64
-	refreshed time.Time
-	scanned   time.Time
-	roles     map[string]string     // role → project, for projects with postgres
-	timeout   map[string]int        // project → statementTimeoutSeconds in its config
-	applied   map[string]RoleLimits // project → settings its role has
-	groups    map[string]string     // project → its group's cpu.max and io weight as written
-	counts    map[string]int        // project → connections open now
-	timeouts  map[string]int        // project → queries stopped today
-	full      map[string]time.Time  // project → when its connections were last all in use
-	warned    bool
+	mu          sync.Mutex
+	cg          *cgroups
+	conn        *pgx.Conn
+	retryAt     time.Time
+	gen         uint64
+	refreshed   time.Time
+	scanned     time.Time
+	roles       map[string]string     // role → project, for projects with postgres (its read role too)
+	timeout     map[string]int        // project → statementTimeoutSeconds in its config
+	applied     map[string]RoleLimits // project → settings its role has
+	readApplied map[string]RoleLimits // project → settings its read role has
+	groups      map[string]string     // project → its group's cpu.max and io weight as written
+	counts      map[string]int        // project → connections open now
+	timeouts    map[string]int        // project → queries stopped today
+	full        map[string]time.Time  // project → when its connections were last all in use
+	warned      bool
 }
 
-var watch = &watcher{cg: &cgroups{dir: serviceCgroup}, roles: map[string]string{}, timeout: map[string]int{}, applied: map[string]RoleLimits{},
+var watch = &watcher{cg: &cgroups{dir: serviceCgroup}, roles: map[string]string{}, timeout: map[string]int{}, applied: map[string]RoleLimits{}, readApplied: map[string]RoleLimits{},
 	groups: map[string]string{}, counts: map[string]int{}, timeouts: map[string]int{}, full: map[string]time.Time{}}
 
 const (
@@ -274,7 +275,7 @@ func (w *watcher) tick(ctx context.Context, p *platform.Platform, now time.Time)
 			w.timeouts = map[string]int{}
 			for role, n := range byRole {
 				if pr, ok := w.roles[role]; ok {
-					w.timeouts[pr] = n
+					w.timeouts[pr] += n
 				}
 			}
 			w.mu.Unlock()
@@ -312,7 +313,7 @@ func (w *watcher) round(ctx context.Context, p *platform.Platform, now time.Time
 		return err
 	}
 	backends := map[int]string{}
-	counts := map[string]int{}
+	counts, own := map[string]int{}, map[string]int{}
 	for rows.Next() {
 		var pid int32
 		var user string
@@ -321,9 +322,14 @@ func (w *watcher) round(ctx context.Context, p *platform.Platform, now time.Time
 			w.drop()
 			return err
 		}
+		// A build's read-role sessions are the project's too: they count
+		// and run in its CPU group.
 		pr := w.roles[user]
 		backends[int(pid)] = pr
 		counts[pr]++
+		if user == Role(pr) {
+			own[pr]++
+		}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -331,7 +337,7 @@ func (w *watcher) round(ctx context.Context, p *platform.Platform, now time.Time
 		return err
 	}
 	w.counts = counts
-	for pr, n := range counts {
+	for pr, n := range own {
 		if lim := w.applied[pr].Connections; lim > 0 && n >= lim && now.Sub(w.full[pr]) >= time.Hour {
 			w.full[pr] = now
 			go budget.RecordEvent(context.WithoutCancel(ctx), pr, budget.EventConnections, fmt.Sprintf(
@@ -368,27 +374,52 @@ func (w *watcher) refresh(ctx context.Context, p *platform.Platform) error {
 		}
 		var s manifest.Postgres
 		_ = json.Unmarshal(r.Spec, &s)
-		roles[Role(pr)], timeouts[pr] = pr, s.StatementTimeoutSeconds
+		roles[Role(pr)], roles[ReadRole(pr)], timeouts[pr] = pr, pr, s.StatementTimeoutSeconds
 	}
 	w.roles, w.timeout = roles, timeouts
 	disk := dataDiskBytes()
 	for pr := range w.applied {
 		if _, ok := timeouts[pr]; !ok {
 			delete(w.applied, pr)
+			delete(w.readApplied, pr)
 		}
+	}
+	readRoles, err := existingRoles(ctx, w.conn, `%\_\_read`)
+	if err != nil {
+		return err
 	}
 	for pr, t := range timeouts {
 		want := roleLimits(budget.SharedLimit(pr).Percent, t, MaxConnections(memTotalMB()), disk)
-		if w.applied[pr] == want {
-			continue
+		if w.applied[pr] != want {
+			if err := applyRoleLimits(ctx, w.conn, Role(pr), want); err != nil {
+				p.Log.Debug("postgres: role limits", "project", pr, "err", err) // the role may not exist yet: reconcile makes it
+				continue
+			}
+			w.applied[pr] = want
 		}
-		if err := applyRoleLimits(ctx, w.conn, Role(pr), want); err != nil {
-			p.Log.Debug("postgres: role limits", "project", pr, "err", err) // the role may not exist yet: reconcile makes it
-			continue
+		if rl := readLimits(want); readRoles[ReadRole(pr)] && w.readApplied[pr] != rl {
+			if err := applyRoleLimits(ctx, w.conn, ReadRole(pr), rl); err != nil {
+				p.Log.Debug("postgres: read role limits", "project", pr, "err", err)
+				continue
+			}
+			w.readApplied[pr] = rl
 		}
-		w.applied[pr] = want
 	}
 	return nil
+}
+
+// existingRoles returns the roles whose names are LIKE pattern.
+func existingRoles(ctx context.Context, c *pgx.Conn, pattern string) (map[string]bool, error) {
+	rows, err := c.Query(ctx, `SELECT rolname FROM pg_roles WHERE rolname LIKE $1`, pattern)
+	if err != nil {
+		return nil, err
+	}
+	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	out := map[string]bool{}
+	for _, n := range names {
+		out[n] = true
+	}
+	return out, err
 }
 
 // placeBackends moves backends between groups (no-op without delegation).

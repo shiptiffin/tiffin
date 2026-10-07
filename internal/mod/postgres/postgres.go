@@ -141,10 +141,11 @@ CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 	return err
 }
 
-// retuneRoles sets every project role's connection limit to n.
+// retuneRoles sets every project role's connection limit to n (not the
+// read roles': theirs stay a share of their project's).
 func retuneRoles(n int) string {
 	return fmt.Sprintf(`DO $$DECLARE r record; BEGIN
-FOR r IN SELECT rolname FROM pg_roles WHERE rolname LIKE 'p\_%%' AND rolcanlogin AND NOT rolsuper AND rolconnlimit <> %[1]d LOOP
+FOR r IN SELECT rolname FROM pg_roles WHERE rolname LIKE 'p\_%%' AND rolname NOT LIKE '%%\_\_read' AND rolcanlogin AND NOT rolsuper AND rolconnlimit <> %[1]d LOOP
   EXECUTE format('ALTER ROLE %%I CONNECTION LIMIT %[1]d', r.rolname);
 END LOOP; END$$;`, n)
 }
