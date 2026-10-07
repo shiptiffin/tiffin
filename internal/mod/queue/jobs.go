@@ -622,9 +622,13 @@ type ListFilter struct {
 	Limit  int
 }
 
+// jobListCols are jobCols without the payload and output a listing drops
+// (up to 1 MB and 64 KB a job).
+var jobListCols = strings.NewReplacer(" payload,", " NULL::jsonb AS payload,", " output,", " NULL::jsonb AS output,").Replace(jobCols)
+
 // ListJobs lists a project's jobs, newest first.
 func (e *Engine) ListJobs(ctx context.Context, project string, f ListFilter) ([]Job, error) {
-	q := `SELECT ` + jobCols + ` FROM tq_jobs WHERE project = $1`
+	q := `SELECT ` + jobListCols + ` FROM tq_jobs WHERE project = $1`
 	args := []any{project}
 	add := func(cond string, v any) {
 		args = append(args, v)

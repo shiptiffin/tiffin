@@ -1041,3 +1041,10 @@ func TestOwnerLockLost(t *testing.T) {
 	// Still the owner: new jobs run.
 	e.waitState(proj, e.send(proj, SendRequest{Name: "slow"}).Jobs[0], stateCompleted, 10*time.Second)
 }
+
+// Listings don't fetch the payloads and outputs they drop.
+func TestListingsSkipPayloads(t *testing.T) {
+	if strings.Count(jobListCols, "NULL::jsonb AS") != 2 || strings.Count(jobListCols, ",") != strings.Count(jobCols, ",") {
+		t.Errorf("job listing columns: %s", jobListCols)
+	}
+}

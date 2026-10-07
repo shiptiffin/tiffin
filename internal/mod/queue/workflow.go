@@ -1104,7 +1104,7 @@ type RunFilter struct {
 
 // ListRuns lists runs, newest first.
 func (e *Engine) ListRuns(ctx context.Context, project string, f RunFilter) ([]Run, error) {
-	q := `SELECT ` + runCols + ` FROM wf_runs WHERE project = $1`
+	q := `SELECT ` + strings.Replace(runCols, " input,", " NULL::jsonb AS input,", 1) + ` FROM wf_runs WHERE project = $1` // a listing drops inputs
 	args := []any{project}
 	if f.Workflow != "" {
 		args = append(args, f.Workflow)
