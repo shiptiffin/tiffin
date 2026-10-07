@@ -170,11 +170,24 @@ func buildCacheCap(disk int64) int64 {
 
 // buildkitConfig is buildkitd.toml with the cache capped at limit bytes.
 // Sources, cache mounts and git checkouts unused for a week go first and
-// may take half of it. BuildKit reads "MB" as MiB here.
+// may take half of it; with less than 15% of the disk free, the cache
+// shrinks further. BuildKit reads "MB" as MiB here.
+//
+// No build history: BuildKit's default keeps the last 50 builds' records
+// (removing one only once it is past both 50 entries and 48 hours), and a
+// record leases its build's result, image layers included, so neither an
+// image sweep nor a destroyed project freed that disk. The box keeps its
+// own build logs. maxEntries = 0 records none; maxAge removes records an
+// older config kept.
 func buildkitConfig(limit int64) string {
 	mib := func(n int64) string { return strconv.FormatInt(n>>20, 10) + "MB" }
 	return `# Managed by tiffin (runtime module). The cache cap follows the data disk (buildCacheCap).
 root = "` + buildkitDir + `"
+
+# No build history: its records pin each build's image layers on disk.
+[history]
+  maxAge = "1h"
+  maxEntries = 0
 
 [worker.oci]
   enabled = false
@@ -195,6 +208,7 @@ root = "` + buildkitDir + `"
   [[worker.containerd.gcpolicy]]
     all = true
     maxUsedSpace = "` + mib(limit) + `"
+    minFreeSpace = "15%"
 `
 }
 

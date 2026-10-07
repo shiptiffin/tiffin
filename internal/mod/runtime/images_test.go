@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/BurntSushi/toml"
 )
 
 // fakeStored overrides when the fake engine says an image name was stored
@@ -351,8 +353,24 @@ func TestBuildCacheCap(t *testing.T) {
 		}
 	}
 	conf := buildkitConfig(6 * gib)
-	if !strings.Contains(conf, `maxUsedSpace = "3072MB"`) || !strings.Contains(conf, `maxUsedSpace = "6144MB"`) || strings.Count(conf, "maxUsedSpace") != 2 {
+	if !strings.Contains(conf, `maxUsedSpace = "3072MB"`) || !strings.Contains(conf, `maxUsedSpace = "6144MB"`) || strings.Count(conf, "maxUsedSpace") != 2 ||
+		!strings.Contains(conf, "[history]\n  maxAge = \"1h\"\n  maxEntries = 0\n") || !strings.Contains(conf, `minFreeSpace = "15%"`) {
 		t.Fatalf("config:\n%s", conf)
+	}
+	var parsed struct {
+		History struct {
+			MaxAge     string `toml:"maxAge"`
+			MaxEntries *int64 `toml:"maxEntries"`
+		} `toml:"history"`
+		Worker struct {
+			Containerd struct {
+				GCPolicy []map[string]any `toml:"gcpolicy"`
+			} `toml:"containerd"`
+		} `toml:"worker"`
+	}
+	if _, err := toml.Decode(conf, &parsed); err != nil || parsed.History.MaxEntries == nil || *parsed.History.MaxEntries != 0 ||
+		parsed.History.MaxAge != "1h" || len(parsed.Worker.Containerd.GCPolicy) != 2 {
+		t.Fatalf("config does not parse as meant (%v): %+v\n%s", err, parsed, conf)
 	}
 }
 

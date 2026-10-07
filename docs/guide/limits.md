@@ -364,7 +364,7 @@ The box adds nothing for LLMs:
 | Email | 300 messages an hour | `tiffin email rate-limit set` |
 | Rollbacks | the last 3 production deploys; previews keep none | |
 | Previews | deleted after 7 days with no request or deploy | |
-| Build cache | 15% of the data disk (4 to 20 GiB) | |
+| Build cache | 15% of the data disk (4 to 20 GiB), less while under 15% of the disk is free; no BuildKit build history is kept | |
 
 Everything runs on **one machine**: if the box is down, your apps are down. Backups stay on
 the box unless you [copy them off it](data.md#copies-off-the-box).
@@ -451,7 +451,12 @@ Router, TanStack Start) cover the files the build wrote, as they are:
   or `/_next/static/`); other files are the live release's only.
 - Static sites built with Bun keep their build caches in a folder per app, started afresh
   past 2 GiB. A preview's build uses its app's caches, so a preview build could leave
-  files in them that production builds read.
+  files in them that production builds read. Deleting the app or destroying the project
+  removes them.
+- **BuildKit's cache is shared, not per project:** destroying a project removes its
+  images and static build caches at once, but its BuildKit cache mounts (package caches
+  keyed by project and app) stay until they are a week unused or the build cache passes
+  its cap.
 
 ## Analytics
 
