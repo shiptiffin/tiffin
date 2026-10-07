@@ -13,73 +13,22 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
-// versionMu keeps two deploys of one app from taking the same version.
+// versionMu keeps two deploys of one app from taking the same version:
+// newDeploy holds it from nextVersion until the deploy is stored.
 var versionMu sync.Mutex
 
-// ensureVersions numbers an app's production deploys 1, 2, 3… by creation
-// order, writing the number to records made before versions existed, and
-// returns the next free number. Callers hold versionMu.
-func (s store) ensureVersions(ctx context.Context, project, app string) (int, error) {
+// nextVersion is the version a new production deploy of the app takes: one
+// more than the highest so far. Callers hold versionMu.
+func (s store) nextVersion(ctx context.Context, project, app string) (int, error) {
 	ds, err := s.listDeploys(ctx, project, app, "")
 	if err != nil {
 		return 0, err
 	}
-	sort.Slice(ds, func(i, j int) bool { return ds[i].ID < ds[j].ID })
 	n := 0
 	for _, d := range ds {
-		if d.Version > 0 {
-			n = max(n, d.Version)
-			continue
-		}
-		n++
-		d.Version = n
-		if err := s.putDeploy(ctx, d); err != nil {
-			return 0, err
-		}
+		n = max(n, d.Version)
 	}
 	return n + 1, nil
-}
-
-// nextVersion is the version a new production deploy of the app takes.
-func (s store) nextVersion(ctx context.Context, project, app string) (int, error) {
-	versionMu.Lock()
-	defer versionMu.Unlock()
-	return s.ensureVersions(ctx, project, app)
-}
-
-// backfillVersions numbers the production deploys in ds that have no version
-// yet (records from before versions existed), in place.
-func (s store) backfillVersions(ctx context.Context, ds []*Deploy) {
-	apps := map[string]bool{}
-	for _, d := range ds {
-		if d.Preview == "" && d.Version == 0 {
-			apps[d.Project+"/"+d.App] = true
-		}
-	}
-	if len(apps) == 0 {
-		return
-	}
-	versionMu.Lock()
-	defer versionMu.Unlock()
-	for k := range apps {
-		project, app, _ := strings.Cut(k, "/")
-		if _, err := s.ensureVersions(ctx, project, app); err != nil {
-			return
-		}
-		fresh, err := s.listDeploys(ctx, project, app, "")
-		if err != nil {
-			return
-		}
-		v := map[string]int{}
-		for _, d := range fresh {
-			v[d.ID] = d.Version
-		}
-		for _, d := range ds {
-			if d.Project == project && d.App == app && d.Preview == "" && d.Version == 0 {
-				d.Version = v[d.ID]
-			}
-		}
-	}
 }
 
 // listProjectDeploys is every deploy of every app in a project, newest first.
@@ -176,7 +125,6 @@ func (m *Module) registerProjectDeploys(a huma.API) {
 				}
 				out = append(out, d)
 			}
-			r.st.backfillVersions(ctx, out)
 			return &struct{ Body ProjectDeployList }{ProjectDeployList{Deploys: out, Next: next}}, nil
 		}))
 }

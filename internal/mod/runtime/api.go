@@ -188,7 +188,6 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			if len(ds) > in.Limit {
 				ds = ds[:in.Limit]
 			}
-			r.st.backfillVersions(ctx, ds)
 			return &struct{ Body DeployList }{DeployList{ds}}, nil
 		}))
 
@@ -228,7 +227,6 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 				return nil, err
 			}
 		}
-		r.st.backfillVersions(ctx, []*Deploy{d})
 		return &struct{ Body *Deploy }{d}, nil
 	}))
 

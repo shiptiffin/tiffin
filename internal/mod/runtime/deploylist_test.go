@@ -6,48 +6,65 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/ids"
+	"github.com/btahir/tiffin/internal/manifest"
 )
 
-// TestDeployVersionsAndProjectList: production deploys are numbered per app
-// (old records backfilled by creation order), and the project-wide list
-// merges every app, newest first, with its filters and pages.
+// TestDeployVersionsAndProjectList: production deploys are numbered per app,
+// two at once never take one number, and the project-wide list merges every
+// app, newest first, with its filters and pages.
 func TestDeployVersionsAndProjectList(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	st := h.r.st
-	// Records from before versions existed.
-	put := func(app, preview, status, ref string) *Deploy {
-		d := &Deploy{ID: ids.New("dep"), Project: "shop", App: app, Preview: preview, Status: status, Source: SourceGit, Ref: ref, CreatedAt: time.Now().UTC()}
+	put := func(app, preview, status, ref string, version int) *Deploy {
+		d := &Deploy{ID: ids.New("dep"), Project: "shop", App: app, Preview: preview, Status: status, Source: SourceGit, Ref: ref,
+			Version: version, CreatedAt: time.Now().UTC()}
 		if err := st.putDeploy(ctx, d); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(2 * time.Millisecond) // IDs order by time
 		return d
 	}
-	a1 := put("api", "", StatusSuperseded, "main")
-	put("api", "pr-1", StatusLive, "feat")
-	a2 := put("api", "", StatusFailed, "main")
-	w1 := put("web", "", StatusLive, "main")
-	a3 := put("api", "", StatusLive, "main")
+	a1 := put("api", "", StatusSuperseded, "main", 1)
+	put("api", "pr-1", StatusLive, "feat", 0)
+	put("api", "", StatusFailed, "main", 2)
+	w1 := put("web", "", StatusLive, "main", 1)
+	a3 := put("api", "", StatusLive, "main", 3)
 	// Another project's deploys never leak in (shop2 shares the "shop" prefix).
 	if err := st.putDeploy(ctx, &Deploy{ID: ids.New("dep"), Project: "shop2", App: "api", Status: StatusLive, CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-
-	// A new production deploy numbers the old ones first, then takes the next.
 	if v, err := st.nextVersion(ctx, "shop", "api"); err != nil || v != 4 {
 		t.Fatalf("next version = %d, %v; want 4", v, err)
 	}
-	for want, d := range map[int]*Deploy{1: a1, 2: a2, 3: a3} {
-		got, _ := st.getDeploy(ctx, "shop", "api", d.ID)
-		if got.Version != want {
-			t.Fatalf("%s: version %d, want %d", d.ID, got.Version, want)
+	// Deploys made at once each take their own number.
+	spec := &manifest.App{Framework: manifest.FrameworkStatic}
+	var wg sync.WaitGroup
+	got := make(chan int, 4)
+	for range 4 {
+		wg.Go(func() {
+			d, err := h.r.newDeploy(ctx, "shop", "api", "", SourceUpload, "tok", spec)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			got <- d.Version
+		})
+	}
+	wg.Wait()
+	close(got)
+	seen := map[int]bool{}
+	for v := range got {
+		if seen[v] || v < 4 || v > 7 {
+			t.Fatalf("versions taken at once: %v, then %d", seen, v)
 		}
+		seen[v] = true
 	}
 
 	owner, _, err := h.p.Tokens.Bootstrap(ctx)
@@ -76,11 +93,10 @@ func TestDeployVersionsAndProjectList(t *testing.T) {
 		return l
 	}
 	all := list("")
-	if len(all.Deploys) != 5 || all.Deploys[0].ID != a3.ID || all.Deploys[4].ID != a1.ID {
-		t.Fatalf("all: %d deploys, want 5 newest first", len(all.Deploys))
+	if len(all.Deploys) != 9 || all.Deploys[4].ID != a3.ID || all.Deploys[8].ID != a1.ID {
+		t.Fatalf("all: %d deploys, want 9 newest first", len(all.Deploys))
 	}
-	// The web app's legacy record is numbered on read.
-	if all.Deploys[1].ID != w1.ID || all.Deploys[1].Version != 1 {
+	if all.Deploys[5].ID != w1.ID || all.Deploys[5].Version != 1 {
 		t.Fatalf("web: %+v", all.Deploys[1])
 	}
 	if l := list("?env=preview"); len(l.Deploys) != 1 || l.Deploys[0].Preview != "pr-1" || l.Deploys[0].Version != 0 {
@@ -96,7 +112,7 @@ func TestDeployVersionsAndProjectList(t *testing.T) {
 	if len(page.Deploys) != 2 || page.Next != page.Deploys[1].ID {
 		t.Fatalf("page: %d next %q", len(page.Deploys), page.Next)
 	}
-	if rest := list("?limit=10&before=" + page.Next); len(rest.Deploys) != 3 || rest.Next != "" {
+	if rest := list("?limit=10&before=" + page.Next); len(rest.Deploys) != 7 || rest.Next != "" {
 		t.Fatalf("rest: %d next %q", len(rest.Deploys), rest.Next)
 	}
 }

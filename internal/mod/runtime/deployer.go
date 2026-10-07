@@ -38,6 +38,8 @@ func (r *rt) newDeploy(ctx context.Context, project, app, preview, source, by st
 		Framework: string(spec.Framework), CreatedAt: time.Now().UTC(), CreatedBy: by}
 	d.URL = r.deployURL(d, spec)
 	if preview == "" {
+		versionMu.Lock()
+		defer versionMu.Unlock() // until the deploy carrying the version is stored
 		v, err := r.st.nextVersion(ctx, project, app)
 		if err != nil {
 			return nil, err
