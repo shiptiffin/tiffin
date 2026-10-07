@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -235,5 +236,29 @@ func TestExtractLimits(t *testing.T) {
 	}
 	if _, err := Extract(strings.NewReader("not gzip"), t.TempDir(), Limits{}); err == nil {
 		t.Fatal("garbage must fail")
+	}
+
+	// Links, folders, and folders a path implies count against the limit
+	// too: millions of them made no file.
+	var es []entry
+	for i := range 30 {
+		es = append(es, entry{h: tar.Header{Typeflag: tar.TypeSymlink, Name: fmt.Sprintf("l%d", i), Linkname: "."}})
+	}
+	if _, err := Extract(archive(t, es...), t.TempDir(), Limits{MaxBytes: 100, MaxFiles: 10}); !errors.Is(err, ErrUnsafe) {
+		t.Fatalf("links: %v", err)
+	}
+	es = es[:0]
+	for i := range 30 {
+		es = append(es, entry{h: tar.Header{Typeflag: tar.TypeDir, Name: fmt.Sprintf("d%d/", i)}})
+	}
+	if _, err := Extract(archive(t, es...), t.TempDir(), Limits{MaxBytes: 100, MaxFiles: 10}); !errors.Is(err, ErrUnsafe) {
+		t.Fatalf("folders: %v", err)
+	}
+	deep := strings.Repeat("d/", 40) + "f"
+	if _, err := Extract(archive(t, entry{h: tar.Header{Typeflag: tar.TypeReg, Name: deep}, body: "x"}), t.TempDir(), Limits{MaxBytes: 100, MaxFiles: 10}); !errors.Is(err, ErrUnsafe) {
+		t.Fatalf("implied folders: %v", err)
+	}
+	if _, err := Extract(archive(t, entry{h: tar.Header{Typeflag: tar.TypeReg, Name: strings.Repeat("n", 5000), Format: tar.FormatPAX}, body: "x"}), t.TempDir(), Limits{}); !errors.Is(err, ErrUnsafe) {
+		t.Fatalf("long name: %v", err)
 	}
 }

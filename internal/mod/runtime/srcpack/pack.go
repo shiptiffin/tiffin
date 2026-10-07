@@ -121,10 +121,17 @@ func addIgnoreFiles(m *Matcher, rel, dir string) error {
 type Limits struct {
 	MaxBytes int64 // total uncompressed file bytes
 	MaxFiles int
+	// MaxEntries bounds everything Extract creates or reads past: files,
+	// links, folders (named or implied by a path) and skipped entries.
+	// 0: twice MaxFiles.
+	MaxEntries int
 }
 
 // DefaultLimits are generous for app sources (images and fonts included).
-var DefaultLimits = Limits{MaxBytes: 4 << 30, MaxFiles: 200_000}
+var DefaultLimits = Limits{MaxBytes: 4 << 30, MaxFiles: 200_000, MaxEntries: 300_000}
+
+// maxName is the longest path Extract takes (Linux's PATH_MAX).
+const maxName = 4096
 
 // ErrUnsafe is returned for archives with paths or links that escape the
 // destination, or that exceed the limits.
@@ -140,6 +147,9 @@ func Extract(r io.Reader, dir string, lim Limits) (st Stats, err error) {
 	if lim.MaxBytes == 0 {
 		lim = DefaultLimits
 	}
+	if lim.MaxEntries == 0 {
+		lim.MaxEntries = 2 * lim.MaxFiles
+	}
 	gz, err := gzip.NewReader(r)
 	if err != nil {
 		return st, fmt.Errorf("not a gzipped tar: %w", err)
@@ -154,6 +164,14 @@ func Extract(r io.Reader, dir string, lim Limits) (st Stats, err error) {
 	}
 	defer root.Close()
 	links := map[string]bool{} // symlinks this archive created
+	dirs := map[string]bool{}  // folders it made, named or implied
+	entries := 0
+	count := func(n int) error {
+		if entries += n; entries > lim.MaxEntries {
+			return fmt.Errorf("%w: more than %d entries", ErrUnsafe, lim.MaxEntries)
+		}
+		return nil
+	}
 	// A link can look safe alone yet resolve outside through others
 	// (t -> ., s -> t/t/..). Writes never follow it, but later readers of
 	// the tree would, so such links are removed and fail the archive.
@@ -176,12 +194,25 @@ func Extract(r io.Reader, dir string, lim Limits) (st Stats, err error) {
 		if err != nil {
 			return st, fmt.Errorf("read archive: %w", err)
 		}
+		if err := count(1); err != nil {
+			return st, err
+		}
 		name, ok := cleanName(h.Name)
-		if !ok {
-			return st, fmt.Errorf("%w: path %q", ErrUnsafe, h.Name)
+		if !ok || len(name) > maxName {
+			return st, fmt.Errorf("%w: path %.200q", ErrUnsafe, h.Name)
 		}
 		if name == "" {
 			continue
+		}
+		// Folders a path implies are made too: each counts.
+		for p := path.Dir(name); p != "." && !dirs[p]; p = path.Dir(p) {
+			dirs[p] = true
+			if err := count(1); err != nil {
+				return st, err
+			}
+		}
+		if h.Typeflag == tar.TypeDir {
+			dirs[name] = true
 		}
 		for p := name; p != "."; p = path.Dir(p) {
 			if links[p] {

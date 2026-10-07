@@ -227,6 +227,9 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 		req.NextCache = r.hasService(ctx, d.Project, "valkey")
 		req.Postgres = r.hasService(ctx, d.Project, "postgres")
 	}
+	// The build's deadline covers unpacking its source too.
+	bctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	defer cancel()
 	switch kind {
 	case SourcePrebuilt:
 		req.Prebuilt = src
@@ -236,7 +239,7 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 		if err != nil {
 			return err
 		}
-		st, err := srcpack.Extract(f, req.SrcDir, srcpack.DefaultLimits)
+		st, err := srcpack.Extract(ctxReader{bctx, f}, req.SrcDir, srcpack.DefaultLimits)
 		f.Close()
 		if err != nil {
 			return &BuildError{Msg: "could not unpack the source: " + err.Error(), Hint: "Upload a gzipped tar of the app directory (tiffin deploy does this)."}
@@ -265,7 +268,6 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 			d.Assets = append(d.Assets, a)
 		}
 	}
-	bctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	res, err := r.bld.Build(bctx, req)
 	cancel()
 	// The unpacked sources are not needed once built (static sites moved
@@ -1325,3 +1327,16 @@ func urlNote(u string) string {
 }
 
 func round1(f float64) float64 { return float64(int(f*10+0.5)) / 10 }
+
+// ctxReader is r that stops reading once ctx is done.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return c.r.Read(p)
+}
