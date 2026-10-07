@@ -120,7 +120,8 @@ tiffin dns connect cloudflare --token <token>
 The box checks the token by listing your zones and stores it encrypted. From then on:
 
 - `tiffin domain set example.com --create-records` and `tiffin domains add ...
-  --create-records` add the records for you;
+  --create-records` add the records for you (with the owner's or a box-wide key: the
+  provider's zones are the box's, so a key for one project can't write to them);
 - the box gets **one wildcard certificate** for `*.example.com` (DNS-01), so new apps
   and previews have HTTPS the moment they exist (for `*.example.app` with a separate
   apps domain, when the provider holds that zone; the dashboard then gets its own);

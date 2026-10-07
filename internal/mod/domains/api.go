@@ -510,7 +510,7 @@ type addBody struct {
 	App           string `json:"app" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"The app that serves it (a web app of this project)."`
 	Path          string `json:"path,omitempty" maxLength:"200" doc:"Only this path prefix goes to the app, e.g. /api (another app can serve the rest). Default: everything."`
 	WWW           bool   `json:"www,omitempty" doc:"Also serve www.<domain> and redirect it here (point www at the box too)."`
-	CreateRecords bool   `json:"createRecords,omitempty" doc:"Create the DNS records through the connected DNS provider that holds the zone (after the change is applied)."`
+	CreateRecords bool   `json:"createRecords,omitempty" doc:"Create the DNS records through the connected DNS provider that holds the zone (after the change is applied). Box admins only."`
 	Confirm       string `json:"confirm,omitempty" doc:"The plan hash (or its first 8+ characters) you reviewed. Without it nothing changes: you get status 428 with the plan."`
 	Intent        string `json:"intent,omitempty" maxLength:"500" doc:"Why, in one sentence (shown in the activity timeline)."`
 }
@@ -786,7 +786,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		"Serves <domain> (optionally only <path>) from one of the project's apps: adds \"<domain>[/path]\" to the app's routes in the manifest (and www: \"redirect\" under domains), "+
 			"through plan and apply like any change, so tiffin pull captures it. Without confirm you get status 428 with the plan. "+
 			"The answer lists the DNS records to add (A/AAAA to this box; for a subdomain, or one CNAME to the box's own name). "+
-			"The box then watches DNS and gets the certificate: waiting_for_dns → issuing → live. With createRecords and a connected DNS provider it adds the records itself.", tag)
+			"The box then watches DNS and gets the certificate: waiting_for_dns → issuing → live. With createRecords and a connected DNS provider it adds the records itself (box admins only).", tag)
 	add.Errors = append(add.Errors, 404, 409, 428)
 	add.Extensions[api.ExtConfirm] = true
 	huma.Register(a, add, api.Wrap(func(ctx context.Context, in *struct {
@@ -795,6 +795,15 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}) (*struct{ Body DomainChange }, error) {
 		if err := ready(); err != nil {
 			return nil, err
+		}
+		// The records go through the box's DNS provider, which holds zones
+		// no project owns: as for dns-records-set, box admins only. Checked
+		// first, as an unchanged manifest applies nothing (and needs no
+		// confirm).
+		if in.Body.CreateRecords && !api.PrincipalFrom(ctx).BoxAdmin() {
+			pr := api.NewProblem(http.StatusForbidden, "forbidden", "createRecords writes through the box's DNS provider, which is box-wide: it needs a key with full access to all projects (or the owner)")
+			pr.Hint = "add the domain without createRecords and add the records it lists yourself, or ask the box owner"
+			return nil, pr
 		}
 		d, err := validDomain(in.Body.Domain)
 		if err != nil {

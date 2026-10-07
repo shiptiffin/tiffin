@@ -597,6 +597,21 @@ func TestScopes(t *testing.T) {
 	if c := do("POST", "/v1/projects/shop/domains", map[string]any{"domain": "example.test", "app": "web"}); c != 428 {
 		t.Errorf("own project add: %d", c)
 	}
+	// createRecords writes through the box's DNS provider, box-wide: a
+	// project key may not, not even for a domain already attached (an
+	// unchanged manifest is an empty plan, which needs no confirm).
+	if code, out := h.call("PUT", "/v1/dns/providers/fake", map[string]any{"token": "secret-token-123"}); code != 200 {
+		t.Fatalf("connect: %d %v", code, out)
+	}
+	h.confirmed("POST", "/v1/projects/shop/domains", map[string]any{"domain": "shop.test", "app": "web"})
+	for _, d := range []string{"shop.test", "other.test"} {
+		if c := do("POST", "/v1/projects/shop/domains", map[string]any{"domain": d, "app": "web", "createRecords": true}); c != 403 {
+			t.Errorf("a project key created records for %s: %d", d, c)
+		}
+		if got := h.dns.Get(d, "A"); len(got) != 0 {
+			t.Errorf("records written for %s: %v", d, got)
+		}
+	}
 }
 
 func TestExplain(t *testing.T) {
