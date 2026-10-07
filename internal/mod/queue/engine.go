@@ -143,7 +143,11 @@ func Open(ctx context.Context, cfg Config) (*Engine, error) {
 		cfg.ProjectConcurrency = max(1, cfg.Workers/4)
 	}
 	e := &Engine{cfg: cfg, pool: pool, log: cfg.Log, now: time.Now,
-		http:       &http.Client{Transport: &http.Transport{MaxIdleConnsPerHost: 64, IdleConnTimeout: 90 * time.Second}},
+		http: &http.Client{Transport: &http.Transport{MaxIdleConns: 256, MaxIdleConnsPerHost: 64, IdleConnTimeout: 90 * time.Second},
+			// An app's redirect is not followed: it could point anywhere on
+			// the box (another project's port, a metadata address) with the
+			// signed delivery, past the checks URL targets get.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 		guard:      &guard{allow: cfg.AllowNets, self: cfg.SelfIPs, lookup: cfg.Resolve},
 		ready:      make(chan struct{}),
 		outboxKick: make(chan struct{}, 1)}

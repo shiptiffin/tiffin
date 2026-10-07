@@ -159,6 +159,7 @@ func (g *guard) client() *http.Client {
 		},
 		ForceAttemptHTTP2:   true,
 		TLSHandshakeTimeout: 10 * time.Second,
+		MaxIdleConns:        64,
 		MaxIdleConnsPerHost: 8,
 		IdleConnTimeout:     60 * time.Second,
 	}

@@ -933,3 +933,26 @@ func TestProjectConcurrencyCap(t *testing.T) {
 		t.Errorf("the hog ran %d at once (cap 3)", p)
 	}
 }
+
+// A delivery to an app does not follow the app's redirect.
+func TestAppRedirectNotFollowed(t *testing.T) {
+	var a *app
+	e := newEngine(t, func(c *Config) {
+		c.Endpoint = func(ctx context.Context, project, name, release string) (string, error) { return a.srv.URL, nil }
+	})
+	a = newApp(t, e.Engine, proj)
+	var followed atomic.Int64
+	a.handle("/queues/r", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/elsewhere", http.StatusTemporaryRedirect)
+	})
+	a.handle("/elsewhere", func(w http.ResponseWriter, r *http.Request) { followed.Add(1) })
+	e.configure(proj, QueueConfig{Name: "r", App: "web", MaxAttempts: 1})
+	id := e.send(proj, SendRequest{Name: "r"}).Jobs[0]
+	j := e.waitState(proj, id, stateDead, 10*time.Second)
+	if followed.Load() != 0 {
+		t.Error("the redirect was followed")
+	}
+	if !strings.Contains(j.LastError, "redirected to \"/elsewhere\"") {
+		t.Errorf("error %q", j.LastError)
+	}
+}

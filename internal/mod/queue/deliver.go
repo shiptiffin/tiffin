@@ -433,6 +433,9 @@ func (e *Engine) deliver(ctx context.Context, j *jobRow, d *delivery) outcome {
 		if j.Kind == kindWorkflow {
 			oc.output = raw // the turn result is read by finish, whatever its size
 		}
+	case res.StatusCode >= 300 && res.StatusCode < 400 && j.URL == "":
+		oc.kind, oc.err = outcomeRetry, fmt.Sprintf("HTTP %d: the app redirected to %q; deliveries don't follow redirects, so point the job at the final path",
+			res.StatusCode, clip(res.Header.Get("Location"), 300))
 	case res.StatusCode == StatusNonRetrying || truthy(res.Header.Get(HeaderNonRetry)):
 		oc.kind, oc.err = outcomeDead, responseError(res.StatusCode, raw, "the app said not to retry")
 	default:
