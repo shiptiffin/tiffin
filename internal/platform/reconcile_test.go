@@ -41,6 +41,23 @@ func TestResourceCheckReportsFailures(t *testing.T) {
 	}
 }
 
+// A destroyed project whose deletion failed has no resources left, only
+// the failed status: the check still reports it.
+func TestResourceCheckReportsFailedDeletions(t *testing.T) {
+	ctx := context.Background()
+	db, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	p := &Platform{DB: db}
+	_ = db.SetResourceStatus(ctx, "gone", "service/postgres", StateFailed, "snapshot the database: disk full")
+	got := p.resourceCheck(ctx)
+	if got.OK || !strings.Contains(got.Detail, "gone service/postgres (snapshot the database: disk full)") {
+		t.Fatalf("failed deletion not reported: %+v", got)
+	}
+}
+
 // A secret has nothing to converge, so it must not keep a status: an import
 // marks every resource pending, and a pending secret nothing ever settled
 // kept the import waiting 15 minutes for a project that was long converged.

@@ -425,9 +425,11 @@ func (p *Platform) Checks(ctx context.Context) []Check {
 	return out
 }
 
-// resourceCheck reports the project resources whose last reconcile failed.
+// resourceCheck reports the project resources whose last reconcile failed,
+// destroyed projects' included: a deletion that failed leaves its status
+// behind after the project's resources are gone.
 func (p *Platform) resourceCheck(ctx context.Context) Check {
-	projects, err := p.DB.ListProjects(ctx)
+	projects, err := p.DB.ListConvergingProjects(ctx)
 	if err != nil {
 		return Check{Name: "resources", OK: false, Detail: err.Error()}
 	}
