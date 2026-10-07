@@ -2588,7 +2588,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a database branch
-         * @description Drops a branch database and closes its connections. The branch's data is gone; main is untouched. Needs full access.
+         * @description Snapshots a branch database, then drops it and closes its connections; main is untouched. It runs at once (no plan): the snapshot is kept 7 days, and `snapshots restore` with its ID brings the branch back. Needs full access.
          */
         delete: operations["branch-delete"];
         options?: never;
@@ -9653,6 +9653,11 @@ export interface components {
             /** Format: int64 */
             totalMs: number;
         };
+        PostgresPGBranchDeleted: {
+            branch: string;
+            /** @description Snapshot of the branch taken before it was dropped; restore it with snapshots restore */
+            snapshot: string;
+        };
         PostgresPGColumn: {
             name: string;
             /** @description Postgres type name, e.g. int8, text, jsonb, timestamptz */
@@ -11085,7 +11090,7 @@ export interface components {
         };
         RuntimeBuildLog: {
             deploy: string;
-            /** @description The deploy finished; the log will not grow (except for later rollbacks) */
+            /** @description The deploy finished and text reaches the log's end: nothing more to read (except after later rollbacks). False with more to read: read again from offset */
             done: boolean;
             /**
              * Format: int64
@@ -24429,12 +24434,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description No Content */
-            204: {
+            /** @description OK */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["PostgresPGBranchDeleted"];
+                };
             };
             /** @description Bad Request */
             400: {
