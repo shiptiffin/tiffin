@@ -23,6 +23,8 @@ import { countWords } from "@/lib/format";
 import { StateSentence } from "@/components/jobs-words";
 import { boxMail, type BoxMailResult } from "@/api/modules";
 import { EmailDialog, MailOutcome } from "@/components/person-email";
+import { PersonSessionsDialog } from "@/components/person-sessions";
+import { Link } from "@tanstack/react-router";
 
 // ---------------------------------------------------------------- passkeys
 
@@ -159,6 +161,7 @@ export function PeoplePage() {
   const [link, setLink] = useState<Invite | null>(null);
   const [removing, setRemoving] = useState<Person | null>(null);
   const [emailing, setEmailing] = useState<Person | null>(null);
+  const [ending, setEnding] = useState<Person | null>(null);
   const [error, setError] = useState<unknown>(null);
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["people"] });
@@ -224,6 +227,12 @@ export function PeoplePage() {
                       >
                         {p.email ? "Change your email" : "Add your email"}
                       </button>
+                      <Link
+                        to="/settings/sign-ins"
+                        className="mt-0.5 text-[0.8125rem] text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink"
+                      >
+                        Your sign-ins
+                      </Link>
                     </div>
                   )}
                 </div>
@@ -251,6 +260,7 @@ export function PeoplePage() {
                       <MenuItem onSelect={() => newLink(p)}>New sign-in link</MenuItem>
                       {p.email && <MenuItem onSelect={() => newLink(p, true)}>Email a new sign-in link</MenuItem>}
                       <MenuItem onSelect={() => setEmailing(p)}>{p.email ? "Change email…" : "Add email…"}</MenuItem>
+                      <MenuItem onSelect={() => setEnding(p)}>End sessions…</MenuItem>
                       <MenuItem variant="danger" onSelect={() => setRemoving(p)}>
                         Remove from this box…
                       </MenuItem>
@@ -271,6 +281,7 @@ export function PeoplePage() {
       </Group>
 
       <InviteDialog open={inviting} onOpenChange={setInviting} onDone={refresh} />
+      <PersonSessionsDialog person={ending} onClose={() => setEnding(null)} />
       <EmailDialog person={emailing} self={!!emailing && me?.person === emailing.id} onClose={() => setEmailing(null)} onDone={refresh} />
       <Dialog open={!!link} onOpenChange={(o) => !o && setLink(null)}>
         <DialogContent>{link && <LinkView invite={link} onDone={() => setLink(null)} />}</DialogContent>

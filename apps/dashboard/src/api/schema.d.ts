@@ -5252,6 +5252,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List sign-in sessions
+         * @description Where a person is signed in to the dashboard: each session's browser, how it signed in (link, email, passkey, google, github), when, from which address and country, and when it was last used. current marks the session making the request. Yours by default; owners and admins can name anyone. With history=true, also sessions that ended or expired in the last 30 days. API keys are not sessions: see keys list.
+         */
+        get: operations["sessions-list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/browsers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List recognised browsers
+         * @description The browsers (up to 20) a person has signed in from. Signing in from one of these sends no new sign-in notice; from any other, the box emails them. Yours by default; owners and admins can name anyone.
+         */
+        get: operations["sessions-browsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/end-others": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign out everywhere else
+         * @description Signs out every open session of a person except the one making the request, with the API keys those sessions made. Yours by default; owners and admins can name anyone (all of that person's sessions end). Only the owner can end the owner's.
+         */
+        post: operations["sessions-end-others"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Sign out a session
+         * @description Signs one session out at once: its next request is refused. API keys made in that session stop working too. Your own sessions, or anyone's for owners and admins (only the owner can end the owner's).
+         */
+        delete: operations["session-end"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/status": {
         parameters: {
             query?: never;
@@ -7142,6 +7222,22 @@ export interface components {
             from?: string;
             /** @description Branch name, e.g. pr-12 */
             name: string;
+        };
+        Browser: {
+            /** @description The browser making this request */
+            current: boolean;
+            /** @description The browser and system, in words: "Chrome on macOS" */
+            device: string;
+            /**
+             * Format: date-time
+             * @description Its first sign-in
+             */
+            firstSeen: string;
+            /**
+             * Format: date-time
+             * @description Its latest sign-in
+             */
+            lastSeen: string;
         };
         BudgetBoxSettings: {
             /**
@@ -11639,6 +11735,43 @@ export interface components {
             /** @description Hetzner has none free in the box's location right now */
             soldOut?: boolean;
         };
+        Session: {
+            /** @description The country that address is in, when known */
+            country?: string;
+            /**
+             * Format: date-time
+             * @description When it signed in
+             */
+            createdAt: string;
+            /** @description The session making this request (this browser) */
+            current: boolean;
+            /** @description The browser and system, in words: "Chrome on macOS" */
+            device: string;
+            /**
+             * Format: date-time
+             * @description When someone signed it out; absent while it is open or once it simply expired
+             */
+            endedAt?: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** @description The session's token ID */
+            id: string;
+            /** @description The address it signed in from */
+            ip?: string;
+            /**
+             * Format: date-time
+             * @description When it was last used (to the minute)
+             */
+            lastSeenAt?: string;
+            /**
+             * @description How it signed in: link (a one-time link from an admin, an invite or tiffin login), email (a link asked for on the login page), passkey, google or github. Empty for sessions from before this was kept.
+             * @enum {string}
+             */
+            method: "link" | "email" | "passkey" | "google" | "github" | "";
+            person: string;
+            /** @enum {string} */
+            state: "active" | "ended" | "expired";
+        };
         "Session-createRequest": {
             code: string;
         };
@@ -11649,6 +11782,13 @@ export interface components {
         "Session-passkeyRequest": {
             /** @description The PublicKeyCredential from navigator.credentials.get(), with byte fields base64url-encoded */
             credential: unknown;
+        };
+        SessionsEnded: {
+            /**
+             * Format: int64
+             * @description How many sessions were signed out
+             */
+            ended: number;
         };
         SettingsPatchChallengeStruct: {
             /** Format: int64 */
@@ -36773,6 +36913,281 @@ export interface operations {
             };
             /** @description Not Implemented */
             501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "sessions-list": {
+        parameters: {
+            query?: {
+                /** @description Whose sessions; default yours */
+                person?: string;
+                /** @description Also list sessions that ended or expired in the last 30 days */
+                history?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"][] | null;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "sessions-browsers": {
+        parameters: {
+            query?: {
+                /** @description Whose browsers; default yours */
+                person?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: {
+                tiffin_device?: string;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Browser"][] | null;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "sessions-end-others": {
+        parameters: {
+            query?: {
+                /** @description Whose sessions; default yours */
+                person?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionsEnded"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "session-end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { Fingerprint, KeyRound, LogOut, Terminal } from "lucide-react";
+import { Fingerprint, KeyRound, LogOut, MonitorSmartphone, Terminal } from "lucide-react";
 import { Dialog as D } from "radix-ui";
 import { useState, type ReactNode } from "react";
 import { api } from "@/api/client";
@@ -69,6 +69,10 @@ export function WhoMenu() {
             API keys
           </MenuItem>
         )}
+        <MenuItem onSelect={() => navigate({ to: "/settings/sign-ins" })}>
+          <MonitorSmartphone />
+          Sign-ins
+        </MenuItem>
         <MenuItem onSelect={() => navigate({ to: "/settings/passkeys" })} className="h-auto py-1.5">
           <Fingerprint />
           <span className="flex flex-col leading-[1.15rem]">

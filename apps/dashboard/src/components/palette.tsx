@@ -13,6 +13,7 @@ import {
   KeyRound,
   LogOut,
   Monitor,
+  MonitorSmartphone,
   Moon,
   Play,
   Plus,
@@ -282,6 +283,7 @@ export function CommandPalette({ open, onOpenChange, initialSearch = "", onShort
     { id: "go:settings", label: "Settings", text: "Settings", icon: <Gauge />, kw: ["box", "export", "import", "domain"], run: go("/settings") },
     { id: "go:keys", label: "API keys", text: "API keys", icon: <KeyRound />, kw: ["tokens", "claude", "mcp", "approvals"], run: () => void navigate({ to: "/settings/keys", search: {} }) },
     { id: "go:people", label: "People", text: "People", icon: <Users />, kw: ["team", "invite", "roles"], run: go("/settings/people") },
+    { id: "go:sign-ins", label: "Sign-ins", text: "Sign-ins", icon: <MonitorSmartphone />, kw: ["sessions", "signed in", "sign out", "sign out everywhere", "devices", "browsers", "security"], run: go("/settings/sign-ins") },
     { id: "go:passkeys", label: `Sign in with ${passkeyWords().name}`, text: "Passkeys", icon: <Fingerprint />, kw: ["passkeys", "touch id", "face id", "windows hello", "fingerprint", "webauthn", "sign in"], run: go("/settings/passkeys") },
     ...box.map(([label, to, kw]): Entry => ({ id: `go:${to}`, label, text: label, icon: <Gauge />, kw, run: go(to) })),
   ];

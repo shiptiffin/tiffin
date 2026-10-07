@@ -243,7 +243,7 @@ function MobileBar({ onMenu, onSearch, switcher }: { onMenu: () => void; onSearc
 
 // ───────────────────────── sidebar ─────────────────────────
 
-const settingsPaths = ["/settings", "/settings/box", "/settings/git", "/settings/dns", "/settings/people", "/settings/passkeys", "/protect"];
+const settingsPaths = ["/settings", "/settings/box", "/settings/git", "/settings/dns", "/settings/people", "/settings/sign-ins", "/settings/passkeys", "/protect"];
 const healthPaths = ["/status", "/metrics", "/logs", "/errors", "/requests", "/alerts"];
 const activityPaths = ["/ledger", "/changes"];
 
@@ -313,6 +313,7 @@ function Sidebar({ onSearch, switcher }: { onSearch: () => void; switcher?: Reac
                 {onBox && <NavItem to="/settings/git" sub label="Git" />}
                 {onBox && <NavItem to="/settings/dns" sub label="DNS" />}
                 <NavItem to="/settings/people" sub label="People" />
+                <NavItem to="/settings/sign-ins" sub label="Sign-ins" />
                 {onBox && <NavItem to="/protect" sub label="Shield" aside={<AttackBadge />} />}
               </div>
             )}

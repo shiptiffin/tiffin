@@ -24,6 +24,7 @@ export function Confirm({
   run,
   done,
   tone = "danger",
+  cancel = "Keep it",
 }: {
   open: boolean;
   onClose: () => void;
@@ -33,11 +34,13 @@ export function Confirm({
   run: () => Promise<unknown>;
   done: () => void;
   tone?: "danger" | "normal";
+  /** The button that closes it without doing anything. */
+  cancel?: string;
 }) {
   return (
     <AlertDialog open={open} onOpenChange={(o) => !o && onClose()}>
       <AlertDialogContent className="max-w-md">
-        {open && <ConfirmBody title={title} body={body} action={action} run={run} done={done} onClose={onClose} tone={tone} />}
+        {open && <ConfirmBody title={title} body={body} action={action} run={run} done={done} onClose={onClose} tone={tone} cancel={cancel} />}
       </AlertDialogContent>
     </AlertDialog>
   );
@@ -51,6 +54,7 @@ function ConfirmBody({
   done,
   onClose,
   tone,
+  cancel,
 }: {
   title: string;
   body: ReactNode;
@@ -59,6 +63,7 @@ function ConfirmBody({
   done: () => void;
   onClose: () => void;
   tone: "danger" | "normal";
+  cancel: string;
 }) {
   const m = useMutation({
     mutationFn: run,
@@ -80,7 +85,7 @@ function ConfirmBody({
       )}
       <AlertDialogFooter>
         <AlertDialogCancel asChild>
-          <Button variant="ghost">Keep it</Button>
+          <Button variant="ghost">{cancel}</Button>
         </AlertDialogCancel>
         <Button variant={tone === "danger" ? "danger" : "primary"} disabled={m.isPending} onClick={() => m.mutate()}>
           {tone === "danger" && <Trash2 />}

@@ -66,6 +66,7 @@ const DomainsPage = lz<{ project: string }>(() => import("@/routes/domains"), "D
 const DnsSettingsPage = lz(() => import("@/routes/dns-settings"), "DnsSettingsPage");
 const PeoplePage = lz(() => import("@/routes/settings"), "PeoplePage");
 const PasskeysPage = lz(() => import("@/routes/settings"), "PasskeysPage");
+const SignInsPage = lz(() => import("@/routes/sign-ins"), "SignInsPage");
 const FilesPage = lz<{ project: string; isNew?: boolean }>(() => import("@/routes/files"), "FilesPage");
 const BucketPage = lz<{ project: string; bucket: string; prefix?: string; file?: string }>(() => import("@/routes/files"), "BucketPage");
 const InboxPage = lz<{ project: string; q?: string; m?: string; status?: string }>(() => import("@/routes/email"), "InboxPage");
@@ -762,6 +763,8 @@ const people = createRoute({ getParentRoute: () => app, path: "/settings/people"
   component: PeoplePage });
 const passkeys = createRoute({ getParentRoute: () => app, path: "/settings/passkeys", loader: () => void PasskeysPage.preload(),
   component: PasskeysPage });
+const signIns = createRoute({ getParentRoute: () => app, path: "/settings/sign-ins", loader: () => void SignInsPage.preload(),
+  component: SignInsPage });
 
 /** No such page: the mascot has lifted its lid on an empty tin. */
 function NotFound() {
@@ -880,6 +883,7 @@ const tree = root.addChildren([
     orgRoute,
     people,
     passkeys,
+    signIns,
   ]),
 ]);
 

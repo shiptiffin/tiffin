@@ -28,13 +28,13 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
 - **Sidebar** never grows with the number of projects. Top: the project switcher (the current project, or All
   projects; search, five recent, All projects, New project; ⌘K and `g p` reach it). Outside a project:
   Projects, Usage (the box, divided by project, and its default limit), Activity (every project's changes),
-  Health, Backups, API keys; Settings at the bottom (Your box, Machine, People, Shield). Inside a project:
+  Health, Backups, API keys; Settings at the bottom (Your box, Machine, People, Sign-ins, Shield). Inside a project:
   "← All projects", then only that project's sections: Overview, the parts it has (App(s), Database, KV,
   Files, Email, Auth, Analytics, Jobs), then Usage, History, Settings; and a small "Your box" group at the
   bottom (Usage, Activity, Health) so nothing is a dead end. A standalone project (just a database, KV,
   files or schedules; no app) shows only that part and opens on it. Switching projects keeps your section
   when the other project has it, else lands on its Overview, which says why.
-- **Account menu** (your name, bottom left): API keys, "Sign in with Touch ID / Face ID", sign out. The word
+- **Account menu** (your name, bottom left): API keys, Sign-ins, "Sign in with Touch ID / Face ID", sign out. The word
   "passkey" is never a heading; at most a subtitle. Login offers "Sign in with Touch ID" with "or use a
   sign-in link" as the fallback.
 - **Projects (home)**: one line about the box ("Your box is about two-fifths full") over one bar split by
@@ -47,7 +47,7 @@ Newsreader for the occasional sentence, Instrument Sans for the interface, Commi
   sentences, who and when, Undo, and when its limit held it back. **Settings**: name, addresses, settings and secrets, built-in parts (toggles), keys
   that reach it, delete.
 - **Settings** (the box): Your box (name, domain, look, moving it, updates), Machine (the carrier with the
-  platform's parts), People, Shield.
+  platform's parts), People, Sign-ins (where you're signed in, sign out, the last 30 days), Shield.
 
 ## Rules for every page
 
