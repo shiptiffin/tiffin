@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -115,6 +116,11 @@ func (m *Module) deliverOne(ctx context.Context, p *platform.Platform, id string
 	if err != nil {
 		return time.Time{}, err
 	}
+	// Recipients suppressed since the message was accepted (a bounce or an
+	// unsubscribe while it waited) are dropped before every attempt.
+	if rec, err = m.dropSuppressed(ctx, p, rec); err != nil || rec == nil {
+		return time.Time{}, err
+	}
 	attempt := rec.Attempts + 1
 	fail := func(cause error, permanent bool) (time.Time, error) {
 		next := time.Now().Add(m.backoffFor(attempt))
@@ -166,7 +172,9 @@ func (m *Module) deliverOne(ctx context.Context, p *platform.Platform, id string
 	var bounced []string
 	for to, why := range res.Rejected {
 		bounced = append(bounced, to)
-		_ = addSuppression(ctx, db, rec.Project, Suppression{Address: to, Reason: "bounce", Detail: why})
+		if err := addSuppression(ctx, db, rec.Project, Suppression{Address: to, Reason: "bounce", Detail: why}); err != nil {
+			p.Log.Error("email: suppress a bounced address", "project", rec.Project, "id", id, "err", err)
+		}
 	}
 	sort.Strings(bounced)
 	if len(res.Accepted) == 0 {
@@ -190,6 +198,46 @@ func (m *Module) deliverOne(ctx context.Context, p *platform.Platform, id string
 		h.publish(rec.Project, s)
 	}
 	return time.Time{}, nil
+}
+
+// dropSuppressed takes recipients suppressed since a queued message was
+// accepted off it. When none are left the message is done, as suppressed,
+// and dropSuppressed returns nil.
+func (m *Module) dropSuppressed(ctx context.Context, p *platform.Platform, rec *record) (*record, error) {
+	db := p.DB.SQL()
+	sup, err := suppressed(ctx, db, rec.Project, rec.Rcpt)
+	if err != nil || len(sup) == 0 {
+		return rec, err
+	}
+	var keep []string
+	for _, r := range rec.Rcpt {
+		if sup[normAddr(r)] {
+			rec.Suppressed = append(rec.Suppressed, r)
+		} else {
+			keep = append(keep, r)
+		}
+	}
+	rec.Rcpt = keep
+	done := len(keep) == 0
+	q := `UPDATE email_messages SET rcpt = ?, suppressed = ? WHERE id = ? AND status = ?`
+	args := []any{jsonList(keep), jsonList(rec.Suppressed), rec.ID, StatusQueued}
+	if done {
+		q = `UPDATE email_messages SET rcpt = ?, suppressed = ?, delivery = ?, status = ?, reason = ?, next_at = '' WHERE id = ? AND status = ?`
+		args = []any{jsonList(keep), jsonList(rec.Suppressed), DeliverySuppressed, StatusSuppressed,
+			"every recipient was put on the suppression list before it could be sent; nothing was sent", rec.ID, StatusQueued}
+	}
+	if _, err := db.ExecContext(ctx, q, args...); err != nil {
+		return nil, err
+	}
+	if !done {
+		return rec, nil
+	}
+	_ = os.Remove(rawPath(p.DataRoot, rec.Project, rec.ID))
+	if s, ok := m.summary(ctx, p, rec.Project, rec.ID); ok {
+		_, h := m.state()
+		h.publish(rec.Project, s)
+	}
+	return nil, nil
 }
 
 func (m *Module) summary(ctx context.Context, p *platform.Platform, project, id string) (Summary, bool) {

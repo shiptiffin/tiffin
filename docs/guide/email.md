@@ -267,7 +267,9 @@ project's suppression list, and Tiffin never sends to it again. With delivery ev
 on, bounces, spam complaints and unsubscribes reported by the provider are added too.
 A message to a suppressed address is still accepted, through the API and SMTP alike: it
 is logged with that recipient marked suppressed, and goes only to the others (if there
-are none, nothing is sent). You can add and remove addresses yourself:
+are none, nothing is sent). The list is checked again before every relay attempt, so
+mail still queued when an address is suppressed (say during a relay outage) doesn't go
+to it either. You can add and remove addresses yourself:
 
 ```bash
 tiffin email suppressions add shop --address ada@example.com --reason unsubscribe

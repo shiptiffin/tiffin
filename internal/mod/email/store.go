@@ -344,20 +344,34 @@ func deleteSuppression(ctx context.Context, db *sql.DB, project, address string)
 	return n > 0, nil
 }
 
-// suppressed returns which of addrs are suppressed for project.
+// suppressed returns which of addrs are suppressed for project (normalised).
 func suppressed(ctx context.Context, db *sql.DB, project string, addrs []string) (map[string]bool, error) {
 	out := map[string]bool{}
+	args := []any{project}
 	for _, a := range addrs {
-		var x string
-		err := db.QueryRowContext(ctx, `SELECT address FROM email_suppressions WHERE project = ? AND address = ?`, project, normAddr(a)).Scan(&x)
-		switch {
-		case err == nil:
-			out[normAddr(a)] = true
-		case !errors.Is(err, sql.ErrNoRows):
-			return nil, err
+		if n := normAddr(a); !out[n] {
+			out[n] = true
+			args = append(args, n)
 		}
 	}
-	return out, nil
+	clear(out)
+	if len(args) == 1 {
+		return out, nil
+	}
+	rows, err := db.QueryContext(ctx, `SELECT address FROM email_suppressions WHERE project = ? AND address IN (?`+
+		strings.Repeat(",?", len(args)-2)+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var a string
+		if err := rows.Scan(&a); err != nil {
+			return nil, err
+		}
+		out[a] = true
+	}
+	return out, rows.Err()
 }
 
 // reservedRecipient reports whether an address is at a domain reserved for
