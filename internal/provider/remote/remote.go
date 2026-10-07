@@ -14,6 +14,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -147,11 +148,11 @@ func HostKeyOptions(knownHosts string, trustOwn bool) []string {
 }
 
 // run runs ssh with stdin and returns stdout and stderr.
-func (m *Machine) run(ctx context.Context, timeout time.Duration, stdin []byte, remote ...string) (string, string, error) {
+func (m *Machine) run(ctx context.Context, timeout time.Duration, stdin io.Reader, remote ...string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "ssh", m.args(remote...)...)
-	cmd.Stdin = bytes.NewReader(stdin)
+	cmd.Stdin = stdin
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
@@ -164,17 +165,18 @@ func (m *Machine) run(ctx context.Context, timeout time.Duration, stdin []byte, 
 // Exec runs a bash script on the server as the login user. The script goes
 // over stdin, so it needs no quoting.
 func (m *Machine) Exec(ctx context.Context, script string) (string, string, error) {
-	return m.run(ctx, 20*time.Minute, []byte(script), "bash", "-s")
+	return m.run(ctx, 20*time.Minute, strings.NewReader(script), "bash", "-s")
 }
 
 // Copy copies a local file to remote (written to a temporary name, then renamed).
 func (m *Machine) Copy(ctx context.Context, local, remote string) error {
-	data, err := os.ReadFile(local)
+	f, err := os.Open(local) // streamed: a binary is ~100 MB
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 	q := shellQuote(remote)
-	if _, stderr, err := m.run(ctx, 15*time.Minute, data, "cat > "+shellQuote(remote+".part")+" && mv -f "+shellQuote(remote+".part")+" "+q); err != nil {
+	if _, stderr, err := m.run(ctx, 15*time.Minute, f, "cat > "+shellQuote(remote+".part")+" && mv -f "+shellQuote(remote+".part")+" "+q); err != nil {
 		return fmt.Errorf("copy %s to %s: %w\n%s", filepath.Base(local), m.T, err, stderr)
 	}
 	return nil
