@@ -21,21 +21,40 @@ Three levels:
 | Hono (Bun) | First-class | |
 | FastAPI | First-class | One Uvicorn process per instance. See [FastAPI and Python](apps.md#fastapi-and-python). |
 | TanStack Start (React) | First-class | Runs its Nitro server on Bun; the edge serves its client assets. |
+| SvelteKit 2 and 3 | First-class | adapter-bun, adapter-node or adapter-auto run as a server on Bun; adapter-static is built to files. See [SvelteKit](apps.md#sveltekit). |
+| Nuxt 3 and 4 | First-class | Nitro's `node-server` output, on Bun; `nuxt generate` is built to files. See [Nuxt](apps.md#nuxt). |
+| React Router 7 and 8 (framework mode) | First-class | The box's own Bun server; `ssr: false` is built to files. See [React Router](apps.md#react-router). |
 | Astro, static | First-class | Built to files and served by the edge. |
 | Astro with `@astrojs/node` | Detected | Runs `dist/server/entry.mjs` as a server. |
 | Vite + React (SPA), plain HTML | First-class | Static site; client-side routers get an `index.html` fallback. |
 | Any other Bun or Node.js server (Express, Elysia, Fastify...) | Detected | Must listen on `$PORT`. |
 | Flask, Django, Litestar and other Python servers | Detected (`python`) | Started by your `command`, or Railpack's guess. |
 | Go, Rust, anything else | Dockerfile only | |
-| SvelteKit, Nuxt, React Router (framework mode), Remix, SolidStart, TanStack Start for Solid | Not yet | Planned. |
+| Remix 2, SolidStart, TanStack Start for Solid | Not yet | Planned. |
 | Astro with the Vercel, Netlify or Cloudflare adapter | Not yet | Switch to `@astrojs/node`, or build it static. |
 
 **Bun by default.** JavaScript apps build and run on Bun. Some things only work on Node.js;
 set `runtime: "node"` for them:
 
 - native modules built for Node.js, and libraries that lean on Node internals;
-- React Router's own server (`react-router-serve`, on Express) is slow on Bun: if you run
-  React Router from a Dockerfile, run it on Node.js.
+- React Router's own server (`react-router-serve`, on Express) is slow on Bun (about 340
+  requests a second): the box starts its own Bun server instead, but a custom server or a
+  Dockerfile that runs `react-router-serve` should run on Node.js.
+
+**SvelteKit, Nuxt and React Router** (what the box sets up is in [Apps](apps.md#sveltekit)):
+
+- SvelteKit with `adapter-auto` installs `adapter-node` during every build (it knows no
+  box). Use `@sveltejs/adapter-bun` (SvelteKit 3) for the leaner server. `adapter-bun` needs
+  Bun, so `runtime: "node"` with it stops the build. The Vercel, Netlify and Cloudflare
+  adapters aren't supported.
+- The adapter, `out` folder, `ssr: false`, `buildDirectory` and an adapter-static `fallback`
+  are read from the config files as written: a value computed in code (an adapter picked by
+  an env var, say) isn't seen. Set the app's start command and output folder then.
+- Nuxt `routeRules`: `swr` and `cache` keep their pages in each instance's memory (not shared,
+  lost on deploy), and `isr` does nothing on the `node-server` preset. No edge cache yet.
+- Nuxt with a `nitro.preset` in `nuxt.config` builds that preset; `bun` (Nitro 2) is not
+  recommended (no graceful shutdown, buffered request bodies).
+- React Router's RSC framework mode (unstable) isn't tested.
 
 ## Builds
 
@@ -200,7 +219,9 @@ Router, TanStack Start) cover the files the build wrote, as they are:
   (CSP with `staticHeaders`) and Nuxt `routeRules` headers. A site that needs them on
   prerendered pages should render those pages on request.
 - SPA shells (TanStack Start's `_shell.html`, React Router's `__spa-fallback.html`,
-  Nuxt's `200.html`) and `404.html` are not used as fallbacks: other paths go to the app.
+  Nuxt's `200.html`) and `404.html` are not used as fallbacks for a server app: other
+  paths go to it. A build that is only files (React Router `ssr: false`, `nuxt generate`
+  with `ssr: false`, an adapter-static `fallback`) does serve its shell for them.
 - A trailing slash is answered as the framework writes the file: `/about/` from
   `about/index.html` (and `/about` too), `/about` only from `about.html`. The box never
   redirects; the app does, for a path it leaves to it.

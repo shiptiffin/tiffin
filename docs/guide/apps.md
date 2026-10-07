@@ -24,14 +24,17 @@ library that leans on Node internals), set `runtime: "node"` (or pick Node.js un
 app's Runtime in the dashboard): it then builds and runs on Node.js, from the next deploy. A
 build or start that fails on Bun says so, and the version that was serving keeps serving.
 
-After a Next.js app passes its health check, the box also asks it for `/` and for a page that
-doesn't exist; a 5xx on either stops the deploy before it takes traffic.
+After a Next.js, SvelteKit, Nuxt or React Router app passes its health check, the box also
+asks it for `/` and for a page that doesn't exist; a 5xx on either stops the deploy before
+it takes traffic.
 
 A static build whose `package.json` uses a client-side router (react-router, vue-router,
 TanStack Router, wouter…) serves `index.html` for paths without a file, so a refresh on
 `/about` works; `index_fallback: false` in a Staticfile turns that off.
 
-TanStack Start runs as a server on Bun: its `start` script (Nitro's
+SvelteKit, Nuxt and React Router (framework mode) are started by the box itself, with the
+settings their servers need behind its proxy: see [SvelteKit](#sveltekit), [Nuxt](#nuxt)
+and [React Router](#react-router). TanStack Start runs as a server on Bun: its `start` script (Nitro's
 `node .output/server/index.mjs`), or Railpack's default when there is none. Astro with
 `@astrojs/node` (standalone) runs its server the same way; without a `start` script the box
 starts `dist/server/entry.mjs`. Which frameworks are first-class, which are only
@@ -106,7 +109,8 @@ failed build or health check leaves the old version serving.
   or `nerdctl save`). The tarball's own names are replaced by the deploy's as it loads:
   the image is kept under the deploy's name only, so it cannot replace another project's
   or the box's images.
-- **Client assets:** for Next.js, TanStack Start and Astro (`@astrojs/node`) apps, the box
+- **Client assets:** for Next.js, TanStack Start, SvelteKit, Nuxt, React Router and Astro
+  (`@astrojs/node`) apps, the box
   copies the build's browser files (JS, CSS, images) out of the image and serves them
   itself: hashed files with a year-long immutable cache, others with revalidation. Hashed files of the
   previous releases stay served for a day, so a page loaded before a deploy keeps
@@ -358,6 +362,9 @@ Starters ship in the binary, grouped by what you make (`kind`), with a framework
 |---|---|---|
 | Web app (`web`) | **Next.js** (`nextjs`) | App Router on Bun; a server component reads Postgres, a server action writes it |
 | | TanStack Start (`tanstack-start`) | A loader and server functions on Postgres, streamed stats, a prerendered `/about` |
+| | SvelteKit (`sveltekit`) | SvelteKit 3 with adapter-bun: a server `load` on Postgres (`Bun.SQL`), a form action, streamed stats, a prerendered `/about` |
+| | React Router (`react-router`) | React Router 8 framework mode: a loader and an action on Postgres (`Bun.SQL`), streamed stats, a prerendered `/about` |
+| | Nuxt (`nuxt`) | Nuxt 4 on Bun: a page and server routes on Postgres (postgres.js), a form that works without JavaScript, a prerendered `/about` |
 | Static site (`static`) | **Astro** (`astro`) | Plain HTML, the image service and a self-hosted font; no JavaScript unless a page asks |
 | | Vite + React (`vite-react`) | A single-page app built to hashed, code-split files |
 | API (`api`) | **Hono** (`hono`) | A JSON API with a Postgres table it creates on boot |
@@ -641,6 +648,97 @@ Apps that use Vercel's Workflow DevKit (`workflow`) run unchanged on the project
 Postgres: see [Already using Vercel Workflow?](queues.md#already-using-vercel-workflow).
 
 `templates/hello-next` is an example with two instances and Valkey.
+
+## SvelteKit
+
+SvelteKit 2 and 3 run as a server, picked by the adapter the app's config imports
+(`vite.config` in SvelteKit 3, `svelte.config.js` in 2), or the one `package.json` lists:
+
+| Adapter | What the box does |
+|---|---|
+| `@sveltejs/adapter-bun` (SvelteKit 3, Bun 1.4+) | `exec bun ./build/index.js`: one `Bun.serve` process. The default to use. |
+| `@sveltejs/adapter-node` | `exec bun ./build/index.js` (`node` with `runtime: "node"`) |
+| `@sveltejs/adapter-auto` | The build sets `GCP_BUILDPACKS`, so adapter-auto installs adapter-node and uses it; the deploy carries a warning pointing at adapter-bun |
+| `@sveltejs/adapter-static` | Built to files and served by the edge; with a `fallback` page, paths without a file serve it |
+| Any other (Vercel, Netlify, Cloudflare) | The build stops and says to switch |
+
+The adapter's `out` folder is read from the config (default `build`). A `start` script that
+only starts that build (`bun ./build`, `node build`) is replaced by the same command run
+with `exec`; any other start script (a custom server) runs as written.
+
+The image's env gets what the server reads behind the box's proxy (the app's own env wins):
+`PROTOCOL_HEADER=x-forwarded-proto`, `HOST_HEADER=x-forwarded-host`,
+`ADDRESS_HEADER=x-forwarded-for` and `XFF_DEPTH=1`, without which SvelteKit's origin check
+refuses every form action with a 403; `BODY_SIZE_LIMIT=Infinity` (SvelteKit's own 512 KB
+refuses ordinary uploads); `SHUTDOWN_TIMEOUT=25`; and `CONNECTION_IDLE_TIMEOUT=0`
+(adapter-bun) or `KEEP_ALIVE_TIMEOUT=65` (adapter-node), so the switchboard's kept
+connections are not closed under it. Files under `/_app/immutable/` are served by the box
+for a year; `_app/version.json` is revalidated. Prerendered pages come from
+`build/prerendered`.
+
+Measured on the live box (2 vCPU x86, Hetzner cx23) with the `sveltekit` starter (a server
+`load` with two Postgres queries, 32 connections for 20 s): 2,300 requests a second at
+22 ms p95, 38 MB RSS idle and 75 MB after the load; a cold start to a healthy answer in
+0.6 to 0.7 s; a build in 36 s; a rollback in 2 s. SvelteKit's adapter-node output on Node.js
+used about three times the memory of Bun in the research run (249 against 84 MB after 2,000
+requests).
+
+## Nuxt
+
+Nuxt 4 (and 3) builds with Nitro's `node-server` preset, which the box pins
+(`NITRO_PRESET=node-server` at build; a `nitro.preset` in `nuxt.config` wins), and starts
+`exec bun .output/server/index.mjs` (`node` with `runtime: "node"`). Never Nitro 2's `bun`
+preset: it buffers request bodies and has no graceful shutdown. A `start` script that only
+starts that output (`node .output/server/index.mjs`, `nuxt start`) is replaced by the same
+command with `exec`.
+
+- `NUXT_APP_SECRET` (sessions, `deriveSecret`) is made once per app and kept, sealed, the
+  same in every build, instance and preview; set it yourself to use your own.
+- `NITRO_SHUTDOWN_TIMEOUT=25000`, inside the box's 30 seconds.
+- `/_nuxt/` and `/_fonts/` are served by the box for a year, except
+  `/_nuxt/builds/latest.json`, which the app polls for new versions and is revalidated.
+- A `build` script that runs `nuxt generate` makes a static site (`.output/public`), served
+  by the edge; with `ssr: false` in `nuxt.config`, paths without a file serve `200.html`.
+
+**Bun or Node.js:** measured on the live box with the `nuxt` starter (its home page renders
+on the server and fetches its API route, two Postgres queries), 32 connections, three
+30-second rounds back to back:
+
+| Runtime | Requests/s | p95 | RSS idle | RSS after each round | Cold start |
+|---|---|---|---|---|---|
+| Bun 1.4.2 | 1,030 | 46 ms | 63 MB | 141, 140, 142 MB | 0.75 s |
+| Node.js 24 | 610 | 82 ms | 83 MB | 187, 186, 187 MB | 0.98 s |
+
+Bun was faster and leaner, and its memory did not grow across rounds, so Nuxt runs on Bun
+unless the app sets `runtime: "node"`. A build of the starter takes about 80 s; a rollback
+under 3 s.
+
+## React Router
+
+React Router 7 and 8 in framework mode (`@react-router/dev`) run as a server. On Bun the
+box doesn't use `react-router-serve` (Express with compression, about 340 requests a second
+on Bun): it writes its own server into the build (`.tiffin/react-router/serve.js`) and starts
+`exec bun /app/.tiffin/react-router/serve.js ./build/server/index.js`, which is
+`Bun.serve` with React Router's own request handler. It:
+
+- serves the build's client files itself (`/assets/` for a year), and prerendered pages at
+  `/about` and `/about/`;
+- gives React Router the URL the browser used (`https`, from the edge's
+  `X-Forwarded-Proto` and `X-Forwarded-Host`), which its action origin check compares
+  with `Origin`;
+- drains requests in flight on SIGTERM, for up to `SHUTDOWN_TIMEOUT` seconds (25).
+
+A `start` script of `react-router-serve <build>` names the server build to start; any other
+start script runs as written. With `runtime: "node"`, the box starts `react-router-serve` on
+Node.js when the app depends on `@react-router/serve`. `buildDirectory` in
+`react-router.config` is read (default `build`). With `ssr: false` the app is a static site:
+`build/client` is served by the edge, and paths without a file serve `index.html`, or
+`__spa-fallback.html` when the home page is prerendered. A deploy of `react-router` before
+8.4.0 (7.18.4 on v7) carries a warning: those leak memory while streaming.
+
+Measured on the live box with the `react-router` starter (a loader with two Postgres
+queries, 32 connections for 20 s): 1,350 requests a second at 36 ms p95, 51 MB RSS idle
+and 95 MB after the load; a cold start in 0.7 to 0.8 s; a build in 28 s; a rollback in 2 s.
 
 ## FastAPI and Python
 
