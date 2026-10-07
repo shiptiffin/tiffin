@@ -557,7 +557,8 @@ secrets restarts the app with the new values.
 `generateStaticParams`, prerendered pages and build scripts can query the database: a
 preview's build reads its own branch. Two differences: `DATABASE_URL` (and `PG*`) connect
 as the project's read-only role (`p_<project>__read`: reads every table, writes nothing,
-not even with `SET default_transaction_read_only = off`) and `REDIS_URL` as a read-only
+not even with `SET default_transaction_read_only = off`, except through the app's own
+`SECURITY DEFINER` functions that anyone may run) and `REDIS_URL` as a read-only
 Valkey user, unless the app sets its own values. The values reach build steps as BuildKit
 secrets: Tiffin puts them in no image layer, build plan or log, and only `NEXT_PUBLIC_*`
 (and the other browser variables) are built into client code. Build code can still
