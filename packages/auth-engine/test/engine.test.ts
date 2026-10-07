@@ -193,6 +193,36 @@ describe("passwordless", () => {
   });
 });
 
+describe("nothing in the auth tables works as a credential", () => {
+  test("reset and magic-link tokens and one-time codes are not stored as sent", async () => {
+    const db = new pg.Pool({ connectionString: dbUrl, max: 1 });
+    try {
+      await person(handle, "vera@example.com", "Vera");
+      const c = new Client(handle);
+      expect((await c.withCaptcha("/request-password-reset", { email: "vera@example.com", redirectTo: "/reset" })).status).toBe(200);
+      expect((await c.withCaptcha("/sign-in/magic-link", { email: "vera@example.com", callbackURL: "/" })).status).toBe(200);
+      expect((await c.withCaptcha("/email-otp/send-verification-otp", { email: "vera@example.com", type: "sign-in" })).status).toBe(200);
+      const reset = new URL(linkIn(lastMail("vera@example.com", "reset-password").text));
+      const resetToken = reset.pathname.split("/").pop()!;
+      const magic = new URL(linkIn(lastMail("vera@example.com", "magic-link").text)).searchParams.get("token")!;
+      const otp = lastMail("vera@example.com", "otp").subject.split(" ")[0]!;
+      expect(resetToken.length).toBeGreaterThan(10);
+      expect(magic.length).toBeGreaterThan(10);
+      const rows = (await db.query(`SELECT identifier, value FROM tiffin_auth.verification`)).rows as { identifier: string; value: string }[];
+      expect(rows.length).toBeGreaterThanOrEqual(3);
+      const all = JSON.stringify(rows);
+      for (const secret of [resetToken, magic, `${otp}:`]) expect(all).not.toContain(secret);
+      // And they still work.
+      const ok = await new Client(handle).json("/sign-in/email-otp", { body: { email: "vera@example.com", otp } });
+      expect(ok.status).toBe(200);
+      const done = await new Client(handle).json("/reset-password", { body: { token: resetToken, newPassword: "another horse battery" } });
+      expect(done.status).toBe(200);
+    } finally {
+      await db.end();
+    }
+  });
+});
+
 describe("account email", () => {
   test("change email: the old address approves, the new one confirms, the old one is told", async () => {
     const c = new Client(handle);

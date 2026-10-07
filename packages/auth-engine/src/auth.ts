@@ -518,6 +518,7 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
         otpLength: 6,
         expiresIn: 300,
         allowedAttempts: 5,
+        storeOTP: "encrypted",
         sendVerificationOTP: async ({ email, otp, type }) => mail(templates.otp(brand, email, otp, type, 300)),
       }),
     );
@@ -527,7 +528,7 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
     twoFactor({
       issuer: c.appName,
       // Two-step sign-in by email code (TOTP apps keep working as before).
-      otpOptions: { period: 3, sendOTP: async ({ user, otp }) => void (await mail(templates.twoFactor(brand, user.email, otp, 180))) },
+      otpOptions: { period: 3, storeOTP: "encrypted", sendOTP: async ({ user, otp }) => void (await mail(templates.twoFactor(brand, user.email, otp, 180))) },
     }),
   );
   if (c.organizations) {
@@ -608,6 +609,13 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
       level: "warn",
       log: (level, message) => console.log(JSON.stringify({ level, msg: message, project, source: "better-auth" })),
     },
+    // The auth tables live in the app's own database, which the app, and
+    // anyone with read-only SQL on the project, can read. Nothing there may
+    // work as a credential: verification identifiers (password-reset and
+    // magic-link tokens, OAuth states) are stored as SHA-256 hashes, and
+    // one-time codes encrypted with the project's secret (a 6-digit code's
+    // hash would be guessed offline).
+    verification: { storeIdentifier: "hashed" },
     rateLimit: {
       enabled: c.rateLimit,
       // This project's own counters: Better Auth's memory store is one map
