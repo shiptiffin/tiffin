@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -121,6 +122,70 @@ func TestWatch(t *testing.T) {
 	}
 	ping("/ping/"+beat, `{}`)
 	step(0, "blog up: Tiffin box blog is back up after 0s.")
+}
+
+// A down alert that could not be delivered goes out at the next check,
+// once; a box back before its alert got through sends nothing.
+func TestUndeliveredAlertsAreRetried(t *testing.T) {
+	var healthy atomic.Bool
+	box := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !healthy.Load() {
+			http.Error(w, "down", http.StatusBadGateway)
+		}
+	}))
+	defer box.Close()
+	cfg := &Config{Command: "true", Boxes: []Box{{Name: "shop", URL: box.URL}}}
+	if err := cfg.validate(); err != nil {
+		t.Fatal(err)
+	}
+	w := New(cfg, io.Discard)
+	now := time.Now()
+	w.now = func() time.Time { return now }
+	var delivered []string
+	failing := true
+	attempts := 0
+	w.notify = func(_ context.Context, a Alert) error {
+		attempts++
+		if failing {
+			return errors.New("webhook answered 503")
+		}
+		delivered = append(delivered, a.State)
+		return nil
+	}
+	step := func(d time.Duration) {
+		now = now.Add(d)
+		w.Check(context.Background())
+	}
+	step(6 * time.Minute) // down; delivery fails
+	if attempts != 1 || len(delivered) != 0 {
+		t.Fatalf("attempts %d, delivered %v", attempts, delivered)
+	}
+	step(time.Minute) // still failing: tried again
+	failing = false
+	step(time.Minute) // delivered
+	step(time.Minute) // not again
+	if attempts != 3 || strings.Join(delivered, ",") != "down" {
+		t.Fatalf("attempts %d, delivered %v", attempts, delivered)
+	}
+	healthy.Store(true)
+	failing = true
+	step(time.Minute) // up; delivery fails
+	failing = false
+	step(time.Minute)
+	if strings.Join(delivered, ",") != "down,up" {
+		t.Fatalf("delivered %v", delivered)
+	}
+	// Down and back before the down alert went out: nothing at all.
+	healthy.Store(false)
+	failing = true
+	step(6 * time.Minute)
+	healthy.Store(true)
+	failing = false
+	step(time.Minute)
+	step(time.Minute)
+	if strings.Join(delivered, ",") != "down,up" {
+		t.Fatalf("delivered %v", delivered)
+	}
 }
 
 func TestDeliver(t *testing.T) {

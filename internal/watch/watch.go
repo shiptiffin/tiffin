@@ -4,7 +4,8 @@
 // <collector>/ping/<token>`), and when a box is down for a while (health
 // failing, heartbeats missing, or the box pinging /fail) it alerts through a
 // webhook and/or a command, once when the box goes down and once when it
-// comes back.
+// comes back. An alert that could not be delivered is sent again at every
+// check until it is (or the box's state changes back).
 package watch
 
 import (
@@ -129,8 +130,10 @@ type boxState struct {
 	healthErr string
 	beatAt    time.Time // last heartbeat (or the watch's start)
 	failing   string    // what the last /fail said; "" after a good ping
-	down      bool
+	down      bool      // what the checks say now
 	downAt    time.Time
+	upAt      time.Time
+	told      bool // the state last delivered: true when "down" went out
 }
 
 // Watcher checks boxes and alerts.
@@ -141,8 +144,9 @@ type Watcher struct {
 	notify func(context.Context, Alert) error
 	log    io.Writer
 
-	mu    sync.Mutex
-	state map[string]*boxState
+	evalMu sync.Mutex // one evaluation at a time, so an alert goes out once
+	mu     sync.Mutex
+	state  map[string]*boxState
 }
 
 // New returns a watcher for cfg (from Load). Alerts go to cfg's webhook and
@@ -218,8 +222,13 @@ func (w *Watcher) health(ctx context.Context, base string) error {
 	return nil
 }
 
-// evaluate decides each box's state and alerts on every change.
+// evaluate decides each box's state and alerts when it differs from what
+// was last delivered: on every change, and again at the next check while a
+// delivery keeps failing. A box that comes back before its down alert got
+// through sends neither.
 func (w *Watcher) evaluate(ctx context.Context) {
+	w.evalMu.Lock()
+	defer w.evalMu.Unlock()
 	var alerts []Alert
 	w.mu.Lock()
 	now := w.now()
@@ -229,20 +238,28 @@ func (w *Watcher) evaluate(ctx context.Context) {
 		switch down := len(reasons) > 0; {
 		case down && !st.down:
 			st.down, st.downAt = true, now
+		case !down && st.down:
+			st.down, st.upAt = false, now
+		}
+		switch {
+		case st.down && !st.told:
 			alerts = append(alerts, Alert{Box: b.Name, State: "down", Reasons: reasons,
 				Text: fmt.Sprintf("Tiffin box %s is down: %s.", b.Name, strings.Join(reasons, "; "))})
-		case !down && st.down:
-			st.down = false
+		case !st.down && st.told:
 			alerts = append(alerts, Alert{Box: b.Name, State: "up",
-				Text: fmt.Sprintf("Tiffin box %s is back up after %s.", b.Name, now.Sub(st.downAt).Round(time.Second))})
+				Text: fmt.Sprintf("Tiffin box %s is back up after %s.", b.Name, st.upAt.Sub(st.downAt).Round(time.Second))})
 		}
 	}
 	w.mu.Unlock()
 	for _, a := range alerts {
 		fmt.Fprintln(w.log, a.Text)
 		if err := w.notify(ctx, a); err != nil {
-			fmt.Fprintln(w.log, "alert not delivered:", err)
+			fmt.Fprintln(w.log, "alert not delivered (retrying at the next check):", err)
+			continue
 		}
+		w.mu.Lock()
+		w.state[a.Box].told = a.State == "down"
+		w.mu.Unlock()
 	}
 }
 
