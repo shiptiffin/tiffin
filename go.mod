@@ -39,6 +39,7 @@ require (
 	github.com/ua-parser/uap-go v0.0.0-20260529044130-17c35e68e58c
 	go.opentelemetry.io/proto/otlp v1.11.0
 	golang.org/x/crypto v0.57.0
+	golang.org/x/image v0.46.0
 	golang.org/x/net v0.59.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/text v0.42.0

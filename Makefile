@@ -66,8 +66,13 @@ release-sign:
 	go run ./cmd/tiffin-release manifest -dist dist -version $(VERSION) -channels "$(CHANNELS)" -min-version "$(MIN_VERSION)" \
 		-rollout $(ROLLOUT) -edge-restart=$(EDGE_RESTART) -notes "$(NOTES)" -base-url "$(BASE_URL)" -key "$(RELEASE_KEY)"
 
+# Go tests run under the race detector, except the edge's ACME tests: Caddy
+# itself races there (caddyevents.App.Subscribe writes its subscriptions map
+# in Start while certmagic's background obtain already Emits through it;
+# unfixed upstream as of Caddy v2.11.7). They run without -race right after.
 test:
-	go test ./...
+	go test -race -skip '^TestACME' ./...
+	go test -run '^TestACME' ./internal/edge/
 	@if [ -f packages/package.json ] || ls packages/*/package.json >/dev/null 2>&1; then \
 		for d in packages/*/; do if [ -n "$$(find $$d -name '*.test.*' -not -path '*/node_modules/*' | head -1)" ]; then (cd $$d && bun test) || exit 1; fi; done; \
 	else echo "packages: no JS packages yet, skipping bun test"; fi

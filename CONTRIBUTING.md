@@ -82,9 +82,15 @@ limactl shell tiffin-dev -- sudo journalctl -u tiffin -u tiffin-edge -n 200 --no
 ## Tests
 
 Unit tests run on the host: `go test ./internal/mod/<name>/...` (`make test` runs all Go
-and Bun tests; `make lint` runs gofmt, go vet and staticcheck). A module also gets an e2e
-test in `e2e/<name>_test.go` (build tag `e2e`) that drives the CLI against a fresh box
-the way `e2e/up_test.go` does; `make e2e` runs them all, each on a fresh VM (slow).
+tests under the race detector, and the Bun tests; `make lint` runs gofmt, go vet and
+staticcheck). A module also gets an e2e test in `e2e/<name>_test.go` (build tag `e2e`)
+that drives the CLI against a fresh box the way `e2e/up_test.go` does; `make e2e` runs
+them all, each on a fresh VM (slow).
+
+The dashboard's Playwright suite (`cd apps/dashboard && bun run e2e`) builds and seeds its
+own box (`e2e/serve.sh`; `E2E_PORT` for a second one beside it). Specs that need
+Postgres, Valkey or storage skip on a Mac's local box and say why; point them at a dev box
+seeded by `e2e/seed-box.sh` (`E2E_BASE_URL`, `E2E_OWNER_TOKEN`).
 
 ## Releases
 
