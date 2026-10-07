@@ -8,8 +8,10 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -88,11 +90,58 @@ func clientAssets(srcDir string, spec *manifest.App) []AssetDir {
 	for _, k := range knownAssets {
 		for _, d := range k.deps {
 			if deps[d] {
-				return k.dirs
+				return withPublicFiles(srcDir, k.dirs)
 			}
 		}
 	}
 	return nil
+}
+
+// publicDirs are the folders a Vite build copies as they are to the top of
+// its output: Vite's public/ (SvelteKit's static/).
+var publicDirs = []string{"public", "static"}
+
+// maxPublicNames is how many of an app's own files under a hashed prefix
+// are named one by one; past it, the whole prefix is revalidated.
+const maxPublicNames = 256
+
+// withPublicFiles marks the app's own files under dirs' hashed prefixes
+// (public/assets/logo.svg lands next to Vite's hashed /assets/ files, under
+// the same name in every release) as files that keep their names: they are
+// revalidated and served from the live release only, not cached for a
+// year. A top-level folder there is marked whole: Vite writes its hashed
+// files flat.
+func withPublicFiles(srcDir string, dirs []AssetDir) []AssetDir {
+	out := slices.Clone(dirs)
+	for i, a := range out {
+		var keep []string
+		for _, pre := range a.Immutable {
+			if strings.HasPrefix(pre, "!") {
+				continue
+			}
+			for _, pub := range publicDirs {
+				entries, err := os.ReadDir(filepath.Join(srcDir, pub, filepath.FromSlash(pre)))
+				if err != nil {
+					continue
+				}
+				if len(entries) > maxPublicNames {
+					keep = append(keep, "!"+pre)
+					continue
+				}
+				for _, e := range entries {
+					name := "!" + path.Join(pre, e.Name())
+					if e.IsDir() {
+						name += "/"
+					}
+					keep = append(keep, name)
+				}
+			}
+		}
+		if len(keep) > 0 {
+			out[i].Immutable = append(slices.Clone(a.Immutable), keep...)
+		}
+	}
+	return out
 }
 
 func packageDeps(dir string) map[string]bool {

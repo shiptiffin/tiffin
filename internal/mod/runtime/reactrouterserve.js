@@ -7,7 +7,7 @@
 //
 // It serves the build's client files itself (the box's edge serves most of
 // them first), prerendered pages included, and stops gracefully on SIGTERM.
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join, posix, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -30,10 +30,15 @@ try {
 } catch {}
 const client = resolve(cwd, build.assetsBuildDirectory || join(buildPath, "..", "..", "client"));
 const assets = posix.join(base, "assets") + "/";
+// Vite copies public/ as it is: public/assets/logo.svg keeps its name in
+// every release, so only the build's own (content-hashed) files under
+// assets/ are cached for good.
+const publicDir = resolve(cwd, "public");
 
 // Client files by URL path, read once. A prerendered page
 // (about/index.html) answers /about and /about/ as well.
 const files = new Map();
+const immutable = new Set();
 function walk(dir, rel) {
   let entries;
   try {
@@ -48,6 +53,7 @@ function walk(dir, rel) {
     else if (e.isFile()) {
       const url = posix.join(base, p);
       files.set(url, join(dir, e.name));
+      if (url.startsWith(assets) && !existsSync(join(publicDir, p))) immutable.add(url);
       if (e.name === "index.html") {
         const page = posix.join(base, rel) || "/";
         files.set(page, join(dir, e.name));
@@ -84,7 +90,7 @@ const server = Bun.serve({
       } catch {}
       const file = files.get(path);
       if (file) {
-        const headers = { "Cache-Control": path.startsWith(assets) ? "public, max-age=31536000, immutable" : "public, max-age=0, must-revalidate" };
+        const headers = { "Cache-Control": immutable.has(path) ? "public, max-age=31536000, immutable" : "public, max-age=0, must-revalidate" };
         return new Response(Bun.file(file), { headers });
       }
     }

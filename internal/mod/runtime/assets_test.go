@@ -151,3 +151,36 @@ func TestClientAssetsThroughDeploys(t *testing.T) {
 		t.Fatal("assets of a deleted app are kept")
 	}
 }
+
+// A file of the app's own public/assets/ lands among Vite's hashed
+// /assets/ files under the same name in every release: it is revalidated,
+// not cached for a year.
+func TestClientAssetsLeavesPublicFilesMutable(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"package.json":            `{"devDependencies":{"@react-router/dev":"7"}}`,
+		"public/assets/logo.svg":  "<svg/>",
+		"public/assets/img/a.png": "png",
+		"public/favicon.ico":      "ico",
+	})
+	got := clientAssets(dir, &manifest.App{Framework: manifest.FrameworkBun})
+	if len(got) != 1 {
+		t.Fatalf("got %+v", got)
+	}
+	if want := []string{"/assets/", "!/assets/img/", "!/assets/logo.svg"}; !reflect.DeepEqual(got[0].Immutable, want) {
+		t.Errorf("immutable %q, want %q", got[0].Immutable, want)
+	}
+	// The kinds' own lists stay as they are.
+	if again := clientAssets(t.TempDir(), &manifest.App{Framework: manifest.FrameworkBun}); again != nil {
+		t.Fatalf("no package.json: %+v", again)
+	}
+	for _, k := range knownAssets {
+		for _, a := range k.dirs {
+			for _, pre := range a.Immutable {
+				if strings.Contains(pre, "logo") {
+					t.Fatalf("knownAssets changed: %+v", a)
+				}
+			}
+		}
+	}
+}
