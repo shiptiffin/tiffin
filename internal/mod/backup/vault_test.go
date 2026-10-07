@@ -505,7 +505,7 @@ func TestPruneUnreadableRecord(t *testing.T) {
 	cutoff := now.Add(-30 * 24 * time.Hour)
 
 	st.fail = v.setKey(setIDs[0], "info")
-	if _, err := v.prune(ctx, pruneDrop(ctx, v, noLocal, info, nil, cutoff), refs); err == nil {
+	if _, err := v.prune(ctx, pruneDrop(ctx, v, nil, noLocal, info, nil, cutoff), refs); err == nil {
 		t.Fatal("the prune went on without the set's record")
 	}
 	if left, _ := v.setIDs(ctx); len(left) != 3 {
@@ -515,15 +515,15 @@ func TestPruneUnreadableRecord(t *testing.T) {
 	// Readable again: nothing is dropped (every label is in repo2); once
 	// pgBackRest expires the first label, its set goes.
 	st.fail = ""
-	if res, err := v.prune(ctx, pruneDrop(ctx, v, noLocal, info, nil, cutoff), refs); err != nil || len(res.Sets) != 0 {
+	if res, err := v.prune(ctx, pruneDrop(ctx, v, nil, noLocal, info, nil, cutoff), refs); err != nil || len(res.Sets) != 0 {
 		t.Fatalf("prune: %+v %v", res, err)
 	}
-	if res, err := v.prune(ctx, pruneDrop(ctx, v, noLocal, info[1:], nil, cutoff), refs); err != nil || strings.Join(res.Sets, ",") != setIDs[0] {
+	if res, err := v.prune(ctx, pruneDrop(ctx, v, nil, noLocal, info[1:], nil, cutoff), refs); err != nil || strings.Join(res.Sets, ",") != setIDs[0] {
 		t.Fatalf("expired label: %+v %v", res, err)
 	}
 	// A local record that cannot be read is an error too.
 	broken := func(string) (*Backup, error) { return nil, errors.New("database is locked") }
-	if _, err := v.prune(ctx, pruneDrop(ctx, v, broken, info[2:], nil, cutoff), refs); err == nil {
+	if _, err := v.prune(ctx, pruneDrop(ctx, v, nil, broken, info[2:], nil, cutoff), refs); err == nil {
 		t.Fatal("the prune went on without the local record")
 	}
 	if left, _ := v.setIDs(ctx); len(left) != 2 {

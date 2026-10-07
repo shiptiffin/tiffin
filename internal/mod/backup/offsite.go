@@ -112,6 +112,7 @@ func (c *OffsiteConfig) where() string {
 // BackupOffsiteCopy is one off-box copy of a set.
 type BackupOffsiteCopy struct {
 	Backup        string      `json:"backup" doc:"The backup set copied"`
+	Destination   string      `json:"destination,omitempty" doc:"Where it was copied: a copy to an earlier destination does not count for the current one"`
 	Status        string      `json:"status" enum:"running,ok,failed"`
 	Error         string      `json:"error,omitempty"`
 	StartedAt     time.Time   `json:"startedAt"`
@@ -122,6 +123,12 @@ type BackupOffsiteCopy struct {
 	PostgresBytes int64       `json:"postgresBytes" doc:"What the Postgres backup added to the bucket (compressed)"`
 	Files         uploadStats `json:"files" doc:"The set's other parts: Valkey, platform state, registered files"`
 	SentBytes     int64       `json:"sentBytes" doc:"Bytes uploaded in all (Postgres plus new chunks)"`
+}
+
+// copiedTo reports whether this is a successful copy to destination c. A
+// copy to another (earlier) destination is not in c's bucket.
+func (cp *BackupOffsiteCopy) copiedTo(c *OffsiteConfig) bool {
+	return cp != nil && c != nil && cp.Status == "ok" && cp.Destination == c.where()
 }
 
 // offsiteStatus is kept in nsOffsite/"status".
@@ -625,21 +632,21 @@ var ErrOffsiteOff = errors.New("copies off the box are off; set a destination wi
 
 // CopyOffsite copies a backup set off the box: Postgres to repo2, the rest
 // to the bucket. It waits for a running copy to finish first; a set copied
-// already returns that copy.
+// to this destination already returns that copy.
 func CopyOffsite(ctx context.Context, p *platform.Platform, b *Backup) (*BackupOffsiteCopy, error) {
 	work.Lock()
 	defer work.Unlock()
-	if cur, err := get(ctx, p, b.ID); err == nil && cur.Offsite != nil && cur.Offsite.Status == "ok" {
-		return cur.Offsite, nil
-	}
 	c, s := current()
 	if c == nil {
 		return nil, ErrOffsiteOff
 	}
+	if cur, err := get(ctx, p, b.ID); err == nil && cur.Offsite.copiedTo(c) {
+		return cur.Offsite, nil
+	}
 	if c.State != OffsiteActive {
 		return nil, fmt.Errorf("copies are paused: %s", foreignWords)
 	}
-	cp := &BackupOffsiteCopy{Backup: b.ID, Status: "running", StartedAt: time.Now().UTC()}
+	cp := &BackupOffsiteCopy{Backup: b.ID, Destination: c.where(), Status: "running", StartedAt: time.Now().UTC()}
 	off.mu.Lock()
 	off.running = b.ID
 	off.mu.Unlock()
@@ -863,7 +870,7 @@ func pruneOffsite(ctx context.Context, p *platform.Platform) (pruneResult, error
 	}
 	info, ierr := repoInfoOf(ctx, 2)
 	cutoff := time.Now().Add(-time.Duration(c.RetentionDays) * 24 * time.Hour)
-	res, err := v.prune(ctx, pruneDrop(ctx, v, func(id string) (*Backup, error) { return get(ctx, p, id) }, info, ierr, cutoff),
+	res, err := v.prune(ctx, pruneDrop(ctx, v, c, func(id string) (*Backup, error) { return get(ctx, p, id) }, info, ierr, cutoff),
 		func(id string) ([]string, error) {
 			if raw, err := os.ReadFile(refsPath(id)); err == nil {
 				return strings.Fields(string(raw)), nil
@@ -897,7 +904,7 @@ func pruneOffsite(ctx context.Context, p *platform.Platform) (pruneResult, error
 // has expired. A set's label comes from its local record (local) or else
 // its record in the bucket; one that cannot be read is an error, never an
 // empty label: an empty label would drop a set that is still good.
-func pruneDrop(ctx context.Context, v *vault, local func(id string) (*Backup, error), info []repoBackup, ierr error, cutoff time.Time) func(string) (bool, error) {
+func pruneDrop(ctx context.Context, v *vault, c *OffsiteConfig, local func(id string) (*Backup, error), info []repoBackup, ierr error, cutoff time.Time) func(string) (bool, error) {
 	labels := map[string]bool{}
 	for _, x := range info {
 		labels[x.Label] = true
@@ -911,7 +918,7 @@ func pruneDrop(ctx context.Context, v *vault, local func(id string) (*Backup, er
 		}
 		b, err := local(id)
 		switch {
-		case err == nil && b.Offsite != nil && b.Offsite.Status == "ok" && b.Offsite.PostgresLabel != "":
+		case err == nil && b.Offsite.copiedTo(c) && b.Offsite.PostgresLabel != "":
 			return !labels[b.Offsite.PostgresLabel], nil
 		case err != nil && !errors.Is(err, os.ErrNotExist):
 			return false, err
@@ -954,8 +961,7 @@ func offsiteLoop(ctx context.Context, p *platform.Platform) {
 		if err != nil {
 			continue
 		}
-		if b := lastOK(list, ""); b != nil && uncopyable(ctx, p, b, time.Now()) == "" &&
-			(b.Offsite == nil || (b.Offsite.Status == "failed" && time.Since(b.Offsite.FinishedAt) >= retryAfter)) {
+		if b := lastOK(list, ""); b != nil && uncopyable(ctx, p, b, time.Now()) == "" && copyDue(b.Offsite, c, time.Now()) {
 			_, _ = CopyOffsite(ctx, p, b)
 		}
 		// WAL archived since the last copy follows it to the bucket.
@@ -987,6 +993,15 @@ func offsiteLoop(ctx context.Context, p *platform.Platform) {
 			}
 		}
 	}
+}
+
+// copyDue says whether a set whose last copy attempt was last should be
+// copied to c now: never copied there, or that copy failed 15 minutes ago.
+func copyDue(last *BackupOffsiteCopy, c *OffsiteConfig, now time.Time) bool {
+	if last == nil || last.Destination != c.where() {
+		return true
+	}
+	return last.Status == "failed" && now.Sub(last.FinishedAt) >= retryAfter
 }
 
 // reachable reads the destination's key bundle: a quick check before

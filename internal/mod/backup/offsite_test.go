@@ -296,3 +296,31 @@ func TestAdoptState(t *testing.T) {
 		t.Fatalf("resealed: %+v %+v", gc, sec)
 	}
 }
+
+// A copy counts only at the destination it went to: after the destination
+// changes, the set is copied again (by hand and by the loop), and drills
+// and pruning do not take the old copy for one in the new bucket.
+func TestCopyBoundToDestination(t *testing.T) {
+	a := &OffsiteConfig{Endpoint: "https://s3.a.test", Bucket: "one", Prefix: "tiffin"}
+	b := &OffsiteConfig{Endpoint: "https://s3.b.test", Bucket: "two", Prefix: "tiffin"}
+	now := time.Now()
+	ok := &BackupOffsiteCopy{Backup: "bk_1", Destination: a.where(), Status: "ok", PostgresLabel: "20261001-000000F", FinishedAt: now}
+	if !ok.copiedTo(a) || ok.copiedTo(b) || ok.copiedTo(nil) || (*BackupOffsiteCopy)(nil).copiedTo(a) {
+		t.Fatal("copiedTo")
+	}
+	if copyDue(ok, a, now) || !copyDue(ok, b, now) || !copyDue(nil, a, now) {
+		t.Fatal("copyDue: a set copied to A is due at B, not at A")
+	}
+	failed := &BackupOffsiteCopy{Destination: a.where(), Status: "failed", FinishedAt: now}
+	if copyDue(failed, a, now) || !copyDue(failed, a, now.Add(retryAfter)) || !copyDue(failed, b, now) {
+		t.Fatal("copyDue: a failed copy is retried after 15 minutes, at once elsewhere")
+	}
+	list := []Backup{{ID: "bk_1", Status: "ok", Offsite: ok}}
+	list[0].Postgres.Label = "x"
+	if lastCopied(list, a) == nil || lastCopied(list, b) != nil {
+		t.Fatal("lastCopied: the copy at A is not one at B")
+	}
+	if drillable(&list[0], SourceOffsite, a) != "" || drillable(&list[0], SourceOffsite, b) == "" {
+		t.Fatal("drillable: an off-box drill at B of a set only copied to A")
+	}
+}

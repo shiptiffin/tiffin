@@ -37,10 +37,10 @@ func orLocal(s string) string {
 	return s
 }
 
-// lastCopied is the newest successful set with an off-box copy.
-func lastCopied(list []Backup) *Backup {
+// lastCopied is the newest successful set with a copy at destination c.
+func lastCopied(list []Backup, c *OffsiteConfig) *Backup {
 	for i := range list {
-		if list[i].Status == "ok" && list[i].Offsite != nil && list[i].Offsite.Status == "ok" {
+		if list[i].Status == "ok" && list[i].Offsite.copiedTo(c) {
 			return &list[i]
 		}
 	}
@@ -120,7 +120,8 @@ func registerDrills(a huma.API, p *platform.Platform, tag string) {
 		source := orLocal(in.From)
 		b := lastOK(list, "")
 		if source == SourceOffsite {
-			b = lastCopied(list)
+			c, _ := current()
+			b = lastCopied(list, c)
 		}
 		if b == nil {
 			pb := api.NewProblem(409, "precondition", "there is no successful backup to drill yet")

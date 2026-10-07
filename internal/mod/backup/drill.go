@@ -186,15 +186,16 @@ func diskCheck(b *Backup, source string) error {
 	return nil
 }
 
-// drillable explains why a backup cannot be drilled ("" when it can).
-func drillable(b *Backup, source string) string {
+// drillable explains why a backup cannot be drilled ("" when it can); c is
+// the off-box destination.
+func drillable(b *Backup, source string, c *OffsiteConfig) string {
 	switch {
 	case b.Status != "ok":
 		return "backup " + b.ID + " did not succeed (" + b.Status + "); pick another from `tiffin backups list`"
 	case b.Postgres.Label == "":
 		return "backup " + b.ID + " has no Postgres part to restore"
-	case source == SourceOffsite && (b.Offsite == nil || b.Offsite.Status != "ok" || b.Offsite.PostgresLabel == ""):
-		return "backup " + b.ID + " has no off-box copy; drill one that has (`tiffin backups list` shows offsite.status ok), or copy it with `tiffin backups offsite copy --backup " + b.ID + "`"
+	case source == SourceOffsite && (!b.Offsite.copiedTo(c) || b.Offsite.PostgresLabel == ""):
+		return "backup " + b.ID + " has no copy at the current off-box destination; drill one that has (`tiffin backups list` shows offsite.status ok), or copy it with `tiffin backups offsite copy --backup " + b.ID + "`"
 	}
 	return ""
 }
@@ -298,13 +299,12 @@ func StartDrill(ctx context.Context, p *platform.Platform, b *Backup, trigger st
 // off-box copy ("offsite": Postgres from the bucket's repository, and every
 // other part downloaded and checked).
 func StartDrillFrom(ctx context.Context, p *platform.Platform, b *Backup, trigger, source string) (*BackupDrill, <-chan struct{}, error) {
-	if why := drillable(b, source); why != "" {
-		return nil, nil, errors.New(why)
+	c, _ := current()
+	if source == SourceOffsite && (c == nil || c.State != OffsiteActive) {
+		return nil, nil, ErrOffsiteOff
 	}
-	if source == SourceOffsite {
-		if c, _ := current(); c == nil || c.State != OffsiteActive {
-			return nil, nil, ErrOffsiteOff
-		}
+	if why := drillable(b, source, c); why != "" {
+		return nil, nil, errors.New(why)
 	}
 	drillState.mu.Lock()
 	if drillState.running != nil {
