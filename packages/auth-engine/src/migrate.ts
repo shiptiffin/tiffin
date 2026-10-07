@@ -43,6 +43,11 @@ export async function migrate(project: string, c: ProjectConfig, pool: pg.Pool):
   const m = await getMigrations(buildOptions(project, c, pool));
   if (m.unsafeChanges.length) throw new Error("auth schema migration refused: " + m.unsafeChanges.join("; "));
   await m.runMigrations();
+  // One membership per person per organization: concurrent joins (invite
+  // links, invitations) can't leave a duplicate that outlives a removal.
+  if (c.organizations) {
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS member_org_user ON ${SCHEMA}."member" ("organizationId", "userId")`);
+  }
   return {
     created: m.toBeCreated.map((t) => t.table),
     added: m.toBeAdded.flatMap((t) => Object.keys(t.fields).map((f) => `${t.table}.${f}`)),

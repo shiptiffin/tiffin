@@ -15,7 +15,7 @@ import { z } from "zod";
 import { altcha } from "./altcha";
 import { isSocial, SOCIAL, type ProjectConfig } from "./config";
 import { currentFacts } from "./context";
-import { effectiveRole, inviteLinks } from "./invite-links";
+import { effectiveRole, inviteLinks, type Member } from "./invite-links";
 import { rateLimitStore } from "./ratelimit";
 import { send, templates, type Brand } from "./mail";
 import { ac, rank, roles, weaker } from "./roles";
@@ -179,6 +179,12 @@ function openIdTokens(): BetterAuthPlugin {
 
 /** Endpoints that hand an account's provider tokens back (decrypted) to its signed-in owner. */
 const TOKEN_PATHS = new Set(["/get-access-token", "/refresh-token"]);
+
+/** A new row id like Better Auth's own: 32 letters and digits. */
+function newId(): string {
+  const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  return Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => abc[b % abc.length]).join("");
+}
 
 /** The organization a user joined first, if any. */
 async function firstOrg(adapter: Adapter, userId: string): Promise<string | undefined> {
@@ -549,12 +555,38 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
     plugins.push(
       inviteLinks({
         linkURL: (token, request) => `${originOf(request)}${c.acceptInvitePath}?link=${encodeURIComponent(token)}`,
-        claimUse: async (id) => {
-          const r = await pool.query(
-            `UPDATE "${SCHEMA}"."orgInviteLink" SET uses = uses + 1 WHERE id = $1 AND uses < "maxUses" AND "revokedAt" IS NULL AND "expiresAt" > now()`,
-            [id],
-          );
-          return r.rowCount ?? 0;
+        // One transaction: the membership and the use it spends land together
+        // or not at all. The unique (organizationId, userId) index (migrate.ts)
+        // makes concurrent accepts of one link add one membership, spending one use.
+        join: async (link, userId) => {
+          const db = await pool.connect();
+          try {
+            await db.query("BEGIN");
+            const m = await db.query<Member>(
+              `INSERT INTO "${SCHEMA}"."member" (id, "organizationId", "userId", role, "createdAt") VALUES ($1, $2, $3, $4, now())
+               ON CONFLICT ("organizationId", "userId") DO NOTHING RETURNING id, "organizationId", "userId", role, "createdAt"`,
+              [newId(), link.organizationId, userId, link.role],
+            );
+            if (!m.rowCount) {
+              await db.query("ROLLBACK");
+              return "member";
+            }
+            const used = await db.query(
+              `UPDATE "${SCHEMA}"."orgInviteLink" SET uses = uses + 1 WHERE id = $1 AND uses < "maxUses" AND "revokedAt" IS NULL AND "expiresAt" > now()`,
+              [link.id],
+            );
+            if (used.rowCount !== 1) {
+              await db.query("ROLLBACK");
+              return "spent";
+            }
+            await db.query("COMMIT");
+            return m.rows[0]!;
+          } catch (err) {
+            await db.query("ROLLBACK").catch(() => {});
+            throw err;
+          } finally {
+            db.release();
+          }
         },
       }) as unknown as BetterAuthPlugin,
     );

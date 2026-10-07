@@ -9,8 +9,12 @@ import { currentFacts } from "./context";
 import { ROLES, rank, roles, weaker } from "./roles";
 
 export type InviteLinkOptions = {
-  /** Runs `UPDATE ... uses = uses + 1 WHERE uses < max` atomically; returns rows changed. */
-  claimUse: (id: string) => Promise<number>;
+  /**
+   * Adds the user to the link's organization and spends one use, atomically:
+   * the new membership, "member" when they already were one (no use spent),
+   * or "spent" when the link has no use left (nothing added).
+   */
+  join: (link: { id: string; organizationId: string; role: string }, userId: string) => Promise<Member | "member" | "spent">;
   /** Builds the link people open, from the request origin. */
   linkURL: (token: string, request?: Request) => string;
 };
@@ -33,7 +37,7 @@ type Adapter = {
   update: <T>(q: { model: string; where: { field: string; value: unknown }[]; update: Record<string, unknown> }) => Promise<T | null>;
 };
 
-type Member = { id: string; userId: string; organizationId: string; role: string };
+export type Member = { id: string; userId: string; organizationId: string; role: string };
 type Link = {
   id: string;
   organizationId: string;
@@ -206,22 +210,22 @@ export const inviteLinks = (o: InviteLinkOptions) =>
           const link = await adapter.findOne<Link>({ model: "orgInviteLink", where: [{ field: "tokenHash", value: hashToken(ctx.body.token) }] });
           const reason = why(link);
           if (!link || reason) throw new APIError("BAD_REQUEST", { code: "INVITE_LINK_INVALID", message: reason ?? "Invalid invite link." });
-          const existing = await adapter.findOne<Member>({
-            model: "member",
-            where: [
-              { field: "userId", value: user.id },
-              { field: "organizationId", value: link.organizationId },
-            ],
-          });
-          if (existing) return ctx.json({ member: existing, alreadyMember: true });
-          if ((await o.claimUse(link.id)) !== 1) {
+          const existing = () =>
+            adapter.findOne<Member>({
+              model: "member",
+              where: [
+                { field: "userId", value: user.id },
+                { field: "organizationId", value: link.organizationId },
+              ],
+            });
+          const already = await existing();
+          if (already) return ctx.json({ member: already, alreadyMember: true });
+          const joined = await o.join(link, user.id);
+          if (joined === "member") return ctx.json({ member: await existing(), alreadyMember: true });
+          if (joined === "spent") {
             throw new APIError("BAD_REQUEST", { code: "INVITE_LINK_INVALID", message: why({ ...link, uses: link.maxUses }) ?? "Invalid invite link." });
           }
-          const member = await adapter.create<Member>({
-            model: "member",
-            data: { organizationId: link.organizationId, userId: user.id, role: link.role, createdAt: new Date() },
-          });
-          return ctx.json({ member, alreadyMember: false });
+          return ctx.json({ member: joined, alreadyMember: false });
         },
       ),
     },

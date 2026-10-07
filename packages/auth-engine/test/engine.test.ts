@@ -348,6 +348,28 @@ describe("organizations, roles and invites", () => {
     expect(list.body[0].token).toBeUndefined();
   });
 
+  test("accepting one link many times at once: one membership, one use", async () => {
+    const beta = (await alice.json("/organization/create", { body: { name: "Beta", slug: "beta", keepCurrentActiveOrganization: true } })).body.id as string;
+    const link = await alice.json("/invite-link/create", { body: { organizationId: beta, role: "member", maxUses: 5 } });
+    expect(link.status).toBe(200);
+    const erin = await person(handle, "erin@example.com", "Erin");
+    const all = await Promise.all(Array.from({ length: 8 }, () => erin.json("/invite-link/accept", { body: { token: link.body.token } })));
+    expect(all.map((r) => r.status)).toEqual(Array(8).fill(200));
+    expect(all.filter((r) => !r.body.alreadyMember)).toHaveLength(1);
+    const db = new pg.Pool({ connectionString: dbUrl, max: 1 });
+    try {
+      const rows = await db.query(
+        `SELECT m.id FROM tiffin_auth.member m JOIN tiffin_auth."user" u ON u.id = m."userId" WHERE u.email = $1 AND m."organizationId" = $2`,
+        ["erin@example.com", beta],
+      );
+      expect(rows.rowCount).toBe(1);
+      const uses = await db.query(`SELECT uses FROM tiffin_auth."orgInviteLink" WHERE id = $1`, [link.body.id]);
+      expect(uses.rows[0].uses).toBe(1);
+    } finally {
+      await db.end();
+    }
+  });
+
   test("API keys act as their sponsor, capped, and can't escalate", async () => {
     const k = await alice.json("/api-key/create", { body: { name: "agent", metadata: { maxRole: "member" } } });
     expect(k.status).toBe(200);
