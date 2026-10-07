@@ -76,10 +76,21 @@ func (a *app) loadManifest(target string) (json.RawMessage, string, error) {
 	if err != nil {
 		return nil, path, &exitError{ExitInvalid, err.Error()}
 	}
-	for _, d := range []string{a.configDir(), a.home} {
-		if d != "" && within(root, d) {
-			return nil, path, &exitError{ExitInvalid, fmt.Sprintf("%s is in a folder that holds Tiffin's own settings (%s): keep the project in a folder of its own", filepath.Base(path), d)}
+	holdsSettings := func(root string) string {
+		for _, d := range []string{a.configDir(), a.home} {
+			if filepath.IsAbs(d) && within(root, d) {
+				return d
+			}
 		}
+		return ""
+	}
+	if holdsSettings(root) != "" {
+		// A repository of the whole home folder (dotfiles): the config's own folder only.
+		abs, _ := filepath.Abs(path)
+		root = filepath.Dir(abs)
+	}
+	if d := holdsSettings(root); d != "" {
+		return nil, path, &exitError{ExitInvalid, fmt.Sprintf("%s is in a folder that holds Tiffin's own settings (%s): keep the project in a folder of its own", filepath.Base(path), d)}
 	}
 	raw, err := manifest.EvaluateJSONWithin(path, root, map[string]string{})
 	if err != nil {

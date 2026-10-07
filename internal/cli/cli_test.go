@@ -457,6 +457,19 @@ func TestConfigCannotImportOutsideItsRepository(t *testing.T) {
 			t.Fatalf("import %s: the config read the owner token: %v %s", imp, err, raw)
 		}
 	}
+	// A repository of the whole home folder narrows to the config's folder.
+	if err := os.MkdirAll(filepath.Join(home, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(repo, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.loadManifest(write(`import { name } from "../shared"; export default { project: name }`)); err == nil {
+		t.Fatal("with the home folder as the repository, a config may import only its own folder")
+	}
+	if raw, _, err := a.loadManifest(write(`export default { project: "own" }`)); err != nil || !strings.Contains(string(raw), "own") {
+		t.Fatalf("a config in a home-folder repository: %v %s", err, raw)
+	}
 	// A project in the settings folder's parent (the home folder) is refused.
 	if err := os.WriteFile(filepath.Join(home, "tiffin.config.ts"), []byte(`export default { project: "x" }`), 0o644); err != nil {
 		t.Fatal(err)
