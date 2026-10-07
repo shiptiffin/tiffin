@@ -54,11 +54,15 @@ type fakeIdP struct {
 	// what the next Google ID token says (tests change it)
 	badNonce bool
 	badAud   bool
+	// account is the provider account the person approves with; empty: one
+	// per address (the first, or GitHub's primary).
+	account string
+	ids     map[string]int // GitHub: account -> numeric user id
 }
 
 type grant struct {
-	provider, challenge, nonce string
-	emails                     []ghEmail
+	provider, challenge, nonce, account string
+	emails                              []ghEmail
 }
 
 type ghEmail struct {
@@ -108,17 +112,32 @@ func (f *fakeIdP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if f.badNonce {
 				nonce = "other"
 			}
-			claims, _ := json.Marshal(map[string]any{"iss": "https://accounts.google.com", "aud": aud, "sub": "1234",
-				"exp": time.Now().Add(time.Hour).Unix(), "nonce": nonce, "email": e.Email, "email_verified": e.Verified})
+			c := map[string]any{"iss": "https://accounts.google.com", "aud": aud, "sub": g.account,
+				"exp": time.Now().Add(time.Hour).Unix(), "nonce": nonce, "email": e.Email, "email_verified": e.Verified}
+			if strings.HasSuffix(strings.ToLower(e.Email), "@example.com") {
+				c["hd"] = "example.com" // example.com is a Google Workspace domain here
+			}
+			claims, _ := json.Marshal(c)
 			enc := base64.RawURLEncoding
 			out["id_token"] = enc.EncodeToString([]byte(`{"alg":"RS256"}`)) + "." + enc.EncodeToString(claims) + ".sig"
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)
-	case "/github/emails":
+	case "/github/emails", "/github/user":
 		g, ok := f.toks[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
 		if !ok || r.Header.Get("X-GitHub-Api-Version") == "" {
 			w.WriteHeader(401)
+			return
+		}
+		if r.URL.Path == "/github/user" {
+			if f.ids[g.account] == 0 {
+				f.ids[g.account] = len(f.ids) + 1001
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": f.ids[g.account], "login": g.account})
+			return
+		}
+		if r.URL.Query().Get("per_page") != "100" {
+			w.WriteHeader(400)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(g.emails)
@@ -149,7 +168,16 @@ func (f *fakeIdP) authorize(authURL string, emails ...ghEmail) string {
 	f.mu.Lock()
 	f.n++
 	code := fmt.Sprintf("code-%d", f.n)
-	f.codes[code] = grant{provider: provider, challenge: q.Get("code_challenge"), nonce: q.Get("nonce"), emails: emails}
+	account := f.account
+	if account == "" && len(emails) > 0 {
+		account = provider + "-" + strings.ToLower(emails[0].Email)
+		for _, e := range emails {
+			if e.Primary {
+				account = provider + "-" + strings.ToLower(e.Email)
+			}
+		}
+	}
+	f.codes[code] = grant{provider: provider, challenge: q.Get("code_challenge"), nonce: q.Get("nonce"), account: account, emails: emails}
 	f.mu.Unlock()
 	return q.Get("redirect_uri") + "?" + url.Values{"code": {code}, "state": {q.Get("state")}}.Encode()
 }
@@ -184,7 +212,7 @@ func newOAuthEnv(t *testing.T, providers ...string) *oauthEnv {
 	mail := &fakeMailer{}
 	api.SetBoxMailer(mail)
 	t.Cleanup(func() { api.SetBoxMailer(nil) })
-	idp := &fakeIdP{t: t, codes: map[string]grant{}, toks: map[string]grant{}}
+	idp := &fakeIdP{t: t, codes: map[string]grant{}, toks: map[string]grant{}, ids: map[string]int{}}
 	idpSrv := httptest.NewServer(idp)
 	t.Cleanup(idpSrv.Close)
 	t.Cleanup(api.UseFakeOAuthProviders(idpSrv.URL, idpSrv.Client()))
@@ -373,10 +401,12 @@ func TestOAuthSignInGoogle(t *testing.T) {
 	res, _ = e.back(e.idp.authorize(authURL, ghEmail{Email: "stranger@example.com", Verified: true}), ip, c)
 	refused(t, res, "google:unknown")
 
-	// Unverified address: refused even though Maya has it.
+	// Another Google account with Maya's address, unverified: refused.
+	e.idp.account = "google-someone-else"
 	_, authURL, c = e.start("google", "/", ip)
 	res, _ = e.back(e.idp.authorize(authURL, ghEmail{Email: "maya@example.com", Verified: false}), ip, c)
 	refused(t, res, "google:unverified")
+	e.idp.account = ""
 
 	// An ID token for another app, or with another nonce: refused.
 	e.idp.badAud = true
@@ -416,24 +446,74 @@ func TestOAuthSignInGitHub(t *testing.T) {
 		ghEmail{Email: "sam@example.com", Primary: true, Verified: true}), ip, c)
 	e.signedInAs(res, body, sam, "/")
 
-	// Sam's verified address on GitHub that isn't the primary one still counts.
+	// Kim's verified address on GitHub that isn't the primary one still counts.
+	kim := e.person("Kim Ito", "kim@example.com", "member")
 	_, authURL, c = e.start("github", "/", ip)
 	res, body = e.back(e.idp.authorize(authURL,
 		ghEmail{Email: "other@example.org", Primary: true, Verified: true},
-		ghEmail{Email: "sam@example.com", Verified: true}), ip, c)
-	e.signedInAs(res, body, sam, "/")
+		ghEmail{Email: "kim@example.com", Verified: true}), ip, c)
+	e.signedInAs(res, body, kim, "/")
 
-	// Sam's address but unverified, next to a verified one nobody has: no match.
+	// Kim's address but unverified, next to a verified one nobody has: no match.
+	e.person("Lou Park", "lou@example.com", "member")
 	_, authURL, c = e.start("github", "/", ip)
 	res, _ = e.back(e.idp.authorize(authURL,
-		ghEmail{Email: "other@example.org", Primary: true, Verified: true},
-		ghEmail{Email: "sam@example.com"}), ip, c)
+		ghEmail{Email: "nobody@example.org", Primary: true, Verified: true},
+		ghEmail{Email: "lou@example.com"}), ip, c)
 	refused(t, res, "github:unknown")
 
 	// No verified address at all.
 	_, authURL, c = e.start("github", "/", ip)
-	res, _ = e.back(e.idp.authorize(authURL, ghEmail{Email: "sam@example.com", Primary: true}), ip, c)
+	res, _ = e.back(e.idp.authorize(authURL, ghEmail{Email: "lou@example.com", Primary: true}), ip, c)
 	refused(t, res, "github:unverified")
+}
+
+// The account someone first signs in with is theirs: it keeps signing them
+// in, and another account of that provider showing their address doesn't.
+// A provider's "verified" can outlive someone's hold on an address.
+func TestOAuthSignInLinkedAccount(t *testing.T) {
+	e := newOAuthEnv(t, "google", "github")
+	ip := "203.0.113.9"
+	ada := e.person("Ada Byron", "ada@example.com", "member")
+	gina := e.person("Gina Gray", "gina@gmail.com", "member")
+	ext := e.person("Ezra Ext", "ezra@outside.test", "member")
+
+	signIn := func(provider, account string, emails ...ghEmail) (*http.Response, string) {
+		e.idp.account = account
+		_, authURL, c := e.start(provider, "/", ip)
+		return e.back(e.idp.authorize(authURL, emails...), ip, c)
+	}
+	res, body := signIn("google", "g-ada", ghEmail{Email: "ada@example.com", Verified: true})
+	e.signedInAs(res, body, ada, "/")
+	// Another Google account with Ada's address: refused.
+	res, _ = signIn("google", "g-intruder", ghEmail{Email: "ada@example.com", Verified: true})
+	refused(t, res, "google:linked")
+	// Ada's own account, whatever address it shows now, is still Ada.
+	res, body = signIn("google", "g-ada", ghEmail{Email: "ada.byron@example.com", Verified: true})
+	e.signedInAs(res, body, ada, "/")
+
+	// Gmail: Google owns the address. Any other address with no Workspace
+	// (hd): Google doesn't vouch for who holds it now.
+	res, body = signIn("google", "g-gina", ghEmail{Email: "gina@gmail.com", Verified: true})
+	e.signedInAs(res, body, gina, "/")
+	res, _ = signIn("google", "g-ezra", ghEmail{Email: "ezra@outside.test", Verified: true})
+	refused(t, res, "google:unverified")
+
+	// GitHub: the same, by the account's numeric id.
+	res, body = signIn("github", "ezra-gh", ghEmail{Email: "ezra@outside.test", Primary: true, Verified: true})
+	e.signedInAs(res, body, ext, "/")
+	res, _ = signIn("github", "old-owner-gh", ghEmail{Email: "ezra@outside.test", Primary: true, Verified: true})
+	refused(t, res, "github:linked")
+
+	// Removed and invited again: a new person, linked afresh.
+	if err := e.tm.RemovePerson(t.Context(), e.owner, ada.ID); err != nil {
+		t.Fatal(err)
+	}
+	res, _ = signIn("google", "g-ada", ghEmail{Email: "ada@example.com", Verified: true})
+	refused(t, res, "google:unknown")
+	ada2 := e.person("Ada Byron", "ada@example.com", "member")
+	res, body = signIn("google", "g-intruder", ghEmail{Email: "ada@example.com", Verified: true})
+	e.signedInAs(res, body, ada2, "/")
 }
 
 func TestOAuthSignInState(t *testing.T) {

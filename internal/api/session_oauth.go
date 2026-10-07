@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,9 +25,12 @@ import (
 )
 
 // Signing in to the dashboard with Google or GitHub, for the people already
-// on the box (owner, admins, members). It never makes anyone: the provider
-// proves an email address, and the box signs in the active person with that
-// address, or nobody.
+// on the box (owner, admins, members). It never makes anyone. The first
+// time, the provider proves an email address and the box signs in the
+// active person with that address, or nobody, and remembers that provider
+// account (its stable id) for them. After that, that account signs them in,
+// and no other account of that provider can, whatever addresses it shows:
+// a provider's "verified" can outlive someone's hold on an address.
 //
 //	GET  /v1/session/oauth             -> which providers the login page offers
 //	POST /v1/session/oauth/{provider}  -> {url}; sets the signed state cookie
@@ -80,9 +84,9 @@ func dashboardOAuth() DashboardOAuth {
 
 // oauthEndpoints are the providers' URLs (tests point them at fakes).
 type oauthEndpoints struct {
-	GoogleAuth, GoogleToken               string
-	GitHubAuth, GitHubToken, GitHubEmails string
-	HTTP                                  *http.Client
+	GoogleAuth, GoogleToken                           string
+	GitHubAuth, GitHubToken, GitHubUser, GitHubEmails string
+	HTTP                                              *http.Client
 }
 
 var oauthURLs = oauthEndpoints{
@@ -90,6 +94,7 @@ var oauthURLs = oauthEndpoints{
 	GoogleToken:  "https://oauth2.googleapis.com/token",
 	GitHubAuth:   "https://github.com/login/oauth/authorize",
 	GitHubToken:  "https://github.com/login/oauth/access_token",
+	GitHubUser:   "https://api.github.com/user",
 	GitHubEmails: "https://api.github.com/user/emails",
 	HTTP:         &http.Client{Timeout: 15 * time.Second},
 }
@@ -343,7 +348,8 @@ func (a *API) registerOAuthSignIn() {
 // login page reads them from ?reason=<provider>:<code>.
 const (
 	oauthUnknown    = "unknown"    // no active person has that address
-	oauthUnverified = "unverified" // the provider hasn't verified it
+	oauthUnverified = "unverified" // the provider doesn't vouch for any address of the account
+	oauthLinked     = "linked"     // the person already signs in with another account of that provider
 	oauthExpired    = "expired"    // state missing, expired, replayed or another browser's
 	oauthDenied     = "denied"     // the person said no at the provider
 	oauthFailed     = "failed"     // the provider's answer was wrong or didn't come
@@ -417,24 +423,13 @@ func (a *API) DashboardOAuthCallback(w http.ResponseWriter, r *http.Request) boo
 	if !ok {
 		return fail(oauthOff, nil)
 	}
-	emails, err := oauthEmails(ctx, provider, c, code, s)
+	id, err := oauthIdentify(ctx, provider, c, code, s)
 	if err != nil {
 		return fail(oauthFailed, map[string]any{"error": trimTo(err.Error(), 200)})
 	}
-	if len(emails) == 0 {
-		return fail(oauthUnverified, nil)
-	}
-	// The first verified address that belongs to someone on the box wins
-	// (GitHub's primary address is tried first).
-	var person *tokens.Person
-	for _, email := range emails {
-		if p, err := a.deps.Tokens.PersonByEmail(ctx, email); err == nil {
-			person = p
-			break
-		}
-	}
+	person, why := a.oauthPerson(ctx, provider, id)
 	if person == nil {
-		return fail(oauthUnknown, nil)
+		return fail(why, nil)
 	}
 	secret, t, person, err := a.deps.Tokens.SessionFor(ctx, person.ID, provider)
 	if err != nil {
@@ -475,9 +470,59 @@ func trimTo(s string, n int) string {
 	return s
 }
 
-// oauthEmail exchanges the code (with the PKCE verifier) and returns the
-// account's email and whether the provider verified it.
-func oauthEmails(ctx context.Context, provider string, c OAuthClient, code string, s *oauthState) ([]string, error) {
+// oauthIdentity is who signed in at the provider.
+type oauthIdentity struct {
+	Subject string   // the provider's stable account id: Google's sub, GitHub's user id
+	Emails  []string // the addresses the provider vouches for, the primary first
+}
+
+// nsOAuthAccounts holds which provider account signs in which person:
+// "<provider>:<subject>" -> person ID, and "person:<id>:<provider>" -> subject.
+const nsOAuthAccounts = "dashboard-oauth"
+
+// oauthPerson is the active person a provider account signs in, or why
+// nobody. An account already linked to someone signs them in. Otherwise
+// the first vouched-for address that belongs to someone on the box picks
+// them, unless they already sign in with another account of that provider,
+// and the account is linked to them from then on.
+func (a *API) oauthPerson(ctx context.Context, provider string, id *oauthIdentity) (*tokens.Person, string) {
+	db := a.deps.DB
+	key := provider + ":" + id.Subject
+	if db != nil {
+		if raw, ok, err := db.KVGet(ctx, nsOAuthAccounts, key); err == nil && ok {
+			if p, err := a.deps.Tokens.GetPerson(ctx, string(raw)); err == nil && p.DisabledAt == nil {
+				return p, ""
+			}
+		}
+	}
+	if len(id.Emails) == 0 {
+		return nil, oauthUnverified
+	}
+	var person *tokens.Person
+	for _, email := range id.Emails {
+		if p, err := a.deps.Tokens.PersonByEmail(ctx, email); err == nil {
+			person = p
+			break
+		}
+	}
+	if person == nil {
+		return nil, oauthUnknown
+	}
+	if db != nil {
+		mine := "person:" + person.ID + ":" + provider
+		if raw, ok, err := db.KVGet(ctx, nsOAuthAccounts, mine); err != nil || (ok && string(raw) != id.Subject) {
+			return nil, oauthLinked
+		}
+		if db.KVPut(ctx, nsOAuthAccounts, key, []byte(person.ID)) != nil || db.KVPut(ctx, nsOAuthAccounts, mine, []byte(id.Subject)) != nil {
+			return nil, oauthFailed
+		}
+	}
+	return person, ""
+}
+
+// oauthIdentify exchanges the code (with the PKCE verifier) and returns
+// the provider's account id and the addresses it vouches for.
+func oauthIdentify(ctx context.Context, provider string, c OAuthClient, code string, s *oauthState) (*oauthIdentity, error) {
 	ctx, cancel := context.WithTimeout(context.WithValue(ctx, oauth2.HTTPClient, oauthURLs.HTTP), 20*time.Second)
 	defer cancel()
 	tok, err := c.config(provider).Exchange(ctx, code, oauth2.VerifierOption(s.Verifier))
@@ -486,44 +531,80 @@ func oauthEmails(ctx context.Context, provider string, c OAuthClient, code strin
 	}
 	switch provider {
 	case "google":
-		email, verified, err := googleEmail(tok, c.ClientID, s.Nonce, time.Now())
-		if err != nil || !verified {
+		g, err := googleClaims(tok, c.ClientID, s.Nonce, time.Now())
+		if err != nil {
 			return nil, err
 		}
-		return []string{email}, nil
+		id := &oauthIdentity{Subject: g.Sub}
+		if g.vouched() {
+			id.Emails = []string{tokens.NormEmail(g.Email)}
+		}
+		return id, nil
 	case "github":
-		return githubEmails(ctx, tok.AccessToken)
+		sub, err := githubUserID(ctx, tok.AccessToken)
+		if err != nil {
+			return nil, err
+		}
+		emails, err := githubEmails(ctx, tok.AccessToken)
+		if err != nil {
+			return nil, err
+		}
+		return &oauthIdentity{Subject: sub, Emails: emails}, nil
 	}
 	return nil, errors.New("unknown provider")
 }
 
-// googleEmail reads the ID token from Google's token endpoint. It came
+// googleID is what the box reads from Google's ID token.
+type googleID struct {
+	Sub, Email, HD string
+	Verified       bool
+}
+
+// vouched reports whether Google vouches for who holds the address today:
+// it says it is authoritative for Gmail addresses and for Workspace
+// accounts (hd). A Google account registered with any other address keeps
+// email_verified after that mailbox changes hands, so its old owner could
+// still present it.
+func (g googleID) vouched() bool {
+	if !g.Verified || g.Email == "" {
+		return false
+	}
+	if g.HD != "" {
+		return true
+	}
+	e := tokens.NormEmail(g.Email)
+	return strings.HasSuffix(e, "@gmail.com") || strings.HasSuffix(e, "@googlemail.com")
+}
+
+// googleClaims reads the ID token from Google's token endpoint. It came
 // straight from Google over TLS for our client secret, so, as Google's
 // OpenID Connect guide allows, the signature is not checked; issuer,
 // audience, expiry and nonce are.
-func googleEmail(tok *oauth2.Token, clientID, nonce string, now time.Time) (string, bool, error) {
+func googleClaims(tok *oauth2.Token, clientID, nonce string, now time.Time) (googleID, error) {
 	idt, _ := tok.Extra("id_token").(string)
 	parts := strings.Split(idt, ".")
 	if len(parts) != 3 {
-		return "", false, errors.New("google sent no ID token")
+		return googleID{}, errors.New("google sent no ID token")
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", false, errors.New("google's ID token is not readable")
+		return googleID{}, errors.New("google's ID token is not readable")
 	}
 	var cl struct {
 		Iss           string          `json:"iss"`
 		Aud           json.RawMessage `json:"aud"`
 		Exp           int64           `json:"exp"`
 		Nonce         string          `json:"nonce"`
+		Sub           string          `json:"sub"`
 		Email         string          `json:"email"`
 		EmailVerified any             `json:"email_verified"`
+		HD            string          `json:"hd"`
 	}
 	if err := json.Unmarshal(raw, &cl); err != nil {
-		return "", false, errors.New("google's ID token is not readable")
+		return googleID{}, errors.New("google's ID token is not readable")
 	}
 	if cl.Iss != "https://accounts.google.com" && cl.Iss != "accounts.google.com" {
-		return "", false, fmt.Errorf("ID token issuer %q is not Google", trimTo(cl.Iss, 60))
+		return googleID{}, fmt.Errorf("ID token issuer %q is not Google", trimTo(cl.Iss, 60))
 	}
 	var aud []string
 	if json.Unmarshal(cl.Aud, &aud) != nil {
@@ -532,44 +613,67 @@ func googleEmail(tok *oauth2.Token, clientID, nonce string, now time.Time) (stri
 		aud = []string{one}
 	}
 	if len(aud) != 1 || aud[0] != clientID {
-		return "", false, errors.New("the ID token is for another app")
+		return googleID{}, errors.New("the ID token is for another app")
 	}
 	if now.Unix() > cl.Exp {
-		return "", false, errors.New("the ID token has expired")
+		return googleID{}, errors.New("the ID token has expired")
 	}
 	if nonce == "" || subtle.ConstantTimeCompare([]byte(cl.Nonce), []byte(nonce)) != 1 {
-		return "", false, errors.New("the ID token's nonce does not match")
+		return googleID{}, errors.New("the ID token's nonce does not match")
 	}
-	verified := cl.EmailVerified == true || cl.EmailVerified == "true"
-	return tokens.NormEmail(cl.Email), verified && cl.Email != "", nil
+	if cl.Sub == "" {
+		return googleID{}, errors.New("google's ID token names no account")
+	}
+	return googleID{Sub: cl.Sub, Email: cl.Email, HD: cl.HD, Verified: cl.EmailVerified == true || cl.EmailVerified == "true"}, nil
 }
 
-// githubEmails reads the account's verified addresses from /user/emails,
-// the primary one first. GitHub's user tokens (8 hours when the app
-// has expiring tokens on) are used for this one call and dropped.
-func githubEmails(ctx context.Context, accessToken string) ([]string, error) {
+// githubGet calls GitHub's API with the user's token and decodes at most 256 KB of JSON.
+func githubGet(ctx context.Context, accessToken, u string, out any) error {
 	if accessToken == "" {
-		return nil, errors.New("github sent no access token")
+		return errors.New("github sent no access token")
 	}
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, oauthURLs.GitHubEmails, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("X-GitHub-Api-Version", "2026-03-10")
 	req.Header.Set("User-Agent", "tiffin")
 	res, err := oauthURLs.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("github emails: %w", err)
+		return err
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("github emails: %s", res.Status)
+		return errors.New(res.Status)
 	}
+	return json.NewDecoder(io.LimitReader(res.Body, 256<<10)).Decode(out)
+}
+
+// githubUserID is the GitHub account's numeric id, which never changes.
+func githubUserID(ctx context.Context, accessToken string) (string, error) {
+	var u struct {
+		ID int64 `json:"id"`
+	}
+	if err := githubGet(ctx, accessToken, oauthURLs.GitHubUser, &u); err != nil {
+		return "", fmt.Errorf("github user: %w", err)
+	}
+	if u.ID <= 0 {
+		return "", errors.New("github user: no account id")
+	}
+	return strconv.FormatInt(u.ID, 10), nil
+}
+
+// githubEmails reads the account's verified addresses from /user/emails,
+// the primary one first. GitHub pages that list 30 at a time by default;
+// one page of its maximum, 100, holds every address an account can
+// sensibly have. GitHub's user tokens (8 hours when the app has expiring
+// tokens on) are used for these calls and dropped.
+func githubEmails(ctx context.Context, accessToken string) ([]string, error) {
 	var list []struct {
 		Email    string `json:"email"`
 		Primary  bool   `json:"primary"`
 		Verified bool   `json:"verified"`
 	}
-	if err := json.NewDecoder(io.LimitReader(res.Body, 256<<10)).Decode(&list); err != nil {
+	if err := githubGet(ctx, accessToken, oauthURLs.GitHubEmails+"?per_page=100", &list); err != nil {
 		return nil, fmt.Errorf("github emails: %w", err)
 	}
 	var out []string

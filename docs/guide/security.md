@@ -202,13 +202,21 @@ people: owners, admins and members. It uses the same OAuth app and the same call
 as the apps' sign-in (`https://<dashboard host>/api/auth/callback/<provider>`), so there
 is nothing more to register. Remove the keys and the button goes.
 
-- **Who gets in.** The box asks the provider for the account's email and signs in the
-  active person on the box with that address (compared without case). For Google that is
-  the ID token's `email`, only when `email_verified` is true. For GitHub it is any
+- **Who gets in.** The first time, the box asks the provider for the account's email and
+  signs in the active person on the box with that address (compared without case). For
+  Google that is the ID token's `email`, only when `email_verified` is true and Google is
+  authoritative for it: a Gmail address, or a Google Workspace account (`hd`). A Google
+  account registered with any other address stays "verified" after that mailbox changes
+  hands, so those don't match (sign in with an email link instead). For GitHub it is any
   verified address from `/user/emails` (the primary one is tried first); unverified
   addresses don't count. Nobody matches: *That Google account isn't on this box. Ask an
   owner to invite you.* Removed people never match. The box never makes an account, so
   invite someone (with their email) before they can sign in this way.
+- **Linked accounts.** That first sign-in links the provider account (Google's `sub`,
+  GitHub's user id) to the person. From then on that account signs them in, whatever
+  address it shows, and no other account of that provider can, even one showing their
+  verified address (`linked`): a provider's "verified" can outlive someone's hold on an
+  address. To link a different account, remove the person and invite them again.
 - **The session** is the same as a passkey's or a link's: 12 hours, that person's role,
   the same cookie, a new sign-in notice from a browser the box hasn't seen them use, and
   `session.oauth` in the audit log (refusals are `session.oauth_refused`, with why).
@@ -229,7 +237,7 @@ For the dashboard: `GET /v1/session/oauth` lists the providers with keys set;
 `POST /v1/session/oauth/{google|github}?next=/path` sets the state cookie and returns
 `{url}` to open. The provider sends the browser back to the callback, which sets the
 session and opens `next`, or goes to `/login?reason=<provider>:<why>` (`unknown`,
-`unverified`, `expired`, `denied`, `failed`, `busy`, `off`).
+`unverified`, `linked`, `expired`, `denied`, `failed`, `busy`, `off`).
 
 ## Signing in with a passkey
 

@@ -8,7 +8,7 @@ func UseFakeOAuthProviders(base string, c *http.Client) func() {
 	old := oauthURLs
 	oauthURLs = oauthEndpoints{
 		GoogleAuth: base + "/google/auth", GoogleToken: base + "/google/token",
-		GitHubAuth: base + "/github/auth", GitHubToken: base + "/github/token", GitHubEmails: base + "/github/emails",
+		GitHubAuth: base + "/github/auth", GitHubToken: base + "/github/token", GitHubUser: base + "/github/user", GitHubEmails: base + "/github/emails",
 		HTTP: c,
 	}
 	return func() { oauthURLs = old }
