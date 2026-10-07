@@ -51,8 +51,20 @@ export function providerName(id: Social, app?: OAuthApp): string {
   return id === "oidc" && app?.label ? app.label : PROVIDER_NAMES[id];
 }
 
-/** Providers whose verified email may link to an existing account with the same address. */
-export const TRUSTED_FOR_LINKING = ["google", "github", "apple"];
+/**
+ * Whether Google vouches for who owns `email` today, not only that it was
+ * verified once: Google says it is authoritative for Gmail addresses and for
+ * Workspace accounts (the ID token's `hd`). A Google account registered with
+ * any other address keeps email_verified=true after that mailbox changes
+ * hands, so its old owner could still present it. Those count as unverified:
+ * they can sign up (and confirm by email), never join an existing account.
+ */
+export function googleOwnsEmail(p: { email?: unknown; email_verified?: unknown; hd?: unknown }): boolean {
+  if (p.email_verified !== true && p.email_verified !== "true") return false;
+  if (typeof p.email !== "string" || !p.email) return false;
+  if (typeof p.hd === "string" && p.hd) return true;
+  return /@(gmail|googlemail)\.com$/i.test(p.email.trim());
+}
 
 /** Apple posts its callback (response_mode=form_post) from this origin. */
 export const APPLE_ORIGIN = "https://appleid.apple.com";
@@ -68,7 +80,7 @@ export function socialProviders(social: Socials, only?: Set<string>): NonNullabl
     const base = { clientId: a.clientId, clientSecret: a.clientSecret };
     switch (id) {
       case "google":
-        out.google = { ...base, prompt: "select_account" };
+        out.google = { ...base, prompt: "select_account", mapProfileToUser: (p: Record<string, unknown>) => ({ emailVerified: googleOwnsEmail(p) }) };
         break;
       case "microsoft":
         // common: work, school and personal Microsoft accounts.

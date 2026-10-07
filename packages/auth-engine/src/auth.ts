@@ -18,7 +18,7 @@ import { currentFacts } from "./context";
 import { effectiveRole, inviteLinks } from "./invite-links";
 import { send, templates, type Brand } from "./mail";
 import { ac, rank, roles, weaker } from "./roles";
-import { APPLE_ORIGIN, bindProxyState, oauthProxies, oidcPlugin, providerName, socialProviders, TRUSTED_FOR_LINKING } from "./social";
+import { APPLE_ORIGIN, bindProxyState, oauthProxies, oidcPlugin, providerName, socialProviders } from "./social";
 
 // Everything named tiffin* in a project database belongs to the box; public and
 // the rest belong to the app.
@@ -634,7 +634,11 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
       },
     },
     account: {
-      accountLinking: { enabled: true, trustedProviders: TRUSTED_FOR_LINKING },
+      // A provider joins an existing account only when it says it verified
+      // that address (Google: only addresses it owns, see googleOwnsEmail),
+      // and the account's own address is confirmed. No provider is trusted
+      // by name: GitHub, say, reports an unconfirmed primary address too.
+      accountLinking: { enabled: true, trustedProviders: [] },
       // Provider tokens are encrypted with the project's secret before they're stored (ID tokens: databaseHooks.account).
       encryptOAuthTokens: true,
     },

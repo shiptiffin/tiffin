@@ -8,6 +8,7 @@ import pg from "pg";
 import { adminHandler } from "../src/admin";
 import { Registry } from "../src/registry";
 import { publicHandler } from "../src/server";
+import { googleOwnsEmail } from "../src/social";
 import { Client, projectConfig } from "./helpers";
 import { freshDatabase, stopCluster } from "./pg";
 
@@ -19,13 +20,15 @@ let db: pg.Pool;
 const realFetch = globalThis.fetch;
 
 const b64url = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+// example.com is a Google Workspace domain here (the ID token carries hd); other addresses are just registered on a Google account.
 const idTokenFor = (email: string, n: number) =>
-  `${b64url({ alg: "RS256", kid: "k" })}.${b64url({ iss: "https://accounts.google.com", aud: "shop-google", sub: `g-${email}`, email, email_verified: true, name: "Ada", n })}.sig`;
+  `${b64url({ alg: "RS256", kid: "k" })}.${b64url({ iss: "https://accounts.google.com", aud: "shop-google", sub: `g-${email}`, email, email_verified: true, name: "Ada", n, ...(email.endsWith("@example.com") ? { hd: "example.com" } : {}) })}.sig`;
 
 // What the fake providers handed out, and the refresh tokens they were sent.
 let issued = 0;
 const refreshesSeen: string[] = [];
 let githubPeople = new Map<string, string>(); // access token -> email
+const githubUnconfirmed = new Set<string>(); // addresses GitHub lists as not verified
 const SSO = "https://sso.example.com";
 const ssoIdToken = (email: string, n: number) =>
   `${b64url({ alg: "RS256", kid: "k" })}.${b64url({ iss: SSO, aud: "shop-sso", sub: `sso-${email}`, email, email_verified: true, name: "Ada SSO", n })}.sig`;
@@ -75,7 +78,7 @@ beforeAll(async () => {
       const auth = new Headers(init?.headers).get("authorization") ?? "";
       const email = githubPeople.get(auth.replace(/^Bearer /, ""));
       if (!email) return Response.json({ message: "Bad credentials" }, { status: 401 });
-      if (url.endsWith("/emails")) return Response.json([{ email, primary: true, verified: true }]);
+      if (url.endsWith("/emails")) return Response.json([{ email, primary: true, verified: !githubUnconfirmed.has(email) }]);
       return Response.json({ id: Number(BigInt(Bun.hash(email)) % 1_000_000n), login: email.split("@")[0], name: "Ada", email, avatar_url: "" });
     }
     return realFetch(input as never, init);
@@ -239,7 +242,7 @@ describe("provider tokens at rest", () => {
     expect(gh.accessToken).toMatch(hex);
     expect((await c.json("/get-access-token", { body: { accountId: gh.id } })).body.accessToken).toBe(await open(gh.accessToken!));
 
-    // Google is trusted for linking: signing in with the same (confirmed) address joins the account.
+    // Google hosts example.com (hd): signing in with the same (confirmed) address joins the account.
     await db.query(`UPDATE tiffin_auth."user" SET "emailVerified" = true WHERE email = $1`, ["eve@example.com"]);
     const g = new Client(handle);
     await signIn(g, "google", "eve@example.com");
@@ -253,6 +256,39 @@ describe("provider tokens at rest", () => {
     expect(JSON.stringify(accounts.body)).not.toContain(row.accessToken!);
     // getAccessToken's accountId is the id listAccounts gives.
     expect(accounts.body.find((a: { providerId: string }) => a.providerId === "google").id).toBe(row.id);
+  });
+
+  test("a provider joins an existing account only with an address it vouches for", async () => {
+    const c = new Client(handle);
+    expect((await c.json("/sign-up/email", { body: { email: "zed@corp.test", password: "correct horse battery", name: "Zed" } })).status).toBe(200);
+    await db.query(`UPDATE tiffin_auth."user" SET "emailVerified" = true WHERE email = $1`, ["zed@corp.test"]);
+    const via = async (provider: "google" | "github") => {
+      const x = new Client(handle);
+      const r = await x.json("/sign-in/social", { body: { provider, callbackURL: "/welcome" } });
+      const state = new URL(r.body.url as string).searchParams.get("state")!;
+      const back = await x.raw(`/callback/${provider}?code=code-zed%40corp.test&state=${encodeURIComponent(state)}`);
+      return { status: back.status, location: back.headers.get("location") ?? "", signedIn: [...x.cookies.keys()].some((k) => k.endsWith("session_token")) };
+    };
+    // A Google account registered with an address Google doesn't host (no hd,
+    // not Gmail): whoever had that mailbox once can still present it.
+    const g = await via("google");
+    expect(g.location).toContain("account_not_linked");
+    expect(g.signedIn).toBe(false);
+    // GitHub reports the address but not as confirmed.
+    githubUnconfirmed.add("zed@corp.test");
+    const gh = await via("github");
+    expect(gh.location).toContain("account_not_linked");
+    expect(gh.signedIn).toBe(false);
+    const n = await db.query(`SELECT a."providerId" FROM tiffin_auth.account a JOIN tiffin_auth."user" u ON u.id = a."userId" WHERE u.email = $1`, ["zed@corp.test"]);
+    expect(n.rows.map((r) => r.providerId)).toEqual(["credential"]);
+  });
+
+  test("googleOwnsEmail: Gmail and Workspace addresses only, and only verified", () => {
+    expect(googleOwnsEmail({ email: "ada@gmail.com", email_verified: true })).toBe(true);
+    expect(googleOwnsEmail({ email: "ada@acme.com", email_verified: true, hd: "acme.com" })).toBe(true);
+    expect(googleOwnsEmail({ email: "ada@acme.com", email_verified: true })).toBe(false);
+    expect(googleOwnsEmail({ email: "ada@gmail.com", email_verified: false })).toBe(false);
+    expect(googleOwnsEmail({ email: "ada@gmail.com.evil.test", email_verified: true })).toBe(false);
   });
 
   test("an API key can't read, refresh or spend its sponsor's provider tokens; their session can", async () => {
