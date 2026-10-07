@@ -1,0 +1,1 @@
+var e=`/assets/mascot-night-BasYYdwO.webp`;export{e as t};
