@@ -60,6 +60,9 @@ type Options struct {
 	// ReadAccess gives builds read-only database and Valkey users (nil:
 	// the postgres and valkey modules').
 	ReadAccess ReadAccess
+	// pipelineDone (tests) is called as a deploy's background pipeline
+	// returns, after its last write: the record, the log, the cleanup.
+	pipelineDone func(id string)
 }
 
 func defaultOptions() Options {
@@ -113,6 +116,8 @@ type rt struct {
 	timeouts map[string]time.Duration
 	// quotas holds disk folders to their sizes.
 	quotas *quotas
+	// drains: replaced instances draining before they are removed.
+	drains sync.WaitGroup
 }
 
 // Start wires the runtime to the platform: it fails deploys a restart
@@ -421,19 +426,36 @@ func (r *rt) lock(key string) func() {
 	return l.Unlock
 }
 
+// portHolder is an Engine that binds the ports it is given itself, from
+// allocation until they are freed: the tests' fake, whose containers serve
+// in-process. allocPort asks it instead of probing, so no other process
+// (another test binary using the same range) can take a port between the
+// check and the container's start.
+type portHolder interface {
+	HoldPort(port int) bool
+	ReleasePort(port int)
+}
+
 // allocPort reserves a free localhost port for a container.
 func (r *rt) allocPort(name string) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	holder, _ := r.eng.(portHolder)
 	for p := PortMin; p <= PortMax; p++ {
 		if _, used := r.ports[p]; used {
 			continue
 		}
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
-		if err != nil {
-			continue // something else has it
+		if holder != nil {
+			if !holder.HoldPort(p) {
+				continue
+			}
+		} else {
+			ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
+			if err != nil {
+				continue // something else has it
+			}
+			ln.Close()
 		}
-		ln.Close()
 		r.ports[p] = name
 		return p, nil
 	}
@@ -442,8 +464,11 @@ func (r *rt) allocPort(name string) (int, error) {
 
 func (r *rt) freePort(p int) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	delete(r.ports, p)
-	r.mu.Unlock()
+	if holder, ok := r.eng.(portHolder); ok {
+		holder.ReleasePort(p)
+	}
 }
 
 // appSpec loads an app's spec from the project's applied resources.

@@ -40,6 +40,8 @@ type fakeCtr struct {
 	spec    RunSpec
 	srv     *http.Server
 	running bool
+	// dead: a crashed container's port, refusing until it is removed.
+	dead net.Listener
 }
 
 // fakeEngine "runs" a container as an in-process HTTP server on its port
@@ -65,6 +67,9 @@ type fakeEngine struct {
 	trees map[string]string
 	// tasks: every RunTask (release command), in order.
 	tasks []fakeTask
+	// held: app ports bound for containers that don't listen (yet), each
+	// port's socket (fakeports_test.go).
+	held map[int]int
 }
 
 // fakeTask is one RunTask call, and how many containers had run before it.
@@ -100,7 +105,7 @@ func (e *fakeEngine) taskList() []fakeTask {
 }
 
 func newFakeEngine() *fakeEngine {
-	return &fakeEngine{ctrs: map[string]*fakeCtr{}, images: map[string]string{}, crash: map[string]bool{}, leaked: map[string]bool{}, trees: map[string]string{}}
+	return &fakeEngine{ctrs: map[string]*fakeCtr{}, images: map[string]string{}, crash: map[string]bool{}, leaked: map[string]bool{}, trees: map[string]string{}, held: map[int]int{}}
 }
 
 func (e *fakeEngine) setStuck(v bool) {
@@ -136,6 +141,14 @@ func (e *fakeEngine) Run(ctx context.Context, s RunSpec) error {
 	e.ctrs[s.Name] = c
 	if e.crash[s.Image] {
 		appendLog(s.LogPath, "stderr", "boom: missing DATABASE_URL")
+		if s.Port != 0 { // its port stays taken, refusing, until it is removed
+			ln, err := e.listen(s.Port)
+			if err != nil {
+				return err
+			}
+			c.dead = ln
+			go refuse(ln)
+		}
 		return nil
 	}
 	return e.serve(c)
@@ -144,7 +157,7 @@ func (e *fakeEngine) Run(ctx context.Context, s RunSpec) error {
 // serve starts a container's HTTP server. Call with e.mu held.
 func (e *fakeEngine) serve(c *fakeCtr) error {
 	s := c.spec
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", s.Port))
+	ln, err := e.listen(s.Port)
 	if err != nil {
 		return err
 	}
@@ -185,6 +198,9 @@ func (e *fakeEngine) Remove(ctx context.Context, name string, grace time.Duratio
 	}
 	delete(e.ctrs, name)
 	e.mu.Unlock()
+	if c != nil && c.dead != nil {
+		c.dead.Close()
+	}
 	if c != nil && c.srv != nil {
 		sctx, cancel := context.WithTimeout(ctx, grace)
 		defer cancel()
@@ -558,6 +574,8 @@ type harness struct {
 	edge *fakeEdge
 	srv  *httptest.Server // the fake edge
 	mf   *manifest.Manifest
+	// done: each deploy's channel, closed when its pipeline has returned.
+	done sync.Map
 }
 
 func newHarness(t *testing.T) *harness {
@@ -598,17 +616,17 @@ func newHarnessQuota(t *testing.T, q quotaFS) *harness {
 	pgb := &fakeBranches{made: map[string]postgres.PGBranch{}}
 	opt.Branches = pgb
 	opt.ReadAccess = fakeReadAccess{}
+	h := &harness{t: t, m: m, p: p, eng: eng, bld: bld, pgb: pgb, edge: fe}
+	opt.pipelineDone = func(id string) { close(h.doneCh(id)) }
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	if err := m.start(ctx, p, opt); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		for _, c := range eng.running() {
-			c.srv.Close()
-		}
+		eng.closeAll()
 	})
-	h := &harness{t: t, m: m, r: m.r, p: p, eng: eng, bld: bld, pgb: pgb, edge: fe, srv: httptest.NewServer(fe)}
+	h.r, h.srv = m.r, httptest.NewServer(fe)
 	t.Cleanup(h.srv.Close)
 	h.mf = changetest.M("shop", func(mf *manifest.Manifest) {
 		mf.Services = manifest.Services{}
@@ -678,21 +696,30 @@ func (h *harness) deploy(app, preview string, files map[string]string) *Deploy {
 	return h.wait(app, d.ID)
 }
 
+// doneCh is the channel closed when deploy id's pipeline has returned.
+func (h *harness) doneCh(id string) chan struct{} {
+	ch, _ := h.done.LoadOrStore(id, make(chan struct{}))
+	return ch.(chan struct{})
+}
+
+// wait waits for a deploy's pipeline to return, not just for its record to
+// say it finished: what follows the record (the log's last lines, gc)
+// is done too.
 func (h *harness) wait(app, id string) *Deploy {
 	h.t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		d, err := h.r.st.getDeploy(context.Background(), "shop", app, id)
-		if err != nil {
-			h.t.Fatal(err)
-		}
-		if d.Terminal() {
-			return d
-		}
-		time.Sleep(20 * time.Millisecond)
+	select {
+	case <-h.doneCh(id):
+	case <-time.After(10 * time.Second):
+		h.t.Fatalf("deploy %s did not finish", id)
 	}
-	h.t.Fatalf("deploy %s did not finish", id)
-	return nil
+	d, err := h.r.st.getDeploy(context.Background(), "shop", app, id)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	if !d.Terminal() {
+		h.t.Fatalf("deploy %s returned %s", id, d.Status)
+	}
+	return d
 }
 
 func (h *harness) get(host, path string) (int, string) {
@@ -947,7 +974,7 @@ func TestCrashOnBootDoesNotWedgeTheApp(t *testing.T) {
 	if _, err := h.r.rollback(ctx, "shop", "api", v1.ID); err != nil {
 		t.Fatalf("rollback after a crash: %v", err)
 	}
-	time.Sleep(300 * time.Millisecond) // the replaced instances drain
+	// The switchboard switches before rollback returns: no wait for the drain.
 	if _, body := h.get("shop.tiffin.localhost", "/api/"); !strings.Contains(body, strings.ToLower(v1.ID)) {
 		t.Fatalf("rollback: v1 not serving: %s", body)
 	}

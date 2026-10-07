@@ -116,14 +116,20 @@ func previewHost(preview, project, app string, spec *manifest.App, domain string
 
 // start runs a queued deploy's pipeline in the background.
 func (r *rt) start(d *Deploy, src string, kind string) {
-	r.startFrom(d, kind, func(context.Context, io.Writer) (string, error) { return src, nil })
+	r.startFrom(d, kind, func(context.Context, *Deploy, io.Writer) (string, error) { return src, nil })
 }
 
 // startFrom runs a queued deploy in the background: fetch gets its source
 // (a git clone, say) and returns the source archive, then the pipeline runs.
 // Both write to the deploy's build log; a failure in either fails the deploy.
-func (r *rt) startFrom(d *Deploy, kind string, fetch func(ctx context.Context, log io.Writer) (string, error)) {
+// The pipeline (fetch too) works on its own copy of d: the caller keeps d as
+// queued, to answer with or poll by, while the pipeline changes its copy.
+func (r *rt) startFrom(queued *Deploy, kind string, fetch func(ctx context.Context, d *Deploy, log io.Writer) (string, error)) {
+	d := new(*queued)
 	go func() {
+		if done := r.opt.pipelineDone; done != nil {
+			defer done(d.ID)
+		}
 		ctx := r.ctx
 		log, err := r.openBuildLog(d)
 		if err != nil {
@@ -132,7 +138,7 @@ func (r *rt) startFrom(d *Deploy, kind string, fetch func(ctx context.Context, l
 		}
 		defer log.Close()
 		fmt.Fprintf(log, "==> deploy %s of %s/%s%s, queued %s\n", d.ID, d.Project, d.App, previewSuffix(d.Preview), d.CreatedAt.Format(time.RFC3339))
-		src, err := fetch(ctx, log)
+		src, err := fetch(ctx, d, log)
 		if err == nil {
 			err = r.pipeline(ctx, d, src, kind, log)
 		}
@@ -495,7 +501,7 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 			fmt.Fprintf(log, "==> switched traffic; draining %d old instance(s)\n", len(prev.Instances))
 		}
 		// Old instances stop once their in-flight requests are done.
-		go r.drainThenRemove(old)
+		r.drains.Go(func() { r.drainThenRemove(old) })
 	}
 	return nil
 }

@@ -112,7 +112,7 @@ func (m *Module) registerCreate(a huma.API) {
 		}
 		d.SourceBytes = n
 		_ = r.st.putDeploy(ctx, d)
-		r.startFrom(d, SourceTemplate, func(_ context.Context, log io.Writer) (string, error) {
+		r.startFrom(d, SourceTemplate, func(_ context.Context, _ *Deploy, log io.Writer) (string, error) {
 			fmt.Fprintf(log, "==> template %s (%s): %d files\n", st.ID, st.Name, st.Files)
 			return src, nil
 		})
@@ -160,7 +160,9 @@ func (m *Module) registerCreate(a huma.API) {
 		}
 		d.Repo, d.Ref = gs.String(), gs.Ref
 		_ = r.st.putDeploy(ctx, d)
-		r.startFrom(d, SourceGit, func(ctx context.Context, log io.Writer) (string, error) { return r.cloneSource(ctx, d, gs, log) })
+		r.startFrom(d, SourceGit, func(ctx context.Context, d *Deploy, log io.Writer) (string, error) {
+			return r.cloneSource(ctx, d, gs, log)
+		})
 		_ = r.p.DB.Audit(ctx, pr.TokenID, "deploy.create", in.Project+"/"+in.App, map[string]any{"deploy": d.ID, "preview": in.Preview, "source": SourceGit, "repo": d.Repo, "ref": d.Ref, "path": gs.Path, "session": pr.Session})
 		return &struct{ Body *Deploy }{d}, nil
 	}))

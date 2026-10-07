@@ -220,6 +220,8 @@ func TestSweepImages(t *testing.T) {
 	for i := range 4 {
 		ds = append(ds, h.deploy("api", "", map[string]string{"index.ts": "v" + string(rune('1'+i))}))
 	}
+	// The replaced instances are gone: no container uses an old build.
+	h.r.drains.Wait()
 	// KeepImages is 2: ds[3] live, ds[2] and ds[1] rollback targets.
 	// An older build whose removal failed once (the record still names it).
 	stale := imageRef("shop", "api", ds[0].ID)
@@ -270,7 +272,7 @@ func TestSweepImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := names(dry); strings.Join(got, " ") != strings.Join(want, " ") {
-		t.Fatalf("dry run would remove %v, want %v", got, want)
+		t.Fatalf("dry run would remove %v, want %v (kept: %v)", got, want, dry.Kept)
 	}
 	if strings.Join(dry.GoneProjects, " ") != "gone gone2" {
 		t.Fatalf("gone projects: %v", dry.GoneProjects)

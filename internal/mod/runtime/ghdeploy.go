@@ -183,7 +183,7 @@ func (r *rt) runJob(j *ghJob) {
 	_ = r.p.DB.KVPut(ctx, nsGitHubJobs, d.Project+"/"+d.App+"/"+d.ID, raw)
 
 	done := make(chan struct{})
-	r.startFrom(d, SourceGit, func(ctx context.Context, log io.Writer) (string, error) {
+	r.startFrom(d, SourceGit, func(ctx context.Context, d *Deploy, log io.Writer) (string, error) {
 		return r.cloneGitHub(ctx, c, d, j, log)
 	})
 	go func() {
