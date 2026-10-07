@@ -1,6 +1,7 @@
 package peertest
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -47,7 +48,31 @@ func Self(t testing.TB) string {
 // ServeIn starts a process in cgroup dir that answers every HTTP request on
 // 127.0.0.1:port with body (no spaces), until the test ends. It returns
 // once the server answers.
-func ServeIn(t testing.TB, dir string, port int, body string) {
+func ServeIn(t testing.TB, dir string, port int, body string) { serveIn(t, dir, port, body, false) }
+
+// ServeDeferredIn is ServeIn with a listener that defers accepting until
+// data arrives (TCP_DEFER_ACCEPT), as Bun's does.
+func ServeDeferredIn(t testing.TB, dir string, port int, body string) {
+	serveIn(t, dir, port, body, true)
+}
+
+func listen(addr string, deferAccept bool) (net.Listener, error) {
+	lc := net.ListenConfig{}
+	if deferAccept {
+		lc.Control = func(_, _ string, c syscall.RawConn) error {
+			var serr error
+			if err := c.Control(func(fd uintptr) {
+				serr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, syscall.TCP_DEFER_ACCEPT, 5)
+			}); err != nil {
+				return err
+			}
+			return serr
+		}
+	}
+	return lc.Listen(context.Background(), "tcp", addr)
+}
+
+func serveIn(t testing.TB, dir string, port int, body string, deferAccept bool) {
 	t.Helper()
 	cg, err := os.Open(dir)
 	if err != nil {
@@ -56,7 +81,11 @@ func ServeIn(t testing.TB, dir string, port int, body string) {
 	defer cg.Close()
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	cmd := exec.Command(os.Args[0])
-	cmd.Env = append(os.Environ(), envServe+"="+addr+" "+body)
+	d := 0
+	if deferAccept {
+		d = 1
+	}
+	cmd.Env = append(os.Environ(), fmt.Sprintf("%s=%s %s %d", envServe, addr, body, d))
 	cmd.Stderr = os.Stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{UseCgroupFD: true, CgroupFD: int(cg.Fd())}
 	if err := cmd.Start(); err != nil {

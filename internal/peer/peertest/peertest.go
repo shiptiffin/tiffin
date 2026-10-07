@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const envServe = "PEERTEST_SERVE" // "<addr> <body>"
+const envServe = "PEERTEST_SERVE" // "<addr> <body> <defer: 0 or 1>"
 
 // Main serves, and never returns, in a process ServeIn started. Call it
 // first in the package's TestMain.
@@ -22,7 +22,8 @@ func Main() {
 		return
 	}
 	var addr, body string
-	if _, err := fmt.Sscanf(v, "%s %s", &addr, &body); err != nil {
+	var deferAccept int
+	if _, err := fmt.Sscanf(v, "%s %s %d", &addr, &body, &deferAccept); err != nil {
 		fmt.Fprintln(os.Stderr, "peertest:", err)
 		os.Exit(2)
 	}
@@ -31,7 +32,7 @@ func Main() {
 	var ln net.Listener
 	var err error
 	for i := 0; i < 100; i++ {
-		if ln, err = net.Listen("tcp", addr); err == nil {
+		if ln, err = listen(addr, deferAccept == 1); err == nil {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)

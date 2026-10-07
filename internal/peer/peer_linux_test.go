@@ -92,3 +92,23 @@ func BenchmarkCheck(b *testing.B) {
 		}
 	}
 }
+
+// A server that defers accepting until data arrives (Bun does) has no
+// accepted socket when the check runs: its listeners are checked instead.
+func TestCheckADeferringServer(t *testing.T) {
+	project, other := peertest.Cgroup(t), peertest.Cgroup(t)
+	port := freePort(t)
+	peertest.ServeDeferredIn(t, project, port, "hello")
+	c, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := Check(c, project); err != nil {
+		t.Fatalf("its own project's slice: %v", err)
+	}
+	var fe *ForeignError
+	if err := Check(c, other); !errors.As(err, &fe) {
+		t.Fatalf("another project's slice: %v, want a ForeignError", err)
+	}
+}
