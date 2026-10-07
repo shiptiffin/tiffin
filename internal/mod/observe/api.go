@@ -307,17 +307,31 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 
 	huma.Register(a, api.Op("observe-overview", http.MethodGet, "/v1/observe/overview", "observe overview", api.RiskRead,
 		"Show box health",
-		"The box's vital signs now (CPU, memory, disks, network, services, containers), the last hour as series, store health and firing alerts.", "observe"),
+		"The box's vital signs now (CPU, memory, disks, network, services, containers), the last hour as series, store health and firing alerts. "+
+			"A key limited to some projects sees only those projects' containers and alerts.", "observe"),
 		api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body Overview }, error) {
 			if err := m.ready(); err != nil {
 				return nil, err
 			}
-			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, ""); err != nil {
+			pr := api.PrincipalFrom(ctx)
+			if err := pr.Require(tokens.ScopeRead, ""); err != nil {
 				return nil, err
 			}
 			o := Overview{Now: m.collector.Latest(), Stores: map[string]string{}, Series: map[string][][2]any{}}
 			if o.Now == nil {
 				o.Now = m.collector.Sample(ctx)
+			}
+			if o.Now != nil && !pr.CanProject("*") {
+				// A key for some projects sees the machine and its own
+				// projects' containers, not the other projects'.
+				snap := *o.Now
+				snap.Containers = []Container{}
+				for _, c := range o.Now.Containers {
+					if c.Project != "" && pr.CanProject(c.Project) {
+						snap.Containers = append(snap.Containers, c)
+					}
+				}
+				o.Now = &snap
 			}
 			for name, base := range map[string]string{"metrics": m.vic.VM, "logs": m.vic.VL} {
 				if err := m.vic.Healthy(ctx, base); err != nil {
@@ -340,7 +354,13 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 					o.Series[name] = firstSeries(res)
 				}
 			}
-			o.Alerts, _ = m.store.Firing(ctx)
+			fi, _ := m.store.Firing(ctx)
+			o.Alerts = []Alert{}
+			for _, x := range fi {
+				if canSeeAlert(pr, x.Subject) {
+					o.Alerts = append(o.Alerts, x)
+				}
+			}
 			return &struct{ Body Overview }{o}, nil
 		}))
 
@@ -450,7 +470,7 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 	m.registerTraceAPI(a)
 
 	huma.Register(a, api.Op("alerts-list", http.MethodGet, "/v1/observe/alerts", "alerts list", api.RiskRead,
-		"List alerts", "Alerts firing now and recent transitions with where each notification went.", "observe"),
+		"List alerts", "Alerts firing now and recent transitions with where each notification went. A key limited to some projects sees only those projects' alerts.", "observe"),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Limit int `query:"limit" minimum:"1" maximum:"500" default:"50" doc:"History entries"`
 		}) (*struct{ Body AlertsView }, error) {
@@ -471,12 +491,12 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 			}
 			v := AlertsView{Firing: []Alert{}, History: []HistoryEntry{}}
 			for _, x := range fi {
-				if x.Project == "" || pr.CanProject(x.Project) {
+				if canSeeAlert(pr, x.Subject) {
 					v.Firing = append(v.Firing, x)
 				}
 			}
 			for _, x := range hi {
-				if p := projectOfSubject(x.Subject); p == "" || pr.CanProject(p) {
+				if canSeeAlert(pr, x.Subject) {
 					v.History = append(v.History, x)
 				}
 			}
@@ -484,16 +504,28 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 		}))
 
 	huma.Register(a, api.Op("alert-rules-list", http.MethodGet, "/v1/observe/alert-rules", "alerts rules list", api.RiskRead,
-		"List alert rules", "Every alert rule, enabled or not. Rules are evaluated every 15 seconds.", "observe"),
+		"List alert rules", "Every alert rule, enabled or not. Rules are evaluated every 15 seconds. A key limited to some projects sees only the error_spike rules that watch them.", "observe"),
 		api.Wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body []Rule }, error) {
 			if err := m.ready(); err != nil {
 				return nil, err
 			}
-			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, ""); err != nil {
+			pr := api.PrincipalFrom(ctx)
+			if err := pr.Require(tokens.ScopeRead, ""); err != nil {
 				return nil, err
 			}
 			rs, err := m.store.Rules(ctx)
-			return &struct{ Body []Rule }{rs}, err
+			if err != nil || pr.CanProject("*") {
+				return &struct{ Body []Rule }{rs}, err
+			}
+			// A key for some projects sees the error-spike rules that
+			// watch them; the box's own rules are the box's business.
+			mine := []Rule{}
+			for _, r := range rs {
+				if r.Kind == KindErrorSpike && (r.Project == "" || pr.CanProject(r.Project)) {
+					mine = append(mine, r)
+				}
+			}
+			return &struct{ Body []Rule }{mine}, nil
 		}))
 
 	put := api.Op("alert-rule-put", http.MethodPut, "/v1/observe/alert-rules/{name}", "alerts rules put", api.RiskWrite,
@@ -511,17 +543,20 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 		r := Rule{Name: in.Name, Kind: b.Kind, Threshold: b.Threshold, ForSeconds: b.ForSeconds, Project: b.Project, Expr: b.Expr,
 			Enabled: b.Enabled == nil || *b.Enabled, Description: b.Description}
 		pr := api.PrincipalFrom(ctx)
-		if r.Project != "" && r.Kind == KindErrorSpike {
-			if err := pr.Require(tokens.ScopeApplyReversible, r.Project); err != nil {
-				return nil, err
-			}
-		} else if !pr.BoxAdmin() {
-			return nil, fmt.Errorf("%w: box-wide alert rules need a box-admin token", tokens.ErrForbidden)
+		if err := mayEditRule(pr, r); err != nil {
+			return nil, err
 		}
 		if err := r.Validate(); err != nil {
 			return nil, api.NewProblem(422, "validation", err.Error())
 		}
-		if err := m.store.PutRule(ctx, r); err != nil {
+		// The rule this replaces must be the caller's to change too: a
+		// project's developer cannot turn a box-wide rule into theirs.
+		if err := m.store.ReplaceRule(ctx, r, func(old *Rule) error {
+			if old == nil {
+				return nil
+			}
+			return mayEditRule(pr, *old)
+		}); err != nil {
 			return nil, err
 		}
 		go func() { _ = m.alerter.Evaluate(context.WithoutCancel(ctx)) }()
@@ -662,6 +697,30 @@ func (m *Module) RegisterAPI(a huma.API, _ *platform.Platform) {
 			return &struct{ Body Ingest }{Ingest{Project: in.Project, App: in.App, SentryDSN: env["SENTRY_DSN"], PublicSentryDSN: env["TIFFIN_PUBLIC_SENTRY_DSN"],
 				OTLPEndpoint: env["OTEL_EXPORTER_OTLP_ENDPOINT"], OTLPPublic: env["TIFFIN_OTLP_PUBLIC_ENDPOINT"], OTLPHeader: strings.Replace(env["OTEL_EXPORTER_OTLP_HEADERS"], "=", ": ", 1)}}, nil
 		}))
+}
+
+// canSeeAlert: keys for every project see every alert; a key for some
+// projects sees only the alerts about those projects (error_spike's
+// "project:<name>" subjects). Box alerts name disks, services,
+// certificate hosts and PromQL series that can belong to other projects.
+func canSeeAlert(pr *tokens.Principal, subject string) bool {
+	if pr.CanProject("*") {
+		return true
+	}
+	p := projectOfSubject(subject)
+	return p != "" && pr.CanProject(p)
+}
+
+// mayEditRule: an error_spike rule limited to one project is that
+// project's to change; every other rule is the box admin's.
+func mayEditRule(pr *tokens.Principal, r Rule) error {
+	if r.Project != "" && r.Kind == KindErrorSpike {
+		return pr.Require(tokens.ScopeApplyReversible, r.Project)
+	}
+	if !pr.BoxAdmin() {
+		return fmt.Errorf("%w: box-wide alert rules need a box-admin token", tokens.ErrForbidden)
+	}
+	return nil
 }
 
 func (m *Module) issueFor(ctx context.Context, id string) (*IssueDetail, error) {

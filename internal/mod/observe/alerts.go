@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -121,10 +122,32 @@ func (s *Store) Rules(ctx context.Context) ([]Rule, error) {
 }
 
 // PutRule creates or replaces a rule.
-func (s *Store) PutRule(ctx context.Context, r Rule) error {
+func (s *Store) PutRule(ctx context.Context, r Rule) error { return s.ReplaceRule(ctx, r, nil) }
+
+// ReplaceRule creates or replaces a rule once allow (when set) approves the
+// rule it replaces (nil when there is none). The check and the write happen
+// under the writer lock, so the rule allow saw is the rule replaced.
+func (s *Store) ReplaceRule(ctx context.Context, r Rule, allow func(old *Rule) error) error {
 	b, _ := json.Marshal(r)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if allow != nil {
+		var old *Rule
+		var body string
+		err := s.db.QueryRowContext(ctx, `SELECT body FROM alert_rules WHERE name = ?`, r.Name).Scan(&body)
+		switch {
+		case err == nil:
+			old = &Rule{}
+			if err := json.Unmarshal([]byte(body), old); err != nil {
+				return err
+			}
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		}
+		if err := allow(old); err != nil {
+			return err
+		}
+	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO alert_rules(name, body) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET body = excluded.body`, r.Name, string(b))
 	return err
 }
@@ -772,19 +795,29 @@ func notificationText(n Notification) string {
 	return b.String()
 }
 
-func postWebhook(ctx context.Context, url string, n Notification) error {
+// postWebhook sends n to hook. Its errors never contain the URL: a chat
+// webhook's path is its secret, and delivery errors are kept in the alert
+// history that every reader of the box sees.
+func postWebhook(ctx context.Context, hook string, n Notification) error {
 	body, _ := json.Marshal(n)
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, hook, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return errors.New("the webhook URL is not valid")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "tiffin-alerts")
 	res, err := httpc.Do(req)
 	if err != nil {
-		return err
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err // the same error without "Post <url>:"
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return errors.New("no answer within 10s")
+		}
+		return errors.New(strings.ReplaceAll(err.Error(), hook, "<webhook>"))
 	}
 	defer res.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 1<<16))
