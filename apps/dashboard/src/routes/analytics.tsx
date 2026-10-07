@@ -4,7 +4,7 @@ import { Accordion } from "radix-ui";
 import { ArrowDown, ArrowUp, ChevronRight, Monitor, Smartphone, Tablet } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { notOnBox } from "@/api/client";
-import { mod2, mod3, type AnalyticsCount, type AnalyticsEvent, type AnalyticsOverview, type AnalyticsQuery } from "@/api/modules";
+import { mod2, type AnalyticsCount, type AnalyticsEvent, type AnalyticsOverview, type AnalyticsQuery } from "@/api/modules";
 import { q as api } from "@/api/queries";
 import { AllRows, change, countryName, isPath, Panel, Rows, RowsHead, shown, visitLength, type Delta, type Row } from "@/components/analytics-kit";
 import { SetupDialog, SetupGuide } from "@/components/analytics-setup";
@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioItem } from "@/components/ui/choice";
 import { ViewToggle } from "@/components/usage-charts";
 import { cn } from "@/lib/cn";
+import { deploysQuery } from "@/lib/pulse";
 import { dec, int, num, pct } from "@/lib/format";
 import { analyticsSearch, FILTERS, type AnalyticsSearch, type FilterKey, type Metric, type Vital } from "@/routes/analytics-search";
 
@@ -646,9 +647,10 @@ function Events({ data, pending, visitors, onSetup }: { data: AnalyticsEvent[]; 
 /** When each app (or the one in view) went live, for the chart's markers. */
 function useDeployMarkers(project: string, apps: string[], only?: string): Array<{ t: number; label: string }> {
   const list = only ? apps.filter((a) => a === only) : apps;
-  const res = useQueries({ queries: list.map((a) => ({ queryKey: ["deploys", project, a], queryFn: () => mod3.deploys(project, a), staleTime: 60_000, retry: false })) });
+  const res = useQueries({ queries: list.map((a) => deploysQuery(project, a)) });
   const all = res.flatMap((r) => r.data ?? []);
-  const key = all.map((x) => x.id).join(",");
+  // Everything the markers read: a deploy that goes live after the first read gets its marker.
+  const key = all.map((x) => `${x.id}:${x.status}:${x.liveAt ?? ""}:${x.finishedAt ?? ""}`).join(",");
   return useMemo(
     () =>
       all

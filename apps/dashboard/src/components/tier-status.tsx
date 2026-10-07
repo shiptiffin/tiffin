@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { mod, mod2, mod3, mq } from "@/api/modules";
+import { deploysQuery } from "@/lib/pulse";
 import { bytes, count, int, plainWords } from "@/lib/format";
 import { liveSince, relative } from "@/lib/time";
 import type { PilotState } from "./pilot";
@@ -15,7 +16,7 @@ export type AppStatus = { sentence: ReactNode; pilot?: PilotState; fault?: boole
 
 /** "41 requests in the last hour. Went live 13 min ago." / "Building from upload, 41 s so far." */
 export function useAppStatus(project: string, app: string, role: string | undefined, framework: string | undefined): AppStatus {
-  const deploys = useQuery({ queryKey: ["deploys", project, app, ""], queryFn: () => mod3.deploys(project, app), ...quiet, refetchInterval: 10_000 });
+  const deploys = useQuery(deploysQuery(project, app));
   const metrics = useQuery({ queryKey: ["observe-apps", project], queryFn: () => mod.apps(project, "1h"), ...quiet, refetchInterval: 30_000 });
   const list = deploys.data ?? [];
   const prod = list.filter((d) => !d.preview);
