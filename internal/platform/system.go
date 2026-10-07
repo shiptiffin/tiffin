@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -181,6 +182,27 @@ func (s *System) Fetch(ctx context.Context, url, sum string) (string, error) {
 		return "", fmt.Errorf("fetch %s: sha256 %s, want %s", url, got, sum)
 	}
 	return dest, os.Rename(tmp, dest)
+}
+
+// downloadName is how Fetch names a download: its pin's first 16 hex
+// digits, then the file's name (a partial one ends in .part).
+var downloadName = regexp.MustCompile(`^[0-9a-f]{16}-.`)
+
+// ClearDownloads removes what Fetch downloaded. Every caller unpacks and
+// installs its download, and checks the installed copy (not the archive)
+// next time; a new version has a new pin and URL. So once provisioning has
+// succeeded nothing reads them again, and they would only fill the disk (a
+// nerdctl bundle alone is ~280 MB).
+func (s *System) ClearDownloads() {
+	es, err := os.ReadDir(s.CacheDir)
+	if err != nil {
+		return
+	}
+	for _, e := range es {
+		if e.Type().IsRegular() && downloadName.MatchString(e.Name()) {
+			_ = os.Remove(filepath.Join(s.CacheDir, e.Name()))
+		}
+	}
 }
 
 func (s *System) download(ctx context.Context, url, dest string) error {

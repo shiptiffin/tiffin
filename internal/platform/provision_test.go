@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -92,5 +93,42 @@ func TestProvisionAllOrderAndIsolation(t *testing.T) {
 	// base, then {pg, broken, web} together, then backup: ~3 steps, not 5.
 	if d := time.Since(start); d > 90*time.Millisecond {
 		t.Fatalf("not concurrent: %s", d)
+	}
+}
+
+// Downloads go once every module installed; a failure keeps them for the
+// retry. Other files in the folder stay.
+func TestProvisionAllClearsDownloads(t *testing.T) {
+	saved := modules
+	defer func() { modules = saved }()
+	var mu sync.Mutex
+	var log []string
+	sys := NewSystem(nil)
+	sys.CacheDir = t.TempDir()
+	files := []string{"0123456789abcdef-nerdctl-full.tar.gz", "fedcba9876543210-bun.zip.part", "notes.txt"}
+	put := func() {
+		for _, f := range files {
+			if err := os.WriteFile(filepath.Join(sys.CacheDir, f), []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	left := func() (n []string) {
+		es, _ := os.ReadDir(sys.CacheDir)
+		for _, e := range es {
+			n = append(n, e.Name())
+		}
+		return n
+	}
+	put()
+	modules = []Module{&fakeProv{name: "base", mu: &mu, log: &log}, &fakeProv{name: "broken", err: errors.New("boom"), mu: &mu, log: &log}}
+	ProvisionAll(context.Background(), sys, func(string) {})
+	if got := left(); len(got) != 3 {
+		t.Fatalf("a failed provision removed downloads: %v", got)
+	}
+	modules = []Module{&fakeProv{name: "base", mu: &mu, log: &log}}
+	ProvisionAll(context.Background(), sys, func(string) {})
+	if got := left(); len(got) != 1 || got[0] != "notes.txt" {
+		t.Fatalf("after a good provision: %v", got)
 	}
 }

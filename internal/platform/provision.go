@@ -126,7 +126,8 @@ type Needer interface{ Needs() []string }
 
 // ProvisionAll runs every Provisioner concurrently, each starting once the
 // modules it needs are done. Failures are recorded, never fatal: one broken
-// service must not block the rest.
+// service must not block the rest. When every one succeeded, the downloads
+// they installed from are removed.
 func ProvisionAll(ctx context.Context, s *System, log func(string)) ProvisionReport {
 	type node struct {
 		m    Module
@@ -180,5 +181,9 @@ func ProvisionAll(ctx context.Context, s *System, log func(string)) ProvisionRep
 		}()
 	}
 	wg.Wait()
-	return ProvisionReport{At: time.Now().UTC(), Results: results}
+	report := ProvisionReport{At: time.Now().UTC(), Results: results}
+	if len(report.Failed()) == 0 {
+		s.ClearDownloads() // a failure keeps them for the retry
+	}
+	return report
 }
