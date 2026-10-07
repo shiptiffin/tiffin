@@ -18,9 +18,9 @@ import { Fingerprint } from "lucide-react";
 
 type State = "checking" | "signing-in" | "success" | "no-code" | "bad-link" | "already" | "offline";
 
-// The code is one-time: make sure we only ever spend it once, even if React
-// mounts this page twice in development.
-let spent: string | null = null;
+// The code is one-time: spend it once, even if React mounts this page twice
+// in development; a second mount for the same code waits on the same exchange.
+let exchange: { code: string; done: Promise<unknown> } | null = null;
 
 const readCode = takeLoginCode;
 
@@ -39,24 +39,29 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
 
   useEffect(() => {
     document.title = "Sign in · Tiffin";
+    let live = true;
     if (code) {
-      if (spent === code) return;
-      spent = code;
-      api
-        .login(code)
+      if (exchange?.code !== code) exchange = { code, done: api.login(code) };
+      exchange.done
         .then(() => {
+          if (!live) return;
           qc.clear();
           setState("success");
           setTimeout(() => navigate({ href: next ?? "/" }), 650);
         })
-        .catch((e) => setState(e instanceof ApiError && e.status !== 0 ? "bad-link" : "offline"));
-      return;
+        .catch((e) => live && setState(e instanceof ApiError && e.status !== 0 ? "bad-link" : "offline"));
+      return () => {
+        live = false;
+      };
     }
-    if (spent) return;
+    // No code (a later visit, e.g. "Sign in again" to confirm it's you).
     api
       .whoami()
-      .then(() => setState(reason ? "no-code" : "already"))
-      .catch(() => setState("no-code"));
+      .then(() => live && setState(reason ? "no-code" : "already"))
+      .catch(() => live && setState("no-code"));
+    return () => {
+      live = false;
+    };
   }, [code, navigate, qc, reason, next]);
 
   // Passkey sign-in: options from the box → the OS prompt → the box checks it and sets the session.

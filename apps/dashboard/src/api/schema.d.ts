@@ -1029,7 +1029,7 @@ export interface paths {
         };
         /**
          * List box mail
-         * @description The box's own mail, newest first: invites, sign-in links and new sign-in notices, sent or kept in its dev inbox. Box admins only: it holds sign-in links.
+         * @description The box's own mail, newest first: invites, sign-in links and new sign-in notices, sent or kept in its dev inbox. Box admins only: it holds invites. A sign-in link someone asked for by email shows its metadata only (the link is theirs alone).
          */
         get: operations["email-box-messages-list"];
         put?: never;
@@ -1363,7 +1363,7 @@ export interface paths {
         put?: never;
         /**
          * Create a dashboard login link
-         * @description A one-time link (valid 10 minutes) that signs a browser into the dashboard with your power. Box admins only.
+         * @description A one-time link (valid 10 minutes) that signs a browser into the dashboard as you: the owner token signs in as the owner, a session as its person. Box admins only; an API key acts for nobody, so it gets 403.
          */
         post: operations["login-link-create"];
         delete?: never;
@@ -1891,7 +1891,7 @@ export interface paths {
         put?: never;
         /**
          * Make a sign-in link
-         * @description A fresh one-time sign-in link for someone (for example if their invite expired). With email=true the box also emails it to them.
+         * @description A fresh one-time sign-in link for someone (for example if their invite expired), valid 7 days while whoever made it is still an owner or admin (or the key that made it still works). With email=true the box also emails it to them. Only the owner makes one for the owner (403 otherwise).
          */
         post: operations["person-login-link"];
         delete?: never;
@@ -5508,7 +5508,7 @@ export interface paths {
         post?: never;
         /**
          * Revoke an API key
-         * @description Revokes an API key at once (and any key it created). Only a key with full access to all projects (or an owner or admin person) can revoke keys.
+         * @description Revokes an API key at once (and any key it created). Only a key with full access to all projects (or an owner or admin person) can revoke keys. Dashboard sign-ins are not keys: end them with DELETE /v1/sessions/{id} (403 here).
          */
         delete: operations["token-revoke"];
         options?: never;
