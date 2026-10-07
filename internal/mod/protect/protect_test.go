@@ -257,7 +257,7 @@ func TestAPI(t *testing.T) {
 	// Settings: partial update, host names, the dashboard floor.
 	code, st, _ = e.call(e.owner, "PUT", "/v1/protect", map[string]any{
 		"limits":    map[string]any{"auth": map[string]any{"requests": 5, "windowSeconds": 60}},
-		"challenge": map[string]any{"hosts": []string{"shop", "blog.tiffin.localhost", "shop"}},
+		"challenge": map[string]any{"hosts": []string{"shop", "blog.tiffin.localhost", "shop"}, "exemptPaths": []string{"/api/v1/"}},
 	})
 	if code != 200 || dig(st, "settings", "limits", "auth", "requests") != float64(5) || dig(st, "settings", "limits", "app", "requests") != float64(300) {
 		t.Fatalf("update: %d %v", code, st)
@@ -271,13 +271,16 @@ func TestAPI(t *testing.T) {
 		"challenge dashboard": map[string]any{"challenge": map[string]any{"hosts": []string{"dashboard"}}},
 		"challenge ip":        map[string]any{"challenge": map[string]any{"hosts": []string{"10.0.0.1"}}},
 		"difficulty":          map[string]any{"challenge": map[string]any{"difficulty": 40}},
+		"exempt everything":   map[string]any{"challenge": map[string]any{"exemptPaths": []string{"/"}}},
+		"exempt not a path":   map[string]any{"challenge": map[string]any{"exemptPaths": []string{"api"}}},
 	} {
 		if code, out, _ := e.call(e.owner, "PUT", "/v1/protect", body); code != 422 {
 			t.Errorf("%s: %d %v", name, code, out)
 		}
 	}
 	p := e.m.protection(e.p)
-	if p.Challenge == nil || p.Challenge.Difficulty != 16 || len(p.Challenge.Secret) != 32 || p.Auth.Events != 5 || p.Dashboard.Events != 1200 {
+	if p.Challenge == nil || p.Challenge.Difficulty != 16 || len(p.Challenge.Secret) != 32 || p.Auth.Events != 5 || p.Dashboard.Events != 1200 ||
+		len(p.Challenge.Exempt) != 1 || p.Challenge.Exempt[0] != "/api/v1/" {
 		t.Fatalf("edge protection: %+v", p)
 	}
 

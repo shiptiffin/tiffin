@@ -30,9 +30,11 @@ import (
 // host, the client's network (IPv4 /24, IPv6 /48), a hash of its User-Agent
 // and an expiry. Tokens are signed the same way and expire after 10 minutes.
 //
-// Never challenged: /.well-known/*, /robots.txt, CORS preflights and
-// requests carrying a bearer token (API clients). No crawler allow-list:
-// one cannot be verified without reverse-DNS lookups we do not do.
+// Never challenged: /.well-known/*, /robots.txt, CORS preflights and the
+// owner's exempt path prefixes (API clients). No header exempts a request:
+// the edge cannot tell a real API token from a made-up one. No crawler
+// allow-list: one cannot be verified without reverse-DNS lookups we do not
+// do.
 
 const (
 	minDifficulty = 8
@@ -48,6 +50,7 @@ type ChallengeHandler struct {
 	Secret     string         `json:"secret"`     // hex, at least 32 bytes
 	Difficulty int            `json:"difficulty"` // leading zero bits
 	TTL        caddy.Duration `json:"ttl,omitempty"`
+	Exempt     []string       `json:"exempt,omitempty"` // path prefixes never challenged
 
 	key []byte
 	now func() time.Time
@@ -82,7 +85,7 @@ func (h *ChallengeHandler) Provision(caddy.Context) error {
 
 // ServeHTTP lets cleared and exempt requests through and challenges the rest.
 func (h *ChallengeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
-	if exempt(r) {
+	if h.exempt(r) {
 		return next.ServeHTTP(w, r)
 	}
 	bind := binding(r)
@@ -101,13 +104,17 @@ func (h *ChallengeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, nex
 	return nil
 }
 
-func exempt(r *http.Request) bool {
+func (h *ChallengeHandler) exempt(r *http.Request) bool {
 	p := r.URL.Path
 	if strings.HasPrefix(p, "/.well-known/") || p == "/robots.txt" || r.Method == http.MethodOptions {
 		return true
 	}
-	a := r.Header.Get("Authorization")
-	return len(a) > 7 && strings.EqualFold(a[:7], "bearer ")
+	for _, x := range h.Exempt {
+		if strings.HasPrefix(p, x) {
+			return true
+		}
+	}
+	return false
 }
 
 // binding identifies a client loosely: its network and its User-Agent.
@@ -282,7 +289,7 @@ func (h *ChallengeHandler) challenge(w http.ResponseWriter, r *http.Request, hos
 	if strings.Contains(accept, "application/json") && !strings.Contains(accept, "text/html") {
 		hdr.Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		_, _ = w.Write([]byte(`{"code":"challenge_required","detail":"This site is checking visitors while it is under heavy traffic. Open it in a browser to pass the check, or call it with an API token (Authorization: Bearer ...)."}` + "\n"))
+		_, _ = w.Write([]byte(`{"code":"challenge_required","detail":"This site is checking visitors while it is under heavy traffic. Open it in a browser to pass the check; the site's owner can exempt the paths API clients call."}` + "\n"))
 		return
 	}
 	var nb [12]byte

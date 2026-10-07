@@ -65,6 +65,8 @@ type Challenge struct {
 	Difficulty int
 	// TTL is how long a clearance cookie lasts. Default 24h.
 	TTL time.Duration
+	// Exempt are path prefixes never challenged (API clients' paths).
+	Exempt []string
 }
 
 // CrowdSec points the bouncer at the local CrowdSec API.
@@ -227,10 +229,10 @@ func (p *Protection) protectRoutes(c Config) []obj {
 		zones[zoneName(zoneAssets, assets)] = zone([]obj{{"tiffin_hashed_asset": obj{}, "not": notDash["not"]}}, assets)
 	}
 	if p.Auth.Events > 0 {
-		// A Next.js Server Action posts to the page it is on (Next-Action
-		// header), so actions on a /sign-in page would count as sign-in
-		// attempts. They count only under /api/auth/, the engine's own
-		// endpoints; the engine limits the sign-ins an action makes.
+		// Every write to a sign-in path counts, whatever its headers: a
+		// Next.js Server Action on a /sign-in page counts as an attempt
+		// too (no header can tell a real action from a forged one, and
+		// other frameworks ignore Next-Action).
 		var engine, pages []string
 		for _, path := range p.authPaths() {
 			if strings.HasPrefix(path, "/api/auth/") {
@@ -245,8 +247,7 @@ func (p *Protection) protectRoutes(c Config) []obj {
 			match = append(match, obj{"method": write, "path": engine, "not": notDash["not"]})
 		}
 		if len(pages) > 0 {
-			not := []obj{{"host": dash}, {"header": obj{"Next-Action": []string{}}}}
-			match = append(match, obj{"method": write, "path": pages, "not": not})
+			match = append(match, obj{"method": write, "path": pages, "not": notDash["not"]})
 		}
 		zones[zoneName(zoneAuth, p.Auth)] = zone(match, p.Auth)
 	}
@@ -272,12 +273,16 @@ func (p *Protection) protectRoutes(c Config) []obj {
 			if ttl <= 0 {
 				ttl = 24 * time.Hour
 			}
-			routes = append(routes, obj{"match": match, "handle": []obj{{
+			h := obj{
 				"handler":    "tiffin_challenge",
 				"secret":     hex.EncodeToString(ch.Secret),
 				"difficulty": ch.Difficulty,
 				"ttl":        ttl.String(),
-			}}})
+			}
+			if len(ch.Exempt) > 0 {
+				h["exempt"] = ch.Exempt
+			}
+			routes = append(routes, obj{"match": match, "handle": []obj{h}})
 		}
 	}
 	if p.WAF {

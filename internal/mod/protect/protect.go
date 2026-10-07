@@ -71,6 +71,9 @@ type AttackLimits struct {
 type ChallengeSettings struct {
 	Hosts      []string `json:"hosts" doc:"Hosts that always get the proof-of-work challenge: full host names (shop.tiffin.localhost) or first-level names (shop). \"*\" means every app host. Empty: only while under attack."`
 	Difficulty int      `json:"difficulty" minimum:"8" maximum:"24" doc:"Leading zero bits the browser's SHA-256 proof needs. 16 takes a phone well under a second; each +1 doubles the work."`
+	// ExemptPaths let API clients through: the edge cannot tell a real
+	// API token from a made-up one, so no header exempts a request.
+	ExemptPaths []string `json:"exemptPaths" doc:"Path prefixes API clients call (/api/v1/), on every challenged host: never challenged, still rate limited. Anything else is challenged whatever headers it carries."`
 }
 
 // AttackSettings are what the under-attack switch tightens to.
@@ -96,6 +99,7 @@ func DefaultSettings() Settings {
 		Dashboard: Limit{Requests: 1200, WindowSeconds: 10},
 	}
 	s.Challenge.Hosts = []string{}
+	s.Challenge.ExemptPaths = []string{}
 	s.Challenge.Difficulty = 16
 	s.UnderAttack.Limits = AttackLimits{
 		App:  Limit{Requests: 60, WindowSeconds: 10},
@@ -215,13 +219,15 @@ type Effective struct {
 	Limits              Limits   `json:"limits"`
 	ChallengeHosts      []string `json:"challengeHosts" doc:"Hosts behind the challenge; \"*\" means every app host."`
 	ChallengeDifficulty int      `json:"challengeDifficulty"`
+	ChallengeExempt     []string `json:"challengeExempt" doc:"Path prefixes never challenged."`
 	WAF                 bool     `json:"waf"`
 	CrowdSec            bool     `json:"crowdsec" doc:"Whether the edge enforces CrowdSec decisions."`
 }
 
 func (m *Module) effective(p *platform.Platform) Effective {
 	s, ua := m.snapshot()
-	e := Effective{Limits: s.Limits, ChallengeDifficulty: s.Challenge.Difficulty, WAF: s.WAF, ChallengeHosts: []string{}}
+	e := Effective{Limits: s.Limits, ChallengeDifficulty: s.Challenge.Difficulty, WAF: s.WAF, ChallengeHosts: []string{},
+		ChallengeExempt: append([]string{}, s.Challenge.ExemptPaths...)}
 	for _, h := range s.Challenge.Hosts {
 		e.ChallengeHosts = append(e.ChallengeHosts, fullHost(p, h))
 	}
@@ -277,7 +283,7 @@ func (m *Module) protection(p *platform.Platform) *edge.Protection {
 		CrowdSec:  m.bouncer(),
 	}
 	if len(e.ChallengeHosts) > 0 {
-		out.Challenge = &edge.Challenge{Hosts: e.ChallengeHosts, Secret: secret, Difficulty: e.ChallengeDifficulty}
+		out.Challenge = &edge.Challenge{Hosts: e.ChallengeHosts, Secret: secret, Difficulty: e.ChallengeDifficulty, Exempt: e.ChallengeExempt}
 	}
 	return out
 }

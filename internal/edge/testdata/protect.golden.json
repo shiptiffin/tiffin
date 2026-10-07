@@ -490,11 +490,6 @@
                               "host": [
                                 "dashboard.tiffin.localhost"
                               ]
-                            },
-                            {
-                              "header": {
-                                "Next-Action": []
-                              }
                             }
                           ],
                           "path": [

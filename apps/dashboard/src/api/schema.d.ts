@@ -5095,7 +5095,7 @@ export interface paths {
         put?: never;
         /**
          * Turn under-attack mode on or off
-         * @description On: every app host gets the proof-of-work challenge and the app and sign-in limits tighten, for `minutes` (default 60, at most 1440) or until turned off. The dashboard is never challenged. API clients with bearer tokens are not challenged but are rate limited.
+         * @description On: every app host gets the proof-of-work challenge and the app and sign-in limits tighten, for `minutes` (default 60, at most 1440) or until turned off. The dashboard is never challenged. Requests are challenged whatever headers they carry: API clients that cannot run the check need their paths in challenge.exemptPaths (still rate limited).
          */
         post: operations["protect-under-attack"];
         delete?: never;
@@ -10306,6 +10306,8 @@ export interface components {
              * @description Leading zero bits the browser's SHA-256 proof needs. 16 takes a phone well under a second; each +1 doubles the work.
              */
             difficulty: number;
+            /** @description Path prefixes API clients call (/api/v1/), on every challenged host: never challenged, still rate limited. Anything else is challenged whatever headers it carries. */
+            exemptPaths: string[] | null;
             /** @description Hosts that always get the proof-of-work challenge: full host names (shop.tiffin.localhost) or first-level names (shop). "*" means every app host. Empty: only while under attack. */
             hosts: string[] | null;
         };
@@ -10352,6 +10354,8 @@ export interface components {
         ProtectEffective: {
             /** Format: int64 */
             challengeDifficulty: number;
+            /** @description Path prefixes never challenged. */
+            challengeExempt: string[] | null;
             /** @description Hosts behind the challenge; "*" means every app host. */
             challengeHosts: string[] | null;
             /** @description Whether the edge enforces CrowdSec decisions. */
@@ -11853,6 +11857,8 @@ export interface components {
         SettingsPatchChallengeStruct: {
             /** Format: int64 */
             difficulty?: number;
+            /** @description Path prefixes API clients call ("/api/v1/"): never challenged, still rate limited ([] for none). */
+            exemptPaths?: string[];
             /** @description Hosts that always get the challenge (full names or first-level names; "*" for every app host; [] for none). */
             hosts?: string[];
         };

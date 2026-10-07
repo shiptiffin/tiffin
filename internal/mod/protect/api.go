@@ -224,8 +224,9 @@ type settingsPatch struct {
 		Dashboard *Limit `json:"dashboard,omitempty"`
 	} `json:"limits,omitempty" doc:"Per-IP limits; omitted zones keep their value."`
 	Challenge *struct {
-		Hosts      *[]string `json:"hosts,omitempty" doc:"Hosts that always get the challenge (full names or first-level names; \"*\" for every app host; [] for none)."`
-		Difficulty *int      `json:"difficulty,omitempty" minimum:"8" maximum:"24"`
+		Hosts       *[]string `json:"hosts,omitempty" doc:"Hosts that always get the challenge (full names or first-level names; \"*\" for every app host; [] for none)."`
+		Difficulty  *int      `json:"difficulty,omitempty" minimum:"8" maximum:"24"`
+		ExemptPaths *[]string `json:"exemptPaths,omitempty" doc:"Path prefixes API clients call (\"/api/v1/\"): never challenged, still rate limited ([] for none)."`
 	} `json:"challenge,omitempty"`
 	UnderAttack *struct {
 		App        *Limit `json:"app,omitempty"`
@@ -275,6 +276,19 @@ func (m *Module) patch(p *platform.Platform, cur Settings, in settingsPatch) (Se
 		}
 		if c.Difficulty != nil {
 			s.Challenge.Difficulty = *c.Difficulty
+		}
+		if c.ExemptPaths != nil {
+			paths := []string{}
+			for _, x := range *c.ExemptPaths {
+				x = strings.TrimSpace(x)
+				if !strings.HasPrefix(x, "/") || x == "/" || strings.ContainsAny(x, " ?#*") {
+					return s, api.NewProblem(422, "validation", fmt.Sprintf("challenge exempt path %q: want a path prefix such as /api/v1/ (not / itself)", x))
+				}
+				if !slices.Contains(paths, x) {
+					paths = append(paths, x)
+				}
+			}
+			s.Challenge.ExemptPaths = paths
 		}
 	}
 	if u := in.UnderAttack; u != nil {
@@ -391,7 +405,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 
 	huma.Register(a, api.Op("protect-under-attack", http.MethodPost, "/v1/protect/under-attack", "protect under-attack", api.RiskWrite,
 		"Turn under-attack mode on or off",
-		"On: every app host gets the proof-of-work challenge and the app and sign-in limits tighten, for `minutes` (default 60, at most 1440) or until turned off. The dashboard is never challenged. API clients with bearer tokens are not challenged but are rate limited.",
+		"On: every app host gets the proof-of-work challenge and the app and sign-in limits tighten, for `minutes` (default 60, at most 1440) or until turned off. The dashboard is never challenged. Requests are challenged whatever headers they carry: API clients that cannot run the check need their paths in challenge.exemptPaths (still rate limited).",
 		"protect"),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Body struct {

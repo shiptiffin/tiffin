@@ -321,14 +321,21 @@ func TestProtectEndToEnd(t *testing.T) {
 	})
 
 	t.Run("auth endpoints are stricter", func(t *testing.T) {
-		setProt(&Protection{App: Limit{Events: 1000, Window: time.Second}, Auth: Limit{Events: 3, Window: time.Minute}})
-		// Next.js Server Actions on a /sign-in page don't count; the engine's endpoints do.
+		// (A zone of its own for this first part: a 2-minute window.)
+		setProt(&Protection{App: Limit{Events: 1000, Window: time.Second}, Auth: Limit{Events: 3, Window: 2 * time.Minute}})
+		// A Next-Action header lifts nothing: any app can be sent one, and
+		// only Next.js reads it. Sign-in pages and the engine's endpoints
+		// count every write.
 		action := map[string]string{"Next-Action": "7f3a"}
-		for i := range 5 {
+		for i := range 3 {
 			if r, _ := do(t, c, "POST", shopURL+"/sign-in", action, "[]"); r.StatusCode != 200 {
-				t.Fatalf("server action %d on /sign-in: %d", i+1, r.StatusCode)
+				t.Fatalf("POST %d to /sign-in: %d", i+1, r.StatusCode)
 			}
 		}
+		if r, _ := do(t, c, "POST", shopURL+"/sign-in", action, "[]"); r.StatusCode != 429 {
+			t.Fatalf("a Next-Action header lifted the sign-in limit: %d, want 429", r.StatusCode)
+		}
+		setProt(&Protection{App: Limit{Events: 1000, Window: time.Second}, Auth: Limit{Events: 3, Window: time.Minute}})
 		for i := range 3 {
 			if r, _ := do(t, c, "POST", shopURL+"/api/auth/sign-in/email", nil, "{}"); r.StatusCode != 200 {
 				t.Fatalf("sign-in %d: %d", i+1, r.StatusCode)
@@ -355,7 +362,7 @@ func TestProtectEndToEnd(t *testing.T) {
 	})
 
 	t.Run("challenge", func(t *testing.T) {
-		setProt(&Protection{Challenge: &Challenge{Hosts: []string{"shop.tiffin.localhost"}, Secret: testSecret, Difficulty: 12}})
+		setProt(&Protection{Challenge: &Challenge{Hosts: []string{"shop.tiffin.localhost"}, Secret: testSecret, Difficulty: 12, Exempt: []string{"/api/v1/"}}})
 		ua := map[string]string{"User-Agent": "test-browser/1.0", "Accept": "text/html"}
 		r, body := do(t, c, "GET", shopURL+"/cart?x=1", ua, "")
 		if r.StatusCode != 403 || r.Header.Get("X-Tiffin-Challenge") != "required" {
@@ -413,12 +420,16 @@ func TestProtectEndToEnd(t *testing.T) {
 		if r, _ := do(t, c, "GET", shopURL+"/", map[string]string{"User-Agent": "else", "Cookie": withCookie["Cookie"]}, ""); r.StatusCode != 403 {
 			t.Errorf("cookie with another UA: %d", r.StatusCode)
 		}
-		// Exempt: bearer tokens, /.well-known, robots.txt, preflights.
+		// No header exempts a request: a made-up bearer token is no API client.
+		if r, _ := do(t, c, "GET", shopURL+"/cart", map[string]string{"Authorization": "Bearer made-up"}, ""); r.StatusCode != 403 {
+			t.Errorf("a bearer header passed the challenge: %d", r.StatusCode)
+		}
+		// Exempt: the owner's API paths, /.well-known, robots.txt, preflights.
 		for _, tc := range []struct {
 			method, path string
 			hdr          map[string]string
 		}{
-			{"GET", "/api/data", map[string]string{"Authorization": "Bearer abc"}},
+			{"GET", "/api/v1/data", nil},
 			{"GET", "/.well-known/security.txt", nil},
 			{"GET", "/robots.txt", nil},
 			{"OPTIONS", "/api/data", nil},

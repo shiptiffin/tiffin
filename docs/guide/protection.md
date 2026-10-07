@@ -3,8 +3,9 @@
 On by default:
 
 - **Rate limits** per IP for every app, a strict limit on sign-in endpoints, and a
-  generous one for the dashboard. Next.js Server Actions posted from a page such as
-  `/sign-in` don't count as sign-in attempts; the auth engine limits the sign-ins they make.
+  generous one for the dashboard. Every write to a sign-in path counts, a Next.js Server
+  Action posted from a page such as `/sign-in` included: no header can show a request is a
+  real Server Action, and other frameworks ignore it.
   Fingerprinted build files (`/_next/static/...`, `main.3f9a2c1d.js`) count toward their own
   limit, ten times the app limit, so a page that loads dozens of them leaves a visitor's
   budget for pages and API calls untouched.
@@ -28,8 +29,10 @@ When you need them:
 
 - **Under attack:** `tiffin protect under-attack --on --minutes 60` puts a small
   proof-of-work challenge in front of every app (real browsers pass in a fraction of a
-  second; API calls with tokens are never challenged) and tightens limits. It turns
-  itself off.
+  second) and tightens limits. It turns itself off. Clients that can't run JavaScript are
+  challenged too, whatever headers they send (a made-up `Authorization: Bearer` would
+  otherwise let any bot through): list the paths your API clients call as exempt, and
+  they stay rate limited instead (`PUT /v1/protect {challenge: {exemptPaths: ["/api/v1/"]}}`).
 - **WAF:** Coraza with the OWASP Core Rule Set, opt-in (`PUT /v1/protect {waf: true}`).
   It inspects the first 12.5 MB of a request body and passes the rest through, so
   uploads of any size still reach the app.
