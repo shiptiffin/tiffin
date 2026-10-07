@@ -29,6 +29,41 @@ export interface HandlerOptions {
     fs?: unknown;
     [k: string]: unknown;
 }
+/** An optimized image as Next.js's image optimizer stores it (kind IMAGE). */
+interface ImageValue {
+    kind: "IMAGE";
+    etag: string;
+    buffer: Buffer;
+    extension: string;
+    upstreamEtag: string;
+    revalidate?: number;
+}
+/**
+ * Optimized images (kind IMAGE) on disk, never in Valkey: they are large,
+ * depend only on the source and its parameters (not the deploy), and the box
+ * mounts .next/cache/images per app environment, shared by its instances and
+ * kept across deploys. Next.js 16.2+ hands images to a cacheHandler only when
+ * the app sets `images.customCacheHandler`; by default its own disk cache
+ * keeps them in the same directory. Entries use Next.js's own layout,
+ * `<key>/<maxAge>.<expireAt>.<etag>.<upstreamEtag>.<extension>`, so either
+ * cache reads what the other wrote, and the directory is bounded by
+ * `images.maximumDiskCacheSize` (least recently used out first), as Next.js
+ * bounds it.
+ */
+export declare class ImageDiskCache {
+    readonly dir: string;
+    /** Byte cap; undefined: half the free disk, as Next.js does; 0: nothing is kept. */
+    readonly maxBytes: number | undefined;
+    private lru;
+    private bytes;
+    constructor(dir: string, 
+    /** Byte cap; undefined: half the free disk, as Next.js does; 0: nothing is kept. */
+    maxBytes: number | undefined);
+    private entries;
+    private cap;
+    get(key: string): Promise<Entry | null>;
+    set(key: string, value: ImageValue | null, revalidate: number): Promise<void>;
+}
 /**
  * Next.js makes one handler per request; they share one Store (connection,
  * in-memory copy, tag state). Each request reads the tag counter once.
@@ -37,6 +72,7 @@ export declare class TiffinCacheHandler {
     readonly store: Store;
     private synced;
     private readonly files;
+    private readonly images;
     constructor(nextOptions?: HandlerOptions, storeOptions?: StoreOptions);
     get(key: string, ctx?: GetContext): Promise<Entry | null>;
     /**

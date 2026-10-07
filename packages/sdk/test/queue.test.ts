@@ -214,6 +214,7 @@ describe("@shiptiffin/sdk/queue", () => {
     await queue.sendTx(async (q, p) => seen.push([q, p]), "emails");
     expect(seen).toHaveLength(3);
     expect(seen[0]![0]).toBe(OUTBOX_INSERT);
+    expect(OUTBOX_INSERT).toStartWith("INSERT INTO tiffin_queue.outbox ");
     const params = seen[0]![1] as string[];
     expect(params[0]).toBe("emails");
     expect(JSON.parse(params[1]!)).toEqual({ n: 1 });

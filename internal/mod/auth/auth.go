@@ -3,7 +3,7 @@
 //
 // One engine process (packages/auth-engine: Better Auth on Bun) serves every
 // auth-enabled project on the box. Each project keeps its users in its own
-// Postgres database, in the `auth` schema. The edge sends /api/auth/* on each
+// Postgres database, in the `tiffin_auth` schema. The edge sends /api/auth/* on each
 // web app host (previews included) to the engine, which picks the project by
 // Host. This module installs the engine (Provision), writes its config and
 // migrates each project's schema (Reconcile), adds the routes and

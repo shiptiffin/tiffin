@@ -134,8 +134,8 @@ function sendBody(name, payload, opts) {
 export async function send(name, payload, opts = {}) {
     return boxCall("POST", "/v1/queue-internal/send", { ...sendBody(name, payload, opts), fromApp: currentApp() });
 }
-/** The statement sendTx runs (the box creates tiffin.outbox in every project database). */
-export const OUTBOX_INSERT = "INSERT INTO tiffin.outbox (name, payload, options, app) VALUES ($1, $2::jsonb, $3::jsonb, $4)";
+/** The statement sendTx runs (the box creates tiffin_queue.outbox in every project database). */
+export const OUTBOX_INSERT = "INSERT INTO tiffin_queue.outbox (name, payload, options, app) VALUES ($1, $2::jsonb, $3::jsonb, $4)";
 /**
  * Enqueues inside your own Postgres transaction: the job exists if and only
  * if the transaction commits. Pass the transaction handle:

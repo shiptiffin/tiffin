@@ -13,8 +13,10 @@ export type Slug = string;
  * - `"hono"`: Hono on Bun
  * - `"bun"`: any Bun server listening on `$PORT`
  * - `"static"`: served straight by Caddy
+ * - `"fastapi"`: FastAPI (Python), one Uvicorn process on `$PORT`
+ * - `"python"`: any Python server listening on `$PORT` (Flask, Django...)
  */
-export type Framework = "next" | "hono" | "bun" | "static";
+export type Framework = "next" | "hono" | "bun" | "static" | "fastapi" | "python";
 /**
  * What an app instance does.
  *
@@ -53,15 +55,56 @@ export interface AppConfig {
     /**
      * Builds and runs the app: "bun" (the default) or "node", for an app that
      * needs Node.js (a native module built for it, a library that leans on Node
-     * internals). Applies from the next deploy. Not for static apps.
+     * internals). Applies from the next deploy. Not for static or Python apps
+     * (their Python version comes from .python-version).
      */
     runtime?: "bun" | "node";
     /**
      * Starts the app instead of the start command the build detects
      * (package.json "start"), e.g. "bun run worker.ts", so one source folder can
-     * run a web app and a worker. Applies from the next deploy. Not for static apps.
+     * run a web app and a worker. For a Dockerfile or prebuilt image it replaces
+     * the image's own command (run with /bin/sh -c). Applies from the next
+     * deploy. Not for static apps.
      */
     command?: string;
+    /**
+     * How the app's image is made: "auto" (the default: Railpack, or a
+     * Dockerfile at the app's folder when the folder has no package.json or
+     * Python project), "dockerfile" (BuildKit builds the app's Dockerfile; the
+     * app listens on $PORT), "static" (the same as framework "static") or
+     * "prebuilt" (only `tiffin deploy --prebuilt image.tar`). Applies from the
+     * next deploy.
+     */
+    builder?: "auto" | "dockerfile" | "static" | "prebuilt";
+    /** The Dockerfile's path, relative to the app's folder. Default "Dockerfile". Builder "dockerfile" only. */
+    dockerfile?: string;
+    /** The Dockerfile stage to build (docker build --target). Default: the last stage. Builder "dockerfile" only. */
+    target?: string;
+    /**
+     * Replaces the detected install command, run at the top of the app's
+     * workspace, e.g. "pnpm install --frozen-lockfile". Wins over vercel.json.
+     * Not for builder "dockerfile" or "prebuilt".
+     */
+    install?: string;
+    /**
+     * Replaces the detected build command (package.json "build"), run in the
+     * app's folder, e.g. "bun run build:web". Wins over vercel.json. Not for
+     * builder "dockerfile" or "prebuilt".
+     */
+    build?: string;
+    /**
+     * The folder, relative to the app, that a static site (or a Next.js static
+     * export) serves, e.g. "dist". Default: the first of dist, build, out and
+     * public with an index.html. Static sites and Next.js apps only.
+     */
+    output?: string;
+    /**
+     * Only GitHub pushes and pull requests that change a file matching one of
+     * these patterns deploy the app (monorepos), e.g. ["apps/web/**",
+     * "packages/ui/**", "!**\/*.md"]. Relative to the top of the repository;
+     * a leading ! excludes and the last match decides. Redeploys always build.
+     */
+    watch?: string[];
     /**
      * Runs once per deploy, after the build and before the new version takes
      * traffic, in a one-off container of the new image with the app's env, e.g.
@@ -182,10 +225,16 @@ export interface StorageConfig {
  * - `"magic-link"`: one-time sign-in link sent by email
  * - `"otp"`: one-time code sent by email
  * - `"passkey"`: WebAuthn passkeys
- * - `"google"`: Sign in with Google
- * - `"github"`: Sign in with GitHub
+ * - `"google"`, `"github"`, `"apple"`, `"microsoft"`, `"discord"`,
+ *   `"facebook"`, `"twitter"` (X), `"linkedin"`, `"gitlab"`, `"slack"`,
+ *   `"twitch"`: Sign in with that service
+ * - `"oidc"`: any OpenID Connect provider (Okta, Auth0, Keycloak, company SSO)
+ *
+ * A sign-in service uses the box-wide keys set in Box settings → Sign-in
+ * providers, or the project's own `<PROVIDER>_CLIENT_ID` and
+ * `<PROVIDER>_CLIENT_SECRET` secrets, which win.
  */
-export type AuthMethod = "email" | "magic-link" | "otp" | "passkey" | "google" | "github";
+export type AuthMethod = "email" | "magic-link" | "otp" | "passkey" | "google" | "github" | "apple" | "microsoft" | "discord" | "facebook" | "twitter" | "linkedin" | "gitlab" | "slack" | "twitch" | "oidc";
 /**
  * Auth gives the project user accounts and sessions. The box serves the auth
  * endpoint at "/api/auth" on each app's own routes and exposes its base URL to
@@ -194,8 +243,9 @@ export type AuthMethod = "email" | "magic-link" | "otp" | "passkey" | "google" |
 export interface AuthConfig {
     /**
      * Methods users can sign in with: "email" (email + password),
-     * "magic-link", "otp" (one-time code), "passkey", "google" or "github".
-     * Default ["email", "magic-link"]. Sorted and de-duplicated.
+     * "magic-link", "otp" (one-time code), "passkey", or a sign-in service
+     * (see AuthMethod). Default ["email", "magic-link"]. Sorted and
+     * de-duplicated.
      */
     methods?: AuthMethod[];
     /**

@@ -11,10 +11,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/edge"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/platform"
+	"github.com/btahir/tiffin/internal/projicon"
 	"github.com/btahir/tiffin/internal/state"
 )
 
@@ -151,6 +153,15 @@ func TestEngineConfig(t *testing.T) {
 	}
 	if s.AppName != "shop" || len(s.Secret) < 32 { // the project's name as written, not "Shop"
 		t.Fatalf("name/secret: %q %d", s.AppName, len(s.Secret))
+	}
+	// Emails carry the project's own icon and colour: the public PNG and the enamel as a button colour.
+	id, err := projicon.PublicID(ctx, p.DB, "shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBrand := EmailBrand{LogoURL: "https://dashboard.tiffin.localhost:8443/v1/icons/" + id + ".png", Accent: projicon.EmailAccent(api.EnamelOf(ctx, p.DB, "shop"))}
+	if s.EmailBrand == nil || *s.EmailBrand != wantBrand || !strings.HasPrefix(wantBrand.Accent, "#") || len(wantBrand.Accent) != 7 {
+		t.Fatalf("email brand: %+v, want %+v", s.EmailBrand, wantBrand)
 	}
 	// The secret is stable across rebuilds.
 	c2, _, _ := buildEngineConfig(ctx, p)

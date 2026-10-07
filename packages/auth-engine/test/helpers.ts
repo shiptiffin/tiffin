@@ -24,6 +24,8 @@ export function projectConfig(databaseUrl: string, over: Partial<ProjectConfig> 
     rateLimit: false,
     acceptInvitePath: "/accept-invite",
     requireEmailVerification: true,
+    emailBlocked: false,
+    previewHosts: [],
     ...over,
   };
 }

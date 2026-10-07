@@ -12,13 +12,16 @@ import { PostgresDialect } from "kysely";
 import pg from "pg";
 import { z } from "zod";
 import { altcha } from "./altcha";
-import type { ProjectConfig } from "./config";
+import { isSocial, SOCIAL, type ProjectConfig } from "./config";
 import { currentFacts } from "./context";
 import { effectiveRole, inviteLinks } from "./invite-links";
-import { send, templates } from "./mail";
+import { send, templates, type Brand } from "./mail";
 import { ac, rank, roles, weaker } from "./roles";
+import { APPLE_ORIGIN, bindProxyState, oauthProxies, oidcPlugin, providerName, socialProviders, TRUSTED_FOR_LINKING } from "./social";
 
-export const SCHEMA = "auth";
+// Everything named tiffin* in a project database belongs to the box; public and
+// the rest belong to the app.
+export const SCHEMA = "tiffin_auth";
 
 type Adapter = Parameters<typeof effectiveRole>[0];
 
@@ -206,6 +209,28 @@ function sessionCacheOrg(c: ProjectConfig): BetterAuthPlugin {
   } satisfies BetterAuthPlugin;
 }
 
+/** Endpoints that send mail: refused in production while the box can't send any. */
+const MAIL_PATHS = new Set([
+  "/sign-up/email",
+  "/sign-in/magic-link",
+  "/email-otp/send-verification-otp",
+  "/email-otp/request-password-reset",
+  "/forget-password/email-otp",
+  "/email-otp/request-email-change",
+  "/request-password-reset",
+  "/send-verification-email",
+  "/change-email",
+]);
+
+export const EMAIL_NOT_SET_UP = "This app can't send email yet: connect a mail service in Settings › Email.";
+
+/** Whether email sign-in is refused for this request: production while mail can't leave the box. Previews keep the dev inbox. */
+function emailBlockedHere(c: ProjectConfig): boolean {
+  if (!c.emailBlocked) return false;
+  const host = currentFacts().host;
+  return !(host && c.previewHosts.includes(host));
+}
+
 const ORG_CHANGES = new Set([
   "/organization/create",
   "/organization/update",
@@ -222,6 +247,7 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
   const methods = new Set(c.methods);
   const holder: { adapter?: Adapter } = {};
   const mail = (m: Parameters<typeof send>[3]) => send(project, c.smtpUrl, `${c.appName} <${c.emailFrom}>`, m);
+  const brand: Brand = { app: c.appName, primaryUrl: c.primaryUrl, ...c.emailBrand };
   const originOf = (request?: Request) => {
     const h = request?.headers.get("host")?.split(":")[0];
     if (request && h && c.hosts.includes(h)) {
@@ -241,12 +267,14 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
         ctx.json({
           appName: c.appName,
           methods: c.methods,
+          // Email sign-up, links and codes work on this host (false: the box can't send email yet).
+          emailReady: !emailBlockedHere(c),
           organizations: c.organizations,
           captcha: c.captcha,
-          social: {
-            google: methods.has("google") ? { configured: !!c.social.google } : null,
-            github: methods.has("github") ? { configured: !!c.social.github } : null,
-          },
+          // For each sign-in provider turned on: whether it has keys (so the button works).
+          social: Object.fromEntries(SOCIAL.map((id) => [id, methods.has(id) ? { configured: !!c.social[id] } : null])),
+          // The buttons to show, in the order they're listed, with their names.
+          providers: SOCIAL.filter((id) => methods.has(id)).map((id) => ({ id, name: providerName(id, c.social[id]), configured: !!c.social[id] })),
         }),
       ),
       tiffinSession: createAuthEndpoint(
@@ -275,12 +303,12 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
     hooks: {
       before: [
         {
-          // Sign in with Google/GitHub when the project has no OAuth app yet: say how to fix it.
+          // Sign in with a provider the project has no keys for yet: say how to fix it.
           matcher: (ctx) => ctx.path === "/sign-in/social" || ctx.path === "/link-social",
           handler: createAuthMiddleware(async (ctx) => {
             const p = (ctx.body as { provider?: string } | undefined)?.provider;
-            if (p !== "google" && p !== "github") return;
-            const name = p === "google" ? "Google" : "GitHub";
+            if (!p || !isSocial(p)) return;
+            const name = providerName(p, c.social[p]);
             const env = p.toUpperCase();
             if (!methods.has(p)) {
               throw new APIError("BAD_REQUEST", { code: "METHOD_DISABLED", message: `Sign in with ${name} isn't turned on for this app. Add "${p}" to services.auth.methods in tiffin.config.ts.` });
@@ -288,9 +316,20 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
             if (!c.social[p]) {
               throw new APIError("SERVICE_UNAVAILABLE", {
                 code: "SOCIAL_NOT_CONFIGURED",
-                message: `Sign in with ${name} isn't set up yet. The app's owner needs to create a ${name} OAuth app with the callback URL ${originOf(ctx.request)}/api/auth/callback/${p}, then set the ${env}_CLIENT_ID and ${env}_CLIENT_SECRET secrets on this project.`,
+                message:
+                  `Sign in with ${name} isn't set up yet. The box owner can add ${name} keys once for every project in Box settings → Sign-in providers, ` +
+                  `or the app's owner can set this project's own ${env}_CLIENT_ID and ${env}_CLIENT_SECRET secrets (callback URL ${originOf(ctx.request)}/api/auth/callback/${p}).`,
               });
             }
+          }),
+        },
+        {
+          // No mail service yet: in production, refuse what would send mail,
+          // rather than let anyone sign up with an address they don't own.
+          matcher: (ctx) => c.emailBlocked && !!ctx.path && MAIL_PATHS.has(ctx.path),
+          handler: createAuthMiddleware(async () => {
+            if (!emailBlockedHere(c)) return;
+            throw new APIError("SERVICE_UNAVAILABLE", { code: "EMAIL_NOT_SET_UP", message: EMAIL_NOT_SET_UP });
           }),
         },
         {
@@ -359,7 +398,7 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
     plugins.push(
       magicLink({
         expiresIn: 600,
-        sendMagicLink: async ({ email, url }) => mail(templates.magicLink(c.appName, email, url)),
+        sendMagicLink: async ({ email, url }) => mail(templates.magicLink(brand, email, url, 600)),
       }),
     );
   }
@@ -369,12 +408,18 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
         otpLength: 6,
         expiresIn: 300,
         allowedAttempts: 5,
-        sendVerificationOTP: async ({ email, otp, type }) => mail(templates.otp(c.appName, email, otp, type)),
+        sendVerificationOTP: async ({ email, otp, type }) => mail(templates.otp(brand, email, otp, type, 300)),
       }),
     );
   }
   if (methods.has("passkey")) plugins.push(passkeys(c));
-  plugins.push(twoFactor({ issuer: c.appName }));
+  plugins.push(
+    twoFactor({
+      issuer: c.appName,
+      // Two-step sign-in by email code (TOTP apps keep working as before).
+      otpOptions: { period: 3, sendOTP: async ({ user, otp }) => void (await mail(templates.twoFactor(brand, user.email, otp, 180))) },
+    }),
+  );
   if (c.organizations) {
     plugins.push(
       organization({
@@ -386,7 +431,7 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
         requireEmailVerificationOnInvitation: c.requireEmailVerification,
         sendInvitationEmail: async (d, request) => {
           const url = `${originOf(request)}${c.acceptInvitePath}?invitation=${encodeURIComponent(d.id)}`;
-          await mail(templates.invite(c.appName, d.email, url, d.inviter.user.name || d.inviter.user.email, d.organization.name, d.role));
+          await mail(templates.invite(brand, d.email, url, d.inviter.user, d.organization.name, d.role, 48 * 3600));
         },
       }),
     );
@@ -423,17 +468,29 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
   );
   plugins.push(sessionCacheOrg(c));
 
+  // Sign-in providers: the ones turned on that have keys.
+  const enabled = new Set(SOCIAL.filter((id) => methods.has(id) && c.social[id]));
+  const social = socialProviders(c.social, enabled);
+  const oidc = enabled.has("oidc") ? oidcPlugin(c.social.oidc) : null;
+  if (oidc) plugins.push(oidc);
+  // Box-wide keys go out through the box's one callback URL.
+  // The app's own keys come back through its sign-in host, so the provider needs one redirect URI.
+  const proxied = new Set([...enabled].filter((id) => c.social[id]?.proxied));
+  const viaApp = new Set(c.oauthProxy?.appUrl ? [...enabled].filter((id) => !c.social[id]?.proxied) : []);
+  if (c.oauthProxy && ((proxied.size && c.oauthProxy.url) || viaApp.size)) {
+    plugins.push(bindProxyState(c.oauthProxy));
+    plugins.push(oauthProxies(c.oauthProxy, c.oauthProxy.url ? proxied : new Set(), viaApp));
+  }
+
   const hosts = c.hosts.flatMap((h) => [h, `${h}:*`]);
-  const social: NonNullable<BetterAuthOptions["socialProviders"]> = {};
-  if (methods.has("google") && c.social.google) social.google = { ...c.social.google, prompt: "select_account" };
-  if (methods.has("github") && c.social.github) social.github = { ...c.social.github };
 
   return {
     appName: c.appName,
     secret: c.secret,
     basePath: "/api/auth",
     baseURL: { allowedHosts: hosts, fallback: c.primaryUrl, protocol: c.primaryUrl.startsWith("http://") ? "http" : "https" },
-    trustedOrigins: c.origins,
+    // The app's own origins only (and Apple's, which posts its callback).
+    trustedOrigins: enabled.has("apple") && !proxied.has("apple") ? [...c.origins, APPLE_ORIGIN] : c.origins,
     database: { dialect: new PostgresDialect({ pool }), type: "postgres", schemaName: SCHEMA, transaction: true } as never,
     telemetry: { enabled: false },
     logger: {
@@ -458,13 +515,18 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
       cookieCache: { enabled: true, strategy: "jwt", maxAge: SESSION_CACHE_SECONDS },
     },
     user: {
+      // Changing the email: the current address approves the move first.
+      changeEmail: {
+        enabled: true,
+        sendChangeEmailConfirmation: async ({ user, newEmail, url }) => mail(templates.changeEmail(brand, user.email, url, newEmail, 3600)),
+      },
       additionalFields: {
         banned: { type: "boolean", required: false, defaultValue: false, input: false },
         banReason: { type: "string", required: false, input: false },
         banExpires: { type: "date", required: false, input: false },
       },
     },
-    account: { accountLinking: { enabled: true, trustedProviders: ["google", "github"] } },
+    account: { accountLinking: { enabled: true, trustedProviders: TRUSTED_FOR_LINKING } },
     emailAndPassword: {
       enabled: methods.has("email"),
       requireEmailVerification: c.requireEmailVerification,
@@ -472,18 +534,35 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
       maxPasswordLength: 256,
       resetPasswordTokenExpiresIn: 3600,
       revokeSessionsOnPasswordReset: true,
-      sendResetPassword: async ({ user, url }) => mail(templates.reset(c.appName, user.email, url)),
+      sendResetPassword: async ({ user, url }) => mail(templates.reset(brand, user.email, url, 3600)),
     },
     emailVerification: {
       sendOnSignUp: c.requireEmailVerification,
       sendOnSignIn: c.requireEmailVerification,
       autoSignInAfterVerification: true,
       expiresIn: 3600,
-      sendVerificationEmail: async ({ user, url }) => mail(templates.verify(c.appName, user.email, url)),
+      sendVerificationEmail: async ({ user, url }) => mail(templates.verify(brand, user.email, url, 3600)),
     },
     socialProviders: social,
     databaseHooks: {
       user: {
+        update: {
+          // Keep the old address so it can be told the account moved (after).
+          before: async (data, ctx) => {
+            if (typeof data.email !== "string") return;
+            const was = await emailBefore(ctx, holder.adapter);
+            if (was && was.toLowerCase() !== data.email.toLowerCase()) movedFrom.set(data.email.toLowerCase(), was);
+          },
+          after: async (user) => {
+            const key = user.email.toLowerCase();
+            const was = movedFrom.get(key);
+            if (!was) return;
+            movedFrom.delete(key);
+            await mail(templates.emailChanged(brand, was, user.email, new Date())).catch((err) =>
+              console.error(JSON.stringify({ level: "error", msg: "email-changed notice failed", project, err: String(err) })),
+            );
+          },
+        },
         create: {
           before: async () => {
             currentFacts().newUser = true;
@@ -517,6 +596,36 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
     },
     plugins,
   };
+}
+
+// Old addresses of accounts whose email is being changed, by the new
+// address, between the update's before and after hooks.
+const movedFrom = new Map<string, string>();
+
+type HookCtx = { query?: Record<string, unknown>; body?: Record<string, unknown>; context?: { session?: { user?: { email?: string } } | null } } | null;
+
+/**
+ * The address an account had before an update changes it: from the change
+ * link's token (already checked by Better Auth), the signed-in user, or the
+ * user an admin call names.
+ */
+async function emailBefore(ctx: unknown, adapter?: Adapter): Promise<string | undefined> {
+  const c = ctx as HookCtx;
+  const token = c?.query?.token;
+  if (typeof token === "string" && token.split(".").length === 3) {
+    try {
+      const payload = JSON.parse(Buffer.from(token.split(".")[1]!, "base64url").toString("utf8")) as { email?: unknown };
+      if (typeof payload.email === "string") return payload.email;
+    } catch {}
+  }
+  const own = c?.context?.session?.user?.email;
+  if (typeof own === "string") return own;
+  const id = c?.body?.userId;
+  if (typeof id === "string" && adapter) {
+    const u = await adapter.findOne<{ email: string }>({ model: "user", where: [{ field: "id", value: id }] });
+    return u?.email;
+  }
+  return undefined;
 }
 
 export function createPool(project: string, databaseUrl: string): pg.Pool {

@@ -13,4 +13,4 @@
 export { UploadError, abortUpload, uploadFile, type UploadFileOptions, type UploadProgress, type UploadResult, type UploadTicket } from "./upload";
 export { subscribeRun, type LiveRun, type RunSnapshot, type RunStep, type SubscribeOptions } from "./run";
 export { attachCaptcha, prepareCaptcha, solveCaptcha } from "./captcha";
-export { authConfig, errorText, type AuthConfig, type AuthOptions } from "./auth";
+export { authConfig, errorText, type AuthConfig, type AuthOptions, type SocialProvider } from "./auth";

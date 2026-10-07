@@ -169,7 +169,7 @@ describe("passwordless", () => {
     const r = await c.withCaptcha("/sign-in/magic-link", { email: "maggie@example.com", callbackURL: "/" });
     expect(r.status).toBe(200);
     const mail = lastMail("maggie@example.com", "magic-link");
-    expect(mail.subject).toBe("Your sign-in link for Shop");
+    expect(mail.subject).toBe("Sign in to Shop");
     const v = await c.raw(linkIn(mail.text));
     expect(v.status).toBe(302);
     const s = await c.json("/get-session");
@@ -190,6 +190,51 @@ describe("passwordless", () => {
     expect(ok.status).toBe(200);
     const s = await c.json("/get-session");
     expect(s.body.user.email).toBe("otto@example.com");
+  });
+});
+
+describe("account email", () => {
+  test("change email: the old address approves, the new one confirms, the old one is told", async () => {
+    const c = new Client(handle);
+    await c.withCaptcha("/sign-in/magic-link", { email: "mover@example.com", callbackURL: "/" });
+    expect((await c.raw(linkIn(lastMail("mover@example.com", "magic-link").text))).status).toBe(302);
+
+    const r = await c.json("/change-email", { body: { newEmail: "moved@example.com", callbackURL: "/" } });
+    expect(r.status).toBe(200);
+    const approve = lastMail("mover@example.com", "change-email");
+    expect(approve.subject).toBe("Approve your new email for Shop");
+    expect([200, 302]).toContain((await c.raw(linkIn(approve.text))).status);
+    const confirm = lastMail("moved@example.com", "verify");
+    expect([200, 302]).toContain((await c.raw(linkIn(confirm.text))).status);
+
+    const s = await c.json("/get-session");
+    expect(s.body.user.email).toBe("moved@example.com");
+    const notice = lastMail("mover@example.com", "email-changed");
+    expect(notice.subject).toBe("Your Shop email was changed");
+    expect(notice.text).toContain("moved@example.com");
+  });
+
+  test("two-step sign-in by an emailed code, the code in the subject", async () => {
+    const pw = "correct horse battery";
+    const c = await person(handle, "twostep@example.com", "Tess", pw);
+    expect((await c.json("/two-factor/enable", { body: { password: pw } })).status).toBe(200);
+    const codeIn = () => {
+      const mail = lastMail("twostep@example.com", "two-factor");
+      const code = mail.subject.split(" ")[0]!;
+      expect(code).toMatch(/^\d{6}$/);
+      return code;
+    };
+    // Turning it on: one emailed code proves the address works.
+    expect((await c.json("/two-factor/send-otp", { body: {} })).status).toBe(200);
+    expect((await c.json("/two-factor/verify-otp", { body: { code: codeIn() } })).status).toBe(200);
+
+    const d = new Client(handle);
+    const first = await d.withCaptcha("/sign-in/email", { email: "twostep@example.com", password: pw });
+    expect(first.status).toBe(200);
+    expect(first.body.twoFactorRedirect).toBe(true);
+    expect((await d.json("/two-factor/send-otp", { body: {} })).status).toBe(200);
+    expect((await d.json("/two-factor/verify-otp", { body: { code: codeIn() } })).status).toBe(200);
+    expect((await d.json("/get-session")).body.user.email).toBe("twostep@example.com");
   });
 });
 
@@ -219,7 +264,7 @@ describe("organizations, roles and invites", () => {
     const inv = await alice.json("/organization/invite-member", { body: { email: "bob@example.com", role: "admin", organizationId: acme } });
     expect(inv.status).toBe(200);
     const mail = lastMail("bob@example.com", "invitation");
-    expect(mail.subject).toBe("Alice invited you to Acme");
+    expect(mail.subject).toBe("Alice invited you to Acme on Shop");
     const link = linkIn(mail.text);
     expect(link).toBe(`${ORIGIN}/accept-invite?invitation=${inv.body.id}`);
     const acc = await bob.json("/organization/accept-invitation", { body: { invitationId: inv.body.id } });
@@ -347,7 +392,7 @@ describe("organizations, roles and invites", () => {
 });
 
 describe("row-level security helpers", () => {
-  test("auth.enable_org_rls isolates two orgs' rows", async () => {
+  test("tiffin_auth.enable_org_rls isolates two orgs' rows", async () => {
     const su = new pg.Client(dbUrl);
     await su.connect();
     await su.query(`DROP ROLE IF EXISTS app_rls; CREATE ROLE app_rls LOGIN PASSWORD 'app'`);
@@ -357,7 +402,7 @@ describe("row-level security helpers", () => {
     await app.connect();
     // the app role owns its table; FORCE makes the policy apply to it anyway
     await app.query(`CREATE TABLE notes (id serial primary key, org_id text not null, body text not null)`);
-    await app.query(`SELECT auth.enable_org_rls('notes')`);
+    await app.query(`SELECT tiffin_auth.enable_org_rls('notes')`);
     const as = async (org: string | null, f: () => Promise<unknown>) => {
       await app.query("BEGIN");
       await app.query(`SELECT set_config('app.org_id', $1, true)`, [org ?? ""]);
@@ -392,14 +437,21 @@ describe("delete", () => {
     // keep the main DB for other tests: drop a second project's schema
     const url2 = await freshDatabase("engine_drop");
     reg.set({ version: 1, listen: [], projects: { shop: reg.projectConfig("shop")!, other: projectConfig(url2, { hosts: ["other.tiffin.localhost"] }) } });
-    await adminCall("POST", "/projects/other/migrate");
-    const ok = await adminCall("POST", "/projects/other/drop?confirm=other");
-    expect(ok.body.dropped).toBe(true);
     const c = new pg.Client(url2);
     await c.connect();
-    const r = await c.query(`SELECT to_regclass('auth."user"') AS t`);
+    // `auth` is a name apps may use: the engine keeps to tiffin_auth and
+    // never touches the app's own schema, on migrate or on drop.
+    await c.query(`CREATE SCHEMA auth; CREATE TABLE auth."user" (id text); INSERT INTO auth."user" VALUES ('mine')`);
+    const m = await adminCall("POST", "/projects/other/migrate");
+    expect(m.body.created).toContain("user");
+    const where = await c.query(`SELECT to_regclass('tiffin_auth."user"')::text AS t, to_regclass('tiffin_auth.session')::text AS s`);
+    expect(where.rows[0]).toEqual({ t: 'tiffin_auth."user"', s: "tiffin_auth.session" });
+    const ok = await adminCall("POST", "/projects/other/drop?confirm=other");
+    expect(ok.body.dropped).toBe(true);
+    const r = await c.query(`SELECT to_regnamespace('tiffin_auth') AS t, (SELECT array_agg(id) FROM auth."user") AS mine`);
     await c.end();
     expect(r.rows[0].t).toBeNull();
+    expect(r.rows[0].mine).toEqual(["mine"]);
   });
 });
 

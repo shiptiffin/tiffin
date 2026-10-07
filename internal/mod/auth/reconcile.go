@@ -20,7 +20,7 @@ func (*Module) Kinds() []string { return []string{change.KindService + "/auth"} 
 var reconcileMu sync.Mutex
 
 // Reconcile makes the engine serve the project: write its config, reload,
-// and create or upgrade the project's auth schema. With spec nil (auth
+// and create or upgrade the project's tiffin_auth schema. With spec nil (auth
 // removed) the schema is dropped: every user, session and organization of
 // the project is deleted. The plan marks that irreversible.
 func (*Module) Reconcile(ctx context.Context, p *platform.Platform, project, address string, spec json.RawMessage) error {
@@ -28,8 +28,13 @@ func (*Module) Reconcile(ctx context.Context, p *platform.Platform, project, add
 	defer reconcileMu.Unlock()
 	eng := defaultEngine
 	if spec == nil {
-		if err := eng.drop(ctx, project); err != nil && !gone(err) {
-			return fmt.Errorf("delete the auth schema: %w", err)
+		// The schema lives in the project's database: when that is going too
+		// (the project is destroyed, or postgres removed with auth), it goes
+		// with it, and the engine can't log in to drop it anyway.
+		if postgresStays(ctx, p, project) {
+			if err := eng.drop(ctx, project); err != nil && !gone(err) {
+				return fmt.Errorf("delete the tiffin_auth schema: %w", err)
+			}
 		}
 		_ = p.DB.KVDelete(ctx, nsSecret, project)
 		if _, err := syncConfig(ctx, p, eng); err != nil {
@@ -55,7 +60,7 @@ func (*Module) Reconcile(ctx context.Context, p *platform.Platform, project, add
 	}
 	r, err := eng.migrate(ctx, project)
 	if err != nil {
-		return fmt.Errorf("set up the auth schema: %w", err)
+		return fmt.Errorf("set up the tiffin_auth schema: %w", err)
 	}
 	if len(r.Created) > 0 || len(r.Added) > 0 {
 		p.Log.Info("auth schema migrated", "project", project, "created", strings.Join(r.Created, ","), "added", strings.Join(r.Added, ","), "ms", r.Ms)
@@ -87,10 +92,31 @@ func syncConfig(ctx context.Context, p *platform.Platform, eng *engine) (map[str
 	return errs, nil
 }
 
-// gone reports errors that mean there is nothing left to delete.
+// postgresStays reports whether the project keeps its Postgres database
+// after this change: it is still among its resources.
+func postgresStays(ctx context.Context, p *platform.Platform, project string) bool {
+	if p == nil || p.DB == nil {
+		return true
+	}
+	v, res, err := p.DB.Load(ctx, project)
+	if err != nil {
+		return true // can't tell: try, and let gone() judge the error
+	}
+	_, ok := res[change.KindService+"/postgres"]
+	return v > 0 && ok
+}
+
+// gone reports errors that mean there is nothing left to delete: the
+// schema, the project's entry or its database (whose role is deleted with
+// it, so logging in fails) is already gone.
 func gone(err error) bool {
 	s := err.Error()
-	return strings.Contains(s, "does not exist") || strings.Contains(s, "auth isn't set up for project")
+	for _, m := range []string{"does not exist", "auth isn't set up for project", "password authentication failed", "SASL authentication failed", "database removed"} {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // Start keeps the engine config fresh for changes that don't go through an

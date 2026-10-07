@@ -121,7 +121,7 @@ function sendBody(name, payload, opts) {
 async function send(name, payload, opts = {}) {
   return boxCall("POST", "/v1/queue-internal/send", { ...sendBody(name, payload, opts), fromApp: currentApp() });
 }
-var OUTBOX_INSERT = "INSERT INTO tiffin.outbox (name, payload, options, app) VALUES ($1, $2::jsonb, $3::jsonb, $4)";
+var OUTBOX_INSERT = "INSERT INTO tiffin_queue.outbox (name, payload, options, app) VALUES ($1, $2::jsonb, $3::jsonb, $4)";
 async function sendTx(db, name, payload, opts = {}) {
   const b = sendBody(name, payload, opts);
   const options = { ...b };

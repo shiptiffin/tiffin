@@ -253,6 +253,76 @@ describe("pages prerendered by next build", () => {
   });
 });
 
+describe("optimized images (kind IMAGE)", () => {
+  // Next.js's own image cache, which calls the handler when images.customCacheHandler is on.
+  const { ImageOptimizerCache } = createRequire(import.meta.url)("next/dist/server/image-optimizer.js") as {
+    ImageOptimizerCache: new (o: Record<string, unknown>) => {
+      get(key: string): Promise<{ value: { buffer: Buffer; etag: string; extension: string }; isStale: boolean } | null>;
+      set(key: string, v: Record<string, unknown>, o: { cacheControl: { revalidate: number } }): Promise<void>;
+    };
+  };
+  const nextConfig = (custom: boolean, maxBytes?: number) => ({
+    images: { minimumCacheTTL: 60, customCacheHandler: custom, maximumDiskCacheSize: maxBytes },
+    experimental: { isrFlushToDisk: true },
+  });
+  const distDir = (maxBytes?: number) => {
+    const d = mkdtempSync(`${tmpdir()}/next-img-`);
+    mkdirSync(`${d}/server`);
+    if (maxBytes !== undefined) writeFileSync(`${d}/required-server-files.json`, JSON.stringify({ config: { images: { maximumDiskCacheSize: maxBytes } } }));
+    return d;
+  };
+  const image = (i: number, bytes = 50_000) => ({
+    kind: "IMAGE",
+    etag: `etag${i}`,
+    upstreamEtag: `up${i}`,
+    extension: "webp",
+    buffer: Buffer.alloc(bytes, i % 256),
+  });
+  const key = (i: number) => `k${i}_${"x".repeat(40)}`;
+
+  test("go to the build's .next/cache/images in Next.js's layout, never to Valkey, and survive a deploy", async () => {
+    const dir = distDir(512 << 20);
+    const o = app();
+    const mark = fake.log.length;
+    const via = new ImageOptimizerCache({ distDir: dir, nextConfig: nextConfig(true), cacheHandler: new TiffinCacheHandler({ serverDistDir: `${dir}/server` }, o(instance(fake.url))) });
+    for (let i = 0; i < 100; i++) await via.set(key(i), image(i), { cacheControl: { revalidate: 60 } });
+    // 100 images of 50 KB: not one command reached Valkey.
+    expect(since(mark)).toEqual([]);
+    const got = await via.get(key(7));
+    expect(got!.isStale).toBe(false);
+    expect(got!.value.etag).toBe("etag7");
+    expect(Buffer.compare(got!.value.buffer, image(7).buffer)).toBe(0);
+    // The next deploy (another key namespace in Valkey) finds them on the shared disk.
+    const next = new TiffinCacheHandler({ serverDistDir: `${dir}/server` }, o(instance(fake.url), { buildId: "d2" }));
+    expect((await next.get(key(42), { kind: "IMAGE" }))!.value).toMatchObject({ kind: "IMAGE", etag: "etag42", extension: "webp" });
+    // Next.js's own disk cache (no customCacheHandler) reads the same entries, and we read its.
+    const own = new ImageOptimizerCache({ distDir: dir, nextConfig: nextConfig(false, 512 << 20) });
+    expect((await own.get(key(3)))!.value.etag).toBe("etag3");
+    await own.set("fromnext", image(200), { cacheControl: { revalidate: 60 } });
+    expect((await next.get("fromnext", { kind: "IMAGE" }))!.value).toMatchObject({ etag: "etag200" });
+    expect(since(mark).filter((c) => !c.startsWith("GET") && !c.startsWith("MGET"))).toEqual([]);
+  });
+
+  test("bounded by images.maximumDiskCacheSize, least recently used out first; a delete removes the file", async () => {
+    const dir = distDir(150_000); // three images
+    const h = () => new TiffinCacheHandler({ serverDistDir: `${dir}/server` }, app()(memoryRedis()));
+    for (let i = 0; i < 3; i++) await h().set(key(i), image(i), { kind: "IMAGE", cacheControl: { revalidate: 60 } });
+    await h().get(key(0), { kind: "IMAGE" }); // used: 1 is now the oldest
+    for (let i = 3; i < 5; i++) await h().set(key(i), image(i), { kind: "IMAGE", cacheControl: { revalidate: 60 } });
+    const kept = await Promise.all([0, 1, 2, 3, 4].map(async (i) => (await h().get(key(i), { kind: "IMAGE" })) !== null));
+    expect(kept).toEqual([true, false, false, true, true]);
+    await h().set(key(3), null, { kind: "IMAGE" });
+    expect(await h().get(key(3), { kind: "IMAGE" })).toBeNull();
+    // Keys and names that are not Next.js's are refused rather than written outside the directory.
+    await h().set("../escape", image(9), { kind: "IMAGE", cacheControl: { revalidate: 60 } });
+    expect(await h().get("../escape", { kind: "IMAGE" })).toBeNull();
+    // maximumDiskCacheSize 0: nothing kept, as in Next.js.
+    const off = distDir(0);
+    await new TiffinCacheHandler({ serverDistDir: `${off}/server` }, app()(memoryRedis())).set(key(1), image(1), { kind: "IMAGE", cacheControl: { revalidate: 60 } });
+    expect(await new TiffinCacheHandler({ serverDistDir: `${off}/server` }, app()(memoryRedis())).get(key(1), { kind: "IMAGE" })).toBeNull();
+  });
+});
+
 describe("hot path", () => {
   test("a repeat hit costs one small GET (the tag counter); the tag hash is read only when it moved", async () => {
     const o = app();

@@ -4,7 +4,8 @@
 // little memory.
 import type pg from "pg";
 import { createInstance, createPool, type Instance } from "./auth";
-import { fingerprint, readConfig, type EngineConfig, type ProjectConfig } from "./config";
+import { fingerprint, readConfig, type EngineConfig, type ProjectConfig, type ProxyConfig } from "./config";
+import { createProxyInstance, type ProxyInstance } from "./social";
 
 export class Registry {
   private config: EngineConfig = { version: 1, listen: [], projects: {} };
@@ -16,6 +17,7 @@ export class Registry {
   private retired = new Set<pg.Pool>();
   private byHost = new Map<string, string>();
   private lastStat = 0;
+  private proxyInst: { fp: string; inst: ProxyInstance } | null = null;
 
   constructor(private readonly path: string | null, initial?: EngineConfig) {
     if (initial) this.set(initial);
@@ -74,6 +76,29 @@ export class Registry {
 
   projectConfig(project: string): ProjectConfig | undefined {
     return this.config.projects[project];
+  }
+
+  /** The host box-wide sign-ins call back to (the dashboard's), if the box has box-wide keys. */
+  proxyHost(): string | undefined {
+    return this.config.proxy?.host.toLowerCase();
+  }
+
+  proxyConfig(): ProxyConfig | undefined {
+    return this.config.proxy;
+  }
+
+  /** The callback endpoint for box-wide keys, rebuilt when they change. */
+  proxy(): ProxyInstance | undefined {
+    const p = this.config.proxy;
+    if (!p) {
+      this.proxyInst = null;
+      return undefined;
+    }
+    const fp = new Bun.CryptoHasher("sha256").update(JSON.stringify(p)).digest("hex");
+    if (this.proxyInst?.fp === fp) return this.proxyInst.inst;
+    const inst = createProxyInstance(p);
+    this.proxyInst = { fp, inst };
+    return inst;
   }
 
   projectForHost(host: string | null | undefined): string | undefined {

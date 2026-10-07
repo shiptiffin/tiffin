@@ -116,7 +116,7 @@ type QueryClient = {
 /**
  * Runs fn in a transaction scoped to an organization: sets app.org_id (and
  * app.user_id when given) with SET LOCAL semantics, so tables protected by
- * `select auth.enable_org_rls('notes')` only show and accept that org's rows.
+ * `select tiffin_auth.enable_org_rls('notes')` only show and accept that org's rows.
  *
  * Works with Bun.sql / postgres.js (anything with sql.begin) and with a
  * dedicated node-postgres client (pool.connect()).

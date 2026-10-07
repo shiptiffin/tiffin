@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -15,15 +16,46 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/manifest"
 	"github.com/btahir/tiffin/internal/platform"
+	"github.com/btahir/tiffin/internal/projicon"
 )
 
-// OAuthApp is a social provider's client credentials.
+// OAuthApp is a sign-in provider's client credentials and settings.
 type OAuthApp struct {
 	ClientID     string `json:"clientId"`
 	ClientSecret string `json:"clientSecret"`
+	TenantID     string `json:"tenantId,omitempty"` // microsoft
+	Issuer       string `json:"issuer,omitempty"`   // gitlab (self-managed), oidc
+	Label        string `json:"label,omitempty"`    // oidc: the button's name
+	// Proxied: the box-wide keys, so the provider calls back to the one
+	// callback URL on the dashboard host and the OAuth proxy hands the
+	// sign-in back to the app host it started on.
+	Proxied bool `json:"proxied,omitempty"`
+}
+
+// OAuthProxy is what a project's instance needs to send sign-ins out
+// through one callback URL. URL: the box's (dashboard host), for providers
+// on the box-wide keys. AppURL: the app's own sign-in address, for providers
+// on the project's own keys: sign-ins started on any other host of the app
+// (box subdomain, www, previews) come back through it, so the provider only
+// ever needs that one redirect URI. The secret stays in the engine config.
+type OAuthProxy struct {
+	URL    string `json:"url,omitempty"`
+	AppURL string `json:"appUrl,omitempty"`
+	Secret string `json:"secret"`
+}
+
+// ProxyConfig is the engine's callback endpoint for box-wide keys: the
+// dashboard host's /api/auth/callback/<provider>, served by the box (which
+// forwards it to the engine, see DashboardHandler).
+type ProxyConfig struct {
+	URL    string               `json:"url"`
+	Host   string               `json:"host"`
+	Secret string               `json:"secret"`
+	Social map[string]*OAuthApp `json:"social"`
 }
 
 // ProjectConfig is one project's entry in the engine config. It mirrors
@@ -34,18 +66,43 @@ type ProjectConfig struct {
 	SMTPURL          string               `json:"smtpUrl"`
 	EmailFrom        string               `json:"emailFrom"`
 	AppName          string               `json:"appName"`
+	EmailBrand       *EmailBrand          `json:"emailBrand,omitempty"`
 	Hosts            []string             `json:"hosts"`
 	PrimaryURL       string               `json:"primaryUrl"`
 	Origins          []string             `json:"origins"`
 	Methods          []string             `json:"methods"`
 	Organizations    bool                 `json:"organizations"`
 	Social           map[string]*OAuthApp `json:"social"`
+	OAuthProxy       *OAuthProxy          `json:"oauthProxy,omitempty"`
 	Captcha          bool                 `json:"captcha"`
 	RateLimit        bool                 `json:"rateLimit"`
 	AcceptInvitePath string               `json:"acceptInvitePath"`
 	// RequireEmailVerification: new users confirm their address before
 	// signing in (see EmailVerification).
 	RequireEmailVerification bool `json:"requireEmailVerification"`
+	// EmailBlocked: production mail can't reach people yet, so email sign-up,
+	// links, codes and resets are refused on every host but PreviewHosts.
+	EmailBlocked bool     `json:"emailBlocked"`
+	PreviewHosts []string `json:"previewHosts"`
+}
+
+// EmailBrand is how an app's auth emails look: the project's icon and
+// colour, the same ones the dashboard shows. Nothing of the box's own brand.
+type EmailBrand struct {
+	LogoURL string `json:"logoUrl,omitempty"`
+	Accent  string `json:"accent,omitempty"`
+}
+
+// emailBrand is the project's icon (its public PNG, when the box is served
+// over https; mail clients block plain http images) and its enamel colour.
+func emailBrand(ctx context.Context, p *platform.Platform, project string) *EmailBrand {
+	b := &EmailBrand{Accent: projicon.EmailAccent(api.EnamelOf(ctx, p.DB, project))}
+	if u, err := url.Parse(strings.TrimRight(p.PublicURL, "/")); err == nil && u.Scheme == "https" && u.Host != "" {
+		if id, err := projicon.PublicID(ctx, p.DB, project); err == nil && id != "" {
+			b.LogoURL = u.String() + "/v1/icons/" + id + ".png"
+		}
+	}
+	return b
 }
 
 // EngineConfig is the whole engine config file.
@@ -53,6 +110,7 @@ type EngineConfig struct {
 	Version  int                       `json:"version"`
 	Listen   []string                  `json:"listen"`
 	Projects map[string]*ProjectConfig `json:"projects"`
+	Proxy    *ProxyConfig              `json:"proxy,omitempty"`
 }
 
 // ErrNeedsPostgres is returned for projects with auth but no postgres.
@@ -171,6 +229,7 @@ func projectConfig(ctx context.Context, p *platform.Platform, project string, re
 			c.AppName = strings.TrimSpace(name)
 		}
 	}
+	c.EmailBrand = emailBrand(ctx, p, project)
 	for _, h := range webHosts(p, res) {
 		c.Hosts = append(c.Hosts, h.Host)
 		c.Origins = append(c.Origins, p.URL(h.Host))
@@ -187,10 +246,12 @@ func projectConfig(ctx context.Context, p *platform.Platform, project string, re
 	if err != nil {
 		return nil, err
 	}
+	c.PreviewHosts = []string{}
 	for _, h := range previewed {
 		if !contains(c.Hosts, h.Host) {
 			c.Hosts = append(c.Hosts, h.Host)
 			c.Origins = append(c.Origins, p.URL(h.Host))
+			c.PreviewHosts = append(c.PreviewHosts, h.Host)
 		}
 	}
 
@@ -212,22 +273,137 @@ func projectConfig(ctx context.Context, p *platform.Platform, project string, re
 		c.EmailFrom = project + "@" + p.Domain
 	}
 	c.RequireEmailVerification, _ = EmailVerification(ctx, p, project, &a, c.SMTPURL != "")
+	c.EmailBlocked = EmailBlocked(ctx, p, project, c.SMTPURL != "")
 
-	// Social sign-in: OAuth apps come from the project's secrets.
-	if p.Secrets != nil && (contains(c.Methods, manifest.AuthGoogle) || contains(c.Methods, manifest.AuthGitHub)) {
-		sec, err := p.Secrets.All(ctx, project)
-		if err != nil {
-			return nil, err
-		}
-		for _, prov := range []string{manifest.AuthGoogle, manifest.AuthGitHub} {
-			env := strings.ToUpper(prov)
-			id, s := sec[env+"_CLIENT_ID"], sec[env+"_CLIENT_SECRET"]
-			if contains(c.Methods, prov) && id != "" && s != "" {
-				c.Social[prov] = &OAuthApp{ClientID: id, ClientSecret: s}
-			}
-		}
+	// Sign-in providers: the project's own keys win, else the box-wide ones.
+	if err := socialApps(ctx, p, project, res, c); err != nil {
+		return nil, err
 	}
 	return c, nil
+}
+
+// socialApps fills c.Social for the sign-in providers among c.Methods, and
+// c.OAuthProxy: the box's callback URL for those on box-wide keys, the
+// app's own sign-in address for those on the project's keys.
+func socialApps(ctx context.Context, p *platform.Platform, project string, res map[string]change.Resource, c *ProjectConfig) error {
+	src, err := KeySources(ctx, p, project, c.Methods)
+	if err != nil {
+		return err
+	}
+	var sec, boxSec map[string]string
+	var box map[string]*BoxProvider
+	for _, m := range c.Methods {
+		prov, ok := ProviderByID(m)
+		if !ok {
+			continue
+		}
+		switch src[m] {
+		case KeysProject:
+			if sec == nil {
+				if sec, err = p.Secrets.All(ctx, project); err != nil {
+					return err
+				}
+			}
+			a, err := projectApp(ctx, p, prov, sec)
+			if err != nil {
+				return err
+			}
+			c.Social[m] = a
+			if err := withProxy(ctx, p, c); err != nil {
+				return err
+			}
+			c.OAuthProxy.AppURL = p.URL(signInHost(p, project, res))
+		case KeysBox:
+			if box == nil {
+				if box, err = boxProviders(ctx, p); err != nil {
+					return err
+				}
+				if boxSec, err = p.Secrets.All(ctx, secretsProject); err != nil {
+					return err
+				}
+			}
+			a, err := boxApp(ctx, p, prov, box[m], boxSec)
+			if err != nil {
+				// The rest of sign-in still works; this button explains it isn't set up.
+				if p.Log != nil {
+					p.Log.Warn("auth: box-wide sign-in keys unusable", "provider", m, "project", project, "err", err)
+				}
+				continue
+			}
+			a.Proxied = true
+			c.Social[m] = a
+			if err := withProxy(ctx, p, c); err != nil {
+				return err
+			}
+			c.OAuthProxy.URL = ProxyURL(p)
+		}
+	}
+	return nil
+}
+
+func withProxy(ctx context.Context, p *platform.Platform, c *ProjectConfig) error {
+	if c.OAuthProxy != nil {
+		return nil
+	}
+	s, err := proxySecret(ctx, p)
+	if err != nil {
+		return err
+	}
+	c.OAuthProxy = &OAuthProxy{Secret: s}
+	return nil
+}
+
+// projectMethods is a project's sign-in methods, nil without auth.
+func projectMethods(ctx context.Context, p *platform.Platform, project string) ([]string, error) {
+	_, res, err := p.DB.Load(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	r, ok := res[change.KindService+"/auth"]
+	if !ok {
+		return nil, nil
+	}
+	var a manifest.Auth
+	if err := json.Unmarshal(r.Spec, &a); err != nil {
+		return nil, err
+	}
+	if len(a.Methods) == 0 {
+		return manifest.DefaultAuthMethods, nil
+	}
+	return a.Methods, nil
+}
+
+// proxyConfig is the engine's callback endpoint for every box-wide
+// provider, nil when the box has none.
+func proxyConfig(ctx context.Context, p *platform.Platform) (*ProxyConfig, error) {
+	box, err := boxProviders(ctx, p)
+	if err != nil || len(box) == 0 {
+		return nil, err
+	}
+	sec, err := p.Secrets.All(ctx, secretsProject)
+	if err != nil {
+		return nil, err
+	}
+	s, err := proxySecret(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	out := &ProxyConfig{URL: ProxyURL(p), Host: p.DashboardHost(), Secret: s, Social: map[string]*OAuthApp{}}
+	for _, prov := range Providers {
+		b := box[prov.ID]
+		if b == nil {
+			continue
+		}
+		a, err := boxApp(ctx, p, prov, b, sec)
+		if err != nil {
+			if p.Log != nil {
+				p.Log.Warn("auth: box-wide sign-in keys unusable", "provider", prov.ID, "err", err)
+			}
+			continue
+		}
+		out.Social[prov.ID] = a
+	}
+	return out, nil
 }
 
 // buildEngineConfig collects every auth-enabled project. Projects that
@@ -270,7 +446,15 @@ func buildEngineConfig(ctx context.Context, p *platform.Platform) (*EngineConfig
 			continue
 		}
 		c.Hosts, c.Origins, c.PrimaryURL = hosts, origins, origins[0]
+		if px := c.OAuthProxy; px != nil && px.AppURL != "" && !contains(origins, px.AppURL) {
+			px.AppURL = c.PrimaryURL // its sign-in host is another project's: use one it has
+		}
 		out.Projects[project] = c
+	}
+	if p.Secrets != nil {
+		if out.Proxy, err = proxyConfig(ctx, p); err != nil {
+			return nil, nil, err
+		}
 	}
 	return out, errs, nil
 }

@@ -13,7 +13,11 @@
  * export { default } from "@shiptiffin/sdk/next/cache-handler";
  * ```
  */
+import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { mkdir, readdir, readFile, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { join } from "node:path";
 import { readBuildId, Store, warnOnce, type Item, type StoreOptions } from "./store";
 
 /** What Next.js passes to get(). */
@@ -109,6 +113,149 @@ function fileCache(o: HandlerOptions): FileCache | null {
   return fc;
 }
 
+/** An optimized image as Next.js's image optimizer stores it (kind IMAGE). */
+interface ImageValue {
+  kind: "IMAGE";
+  etag: string;
+  buffer: Buffer;
+  extension: string;
+  upstreamEtag: string;
+  revalidate?: number;
+}
+
+/** Next.js's image cache keys (base64url hashes) and the parts of its file names. */
+const IMAGE_KEY = /^[A-Za-z0-9_-]{1,128}$/;
+const IMAGE_PART = /^[A-Za-z0-9_-]{1,256}$/;
+
+/**
+ * Optimized images (kind IMAGE) on disk, never in Valkey: they are large,
+ * depend only on the source and its parameters (not the deploy), and the box
+ * mounts .next/cache/images per app environment, shared by its instances and
+ * kept across deploys. Next.js 16.2+ hands images to a cacheHandler only when
+ * the app sets `images.customCacheHandler`; by default its own disk cache
+ * keeps them in the same directory. Entries use Next.js's own layout,
+ * `<key>/<maxAge>.<expireAt>.<etag>.<upstreamEtag>.<extension>`, so either
+ * cache reads what the other wrote, and the directory is bounded by
+ * `images.maximumDiskCacheSize` (least recently used out first), as Next.js
+ * bounds it.
+ */
+export class ImageDiskCache {
+  private lru: Promise<Map<string, number>> | undefined;
+  private bytes = 0;
+
+  constructor(
+    readonly dir: string,
+    /** Byte cap; undefined: half the free disk, as Next.js does; 0: nothing is kept. */
+    readonly maxBytes: number | undefined,
+  ) {}
+
+  private entries(): Promise<Map<string, number>> {
+    return (this.lru ??= (async () => {
+      const found: { key: string; size: number; expireAt: number }[] = [];
+      for (const key of await readdir(this.dir).catch(() => [] as string[])) {
+        if (!IMAGE_KEY.test(key)) continue;
+        const [file] = await readdir(join(this.dir, key)).catch(() => [] as string[]);
+        const size = file ? await stat(join(this.dir, key, file)).then((st) => st.size, () => 0) : 0;
+        if (file && size > 0) found.push({ key, size, expireAt: Number(file.split(".")[1]) || 0 });
+      }
+      found.sort((a, b) => a.expireAt - b.expireAt); // oldest first, as Next.js replays them
+      const m = new Map<string, number>();
+      for (const e of found) m.set(e.key, e.size);
+      this.bytes = found.reduce((n, e) => n + e.size, 0);
+      return m;
+    })());
+  }
+
+  private async cap(): Promise<number> {
+    if (this.maxBytes !== undefined) return this.maxBytes;
+    await mkdir(this.dir, { recursive: true });
+    const s = await statfs(this.dir);
+    return Math.floor((s.bavail * s.bsize) / 2);
+  }
+
+  async get(key: string): Promise<Entry | null> {
+    if (this.maxBytes === 0 || !IMAGE_KEY.test(key)) return null;
+    try {
+      const [file] = await readdir(join(this.dir, key));
+      if (!file) return null;
+      const [maxAge, expireAt, etag, upstreamEtag, extension] = file.split(".", 5);
+      const buffer = await readFile(join(this.dir, key, file));
+      if (!buffer.byteLength || !extension) return null;
+      // Most recently used last (once the first write has read the directory).
+      const lru = this.lru && (await this.lru);
+      if (lru?.delete(key)) lru.set(key, buffer.byteLength);
+      const value: ImageValue = { kind: "IMAGE", etag: etag!, buffer, extension, upstreamEtag: upstreamEtag!, revalidate: Number(maxAge) };
+      // Next.js takes the entry's age from lastModified and its revalidate.
+      return { lastModified: Number(expireAt) - Number(maxAge) * 1000, value: value as unknown as Record<string, unknown> };
+    } catch {
+      return null;
+    }
+  }
+
+  async set(key: string, value: ImageValue | null, revalidate: number): Promise<void> {
+    if (this.maxBytes === 0 || !IMAGE_KEY.test(key)) return;
+    const at = join(this.dir, key);
+    const lru = await this.entries();
+    if (!value) {
+      await rm(at, { recursive: true, force: true });
+      this.bytes -= lru.get(key) ?? 0;
+      lru.delete(key);
+      return;
+    }
+    const size = value.buffer?.byteLength ?? 0;
+    const maxAge = Math.max(0, Math.round(revalidate));
+    if (!size || ![value.etag, value.upstreamEtag, value.extension].every((p) => IMAGE_PART.test(String(p)))) return;
+    const max = await this.cap();
+    if (size > max) return;
+    // Written whole, then moved into place: another instance sharing the
+    // directory never reads half a file. A dot-name is skipped by both scans.
+    await mkdir(this.dir, { recursive: true });
+    const tmp = join(this.dir, `.tmp-${randomBytes(6).toString("hex")}`);
+    await writeFile(tmp, value.buffer);
+    try {
+      await rm(at, { recursive: true, force: true });
+      await mkdir(at, { recursive: true });
+      await rename(tmp, join(at, `${maxAge}.${Date.now() + maxAge * 1000}.${value.etag}.${value.upstreamEtag}.${value.extension}`));
+    } finally {
+      await rm(tmp, { force: true });
+    }
+    this.bytes += size - (lru.get(key) ?? 0);
+    lru.delete(key);
+    lru.set(key, size);
+    for (const [old, n] of lru) {
+      if (this.bytes <= max) break;
+      lru.delete(old);
+      this.bytes -= n;
+      await rm(join(this.dir, old), { recursive: true, force: true });
+    }
+  }
+}
+
+const imageCaches = new Map<string, ImageDiskCache>();
+
+/**
+ * The image cache of the build in serverDistDir (<distDir>/server): its
+ * <distDir>/cache/images, capped by the build's images.maximumDiskCacheSize.
+ */
+function imageCache(o: HandlerOptions): ImageDiskCache | null {
+  const dist = o.serverDistDir;
+  if (!dist) return null;
+  const distDir = join(dist, "..");
+  let c = imageCaches.get(distDir);
+  if (!c) {
+    let max: number | undefined;
+    try {
+      const rsf = JSON.parse(readFileSync(join(distDir, "required-server-files.json"), "utf8")) as { config?: { images?: { maximumDiskCacheSize?: number } } };
+      max = rsf.config?.images?.maximumDiskCacheSize;
+    } catch {
+      // no build output here (tests, dev): Next.js's default cap
+    }
+    c = new ImageDiskCache(join(distDir, "cache", "images"), typeof max === "number" && max >= 0 ? max : undefined);
+    imageCaches.set(distDir, c);
+  }
+  return c;
+}
+
 /**
  * Next.js makes one handler per request; they share one Store (connection,
  * in-memory copy, tag state). Each request reads the tag counter once.
@@ -117,9 +264,11 @@ export class TiffinCacheHandler {
   readonly store: Store;
   private synced: Promise<void> | undefined;
   private readonly files: FileCache | null;
+  private readonly images: ImageDiskCache | null;
 
   constructor(nextOptions: HandlerOptions = {}, storeOptions: StoreOptions = {}) {
     this.files = fileCache(nextOptions);
+    this.images = imageCache(nextOptions);
     let o = storeOptions;
     const dist = nextOptions.serverDistDir;
     if (dist && o.buildId === undefined && !process.env.TIFFIN_DEPLOY && !process.env.NEXT_DEPLOYMENT_ID) {
@@ -131,6 +280,7 @@ export class TiffinCacheHandler {
   }
 
   async get(key: string, ctx: GetContext = {}): Promise<Entry | null> {
+    if (ctx.kind === "IMAGE") return (await this.images?.get(key)) ?? null;
     try {
       const s = this.store;
       // The tag counter and the entry in one round trip.
@@ -176,6 +326,11 @@ export class TiffinCacheHandler {
   }
 
   async set(key: string, data: Record<string, unknown> | null, ctx: SetContext = {}): Promise<void> {
+    if (ctx.kind === "IMAGE" || data?.kind === "IMAGE") {
+      const revalidate = ctx.cacheControl?.revalidate ?? (data?.revalidate as number | undefined);
+      await this.images?.set(key, data as ImageValue | null, typeof revalidate === "number" ? revalidate : 0).catch((err) => warnOnce(`image cache write failed (the image was still served): ${String(err)}`));
+      return;
+    }
     try {
       if (data == null) {
         await this.store.del("e", key);

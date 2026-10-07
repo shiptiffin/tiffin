@@ -1,4 +1,4 @@
-// Creates and upgrades a project's `auth` schema: Better Auth's tables for
+// Creates and upgrades a project's `tiffin_auth` schema: Better Auth's tables for
 // the enabled plugins, plus the org_id helpers apps use for row-level
 // security. Idempotent: run it on every apply.
 import { getMigrations } from "better-auth/db/migration";

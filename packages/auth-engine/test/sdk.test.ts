@@ -66,7 +66,7 @@ test("getSession / requireRole / API key caps / JWT / withOrg with RLS", async (
   await su.end();
   const pool = new pg.Pool({ connectionString: dbUrl.replace("postgres:postgres@", "app_sdk:app@") });
   await pool.query(`CREATE TABLE docs (id serial primary key, org_id text not null, title text not null)`);
-  await pool.query(`SELECT auth.enable_org_rls('docs')`);
+  await pool.query(`SELECT tiffin_auth.enable_org_rls('docs')`);
   const c = await pool.connect();
   await withOrg(c, team.body.id, (tx) => tx.query(`INSERT INTO docs (org_id, title) VALUES ($1, 'team plan')`, [team.body.id]));
   await withOrg(c, s!.organization!.id, (tx) => tx.query(`INSERT INTO docs (org_id, title) VALUES ($1, 'diary')`, [s!.organization!.id]));

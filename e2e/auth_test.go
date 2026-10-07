@@ -356,7 +356,7 @@ export default defineConfig({ project: "` + project + `", apps: { web: { framewo
 		b, _ := json.Marshal(res.Results[len(res.Results)-1].Rows)
 		return string(b)
 	}
-	sqlRun(`CREATE TABLE notes (id serial primary key, org_id text not null, body text not null); SELECT auth.enable_org_rls('notes')`)
+	sqlRun(`CREATE TABLE notes (id serial primary key, org_id text not null, body text not null); SELECT tiffin_auth.enable_org_rls('notes')`)
 	sqlRun(`SELECT set_config('app.org_id', 'org_a', true); INSERT INTO notes (org_id, body) VALUES ('org_a', 'a1')`)
 	sqlRun(`SELECT set_config('app.org_id', 'org_b', true); INSERT INTO notes (org_id, body) VALUES ('org_b', 'b1')`)
 	if got := sqlRun(`SELECT set_config('app.org_id', 'org_a', true); SELECT body FROM notes`); got != `[["a1"]]` {
@@ -409,11 +409,11 @@ export default defineConfig({ project: "` + project + `", apps: { web: { framewo
 	ok(nil, "apply", path, "--confirm", plan.Hash[:12], "-m", "e2e remove auth")
 	deadline := time.Now().Add(time.Minute)
 	for {
-		if got := sqlRun(`SELECT to_regclass('auth."user"')::text`); got == `[[null]]` {
+		if got := sqlRun(`SELECT to_regclass('tiffin_auth."user"')::text`); got == `[[null]]` {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("auth schema still there after removing auth")
+			t.Fatal("tiffin_auth schema still there after removing auth")
 		}
 		time.Sleep(time.Second)
 	}

@@ -34,10 +34,44 @@ type Overview struct {
 	Organizations bool            `json:"organizations" doc:"Whether teams (organizations) are on"`
 	Endpoint      string          `json:"endpoint" doc:"Public base URL of the auth endpoint on the primary app host (TIFFIN_AUTH_URL)"`
 	Hosts         []string        `json:"hosts" doc:"Every app host that serves /api/auth"`
-	Social        map[string]bool `json:"social" doc:"For google/github when turned on: whether the OAuth app secrets are set"`
+	Social        map[string]bool `json:"social" doc:"For each sign-in provider turned on: whether it has keys (the project's own or the box-wide ones)"`
+	// Providers says, for every sign-in provider, whether it is on and
+	// where its keys come from.
+	Providers []ProviderState `json:"providers"`
 	// EmailVerification is the setting in effect and why.
 	EmailVerification EmailVerificationState `json:"emailVerification"`
-	Stats             Stats                  `json:"stats"`
+	// EmailBlocked: the box can't send email yet, so in production email
+	// sign-up, magic links, one-time codes and resets are refused.
+	EmailBlocked bool  `json:"emailBlocked" doc:"The box can't send email yet: in production, email + password sign-up, magic links, one-time codes and password resets are refused (EMAIL_NOT_SET_UP) until a mail service is connected. Previews use the dev inbox"`
+	Stats        Stats `json:"stats"`
+}
+
+// ProviderState is one sign-in provider as a project sees it.
+type ProviderState struct {
+	ID   string `json:"id" doc:"Better Auth's provider ID, also the manifest method"`
+	Name string `json:"name"`
+	On   bool   `json:"on" doc:"Turned on in services.auth.methods"`
+	Keys string `json:"keys" enum:"project,box,none" doc:"Where its keys come from: project (the project's own secrets, which win), box (the box-wide keys) or none (not set up: the button explains it)"`
+	// BoxKeys says whether the box has keys for it, so turning it on works at once.
+	BoxKeys bool `json:"boxKeys"`
+	// Env is the prefix of the project's own secrets: <Env>_CLIENT_ID and <Env>_CLIENT_SECRET.
+	Env string `json:"env"`
+	// CallbackURL is the redirect URI the provider needs for the keys in use:
+	// the box's one URL for box-wide keys, else the app's own (AppCallbackURL).
+	CallbackURL string `json:"callbackUrl"`
+	// AppCallbackURL is the one redirect URI for this app's own keys, on its
+	// sign-in host; sign-ins on its other hosts and previews come back through it.
+	AppCallbackURL string `json:"appCallbackUrl"`
+	// CallbackConfirmed is the redirect URI last confirmed as registered with
+	// the provider for the app's own keys ("" if none yet).
+	CallbackConfirmed string `json:"callbackConfirmed"`
+	// CallbackChanged: the app's own keys are in use and AppCallbackURL is no
+	// longer the one confirmed (its sign-in host changed): update it with the provider.
+	CallbackChanged bool `json:"callbackChanged"`
+	// BoxConsentName is the name the provider shows with the box-wide keys, when the box owner noted it.
+	BoxConsentName string `json:"boxConsentName,omitempty"`
+	// TestURL starts a sign-in with this provider on the app's sign-in host and says who signed in.
+	TestURL string `json:"testUrl"`
 }
 
 // EmailVerificationState says whether new users must confirm their address.
@@ -212,7 +246,10 @@ const tag = "auth"
 
 // RegisterAPI adds the Auth pages' operations: users, organizations and
 // account actions. App sign-in itself happens at /api/auth on app hosts.
-func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
+func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
+	m.registerProviders(a, p)
+	m.registerAppKeys(a, p)
+
 	get := api.Op("auth-get", http.MethodGet, "/v1/projects/{project}/auth", "auth show", api.RiskRead,
 		"Show a project's auth", "Sign-in methods, the endpoint URL, whether OAuth apps are set up, and user, session and organization counts.", tag)
 	get.Errors = append(get.Errors, 404, 503)
@@ -366,19 +403,48 @@ func overview(p *platform.Platform, project string, res map[string]change.Resour
 	o.Endpoint = p.URL(primary) + PathPrefix
 	_, hasEmail := res[change.KindService+"/email"]
 	o.EmailVerification.Required, o.EmailVerification.Source = EmailVerification(context.Background(), p, project, &a, hasEmail)
+	o.EmailBlocked = EmailBlocked(context.Background(), p, project, hasEmail)
+	all := make([]string, 0, len(Providers))
+	for _, prov := range Providers {
+		all = append(all, prov.ID)
+	}
+	src, err := KeySources(context.Background(), p, project, all)
+	if err != nil && p.Log != nil {
+		p.Log.Warn("auth: sign-in provider keys", "project", project, "err", err)
+	}
+	var box map[string]*BoxProvider
 	if p.Secrets != nil {
-		if sec, err := p.Secrets.List(context.Background(), project); err == nil {
-			have := map[string]bool{}
-			for _, s := range sec {
-				have[s.Name] = true
-			}
-			for _, prov := range []string{manifest.AuthGoogle, manifest.AuthGitHub} {
-				if contains(a.Methods, prov) {
-					env := map[string]string{manifest.AuthGoogle: "GOOGLE", manifest.AuthGitHub: "GITHUB"}[prov]
-					o.Social[prov] = have[env+"_CLIENT_ID"] && have[env+"_CLIENT_SECRET"]
-				}
-			}
+		box, _ = boxProviders(context.Background(), p)
+	}
+	o.Providers = []ProviderState{}
+	for _, prov := range Providers {
+		st := ProviderState{ID: prov.ID, Name: prov.Name, On: contains(a.Methods, prov.ID), Keys: KeysNone, BoxKeys: box[prov.ID] != nil, Env: prov.Env}
+		if k := src[prov.ID]; k != "" {
+			st.Keys = k
 		}
+		st.AppCallbackURL = AppCallbackURL(p, project, res, prov.ID)
+		st.CallbackURL = st.AppCallbackURL
+		st.TestURL = p.URL(signInHost(p, project, res)) + PathPrefix + "/tiffin/test-sign-in?provider=" + prov.ID
+		if b := box[prov.ID]; b != nil {
+			st.BoxConsentName = b.ConsentName
+		}
+		if st.Keys == KeysBox {
+			st.CallbackURL = CallbackURL(p, prov.ID)
+		}
+		if st.Keys == KeysProject && p.DB != nil {
+			st.CallbackConfirmed = confirmedCallback(context.Background(), p, project, prov.ID)
+			if st.CallbackConfirmed == "" {
+				// Keys set some other way (CLI, Environment Variables): take the
+				// address as it is now, so a later change shows.
+				_ = confirmCallback(context.Background(), p, project, prov.ID, st.AppCallbackURL)
+				st.CallbackConfirmed = st.AppCallbackURL
+			}
+			st.CallbackChanged = st.CallbackConfirmed != st.AppCallbackURL
+		}
+		if st.On {
+			o.Social[prov.ID] = st.Keys != KeysNone
+		}
+		o.Providers = append(o.Providers, st)
 	}
 	return o
 }
