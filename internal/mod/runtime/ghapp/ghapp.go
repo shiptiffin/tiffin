@@ -775,7 +775,33 @@ func (a *App) SetStatus(ctx context.Context, installation int64, fullName, sha s
 		return err
 	}
 	s.Description = Clip(s.Description, 140)
-	return a.asInstallation(ctx, installation, http.MethodPost, p+"/statuses/"+url.PathEscape(sha), s, nil)
+	return a.retry(ctx, func() error {
+		return a.asInstallation(ctx, installation, http.MethodPost, p+"/statuses/"+url.PathEscape(sha), s, nil)
+	})
+}
+
+// retryDelays space out the retries of a write that is safe to repeat.
+var retryDelays = []time.Duration{time.Second, 4 * time.Second}
+
+// retry runs a write that is safe to repeat (a commit status, a deployment
+// status: the latest wins) again when GitHub fails it with a 5xx or the
+// request doesn't arrive, so one hiccup doesn't leave a commit pending
+// forever.
+func (a *App) retry(ctx context.Context, f func() error) error {
+	err := f()
+	for _, d := range retryDelays {
+		var ae *APIError
+		if err == nil || errors.As(err, &ae) && ae.Status < 500 || ctx.Err() != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(d):
+		}
+		err = f()
+	}
+	return err
 }
 
 // DeploymentRequest creates a GitHub deployment.
@@ -824,7 +850,9 @@ func (a *App) SetDeploymentStatus(ctx context.Context, installation int64, fullN
 		return err
 	}
 	s.Description = Clip(s.Description, 140)
-	return a.asInstallation(ctx, installation, http.MethodPost, fmt.Sprintf("%s/deployments/%d/statuses", p, id), s, nil)
+	return a.retry(ctx, func() error {
+		return a.asInstallation(ctx, installation, http.MethodPost, fmt.Sprintf("%s/deployments/%d/statuses", p, id), s, nil)
+	})
 }
 
 // UpsertComment updates comment id on a pull request (or creates one when
