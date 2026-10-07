@@ -626,7 +626,7 @@ func (m *Module) registerSendingAPI(a huma.API, p *platform.Platform, base, tag 
 			"a domain), reusing it when the provider already has it. When the box's connected DNS provider holds the domain, the box writes "+
 			"the records (and a DMARC p=none policy if there is none); otherwise the answer lists them to add. The box then checks until the "+
 			"provider verifies the domain (up to 48 hours) and makes local@domain the project's sender, as a change in History. "+
-			"For providers without an API path the answer lists the steps. Needs the right to send outbound for the project.", tag)
+			"For providers without an API path the answer lists the steps. Box admins only (the owner, or a key with full access to all projects).", tag)
 	start.Errors = append(start.Errors, 404)
 	huma.Register(a, api.Outbound(start), api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
@@ -641,6 +641,13 @@ func (m *Module) registerSendingAPI(a huma.API, p *platform.Platform, base, tag 
 		pr := api.PrincipalFrom(ctx)
 		if err := pr.Require(tokens.ScopeApplyOutbound, in.Project); err != nil {
 			return nil, err
+		}
+		// The domain may be anyone's: setting it up creates it in the
+		// box's mail-provider account and writes its records through the
+		// box's DNS provider, and the project then sends as it. A key for
+		// the project can't vouch for that; the owner can.
+		if !pr.BoxAdmin() {
+			return nil, fmt.Errorf("%w: a sending domain is set up by the box owner (or a key with full access to all projects): it uses the box's mail and DNS accounts for a domain no project owns", tokens.ErrForbidden)
 		}
 		domain := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(in.Body.Domain)), ".")
 		domain = strings.TrimPrefix(strings.TrimPrefix(domain, "https://"), "http://")

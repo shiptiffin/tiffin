@@ -144,7 +144,9 @@ cancelled at once).
 ## Send from your own domain
 
 On a project's **Email settings** page, **Send from your domain** takes a domain and an
-address (`hello@` by default) and does the rest:
+address (`hello@` by default) and does the rest. Only the box owner (or a key with full
+access to all projects) can start it: it uses the box's mail-service and DNS accounts, and
+nothing says the domain is the project's.
 
 1. It sets the domain up with the relay's mail service through its API, using the
    relay key: SendGrid domain authentication (with automatic security: three CNAMEs),

@@ -328,6 +328,15 @@ func TestSendFromMyDomainGivesUpAndPermissions(t *testing.T) {
 	if code, _ := s.call(agent, "GET", "/v1/projects/shop/email/sending-domain", ""); code != 200 {
 		t.Fatalf("agent read: %d", code)
 	}
+	// Nor can a key with every right on the project: the domain it names
+	// may be anyone's, and the box's provider accounts and DNS are box-wide.
+	shopKey, _, _ := s.tm.Create(s.ctx, op, tokens.CreateRequest{Name: "shop-all", Projects: []string{"shop"}, Scopes: []tokens.Scope{tokens.ScopeAll}})
+	if code, _ := s.call(shopKey, "POST", "/v1/projects/shop/email/sending-domain", `{"domain":"company.test","local":"billing"}`); code != 403 {
+		t.Fatalf("project key start: %d", code)
+	}
+	if got, _ := getSending(s.ctx, s.p, "shop"); got != nil && got.Domain == "company.test" {
+		t.Fatalf("a project key set up company.test: %+v", got)
+	}
 }
 
 // fakeResend is Resend's domains API.
