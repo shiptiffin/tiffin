@@ -13,11 +13,7 @@ export const listNotes = createServerFn({ method: "GET" }).handler(async () => {
 // Slower, non-critical numbers: the page streams them in after the notes.
 export const noteStats = createServerFn({ method: "GET" }).handler(async () => {
   await migrate();
-  const sql = db();
-  const [[{ count }], [{ version }]] = await Promise.all([
-    sql<{ count: number }[]>`select count(*)::int as count from notes`,
-    sql<{ version: string }[]>`select split_part(version(), ' ', 2) as version`,
-  ]);
+  const [{ count, version }] = await db()<{ count: number; version: string }[]>`select count(*)::int as count, split_part(version(), ' ', 2) as version from notes`;
   return { count, version, deploy: process.env.TIFFIN_DEPLOY ?? "local" };
 });
 

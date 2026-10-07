@@ -16,10 +16,9 @@ async function addNote(form) {
 export default async function Home() {
   await migrate();
   const sql = db();
-  const [notes, [{ count }], [{ version }]] = await Promise.all([
+  const [notes, [{ count, version }]] = await Promise.all([
     sql`select id, text, created_at from notes order by id desc limit 20`,
-    sql`select count(*)::int as count from notes`,
-    sql`select split_part(version(), ' ', 2) as version`,
+    sql`select count(*)::int as count, split_part(version(), ' ', 2) as version from notes`,
   ]);
   return (
     <main>

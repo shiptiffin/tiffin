@@ -11,7 +11,7 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request, Response
 from fastapi.responses import PlainTextResponse
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from uvicorn.logging import DefaultFormatter
 
@@ -84,10 +84,9 @@ async def list_notes(db: DB, done: bool | None = None, limit: Annotated[int, Que
 
 @app.post("/notes", response_model=schemas.Note, status_code=201)
 async def create_note(body: schemas.NoteIn, db: DB):
-    note = Note(text=body.text)
-    db.add(note)
+    # One round trip: the row comes back with its id and defaults (no refresh).
+    note = await db.scalar(insert(Note).values(text=body.text).returning(Note))
     await db.commit()
-    await db.refresh(note)
     return note
 
 
