@@ -205,3 +205,32 @@ func TestDeliver(t *testing.T) {
 		t.Fatalf("webhook %s, command %q", body, b)
 	}
 }
+
+// Boxes are checked side by side: slow or unreachable boxes cost a round
+// one timeout, not one each.
+func TestCheckRunsBoxesTogether(t *testing.T) {
+	const slow = 300 * time.Millisecond
+	box := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(slow)
+		_, _ = io.WriteString(w, `{"status":"ok"}`)
+	}))
+	defer box.Close()
+	cfg := &Config{Command: "true"}
+	for _, n := range []string{"a", "b", "c", "d", "e", "f"} {
+		cfg.Boxes = append(cfg.Boxes, Box{Name: n, URL: box.URL})
+	}
+	if err := cfg.validate(); err != nil {
+		t.Fatal(err)
+	}
+	w := New(cfg, io.Discard)
+	start := time.Now()
+	w.Check(context.Background())
+	if took := time.Since(start); took > 3*slow {
+		t.Fatalf("6 boxes took %s", took)
+	}
+	for n, st := range w.state {
+		if st.healthErr != "" {
+			t.Fatalf("%s: %s", n, st.healthErr)
+		}
+	}
+}

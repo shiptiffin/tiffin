@@ -187,22 +187,33 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 }
 
+// checkers is how many boxes' health is checked at once: one unreachable
+// box costs the round a timeout, not every box after it.
+const checkers = 8
+
 // Check runs one round: health of every box with a URL, then alerts.
 func (w *Watcher) Check(ctx context.Context) {
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, checkers)
 	for _, b := range w.cfg.Boxes {
 		if b.URL == "" {
 			continue
 		}
-		err := w.health(ctx, b.URL)
-		w.mu.Lock()
-		st := w.state[b.Name]
-		if err == nil {
-			st.healthyAt, st.healthErr = w.now(), ""
-		} else {
-			st.healthErr = err.Error()
-		}
-		w.mu.Unlock()
+		sem <- struct{}{}
+		wg.Go(func() {
+			defer func() { <-sem }()
+			err := w.health(ctx, b.URL)
+			w.mu.Lock()
+			st := w.state[b.Name]
+			if err == nil {
+				st.healthyAt, st.healthErr = w.now(), ""
+			} else {
+				st.healthErr = err.Error()
+			}
+			w.mu.Unlock()
+		})
 	}
+	wg.Wait()
 	w.evaluate(ctx)
 }
 
@@ -216,6 +227,7 @@ func (w *Watcher) health(ctx context.Context, base string) error {
 		return err
 	}
 	defer res.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(res.Body, 64<<10)) // read to the end, so the connection is reused
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("/v1/health answered %s", res.Status)
 	}
