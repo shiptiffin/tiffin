@@ -84,7 +84,7 @@ export function SessionRows({ list, onEnded }: { list: Session[]; onEnded?: () =
         open={!!ending}
         onClose={() => setEnding(null)}
         title={`Sign out ${ending?.device ?? "this session"}?`}
-        body={`That browser is signed out at once${ending && whereWords(ending) ? ` (${whereWords(ending)})` : ""}. Any API keys made while signed in there stop working too.`}
+        body={`That browser is signed out at once${ending && whereWords(ending) ? ` (${whereWords(ending)})` : ""}. API keys made there keep working; revoke them on the API keys page.`}
         action="Sign out"
         tone="normal"
         cancel="Cancel"

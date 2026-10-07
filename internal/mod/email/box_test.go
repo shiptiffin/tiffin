@@ -46,6 +46,27 @@ func TestRenderBoxMail(t *testing.T) {
 				"Wasn't you? Choose Sign out everywhere else on that page, then remove any passkey you don't recognise (https://dashboard.shiptiffin.com/settings/passkeys) and",
 				"revoke API keys you didn't make: https://dashboard.shiptiffin.com/settings/keys", "Sent once per new browser · ShipTiffin"}},
 	}
+	exp := time.Date(2027, 1, 4, 21, 0, 0, 0, time.UTC)
+	cases = append(cases,
+		struct {
+			m       api.BoxMail
+			subject string
+			has     []string
+		}{api.BoxMail{Kind: api.BoxMailNewKey, Name: "Maya Okafor", Role: "admin", Device: "Chrome on macOS", IP: "198.51.100.7", Where: "United Kingdom", At: now,
+			Dashboard: "https://dashboard.shiptiffin.com", Key: &tokens.Key{Name: "ci", Projects: tokens.Projects{tokens.AllProjects}, Access: "full", Admin: true}},
+			`New API key "ci" on ShipTiffin`, []string{"\nMaya, an API key was just created on your box from your dashboard sign-in. It works until it expires or you revoke it, even after you sign out.",
+				"Key: ci", "Access: Full access to all projects (admin", "Expires: Never", "By: Maya Okafor", "When: Tuesday 6 October, 21:00 UTC",
+				"Device: Chrome on macOS", "Where: United Kingdom · 198.51.100.7", "Review API keys: https://dashboard.shiptiffin.com/settings/keys",
+				"Wasn't you? Revoke the key on that page, then sign out everywhere else: https://dashboard.shiptiffin.com/settings/sign-ins",
+				"Sent for every API key made in the dashboard · ShipTiffin"}},
+		struct {
+			m       api.BoxMail
+			subject string
+			has     []string
+		}{api.BoxMail{Kind: api.BoxMailNewKey, Name: "Maya", Role: "admin", At: now, Dashboard: "https://dashboard.shiptiffin.com",
+			Key: &tokens.Key{Name: "reader", Projects: tokens.Projects{"shop", "blog"}, Access: "read", ExpiresAt: &exp}},
+			`New API key "reader" on ShipTiffin`, []string{"Access: Read only: shop, blog", "Expires: 4 January 2027, 21:00 UTC"}},
+	)
 	for _, c := range cases {
 		e, err := renderBoxMail(c.m, "shiptiffin.com", now)
 		if err != nil {
@@ -70,6 +91,16 @@ func TestRenderBoxMail(t *testing.T) {
 		if !strings.Contains(e.HTML, "ShipTiffin") || strings.Contains(e.Text, "{{") {
 			t.Errorf("%s: brand missing or placeholder left", c.m.Kind)
 		}
+	}
+	if _, err := renderBoxMail(api.BoxMail{Kind: api.BoxMailNewKey}, "x", now); err == nil {
+		t.Fatal("new-key without a key")
+	}
+	// The new-key notice has the button, and no device or address rows when unknown.
+	nk, _ := renderBoxMail(api.BoxMail{Kind: api.BoxMailNewKey, Name: "Maya", At: now, Dashboard: "https://dashboard.shiptiffin.com",
+		Key: &tokens.Key{Name: "<b>k</b>", Projects: tokens.Projects{"shop"}, Access: "read"}}, "shiptiffin.com", now)
+	if !strings.Contains(nk.HTML, `href="https://dashboard.shiptiffin.com/settings/keys"`) || !strings.Contains(nk.HTML, "Review API keys") ||
+		strings.Contains(nk.Text, "Device:") || strings.Contains(nk.Text, "Where:") || strings.Contains(nk.HTML, "<b>k</b>") {
+		t.Fatalf("new-key without device:\n%s", nk.Text)
 	}
 	if _, err := renderBoxMail(api.BoxMail{Kind: "nope"}, "x", now); err == nil {
 		t.Fatal("unknown kind")

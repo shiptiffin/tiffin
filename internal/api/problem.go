@@ -19,7 +19,7 @@ type Problem struct {
 	Type   string       `json:"type,omitempty" doc:"URI identifying the problem type"`
 	Title  string       `json:"title" doc:"Short summary"`
 	Status int          `json:"status" doc:"HTTP status code"`
-	Code   string       `json:"code" doc:"Stable machine-readable code" enum:"bad_request,validation,unauthenticated,forbidden,rate_limited,not_found,conflict,precondition,confirm_required,plan_mismatch,internal"`
+	Code   string       `json:"code" doc:"Stable machine-readable code" enum:"bad_request,validation,unauthenticated,forbidden,rate_limited,not_found,conflict,precondition,confirm_required,reauth_required,plan_mismatch,internal"`
 	Detail string       `json:"detail,omitempty" doc:"What went wrong"`
 	Hint   string       `json:"hint,omitempty" doc:"What to do next"`
 	Errors []FieldError `json:"errors,omitempty" doc:"Per-field problems"`
@@ -137,6 +137,10 @@ func toProblem(err error) error {
 	case errors.Is(err, tokens.ErrUnauthenticated):
 		out := problem(401, "unauthenticated", err.Error())
 		out.Hint = "send Authorization: Bearer <token> (TIFFIN_TOKEN for the CLI)"
+		return out
+	case errors.Is(err, tokens.ErrReauth):
+		out := problem(403, "reauth_required", err.Error())
+		out.Hint = "confirm with a passkey (POST /v1/session/confirm), or sign in again with a passkey, Google, GitHub or an emailed link, then repeat the call; or make a read-only key that lasts a day"
 		return out
 	case errors.Is(err, tokens.ErrForbidden):
 		out := problem(403, "forbidden", err.Error())

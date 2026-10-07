@@ -163,8 +163,13 @@ func TestReadKeyViaCLI(t *testing.T) {
 	}
 	// --projects all sends "all".
 	_, out, _ = run(t, env, "tokens", "create", "--name", "ci", "--projects", "all", "--access", "full")
-	if k, _ := decode(t, out)["key"].(map[string]any); k["projects"] != "all" || k["admin"] != true || k["expiresAt"] != nil {
+	if k, _ := decode(t, out)["key"].(map[string]any); k["projects"] != "all" || k["admin"] != true || k["expiresAt"] == nil {
 		t.Fatalf("all-projects key: %s", out)
+	}
+	// --expires-in-days 0: never.
+	_, out, _ = run(t, env, "tokens", "create", "--name", "forever", "--projects", "all", "--access", "read", "--expires-in-days", "0")
+	if k, _ := decode(t, out)["key"].(map[string]any); k["name"] != "forever" || k["expiresAt"] != nil {
+		t.Fatalf("never-expiring key: %s", out)
 	}
 	if code, _, _ := run(t, agent, "tokens", "list"); code != ExitAuth {
 		t.Fatalf("agent token list: %d", code)

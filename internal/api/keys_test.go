@@ -67,7 +67,7 @@ func TestAPIKeyReach(t *testing.T) {
 				t.Fatalf("create: %d %v", code, created)
 			}
 			key := created["key"].(map[string]any)
-			if key["access"] != c.access || key["admin"] != c.admin || key["expiresAt"] != nil || key["name"] != "claude" || key["id"] == nil || key["createdAt"] == nil {
+			if key["access"] != c.access || key["admin"] != c.admin || key["expiresAt"] == nil || key["name"] != "claude" || key["id"] == nil || key["createdAt"] == nil {
 				t.Fatalf("key: %v", key)
 			}
 			if c.projects == "all" && key["projects"] != "all" {
@@ -167,7 +167,7 @@ func TestAPIKeyCreateValidation(t *testing.T) {
 			t.Errorf("%v: %d %v", body, code, out)
 		}
 	}
-	for _, days := range []int{30, 90} {
+	for _, days := range []int{1, 30, 90, 365} {
 		code, out, _ := e.call(e.owner, "POST", "/v1/tokens", map[string]any{"name": "ci", "projects": []string{"shop"}, "access": "read", "expiresInDays": days})
 		if code != 200 {
 			t.Fatalf("%d days: %d %v", days, code, out)
@@ -177,9 +177,20 @@ func TestAPIKeyCreateValidation(t *testing.T) {
 			t.Fatalf("%d days: expires %v", days, exp)
 		}
 	}
-	code, out, _ := e.call(e.owner, "POST", "/v1/tokens", map[string]any{"name": "forever", "projects": "all", "access": "full", "expiresInDays": nil})
+	code, out, _ := e.call(e.owner, "POST", "/v1/tokens", map[string]any{"name": "forever", "projects": "all", "access": "full", "expiresInDays": 0})
 	if code != 200 || out["key"].(map[string]any)["expiresAt"] != nil {
 		t.Fatalf("never expires: %d %v", code, out)
+	}
+	// Left out or null: 90 days.
+	for _, body := range []map[string]any{{"name": "dflt", "projects": "all", "access": "read"}, {"name": "dflt", "projects": "all", "access": "read", "expiresInDays": nil}} {
+		code, out, _ := e.call(e.owner, "POST", "/v1/tokens", body)
+		if code != 200 {
+			t.Fatalf("default: %d %v", code, out)
+		}
+		exp, _ := time.Parse(time.RFC3339Nano, out["key"].(map[string]any)["expiresAt"].(string))
+		if d := time.Until(exp) - 90*24*time.Hour; d > time.Minute || d < -time.Minute {
+			t.Fatalf("default expiry: %v", exp)
+		}
 	}
 }
 

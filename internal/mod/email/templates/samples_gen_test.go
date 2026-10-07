@@ -42,6 +42,25 @@ var samples = map[string]func() (*Email, error){
 			Until:   "for the next 30 minutes",
 		})
 	},
+	"new-key": func() (*Email, error) {
+		return NewKey(NewKeyData{
+			Brand:      "ShipTiffin",
+			Host:       "dashboard.shiptiffin.com",
+			MarkURL:    "https://dashboard.shiptiffin.com/email-mark.png",
+			First:      "Sam",
+			By:         "Sam Rivera",
+			Name:       "ci",
+			Access:     "Full access to all projects (admin)",
+			Expires:    "Never",
+			When:       "Wednesday 7 October, 14:32 UTC",
+			Device:     "Chrome on macOS",
+			Where:      "United Kingdom",
+			IP:         "198.51.100.7",
+			URL:        "https://dashboard.shiptiffin.com/settings/keys",
+			ShownURL:   "dashboard.shiptiffin.com/settings/keys",
+			SignInsURL: "https://dashboard.shiptiffin.com/settings/sign-ins",
+		})
+	},
 	"new-sign-in": func() (*Email, error) {
 		return NewSignIn(NewSignInData{
 			Brand:       "ShipTiffin",

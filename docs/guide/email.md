@@ -100,8 +100,8 @@ Each provider only sends from domains you have verified with it. The project's
 
 The dashboard sends its own mail through the same relay: an invite with the person's
 sign-in link (when you give their email address), a fresh link when you choose **Email a
-new sign-in link**, a link people ask for on the login page, and a note when someone
-signs in from a new browser. The messages are plain text and simple HTML, with no
+new sign-in link**, a link people ask for on the login page, a note when someone
+signs in from a new browser, and a note when someone creates an API key in the dashboard. The messages are plain text and simple HTML, with no
 images or tracking (SendGrid's click and open tracking is switched off for them).
 
 The new-browser note goes out once per browser, never on someone's first sign-in. It
@@ -110,6 +110,11 @@ up on the box in the analytics country database when it is there (nothing is sen
 anywhere), then the address. Its button, **Review sign-ins**, opens **Settings › Sign-ins**,
 where they can choose **Sign out everywhere else**; it also links their passkeys and, for
 owners and admins, API keys.
+
+The API key note goes to whoever made the key, every time: its name, projects and access,
+when it expires, when, and the browser, address and country it came from. Its button,
+**Review API keys**, opens **Settings › API keys**; "Wasn't you?" says to revoke it there
+and sign out everywhere else.
 
 It comes from `Tiffin <hello@<box domain>>` until you change it under **Settings ›
 Email › Mail from the box**, where you can also set a Reply-To. The relay's mail service

@@ -109,7 +109,7 @@ export function SignInsPage() {
           </li>
           <li className="flex flex-col gap-0.5 py-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
             <span className="text-ink-2">
-              Agents and scripts use API keys, not sign-ins, so they aren’t listed here.{admin ? "" : " Owners and admins manage them."}
+              Agents and scripts use API keys, not sign-ins, so they aren’t listed here, and signing out doesn’t stop them.{admin ? "" : " Owners and admins manage them."}
             </span>
             {admin && (
               <Link to="/settings/keys" search={{}} className="shrink-0 font-[550] text-ink underline decoration-rule-3 underline-offset-4 hover:decoration-ink">
@@ -124,7 +124,7 @@ export function SignInsPage() {
         open={endingOthers}
         onClose={() => setEndingOthers(false)}
         title="Sign out everywhere else?"
-        body={`${countWords(others.length, "other browser", "other browsers", true)} ${others.length === 1 ? "is" : "are"} signed out at once; this one stays. Any API keys made while signed in there stop working too.`}
+        body={`${countWords(others.length, "other browser", "other browsers", true)} ${others.length === 1 ? "is" : "are"} signed out at once; this one stays. API keys keep working; revoke them on the API keys page.`}
         action="Sign out everywhere else"
         tone="normal"
         cancel="Cancel"

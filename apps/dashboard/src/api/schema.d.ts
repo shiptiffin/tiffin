@@ -5148,6 +5148,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/session/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm it's you with a passkey
+         * @description Verifies a passkey of the person signed in to this dashboard session. For the next 10 minutes the session may create API keys that last longer than a day or have full access. Dashboard sessions only.
+         */
+        post: operations["session-confirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/session/confirm/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start confirming it's you
+         * @description Returns WebAuthn assertion options, like passkey sign-in, for confirming the person behind this dashboard session. Dashboard sessions only. Used by the dashboard before creating a long-lived or full-access API key.
+         */
+        post: operations["session-confirm-options"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/session/email": {
         parameters: {
             query?: never;
@@ -5447,7 +5487,7 @@ export interface paths {
         put?: never;
         /**
          * Create an API key
-         * @description Creates an API key for an agent, a script or CI. `projects` is "all" (every project, including ones created later) or a list; `access` is full (read, plan and apply any change there, deleting data included) or read (read and plan only). A key with full access to all projects is the box admin: it also manages keys, people, box settings and exports/imports. Changes made with a key are recorded in History under its name and can be undone. The secret is returned once. Only a key with full access to all projects (or an owner or admin person) can create keys.
+         * @description Creates an API key for an agent, a script or CI. `projects` is "all" (every project, including ones created later) or a list; `access` is full (read, plan and apply any change there, deleting data included) or read (read and plan only). A key with full access to all projects is the box admin: it also manages keys, people, box settings and exports/imports. It works for 90 days unless `expiresInDays` says otherwise (1, 30, 365, or 0 for never). A key made in a dashboard session is its own credential: signing out or the session expiring does not touch it. Made there, any key but a read-only one for a day needs a recent strong sign-in (reauth_required otherwise), and the person is emailed about it. A key made by another key never outlives that key. Changes made with a key are recorded in History under its name and can be undone. The secret is returned once. Only a key with full access to all projects (or an owner or admin person) can create keys.
          */
         post: operations["token-create"];
         delete?: never;
@@ -8412,9 +8452,10 @@ export interface components {
             access: "full" | "read";
             /**
              * Format: int64
-             * @description 30 or 90. Leave it out (or null) for a key that never expires.
+             * @description How long it works: 1, 30, 90 (the default) or 365 days, or 0 for a key that never expires. Created in a dashboard session, anything but a read-only key for 1 day needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes.
+             * @enum {integer|null}
              */
-            expiresInDays?: number | null;
+            expiresInDays?: 0 | 1 | 30 | 90 | 365 | null;
             /** @description A name you will recognise in History, e.g. claude-code or ci. */
             name: string;
             /** @description "all" (every project, including ones created later) or a list of project names */
@@ -10102,7 +10143,7 @@ export interface components {
              * @description Stable machine-readable code
              * @enum {string}
              */
-            code: "bad_request" | "validation" | "unauthenticated" | "forbidden" | "rate_limited" | "not_found" | "conflict" | "precondition" | "confirm_required" | "plan_mismatch" | "internal";
+            code: "bad_request" | "validation" | "unauthenticated" | "forbidden" | "rate_limited" | "not_found" | "conflict" | "precondition" | "confirm_required" | "reauth_required" | "plan_mismatch" | "internal";
             /** @description What went wrong */
             detail?: string;
             /** @description Per-field problems */
@@ -11772,6 +11813,10 @@ export interface components {
             /** @enum {string} */
             state: "active" | "ended" | "expired";
         };
+        "Session-confirmRequest": {
+            /** @description The PublicKeyCredential from navigator.credentials.get(), with byte fields base64url-encoded */
+            credential: unknown;
+        };
         "Session-createRequest": {
             code: string;
         };
@@ -11782,6 +11827,13 @@ export interface components {
         "Session-passkeyRequest": {
             /** @description The PublicKeyCredential from navigator.credentials.get(), with byte fields base64url-encoded */
             credential: unknown;
+        };
+        SessionConfirmed: {
+            /**
+             * Format: date-time
+             * @description Until then (10 minutes), this session may create long-lived and full-access API keys
+             */
+            confirmedUntil: string;
         };
         SessionsEnded: {
             /**
@@ -36440,6 +36492,176 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "session-confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Session-confirmRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionConfirmed"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "session-confirm-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };

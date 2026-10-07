@@ -256,10 +256,11 @@ func TestRemovedOrDemotedPersonLosesTheirKeys(t *testing.T) {
 	// key that key made.
 	keys := func(person string) []string {
 		t.Helper()
-		sess, _, _, err := m.SessionFor(ctx, person, "test")
+		sess, tok, _, err := m.SessionFor(ctx, person, "test")
 		if err != nil {
 			t.Fatal(err)
 		}
+		_ = m.SetClient(ctx, tok.ID, Client{Method: MethodPasskey})
 		p, _ := m.Authenticate(ctx, sess)
 		child, _, err := m.CreateKey(ctx, p, KeyRequest{Name: "child", Projects: Projects{AllProjects}, Access: LevelFull})
 		if err != nil {

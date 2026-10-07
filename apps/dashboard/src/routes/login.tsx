@@ -95,7 +95,9 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
     "signing-in": "Opening your box…",
     success: "You're in.",
     "no-code":
-      reason === "session"
+      reason === "confirm"
+        ? "Sign in again to confirm it’s you."
+        : reason === "session"
         ? "Your session has ended."
         : reason === "signed-out"
           ? "Signed out. See you soon."
@@ -138,7 +140,14 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
 
           {showCommand && (
             <div className="animate-rise" style={{ animationDelay: "60ms" }}>
-              {(canPasskey || providers.length > 0) && (
+              {reason === "confirm" && (
+                <p className="mt-2.5 text-md text-ink-2">
+                  New API keys outlive your session, so they need a sign-in from the last 10 minutes with{" "}
+                  {[canPasskey && words.name, ...providers.map((p) => p.name), byEmail && "an emailed link"].filter(Boolean).join(", ") || "a passkey, Google, GitHub or an emailed link"}.
+                  A link from the terminal doesn’t count.
+                </p>
+              )}
+              {reason !== "confirm" && (canPasskey || providers.length > 0) && (
                 <p className="mt-2.5 text-md text-ink-2">
                   {state === "bad-link"
                     ? `Use ${canPasskey ? words.how : providerList} instead, or get a fresh link.`
@@ -173,7 +182,7 @@ export function LoginPage({ reason, next }: { reason?: string; next?: string }) 
                   className={canPasskey || providers.length > 0 ? "mt-7 border-t border-rule pt-6" : "mt-2.5"}
                 />
               )}
-              {(canPasskey || byEmail || providers.length > 0) && !linkOpen && (
+              {reason !== "confirm" && (canPasskey || byEmail || providers.length > 0) && !linkOpen && (
                 <button type="button" onClick={() => setLinkOpen(true)} className={cn("block text-[0.875rem] text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink", byEmail ? "mt-6" : "mt-4")}>
                   {byEmail ? "or sign in from your terminal" : "or use a sign-in link"}
                 </button>

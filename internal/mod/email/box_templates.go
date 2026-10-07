@@ -58,6 +58,8 @@ func renderBoxMail(m api.BoxMail, boxDomain string, now time.Time) (*boxEmail, e
 			URL: m.URL, Until: until(m.ExpiresAt, now), IP: m.IP})
 	case api.BoxMailNewDevice:
 		return newSignIn(m, dash, brand, host, mark)
+	case api.BoxMailNewKey:
+		return newKey(m, dash, brand, host, mark)
 	default:
 		return nil, fmt.Errorf("unknown box mail %q", m.Kind)
 	}
@@ -96,6 +98,46 @@ func newSignIn(m api.BoxMail, dash, brand, host, mark string) (*boxEmail, error)
 	return templates.NewSignIn(templates.NewSignInData{Brand: brand, Host: host, MarkURL: mark, First: first,
 		Device: device, From: from, When: friendlyWhen(m.At), How: how, Where: m.Where, IP: m.IP,
 		Admin: admin, URL: url, ShownURL: shown, PasskeysURL: passkeys, KeysURL: keys})
+}
+
+// newKey writes the "New API key" notice to the person who made the key.
+func newKey(m api.BoxMail, dash, brand, host, mark string) (*boxEmail, error) {
+	k := m.Key
+	if k == nil {
+		return nil, fmt.Errorf("new-key mail without a key")
+	}
+	first := firstName(m.Name)
+	if first == "there" {
+		first = ""
+	}
+	by := strings.TrimSpace(m.Name)
+	if by == "" {
+		by = "You"
+	}
+	where := "all projects"
+	if !k.Projects.All() {
+		where = strings.Join(k.Projects, ", ")
+	}
+	access := "Read only: " + where
+	switch {
+	case k.Admin:
+		access = "Full access to all projects (admin: it also manages keys, people and box settings)"
+	case k.Access == "full":
+		access = "Full access: " + where
+	}
+	expires := "Never"
+	if k.ExpiresAt != nil {
+		expires = k.ExpiresAt.UTC().Format("2 January 2006, 15:04 UTC")
+	}
+	var url, shown, signIns string
+	if dash != "" {
+		url = dash + "/settings/keys"
+		signIns = dash + "/settings/sign-ins"
+		shown = strings.TrimPrefix(strings.TrimPrefix(url, "https://"), "http://")
+	}
+	return templates.NewKey(templates.NewKeyData{Brand: brand, Host: host, MarkURL: mark, First: first, By: by,
+		Name: k.Name, Access: access, Expires: expires, When: friendlyWhen(m.At), Device: m.Device, Where: m.Where, IP: m.IP,
+		URL: url, ShownURL: shown, SignInsURL: signIns})
 }
 
 // friendlyWhen: "Wednesday 7 October, 19:54 UTC". The email's own date gives the year.

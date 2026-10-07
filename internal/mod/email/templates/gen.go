@@ -69,6 +69,30 @@ func Link(d LinkData) (*Email, error) {
 	return render("link", d)
 }
 
+// NewKeyData fills new-key: Someone created an API key in the dashboard (sent to them).
+type NewKeyData struct {
+	Brand      string // "ShipTiffin" on shiptiffin.com, "Tiffin" on a self-hosted box
+	Host       string // The dashboard's host, e.g. dashboard.example.com
+	MarkURL    string // The mark as a PNG (email-mark.png on the dashboard); empty for none
+	First      string // First name; empty when the box doesn't know it
+	By         string // Who created it: "Sam Rivera"
+	Name       string // The key's name: "ci"
+	Access     string // What it can do, in words: "Full access to all projects (admin)", "Read only: shop, blog"
+	Expires    string // "Never", "6 January 2027"
+	When       string // "Wednesday 7 October, 14:32 UTC"
+	Device     string // The browser it was made in: "Chrome on macOS"; empty when unknown
+	Where      string // The country the address is in, "United States"; empty when unknown
+	IP         string // The address it came from; empty to leave it out
+	URL        string // The dashboard's API keys page; empty for no button
+	ShownURL   string // The same address without https://: "dashboard.example.com/settings/keys"
+	SignInsURL string // Their sign-ins page (to sign out everywhere else); empty for none
+}
+
+// NewKey renders new-key: Someone created an API key in the dashboard (sent to them).
+func NewKey(d NewKeyData) (*Email, error) {
+	return render("new-key", d)
+}
+
 // NewSignInData fills new-sign-in: Someone signed in from a browser the box hasn't seen them use.
 type NewSignInData struct {
 	Brand       string // "ShipTiffin" on shiptiffin.com, "Tiffin" on a self-hosted box
@@ -125,4 +149,4 @@ func SignIn(d SignInData) (*Email, error) {
 }
 
 // Names lists every box email.
-var Names = []string{"alert", "invite", "link", "new-sign-in", "relay-test", "sign-in"}
+var Names = []string{"alert", "invite", "link", "new-key", "new-sign-in", "relay-test", "sign-in"}

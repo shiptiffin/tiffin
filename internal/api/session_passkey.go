@@ -22,7 +22,13 @@ import (
 //	POST /v1/session/passkey/options  -> WebAuthn assertion options (discoverable, UV required)
 //	POST /v1/session/passkey          -> {credential} -> session cookie + {person, name, role, expiresAt}
 //
-// Both are rate-limited per client IP.
+// Both are rate-limited per client IP. Two more confirm, inside a dashboard
+// session, that the person is still at the keyboard ("sudo mode": creating a
+// long-lived or full-access API key needs a strong sign-in in the last 10
+// minutes):
+//
+//	POST /v1/session/confirm/options  -> WebAuthn assertion options
+//	POST /v1/session/confirm          -> {credential} -> {confirmedUntil}
 
 // PasskeySignInRate is how many calls per minute one client IP may make to
 // each passkey sign-in operation.
@@ -218,5 +224,80 @@ func (a *API) registerPasskeySignIn() {
 			out.SetCookie = append(out.SetCookie, *dc)
 		}
 		return out, nil
+	}))
+}
+
+// SessionConfirmed says until when the session counts as freshly signed in.
+type SessionConfirmed struct {
+	ConfirmedUntil time.Time `json:"confirmedUntil" doc:"Until then (10 minutes), this session may create long-lived and full-access API keys"`
+}
+
+func (a *API) registerSessionConfirm() {
+	api := a.api
+	optLimit, finLimit := newIPLimiter(PasskeySignInRate), newIPLimiter(PasskeySignInRate)
+	onlySessions := func(ctx context.Context) error {
+		if !PrincipalFrom(ctx).IsSession() {
+			return problem(403, "forbidden", "only a dashboard session confirms it's you; API keys never need to")
+		}
+		return nil
+	}
+
+	o := op("session-confirm-options", http.MethodPost, "/v1/session/confirm/options", "-", RiskWrite, "Start confirming it's you",
+		"Returns WebAuthn assertion options, like passkey sign-in, for confirming the person behind this dashboard session. "+
+			"Dashboard sessions only. Used by the dashboard before creating a long-lived or full-access API key.", "system")
+	o.Errors = append(o.Errors, 429, 501)
+	o.Middlewares = huma.Middlewares{a.limitPerIP(optLimit, "confirm-options")}
+	huma.Register(api, o, wrap(func(ctx context.Context, _ *struct{}) (*struct{ Body any }, error) {
+		if err := onlySessions(ctx); err != nil {
+			return nil, err
+		}
+		m, err := a.passkeysMgr()
+		if err != nil {
+			return nil, err
+		}
+		opts, err := m.BeginLogin(ctx)
+		if err != nil {
+			return nil, signInProblem(err)
+		}
+		return &struct{ Body any }{opts}, nil
+	}))
+
+	f := op("session-confirm", http.MethodPost, "/v1/session/confirm", "-", RiskWrite, "Confirm it's you with a passkey",
+		"Verifies a passkey of the person signed in to this dashboard session. For the next 10 minutes the session may create "+
+			"API keys that last longer than a day or have full access. Dashboard sessions only.", "system")
+	f.Errors = append(f.Errors, 429, 501)
+	f.Middlewares = huma.Middlewares{a.limitPerIP(finLimit, "confirm")}
+	huma.Register(api, f, wrap(func(ctx context.Context, in *struct {
+		Body struct {
+			Credential json.RawMessage `json:"credential" doc:"The PublicKeyCredential from navigator.credentials.get(), with byte fields base64url-encoded"`
+		}
+	}) (*struct{ Body SessionConfirmed }, error) {
+		if err := onlySessions(ctx); err != nil {
+			return nil, err
+		}
+		m, err := a.passkeysMgr()
+		if err != nil {
+			return nil, err
+		}
+		if len(in.Body.Credential) == 0 || string(in.Body.Credential) == "null" {
+			return nil, problem(422, "validation", "credential is required")
+		}
+		p := PrincipalFrom(ctx)
+		who, err := m.FinishLogin(ctx, in.Body.Credential)
+		if err != nil {
+			return nil, signInProblem(err)
+		}
+		until, err := a.deps.Tokens.ConfirmSession(ctx, p, who.Person)
+		if err != nil {
+			if errors.Is(err, tokens.ErrForbidden) {
+				out := problem(403, "forbidden", "that passkey belongs to someone else on this box")
+				out.Hint = "use one of your own passkeys, or sign in again"
+				return nil, out
+			}
+			return nil, err
+		}
+		_ = a.deps.DB.Audit(ctx, p.TokenID, "session.confirm", p.Person,
+			map[string]any{"summary": orDefault(p.PersonName, p.Name) + " confirmed it was them with a passkey", "passkey": who.PasskeyName, "passkeyId": who.PasskeyID, "ip": clientIPFrom(ctx)})
+		return &struct{ Body SessionConfirmed }{SessionConfirmed{ConfirmedUntil: until}}, nil
 	}))
 }

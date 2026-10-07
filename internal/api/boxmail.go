@@ -23,8 +23,9 @@ import (
 )
 
 // The box's own mail to the people who use its dashboard: invites, sign-in
-// links (sent by an admin, or asked for on the login page) and a notice when
-// someone signs in from a browser the box has not seen them use before. The
+// links (sent by an admin, or asked for on the login page), a notice when
+// someone signs in from a browser the box has not seen them use before, and
+// one when they create an API key in the dashboard. The
 // email module sends it (SetBoxMailer): through the relay when the box has
 // one, else into the box's dev inbox, like any other mail.
 
@@ -34,6 +35,7 @@ const (
 	BoxMailLink      = "link"        // a fresh link an admin made for someone
 	BoxMailSignIn    = "sign-in"     // a link the person asked for on the login page
 	BoxMailNewDevice = "new-sign-in" // they signed in from a new browser
+	BoxMailNewKey    = "new-key"     // they created an API key in the dashboard
 )
 
 // BoxMail is one message from the box to a person.
@@ -45,12 +47,14 @@ type BoxMail struct {
 	URL       string    // the sign-in link (invite, link, sign-in)
 	ExpiresAt time.Time // when the link stops working
 	By        string    // who invited them or made the link
-	Device    string    // new-sign-in: "Chrome on macOS"
-	IP        string    // new-sign-in: the address it came from
-	Where     string    // new-sign-in: the country that address is in ("United States"); empty when unknown
+	Device    string    // new-sign-in, new-key: "Chrome on macOS"
+	IP        string    // new-sign-in, new-key: the address it came from
+	Where     string    // new-sign-in, new-key: the country that address is in ("United States"); empty when unknown
 	Via       string    // new-sign-in: how they signed in: "Sign-in link", "Passkey", "Google", "GitHub"
-	At        time.Time // new-sign-in: when
+	At        time.Time // new-sign-in, new-key: when
 	Dashboard string    // the dashboard's address
+	// new-key: the key (Device, IP, Where and At say where it was made from).
+	Key *tokens.Key
 }
 
 // BoxMailResult says what happened to a box message.
@@ -279,6 +283,25 @@ func newRateLimiter(burst int, every time.Duration) *ipLimiter {
 	l.perMin = float64(burst) * float64(time.Minute) / float64(every)
 	l.capacity = float64(burst)
 	return l
+}
+
+// ---- new API key notices ----
+
+// keyCreated tells the person who made key in their dashboard session about
+// it, by email, with the browser and address it came from: a key outlives
+// the session, so a stolen session's key must not go unnoticed.
+func (a *API) keyCreated(ctx context.Context, by *tokens.Principal, key *tokens.Key) {
+	person, err := a.deps.Tokens.GetPerson(ctx, by.Person)
+	if err != nil || person.Email == "" {
+		return
+	}
+	ip := clientIPFrom(ctx)
+	device := ""
+	if c, err := a.deps.Tokens.SessionClient(ctx, by.TokenID); err == nil {
+		device = c.Device
+	}
+	a.sendLater(BoxMail{Kind: BoxMailNewKey, To: person.Email, Name: person.Name, Role: person.Role,
+		Device: device, IP: ip, Where: locate(ip), At: key.CreatedAt, Key: key})
 }
 
 // ---- new sign-in notices ----

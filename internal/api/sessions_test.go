@@ -207,23 +207,31 @@ func TestSessionsAcrossPeople(t *testing.T) {
 		t.Fatalf("owner ends own: %d", c)
 	}
 
-	// An API key made in a session goes with it; another session's doesn't,
-	// nor does someone else's session signed in with a link it sent.
+	// API keys are their own credentials: ending the session that made one
+	// leaves it working. Nor does it end someone else's session signed in
+	// with a link it sent. (A read-only key for a day needs no recent strong
+	// sign-in; these sessions came from links.)
 	adaPhone, _, _ := e.signIn(e.link(ada), "203.0.113.9", phoneUA)
 	_, l, _ = e.call(adaMac, "POST", "/v1/people/"+maya+"/login-link", nil)
 	mayaAgain, _, _ := e.signIn(codeOf(l["url"].(string)), "203.0.113.5", macUA)
-	_, k, _ := e.call(adaMac, "POST", "/v1/tokens", map[string]any{"name": "ci", "projects": "all", "access": "read"})
+	_, k, _ := e.call(adaMac, "POST", "/v1/tokens", map[string]any{"name": "ci", "projects": "all", "access": "read", "expiresInDays": 1})
 	key := k["secret"].(string)
-	_, k, _ = e.call(adaPhone, "POST", "/v1/tokens", map[string]any{"name": "phone", "projects": "all", "access": "read"})
+	_, k, _ = e.call(adaPhone, "POST", "/v1/tokens", map[string]any{"name": "phone", "projects": "all", "access": "read", "expiresInDays": 1})
 	phoneKey := k["secret"].(string)
 	if c, _, _ := e.call(adaPhone, "POST", "/v1/sessions/end-others", nil); c != 200 {
 		t.Fatalf("Ada ends others: %d", c)
 	}
-	if c, _, _ := e.call(key, "GET", "/v1/whoami", nil); c != 401 {
-		t.Fatalf("key of an ended session still works: %d", c)
+	if c, _, _ := e.call(adaMac, "GET", "/v1/whoami", nil); c != 401 {
+		t.Fatalf("ended session still works: %d", c)
+	}
+	if c, _, _ := e.call(key, "GET", "/v1/whoami", nil); c != 200 {
+		t.Fatalf("key of an ended session stopped: %d", c)
+	}
+	if c, _, _ := e.call(adaPhone, "DELETE", "/v1/session", nil); c != 200 && c != 204 {
+		t.Fatalf("Ada signs out: %d", c)
 	}
 	if c, _, _ := e.call(phoneKey, "GET", "/v1/whoami", nil); c != 200 {
-		t.Fatalf("key of the kept session stopped: %d", c)
+		t.Fatalf("key of a signed-out session stopped: %d", c)
 	}
 	if c, _, _ := e.call(mayaAgain, "GET", "/v1/whoami", nil); c != 200 {
 		t.Fatalf("Maya's session from Ada's link ended with Ada's: %d", c)

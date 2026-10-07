@@ -13,9 +13,12 @@ Plainly, so you can decide what to trust it with.
 - **Only HTTPS leaves a local box,** and only to `127.0.0.1:8443` on your Mac. Postgres,
   Valkey and the rest are not reachable from outside the VM.
 - **API keys** are random 200-bit secrets; only their SHA-256 is stored. Each reaches
-  some projects (or all) with full or read access, and can expire after 30 or 90 days.
-  Only a key with full access to all projects (or an owner or admin person) can create,
-  list or revoke keys. See [API keys](agents.md#api-keys).
+  some projects (or all) with full or read access, and works for 30 days, 90 days (the
+  default), a year, or until revoked. A key is its own credential: the dashboard session
+  that made it can end or expire and the key keeps working, like a GitHub or Vercel
+  personal access token. Only a key with full access to all projects (or an owner or
+  admin person) can create, list or revoke keys. See [API keys](agents.md#api-keys) and
+  [Creating API keys in the dashboard](#creating-api-keys-in-the-dashboard).
 - **Agents and destructive changes.** By default, your agent can do what you can.
   Claude Code asks you before anything destructive (Tiffin marks those tools
   destructive); Tiffin records everything in History and can undo it. Give agents that
@@ -77,9 +80,9 @@ Plainly, so you can decide what to trust it with.
 - **Browsers this box knows:** up to 20 browsers you signed in from. Signing in from one of
   these sends no new sign-in email.
 
-A session that is signed out is refused on its very next request, and any API keys made
-while signed in there stop working too (a stolen session's keys go with it). Keys made in
-another session, and other people's sessions, stay.
+A session that is signed out is refused on its very next request. API keys made while
+signed in there keep working: revoke them on **Settings › API keys**. Other people's
+sessions, even ones signed in with a link this session sent, stay.
 
 Owners and admins can do the same for anyone: **People › (their role menu) › End
 sessions…** lists where that person is signed in, with **Sign out** on each and **Sign
@@ -96,6 +99,36 @@ For scripts and agents: `GET /v1/sessions` (`?person=usr_…` for someone else,
 `POST /v1/sessions/end-others` (`?person=usr_…`) and `GET /v1/sessions/browsers`; in the
 CLI, `tiffin sessions list|end|end-others|browsers`. Sessions belong to people, so an API
 key must name the person, and only a key with full access to all projects may.
+
+## Creating API keys in the dashboard
+
+A key outlives the session that made it, so a stolen dashboard session must not be able
+to mint one quietly. Three things stop that:
+
+- **Confirm it's you (sudo mode).** Creating a key that lasts longer than a day, or has
+  full access (and so any admin key), needs a strong sign-in in the last 10 minutes: a
+  passkey, Google, GitHub or a link you asked to be emailed. A one-time link someone else
+  made (an invite, an admin's link, `tiffin login`) is not one. Otherwise **Create key**
+  asks you to confirm with your passkey, or to sign in again; either gives you 10 minutes.
+  Only your own passkey counts. A read-only key for a day needs neither.
+- **An email for every key.** The person who made it gets a *New API key* email: the
+  key's name, its projects and access, when it expires, when, and the browser, address and
+  country it came from, with a **Review API keys** button.
+- **The audit log** records each key (`token.create`, with the person) and each
+  confirmation (`session.confirm`).
+
+Removing someone, or lowering their role, still revokes every key they made (and keys
+those keys made).
+
+Keys and the owner token are not sessions: they never confirm. A key made by another key
+(an agent delegating) never outlives the key that made it, and revoking a key revokes the
+keys it made.
+
+For scripts: `POST /v1/tokens` with `"expiresInDays"`: 1, 30, 90 (the default when left
+out) or 365, or 0 for never. In a session that hasn't confirmed, a key that needs it is
+refused with `403 reauth_required`. The dashboard confirms with
+`POST /v1/session/confirm/options`, then `navigator.credentials.get()`, then
+`POST /v1/session/confirm` with `{"credential": ...}`.
 
 ## Signing in with Google or GitHub
 

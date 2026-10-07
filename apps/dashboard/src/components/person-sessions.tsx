@@ -40,7 +40,7 @@ function PersonSessions({ person, onClose }: { person: Person; onClose: () => vo
       <DialogHeader>
         <DialogTitle>{`${first}’s sessions`}</DialogTitle>
         <DialogDescription>
-          Where {first} is signed in now. Signing out ends a session at once, with any API keys made in it. {first} can still sign in again; to take access
+          Where {first} is signed in now. Signing out ends a session at once; API keys {first} made keep working until revoked. {first} can still sign in again; to take access
           away, remove them from the box.
         </DialogDescription>
       </DialogHeader>

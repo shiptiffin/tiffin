@@ -377,6 +377,7 @@ func (m *Manager) Authenticate(ctx context.Context, secret string) (*Principal, 
 
 // Revoke revokes token id. Owners can revoke any token; others only tokens
 // they sponsored (directly). The owner token cannot be revoked this way.
+// Revoking a key takes the keys it made with it; revoking a session does not.
 func (m *Manager) Revoke(ctx context.Context, by *Principal, id string) error {
 	if err := by.Require(ScopeTokens, ""); err != nil {
 		return err
@@ -398,7 +399,13 @@ func (m *Manager) Revoke(ctx context.Context, by *Principal, id string) error {
 	if _, err := m.db.SQL().ExecContext(ctx, `UPDATE tokens SET revoked_at = ? WHERE id = ?`, ts(&now), id); err != nil {
 		return err
 	}
-	// Revoking a sponsor revokes everything it minted, transitively.
+	// Revoking a key revokes every key it minted, transitively. Ending a
+	// dashboard session (signing out) does not: keys made in it are the
+	// person's own credentials and are revoked on the API keys page.
+	if t.Kind == KindHuman && t.Person != "" {
+		_ = m.db.Audit(ctx, by.TokenID, "token.revoke", id, map[string]any{"name": t.Name})
+		return nil
+	}
 	rows, err := m.db.SQL().QueryContext(ctx, `SELECT id FROM tokens WHERE sponsor = ? AND revoked_at IS NULL`, id)
 	if err != nil {
 		return err

@@ -252,7 +252,7 @@ func ensureAgentKey(ctx context.Context, a *app, owner *client, bx *boxConfig) (
 		}
 		oldID = id
 	}
-	status, raw, err := owner.do(ctx, http.MethodPost, "/v1/tokens", nil, map[string]any{"name": "claude-code", "projects": "all", "access": "full"})
+	status, raw, err := owner.do(ctx, http.MethodPost, "/v1/tokens", nil, map[string]any{"name": "claude-code", "projects": "all", "access": "full", "expiresInDays": 0})
 	if err != nil || status != http.StatusOK {
 		return false, fmt.Errorf("create the agent key: %v %s", err, raw)
 	}

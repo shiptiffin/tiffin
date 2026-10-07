@@ -120,6 +120,7 @@ func New(d Deps) *API {
 	a.registerSecrets()
 	a.registerPasskeys()
 	a.registerPasskeySignIn()
+	a.registerSessionConfirm()
 	a.registerPeople()
 	a.registerSessions()
 	a.registerBoxMail()
@@ -404,7 +405,7 @@ type keyCreateBody struct {
 	Name          string          `json:"name" minLength:"1" maxLength:"64" doc:"A name you will recognise in History, e.g. claude-code or ci."`
 	Projects      tokens.Projects `json:"projects" required:"true"`
 	Access        string          `json:"access" enum:"full,read" doc:"full: read, plan and apply any change in those projects, irreversible ones included (deleting data). read: read and plan only."`
-	ExpiresInDays *int            `json:"expiresInDays,omitempty" nullable:"true" doc:"30 or 90. Leave it out (or null) for a key that never expires."`
+	ExpiresInDays *int            `json:"expiresInDays,omitempty" nullable:"true" enum:"0,1,30,90,365" doc:"How long it works: 1, 30, 90 (the default) or 365 days, or 0 for a key that never expires. Created in a dashboard session, anything but a read-only key for 1 day needs a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes."`
 }
 
 func (a *API) register() {
@@ -743,19 +744,28 @@ func (a *API) register() {
 		"Creates an API key for an agent, a script or CI. `projects` is \"all\" (every project, including ones created later) or a list; "+
 			"`access` is full (read, plan and apply any change there, deleting data included) or read (read and plan only). "+
 			"A key with full access to all projects is the box admin: it also manages keys, people, box settings and exports/imports. "+
+			"It works for 90 days unless `expiresInDays` says otherwise (1, 30, 365, or 0 for never). "+
+			"A key made in a dashboard session is its own credential: signing out or the session expiring does not touch it. "+
+			"Made there, any key but a read-only one for a day needs a recent strong sign-in (reauth_required otherwise), "+
+			"and the person is emailed about it. A key made by another key never outlives that key. "+
 			"Changes made with a key are recorded in History under its name and can be undone. The secret is returned once. "+
 			"Only a key with full access to all projects (or an owner or admin person) can create keys.", "tokens")
+	tc.Middlewares = huma.Middlewares{withClientIP}
 	huma.Register(api, tc, wrap(func(ctx context.Context, in *struct{ Body keyCreateBody }) (*struct{ Body CreatedKey }, error) {
-		req := tokens.KeyRequest{Name: in.Body.Name, Projects: in.Body.Projects, Access: in.Body.Access}
+		req := tokens.KeyRequest{Name: in.Body.Name, Projects: in.Body.Projects, Access: in.Body.Access, TTL: tokens.DefaultKeyTTL}
 		if d := in.Body.ExpiresInDays; d != nil {
-			if *d != 30 && *d != 90 {
-				return nil, problem(422, "validation", "expiresInDays must be 30, 90 or null (never)")
+			if !slices.Contains([]int{0, 1, 30, 90, 365}, *d) {
+				return nil, problem(422, "validation", "expiresInDays must be 1, 30, 90, 365 or 0 (never)")
 			}
 			req.TTL = time.Duration(*d) * 24 * time.Hour
 		}
-		secret, k, err := a.deps.Tokens.CreateKey(ctx, PrincipalFrom(ctx), req)
+		p := PrincipalFrom(ctx)
+		secret, k, err := a.deps.Tokens.CreateKey(ctx, p, req)
 		if err != nil {
 			return nil, err
+		}
+		if p.IsSession() {
+			a.keyCreated(ctx, p, k)
 		}
 		return &struct{ Body CreatedKey }{CreatedKey{Secret: secret, Key: k}}, nil
 	}))

@@ -3,6 +3,7 @@ package tokens
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -194,7 +195,30 @@ func (p *Principal) access() string {
 // ErrNotAdmin refuses key management to keys that are not the box admin.
 var ErrNotAdmin = fmt.Errorf("%w: only a key with full access to all projects (or an owner or admin person) can manage keys", ErrForbidden)
 
-// CreateKey mints an API key. Only the box admin may.
+// Key lifetimes a person can choose. Keys made in a dashboard session live
+// exactly that long: the session ending or expiring does not touch them.
+// Keys made by other keys never outlive the key that made them.
+const (
+	DefaultKeyTTL = 90 * 24 * time.Hour
+	// SudoFreeTTL is the longest a read-only key made in a dashboard session
+	// may live without a recent strong sign-in (see SudoWindow).
+	SudoFreeTTL = 24 * time.Hour
+)
+
+// ErrReauth asks the person to confirm it's them before minting a key that
+// would outlast a stolen session.
+var ErrReauth = errors.New("confirm it's you first: keys that last longer than a day, or with full access, need a sign-in with a passkey, Google, GitHub or an emailed link in the last 10 minutes")
+
+// NeedsSudo reports whether making req in a dashboard session needs a recent
+// strong sign-in: anything but a read-only key that lasts a day or less.
+func (req KeyRequest) NeedsSudo() bool {
+	return req.Access != LevelRead || req.TTL <= 0 || req.TTL > SudoFreeTTL
+}
+
+// CreateKey mints an API key. Only the box admin may. In a dashboard session,
+// a key that lasts longer than a day or has full access needs a recent strong
+// sign-in (ErrReauth otherwise), and lives as long as asked; a key made by
+// another key never outlives it.
 func (m *Manager) CreateKey(ctx context.Context, by *Principal, req KeyRequest) (string, *Key, error) {
 	if !by.BoxAdmin() {
 		return "", nil, ErrNotAdmin
@@ -221,6 +245,10 @@ func (m *Manager) CreateKey(ctx context.Context, by *Principal, req KeyRequest) 
 	if req.TTL < 0 || req.TTL > MaxAgentTTL {
 		return "", nil, fmt.Errorf("%w: a key lives at most %s", ErrInvalid, MaxAgentTTL)
 	}
+	session := by.IsSession()
+	if session && req.NeedsSudo() && !m.Confirmed(ctx, by.TokenID) {
+		return "", nil, ErrReauth
+	}
 	grants := []Grant{{Projects: projects, Level: req.Access}}
 	scopes, ps := grantScopes(grants)
 	now := m.now().UTC()
@@ -230,7 +258,8 @@ func (m *Manager) CreateKey(ctx context.Context, by *Principal, req KeyRequest) 
 		exp := now.Add(req.TTL)
 		t.ExpiresAt = &exp
 	}
-	if by.ExpiresAt != nil && (t.ExpiresAt == nil || t.ExpiresAt.After(*by.ExpiresAt)) {
+	// Delegation: a key made by a key never outlives it.
+	if !session && by.ExpiresAt != nil && (t.ExpiresAt == nil || t.ExpiresAt.After(*by.ExpiresAt)) {
 		exp := by.ExpiresAt.UTC()
 		t.ExpiresAt = &exp
 	}
@@ -238,8 +267,14 @@ func (m *Manager) CreateKey(ctx context.Context, by *Principal, req KeyRequest) 
 	if err := m.insert(ctx, t, secret); err != nil {
 		return "", nil, err
 	}
-	_ = m.db.Audit(ctx, by.TokenID, "token.create", t.ID, map[string]any{"name": t.Name, "projects": projects, "access": req.Access, "expiresAt": t.ExpiresAt})
-	return secret, t.AsKey(), nil
+	k := t.AsKey()
+	detail := map[string]any{"name": t.Name, "projects": projects, "access": req.Access, "admin": k.Admin, "expiresAt": t.ExpiresAt}
+	if session {
+		detail["person"] = by.Person
+		detail["summary"] = fmt.Sprintf("%s created the API key %s", byName(by), t.Name)
+	}
+	_ = m.db.Audit(ctx, by.TokenID, "token.create", t.ID, detail)
+	return secret, k, nil
 }
 
 // refusal explains, in plain words, why p lacks scope s.

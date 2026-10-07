@@ -136,6 +136,10 @@ export const api = {
   /** Signs in with a passkey assertion; sets the session cookie like a login link. */
   passkeyLogin: (credential: unknown) => request<Principal>("POST", "/v1/session/passkey", { credential }),
   login: (code: string) => request<Principal>("POST", "/v1/session", { code }),
+  /** WebAuthn options for confirming it's still you in this session (sudo mode). */
+  confirmOptions: () => request<unknown>("POST", "/v1/session/confirm/options"),
+  /** Confirms with one of your passkeys: for 10 minutes this session may create long-lived or full-access keys. */
+  confirm: (credential: unknown) => request<{ confirmedUntil: string }>("POST", "/v1/session/confirm", { credential }),
   logout: () => request<void>("DELETE", "/v1/session"),
   /** Copies a project under a new name; poll projectJob until done or failed. */
   duplicate: (project: string, name: string) => request<ProjectJob>("POST", `/v1/projects/${encodeURIComponent(project)}/duplicate`, { name }),

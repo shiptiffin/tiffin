@@ -15,7 +15,8 @@ import (
 // and where it signed in (the client column) and when it was last used
 // (last_used_at, written at most once a minute by Authenticate). People can
 // see and end their own; owners and admins anyone's, except that only the
-// owner ends the owner's. API keys are not sessions and are not listed here.
+// owner ends the owner's. API keys are not sessions and are not listed here:
+// a key made in a session is its own credential and outlives it (keys.go).
 
 // Sign-in methods.
 const (
@@ -35,6 +36,9 @@ type Client struct {
 	Device  string `json:"device,omitempty"`  // "Chrome on macOS"
 	IP      string `json:"ip,omitempty"`      // the address it signed in from
 	Country string `json:"country,omitempty"` // that address's country, "" when unknown
+	// ConfirmedAt is when the person last confirmed it was them in this
+	// session (a passkey), for actions that need a recent strong sign-in.
+	ConfirmedAt *time.Time `json:"confirmedAt,omitempty"`
 }
 
 // Session is one dashboard sign-in.
@@ -61,6 +65,19 @@ func (m *Manager) SetClient(ctx context.Context, id string, c Client) error {
 	}
 	_, err = m.db.SQL().ExecContext(ctx, `UPDATE tokens SET client = ? WHERE id = ? AND kind = ?`, string(b), id, KindHuman)
 	return err
+}
+
+// SessionClient returns how and where session id signed in.
+func (m *Manager) SessionClient(ctx context.Context, id string) (*Client, error) {
+	var client sql.NullString
+	if err := m.db.SQL().QueryRowContext(ctx, `SELECT client FROM tokens WHERE id = ? AND kind = ?`, id, KindHuman).Scan(&client); err != nil {
+		return nil, err
+	}
+	var c Client
+	if client.Valid {
+		_ = json.Unmarshal([]byte(client.String), &c)
+	}
+	return &c, nil
 }
 
 // SessionPerson returns the person whose sessions by asks about ("" means by's
@@ -169,8 +186,8 @@ func (m *Manager) Sessions(ctx context.Context, by *Principal, person string, hi
 // ErrSessionNotFound is returned for unknown, ended or expired sessions.
 var ErrSessionNotFound = errors.New("no open session with that ID")
 
-// EndSession signs one session out at once, with any API keys it made (and
-// keys those made): a stolen session's keys go with it. It returns the session.
+// EndSession signs one session out at once. API keys made in it keep
+// working: they are revoked on the API keys page. It returns the session.
 func (m *Manager) EndSession(ctx context.Context, by *Principal, id string) (*Session, error) {
 	var person string
 	err := m.db.SQL().QueryRowContext(ctx, `SELECT person FROM tokens WHERE id = ? AND kind = ? AND person IS NOT NULL`, id, KindHuman).Scan(&person)
@@ -195,22 +212,21 @@ func (m *Manager) EndSession(ctx context.Context, by *Principal, id string) (*Se
 		return nil, ErrSessionNotFound
 	}
 	s := open[i]
-	keys, err := m.revokeSessions(ctx, []string{id})
-	if err != nil {
+	if err := m.revokeSessions(ctx, []string{id}); err != nil {
 		return nil, err
 	}
 	now := m.now().UTC()
 	s.EndedAt, s.State = &now, "ended"
 	_ = m.db.Audit(ctx, by.TokenID, "session.end", id, map[string]any{
 		"summary": fmt.Sprintf("%s ended a session of %s (%s)", byName(by), p.Name, s.Device),
-		"person":  p.ID, "device": s.Device, "method": s.Method, "keys": keys, "self": s.Current,
+		"person":  p.ID, "device": s.Device, "method": s.Method, "self": s.Current,
 	})
 	return s, nil
 }
 
 // EndOtherSessions signs out every open session of a person ("" means by's
-// own) except the one making the request, with the API keys they made. It
-// returns how many sessions ended.
+// own) except the one making the request. API keys keep working. It returns
+// how many sessions ended.
 func (m *Manager) EndOtherSessions(ctx context.Context, by *Principal, person string) (int, error) {
 	p, err := m.SessionPerson(ctx, by, person, true)
 	if err != nil {
@@ -229,8 +245,7 @@ func (m *Manager) EndOtherSessions(ctx context.Context, by *Principal, person st
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	keys, err := m.revokeSessions(ctx, ids)
-	if err != nil {
+	if err := m.revokeSessions(ctx, ids); err != nil {
 		return 0, err
 	}
 	summary := fmt.Sprintf("%s signed out %s everywhere else", byName(by), p.Name)
@@ -238,28 +253,80 @@ func (m *Manager) EndOtherSessions(ctx context.Context, by *Principal, person st
 		summary = byName(by) + " signed out everywhere else"
 	}
 	_ = m.db.Audit(ctx, by.TokenID, "session.end_others", p.ID, map[string]any{
-		"summary": summary, "sessions": ids, "keys": keys, "kept": by.TokenID,
+		"summary": summary, "sessions": ids, "kept": by.TokenID,
 	})
 	return len(ids), nil
 }
 
-// revokeSessions revokes the sessions and every API key below them (keys
-// they made, keys those made). It stops at other sessions: a person signed in
-// with a link someone else sent keeps their session. It returns how many
-// keys went too.
-func (m *Manager) revokeSessions(ctx context.Context, ids []string) (int64, error) {
-	roots, _ := json.Marshal(ids)
+// revokeSessions revokes the sessions only: not the API keys made in them,
+// nor anyone's session signed in with a link they sent.
+func (m *Manager) revokeSessions(ctx context.Context, ids []string) error {
+	list, _ := json.Marshal(ids)
 	now := m.now().UTC()
-	res, err := m.db.SQL().ExecContext(ctx, `WITH RECURSIVE tree(id) AS (
-			SELECT value FROM json_each(?1)
-			UNION SELECT t.id FROM tokens t JOIN tree ON t.sponsor = tree.id
-				WHERE NOT (t.kind = 'human' AND t.person IS NOT NULL))
-		UPDATE tokens SET revoked_at = ?2 WHERE id IN (SELECT id FROM tree) AND revoked_at IS NULL`, string(roots), ts(&now))
-	if err != nil {
-		return 0, err
+	_, err := m.db.SQL().ExecContext(ctx, `UPDATE tokens SET revoked_at = ?1
+		WHERE id IN (SELECT value FROM json_each(?2)) AND kind = 'human' AND revoked_at IS NULL`, ts(&now), string(list))
+	return err
+}
+
+// IsSession reports whether p is a person's dashboard session (not an API
+// key, and not the owner token).
+func (p *Principal) IsSession() bool { return p.Kind == KindHuman && p.Person != "" }
+
+// Strong sign-in methods: proof the person holds a passkey, their Google or
+// GitHub account, or their inbox. A link someone else made (an invite, an
+// admin's link, `tiffin login`) is not one.
+var strongMethods = []string{MethodPasskey, MethodGoogle, MethodGitHub, MethodEmail}
+
+// SudoWindow is how recent a strong sign-in (or a confirmation with a
+// passkey) must be for actions that need one, like creating a long-lived key.
+const SudoWindow = 10 * time.Minute
+
+// StrongAt is when session id last proved who is behind it: its sign-in, if
+// that was strong, or its latest confirmation. Zero for neither.
+func (m *Manager) StrongAt(ctx context.Context, id string) (time.Time, error) {
+	var created string
+	var client sql.NullString
+	err := m.db.SQL().QueryRowContext(ctx, `SELECT created_at, client FROM tokens WHERE id = ? AND kind = ? AND revoked_at IS NULL`, id, KindHuman).Scan(&created, &client)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, ErrSessionNotFound
+	} else if err != nil {
+		return time.Time{}, err
 	}
-	n, _ := res.RowsAffected()
-	return max(n-int64(len(ids)), 0), nil
+	var c Client
+	if client.Valid {
+		_ = json.Unmarshal([]byte(client.String), &c)
+	}
+	var at time.Time
+	if slices.Contains(strongMethods, c.Method) {
+		at = parseTS(created)
+	}
+	if c.ConfirmedAt != nil && c.ConfirmedAt.After(at) {
+		at = *c.ConfirmedAt
+	}
+	return at, nil
+}
+
+// Confirmed reports whether session id proved who is behind it within SudoWindow.
+func (m *Manager) Confirmed(ctx context.Context, id string) bool {
+	at, err := m.StrongAt(ctx, id)
+	return err == nil && !at.IsZero() && m.now().Sub(at) <= SudoWindow
+}
+
+// ConfirmSession records that the person behind session by just proved it
+// was them (a passkey of theirs), and returns until when that counts.
+func (m *Manager) ConfirmSession(ctx context.Context, by *Principal, person string) (time.Time, error) {
+	if !by.IsSession() {
+		return time.Time{}, fmt.Errorf("%w: only a dashboard session can be confirmed; API keys never need it", ErrInvalid)
+	}
+	if person != by.Person {
+		return time.Time{}, fmt.Errorf("%w: that passkey belongs to someone else", ErrForbidden)
+	}
+	now := m.now().UTC()
+	if _, err := m.db.SQL().ExecContext(ctx, `UPDATE tokens SET client = json_set(coalesce(client, '{}'), '$.confirmedAt', ?)
+		WHERE id = ? AND kind = ? AND revoked_at IS NULL`, now.Format(time.RFC3339Nano), by.TokenID, KindHuman); err != nil {
+		return time.Time{}, err
+	}
+	return now.Add(SudoWindow), nil
 }
 
 func byName(by *Principal) string {

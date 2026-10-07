@@ -147,9 +147,11 @@ Next.js pages, pages rendered on request, and Early Hints during a wake.
 - **Sign-ins** (Settings › Sign-ins) show the address and country a session signed in
   from, not where it is used now; last active is to the minute. Sessions from before this
   page existed show no browser or method. The list goes back 30 days.
-- **Signing out a session also stops the API keys made in it.** Keys made in the dashboard
-  already expire when the session that made them does (12 hours), because a key never
-  outlives what made it; make a long-lived key with the CLI and the owner token.
+- **Confirming it's you for a new API key** takes a passkey, or signing in again with a
+  passkey, Google, GitHub or an emailed link. On a box with none of those set up (signed in
+  only with `tiffin login` links), the dashboard can make only read-only keys for a day;
+  add a passkey in Settings › Passkeys, or make the key with the CLI and the owner token.
+  Box-wide limits on how long keys may live don't exist yet.
 - Admins can see the owner's sessions but not end them. There is no "sign everyone out"
   for the whole box; end each person's sessions in turn.
 - Browsers the box knows can't be forgotten one at a time, and the box doesn't name

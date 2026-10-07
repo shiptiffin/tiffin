@@ -37,11 +37,12 @@ A key has:
   `shop, blog`;
 - **access**: `full` (read, plan and apply any change, deleting data included) or
   `read` (read and plan only);
-- an expiry: 30 or 90 days, or never.
+- an expiry: 1, 30, 90 (the default) or 365 days, or never (`0`). A key made in the
+  dashboard keeps working after you sign out; one made by another key never outlives it.
 
 ```bash
-tiffin tokens create --name ci --projects shop --access full --expires-in-days 90
-tiffin tokens create --name dashboards --projects all --access read
+tiffin tokens create --name ci --projects shop --access full --expires-in-days 365
+tiffin tokens create --name dashboards --projects all --access read --expires-in-days 0
 tiffin tokens list
 tiffin tokens revoke <id>
 ```
@@ -59,7 +60,7 @@ projects and access.
 Over HTTP the shapes are:
 
 ```text
-POST /v1/tokens  {"name": "ci", "projects": "all" | ["shop"], "access": "full" | "read", "expiresInDays": 30 | 90 | null}
+POST /v1/tokens  {"name": "ci", "projects": "all" | ["shop"], "access": "full" | "read", "expiresInDays": 1 | 30 | 90 | 365 | 0}
   → {"secret": "tfn_...", "key": {id, name, projects, access, admin, expiresAt, lastUsedAt, createdAt}}
 GET  /v1/tokens  → [key...]          DELETE /v1/tokens/{id}
 ```

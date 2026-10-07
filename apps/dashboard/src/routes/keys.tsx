@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { Fingerprint } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { api, type CreatedToken, type Token } from "@/api/client";
+import { api, isProblem, type CreatedToken, type Token } from "@/api/client";
 import { q } from "@/api/queries";
 import { Confirm } from "@/components/confirm";
 import { Command, CopyButton } from "@/components/copy";
@@ -15,6 +16,7 @@ import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, Dia
 import { actorName } from "@/lib/actors";
 import { cn } from "@/lib/cn";
 import { relative } from "@/lib/time";
+import { getAssertion, passkeyError, passkeyWords, webauthnSupported } from "@/lib/webauthn";
 import { ProjectIcon } from "@/components/project-icon";
 
 /**
@@ -23,14 +25,24 @@ import { ProjectIcon } from "@/components/project-icon";
  * some), whether it can change things or only read, and when it expires.
  * Whatever a key does shows up in History under its name. Only an admin
  * (or a key with full access to all projects) manages keys.
+ *
+ * A key is its own credential, like a GitHub or Vercel personal access
+ * token: signing out doesn't touch it. So a key that lasts more than a day,
+ * or has full access, needs a recent strong sign-in ("sudo mode"): when the
+ * box answers reauth_required, the dialog asks the person to confirm with a
+ * passkey or to sign in again, then makes the key.
  */
 
 export const keyProjects = (t: Token): string[] | "all" => (t.projects === "all" || !t.projects?.length ? "all" : t.projects);
 /** Live keys only (not revoked). */
 export const onlyKeys = (all: Token[]) => all.filter((t) => !t.revokedAt);
 
-type NewKey = { name: string; projects: "all" | string[]; access: "full" | "read"; expiresInDays?: number };
-const createKey = (k: NewKey) => api.createToken({ ...k, expiresInDays: k.expiresInDays ?? null });
+/** How long a key works: the box's choices, 0 is never. */
+type Days = 30 | 90 | 365 | 0;
+type NewKey = { name: string; projects: "all" | string[]; access: "full" | "read"; expiresInDays: Days };
+const createKey = (k: NewKey) => api.createToken(k);
+/** Where "Sign in again" comes back to: this dialog, open. */
+const backHere = "/settings/keys?create=true";
 
 export function KeysPage({ create }: { create?: boolean }) {
   useTitle("API keys");
@@ -148,17 +160,21 @@ function CreateKey({ onClose, fixed }: { onClose: () => void; fixed?: string }) 
   const [all, setAll] = useState(!fixed);
   const [picked, setPicked] = useState<string[]>(fixed ? [fixed] : []);
   const [access, setAccess] = useState<"full" | "read">("full");
-  const [expires, setExpires] = useState<0 | 30 | 90>(90);
+  const [expires, setExpires] = useState<Days>(90);
   const [created, setCreated] = useState<CreatedToken | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const make = useMutation({
-    mutationFn: () => createKey({ name: name.trim(), projects: all ? "all" : picked, access, ...(expires ? { expiresInDays: expires } : {}) }),
+    mutationFn: () => createKey({ name: name.trim(), projects: all ? "all" : picked, access, expiresInDays: expires }),
     onSuccess: (c) => {
       setCreated(c);
+      setConfirming(false);
       void qc.invalidateQueries({ queryKey: ["tokens"] });
     },
+    onError: (e) => isProblem(e, "reauth_required") && setConfirming(true),
   });
   const ok = /^[a-z0-9][a-z0-9-_.]{0,63}$/i.test(name.trim()) && (all || picked.length > 0);
   if (created) return <SecretOnce created={created} onDone={onClose} />;
+  if (confirming) return <ConfirmItsYou name={name.trim()} onBack={() => (setConfirming(false), make.reset())} onConfirmed={() => make.mutate()} making={make.isPending} />;
   return (
     <form
       onSubmit={(e) => {
@@ -206,12 +222,16 @@ function CreateKey({ onClose, fixed }: { onClose: () => void; fixed?: string }) 
           <Pick value="full" title="Full access" />
           <Pick value="read" title="Read only" />
         </Choices>
-        <Choices label="Expires" row value={String(expires)} onValueChange={(v) => setExpires(Number(v) as typeof expires)}>
-          <Pick value="0" title="Never" />
-          <Pick value="30" title="30 days" />
-          <Pick value="90" title="90 days" />
-        </Choices>
-        {make.isError && <ProblemNote error={make.error} />}
+        <div>
+          <Choices label="Expires" row value={String(expires)} onValueChange={(v) => setExpires(Number(v) as Days)}>
+            <Pick value="30" title="30 days" />
+            <Pick value="90" title="90 days" />
+            <Pick value="365" title="1 year" />
+            <Pick value="0" title="Never" />
+          </Choices>
+          <p className="mt-1.5 text-xs text-ink-3">It keeps working after you sign out. Revoke it here any time.</p>
+        </div>
+        {make.isError && !isProblem(make.error, "reauth_required") && <ProblemNote error={make.error} />}
       </DialogBody>
       <DialogFooter>
         <Button type="button" variant="ghost" onClick={onClose}>
@@ -222,6 +242,67 @@ function CreateKey({ onClose, fixed }: { onClose: () => void; fixed?: string }) 
         </Button>
       </DialogFooter>
     </form>
+  );
+}
+
+/**
+ * Sudo mode: a key that outlives this session needs proof the person is still
+ * here. A passkey confirms in place (10 minutes) and the key is made at once;
+ * otherwise sign in again with a passkey, Google, GitHub or an emailed link.
+ */
+function ConfirmItsYou({ name, onBack, onConfirmed, making }: { name: string; onBack: () => void; onConfirmed: () => void; making: boolean }) {
+  const words = passkeyWords();
+  const passkeys = useQuery({ ...q.passkeys, enabled: webauthnSupported(), retry: false });
+  const canPasskey = webauthnSupported() && (passkeys.data?.length ?? 0) > 0;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const confirm = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      await api.confirm(await getAssertion(await api.confirmOptions()));
+      onConfirmed();
+    } catch (e) {
+      // Closing the prompt is a choice, not an error.
+      if (!(e instanceof DOMException && (e.name === "NotAllowedError" || e.name === "AbortError"))) setError(e instanceof DOMException ? new Error(passkeyError(e)) : e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Confirm it’s you</DialogTitle>
+        <DialogDescription>
+          {name || "This key"} will keep working after you sign out, so Tiffin checks it’s really you first. Keys that last more than a day, or have full
+          access, need a sign-in from the last 10 minutes.
+        </DialogDescription>
+      </DialogHeader>
+      <DialogBody className="flex flex-col gap-3">
+        {canPasskey && (
+          <Button variant="primary" size="lg" className="w-full" onClick={confirm} disabled={busy || making}>
+            <Fingerprint />
+            {busy ? `Waiting for ${words.button}…` : making ? "Creating…" : `Confirm with ${words.button}`}
+          </Button>
+        )}
+        <Button asChild size="lg" variant={canPasskey ? "secondary" : "primary"} className="w-full">
+          <Link to="/login" search={{ reason: "confirm", next: backHere }}>
+            Sign in again
+          </Link>
+        </Button>
+        <p className="text-xs text-ink-3">
+          {canPasskey
+            ? "Or sign in again with Google, GitHub or an emailed link, then create the key."
+            : "With a passkey, Google, GitHub or an emailed link. Add a passkey in Settings › Passkeys to confirm in place next time."}
+        </p>
+        {!!error && <ProblemNote error={error} />}
+      </DialogBody>
+      <DialogFooter>
+        <Button type="button" variant="ghost" onClick={onBack}>
+          Back
+        </Button>
+      </DialogFooter>
+    </>
   );
 }
 
