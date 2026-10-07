@@ -180,29 +180,44 @@ func reopenBlocked(ctx context.Context, admin *pgx.Conn, log *slog.Logger) error
 	return nil
 }
 
-// DeleteBranch drops a branch database (closing its connections).
+// DeleteBranch drops a branch database (closing its connections), without a
+// snapshot: the runtime deletes a preview's branch with the preview.
 func DeleteBranch(ctx context.Context, p *platform.Platform, project, name string) error {
+	_, err := deleteBranch(ctx, project, name, false)
+	return err
+}
+
+// deleteBranch drops a branch database, after snapshotting it when keep is
+// set (the snapshot is returned): someone deleting a branch by hand gets
+// SnapshotKeep to change their mind, as with every other database delete.
+func deleteBranch(ctx context.Context, project, name string, keep bool) (*PGSnapshot, error) {
 	if !BranchPattern.MatchString(name) {
-		return api.NewProblem(422, "validation", "invalid branch name")
+		return nil, api.NewProblem(422, "validation", "invalid branch name")
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	admin, err := Admin(ctx, "postgres")
 	if err != nil {
-		return fmt.Errorf("connect to postgres: %w", err)
+		return nil, fmt.Errorf("connect to postgres: %w", err)
 	}
 	defer admin.Close(ctx)
 	dbs, err := projectDatabases(ctx, admin, project)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	dst := BranchDatabase(project, name)
 	if !hasDB(dbs, dst) {
-		return api.NewProblem(404, "not_found", fmt.Sprintf("branch %q does not exist in project %s", name, project))
+		return nil, api.NewProblem(404, "not_found", fmt.Sprintf("branch %q does not exist in project %s", name, project))
+	}
+	var snap *PGSnapshot
+	if keep {
+		if snap, err = takeSnapshot(ctx, project, dst, name, "branch deleted"); err != nil {
+			return nil, fmt.Errorf("snapshot the branch first (nothing was deleted): %w", err)
+		}
 	}
 	_, err = admin.Exec(ctx, fmt.Sprintf(`DROP DATABASE %s WITH (FORCE)`, quoteIdent(dst)))
 	poolsChanged()
-	return err
+	return snap, err
 }
 
 // ListBranches returns a project's branches, oldest first.

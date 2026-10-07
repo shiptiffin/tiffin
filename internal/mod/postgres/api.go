@@ -13,6 +13,12 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 )
 
+// PGBranchDeleted is a deleted branch and the snapshot that can bring it back.
+type PGBranchDeleted struct {
+	Branch   string `json:"branch"`
+	Snapshot string `json:"snapshot" doc:"Snapshot of the branch taken before it was dropped; restore it with snapshots restore"`
+}
+
 // PGConnection is a project's database connection string. Owner only.
 type PGConnection struct {
 	DatabaseURL string `json:"databaseUrl" doc:"postgresql:// URL with the project's password (127.0.0.1, inside the box)"`
@@ -154,12 +160,14 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}))
 
 	bd := api.Op("branch-delete", http.MethodDelete, "/v1/projects/{project}/branches/{name}", "branches delete", api.RiskDestructive,
-		"Delete a database branch", "Drops a branch database and closes its connections. The branch's data is gone; main is untouched. Needs full access.", tag)
+		"Delete a database branch",
+		"Snapshots a branch database, then drops it and closes its connections; main is untouched. It runs at once (no plan): "+
+			"the snapshot is kept 7 days, and `snapshots restore` with its ID brings the branch back. Needs full access.", tag)
 	bd.Errors = append(bd.Errors, 404)
 	huma.Register(a, bd, api.Wrap(func(ctx context.Context, in *struct {
 		Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 		Name    string `path:"name" pattern:"^[a-z][a-z0-9-]{0,18}$" doc:"Branch name"`
-	}) (*struct{}, error) {
+	}) (*struct{ Body *PGBranchDeleted }, error) {
 		pr := api.PrincipalFrom(ctx)
 		if err := pr.Require(tokens.ScopeApplyIrreversible, in.Project); err != nil {
 			return nil, err
@@ -167,11 +175,12 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if err := onBox(p); err != nil {
 			return nil, err
 		}
-		if err := DeleteBranch(ctx, p, in.Project, in.Name); err != nil {
+		snap, err := deleteBranch(ctx, in.Project, in.Name, true)
+		if err != nil {
 			return nil, err
 		}
-		_ = p.DB.Audit(ctx, pr.TokenID, "postgres.branch_delete", in.Project+"/"+in.Name, map[string]any{"session": pr.Session})
-		return &struct{}{}, nil
+		_ = p.DB.Audit(ctx, pr.TokenID, "postgres.branch_delete", in.Project+"/"+in.Name, map[string]any{"session": pr.Session, "snapshot": snap.ID})
+		return &struct{ Body *PGBranchDeleted }{&PGBranchDeleted{Branch: in.Name, Snapshot: snap.ID}}, nil
 	}))
 
 	sl := api.Op("snapshots-list", http.MethodGet, "/v1/projects/{project}/snapshots", "snapshots list", api.RiskRead,

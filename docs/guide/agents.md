@@ -26,6 +26,8 @@ and can undo it. There is no second approval step on top.
 - Irreversible steps (dropping a database or bucket) are marked as such in the plan,
   with what they would destroy ("18,204 rows in 12 tables"). Databases keep a 7-day
   snapshot and buckets a 7-day trash.
+- Data commands outside the config (`tiffin sql write`, `tiffin branches delete`) run at
+  once without a plan, after a snapshot that `tiffin snapshots restore` brings back.
 - `tiffin undo <change>` reverts a change, after showing you the plan.
 
 ## API keys

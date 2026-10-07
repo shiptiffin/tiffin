@@ -23,8 +23,10 @@ pooler, `DIRECT_DATABASE_URL` straight to Postgres, and `DATABASE_POOL_MAX`.
 - **Migrations:** an app's `release` command (`bunx drizzle-kit migrate`) runs once per
   deploy before the new version takes traffic, with `DATABASE_URL` set straight to
   Postgres (migration tools hold session locks); a failure keeps the old version serving.
-- **Snapshots:** deleting the database (or writing through the console) keeps a
-  snapshot for 7 days; `tiffin snapshots restore` brings it back.
+- **Snapshots:** deleting the database, deleting a branch by hand or writing through the
+  console keeps a snapshot for 7 days; `tiffin snapshots restore` brings it back. Those
+  data commands run at once (no plan); only a preview's own branch, deleted with the
+  preview, keeps none.
 - **Org isolation:** `tiffin_auth.enable_org_rls('table')` adds row-level security keyed on the
   signed-in user's organization. Its policy is restrictive: the table's other policies can
   narrow what a query sees, never widen it to another organization's rows.

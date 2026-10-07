@@ -10,7 +10,8 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
 
 1. Read `tiffin.config.ts` and `tiffin status` before changing anything.
 2. Change the box only through plans: `tiffin plan` → review every op's risk and reason →
-   `tiffin apply --confirm <that hash> -m "<why>"`. Exit code 4 means re-plan.
+   `tiffin apply --confirm <that hash> -m "<why>"`. Exit code 4 means re-plan. Data
+   commands (`sql write`, `branches delete`) run at once, after a snapshot.
 3. Before an irreversible plan (deleting data), say exactly what will be lost; your
    client asks the human before destructive tools. A `403 forbidden` means your API key
    doesn't reach it: ask the human, don't work around it. "Read-only" errors (a database
