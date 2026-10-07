@@ -291,7 +291,8 @@ function checkMail(d, { kind, subject, needLink = true }) {
   check(`${kind}: HTML shows the app name`, (d.html ?? "").includes(APP_NAME.replace(/&/g, "&amp;")), "");
   if (needLink) {
     const links = d.links ?? [];
-    const bad = links.filter((l) => !l.startsWith(`${APP}/`) || /localhost|127\.0\.0\.1|dashboard\.|:\d{2,5}\//.test(l));
+    // The footer links the app's address itself (no path).
+    const bad = links.filter((l) => !(l === APP || l.startsWith(`${APP}/`)) || /localhost|127\.0\.0\.1|dashboard\.|:\d{2,5}\//.test(l));
     check(`${kind}: links point at ${APP}`, links.length > 0 && bad.length === 0, `links: ${links.map((l) => red(l)).join(" ")}`);
     const link = links.find((l) => l.startsWith(`${APP}/api/auth/`));
     const html = d.html ?? "";
@@ -542,11 +543,11 @@ async function flowMagic() {
   section("d", "Magic link");
   const r = await call("POST", "/api/auth/sign-in/magic-link", { body: { email: TO, callbackURL: "/dashboard" }, captcha: true });
   check("magic link requested", r.status === 200 && r.json?.status === true, brief(r));
-  const m = await waitMail(/^Your sign-in link for /, "magic-link");
+  const m = await waitMail(/^Sign in to /, "magic-link");
   check("magic-link mail in the log", !!m, m ? `${m.id} "${m.subject}"` : "nothing within 60s");
   if (!m) return;
   const d = await settle(m.id);
-  checkMail(d, { kind: "magic-link", subject: /^Your sign-in link for / });
+  checkMail(d, { kind: "magic-link", subject: /^Sign in to / });
   const link = authLink(d, "/magic-link/verify");
   check("magic link found", !!link, link ?? "");
   if (!link) return;
@@ -571,7 +572,8 @@ async function flowOtp() {
   checkMail(d, { kind: "otp", subject: /^\d{6} is your /, needLink: false });
   const otp = (/^(\d{6}) is your /.exec(d.subject) ?? [])[1];
   check("code is in subject, text and HTML", !!otp && d.text.includes(otp) && d.html.includes(otp), "");
-  check("code mail has no links", (d.links ?? []).length === 0, `links: ${(d.links ?? []).length}`);
+  // A code mail carries no sign-in link: at most the footer's link to the app.
+  check("code mail has no sign-in link", (d.links ?? []).every((l) => l === APP || l === `${APP}/`), `links: ${(d.links ?? []).map((l) => red(l)).join(" ") || "none"}`);
   const wrong = String((Number(otp) + 1) % 1_000_000).padStart(6, "0");
   const bad = await call("POST", "/api/auth/sign-in/email-otp", { body: { email: TO, otp: wrong } });
   check("wrong code refused", bad.status === 400 || bad.status === 401 || bad.status === 403, brief(bad));
