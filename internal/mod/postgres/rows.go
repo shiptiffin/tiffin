@@ -334,17 +334,26 @@ func joinAnd(a, b string) string {
 	return a + " AND " + b
 }
 
-// readAll reads a result in text format.
+// readAll reads a result in text format, refusing one that would keep more
+// than maxResultBytes in memory.
 func readAll(rr *pgconn.ResultReader) ([]pgconn.FieldDescription, [][][]byte, error) {
 	fields := rr.FieldDescriptions()
 	var rows [][][]byte
+	total := 0
 	for rr.NextRow() {
 		vals := rr.Values()
 		row := make([][]byte, len(vals))
 		for i, v := range vals {
+			total += len(v)
 			if v != nil {
 				row[i] = append([]byte{}, v...)
 			}
+		}
+		if total > maxResultBytes {
+			_, _ = rr.Close()
+			p := api.NewProblem(422, "validation", fmt.Sprintf("these rows hold more than %d MiB", maxResultBytes>>20))
+			p.Hint = "ask for fewer rows at a time"
+			return nil, nil, p
 		}
 		rows = append(rows, row)
 	}

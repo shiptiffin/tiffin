@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,7 +13,9 @@ import (
 
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/platform"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -49,9 +52,10 @@ type PGSQLResult struct {
 	Snapshot   string              `json:"snapshot,omitempty" doc:"Snapshot taken before a write; restore it with snapshots restore"`
 }
 
-// RunSQL runs SQL as the project's own role. Without write, read-only is
-// enforced by Postgres: one statement (extended protocol), inside a READ
-// ONLY transaction that is always rolled back.
+// RunSQL runs SQL against a project's database. With write it runs as the
+// project's own role. Without, it runs as the project's read role, and
+// read-only is enforced by Postgres: one statement (extended protocol),
+// inside a READ ONLY transaction that is always rolled back.
 func RunSQL(ctx context.Context, p *platform.Platform, project string, in PGSQLRequest, write bool) (*PGSQLResult, error) {
 	db, err := targetDatabase(ctx, p, project, in.Branch)
 	if err != nil {
@@ -81,7 +85,12 @@ func RunSQL(ctx context.Context, p *platform.Platform, project string, in PGSQLR
 		out.Snapshot = snap.ID
 	}
 	start := time.Now()
-	conn, err := roleConn(ctx, p, project, db, timeout, !write)
+	var conn *pgx.Conn
+	if write {
+		conn, err = roleConn(ctx, p, project, db, timeout, false)
+	} else {
+		conn, err = readerConn(ctx, p, project, mainBranch(in.Branch), db, timeout)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -91,19 +100,20 @@ func RunSQL(ctx context.Context, p *platform.Platform, project string, in PGSQLR
 	if err != nil {
 		return nil, err
 	}
+	budget := maxResultBytes
 	switch {
 	case !write:
 		if err := pc.Exec(ctx, "BEGIN TRANSACTION READ ONLY").Close(); err != nil {
 			return nil, sqlError(err)
 		}
-		r, err := readResult(pc.ExecParams(ctx, in.SQL, params, nil, nil, nil), limit)
+		r, err := readResult(pc.ExecParams(ctx, in.SQL, params, nil, nil, nil), limit, &budget)
 		_ = pc.Exec(context.Background(), "ROLLBACK").Close()
 		if err != nil {
 			return nil, sqlError(err)
 		}
 		out.Results = append(out.Results, *r)
 	case len(params) > 0:
-		r, err := readResult(pc.ExecParams(ctx, in.SQL, params, nil, nil, nil), limit)
+		r, err := readResult(pc.ExecParams(ctx, in.SQL, params, nil, nil, nil), limit, &budget)
 		if err != nil {
 			return nil, sqlError(err)
 		}
@@ -111,7 +121,7 @@ func RunSQL(ctx context.Context, p *platform.Platform, project string, in PGSQLR
 	default:
 		mrr := pc.Exec(ctx, in.SQL)
 		for mrr.NextResult() {
-			r, err := readResult(mrr.ResultReader(), limit)
+			r, err := readResult(mrr.ResultReader(), limit, &budget)
 			if err != nil {
 				_ = mrr.Close()
 				return nil, sqlError(err)
@@ -194,7 +204,19 @@ func typeName(oid uint32) string {
 	return "oid:" + strconv.FormatUint(uint64(oid), 10)
 }
 
-func readResult(rr *pgconn.ResultReader, limit int) (*PGStatementResult, error) {
+// Limits on what one SQL request keeps in memory: each value is cut to
+// maxCellBytes, and rows stop being kept (still counted, the result marked
+// truncated) once they hold maxResultBytes. Rows are counted by the limit
+// a request gives too.
+const (
+	maxCellBytes   = 100_000
+	maxResultBytes = 32 << 20
+)
+
+// readResult reads one result, keeping at most limit rows and what fits in
+// budget (bytes, shared by the request's results). Values are copied: the
+// driver reuses its buffer for the next row.
+func readResult(rr *pgconn.ResultReader, limit int, budget *int) (*PGStatementResult, error) {
 	fields := rr.FieldDescriptions()
 	r := &PGStatementResult{}
 	for _, f := range fields {
@@ -203,11 +225,19 @@ func readResult(rr *pgconn.ResultReader, limit int) (*PGStatementResult, error) 
 	var n int64
 	for rr.NextRow() {
 		n++
-		if int(n) > limit {
-			r.Truncated = true
+		if r.Truncated {
 			continue
 		}
 		vals := rr.Values()
+		size := 0
+		for _, v := range vals {
+			size += min(len(v), maxCellBytes) + 8
+		}
+		if int(n) > limit || size > *budget {
+			r.Truncated = true
+			continue
+		}
+		*budget -= size
 		row := make([]any, len(vals))
 		for i, v := range vals {
 			row[i] = textValue(fields[i], v)
@@ -227,48 +257,65 @@ func readResult(rr *pgconn.ResultReader, limit int) (*PGStatementResult, error) 
 	return r, nil
 }
 
-// textValue turns a text-format value into a JSON-friendly one.
+// textValue turns a text-format value into a JSON-friendly one, never
+// keeping v itself (the driver's buffer) and never more than maxCellBytes
+// of it.
 func textValue(f pgconn.FieldDescription, v []byte) any {
 	if v == nil {
 		return nil
 	}
 	if f.Format != 0 {
-		return v // binary (never requested): base64 in JSON
+		return bytes.Clone(v[:min(len(v), maxCellBytes)]) // binary (never requested): base64 in JSON
 	}
-	s := string(v)
 	switch f.DataTypeOID {
 	case pgtype.Int2OID, pgtype.Int4OID, pgtype.OIDOID:
-		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		if n, err := strconv.ParseInt(string(v), 10, 64); err == nil {
 			return n
 		}
 	case pgtype.Int8OID:
 		// Beyond 2^53 a JSON number loses precision: keep big ones as text.
-		if n, err := strconv.ParseInt(s, 10, 64); err == nil && n < 1<<53 && n > -(1<<53) {
+		if n, err := strconv.ParseInt(string(v), 10, 64); err == nil && n < 1<<53 && n > -(1<<53) {
 			return n
 		}
 	case pgtype.Float4OID, pgtype.Float8OID:
-		if x, err := strconv.ParseFloat(s, 64); err == nil && !strings.ContainsAny(s, "IN") {
-			return x
+		if s := string(v); !strings.ContainsAny(s, "IN") {
+			if x, err := strconv.ParseFloat(s, 64); err == nil {
+				return x
+			}
 		}
 	case pgtype.BoolOID:
-		return s == "t"
+		return len(v) == 1 && v[0] == 't'
 	case pgtype.JSONOID, pgtype.JSONBOID:
-		if json.Valid(v) {
-			return json.RawMessage(v)
+		if len(v) <= maxCellBytes && json.Valid(v) {
+			return json.RawMessage(bytes.Clone(v))
 		}
 	}
-	if !utf8.ValidString(s) {
-		return v
+	cut := len(v) > maxCellBytes
+	if cut {
+		n := maxCellBytes
+		for n > 0 && !utf8.RuneStart(v[n]) {
+			n--
+		}
+		v = v[:n]
 	}
-	if len(s) > 100_000 {
-		return s[:100_000] + "…"
+	if !utf8.Valid(v) {
+		return bytes.Clone(v)
 	}
-	return s
+	if cut {
+		return string(v) + "…"
+	}
+	return string(v)
 }
 
 // sqlError reports a Postgres error as a 422 with its SQLSTATE and position,
 // so agents can fix the statement.
 func sqlError(err error) error {
+	var big *pgproto3.ExceededMaxBodyLenErr
+	if errors.As(err, &big) {
+		p := api.NewProblem(422, "validation", fmt.Sprintf("a row of the result is larger than %d MiB", maxRowBytes>>20))
+		p.Hint = "select fewer or smaller columns, e.g. left(col, 1000) or length(col)"
+		return p
+	}
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) {
 		msg := pe.Message

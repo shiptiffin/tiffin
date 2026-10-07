@@ -2,12 +2,14 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/btahir/tiffin/internal/api"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -193,6 +195,59 @@ func TestTenantHardening(t *testing.T) {
 			t.Fatalf("lifted, the role cannot log in: %v", err)
 		}
 		c.Close(ctx)
+	})
+
+	t.Run("read-only SQL cannot end the app's sessions", func(t *testing.T) {
+		victim, err := tc.as(t, "p_shop", "shop", "p_shop")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer victim.Close(ctx)
+		const kill = `SELECT count(*) FILTER (WHERE pg_terminate_backend(pid)) FROM pg_stat_activity WHERE usename = 'p_shop' AND pid <> pg_backend_pid()`
+		r, err := tc.as(t, "p_shop__read", "read", "p_shop")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Close(ctx)
+		var n int
+		if err := r.QueryRow(ctx, kill).Scan(&n); err == nil {
+			t.Fatalf("the read role ended %d of the app's sessions", n)
+		}
+		if err := victim.Ping(ctx); err != nil {
+			t.Fatalf("the app's session is gone: %v", err)
+		}
+	})
+
+	t.Run("SQL results are copied and bounded", func(t *testing.T) {
+		c, err := tc.as(t, "p_shop", "shop", "p_shop")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close(ctx)
+		c.PgConn().Frontend().SetMaxBodyLen(maxRowBytes)
+		budget := maxResultBytes
+		r, err := readResult(c.PgConn().ExecParams(ctx, `SELECT jsonb_build_object('i', i, 'pad', repeat('x', 300)) FROM generate_series(1, 3000) g(i)`, nil, nil, nil, nil), 10000, &budget)
+		if err != nil || len(r.Rows) != 3000 {
+			t.Fatal(err)
+		}
+		for i, row := range r.Rows {
+			var v struct{ I int }
+			if err := json.Unmarshal(row[0].(json.RawMessage), &v); err != nil || v.I != i+1 {
+				t.Fatalf("row %d holds %s (%v): the driver's buffer was kept", i, row[0], err)
+			}
+		}
+		budget = maxResultBytes
+		r, err = readResult(c.PgConn().ExecParams(ctx, `SELECT repeat('x', 200000) FROM generate_series(1, 400)`, nil, nil, nil, nil), 10000, &budget)
+		if err != nil || !r.Truncated || r.RowCount != 400 || len(r.Rows)*maxCellBytes > maxResultBytes {
+			t.Fatalf("kept %d rows, truncated %v, count %d: %v", len(r.Rows), r.Truncated, r.RowCount, err)
+		}
+		if s := r.Rows[0][0].(string); len(s) > maxCellBytes+len("…") {
+			t.Fatalf("a value of %d bytes", len(s))
+		}
+		_, err = readResult(c.PgConn().ExecParams(ctx, `SELECT repeat('x', 70 << 20)`, nil, nil, nil, nil), 10, &budget)
+		if p, ok := sqlError(err).(*api.Problem); !ok || p.Status != 422 {
+			t.Fatalf("a 70 MiB row: %v", err)
+		}
 	})
 
 	t.Run("retuning leaves read roles their share", func(t *testing.T) {

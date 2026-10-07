@@ -71,18 +71,51 @@ func roleConn(ctx context.Context, p *platform.Platform, project, db string, tim
 	if !ok {
 		return nil, errNoService(project)
 	}
+	return consoleConn(ctx, Role(project), pw, db, timeout, readOnly)
+}
+
+// readerConn connects to db (the project's database or its branch) as the
+// project's read role, for SQL that must change nothing. A read-only
+// transaction as the project's own role still could: end the app's
+// sessions (pg_terminate_backend works on a role's own backends), which no
+// rollback undoes. The read role is a member of no project role. The role
+// is made, and granted each database, on first use.
+func readerConn(ctx context.Context, p *platform.Platform, project, branch, db string, timeout time.Duration) (*pgx.Conn, error) {
+	pw, err := datakit.EnsureSecret(ctx, p, nsReadPassword, project)
+	if err != nil {
+		return nil, err
+	}
+	if c, err := consoleConn(ctx, ReadRole(project), pw, db, timeout, true); err == nil {
+		return c, nil
+	}
+	if _, err := ReadEnv(ctx, p, project, branch); err != nil {
+		return nil, err
+	}
+	return consoleConn(ctx, ReadRole(project), pw, db, timeout, true)
+}
+
+// maxRowBytes is the largest row a console query may return: the driver
+// holds a whole row in memory before it is cut down for the answer.
+const maxRowBytes = 64 << 20
+
+func consoleConn(ctx context.Context, user, pw, db string, timeout time.Duration, readOnly bool) (*pgx.Conn, error) {
 	cfg, err := pgx.ParseConfig(fmt.Sprintf("host=%s port=%d dbname=%s sslmode=disable connect_timeout=5", SocketDir, Port, db))
 	if err != nil {
 		return nil, err
 	}
-	cfg.User, cfg.Password = Role(project), pw
+	cfg.User, cfg.Password = user, pw
 	cfg.RuntimeParams["application_name"] = "tiffin-sql"
 	cfg.RuntimeParams["statement_timeout"] = strconv.Itoa(int(timeout.Milliseconds()))
 	cfg.RuntimeParams["lock_timeout"] = "10000"
 	if readOnly {
 		cfg.RuntimeParams["default_transaction_read_only"] = "on"
 	}
-	return pgx.ConnectConfig(ctx, cfg)
+	c, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	c.PgConn().Frontend().SetMaxBodyLen(maxRowBytes)
+	return c, nil
 }
 
 // HasService reports whether the project's manifest has a postgres service.

@@ -54,8 +54,10 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}
 	sql := api.Op("sql", http.MethodPost, "/v1/projects/{project}/sql", "sql", api.RiskRead,
 		"Query a project's database (read-only)",
-		"Runs one SQL statement as the project's own Postgres role, inside a READ ONLY transaction that is always rolled back, "+
-			"and returns rows as JSON. Needs only read access and changes nothing, so it never asks for confirmation. "+
+		"Runs one SQL statement as the project's read-only Postgres role (p_<project>__read: it reads every table, and row-level "+
+			"security applies to it), inside a READ ONLY transaction that is always rolled back, and returns rows as JSON. "+
+			"Values longer than 100,000 characters are cut, and rows stop at 32 MiB (truncated is set). "+
+			"Needs only read access and changes nothing, so it never asks for confirmation. "+
 			"A statement that writes fails with SQLSTATE 25006: use sql_write (CLI: tiffin sql write, or tiffin sql --write) for that. "+
 			"Use branch to target a preview branch. Postgres errors come back as 422 with the SQLSTATE.", tag)
 	sql.Errors = append(sql.Errors, 404, 409)

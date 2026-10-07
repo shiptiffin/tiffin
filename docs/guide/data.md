@@ -11,7 +11,8 @@ Each project gets its own Postgres 18 database and role. Apps get `DATABASE_URL`
 pooler, `DIRECT_DATABASE_URL` straight to Postgres, and `DATABASE_POOL_MAX`.
 
 - **SQL:** `tiffin sql <project> "select ..."` runs one statement read-only (MCP `sql`;
-  no confirmation). `tiffin sql write <project> "..."` (or `--write`; MCP `sql_write`)
+  no confirmation), as the project's read-only role `p_<project>__read`: it reads every
+  table, row-level security applies to it, and it cannot touch the app's sessions. `tiffin sql write <project> "..."` (or `--write`; MCP `sql_write`)
   changes data and schema: it needs full access and takes a snapshot first.
 - **Branches:** `tiffin branches create <project> --name pr-12` clones the database with
   copy-on-write in milliseconds, whatever its size. Every app preview gets one of its
