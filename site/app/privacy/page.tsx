@@ -145,13 +145,15 @@ const sections: Section[] = [
           </li>
           <li>
             <strong>App sign-in</strong> stores your account ID, name, email address and picture in the app&rsquo;s
-            user accounts in the box&rsquo;s database, with the tokens Google returns at sign-in. Those tokens give
-            access only to the same basic profile, and the access token expires after an hour.
+            user accounts in the box&rsquo;s database, with the tokens Google returns at sign-in. Those tokens are
+            stored encrypted on the box, give access only to the same basic profile, and the access token expires
+            after an hour.
           </li>
           <li>
-            <strong>Encryption:</strong> all traffic to and from a box uses HTTPS (TLS). The secret keys for
-            ShipTiffin&rsquo;s Google sign-in are encrypted on the box. Backup copies are encrypted before they
-            leave the box.
+            <strong>Encryption:</strong> all traffic to and from a box uses HTTPS (TLS). The sign-in tokens Google
+            returns (access, refresh and ID tokens) are encrypted before they are stored on the box, with a key
+            kept outside the app&rsquo;s database and out of its code. The secret keys for ShipTiffin&rsquo;s
+            Google sign-in are encrypted on the box. Backup copies are encrypted before they leave the box.
           </li>
           <li>
             <strong>Access controls:</strong> databases are not reachable from the internet. On a box, an
@@ -392,10 +394,10 @@ const sections: Section[] = [
       <>
         <p>
           Every box is its own server, so one customer&rsquo;s apps never share a machine with another&rsquo;s.
-          Traffic is HTTPS only. Databases and other services are not reachable from the internet. Secrets are
-          encrypted on the box, API keys are stored only as hashes, and the dashboard signs people in with
-          one-time links or passkeys rather than passwords. Rate limits and automatic bans guard against
-          scanners and brute-force attempts.
+          Traffic is HTTPS only. Databases and other services are not reachable from the internet. Secrets and
+          the sign-in tokens that Google and other providers return are encrypted on the box, API keys are stored
+          only as hashes, and the dashboard signs people in with one-time links or passkeys rather than passwords.
+          Rate limits and automatic bans guard against scanners and brute-force attempts.
         </p>
         <p>
           No system is perfectly secure. If we learn of a breach that affects your data, we will tell you promptly.

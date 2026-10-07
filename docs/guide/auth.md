@@ -330,6 +330,15 @@ an address that already has an account here joins that account. Other providers 
 only when they report the address as verified; otherwise the sign-in is refused
 (`account_not_linked`) and the person signs in the way they did before.
 
+**Provider tokens.** The access, refresh and ID tokens a provider returns at sign-in are
+kept with the person's account (`tiffin_auth.account`), encrypted (XChaCha20-Poly1305)
+with the project's auth key. That key lives in the auth engine's config, never in the
+app's database or environment, so reading the table gives ciphertext. To call the
+provider's API for the signed-in person, ask the engine: Better Auth's client
+`authClient.getAccessToken({ accountId })` (the account's `id` from `listAccounts()`)
+returns a valid access token, refreshing it first when it has expired, and
+`refreshToken({ accountId })` forces a refresh. Both answer only to that account's own user.
+
 ## Previews
 
 Sign-in works on previews (`<preview>--<name>.<domain>`) as on production: the box

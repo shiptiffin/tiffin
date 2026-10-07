@@ -24,6 +24,11 @@ Plainly, so you can decide what to trust it with.
   approval step to get around it.
 - **Secrets** (env vars) are encrypted with the box's own age key and are never shown
   after you set them.
+- **App sign-in tokens.** The access, refresh and ID tokens that Google, GitHub and the
+  other providers return when someone signs in to an app are encrypted (XChaCha20-Poly1305)
+  with the project's auth key before they reach the app's database. The key stays in the
+  auth engine's config, out of the database and the app's environment. See
+  [Sign-in providers](auth.md#sign-in-providers).
 - **Dashboard sign-in** is a one-time link (`tiffin login`, an invite, or one emailed on
   request), a passkey, or Google or GitHub (see below).
   Each gives a 12-hour session with exactly that person's role, in an HttpOnly,

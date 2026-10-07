@@ -8,6 +8,7 @@ import { emailOTP, jwt, magicLink, organization, twoFactor } from "better-auth/p
 import { apiKey } from "@better-auth/api-key";
 import { passkey } from "@better-auth/passkey";
 import { setCookieCache } from "better-auth/cookies";
+import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
 import { PostgresDialect } from "kysely";
 import pg from "pg";
 import { z } from "zod";
@@ -89,6 +90,25 @@ async function orgView(adapter: Adapter, userId: string, orgId: string, cap: str
 
 /** The adapter of the transaction the caller runs in, if any (so rows it made but hasn't committed are seen). */
 const txAdapter = async (fallback: Adapter): Promise<Adapter> => (await getCurrentAdapter(fallback as never)) as unknown as Adapter;
+
+/**
+ * Sign-in provider tokens at rest. With account.encryptOAuthTokens, Better
+ * Auth encrypts the access and refresh tokens (XChaCha20-Poly1305, keyed by
+ * the project's secret) and decrypts them for getAccessToken and
+ * refreshToken, but stores the ID token as it came. These do the same for
+ * the ID token, with the same key and cipher. Ciphertext is hex (or a
+ * "$ba$" envelope with versioned secrets); an ID token is a JWT, never hex.
+ */
+type SecretConfig = Parameters<typeof symmetricEncrypt>[0]["key"];
+const sealed = (t: string) => t.startsWith("$ba$") || (t.length % 2 === 0 && /^[0-9a-f]+$/i.test(t));
+async function sealIdToken<T extends { idToken?: string | null }>(key: SecretConfig | undefined, data: T): Promise<T> {
+  if (typeof data.idToken !== "string" || !data.idToken || sealed(data.idToken)) return data;
+  if (!key) throw new Error("auth engine: no secret to encrypt the ID token with");
+  return { ...data, idToken: await symmetricEncrypt({ key, data: data.idToken }) };
+}
+
+/** Endpoints that hand an account's provider tokens back (decrypted) to its signed-in owner. */
+const TOKEN_PATHS = new Set(["/get-access-token", "/refresh-token"]);
 
 /** The organization a user joined first, if any. */
 async function firstOrg(adapter: Adapter, userId: string): Promise<string | undefined> {
@@ -245,7 +265,7 @@ const ORG_CHANGES = new Set([
 /** The Better Auth options for a project; also what migrations are computed from. */
 export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): BetterAuthOptions {
   const methods = new Set(c.methods);
-  const holder: { adapter?: Adapter } = {};
+  const holder: { adapter?: Adapter; secret?: SecretConfig } = {};
   const mail = (m: Parameters<typeof send>[3]) => send(project, c.smtpUrl, `${c.appName} <${c.emailFrom}>`, m);
   const brand: Brand = { app: c.appName, primaryUrl: c.primaryUrl, ...c.emailBrand };
   const originOf = (request?: Request) => {
@@ -261,6 +281,7 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
     id: "tiffin",
     init(ctx) {
       holder.adapter = ctx.adapter as unknown as Adapter;
+      holder.secret = ctx.secretConfig as SecretConfig;
     },
     endpoints: {
       tiffinConfig: createAuthEndpoint("/tiffin/config", { method: "GET" }, async (ctx) =>
@@ -384,6 +405,17 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
             if (target && target.organizationId === orgId && rank(target.role) > rank(mine)) {
               throw forbid("MEMBER_ABOVE_YOU", `You can't change a member whose role (${target.role}) is above yours (${mine}).`);
             }
+          }),
+        },
+      ],
+      after: [
+        {
+          // Better Auth decrypts the access and refresh tokens it returns; the ID token is ours to open.
+          matcher: (ctx) => !!ctx.path && TOKEN_PATHS.has(ctx.path),
+          handler: createAuthMiddleware(async (ctx) => {
+            const r = ctx.context.returned as { idToken?: unknown } | undefined;
+            if (!r || r instanceof Error || typeof r !== "object" || typeof r.idToken !== "string" || !sealed(r.idToken)) return;
+            return ctx.json({ ...r, idToken: await symmetricDecrypt({ key: holder.secret!, data: r.idToken }) });
           }),
         },
       ],
@@ -526,7 +558,11 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
         banExpires: { type: "date", required: false, input: false },
       },
     },
-    account: { accountLinking: { enabled: true, trustedProviders: TRUSTED_FOR_LINKING } },
+    account: {
+      accountLinking: { enabled: true, trustedProviders: TRUSTED_FOR_LINKING },
+      // Provider tokens are encrypted with the project's secret before they're stored (ID tokens: databaseHooks.account).
+      encryptOAuthTokens: true,
+    },
     emailAndPassword: {
       enabled: methods.has("email"),
       requireEmailVerification: c.requireEmailVerification,
@@ -545,6 +581,10 @@ export function buildOptions(project: string, c: ProjectConfig, pool: pg.Pool): 
     },
     socialProviders: social,
     databaseHooks: {
+      account: {
+        create: { before: async (account) => ({ data: await sealIdToken(holder.secret, account) }) },
+        update: { before: async (account) => ({ data: await sealIdToken(holder.secret, account) }) },
+      },
       user: {
         update: {
           // Keep the old address so it can be told the account moved (after).
