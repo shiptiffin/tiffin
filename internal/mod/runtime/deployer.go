@@ -144,6 +144,15 @@ func (r *rt) startFrom(queued *Deploy, kind string, fetch func(ctx context.Conte
 		if err == nil {
 			err = r.pipeline(ctx, d, src, kind, log)
 		}
+		if errors.Is(err, errPreviewRetired) {
+			now := time.Now().UTC()
+			d.Status, d.Error, d.FinishedAt = StatusSkipped, "skipped: "+err.Error(), &now
+			d.TotalSecs = round1(now.Sub(d.CreatedAt).Seconds())
+			r.dropFailedImage(ctx, d)
+			_ = r.st.putDeploy(ctx, d)
+			fmt.Fprintf(log, "==> skipped: %s\n", err)
+			return
+		}
 		if err != nil {
 			hint := ""
 			var be *BuildError
@@ -298,6 +307,9 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 	}
 	fmt.Fprintf(log, "==> built in %.1fs%s\n", d.BuildSecs, digestNote(d.Digest))
 	release()
+	if d.Preview != "" && r.previewRetired(envKey(d.Project, d.App, d.Preview)) != "" {
+		return errPreviewRetired // its pull request closed while it built: never live
+	}
 
 	d.Status = StatusStarting
 	_ = r.st.putDeploy(ctx, d)

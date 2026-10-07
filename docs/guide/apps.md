@@ -183,7 +183,9 @@ apps: {
   name for everything in it, and a leading `!` to exclude; the last pattern that matches
   a file decides. A new branch, or a comparison GitHub can't list fully (over 300 files),
   deploys. Redeploys, `tiffin deploy` and pushes to the box always build. The GitHub
-  deliveries list says which apps a push skipped.
+  deliveries list says which apps a push skipped. A pull request is compared with its base:
+  when an update undoes its change to the app, the app's preview is removed (its comment
+  says so) rather than left serving the earlier commit.
 
 ## Migrations and preview databases
 
@@ -433,6 +435,7 @@ apps: {
 - a pull request's preview lives at `pr-12--<app address>.<domain>` (`pr-12--shop` for the app at
   `shop`); one comment says
   "Preview of `web`: https://pr-12--shop.example.com · built in 34 s · logs".
+  Closing the pull request removes the preview, also one still building: it never goes live.
 
 Rapid pushes to one branch coalesce: while one builds, only the newest waiting push is
 built next (the ones in between show as *skipped*). A push is checked against its branch

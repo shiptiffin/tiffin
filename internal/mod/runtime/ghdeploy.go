@@ -51,9 +51,12 @@ func (j *ghJob) key() string { return envKey(j.Project, j.App, j.Preview) }
 // ghQueue runs one GitHub deploy per app environment at a time and keeps
 // only the newest waiting one: five quick pushes build twice, not five times.
 type ghQueue struct {
-	mu     sync.Mutex
-	slots  map[string]*ghSlot
-	closed map[string]bool // pull request previews closed while building
+	mu    sync.Mutex
+	slots map[string]*ghSlot
+	// retired are pull request previews removed (closed, or no longer
+	// changed by the pull request) while a build may still run, with the
+	// comment kind that says why.
+	retired map[string]string
 }
 
 type ghSlot struct {
@@ -83,10 +86,10 @@ func (r *rt) enqueue(ctx context.Context, j *ghJob) (*Deploy, error) {
 	q := &r.gh.q
 	q.mu.Lock()
 	if q.slots == nil {
-		q.slots, q.closed = map[string]*ghSlot{}, map[string]bool{}
+		q.slots, q.retired = map[string]*ghSlot{}, map[string]string{}
 	}
 	if j.PR > 0 {
-		delete(q.closed, j.key())
+		delete(q.retired, j.key())
 	}
 	s := q.slots[j.key()]
 	if s == nil {
@@ -157,6 +160,7 @@ type ghTracker struct {
 	Deployment   int64  `json:"deployment,omitempty"`
 	PR           int    `json:"pr,omitempty"`
 	Context      string `json:"context"`
+	Retired      string `json:"retired,omitempty"` // the preview was removed while it built: why (prRemoved...)
 	// After the deploy ended: the final report failed (GitHub down, rate
 	// limited) and is retried until Next, for a day at most.
 	Ended bool      `json:"ended,omitempty"`
@@ -232,18 +236,30 @@ func (r *rt) runJob(j *ghJob) {
 	if ctx.Err() != nil {
 		return // the box is stopping: the tracker reports after the restart
 	}
-	r.finishReport(ctx, c, d, tr)
-	// A pull request closed while its preview was building: remove it now.
+	// A preview retired while it was building (the pull request closed):
+	// remove it now, and tell GitHub it is gone rather than live.
 	if j.PR > 0 {
-		q := &r.gh.q
-		q.mu.Lock()
-		closed := q.closed[j.key()] && q.slots[j.key()].next == nil
-		q.mu.Unlock()
-		if closed {
+		if tr.Retired = r.previewRetired(j.key()); tr.Retired != "" {
 			_ = r.deletePreview(ctx, j.Project, j.App, j.Preview)
 		}
 	}
+	r.finishReport(ctx, c, d, tr)
 }
+
+// previewRetired is why a pull request preview was removed while it may
+// still build ("" when it was not, or a newer build is queued for it).
+func (r *rt) previewRetired(key string) string {
+	q := &r.gh.q
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if s := q.slots[key]; s != nil && s.next != nil {
+		return ""
+	}
+	return q.retired[key]
+}
+
+// errPreviewRetired stops a preview's pipeline before it goes live.
+var errPreviewRetired = errors.New("the pull request no longer has this preview (closed, or no longer changing the app)")
 
 // cloneGitHub fetches exactly the commit with a token that can only read
 // this repository, revoked as soon as the clone is done. The token goes to
@@ -408,6 +424,9 @@ func (r *rt) reportEnd(ctx context.Context, c *ghConn, d *Deploy, tr *ghTracker)
 	default:
 		state, desc, target, dstate = "failure", "Failed: "+orDefaultStr(d.Error, d.Status), r.logURL(d), "failure"
 	}
+	if tr.Retired != "" {
+		desc, target, dstate = "Preview removed: "+retiredWhy(tr.Retired), r.logURL(d), "inactive"
+	}
 	if target == "" {
 		target = r.logURL(d)
 	}
@@ -428,7 +447,10 @@ func (r *rt) reportEnd(ctx context.Context, c *ghConn, d *Deploy, tr *ghTracker)
 	}
 	if tr.PR > 0 {
 		kind := prLive
-		if d.Status != StatusLive {
+		switch {
+		case tr.Retired != "":
+			kind = tr.Retired
+		case d.Status != StatusLive:
 			kind = prFailed
 		}
 		note("comment on the pull request", r.upsertComment(ctx, c, d, tr, kind))
@@ -474,12 +496,21 @@ func seconds(s float64) string {
 }
 
 const (
-	prBuilding = "building"
-	prLive     = "live"
-	prFailed   = "failed"
-	prRemoved  = "removed"
-	prExpired  = "expired"
+	prBuilding  = "building"
+	prLive      = "live"
+	prFailed    = "failed"
+	prRemoved   = "removed"
+	prUnwatched = "unwatched"
+	prExpired   = "expired"
 )
+
+// retiredWhy says why a preview was removed while it built.
+func retiredWhy(kind string) string {
+	if kind == prUnwatched {
+		return "the pull request no longer changes the app"
+	}
+	return "the pull request is closed"
+}
 
 type prComment struct {
 	Comment    int64 `json:"comment"`
@@ -509,6 +540,8 @@ func (r *rt) commentBody(d *Deploy, kind string) string {
 		}
 	case prRemoved:
 		fmt.Fprintf(&b, "**Preview** of `%s` was removed: the pull request is closed.", d.App)
+	case prUnwatched:
+		fmt.Fprintf(&b, "**Preview** of `%s` was removed: the pull request no longer changes anything under its watch paths.", d.App)
 	case prExpired:
 		fmt.Fprintf(&b, "**Preview** of `%s` was removed after %s without visits or deploys. Push to the pull request to build it again.",
 			d.App, expireWords(r.opt.PreviewExpire))
@@ -823,6 +856,19 @@ func (r *rt) onPullRequest(ctx context.Context, c *ghConn, body []byte) (int, st
 			case a.Git.Previews == manifest.PreviewsOff:
 				continue
 			case !changed.touches(a.Watch):
+				// Compared with the base: a preview built for an earlier
+				// commit (one this update reverts) would go on serving code
+				// the pull request no longer has.
+				if r.hasPreview(ctx, a, repo, n) {
+					if _, err := r.retirePreview(ctx, c, a, repo, n, prUnwatched); err != nil {
+						did = append(did, a.Project+"/"+a.App+": "+err.Error())
+						failed = append(failed, a.Project+"/"+a.App+" ("+err.Error()+")")
+						continue
+					}
+					did = append(did, a.Project+"/"+a.App+" preview "+preview+" removed (nothing under its watch paths changes any more)")
+					removed = append(removed, a.Project+"/"+a.App)
+					continue
+				}
 				did = append(did, a.Project+"/"+a.App+": not built (nothing under its watch paths changed)")
 				unwatched = append(unwatched, a.Project+"/"+a.App)
 				continue
@@ -849,36 +895,15 @@ func (r *rt) onPullRequest(ctx context.Context, c *ghConn, body []byte) (int, st
 		}
 	case "closed":
 		for _, a := range apps {
-			key := envKey(a.Project, a.App, preview)
-			q := &r.gh.q
-			q.mu.Lock()
-			if q.closed == nil {
-				q.slots, q.closed = map[string]*ghSlot{}, map[string]bool{}
-			}
-			q.closed[key] = true
-			var dropped *ghJob
-			if s := q.slots[key]; s != nil && s.next != nil {
-				dropped, s.next = s.next, nil
-			}
-			q.mu.Unlock()
-			if dropped != nil {
-				r.skip(ctx, dropped, "the pull request was closed before it was built")
-			}
-			// Not found: nothing went live (one still building is removed when it finishes).
-			err := r.deletePreview(ctx, a.Project, a.App, preview)
-			q.mu.Lock()
-			building := q.slots[key] != nil && q.slots[key].running
-			q.mu.Unlock()
+			ok, err := r.retirePreview(ctx, c, a, repo, n, prRemoved)
 			switch {
-			case err == nil || building:
-				did = append(did, a.Project+"/"+a.App+" preview "+preview+" removed")
-				removed = append(removed, a.Project+"/"+a.App)
-			case !errors.Is(err, errNotFound):
+			case err != nil:
 				did = append(did, a.Project+"/"+a.App+": "+err.Error())
 				failed = append(failed, a.Project+"/"+a.App+" ("+err.Error()+")")
-				continue
+			case ok:
+				did = append(did, a.Project+"/"+a.App+" preview "+preview+" removed")
+				removed = append(removed, a.Project+"/"+a.App)
 			}
-			r.closeReport(ctx, c, a.Project, a.App, repo, n, prRemoved)
 		}
 	default:
 		return http.StatusAccepted, "nothing to do for " + ev.Action
@@ -912,6 +937,59 @@ func (r *rt) onPullRequest(ctx context.Context, c *ghConn, body []byte) (int, st
 		return http.StatusAccepted, "no app previews " + repo
 	}
 	return http.StatusAccepted, strings.Join(did, "; ")
+}
+
+// hasPreview reports whether an app has (or is building, or has reported
+// on) a pull request's preview.
+func (r *rt) hasPreview(ctx context.Context, a connectedApp, repo string, n int) bool {
+	key := envKey(a.Project, a.App, prPreview(n))
+	q := &r.gh.q
+	q.mu.Lock()
+	s := q.slots[key]
+	busy := s != nil && (s.running || s.next != nil)
+	q.mu.Unlock()
+	if busy {
+		return true
+	}
+	if st, err := r.st.getState(ctx, a.Project, a.App, prPreview(n)); err == nil && st.Live != "" {
+		return true
+	}
+	_, ok, _ := r.p.DB.KVGet(ctx, nsGitHub, prKey(a.Project, a.App, n)+"@"+repo)
+	return ok
+}
+
+// retirePreview removes an app's preview of a pull request (closed, or no
+// longer changing the app; kind says which): the waiting build is
+// skipped, the one building stops before it goes live (runJob removes and
+// reports it when it ends), and the comment and GitHub deployment say it
+// is gone. removed is whether there was a preview.
+func (r *rt) retirePreview(ctx context.Context, c *ghConn, a connectedApp, repo string, n int, kind string) (removed bool, err error) {
+	preview := prPreview(n)
+	key := envKey(a.Project, a.App, preview)
+	q := &r.gh.q
+	q.mu.Lock()
+	if q.retired == nil {
+		q.slots, q.retired = map[string]*ghSlot{}, map[string]string{}
+	}
+	q.retired[key] = kind
+	var dropped *ghJob
+	s := q.slots[key]
+	if s != nil && s.next != nil {
+		dropped, s.next = s.next, nil
+	}
+	building := s != nil && s.running
+	q.mu.Unlock()
+	if dropped != nil {
+		r.skip(ctx, dropped, "the preview was removed before it was built: "+retiredWhy(kind))
+	}
+	err = r.deletePreview(ctx, a.Project, a.App, preview)
+	if err != nil && !errors.Is(err, errNotFound) {
+		return false, err
+	}
+	if !building {
+		r.closeReport(ctx, c, a.Project, a.App, repo, n, kind)
+	}
+	return err == nil || building, nil
 }
 
 // closeReport updates the comment and retires the deployment of a closed

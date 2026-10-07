@@ -717,3 +717,88 @@ func TestGitHubRetriesFailedReports(t *testing.T) {
 		t.Fatal("a delivered report is forgotten")
 	}
 }
+
+// A pull request closed while its preview builds: the build never goes
+// live, and GitHub hears "removed" in the one comment, not "live".
+func TestGitHubPreviewClosedWhileBuilding(t *testing.T) {
+	g := newGHHarness(t)
+	ctx := context.Background()
+	g.connect()
+	g.f.AddRepo("octo/shop", false, map[string]string{"web/index.html": "<h1>v1</h1>"})
+	g.connectSite(manifest.Git{Repo: "octo/shop", Branch: "main", Path: "web", Previews: manifest.PreviewsSameRepo})
+	g.f.Commit("octo/shop", "feat", map[string]string{"web/index.html": "<h1>feature</h1>"}, "feature")
+	g.r.build <- struct{}{} // hold the builder: the preview waits for it
+	if dl, _ := g.f.PullRequest("octo/shop", "opened", 9, "feat", false); !strings.Contains(dl.Reply, "preview") {
+		t.Fatalf("pr opened: %+v", dl)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(g.f.Recorded().Comments) == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond) // the "building" comment
+	}
+	if dl, _ := g.f.PullRequest("octo/shop", "closed", 9, "feat", false); !strings.Contains(dl.Reply, "removed") {
+		t.Fatalf("pr closed: %+v", dl)
+	}
+	<-g.r.build
+	pv := g.waitFor("site", func(d *Deploy) bool { return d.Preview == "pr-9" })
+	if pv.Status != StatusSkipped {
+		t.Fatalf("a closed pull request's preview must not go live: %+v", pv)
+	}
+	if code, _ := g.get("pr-9--shop.tiffin.localhost", "/"); code != 404 {
+		t.Fatalf("closed preview served: %d", code)
+	}
+	if st, _ := g.r.st.getState(ctx, "shop", "site", "pr-9"); st.Live != "" {
+		t.Fatalf("closed preview state: %+v", st)
+	}
+	g.settle()
+	cs := g.f.Recorded().Comments
+	if len(cs) != 1 {
+		t.Fatalf("one comment: %+v", cs)
+	}
+	for _, c := range cs {
+		if !strings.Contains(c.Body, "was removed") {
+			t.Fatalf("comment: %s", c.Body)
+		}
+	}
+	ds := g.f.Recorded().DeploymentStatuses
+	if last := ds[len(ds)-1].Body; last["state"] != "inactive" {
+		t.Fatalf("deployment: %v", last)
+	}
+}
+
+// A pull request update that undoes its change to an app (nothing under
+// the app's watch paths differs from the base any more) removes the
+// preview built for the earlier commit instead of leaving it serving.
+func TestGitHubPreviewRemovedWhenNoLongerChanged(t *testing.T) {
+	g := newGHHarness(t)
+	g.connect()
+	g.f.AddRepo("octo/shop", false, map[string]string{"web/index.html": "<h1>v1</h1>", "api/main.go": "package main"})
+	a := g.mf.Apps["site"]
+	a.Git, a.Watch = &manifest.Git{Repo: "octo/shop", Branch: "main", Path: "web", Previews: manifest.PreviewsSameRepo}, []string{"web/**"}
+	g.mf.Apps["site"] = a
+	g.apply()
+	g.f.Commit("octo/shop", "feat", map[string]string{"web/index.html": "<h1>feature</h1>"}, "feature")
+	if dl, _ := g.f.PullRequest("octo/shop", "opened", 4, "feat", false); !strings.Contains(dl.Reply, "preview dep_") {
+		t.Fatalf("pr opened: %+v", dl)
+	}
+	if pv := g.waitFor("site", func(d *Deploy) bool { return d.Preview == "pr-4" }); pv.Status != StatusLive {
+		t.Fatalf("preview: %+v", pv)
+	}
+	g.f.Commit("octo/shop", "feat", map[string]string{"web/index.html": "<h1>v1</h1>", "api/main.go": "package main // api"}, "revert web, change api")
+	if dl, _ := g.f.PullRequest("octo/shop", "synchronize", 4, "feat", false); !strings.Contains(dl.Reply, "removed") {
+		t.Fatalf("pr synchronize: %+v", dl)
+	}
+	if code, _ := g.get("pr-4--shop.tiffin.localhost", "/"); code != 404 {
+		t.Fatalf("stale preview still served: %d", code)
+	}
+	g.settle()
+	for _, c := range g.f.Recorded().Comments {
+		if !strings.Contains(c.Body, "no longer changes") {
+			t.Fatalf("comment: %s", c.Body)
+		}
+	}
+	// A pull request that never changed the app has nothing to remove.
+	g.f.Commit("octo/shop", "api-only", map[string]string{"api/main.go": "package main // only"}, "api only")
+	if dl, _ := g.f.PullRequest("octo/shop", "opened", 5, "api-only", false); !strings.Contains(dl.Reply, "not built (nothing under its watch paths changed)") {
+		t.Fatalf("pr 5: %+v", dl)
+	}
+}
