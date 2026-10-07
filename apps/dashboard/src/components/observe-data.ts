@@ -1,6 +1,7 @@
 import { keepPreviousData, queryOptions, useQueries, useQuery } from "@tanstack/react-query";
 import { request } from "@/api/client";
-import { mod, mod3, type LogsResult } from "@/api/modules";
+import { mod, mod3, type Deploy, type LogsResult } from "@/api/modules";
+import type { Bucket } from "@/components/charts/bars";
 import type { XY } from "@/components/charts/core";
 import { deploysQuery } from "@/lib/pulse";
 
@@ -187,4 +188,23 @@ export function useDeployMarkers(project: string, apps: string[], since: number)
     }
   });
   return out.sort((x, y) => x.t - y.t);
+}
+
+/**
+ * Builds per step over the span ending now, from the deploy history: built
+ * (it has a build time) and failed. Counted from each deploy's current
+ * status, so a build that finishes or fails moves to its column on the next
+ * poll.
+ */
+export function buildBuckets(deploys: Array<Pick<Deploy, "status" | "buildSeconds" | "createdAt">>, now: number, span: number, step: number): Bucket[] {
+  const start = Math.floor((now - span) / step) * step + step;
+  const n = Math.round(span / step);
+  const out: Bucket[] = Array.from({ length: n }, (_, i) => ({ t: start + i * step, values: { ok: 0, failed: 0 } }));
+  for (const d of deploys) {
+    if (!d.buildSeconds && d.status !== "failed") continue;
+    const i = Math.floor((Date.parse(d.createdAt) - start) / step);
+    if (i < 0 || i >= n) continue;
+    out[i].values[d.status === "failed" ? "failed" : "ok"]++;
+  }
+  return out;
 }

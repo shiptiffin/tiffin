@@ -2,16 +2,17 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ChartLine, Table2 } from "lucide-react";
 import { useId, useMemo, useState } from "react";
-import { mod3, type UsageHistory } from "@/api/modules";
+import type { UsageHistory } from "@/api/modules";
 import { Legend, StackedBars, type Bucket } from "@/components/charts/bars";
 import type { XY } from "@/components/charts/core";
 import { SeriesTable, type Series } from "@/components/charts/time-series";
 import { Crosshair, ObserveChart, useCrosshairTime, valueAt, type ChartMarker, type ChartSeries } from "@/components/observe-chart";
-import { historyQuery, RANGE_MS, useDeployMarkers, usePerAppHistory, useStatusSplit, type Range } from "@/components/observe-data";
+import { buildBuckets, historyQuery, RANGE_MS, useDeployMarkers, usePerAppHistory, useStatusSplit, type Range } from "@/components/observe-data";
 import { Skeleton } from "@/components/page";
 import { cn } from "@/lib/cn";
 import { bytes, dec, int, NNBSP, num, pct } from "@/lib/format";
 import { partName } from "@/lib/names";
+import { deploysQuery } from "@/lib/pulse";
 import type { ProjectUsage } from "@/lib/usage";
 
 /**
@@ -323,26 +324,14 @@ function Chart({ c, step, tables, range, from, to, markers, waiting }: { c: Char
 
 /** Builds per hour or day from the deploy history: finished, and failed. */
 function Builds({ project, apps, range, tables }: { project: string; apps: string[]; range: Range; tables: boolean }) {
-  const res = useQueries({ queries: apps.map((a) => ({ queryKey: ["deploys", project, a], queryFn: () => mod3.deploys(project, a), staleTime: 60_000, retry: false })) });
-  const all = res.flatMap((r) => r.data ?? []);
-  const key = all.map((x) => x.id).join(",");
+  // The same deploy history (and query key) as the deploy markers and the status line.
+  const res = useQueries({ queries: apps.map((a) => deploysQuery(project, a)) });
   const span = RANGE_MS[range];
   const step = range === "1h" ? 300_000 : range === "24h" ? 3_600_000 : 86_400_000;
   const [now] = useState(() => Date.now());
-  const buckets = useMemo<Bucket[]>(() => {
-    const start = Math.floor((now - span) / step) * step + step;
-    const n = Math.round(span / step);
-    const out: Bucket[] = Array.from({ length: n }, (_, i) => ({ t: start + i * step, values: { ok: 0, failed: 0 } }));
-    for (const dpl of all) {
-      if (!dpl.buildSeconds && dpl.status !== "failed") continue;
-      const t = Date.parse(dpl.createdAt);
-      const i = Math.floor((t - start) / step);
-      if (i < 0 || i >= n) continue;
-      out[i].values[dpl.status === "failed" ? "failed" : "ok"]++;
-    }
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, range, now]);
+  // A few dozen buckets: cheap enough to count every render, so a build that
+  // finishes or fails (same deploy id, new status) is never shown stale.
+  const buckets = buildBuckets(res.flatMap((r) => r.data ?? []), now, span, step);
   const id = useId();
   if (apps.length === 0) return null;
   const total = buckets.reduce((s, b) => s + b.values.ok + b.values.failed, 0);
