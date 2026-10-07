@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -51,16 +52,20 @@ func ProjectOfKey(key string) (project, app string) {
 	return "", ""
 }
 
+// projectSlug is the shape of a project name (the API's path pattern).
+var projectSlug = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
+
 // CheckKey reports whether key is project's current key, or an app's key
 // derived from it, and which project and app it belongs to ("" for the
-// project's own key).
+// project's own key). It only reads: a key for a project that has none
+// (never had apps, or was deleted) is wrong, and creates nothing.
 func CheckKey(ctx context.Context, k Keys, key string) (project, app string, ok bool) {
 	project, app = ProjectOfKey(key)
-	if project == "" {
+	if !projectSlug.MatchString(project) {
 		return "", "", false
 	}
-	want, _, err := k.Get(ctx, project)
-	if err != nil {
+	want, _, found, err := k.Lookup(ctx, project)
+	if err != nil || !found {
 		return "", "", false
 	}
 	if app != "" {
@@ -80,6 +85,20 @@ type memKeys struct {
 
 func newMemKeys() *memKeys { return &memKeys{m: map[string]projectKeys{}} }
 
+func (k *memKeys) Lookup(_ context.Context, project string) (string, string, bool, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	pk, ok := k.m[project]
+	return pk.AppKey, pk.Signing, ok, nil
+}
+
+func (k *memKeys) Delete(_ context.Context, project string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	delete(k.m, project)
+	return nil
+}
+
 func (k *memKeys) Get(_ context.Context, project string) (string, string, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -97,18 +116,31 @@ type kvKeys struct {
 	mu sync.Mutex
 }
 
+func (k *kvKeys) Lookup(ctx context.Context, project string) (string, string, bool, error) {
+	raw, ok, err := k.db.KVGet(ctx, "queue", "keys/"+project)
+	if err != nil || !ok {
+		return "", "", false, err
+	}
+	var pk projectKeys
+	if json.Unmarshal(raw, &pk) != nil || pk.AppKey == "" {
+		return "", "", false, nil
+	}
+	return pk.AppKey, pk.Signing, true, nil
+}
+
+func (k *kvKeys) Delete(ctx context.Context, project string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.db.KVDelete(ctx, "queue", "keys/"+project)
+}
+
 func (k *kvKeys) Get(ctx context.Context, project string) (string, string, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	raw, ok, err := k.db.KVGet(ctx, "queue", "keys/"+project)
-	if err != nil {
-		return "", "", err
+	if a, s, ok, err := k.Lookup(ctx, project); err != nil || ok {
+		return a, s, err
 	}
-	var pk projectKeys
-	if ok && json.Unmarshal(raw, &pk) == nil && pk.AppKey != "" {
-		return pk.AppKey, pk.Signing, nil
-	}
-	pk = newProjectKeys(project)
+	pk := newProjectKeys(project)
 	b, _ := json.Marshal(pk)
 	if err := k.db.KVPut(ctx, "queue", "keys/"+project, b); err != nil {
 		return "", "", err

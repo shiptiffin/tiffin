@@ -29,7 +29,13 @@ const (
 // box (TIFFIN_QUEUE_KEY) and the secret the box signs deliveries with
 // (TIFFIN_QUEUE_SIGNING_SECRET).
 type Keys interface {
+	// Get returns a project's credentials, creating them the first time.
 	Get(ctx context.Context, project string) (appKey, signingSecret string, err error)
+	// Lookup returns them only if they exist (authentication: a caller's
+	// claim never creates anything).
+	Lookup(ctx context.Context, project string) (appKey, signingSecret string, ok bool, err error)
+	// Delete forgets them (the project was destroyed).
+	Delete(ctx context.Context, project string) error
 }
 
 // Config wires an Engine to the box. Only DSN is required.

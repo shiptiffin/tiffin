@@ -73,11 +73,14 @@ func (e *Engine) checkToken(ctx context.Context, token, id string, now time.Time
 		return "", unauthenticated("missing or malformed subscribe token")
 	}
 	project, tokID, exp, sig := parts[1], parts[2], parts[3], parts[4]
-	_, secret, err := e.cfg.Keys.Get(ctx, project)
+	if !projectSlug.MatchString(project) {
+		return "", unauthenticated("malformed subscribe token")
+	}
+	_, secret, found, err := e.cfg.Keys.Lookup(ctx, project)
 	if err != nil {
 		return "", err
 	}
-	if !hmac.Equal([]byte(sig), []byte(liveMAC(secret, project, tokID, exp))) {
+	if !found || !hmac.Equal([]byte(sig), []byte(liveMAC(secret, project, tokID, exp))) {
 		return "", unauthenticated("the subscribe token's signature does not match")
 	}
 	if tokID != id {
