@@ -9,10 +9,13 @@ import (
 	"io"
 	"net"
 	"net/textproto"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btahir/tiffin/internal/ids"
@@ -32,7 +35,25 @@ type smtpServer struct {
 
 	mu        sync.Mutex
 	listeners map[string]net.Listener
+
+	conns atomic.Int64 // open connections, across every listener
+
+	dataMu    sync.Mutex
+	inData    map[string]int // project → messages being received now
+	dataTotal int
+	process   chan struct{} // a slot per message held in memory at once
 }
+
+// Limits on what SMTP clients can make the control plane hold. A message is
+// streamed to a spool file while it arrives, so a slow or stalled client
+// costs disk, not memory; only smtpProcessing messages are in memory at once.
+const (
+	smtpMaxConns       = 256              // open connections, all projects
+	smtpDataPerProject = 4                // messages arriving at once, per project
+	smtpDataTotal      = 16               // messages arriving at once, all projects
+	smtpDataTime       = 10 * time.Minute // longest one message may take to arrive
+	smtpProcessing     = 2                // messages parsed and stored at once
+)
 
 func (s *smtpServer) start(ctx context.Context) error {
 	s.srv = smtp.NewServer(smtp.BackendFunc(func(c *smtp.Conn) (smtp.Session, error) {
@@ -47,6 +68,9 @@ func (s *smtpServer) start(ctx context.Context) error {
 	s.srv.AllowInsecureAuth = true
 	s.srv.ErrorLog = discardLog{}
 	s.listeners = map[string]net.Listener{}
+	s.inData = map[string]int{}
+	s.process = make(chan struct{}, smtpProcessing)
+	_ = os.RemoveAll(spoolDir(s.p.DataRoot)) // leftovers from a crash
 	addr := s.m.smtpAddr
 	if addr == "" {
 		addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(SMTPPort))
@@ -88,7 +112,7 @@ func (s *smtpServer) listen(addr string) error {
 		return err
 	}
 	s.listeners[addr] = ln
-	go func() { _ = s.srv.Serve(ln) }()
+	go func() { _ = s.srv.Serve(&capListener{Listener: ln, n: &s.conns, max: smtpMaxConns}) }()
 	return nil
 }
 
@@ -101,6 +125,104 @@ func (s *smtpServer) addrs() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// capListener turns away connections beyond max (with a 421) instead of
+// letting them pile up.
+type capListener struct {
+	net.Listener
+	n   *atomic.Int64
+	max int64
+}
+
+func (l *capListener) Accept() (net.Conn, error) {
+	for {
+		c, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		if l.n.Add(1) > l.max {
+			l.n.Add(-1)
+			_ = c.SetWriteDeadline(time.Now().Add(time.Second))
+			_, _ = io.WriteString(c, "421 4.3.2 Too many connections, try again later\r\n")
+			_ = c.Close()
+			continue
+		}
+		return &countedConn{Conn: c, n: l.n}, nil
+	}
+}
+
+type countedConn struct {
+	net.Conn
+	n    *atomic.Int64
+	once sync.Once
+}
+
+func (c *countedConn) Close() error {
+	c.once.Do(func() { c.n.Add(-1) })
+	return c.Conn.Close()
+}
+
+// reserve takes a receiving slot for one of project's messages.
+func (s *smtpServer) reserve(project string) bool {
+	s.dataMu.Lock()
+	defer s.dataMu.Unlock()
+	if s.dataTotal >= smtpDataTotal || s.inData[project] >= smtpDataPerProject {
+		return false
+	}
+	s.dataTotal++
+	s.inData[project]++
+	return true
+}
+
+func (s *smtpServer) release(project string) {
+	s.dataMu.Lock()
+	defer s.dataMu.Unlock()
+	s.dataTotal--
+	if s.inData[project]--; s.inData[project] <= 0 {
+		delete(s.inData, project)
+	}
+}
+
+func spoolDir(root string) string { return filepath.Join(root, "email", "spool") }
+
+var errDataTimeout = smtpErr(451, smtp.EnhancedCode{4, 4, 2}, "the message took too long to arrive")
+
+// deadlineReader fails once until has passed, so a client trickling bytes
+// cannot hold a receiving slot for ever.
+type deadlineReader struct {
+	r     io.Reader
+	until time.Time
+}
+
+func (d *deadlineReader) Read(b []byte) (int, error) {
+	if time.Now().After(d.until) {
+		return 0, errDataTimeout
+	}
+	return d.r.Read(b)
+}
+
+// spool streams a message into a temporary file (at most MaxMessageBytes+1
+// bytes) and returns it rewound, with its size. The caller removes it.
+func spool(root string, r io.Reader) (*os.File, int64, error) {
+	dir := spoolDir(root)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, 0, err
+	}
+	f, err := os.CreateTemp(dir, "msg-*")
+	if err != nil {
+		return nil, 0, err
+	}
+	n, err := io.Copy(f, io.LimitReader(&deadlineReader{r: r, until: time.Now().Add(smtpDataTime)}, MaxMessageBytes+1))
+	if err == nil {
+		_, err = f.Seek(0, io.SeekStart)
+	}
+	if err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return nil, 0, err
+	}
+	return f, n, nil
 }
 
 type discardLog struct{}
@@ -160,16 +282,39 @@ func (se *session) Rcpt(to string, _ *smtp.RcptOptions) error {
 }
 
 func (se *session) Data(r io.Reader) error {
-	raw, err := io.ReadAll(io.LimitReader(r, MaxMessageBytes+1))
-	if err != nil {
-		return err
+	if !se.s.reserve(se.project) {
+		return smtpErr(451, smtp.EnhancedCode{4, 3, 2}, "too many messages are arriving at once; try again shortly")
 	}
-	if len(raw) > MaxMessageBytes {
+	defer se.s.release(se.project)
+	p := se.s.p
+	f, n, err := spool(p.DataRoot, r)
+	if err != nil {
+		var serr *smtp.SMTPError
+		if errors.As(err, &serr) {
+			return err
+		}
+		p.Log.Error("email: spool SMTP message", "err", err)
+		return smtpErr(451, smtp.EnhancedCode{4, 3, 0}, "temporary error, try again")
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if n > MaxMessageBytes {
 		return smtpErr(552, smtp.EnhancedCode{5, 3, 4}, "message too big")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	p := se.s.p
+	// Only a few messages are held in memory at once.
+	select {
+	case se.s.process <- struct{}{}:
+		defer func() { <-se.s.process }()
+	case <-ctx.Done():
+		return smtpErr(451, smtp.EnhancedCode{4, 3, 2}, "the box is busy; try again shortly")
+	}
+	raw := make([]byte, n)
+	if _, err := io.ReadFull(f, raw); err != nil {
+		p.Log.Error("email: read spooled SMTP message", "err", err)
+		return smtpErr(451, smtp.EnhancedCode{4, 3, 0}, "temporary error, try again")
+	}
 	id := ids.New("msg")
 	settings, err := se.s.m.settings(ctx, p, se.project)
 	if err != nil || settings == nil {
