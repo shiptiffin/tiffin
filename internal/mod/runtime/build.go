@@ -958,7 +958,7 @@ func indexFromPage(dir string, l *launch) error {
 	if isFile(filepath.Join(dir, "index.html")) || !hasEntry(dir, l) {
 		return nil
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(l.Files.Page)))
+	raw, err := readSrc(filepath.Join(dir, filepath.FromSlash(l.Files.Page)))
 	if err != nil {
 		return err
 	}
