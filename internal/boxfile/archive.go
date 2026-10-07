@@ -20,6 +20,7 @@ import (
 	"os/user"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -754,13 +755,7 @@ func (x *Extractor) Close() error {
 		names = append(names, n)
 	}
 	// Longer paths first, so setting a child's time does not bump its parent's.
-	for i := range names {
-		for j := i + 1; j < len(names); j++ {
-			if len(names[j]) > len(names[i]) {
-				names[i], names[j] = names[j], names[i]
-			}
-		}
-	}
+	slices.SortFunc(names, func(a, b string) int { return len(b) - len(a) })
 	for _, n := range names {
 		_ = x.root.Chtimes(n, x.dirs[n], x.dirs[n])
 	}

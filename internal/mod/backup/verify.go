@@ -268,6 +268,12 @@ func compare(expected *clusterCatalog, strict bool, restored, live *clusterCatal
 			r.Problems = append(r.Problems, got.Err)
 		}
 		have := map[string]bool{}
+		live := map[string]int64{}
+		if lv != nil {
+			for _, l := range lv.Tables {
+				live[l.Name] = l.Rows
+			}
+		}
 		for _, t := range got.Tables {
 			have[t.Name] = true
 			r.Tables++
@@ -278,12 +284,8 @@ func compare(expected *clusterCatalog, strict bool, restored, live *clusterCatal
 				r.Problems = append(r.Problems, t.Name+" cannot be read: "+t.Err)
 			}
 			c := BackupDrillTable{Table: t.Name, Rows: t.Rows, Exact: t.Exact, LiveRows: -1, Error: t.Err}
-			if lv != nil {
-				for _, l := range lv.Tables {
-					if l.Name == t.Name {
-						c.LiveRows = l.Rows
-					}
-				}
+			if n, ok := live[t.Name]; ok {
+				c.LiveRows = n
 			}
 			r.Counts = append(r.Counts, c)
 		}
