@@ -274,3 +274,44 @@ func TestPrerenderedPages(t *testing.T) {
 		}
 	}
 }
+
+// Precompression is bounded: a file over the cap, or past the budget,
+// stays as it is, and a link the build left at a copy's name is replaced,
+// never written through.
+func TestPrecompressIsBounded(t *testing.T) {
+	defer func(m, b int64) { maxPrecompress, precompressBudget = m, b }(maxPrecompress, precompressBudget)
+	maxPrecompress, precompressBudget = 64<<10, 100<<10
+	dir := t.TempDir()
+	text := func(n int) []byte { return bytes.Repeat([]byte("let a = 1;\n"), n/11) }
+	outside := filepath.Join(t.TempDir(), "victim")
+	if err := os.WriteFile(outside, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string][]byte{"big.js": text(80 << 10), "a.js": text(60 << 10), "b.js": text(60 << 10)} {
+		if err := os.WriteFile(filepath.Join(dir, name), body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "a.js.gz")); err != nil {
+		t.Fatal(err)
+	}
+	n, err := Precompress(dir)
+	if err != nil || n != 1 {
+		t.Fatalf("compressed %d: %v", n, err)
+	}
+	if exists(filepath.Join(dir, "big.js.zst")) {
+		t.Error("a file over the cap was compressed")
+	}
+	if got, _ := os.ReadFile(outside); string(got) != "keep" {
+		t.Errorf("wrote through a link: %q", got)
+	}
+	if fi, err := os.Lstat(filepath.Join(dir, "a.js.gz")); err != nil || !fi.Mode().IsRegular() {
+		t.Errorf("a.js.gz: %v %v", fi, err)
+	}
+	ents, _ := os.ReadDir(dir)
+	for _, e := range ents {
+		if strings.HasPrefix(e.Name(), ".precompress-") {
+			t.Errorf("left %s", e.Name())
+		}
+	}
+}

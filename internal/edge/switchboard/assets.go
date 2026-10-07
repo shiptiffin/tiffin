@@ -1,10 +1,10 @@
 package switchboard
 
 import (
-	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"mime"
 	"net/http"
@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/klauspost/compress/zstd"
@@ -170,21 +171,36 @@ var (
 	minCompressLen = int64(1024)
 )
 
-// Precompress writes the compressed copies of the text files in dir, on
-// every CPU, and reports how many files it compressed. A copy that saves
-// less than a tenth is not kept.
+// Precompression runs in the control plane on files a build wrote, so it
+// is bounded: files stream through reused encoders (never read whole),
+// a text file over maxPrecompress is left as it is, as is everything past
+// precompressBudget bytes in all, and precompressWorkers files go at once
+// (a best-compression zstd encoder holds about 50 MB of tables).
+var (
+	maxPrecompress     int64 = 32 << 20
+	precompressBudget  int64 = 512 << 20
+	precompressWorkers       = 2
+)
+
+// Precompress writes the compressed copies of the text files in dir and
+// reports how many files it compressed. A copy that saves less than a
+// tenth is not kept.
 func Precompress(dir string) (int, error) {
-	zw, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedBestCompression), zstd.WithEncoderConcurrency(1))
-	if err != nil {
-		return 0, err
-	}
-	defer zw.Close()
 	var files []string
-	err = filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
-		if err == nil && e.Type().IsRegular() && compressible[strings.ToLower(filepath.Ext(p))] {
-			files = append(files, p)
+	var total int64
+	err := filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
+		if err != nil || !e.Type().IsRegular() || !compressible[strings.ToLower(filepath.Ext(p))] {
+			return err
 		}
-		return err
+		fi, err := e.Info()
+		if err != nil {
+			return err
+		}
+		if n := fi.Size(); n > minCompressLen && n <= maxPrecompress && total+n <= precompressBudget {
+			files = append(files, p)
+			total += n
+		}
+		return nil
 	})
 	if err != nil {
 		return 0, err
@@ -196,14 +212,22 @@ func Precompress(dir string) (int, error) {
 		errOnce  sync.Once
 		wg       sync.WaitGroup
 	)
-	for range min(runtime.GOMAXPROCS(0), max(1, len(files))) {
+	for range min(runtime.GOMAXPROCS(0), precompressWorkers, len(files)) {
 		wg.Go(func() {
+			zw, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedBestCompression), zstd.WithEncoderConcurrency(1))
+			if err != nil {
+				errOnce.Do(func() { firstErr = err })
+				return
+			}
+			defer zw.Close()
+			gw, _ := gzip.NewWriterLevel(nil, gzip.BestCompression)
+			encs := []encoder{{".zst", zw}, {".gz", gzipReset{gw}}}
 			for {
 				i := int(next.Add(1)) - 1
 				if i >= len(files) {
 					return
 				}
-				ok, err := precompressFile(zw, files[i])
+				ok, err := precompressFile(encs, files[i])
 				if err != nil {
 					errOnce.Do(func() { firstErr = err })
 					return
@@ -218,28 +242,68 @@ func Precompress(dir string) (int, error) {
 	return int(done.Load()), firstErr
 }
 
-// precompressFile writes p's zstd and gzip copies (zw is safe for
-// concurrent EncodeAll), and reports whether it kept one.
-func precompressFile(zw *zstd.Encoder, p string) (bool, error) {
-	raw, err := os.ReadFile(p)
-	if err != nil || int64(len(raw)) <= minCompressLen {
+// encoder is a reusable compressor and the extension of the copies it
+// makes.
+type encoder struct {
+	ext string
+	w   interface {
+		io.WriteCloser
+		Reset(io.Writer)
+	}
+}
+
+type gzipReset struct{ *gzip.Writer }
+
+func (g gzipReset) Reset(w io.Writer) { g.Writer.Reset(w) }
+
+// precompressFile writes p's compressed copies with encs, streaming, and
+// reports whether it kept one. Each copy is written to a new temporary
+// file and renamed into place, so nothing already at p.zst (a link the
+// build left, say) is written through.
+func precompressFile(encs []encoder, p string) (bool, error) {
+	f, err := os.Open(p)
+	if err != nil {
 		return false, err
 	}
-	var gz bytes.Buffer
-	gw, _ := gzip.NewWriterLevel(&gz, gzip.BestCompression)
-	_, _ = gw.Write(raw)
-	_ = gw.Close()
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() <= minCompressLen || fi.Size() > maxPrecompress {
+		return false, err
+	}
 	kept := false
-	for _, out := range []struct {
-		ext string
-		b   []byte
-	}{{".zst", zw.EncodeAll(raw, nil)}, {".gz", gz.Bytes()}} {
-		if len(out.b) < len(raw)*9/10 {
-			if err := os.WriteFile(p+out.ext, out.b, 0o644); err != nil {
-				return kept, err
-			}
-			kept = true
+	for _, enc := range encs {
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return kept, err
 		}
+		tmp, err := os.CreateTemp(filepath.Dir(p), ".precompress-*")
+		if err != nil {
+			return kept, err
+		}
+		enc.w.Reset(tmp)
+		_, err = io.Copy(enc.w, io.LimitReader(f, fi.Size()))
+		if cerr := enc.w.Close(); err == nil {
+			err = cerr
+		}
+		var n int64
+		if err == nil {
+			n, err = tmp.Seek(0, io.SeekCurrent)
+		}
+		if cerr := tmp.Close(); err == nil {
+			err = cerr
+		}
+		keep := err == nil && n < fi.Size()*9/10
+		if keep {
+			if err = os.Chmod(tmp.Name(), 0o644); err == nil {
+				err = os.Rename(tmp.Name(), p+enc.ext)
+			}
+		}
+		if !keep || err != nil {
+			_ = os.Remove(tmp.Name())
+		}
+		if err != nil {
+			return kept, err
+		}
+		kept = kept || keep
 	}
 	return kept, nil
 }
@@ -273,7 +337,8 @@ func serveFile(w http.ResponseWriter, req *http.Request, www, p string, hashed b
 	}
 	defer root.Close()
 	name := strings.TrimPrefix(p, "/")
-	f, err := root.Open(name)
+	// O_NONBLOCK: opening a FIFO never waits (it is then refused below).
+	f, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return false
 	}

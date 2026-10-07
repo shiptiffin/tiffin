@@ -32,7 +32,9 @@ func plainTree(dir string) error {
 }
 
 // confinedDir resolves dir, which must be a folder inside root, and checks
-// that every link under it stays inside it. It returns dir's real path.
+// that every link under it stays inside it, and that it holds only folders
+// and plain files (links to them too): the edge would block opening a FIFO
+// or read a device. It returns dir's real path.
 func confinedDir(root, dir string) (string, error) {
 	realRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -49,14 +51,21 @@ func confinedDir(root, dir string) (string, error) {
 		return "", fmt.Errorf("%s is not a folder", filepath.Base(dir))
 	}
 	err = filepath.WalkDir(real, func(p string, e fs.DirEntry, err error) error {
-		if err != nil || e.Type()&fs.ModeSymlink == 0 {
+		if err != nil {
 			return err
 		}
 		rel, _ := filepath.Rel(real, p)
+		if e.Type()&fs.ModeSymlink == 0 {
+			if !e.IsDir() && !e.Type().IsRegular() {
+				return fmt.Errorf("%s is not a plain file or folder", rel)
+			}
+			return nil
+		}
 		t, err := filepath.EvalSymlinks(p)
 		if err != nil || !within(real, t) {
 			return fmt.Errorf("the link %s leads outside the site's folder", rel)
 		}
+		// A link inside is fine; what it leads to is walked on its own.
 		return nil
 	})
 	return real, err

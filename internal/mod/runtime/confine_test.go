@@ -3,6 +3,8 @@ package runtime
 import (
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -70,5 +72,27 @@ func TestNoLinks(t *testing.T) {
 	}
 	if err := noLinks(root, "data/escape/etc"); err == nil {
 		t.Fatal("a folder through a link was accepted")
+	}
+}
+
+// A site may hold only folders and plain files: the edge would block
+// opening a FIFO a build left, and every request for it would wait.
+func TestConfinedDirRefusesSpecialFiles(t *testing.T) {
+	root := t.TempDir()
+	site := filepath.Join(root, "dist")
+	if err := os.MkdirAll(site, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(site, "index.html"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := confinedDir(root, site); err != nil {
+		t.Fatalf("a plain site: %v", err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(site, "trap"), 0o644); err != nil {
+		t.Skip(err)
+	}
+	if _, err := confinedDir(root, site); err == nil || !strings.Contains(err.Error(), "trap") {
+		t.Fatalf("a FIFO was accepted: %v", err)
 	}
 }
