@@ -160,13 +160,13 @@ not counted, and neither is anyone whose browser sends Global Privacy Control.
 
 **Where it is kept, and for how long.** On the server that runs the site, and
 nowhere else: nothing is sent to Tiffin or to any other company. Visits are kept
-for `retentionDays` (365 by default) and then deleted; turning analytics off
-deletes all of them.
+for `retentionDays` (365 by default) and then deleted; turning analytics off, or
+destroying the project, deletes all of them.
 
 **Your part.** Custom events hold whatever your code sends: don't send user IDs,
 email addresses or anything else that identifies a person, unless your privacy
 policy covers it. Separately from analytics, the box keeps request logs for
-debugging and security (IP address, path without query, browser string) for 14
+debugging and security (IP address, path without query, browser string) for 30
 days by default (`logsRetention` in the box's observe settings); mention them
 as you would any server's logs.
 

@@ -24,7 +24,7 @@ pooler, `DIRECT_DATABASE_URL` straight to Postgres, and `DATABASE_POOL_MAX`.
   Postgres (migration tools hold session locks); a failure keeps the old version serving.
 - **Snapshots:** deleting the database (or writing through the console) keeps a
   snapshot for 7 days; `tiffin snapshots restore` brings it back.
-- **Org isolation:** `auth.enable_org_rls('table')` adds row-level security keyed on the
+- **Org isolation:** `tiffin_auth.enable_org_rls('table')` adds row-level security keyed on the
   signed-in user's organization.
 - **Safety limits:** a query is stopped after 5 minutes, or 30 seconds in a project with a limit (`statementTimeoutSeconds: 120`
   changes it; `SET LOCAL statement_timeout = '10min'` lets one long job run), a session
@@ -39,6 +39,23 @@ pooler, `DIRECT_DATABASE_URL` straight to Postgres, and `DATABASE_POOL_MAX`.
   `PrismaPg` with Prisma 7). A value you set (env or secret) is kept. A new value applies
   as instances start (a deploy or restart), and a plan warns when the apps' pools could
   open more client connections than the pooler lets a project hold (1,000).
+
+### What's in your database
+
+Everything named `tiffin_*` belongs to the box; everything else is yours. The box never
+creates, changes or drops a schema without the prefix, so `auth`, `queue` and any other
+name are free for your app.
+
+| Schema | Belongs to | What's in it |
+|---|---|---|
+| `public` and any schema you make | You | Your tables. Migrations, branches and exports carry them as they are. |
+| `tiffin_auth` | The box (with `services.auth`) | Better Auth's users, sessions, organizations, keys and passkeys, plus `tiffin_auth.enable_org_rls()`, `org_id()` and `user_id()`. Read it freely; change people through the auth API or the Users page. Removing auth drops it. |
+| `tiffin_queue` | The box | `tiffin_queue.outbox`, the rows `queue.sendTx` writes until the box moves them into the queue (about a second). |
+| `workflow`, `workflow_drizzle`, `graphile_worker` | The Workflow DevKit's Postgres world (apps that use it) | Workflow runs, steps and the worker's jobs. The library names and migrates them; leave them to it. |
+
+The dashboard's data browser shows these as managed tables (hidden until you ask, and
+read-only). The queue's own jobs are not in your database: they live in the box's
+`tiffin_queue` database.
 
 ### The connection pooler
 

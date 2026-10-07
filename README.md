@@ -25,7 +25,7 @@ claude mcp add tiffin -- tiffin mcp         # let your agent help, safely
 
 | | |
 |---|---|
-| **Apps** | Bun apps, Hono, Next.js (with a Valkey cache handler) and static sites. Zero-downtime deploys, rollbacks, preview URLs that sleep when idle, `git push tiffin main`, live logs. |
+| **Apps** | Next.js (with a Valkey cache handler), TanStack Start, Astro, Hono and other Bun or Node.js apps, FastAPI and other Python apps, any Dockerfile, and static sites. Zero-downtime deploys, rollbacks, preview URLs that sleep when idle, `git push tiffin main`, live logs. |
 | **Data** | Postgres 18 per project (pgvector, pg_cron), preview branches cloned in milliseconds, a SQL console, Valkey per project, typed JSONB documents in the SDK. |
 | **Files** | S3-compatible buckets (`Bun.s3` works unchanged), presigned links, public files, quotas, a 7-day trash. |
 | **Email** | SMTP to any relay; until you set one, every message lands in the dev inbox. Suppressions, bounces, React Email. |

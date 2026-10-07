@@ -3,7 +3,7 @@
 Every box watches itself and your apps out of the box: no agent to install, no
 account to create. Metrics live in [VictoriaMetrics](https://victoriametrics.com)
 and logs in VictoriaLogs (both Apache-2.0, pinned releases running on the box,
-reachable only through the Tiffin API). Metrics are kept 30 days and logs 14 days
+reachable only through the Tiffin API). Metrics and logs are kept 30 days
 by default.
 
 ## What is collected

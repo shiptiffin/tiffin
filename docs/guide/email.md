@@ -50,29 +50,195 @@ its newest 1,000 captured messages.
 
 ## Sending for real: the relay
 
-Point the box at any SMTP relay (Resend, Postmark, SES, your provider):
+One relay serves every project on the box. Connect it in the dashboard under
+**Settings › Email**, or from the CLI. Pick the mail service and the box fills in
+the host, port, security and username; you paste one key.
+
+| Provider | Host | Port, security | Username | Password | Key needs |
+| --- | --- | --- | --- | --- | --- |
+| SendGrid | `smtp.sendgrid.net` | 587, STARTTLS | `apikey` | API key (`SG.…`) | Mail Send |
+| Resend | `smtp.resend.com` | 587, STARTTLS | `resend` | API key (`re_…`) | Sending access |
+| Postmark | `smtp.postmarkapp.com` | 587, STARTTLS | the server token | the server token | Server API token |
+| Amazon SES | `email-smtp.<region>.amazonaws.com` | 587, STARTTLS | SMTP username | SMTP password | `ses:SendRawEmail` |
+| Mailgun | `smtp.mailgun.org` (EU: `smtp.eu.mailgun.org`) | 587, STARTTLS | SMTP login, e.g. `postmaster@mg.example.com` | SMTP password | per-domain SMTP credentials |
+| Brevo | `smtp-relay.brevo.com` | 587, STARTTLS | SMTP login | SMTP key (not the API key) | SMTP key |
+| Cloudflare Email Service (beta) | `smtp.mx.cloudflare.net` | 465, TLS | `api_token` | account API token | Email Sending: Edit |
+
+Any other SMTP server works too ("Other SMTP": host, port, security, username and
+password by hand).
 
 ```bash
-tiffin email relay set --host smtp.resend.com --port 587 --tls starttls --username resend --password "$RESEND_KEY"
+tiffin email providers                                   # the presets, with where to create each key
+tiffin email relay set --provider sendgrid --password "$SENDGRID_KEY"
+tiffin email relay set --provider resend --password "$RESEND_KEY"
+tiffin email relay set --provider ses --region eu-west-1 --username "$SES_USER" --password "$SES_PASS"
+tiffin email relay set --provider other --host smtp.example.com --port 587 --tls starttls --username me --password "$PASS"
 tiffin email relay test --to you@example.com
 tiffin email status
 ```
 
-The password is stored encrypted and never shown. Mail to the relay is queued and
-retried with backoff (30 s, 1 min, 2 min ... up to 8 attempts). `tiffin email relay delete`
-goes back to capturing everything.
+The key is stored encrypted and never shown. Omit `--password` to keep the stored
+one. A relay test reports what the server said and, when it fails, what that means
+(a refused key, a blocked port, an unverified sender domain). Mail to the relay is
+queued and retried with backoff (30 s, 1 min, 2 min ... up to 8 attempts).
+`tiffin email relay delete` goes back to capturing everything.
+
+Cloudflare Email Service is in beta. It needs the Workers Paid plan (3,000 emails a
+month included, then $0.35 per 1,000), the sending domain must be onboarded in
+Cloudflare, new accounts start with a small daily quota, and messages are limited to
+5 MiB and 50 recipients.
+
+Each provider only sends from domains you have verified with it. The project's
+**Email settings** page checks the SPF, DKIM and DMARC records for its sender address.
+
+## Mail from the box
+
+The dashboard sends its own mail through the same relay: an invite with the person's
+sign-in link (when you give their email address), a fresh link when you choose **Email a
+new sign-in link**, a link people ask for on the login page, and a note when someone
+signs in from a new browser. The messages are plain text and simple HTML, with no
+images or tracking (SendGrid's click and open tracking is switched off for them).
+
+It comes from `Tiffin <hello@<box domain>>` until you change it under **Settings ›
+Email › Mail from the box**, where you can also set a Reply-To. The relay's mail service
+must accept the sender's domain.
+
+```bash
+tiffin email box get
+tiffin email box set --from "ShipTiffin <hello@shiptiffin.com>" --reply-to help@shiptiffin.com
+tiffin email box messages            # owners and admins: it holds sign-in links
+tiffin people email <usr_id> --email maya@example.com
+```
+
+Without a relay, box mail waits in the box's own dev inbox (the list under **Mail from
+the box**), and the invite dialog says so: copy the link and send it yourself.
+
+## Send from your own domain
+
+On a project's **Email settings** page, **Send from your domain** takes a domain and an
+address (`hello@` by default) and does the rest:
+
+1. It sets the domain up with the relay's mail service through its API, using the
+   relay key: SendGrid domain authentication (with automatic security: three CNAMEs),
+   or a Resend domain. If the service already has the domain, it is reused.
+2. When the domain's DNS is on a DNS provider connected to the box (Cloudflare), it
+   writes the records itself (CNAMEs unproxied), plus a DMARC `p=none` policy when the
+   domain has none. Otherwise the page lists the records to copy.
+3. It asks the service to check: after 1, 2, 4, 8, 15 and 30 minutes, then hourly, for
+   up to 48 hours. **Check now** asks at once; after 48 hours it stops and says so,
+   and **Check again** starts another 48 hours.
+4. Once verified, it makes `hello@<domain>` the project's sender, as a change in
+   History you can undo. A sender already on that domain is kept.
+
+The key needs more than sending for step 1. SendGrid: give the API key **Sender
+Authentication** (Full Access) in Settings › API Keys. Resend: a **Full access** key
+(a Sending access key can't manage domains); it sends mail too, so paste it as the
+relay key. The page says exactly this when the key is short of it. For the other
+services, the page lists the steps: add the domain in the service's dashboard, add its
+records, then change the sender.
+
+```bash
+tiffin email sending-domain set shop --domain example.com --local hello
+tiffin email sending-domain get shop
+tiffin email sending-domain check shop
+tiffin email sending-domain delete shop   # stops checking; the domain and records stay
+```
+
+## Delivery events
+
+Without them, a relayed message stops at **Sent**: the relay accepted it. With them,
+the provider tells the box what happened next, and each message shows **Delivered**,
+**Bounced** or **Marked as spam**, with a timeline of what was reported (delays,
+opens and clicks too, when the provider tracks them). Hard bounces, spam complaints
+and unsubscribes add the address to the project's suppression list, with the reason.
+
+The box reads events from SendGrid, Resend and Postmark. Each one POSTs to a public
+address on the box:
+
+```
+https://<your dashboard>/v1/email/events/sendgrid
+https://<your dashboard>/v1/email/events/resend
+https://<your dashboard>/v1/email/events/postmark
+```
+
+The dashboard must be reachable from the internet (not `*.localhost`). Settings ›
+Email shows the exact address, the events to turn on, and **Receiving events** once
+the first verified request arrives.
+
+**SendGrid.** Settings › Mail Settings › Event Webhooks › Create new webhook. Paste
+the address as the Post URL; tick Delivered, Deferred, Bounced, Dropped, Spam
+Reports and Unsubscribes (Opened and Clicked if you want them); turn on **Signed
+Event Webhook** and save. Copy the verification key it then shows:
+
+```bash
+tiffin email webhooks set sendgrid --key "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE..."
+```
+
+**Resend.** Webhooks › Add webhook. Paste the address; pick `email.delivered`,
+`email.delivery_delayed`, `email.bounced`, `email.complained`, `email.failed` and
+`email.suppressed` (plus `email.opened` and `email.clicked` if you like). Copy the
+signing secret from the webhook's page:
+
+```bash
+tiffin email webhooks set resend --key "whsec_..."
+```
+
+**Postmark.** Postmark has no signatures, so the box makes a password:
+
+```bash
+tiffin email webhooks set postmark    # prints the address with its password, once
+```
+
+Paste that address (it looks like `https://tiffin:<password>@.../v1/email/events/postmark`)
+into the stream's Webhooks tab, with Delivery, Bounce and Spam Complaint ticked.
+Running the command again makes a new password and retires the old one.
+
+`tiffin email webhooks delete <provider>` turns events off. Amazon SES, Mailgun,
+Brevo and Cloudflare are not read yet (Cloudflare sends its events to Cloudflare
+Queues, not to a webhook).
+
+### How events are checked and matched
+
+- **SendGrid** signs each request with ECDSA (P-256, SHA-256 over the timestamp
+  and the body). The box keeps the public verification key.
+- **Resend** signs with Svix: HMAC-SHA256 over `id.timestamp.body` with the
+  signing secret.
+- **Postmark** sends the password in the address (HTTP basic auth), compared in
+  constant time.
+
+Unsigned or wrongly signed requests are refused with 401 before anything in them is
+read, and the dashboard shows the last refusal and why. A Resend request more than
+5 minutes old is refused. SendGrid retries for up to 24 hours, so its signed
+timestamp may be up to 25 hours old; every event is recorded once by the provider's
+own event ID, so a replayed request changes nothing. Keys and secrets are stored
+encrypted with the box's other secrets and never returned.
+
+When it relays a message, the box adds what lets the events find it again: an
+`X-Tiffin-Message-Id` header, a `Message-ID` if the message has none, a SendGrid
+`X-SMTPAPI` unique argument (`tiffin_id`, merged with any your app set), and Postmark
+metadata (`X-PM-Metadata-tiffin-id`). Resend events are matched by the `Message-ID`,
+then by Resend's own email ID; if Resend reports a different `Message-ID`, the first
+event is matched by recipient and subject within an hour of sending, and only when
+exactly one message fits. A status only moves forward (sent, delivered, bounced,
+marked as spam), so a late "delivered" never hides a complaint.
 
 ## Suppressions and limits
 
 A recipient the relay rejects permanently (a hard bounce) is added to the
-project's suppression list, and Tiffin never sends to it again. Add unsubscribes
-and complaints yourself:
+project's suppression list, and Tiffin never sends to it again. With delivery events
+on, bounces, spam complaints and unsubscribes reported by the provider are added too.
+A message to a suppressed address is still accepted, through the API and SMTP alike: it
+is logged with that recipient marked suppressed, and goes only to the others (if there
+are none, nothing is sent). You can add and remove addresses yourself:
 
 ```bash
 tiffin email suppressions add shop --address ada@example.com --reason unsubscribe
 tiffin email suppressions list shop
 tiffin email suppressions delete shop ada@example.com
 ```
+
+Destroying a project removes its email too: the message log and raw files, delivery
+events, suppressions, rate limit and sending-domain setup.
 
 Each project may send 300 messages an hour (bursts of up to 60). The box owner can
 change it: `tiffin email rate-limit set shop --per-hour 2000` (0 = unlimited).

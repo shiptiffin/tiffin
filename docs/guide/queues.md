@@ -13,7 +13,10 @@ await queue.send("emails", { to: "sam@example.com" }, { delay: "10m", key: "user
 - **Limits:** concurrency per queue and per key, rate limits per key, FIFO groups.
 - **Topics** fan out to every subscriber; **dedupe** within 24 hours.
 - **`sendTx`:** enqueue inside your own database transaction (an outbox the box drains),
-  so a job exists if and only if your write committed.
+  so a job exists if and only if your write committed. The outbox is
+  `tiffin_queue.outbox` in the project's database; from a client without the SDK, insert
+  `INSERT INTO tiffin_queue.outbox (name, payload, options, app) VALUES ($1, $2, $3, $4)`
+  (`payload` and `options` are JSON, as in a send).
 - **Long jobs** extend their lease with heartbeats, for up to 24 hours per attempt: an attempt
   still running then counts as failed and is retried.
 
@@ -195,7 +198,7 @@ Postgres world (`@workflow/world-postgres`, the release that matches your `workf
 or your own if package.json has it) on the project's database, so the project needs
 `services: { postgres: {} }`; without it the deploy fails and says so. At server start
 the box brings the world's tables (schemas `workflow`, `workflow_drizzle`,
-`graphile_worker`) up to date and starts its worker in every instance; all running
+`graphile_worker`, which belong to the DevKit and keep its names) up to date and starts its worker in every instance; all running
 releases share one queue, so a sleep or a retry that comes due during a deploy runs on
 whichever release is up, and on the new one once the old has stopped. Runs survive
 redeploys and box restarts. The world connects with `DIRECT_DATABASE_URL` (its worker

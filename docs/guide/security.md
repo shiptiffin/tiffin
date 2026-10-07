@@ -4,6 +4,10 @@ Plainly, so you can decide what to trust it with.
 
 - **The box is the boundary.** Tiffin runs as root on its own machine and manages
   system services. Apps run in containers. Do not share a box with people you don't trust.
+- **App network.** App ports are reachable only from the box itself; the edge is the way
+  in. Apps can't open connections to port 25 on other servers (the box's firewall refuses
+  them): their mail goes through the box (`SMTP_URL`), which sends it with the mail
+  service you connect, so an app can't hurt the box's sending reputation behind your back.
 - **HTTPS everywhere.** Locally the box has its own certificate authority, created on
   the box and never shared. `tiffin trust` adds it to your Mac's keychain.
 - **Only HTTPS leaves a local box,** and only to `127.0.0.1:8443` on your Mac. Postgres,
@@ -20,12 +24,23 @@ Plainly, so you can decide what to trust it with.
   approval step to get around it.
 - **Secrets** (env vars) are encrypted with the box's own age key and are never shown
   after you set them.
-- **Dashboard sign-in** is a one-time link (`tiffin login`, or an invite) or a passkey.
+- **Dashboard sign-in** is a one-time link (`tiffin login`, an invite, or one emailed on
+  request) or a passkey.
   Either gives a 12-hour session with exactly that person's role, in an HttpOnly,
   Secure, SameSite=Strict cookie. Passkey sign-in needs user verification (Face ID,
   fingerprint or PIN), uses a single-use challenge that expires after 2 minutes, refuses
   people who were removed and passkeys whose signature counter goes backwards (a sign of
   a copied key), is limited to 10 attempts a minute per address, and is in the audit log.
+- **Sign-in links by email.** With a mail service connected, the login page offers
+  *Email me a sign-in link*. The answer is the same whether or not the address belongs
+  to anyone, and the lookup and the mail happen after it. Each link works once, for 15
+  minutes, and asking again cancels the previous one. Requests are limited to 5 per
+  15 minutes per client address and 3 an hour per email address, and refused from other
+  sites.
+- **New sign-in notices.** When someone with an email address signs in from a browser the
+  box hasn't seen them use, it emails them (browser, time, address, how). Their first
+  sign-in (the invite) and later sign-ins from the same browser are quiet. A random ID in
+  an HttpOnly cookie (`tiffin_device`) is all the box keeps about a browser.
 - **Every change and security event is logged** (changes with the key or person that
   made them, keys created and revoked, sign-ins, secrets).
 - **Known gaps:** a person or agent with shell access to your Mac can read your local

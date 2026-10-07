@@ -5,17 +5,31 @@ services: { auth: { methods: ["email", "magic-link", "passkey", "google"], organ
 ```
 
 The box runs Better Auth for your apps at `/api/auth/*` on each app's own hosts. Users
-and sessions live in the project's own Postgres (schema `auth`). That path is reserved:
+and sessions live in the project's own Postgres (schema `tiffin_auth`; `auth` and every
+name without the `tiffin` prefix stay free for your app). That path is reserved:
 requests under `/api/auth/` never reach your app, so don't put routes there (plans warn
 about app routes under it).
 
 - **Methods:** email + password (with verification), magic links, one-time codes,
-  passkeys, Google and GitHub (set `GOOGLE_CLIENT_ID`/`SECRET` etc. as secrets; until
-  then the endpoint explains exactly what to set), TOTP two-factor.
+  passkeys, two-step sign-in (an authenticator app or a code by email), and sign-in with Google, GitHub, Apple, Microsoft, Discord,
+  Facebook, X, LinkedIn, GitLab, Slack, Twitch or any OpenID Connect provider (see
+  [Sign-in providers](#sign-in-providers): keys set once for the whole box, or per project).
+- **Email needs a mail service.** Email + password sign-up, magic links, one-time codes,
+  password resets and verification mail go through the project's email service, which
+  sends with the box's relay: your own mail provider (Resend, Postmark, SES...), set in
+  **Settings › Email**. There is no shared sending. Until a relay is connected, production
+  refuses those with `EMAIL_NOT_SET_UP` ("This app can't send email yet: connect a mail
+  service in Settings › Email."), so nobody signs up with an address they don't own;
+  passkeys and sign-in providers keep working. Previews and local boxes keep the dev
+  inbox, so testing just works. Plans warn, the Auth page shows a banner, and
+  `authConfig()` reports `emailReady: false` so the app can hide those forms.
+- **The emails** carry the app's name (`APP_NAME`, else the project's), its icon and its
+  colour (Settings › General), and nothing of Tiffin's. One-time codes are in the subject.
+- **Changing an account's email:** the current address approves the move, the new one
+  confirms it, and the old one is then told the account moved (`authClient.changeEmail`).
 - **Email verification:** `auth: { emailVerification: true | false }`. Left out it is
-  automatic: new users confirm their address once the box has an SMTP relay (real mail
-  goes out), and sign in at once while mail only reaches the dev inbox, so test sign-ups
-  just work. `false` warns in every plan; the dashboard's Auth page has the switch.
+  automatic: on once the box has a relay. `false` warns in every plan; the dashboard's
+  Auth page has the switch.
 - **Organizations:** every user gets a personal org; teams have roles owner, admin,
   member and viewer, email and link invites. Nobody can grant a role above their own.
 - **API keys** act as their user, capped by a role.
@@ -98,13 +112,27 @@ Add Better Auth's client plugins for the rest of what the box serves:
 `organizationClient()`, `magicLinkClient()`, `emailOTPClient()`, `twoFactorClient()` from
 `better-auth/client/plugins`, `passkeyClient()` from `@better-auth/passkey/client`
 (`authClient.signIn.passkey()`, `authClient.passkey.addPasskey()`). `authConfig()` from
-`@shiptiffin/sdk/client` says which methods the app has on, to show only those buttons.
+`@shiptiffin/sdk/client` says which methods the app has on, to show only those buttons;
+its `providers` list is the sign-in buttons, in order, with their names:
+
+```tsx
+const { providers } = await authConfig();
+providers.filter((p) => p.configured).map((p) => (
+  <button key={p.id} onClick={() => authClient.signIn.social({ provider: p.id, callbackURL: "/dashboard" })}>
+    Continue with {p.name}
+  </button>
+));
+```
 
 Mail (verification, links, invites) goes through the project's email service, so add
-`email: {}` next to `auth` (the plan warns when it is missing). It lands in the dev inbox
-until you set up a relay. Email + password sign-up needs a confirmed address: sign-up
-answers `{"token": null}` and no session until the user opens the link in the mail.
-Testing it yourself? The link is in `tiffin email messages list <project>` / `get`.
+`email: {}` next to `auth` (the plan warns when it is missing). Until the box has a relay,
+production refuses email sign-up and links (`EMAIL_NOT_SET_UP`, see above); on previews and
+local boxes it lands in the dev inbox. Email + password sign-up needs a confirmed address:
+sign-up answers `{"token": null}` and no session until the user opens the link in the mail.
+Testing on a preview? The link is in `tiffin email messages list <project>` / `get`.
+If the mail service refuses an address for good (it bounced before, say), the request
+still answers as usual, so nobody can probe which addresses are refused; the box's log
+records it.
 
 ### Next.js
 
@@ -207,6 +235,95 @@ Everything above is plain HTTP, so any language works:
 
 The dashboard lists users and organizations; you can ban users and revoke sessions.
 
+## Sign-in providers
+
+| Method | Provider | Project secrets (when the project brings its own keys) |
+| --- | --- | --- |
+| `google` | Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
+| `github` | GitHub | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` |
+| `apple` | Apple | `APPLE_CLIENT_ID` (the Services ID) and `APPLE_TEAM_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY` (the .p8 file); or a ready-made `APPLE_CLIENT_SECRET` JWT |
+| `microsoft` | Microsoft (Entra ID) | `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, optional `MICROSOFT_TENANT_ID` (default `common`) |
+| `discord` | Discord | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET` |
+| `facebook` | Facebook | `FACEBOOK_CLIENT_ID` (App ID), `FACEBOOK_CLIENT_SECRET` |
+| `twitter` | X | `TWITTER_CLIENT_ID`, `TWITTER_CLIENT_SECRET` (OAuth 2.0) |
+| `linkedin` | LinkedIn | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` |
+| `gitlab` | GitLab | `GITLAB_CLIENT_ID`, `GITLAB_CLIENT_SECRET`, optional `GITLAB_ISSUER` (self-managed) |
+| `slack` | Slack | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` |
+| `twitch` | Twitch | `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` |
+| `oidc` | Any OpenID Connect provider: Okta, Auth0, Keycloak, Entra, company SSO | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, optional `OIDC_NAME` (the button's name) |
+
+Each needs an OAuth app made in the provider's console. People see that app's name on the
+provider's sign-in screen, so where the keys come from matters:
+
+- **This app's own keys (for a product).** On the project's **Auth → Sign-in settings**,
+  choose "This app's own keys" for the provider. The page walks through the provider's
+  console, shows the one redirect URI to register, takes the client ID and secret (saved
+  as the project's own encrypted secrets, a change in History you can undo, or
+  `tiffin auth keys set`) and has a **Test sign-in** link. People see your app's name,
+  never the box's. You can also set the secrets in the table yourself (Environment
+  Variables); they win over the box's keys.
+- **The box's keys (a shortcut for side projects).** Set a provider's keys once in
+  **Settings → Sign-in providers** (`tiffin auth providers set`; `tiffin auth providers list`
+  shows them). Any project that turns the method on uses them with nothing else to do;
+  people see the box's app name. On a hosted box these are keys in *your* provider
+  accounts: the box never comes with keys of its own.
+
+Accounts and sessions are always per project, whichever keys a provider uses: signing in to
+one project never signs anyone in to another, and moving a project from the box's keys to
+its own keeps its users. (Some providers, Apple for one, give a person a different ID under
+each developer account; then the next sign-in is matched to the account by verified email,
+as below.)
+
+**One redirect URI each.** Both kinds need one redirect URI per provider, whatever the
+hosts:
+
+- The box's keys: `https://dashboard.<box domain>/api/auth/callback/<provider>`, for every
+  project on the box.
+- An app's own keys: `https://<the app's sign-in host>/api/auth/callback/<provider>`. The
+  sign-in host is the app's first custom domain, or its first box address while it has
+  none. Sign-ins on the app's other hosts (its box subdomain, `www`, previews) go out with
+  that redirect URI and come back through it, so adding a domain or a preview never means
+  another trip to the provider's console. When the sign-in host changes (the app gets its
+  first custom domain, say), the redirect URI changes: the Auth page says so, shows the new
+  one, and asks you to confirm once you've updated it with the provider.
+
+A method with neither shows its button as not set up: signing in answers
+`SOCIAL_NOT_CONFIGURED` with what to set, and `authConfig()` reports `configured: false`.
+The project's Auth page shows, for each provider, whether it uses box-wide keys, the
+project's own, or needs keys.
+
+**How the one redirect URI works.** The box runs Better Auth's OAuth proxy plugin. A
+sign-in that starts on a preview (`pr-3--shop.<box domain>`) goes to the provider with the one redirect
+URI (the dashboard's for the box's keys, the app's sign-in host for its own); the provider
+sends the browser back there; the box exchanges the code, encrypts the profile (valid for
+60 seconds) and redirects to the host the sign-in started on, which makes the account and
+session in the project's own database. What keeps it safe:
+
+- The proxy key lives only in the auth engine's config (readable by the engine alone),
+  never in an app's environment. Box-wide client secrets are stored encrypted with the
+  box key and never returned by the API.
+- A sign-in can only come back to the hosts of the project it started on (its own app
+  origins, no wildcards). Through the dashboard, only for a project that uses the box's
+  keys for that provider. Anything else is refused.
+- The profile is accepted only in the browser that started the sign-in (its signed state
+  cookie must match), so a stolen or forwarded link can't sign anyone else in or link
+  their account.
+- On the dashboard host only `/api/auth/callback/<provider>` and a plain-text error page
+  exist; the dashboard's own cookies never reach the auth engine.
+
+**Apple.** Apple's client secret is a JWT signed with your .p8 key and valid for at most
+six months. Give the box the Team ID, Key ID, Services ID and the .p8 file; it signs the
+secret itself and makes a new one a month before it expires. Apple posts its callback
+(`form_post`); that works through the one callback URL too. People can hide their
+address behind `@privaterelay.appleid.com`: to email them, register your sending domain
+in Apple's "Sign in with Apple for Email Communication". Apple sends the email address
+only the first time someone signs in.
+
+**Accounts with the same email.** A person who signs in with Google, GitHub or Apple using
+an address that already has an account here joins that account. Other providers join it
+only when they report the address as verified; otherwise the sign-in is refused
+(`account_not_linked`) and the person signs in the way they did before.
+
 ## Previews
 
 Sign-in works on previews (`<preview>--<name>.<domain>`) as on production: the box
@@ -221,6 +338,8 @@ deleted, and the preview's `TIFFIN_AUTH_URL` and `TIFFIN_AUTH_HOST` name that ho
   production don't show up there (sign in another way, or add one on the preview).
 - **Emails** (verification, magic links, invites) sent from a preview link back to it,
   and go out like production's, since they reach real users.
+- **Sign-in providers** work on previews with no setup, with the box's keys or the app's
+  own: a preview's sign-in comes back through the one redirect URI.
 
 Code in a preview runs with the project's auth like production's, so treat a preview of
 someone else's branch as you would deploying it.

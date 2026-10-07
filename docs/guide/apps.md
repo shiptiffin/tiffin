@@ -8,13 +8,16 @@ apps: {
   api:    { framework: "hono", path: "apps/api", routes: ["web/api"], instances: 2 },
   worker: { framework: "bun",  path: "apps/worker", role: "worker" },
   site:   { framework: "static", path: "site" },
+  py:     { framework: "fastapi", path: "apps/py", release: "alembic upgrade head" },
 }
 ```
 
-`next`, `hono` and any server listening on `$PORT` run as containers; `static` sites are
-served straight from the edge.
+`next`, `hono`, `fastapi` and any server listening on `$PORT` run as containers; `static`
+sites are served straight from the edge. Python apps (`fastapi`, and `python` for Flask,
+Django and others) build with Railpack's Python provider: see
+[FastAPI and Python](#fastapi-and-python).
 
-Apps build and run on Bun: `next build` and `next start`, or your `build` and `start`
+JavaScript apps build and run on Bun: `next build` and `next start`, or your `build` and `start`
 scripts, run under `bun --bun`, so tools that ask for Node.js run on Bun too. It starts
 faster and uses less memory. For an app that needs Node.js (a native module built for it, a
 library that leans on Node internals), set `runtime: "node"` (or pick Node.js under the
@@ -26,9 +29,15 @@ doesn't exist; a 5xx on either stops the deploy before it takes traffic.
 
 A static build whose `package.json` uses a client-side router (react-router, vue-router,
 TanStack Router, wouter…) serves `index.html` for paths without a file, so a refresh on
-`/about` works; `index_fallback: false` in a Staticfile turns that off. SvelteKit, Nuxt,
-React Router's framework mode, Remix, TanStack Start, SolidStart and Astro with a server
-adapter aren't supported yet: importing one says so.
+`/about` works; `index_fallback: false` in a Staticfile turns that off.
+
+TanStack Start runs as a server on Bun: its `start` script (Nitro's
+`node .output/server/index.mjs`), or Railpack's default when there is none. Astro with
+`@astrojs/node` (standalone) runs its server the same way; without a `start` script the box
+starts `dist/server/entry.mjs`. SvelteKit, Nuxt, React Router's framework mode, Remix,
+SolidStart, TanStack Start for Solid and Astro with another host's adapter (Vercel,
+Netlify, Cloudflare) aren't detected yet: importing one says so. Any of them runs from
+its own Dockerfile (`builder: "dockerfile"`, see [Build settings](#build-settings)).
 
 The edge compresses text responses (zstd or gzip) for every app; a response the app
 compressed itself is passed through. A static site's pages and files are revalidated on
@@ -57,6 +66,12 @@ failed build or health check leaves the old version serving.
 
 - **Rollback:** `tiffin rollback <app> [deploy]`, to one of the last 3 production deploys
   before the live one (older builds are cleaned up; their records stay listed).
+- **Disk:** images nothing needs any more go at once or in the hourly sweep. BuildKit's
+  cache may hold 15% of the data disk (at least 4 GiB, at most 20 GiB); the sweep trims
+  it back to that even when nothing builds.
+- **History:** `tiffin deploys list <project> <app>` for one app;
+  `tiffin projects deploys <project>` for every app, previews included (filter with
+  `--app`, `--env`, `--status`, `--branch`).
 - **Logs:** `tiffin logs <app> -f`.
 - **Previews** sleep when idle and wake on the first request. Each preview gets its own
   copy of the project's database (see below); it shares the cache, buckets and secrets
@@ -71,10 +86,9 @@ failed build or health check leaves the old version serving.
   or `nerdctl save`). The tarball's own names are replaced by the deploy's as it loads:
   the image is kept under the deploy's name only, so it cannot replace another project's
   or the box's images.
-- **Client assets:** for Next.js, Nuxt, TanStack Start, SolidStart, React Router, Remix,
-  SvelteKit (adapter-node) and Astro (`@astrojs/node`) apps, the box copies the build's
-  browser files (JS, CSS, images) out of the image and serves them itself: hashed files
-  with a year-long immutable cache, others with revalidation. Hashed files of the
+- **Client assets:** for Next.js, TanStack Start and Astro (`@astrojs/node`) apps, the box
+  copies the build's browser files (JS, CSS, images) out of the image and serves them
+  itself: hashed files with a year-long immutable cache, others with revalidation. Hashed files of the
   previous releases stay served for a day, so a page loaded before a deploy keeps
   finding its chunks. The box serves these files without running the app's middleware.
   For another framework, name the directory: `assets: { dir: "dist/client", path: "/" }`
@@ -82,6 +96,62 @@ failed build or health check leaves the old version serving.
 - **Shutdown:** a replaced release finishes the requests it has (each within the app's
   time limit, `timeoutSeconds`, so a long render survives a deploy), gets SIGTERM once
   they are done, then 30 seconds before it is killed, for work it does after responding.
+
+## Build settings
+
+Detection picks how an app builds. When it guesses wrong, override it, in the app's
+**Settings › Build and deploy** in the dashboard or in `tiffin.config.ts`. Every field
+is optional and applies from the next deploy:
+
+```ts
+apps: {
+  web: {
+    framework: "next",
+    git: { repo: "acme/mono", path: "apps/web" },   // root directory
+    install: "pnpm install --frozen-lockfile",       // at the top of the workspace
+    build: "pnpm --filter web build",                // in the app's folder
+    command: "node .next/standalone/server.js",      // the start command
+    healthcheck: "/api/health",
+    release: "pnpm db:migrate",
+    watch: ["apps/web/**", "packages/ui/**", "!**/*.md"],
+  },
+  api:  { builder: "dockerfile", dockerfile: "docker/api.Dockerfile", target: "runner" },
+  docs: { framework: "static", build: "bun run docs:build", output: "site" },
+}
+```
+
+| Field | Default | |
+|---|---|---|
+| `install` | `bun install`, or the lockfile's package manager | Wins over vercel.json's `installCommand` |
+| `build` | package.json `build` | Wins over vercel.json's `buildCommand` |
+| `command` | package.json `start` (Next.js: `next start`) | For a Dockerfile or prebuilt image, replaces its `CMD` |
+| `output` | the first of `dist`, `build`, `out`, `public` with an `index.html` | Static sites and Next.js static exports |
+| `builder` | `"auto"` | `"dockerfile"`, `"static"` (same as framework `static`) or `"prebuilt"` |
+| `dockerfile`, `target` | `Dockerfile`, its last stage | Builder `"dockerfile"` only |
+| `watch` | every push deploys | Patterns relative to the top of the repository |
+
+- **Dockerfile.** `builder: "dockerfile"` builds the app's Dockerfile with BuildKit (the
+  same build slot, memory and CPU limits as other builds), with the app's folder as the
+  context (a workspace app: the workspace's top). The image runs like any other app:
+  health checks, zero-downtime switches, logs, `release`, rollbacks and image cleanup
+  are the same. It must listen on `$PORT`, which the box sets for each instance; its
+  `EXPOSE` is not used. A folder with a `Dockerfile` and no `package.json` or Python
+  project builds with it automatically (the build log says so). The app's plain env and
+  its browser env (`NEXT_PUBLIC_*`, `VITE_*`, ...) reach the build as build args, for the
+  `ARG`s the Dockerfile declares; secrets and service URLs only as BuildKit secrets
+  (`RUN --mount=type=secret,id=DATABASE_URL,env=DATABASE_URL bun run build`), never in a
+  layer. Builds can't mount anything outside the context, use the host's network
+  (`RUN --network=host`) or run privileged steps. `install`, `build`, `runtime` and
+  `packages` belong in the Dockerfile and are refused with it.
+- **Prebuilt.** `builder: "prebuilt"` takes only `tiffin deploy --prebuilt image.tar`; a
+  source deploy says so and fails, and it can't be combined with `git`.
+- **Watch paths.** With `watch`, a GitHub push to the production branch or a pull request
+  deploys the app only when it changes a file one of the patterns matches: `*` within a
+  folder, `**` across folders, a pattern without a slash at any depth (`*.md`), a folder
+  name for everything in it, and a leading `!` to exclude; the last pattern that matches
+  a file decides. A new branch, or a comparison GitHub can't list fully (over 300 files),
+  deploys. Redeploys, `tiffin deploy` and pushes to the box always build. The GitHub
+  deliveries list says which apps a push skipped.
 
 ## Migrations and preview databases
 
@@ -244,15 +314,26 @@ The dashboard creates apps without any files on your machine; so can the CLI and
 
 ```bash
 tiffin templates list                                  # starters shipped inside tiffin
-tiffin deploys template shop api --template hono-postgres
+tiffin deploys template shop site --template astro
 tiffin deploys git shop web --git-url https://github.com/owner/repo --ref main --path apps/web
 ```
 
-Four starters ship in the binary: `static-site`, `hono-postgres` (a notes API that
-creates its table on boot), `guestbook` (page + API + Postgres + Valkey + analytics in
-one Hono app) and `next-postgres` (App Router, reads and writes Postgres). Each lists
-the manifest fragment it needs: add that to the project (see
-[Concepts](concepts.md#changes)), apply, then deploy the template.
+Starters ship in the binary, grouped by what you make (`kind`), with a framework
+(`preset`) inside each and one default per kind:
+
+| Kind | Framework (id) | What it is |
+|---|---|---|
+| Web app (`web`) | **Next.js** (`nextjs`) | App Router on Bun; a server component reads Postgres, a server action writes it |
+| | TanStack Start (`tanstack-start`) | A loader and server functions on Postgres, streamed stats, a prerendered `/about` |
+| Static site (`static`) | **Astro** (`astro`) | Plain HTML, the image service and a self-hosted font; no JavaScript unless a page asks |
+| | Vite + React (`vite-react`) | A single-page app built to hashed, code-split files |
+| API (`api`) | **Hono** (`hono`) | A JSON API with a Postgres table it creates on boot |
+
+Two more aren't offered when starting a project but deploy by id: `static-site` (plain
+HTML, no build) and `guestbook` (page + API + Postgres + Valkey + analytics in one Hono
+app, a demo). Each starter lists the manifest fragment it needs: add that to the project (see
+[Concepts](concepts.md#changes)), apply, then deploy the template. The `fastapi` starter
+is an API in Python: see [FastAPI and Python](#fastapi-and-python).
 
 To change a starter app, `tiffin pull <dir> --project <project>` writes the config and
 the starter's source into `<dir>` (it never overwrites a file that is there); edit it,
@@ -280,8 +361,8 @@ because GitHub delivers pushes to `https://<dashboard>/v1/github/webhook`.
 The app asks for: code (read), metadata (read), pull requests (write, for the preview
 comment), commit statuses (write) and deployments (write). Events: push and pull request.
 
-**2. Import a repository.** New project › **Import from GitHub**: search your repositories
-(private ones included), pick one, then its production branch and folder (monorepos list
+**2. Import a repository.** New project › **Import from GitHub**: search your repositories,
+pick one, then its production branch and folder (monorepos list
 each app they find, with the framework the box would use), add environment variables
 (they're saved as encrypted secrets) and create. That writes the app with a `git` block
 and deploys the branch's latest commit:
@@ -478,9 +559,13 @@ with Next.js 16.2 or later, the box adds its adapter to every build
   after a deploy is not a render, and an ISR page's age counts from the build.
 - `compress: false`: the edge compresses.
 - `poweredByHeader: false` (no `X-Powered-By`; add it with `headers()` if you want it).
+- `supportsImmutableAssets: true` (Next.js 16.3+, Turbopack builds): chunks are served
+  from `/_next/static/immutable/` without `?dpl=<deploy>`, so a chunk a deploy leaves
+  unchanged stays in returning visitors' browser caches. Set it to `false` to opt out.
 - `images.maximumDiskCacheSize`: 512 MB. Optimized images live in a directory per app
   environment, shared by its instances and kept across deploys (deleted with the
-  preview or app).
+  preview or app). They stay on disk, never in Valkey, also when the app sets
+  `images.customCacheHandler`.
 
 Without the adapter's help:
 
@@ -519,5 +604,91 @@ Apps that use Vercel's Workflow DevKit (`workflow`) run unchanged on the project
 Postgres: see [Already using Vercel Workflow?](queues.md#already-using-vercel-workflow).
 
 `templates/hello-next` is an example with two instances and Valkey.
+
+## FastAPI and Python
+
+```ts
+apps: {
+  api:   { framework: "fastapi", healthcheck: "/healthz", release: "alembic upgrade head" },
+  admin: { framework: "python", path: "admin", command: "gunicorn --bind 0.0.0.0:$PORT shop.wsgi",
+           release: "python manage.py migrate" },
+}
+```
+
+`fastapi` is a FastAPI app; `python` is any other Python server that listens on `$PORT`
+(Flask, Django, Litestar...). Both build with Railpack's Python provider, and importing a
+repository finds them by `fastapi` (or Flask, Django...) in `pyproject.toml`,
+`requirements*.txt`, `Pipfile` or `uv.lock`, in any folder of a monorepo.
+
+- **Install.** By the lockfile: `uv.lock` (`uv sync --locked --no-dev`: a lockfile out of
+  date with `pyproject.toml` fails the build, and dev groups are left out), `poetry.lock`,
+  `pdm.lock` or `Pipfile`; a `requirements.txt` wins over all of them (pip). Debian
+  programs go in `packages`, as for any app. `.venv`, `__pycache__` and tool caches are
+  never uploaded.
+- **Python version.** `.python-version` (what `uv python pin` writes), `.tool-versions`,
+  `mise.toml` or `runtime.txt`; without one, the lowest version `requires-python` in
+  `pyproject.toml` accepts when Railpack's default (3.13) does not; `RAILPACK_PYTHON_VERSION`
+  in the app's env wins. Python 3.14 is current, and FastAPI, Pydantic, uvloop, psycopg and
+  asyncpg ship wheels for it. `runtime` is for JavaScript apps only.
+- **Start.** The box starts a `fastapi` app as one Uvicorn process:
+
+  ```bash
+  uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips 127.0.0.1 \
+    --timeout-keep-alive 75 --timeout-graceful-shutdown 25
+  ```
+
+  It finds the app as `fastapi run` does: `[tool.fastapi] entrypoint = "app.main:app"` in
+  `pyproject.toml`, else `app = FastAPI()` in `main.py`, `app.py`, `api.py`, `app/main.py`,
+  `app/app.py` or `app/api.py` (the build log says which). Uvicorn must be a dependency
+  (`uvicorn[standard]`, or `fastapi[standard]`); the build log warns when it isn't.
+  - One process, no `--workers`: add copies with `instances`. Each copy has its own health
+    check and memory, and a deploy replaces them without dropping requests.
+  - The edge connects from 127.0.0.1 and sets `X-Forwarded-For` and `X-Forwarded-Proto`,
+    so `request.client.host` is the visitor and `request.url` and `url_for` are `https`.
+  - Keep-alive 75 s: longer than the edge keeps an idle connection to the app (60 s), so
+    the app never closes one the edge is about to reuse. With Uvicorn's default (5 s) a
+    POST can get a `502` now and then.
+  - Shutdown: `SIGTERM` comes once the requests in flight are done; background tasks get
+    25 s, then the app's lifespan shutdown runs (close pools there), inside the box's 30 s.
+  - `fastapi run` can set neither timeout, so the box does not use it. A `command` of your
+    own replaces all of this (a factory needs one:
+    `uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT`); keep the
+    keep-alive above 60 s.
+
+  A `python` app starts with its `command`, or Railpack's guess: `gunicorn main:app` for
+  Flask with gunicorn, `uvicorn main:app` for FastHTML, else `python main.py` (which must
+  listen on `$PORT`). For Django, Railpack's guess runs `manage.py migrate` in every copy at
+  every start; set `command` and put the migration in `release`, as above.
+- **Logs.** Output is unbuffered. Lines that start with `ERROR:`, `WARNING:` or `CRITICAL:`
+  (Uvicorn's format, and `logging`'s default) and exception lines (`ValueError: ...`,
+  `psycopg.errors.UndefinedTable: ...`) are marked as errors or warnings; JSON lines with a
+  `level` field are read as such. The root logger has no handler until the app adds one, so
+  give the app's own logger a handler (the starter uses Uvicorn's formatter).
+- **Traces.** FastAPI (0.142 and later) exports OpenTelemetry traces, metrics and logs by
+  itself when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, and the box sets it. With
+  `fastapi[opentelemetry]` (or `fastapi[standard]`) installed, each request is a trace in
+  Observability, under the edge's request ID. Without it, FastAPI prints one line at start
+  saying so and carries on; `FastAPI(telemetry={"auto_configure": False})` turns it off.
+- **Services** are env vars, so Python libraries take them as they are:
+  - `DATABASE_URL` is a `postgresql://` URL through the pooler (PgBouncer in transaction
+    mode, prepared statements tracked). For SQLAlchemy, change the scheme to
+    `postgresql+psycopg://` (psycopg 3, SQLAlchemy 2.1's default driver) and size the pool
+    with `DATABASE_POOL_MAX`. Migrations use `DIRECT_DATABASE_URL`. asyncpg also works, but
+    SQLAlchemy hands the URL's `sslmode` to it as an argument it refuses: rename it to `ssl`.
+  - `REDIS_URL` (`redis.asyncio.from_url`), `SMTP_URL` and `EMAIL_FROM`.
+  - Buckets: `AWS_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, which
+    boto3 reads with no setup, plus `S3_BUCKET`.
+  - Sign-in: see [Without the SDK](auth.md#without-the-sdk).
+- **Memory.** The starter's one Uvicorn process settles around 100 to 115 MB RSS, idle or
+  under load (Python 3.14 on a 2-CPU arm64 box; 700 requests a second of `GET /notes`).
+  About 20 MB of that is OpenTelemetry export: without `fastapi[opentelemetry]` it is
+  smaller, and requests stop showing as traces. `memoryMB: 256` leaves room.
+
+**The starter** (`tiffin deploys template <project> api --template fastapi`) is a notes API:
+FastAPI 0.142 on Python 3.14, typed Pydantic models, async SQLAlchemy 2.1 on psycopg 3, an
+Alembic migration as its `release`, OpenAPI docs at `/docs`, a `/me` route that asks the
+box's sign-in service who is signed in (with `services.auth`), and a pytest suite
+(`uv run pytest`, with `DATABASE_URL` pointing at a scratch database). `tiffin pull` gives
+you its source; `uv run uvicorn app.main:app --reload` runs it locally.
 
 Templates: `templates/hello-hono`, `hello-next`, `static-site`, `queues-worker`.
