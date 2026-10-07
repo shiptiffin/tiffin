@@ -66,7 +66,7 @@ func unix(t time.Time) string { return strconv.FormatInt(t.Unix(), 10) }
 func TestVerifySendGrid(t *testing.T) {
 	k := newSGKeys(t)
 	now := time.Now()
-	body := []byte(`[{"email":"a@example.com","event":"delivered"}]`)
+	body := []byte(`[{"email":"a@inbox.dev","event":"delivered"}]`)
 	ts := unix(now)
 	sig := k.sign(t, ts, body)
 	if err := verifySendGrid(k.pubB64, body, sig, ts, now); err != nil {
@@ -78,7 +78,7 @@ func TestVerifySendGrid(t *testing.T) {
 	if err := verifySendGrid(pemKey, body, sig, ts, now); err != nil {
 		t.Fatalf("pem: %v", err)
 	}
-	if err := verifySendGrid(k.pubB64, []byte(`[{"email":"a@example.com","event":"bounce"}]`), sig, ts, now); err != errSignature {
+	if err := verifySendGrid(k.pubB64, []byte(`[{"email":"a@inbox.dev","event":"bounce"}]`), sig, ts, now); err != errSignature {
 		t.Fatalf("tampered body: %v", err)
 	}
 	if err := verifySendGrid(k.pubB64, body, sig, unix(now.Add(time.Second)), now); err != errSignature {
@@ -228,17 +228,17 @@ func TestMarkForRelay(t *testing.T) {
 
 func TestParseEvents(t *testing.T) {
 	sg := `[
-	 {"email":"A@Example.com","timestamp":1760000000,"event":"bounce","type":"bounce","bounce_classification":"Invalid Address","reason":"550 5.1.1 no such user","status":"5.1.1","sg_event_id":"e1","sg_message_id":"Q1.filter0001.1","smtp-id":"<x@y>","tiffin_id":"msg_1"},
-	 {"email":"b@example.com","timestamp":1760000000,"event":"bounce","type":"blocked","reason":"421 try later","sg_event_id":"e2"},
-	 {"email":"c@example.com","timestamp":1760000000,"event":"processed","sg_event_id":"e3"},
-	 {"email":"d@example.com","timestamp":1760000000,"event":"dropped","reason":"Spam Reporting Address","sg_event_id":"e4"},
-	 {"email":"e@example.com","timestamp":1760000000,"event":"spamreport","sg_event_id":"e5"},
-	 {"email":"f@example.com","timestamp":1760000000,"event":"click","url":"https://example.com/x","sg_event_id":"e6"}]`
+	 {"email":"A@Inbox.dev","timestamp":1760000000,"event":"bounce","type":"bounce","bounce_classification":"Invalid Address","reason":"550 5.1.1 no such user","status":"5.1.1","sg_event_id":"e1","sg_message_id":"Q1.filter0001.1","smtp-id":"<x@y>","tiffin_id":"msg_1"},
+	 {"email":"b@inbox.dev","timestamp":1760000000,"event":"bounce","type":"blocked","reason":"421 try later","sg_event_id":"e2"},
+	 {"email":"c@inbox.dev","timestamp":1760000000,"event":"processed","sg_event_id":"e3"},
+	 {"email":"d@inbox.dev","timestamp":1760000000,"event":"dropped","reason":"Spam Reporting Address","sg_event_id":"e4"},
+	 {"email":"e@inbox.dev","timestamp":1760000000,"event":"spamreport","sg_event_id":"e5"},
+	 {"email":"f@inbox.dev","timestamp":1760000000,"event":"click","url":"https://example.com/x","sg_event_id":"e6"}]`
 	evs, err := parseSendGrid([]byte(sg))
 	if err != nil || len(evs) != 5 {
 		t.Fatalf("sendgrid: %d %v", len(evs), err)
 	}
-	if e := evs[0]; e.Type != EventBounced || !e.Hard || e.suppress != "bounce" || e.Recipient != "a@example.com" || e.TiffinID != "msg_1" ||
+	if e := evs[0]; e.Type != EventBounced || !e.Hard || e.suppress != "bounce" || e.Recipient != "a@inbox.dev" || e.TiffinID != "msg_1" ||
 		e.HeaderID != "<x@y>" || e.ProviderID != "Q1" || e.Key != "e1" || !strings.Contains(e.Detail, "Invalid Address") {
 		t.Fatalf("hard bounce: %+v", e)
 	}
@@ -253,9 +253,9 @@ func TestParseEvents(t *testing.T) {
 	}
 
 	rs := `{"type":"email.bounced","created_at":"2026-10-06T10:00:00Z","data":{"email_id":"56761188-7520-42d8-8898-ff6fc54ce618","message_id":"x@y",
-	  "to":["A@example.com","b@example.com"],"subject":"Hi","bounce":{"type":"Permanent","subType":"General","message":"mailbox unavailable"}}}`
+	  "to":["A@inbox.dev","b@inbox.dev"],"subject":"Hi","bounce":{"type":"Permanent","subType":"General","message":"mailbox unavailable"}}}`
 	evs, err = parseResend([]byte(rs), "msg_svix1")
-	if err != nil || len(evs) != 2 || !evs[0].Hard || evs[0].HeaderID != "<x@y>" || evs[0].Key != "msg_svix1/a@example.com" || evs[1].Recipient != "b@example.com" {
+	if err != nil || len(evs) != 2 || !evs[0].Hard || evs[0].HeaderID != "<x@y>" || evs[0].Key != "msg_svix1/a@inbox.dev" || evs[1].Recipient != "b@inbox.dev" {
 		t.Fatalf("resend: %+v %v", evs, err)
 	}
 	evs, _ = parseResend([]byte(`{"type":"email.bounced","data":{"to":["a@x.com"],"bounce":{"type":"Temporary"}}}`), "s2")
@@ -402,7 +402,7 @@ func TestSendGridEvents(t *testing.T) {
 		t.Fatal("key echoed back")
 	}
 
-	id, raw := h.sendOne("ada@example.com", "Welcome")
+	id, raw := h.sendOne("ada@inbox.dev", "Welcome")
 	if !strings.Contains(raw, `"tiffin_id":"`+id+`"`) {
 		t.Fatalf("relayed without the unique argument: %s", raw)
 	}
@@ -414,9 +414,9 @@ func TestSendGridEvents(t *testing.T) {
 			"Content-Type":                           "application/json",
 		}, "", "")
 	}
-	delivered := fmt.Sprintf(`[{"email":"ada@example.com","timestamp":%d,"event":"delivered","response":"250 OK","sg_event_id":"ev-d1","tiffin_id":%q},
-		{"email":"ada@example.com","timestamp":%d,"event":"open","sg_event_id":"ev-o1","tiffin_id":%q},
-		{"email":"zed@example.com","timestamp":%d,"event":"delivered","sg_event_id":"ev-other"}]`, time.Now().Unix(), id, time.Now().Unix()+1, id, time.Now().Unix())
+	delivered := fmt.Sprintf(`[{"email":"ada@inbox.dev","timestamp":%d,"event":"delivered","response":"250 OK","sg_event_id":"ev-d1","tiffin_id":%q},
+		{"email":"ada@inbox.dev","timestamp":%d,"event":"open","sg_event_id":"ev-o1","tiffin_id":%q},
+		{"email":"zed@inbox.dev","timestamp":%d,"event":"delivered","sg_event_id":"ev-other"}]`, time.Now().Unix(), id, time.Now().Unix()+1, id, time.Now().Unix())
 	code, m = send(delivered, time.Now())
 	if code != 200 || m["matched"] != float64(2) || m["events"] != float64(3) {
 		t.Fatalf("delivered: %d %v", code, m)
@@ -446,13 +446,13 @@ func TestSendGridEvents(t *testing.T) {
 	}
 
 	// A hard bounce: bounced, and the address is suppressed with the reason.
-	id2, _ := h.sendOne("gone@example.com", "Receipt")
-	code, _ = send(fmt.Sprintf(`[{"email":"gone@example.com","timestamp":%d,"event":"bounce","type":"bounce","reason":"550 5.1.1 unknown user","status":"5.1.1","sg_event_id":"ev-b1","tiffin_id":%q}]`, time.Now().Unix(), id2), time.Now())
-	if code != 200 || h.status(id2) != StatusBounced || h.suppressedAs("gone@example.com") != "bounce" {
-		t.Fatalf("bounce: %d %s %q", code, h.status(id2), h.suppressedAs("gone@example.com"))
+	id2, _ := h.sendOne("gone@inbox.dev", "Receipt")
+	code, _ = send(fmt.Sprintf(`[{"email":"gone@inbox.dev","timestamp":%d,"event":"bounce","type":"bounce","reason":"550 5.1.1 unknown user","status":"5.1.1","sg_event_id":"ev-b1","tiffin_id":%q}]`, time.Now().Unix(), id2), time.Now())
+	if code != 200 || h.status(id2) != StatusBounced || h.suppressedAs("gone@inbox.dev") != "bounce" {
+		t.Fatalf("bounce: %d %s %q", code, h.status(id2), h.suppressedAs("gone@inbox.dev"))
 	}
 	// A spam report beats delivered, and is never undone by a late "delivered".
-	id3, raw3 := h.sendOne("grump@example.com", "News")
+	id3, raw3 := h.sendOne("grump@inbox.dev", "News")
 	smtpID := ""
 	for _, line := range strings.Split(raw3, "\r\n") {
 		if k, v, ok := strings.Cut(line, ": "); ok && strings.EqualFold(k, "Message-ID") {
@@ -460,10 +460,10 @@ func TestSendGridEvents(t *testing.T) {
 		}
 	}
 	// Matched by smtp-id (the Message-ID) alone.
-	code, m = send(fmt.Sprintf(`[{"email":"grump@example.com","timestamp":%d,"event":"spamreport","sg_event_id":"ev-s1","smtp-id":%q},
-		{"email":"grump@example.com","timestamp":%d,"event":"delivered","sg_event_id":"ev-s2","smtp-id":%q}]`, time.Now().Unix(), smtpID, time.Now().Unix(), smtpID), time.Now())
-	if code != 200 || m["matched"] != float64(2) || h.status(id3) != StatusComplained || h.suppressedAs("grump@example.com") != "complaint" {
-		t.Fatalf("complaint: %d %v %s %q", code, m, h.status(id3), h.suppressedAs("grump@example.com"))
+	code, m = send(fmt.Sprintf(`[{"email":"grump@inbox.dev","timestamp":%d,"event":"spamreport","sg_event_id":"ev-s1","smtp-id":%q},
+		{"email":"grump@inbox.dev","timestamp":%d,"event":"delivered","sg_event_id":"ev-s2","smtp-id":%q}]`, time.Now().Unix(), smtpID, time.Now().Unix(), smtpID), time.Now())
+	if code != 200 || m["matched"] != float64(2) || h.status(id3) != StatusComplained || h.suppressedAs("grump@inbox.dev") != "complaint" {
+		t.Fatalf("complaint: %d %v %s %q", code, m, h.status(id3), h.suppressedAs("grump@inbox.dev"))
 	}
 
 	// The status shows it is receiving, and the message detail has the timeline.
@@ -500,7 +500,7 @@ func TestResendEvents(t *testing.T) {
 		ts := unix(at)
 		return h.post(path, []byte(body), map[string]string{"svix-id": id, "svix-timestamp": ts, "svix-signature": svixSign(secret, id, ts, []byte(body))}, "", "")
 	}
-	id, raw := h.sendOne("ada@example.com", "Welcome")
+	id, raw := h.sendOne("ada@inbox.dev", "Welcome")
 	mid := ""
 	for _, line := range strings.Split(raw, "\r\n") {
 		if k, v, ok := strings.Cut(line, ": "); ok && strings.EqualFold(k, "Message-ID") {
@@ -511,40 +511,40 @@ func TestResendEvents(t *testing.T) {
 		return fmt.Sprintf(`{"type":%q,"created_at":%q,"data":{"email_id":"56761188-7520-42d8-8898-ff6fc54ce618","message_id":%q,"to":[%q],"subject":%q%s}}`,
 			typ, time.Now().UTC().Format(time.RFC3339Nano), messageID, to, subject, extra)
 	}
-	if code, m := send(ev("email.delivered", mid, "ada@example.com", "Welcome", ""), time.Now()); code != 200 || m["matched"] != float64(1) || h.status(id) != StatusDelivered {
+	if code, m := send(ev("email.delivered", mid, "ada@inbox.dev", "Welcome", ""), time.Now()); code != 200 || m["matched"] != float64(1) || h.status(id) != StatusDelivered {
 		t.Fatalf("delivered: %d %v %s", code, m, h.status(id))
 	}
 	// Later events match by Resend's email_id, learned from the first.
-	if code, m := send(ev("email.complained", "", "ada@example.com", "", ""), time.Now()); code != 200 || m["matched"] != float64(1) ||
-		h.status(id) != StatusComplained || h.suppressedAs("ada@example.com") != "complaint" {
+	if code, m := send(ev("email.complained", "", "ada@inbox.dev", "", ""), time.Now()); code != 200 || m["matched"] != float64(1) ||
+		h.status(id) != StatusComplained || h.suppressedAs("ada@inbox.dev") != "complaint" {
 		t.Fatalf("complained: %d %v %s", code, m, h.status(id))
 	}
 	// When Resend reports its own Message-ID, the recipient and subject still find the message.
-	id2, _ := h.sendOne("bob@example.com", "Your receipt")
-	bounce := ev("email.bounced", "<0100019a-other@email.amazonses.com>", "bob@example.com", "Your receipt",
+	id2, _ := h.sendOne("bob@inbox.dev", "Your receipt")
+	bounce := ev("email.bounced", "<0100019a-other@email.amazonses.com>", "bob@inbox.dev", "Your receipt",
 		`,"bounce":{"type":"Permanent","subType":"General","message":"mailbox does not exist"}`)
 	bounce = strings.Replace(bounce, "56761188-7520-42d8-8898-ff6fc54ce618", "11111111-2222-3333-4444-555555555555", 1)
-	if code, m := send(bounce, time.Now()); code != 200 || m["matched"] != float64(1) || h.status(id2) != StatusBounced || h.suppressedAs("bob@example.com") != "bounce" {
+	if code, m := send(bounce, time.Now()); code != 200 || m["matched"] != float64(1) || h.status(id2) != StatusBounced || h.suppressedAs("bob@inbox.dev") != "bounce" {
 		t.Fatalf("bounced: %d %v %s", code, m, h.status(id2))
 	}
 	// An event for mail the box never sent is acknowledged and ignored.
-	unknown := strings.Replace(ev("email.delivered", "<nope@x>", "who@example.com", "Unknown", ""), "56761188-7520-42d8-8898-ff6fc54ce618", "00000000-0000-0000-0000-000000000000", 1)
+	unknown := strings.Replace(ev("email.delivered", "<nope@x>", "who@inbox.dev", "Unknown", ""), "56761188-7520-42d8-8898-ff6fc54ce618", "00000000-0000-0000-0000-000000000000", 1)
 	if code, m := send(unknown, time.Now()); code != 200 || m["matched"] != float64(0) {
 		t.Fatalf("unknown: %d %v", code, m)
 	}
 	// Old timestamps (a replay) and bad signatures are refused.
-	if code, _ := send(ev("email.delivered", mid, "ada@example.com", "Welcome", ""), time.Now().Add(-10*time.Minute)); code != 401 {
+	if code, _ := send(ev("email.delivered", mid, "ada@inbox.dev", "Welcome", ""), time.Now().Add(-10*time.Minute)); code != 401 {
 		t.Fatalf("old: %d", code)
 	}
-	body := ev("email.delivered", mid, "ada@example.com", "Welcome", "")
+	body := ev("email.delivered", mid, "ada@inbox.dev", "Welcome", "")
 	if code, _ := h.post(path, []byte(body), map[string]string{"svix-id": "x", "svix-timestamp": unix(time.Now()), "svix-signature": svixSign(newSvixSecret(), "x", unix(time.Now()), []byte(body))}, "", ""); code != 401 {
 		t.Fatalf("wrong secret: %d", code)
 	}
 	// The same delivery sent twice (Resend retries keep the svix-id) counts once.
 	ts := unix(time.Now())
-	id3, _ := h.sendOne("cy@example.com", "Hello")
+	id3, _ := h.sendOne("cy@inbox.dev", "Hello")
 	_ = id3
-	again := ev("email.opened", "", "cy@example.com", "Hello", "")
+	again := ev("email.opened", "", "cy@inbox.dev", "Hello", "")
 	again = strings.Replace(again, "56761188-7520-42d8-8898-ff6fc54ce618", "99999999-2222-3333-4444-555555555555", 1)
 	hdr := map[string]string{"svix-id": "msg_same", "svix-timestamp": ts, "svix-signature": svixSign(secret, "msg_same", ts, []byte(again))}
 	_, m1 := h.post(path, []byte(again), hdr, "", "")
@@ -568,11 +568,11 @@ func TestPostmarkEvents(t *testing.T) {
 	if strings.Contains(fmt.Sprint(st), pass) {
 		t.Fatal("password shown in status")
 	}
-	id, raw := h.sendOne("m@example.com", "Hi")
+	id, raw := h.sendOne("m@inbox.dev", "Hi")
 	if !strings.Contains(raw, "X-PM-Metadata-tiffin-id: "+id) {
 		t.Fatalf("no metadata header: %s", raw)
 	}
-	body := fmt.Sprintf(`{"RecordType":"Bounce","ID":42,"Type":"HardBounce","TypeCode":1,"MessageID":"883953f4","Metadata":{"tiffin-id":%q},"Email":"m@example.com","BouncedAt":%q,"Description":"Unknown user","Inactive":true}`,
+	body := fmt.Sprintf(`{"RecordType":"Bounce","ID":42,"Type":"HardBounce","TypeCode":1,"MessageID":"883953f4","Metadata":{"tiffin-id":%q},"Email":"m@inbox.dev","BouncedAt":%q,"Description":"Unknown user","Inactive":true}`,
 		id, time.Now().UTC().Format(time.RFC3339))
 	if code, _ := h.post("/v1/email/events/postmark", []byte(body), nil, "tiffin", "wrong"); code != 401 {
 		t.Fatalf("wrong password: %d", code)
@@ -583,8 +583,8 @@ func TestPostmarkEvents(t *testing.T) {
 	if code, m := h.post("/v1/email/events/postmark", []byte(body), nil, "tiffin", pass); code != 200 || m["matched"] != float64(1) {
 		t.Fatalf("bounce: %d %v", code, m)
 	}
-	if h.status(id) != StatusBounced || h.suppressedAs("m@example.com") != "bounce" {
-		t.Fatalf("after bounce: %s %q", h.status(id), h.suppressedAs("m@example.com"))
+	if h.status(id) != StatusBounced || h.suppressedAs("m@inbox.dev") != "bounce" {
+		t.Fatalf("after bounce: %s %q", h.status(id), h.suppressedAs("m@inbox.dev"))
 	}
 	// Making a new password retires the old one.
 	h.call(h.owner, "PUT", "/v1/email/webhooks/postmark", `{}`)

@@ -81,7 +81,7 @@ func TestRenderBoxMail(t *testing.T) {
 func TestBoxMailInboxAndRelay(t *testing.T) {
 	r := newRig(t)
 	link := "https://dashboard.tiffin.localhost:8443/login#tfl_abc"
-	res, err := mod.SendBoxMail(r.ctx, r.p, api.BoxMail{Kind: api.BoxMailSignIn, To: "maya@example.com", Name: "Maya", URL: link, ExpiresAt: time.Now().Add(15 * time.Minute)})
+	res, err := mod.SendBoxMail(r.ctx, r.p, api.BoxMail{Kind: api.BoxMailSignIn, To: "maya@inbox.dev", Name: "Maya", URL: link, ExpiresAt: time.Now().Add(15 * time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestBoxMailInboxAndRelay(t *testing.T) {
 	if !mod.BoxMailRelayed(r.ctx, r.p) {
 		t.Fatal("not relayed")
 	}
-	res, err = mod.SendBoxMail(r.ctx, r.p, api.BoxMail{Kind: api.BoxMailInvite, To: "kai@example.com", Name: "Kai", Role: "viewer", URL: link, ExpiresAt: time.Now().Add(time.Hour), By: "Owner"})
+	res, err = mod.SendBoxMail(r.ctx, r.p, api.BoxMail{Kind: api.BoxMailInvite, To: "kai@inbox.dev", Name: "Kai", Role: "viewer", URL: link, ExpiresAt: time.Now().Add(time.Hour), By: "Owner"})
 	if err != nil || res.Delivery != DeliveryRelay {
 		t.Fatalf("relay: %+v %v", res, err)
 	}
@@ -117,7 +117,7 @@ func TestBoxMailInboxAndRelay(t *testing.T) {
 	s.mu.Lock()
 	got := s.got[0]
 	s.mu.Unlock()
-	for _, want := range []string{`"clicktrack":{"settings":{"enable":0}}`, `"opentrack":{"settings":{"enable":0}}`, `"tiffin_id":"msg_`, "Auto-Submitted: auto-generated", "To: \"Kai\" <kai@example.com>"} {
+	for _, want := range []string{`"clicktrack":{"settings":{"enable":0}}`, `"opentrack":{"settings":{"enable":0}}`, `"tiffin_id":"msg_`, "Auto-Submitted: auto-generated", "To: \"Kai\" <kai@inbox.dev>"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("relayed message lacks %q:\n%s", want, got)
 		}
@@ -162,7 +162,7 @@ func TestBoxSenderAPIAndInvites(t *testing.T) {
 	}
 
 	// An invite with an address is emailed (into the box's dev inbox: no relay).
-	code, inv, _ := call(owner, "POST", "/v1/people", `{"name":"Maya Okafor","email":"maya@example.com","role":"member"}`)
+	code, inv, _ := call(owner, "POST", "/v1/people", `{"name":"Maya Okafor","email":"maya@inbox.dev","role":"member"}`)
 	if code != 200 {
 		t.Fatalf("invite: %d %v", code, inv)
 	}

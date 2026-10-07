@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -207,7 +208,7 @@ func TestInboxAPIAndSMTP(t *testing.T) {
 	events, stop := h.subscribe("shop")
 	defer stop()
 
-	res, err := Send(r.ctx, r.p, "shop", Message{To: []string{"Ada <ada@example.com>"}, Subject: "Verify your email",
+	res, err := Send(r.ctx, r.p, "shop", Message{To: []string{"Ada <ada@inbox.dev>"}, Subject: "Verify your email",
 		Text: "Open https://shop.tiffin.localhost/verify?t=abc to verify.",
 		HTML: `<p>Hi <b>Ada</b></p><a href="https://shop.tiffin.localhost/verify?t=abc&amp;x=1">Verify</a><script>alert(1)</script><img src=x onerror=alert(2)>`})
 	if err != nil {
@@ -238,7 +239,7 @@ func TestInboxAPIAndSMTP(t *testing.T) {
 	// SMTP submission with the env credentials; From is filled in.
 	u, _ := url.Parse(env["SMTP_URL"])
 	pw, _ := u.User.Password()
-	if err := r.smtpSend("shop", pw, "app@shop.test", []string{"bob@example.com"}, "To: bob@example.com\r\nSubject: via smtp\r\n\r\nhello bob\r\n"); err != nil {
+	if err := r.smtpSend("shop", pw, "app@shop.test", []string{"bob@inbox.dev"}, "To: bob@inbox.dev\r\nSubject: via smtp\r\n\r\nhello bob\r\n"); err != nil {
 		t.Fatal(err)
 	}
 	box := r.inbox(false)
@@ -277,14 +278,14 @@ func TestInboxAPIAndSMTP(t *testing.T) {
 func TestSuppressionAndRateLimit(t *testing.T) {
 	r := newRig(t)
 	db := r.p.DB.SQL()
-	if err := addSuppression(r.ctx, db, "shop", Suppression{Address: "Gone@Example.com", Reason: "unsubscribe"}); err != nil {
+	if err := addSuppression(r.ctx, db, "shop", Suppression{Address: "Gone@Inbox.dev", Reason: "unsubscribe"}); err != nil {
 		t.Fatal(err)
 	}
-	res, err := Send(r.ctx, r.p, "shop", Message{To: []string{"gone@example.com", "here@example.com"}, Subject: "s", Text: "t"})
-	if err != nil || len(res.Suppressed) != 1 || len(res.Recipients) != 1 || res.Recipients[0] != "here@example.com" {
+	res, err := Send(r.ctx, r.p, "shop", Message{To: []string{"gone@inbox.dev", "here@inbox.dev"}, Subject: "s", Text: "t"})
+	if err != nil || len(res.Suppressed) != 1 || len(res.Recipients) != 1 || res.Recipients[0] != "here@inbox.dev" {
 		t.Fatalf("partial suppression: %+v %v", res, err)
 	}
-	res, err = Send(r.ctx, r.p, "shop", Message{To: []string{"gone@example.com"}, Subject: "s", Text: "t"})
+	res, err = Send(r.ctx, r.p, "shop", Message{To: []string{"gone@inbox.dev"}, Subject: "s", Text: "t"})
 	if err != nil || res.Status != StatusSuppressed || res.Delivery != DeliverySuppressed {
 		t.Fatalf("full suppression: %+v %v", res, err)
 	}
@@ -293,13 +294,16 @@ func TestSuppressionAndRateLimit(t *testing.T) {
 	}
 	env, _ := mod.Env(r.ctx, r.p, "shop", "")
 	// SMTP behaves like the API: accepted, logged as suppressed, not sent.
-	if err := r.smtpSend("shop", env["SMTP_PASSWORD"], "a@shop.test", []string{"gone@example.com"}, "Subject: x\r\n\r\nx"); err != nil {
+	if err := r.smtpSend("shop", env["SMTP_PASSWORD"], "a@shop.test", []string{"gone@inbox.dev"}, "Subject: x\r\n\r\nx"); err != nil {
 		t.Fatalf("smtp suppressed rcpt: %v", err)
 	}
-	if all := r.inbox(true); len(all) != 3 || all[0].Source != "smtp" || all[0].Status != StatusSuppressed || len(all[0].Suppressed) != 1 || len(r.inbox(false)) != 1 {
-		t.Fatalf("smtp suppressed message: %+v", all[0])
+	// Found by source: two messages in the same millisecond have no set order.
+	all := r.inbox(true)
+	i := slices.IndexFunc(all, func(m *record) bool { return m.Source == "smtp" })
+	if len(all) != 3 || i < 0 || all[i].Status != StatusSuppressed || len(all[i].Suppressed) != 1 || len(r.inbox(false)) != 1 {
+		t.Fatalf("smtp suppressed message: %+v", all)
 	}
-	if ok, _ := deleteSuppression(r.ctx, db, "shop", "GONE@example.com"); !ok {
+	if ok, _ := deleteSuppression(r.ctx, db, "shop", "GONE@inbox.dev"); !ok {
 		t.Fatal("unsuppress")
 	}
 
@@ -331,8 +335,8 @@ func TestRelayDeliveryRetriesAndBounces(t *testing.T) {
 	if err := setRelay(r.ctx, r.p, &Relay{Host: host, Port: pn, Username: "relayuser", TLS: TLSNone}, &pw); err != nil {
 		t.Fatal(err)
 	}
-	s.deferred["slow@example.com"] = 2
-	res, err := Send(r.ctx, r.p, "shop", Message{To: []string{"ok@example.com"}, Subject: "real mail", HTML: "<p>hi</p>"})
+	s.deferred["slow@inbox.dev"] = 2
+	res, err := Send(r.ctx, r.p, "shop", Message{To: []string{"ok@inbox.dev"}, Subject: "real mail", HTML: "<p>hi</p>"})
 	if err != nil || res.Delivery != DeliveryRelay || res.Status != StatusQueued {
 		t.Fatalf("send: %+v %v", res, err)
 	}
@@ -340,30 +344,41 @@ func TestRelayDeliveryRetriesAndBounces(t *testing.T) {
 	if !strings.Contains(s.got[0], "Subject: real mail") || len(r.inbox(false)) != 0 {
 		t.Fatalf("delivered: %q inbox=%d", s.got[0], len(r.inbox(false)))
 	}
+	// Reserved example and test domains never reach the relay: the dev inbox keeps them.
+	for _, to := range []string{"invitee@example.com", "Kai <kai@shop.test>", "x@mail.example.org", "y@nowhere.invalid"} {
+		res, err := Send(r.ctx, r.p, "shop", Message{To: []string{to}, Subject: "to a test address", Text: "t"})
+		if err != nil || res.Delivery != DeliveryInbox || res.Status != StatusCaptured || !strings.Contains(res.Reason, "reserved") {
+			t.Fatalf("%s: %+v %v", to, res, err)
+		}
+	}
+	if s.count() != 1 || len(r.inbox(false)) != 4 {
+		t.Fatalf("test addresses: relay got %d, inbox %d", s.count(), len(r.inbox(false)))
+	}
+	_, _ = deleteMessages(r.ctx, r.p, "shop", "")
 	waitFor(t, "sent status", func() bool {
 		rec, _ := getRecord(r.ctx, r.p.DB.SQL(), "shop", res.ID)
 		return rec.Status == StatusSent
 	})
 
 	// Temporary failures are retried with backoff.
-	res, _ = Send(r.ctx, r.p, "shop", Message{To: []string{"slow@example.com"}, Subject: "slow", Text: "t"})
+	res, _ = Send(r.ctx, r.p, "shop", Message{To: []string{"slow@inbox.dev"}, Subject: "slow", Text: "t"})
 	waitFor(t, "retried delivery", func() bool {
 		rec, _ := getRecord(r.ctx, r.p.DB.SQL(), "shop", res.ID)
 		return rec.Status == StatusSent && rec.Attempts == 3
 	})
 
 	// A hard bounce suppresses the address; the message fails for good.
-	res, _ = Send(r.ctx, r.p, "shop", Message{To: []string{"bounce@example.com"}, Subject: "b", Text: "t"})
+	res, _ = Send(r.ctx, r.p, "shop", Message{To: []string{"bounce@inbox.dev"}, Subject: "b", Text: "t"})
 	waitFor(t, "bounce", func() bool {
 		rec, _ := getRecord(r.ctx, r.p.DB.SQL(), "shop", res.ID)
 		return rec.Status == StatusFailed
 	})
 	sups, _ := listSuppressions(r.ctx, r.p.DB.SQL(), "shop")
-	if len(sups) != 1 || sups[0].Address != "bounce@example.com" || sups[0].Reason != "bounce" {
+	if len(sups) != 1 || sups[0].Address != "bounce@inbox.dev" || sups[0].Reason != "bounce" {
 		t.Fatalf("suppressions: %+v", sups)
 	}
 	before := s.count()
-	res, _ = Send(r.ctx, r.p, "shop", Message{To: []string{"bounce@example.com"}, Subject: "again", Text: "t"})
+	res, _ = Send(r.ctx, r.p, "shop", Message{To: []string{"bounce@inbox.dev"}, Subject: "again", Text: "t"})
 	if res.Status != StatusSuppressed {
 		t.Fatalf("send to bounced: %+v", res)
 	}
@@ -375,7 +390,7 @@ func TestRelayDeliveryRetriesAndBounces(t *testing.T) {
 	if pu.User.Username() != "shop+feature-x" {
 		t.Fatalf("preview url: %s", pu)
 	}
-	if err := r.smtpSend(pu.User.Username(), ppw, "a@shop.test", []string{"someone@example.com"}, "Subject: from preview\r\n\r\nx"); err != nil {
+	if err := r.smtpSend(pu.User.Username(), ppw, "a@shop.test", []string{"someone@inbox.dev"}, "Subject: from preview\r\n\r\nx"); err != nil {
 		t.Fatal(err)
 	}
 	box := r.inbox(false)
@@ -388,14 +403,14 @@ func TestRelayDeliveryRetriesAndBounces(t *testing.T) {
 	}
 
 	// Relay test send.
-	tr, err := testRelay(r.ctx, r.p, "ok@example.com", "")
+	tr, err := testRelay(r.ctx, r.p, "ok@inbox.dev", "")
 	if err != nil || len(tr.Accepted) != 1 {
 		t.Fatalf("relay test: %+v %v", tr, err)
 	}
 	// Wrong relay password: the attempt fails and is retried, not lost.
 	bad := "nope"
 	_ = setRelay(r.ctx, r.p, &Relay{Host: host, Port: pn, Username: "relayuser", TLS: TLSNone}, &bad)
-	if _, err := testRelay(r.ctx, r.p, "ok@example.com", ""); err == nil {
+	if _, err := testRelay(r.ctx, r.p, "ok@inbox.dev", ""); err == nil {
 		t.Fatal("bad relay password accepted")
 	}
 }
@@ -451,7 +466,7 @@ func TestAPIScopes(t *testing.T) {
 		_ = json.Unmarshal(w.Body.Bytes(), &m)
 		return w.Code, m
 	}
-	send := `{"to":["x@example.com"],"subject":"hi","text":"hello"}`
+	send := `{"to":["x@inbox.dev"],"subject":"hi","text":"hello"}`
 	if code, m := call(agent, "POST", "/v1/projects/shop/email/send", send); code != 200 || m["delivery"] != "inbox" {
 		t.Fatalf("agent send to inbox: %d %v", code, m)
 	}

@@ -25,6 +25,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -362,6 +363,9 @@ func (m *Module) accept(ctx context.Context, p *platform.Platform, project, prev
 	delivery, reason, err := m.route(ctx, p, project, preview)
 	if err != nil {
 		return nil, err
+	}
+	if delivery == DeliveryRelay && len(keep) > 0 && !slices.ContainsFunc(keep, func(r string) bool { return !reservedRecipient(r) }) {
+		delivery, reason = DeliveryInbox, "every recipient is at a domain reserved for examples and tests (example.com, .test, .invalid...), which no mail can reach: captured in the dev inbox"
 	}
 	status := StatusCaptured
 	switch {

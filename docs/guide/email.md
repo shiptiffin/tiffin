@@ -4,7 +4,9 @@ Turn on `services: { email: {} }` and every app of the project can send mail.
 Until the box owner configures an SMTP relay, **nothing leaves the box**: every
 message is captured in the project's dev inbox, where you (and your agents) can
 read it, click its sign-in link and check how it looks. Preview deployments always
-use the dev inbox, even with a relay.
+use the dev inbox, even with a relay, and so does mail addressed only to domains
+reserved for examples and tests (`example.com`, `.test`, `.invalid`, `.localhost`...),
+which no mail can reach: test sign-ups and invites never bounce off your relay.
 
 ```ts
 // tiffin.config.ts

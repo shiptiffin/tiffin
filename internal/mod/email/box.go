@@ -127,6 +127,9 @@ func (m *Module) SendBoxMail(ctx context.Context, p *platform.Platform, bm api.B
 	switch res.Delivery {
 	case DeliveryInbox:
 		detail = "No mail service is connected, so the email waits in the box's dev inbox (Settings › Email)."
+		if s.Mode == DeliveryRelay {
+			detail = bm.To + " is at a domain reserved for examples and tests, so the email waits in the box's dev inbox instead."
+		}
 	case DeliverySuppressed:
 		detail = bm.To + " bounced before, so the box doesn't send to it any more."
 	}

@@ -359,3 +359,29 @@ func suppressed(ctx context.Context, db *sql.DB, project string, addrs []string)
 	}
 	return out, nil
 }
+
+// reservedRecipient reports whether an address is at a domain reserved for
+// examples and tests (RFC 2606, RFC 6761): no mail can ever reach it, so
+// the box keeps such mail in the dev inbox instead of handing it to the
+// relay, where it would only bounce and count against the sender.
+func reservedRecipient(addr string) bool {
+	a := normAddr(addr)
+	if i := strings.LastIndex(a, "<"); i >= 0 {
+		a = strings.TrimSuffix(a[i+1:], ">")
+	}
+	at := strings.LastIndex(a, "@")
+	if at < 0 {
+		return false
+	}
+	d := strings.TrimSuffix(a[at+1:], ".")
+	switch d {
+	case "example.com", "example.net", "example.org", "example", "test", "invalid", "localhost":
+		return true
+	}
+	for _, s := range []string{".example.com", ".example.net", ".example.org", ".example", ".test", ".invalid", ".localhost"} {
+		if strings.HasSuffix(d, s) {
+			return true
+		}
+	}
+	return false
+}
