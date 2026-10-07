@@ -8,6 +8,7 @@ const { cellText, fromDraft, inputFor, toDraft } = await import("@/routes/data/f
 
 const ts = { category: "timestamp", baseType: "timestamp", name: "starts_at", nullable: true };
 const tstz = { category: "timestamp", baseType: "timestamptz", name: "created_at", nullable: true };
+const arr = { category: "array", baseType: "_text", name: "tags", nullable: true };
 
 /** Opening a value in an editor and saving it untouched. */
 const roundTrip = (v: string, c: typeof ts) => fromDraft(toDraft(v, c), c);
@@ -57,5 +58,24 @@ describe("timestamptz is an instant, edited in the viewer's clock", () => {
   test("text naming its own zone goes to Postgres as typed", () => {
     expect(fromDraft("2026-10-07 12:00:00.123456+02", tstz)).toBe("2026-10-07 12:00:00.123456+02");
     expect(fromDraft("now", tstz)).toBe("now");
+  });
+});
+
+describe("arrays are edited as Postgres array literals, losslessly", () => {
+  const tricky = String.raw`{"",NULL,"NULL"," a ","b\\c","q\"x","x,y"}`;
+
+  test("an untouched array is sent back byte for byte", () => {
+    for (const v of [tricky, "{}", "{{1,2},{3,4}}", "{a,b}", '{"{}"}']) expect(roundTrip(v, arr)).toBe(v);
+  });
+
+  test("an edited literal keeps empty items, NULLs, whitespace, quotes and nesting", () => {
+    const edited = String.raw`{"",NULL,"NULL"," a ","b\\c","q\"x","x,y",new}`;
+    expect(fromDraft(edited, arr)).toBe(edited);
+    expect(fromDraft("{{1,2},{3,5}}", arr)).toBe("{{1,2},{3,5}}");
+  });
+
+  test("an empty box is NULL when allowed, else an empty array", () => {
+    expect(fromDraft("  ", arr)).toBeNull();
+    expect(fromDraft("", { ...arr, nullable: false })).toBe("{}");
   });
 });

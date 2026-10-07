@@ -100,8 +100,7 @@ export function toDraft(v: unknown, c: EditCol): string {
   if (v === null || v === undefined) return "";
   if (c.category === "timestamp" && typeof v === "string") return tsDraft(v, c);
   if (c.category === "json") return JSON.stringify(v, null, 2);
-  if (c.category === "array" && typeof v === "string") return arrayToLines(v);
-  return rawText(v);
+  return rawText(v); // arrays too: Postgres's own literal, {a,"b c",NULL}, edited as written
 }
 
 export class DraftError extends Error {}
@@ -121,44 +120,15 @@ export function fromDraft(draft: string, c: EditCol): unknown {
     }
   }
   if (c.category === "array") {
-    const items = draft.split("\n").map((s) => s.trim()).filter(Boolean);
-    return items;
+    // The literal as typed: Postgres parses it, so empty items, NULLs, quotes and nesting survive.
+    if (!t) return c.nullable ? null : "{}";
+    return t;
   }
   if (t === "" && (c.nullable || c.category !== "text")) return null;
   if (c.category === "timestamp") return zoned(c) ? tsInstant(t) : t; // a timestamp keeps its wall time
   if (c.category === "bool") return t === "true" || t === "t" || t === "yes";
   if (c.category === "number") return t.replace(/[,\s_]/g, "");
   return c.category === "text" ? draft : t;
-}
-
-/** A Postgres array literal, {a,"b c"}, as one item per line. */
-export function arrayToLines(v: string): string {
-  return parseArray(v).join("\n");
-}
-
-export function parseArray(v: string): string[] {
-  const s = v.trim();
-  if (!s.startsWith("{") || !s.endsWith("}")) return [s];
-  const out: string[] = [];
-  let cur = "";
-  let quoted = false;
-  let wasQuoted = false;
-  for (let i = 1; i < s.length - 1; i++) {
-    const ch = s[i];
-    if (quoted) {
-      if (ch === "\\") cur += s[++i];
-      else if (ch === '"') quoted = false;
-      else cur += ch;
-    } else if (ch === '"') {
-      quoted = wasQuoted = true;
-    } else if (ch === ",") {
-      out.push(cur);
-      cur = "";
-      wasQuoted = false;
-    } else cur += ch;
-  }
-  if (cur !== "" || wasQuoted || out.length > 0) out.push(cur);
-  return out.map((x) => (x === "NULL" ? "" : x));
 }
 
 /** Postgres's long type names, as people write them: timestamptz, varchar, float8. */

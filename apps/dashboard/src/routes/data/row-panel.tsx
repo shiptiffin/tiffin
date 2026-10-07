@@ -194,7 +194,7 @@ export function RowPanel({
           id={id}
           value={d}
           onChange={(e) => setDraft(c, e.target.value)}
-          placeholder={c.category === "array" ? "One item per line" : placeholder}
+          placeholder={c.category === "array" ? `{one,two,"with space",NULL}${adding && placeholder ? ` · ${placeholder}` : ""}` : placeholder}
           spellCheck={c.category === "text"}
           rows={Math.min(12, Math.max(3, d.split("\n").length + 1))}
           aria-invalid={!!errs[c.name] || undefined}
