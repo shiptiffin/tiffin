@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -147,8 +148,8 @@ func newFrontRig(t *testing.T) *frontRig {
 	if _, err := p.Engine.Apply(ctx, change.ApplyRequest{Plan: plan, Confirm: plan.Hash}); err != nil {
 		t.Fatal(err)
 	}
-	_ = putMeta(ctx, p, "shop-media", &bucketMeta{Project: "shop", Name: "media", MaxFileSize: 100, AllowedTypes: []string{"image/*", "application/pdf"}})
-	_ = putMeta(ctx, p, "shop-pics", &bucketMeta{Project: "shop", Name: "pics", Public: true})
+	_ = putMeta(ctx, p, "shop--media", &bucketMeta{Project: "shop", Name: "media", MaxFileSize: 100, AllowedTypes: []string{"image/*", "application/pdf"}})
+	_ = putMeta(ctx, p, "shop--pics", &bucketMeta{Project: "shop", Name: "pics", Public: true})
 	user, _, err := credsFor(ctx, p, "shop", true)
 	if err != nil {
 		t.Fatal(err)
@@ -170,6 +171,11 @@ func newFrontRig(t *testing.T) *frontRig {
 
 // do sends a request through the front.
 func (r *frontRig) do(method, host, target string, body []byte, hdr map[string]string) (*http.Response, string) {
+	return r.send(method, host, target, body, hdr, nil)
+}
+
+// send is do, signed with c's key when c is set.
+func (r *frontRig) send(method, host, target string, body []byte, hdr map[string]string, c *Creds) (*http.Response, string) {
 	r.t.Helper()
 	req := httptest.NewRequest(method, "http://"+host+target, bytes.NewReader(body))
 	req.RequestURI = ""
@@ -177,6 +183,9 @@ func (r *frontRig) do(method, host, target string, body []byte, hdr map[string]s
 	req.Host = host
 	for k, v := range hdr {
 		req.Header.Set(k, v)
+	}
+	if c != nil {
+		signRequest(req, *c, Region, sha256Hex(body), time.Now())
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -192,51 +201,66 @@ const s3Host = "s3.tiffin.localhost"
 func TestFrontUploadRules(t *testing.T) {
 	r := newFrontRig(t)
 	png := map[string]string{"Content-Type": "image/png"}
-	if res, body := r.do("PUT", s3Host, "/shop-media/a.png", make([]byte, 100), png); res.StatusCode != 200 {
+	if res, body := r.do("PUT", s3Host, "/shop--media/a.png", make([]byte, 100), png); res.StatusCode != 200 {
 		t.Fatalf("an upload within the rules: %d %s", res.StatusCode, body)
 	}
-	res, body := r.do("PUT", s3Host, "/shop-media/big.png", make([]byte, 101), png)
-	if res.StatusCode != 413 || !strings.Contains(body, "EntityTooLarge") || r.gw.reached("PUT /shop-media/big.png") {
+	res, body := r.do("PUT", s3Host, "/shop--media/big.png", make([]byte, 101), png)
+	if res.StatusCode != 413 || !strings.Contains(body, "EntityTooLarge") || r.gw.reached("PUT /shop--media/big.png") {
 		t.Fatalf("over maxFileSize: %d %s", res.StatusCode, body)
 	}
-	res, body = r.do("PUT", s3Host, "/shop-media/a.txt", []byte("hi"), map[string]string{"Content-Type": "text/plain"})
-	if res.StatusCode != 415 || !strings.Contains(body, "image/*, application/pdf") || r.gw.reached("PUT /shop-media/a.txt") {
+	res, body = r.do("PUT", s3Host, "/shop--media/a.txt", []byte("hi"), map[string]string{"Content-Type": "text/plain"})
+	if res.StatusCode != 415 || !strings.Contains(body, "image/*, application/pdf") || r.gw.reached("PUT /shop--media/a.txt") {
 		t.Fatalf("type not allowed: %d %s", res.StatusCode, body)
 	}
-	if res, _ := r.do("PUT", s3Host, "/shop-media/doc", []byte("%PDF"), map[string]string{"Content-Type": "application/pdf; charset=binary"}); res.StatusCode != 200 {
+	if res, _ := r.do("PUT", s3Host, "/shop--media/doc", []byte("%PDF"), map[string]string{"Content-Type": "application/pdf; charset=binary"}); res.StatusCode != 200 {
 		t.Fatalf("exact type with parameters: %d", res.StatusCode)
 	}
-	if res, _ := r.do("PUT", s3Host, "/shop-media/none", []byte("x"), nil); res.StatusCode != 415 {
+	if res, _ := r.do("PUT", s3Host, "/shop--media/none", []byte("x"), nil); res.StatusCode != 415 {
 		t.Fatalf("no Content-Type: %d", res.StatusCode)
 	}
 	// A presigned URL's own cap (signed into the query) is smaller than the bucket's.
-	if res, _ := r.do("PUT", s3Host, "/shop-media/t.png?"+MaxSizeParam+"=10", make([]byte, 11), png); res.StatusCode != 413 {
+	if res, _ := r.do("PUT", s3Host, "/shop--media/t.png?"+MaxSizeParam+"=10", make([]byte, 11), png); res.StatusCode != 413 {
 		t.Fatalf("URL cap: %d", res.StatusCode)
 	}
 	// Multipart: the type at creation, each part's size, and the total at completion.
-	if res, _ := r.do("POST", s3Host, "/shop-media/v.bin?uploads", nil, map[string]string{"Content-Type": "application/zip"}); res.StatusCode != 415 {
+	if res, _ := r.do("POST", s3Host, "/shop--media/v.bin?uploads", nil, map[string]string{"Content-Type": "application/zip"}); res.StatusCode != 415 {
 		t.Fatalf("create with a type not allowed: %d", res.StatusCode)
 	}
-	if res, _ := r.do("POST", s3Host, "/shop-media/v.png?uploads", nil, png); res.StatusCode != 200 {
+	if res, _ := r.do("POST", s3Host, "/shop--media/v.png?uploads", nil, png); res.StatusCode != 200 {
 		t.Fatalf("create: %d", res.StatusCode)
 	}
-	if res, _ := r.do("PUT", s3Host, "/shop-media/v.png?partNumber=1&uploadId=U1", make([]byte, 101), nil); res.StatusCode != 413 {
+	if res, _ := r.do("PUT", s3Host, "/shop--media/v.png?partNumber=1&uploadId=U1", make([]byte, 101), nil); res.StatusCode != 413 {
 		t.Fatalf("part over the cap: %d", res.StatusCode)
 	}
 	r.gw.parts = 60 // two parts of 60: 120 > 100
-	res, body = r.do("POST", s3Host, "/shop-media/v.png?uploadId=U1", []byte("<CompleteMultipartUpload/>"), nil)
-	if res.StatusCode != 413 || !strings.Contains(body, "aborted") || !r.gw.reached("DELETE /shop-media/v.png?uploadId=U1") || r.gw.reached("POST /shop-media/v.png?uploadId") {
+	// Unsigned (or signed by another key), the front neither lists the
+	// parts nor aborts as root, whatever cap the query names: the gateway
+	// answers (and refuses an unsigned request).
+	res, _ = r.do("POST", s3Host, "/shop--media/v.png?uploadId=U1&"+MaxSizeParam+"=1", []byte("<CompleteMultipartUpload/>"), nil)
+	if r.gw.reached("DELETE /shop--media/v.png") || r.gw.reached("GET /shop--media/v.png?uploadId") {
+		t.Fatalf("an unsigned complete made the front act as root: %d %v", res.StatusCode, r.gw.seen)
+	}
+	other := Creds{"TFNOTHER", "othersecret"}
+	r.send("POST", s3Host, "/shop--media/v.png?uploadId=U1", []byte("<CompleteMultipartUpload/>"), nil, &other)
+	if r.gw.reached("DELETE /shop--media/v.png") {
+		t.Fatalf("another key's complete aborted the upload: %v", r.gw.seen)
+	}
+	r.gw.mu.Lock()
+	r.gw.seen = nil
+	r.gw.mu.Unlock()
+	res, body = r.send("POST", s3Host, "/shop--media/v.png?uploadId=U1", []byte("<CompleteMultipartUpload/>"), nil, &r.user)
+	if res.StatusCode != 413 || !strings.Contains(body, "aborted") || !r.gw.reached("DELETE /shop--media/v.png?uploadId=U1") || r.gw.reached("POST /shop--media/v.png?uploadId") {
 		t.Fatalf("complete over the cap: %d %s %v", res.StatusCode, body, r.gw.seen)
 	}
 	r.gw.parts = 40
-	if res, _ := r.do("POST", s3Host, "/shop-media/v.png?uploadId=U2", []byte("<CompleteMultipartUpload/>"), nil); res.StatusCode != 200 {
+	if res, _ := r.send("POST", s3Host, "/shop--media/v.png?uploadId=U2", []byte("<CompleteMultipartUpload/>"), nil, &r.user); res.StatusCode != 200 {
 		t.Fatalf("complete within the cap: %d", res.StatusCode)
 	}
 	// Buckets without rules take anything; other requests pass untouched.
-	if res, _ := r.do("PUT", s3Host, "/shop-pics/huge.bin", make([]byte, 5000), nil); res.StatusCode != 200 {
+	if res, _ := r.do("PUT", s3Host, "/shop--pics/huge.bin", make([]byte, 5000), nil); res.StatusCode != 200 {
 		t.Fatalf("no rules: %d", res.StatusCode)
 	}
-	if res, _ := r.do("GET", s3Host, "/shop-media?list-type=2", nil, nil); res.StatusCode != 404 && res.StatusCode != 200 {
+	if res, _ := r.do("GET", s3Host, "/shop--media?list-type=2", nil, nil); res.StatusCode != 404 && res.StatusCode != 200 {
 		t.Fatalf("listing: %d", res.StatusCode)
 	}
 }
@@ -249,23 +273,23 @@ func TestFrontPostQuota(t *testing.T) {
 		t.Fatal(err)
 	}
 	form := map[string]string{"Content-Type": "multipart/form-data; boundary=x"}
-	res, body := r.do("POST", s3Host, "/shop-pics", make([]byte, 80), form)
-	if res.StatusCode != 403 || !strings.Contains(body, "QuotaExceeded") || r.gw.reached("POST /shop-pics") {
+	res, body := r.do("POST", s3Host, "/shop--pics", make([]byte, 80), form)
+	if res.StatusCode != 403 || !strings.Contains(body, "QuotaExceeded") || r.gw.reached("POST /shop--pics") {
 		t.Fatalf("form upload over the limit: %d %s", res.StatusCode, body)
 	}
-	if res, _ := r.do("POST", s3Host, "/shop-pics", make([]byte, 20), form); res.StatusCode != 200 {
+	if res, _ := r.do("POST", s3Host, "/shop--pics", make([]byte, 20), form); res.StatusCode != 200 {
 		t.Fatalf("form upload within the limit: %d", res.StatusCode)
 	}
-	if res, _ := r.do("POST", s3Host, "/shop-pics?delete", make([]byte, 80), nil); res.StatusCode != 200 {
+	if res, _ := r.do("POST", s3Host, "/shop--pics?delete", make([]byte, 80), nil); res.StatusCode != 200 {
 		t.Fatalf("DeleteObjects is not an upload: %d", res.StatusCode)
 	}
 	_ = r.p.DB.KVDelete(r.ctx, kvNS, "quota/shop")
-	if res, body := r.do("POST", s3Host, "/shop-media", make([]byte, 20), form); res.StatusCode != 403 || !strings.Contains(body, "presigned PUT") {
+	if res, body := r.do("POST", s3Host, "/shop--media", make([]byte, 20), form); res.StatusCode != 403 || !strings.Contains(body, "presigned PUT") {
 		t.Fatalf("form upload to a bucket with rules: %d %s", res.StatusCode, body)
 	}
 	// The same holds for PUTs to keys.
 	_ = r.p.DB.KVPut(r.ctx, kvNS, "quota/shop", []byte("50"))
-	if res, _ := r.do("PUT", s3Host, "/shop-pics/x", make([]byte, 80), nil); res.StatusCode != 403 {
+	if res, _ := r.do("PUT", s3Host, "/shop--pics/x", make([]byte, 80), nil); res.StatusCode != 403 {
 		t.Fatalf("PUT over the limit: %d", res.StatusCode)
 	}
 }
@@ -273,7 +297,7 @@ func TestFrontPostQuota(t *testing.T) {
 func TestFrontCORS(t *testing.T) {
 	r := newFrontRig(t)
 	pre := func(origin string) *http.Response {
-		res, _ := r.do("OPTIONS", s3Host, "/shop-media/a.png", nil, map[string]string{"Origin": origin,
+		res, _ := r.do("OPTIONS", s3Host, "/shop--media/a.png", nil, map[string]string{"Origin": origin,
 			"Access-Control-Request-Method": "PUT", "Access-Control-Request-Headers": "content-type"})
 		return res
 	}
@@ -289,12 +313,12 @@ func TestFrontCORS(t *testing.T) {
 			t.Fatalf("preflight from %s: %d %v", o, res.StatusCode, res.Header)
 		}
 	}
-	res, _ := r.do("PUT", s3Host, "/shop-media/a.png", []byte("x"), map[string]string{"Origin": "https://shop.tiffin.localhost", "Content-Type": "image/png"})
+	res, _ := r.do("PUT", s3Host, "/shop--media/a.png", []byte("x"), map[string]string{"Origin": "https://shop.tiffin.localhost", "Content-Type": "image/png"})
 	if res.StatusCode != 200 || res.Header.Get("Access-Control-Allow-Origin") != "https://shop.tiffin.localhost" || !strings.Contains(res.Header.Get("Access-Control-Expose-Headers"), "ETag") {
 		t.Fatalf("upload response: %d %v", res.StatusCode, res.Header)
 	}
 	// An explicit list replaces the default.
-	_ = putMeta(r.ctx, r.p, "shop-media", &bucketMeta{Project: "shop", Name: "media", CORS: []string{"https://*.example.com"}})
+	_ = putMeta(r.ctx, r.p, "shop--media", &bucketMeta{Project: "shop", Name: "media", CORS: []string{"https://*.example.com"}})
 	if pre("https://app.example.com").StatusCode != 204 || pre("https://shop.tiffin.localhost").StatusCode != 403 || pre("https://example.com").StatusCode != 403 {
 		t.Fatal("explicit cors list")
 	}
@@ -305,12 +329,12 @@ func TestFrontCORS(t *testing.T) {
 
 func TestObjectCreatedEvents(t *testing.T) {
 	r := newFrontRig(t)
-	r.do("PUT", s3Host, "/shop-pics/cat%20one.png", []byte("PNGDATA"), map[string]string{"Content-Type": "image/png"})
-	r.do("PUT", s3Host, "/shop-pics/p?partNumber=1&uploadId=U", []byte("part"), nil) // a part: no event
+	r.do("PUT", s3Host, "/shop--pics/cat%20one.png", []byte("PNGDATA"), map[string]string{"Content-Type": "image/png"})
+	r.do("PUT", s3Host, "/shop--pics/p?partNumber=1&uploadId=U", []byte("part"), nil) // a part: no event
 	r.gw.parts = 5
-	r.do("POST", s3Host, "/shop-pics/movie.mp4?uploadId=U", []byte("<CompleteMultipartUpload/>"), nil)
+	r.do("POST", s3Host, "/shop--pics/movie.mp4?uploadId=U", []byte("<CompleteMultipartUpload/>"), nil)
 	r.gw.status = 403
-	r.do("PUT", s3Host, "/shop-pics/denied.png", []byte("x"), nil) // refused by the gateway: no event
+	r.do("PUT", s3Host, "/shop--pics/denied.png", []byte("x"), nil) // refused by the gateway: no event
 	deadline := time.Now().Add(5 * time.Second)
 	for len(r.pub.events()) < 2 && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
@@ -335,7 +359,7 @@ func TestObjectCreatedEvents(t *testing.T) {
 
 func TestSignedFilesURL(t *testing.T) {
 	r := newFrontRig(t)
-	r.gw.objects["/shop-media/doc.pdf"] = fakeObject{[]byte("%PDF-1"), "application/pdf"}
+	r.gw.objects["/shop--media/doc.pdf"] = fakeObject{[]byte("%PDF-1"), "application/pdf"}
 	files := "files.tiffin.localhost"
 	if res, _ := r.do("GET", files, "/shop/media/doc.pdf", nil, nil); res.StatusCode != 403 {
 		t.Fatalf("private without a signature: %d", res.StatusCode)
@@ -404,8 +428,8 @@ func TestImageTransformCache(t *testing.T) {
 	r := newFrontRig(t)
 	calls := 0
 	r.f.img.engine = fakeEngine(&calls)
-	r.gw.objects["/shop-pics/a.png"] = fakeObject{[]byte("PNG"), "image/png"}
-	r.gw.objects["/shop-pics/logo.svg"] = fakeObject{[]byte("<svg/>"), "image/svg+xml"}
+	r.gw.objects["/shop--pics/a.png"] = fakeObject{[]byte("PNG"), "image/png"}
+	r.gw.objects["/shop--pics/logo.svg"] = fakeObject{[]byte("<svg/>"), "image/svg+xml"}
 	files := "files.tiffin.localhost"
 	// Concurrent first requests share one transform.
 	var wg sync.WaitGroup
@@ -434,12 +458,12 @@ func TestImageTransformCache(t *testing.T) {
 		t.Fatalf("not a raster image: served as stored: %d %q", res.StatusCode, body)
 	}
 	// A new version of the object is a new cache entry.
-	r.gw.objects["/shop-pics/a.png"] = fakeObject{[]byte("PNG2"), "image/png"}
+	r.gw.objects["/shop--pics/a.png"] = fakeObject{[]byte("PNG2"), "image/png"}
 	if res, body := r.do("GET", files, "/shop/pics/a.png?w=640&q=75&f=webp", nil, nil); body != "640/75/webp:PNG2" || res.Header.Get("X-Tiffin-Cache") != "MISS" {
 		t.Fatalf("after a change: %q %v", body, res.Header)
 	}
 	// Private buckets need a signature; w, q and f can be added to it.
-	r.gw.objects["/shop-media/b.jpg"] = fakeObject{[]byte("JPG"), "image/jpeg"}
+	r.gw.objects["/shop--media/b.jpg"] = fakeObject{[]byte("JPG"), "image/jpeg"}
 	if res, _ := r.do("GET", files, "/shop/media/b.jpg?w=64", nil, nil); res.StatusCode != 403 {
 		t.Fatalf("private transform without a signature: %d", res.StatusCode)
 	}
@@ -475,5 +499,31 @@ func TestImageCacheEvicts(t *testing.T) {
 	d := &imageCache{dir: c.dir, max: 25}
 	if _, ok := d.get("cc03"); !ok || d.total != 20 {
 		t.Fatalf("reloaded: total %d", d.total)
+	}
+}
+
+// A transform's output box is bounded whatever the source's dimensions
+// (no width means the largest width, not the source's), it runs under a
+// memory cap when prlimit is there, and what it writes is capped.
+func TestVipsCommandBounds(t *testing.T) {
+	name, args := vipsCommand("/usr/bin/vips", "", "image/png", imageParams{Quality: 75, Format: "avif"})
+	line := strings.Join(args, " ")
+	if name != "nice" || !strings.Contains(line, "[descriptor=0] .avif[Q=75,keep=none] 3840 --height 10416 --size down") {
+		t.Fatalf("no width: %s %s", name, line)
+	}
+	_, args = vipsCommand("/usr/bin/vips", "", "image/jpeg", imageParams{Width: 16, Quality: 75, Format: "original"})
+	if line := strings.Join(args, " "); !strings.Contains(line, " 16 --height 100000 ") {
+		t.Fatalf("narrow: %s", line)
+	}
+	name, args = vipsCommand("/usr/bin/vips", "/usr/bin/prlimit", "image/gif", imageParams{Width: 640, Quality: 75, Format: "webp"})
+	if line := strings.Join(args, " "); name != "/usr/bin/prlimit" || !strings.HasPrefix(line, "--as=2147483648 nice -n 10 /usr/bin/vips thumbnail_source") || !strings.HasSuffix(line, "n=-1") {
+		t.Fatalf("prlimit: %s %s", name, line)
+	}
+	b := &cappedBuffer{max: 4}
+	if n, err := b.Write([]byte("abc")); n != 3 || err != nil {
+		t.Fatal(n, err)
+	}
+	if _, err := b.Write([]byte("de")); !errors.Is(err, errImageTooBig) || !b.over || b.Len() != 3 {
+		t.Fatalf("over the cap: %v %v %d", err, b.over, b.Len())
 	}
 }

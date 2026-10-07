@@ -55,6 +55,15 @@ const (
 	// imageCacheMax is the default cap of the transform cache.
 	imageCacheMax = 2 << 30
 	imageTimeout  = 30 * time.Second
+	// imageMaxPixels bounds a transform's output: 3840 wide by about
+	// 10,400 high at most (taller at smaller widths).
+	imageMaxPixels = 40_000_000
+	// imageMaxMemory is the address space a transform may use: a
+	// decompression bomb (a small file of huge dimensions or many frames)
+	// fails instead of taking the box's memory.
+	imageMaxMemory int64 = 2 << 30
+	// imageMaxOutput is the most a transform may write.
+	imageMaxOutput = 64 << 20
 )
 
 // imageParams is a validated transform request.
@@ -128,12 +137,18 @@ var vipsBin = sync.OnceValue(func() string {
 // errNoEngine means the box has no image tool installed.
 var errNoEngine = errors.New("image transforms need libvips on the box (the libvips-tools package): run `tiffin up` to provision it")
 
-// vipsTransform runs `vips thumbnail_source` on src (stdin to stdout).
-func vipsTransform(ctx context.Context, src []byte, srcType string, ip imageParams) ([]byte, error) {
-	bin := vipsBin()
-	if bin == "" {
-		return nil, errNoEngine
-	}
+// prlimitBin is util-linux's prlimit, which caps a transform's memory.
+var prlimitBin = sync.OnceValue(func() string {
+	p, _ := exec.LookPath("prlimit")
+	return p
+})
+
+// vipsCommand is the command line of a transform: libvips' thumbnail from
+// stdin to stdout, at low priority, under a memory cap (when prlimit is
+// there), into a bounded box. A missing width is the largest one, and the
+// height allows imageMaxPixels at that width, so the output (and what an
+// encoder holds) stays bounded whatever the source's dimensions.
+func vipsCommand(bin, prlimit, srcType string, ip imageParams) (string, []string) {
 	ext := ip.outputExt(srcType)
 	save := "." + ext
 	switch ext {
@@ -144,25 +159,60 @@ func vipsTransform(ctx context.Context, src []byte, srcType string, ip imagePara
 	}
 	width := ip.Width
 	if width == 0 {
-		width = 100000
+		width = imageWidths[len(imageWidths)-1]
 	}
-	args := []string{"-n", "10", bin, "thumbnail_source", "[descriptor=0]", save, strconv.Itoa(width), "--height", "100000", "--size", "down"}
+	height := min(imageMaxPixels/width, 100000)
+	args := []string{"-n", "10", bin, "thumbnail_source", "[descriptor=0]", save, strconv.Itoa(width), "--height", strconv.Itoa(height), "--size", "down"}
 	if srcType == "image/gif" || srcType == "image/webp" {
 		args = append(args, "--option-string", "n=-1") // every frame of an animation
 	}
+	if prlimit == "" {
+		return "nice", args
+	}
+	return prlimit, append([]string{"--as=" + strconv.FormatInt(imageMaxMemory, 10), "nice"}, args...)
+}
+
+// cappedBuffer keeps up to max bytes; a write past that fails, which ends
+// the transform (its output pipe closes).
+type cappedBuffer struct {
+	bytes.Buffer
+	max  int
+	over bool
+}
+
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	if b.Len()+len(p) > b.max {
+		b.over = true
+		return 0, errImageTooBig
+	}
+	return b.Buffer.Write(p)
+}
+
+var errImageTooBig = errors.New("the transformed image is too big")
+
+// vipsTransform runs `vips thumbnail_source` on src (stdin to stdout).
+func vipsTransform(ctx context.Context, src []byte, srcType string, ip imageParams) ([]byte, error) {
+	bin := vipsBin()
+	if bin == "" {
+		return nil, errNoEngine
+	}
 	ctx, cancel := context.WithTimeout(ctx, imageTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "nice", args...)
-	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=/tmp", "VIPS_CONCURRENCY=1", "VIPS_BLOCK_UNTRUSTED=1"}
+	name, args := vipsCommand(bin, prlimitBin(), srcType, ip)
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=/tmp", "VIPS_CONCURRENCY=1", "VIPS_BLOCK_UNTRUSTED=1", "MALLOC_ARENA_MAX=2"}
 	cmd.Stdin = bytes.NewReader(src)
-	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
+	out, errb := &cappedBuffer{max: imageMaxOutput}, &cappedBuffer{max: 64 << 10}
+	cmd.Stdout, cmd.Stderr = out, errb
 	if cred := nobody(); cred != nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: cred}
 	}
 	if err := cmd.Run(); err != nil {
-		if ctx.Err() != nil {
+		switch {
+		case ctx.Err() != nil:
 			return nil, fmt.Errorf("the transform took longer than %s", imageTimeout)
+		case out.over:
+			return nil, fmt.Errorf("%w (over %s)", errImageTooBig, HumanBytes(imageMaxOutput))
 		}
 		return nil, fmt.Errorf("vips: %v: %s", err, strings.TrimSpace(errb.String()))
 	}

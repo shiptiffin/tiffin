@@ -259,8 +259,8 @@ func desiredResources(info *ProjectInfo, name string, secrets map[string]json.Ra
 	}
 	if m.Services.Storage != nil {
 		for b := range m.Services.Storage.Buckets {
-			if s3 := storage.S3Name(name, b); len(s3) > 63 {
-				return nil, nil, api.NewProblem(422, "validation", fmt.Sprintf("bucket %s would be %q here, longer than S3's 63 characters: pick a shorter project name", b, s3))
+			if why := manifest.S3NameProblem(storage.S3Name(name, b)); why != "" {
+				return nil, nil, api.NewProblem(422, "validation", fmt.Sprintf("bucket %s: %s here; pick another project name", b, why))
 			}
 		}
 	}

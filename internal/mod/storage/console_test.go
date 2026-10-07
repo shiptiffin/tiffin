@@ -19,7 +19,7 @@ import (
 // put writes a file into a bucket's directory, as the gateway would.
 func (r *frontRig) put(bucket, key, body string) {
 	r.t.Helper()
-	path := filepath.Join(dataDir(r.p.DataRoot), "shop-"+bucket, filepath.FromSlash(key))
+	path := filepath.Join(dataDir(r.p.DataRoot), "shop--"+bucket, filepath.FromSlash(key))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		r.t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func (r *frontRig) put(bucket, key, body string) {
 }
 
 func (r *frontRig) has(bucket, key string) bool {
-	_, err := os.Stat(filepath.Join(dataDir(r.p.DataRoot), "shop-"+bucket, filepath.FromSlash(key)))
+	_, err := os.Stat(filepath.Join(dataDir(r.p.DataRoot), "shop--"+bucket, filepath.FromSlash(key)))
 	return err == nil
 }
 
@@ -231,8 +231,8 @@ func TestFilesConsoleOps(t *testing.T) {
 	}
 
 	// Files show on the dashboard's origin only as media, sandboxed, never sniffed.
-	r.gw.objects["/shop-media/p.png"] = fakeObject{[]byte("PNGDATA"), "image/png"}
-	r.gw.objects["/shop-media/page.html"] = fakeObject{[]byte("<script>"), "text/html"}
+	r.gw.objects["/shop--media/p.png"] = fakeObject{[]byte("PNGDATA"), "image/png"}
+	r.gw.objects["/shop--media/page.html"] = fakeObject{[]byte("<script>"), "text/html"}
 	code, _, h, body := call("GET", b+"media/file?key=p.png", "")
 	if code != 200 || string(body) != "PNGDATA" || h.Get("X-Content-Type-Options") != "nosniff" || !strings.Contains(h.Get("Content-Security-Policy"), "sandbox") ||
 		h.Get("Content-Disposition") != "" || h.Get("Access-Control-Allow-Origin") != "" {
@@ -260,7 +260,7 @@ func TestFilesConsoleOps(t *testing.T) {
 		t.Fatalf("start: %d %v", code, out)
 	}
 	code, out, _, _ = call("PUT", b+"media/uploads/U1/parts/1?key=v.png", strings.Repeat("x", 40))
-	if code != 200 || out["etag"] != "tag" || out["size"] != float64(40) || !r.gw.reached("PUT /shop-media/v.png?partNumber=1&uploadId=U1") {
+	if code != 200 || out["etag"] != "tag" || out["size"] != float64(40) || !r.gw.reached("PUT /shop--media/v.png?partNumber=1&uploadId=U1") {
 		t.Fatalf("part: %d %v", code, out)
 	}
 	if code, _, _, _ := call("PUT", b+"media/uploads/U1/parts/2?key=v.png", strings.Repeat("x", 101)); code != 413 {
@@ -272,11 +272,11 @@ func TestFilesConsoleOps(t *testing.T) {
 		t.Fatalf("resume lists stored parts: %d %v", code, out)
 	}
 	code, out, _, _ = call("POST", b+"media/uploads/U1/complete", `{"key":"v.png"}`)
-	if code != 200 || out["size"] != float64(80) || !r.gw.reached("POST /shop-media/v.png?uploadId=U1") {
+	if code != 200 || out["size"] != float64(80) || !r.gw.reached("POST /shop--media/v.png?uploadId=U1") {
 		t.Fatalf("complete: %d %v", code, out)
 	}
 	r.gw.parts = 60
-	if code, _, _, _ := call("POST", b+"media/uploads/U2/complete", `{"key":"w.png"}`); code != 413 || !r.gw.reached("DELETE /shop-media/w.png?uploadId=U2") {
+	if code, _, _, _ := call("POST", b+"media/uploads/U2/complete", `{"key":"w.png"}`); code != 413 || !r.gw.reached("DELETE /shop--media/w.png?uploadId=U2") {
 		t.Fatalf("complete over the limit aborts: %d", code)
 	}
 	if code, _, _, _ := call("DELETE", b+"media/uploads/U3?key=x.png", ""); code != 204 && code != 200 {

@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"mime"
@@ -9,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // The front checks every write before the gateway sees it: the project's
@@ -164,10 +164,11 @@ func checkRules(op s3Op, b *bucketMeta, r *http.Request, size int64) *rejection 
 func (f *frontServer) serveS3(w http.ResponseWriter, r *http.Request) {
 	op, bucket, key := classify(r)
 	var b *bucketMeta
-	var meta map[string]*bucketMeta
 	if bucket != "" {
-		meta, _ = allMeta(r.Context(), f.p)
-		b = meta[bucket]
+		// One record, read directly: not every bucket's per request.
+		if mt, _ := getMeta(r.Context(), f.p, bucket); mt != nil && S3Name(mt.Project, mt.Name) == bucket {
+			b = mt
+		}
 	}
 	if f.cors(w, r, b) {
 		return
@@ -183,24 +184,39 @@ func (f *frontServer) serveS3(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 8<<20))
 		writeS3Error(w, rej.status, rej.code, rej.msg)
 	}
+	var done func(ok bool, delta int64)
+	var delta int64
 	switch op {
 	case opPut, opPart, opPostForm, opCopy, opPartCopy:
-		n := max(size, 0)
-		if op == opCopy || op == opPartCopy {
+		n := size // -1: unknown, refused when a limit applies
+		switch op {
+		case opCopy, opPartCopy:
 			n = 0 // the size is the source's; a held project is still refused
+		case opPut:
+			if n > 0 {
+				n -= objectSize(f.p, bucket, key) // a replaced object frees its own size
+			}
 		}
-		what, fix := f.m.refusal(r.Context(), f.p, meta, b.Project, n)
-		if what != "" {
+		delta = max(n, 0)
+		if op == opPut && size > 0 {
+			delta = n // may be negative: a smaller replacement
+		}
+		var what, fix string
+		if done, what, fix = f.m.admit(r.Context(), f.p, b.Project, bucket, n); what != "" {
 			refuse(&rejection{http.StatusForbidden, "QuotaExceeded", strings.TrimSpace(what + " " + fix)})
 			return
 		}
+	}
+	ok := false
+	if done != nil {
+		defer func() { done(ok, delta) }()
 	}
 	if rej := checkRules(op, b, r, size); rej != nil {
 		refuse(rej)
 		return
 	}
 	if op == opComplete {
-		if rej := f.checkComplete(r.Context(), b, bucket, key, r.URL.Query()); rej != nil {
+		if rej := f.checkComplete(r, b, bucket, key); rej != nil {
 			refuse(rej)
 			return
 		}
@@ -210,10 +226,7 @@ func (f *frontServer) serveS3(w http.ResponseWriter, r *http.Request) {
 	if rec.status >= 300 {
 		return
 	}
-	switch op {
-	case opPut, opPart, opPostForm:
-		f.m.tracker().add(bucket, max(size, 0))
-	}
+	ok = true
 	switch op {
 	case opPut, opCopy, opComplete:
 		f.m.objectCreated(b, bucket, key, rec.Header().Get("X-Amz-Request-Id"))
@@ -221,10 +234,18 @@ func (f *frontServer) serveS3(w http.ResponseWriter, r *http.Request) {
 }
 
 // checkComplete refuses to complete a multipart upload whose parts add up
-// to more than the cap, and aborts it so its parts do not linger.
-func (f *frontServer) checkComplete(ctx context.Context, b *bucketMeta, bucket, key string, q url.Values) *rejection {
+// to more than the cap, and aborts it so its parts do not linger. It acts
+// (as root: listing the parts, aborting) only on a request signed with the
+// bucket owner's own key: anything else goes to the gateway, which refuses
+// it, so nobody else can make the box inspect or abort an upload.
+func (f *frontServer) checkComplete(r *http.Request, b *bucketMeta, bucket, key string) *rejection {
+	ctx, q := r.Context(), r.URL.Query()
 	limit := sizeLimit(b, q)
 	if limit == 0 {
+		return nil
+	}
+	c, ok, err := credsFor(ctx, f.p, b.Project, false)
+	if err != nil || !ok || !verifySigV4(r, c, time.Now()) {
 		return nil
 	}
 	gw, err := f.m.gateway(f.p)

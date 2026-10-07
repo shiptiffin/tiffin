@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -27,21 +29,20 @@ func TestRefusal(t *testing.T) {
 	defer db.Close()
 	p := &platform.Platform{DB: db}
 	m := &Module{}
-	meta := map[string]*bucketMeta{"shop-media": {Project: "shop"}, "blog-media": {Project: "blog"}}
-	m.tracker().buckets = map[string]Usage{"shop-media": {Bytes: 60}, "blog-media": {Bytes: 500}}
+	m.tracker().buckets = map[string]Usage{"shop--media": {Bytes: 60}, "blog--media": {Bytes: 500}}
 	SetDatabaseBytes("shop", 30)
 	defer SetDatabaseBytes("shop", 0)
 
-	if what, _ := m.refusal(ctx, p, meta, "shop", 1<<40); what != "" {
+	if what, _ := m.refusal(ctx, p, "shop", 1<<40); what != "" {
 		t.Fatalf("no limit by default: %q", what)
 	}
 	if err := db.KVPut(ctx, kvNS, "quota/shop", []byte("100")); err != nil {
 		t.Fatal(err)
 	}
-	if what, _ := m.refusal(ctx, p, meta, "shop", 10); what != "" {
+	if what, _ := m.refusal(ctx, p, "shop", 10); what != "" {
 		t.Fatalf("60 files + 30 database + 10 fits in 100: %q", what)
 	}
-	what, fix := m.refusal(ctx, p, meta, "shop", 11)
+	what, fix := m.refusal(ctx, p, "shop", 11)
 	if !strings.Contains(what, "over its storage limit") || !strings.Contains(what, "database 30 B, files 60 B") || !strings.Contains(fix, "tiffin storage quota set shop") ||
 		!strings.HasPrefix(fix, "Delete files (60 B) or data from its database (30 B)") {
 		t.Fatalf("over: %q %q", what, fix)
@@ -60,7 +61,7 @@ func TestRefusal(t *testing.T) {
 		t.Fatalf("limit after deleting the resource: %d %v", n, own)
 	}
 	_ = db.KVPut(ctx, kvNS, "quota/shop", []byte("100"))
-	if what, _ := m.refusal(ctx, p, meta, "blog", 1); what != "" {
+	if what, _ := m.refusal(ctx, p, "blog", 1); what != "" {
 		t.Fatalf("blog has no limit: %q", what)
 	}
 
@@ -68,18 +69,78 @@ func TestRefusal(t *testing.T) {
 	// uploads in before the guard's next round lifts the hold.
 	SetReadOnly("shop", "limit", "shop uses 90 B of its 100 B storage limit, so it is read-only.")
 	defer SetReadOnly("shop", "", "")
-	if what, _ := m.refusal(ctx, p, meta, "shop", 11); !strings.Contains(what, "over its storage limit") {
+	if what, _ := m.refusal(ctx, p, "shop", 11); !strings.Contains(what, "over its storage limit") {
 		t.Fatalf("held for its limit: %q", what)
 	}
 	_ = db.KVPut(ctx, kvNS, "quota/shop", []byte("1000"))
-	if what, _ := m.refusal(ctx, p, meta, "shop", 11); what != "" || ReadOnly("shop") == "" {
+	if what, _ := m.refusal(ctx, p, "shop", 11); what != "" || ReadOnly("shop") == "" {
 		t.Fatalf("limit raised: %q", what)
 	}
 
 	SetReadOnly("blog", "disk", "The box's data disk is 96% full and blog grew the most, so it is read-only.")
 	defer SetReadOnly("blog", "", "")
-	if what, _ := m.refusal(ctx, p, meta, "blog", 0); !strings.Contains(what, "96% full") {
+	if what, _ := m.refusal(ctx, p, "blog", 0); !strings.Contains(what, "96% full") {
 		t.Fatalf("held: %q", what)
+	}
+}
+
+// Uploads running at once each reserve their size when admitted, so they
+// can't all pass on the same usage; a refused or failed one gives it back,
+// and a replacement counts only what it adds.
+func TestAdmitReserves(t *testing.T) {
+	ctx := context.Background()
+	db, err := state.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	p := &platform.Platform{DB: db, DataRoot: t.TempDir()}
+	m := &Module{}
+	_ = db.KVPut(ctx, kvNS, "quota/shop", []byte("100"))
+	b := S3Name("shop", "media")
+
+	first, what, _ := m.admit(ctx, p, "shop", b, 60)
+	if what != "" {
+		t.Fatalf("60 of 100: %q", what)
+	}
+	if _, what, _ := m.admit(ctx, p, "shop", b, 60); !strings.Contains(what, "over its storage limit") {
+		t.Fatalf("a second 60 while the first runs: %q", what)
+	}
+	first(false, 60) // failed: its reservation goes
+	second, what, _ := m.admit(ctx, p, "shop", b, 60)
+	if what != "" {
+		t.Fatalf("after the first failed: %q", what)
+	}
+	second(true, 60)
+	second(true, 60) // settles once
+	if got := m.tracker().project("shop"); got != 60 {
+		t.Fatalf("usage after one 60-byte upload: %d", got)
+	}
+	// Replacing the 60-byte object with another of 60 bytes adds nothing.
+	if err := os.MkdirAll(filepath.Join(dataDir(p.DataRoot), b), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(dataDir(p.DataRoot), b, "a.bin"), make([]byte, 60), 0o644)
+	n := 60 - objectSize(p, b, "a.bin")
+	done, what, _ := m.admit(ctx, p, "shop", b, n)
+	if what != "" || n != 0 {
+		t.Fatalf("same-size replacement at 60 of 100: n=%d %q", n, what)
+	}
+	done(true, n)
+	if got := m.tracker().project("shop"); got != 60 {
+		t.Fatalf("usage after a same-size replacement: %d", got)
+	}
+	if objectSize(p, b, "../"+b+"/a.bin") != 60 || objectSize(p, b, "../../x") != 0 {
+		t.Fatal("objectSize: paths stay inside the bucket")
+	}
+	// Unknown sizes can't be checked against a limit.
+	if _, what, _ := m.admit(ctx, p, "shop", b, -1); !strings.Contains(what, "Content-Length") {
+		t.Fatalf("unknown size: %q", what)
+	}
+	// Another project's buckets ("shop-a--x") are not shop's.
+	m.tracker().add(S3Name("shop-a", "x"), 1000)
+	if got := m.tracker().project("shop"); got != 60 {
+		t.Fatalf("shop counts shop-a's bucket: %d", got)
 	}
 }
 

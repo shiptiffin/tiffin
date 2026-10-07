@@ -20,18 +20,20 @@ type Usage struct {
 }
 
 // usageTracker keeps per-bucket usage from periodic scans of the data dir,
-// plus bytes accepted through the front server since the last scan, so a
-// burst of uploads cannot run far past a quota between scans.
+// plus what writes through the front server changed since the last scan,
+// plus what uploads in progress have reserved, so a burst of uploads (in
+// a row or at once) cannot run past a quota between scans.
 type usageTracker struct {
 	mu         sync.Mutex
 	buckets    map[string]Usage // by S3 name
-	pending    map[string]int64 // by S3 name, since the last scan
+	pending    map[string]int64 // by S3 name: bytes added (or freed) since the last scan
+	inflight   map[string]int64 // by S3 name: bytes reserved by uploads still running
 	measuredAt time.Time
 	wake       chan struct{}
 }
 
 func newUsageTracker() *usageTracker {
-	return &usageTracker{buckets: map[string]Usage{}, pending: map[string]int64{}, wake: make(chan struct{}, 1)}
+	return &usageTracker{buckets: map[string]Usage{}, pending: map[string]int64{}, inflight: map[string]int64{}, wake: make(chan struct{}, 1)}
 }
 
 // scanDir measures every bucket directory under dir. Multipart parts in
@@ -88,8 +90,9 @@ func (t *usageTracker) invalidate() {
 	}
 }
 
+// add records a finished write that grew (or, negative, shrank) a bucket.
 func (t *usageTracker) add(s3name string, n int64) {
-	if n <= 0 {
+	if n == 0 {
 		return
 	}
 	t.mu.Lock()
@@ -97,25 +100,58 @@ func (t *usageTracker) add(s3name string, n int64) {
 	t.mu.Unlock()
 }
 
+// reserve counts n bytes of an upload in progress until settle.
+func (t *usageTracker) reserve(s3name string, n int64) {
+	if n <= 0 {
+		return
+	}
+	t.mu.Lock()
+	t.inflight[s3name] += n
+	t.mu.Unlock()
+}
+
+// settle ends a reservation of reserved bytes; a write that succeeded
+// changed the bucket by delta.
+func (t *usageTracker) settle(s3name string, reserved int64, ok bool, delta int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if reserved > 0 {
+		if t.inflight[s3name] -= reserved; t.inflight[s3name] <= 0 {
+			delete(t.inflight, s3name)
+		}
+	}
+	if ok && delta != 0 {
+		t.pending[s3name] += delta
+	}
+}
+
 func (t *usageTracker) bucket(s3name string) Usage {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	u := t.buckets[s3name]
-	u.Bytes += t.pending[s3name]
+	u.Bytes = max(0, u.Bytes+t.pending[s3name])
 	return u
 }
 
-// project sums a project's buckets (by metadata), including pending bytes.
-func (t *usageTracker) project(meta map[string]*bucketMeta, project string) int64 {
+// project sums a project's buckets ("<project>--*"): the last scan, writes
+// since and uploads in progress.
+func (t *usageTracker) project(project string) int64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	var n int64
-	for s3name, b := range meta {
-		if b.Project == project {
-			n += t.buckets[s3name].Bytes + t.pending[s3name]
+	for _, m := range []map[string]int64{t.pending, t.inflight} {
+		for s3name, b := range m {
+			if projectOf(s3name) == project {
+				n += b
+			}
 		}
 	}
-	return n
+	for s3name, u := range t.buckets {
+		if projectOf(s3name) == project {
+			n += u.Bytes
+		}
+	}
+	return max(0, n)
 }
 
 func (t *usageTracker) at() time.Time {

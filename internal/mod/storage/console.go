@@ -459,11 +459,7 @@ func (m *Module) registerUploads(a huma.API, need func() (*platform.Platform, er
 		if err := uploadRules(in.Bucket, meta, b.Size, ct); err != nil {
 			return nil, err
 		}
-		all, err := allMeta(ctx, p)
-		if err != nil {
-			return nil, err
-		}
-		if what, fix := m.refusal(ctx, p, all, in.Project, b.Size); what != "" {
+		if what, fix := m.refusal(ctx, p, in.Project, b.Size); what != "" {
 			return nil, conflict(what, fix)
 		}
 		out := UploadSession{UploadID: b.UploadID, Key: b.Key, PartSize: partSizeFor(b.Size), Parts: []UploadedPart{}}
@@ -502,18 +498,15 @@ func (m *Module) registerUploads(a huma.API, need func() (*platform.Platform, er
 		if meta.MaxFileSize > 0 && int64(len(data)) > meta.MaxFileSize {
 			return nil, uploadRules(in.Bucket, meta, int64(len(data)), "")
 		}
-		all, err := allMeta(ctx, p)
-		if err != nil {
-			return nil, err
-		}
-		if what, fix := m.refusal(ctx, p, all, in.Project, int64(len(data))); what != "" {
+		done, what, fix := m.admit(ctx, p, in.Project, s3name, int64(len(data)))
+		if what != "" {
 			return nil, conflict(what, fix)
 		}
 		etag, err := gw.uploadPart(ctx, s3name, in.Key, in.UploadID, in.N, data)
+		done(err == nil, int64(len(data)))
 		if err != nil {
 			return nil, uploadGone(err)
 		}
-		m.tracker().add(s3name, int64(len(data)))
 		return &struct{ Body UploadedPart }{UploadedPart{N: in.N, Size: int64(len(data)), ETag: etag}}, nil
 	}))
 

@@ -182,8 +182,8 @@ export const redis = Redis.fromEnv();`,
           { name: "S3_ENDPOINT, S3_REGION", what: "Where the buckets are on the box (AWS_ENDPOINT_URL, AWS_REGION too)", value: `${st?.internalEndpoint ?? "…"}, us-east-1` },
           { name: "S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY", what: "The project’s own key (AWS_* twins too)", secret: true },
           ...(buckets.length === 1
-            ? [{ name: "S3_BUCKET", what: "The bucket, as Bun.s3’s default", value: `${project}-${b}` }]
-            : buckets.map((x) => ({ name: `S3_BUCKET_${envName(x)}`, what: `The ${x} bucket’s S3 name`, value: `${project}-${x}` }))),
+            ? [{ name: "S3_BUCKET", what: "The bucket, as Bun.s3’s default", value: `${project}--${b}` }]
+            : buckets.map((x) => ({ name: `S3_BUCKET_${envName(x)}`, what: `The ${x} bucket’s S3 name`, value: `${project}--${x}` }))),
           { name: "S3_PUBLIC_ENDPOINT", what: "The address browsers and tools off the box use, for signed links", value: st?.endpoint },
         ],
         reveal: () => mod.credentials(project),

@@ -6,7 +6,7 @@ export type Env = Record<string, string | undefined>;
 export interface StorageOptions {
     env?: Env;
 }
-/** The S3 bucket name for a bucket in tiffin.config.ts ("media" → "shop-media"). */
+/** The S3 bucket name for a bucket in tiffin.config.ts ("media" → "shop--media"). */
 export declare function bucketName(name: string, o?: StorageOptions): string;
 /** Whether a bucket is public (readable at its publicUrl without a signature). */
 export declare function isPublic(name: string, o?: StorageOptions): boolean;

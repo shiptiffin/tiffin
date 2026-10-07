@@ -21,7 +21,7 @@ func TestPresignedUploads(t *testing.T) {
 	c, _, _ := credsFor(r.ctx, r.p, "shop", false)
 	const host = "s3.tiffin.localhost:8443"
 	presign := func(method, key string, q url.Values, hdr map[string]string) string {
-		u, err := PresignWith(method, "http://"+host, "shop-media", key, q, hdr, c, Region, time.Minute, time.Now())
+		u, err := PresignWith(method, "http://"+host, "shop--media", key, q, hdr, c, Region, time.Minute, time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -54,7 +54,7 @@ func TestPresignedUploads(t *testing.T) {
 	}
 
 	// Multipart: created with the project key, parts and completion presigned.
-	res, body := r.s3("POST", r.front, "/shop-media/movie.mp4?uploads", nil, &c, map[string]string{"Content-Type": "video/mp4"})
+	res, body := r.s3("POST", r.front, "/shop--media/movie.mp4?uploads", nil, &c, map[string]string{"Content-Type": "video/mp4"})
 	if res.StatusCode != 200 {
 		t.Fatalf("create: %d %s", res.StatusCode, body)
 	}
@@ -93,7 +93,7 @@ func TestPresignedUploads(t *testing.T) {
 	}
 
 	// Over the cap at completion: refused, and the upload is aborted.
-	_, body = r.s3("POST", r.front, "/shop-media/big.mp4?uploads", nil, &c, map[string]string{"Content-Type": "video/mp4"})
+	_, body = r.s3("POST", r.front, "/shop--media/big.mp4?uploads", nil, &c, map[string]string{"Content-Type": "video/mp4"})
 	uploadID = between(body, "<UploadId>", "</UploadId>")
 	u := presign("PUT", "big.mp4", url.Values{"partNumber": {"1"}, "uploadId": {uploadID}}, nil)
 	if res, _ := r.s3("PUT", host, u, part, nil, nil); res.StatusCode != 200 {
@@ -104,7 +104,7 @@ func TestPresignedUploads(t *testing.T) {
 		t.Fatalf("complete over the cap: %d %s", res.StatusCode, body)
 	}
 	gw, _ := r.m.gateway(r.p)
-	if _, err := gw.partsSize(r.ctx, "shop-media", "big.mp4", uploadID); err == nil {
+	if _, err := gw.partsSize(r.ctx, "shop--media", "big.mp4", uploadID); err == nil {
 		t.Fatal("the upload should be aborted")
 	}
 }

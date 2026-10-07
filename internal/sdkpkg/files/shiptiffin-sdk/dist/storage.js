@@ -42,7 +42,7 @@ function need(env, name) {
 function envSuffix(name) {
     return name.toUpperCase().replaceAll("-", "_");
 }
-/** The S3 bucket name for a bucket in tiffin.config.ts ("media" → "shop-media"). */
+/** The S3 bucket name for a bucket in tiffin.config.ts ("media" → "shop--media"). */
 export function bucketName(name, o) {
     const env = envOf(o);
     const v = env[`S3_BUCKET_${envSuffix(name)}`];

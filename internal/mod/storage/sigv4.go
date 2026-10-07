@@ -196,3 +196,88 @@ func accessKeyOf(r *http.Request) string {
 	}
 	return ""
 }
+
+// verifySigV4 reports whether r carries a valid SigV4 signature by c: in
+// its Authorization header (made within 15 minutes) or as a presigned URL
+// (not expired). The front uses it before acting as root for a request.
+func verifySigV4(r *http.Request, c Creds, now time.Time) bool {
+	q := r.URL.Query()
+	var cred, signedHeaders, sig, amzDate, payload string
+	if alg := q.Get("X-Amz-Algorithm"); alg != "" {
+		if alg != sigAlgorithm {
+			return false
+		}
+		cred, signedHeaders, sig, amzDate = q.Get("X-Amz-Credential"), q.Get("X-Amz-SignedHeaders"), q.Get("X-Amz-Signature"), q.Get("X-Amz-Date")
+		payload = unsignedPayload
+	} else {
+		rest, ok := strings.CutPrefix(r.Header.Get("Authorization"), sigAlgorithm+" ")
+		if !ok {
+			return false
+		}
+		for _, part := range strings.Split(rest, ",") {
+			k, v, _ := strings.Cut(strings.TrimSpace(part), "=")
+			switch k {
+			case "Credential":
+				cred = v
+			case "SignedHeaders":
+				signedHeaders = v
+			case "Signature":
+				sig = v
+			}
+		}
+		amzDate, payload = r.Header.Get("X-Amz-Date"), r.Header.Get("X-Amz-Content-Sha256")
+		if payload == "" {
+			return false
+		}
+	}
+	t, err := time.Parse(amzDateFormat, amzDate)
+	if err != nil || sig == "" || signedHeaders == "" {
+		return false
+	}
+	scope := strings.Split(cred, "/")
+	if len(scope) != 5 || scope[0] != c.AccessKey || scope[1] != t.Format("20060102") || scope[3] != "s3" || scope[4] != "aws4_request" {
+		return false
+	}
+	if q.Has("X-Amz-Algorithm") {
+		exp, err := strconv.Atoi(q.Get("X-Amz-Expires"))
+		if err != nil || exp < 1 || exp > 7*24*3600 || now.After(t.Add(time.Duration(exp)*time.Second)) || t.After(now.Add(15*time.Minute)) {
+			return false
+		}
+	} else if d := now.Sub(t); d > 15*time.Minute || d < -15*time.Minute {
+		return false
+	}
+	var ch strings.Builder
+	for _, h := range strings.Split(signedHeaders, ";") {
+		var v string
+		switch h {
+		case "host":
+			v = r.Host
+		case "content-length": // net/http moves it out of the header map
+			if r.ContentLength >= 0 {
+				v = strconv.FormatInt(r.ContentLength, 10)
+			}
+		default:
+			v = strings.Join(r.Header.Values(h), ",")
+		}
+		ch.WriteString(h + ":" + strings.Join(strings.Fields(v), " ") + "\n")
+	}
+	cq := url.Values{}
+	for k, vs := range q {
+		if k != "X-Amz-Signature" {
+			cq[k] = vs
+		}
+	}
+	// The path as the client sent (and signed) it: S3 does not normalise it.
+	path, _, _ := strings.Cut(r.RequestURI, "?")
+	if _, rest, ok := strings.Cut(path, "://"); ok { // absolute form
+		path = "/"
+		if i := strings.IndexByte(rest, '/'); i >= 0 {
+			path = rest[i:]
+		}
+	}
+	if path == "" {
+		path = r.URL.EscapedPath()
+	}
+	cr := r.Method + "\n" + path + "\n" + canonicalQuery(cq) + "\n" + ch.String() + "\n" + signedHeaders + "\n" + payload
+	return hmac.Equal([]byte(signature(c, scope[2], t, cr)), []byte(sig))
+}

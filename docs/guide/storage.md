@@ -15,8 +15,10 @@ services: {
 },
 ```
 
-Bucket `uploads` of project `shop` is the S3 bucket `shop-uploads`. The S3 name
-(`<project>-<bucket>`) must fit in 63 characters.
+Bucket `uploads` of project `shop` is the S3 bucket `shop--uploads`. The S3 name
+(`<project>--<bucket>`) must fit in 63 characters, and can't end in a suffix S3 reserves
+(a bucket named `x-s3`, `ol-s3` or `table-s3`, say). The double dash keeps every
+project's buckets apart: `shop` + `a-b` and `shop-a` + `b` are different buckets.
 
 ## What your apps get
 
@@ -25,7 +27,7 @@ Bucket `uploads` of project `shop` is the S3 bucket `shop-uploads`. The S3 name
 | `S3_ENDPOINT`, `AWS_ENDPOINT_URL` | `http://127.0.0.1:7481` (on the box) |
 | `S3_REGION`, `AWS_REGION` | `us-east-1` |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` (and `AWS_*` twins) | the project's own key |
-| `S3_BUCKET_<NAME>` | `S3_BUCKET_UPLOADS=shop-uploads` |
+| `S3_BUCKET_<NAME>` | `S3_BUCKET_UPLOADS=shop--uploads` |
 | `S3_BUCKET`, `AWS_BUCKET` | set when the project has exactly one bucket (Bun.s3's default) |
 | `S3_PUBLIC_ENDPOINT` | `https://s3.<domain>`: for presigned URLs browsers use |
 | `TIFFIN_FILES_URL` | `https://files.<domain>/shop`: public files |
@@ -167,9 +169,11 @@ Other values answer 400. JPEG, PNG, WebP, AVIF and GIF (animations kept) are tra
 other file is served as stored. Each result is made once per version of the object (its
 ETag) and kept in a disk cache (`/var/lib/tiffin/cache/images`, 2 GiB, least recently used
 files go first); the `X-Tiffin-Cache` header says `HIT` or `MISS`. Transforms run with
-libvips as an unprivileged, low-priority process with a 30 second limit, on images up to
-50 MiB; at most half the box's CPUs transform at once, and one project gets at most half of
-those.
+libvips as an unprivileged, low-priority process with a 30 second limit and 2 GiB of
+memory, on images up to 50 MiB; at most half the box's CPUs transform at once, and one
+project gets at most half of those. Output is at most 3840 pixels wide (without `w` too, so
+`f=webp` alone shrinks a wider image) and 40 megapixels; an image whose transform needs more
+answers 422.
 
 Private buckets need a signed link: `signedUrl("uploads", key, { width: 256, expiresIn: 3600 })`.
 The signature covers the file and the expiry, not `w`, `q` and `f`, so they can be added to it.
@@ -206,7 +210,9 @@ together. There is none by default: the box's disk guard already keeps one proje
 from filling the disk (see [Concepts](concepts.md)). Uploads that would go over a
 limit are refused with `QuotaExceeded` (S3) or a `precondition` problem (API). Files
 are measured every minute, plus what was uploaded since, and databases every 30
-seconds. A project that reaches its limit becomes read-only (its database refuses
+seconds. An upload counts from the moment it is accepted, so uploads at once can't
+overshoot together; replacing a file counts only what it adds. With a limit, an upload
+must say its size (`Content-Length`). A project that reaches its limit becomes read-only (its database refuses
 writes too, its apps' disk folders stop growing) until it is under it again; raising or
 clearing the limit lifts that within seconds. Disk folders count as files, and the sizes
 apps give them (`disk: { data: "5GB" }`, see [Apps](apps.md#programs-folders-and-long-requests))

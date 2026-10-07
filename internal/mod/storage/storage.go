@@ -10,7 +10,7 @@
 //   - Each project gets its own versitygw account (role "user"), so its key
 //     can only reach the buckets it owns. The key pair is kept encrypted in the
 //     box's secret store.
-//   - Bucket "media" of project "shop" is the S3 bucket "shop-media". Public
+//   - Bucket "media" of project "shop" is the S3 bucket "shop--media". Public
 //     buckets carry an anonymous-read bucket policy.
 //   - A small front server inside tiffin (127.0.0.1:7481) sits before the
 //     gateway: it enforces storage limits, read-only holds and bucket rules
@@ -118,6 +118,7 @@ func imageCacheDir(root string) string { return filepath.Join(root, "cache", "im
 // Module implements the storage module.
 type Module struct {
 	mu      sync.Mutex
+	admitMu sync.Mutex // admission checks and reservations of uploads (admit)
 	filesMu sync.Mutex // one file move, delete or undo at a time
 	gw      *gateway
 	usage   *usageTracker
@@ -351,8 +352,26 @@ func (m *Module) tracker() *usageTracker {
 
 // ---- names, metadata, credentials ----
 
-// S3Name is the gateway bucket for a project's bucket: "<project>-<bucket>".
-func S3Name(project, bucket string) string { return project + "-" + bucket }
+// S3Name is the gateway bucket for a project's bucket: "<project>--<bucket>".
+// Project and bucket names are slugs (no "--", no dash at either end), so
+// the first "--" splits the name and no two (project, bucket) pairs share
+// one: "shop-a" + "b" and "shop" + "a-b" are "shop-a--b" and "shop--a-b".
+func S3Name(project, bucket string) string { return manifest.S3BucketName(project, bucket) }
+
+// projectOf is the project an S3 name belongs to ("" when it is not one of ours).
+func projectOf(s3name string) string {
+	project, _, ok := strings.Cut(s3name, "--")
+	if !ok {
+		return ""
+	}
+	return project
+}
+
+// owns reports whether meta is the record of bucket name of project: a
+// guard before acting as root on a bucket a record names.
+func (b *bucketMeta) owns(project, name string) bool {
+	return b != nil && b.Project == project && b.Name == name
+}
 
 // bucketMeta is what the module records about a converged bucket.
 type bucketMeta struct {
@@ -490,8 +509,8 @@ func (m *Module) Reconcile(ctx context.Context, p *platform.Platform, project, a
 	if spec == nil {
 		return m.trashBucket(ctx, p, project, name)
 	}
-	if len(s3name) > 63 {
-		return fmt.Errorf("bucket %q: the S3 name %q is %d characters; S3 allows 63. Use a shorter bucket name", name, s3name, len(s3name))
+	if why := manifest.S3NameProblem(s3name); why != "" {
+		return fmt.Errorf("bucket %q: %s. Use another bucket name", name, why)
 	}
 	var b manifest.Bucket
 	if err := json.Unmarshal(spec, &b); err != nil {

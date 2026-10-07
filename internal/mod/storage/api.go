@@ -615,7 +615,7 @@ func (m *Module) readyBucket(ctx context.Context, p *platform.Platform, project,
 	if err != nil {
 		return "", nil, err
 	}
-	if meta == nil {
+	if meta == nil || !meta.owns(project, bucket) {
 		pr := api.NewProblem(409, "precondition", "bucket "+bucket+" is not created on the box yet")
 		pr.Hint = "check its state with `tiffin projects get " + project + "`; reconcile retries on the next apply or restart"
 		return "", nil, pr
@@ -666,7 +666,7 @@ func (m *Module) info(ctx context.Context, p *platform.Platform, project string)
 		}
 		info.Buckets = append(info.Buckets, bi)
 	}
-	info.FilesBytes, info.DatabaseBytes, info.ReadOnly = t.project(meta, project), databaseBytes(project), ReadOnly(project)
+	info.FilesBytes, info.DatabaseBytes, info.ReadOnly = t.project(project), databaseBytes(project), ReadOnly(project)
 	info.UsedBytes = info.FilesBytes + info.DatabaseBytes
 	q, own, err := quotaFor(ctx, p, project)
 	if err != nil {
@@ -690,27 +690,25 @@ func (m *Module) upload(ctx context.Context, p *platform.Platform, project, buck
 	if err != nil {
 		return nil, err
 	}
-	all, err := allMeta(ctx, p)
-	if err != nil {
-		return nil, err
-	}
-	if what, fix := m.refusal(ctx, p, all, project, int64(len(data))); what != "" {
-		pr := api.NewProblem(409, "precondition", what)
-		pr.Hint = fix
-		return nil, pr
-	}
 	if contentType == "" {
 		contentType = http.DetectContentType(data)
 	}
 	if err := uploadRules(bucket, meta, int64(len(data)), contentType); err != nil {
 		return nil, err
 	}
+	delta := int64(len(data)) - objectSize(p, s3name, key)
+	done, what, fix := m.admit(ctx, p, project, s3name, delta)
+	if what != "" {
+		pr := api.NewProblem(409, "precondition", what)
+		pr.Hint = fix
+		return nil, pr
+	}
 	gw, _ := m.gateway(p)
 	etag, err := gw.putObject(ctx, s3name, key, contentType, data)
+	done(err == nil, delta)
 	if err != nil {
 		return nil, gwProblem(err)
 	}
-	m.tracker().add(s3name, int64(len(data)))
 	m.objectCreated(meta, s3name, key, "")
 	out := &Uploaded{Bucket: bucket, Key: key, Size: int64(len(data)), ETag: etag}
 	if meta.Public {

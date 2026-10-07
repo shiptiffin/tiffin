@@ -35,6 +35,11 @@ func trashKey(id string) string { return "trash/" + id }
 func (m *Module) trashBucket(ctx context.Context, p *platform.Platform, project, name string) error {
 	s3name := S3Name(project, name)
 	src := filepath.Join(dataDir(p.DataRoot), s3name)
+	if meta, err := getMeta(ctx, p, s3name); err != nil {
+		return err
+	} else if meta != nil && !meta.owns(project, name) {
+		return fmt.Errorf("bucket %q: the S3 name %q belongs to bucket %q of project %q; leaving it alone", name, s3name, meta.Name, meta.Project)
+	}
 	_ = p.DB.KVDelete(ctx, kvNS, "bucket/"+s3name)
 	if _, err := os.Stat(src); errors.Is(err, os.ErrNotExist) {
 		return nil

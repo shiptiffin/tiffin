@@ -173,17 +173,17 @@ func TestStorageEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if env["S3_BUCKET_MEDIA"] != "shop-media" || env["S3_BUCKET_ASSETS"] != "shop-assets" || env["S3_REGION"] != Region ||
+	if env["S3_BUCKET_MEDIA"] != "shop--media" || env["S3_BUCKET_ASSETS"] != "shop--assets" || env["S3_REGION"] != Region ||
 		env["S3_PUBLIC_ENDPOINT"] != "https://s3.tiffin.localhost:8443" || env["TIFFIN_FILES_URL"] != "https://files.tiffin.localhost:8443/shop" ||
 		env["AWS_ACCESS_KEY_ID"] != env["S3_ACCESS_KEY_ID"] || env["S3_BUCKET"] != "" || env["TIFFIN_PUBLIC_BUCKETS"] != "assets" {
 		t.Fatalf("env: %v", env)
 	}
 	c := Creds{env["S3_ACCESS_KEY_ID"], env["S3_SECRET_ACCESS_KEY"]}
 	// Upload with the app's credentials through the front (as an app would).
-	if res, body := r.s3("PUT", r.front, "/shop-assets/img/logo.3f9a2c1d.png", []byte("PNGDATA"), &c, map[string]string{"Content-Type": "image/png"}); res.StatusCode != 200 {
+	if res, body := r.s3("PUT", r.front, "/shop--assets/img/logo.3f9a2c1d.png", []byte("PNGDATA"), &c, map[string]string{"Content-Type": "image/png"}); res.StatusCode != 200 {
 		t.Fatalf("put public: %d %s", res.StatusCode, body)
 	}
-	if res, body := r.s3("PUT", r.front, "/shop-media/private/doc.txt", []byte("secret doc"), &c, nil); res.StatusCode != 200 {
+	if res, body := r.s3("PUT", r.front, "/shop--media/private/doc.txt", []byte("secret doc"), &c, nil); res.StatusCode != 200 {
 		t.Fatalf("put private: %d %s", res.StatusCode, body)
 	}
 	// The key cannot touch another project's buckets or create buckets.
@@ -207,7 +207,7 @@ func TestStorageEndToEnd(t *testing.T) {
 	if res, body := r.s3("GET", "files.tiffin.localhost", "/shop/media/private/doc.txt", nil, nil, nil); res.StatusCode != 403 || strings.Contains(body, "media") {
 		t.Fatalf("private via files (the answer names nothing): %d %s", res.StatusCode, body)
 	}
-	if res, _ := r.s3("GET", "s3.tiffin.localhost:8443", "/shop-media/private/doc.txt", nil, nil, nil); res.StatusCode != 403 {
+	if res, _ := r.s3("GET", "s3.tiffin.localhost:8443", "/shop--media/private/doc.txt", nil, nil, nil); res.StatusCode != 403 {
 		t.Fatalf("private anonymous: %d", res.StatusCode)
 	}
 	// Presigned GET on the public endpoint verifies through the front (Host kept).
@@ -251,7 +251,7 @@ func TestStorageEndToEnd(t *testing.T) {
 		t.Fatalf("info: %s", b)
 	}
 	gw, _ := r.m.gateway(r.p)
-	lst, err := gw.list(r.ctx, "shop-media", "", "/", "", 10)
+	lst, err := gw.list(r.ctx, "shop--media", "", "/", "", 10)
 	if err != nil || len(lst.Prefixes) != 2 || len(lst.Objects) != 0 {
 		t.Fatalf("list: %+v %v", lst, err)
 	}
@@ -259,7 +259,7 @@ func TestStorageEndToEnd(t *testing.T) {
 	if err != nil || !rep.OK || rep.Verified != 4 {
 		t.Fatalf("audit: %+v %v", rep, err)
 	}
-	if err := os.WriteFile(filepath.Join(dataDir(r.p.DataRoot), "shop-media", "private", "doc.txt"), []byte("bitrot doc"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dataDir(r.p.DataRoot), "shop--media", "private", "doc.txt"), []byte("bitrot doc"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if rep, _ := r.m.audit(r.ctx, r.p, "shop"); rep.OK || len(rep.Problems) != 1 || rep.Problems[0].Issue != "checksum_mismatch" {
@@ -270,7 +270,7 @@ func TestStorageEndToEnd(t *testing.T) {
 	if err := r.p.DB.KVPut(r.ctx, kvNS, "quota/shop", []byte("40")); err != nil {
 		t.Fatal(err)
 	}
-	if res, body := r.s3("PUT", r.front, "/shop-media/big.bin", bytes.Repeat([]byte("x"), 100), &c, nil); res.StatusCode != 403 || !strings.Contains(body, "QuotaExceeded") {
+	if res, body := r.s3("PUT", r.front, "/shop--media/big.bin", bytes.Repeat([]byte("x"), 100), &c, nil); res.StatusCode != 403 || !strings.Contains(body, "QuotaExceeded") {
 		t.Fatalf("quota at front: %d %s", res.StatusCode, body)
 	}
 	if _, err := r.m.upload(r.ctx, r.p, "shop", "media", "big.bin", "", bytes.Repeat([]byte("x"), 100)); err == nil {
@@ -280,18 +280,18 @@ func TestStorageEndToEnd(t *testing.T) {
 
 	// Delete the private bucket: it goes to the trash; adding it back restores it.
 	r.apply(`{"project":"shop","services":{"storage":{"buckets":{"assets":{"public":true}}}}}`)
-	if _, err := os.Stat(filepath.Join(dataDir(r.p.DataRoot), "shop-media")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dataDir(r.p.DataRoot), "shop--media")); !os.IsNotExist(err) {
 		t.Fatalf("bucket dir still there: %v", err)
 	}
 	tr, _ := trashEntries(r.ctx, r.p)
 	if len(tr) != 1 || tr[0].Bucket != "media" || tr[0].Objects != 2 {
 		t.Fatalf("trash: %+v", tr)
 	}
-	if res, _ := r.s3("GET", r.front, "/shop-media/uploads/a.bin", nil, &c, nil); res.StatusCode != 404 {
+	if res, _ := r.s3("GET", r.front, "/shop--media/uploads/a.bin", nil, &c, nil); res.StatusCode != 404 {
 		t.Fatalf("deleted bucket still serves: %d", res.StatusCode)
 	}
 	r.apply(shopManifest)
-	if res, body := r.s3("GET", r.front, "/shop-media/uploads/a.bin", nil, &c, nil); res.StatusCode != 200 || body != "uploaded" {
+	if res, body := r.s3("GET", r.front, "/shop--media/uploads/a.bin", nil, &c, nil); res.StatusCode != 200 || body != "uploaded" {
 		t.Fatalf("restored object: %d %s", res.StatusCode, body)
 	}
 	if tr, _ := trashEntries(r.ctx, r.p); len(tr) != 0 {
@@ -309,16 +309,16 @@ func TestStorageEndToEnd(t *testing.T) {
 	if res, _ := r.s3("GET", "files.tiffin.localhost", "/shop/assets/hello.txt", nil, nil, nil); res.StatusCode != 403 {
 		t.Fatalf("now-private via files: %d", res.StatusCode)
 	}
-	if res, _ := r.s3("GET", "s3.tiffin.localhost", "/shop-assets/hello.txt", nil, nil, nil); res.StatusCode != 403 {
+	if res, _ := r.s3("GET", "s3.tiffin.localhost", "/shop--assets/hello.txt", nil, nil, nil); res.StatusCode != 403 {
 		t.Fatalf("now-private anonymous: %d", res.StatusCode)
 	}
-	if res, body := r.s3("GET", r.front, "/shop-assets/hello.txt", nil, &c, nil); res.StatusCode != 200 || body != "hi there" {
+	if res, body := r.s3("GET", r.front, "/shop--assets/hello.txt", nil, &c, nil); res.StatusCode != 200 || body != "hi there" {
 		t.Fatalf("owner after private: %d %s", res.StatusCode, body)
 	}
 
 	// Removing storage revokes the key.
 	r.apply(`{"project":"shop"}`)
-	if res, _ := r.s3("GET", r.front, "/shop-assets/hello.txt", nil, &c, nil); res.StatusCode != 403 {
+	if res, _ := r.s3("GET", r.front, "/shop--assets/hello.txt", nil, &c, nil); res.StatusCode != 403 {
 		t.Fatalf("key after storage removed: %d", res.StatusCode)
 	}
 	if env, _ := r.m.Env(r.ctx, r.p, "shop", "web"); env != nil {
@@ -327,6 +327,8 @@ func TestStorageEndToEnd(t *testing.T) {
 }
 
 func TestBucketNameCollision(t *testing.T) {
+	// "shop" + "a-b" and "shop-a" + "b" once were both "shop-a-b": the
+	// second project's key then reached the first project's files.
 	r := newRig(t)
 	r.apply(`{"project":"shop","services":{"storage":{"buckets":{"a-b":{}}}}}`)
 	mf, _ := manifest.Parse([]byte(`{"project":"shop-a","services":{"storage":{"buckets":{"b":{}}}}}`))
@@ -338,9 +340,29 @@ func TestBucketNameCollision(t *testing.T) {
 	if err := r.m.Reconcile(r.ctx, r.p, "shop-a", "service/storage", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	err := r.m.Reconcile(r.ctx, r.p, "shop-a", "bucket/b", json.RawMessage(`{"public":false}`))
-	if err == nil || !strings.Contains(err.Error(), "already belongs") {
-		t.Fatalf("collision: %v", err)
+	if err := r.m.Reconcile(r.ctx, r.p, "shop-a", "bucket/b", json.RawMessage(`{"public":false}`)); err != nil {
+		t.Fatalf("shop-a/b: %v", err)
+	}
+	if S3Name("shop", "a-b") == S3Name("shop-a", "b") {
+		t.Fatal("the names still collide")
+	}
+	victim, _, _ := credsFor(r.ctx, r.p, "shop", false)
+	other, _, _ := credsFor(r.ctx, r.p, "shop-a", false)
+	if res, body := r.s3("PUT", r.front, "/"+S3Name("shop", "a-b")+"/secret.txt", []byte("victim"), &victim, nil); res.StatusCode != 200 {
+		t.Fatalf("victim put: %d %s", res.StatusCode, body)
+	}
+	if res, _ := r.s3("GET", r.front, "/"+S3Name("shop", "a-b")+"/secret.txt", nil, &other, nil); res.StatusCode != 403 {
+		t.Fatalf("shop-a read shop's bucket: %d", res.StatusCode)
+	}
+	if res, _ := r.s3("GET", r.front, "/"+S3Name("shop-a", "b")+"/secret.txt", nil, &other, nil); res.StatusCode != 404 {
+		t.Fatalf("shop-a's own bucket has shop's file: %d", res.StatusCode)
+	}
+	// Removing shop-a's bucket leaves shop's alone.
+	if err := r.m.Reconcile(r.ctx, r.p, "shop-a", "bucket/b", nil); err != nil {
+		t.Fatal(err)
+	}
+	if res, body := r.s3("GET", r.front, "/"+S3Name("shop", "a-b")+"/secret.txt", nil, &victim, nil); res.StatusCode != 200 || body != "victim" {
+		t.Fatalf("victim after shop-a removed its bucket: %d %s", res.StatusCode, body)
 	}
 	long := strings.Repeat("x", 40)
 	if err := r.m.Reconcile(r.ctx, r.p, strings.Repeat("p", 30), "bucket/"+long, json.RawMessage(`{}`)); err == nil || !strings.Contains(err.Error(), "63") {

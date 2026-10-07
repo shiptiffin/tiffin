@@ -201,6 +201,48 @@ func semanticErrors(m *Manifest) []FieldError {
 	}
 	errs = append(errs, queueErrors(m)...)
 	errs = append(errs, domainErrors(m)...)
+	errs = append(errs, bucketErrors(m)...)
+	return errs
+}
+
+// S3BucketName is the storage gateway's bucket for a project's bucket:
+// "<project>--<bucket>". Both are slugs (no "--", no dash at either end), so
+// the first "--" splits it and no two projects' buckets can share a name.
+func S3BucketName(project, bucket string) string { return project + "--" + bucket }
+
+// S3NameProblem says why an S3 bucket name won't do, or "": S3 allows 63
+// characters, and reserves some prefixes and suffixes (AWS SDKs take a name
+// ending in "--x-s3" for a directory bucket and sign it differently).
+func S3NameProblem(name string) string {
+	if len(name) > 63 {
+		return fmt.Sprintf("its S3 name %q is %d characters; S3 allows 63", name, len(name))
+	}
+	for _, pre := range []string{"xn--", "sthree-", "amzn-s3-demo-"} {
+		if strings.HasPrefix(name, pre) {
+			return fmt.Sprintf("its S3 name %q starts with %q, which S3 reserves", name, pre)
+		}
+	}
+	for _, suf := range []string{"-s3alias", "--ol-s3", ".mrap", "--x-s3", "--table-s3"} {
+		if strings.HasSuffix(name, suf) {
+			return fmt.Sprintf("its S3 name %q ends in %q, which S3 reserves", name, suf)
+		}
+	}
+	return ""
+}
+
+// bucketErrors checks each bucket's S3 name ("<project>--<bucket>") is one
+// S3 clients accept, before anything is committed.
+func bucketErrors(m *Manifest) []FieldError {
+	if m.Project == "" || m.Services.Storage == nil {
+		return nil
+	}
+	var errs []FieldError
+	for _, name := range sortedKeys(m.Services.Storage.Buckets) {
+		if why := S3NameProblem(S3BucketName(m.Project, name)); why != "" {
+			errs = append(errs, FieldError{Path: "/services/storage/buckets/" + escapePointer(name),
+				Message: fmt.Sprintf("bucket %q: %s; pick another bucket name", name, why)})
+		}
+	}
 	return errs
 }
 

@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/btahir/tiffin/internal/platform"
@@ -129,7 +132,7 @@ func FilesBytes(ctx context.Context, p *platform.Platform) (map[string]int64, er
 	out := map[string]int64{}
 	t := mod.tracker()
 	for project := range projectsOf(meta) {
-		out[project] = t.project(meta, project)
+		out[project] = t.project(project)
 	}
 	return out, nil
 }
@@ -143,8 +146,9 @@ func projectsOf(meta map[string]*bucketMeta) map[string]bool {
 }
 
 // refusal says why writing n more bytes to a project's buckets is refused
-// (what happened, and how to fix it), or "" when it is allowed.
-func (m *Module) refusal(ctx context.Context, p *platform.Platform, meta map[string]*bucketMeta, project string, n int64) (string, string) {
+// (what happened, and how to fix it), or "" when it is allowed. n < 0 is a
+// write of unknown size.
+func (m *Module) refusal(ctx context.Context, p *platform.Platform, project string, n int64) (string, string) {
 	limits.Lock()
 	h := limits.held[project]
 	limits.Unlock()
@@ -158,10 +162,45 @@ func (m *Module) refusal(ctx context.Context, p *platform.Platform, meta map[str
 	if err != nil || limit <= 0 {
 		return "", ""
 	}
-	files, db := m.tracker().project(meta, project)+diskBytes(project), databaseBytes(project)
-	if used := files + db; used+max(n, 0) > limit {
+	if n < 0 {
+		return fmt.Sprintf("project %s has a storage limit, so its uploads need a Content-Length.", project), "Send the size with the upload (S3 clients do unless they stream)."
+	}
+	files, db := m.tracker().project(project)+diskBytes(project), databaseBytes(project)
+	if used := files + db; used+n > limit {
 		return fmt.Sprintf("project %s is over its storage limit: %s used of %s (database %s, files %s).", project, HumanBytes(used), HumanBytes(limit), HumanBytes(db), HumanBytes(files)),
 			fmt.Sprintf("%s, or ask the box owner to raise the limit (tiffin storage quota set %s --max-bytes N).", FreeUp(db, files), project)
 	}
 	return "", ""
+}
+
+// admit checks that a write growing bucket s3name of project by n bytes
+// fits its limit (n < 0: unknown size) and reserves them until done is
+// called, so uploads running at once can't all pass on the same usage.
+// done settles once: a write that succeeded changed the bucket by delta
+// (its size less the object it replaced). A refused write gets what/fix.
+func (m *Module) admit(ctx context.Context, p *platform.Platform, project, s3name string, n int64) (done func(ok bool, delta int64), what, fix string) {
+	m.admitMu.Lock()
+	defer m.admitMu.Unlock()
+	if what, fix := m.refusal(ctx, p, project, n); what != "" {
+		return nil, what, fix
+	}
+	t, reserved := m.tracker(), max(n, 0)
+	t.reserve(s3name, reserved)
+	var once sync.Once
+	return func(ok bool, delta int64) { once.Do(func() { t.settle(s3name, reserved, ok, delta) }) }, "", ""
+}
+
+// objectSize is the size of the object stored at key (0: none). The gateway
+// keeps each object as a file at <bucket>/<key>, so it is one stat.
+func objectSize(p *platform.Platform, s3name, key string) int64 {
+	dir := filepath.Join(dataDir(p.DataRoot), s3name)
+	path := filepath.Join(dir, filepath.FromSlash(key))
+	if !strings.HasPrefix(path, dir+string(filepath.Separator)) {
+		return 0
+	}
+	fi, err := os.Lstat(path)
+	if err != nil || !fi.Mode().IsRegular() {
+		return 0
+	}
+	return fi.Size()
 }

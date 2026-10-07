@@ -693,9 +693,9 @@ func TestComposeAndReadme(t *testing.T) {
 	_, _, files := entries(t, x.export("shop", exportOptions{}))
 	c := files["docker-compose.yml"]
 	for _, want := range []string{"name: shop", "image: pgvector/pgvector:pg18", "./database.sql:/docker-entrypoint-initdb.d/01-database.sql:ro",
-		"image: valkey/valkey:8", "image: minio/minio", "mc mirror --overwrite /files/media local/shop-media", "mc anonymous set download local/shop-media",
+		"image: valkey/valkey:8", "image: minio/minio", "mc mirror --overwrite /files/media local/shop--media", "mc anonymous set download local/shop--media",
 		"image: docker.io/tiffin/shop-web:dep_1 # docker load -i apps/web/image.tar", `DATABASE_URL: "postgresql://app:app@postgres:5432/app?sslmode=disable"`,
-		`REDIS_URL: "redis://valkey:6379"`, `VALKEY_PREFIX: "p_shop:"`, `S3_BUCKET_MEDIA: "shop-media"`, `PRICE: "$$5"`, `PORT: "3000"`,
+		`REDIS_URL: "redis://valkey:6379"`, `VALKEY_PREFIX: "p_shop:"`, `S3_BUCKET_MEDIA: "shop--media"`, `PRICE: "$$5"`, `PORT: "3000"`,
 		"./apps/site/site:/usr/share/nginx/html:ro", "# secrets to set: API_KEY", "# jobs: no release was exported"} {
 		if !strings.Contains(c, want) {
 			t.Errorf("compose lacks %q", want)
