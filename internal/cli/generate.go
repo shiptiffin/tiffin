@@ -196,6 +196,16 @@ func wordOrList(s *huma.Schema) ([]string, bool) {
 	return words, list && len(words) > 0
 }
 
+// stringItems reports whether an array schema's items are strings, which a
+// comma-separated flag can carry.
+func stringItems(oapi *huma.OpenAPI, s *huma.Schema) bool {
+	it := s.Items
+	if it != nil && it.Ref != "" {
+		it = oapi.Components.Schemas.SchemaFromRef(it.Ref)
+	}
+	return it != nil && it.Type == "string"
+}
+
 // exampleArgs gives path parameters sample values for a command's example
 // ("shop", "web"), or their names where no sample reads better.
 func exampleArgs(params []string) []string {
@@ -315,7 +325,15 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 				case "boolean":
 					values[n] = cmd.Flags().Bool(fn, false, ps.Description)
 				case "array":
-					values[n] = cmd.Flags().StringSlice(fn, nil, ps.Description+" (comma-separated)")
+					if stringItems(oapi, ps) {
+						values[n] = cmd.Flags().StringSlice(fn, nil, ps.Description+" (comma-separated)")
+						break
+					}
+					// Items that are not strings (objects, numbers, any JSON)
+					// cannot be spelled comma-separated: the flag takes the
+					// array as JSON.
+					f.kind = "jsonarray"
+					values[n] = cmd.Flags().String(fn, "", ps.Description+` (a JSON array, e.g. '[...]')`)
 				default:
 					if words, ok := wordOrList(ps); ok {
 						f.kind, f.words = "array", words
@@ -371,6 +389,12 @@ func (a *app) opCommand(oapi *huma.OpenAPI, o *huma.Operation, leaf string, isGl
 					if f.kind == "json" && json.Valid([]byte(*v)) {
 						m[f.name] = json.RawMessage(*v)
 					}
+					if f.kind == "jsonarray" {
+						if t := strings.TrimSpace(*v); !strings.HasPrefix(t, "[") || !json.Valid([]byte(t)) {
+							return &exitError{ExitInvalid, "--" + f.flag + " takes a JSON array, e.g. --" + f.flag + ` '[{"a":1}]'`}
+						}
+						m[f.name] = json.RawMessage(*v)
+					}
 					if path, ok := strings.CutPrefix(*v, "@"); ok && f.file {
 						b, err := os.ReadFile(path)
 						if err != nil {
@@ -423,7 +447,7 @@ func (a *app) readBody(raw, file string, into map[string]any) error {
 	default:
 		return nil
 	}
-	if err := json.Unmarshal(data, &into); err != nil {
+	if err := api.DecodeJSON(data, &into); err != nil { // numbers sent as written, not rounded through float64
 		return &exitError{ExitInvalid, "request body is not a JSON object: " + err.Error()}
 	}
 	return nil

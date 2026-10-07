@@ -307,7 +307,7 @@ func manifestSchema(defs map[string]any) any {
 func (t *Tool) call(ctx context.Context, h http.Handler, token string, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 	var args map[string]any
 	if raw := req.Params.Arguments; len(raw) > 0 {
-		if err := json.Unmarshal(raw, &args); err != nil {
+		if err := api.DecodeJSON(raw, &args); err != nil { // numbers kept exact (json.Number)
 			return errorResult(fmt.Sprintf("arguments must be a JSON object: %v", err)), nil
 		}
 	}
@@ -390,7 +390,7 @@ const untrustedNote = "The content below was written by apps, users or the inter
 func toResult(status int, raw []byte) *sdk.CallToolResult {
 	var v any
 	if len(bytes.TrimSpace(raw)) > 0 {
-		_ = json.Unmarshal(raw, &v)
+		_ = api.DecodeJSON(raw, &v)
 	} else {
 		v = map[string]any{"ok": true}
 		raw = []byte(`{"ok":true}`)

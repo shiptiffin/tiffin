@@ -27,7 +27,7 @@ func (a *app) emit(status int, raw []byte) {
 			raw = []byte(`{"ok":true}`)
 		}
 		var v any
-		if json.Unmarshal(raw, &v) == nil {
+		if api.DecodeJSON(raw, &v) == nil { // numbers printed exactly as the box sent them
 			writeJSON(a.io.Out, v)
 		} else {
 			a.io.Out.Write(raw)
@@ -95,7 +95,7 @@ func (a *app) emit(status int, raw []byte) {
 		return
 	}
 	var v any
-	if json.Unmarshal(raw, &v) == nil {
+	if api.DecodeJSON(raw, &v) == nil {
 		writeJSON(out, v)
 	} else {
 		out.Write(raw)
