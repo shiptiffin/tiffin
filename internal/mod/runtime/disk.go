@@ -148,13 +148,39 @@ func (r *rt) trashDisks(project, app string) {
 
 // emptyDiskTrash deletes trashed disk folders older than diskTrashKeep.
 func (r *rt) emptyDiskTrash() {
-	trash := filepath.Join(r.opt.DataDir, "disks-trash")
+	emptyDiskTrashIn(filepath.Join(r.opt.DataDir, "disks-trash"), time.Now())
+}
+
+// emptyDiskTrashIn deletes the folders in trash that were trashed more than
+// diskTrashKeep before now. The time is the one in the name (trashDisks
+// adds it): a moved folder keeps its old modification time, so that would
+// count from its last change, not from its deletion.
+func emptyDiskTrashIn(trash string, now time.Time) {
 	es, _ := os.ReadDir(trash)
 	for _, e := range es {
-		if fi, err := e.Info(); err == nil && time.Since(fi.ModTime()) > diskTrashKeep {
+		at, ok := diskTrashedAt(e.Name())
+		if !ok {
+			fi, err := e.Info()
+			if err != nil {
+				continue
+			}
+			at = fi.ModTime()
+		}
+		if now.Sub(at) > diskTrashKeep {
 			_ = os.RemoveAll(filepath.Join(trash, e.Name()))
 		}
 	}
+}
+
+// diskTrashedAt reads the deletion time from a trash folder's name,
+// "<project>[.<app>].<20060102T150405>".
+func diskTrashedAt(name string) (time.Time, bool) {
+	i := strings.LastIndexByte(name, '.')
+	if i < 0 {
+		return time.Time{}, false
+	}
+	t, err := time.Parse("20060102T150405", name[i+1:])
+	return t, err == nil
 }
 
 // DiskDir is where a project's app keeps its production disk folders (each

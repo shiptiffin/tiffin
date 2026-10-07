@@ -203,3 +203,33 @@ func TestLongRequests(t *testing.T) {
 		t.Fatal("an idle preview must still fall asleep")
 	}
 }
+
+// A trashed folder is kept for diskTrashKeep from its deletion, even when
+// its own modification time is much older (a rename keeps it).
+func TestDiskTrashCountsFromDeletion(t *testing.T) {
+	trash := t.TempDir()
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	month := now.Add(-30 * 24 * time.Hour)
+	mk := func(name string) string {
+		d := filepath.Join(trash, name)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(d, month, month); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	fresh := mk("shop.web." + now.Add(-time.Hour).Format("20060102T150405"))
+	old := mk("shop." + now.Add(-8*24*time.Hour).Format("20060102T150405"))
+	unnamed := mk("stray")
+	emptyDiskTrashIn(trash, now)
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatalf("deleted an hour ago, its folder a month old: %v", err)
+	}
+	for _, d := range []string{old, unnamed} {
+		if _, err := os.Stat(d); !os.IsNotExist(err) {
+			t.Fatalf("%s should be gone: %v", d, err)
+		}
+	}
+}
