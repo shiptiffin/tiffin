@@ -146,6 +146,9 @@ Next.js pages, pages rendered on request, and Early Hints during a wake.
 - **SMTP submission is bounded:** messages up to 25 MiB; at most 4 arriving at once per
   project and 16 for the box (more get a "try again" 451); one message may take up to 10
   minutes to arrive; at most 256 open connections.
+- **Reading mail needs full access.** With read-only access to a project you see who each
+  message is from and to, its size and delivery, never its subject, text, links or
+  attachments: mail carries reset links and sign-in codes.
 
 ## Sign-in
 
@@ -154,8 +157,17 @@ Next.js pages, pages rendered on request, and Early Hints during a wake.
   Connect are wired up but not tested yet.
 - **Dashboard sign-in** with a provider supports only Google and GitHub, and only with the
   box-wide keys, not a project's own.
-- People are matched by email, not by the provider's account ID: if someone changes the
-  email on their Google or GitHub account, change it on the box too.
+- **Dashboard sign-in matches by email once.** The first sign-in with Google or GitHub
+  matches a person by an address the provider vouches for, then links that provider
+  account to them: later sign-ins go by the account, and no other account of that
+  provider signs them in. That first match still trusts the provider: GitHub keeps an
+  address "verified" after its domain changes hands, so invite people by an address they
+  hold now. Google counts only Gmail and Google Workspace addresses (others: sign in with
+  an email link). To link a different account, remove the person and invite them again.
+- **Apps: Google sign-up with a non-Gmail, non-Workspace address** makes an unconfirmed
+  account (Google doesn't vouch for who holds that address now); it confirms by email and
+  never joins an existing account with that address on its own (`account_not_linked`).
+  The same goes for any provider that doesn't report the address as verified.
 - A provider sign-in in progress fails if the box restarts (its signing key is kept in
   memory). Start it again.
 - **Sign-ins** (Settings › Sign-ins) show the address and country a session signed in
@@ -181,6 +193,15 @@ Next.js pages, pages rendered on request, and Early Hints during a wake.
 - **Previews share real users.** A preview signs in against the project's own accounts:
   anyone who signs up on a preview is a user of the app, and a preview's emails reach
   real people. Treat a preview of someone else's branch as you would deploying it.
+- **Auth tables live in the app's database**, so the app, and anyone with read-only SQL on
+  the project, can read them: users' addresses, password hashes (scrypt), sessions'
+  addresses and browsers. Nothing there works as a credential (reset and magic-link
+  tokens hashed, one-time codes and provider tokens encrypted, session cookies signed with
+  a key outside the database), but there is no separate database role that hides them.
+- **Rate limits trust the address apps send.** Server-side sign-ins pass the visitor's
+  address (`X-Forwarded-For`) so limits count per visitor. Each project has its own
+  counters, but an app on the box calling the engine directly can name another app's host
+  and a made-up address, and so spend that app's counters for that address.
 
 ## Agents
 

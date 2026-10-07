@@ -51,6 +51,16 @@ Plainly, so you can decide what to trust it with.
   Each project's auth secret comes only from that config: the engine ignores
   `BETTER_AUTH_SECRET(S)`, `AUTH_SECRET`, `BETTER_AUTH_TRUSTED_ORIGINS` and
   `BETTER_AUTH_URL` in its environment. See [Sign-in providers](auth.md#sign-in-providers).
+- **App sign-in is kept apart per app.** The engine's cookies are `__Host-` (only the
+  app's own host can set them, so another app on the box can't plant a session), each
+  project has its own rate-limit counters, one project's sign-in settings or provider
+  answers can't stop the engine (a project with invalid settings is left out; a
+  provider's answer is capped at 1 MB and 15 s), and `@shiptiffin/sdk/auth` checks a
+  session against its own app's project (`TIFFIN_AUTH_HOST`) whatever host a request
+  names. Nothing in the auth tables works as a credential: reset and magic-link tokens
+  are stored hashed, one-time codes encrypted.
+- **Mail content needs full access.** Read-only access to a project shows each message's
+  sender, recipients and delivery, not what it says: mail carries reset links and codes.
 - **Dashboard sign-in** is a one-time link (`tiffin login`, an invite, or one emailed on
   request), a passkey, or Google or GitHub (see below).
   Each gives a 12-hour session with exactly that person's role, in an HttpOnly,
@@ -66,8 +76,9 @@ Plainly, so you can decide what to trust it with.
   sites. A link only exists if its email left the box through the relay: one that would
   wait in the box's dev inbox (which owners and admins can read) is never made, or is
   cancelled at once, because an emailed link counts as proof that you read that inbox.
-- **Google and GitHub sign-in** only signs in people already on the box, matched by an
-  email the provider has verified. It never makes an account. See
+- **Google and GitHub sign-in** only signs in people already on the box, matched the first
+  time by an email the provider vouches for, then by the linked provider account. It
+  never makes an account. See
   [Signing in with Google or GitHub](#signing-in-with-google-or-github).
 - **New sign-in notices.** When someone with an email address signs in from a browser the
   box hasn't seen them use, it emails them (browser, time, address, how). Their first

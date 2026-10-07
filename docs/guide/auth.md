@@ -328,10 +328,13 @@ address behind `@privaterelay.appleid.com`: to email them, register your sending
 in Apple's "Sign in with Apple for Email Communication". Apple sends the email address
 only the first time someone signs in.
 
-**Accounts with the same email.** A person who signs in with Google, GitHub or Apple using
-an address that already has an account here joins that account. Other providers join it
-only when they report the address as verified; otherwise the sign-in is refused
-(`account_not_linked`) and the person signs in the way they did before.
+**Accounts with the same email.** A person who signs in with a provider using an address
+that already has a confirmed account here joins that account only when the provider
+reports the address as verified. For Google that means a Gmail address or a Google
+Workspace account: Google keeps any other address "verified" after the mailbox changes
+hands. Otherwise the sign-in is refused (`account_not_linked`) and the person signs in the
+way they did before. Someone who signed in with a provider before is recognised by that
+provider account, whatever address it shows now.
 
 **Provider tokens.** The access, refresh and ID tokens a provider returns at sign-in are
 kept with the person's account (`tiffin_auth.account`), encrypted (XChaCha20-Poly1305)
