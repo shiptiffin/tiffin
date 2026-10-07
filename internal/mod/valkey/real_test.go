@@ -90,6 +90,16 @@ func TestProjectACLScripting(t *testing.T) {
 	if _, err := shop.Do(ctx, "SCRIPT", "LOAD", "return 1"); err != nil {
 		t.Fatalf("SCRIPT LOAD: %v", err)
 	}
+	// The SDK's Next.js cache prunes tags with a compare-and-delete script
+	// (packages/sdk/src/next/store.ts, PRUNE_SCRIPT).
+	const prune = "local n = 0\nfor i = 1, #ARGV, 2 do\n  if redis.call('HGET', KEYS[1], ARGV[i]) == ARGV[i + 1] then n = n + redis.call('HDEL', KEYS[1], ARGV[i]) end\nend\nreturn n"
+	tags := Prefix("shop") + "tags"
+	if _, err := shop.Do(ctx, "HSET", tags, "a", "1", "b", "2"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := shop.Int(ctx, "EVAL", prune, "1", tags, "a", "1", "b", "3"); err != nil || n != 1 {
+		t.Fatalf("the Next.js cache's prune script: %d %v", n, err)
+	}
 	for _, cmd := range [][]string{
 		{"FUNCTION", "LOAD", "#!lua name=lib\nserver.register_function('f', function() return 1 end)"},
 		{"FUNCTION", "DELETE", "lib"},
