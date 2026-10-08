@@ -90,7 +90,10 @@ func TestData(t *testing.T) {
 		return strings.TrimSpace(string(out))
 	}
 	writeConfig := func(name, services string) string {
-		path := filepath.Join(dir, name)
+		// A folder of its own: the CLI refuses a config beside its settings (dir/config).
+		proj := filepath.Join(dir, "project")
+		_ = os.MkdirAll(proj, 0o755)
+		path := filepath.Join(proj, name)
 		cfg := `import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({ project: "data", services: {` + services + `} });
 `
@@ -272,6 +275,45 @@ export default defineConfig({ project: "data", services: {` + services + `} });
 		t.Fatalf("key not back after restore: %q", got)
 	}
 	phase("restore", p)
+
+	// ---- point-in-time restore: Postgres to the second, Valkey to the set before ----
+	p = time.Now()
+	boxNow := func() string { return inBox("date", "-u", "+%Y-%m-%dT%H:%M:%S.%NZ") }
+	// Just after a restore, until the next backup, moments can't be reached (the timeline changed).
+	if code, out := run("restore", "latest", "--time", boxNow()); code == 0 || !strings.Contains(out, "restored just after") {
+		t.Fatalf("a moment right after a restore must be refused: %d %s", code, out)
+	}
+	if bk := ok("backup"); bk["status"] != "ok" {
+		t.Fatalf("backup after the restore: %v", bk)
+	}
+	inBox("valkey-cli", "-u", url, "--no-auth-warning", "set", "p_data:after-set", "x")
+	sql(map[string]any{"write": true, "sql": "insert into notes (body) values ('before')"})
+	time.Sleep(1500 * time.Millisecond)
+	moment := boxNow()
+	time.Sleep(1500 * time.Millisecond)
+	sql(map[string]any{"write": true, "sql": "insert into notes (body) values ('after')"})
+	sql(map[string]any{"write": true, "sql": "delete from notes where body = 'keep me'"})
+	var over struct {
+		Restorable struct{ Earliest, Latest time.Time } `json:"restorable"`
+	}
+	_, out = run("backups", "list")
+	if err := json.Unmarshal([]byte(out), &over); err != nil || over.Restorable.Earliest.IsZero() || !over.Restorable.Earliest.Before(over.Restorable.Latest) {
+		t.Fatalf("restorable range: %v %+v", err, over.Restorable)
+	}
+	code, out = run("restore", "latest", "--time", moment)
+	if code != 4 || !strings.Contains(out, "replayed up to that moment") {
+		t.Fatalf("time restore without confirm must exit 4 with a preview: %d %s", code, out)
+	}
+	_ = json.Unmarshal([]byte(out), &preview)
+	rs = ok("restore", "latest", "--time", moment, "--confirm", preview.Confirm)
+	t.Logf("TIME RESTORE to %s in %vms (from %v, safety backup %v)", moment, rs["durationMs"], rs["backup"], rs["safetyBackup"])
+	if got := rows(sql(map[string]any{"sql": "select body from notes order by body"})); got != `[["before"],["keep me"]]` {
+		t.Fatalf("rows after the time restore: %s", got)
+	}
+	if got := inBox("valkey-cli", "-u", url, "--no-auth-warning", "exists", "p_data:after-set"); got != "0" {
+		t.Fatalf("Valkey must go back to the set before the moment: %q", got)
+	}
+	phase("time restore", p)
 
 	// ---- Delete all data in the database: irreversible, kept 7 days, restored ----
 	p = time.Now()
