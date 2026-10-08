@@ -614,8 +614,7 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
   get an owner link: whoever controls the customer's ShipTiffin account, or can read and
   write that database, before the first sign-in can sign in as the box's owner. A box
   waiting for its first sign-in checks in every 2 to 10 minutes instead of every six
-  hours. "Signed in" means a link was redeemed on the box; a box released before then
-  keeps answering nothing about it.
+  hours. "Signed in" means the box saw a sign-in link of the owner's redeemed.
 - **Resize changes the server type only.** Growing the data volume is still `tiffin up
   --volume-size` from a computer with SSH access, or the Hetzner console plus
   `xfs_growfs`. A type change keeps the architecture (cx↔cx, cax↔cax): Hetzner can't move a
