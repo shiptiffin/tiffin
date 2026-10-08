@@ -10,6 +10,7 @@ import (
 	_ "github.com/btahir/tiffin/internal/mod/budget"
 	_ "github.com/btahir/tiffin/internal/mod/domains"
 	_ "github.com/btahir/tiffin/internal/mod/email"
+	_ "github.com/btahir/tiffin/internal/mod/managed"
 	_ "github.com/btahir/tiffin/internal/mod/monitor"
 	_ "github.com/btahir/tiffin/internal/mod/observe"
 	_ "github.com/btahir/tiffin/internal/mod/portable"

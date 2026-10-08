@@ -149,6 +149,9 @@ type updater struct {
 	platform string // "linux/arm64"
 	notify   func(ctx context.Context, subject, summary string)
 	log      func(msg string, args ...any)
+	// paused: a managed box's control plane said not to install updates
+	// (its subscription ended). Off on every other box.
+	paused func() (bool, string)
 
 	mu     sync.Mutex // one check or update at a time
 	heldMu sync.Mutex
@@ -157,7 +160,7 @@ type updater struct {
 
 func newUpdater(b box, version string, notify func(context.Context, string, string), log func(string, ...any)) *updater {
 	return &updater{box: b, client: &http.Client{Timeout: 5 * time.Minute}, keys: release.TrustedKeys(), version: version,
-		platform: runtime.GOOS + "/" + runtime.GOARCH, notify: notify, log: log}
+		platform: runtime.GOOS + "/" + runtime.GOARCH, notify: notify, log: log, paused: platform.ManagedUpdatesPaused}
 }
 
 // errBusy: a check or update is running.
@@ -209,6 +212,11 @@ func (u *updater) apply(ctx context.Context, trigger string) (*Update, error) {
 	defer u.mu.Unlock()
 	if r := load(); running(r) != nil {
 		return nil, errBusy
+	}
+	if u.paused != nil {
+		if p, why := u.paused(); p {
+			return nil, nothing{why}
+		}
 	}
 	m, r, err := u.check(ctx)
 	if err != nil {

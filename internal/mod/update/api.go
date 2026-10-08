@@ -28,6 +28,7 @@ type Status struct {
 	Available  *Available `json:"available,omitempty" doc:"A newer release of the channel"`
 	CheckError string     `json:"checkError,omitempty" doc:"Why the last check failed"`
 	Running    *Update    `json:"running,omitempty" doc:"The update in progress"`
+	Paused     string     `json:"paused,omitempty" doc:"Why updates are paused (a ShipTiffin managed box whose subscription is not active); empty when they are not"`
 	Updates    []Update   `json:"updates" doc:"Recent updates, newest first"`
 	Summary    string     `json:"summary"`
 }
@@ -38,6 +39,9 @@ func status(r record, now time.Time) *Status {
 		Window: window(r), Available: r.Available, CheckError: r.CheckError, Running: running(r), Updates: r.Updates}
 	if s.Updates == nil {
 		s.Updates = []Update{}
+	}
+	if p, why := platform.ManagedUpdatesPaused(); p {
+		s.Paused = why
 	}
 	if !r.CheckedAt.IsZero() {
 		s.CheckedAt = &r.CheckedAt

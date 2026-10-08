@@ -64,6 +64,10 @@ type Options struct {
 	// /etc/tiffin/server.json before provisioning, which hardens the
 	// machine and keeps the owner's IP out of CrowdSec bans.
 	Server *platform.ServerConfig
+	// Managed makes it a ShipTiffin managed box: written (root only) to
+	// /etc/tiffin/managed.json, it turns on the daily check-in. Nil for a
+	// box installed with tiffin up.
+	Managed *platform.ManagedConfig
 }
 
 // PublicURL is the dashboard URL for these options.
@@ -208,6 +212,11 @@ chmod 0755 /tmp/tiffin.new
 			return nil, err
 		}
 	}
+	if o.Managed != nil {
+		if err := writeManagedConfig(ctx, m, o.Managed); err != nil {
+			return nil, err
+		}
+	}
 	// The installed build (trusted, known to work) performs the update; only
 	// the very first install runs the new binary itself.
 	progress("provisioning system services (first run installs packages; later runs are quick)")
@@ -295,6 +304,20 @@ func writeServerConfig(ctx context.Context, m provider.Machine, c *platform.Serv
 		path.Dir(platform.ServerConfigPath), platform.ServerConfigPath, raw)
 	if _, stderr, err := m.Exec(ctx, script); err != nil {
 		return fmt.Errorf("write %s: %w\n%s", platform.ServerConfigPath, err, stderr)
+	}
+	return nil
+}
+
+// writeManagedConfig records the box's licence and control plane, root only.
+func writeManagedConfig(ctx context.Context, m provider.Machine, c *platform.ManagedConfig) error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	raw, _ := json.MarshalIndent(c, "", "  ")
+	script := fmt.Sprintf("set -euo pipefail\nsudo install -d -m 0755 %[1]s\n(umask 077; sudo tee %[2]s.tmp >/dev/null <<'JSON'\n%[3]s\nJSON\n)\nsudo chmod 0600 %[2]s.tmp\nsudo mv %[2]s.tmp %[2]s\n",
+		path.Dir(platform.ManagedConfigPath), platform.ManagedConfigPath, raw)
+	if _, stderr, err := m.Exec(ctx, script); err != nil {
+		return fmt.Errorf("write %s: %w\n%s", platform.ManagedConfigPath, err, stderr)
 	}
 	return nil
 }

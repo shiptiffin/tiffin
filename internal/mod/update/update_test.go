@@ -334,3 +334,25 @@ func TestRollbackIsAuditedAndAlerted(t *testing.T) {
 		t.Fatalf("status: %+v", st.Updates[0])
 	}
 }
+
+// A managed box whose control plane said "no updates" installs nothing, by
+// schedule or on request; every other box is unaffected.
+func TestManagedPauseInstallsNothing(t *testing.T) {
+	s := newServer(t, "1.5.0", 100, false)
+	u, b, _ := setup(t, s, "1.4.0")
+	u.paused = func() (bool, string) { return true, "Automatic updates are paused" }
+	for _, trigger := range []string{"schedule", "now"} {
+		up, err := u.apply(context.Background(), trigger)
+		var n nothing
+		if up != nil || !errors.As(err, &n) || !strings.Contains(n.why, "paused") {
+			t.Fatalf("%s: %+v %v", trigger, up, err)
+		}
+	}
+	if len(b.calls) != 0 {
+		t.Fatalf("nothing may run while paused: %v", b.calls)
+	}
+	u.paused = func() (bool, string) { return false, "" }
+	if up, err := u.apply(context.Background(), "now"); err != nil || up.Status != "running" {
+		t.Fatalf("unpaused: %+v %v", up, err)
+	}
+}
