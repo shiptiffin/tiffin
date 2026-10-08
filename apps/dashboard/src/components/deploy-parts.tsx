@@ -210,7 +210,7 @@ export function useMakeCurrent(project: string) {
     onSuccess: (_d, { app, from, v, fromV }) => {
       refreshApp(qc, project, app);
       toast({
-        title: <>{app} is going back to v{v}.</>,
+        title: <>{app} v{v} is going live.</>,
         detail: "It starts the old image, waits for its health check, then switches traffic. Nothing is rebuilt.",
         action: from ? { label: `Undo, back to v${fromV}`, run: () => mod3.rollback(project, app, from.id).then(() => refreshApp(qc, project, app)) } : undefined,
       });
@@ -218,6 +218,10 @@ export function useMakeCurrent(project: string) {
     onError: (e) => toast({ title: "That version can’t be made current.", detail: e instanceof Error ? e.message : undefined, tone: "danger" }),
   });
 }
+
+/** Builds the live production version's own source again, with the app's current settings (env, build settings). */
+export const redeployLive = (project: string, app: string) =>
+  request<Deploy>("POST", `/v1/projects/${encodeURIComponent(project)}/apps/${encodeURIComponent(app)}/deploys/redeploy`);
 
 /** Can this deploy's source be built again from the dashboard (a starter, a git URL or GitHub)? */
 export const canBuildAgain = (d?: Deploy) => !!d && (d.source === "template" || (d.source === "git" && !!d.repo));
@@ -321,7 +325,6 @@ export function DeployRow({
   now,
   writer,
   onMakeCurrent,
-  rollback,
 }: {
   project: string;
   d: Deploy;
@@ -334,8 +337,6 @@ export function DeployRow({
   now: number;
   writer?: boolean;
   onMakeCurrent?: () => void;
-  /** Making it current goes back in time (it's older than what's live). */
-  rollback?: boolean;
 }) {
   const running = inFlight(d.status);
   const took = running ? `${secs(Math.max(0, (now - Date.parse(d.createdAt)) / 1000))} so far` : d.durationSeconds !== undefined ? secs(d.durationSeconds) : d.buildSeconds !== undefined ? secs(d.buildSeconds) : "";
@@ -393,34 +394,44 @@ export function DeployRow({
         </p>
       </div>
       <div className="relative z-[1] flex justify-end max-md:col-start-3 max-md:row-start-1">
-        <DeployMenu project={project} d={d} writer={writer} onMakeCurrent={onMakeCurrent} rollback={rollback} v={v} />
+        <DeployMenu project={project} d={d} writer={writer} current={current} onMakeCurrent={onMakeCurrent} v={v} />
       </div>
       {reason && <p className="text-xs text-ink-2 max-md:col-span-3 md:col-span-3 md:col-start-2">{reason}</p>}
     </li>
   );
 }
 
-/** The … on a deploy: build log, redeploy, make current, copy, the commit. */
-export function DeployMenu({ project, d, writer, onMakeCurrent, rollback, v }: { project: string; d: Deploy; writer?: boolean; onMakeCurrent?: () => void; rollback?: boolean; v?: number }) {
+/**
+ * The … on a deploy. Production: Redeploy (the same source built again, say
+ * after changing environment variables) and Make live (a kept older or newer
+ * version, back in seconds, with Undo). Every kept version: Visit and Copy
+ * address. Previews only open; nothing promotes them.
+ */
+export function DeployMenu({ project, d, writer, current, onMakeCurrent, v }: { project: string; d: Deploy; writer?: boolean; current?: boolean; onMakeCurrent?: () => void; v?: number }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  // The live version rebuilds its kept source (any source but a prebuilt image); another version rebuilds from where it came from.
+  const fromLive = !!current && d.source !== "prebuilt";
+  const canRedeploy = !!writer && !d.preview && (fromLive || canBuildAgain(d));
   const again = useMutation({
-    mutationFn: () => buildAgain(project, d.app, d),
+    mutationFn: () => (fromLive ? redeployLive(project, d.app) : buildAgain(project, d.app, d)),
     onSuccess: (n) => {
       refreshApp(qc, project, d.app);
       toast({
-        title: <>Building {d.app} again.</>,
-        detail: "Same source as before. The current version keeps serving until the new one is healthy.",
+        title: <>Redeploying {d.app}.</>,
+        detail: "The same source, built again with its current settings. What’s live keeps serving until the new build is healthy.",
         action: { label: "Watch the build", run: () => void navigate({ to: "/projects/$project/apps/$app/deploys/$id", params: { project, app: d.app, id: n.id } }) },
       });
     },
-    onError: (e) => toast({ title: <>{d.app} didn’t start building.</>, detail: e instanceof Error ? e.message : undefined, tone: "danger" }),
+    onError: (e) => toast({ title: <>{d.app} didn’t start redeploying.</>, detail: e instanceof Error ? e.message : undefined, tone: "danger" }),
   });
   const copy = async (value: string, what: string) => {
     if (await copyText(value)) toast({ title: `${what} copied.` });
   };
   const commitUrl = d.commit && d.repo && /github\.com/.test(d.repo) ? `${d.repo.replace(/\.git$/, "")}/commit/${d.commit}` : undefined;
   const name = d.preview ? `preview ${d.preview}` : v ? `v${v}` : "this version";
+  const visit = visitURL(d);
+  const makeLive = !!writer && !d.preview && !!onMakeCurrent;
   return (
     <Menu>
       <MenuTrigger asChild>
@@ -429,30 +440,31 @@ export function DeployMenu({ project, d, writer, onMakeCurrent, rollback, v }: {
         </Button>
       </MenuTrigger>
       <MenuContent align="end" className="min-w-56">
-        {visitURL(d) && (
-          <MenuItem onSelect={() => window.open(visitURL(d), "_blank", "noopener,noreferrer")}>
+        {canRedeploy && (
+          <MenuItem disabled={again.isPending} onSelect={() => again.mutate()}>
+            <RotateCw /> Redeploy
+          </MenuItem>
+        )}
+        {makeLive && (
+          <MenuItem onSelect={onMakeCurrent}>
+            <Undo2 /> Make live
+          </MenuItem>
+        )}
+        {(canRedeploy || makeLive) && <MenuSeparator />}
+        {visit && (
+          <MenuItem onSelect={() => window.open(visit, "_blank", "noopener,noreferrer")}>
             <ArrowUpRight /> Visit
+          </MenuItem>
+        )}
+        {visit && (
+          <MenuItem onSelect={() => void copy(visit, "Address")}>
+            <Copy /> Copy address
           </MenuItem>
         )}
         <MenuItem onSelect={() => void navigate({ to: "/projects/$project/apps/$app/deploys/$id", params: { project, app: d.app, id: d.id } })}>
           <FileText /> View build log
         </MenuItem>
-        {writer && canBuildAgain(d) && (
-          <MenuItem disabled={again.isPending} onSelect={() => again.mutate()}>
-            <RotateCw /> Redeploy
-          </MenuItem>
-        )}
-        {writer && onMakeCurrent && (
-          <MenuItem onSelect={onMakeCurrent}>
-            <Undo2 /> {rollback ? `Roll back to ${name}` : `Make ${name} current`}
-          </MenuItem>
-        )}
         <MenuSeparator />
-        {visitURL(d) && (
-          <MenuItem onSelect={() => void copy(d.url!, "Address")}>
-            <Copy /> Copy address
-          </MenuItem>
-        )}
         <MenuItem onSelect={() => void copy(d.id, "Deploy ID")}>
           <Copy /> Copy deploy ID
         </MenuItem>

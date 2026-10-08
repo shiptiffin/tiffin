@@ -4,7 +4,7 @@ import { ArrowUpRight, Moon } from "lucide-react";
 import { notOnBox, type ManifestApp } from "@/api/client";
 import type { Deploy } from "@/api/modules";
 import { q as core } from "@/api/queries";
-import { AddAppButton, DeployButton } from "@/components/deploy-actions";
+import { FirstDeploy } from "@/components/deploy-actions";
 import { appKind, canRollBack, DeployHead, DeployRow, inFlight, startedBy, Terminal, useMakeCurrent, useNow, useProjectDeploys, useUrlState } from "@/components/deploy-parts";
 import { useTitle } from "@/components/favicon";
 import { Crumbs, Empty, NotOnBox, Page, PageHeader, Skeleton } from "@/components/page";
@@ -86,28 +86,20 @@ export function DeploymentsPage({ project }: { project: string }) {
         eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params: { project } }, { label: "Deployments" }]} />}
         title="Deployments"
         lede={apps.length > 0 ? `Every version of every app in ${project}, newest first. A new version takes traffic only once it’s healthy.` : undefined}
-        actions={
-          writer && m.data ? (
-            <>
-              <DeployButton project={project} apps={apps} hasVersions={(a) => (all.byApp.get(a)?.size ?? 0) > 0} />
-              <AddAppButton project={project} manifest={m.data.manifest} variant={apps.length ? "secondary" : "primary"} />
-            </>
-          ) : null
-        }
       />
       {m.isError && <ProblemNote className="mt-8" error={m.error} />}
       {m.isPending ? (
         <Skeleton className="mt-9 h-40" />
       ) : apps.length === 0 ? (
         <Empty className="mt-9" title={`No apps in ${project} yet.`}>
-          <p>An app is code the box builds and runs: a website, an API or a background worker. Add one from a starter, a GitHub repository or a git URL, and its deployments show up here.</p>
-          {writer && m.data ? (
-            <div className="mt-4 flex justify-center">
-              <AddAppButton project={project} manifest={m.data.manifest} variant="primary" />
-            </div>
-          ) : (
-            <p className="mt-2">You can look, but adding an app needs write access to {project}.</p>
-          )}
+          <p>An app is something that runs: a website, an API or a background worker. Add one on {project}’s Overview, and its deployments show up here.</p>
+          <div className="mt-4 flex justify-center">
+            <Button asChild variant="primary" size="lg">
+              <Link to="/projects/$project" params={{ project }}>
+                Go to Overview
+              </Link>
+            </Button>
+          </div>
         </Empty>
       ) : (
         <>
@@ -134,7 +126,13 @@ export function DeploymentsPage({ project }: { project: string }) {
               <>
                 <div className="border-y border-rule py-6">
                   <p className="text-md text-ink">Nothing deployed yet.</p>
-                  <p className="mt-1 max-w-[40rem] text-sm text-ink-2">{writer ? "Use Deploy above to ship your first version." : "Deploys show up here."}</p>
+                  {writer ? (
+                    <div className="mt-3 max-w-[40rem]">
+                      <FirstDeploy project={project} apps={apps} />
+                    </div>
+                  ) : (
+                    <p className="mt-1 max-w-[40rem] text-sm text-ink-2">Deploys show up here.</p>
+                  )}
                 </div>
                 <Terminal project={project} className="mt-6" />
               </>
@@ -217,7 +215,6 @@ export function DeploymentsPage({ project }: { project: string }) {
                           starters={starters.data}
                           now={now}
                           writer={writer}
-                          rollback={!!cur && d.createdAt < cur.createdAt}
                           onMakeCurrent={canSwitch ? () => makeCurrent.mutate({ app: d.app, to: d, from: cur, v: vs?.get(d.id), fromV: cur ? vs?.get(cur.id) : undefined }) : undefined}
                         />
                       );

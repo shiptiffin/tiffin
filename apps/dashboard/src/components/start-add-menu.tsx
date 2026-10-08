@@ -1,7 +1,7 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
-import { ChevronDown, Clock, FolderPlus, Inbox, KeyRound, LayoutTemplate } from "lucide-react";
-import { lazy, Suspense, useState, type FormEvent, type ReactNode } from "react";
+import { ChevronDown, KeyRound, LayoutTemplate } from "lucide-react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { ApiError, request, type Manifest } from "@/api/client";
 import { q, queryClient } from "@/api/queries";
 import type { components } from "@/api/schema";
@@ -26,22 +26,22 @@ import { pickBuild } from "@/lib/build-config";
 import { buildFor, isTested, presetName, presetOf, PRESETS } from "@/lib/frameworks";
 import { checkGitUrl, defaultOf, frameworkName, frameworksOf, isKind, KINDS, nameFromGit, rememberNextDeploy, slugify, starterFor, starterLine, startersQuery, type Starter, type StarterKind } from "@/lib/starters";
 
-export type Kind = "app" | "bucket" | "queue" | "cron" | "env";
-
-// A schedule or a queue: the Jobs area's own forms (they call apps or web addresses), loaded when opened.
-const ScheduleForm = lazy(() => import("@/routes/jobs/forms").then((m) => ({ default: m.ScheduleForm })));
-const QueueForm = lazy(() => import("@/routes/jobs/forms").then((m) => ({ default: m.QueueForm })));
+export type Kind = "app";
 
 /** The built-in parts that are added (Database, KV, Files, Email, Analytics and Jobs are always there). */
 const FRIENDLY: Record<string, { label: string; icon: ReactNode }> = {
   auth: { label: PARTS.auth.name, icon: <KeyRound /> },
 };
 
+/** What an app is, in one line: the Add app menu and dialog say it. */
+export const APP_WORDS = "An app is something that runs: a website, an API or a background worker. Apps in a project share its database, KV and files.";
+
 /**
- * "Add" on a project. Sign-in (Auth) is added the moment you pick it; an
- * app, bucket, queue, schedule or setting asks
- * for a name and the one or two things it needs, then is added. Each is one
- * change in History, with Undo in the toast.
+ * "Add" on a project: an app, and Auth while it's off. Database, KV, Files,
+ * Email, Analytics and Jobs are always there (buckets, schedules, queues and
+ * settings are made on their own pages). Auth is added the moment you pick
+ * it; an app asks where its code comes from and its name. Each is one change
+ * in History, with Undo in the toast.
  */
 export function AddMenu({ project, manifest, className, trigger, only }: { project: string; manifest?: Manifest; className?: string; trigger?: ReactNode; /** Skip the menu: the trigger opens this one form. */ only?: Kind }) {
   const [open, setOpen] = useState<Kind | null>(null);
@@ -49,16 +49,7 @@ export function AddMenu({ project, manifest, className, trigger, only }: { proje
   const off = ["auth"].filter((s) => !(s in services));
   const dialog = (
     <Dialog open={!!open} onOpenChange={(o) => !o && setOpen(null)}>
-      <DialogContent className={open === "cron" || open === "queue" || open === "app" ? "sm:max-w-2xl" : "sm:max-w-lg"}>
-        {open === "app" && manifest && <AddApp project={project} manifest={manifest} done={() => setOpen(null)} />}
-        {open === "bucket" && manifest && <AddBucket project={project} manifest={manifest} done={() => setOpen(null)} />}
-        {(open === "queue" || open === "cron") && (
-          <Suspense fallback={<div className="h-96" />}>
-            {open === "queue" ? <QueueForm project={project} done={() => setOpen(null)} /> : <ScheduleForm project={project} done={() => setOpen(null)} />}
-          </Suspense>
-        )}
-        {open === "env" && manifest && <AddEnv project={project} manifest={manifest} done={() => setOpen(null)} />}
-      </DialogContent>
+      <DialogContent className="sm:max-w-2xl">{open === "app" && manifest && <AddApp project={project} manifest={manifest} done={() => setOpen(null)} />}</DialogContent>
     </Dialog>
   );
   if (only)
@@ -92,20 +83,12 @@ export function AddMenu({ project, manifest, className, trigger, only }: { proje
             </MenuItem>
           ))}
           {off.length > 0 && <MenuSeparator />}
-          <MenuItem onSelect={() => setOpen("app")}>
-            <LayoutTemplate /> {Object.keys(manifest?.apps ?? {}).length ? "Another app…" : "An app…"}
-          </MenuItem>
-          <MenuItem onSelect={() => setOpen("bucket")}>
-            <FolderPlus /> A bucket for files…
-          </MenuItem>
-          <MenuItem onSelect={() => setOpen("cron")}>
-            <Clock /> A scheduled job…
-          </MenuItem>
-          <MenuItem onSelect={() => setOpen("queue")}>
-            <Inbox /> A job queue…
-          </MenuItem>
-          <MenuItem onSelect={() => setOpen("env")}>
-            <KeyRound /> A setting (env var)…
+          <MenuItem className="h-auto max-w-80 py-1.5" onSelect={() => setOpen("app")}>
+            <LayoutTemplate />
+            <span className="flex min-w-0 flex-col leading-[1.15rem]">
+              <span>{Object.keys(manifest?.apps ?? {}).length ? "Another app…" : "An app…"}</span>
+              <span className="text-xs text-ink-3">{APP_WORDS}</span>
+            </span>
           </MenuItem>
         </MenuContent>
       </Menu>
@@ -175,7 +158,6 @@ function Shell({
 
 const slugOk = (s: string) => /^[a-z](-?[a-z0-9]){0,39}$/.test(s) && s.length <= 40;
 const say = (what: string) => void what; // the change's own toast says what happened
-const set = (project: string, e: Omit<Extract<StagedEdit, { kind: "set" }>, "kind">) => change(project, { kind: "set", ...e }, { immediate: true });
 
 // ───────────────────────── app ─────────────────────────
 
@@ -247,9 +229,10 @@ function AddApp({ project, manifest, done }: { project: string; manifest: Manife
     <Shell
       title={`Add an app to ${project}`}
       lede={
-        fromGitHub
-          ? "Its first build starts as soon as it’s added; after that, every push to its branch deploys it."
-          : "Built on the box from a starter or a public repository. Its page offers the first deploy as soon as it’s added."
+        <>
+          {APP_WORDS}{" "}
+          {fromGitHub ? "Its first build starts as soon as it’s added; after that, every push to its branch deploys it." : "Its page offers the first deploy as soon as it’s added."}
+        </>
       }
       submit={naming && name ? `Add ${name}` : "Add the app"}
       ok={!nameErr && !sourceErr}
@@ -443,84 +426,5 @@ function PickTile({ value, onClick, thumb, icon, title, line }: { value: string;
         {line && <span className="line-clamp-2 block text-[0.71875rem] leading-4 text-ink-3">{line}</span>}
       </span>
     </RadioItem>
-  );
-}
-
-// ───────────────────────── bucket, env ─────────────────────────
-
-function AddBucket({ project, manifest, done }: { project: string; manifest: Manifest; done: () => void }) {
-  const [name, setName] = useState("");
-  const [pub, setPub] = useState(false);
-  const existing = Object.keys(manifest.services?.storage?.buckets ?? {});
-  const err = !name ? false : !slugOk(name) ? "Lowercase letters, digits and dashes, starting with a letter." : existing.includes(name) ? `${project} already has a bucket called ${name}.` : false;
-  return (
-    <Shell
-      title={`Add a bucket to ${project}`}
-      lede="S3-compatible storage for files your apps write. Private buckets serve files only through signed links."
-      submit={name ? `Add ${name}` : "Add the bucket"}
-      ok={!!name && !err}
-      done={done}
-      onSubmit={() => {
-        set(project, { path: ["services", "storage", "buckets", name], to: { public: pub }, what: `Add the ${name} bucket (${pub ? "public" : "private"}) to ${project}`, undo: `${name} goes to the trash` });
-        say(`add the ${name} bucket`);
-      }}
-    >
-      <Field label="Name" error={err}>
-        <input autoFocus value={name} onChange={(e) => setName(slugify(e.target.value))} placeholder="uploads" spellCheck={false} className={cn(field, "ident")} />
-      </Field>
-      <label className="flex items-start gap-2.5 text-sm text-ink-2">
-        <input type="checkbox" checked={pub} onChange={(e) => setPub(e.target.checked)} className="mt-0.5 size-4 accent-[var(--brass)]" />
-        <span>
-          <b className="font-[550] text-ink">Public.</b> Anyone with a file’s address can read it. Use it for images and downloads, never for people’s uploads.
-        </span>
-      </label>
-    </Shell>
-  );
-}
-
-function AddEnv({ project, manifest, done }: { project: string; manifest: Manifest; done: () => void }) {
-  const [key, setKey] = useState("");
-  const [value, setValue] = useState("");
-  const existing = manifest.env ?? {};
-  const valid = /^[A-Z_][A-Z0-9_]{0,127}$/.test(key);
-  const replacing = key in existing;
-  return (
-    <Shell
-      title={`Add an environment variable to ${project}`}
-      lede={
-        <>
-          Plain settings every app in {project} reads, kept in <span className="ident">tiffin.config.ts</span>. Keys and passwords go on Environment Variables, as secrets.
-        </>
-      }
-      submit={replacing ? `Change ${key}` : key ? `Add ${key}` : "Add the setting"}
-      ok={valid}
-      done={done}
-      onSubmit={() => {
-        set(project, {
-          path: ["env", key],
-          from: existing[key],
-          to: value,
-          what: replacing ? `Set ${key} to “${value}” in ${project}` : `Add ${key}=“${value}” to ${project}`,
-          undo: replacing ? `${key} goes back to “${existing[key]}”` : `${key} is removed`,
-        });
-        say(`${replacing ? "change" : "add"} ${key}`);
-      }}
-    >
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)]">
-        <Field label="Name" error={!!key && !valid && "Capitals, digits and underscores, like LOG_LEVEL."}>
-          <input
-            autoFocus
-            value={key}
-            onChange={(e) => setKey(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, "_"))}
-            placeholder="LOG_LEVEL"
-            spellCheck={false}
-            className={cn(field, "ident")}
-          />
-        </Field>
-        <Field label="Value" note={replacing ? `Now “${existing[key]}”.` : undefined}>
-          <input value={value} onChange={(e) => setValue(e.target.value)} placeholder="info" spellCheck={false} className={cn(field, "ident")} />
-        </Field>
-      </div>
-    </Shell>
   );
 }

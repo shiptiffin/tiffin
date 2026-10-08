@@ -1,44 +1,23 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronDown, Plus } from "lucide-react";
 import { useState } from "react";
-import type { Manifest, ManifestApp } from "@/api/client";
+import type { ManifestApp } from "@/api/client";
 import { GitHubMark } from "@/components/github-mark";
-import { AddMenu } from "@/components/start-add-menu";
 import { DeployTray } from "@/components/start-deploy-tray";
 import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
-import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@/components/ui/dropdown";
 import { deployGitHub, shortSha } from "@/lib/github";
-import { frameworkName, nextDeployFor } from "@/lib/starters";
+import { nextDeployFor } from "@/lib/starters";
 import { refreshApp } from "./deploy-parts";
 
-/** "Add app": the Add menu's app form, opened straight away. */
-export function AddAppButton({ project, manifest, variant = "secondary" }: { project: string; manifest?: Manifest; variant?: "primary" | "secondary" }) {
-  return (
-    <AddMenu
-      project={project}
-      manifest={manifest}
-      only="app"
-      trigger={
-        <Button variant={variant} size="lg" disabled={!manifest}>
-          <Plus />
-          Add app
-        </Button>
-      }
-    />
-  );
-}
-
 /**
- * Deploy, for a project: one app deploys straight away (its GitHub branch) or
- * opens the deploy tray (a starter or a git URL); several apps ask which first.
+ * Deploy an app's GitHub branch now, for the rare time a push didn't (the
+ * first deploy after connecting it, say). Pushes deploy on their own.
  */
-export function DeployButton({ project, apps, hasVersions }: { project: string; apps: Array<[string, ManifestApp]>; hasVersions: (app: string) => boolean }) {
+export function useDeployBranch(project: string) {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const [tray, setTray] = useState<string | null>(null);
-  const fromGitHub = useMutation({
+  return useMutation({
     mutationFn: ({ app }: { app: string; branch?: string }) => deployGitHub(project, app),
     onSuccess: (d, { app, branch }) => {
       refreshApp(qc, project, app);
@@ -54,39 +33,55 @@ export function DeployButton({ project, apps, hasVersions }: { project: string; 
     },
     onError: (e, { app }) => toast({ title: <>{app} didn’t start deploying.</>, detail: e instanceof Error ? e.message : undefined, tone: "danger" }),
   });
-  const go = (app: string, spec: ManifestApp) => (spec.git ? fromGitHub.mutate({ app, branch: spec.git.branch ?? "main" }) : setTray(app));
+}
+
+/**
+ * The Deployments page before anything is deployed: for each app, how its
+ * first version gets there. An app connected to GitHub deploys on a push to
+ * its branch (with a quiet Deploy now); any other app deploys from a starter
+ * or a git URL, in the deploy tray.
+ */
+export function FirstDeploy({ project, apps }: { project: string; apps: Array<[string, ManifestApp]> }) {
+  const branch = useDeployBranch(project);
+  const [tray, setTray] = useState<string | null>(null);
   const traySpec = apps.find(([a]) => a === tray)?.[1];
-  if (apps.length === 0) return null;
+  const named = apps.length > 1;
   return (
     <>
-      {apps.length === 1 ? (
-        <Button variant="primary" size="lg" disabled={fromGitHub.isPending} onClick={() => go(apps[0][0], apps[0][1])}>
-          {fromGitHub.isPending ? "Starting…" : `Deploy ${apps[0][0]}`}
-        </Button>
-      ) : (
-        <Menu>
-          <MenuTrigger asChild>
-            <Button variant="primary" size="lg" disabled={fromGitHub.isPending}>
-              {fromGitHub.isPending ? "Starting…" : "Deploy"}
-              <ChevronDown className="-mr-1" />
-            </Button>
-          </MenuTrigger>
-          <MenuContent align="end" className="min-w-60">
-            <MenuLabel>Which app?</MenuLabel>
-            {apps.map(([a, spec]) => (
-              <MenuItem key={a} className="h-auto py-1.5" onSelect={() => go(a, spec)}>
-                {spec.git ? <GitHubMark /> : <span className="size-4" aria-hidden />}
-                <span className="flex min-w-0 flex-col leading-[1.15rem]">
-                  <span className="truncate text-ink">{a}</span>
-                  <span className="truncate text-xs text-ink-3">
-                    {spec.git ? `${spec.git.branch ?? "main"} from ${spec.git.repo}` : `${frameworkName(spec.framework)}: a starter or a git URL`}
-                  </span>
-                </span>
-              </MenuItem>
-            ))}
-          </MenuContent>
-        </Menu>
-      )}
+      <ul className="divide-y divide-rule">
+        {apps.map(([a, spec]) => {
+          const b = spec.git?.branch ?? "main";
+          return (
+            <li key={a} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 first:pt-0 last:pb-0">
+              {spec.git ? (
+                <>
+                  <p className="flex min-w-0 items-center gap-2 text-sm text-ink-2">
+                    <GitHubMark className="shrink-0 text-ink-3" />
+                    <span className="min-w-0">
+                      Push to <span className="ident text-[0.8125rem] text-ink">{b}</span> to deploy{named ? ` ${a}` : ""}.
+                    </span>
+                  </p>
+                  <button
+                    type="button"
+                    disabled={branch.isPending}
+                    onClick={() => branch.mutate({ app: a, branch: b })}
+                    className="text-[0.8125rem] font-[550] text-ink-2 underline decoration-rule-3 underline-offset-4 hover:text-ink disabled:opacity-50"
+                  >
+                    {branch.isPending && branch.variables?.app === a ? "Starting…" : named ? `Deploy ${a} now` : "Deploy now"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="min-w-0 text-sm text-ink-2">Deploy {a} from a starter or a git URL.</p>
+                  <Button size="md" variant={named ? "secondary" : "primary"} aria-label={`Deploy ${a}`} onClick={() => setTray(a)}>
+                    Deploy…
+                  </Button>
+                </>
+              )}
+            </li>
+          );
+        })}
+      </ul>
       {tray && (
         <DeployTray
           project={project}
@@ -95,7 +90,7 @@ export function DeployButton({ project, apps, hasVersions }: { project: string; 
           open={!!tray}
           onOpenChange={(o) => !o && setTray(null)}
           suggest={nextDeployFor(project, tray)}
-          hasVersions={hasVersions(tray)}
+          hasVersions={false}
         />
       )}
     </>

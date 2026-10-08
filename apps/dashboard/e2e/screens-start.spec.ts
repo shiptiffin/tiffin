@@ -64,7 +64,9 @@ const pages: Shot[] = [
     url: "/projects/shop/apps/web",
     wait: (p) => p.getByRole("heading", { level: 1 }).waitFor(),
     act: async (p) => {
-      await p.getByRole("button", { name: /^Deploy/ }).first().click();
+      // A manual deploy lives in the app's ⋯ menu (pushes and agents deploy on their own).
+      await p.getByRole("button", { name: "More for web" }).click();
+      await p.getByRole("menuitem", { name: /^Deploy/ }).click();
       await p.getByRole("dialog").waitFor();
     },
     full: false,

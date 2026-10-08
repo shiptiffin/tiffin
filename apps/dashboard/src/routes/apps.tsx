@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Navigate, useNavigate } from "@tanstack/react-router";
-import { ArrowUpRight, Check, Copy, Download, Moon, Pause, Play, RotateCw, Search, Trash2, Undo2 } from "lucide-react";
+import { ArrowUpRight, Check, Copy, Download, Moon, MoreHorizontal, Pause, Play, RotateCw, Search, Trash2, Undo2, Upload } from "lucide-react";
 import { Tabs } from "radix-ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { notOnBox, type ManifestApp } from "@/api/client";
@@ -46,6 +46,9 @@ import { Segmented } from "@/components/segmented";
 import { InfoTip } from "@/components/info-tip";
 import { RadioGroup, RadioItem, Select } from "@/components/ui/choice";
 import { Button } from "@/components/ui/button";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/dropdown";
+import { GitHubMark } from "@/components/github-mark";
+import { useCommand } from "@/lib/shortcuts";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
 import { count, dec, int, withUnit, words } from "@/lib/format";
@@ -124,6 +127,9 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
   const [deletePreview, setDeletePreview] = useState<string | null>(null);
   const makeCurrent = useMakeCurrent(project);
   const redeploy = useRedeploy(project, app, spec?.git);
+  // A manual deploy: the GitHub branch now, or the tray (a starter or a git URL). Also in ⌘K.
+  const deployNow = () => (spec?.git ? redeploy.mutate() : setTray(true));
+  useCommand(can("apply:reversible") && spec ? { id: "deploy", label: spec.git ? `Deploy ${app} from ${spec.git.branch ?? "main"} now` : `Deploy ${app}…`, keywords: ["deploy", "ship", "release", "build"], run: deployNow } : null);
   const list = useMemo(() => [...(deploys.data ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [deploys.data]);
   const now = useNow(list.some((d) => inFlight(d.status)));
   const sleep = useMutation({
@@ -201,15 +207,6 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
         }
         actions={
           <>
-            {writer && spec?.git ? (
-              <Button variant="primary" size="lg" onClick={() => redeploy.mutate()} disabled={redeploy.isPending}>
-                {redeploy.isPending ? "Starting…" : prodList.length ? "Redeploy" : `Deploy ${spec.git.branch ?? "main"}`}
-              </Button>
-            ) : writer ? (
-              <Button variant="primary" size="lg" onClick={() => setTray(true)}>
-                Deploy
-              </Button>
-            ) : null}
             {writer && back && current && (
               <Button
                 size="lg"
@@ -225,11 +222,26 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
                 Logs
               </Link>
             </Button>
-            {writer && !isStatic && current && (
-              <Button variant="ghost" size="lg" onClick={() => restart.mutate()} disabled={restarting}>
-                <RotateCw className={cn(restarting && "animate-spin")} />
-                Restart
-              </Button>
+            {writer && spec && (
+              <Menu>
+                <MenuTrigger asChild>
+                  <Button size="lg" aria-label={`More for ${app}`} className="w-[38px] justify-center px-0 text-ink-2">
+                    <MoreHorizontal />
+                  </Button>
+                </MenuTrigger>
+                <MenuContent align="end" className="min-w-56">
+                  {/* Pushes and agents deploy; this is for the time one didn't. */}
+                  <MenuItem disabled={redeploy.isPending} onSelect={deployNow}>
+                    {spec.git ? <GitHubMark /> : <Upload />}
+                    {spec.git ? `Deploy ${spec.git.branch ?? "main"} now` : "Deploy…"}
+                  </MenuItem>
+                  {!isStatic && current && (
+                    <MenuItem disabled={restarting} onSelect={() => restart.mutate()}>
+                      <RotateCw /> Restart
+                    </MenuItem>
+                  )}
+                </MenuContent>
+              </Menu>
             )}
           </>
         }
@@ -259,12 +271,35 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
           <div className="min-w-0">
             <p className="text-[0.9375rem] font-[550] text-ink">Nothing deployed yet.</p>
             <p className="text-sm text-ink-2">
-              {spec?.git ? `It deploys from ${spec.git.repo} on every push to ${spec.git.branch ?? "main"}. Build the latest commit now.` : next ? ("template" in next ? `It was added from the ${starters.data?.find((s) => s.id === next.template)?.name ?? next.template} starter. Build it now.` : `It was added from ${next.git.url.replace(/^https:\/\//, "")}. Build it now.`) : "Deploy a starter or a git URL from here, or push from your terminal."}
+              {spec?.git ? (
+                <>
+                  Push to <span className="ident text-[0.8125rem] text-ink">{spec.git.branch ?? "main"}</span> on {spec.git.repo} to deploy.
+                </>
+              ) : next ? (
+                "template" in next ? (
+                  `It was added from the ${starters.data?.find((s) => s.id === next.template)?.name ?? next.template} starter. Build it now.`
+                ) : (
+                  `It was added from ${next.git.url.replace(/^https:\/\//, "")}. Build it now.`
+                )
+              ) : (
+                "Deploy it from a starter or a git URL, or push from your terminal."
+              )}
             </p>
           </div>
-          <Button variant="primary" size="lg" onClick={() => (spec?.git ? redeploy.mutate() : setTray(true))} disabled={redeploy.isPending}>
-            {spec?.git ? `Deploy ${spec.git.branch ?? "main"}` : `Deploy ${app}`}
-          </Button>
+          {spec?.git ? (
+            <button
+              type="button"
+              onClick={() => redeploy.mutate()}
+              disabled={redeploy.isPending}
+              className="text-[0.8125rem] font-[550] text-ink-2 underline decoration-rule-3 underline-offset-4 hover:text-ink disabled:opacity-50"
+            >
+              {redeploy.isPending ? "Starting…" : "Deploy now"}
+            </button>
+          ) : (
+            <Button variant="primary" size="lg" onClick={() => setTray(true)}>
+              Deploy {app}
+            </Button>
+          )}
         </div>
       )}
 
@@ -335,7 +370,6 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
                       starters={starters.data}
                       now={now}
                       writer={writer}
-                      rollback={!!current && d.createdAt < current.createdAt}
                       onMakeCurrent={
                         canRollBack(d)
                           ? () => makeCurrent.mutate({ app, to: d, from: current, v: vs.get(d.id), fromV: current ? vs.get(current.id) : undefined })
