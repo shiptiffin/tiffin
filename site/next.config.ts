@@ -1,12 +1,12 @@
 import type { NextConfig } from "next";
 
-// A static export: `next build` writes out/, and the box serves those files
-// from its edge (no container). Every page here is known at build time.
+// A server build: the pages are static (prerendered at build time), and the
+// early-access list adds a few route handlers that talk to Postgres and send
+// mail through the box.
 const config: NextConfig = {
-  output: "export",
-  images: { unoptimized: true },
   reactStrictMode: true,
   poweredByHeader: false,
+  serverExternalPackages: ["postgres", "nodemailer", "@shiptiffin/sdk"],
 };
 
 export default config;

@@ -3,10 +3,12 @@ import Link from "next/link";
 import { EMAIL } from "../chrome";
 import { LegalPage, type Section } from "../legal";
 
+export const dynamic = "force-static";
+
 export const metadata: Metadata = {
   title: "Privacy policy",
   description:
-    "What ShipTiffin collects, why, how it uses Google user data from Sign in with Google, who helps us run it, and how to have it deleted.",
+    "What ShipTiffin collects, why, how it uses Google user data from Sign in with Google, the early-access list, who helps us run it, and how to have it deleted.",
   alternates: { canonical: "/privacy" },
 };
 
@@ -69,6 +71,39 @@ const sections: Section[] = [
           scripts, from the request itself. A visitor is a hash of the IP address and browser with a salt that
           changes daily and is deleted after 48 hours; the IP address and browser are not stored with the count.
           Browsers that send Global Privacy Control are not counted.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "early-access",
+    title: "The early-access list",
+    body: (
+      <>
+        <p>
+          If you join the early-access list on this website, we keep what you give us: your email address and your
+          answers (what you would host, how many projects, what you use today, and your note), whether you have
+          confirmed your address, and when you signed up and confirmed. It is stored in the database of the box that
+          runs this website, in Hetzner&rsquo;s data centres, and nowhere else.
+        </p>
+        <p>
+          We use it to invite you when there is a box for you, to offer you the founding price, and to learn what
+          people want to run. Not for a newsletter, not for anything else, and we don&rsquo;t share it with anyone.
+          We send you one email to confirm your address, then an invite; nothing else.
+        </p>
+        <p>
+          To stop people signing up in bulk, your IP address is held in memory for up to 10 minutes; it is not
+          stored with your answers. Like every visit, the request appears in the website&rsquo;s request log (kept
+          30 days), which does not contain what you typed. The sign-up is counted as an event in our cookieless
+          visit counts, without your email address. A copy of each email we send you is kept for 7 days and a log
+          entry for 30 days, as for all mail sent from a box.
+        </p>
+        <h3>Leaving the list</h3>
+        <p>
+          Every email from the list has a link to remove yourself, and your mail app&rsquo;s unsubscribe button
+          works too. Either deletes your address and answers at once. You can also email {mail} from that address.
+          Addresses that are never confirmed are deleted after 30 days. Once you are invited and open an account,
+          your sign-up is deleted; if we close the list, we delete it all.
         </p>
       </>
     ),
@@ -255,6 +290,7 @@ const sections: Section[] = [
         <li>To keep the service secure: spotting abuse, scanners and break-in attempts.</li>
         <li>To tell you about your box: problems, planned maintenance, and changes to these policies.</li>
         <li>To answer you when you write to us.</li>
+        <li>To invite you, if you joined the early-access list.</li>
         <li>To bill you, once pricing exists.</li>
       </ul>
     ),
@@ -296,7 +332,7 @@ const sections: Section[] = [
             <tr>
               <td>SendGrid (Twilio)</td>
               <td>
-                Delivers the email ShipTiffin itself sends: account and sign-in emails, notices about your box.
+                Delivers the email ShipTiffin itself sends: account and sign-in emails, notices about your box, and early-access emails.
                 Mail your apps send goes through the mail provider you connect, not through us.
               </td>
             </tr>
@@ -361,6 +397,9 @@ const sections: Section[] = [
           copies kept off the box expire within 30 days after that. Export anything you want to keep first.
         </li>
         <li>Email you send us: as long as we need it to help you, and no longer than we have to.</li>
+        <li>
+          The early-access list: until you remove yourself or open an account; unconfirmed addresses for 30 days.
+        </li>
       </ul>
     ),
   },
@@ -443,6 +482,8 @@ export default function Privacy() {
   return (
     <LegalPage
       title="Privacy policy"
+      updated="8 October 2026"
+      updatedIso="2026-10-08"
       intro="What we collect, why, how we handle Google user data, who helps us run the service, and how to have it deleted. In plain words, because you should be able to read it."
       sections={sections}
     />

@@ -1,0 +1,47 @@
+// POST /api/early-access: the sign-up form. A browser without JavaScript gets
+// a redirect (303) to the next page; the form's script asks for JSON instead.
+// Every accepted submission gets the same answer, whether the address was
+// new, already on the list or a bot's, so the form can't be used to find out
+// who has signed up.
+import { clientIP, track } from "@shiptiffin/sdk/analytics";
+import { boxDeps, rateLimiter } from "@/lib/early-access-box";
+import { MESSAGES, parseForm, signUp, type ErrorCode, type SignupReply } from "@/lib/early-access";
+
+export const dynamic = "force-dynamic";
+
+const allow = rateLimiter(5, 10 * 60 * 1000);
+
+export async function POST(request: Request) {
+  const json = (request.headers.get("accept") ?? "").includes("application/json");
+  const fail = (status: number, code: ErrorCode, errors?: Record<string, string>) =>
+    json
+      ? Response.json({ ok: false, code, errors, message: MESSAGES[code] } satisfies SignupReply, { status })
+      : new Response(null, { status: 303, headers: { location: `/early-access?error=${code}#form` } });
+
+  if (Number(request.headers.get("content-length") ?? 0) > 16_384) return fail(413, "long");
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return fail(400, "email");
+  }
+  const parsed = parseForm(form);
+  if (!parsed.ok) return fail(400, parsed.errors.email ? "email" : "long", parsed.errors);
+
+  if (!allow(clientIP(request) ?? "unknown")) return fail(429, "busy");
+  const deps = boxDeps(request);
+  if (!deps) {
+    console.error("early access: DATABASE_URL is not set; add services.postgres to the website project");
+    return fail(503, "unavailable");
+  }
+  try {
+    const outcome = await signUp(parsed, deps);
+    if (outcome.kind !== "bot") void track("early_access_submit", { projects: parsed.answers.projects ?? "unsaid" }, { request });
+  } catch (err) {
+    console.error("early access: sign-up failed", err);
+    return fail(503, "unavailable");
+  }
+  return json
+    ? Response.json({ ok: true } satisfies SignupReply)
+    : new Response(null, { status: 303, headers: { location: "/early-access/check-email" } });
+}

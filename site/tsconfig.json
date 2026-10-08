@@ -37,7 +37,7 @@
   ],
   "exclude": [
     "node_modules",
-    
-    "tiffin.config.ts"
+    "tiffin.config.ts",
+    "**/*.test.ts"
   ]
 }

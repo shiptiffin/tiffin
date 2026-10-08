@@ -3,6 +3,8 @@ import Link from "next/link";
 import { EMAIL } from "../chrome";
 import { LegalPage, type Section } from "../legal";
 
+export const dynamic = "force-static";
+
 export const metadata: Metadata = {
   title: "Terms of service",
   description: "The rules for using ShipTiffin, in plain English: what you can run, what you own, and what we promise.",

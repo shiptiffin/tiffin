@@ -2,7 +2,6 @@ import Link from "next/link";
 
 export const DASHBOARD = "https://dashboard.shiptiffin.com";
 export const EMAIL = "hello@shiptiffin.com";
-export const ACCESS_MAIL = `mailto:${EMAIL}?subject=${encodeURIComponent("Early access to ShipTiffin")}`;
 
 /**
  * The mark: a stacked steel tin with a carry handle and a face on the middle
@@ -38,9 +37,12 @@ export function Header() {
           <Link href="/#how" className="nav-link hide-sm">
             How it works
           </Link>
-          <a href={`mailto:${EMAIL}`} className="nav-link hide-sm">
-            Contact
-          </a>
+          <Link href="/#pricing" className="nav-link hide-sm">
+            Pricing
+          </Link>
+          <Link href="/#faq" className="nav-link hide-sm">
+            Questions
+          </Link>
           <a href={DASHBOARD} className="btn btn-quiet btn-sm">
             Sign in
           </a>

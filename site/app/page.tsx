@@ -1,7 +1,11 @@
 import Link from "next/link";
-import { ACCESS_MAIL, DASHBOARD, EMAIL } from "./chrome";
+import { DASHBOARD } from "./chrome";
+import { EarlyAccessForm } from "./early-access-form";
+import { EarlyAccessNext } from "./early-access-next";
+import { Pricing } from "./pricing";
 
 export const metadata = { alternates: { canonical: "/" } };
+export const dynamic = "force-static";
 
 /* The box, drawn: a stacked tin, one tier per project, each with its own limit.
    Illustrative projects, not customers. */
@@ -45,17 +49,104 @@ function BoxDrawing() {
   );
 }
 
+/* What's in the box: the plain name, then what it is underneath. */
 const PARTS = [
-  ["Apps", "Next.js, Hono, Bun and static sites. A preview for every pull request, rollbacks to earlier deploys."],
-  ["Database", "Postgres 18 for each project, with branches for previews and regular restore points."],
-  ["KV", "Valkey, Redis-compatible, for caches, sessions and counters."],
-  ["Files", "S3-compatible buckets, private or public, with image resizing."],
-  ["Sign-in", "Email and password, magic links, passkeys, and Google, GitHub and other providers."],
-  ["Email", "Send from any app. Until you connect a mail service, every message waits in a test inbox."],
-  ["Jobs", "Queues, crons and workflows. The box pushes each job to your app and retries until it succeeds."],
-  ["Logs and analytics", "Logs, metrics, errors and visit counts without cookies, all kept on the box."],
-  ["Domains", "Your own domain with HTTPS. Certificates are issued and renewed for you."],
+  ["Apps", "Next.js, Hono, FastAPI and more", "Deploy from GitHub or with git push. Roll back to any earlier deploy in one step."],
+  ["Previews", "One per pull request", "Each pull request gets its own address and its own copy of the database."],
+  ["Database", "Postgres 18", "One for each project, behind a connection pooler, with branches made in milliseconds."],
+  ["KV", "Valkey, Redis-compatible", "For caches, sessions, rate limits and counters."],
+  ["Files", "S3-compatible", "Private or public buckets, with image resizing."],
+  ["Sign-in", "Better Auth", "Email and password, magic links, passkeys, and Google, GitHub and other providers."],
+  ["Email", "SMTP and an API", "Send from any app. Until you connect a mail service, every message waits in a test inbox."],
+  ["Jobs", "Queues, crons and workflows", "The box calls your app with each job and retries until it succeeds."],
+  ["Analytics", "No cookies", "Visits, sources and your own events, counted on the box."],
+  ["Error tracking", "Sentry-compatible", "Point any Sentry SDK at the box. Logs, traces and alerts sit beside it."],
+  ["Backups", "Hourly", "Every database, file and setting, with restore drills that prove a backup works."],
+  ["Domains", "HTTPS included", "Your own domain, with certificates issued and renewed for you."],
 ] as const;
+
+/* What a project's limit holds back, besides its apps. From docs/guide/concepts.md. */
+const HOLDS = [
+  ["Apps", "Memory and CPU, across production and previews"],
+  ["Database", "Its share of query time and connections"],
+  ["KV", "Its share of memory"],
+  ["Builds", "Their share of CPU; past it they slow down instead of failing"],
+] as const;
+
+const FAQ: { q: string; a: React.ReactNode }[] = [
+  {
+    q: "How much will it cost?",
+    a: (
+      <p>
+        One flat monthly price per box, announced at launch. You won&rsquo;t pay per request or per project, so a
+        busy week doesn&rsquo;t change the bill. People on the early-access list get founding prices.
+      </p>
+    ),
+  },
+  {
+    q: "What happens when one project gets busy?",
+    a: (
+      <p>
+        Without a limit, it grows into what the box has free, and slows down rather than failing when the box is
+        busy. With a limit, it&rsquo;s held at it: its apps, database, cache and builds. Either way the other
+        projects keep running, and the project&rsquo;s Usage page shows when a limit held it back.
+      </p>
+    ),
+  },
+  {
+    q: "Can I leave?",
+    a: (
+      <p>
+        Yes, at any time. Export any project to a single file with its code, data and files. Everything inside is a
+        standard piece: Postgres, S3-compatible storage, a Redis-compatible store and SMTP, so it moves to any host
+        that runs them. If you close your account, you get at least 30 days to export first.
+      </p>
+    ),
+  },
+  {
+    q: "How are backups done?",
+    a: (
+      <p>
+        Postgres is backed up in full every day and incrementally every hour, along with KV, files, email and the
+        box&rsquo;s settings. Restore drills prove a backup works without touching anything live. A restore takes a
+        safety backup first, and a deleted database or bucket is kept for 7 days in case you change your mind.
+      </p>
+    ),
+  },
+  {
+    q: "What uptime can I expect?",
+    a: (
+      <p>
+        We aim for 99.9% each month, outside a weekly maintenance window you choose, when updates and restarts
+        happen. Your box is one server, so a hardware fault means downtime until it&rsquo;s back. That&rsquo;s why
+        we don&rsquo;t suggest it yet for apps that must never go down.
+      </p>
+    ),
+  },
+  {
+    q: "Where is my data?",
+    a: (
+      <p>
+        On your box: a server of your own in a Hetzner data centre in Germany. What your apps store stays on it
+        and isn&rsquo;t copied to a central ShipTiffin database. The <Link href="/privacy">privacy policy</Link> has
+        the details.
+      </p>
+    ),
+  },
+  {
+    q: "Which frameworks work?",
+    a: (
+      <p>
+        Next.js, Hono, FastAPI, TanStack Start, SvelteKit, Nuxt, React Router, Astro and static sites are
+        first-class. Other Bun, Node.js and Python servers run too, and anything else from a Dockerfile.
+      </p>
+    ),
+  },
+  {
+    q: "Will it be open source?",
+    a: <p>We may open it up later. Right now we&rsquo;re focused on the hosted service.</p>,
+  },
+];
 
 const CONFIG = [
   `<span class="t-k">export default</span> defineConfig({`,
@@ -71,13 +162,15 @@ const TERMINAL = [
   `<span class="t-p">$</span> git push tiffin main`,
 ].join("\n");
 
+const MCP = `<span class="t-p">$</span> claude mcp add tiffin -- tiffin mcp`;
+
 export default function Home() {
   return (
     <>
       <section className="hero">
         <div className="wrap hero-grid">
           <div className="hero-copy">
-            <p className="kicker">Hosted Tiffin · early access</p>
+            <p className="kicker">Early access</p>
             <h1 className="display">
               All your apps.
               <br />
@@ -87,19 +180,19 @@ export default function Home() {
             </h1>
             <p className="lede">
               ShipTiffin gives you a server of your own with everything an app needs already on it: a database,
-              sign-in, email, file storage and background jobs. Run as many projects as fit, deploy them with{" "}
-              <code>git push</code> or let your coding agent do it, and give each one the limit you choose.
+              sign-in, email, file storage, background jobs, analytics and backups. Run all your projects on it for
+              one flat monthly price, and give each one a limit, so a busy project never turns into a surprise bill.
             </p>
             <div className="actions">
-              <a className="btn btn-primary" href={ACCESS_MAIL}>
-                Ask for early access
+              <a className="btn btn-primary" href="#early-access">
+                Get early access
               </a>
               <a className="btn btn-quiet" href={DASHBOARD}>
                 Sign in to your box <span aria-hidden="true">→</span>
               </a>
             </div>
             <p className="fine">
-              Pricing isn&rsquo;t set yet. Early access: email <a href={`mailto:${EMAIL}`}>{EMAIL}</a>.
+              Simple monthly pricing, announced at launch. Early access members get founding prices.
             </p>
           </div>
           <BoxDrawing />
@@ -119,29 +212,31 @@ export default function Home() {
               counts.
             </p>
             <p>
-              Customers deploy their apps with <code>git push</code>, the <code>tiffin</code> command line or a
-              coding agent, and manage them from the box&rsquo;s dashboard. It is built for developers and small
-              teams who run several small apps and want one flat price instead of a bill for each service.
+              Customers deploy their apps from GitHub, with <code>git push</code>, the <code>tiffin</code> command
+              line or a coding agent, and manage them from the box&rsquo;s dashboard. It is built for developers and
+              small teams who run several apps and want one flat price instead of a bill for each service.
             </p>
           </div>
         </div>
       </section>
 
-      <section className="band" aria-labelledby="parts-title">
+      <section id="box" className="band" aria-labelledby="parts-title">
         <div className="wrap">
           <div className="section-head">
             <h2 id="parts-title" className="h2">
-              Everything an app needs is already on the box.
+              What&rsquo;s in the box.
             </h2>
             <p className="section-sub">
-              No separate accounts for the database, storage, email or analytics. Each project gets its own, set up
-              when you ask for it.
+              No separate accounts for the database, storage, email or analytics, and no separate bills. Each
+              project gets its own, set up when you ask for it.
             </p>
           </div>
           <dl className="parts">
-            {PARTS.map(([name, text]) => (
+            {PARTS.map(([name, tech, text]) => (
               <div key={name} className="part">
-                <dt>{name}</dt>
+                <dt>
+                  {name} <span className="part-tech">{tech}</span>
+                </dt>
                 <dd>{text}</dd>
               </div>
             ))}
@@ -164,17 +259,18 @@ export default function Home() {
                 </p>
               </li>
               <li>
-                <h3>Describe a project.</h3>
+                <h3>Connect GitHub, or let your agent deploy.</h3>
                 <p>
-                  Pick its parts in the dashboard, or write them in <code>tiffin.config.ts</code> next to your
-                  code. Both are the same thing underneath, so you can switch at any time.
+                  Pick a repository and every push to its main branch goes live, with a preview for each pull
+                  request. Or deploy with <code>git push</code>, the <code>tiffin</code> command line, or your
+                  coding agent.
                 </p>
               </li>
               <li>
-                <h3>Ship it.</h3>
+                <h3>Every project gets its own limits.</h3>
                 <p>
-                  Push to git, run <code>tiffin deploy</code>, or ask your coding agent: every operation is also
-                  an MCP tool. Each change is planned before it runs, recorded in History, and can be undone.
+                  Projects share the box on their own. Give any of them a ceiling, a share of the box or an amount
+                  of memory and CPU, in the dashboard or in <code>tiffin.config.ts</code> next to your code.
                 </p>
               </li>
             </ol>
@@ -192,23 +288,59 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="band" aria-label="Limits and leaving">
-        <div className="wrap pair">
+      <section id="limits" className="band" aria-labelledby="limits-title">
+        <div className="wrap two-col">
           <div>
-            <h2 className="h2">Limits per project, not surprise bills.</h2>
-            <div className="prose-lg">
+            <h2 id="limits-title" className="h2">
+              Limits per project, not surprise bills.
+            </h2>
+            <div className="prose-lg limits-prose">
               <p>
                 You pay one flat price for the box. Projects share it on their own: each grows into what&rsquo;s
                 free, and slows down rather than failing when the box is busy.
               </p>
               <p>
-                When you want a fixed share, give a project a limit: a share of the box, or an amount of memory,
-                CPU or storage. Its database, cache and builds are held to it too, so a side project that suddenly
-                gets busy can&rsquo;t take the others down, or run up a bill.
+                When you want a fixed share, give a project a limit: a share of the box, or an amount of memory and
+                CPU. A side project that suddenly gets busy can&rsquo;t take the others down, or run up a bill.
               </p>
             </div>
           </div>
-          <div>
+          <div className="holds">
+            <h3 className="holds-title">A limit holds everything the project uses</h3>
+            <dl>
+              {HOLDS.map(([k, v]) => (
+                <div key={k} className="hold">
+                  <dt>{k}</dt>
+                  <dd>{v}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="holds-note">
+              A project at its limit is held there, and its Usage page says so. The rest of the box keeps running.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="band" aria-label="Agents and leaving">
+        <div className="wrap pair">
+          <div id="agents">
+            <h2 className="h2">Your coding agent can run it, safely.</h2>
+            <div className="prose-lg">
+              <p>
+                Claude Code and other agents connect over MCP. Everything you can do in the dashboard is a tool
+                they can call: make a project, deploy it, read its logs, query its database.
+              </p>
+              <p>
+                Every change is planned before it runs, recorded in History with who made it and why, and can be
+                undone. Anything that destroys data asks you first.
+              </p>
+              <div className="code code-inline" role="group" aria-label="Connect Claude Code">
+                <pre dangerouslySetInnerHTML={{ __html: MCP }} />
+              </div>
+            </div>
+          </div>
+          <div id="leave">
             <h2 className="h2">Room to grow, and a door out.</h2>
             <div className="prose-lg">
               <p>
@@ -217,7 +349,7 @@ export default function Home() {
               </p>
               <p>
                 Everything on the box is a standard piece: Postgres, S3-compatible storage, a Redis-compatible
-                store and SMTP. A project that outgrows one server can leave for any platform that speaks them.
+                store and SMTP. A project that outgrows one server can leave for any host that runs them.
               </p>
             </div>
           </div>
@@ -233,20 +365,68 @@ export default function Home() {
           </div>
           <div className="fit">
             <div>
-              <h3 className="fit-title">Good for</h3>
+              <h3 className="fit-title">Great for</h3>
               <ul>
-                <li>Side projects, experiments and small products</li>
+                <li>Side projects, prototypes and experiments</li>
+                <li>Internal tools</li>
                 <li>Apps your coding agent builds and runs for you</li>
                 <li>Running many small apps without paying for each one</li>
+              </ul>
+            </div>
+            <div>
+              <h3 className="fit-title">Fine for</h3>
+              <ul>
+                <li>Small real apps with a few thousand users</li>
+                <li>Products that can take a short maintenance window</li>
               </ul>
             </div>
             <div>
               <h3 className="fit-title">Not yet for</h3>
               <ul>
                 <li>Anything that must stay up if one server goes down: it&rsquo;s one machine</li>
-                <li>Work that needs a stable platform today: Tiffin is before version 1.0</li>
+                <li>Work that needs a stable platform today: ShipTiffin is before version 1.0</li>
               </ul>
             </div>
+          </div>
+          <p className="fit-line">
+            ShipTiffin is young and made by a small team. Your box is backed up every hour, and you can leave any
+            time with standard Postgres, S3 and Redis.
+          </p>
+        </div>
+      </section>
+
+      <Pricing />
+
+      <section id="early-access" className="band ea" aria-labelledby="ea-title">
+        <div className="wrap ea-grid">
+          <div className="ea-copy">
+            <h2 id="ea-title" className="h2">
+              Get early access.
+            </h2>
+            <p className="section-sub">
+              We&rsquo;re letting people in a few at a time. Tell us what you&rsquo;d run, and we&rsquo;ll invite
+              you when there&rsquo;s a box for you.
+            </p>
+            <EarlyAccessNext />
+          </div>
+          <div className="ea-panel">
+            <EarlyAccessForm />
+          </div>
+        </div>
+      </section>
+
+      <section id="faq" className="band" aria-labelledby="faq-title">
+        <div className="wrap two-col">
+          <h2 id="faq-title" className="h2">
+            Questions
+          </h2>
+          <div className="faq">
+            {FAQ.map(({ q, a }) => (
+              <details key={q}>
+                <summary>{q}</summary>
+                <div className="faq-a">{a}</div>
+              </details>
+            ))}
           </div>
         </div>
       </section>
@@ -285,24 +465,6 @@ export default function Home() {
                 <Link href="/terms#use">acceptable use</Link> section of our terms.
               </p>
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="band cta" aria-labelledby="cta-title">
-        <div className="wrap cta-row">
-          <div>
-            <h2 id="cta-title" className="h2">
-              Want a box?
-            </h2>
-            <p className="section-sub">
-              We&rsquo;re letting people in a few at a time. Tell us what you&rsquo;d run on it.
-            </p>
-          </div>
-          <div className="actions">
-            <a className="btn btn-primary" href={ACCESS_MAIL}>
-              Ask for early access
-            </a>
           </div>
         </div>
       </section>

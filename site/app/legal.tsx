@@ -3,14 +3,26 @@ export const UPDATED_ISO = "2026-10-07";
 
 export type Section = { id: string; title: string; body: React.ReactNode };
 
-export function LegalPage({ title, intro, sections }: { title: string; intro: React.ReactNode; sections: Section[] }) {
+export function LegalPage({
+  title,
+  intro,
+  sections,
+  updated = UPDATED,
+  updatedIso = UPDATED_ISO,
+}: {
+  title: string;
+  intro: React.ReactNode;
+  sections: Section[];
+  updated?: string;
+  updatedIso?: string;
+}) {
   return (
     <article className="doc">
       <div className="wrap doc-grid">
         <header className="doc-head">
           <h1 className="doc-title">{title}</h1>
           <p className="doc-updated">
-            Last updated: <time dateTime={UPDATED_ISO}>{UPDATED}</time>
+            Last updated: <time dateTime={updatedIso}>{updated}</time>
           </p>
           <p className="doc-intro">{intro}</p>
         </header>
