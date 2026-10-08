@@ -1,1 +1,1 @@
-ShipTiffin: All your apps. One server. One price. A server of your own with a database, sign-in, email, files and jobs on it.
+ShipTiffin: All your apps. One box. One price. Your whole app stack on your own Hetzner server, $19 a month. The ShipTiffin tin sits on a rack server.

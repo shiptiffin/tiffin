@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Art } from "./art";
 import { Compare } from "./compare";
 import { Pricing } from "./pricing";
 
@@ -240,6 +241,13 @@ export default function Home() {
             <p className="fine">
               Ready in about 5 minutes. The first 100 customers pay $12 a month, locked for 24 months.
             </p>
+            <Art
+              name="tin-on-server"
+              className="art hero-art"
+              alt="The ShipTiffin tin sitting on top of a rack server, plugged in."
+              sizes="(min-width: 960px) 400px, (min-width: 560px) 360px, 260px"
+              priority
+            />
           </div>
           <BoxDrawing />
         </div>
@@ -258,16 +266,24 @@ export default function Home() {
               Each project gets its own, set up when you ask for it.
             </p>
           </div>
-          <dl className="parts">
-            {PARTS.map(([name, tech, text]) => (
-              <div key={name} className="part">
-                <dt>
-                  {name} <span className="part-tech">{tech}</span>
-                </dt>
-                <dd>{text}</dd>
-              </div>
-            ))}
-          </dl>
+          <div className="with-art">
+            <dl className="parts">
+              {PARTS.map(([name, tech, text]) => (
+                <div key={name} className="part">
+                  <dt>
+                    {name} <span className="part-tech">{tech}</span>
+                  </dt>
+                  <dd>{text}</dd>
+                </div>
+              ))}
+            </dl>
+            <Art
+              name="open-tin-parts"
+              className="art side-art"
+              alt="The tin opened up into its tiers, with a database, files, an envelope, a key, a clock and a chart inside."
+              sizes="(min-width: 1040px) 300px, 200px"
+            />
+          </div>
         </div>
       </section>
 
@@ -324,14 +340,22 @@ export default function Home() {
               ShipTiffin needs a Hetzner API key to build your server. Here&rsquo;s how we handle it.
             </p>
           </div>
-          <ol className="keys">
-            {KEY.map(([k, v]) => (
-              <li key={k}>
-                <h3>{k}</h3>
-                <p>{v}</p>
-              </li>
-            ))}
-          </ol>
+          <div className="with-art">
+            <ol className="keys">
+              {KEY.map(([k, v]) => (
+                <li key={k}>
+                  <h3>{k}</h3>
+                  <p>{v}</p>
+                </li>
+              ))}
+            </ol>
+            <Art
+              name="tin-returns-key"
+              className="art side-art"
+              alt="The ShipTiffin tin handing back a key with a tag on it."
+              sizes="(min-width: 1040px) 300px, 200px"
+            />
+          </div>
         </div>
       </section>
 

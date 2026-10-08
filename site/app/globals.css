@@ -382,6 +382,8 @@ code {
   .hero-grid {
     grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
     gap: 64px;
+    /* the art under the copy makes that column taller; keep the box beside the headline */
+    align-items: start;
   }
 }
 .actions {
@@ -583,6 +585,58 @@ code {
   color: var(--ink-2);
   font-size: 0.96rem;
   text-wrap: pretty;
+}
+
+/* ---------- ink illustrations ----------
+   Transparent PNG art (public/art), so the page's own paper shows through in
+   both themes. Beside a list on wide screens; a small lead-in above it on narrow ones. */
+.art {
+  display: block;
+}
+.art img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.hero-art {
+  margin-top: 36px;
+  max-width: 260px;
+}
+@media (min-width: 560px) {
+  .hero-art {
+    max-width: 360px;
+  }
+}
+@media (min-width: 960px) {
+  .hero-art {
+    max-width: 400px;
+    margin-top: 44px;
+  }
+}
+.with-art {
+  display: grid;
+  gap: 24px;
+}
+.side-art {
+  order: -1;
+  max-width: 200px;
+}
+@media (min-width: 1040px) {
+  .with-art {
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 64px;
+    align-items: start;
+  }
+  .with-art .parts,
+  .with-art .keys {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .side-art {
+    order: 0;
+    max-width: none;
+    position: sticky;
+    top: 96px;
+  }
 }
 
 /* how it works */
