@@ -84,8 +84,10 @@ The box builds with Railpack and BuildKit, starts the new instances, waits for t
 health check, switches traffic with no dropped requests, then drains the old ones. A
 failed build or health check leaves the old version serving.
 
-- **Rollback:** `tiffin rollback <app> [deploy]`, to one of the last 3 production deploys
-  before the live one (older builds are cleaned up; their records stay listed).
+- **Rollback:** `tiffin rollback <app> [deploy]`, to one of the last 20 production deploys
+  before the live one, each of which you can also open at its own address first (see
+  [Every version's own address](#every-versions-own-address)). Older builds are cleaned
+  up; their records stay listed.
 - **Disk:** images nothing needs any more go at once or in the hourly sweep. BuildKit's
   cache may hold 15% of the data disk (at least 4 GiB, at most 20 GiB); the sweep trims
   it back to that even when nothing builds.
@@ -99,9 +101,15 @@ failed build or health check leaves the old version serving.
   app's caches.
 - **History:** `tiffin deploys list <project> <app>` for one app;
   `tiffin projects deploys <project>` for every app, previews included (filter with
-  `--app`, `--env`, `--status`, `--branch`).
+  `--app`, `--env`, `--preview`, `--status`, `--branch`), each with its own address. Both
+  return the newest 50 (`--limit`, at most 200); when there are more, the answer's
+  `nextCursor` goes in `--cursor` for the next page, with the same filters. Pages are
+  newest first by creation time, then ID, so a deploy made while you page never shows up
+  twice or pushes one out.
 - **Logs:** `tiffin logs <app> -f`.
-- **Previews** sleep when idle and wake on the first request. Each preview gets its own
+- **Previews** sleep when idle and wake on the first request. Preview names may not start
+  with `d-`, which is how [each version's own address](#every-versions-own-address)
+  starts. Each preview gets its own
   copy of the project's database (see below); it shares the cache, buckets and secrets
   with production. Email goes to the dev inbox. A preview keeps only its latest build (no rollback), and one nobody
   requested or deployed to for 7 days is deleted, as if its pull request had closed;
@@ -133,6 +141,64 @@ failed build or health check leaves the old version serving.
 - **Shutdown:** a replaced release finishes the requests it has (each within the app's
   time limit, `timeoutSeconds`, so a long render survives a deploy), gets SIGTERM once
   they are done, then 30 seconds before it is killed, for work it does after responding.
+
+### Every version's own address
+
+Like Vercel's deployment URLs, every production deploy of a web app has an address of its
+own, `d-<id>--<name>.<apps domain>`: the last 8 characters of its deploy ID, in lower
+case, then the app's name under the apps domain as previews use it (`shop`, or
+`<project>-<app>` for an app served on a path or its own domain), for example
+`https://d-9j0kmnpq--shop.example.app`. It is the deploy's `url`; `appUrl` is the app's
+own address. Workers have none.
+
+- **The live version's address** is production: the same containers, nothing extra runs.
+- **An earlier version** (one the box keeps to roll back to) runs only while someone
+  visits it. Its first request starts one instance of its image and waits for it, as a
+  sleeping preview does; it sleeps again after 5 minutes without requests. At most 2
+  earlier versions of a project run at once: opening a third puts the one used longest
+  ago to sleep. They run in the project's share of the box, so their memory counts
+  against its limits.
+- **Read-only.** An earlier version reads production's data but can't change it:
+  `DATABASE_URL` (and `DIRECT_DATABASE_URL`, `PG*`) use the project's read-only login
+  (`p_<project>__read`), so **writes to the database fail** (Postgres says it can't run
+  them in a read-only transaction), and the KV credentials (`REDIS_URL` and the REST
+  tokens) use the read-only KV user. `TIFFIN_READ_ONLY=1` tells the app. Its email goes to the dev inbox;
+  no crons, queue deliveries, workflow steps or workers reach it; sign-in pages don't
+  work there. Its disk folders are its own, made from its image, and go when the version
+  is cleaned up. Everything else (env, secrets, files) is production's: see
+  [the limits](limits.md#deploys-and-changes) for what is not read-only.
+- **Who can open them.** By default only people signed in to this box's dashboard. A
+  visitor without the box's cookie for that address goes to the dashboard (`/gate`),
+  signs in if needed, and comes back. The dashboard's own session cookie belongs to the
+  dashboard's host and never reaches an app's (the apps domain is often another domain
+  altogether), so the dashboard instead asks the box for a link that works once, within a
+  minute, for that one address; following it sets a cookie for that address alone
+  (`__Host-`, HTTP-only, an hour), which the box strips before the request reaches the
+  app. Anyone who can read the project may get such a link: agents and scripts with
+  `tiffin deploys link <url>`, for a headless browser, say. To let anyone with the
+  address in, set `deployAddresses: "public"` in `tiffin.config.ts` or **Settings ›
+  General › Version addresses › Public**. Either way the addresses say `noindex` to
+  search engines.
+- **How many.** The last 20 production deploys before the live one stay, built and ready
+  to roll back to or open (a sliding window: each new deploy pushes the oldest out). Once
+  the data disk passes the disk guard's warning level (85% by default), apps keep only
+  their last 3, and the guard cleans up the rest at once. An address whose version was
+  cleaned up answers with a short page that links to the live site, as long as the box
+  keeps its record (the last 50 per app); the record says `"retention": "cleaned"`.
+- **What each one costs.** A kept version holds its image's own layers (once compressed,
+  once unpacked) and its source archive; layers it shares with other versions (the base
+  image, and the dependencies while the lockfile stays the same) are stored once.
+  Measured for the Next.js starter (`next build`, without `.next/cache`, which stays in the
+  build cache): about 6 MB of build output, 1.5 MB compressed, and a 10 KB source archive,
+  so about 8 MB a version, or 160 MB for all 20. A version that changed dependencies
+  also carries its own `node_modules` layer: about 320 MB unpacked and 82 MB compressed for
+  that starter (10 MB unpacked for the Hono starter). An earlier version that was woken
+  adds its container's writable layer and its own disk folders until it is cleaned up.
+  These are estimates from a build of the starters, not a box's image store; past the
+  disk guard's warning level the window shrinks to 3 by itself.
+- **Certificates.** On a box with a wildcard certificate (a connected DNS provider; the
+  hosted apps domain has one), the addresses are covered already. Without one, each
+  address gets its own certificate on its first visit, as previews' do.
 
 ## Build settings
 

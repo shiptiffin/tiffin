@@ -103,6 +103,32 @@ set `runtime: "node"` for them:
   says so.
 - A static preview's requests are counted from the edge's access log. While the box
   cannot read that log, a static preview expires 7 days after its last deploy, used or not.
+- **Earlier versions at their own addresses** read the database and KV read-only, but not
+  everything is: the project's files (buckets) take uploads and deletes as from
+  production (there are no read-only S3 keys yet), jobs and workflow runs an earlier
+  version starts run on production's workers, and an app's own credentials (a
+  `DATABASE_URL` it set itself, an outside service's API key) are left as they are. Open
+  an old version to look, not to work in it.
+- An earlier version's disk folders start from its image, not from production's data.
+  Sign-in doesn't work at version addresses (the auth engine is not routed there).
+- A version address's gate cookie lasts its hour: signing out of the dashboard doesn't end
+  it, and anyone who can read the project can mint a link (`tiffin deploys link`).
+- An earlier version with a request under way is not put to sleep to make room, so a
+  third can run for as long as that request does.
+- An earlier version's first request waits for a new container and, for the frameworks
+  whose client files the box serves, a copy of those out of its image: at least the
+  1.4 s a fresh Next.js starter container takes (see [Sleep and wake](#sleep-and-wake)),
+  more for a bigger app. Later wakes reuse the container.
+- A new production deploy's address goes on the edge when the deploy is queued: one edge
+  config reload per deploy, as for a new preview (open WebSockets survive it), never at
+  the switch itself.
+- **Without a wildcard certificate** (no DNS provider connected), each version address
+  gets its own certificate from Let's Encrypt on its first visit, as previews do. Let's
+  Encrypt allows 50 new certificates per registered domain a week, shared by previews,
+  version addresses and custom subdomains; past that a visit fails until the week rolls
+  over. Connect a DNS provider for a wildcard certificate instead.
+- A cleaned-up version's address answers its "cleaned up" page while the box keeps its
+  record (the last 50 per app), then "nothing here".
 
 ## Monorepos
 
@@ -380,7 +406,8 @@ The box adds nothing for LLMs:
 | `sendTx` outbox rows | payload 1 MB, options 16 KB; a larger row goes to the dead-letter queue without its payload | |
 | Live progress streams | 200 open per project | |
 | Email | 300 messages an hour | `tiffin email rate-limit set` |
-| Rollbacks | the last 3 production deploys; previews keep none | |
+| Rollbacks and version addresses | the last 20 production deploys (3 while the data disk is past the disk guard's warning level); previews keep none | |
+| Earlier versions awake at their own addresses | 2 per project; each sleeps after 5 idle minutes | |
 | Previews | deleted after 7 days with no request or deploy | |
 | Build cache | 15% of the data disk (4 to 20 GiB), less while under 15% of the disk is free; no BuildKit build history is kept | |
 

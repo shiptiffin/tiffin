@@ -32,8 +32,10 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    <owner> <repo>` (folders and framework), put `git: { repo, branch, path }` on the app, plan,
    apply, then `tiffin deploys github <project> <app>` (also Redeploy). Every push to the branch
    then deploys and pull requests get previews. Not connected? Ask the human to click Connect
-   GitHub in Settings › Git (it needs a browser). `tiffin rollback` reaches the last 3 production
-   deploys; a preview keeps only its latest build and is deleted after 7 days unused. Schema
+   GitHub in Settings › Git (it needs a browser). `tiffin rollback` reaches the last 20 production
+   deploys, each also open at its own address (the deploy's `url`, read-only data, for people
+   signed in to the box; `appUrl` is the live app; `tiffin deploys link <url>` gives a browser a
+   one-use way in); a preview keeps only its latest build and is deleted after 7 days unused. Schema
    changes go in `release: "bunx drizzle-kit migrate"` (any command): it runs once per deploy
    before the new version takes traffic, a failure keeps the old one serving, and rollbacks do
    not undo it, so add first and drop only in a later deploy. Each preview gets its own
