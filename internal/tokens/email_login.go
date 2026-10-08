@@ -106,6 +106,8 @@ func (m *Manager) mintSession(ctx context.Context, person *Person, via string) (
 		return "", nil, err
 	}
 	_ = m.db.Audit(ctx, t.ID, "token.create", t.ID, map[string]any{"name": t.Name, "kind": t.Kind, "scopes": t.Scopes, "projects": t.Projects, "expiresAt": t.ExpiresAt, "via": via})
+	// Each sign-in adds a session; the ones past Sign-ins' history go now.
+	_, _ = m.PruneSessions(ctx)
 	return secret, t, nil
 }
 

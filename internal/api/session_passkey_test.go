@@ -174,7 +174,7 @@ func TestPasskeySignIn(t *testing.T) {
 	}
 
 	// The sign-in is in the audit log.
-	_, _, events := e.call(e.owner, "GET", "/v1/audit", nil)
+	events, _ := e.page(e.owner, "/v1/audit")
 	found := false
 	for _, ev := range events {
 		m := ev.(map[string]any)

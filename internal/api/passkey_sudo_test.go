@@ -167,7 +167,7 @@ func TestPasskeyAddNeedsSudoAndMails(t *testing.T) {
 	}
 
 	// The audit log says who added and removed what.
-	_, _, events := e.call(e.owner, "GET", "/v1/audit?limit=200", nil)
+	events, _ := e.page(e.owner, "/v1/audit?limit=200")
 	var add, del bool
 	for _, ev := range events {
 		ev := ev.(map[string]any)

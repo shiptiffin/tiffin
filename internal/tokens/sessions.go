@@ -30,8 +30,24 @@ const (
 	MethodTerminal = "terminal"
 )
 
-// SessionHistory is how far back ended and expired sessions are listed.
+// SessionHistory is how far back ended and expired sessions are listed, and
+// kept: PruneSessions deletes older ones.
 const SessionHistory = 30 * 24 * time.Hour
+
+// PruneSessions deletes dashboard sessions that ended or expired more than
+// SessionHistory ago, which Sign-ins no longer lists, so the table doesn't
+// grow with every sign-in forever. A session that made API keys stays:
+// removing its person revokes every key their sessions made, through it.
+func (m *Manager) PruneSessions(ctx context.Context) (int64, error) {
+	cut := m.now().UTC().Add(-SessionHistory)
+	res, err := m.db.SQL().ExecContext(ctx, `DELETE FROM tokens WHERE kind = ? AND person IS NOT NULL
+		AND coalesce(revoked_at, expires_at) < ?
+		AND NOT EXISTS (SELECT 1 FROM tokens c WHERE c.sponsor = tokens.id)`, KindHuman, ts(&cut))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
 
 // Client is how and where a session signed in.
 type Client struct {

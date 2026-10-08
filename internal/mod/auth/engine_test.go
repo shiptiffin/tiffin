@@ -273,7 +273,7 @@ func TestEngineContract(t *testing.T) {
 	if st := call("GET", "/v1/projects/nope/auth", nil, &map[string]any{}); st != 404 {
 		t.Fatalf("missing project: %d", st)
 	}
-	ev, _ := p.DB.AuditLog(ctx, 10)
+	ev, _ := p.DB.AuditLog(ctx, 10, 0)
 	if len(ev) == 0 || ev[0].Action != "auth.user_ban" {
 		t.Fatalf("audit: %+v", ev)
 	}

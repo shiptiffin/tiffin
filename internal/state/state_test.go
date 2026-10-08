@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/change/changetest"
@@ -116,9 +117,19 @@ func TestAudit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	log, err := db.AuditLog(ctx, 10)
+	log, err := db.AuditLog(ctx, 10, 0)
 	if err != nil || len(log) != 2 || log[0].Action != "token.revoke" || log[0].At.IsZero() {
 		t.Fatalf("audit log: %v %+v", err, log)
+	}
+	if older, _ := db.AuditLog(ctx, 10, log[0].Seq); len(older) != 1 || older[0].Action != "token.create" {
+		t.Fatalf("the page after the newest: %+v", older)
+	}
+	// Retention: events from before the cut go.
+	if err := db.PruneAudit(ctx, time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := db.AuditLog(ctx, 10, 0); len(left) != 0 {
+		t.Fatalf("after pruning: %+v", left)
 	}
 }
 

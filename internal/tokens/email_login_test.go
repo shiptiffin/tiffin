@@ -3,6 +3,7 @@ package tokens
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -102,5 +103,53 @@ func TestSetPersonEmail(t *testing.T) {
 	}
 	if p, err := m.SetPersonEmail(ctx, owner, OwnerPerson, "owner@example.com"); err != nil || p.Email != "owner@example.com" {
 		t.Fatalf("owner email: %v %v", p, err)
+	}
+}
+
+// Sessions that ended or expired before Sign-ins' history go when someone
+// signs in; open ones, recent ones and ones that made keys stay.
+func TestPruneSessions(t *testing.T) {
+	m, owner, _ := setup(t)
+	ctx := context.Background()
+	maya, err := m.AddPerson(ctx, owner, "Maya", "maya@example.com", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for range 4 {
+		_, tok, err := m.mintSession(ctx, maya, MethodEmail)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, tok.ID)
+	}
+	old := time.Now().Add(-SessionHistory - time.Hour).UTC().Format(time.RFC3339Nano)
+	recent := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)
+	db := m.db.SQL()
+	for q, args := range map[string][]any{
+		`UPDATE tokens SET revoked_at = ? WHERE id = ?`:  {old, ids[0]},    // ended long ago: goes
+		`UPDATE tokens SET expires_at = ? WHERE id = ?`:  {old, ids[1]},    // expired long ago, but made a key: stays
+		`UPDATE tokens SET revoked_at = ?  WHERE id = ?`: {recent, ids[2]}, // ended an hour ago: stays
+	} {
+		if _, err := db.ExecContext(ctx, q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO tokens(id, name, kind, hash, scopes, projects, sponsor, created_at) VALUES ('tok_child', 'ci', 'agent', x'01', '[]', '[]', ?, ?)`, ids[1], recent); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := m.PruneSessions(ctx); err != nil || n != 1 {
+		t.Fatalf("pruned %d, %v; want 1", n, err)
+	}
+	var left []string
+	rows, _ := db.QueryContext(ctx, `SELECT id FROM tokens WHERE person = ? ORDER BY created_at`, maya.ID)
+	for rows.Next() {
+		var id string
+		_ = rows.Scan(&id)
+		left = append(left, id)
+	}
+	rows.Close()
+	if strings.Join(left, " ") != strings.Join(ids[1:], " ") {
+		t.Fatalf("left %v, want %v", left, ids[1:])
 	}
 }

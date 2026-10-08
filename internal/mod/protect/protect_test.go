@@ -354,7 +354,7 @@ func TestAPI(t *testing.T) {
 	}
 
 	// Audit trail.
-	ev, _ := e.p.DB.AuditLog(t.Context(), 50)
+	ev, _ := e.p.DB.AuditLog(t.Context(), 50, 0)
 	var actions []string
 	for _, x := range ev {
 		actions = append(actions, x.Action)

@@ -320,7 +320,7 @@ func TestRollbackIsAuditedAndAlerted(t *testing.T) {
 	for range 2 {
 		u.tick(context.Background(), p, time.Now())
 	}
-	events, _ := db.AuditLog(context.Background(), 10)
+	events, _ := db.AuditLog(context.Background(), 10, 0)
 	n := 0
 	for _, e := range events {
 		if e.Action == "box.update" {

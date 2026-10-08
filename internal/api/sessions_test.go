@@ -136,7 +136,7 @@ func TestSessionsListEndAndEndOthers(t *testing.T) {
 	}
 
 	// The audit log says who ended what.
-	_, _, audit := e.call(e.owner, "GET", "/v1/audit?limit=100", nil)
+	audit, _ := e.page(e.owner, "/v1/audit?limit=100")
 	var ended, others, link bool
 	for _, a := range audit {
 		ev := a.(map[string]any)

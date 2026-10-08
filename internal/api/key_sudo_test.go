@@ -160,7 +160,7 @@ func TestDashboardKeySudoMailAndLifetime(t *testing.T) {
 	}
 
 	// The audit log says who made it.
-	_, _, events := e.call(e.owner, "GET", "/v1/audit?limit=200", nil)
+	events, _ := e.page(e.owner, "/v1/audit?limit=200")
 	var made, confirmed bool
 	for _, ev := range events {
 		ev := ev.(map[string]any)

@@ -93,6 +93,9 @@ domain (`blog.yourdomain.com`) and its email and backup settings without any set
 - Run from an agent's shell, the CLI acts as the box's agent key (like `tiffin mcp`), so
   History names the agent, not you. Claude Code is detected (`CLAUDECODE=1`, and its
   session ID labels the changes); other agents set `TIFFIN_AGENT=1`.
+- Lists that grow (changes, jobs, workflow runs, mail, auth users, issues, traces) answer
+  one page, `{"items": [...], "nextCursor": "..."}`: 50 by default, `--limit` up to 200.
+  While `nextCursor` is there, more follow: pass it as `--cursor` with the same filters.
 - Errors are RFC 9457 problems with a stable `code`, field `errors`, and a `hint` that
   says what to do next. Plans carry `warnings` for things that apply but probably
   won't work (auth without email, env that replaces what the box sets).

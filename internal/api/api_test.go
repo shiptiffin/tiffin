@@ -296,7 +296,7 @@ func TestAgentScopesEnforced(t *testing.T) {
 		t.Fatalf("read-only plan: %d", code)
 	}
 	// Audit shows the minting.
-	_, _, audit := e.call(e.owner, "GET", "/v1/audit", nil)
+	audit, _ := e.page(e.owner, "/v1/audit")
 	if len(audit) < 2 || !strings.HasPrefix(audit[0].(map[string]any)["action"].(string), "token.") {
 		t.Fatalf("audit: %v", audit)
 	}

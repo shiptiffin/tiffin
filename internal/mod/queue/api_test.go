@@ -180,7 +180,7 @@ func TestAPI(t *testing.T) {
 		t.Errorf("read-only view %d: %s", code, raw)
 	}
 	// Mutations are audited.
-	ev, _ := db.AuditLog(t.Context(), 50)
+	ev, _ := db.AuditLog(t.Context(), 50, 0)
 	found := false
 	for _, x := range ev {
 		found = found || x.Action == "workflow.approval.approve"

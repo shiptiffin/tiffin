@@ -246,7 +246,9 @@ is a network namespace per app, with box services on an address of their own):
   memory). Start it again.
 - **Sign-ins** (Settings › Sign-ins) show the address and country a session signed in
   from, not where it is used now; last active is to the minute. Sessions from before this
-  page existed show no browser or method. The list goes back 30 days.
+  page existed show no browser or method. The list goes back 30 days, and sessions that
+  ended or expired before that are deleted at the next sign-in (unless they made an API
+  key, so removing the person still revokes it).
 - **Confirming it's you** (for a long-lived or full-access API key, a new passkey or a
   changed email address) takes one of your passkeys, or signing in again with a passkey,
   Google, GitHub or an emailed link (the owner: or their own `tiffin login`). On a box
@@ -341,6 +343,13 @@ The box adds nothing for LLMs:
   a steady upload takes.
 - **Connections:** idle keep-alive connections close after 2 minutes; request headers are at
   most 64 KiB.
+- **Lists page:** lists that grow (changes, jobs, workflow runs, mail, auth users and
+  organizations, error issues, traces, alert history, the audit log) answer 50 rows by
+  default and at most 200, with a `nextCursor` for the next page. A cursor holds its
+  list's order and filters' position, not a snapshot: rows added while you page show on a
+  new first page, and an error issue seen again moves to the top (it can show twice, never
+  not at all). Traces keep their 3-day window; there is no total count, except where a
+  page says one (Auth's overview).
 - **Idempotency-Key:** the answer is kept for 24 hours when it is at most 1 MiB (larger
   answers are sent but not kept). Whether a request is still running is known only to the
   running box: after a restart, a request that was running reads `none`, and its work may
@@ -456,6 +465,12 @@ the box unless you [copy them off it](data.md#copies-off-the-box).
   memory, disks and services, but only its own projects' containers, alerts and
   error-spike rules.
 - Database snapshots of deleted projects are kept for 7 days.
+- **What is kept, and for how long:** the audit log (`tiffin audit list`) a year; alert
+  history the newest 1,000 transitions; a project's dev inbox its newest 1,000 messages,
+  and relayed mail's log 30 days; done and cancelled jobs 7 days, failed jobs and finished
+  workflow runs 30 days. The change log (Activity) is kept for good: Undo and
+  History read it. Error issues stay until their project is deleted (each keeps its newest
+  events); resolve or ignore old ones to keep the open list short.
 
 ## The dashboard
 

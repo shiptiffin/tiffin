@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btahir/tiffin/internal/change"
@@ -28,7 +29,12 @@ type DB struct {
 
 	mu     sync.Mutex
 	checks []CommitCheck
+
+	auditPruned atomic.Int64 // unix seconds of the last audit retention pass
 }
+
+// AuditRetention is how long the audit log keeps an event.
+const AuditRetention = 365 * 24 * time.Hour
 
 // CommitCheck vets a commit inside its write transaction, after its
 // preconditions hold and before anything is written: return an error to
@@ -649,17 +655,31 @@ func (s *DB) Audit(ctx context.Context, actor, action, target string, detail any
 	if err != nil {
 		return err
 	}
+	now := time.Now().UTC()
 	_, err = s.sql.ExecContext(ctx, `INSERT INTO audit(at, actor, action, target, detail) VALUES (?, ?, ?, ?, ?)`,
-		time.Now().UTC().Format(time.RFC3339Nano), actor, action, target, string(d))
+		now.Format(time.RFC3339Nano), actor, action, target, string(d))
+	// Once an hour, events past AuditRetention go.
+	if last := s.auditPruned.Load(); err == nil && now.Unix()-last > 3600 && s.auditPruned.CompareAndSwap(last, now.Unix()) {
+		_ = s.PruneAudit(ctx, now.Add(-AuditRetention))
+	}
 	return err
 }
 
-// AuditLog returns recent events, newest first.
-func (s *DB) AuditLog(ctx context.Context, limit int) ([]AuditEvent, error) {
+// PruneAudit deletes audit events from before t.
+func (s *DB) PruneAudit(ctx context.Context, t time.Time) error {
+	_, err := s.sql.ExecContext(ctx, `DELETE FROM audit WHERE at < ?`, t.UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+// AuditLog returns events newest first, before is a sequence number (0: from the newest).
+func (s *DB) AuditLog(ctx context.Context, limit int, before int64) ([]AuditEvent, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := s.sql.QueryContext(ctx, `SELECT seq, at, actor, action, target, detail FROM audit ORDER BY seq DESC LIMIT ?`, limit)
+	if before <= 0 {
+		before = 1<<62 - 1
+	}
+	rows, err := s.sql.QueryContext(ctx, `SELECT seq, at, actor, action, target, detail FROM audit WHERE seq < ? ORDER BY seq DESC LIMIT ?`, before, limit)
 	if err != nil {
 		return nil, err
 	}

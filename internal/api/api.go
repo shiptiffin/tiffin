@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -843,18 +844,28 @@ func (a *API) register() {
 		}))
 
 	huma.Register(api, Untrusted(op("audit-list", http.MethodGet, "/v1/audit", "audit list", RiskRead, "List audit events",
-		"Security events that are not changes: keys created and revoked, sign-ins, people invited. Box admins only (a key with full access to all projects, or an owner or admin person).", "system")),
+		"Security events that are not changes, newest first, a page at a time: keys created and revoked, sign-ins, people invited. Kept a year. "+
+			"More follow when nextCursor is set: pass it as cursor. Box admins only (a key with full access to all projects, or an owner or admin person).", "system")),
 		wrap(func(ctx context.Context, in *struct {
-			Limit int `query:"limit" minimum:"1" maximum:"500" default:"50"`
-		}) (*struct{ Body []state.AuditEvent }, error) {
+			page.Params
+		}) (*struct{ Body page.Page[state.AuditEvent] }, error) {
 			if p := PrincipalFrom(ctx); !p.BoxAdmin() {
 				return nil, fmt.Errorf("%w: the audit log needs a key with full access to all projects", tokens.ErrForbidden)
 			}
-			ev, err := a.deps.DB.AuditLog(ctx, in.Limit)
-			if ev == nil {
-				ev = []state.AuditEvent{}
+			var before int64
+			if key, err := page.Decode(in.Cursor, 1); err != nil {
+				return nil, err
+			} else if key != nil {
+				if before, err = strconv.ParseInt(key[0], 10, 64); err != nil {
+					return nil, page.ErrBadCursor
+				}
 			}
-			return &struct{ Body []state.AuditEvent }{ev}, err
+			limit := page.Clamp(in.Limit)
+			ev, err := a.deps.DB.AuditLog(ctx, limit+1, before)
+			if err != nil {
+				return nil, err
+			}
+			return &struct{ Body page.Page[state.AuditEvent] }{page.Make(ev, limit, func(e state.AuditEvent) []string { return []string{strconv.FormatInt(e.Seq, 10)} })}, nil
 		}))
 }
 
