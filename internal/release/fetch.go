@@ -16,7 +16,7 @@ import (
 // DefaultSource is where boxes look for releases: a rolling GitHub release
 // per channel holds that channel's newest manifest and its signature; the
 // manifest points at the versioned release's binaries.
-const DefaultSource = "https://github.com/shiptiffin/tiffin/releases/download/channel-{channel}/manifest.json"
+const DefaultSource = "https://releases.shiptiffin.com/{channel}/manifest.json"
 
 // ManifestURL is the manifest's URL for a channel ({channel} in source).
 func ManifestURL(source, channel string) string {
