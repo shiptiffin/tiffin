@@ -356,7 +356,7 @@ The box adds nothing for LLMs:
 | A read-only hold on a database | transactions default to read-only, which an app can override; one whose databases still grow by more than 64 MiB is locked out of them, reads included, until the hold lifts (checked every 30 s, so a determined app writes for up to that long) | |
 | Restoring a database snapshot | runs as the project's own role, never the superuser: it needs one of the project's connections, and its index builds must fit the role's temporary-file limit | |
 | SQL console results (`tiffin sql`, the data browser) | values cut at 100,000 characters; at most 32 MiB of rows per request (more are counted, not returned); a single row over 64 MiB fails | `limit`, or select fewer columns |
-| Image transforms (`files.<domain>?w=`) | 3840 px wide and 40 megapixels out, 50 MiB in, 2 GiB of memory, 30 s | |
+| Image transforms (`files.<domain>?w=`) | 3840 px wide and 40 megapixels out, 50 MiB in, 2 GiB of memory, 30 s; half the CPUs (at least 2) at once, a project half of those; a failed transform answers 422 for 10 minutes without running again (a new version of the file is tried at once) | |
 | Request time | 15 minutes, up to 24 hours | `timeoutSeconds` |
 | Queue job attempt | 60 s without a response or heartbeat (5 to 3600); heartbeats extend it up to 24 hours | `leaseSeconds` |
 | Cron call | 60 s (5 to 3600) | `timeoutSeconds` on the cron |

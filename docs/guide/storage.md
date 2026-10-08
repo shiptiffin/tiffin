@@ -170,10 +170,13 @@ other file is served as stored. Each result is made once per version of the obje
 ETag) and kept in a disk cache (`/var/lib/tiffin/cache/images`, 2 GiB, least recently used
 files go first); the `X-Tiffin-Cache` header says `HIT` or `MISS`. Transforms run with
 libvips as an unprivileged, low-priority process with a 30 second limit and 2 GiB of
-memory, on images up to 50 MiB; at most half the box's CPUs transform at once, and one
-project gets at most half of those. Output is at most 3840 pixels wide (without `w` too, so
+memory, on images up to 50 MiB; half the box's CPUs (at least 2) transform at once, one
+project gets at most half of those, and projects waiting take turns. AVIF is encoded at
+libvips effort 1 (of 0 to 9): about 20 times faster than the default on a detailed image,
+for a few percent more bytes. Output is at most 3840 pixels wide (without `w` too, so
 `f=webp` alone shrinks a wider image) and 40 megapixels; an image whose transform needs more
-answers 422.
+answers 422, and the same request answers 422 at once for the next 10 minutes rather than
+running again.
 
 Private buckets need a signed link: `signedUrl("uploads", key, { width: 256, expiresIn: 3600 })`.
 The signature covers the file and the expiry, not `w`, `q` and `f`, so they can be added to it.

@@ -508,7 +508,7 @@ func TestImageCacheEvicts(t *testing.T) {
 func TestVipsCommandBounds(t *testing.T) {
 	name, args := vipsCommand("/usr/bin/vips", "", "image/png", imageParams{Quality: 75, Format: "avif"})
 	line := strings.Join(args, " ")
-	if name != "nice" || !strings.Contains(line, "[descriptor=0] .avif[Q=75,keep=none] 3840 --height 10416 --size down") {
+	if name != "nice" || !strings.Contains(line, "[descriptor=0] .avif[Q=75,effort=1,keep=none] 3840 --height 10416 --size down") {
 		t.Fatalf("no width: %s %s", name, line)
 	}
 	_, args = vipsCommand("/usr/bin/vips", "", "image/jpeg", imageParams{Width: 16, Quality: 75, Format: "original"})
@@ -525,5 +525,77 @@ func TestVipsCommandBounds(t *testing.T) {
 	}
 	if _, err := b.Write([]byte("de")); !errors.Is(err, errImageTooBig) || !b.over || b.Len() != 3 {
 		t.Fatalf("over the cap: %v %v %d", err, b.over, b.Len())
+	}
+}
+
+// A transform that fails is not run again for a while: the same request
+// fails at once (another request still runs). Then it is tried again.
+func TestImageTransformFailureRemembered(t *testing.T) {
+	r := newFrontRig(t)
+	var mu sync.Mutex
+	calls := 0
+	r.f.img.engine = func(_ context.Context, src []byte, _ string, _ imageParams) ([]byte, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		if string(src) == "SLOW" {
+			return nil, errors.New("the transform took longer than 30s")
+		}
+		return []byte("ok"), nil
+	}
+	r.gw.objects["/shop--pics/big.jpg"] = fakeObject{[]byte("SLOW"), "image/jpeg"}
+	r.gw.objects["/shop--pics/a.png"] = fakeObject{[]byte("PNG"), "image/png"}
+	files := "files.tiffin.localhost"
+	for i := range 3 {
+		if res, _ := r.do("GET", files, "/shop/pics/big.jpg?f=avif", nil, nil); res.StatusCode != 422 {
+			t.Fatalf("request %d: %d", i, res.StatusCode)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("a failed transform ran %d times", calls)
+	}
+	if res, body := r.do("GET", files, "/shop/pics/a.png?f=avif", nil, nil); res.StatusCode != 200 || body != "ok" || calls != 2 {
+		t.Fatalf("another image: %d %q (calls %d)", res.StatusCode, body, calls)
+	}
+	r.f.img.mu.Lock()
+	for k, f := range r.f.img.failed {
+		f.until = time.Now().Add(-time.Second)
+		r.f.img.failed[k] = f
+	}
+	r.f.img.mu.Unlock()
+	if res, _ := r.do("GET", files, "/shop/pics/big.jpg?f=avif", nil, nil); res.StatusCode != 422 || calls != 3 {
+		t.Fatalf("after the failure expired: %d (calls %d)", res.StatusCode, calls)
+	}
+}
+
+// One project never holds every transform slot: with its own slots taken,
+// another project still gets one at once.
+func TestImageTransformSlotsShared(t *testing.T) {
+	iw := newImageWork(fakeEngine(nil), t.TempDir(), 1<<20)
+	if cap(iw.slots) < 2 || iw.perProj >= cap(iw.slots) {
+		t.Fatalf("slots %d, per project %d", cap(iw.slots), iw.perProj)
+	}
+	var releases []func()
+	for range iw.perProj {
+		rel, err := iw.acquire(context.Background(), "hog")
+		if err != nil {
+			t.Fatal(err)
+		}
+		releases = append(releases, rel)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := iw.acquire(ctx, "hog"); !errors.Is(err, errBusy) {
+		t.Fatalf("the project over its share: %v", err)
+	}
+	ctx, cancel = context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	rel, err := iw.acquire(ctx, "other")
+	if err != nil {
+		t.Fatalf("another project: %v", err)
+	}
+	rel()
+	for _, rel := range releases {
+		rel()
 	}
 }

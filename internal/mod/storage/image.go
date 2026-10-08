@@ -34,7 +34,8 @@ import (
 // at low priority, under a time limit. Results are cached on disk by the
 // object's ETag and the parameters, so a transform runs once per object
 // version and size; the cache drops the least recently used files past
-// its cap.
+// its cap. A transform that fails is remembered for a while too, so a
+// request that cannot succeed is not run again and again.
 
 var (
 	// imageWidths are the widths w may take: Next.js's default deviceSizes
@@ -64,6 +65,17 @@ const (
 	imageMaxMemory int64 = 2 << 30
 	// imageMaxOutput is the most a transform may write.
 	imageMaxOutput = 64 << 20
+	// imageAVIFEffort is libvips' AV1 encoder effort (0 fastest to 9,
+	// default 4; libheif's aom speed is 9 minus it). Measured with aom
+	// 3.13 on one thread, 3840x2560: a detailed image took 11.1 s at the
+	// default and 0.54 s at 1, for 3 to 9% more bytes. At the default, a
+	// detailed photo at 3840 took over imageTimeout on a 2-CPU box.
+	imageAVIFEffort = 1
+	// imageFailedFor is how long a failed transform is remembered: the
+	// same request in that time fails at once rather than running again.
+	imageFailedFor = 10 * time.Minute
+	// imageFailedMax bounds how many failures are remembered.
+	imageFailedMax = 10_000
 )
 
 // imageParams is a validated transform request.
@@ -152,7 +164,9 @@ func vipsCommand(bin, prlimit, srcType string, ip imageParams) (string, []string
 	ext := ip.outputExt(srcType)
 	save := "." + ext
 	switch ext {
-	case "webp", "avif", "jpg":
+	case "avif":
+		save += fmt.Sprintf("[Q=%d,effort=%d,keep=none]", ip.Quality, imageAVIFEffort)
+	case "webp", "jpg":
 		save += fmt.Sprintf("[Q=%d,keep=none]", ip.Quality)
 	default:
 		save += "[keep=none]"
@@ -239,7 +253,7 @@ var nobody = sync.OnceValue(func() *syscall.Credential {
 
 // imageWork bounds transforms (box-wide and per project), shares one
 // transform among concurrent requests for the same result, and keeps the
-// disk cache.
+// disk cache and the recent failures.
 type imageWork struct {
 	engine imageEngine
 	cache  *imageCache
@@ -249,6 +263,12 @@ type imageWork struct {
 	projects map[string]chan struct{}
 	perProj  int
 	inflight map[string]*flight
+	failed   map[string]failedTransform
+}
+
+type failedTransform struct {
+	err   error
+	until time.Time
 }
 
 type flight struct {
@@ -257,10 +277,55 @@ type flight struct {
 	err  error
 }
 
+// newImageWork allows half the CPUs in transforms (each runs one thread,
+// at low priority), at least 2, and a project half of those: one project
+// never holds every slot, and as a project waits for its own slot before
+// the box's, projects take turns at the box's (a channel's waiters are
+// served in order).
 func newImageWork(engine imageEngine, dir string, capBytes int64) *imageWork {
-	n := max(1, runtime.NumCPU()/2)
+	n := max(2, runtime.NumCPU()/2)
 	return &imageWork{engine: engine, cache: &imageCache{dir: dir, max: capBytes}, slots: make(chan struct{}, n),
-		projects: map[string]chan struct{}{}, perProj: max(1, n/2), inflight: map[string]*flight{}}
+		projects: map[string]chan struct{}{}, perProj: max(1, n/2), inflight: map[string]*flight{},
+		failed: map[string]failedTransform{}}
+}
+
+// failure is the remembered failure of the transform key, if recent.
+func (iw *imageWork) failure(key string) error {
+	iw.mu.Lock()
+	defer iw.mu.Unlock()
+	f, ok := iw.failed[key]
+	if !ok {
+		return nil
+	}
+	if time.Now().After(f.until) {
+		delete(iw.failed, key)
+		return nil
+	}
+	return fmt.Errorf("%w: %w", errFailedRecently, f.err)
+}
+
+// errFailedRecently means the same transform failed a moment ago.
+var errFailedRecently = errors.New("this transform failed recently")
+
+// fail remembers that the transform key failed with err.
+func (iw *imageWork) fail(key string, err error) {
+	iw.mu.Lock()
+	defer iw.mu.Unlock()
+	now := time.Now()
+	if len(iw.failed) >= imageFailedMax {
+		for k, f := range iw.failed {
+			if now.After(f.until) {
+				delete(iw.failed, k)
+			}
+		}
+		for k := range iw.failed { // still full: drop any
+			if len(iw.failed) < imageFailedMax {
+				break
+			}
+			delete(iw.failed, k)
+		}
+	}
+	iw.failed[key] = failedTransform{err: err, until: now.Add(imageFailedFor)}
 }
 
 // errBusy means the box is already transforming as much as it allows.
@@ -297,6 +362,9 @@ func (iw *imageWork) get(ctx context.Context, project, key, ext string, fetch fu
 	if p, ok := iw.cache.get(key); ok {
 		return p, true, nil
 	}
+	if err := iw.failure(key); err != nil {
+		return "", false, err
+	}
 	iw.mu.Lock()
 	if fl, ok := iw.inflight[key]; ok {
 		iw.mu.Unlock()
@@ -330,6 +398,9 @@ func (iw *imageWork) get(ctx context.Context, project, key, ext string, fetch fu
 	// if this client goes away.
 	out, err := iw.engine(context.WithoutCancel(ctx), src, srcType, ip)
 	if err != nil {
+		if !errors.Is(err, errNoEngine) {
+			iw.fail(key, err)
+		}
 		return "", false, err
 	}
 	path, err = iw.cache.put(key, ext, out)
@@ -510,6 +581,9 @@ func (f *frontServer) serveImage(w http.ResponseWriter, r *http.Request, meta *b
 		return true
 	case errors.Is(err, errNoEngine):
 		plain(w, http.StatusNotImplemented, err.Error())
+		return true
+	case errors.Is(err, errFailedRecently): // logged when it failed
+		plain(w, http.StatusUnprocessableEntity, "this image could not be transformed")
 		return true
 	case err != nil:
 		f.p.Log.Warn("storage: image transform", "bucket", s3name, "key", key, "err", err)
