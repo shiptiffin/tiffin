@@ -1048,3 +1048,60 @@ func TestListingsSkipPayloads(t *testing.T) {
 		t.Errorf("job listing columns: %s", jobListCols)
 	}
 }
+
+// Jobs page by id; states, kinds and words narrow the list and hold with the cursor.
+func TestJobsPage(t *testing.T) {
+	e := newEngine(t, nil)
+	ctx := t.Context()
+	rows := []struct{ queue, kind, state, cron string }{
+		{"emails", "job", "completed", ""},
+		{"emails", "job", "dead", ""},
+		{"nightly", "cron", "completed", "nightly"},
+		{"emails", "job", "completed", ""},
+		{"wf", "workflow", "completed", ""},
+		{"emails", "job", "dead", ""},
+	}
+	var ids []string
+	for _, r := range rows {
+		var id int64
+		if err := e.pool.QueryRow(ctx, `INSERT INTO tq_jobs (project, queue, kind, state, max_attempts, lease_s, cron) VALUES ('p', $1, $2, $3, 3, 30, NULLIF($4, '')) RETURNING id`,
+			r.queue, r.kind, r.state, r.cron).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, jobID(id))
+	}
+	read := func(f ListFilter) []string {
+		var got []string
+		for range 10 {
+			js, err := e.ListJobs(ctx, "p", f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, j := range js {
+				got = append(got, j.ID)
+			}
+			if len(js) < f.Limit {
+				return got
+			}
+			f.Before, _ = ParseJobID(js[len(js)-1].ID)
+		}
+		t.Fatal("paging never ended")
+		return nil
+	}
+	want := func(name string, got []string, idx ...int) {
+		t.Helper()
+		var w []string
+		for _, i := range idx {
+			w = append(w, ids[i])
+		}
+		if strings.Join(got, " ") != strings.Join(w, " ") {
+			t.Errorf("%s: got %v, want %v", name, got, w)
+		}
+	}
+	want("pages of 2", read(ListFilter{Limit: 2}), 5, 4, 3, 2, 1, 0)
+	want("dead", read(ListFilter{Limit: 1, States: []string{"dead"}}), 5, 1)
+	want("jobs and crons", read(ListFilter{Limit: 2, Kinds: []string{"job", "cron"}}), 5, 3, 2, 1, 0)
+	want("words", read(ListFilter{Limit: 1, Query: "NIGHT"}), 2)
+	want("an ID", read(ListFilter{Limit: 5, Query: ids[3]}), 3)
+	want("literal %", read(ListFilter{Limit: 5, Query: "%"}))
+}

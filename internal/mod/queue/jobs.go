@@ -617,9 +617,17 @@ func (j *jobRow) public(full bool) Job {
 type ListFilter struct {
 	Queue  string
 	State  string
+	States []string // any of these states (with State, that one too)
+	Kinds  []string // any of these kinds (job, cron, workflow)
+	Query  string   // words in the ID, queue, schedule, app or URL
 	RunID  string
 	Before int64
 	Limit  int
+}
+
+// like is s as an ILIKE pattern that matches it anywhere, taken literally.
+func like(s string) string {
+	return "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s) + "%"
 }
 
 // jobListCols are jobCols without the payload and output a listing drops
@@ -639,6 +647,16 @@ func (e *Engine) ListJobs(ctx context.Context, project string, f ListFilter) ([]
 	}
 	if f.State != "" {
 		add("state = $%d", f.State)
+	}
+	if len(f.States) > 0 {
+		add("state = ANY($%d)", f.States)
+	}
+	if len(f.Kinds) > 0 {
+		add("kind = ANY($%d)", f.Kinds)
+	}
+	if f.Query != "" {
+		args = append(args, like(f.Query), f.Query)
+		q += fmt.Sprintf(" AND (queue ILIKE $%[1]d OR cron ILIKE $%[1]d OR app ILIKE $%[1]d OR url ILIKE $%[1]d OR 'job_' || id = $%[2]d)", len(args)-1, len(args))
 	}
 	if f.RunID != "" {
 		add("run_id = $%d", f.RunID)

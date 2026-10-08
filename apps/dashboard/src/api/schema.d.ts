@@ -3837,7 +3837,7 @@ export interface paths {
         };
         /**
          * List jobs
-         * @description Jobs of a project, newest first, without payloads. Filter by queue and state; state=dead is the dead-letter queue. Page with before=<last id>. Queued jobs say what they are waitingFor (a limit, a FIFO group, a paused queue).
+         * @description Jobs of a project, newest first, a page at a time, without payloads. Filter by queue and state; state=dead is the dead-letter queue. More follow when nextCursor is set: pass it as cursor (with the same filters). Queued jobs say what they are waitingFor (a limit, a FIFO group, a paused queue).
          */
         get: operations["queue-jobs-list"];
         put?: never;
@@ -4905,7 +4905,7 @@ export interface paths {
         };
         /**
          * List workflow runs
-         * @description Runs newest first, with state (running, waiting, completed, failed, cancelled) and, for waiting runs, what they wait for.
+         * @description Runs newest first, a page at a time, with state (running, waiting, completed, failed, cancelled) and, for waiting runs, what they wait for. More follow when nextCursor is set: pass it as cursor (with the same filters).
          */
         get: operations["workflow-runs-list"];
         put?: never;
@@ -9272,6 +9272,18 @@ export interface components {
         PageChange: {
             /** @description This page, in the list's order */
             items: components["schemas"]["Change"][];
+            /** @description Set when more follow: pass it as cursor to read the next page. Absent on the last page. */
+            nextCursor?: string;
+        };
+        PageQueueJob: {
+            /** @description This page, in the list's order */
+            items: components["schemas"]["QueueJob"][];
+            /** @description Set when more follow: pass it as cursor to read the next page. Absent on the last page. */
+            nextCursor?: string;
+        };
+        PageQueueRun: {
+            /** @description This page, in the list's order */
+            items: components["schemas"]["QueueRun"][];
             /** @description Set when more follow: pass it as cursor to read the next page. Absent on the last page. */
             nextCursor?: string;
         };
@@ -30340,11 +30352,16 @@ export interface operations {
             query?: {
                 /** @description Only this queue or topic */
                 queue?: string;
-                /** @description Only jobs in this state */
-                state?: "scheduled" | "queued" | "running" | "retrying" | "completed" | "dead" | "cancelled";
-                /** @description Page: jobs older than this job ID */
-                before?: string;
+                /** @description Only jobs in these states (comma-separated) */
+                state?: ("scheduled" | "queued" | "running" | "retrying" | "completed" | "dead" | "cancelled")[] | null;
+                /** @description Only these kinds (comma-separated): job (sent or from a topic), cron (a schedule's run), workflow (a workflow run's turn) */
+                kind?: ("job" | "cron" | "workflow")[] | null;
+                /** @description Words in the job's ID, queue, schedule, app or URL */
+                q?: string;
+                /** @description How many to return per page (at most 200) */
                 limit?: number;
+                /** @description The nextCursor of the previous page, to read the next one. Leave empty for the first page. */
+                cursor?: string;
             };
             header?: never;
             path: {
@@ -30361,7 +30378,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QueueJob"][] | null;
+                    "application/json": components["schemas"]["PageQueueJob"];
                 };
             };
             /** @description Bad Request */
@@ -35400,9 +35417,14 @@ export interface operations {
             query?: {
                 /** @description Only this workflow */
                 workflow?: string;
-                /** @description Only runs in this state */
-                state?: "running" | "waiting" | "completed" | "failed" | "cancelled";
+                /** @description Only runs in these states (comma-separated) */
+                state?: ("running" | "waiting" | "completed" | "failed" | "cancelled")[] | null;
+                /** @description Words in the run's ID, workflow or app */
+                q?: string;
+                /** @description How many to return per page (at most 200) */
                 limit?: number;
+                /** @description The nextCursor of the previous page, to read the next one. Leave empty for the first page. */
+                cursor?: string;
             };
             header?: never;
             path: {
@@ -35419,7 +35441,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QueueRun"][] | null;
+                    "application/json": components["schemas"]["PageQueueRun"];
                 };
             };
             /** @description Bad Request */

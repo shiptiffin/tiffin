@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/api"
+	"github.com/btahir/tiffin/internal/page"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
@@ -144,15 +145,16 @@ func (m *Module) registerQueueAPI(a huma.API, plat *platform.Platform) {
 
 	huma.Register(a, api.Untrusted(op("queue-jobs-list", http.MethodGet, "/v1/projects/{project}/queue/jobs", "queue jobs list", api.RiskRead,
 		"List jobs",
-		"Jobs of a project, newest first, without payloads. Filter by queue and state; state=dead is the dead-letter queue. "+
-			"Page with before=<last id>. Queued jobs say what they are waitingFor (a limit, a FIFO group, a paused queue).")),
+		"Jobs of a project, newest first, a page at a time, without payloads. Filter by queue and state; state=dead is the dead-letter queue. "+
+			"More follow when nextCursor is set: pass it as cursor (with the same filters). Queued jobs say what they are waitingFor (a limit, a FIFO group, a paused queue).")),
 		api.Wrap(func(ctx context.Context, in *struct {
-			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
-			Queue   string `query:"queue" doc:"Only this queue or topic"`
-			State   string `query:"state" enum:"scheduled,queued,running,retrying,completed,dead,cancelled" doc:"Only jobs in this state"`
-			Before  string `query:"before" doc:"Page: jobs older than this job ID"`
-			Limit   int    `query:"limit" minimum:"1" maximum:"500" default:"50"`
-		}) (*out[[]Job], error) {
+			Project string   `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+			Queue   string   `query:"queue" doc:"Only this queue or topic"`
+			State   []string `query:"state" enum:"scheduled,queued,running,retrying,completed,dead,cancelled" doc:"Only jobs in these states (comma-separated)"`
+			Kind    []string `query:"kind" enum:"job,cron,workflow" doc:"Only these kinds (comma-separated): job (sent or from a topic), cron (a schedule's run), workflow (a workflow run's turn)"`
+			Q       string   `query:"q" maxLength:"200" doc:"Words in the job's ID, queue, schedule, app or URL"`
+			page.Params
+		}) (*out[page.Page[Job]], error) {
 			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
 				return nil, err
 			}
@@ -160,14 +162,20 @@ func (m *Module) registerQueueAPI(a huma.API, plat *platform.Platform) {
 			if err != nil {
 				return nil, err
 			}
-			f := ListFilter{Queue: in.Queue, State: in.State, Limit: in.Limit}
-			if in.Before != "" {
-				if f.Before, err = ParseJobID(in.Before); err != nil {
-					return nil, toProblem(err)
+			limit := page.Clamp(in.Limit)
+			f := ListFilter{Queue: in.Queue, States: in.State, Kinds: in.Kind, Query: strings.TrimSpace(in.Q), Limit: limit + 1}
+			if key, err := page.Decode(in.Cursor, 1); err != nil {
+				return nil, err
+			} else if key != nil {
+				if f.Before, err = ParseJobID(key[0]); err != nil {
+					return nil, page.ErrBadCursor
 				}
 			}
 			js, err := e.ListJobs(ctx, in.Project, f)
-			return ok(js), toProblem(err)
+			if err != nil {
+				return nil, toProblem(err)
+			}
+			return ok(page.Make(js, limit, func(j Job) []string { return []string{j.ID} })), nil
 		}))
 
 	type jobPath struct {
@@ -652,13 +660,15 @@ func (m *Module) registerWorkflowAPI(a huma.API, plat *platform.Platform) {
 
 	huma.Register(a, api.Untrusted(op("workflow-runs-list", http.MethodGet, "/v1/projects/{project}/workflows/runs", "workflows runs list", api.RiskRead,
 		"List workflow runs",
-		"Runs newest first, with state (running, waiting, completed, failed, cancelled) and, for waiting runs, what they wait for.")),
+		"Runs newest first, a page at a time, with state (running, waiting, completed, failed, cancelled) and, for waiting runs, what they wait for. "+
+			"More follow when nextCursor is set: pass it as cursor (with the same filters).")),
 		api.Wrap(func(ctx context.Context, in *struct {
-			Project  string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
-			Workflow string `query:"workflow" doc:"Only this workflow"`
-			State    string `query:"state" enum:"running,waiting,completed,failed,cancelled" doc:"Only runs in this state"`
-			Limit    int    `query:"limit" minimum:"1" maximum:"500" default:"50"`
-		}) (*out[[]Run], error) {
+			Project  string   `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+			Workflow string   `query:"workflow" doc:"Only this workflow"`
+			State    []string `query:"state" enum:"running,waiting,completed,failed,cancelled" doc:"Only runs in these states (comma-separated)"`
+			Q        string   `query:"q" maxLength:"200" doc:"Words in the run's ID, workflow or app"`
+			page.Params
+		}) (*out[page.Page[Run]], error) {
 			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
 				return nil, err
 			}
@@ -666,8 +676,21 @@ func (m *Module) registerWorkflowAPI(a huma.API, plat *platform.Platform) {
 			if err != nil {
 				return nil, err
 			}
-			rs, err := e.ListRuns(ctx, in.Project, RunFilter{Workflow: in.Workflow, State: in.State, Limit: in.Limit})
-			return ok(rs), toProblem(err)
+			limit := page.Clamp(in.Limit)
+			f := RunFilter{Workflow: in.Workflow, States: in.State, Query: strings.TrimSpace(in.Q), Limit: limit + 1}
+			if key, err := page.Decode(in.Cursor, 2); err != nil {
+				return nil, err
+			} else if key != nil {
+				if f.AfterAt, err = time.Parse(time.RFC3339Nano, key[0]); err != nil {
+					return nil, page.ErrBadCursor
+				}
+				f.AfterID = key[1]
+			}
+			rs, err := e.ListRuns(ctx, in.Project, f)
+			if err != nil {
+				return nil, toProblem(err)
+			}
+			return ok(page.Make(rs, limit, func(r Run) []string { return []string{r.CreatedAt.Format(time.RFC3339Nano), r.ID} })), nil
 		}))
 
 	huma.Register(a, api.Untrusted(op("workflow-run-get", http.MethodGet, "/v1/projects/{project}/workflows/runs/{id}", "workflows runs get", api.RiskRead,

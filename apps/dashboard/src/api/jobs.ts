@@ -3,7 +3,8 @@
 // starting runs, live streams). Typed from the generated schema.
 import { queryOptions } from "@tanstack/react-query";
 import { request } from "./client";
-import { mod2, type QueueCron, type QueueJob, type QueueStats, type WorkflowRun } from "./modules";
+import { pagedQuery } from "@/lib/paged";
+import { mod2, type JobFilter, type QueueCron, type QueueJob, type QueueStats, type RunFilter, type WorkflowRun } from "./modules";
 import type { components } from "./schema";
 
 type S = components["schemas"];
@@ -43,9 +44,15 @@ export const jq = {
   stats: (p: string) => queryOptions({ queryKey: ["queue-stats", p], queryFn: () => mod2.queueStats(p), refetchInterval: 10_000 }),
   crons: (p: string) => queryOptions({ queryKey: ["crons", p], queryFn: () => mod2.crons(p), refetchInterval: 15_000 }),
   topics: (p: string) => queryOptions({ queryKey: ["topics", p], queryFn: () => mod2.topics(p) }),
-  jobs: (p: string, queue?: string, state?: QueueJob["state"]) =>
-    queryOptions({ queryKey: ["jobs", p, queue ?? "", state ?? ""], queryFn: () => mod2.jobs(p, { queue, state }), refetchInterval: 10_000 }),
-  runs: (p: string, state?: WorkflowRun["state"]) => queryOptions({ queryKey: ["runs", p, state ?? ""], queryFn: () => mod2.runs(p, { state }), refetchInterval: 10_000 }),
+  /** The latest runs (one page), for summaries: workers, tab counts. Lists page with runPages. */
+  runs: (p: string, state?: WorkflowRun["state"]) =>
+    queryOptions({ queryKey: ["runs", p, state ?? ""], queryFn: async () => (await mod2.runs(p, { state: state ? [state] : undefined, limit: 100 })).items, refetchInterval: 10_000 }),
+  /** Jobs a page at a time, narrowed on the box. */
+  jobPages: (p: string, f: JobFilter, o: { enabled?: boolean } = {}) =>
+    pagedQuery(["jobs", p, "pages", f], (cursor, signal) => mod2.jobs(p, { ...f, cursor }, signal), { refetchInterval: 10_000, ...o }),
+  /** Workflow runs a page at a time, narrowed on the box. */
+  runPages: (p: string, f: RunFilter, o: { enabled?: boolean } = {}) =>
+    pagedQuery(["runs", p, "pages", f], (cursor, signal) => mod2.runs(p, { ...f, cursor }, signal), { refetchInterval: 10_000, ...o }),
   job: (p: string, id: string) => queryOptions({ queryKey: ["job", p, id], queryFn: () => mod2.job(p, id) }),
   run: (p: string, id: string) => queryOptions({ queryKey: ["run", p, id], queryFn: () => mod2.run(p, id) }),
   approvals: (p: string) => queryOptions({ queryKey: ["wf-approvals", p], queryFn: () => mod2.wfApprovals(p), refetchInterval: 15_000 }),

@@ -270,11 +270,22 @@ export const mod = {
   monitorOff: () => request<OutsideCheck>("DELETE", "/v1/monitor"),
 };
 
+/** What a jobs list can narrow to on the box. */
+export type JobFilter = { queue?: string; state?: QueueJob["state"][]; kind?: Array<"job" | "cron" | "workflow">; q?: string };
+/** What a workflow runs list can narrow to on the box. */
+export type RunFilter = { workflow?: string; state?: WorkflowRun["state"][]; q?: string };
+
 export const mod2 = {
   // queues
   queueStats: (p: string) => arr(request<QueueStats[] | null>("GET", `${P(p)}/queue/stats`)),
-  jobs: (p: string, o: { queue?: string; state?: QueueJob["state"]; before?: string }) =>
-    arr(request<QueueJob[] | null>("GET", `${P(p)}/queue/jobs${qs({ ...o, limit: 100 })}`)),
+  /** One page of jobs, newest first, narrowed on the box. */
+  jobs: (p: string, f: JobFilter & { cursor?: string; limit?: number } = {}, signal?: AbortSignal) =>
+    request<S["PageQueueJob"]>(
+      "GET",
+      `${P(p)}/queue/jobs${qs({ queue: f.queue, state: f.state?.join(","), kind: f.kind?.join(","), q: f.q, cursor: f.cursor, limit: f.limit ?? 50 })}`,
+      undefined,
+      signal,
+    ),
   job: (p: string, id: string) => request<QueueJob>("GET", `${P(p)}/queue/jobs/${e(id)}`),
   retryJob: (p: string, id: string) => request<QueueJob>("POST", `${P(p)}/queue/jobs/${e(id)}/retry`, {}),
   cancelJob: (p: string, id: string) => request<QueueJob>("POST", `${P(p)}/queue/jobs/${e(id)}/cancel`, {}),
@@ -288,8 +299,9 @@ export const mod2 = {
   crons: (p: string) => arr(request<QueueCron[] | null>("GET", `${P(p)}/queue/crons`)),
   triggerCron: (p: string, name: string) => request<unknown>("POST", `${P(p)}/queue/crons/${e(name)}/trigger`, {}),
   // workflows
-  runs: (p: string, o: { workflow?: string; state?: WorkflowRun["state"] }) =>
-    arr(request<WorkflowRun[] | null>("GET", `${P(p)}/workflows/runs${qs({ ...o, limit: 100 })}`)),
+  /** One page of workflow runs, newest first, narrowed on the box. */
+  runs: (p: string, f: RunFilter & { cursor?: string; limit?: number } = {}, signal?: AbortSignal) =>
+    request<S["PageQueueRun"]>("GET", `${P(p)}/workflows/runs${qs({ workflow: f.workflow, state: f.state?.join(","), q: f.q, cursor: f.cursor, limit: f.limit ?? 50 })}`, undefined, signal),
   run: (p: string, id: string) => request<WorkflowRun>("GET", `${P(p)}/workflows/runs/${e(id)}`),
   cancelRun: (p: string, id: string) => request<WorkflowRun>("POST", `${P(p)}/workflows/runs/${e(id)}/cancel`, {}),
   retryRun: (p: string, id: string) => request<WorkflowRun>("POST", `${P(p)}/workflows/runs/${e(id)}/retry`, {}),
@@ -376,8 +388,6 @@ export const mq = {
   // Polled by the shell for the alarm state; stops when the box has no protection module.
   protect: queryOptions({ queryKey: ["protect"], queryFn: mod2.protect, retry: false, refetchInterval: (q) => (q.state.error ? false : 20_000) }),
   wfApprovals: (p: string) => queryOptions({ queryKey: ["wf-approvals", p], queryFn: () => mod2.wfApprovals(p), refetchInterval: 15_000 }),
-  runs: (p: string, state?: WorkflowRun["state"]) =>
-    queryOptions({ queryKey: ["runs", p, state ?? ""], queryFn: () => mod2.runs(p, { state }), refetchInterval: 10_000 }),
   run: (p: string, id: string) => queryOptions({ queryKey: ["run", p, id], queryFn: () => mod2.run(p, id), refetchInterval: 5_000 }),
   crons: (p: string) => queryOptions({ queryKey: ["crons", p], queryFn: () => mod2.crons(p), refetchInterval: 30_000 }),
   topics: (p: string) => queryOptions({ queryKey: ["topics", p], queryFn: () => mod2.topics(p) }),

@@ -99,9 +99,12 @@ func TestAPI(t *testing.T) {
 		_, j, _ := call(owner, "GET", "/v1/projects/shop/queue/jobs/"+id, nil)
 		return j["state"] == "completed"
 	})
-	_, _, list := call(owner, "GET", "/v1/projects/shop/queue/jobs?queue=emails&state=completed", nil)
-	if len(list) != 1 {
+	_, list, _ := call(owner, "GET", "/v1/projects/shop/queue/jobs?queue=emails&state=completed", nil)
+	if items, _ := list["items"].([]any); len(items) != 1 || list["nextCursor"] != nil {
 		t.Errorf("list %v", list)
+	}
+	if code, prob, _ := call(owner, "GET", "/v1/projects/shop/queue/jobs?cursor=nonsense", nil); code != 422 {
+		t.Errorf("bad cursor: %d %v", code, prob)
 	}
 	_, _, stats := call(owner, "GET", "/v1/projects/shop/queue/stats", nil)
 	if len(stats) != 1 || stats[0].(map[string]any)["completedLastHour"].(float64) != 1 {

@@ -289,6 +289,11 @@ ALTER TABLE tq_crons ADD COLUMN url text NOT NULL DEFAULT '',
 	ADD COLUMN paused_by text NOT NULL DEFAULT '';
 CREATE INDEX tq_jobs_cron ON tq_jobs (project, cron, id DESC) WHERE cron IS NOT NULL;
 `,
+	// 8: runs page by (created_at, id): the id breaks ties between runs started together.
+	`
+DROP INDEX wf_runs_list;
+CREATE INDEX wf_runs_list ON wf_runs (project, created_at DESC, id DESC);
+`,
 }
 
 // migrate brings River's schema and ours up to date. Concurrent callers are

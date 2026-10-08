@@ -745,3 +745,50 @@ func TestStaleTurnCannotWrite(t *testing.T) {
 		t.Errorf("a step without its turn: %d %v", code, prob)
 	}
 }
+
+// Runs page by (created_at, id): runs started in the same instant are neither
+// skipped nor repeated across pages, and filters hold with the cursor.
+func TestRunsPage(t *testing.T) {
+	e := newEngine(t, nil)
+	ctx := t.Context()
+	at := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	for i, id := range []string{"run_a", "run_b", "run_c", "run_d", "run_e", "run_f"} {
+		created, state := at, runFailed
+		if id == "run_f" {
+			created = at.Add(time.Second)
+		}
+		if i%2 == 1 {
+			state = runCompleted
+		}
+		if _, err := e.pool.Exec(ctx, `INSERT INTO wf_runs (id, project, workflow, state, created_at) VALUES ($1, 'p', 'w', $2, $3)`, id, state, created); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(f RunFilter) []string {
+		var ids []string
+		for range 10 {
+			rs, err := e.ListRuns(ctx, "p", f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, r := range rs {
+				ids = append(ids, r.ID)
+			}
+			if len(rs) < f.Limit {
+				return ids
+			}
+			f.AfterAt, f.AfterID = rs[len(rs)-1].CreatedAt, rs[len(rs)-1].ID
+		}
+		t.Fatal("paging never ended")
+		return nil
+	}
+	if got := strings.Join(read(RunFilter{Limit: 2}), " "); got != "run_f run_e run_d run_c run_b run_a" {
+		t.Errorf("pages of 2: %s", got)
+	}
+	if got := strings.Join(read(RunFilter{Limit: 1, States: []string{runFailed}}), " "); got != "run_e run_c run_a" {
+		t.Errorf("failed, pages of 1: %s", got)
+	}
+	if got := strings.Join(read(RunFilter{Limit: 1, Query: "RUN_C"}), " "); got != "run_c" {
+		t.Errorf("words: %s", got)
+	}
+}

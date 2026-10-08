@@ -3,7 +3,7 @@
 // duration and when. Filters live in the URL. Picking a run opens it live
 // beside the table (on a wide screen) or in its place (narrower); j and k
 // move the selection, / finds.
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Search, X } from "lucide-react";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
@@ -14,7 +14,8 @@ import { q as api } from "@/api/queries";
 import { useTitle } from "@/components/favicon";
 import { FilterWords, StateSentence, waitingFor } from "@/components/jobs-words";
 import { JobsStart, JobsTrouble, likelyApp } from "@/components/jobs-start";
-import { groupOf, jobStatus, runStatus, StatusLabel, statusGroups, statusWord, type Status, type StatusGroup } from "@/components/jobs-status";
+import { jobStatus, runStatus, StatusLabel, statusGroups, statusWord, type Status, type StatusGroup } from "@/components/jobs-status";
+import { ShowMore } from "@/components/more";
 import { NotOnBox, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/choice";
@@ -22,6 +23,7 @@ import { cn } from "@/lib/cn";
 import { countWords, int, ms, pct, words } from "@/lib/format";
 import { useDebounced } from "@/lib/debounced";
 import { useMe } from "@/lib/me";
+import { pagedRows } from "@/lib/paged";
 import { useShortcut } from "@/lib/shortcuts";
 import { full, relative } from "@/lib/time";
 import { ApprovalCard } from "./approvals";
@@ -45,6 +47,10 @@ type Item = {
   /** More than one try: worth a second look. */
   retried: boolean;
 };
+
+/** The states each status group stands for, for jobs and for workflow runs. */
+const jobStates: Record<StatusGroup, QueueJob["state"][]> = { running: ["running"], waiting: ["queued", "scheduled", "retrying"], failed: ["dead"], done: ["completed"], cancelled: ["cancelled"] };
+const runStates: Record<StatusGroup, WorkflowRun["state"][]> = { running: ["running"], waiting: ["waiting"], failed: ["failed"], done: ["completed"], cancelled: ["cancelled"] };
 
 const kinds: Array<{ value: string; label: string }> = [
   { value: "all", label: "Everything" },
@@ -124,34 +130,47 @@ export function RunsTab({ project, search }: { project: string; search: JobsSear
   const navigate = useNavigate();
   const { can } = useMe();
   const findRef = useRef<HTMLInputElement>(null);
-  const jobs = useQuery({ ...jq.jobs(project, search.queue), retry: retryUnlessDown });
-  const runs = useQuery({ ...jq.runs(project), retry: retryUnlessDown });
+  const kind = kinds.some((k) => k.value === search.kind && k.value !== "all") ? (search.kind as Kind) : undefined;
+  const state = statusGroups.some((g) => g.state === search.state) ? (search.state as StatusGroup) : undefined;
+  // Finding narrows on the box: the words reach the URL (and the query) a moment after you stop typing.
+  const [find, setFind] = useState(search.q ?? "");
+  const settled = useDebounced(find.trim(), 200);
+  const wantJobs = kind !== "workflow";
+  const wantRuns = !search.queue && (!kind || kind === "workflow");
+  const jobs = useInfiniteQuery({
+    ...jq.jobPages(
+      project,
+      { queue: search.queue, kind: kind === "job" || kind === "cron" ? [kind] : ["job", "cron"], state: state ? jobStates[state] : undefined, q: search.q },
+      { enabled: wantJobs },
+    ),
+    retry: retryUnlessDown,
+    placeholderData: keepPreviousData,
+  });
+  const runs = useInfiniteQuery({
+    ...jq.runPages(project, { state: state ? runStates[state] : undefined, q: search.q }, { enabled: wantRuns }),
+    retry: retryUnlessDown,
+    placeholderData: keepPreviousData,
+  });
+  const recentRuns = useQuery({ ...jq.runs(project), retry: retryUnlessDown });
   const stats = useQuery({ ...jq.stats(project), retry: retryUnlessDown });
   const approvals = useQuery(jq.approvals(project));
   const manifest = useQuery({ ...api.manifest(project), retry: false });
-  const live = (jobs.data ?? []).some((j) => j.state === "running") || (runs.data ?? []).some((r) => r.state === "running");
+  const jobRows = useMemo(() => (wantJobs ? pagedRows(jobs.data, (j) => j.id) : []), [wantJobs, jobs.data]);
+  const runRows = useMemo(() => (wantRuns ? pagedRows(runs.data, (r) => r.id) : []), [wantRuns, runs.data]);
+  const live = jobRows.some((j) => j.state === "running") || runRows.some((r) => r.state === "running");
   const now = useNow(live);
-  const kind = kinds.some((k) => k.value === search.kind && k.value !== "all") ? (search.kind as Kind) : undefined;
-  const state = statusGroups.some((g) => g.state === search.state) ? (search.state as StatusGroup) : undefined;
-  // Finding filters as you type; the words reach the URL a moment later.
-  const [find, setFind] = useState(search.q ?? "");
-  const q = find.trim().toLowerCase();
-  const settled = useDebounced(find.trim(), 200);
 
-  // Everything the kind, queue and words allow; the status filter counts from here.
-  const scoped = useMemo(() => {
-    const all = [...(jobs.data ?? []).filter((j) => j.kind !== "workflow").map((j) => fromJob(j, now)), ...(search.queue ? [] : (runs.data ?? []).map((r) => fromRun(r, now)))];
-    return all
-      .filter((i) => !kind || i.kind === kind)
-      .filter((i) => !q || i.id.toLowerCase().includes(q) || i.name.toLowerCase().includes(q) || i.source.toLowerCase().includes(q))
-      .sort((a, b) => b.at.localeCompare(a.at));
-  }, [jobs.data, runs.data, kind, search.queue, q, now]);
-  const counts = useMemo(() => {
-    const c: Partial<Record<StatusGroup, number>> = {};
-    for (const i of scoped) c[groupOf[i.status]] = (c[groupOf[i.status]] ?? 0) + 1;
-    return c;
-  }, [scoped]);
-  const items = state ? scoped.filter((i) => groupOf[i.status] === state) : scoped;
+  // Jobs and workflow runs in one list, each as far back as it has loaded: the one with more to read sets where the list stops for now.
+  const items = useMemo(() => {
+    const horizon = [wantJobs && jobs.hasNextPage ? jobRows.at(-1)?.enqueuedAt : "", wantRuns && runs.hasNextPage ? runRows.at(-1)?.createdAt : ""].reduce<string>((h, x) => (x && x > h ? x : h), "");
+    return [...jobRows.map((j) => fromJob(j, now)), ...runRows.map((r) => fromRun(r, now))].filter((i) => i.at >= horizon).sort((a, b) => b.at.localeCompare(a.at));
+  }, [jobRows, runRows, wantJobs, wantRuns, jobs.hasNextPage, runs.hasNextPage, now]);
+  const more = {
+    hasNextPage: (wantJobs && jobs.hasNextPage) || (wantRuns && runs.hasNextPage),
+    isFetchingNextPage: jobs.isFetchingNextPage || runs.isFetchingNextPage,
+    isFetchNextPageError: jobs.isFetchNextPageError || runs.isFetchNextPageError,
+    fetchNextPage: () => Promise.all([wantJobs && jobs.hasNextPage && jobs.fetchNextPage(), wantRuns && runs.hasNextPage && runs.fetchNextPage()]),
+  };
   const selected = search.id;
   const set = (patch: Partial<JobsSearch>) => void navigate({ to: "/projects/$project/jobs", params: { project }, search: { ...search, ...patch }, replace: true });
 
@@ -176,11 +195,11 @@ export function RunsTab({ project, search }: { project: string; search: JobsSear
 
   if (jobs.isError && notOnBox(jobs.error)) return <NotOnBox what="Jobs" />;
   const waiting = (approvals.data ?? []).filter((a) => a.state === "waiting");
-  const failedRuns = (runs.data ?? []).filter((r) => r.state === "failed").length;
-  const nothingAtAll = jobs.isSuccess && runs.isSuccess && (jobs.data ?? []).length === 0 && (runs.data ?? []).length === 0 && !search.queue;
-  const filtered = !!(kind || state || q || search.queue);
+  const failedRuns = (recentRuns.data ?? []).filter((r) => r.state === "failed").length;
+  const filtered = !!(kind || state || search.q || search.queue);
+  const pending = (wantJobs && jobs.isPending) || (wantRuns && runs.isPending);
+  const nothingAtAll = !filtered && !pending && !jobs.isError && !runs.isError && jobRows.length === 0 && runRows.length === 0;
   const queues = ownQueues(stats.data ?? []).map((x) => x.name);
-  const pending = jobs.isPending || runs.isPending;
   const editable = can("apply:reversible");
 
   return (
@@ -203,8 +222,8 @@ export function RunsTab({ project, search }: { project: string; search: JobsSear
           className="mt-8"
           error={jobs.error ?? runs.error}
           retry={() => {
-            void jobs.refetch();
-            void runs.refetch();
+            if (wantJobs) void jobs.refetch();
+            if (wantRuns) void runs.refetch();
             void stats.refetch();
           }}
         />
@@ -235,7 +254,7 @@ export function RunsTab({ project, search }: { project: string; search: JobsSear
             </h2>
             {/* filters: status words with counts; kind, queue and words on the right */}
             <div className={cn("mb-3 flex flex-col gap-2", selected ? "" : "lg:flex-row lg:items-center lg:justify-between")}>
-              <FilterWords label="Status" items={statusGroups} value={state} counts={counts} onPick={(s) => set({ state: s, id: undefined })} />
+              <FilterWords label="Status" items={statusGroups} value={state} onPick={(s) => set({ state: s, id: undefined })} />
               <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
                 <Select size="sm" aria-label="Kind" value={kind ?? "all"} onValueChange={(v) => set({ kind: v === "all" ? undefined : v, id: undefined })} options={kinds} className="sm:w-[9.5rem]" />
                 {queues.length > 0 && (
@@ -317,7 +336,7 @@ export function RunsTab({ project, search }: { project: string; search: JobsSear
                 )}
               </div>
             )}
-            {(jobs.data?.length ?? 0) >= 100 && <p className="pt-3 text-[0.8125rem] text-ink-3">The newest 100 jobs{search.queue ? "" : " and 100 workflow runs. Pick a queue to see only its runs"}.</p>}
+            {!pending && <ShowMore query={more} label="Show earlier runs" />}
           </section>
 
           {selected && (

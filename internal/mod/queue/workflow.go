@@ -1099,10 +1099,15 @@ func (e *Engine) reviveRun(ctx context.Context, tx pgx.Tx, id string) error {
 type RunFilter struct {
 	Workflow string
 	State    string
+	States   []string // any of these states
+	Query    string   // words in the ID, workflow or app
 	Limit    int
+	// After is a page's position: only runs older than this (created_at, id).
+	AfterAt time.Time
+	AfterID string
 }
 
-// ListRuns lists runs, newest first.
+// ListRuns lists runs, newest first (ties by id, so pages never skip one).
 func (e *Engine) ListRuns(ctx context.Context, project string, f RunFilter) ([]Run, error) {
 	q := `SELECT ` + strings.Replace(runCols, " input,", " NULL::jsonb AS input,", 1) + ` FROM wf_runs WHERE project = $1` // a listing drops inputs
 	args := []any{project}
@@ -1114,11 +1119,23 @@ func (e *Engine) ListRuns(ctx context.Context, project string, f RunFilter) ([]R
 		args = append(args, f.State)
 		q += fmt.Sprintf(" AND state = $%d", len(args))
 	}
+	if len(f.States) > 0 {
+		args = append(args, f.States)
+		q += fmt.Sprintf(" AND state = ANY($%d)", len(args))
+	}
+	if f.Query != "" {
+		args = append(args, like(f.Query))
+		q += fmt.Sprintf(" AND (id ILIKE $%[1]d OR workflow ILIKE $%[1]d OR app ILIKE $%[1]d)", len(args))
+	}
+	if f.AfterID != "" {
+		args = append(args, f.AfterAt, f.AfterID)
+		q += fmt.Sprintf(" AND (created_at, id) < ($%d, $%d)", len(args)-1, len(args))
+	}
 	if f.Limit <= 0 || f.Limit > 500 {
 		f.Limit = 50
 	}
 	args = append(args, f.Limit)
-	q += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", len(args))
+	q += fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d", len(args))
 	rows, err := e.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err

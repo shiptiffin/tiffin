@@ -3,7 +3,7 @@
 // discard them together. Workflow runs that stopped sit below, each with
 // Retry from the failed step. Retrying is safe to click; discarding asks
 // first (it keeps the record, so a discarded job can still be replayed).
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Check, Minus, MoreHorizontal } from "lucide-react";
 import { Checkbox as C } from "radix-ui";
@@ -16,6 +16,7 @@ import { useTitle } from "@/components/favicon";
 import { HazardDialog } from "@/components/hazard";
 import { JobsTrouble } from "@/components/jobs-start";
 import { EmptyJobs, jobError, StateSentence } from "@/components/jobs-words";
+import { ShowMore } from "@/components/more";
 import { NotOnBox, Skeleton } from "@/components/page";
 import { sentence } from "@/components/problem";
 import { toast } from "@/components/toast";
@@ -24,6 +25,7 @@ import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/dropdo
 import { cn } from "@/lib/cn";
 import { countWords, int } from "@/lib/format";
 import { useMe } from "@/lib/me";
+import { countShown, pagedRows } from "@/lib/paged";
 import { full, relative } from "@/lib/time";
 import { retryUnlessDown } from "./model";
 import { JobsArea, type JobsSearch } from "./shared";
@@ -68,8 +70,8 @@ export function FailedTab({ project, search }: { project: string; search: JobsSe
   const qc = useQueryClient();
   const { can } = useMe();
   const editable = can("apply:reversible");
-  const dead = useQuery({ ...jq.jobs(project, undefined, "dead"), refetchInterval: 15_000, retry: retryUnlessDown });
-  const runs = useQuery({ ...jq.runs(project, "failed"), retry: retryUnlessDown });
+  const dead = useInfiniteQuery({ ...jq.jobPages(project, { state: ["dead"], kind: ["job", "cron"] }), refetchInterval: 15_000, retry: retryUnlessDown });
+  const runs = useInfiniteQuery({ ...jq.runPages(project, { state: ["failed"] }), retry: retryUnlessDown });
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [discarding, setDiscarding] = useState<string[] | null>(null);
   const [emptying, setEmptying] = useState<string | null>(null);
@@ -78,7 +80,7 @@ export function FailedTab({ project, search }: { project: string; search: JobsSe
     void qc.invalidateQueries({ queryKey: ["queue-stats", project] });
     void qc.invalidateQueries({ queryKey: ["runs", project] });
   };
-  const jobs = useMemo(() => (dead.data ?? []).filter((j) => j.kind !== "workflow"), [dead.data]);
+  const jobs = useMemo(() => pagedRows(dead.data, (j) => j.id), [dead.data]);
   const groups = useMemo(() => {
     const by = new Map<string, QueueJob[]>();
     for (const j of jobs) {
@@ -120,14 +122,15 @@ export function FailedTab({ project, search }: { project: string; search: JobsSe
   });
 
   if (dead.isError && notOnBox(dead.error)) return <NotOnBox what="Jobs" />;
-  const failedRuns = runs.data ?? [];
+  const failedRuns = pagedRows(runs.data, (r) => r.id);
   const total = jobs.length + failedRuns.length;
+  const partial = dead.hasNextPage || runs.hasNextPage;
   const busy = retry.isPending || discard.isPending;
   return (
     <JobsArea project={project} tab="failed" search={search}>
       {dead.isSuccess && runs.isSuccess && total > 0 && (
         <StateSentence className="mt-8">
-          {`${countWords(total, "run", "runs", true)} failed for good${groups.length > 1 ? `, across ${countWords(groups.length + (failedRuns.length ? 1 : 0), "place")}` : ""}. Fix the cause, then retry.`}
+          {`${partial ? "At least " : ""}${countWords(total, "run", "runs", !partial)} failed for good${groups.length > 1 ? `, across ${countWords(groups.length + (failedRuns.length ? 1 : 0), "place")}` : ""}. Fix the cause, then retry.`}
         </StateSentence>
       )}
       {(dead.isError || runs.isError) && (
@@ -241,17 +244,18 @@ export function FailedTab({ project, search }: { project: string; search: JobsSe
         {failedRuns.length > 0 && (
           <section aria-labelledby="f-runs">
             <h2 id="f-runs" className="mb-2 flex min-h-8 items-center gap-2 px-2 text-[0.875rem] text-ink">
-              Workflow runs <span className="text-[0.8125rem] text-danger tnum">{int(failedRuns.length)}</span>
+              Workflow runs <span className="text-[0.8125rem] text-danger tnum">{countShown(failedRuns.length, runs.hasNextPage)}</span>
             </h2>
             <ul className="divide-y divide-rule border-y border-rule">
               {failedRuns.map((r) => (
                 <FailedRun key={r.id} project={project} r={r} onDone={refresh} />
               ))}
             </ul>
+            <ShowMore query={runs} label="Show more failed runs" />
           </section>
         )}
       </div>
-      {dead.isSuccess && (dead.data?.length ?? 0) >= 100 && <p className="mt-3 text-[0.8125rem] text-ink-3">The newest 100 failed jobs. Retry or discard some to see older ones.</p>}
+      {dead.isSuccess && <ShowMore query={dead} label="Show more failed jobs" />}
 
       <Confirm
         open={!!discarding}
