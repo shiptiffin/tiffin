@@ -378,6 +378,18 @@ The box adds nothing for LLMs:
 Everything runs on **one machine**: if the box is down, your apps are down. Backups stay on
 the box unless you [copy them off it](data.md#copies-off-the-box).
 
+## Databases and KV from outside the box
+
+- **Postgres and KV are reachable only from inside the box.** Apps on the box use them
+  directly; from your computer, `tiffin db tunnel` and `tiffin kv tunnel` open a private SSH
+  tunnel. There is no public address, so something running elsewhere (a frontend on Vercel,
+  a hosted BI tool, a database app that can't use SSH) can't connect. Workaround: run a small
+  API app on the box in the same project and call that instead. Planned: a per-project
+  "Allow connections from outside" switch (confirmed, because it opens data to the internet)
+  giving an address on the box's domain, e.g. `db.<project>.<apps domain>:5432`, TLS required,
+  every project on one shared port (Postgres direct-TLS with SNI), with an optional
+  read-only login and allowed-IP list.
+
 ## Backups
 
 - Each off-box copy reads every backed-up file again (only changed chunks are sent), so
