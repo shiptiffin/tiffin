@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -561,15 +560,4 @@ func (m *Module) registerDeployLink(a huma.API) {
 		}
 		return &struct{ Body *DeployLink }{l}, nil
 	}))
-}
-
-// versionDirsGone reports whether nothing of an old version's environment
-// is left on disk (tests).
-func (r *rt) versionDirsGone(project, app, env string) bool {
-	for _, d := range []string{r.envLogDir(project, app, env), r.assetsDir(project, app, env), r.diskDir(project, app, env)} {
-		if _, err := os.Stat(d); err == nil {
-			return false
-		}
-	}
-	return true
 }
