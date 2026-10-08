@@ -206,9 +206,10 @@ func loadCatalog(b *Backup) *clusterCatalog {
 }
 
 // verify counts the restored copy and compares it with what the backup
-// should hold. It returns the per-database results and what they were
-// compared with ("backup" or "live").
-func verify(ctx context.Context, b *Backup, s *scratchServer) ([]BackupDrillDatabase, string, error) {
+// should hold (restored to a moment before next: what both b and next
+// hold). It returns the per-database results and what they were compared
+// with ("backup" or "live").
+func verify(ctx context.Context, b, next *Backup, s *scratchServer) ([]BackupDrillDatabase, string, error) {
 	restored, err := scanCluster(ctx, s.connect, countAll)
 	if err != nil {
 		return []BackupDrillDatabase{}, "", fmt.Errorf("reading the restored copy: %w", err)
@@ -218,6 +219,9 @@ func verify(ctx context.Context, b *Backup, s *scratchServer) ([]BackupDrillData
 		live = nil // the live cluster may be stopped by a restore; the drill does not depend on it
 	}
 	expected, from := loadCatalog(b), "backup"
+	if next != nil && expected != nil {
+		expected = intersectCatalogs(expected, loadCatalog(next))
+	}
 	if expected == nil {
 		expected, from = live, "live"
 	}

@@ -27,7 +27,8 @@ func TestDue(t *testing.T) {
 		{"nothing yet", nil, "full"},
 		{"only failed", []Backup{bk("full", "failed", time.Minute)}, "full"},
 		{"fresh full", []Backup{bk("full", "ok", 10*time.Minute)}, ""},
-		{"hour since full", []Backup{bk("full", "ok", 61*time.Minute)}, "incremental"},
+		{"6 hours since full", []Backup{bk("full", "ok", 6*time.Hour+time.Minute)}, "incremental"},
+		{"hour since full", []Backup{bk("full", "ok", 61*time.Minute)}, ""},
 		{"recent incr", []Backup{bk("incremental", "ok", 5*time.Minute), bk("full", "ok", 5*time.Hour)}, ""},
 		{"day since full", []Backup{bk("incremental", "ok", 5*time.Minute), bk("full", "ok", 25*time.Hour)}, "full"},
 	}

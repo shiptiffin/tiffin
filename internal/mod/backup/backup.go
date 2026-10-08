@@ -4,8 +4,9 @@
 // disk), a copy of Valkey's RDB snapshot, an online copy of the platform
 // state database (plus the box key that decrypts its secrets) and any files
 // other modules register with Include. Sets are taken on a schedule (daily
-// full, hourly incremental by default) and on demand, and restored with a
-// confirm step. With a destination set, each set is also copied off the box
+// full, incremental every 6 hours by default) and on demand, and restored
+// with a confirm step: a whole set, or Postgres to any moment since the
+// oldest set (pitr.go). With a destination set, each set is also copied off the box
 // to an S3-compatible bucket, encrypted (offsite.go).
 package backup
 
@@ -135,20 +136,35 @@ pg1-port=5432
 type BackupSchedule struct {
 	Enabled               bool `json:"enabled" doc:"Take backups automatically"`
 	FullEveryHours        int  `json:"fullEveryHours" minimum:"1" maximum:"720" doc:"Hours between full backups (default 24)"`
-	IncrementalEveryHours int  `json:"incrementalEveryHours" minimum:"0" maximum:"168" doc:"Hours between incremental backups; 0 turns them off (default 1)"`
+	IncrementalEveryHours int  `json:"incrementalEveryHours" minimum:"0" maximum:"168" doc:"Hours between incremental backups; 0 turns them off (default 6)"`
 	RetainFull            int  `json:"retainFull" minimum:"1" maximum:"60" doc:"Full backups to keep, with their incrementals (default 7)"`
 	DrillEnabled          bool `json:"drillEnabled" doc:"Run restore drills automatically: restore the newest backup into a scratch copy and verify it (default on)"`
 	DrillEveryDays        int  `json:"drillEveryDays" minimum:"1" maximum:"90" doc:"Days between scheduled restore drills (default 7)"`
 }
 
-// DefaultSchedule is daily full, hourly incremental, a week kept, and a
-// weekly restore drill.
-var DefaultSchedule = BackupSchedule{Enabled: true, FullEveryHours: 24, IncrementalEveryHours: 1, RetainFull: 7, DrillEnabled: true, DrillEveryDays: 7}
+// DefaultSchedule is daily full, an incremental every 6 hours, a week kept,
+// and a weekly restore drill. WAL archiving covers the moments in between:
+// Postgres restores to any of them (pitr.go).
+var DefaultSchedule = BackupSchedule{Enabled: true, FullEveryHours: 24, IncrementalEveryHours: 6, RetainFull: 7, DrillEnabled: true, DrillEveryDays: 7}
+
+// oldDefaultSchedule was the default before point-in-time restore (hourly
+// incrementals). A box that saved it unchanged gets the current default.
+var oldDefaultSchedule = BackupSchedule{Enabled: true, FullEveryHours: 24, IncrementalEveryHours: 1, RetainFull: 7, DrillEnabled: true, DrillEveryDays: 7}
 
 func getSchedule(ctx context.Context, p *platform.Platform) BackupSchedule {
+	raw, ok, _ := p.DB.KVGet(ctx, nsMeta, "schedule")
+	return scheduleFrom(raw, ok)
+}
+
+// scheduleFrom reads a saved schedule: the default when none is saved, or
+// when the saved one is the old default.
+func scheduleFrom(raw []byte, ok bool) BackupSchedule {
 	s := DefaultSchedule
-	if raw, ok, _ := p.DB.KVGet(ctx, nsMeta, "schedule"); ok {
+	if ok {
 		_ = json.Unmarshal(raw, &s)
+	}
+	if s == oldDefaultSchedule {
+		return DefaultSchedule
 	}
 	return s
 }
@@ -176,6 +192,10 @@ type Backup struct {
 		Type      string `json:"type"`
 		SizeBytes int64  `json:"sizeBytes" doc:"Size of the cluster"`
 		RepoBytes int64  `json:"repoBytes" doc:"What this backup added to the repository (compressed)"`
+		// MarkAt is when a commit was written just before the backup: a
+		// point-in-time recovery stops at the first commit after its target,
+		// so every moment before MarkAt has one to stop at.
+		MarkAt time.Time `json:"markAt,omitzero" doc:"When a marker commit was written just before this backup (point-in-time restores to earlier moments stop on it)"`
 	} `json:"postgres"`
 	Valkey   BackupPart            `json:"valkey"`
 	Platform BackupPart            `json:"platform"`
@@ -284,6 +304,11 @@ func takeParts(ctx context.Context, p *platform.Platform, b *Backup) error {
 	if b.Kind == "full" {
 		typ = "full"
 	}
+	at, err := markCommit(ctx)
+	if err != nil {
+		return fmt.Errorf("postgres: %w", err)
+	}
+	b.Postgres.MarkAt = at
 	if _, err := pgbackrest(ctx, "--type="+typ, "--repo1-retention-full="+strconv.Itoa(sched.RetainFull), "backup"); err != nil {
 		return fmt.Errorf("postgres: %w", err)
 	}
@@ -637,7 +662,18 @@ func scheduledDrill(ctx context.Context, p *platform.Platform, sched BackupSched
 	if b == nil {
 		return
 	}
-	_, _, err = StartDrillFrom(ctx, p, b, "schedule", source)
+	var next *Backup
+	var at *time.Time
+	if source == SourceLocal && wantPITRDrill(drills) {
+		// Every other local drill restores to a moment between the two
+		// newest sets instead, proving the WAL archive replays.
+		if info, err := repoInfo(ctx); err == nil {
+			if base, n, t, ok := pitrDrill(list, info); ok {
+				b, next, at = base, n, &t
+			}
+		}
+	}
+	_, _, err = startDrillAt(ctx, p, b, "schedule", source, next, at)
 	var de *DiskError
 	if errors.As(err, &de) {
 		now := time.Now().UTC()
@@ -647,6 +683,22 @@ func scheduledDrill(ctx context.Context, p *platform.Platform, sched BackupSched
 			Hint: "free space on the data disk (`tiffin box` shows what uses it), then run `tiffin backups drill`"}
 		_ = saveDrill(ctx, p, d)
 	}
+}
+
+// wantPITRDrill says whether the next scheduled local drill restores to a
+// point in time: when the last local drill did not (they take turns), or
+// again after one that failed.
+func wantPITRDrill(drills []BackupDrill) bool {
+	for _, d := range drills {
+		if orLocal(d.Source) != SourceLocal || d.Status == DrillRunning {
+			continue
+		}
+		if d.Status == DrillFailed {
+			return d.TargetTime != nil
+		}
+		return d.TargetTime == nil
+	}
+	return false
 }
 
 // nextDrillSource picks the copy a scheduled drill restores: local and

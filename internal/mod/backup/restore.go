@@ -44,9 +44,10 @@ type BackupOverwrite struct {
 
 // RestorePreview is what a restore would do. Its hash is the confirm value.
 type BackupRestorePreview struct {
-	Backup     string            `json:"backup"`
+	Backup     string            `json:"backup" doc:"The set restored (with time: the newest one at or before it, which Postgres starts from)"`
 	From       string            `json:"from" enum:"local,offsite" doc:"local: this box's copy; offsite: the copy in the bucket"`
 	TakenAt    time.Time         `json:"takenAt"`
+	Time       *time.Time        `json:"time,omitempty" doc:"A point-in-time restore: the moment Postgres goes back to"`
 	Targets    []string          `json:"targets"`
 	Overwrites []BackupOverwrite `json:"overwrites"`
 	Safety     string            `json:"safety"`
@@ -55,13 +56,14 @@ type BackupRestorePreview struct {
 
 // Restored is the outcome of a restore.
 type BackupRestored struct {
-	Backup     string   `json:"backup"`
-	From       string   `json:"from" enum:"local,offsite"`
-	Targets    []string `json:"targets"`
-	SafetyID   string   `json:"safetyBackup" doc:"Backup of the state just before the restore; restore it to go back (empty on a box with no projects)"`
-	DurationMs int64    `json:"durationMs"`
-	Restarting bool     `json:"restarting,omitempty" doc:"The box's service restarts now to swap in the restored files or state (seconds)"`
-	Notes      []string `json:"notes,omitempty" doc:"What else happened, in plain words"`
+	Backup     string     `json:"backup"`
+	From       string     `json:"from" enum:"local,offsite"`
+	Time       *time.Time `json:"time,omitempty" doc:"A point-in-time restore: the moment Postgres went back to"`
+	Targets    []string   `json:"targets"`
+	SafetyID   string     `json:"safetyBackup" doc:"Backup of the state just before the restore; restore it to go back (empty on a box with no projects)"`
+	DurationMs int64      `json:"durationMs"`
+	Restarting bool       `json:"restarting,omitempty" doc:"The box's service restarts now to swap in the restored files or state (seconds)"`
+	Notes      []string   `json:"notes,omitempty" doc:"What else happened, in plain words"`
 }
 
 func normalizeTargets(t, def []string) ([]string, error) {
@@ -100,6 +102,9 @@ func defaultTargets(ctx context.Context, p *platform.Platform) []string {
 // databases would be replaced. Live counts in the preview may drift.
 func (pv *BackupRestorePreview) Key() any {
 	k := []string{pv.Backup, pv.From}
+	if pv.Time != nil {
+		k = append(k, pv.Time.UTC().Format(time.RFC3339Nano))
+	}
 	k = append(k, pv.Targets...)
 	for _, o := range pv.Overwrites {
 		k = append(k, o.Items...)
@@ -107,9 +112,10 @@ func (pv *BackupRestorePreview) Key() any {
 	return k
 }
 
-// Preview describes what restoring b would overwrite.
-func Preview(ctx context.Context, p *platform.Platform, b *Backup, from string, targets []string) (*BackupRestorePreview, error) {
-	pv := &BackupRestorePreview{Backup: b.ID, From: from, TakenAt: b.StartedAt, Targets: targets,
+// Preview describes what restoring b would overwrite; with at, a restore of
+// Postgres to that moment (b is the newest set at or before it).
+func Preview(ctx context.Context, p *platform.Platform, b *Backup, from string, targets []string, at *time.Time) (*BackupRestorePreview, error) {
+	pv := &BackupRestorePreview{Backup: b.ID, From: from, TakenAt: b.StartedAt, Time: at, Targets: targets,
 		Safety:   "a backup of the current state is taken first; its ID is returned so you can restore back",
 		Downtime: "Postgres and Valkey are stopped while their data is replaced (usually seconds); apps lose their connections and reconnect"}
 	projects, _ := p.DB.ListProjects(ctx)
@@ -137,6 +143,10 @@ func Preview(ctx context.Context, p *platform.Platform, b *Backup, from string, 
 			}
 			admin.Close(ctx)
 			what := fmt.Sprintf("the whole Postgres cluster: every database (%d now) goes back to its state at %s; changes since then are lost and databases created since are removed", len(dbs), b.StartedAt.Format(time.RFC3339))
+			if at != nil {
+				what = fmt.Sprintf("the whole Postgres cluster: every database (%d now) goes back to its state at %s (backup %s, then the log replayed up to that moment); changes since then are lost and databases created since are removed",
+					len(dbs), at.UTC().Format(time.RFC3339), b.ID)
+			}
 			if from == SourceOffsite {
 				what += "; it is restored from the off-box copy (pgBackRest repo2)"
 			}
@@ -148,15 +158,22 @@ func Preview(ctx context.Context, p *platform.Platform, b *Backup, from string, 
 			}
 			n, _ := c.Int(ctx, "DBSIZE")
 			c.Close()
-			pv.Overwrites = append(pv.Overwrites, BackupOverwrite{Target: t,
-				What: fmt.Sprintf("all Valkey keys of every project (%d now) are replaced by the %s snapshot", n, b.StartedAt.Format(time.RFC3339))})
+			what := fmt.Sprintf("all Valkey keys of every project (%d now) are replaced by the %s snapshot", n, b.StartedAt.Format(time.RFC3339))
+			if at != nil {
+				what += fmt.Sprintf(", the newest at or before %s: Valkey keeps no log to replay, so it goes back to that backup, not to the second", at.UTC().Format(time.RFC3339))
+			}
+			pv.Overwrites = append(pv.Overwrites, BackupOverwrite{Target: t, What: what})
 		case TargetFiles:
 			var items []string
 			for name := range b.Files {
 				items = append(items, name+" ("+b.Files[name].Detail+")")
 			}
 			slices.Sort(items)
-			pv.Overwrites = append(pv.Overwrites, BackupOverwrite{Target: t, Items: items, What: "registered files and directories are replaced by their copies in the backup"})
+			what := "registered files and directories are replaced by their copies in the backup"
+			if at != nil {
+				what += fmt.Sprintf(" of %s, the newest at or before %s (files go back to that backup, not to the second)", b.StartedAt.Format(time.RFC3339), at.UTC().Format(time.RFC3339))
+			}
+			pv.Overwrites = append(pv.Overwrites, BackupOverwrite{Target: t, Items: items, What: what})
 			restart = true
 		case TargetPlatform:
 			pv.Overwrites = append(pv.Overwrites, BackupOverwrite{Target: t, Items: projects,
@@ -178,6 +195,9 @@ type restoreFrom struct {
 	dir   string // the set's files: its local directory, or a download of the off-box copy
 	repo  int    // pgBackRest repository: 1 local, 2 off-box
 	label string // its Postgres backup in that repository
+	// at is a point-in-time restore's moment: Postgres replays WAL from
+	// label up to it; the other targets come back from b.
+	at *time.Time
 }
 
 // checkTargets refuses what the box cannot do.
@@ -194,7 +214,9 @@ func checkTargets(ctx context.Context, p *platform.Platform, targets []string) e
 }
 
 // Restore puts a backup back from this box. It takes a safety backup first.
-func Restore(ctx context.Context, p *platform.Platform, b *Backup, targets []string) (*BackupRestored, error) {
+// With at, Postgres goes back to that moment instead (b must be the newest
+// set at or before it: pickForTime) and the other targets to b.
+func Restore(ctx context.Context, p *platform.Platform, b *Backup, targets []string, at *time.Time) (*BackupRestored, error) {
 	if !run.TryLock() {
 		return nil, ErrBusy
 	}
@@ -202,7 +224,7 @@ func Restore(ctx context.Context, p *platform.Platform, b *Backup, targets []str
 	if b.Status != "ok" {
 		return nil, errors.New("only successful backups can be restored")
 	}
-	return restore(ctx, p, restoreFrom{b: b, from: SourceLocal, dir: b.dir(), repo: 1, label: b.Postgres.Label}, targets, true)
+	return restore(ctx, p, restoreFrom{b: b, from: SourceLocal, dir: b.dir(), repo: 1, label: b.Postgres.Label, at: at}, targets, true)
 }
 
 // restore puts a set back; the caller holds run.
@@ -211,12 +233,17 @@ func restore(ctx context.Context, p *platform.Platform, src restoreFrom, targets
 	if err := checkTargets(ctx, p, targets); err != nil {
 		return nil, err
 	}
-	out := &BackupRestored{Backup: src.b.ID, From: src.from, Targets: targets}
+	out := &BackupRestored{Backup: src.b.ID, From: src.from, Time: src.at, Targets: targets}
 	// Sets taken before now no longer match the database: they are not
 	// copied off the box any more (a copy pairs a set with the database of
 	// the moment; the safety backup below is never copied either).
 	if err := p.DB.KVPut(ctx, nsOffsite, "notBefore", []byte(time.Now().UTC().Format(time.RFC3339Nano))); err != nil {
 		return nil, err
+	}
+	if src.at != nil && !safety {
+		// The safety backup's marker commit and WAL archiving are what give
+		// the recovery a commit after the target to stop at.
+		return nil, errors.New("a point-in-time restore needs its safety backup")
 	}
 	if safety {
 		s, err := take(ctx, p, "incremental", "pre-restore")
@@ -312,7 +339,7 @@ func restorePostgres(ctx context.Context, p *platform.Platform, src restoreFrom)
 	if err := systemctl(ctx, "stop", postgres.UnitName); err != nil {
 		return "", err
 	}
-	args := []string{"--repo=" + strconv.Itoa(src.repo), "--delta", "--set=" + src.label, "--type=immediate", "--target-action=promote", "--log-level-console=warn"}
+	args := restoreArgs(src)
 	run := pgbackrest
 	if src.repo == 2 {
 		run = pgbackrestOff

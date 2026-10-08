@@ -18,13 +18,14 @@ import (
 
 // Overview is the backup list with the schedule and repository size.
 type BackupOverview struct {
-	Backups      []Backup       `json:"backups" doc:"Newest first"`
-	Schedule     BackupSchedule `json:"schedule"`
-	LastOKAt     *time.Time     `json:"lastOkAt" doc:"When the newest successful backup started"`
-	RepoBytes    int64          `json:"repoBytes" doc:"Disk used by the local backup repository and sets"`
-	Destinations []string       `json:"destinations" doc:"Where backups are stored"`
-	Offsite      *BackupOffsite `json:"offsite" doc:"Copies off the box: on or off, the newest copy and its size (see GET /v1/backups/offsite)"`
-	LastDrill    *BackupDrill   `json:"lastDrill" doc:"The newest restore drill (null when none ran); see GET /v1/backups/drills"`
+	Backups      []Backup          `json:"backups" doc:"Newest first"`
+	Schedule     BackupSchedule    `json:"schedule"`
+	LastOKAt     *time.Time        `json:"lastOkAt" doc:"When the newest successful backup started"`
+	RepoBytes    int64             `json:"repoBytes" doc:"Disk used by the local backup repository and sets"`
+	Destinations []string          `json:"destinations" doc:"Where backups are stored"`
+	Offsite      *BackupOffsite    `json:"offsite" doc:"Copies off the box: on or off, the newest copy and its size (see GET /v1/backups/offsite)"`
+	LastDrill    *BackupDrill      `json:"lastDrill" doc:"The newest restore drill (null when none ran); see GET /v1/backups/drills"`
+	Restorable   *BackupRestorable `json:"restorable" doc:"The moments Postgres can be restored to (POST /v1/backups/latest/restore with time); null with no successful backup"`
 }
 
 func onBox(p *platform.Platform) error {
@@ -61,7 +62,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			return nil, err
 		}
 		out := &BackupOverview{Backups: list, Schedule: getSchedule(ctx, p), RepoBytes: datakit.DirSize(Root), Destinations: []string{"local: " + Root},
-			Offsite: offsiteView(ctx, p)}
+			Offsite: offsiteView(ctx, p), Restorable: restorableRange(list, time.Now())}
 		if c, _ := current(); c != nil {
 			out.Destinations = append(out.Destinations, "off-box: "+c.where())
 		}
@@ -118,7 +119,9 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		"Restore a backup",
 		"Puts a backup back: by default the whole Postgres cluster and all Valkey data (targets: postgres, valkey, files, platform, or all). "+
 			"Everything changed since the backup is lost, so a safety backup of the current state is taken first. "+
-			"id is a backup ID or latest. from=offsite restores the copy in the bucket (`tiffin backups offsite list`), which works on a new box "+
+			"id is a backup ID or latest. time (with id latest) restores Postgres to that moment instead: any time in the overview's restorable range "+
+			"(the newest backup set before it, then the archived log replayed up to it); Valkey and files have no log, so they go back to that set, "+
+			"the newest at or before the moment, not to the second. from=offsite restores the copy in the bucket (`tiffin backups offsite list`), which works on a new box "+
 			"after `tiffin backups offsite set ... --passphrase`: on a box with no projects every target is restored by default (platform: "+
 			"projects, settings, secrets, tokens, the box key; this box's owner token, domain and backup settings are kept), and no safety backup is taken. "+
 			"Without confirm nothing changes: you get status 428 with what would be overwritten and the confirm value. "+
@@ -130,6 +133,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		Body struct {
 			Targets        []string `json:"targets,omitempty" doc:"What to restore: postgres, valkey, files, platform, all (default postgres and valkey; all on a box with no projects)"`
 			From           string   `json:"from,omitempty" enum:"local,offsite," doc:"local (default): this box's copy; offsite: the copy in the bucket"`
+			Time           string   `json:"time,omitempty" doc:"Restore Postgres to this moment (RFC 3339 such as 2026-10-07T14:32:00Z, or 2026-10-07 14:32 in UTC); id must be latest. Valkey and files go back to the newest set at or before it"`
 			Confirm        string   `json:"confirm,omitempty" doc:"The confirm value from the preview (status 428)"`
 			TimeoutSeconds int      `json:"timeoutSeconds,omitempty" minimum:"0" maximum:"7200" doc:"How long the call waits for a restore from the bucket (default 60 s; it goes on after)"`
 		}
@@ -147,7 +151,34 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		}
 		var b *Backup
 		var rec *offsiteSet
-		if from == SourceOffsite {
+		var at *time.Time
+		if in.Body.Time != "" {
+			if from == SourceOffsite {
+				pb := api.NewProblem(422, "validation", "a point-in-time restore is from this box's copy only; from the bucket, restore a whole backup")
+				pb.Hint = "drop time, or drop from=offsite"
+				return nil, pb
+			}
+			if in.ID != "latest" {
+				pb := api.NewProblem(422, "validation", "with time, the backup is chosen for you: use latest as the id")
+				pb.Hint = "`tiffin restore latest --time \"2026-10-07 14:32\"`"
+				return nil, pb
+			}
+			t, err := parseMoment(in.Body.Time)
+			if err != nil {
+				return nil, api.NewProblem(422, "validation", err.Error())
+			}
+			list, err := List(ctx, p)
+			if err != nil {
+				return nil, err
+			}
+			got, err := pickForTime(list, t, time.Now())
+			if err != nil {
+				pb := api.NewProblem(422, "validation", err.Error())
+				pb.Hint = "the overview's restorable range (`tiffin backups list`) has the moments you can pick"
+				return nil, pb
+			}
+			b, at = got, &t
+		} else if from == SourceOffsite {
 			got, err := pickOffsite(ctx, in.ID)
 			switch {
 			case errors.Is(err, ErrOffsiteOff):
@@ -191,18 +222,22 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		if err := checkTargets(ctx, p, targets); err != nil {
 			return nil, api.NewProblem(422, "validation", err.Error())
 		}
-		preview, err := Preview(ctx, p, b, from, targets)
+		preview, err := Preview(ctx, p, b, from, targets, at)
 		if err != nil {
 			return nil, err
 		}
 		if err := datakit.RequireConfirm(in.Body.Confirm, preview.Key(), preview); err != nil {
 			return nil, err
 		}
-		_ = p.DB.Audit(ctx, pr.TokenID, "backup.restore", b.ID, map[string]any{"session": pr.Session, "targets": targets, "from": from})
+		audit := map[string]any{"session": pr.Session, "targets": targets, "from": from}
+		if at != nil {
+			audit["time"] = at.Format(time.RFC3339)
+		}
+		_ = p.DB.Audit(ctx, pr.TokenID, "backup.restore", b.ID, audit)
 		if from == SourceLocal {
 			// Once it starts it runs to the end: a dropped connection must not
 			// stop it halfway with Postgres or Valkey down.
-			out, err := Restore(context.WithoutCancel(ctx), p, b, targets)
+			out, err := Restore(context.WithoutCancel(ctx), p, b, targets, at)
 			if err != nil {
 				return nil, busy(err)
 			}
@@ -239,7 +274,7 @@ func (*Module) RegisterAPI(a huma.API, p *platform.Platform) {
 		Body struct {
 			Enabled               *bool `json:"enabled,omitempty" doc:"Take backups automatically"`
 			FullEveryHours        *int  `json:"fullEveryHours,omitempty" minimum:"1" maximum:"720" doc:"Hours between full backups (default 24)"`
-			IncrementalEveryHours *int  `json:"incrementalEveryHours,omitempty" minimum:"0" maximum:"168" doc:"Hours between incremental backups; 0 turns them off (default 1)"`
+			IncrementalEveryHours *int  `json:"incrementalEveryHours,omitempty" minimum:"0" maximum:"168" doc:"Hours between incremental backups; 0 turns them off (default 6)"`
 			RetainFull            *int  `json:"retainFull,omitempty" minimum:"1" maximum:"60" doc:"Full backups to keep, with their incrementals (default 7)"`
 			DrillEnabled          *bool `json:"drillEnabled,omitempty" doc:"Run restore drills automatically (default on)"`
 			DrillEveryDays        *int  `json:"drillEveryDays,omitempty" minimum:"1" maximum:"90" doc:"Days between scheduled restore drills (default 7)"`

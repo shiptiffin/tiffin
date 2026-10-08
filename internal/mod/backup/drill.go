@@ -101,6 +101,7 @@ type BackupDrill struct {
 	Source           string                `json:"source" enum:"local,offsite," doc:"local: the copy on this box; offsite: the copy in the bucket (Postgres from pgBackRest repo2, every other part downloaded and checked)"`
 	BackupLabel      string                `json:"backupLabel" doc:"Its pgBackRest label"`
 	BackupTakenAt    time.Time             `json:"backupTakenAt"`
+	TargetTime       *time.Time            `json:"targetTime,omitempty" doc:"A point-in-time drill: the moment it restored to, replaying the archived log from the backup (halfway to the next backup)"`
 	BackupAgeSeconds int64                 `json:"backupAgeSeconds" doc:"How old the backup was when the drill started"`
 	Trigger          string                `json:"trigger" enum:"manual,schedule"`
 	Status           string                `json:"status" enum:"running,passed,failed"`
@@ -258,6 +259,7 @@ func pruneDrills(ctx context.Context, p *platform.Platform) {
 type drillRun struct {
 	p      *platform.Platform
 	b      *Backup
+	next   *Backup // a point-in-time drill: the set after b (its table list bounds what the copy holds)
 	cancel context.CancelFunc
 	done   chan struct{}
 	start  time.Time
@@ -299,6 +301,12 @@ func StartDrill(ctx context.Context, p *platform.Platform, b *Backup, trigger st
 // off-box copy ("offsite": Postgres from the bucket's repository, and every
 // other part downloaded and checked).
 func StartDrillFrom(ctx context.Context, p *platform.Platform, b *Backup, trigger, source string) (*BackupDrill, <-chan struct{}, error) {
+	return startDrillAt(ctx, p, b, trigger, source, nil, nil)
+}
+
+// startDrillAt starts a drill; with at (a local drill), a point-in-time one:
+// b restored and the WAL after it replayed up to at, before next.
+func startDrillAt(ctx context.Context, p *platform.Platform, b *Backup, trigger, source string, next *Backup, at *time.Time) (*BackupDrill, <-chan struct{}, error) {
 	c, _ := current()
 	if source == SourceOffsite && (c == nil || c.State != OffsiteActive) {
 		return nil, nil, ErrOffsiteOff
@@ -319,7 +327,7 @@ func StartDrillFrom(ctx context.Context, p *platform.Platform, b *Backup, trigge
 	id := ids.New("dr")
 	rec := &BackupDrill{ID: id, Backup: b.ID, Source: source, BackupLabel: drillLabel(b, source), BackupTakenAt: b.StartedAt,
 		BackupAgeSeconds: int64(now.Sub(b.StartedAt).Seconds()), Trigger: trigger, Status: DrillRunning, Phase: "starting",
-		StartedAt: now, BackupBytes: b.Postgres.SizeBytes, Databases: []BackupDrillDatabase{}, Scratch: filepath.Join(drillRoot, id)}
+		StartedAt: now, BackupBytes: b.Postgres.SizeBytes, Databases: []BackupDrillDatabase{}, Scratch: filepath.Join(drillRoot, id), TargetTime: at}
 	if err := saveDrill(ctx, p, rec); err != nil {
 		drillState.mu.Unlock()
 		return nil, nil, err
@@ -329,7 +337,7 @@ func StartDrillFrom(ctx context.Context, p *platform.Platform, b *Backup, trigge
 		base = context.Background()
 	}
 	rctx, cancel := context.WithCancel(base)
-	r := &drillRun{p: p, b: b, cancel: cancel, done: make(chan struct{}), start: time.Now(), rec: rec}
+	r := &drillRun{p: p, b: b, next: next, cancel: cancel, done: make(chan struct{}), start: time.Now(), rec: rec}
 	drillState.running = r
 	drillState.mu.Unlock()
 	go r.run(rctx)
@@ -465,6 +473,10 @@ func (r *drillRun) steps(ctx context.Context, dir string, srv **scratchServer) e
 	src, label := r.rec.Source, r.rec.BackupLabel
 	args := []string{"--repo=1", "--pg1-path=" + data, "--set=" + label, "--type=immediate", "--target-action=promote",
 		"--no-delta", "--archive-mode=off", "--log-level-console=warn", "--log-level-file=off"}
+	if at := r.rec.TargetTime; at != nil && src != SourceOffsite {
+		args[3] = "--type=time"
+		args = append(args, "--target="+pgTarget(*at), "--target-timeline=current")
+	}
 	run := pgbackrest
 	if src == SourceOffsite {
 		// WAL from the bucket too: the drill proves the off-box copy alone
@@ -506,7 +518,7 @@ func (r *drillRun) steps(ctx context.Context, dir string, srv **scratchServer) e
 	// 3. Verify.
 	r.phase("counting every table and comparing")
 	t = time.Now()
-	dbs, from, err := verify(ctx, r.b, s)
+	dbs, from, err := verify(ctx, r.b, r.next, s)
 	r.set(func(d *BackupDrill) { d.Seconds.Verify, d.Databases, d.ComparedWith = secs(time.Since(t)), dbs, from }, true)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -591,6 +603,9 @@ func verdict(d *BackupDrill) (status, msg, hint string) {
 	msg = fmt.Sprintf("Restored backup %s (taken %s before the drill, %s) in %s; the scratch Postgres started in %s; %s, %s and %s verified in %s.",
 		d.Backup, ago(time.Duration(d.BackupAgeSeconds)*time.Second), human(d.RestoredBytes), fmtSecs(d.Seconds.Restore), fmtSecs(d.Seconds.Start),
 		plural(len(d.Databases), "database"), plural(tables, "table"), plural64(rows, "row"), fmtSecs(d.Seconds.Verify))
+	if d.TargetTime != nil {
+		msg = fmt.Sprintf("Point in time: restored to %s, %s after backup %s, by replaying the archived log. ", stamp(*d.TargetTime), ago(d.TargetTime.Sub(d.BackupTakenAt)), d.Backup) + msg
+	}
 	if estimated > 0 {
 		msg += fmt.Sprintf(" %s took too long to count, so their rows are estimates.", plural(estimated, "table"))
 	}
