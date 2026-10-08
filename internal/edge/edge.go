@@ -205,6 +205,9 @@ type rendered struct {
 // layer when cfg has none of its own. It registers the wildcard's DNS
 // provider in this process.
 func render(cfg Config) (*rendered, error) {
+	if cfg.Gate == nil {
+		cfg.Gate = currentGate()
+	}
 	c, err := withCertSource(cfg).normalized()
 	if err != nil {
 		return nil, err

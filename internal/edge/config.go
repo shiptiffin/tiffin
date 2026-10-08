@@ -1,6 +1,7 @@
 package edge
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -56,6 +57,9 @@ type Config struct {
 	// Protect is the protection layer (rate limits, challenge, CrowdSec,
 	// WAF). Nil: the one registered with SetProtectionSource, if any.
 	Protect *Protection
+	// Gate signs the deploy-address gate's links and cookies (Route.Gate).
+	// Nil: the one registered with SetGateSource, if any.
+	Gate *Gate
 
 	paths []Route // routes without a host (see Route.Host), split out by normalized
 }
@@ -98,6 +102,12 @@ type Route struct {
 	// Rules are the site's own headers, redirects and rewrites (rewrites,
 	// cleanUrls and trailingSlash apply to file roots only).
 	Rules *Rules `json:",omitempty"`
+	// Gate lets only people signed in to the box's dashboard through (a
+	// deploy's own address, see gate.go). Without the gate's secret the
+	// route answers 503 rather than open.
+	Gate bool `json:",omitempty"`
+	// NoIndex asks search engines not to index the host (X-Robots-Tag).
+	NoIndex bool `json:",omitempty"`
 }
 
 func (r Route) upstreams() []string {
@@ -275,6 +285,9 @@ func (c Config) normalized() (Config, error) {
 			return c, err
 		}
 	}
+	if c.Gate != nil && len(c.Gate.Secret) < 32 {
+		return c, errors.New("edge: the gate's secret must be at least 32 bytes")
+	}
 	seen := map[string]bool{}
 	for _, d := range c.dashboardHosts() {
 		seen[d] = true
@@ -438,6 +451,21 @@ func routeFor(c Config, r Route, portSuffix string) obj {
 		m["path"] = []string{r.PathPrefix, r.PathPrefix + "/*"}
 	}
 	var handle []obj
+	if r.NoIndex {
+		handle = append(handle, obj{"handler": "headers", "response": obj{"set": obj{"X-Robots-Tag": []string{"noindex"}}}})
+	}
+	if r.Gate && r.RedirectTo == "" {
+		if c.Gate == nil {
+			// Never open: without the secret nobody could sign in anyway.
+			return obj{"match": []obj{m}, "handle": append(handle, obj{
+				"handler":     "static_response",
+				"status_code": 503,
+				"headers":     obj{"Content-Type": []string{"text/plain; charset=utf-8"}, "Retry-After": []string{"30"}},
+				"body":        "This address opens for people signed in to the box's dashboard, and the box's sign-in check is not ready yet. Try again in a minute.\n",
+			}), "terminal": true}
+		}
+		handle = append(handle, obj{"handler": "tiffin_gate", "secret": hex.EncodeToString(c.Gate.Secret), "sign_in": c.dashboardURL(portSuffix) + "/gate"})
+	}
 	switch {
 	case r.RedirectTo != "":
 		handle = []obj{{

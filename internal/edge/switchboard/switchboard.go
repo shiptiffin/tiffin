@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"math"
@@ -95,6 +96,9 @@ type Table struct {
 	// while after it changed), and their requests arrive with that name.
 	AppsDomain string   `json:"appsDomain,omitempty"`
 	Aliases    []string `json:"aliases,omitempty"`
+	// Gone are deploy addresses whose version was cleaned up, each with
+	// the app's live address: they answer a small page that links to it.
+	Gone map[string]string `json:"gone,omitempty"`
 }
 
 // Control is what the switchboard needs the control plane for.
@@ -318,6 +322,13 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
+	b.mu.RLock()
+	live, gone := b.t.Gone[host]
+	b.mu.RUnlock()
+	if gone {
+		serveGone(w, req, live)
+		return
+	}
 	key, prefix, ok := b.lookup(host, req.URL.Path)
 	if strings.HasPrefix(req.URL.Path, LivePrefix+"/") {
 		if ok {
@@ -368,6 +379,34 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	b.serveApp(w, req, key)
+}
+
+// serveGone answers a deploy address whose version was cleaned up.
+func serveGone(w http.ResponseWriter, req *http.Request, live string) {
+	h := w.Header()
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Robots-Tag", "noindex")
+	accept := req.Header.Get("Accept")
+	if strings.Contains(accept, "application/json") && !strings.Contains(accept, "text/html") {
+		h.Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusGone)
+		fmt.Fprintf(w, `{"code":"version_cleaned_up","detail":"This version was cleaned up. The live site is at %s.","live":%q}`+"\n", live, live)
+		return
+	}
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'")
+	w.WriteHeader(http.StatusGone)
+	if req.Method == http.MethodHead {
+		return
+	}
+	link := "the app’s own address"
+	if u, err := url.Parse(live); err == nil && (u.Scheme == "https" || u.Scheme == "http") {
+		link = `<a href="` + html.EscapeString(live) + `">` + html.EscapeString(strings.TrimPrefix(strings.TrimPrefix(live, "https://"), "http://")) + `</a>`
+	}
+	fmt.Fprintf(w, `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Version cleaned up</title>`+
+		`<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"></head>`+
+		`<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">`+
+		`<h1>This version was cleaned up</h1><p>The box keeps the last versions of an app; this one is older. The live site is at %s.</p></body></html>`, link)
 }
 
 // upstreamIdle is how long a connection to an app stays pooled unused. It

@@ -40,8 +40,9 @@ import (
 
 // Protocol is the version of the API between the two processes. A change
 // that an edge of the previous version would misread bumps it. 2: the
-// switchboard's address may be a Unix socket ("unix/<path>").
-const Protocol = 2
+// switchboard's address may be a Unix socket ("unix/<path>"). 3: the
+// deploy-address gate (tiffin_gate) and the switchboard's Gone pages.
+const Protocol = 3
 
 // Socket paths in the platform directory.
 const (
