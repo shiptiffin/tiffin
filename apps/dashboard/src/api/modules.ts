@@ -2,6 +2,7 @@
 // Types come from the generated OpenAPI schema; hidden operations (browser
 // upload, mail stream, attachments) are typed by hand.
 import { queryOptions } from "@tanstack/react-query";
+import { pagedQuery } from "@/lib/paged";
 import { ApiError, request } from "./client";
 import type { components, operations } from "./schema";
 
@@ -183,8 +184,11 @@ export const mod = {
 
   // email
   emailStatus: () => request<EmailStatus>("GET", "/v1/email"),
-  messages: (p: string, q?: string, all?: boolean) =>
-    arr(request<EmailSummary[] | null>("GET", `${P(p)}/email/messages${qs({ q, all, limit: 200 })}`)),
+  /** One page of mail, newest first, searched and narrowed on the box. */
+  messages: (p: string, o: { q?: string; all?: boolean; status?: EmailSummary["status"]; cursor?: string; limit?: number } = {}, signal?: AbortSignal) =>
+    request<S["PageEmailSummary"]>("GET", `${P(p)}/email/messages${qs({ ...o, limit: o.limit ?? 50 })}`, undefined, signal),
+  /** The latest mail (one page of up to 200), for summaries. */
+  recentMail: async (p: string) => (await mod.messages(p, { all: true, limit: 200 })).items,
   message: (p: string, id: string) => request<EmailDetail>("GET", `${P(p)}/email/messages/${e(id)}`),
   deleteMessage: (p: string, id: string) => request<void>("DELETE", `${P(p)}/email/messages/${e(id)}`),
   clearInbox: (p: string) => request<{ deleted: number }>("DELETE", `${P(p)}/email/messages`),
@@ -366,7 +370,9 @@ export const mq = {
   objects: (p: string, b: string, prefix: string) => queryOptions({ queryKey: ["objects", p, b, prefix], queryFn: () => mod.objects(p, b, prefix) }),
   trash: (p?: string) => queryOptions({ queryKey: ["trash", p ?? ""], queryFn: () => mod.trash(p) }),
   emailStatus: queryOptions({ queryKey: ["email-status"], queryFn: mod.emailStatus }),
-  messages: (p: string, q: string) => queryOptions({ queryKey: ["messages", p, q], queryFn: () => mod.messages(p, q || undefined, true) }),
+  /** Mail a page at a time (the inbox), searched and narrowed on the box. */
+  messagePages: (p: string, q: string, status?: EmailSummary["status"]) =>
+    pagedQuery(["messages", p, "pages", q, status ?? ""], (cursor, signal) => mod.messages(p, { q: q || undefined, all: true, status, cursor }, signal)),
   message: (p: string, id: string) => queryOptions({ queryKey: ["message", p, id], queryFn: () => mod.message(p, id), staleTime: Infinity }),
   suppressions: (p: string) => queryOptions({ queryKey: ["suppressions", p], queryFn: () => mod.suppressions(p) }),
   pg: (p: string) => queryOptions({ queryKey: ["pg", p], queryFn: () => mod.pg(p) }),
@@ -492,7 +498,8 @@ const SD = (p: string) => `${P(p)}/email/sending-domain`;
 export const boxMail = {
   sender: () => request<BoxSender>("GET", "/v1/email/box"),
   setSender: (body: S["Email-box-setRequest"]) => request<BoxSender>("PUT", "/v1/email/box", body),
-  messages: (limit = 20) => arr(request<BoxMessage[] | null>("GET", `/v1/email/box/messages?limit=${limit}`)),
+  /** One page of the box's own mail, newest first. */
+  messages: (cursor?: string, signal?: AbortSignal) => request<S["PageEmailSummary"]>("GET", `/v1/email/box/messages${qs({ cursor, limit: 10 })}`, undefined, signal),
   message: (id: string) => request<EmailDetail>("GET", `/v1/email/box/messages/${e(id)}`),
   setEmail: (person: string, email: string) => request<S["Person"]>("PUT", `/v1/people/${e(person)}/email`, { email } satisfies S["Person-email-setRequest"]),
   /** A fresh sign-in link, emailed to them too. */
@@ -508,7 +515,7 @@ export const boxMail = {
 
 export const boxMailQ = {
   sender: queryOptions({ queryKey: ["box-mail-sender"], queryFn: boxMail.sender, retry: false }),
-  messages: queryOptions({ queryKey: ["box-mail-messages"], queryFn: () => boxMail.messages(), retry: false }),
+  messages: { ...pagedQuery(["box-mail-messages"], boxMail.messages), retry: false },
   signIn: queryOptions({ queryKey: ["session-email"], queryFn: boxMail.signInAvailable, retry: false, staleTime: 60_000 }),
   sending: (project: string) =>
     queryOptions({

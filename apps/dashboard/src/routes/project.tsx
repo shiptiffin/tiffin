@@ -433,7 +433,7 @@ function FilesRow({ project }: { project: string }) {
 
 function EmailRow({ project }: { project: string }) {
   const status = useQuery({ ...mq.emailStatus, ...quiet });
-  const msgs = useQuery({ queryKey: ["messages", project, ""], queryFn: () => mod.messages(project, undefined, true), ...quiet });
+  const msgs = useQuery({ queryKey: ["messages", project, ""], queryFn: () => mod.recentMail(project), ...quiet });
   const n = msgs.data?.length;
   const inbox = status.data?.mode === "inbox";
   return (

@@ -324,9 +324,10 @@ func TestBoxSenderAPIAndInvites(t *testing.T) {
 	if code, _, _ := call(agent, "GET", "/v1/email/box/messages", ""); code != 403 {
 		t.Fatalf("agent reads box mail: %d", code)
 	}
-	code, _, list := call(owner, "GET", "/v1/email/box/messages", "")
-	if code != 200 || len(list) != 1 {
-		t.Fatalf("box messages: %d %v", code, list)
+	code, pg, _ := call(owner, "GET", "/v1/email/box/messages", "")
+	list, _ := pg["items"].([]any)
+	if code != 200 || len(list) != 1 || pg["nextCursor"] != nil {
+		t.Fatalf("box messages: %d %v", code, pg)
 	}
 	msg := list[0].(map[string]any)
 	if msg["subject"] != "You're invited to dashboard.tiffin.localhost" || !strings.Contains(msg["from"].(string), "<hello@shiptiffin.com>") {

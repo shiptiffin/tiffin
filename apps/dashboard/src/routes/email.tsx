@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, ArrowRight, ArrowUpRight, Download, Paperclip, Search, Send, Settings2, Trash2, X } from "lucide-react";
 import { useEffect, useEffectEvent, useMemo, useState, type ReactNode } from "react";
@@ -12,13 +12,15 @@ import { EmailSending } from "@/components/email-sending";
 import { isMailFilter, MAIL_STATUS, MailFilters, MailStatus, PROVIDER_NAME, SendTest, type MailFilter } from "@/components/email-parts";
 import { Rows, Section } from "@/components/data-parts";
 import { useTitle } from "@/components/favicon";
+import { ShowMore } from "@/components/more";
 import { Crumbs, Page, PageHeader, Skeleton, Untrusted, NotOnBox } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
-import { bytes, count, int, words } from "@/lib/format";
+import { bytes, count, words } from "@/lib/format";
 import { useMe } from "@/lib/me";
+import { countShown, pagedRows } from "@/lib/paged";
 import { clock, dayKey, full, relative } from "@/lib/time";
 
 // ------------------------------------------------------------------ helpers
@@ -92,7 +94,7 @@ export function InboxPage({ project, q = "", m, status }: { project: string; q?:
   const [query, setQuery] = useState(q);
   const filter: MailFilter = isMailFilter(status) ? status : "all";
   const [composing, setComposing] = useState(false);
-  const list = useQuery(mq.messages(project, q));
+  const list = useInfiniteQuery({ ...mq.messagePages(project, q, filter === "all" ? undefined : filter), placeholderData: keepPreviousData });
   const st = useQuery(mq.emailStatus);
   const relay = st.data?.mode === "relay";
   const [fresh, setFresh] = useState<Set<string>>(new Set());
@@ -112,8 +114,11 @@ export function InboxPage({ project, q = "", m, status }: { project: string; q?:
     return () => clearTimeout(t);
   }, [query]);
 
-  const all = list.data ?? [];
-  const msgs = filter === "all" ? all : all.filter((x) => x.status === filter);
+  const msgs = pagedRows(list.data, (x) => x.id);
+  // The status chips: every status seen while this inbox is open, so choosing one doesn't hide the others.
+  const [statuses, setStatuses] = useState<ReadonlySet<string>>(new Set());
+  const seen = msgs.filter((x) => !statuses.has(x.status));
+  if (seen.length > 0) setStatuses(new Set([...statuses, ...seen.map((x) => x.status)]));
   // j / k move through the list, like a mail client.
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
@@ -128,7 +133,7 @@ export function InboxPage({ project, q = "", m, status }: { project: string; q?:
   });
 
   if (list.isError && notOnBox(list.error)) return <NotOnBox what="The dev inbox and relay" />;
-  const empty = list.isSuccess && all.length === 0 && !q;
+  const empty = list.isSuccess && !list.isPlaceholderData && msgs.length === 0 && !q && filter === "all";
   // Sending for real reaches outside the box; the dev inbox is a reversible write.
   const canSend = can(relay ? "apply:outbound" : "apply:reversible");
 
@@ -179,7 +184,7 @@ export function InboxPage({ project, q = "", m, status }: { project: string; q?:
         !list.isError && (
           <>
             <div className="mt-7 flex min-h-8 items-center justify-between gap-4">
-              <MailFilters messages={all} value={filter} onChange={setFilter} />
+              <MailFilters statuses={statuses} value={filter} onChange={setFilter} />
               <p className="shrink-0 text-xs text-ink-3 max-md:hidden" aria-live="polite">
                 {live === false && <span className="text-warn-ink">Not connected. Refresh to see new mail.</span>}
               </p>
@@ -243,6 +248,11 @@ export function InboxPage({ project, q = "", m, status }: { project: string; q?:
                       </li>
                     );
                   })}
+                  {list.hasNextPage && (
+                    <li>
+                      <ShowMore query={list} auto label="Show older mail" className="mb-4" />
+                    </li>
+                  )}
                 </ul>
                 {list.isSuccess && msgs.length === 0 && (
                   <div className="px-6 py-12 text-center">
@@ -261,10 +271,10 @@ export function InboxPage({ project, q = "", m, status }: { project: string; q?:
                     )}
                   </div>
                 )}
-                {all.length > 0 && (
+                {msgs.length > 0 && (
                   <p className="shrink-0 border-t border-rule py-2 text-xs text-ink-3 lg:px-3" title="The newest 1,000 messages are kept">
-                    {filter === "all" ? count(all.length, "message") : `${int(msgs.length)} of ${count(all.length, "message")}`}
-                    {all.length >= 200 ? ", the newest 200" : ""}. <kbd className="kbd">j</kbd> <kbd className="kbd">k</kbd> move through them.
+                    {countShown(msgs.length, list.hasNextPage)} {msgs.length === 1 && !list.hasNextPage ? "message" : "messages"}
+                    {list.hasNextPage ? " so far" : ""}. <kbd className="kbd">j</kbd> <kbd className="kbd">k</kbd> move through them.
                   </p>
                 )}
               </section>

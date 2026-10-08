@@ -1029,7 +1029,7 @@ export interface paths {
         };
         /**
          * List box mail
-         * @description The box's own mail, newest first: invites, sign-in links and new sign-in notices, sent or kept in its dev inbox. Box admins only: it holds invites. A sign-in link someone asked for by email shows its metadata only (the link is theirs alone).
+         * @description The box's own mail, newest first, a page at a time: invites, sign-in links and new sign-in notices, sent or kept in its dev inbox. More follow when nextCursor is set: pass it as cursor. Box admins only: it holds invites. A sign-in link someone asked for by email shows its metadata only (the link is theirs alone).
          */
         get: operations["email-box-messages-list"];
         put?: never;
@@ -2596,6 +2596,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project}/data/{part}/empty": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete all data in a part
+         * @description Deletes everything in one of the project's always-there parts: postgres (Database: every database, branches included, then an empty main database with the same role and password), valkey (KV: every key) or storage (Files: every file in every bucket; the declared buckets stay, empty). Apps keep their connection settings. The data is kept for 7 days: restore it with data restore (or undo the change), after that it is gone for good. A second delete within 7 days replaces the first one's saved data. Without confirm you get the plan with status 428; its op says exactly what goes (loss: rows and tables, keys, files and bytes).
+         */
+        post: operations["data-empty"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project}/data/{part}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore the data deleted from a part
+         * @description Puts back what the last data empty of this part deleted, within 7 days of it, in place of what the part holds now (a database's current contents are snapshotted first, a bucket's go to the trash for 7 days). GET /v1/projects/{project} lists what is restorable (restorable). Without confirm you get the plan with status 428.
+         */
+        post: operations["data-restore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project}/deploys": {
         parameters: {
             query?: never;
@@ -2749,7 +2789,7 @@ export interface paths {
         };
         /**
          * List the dev inbox
-         * @description Messages captured in the project's dev inbox, newest first. With all=true: every message, including ones sent through the relay or suppressed, with delivery status. With read-only access, subjects and text are left out (hidden: true) and q searches sender and recipients only.
+         * @description Messages captured in the project's dev inbox, newest first, a page at a time. With all=true: every message, including ones sent through the relay or suppressed, with delivery status. More follow when nextCursor is set: pass it as cursor (with the same q, all and status). With read-only access, subjects and text are left out (hidden: true) and q searches sender and recipients only.
          */
         get: operations["email-messages-list"];
         put?: never;
@@ -3593,7 +3633,7 @@ export interface paths {
         };
         /**
          * Get a project's manifest
-         * @description The project's current desired state as a manifest, rebuilt from its resources (works for every project, however it was created), plus the same thing as a readable tiffin.config.ts. To change the project without a config file: edit `manifest` (add an app, add services.postgres, change env...), send it to plan, review the ops and risk, then apply it with the plan's hash. The plan is exactly what the same edit to tiffin.config.ts would give.
+         * @description The project's current desired state as a manifest, rebuilt from its resources (works for every project, however it was created), plus the same thing as a readable tiffin.config.ts. To change the project without a config file: edit `manifest` (add an app, add services.auth, change env...), send it to plan, review the ops and risk, then apply it with the plan's hash. The plan is exactly what the same edit to tiffin.config.ts would give.
          */
         get: operations["project-manifest"];
         put?: never;
@@ -7409,6 +7449,12 @@ export interface components {
             /** @description The key's secret (tfn_...). Shown once; store it now. */
             secret: string;
         };
+        DataBody: {
+            /** @description The hash of the plan you reviewed (or its first 8+ characters). Without it nothing changes and the plan comes back with status 428. */
+            confirm?: string;
+            /** @description Why, in one sentence (History shows it). */
+            intent?: string;
+        };
         "Db-deleteRequest": {
             branch?: string;
             /** @description Each row's primary key: column → value */
@@ -8485,7 +8531,7 @@ export interface components {
              * @description Bytes that would be deleted (on disk, or the stored size of what goes)
              */
             bytes: number;
-            /** @description What goes, counted: rows, tables, files, events, jobs */
+            /** @description What goes, counted: rows, tables, files, keys, events, jobs */
             counts: components["schemas"]["LossCount"][] | null;
             /** @description The same in plain words, e.g. "18,204 rows in 12 tables · 41 MB" */
             summary: string;
@@ -8499,7 +8545,7 @@ export interface components {
              * @description Singular noun of what is counted
              * @enum {string}
              */
-            unit: "row" | "table" | "file" | "event" | "job" | "user" | "database";
+            unit: "row" | "table" | "file" | "event" | "job" | "user" | "database" | "key";
         };
         "Maintenance-postgres-updateRequest": {
             /** @description Install now instead of in the maintenance window */
@@ -9272,6 +9318,12 @@ export interface components {
         PageChange: {
             /** @description This page, in the list's order */
             items: components["schemas"]["Change"][];
+            /** @description Set when more follow: pass it as cursor to read the next page. Absent on the last page. */
+            nextCursor?: string;
+        };
+        PageEmailSummary: {
+            /** @description This page, in the list's order */
+            items: components["schemas"]["EmailSummary"][];
             /** @description Set when more follow: pass it as cursor to read the next page. Absent on the last page. */
             nextCursor?: string;
         };
@@ -10231,6 +10283,8 @@ export interface components {
         ProjectState: {
             name: string;
             resources: components["schemas"]["Resource"][] | null;
+            /** @description Data deleted with data empty in the last 7 days, which data restore puts back */
+            restorable?: components["schemas"]["RestorableData"][] | null;
             /** @description Names of the project's secrets (values are never shown) */
             secrets?: string[] | null;
             status?: {
@@ -11088,6 +11142,23 @@ export interface components {
             state: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        RestorableData: {
+            /**
+             * Format: date-time
+             * @description When the data was deleted
+             */
+            deletedAt: string;
+            /**
+             * @description The part: postgres (Database), valkey (KV) or storage (Files)
+             * @enum {string}
+             */
+            part: "postgres" | "valkey" | "storage";
+            /**
+             * Format: date-time
+             * @description Restorable until then (7 days after the delete); after that it is gone for good
+             */
+            until: string;
         };
         Rewrite: {
             destination: string;
@@ -11951,7 +12022,7 @@ export interface components {
              * @example Astro
              */
             presetName: string;
-            /** @description Services the app needs on, e.g. postgres, valkey, analytics */
+            /** @description Services the app needs added, e.g. auth (Database, KV, Files, Email and Analytics are always there, so they are never listed) */
             services: string[] | null;
         };
         Stats: {
@@ -12260,6 +12331,11 @@ export interface components {
             bytes: number;
             /** Format: date-time */
             deletedAt: string;
+            /**
+             * Format: int64
+             * @description Set when Delete all data moved the bucket here
+             */
+            emptied?: number;
             /**
              * Format: date-time
              * @description After this the files are deleted for good
@@ -17615,7 +17691,10 @@ export interface operations {
     "email-box-messages-list": {
         parameters: {
             query?: {
+                /** @description How many to return per page (at most 200) */
                 limit?: number;
+                /** @description The nextCursor of the previous page, to read the next one. Leave empty for the first page. */
+                cursor?: string;
             };
             header?: never;
             path?: never;
@@ -17629,7 +17708,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EmailSummary"][] | null;
+                    "application/json": components["schemas"]["PageEmailSummary"];
                 };
             };
             /** @description Bad Request */
@@ -24527,6 +24606,208 @@ export interface operations {
             };
         };
     };
+    "data-empty": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description postgres (Database), valkey (KV) or storage (Files) */
+                part: "postgres" | "valkey" | "storage";
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DataBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "data-restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project slug */
+                project: string;
+                /** @description postgres (Database), valkey (KV) or storage (Files) */
+                part: "postgres" | "valkey" | "storage";
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DataBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Precondition Required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     "project-deploys": {
         parameters: {
             query?: {
@@ -25222,9 +25503,12 @@ export interface operations {
                 q?: string;
                 /** @description Include relayed and suppressed messages */
                 all?: boolean;
-                /** @description Page: messages older than this ID */
-                before?: string;
+                /** @description Only messages in these statuses (comma-separated) */
+                status?: ("captured" | "queued" | "sent" | "delivered" | "bounced" | "complained" | "failed" | "suppressed")[] | null;
+                /** @description How many to return per page (at most 200) */
                 limit?: number;
+                /** @description The nextCursor of the previous page, to read the next one. Leave empty for the first page. */
+                cursor?: string;
             };
             header?: never;
             path: {
@@ -25241,7 +25525,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EmailSummary"][] | null;
+                    "application/json": components["schemas"]["PageEmailSummary"];
                 };
             };
             /** @description Bad Request */

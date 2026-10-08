@@ -1,14 +1,16 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { ApiError } from "@/api/client";
 import { boxMail, boxMailQ, type BoxMessage, type BoxSender } from "@/api/modules";
 import { CopyButton } from "@/components/copy";
+import { ShowMore } from "@/components/more";
 import { Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
+import { pagedRows } from "@/lib/paged";
 import { relative } from "@/lib/time";
 
 // Settings › Email › Mail from the box: who the dashboard's own mail
@@ -136,9 +138,9 @@ const STATUS: Record<BoxMessage["status"], { word: string; tone: string }> = {
 };
 
 function Recent({ relay }: { relay: boolean }) {
-  const list = useQuery(boxMailQ.messages);
+  const list = useInfiniteQuery(boxMailQ.messages);
   const [open, setOpen] = useState<string | null>(null);
-  const rows = (list.data ?? []).slice(0, 8);
+  const rows = pagedRows(list.data, (m) => m.id);
   return (
     <div className="mt-6">
       <p className="label mb-2">{relay ? "Recently sent" : "Dev inbox"}</p>
@@ -172,6 +174,7 @@ function Recent({ relay }: { relay: boolean }) {
           ))}
         </ul>
       )}
+      <ShowMore query={list} />
     </div>
   );
 }

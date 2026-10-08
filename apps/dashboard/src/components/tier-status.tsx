@@ -112,7 +112,7 @@ export function useStorageStatus(project: string): { sentence: ReactNode; bucket
 
 export function useEmailStatus(project: string): { sentence: ReactNode; mode?: string } {
   const status = useQuery({ ...mq.emailStatus, ...quiet });
-  const msgs = useQuery({ queryKey: ["messages", project, ""], queryFn: () => mod.messages(project, undefined, true), ...quiet });
+  const msgs = useQuery({ queryKey: ["messages", project, ""], queryFn: () => mod.recentMail(project), ...quiet });
   if (status.isError) return { sentence: <span className="text-ink-3">Email isn’t answering.</span> };
   if (!status.data || !msgs.data) return { sentence: null };
   const n = msgs.data.length;

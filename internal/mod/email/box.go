@@ -11,6 +11,7 @@ import (
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/ids"
 	"github.com/btahir/tiffin/internal/mod/email/templates"
+	"github.com/btahir/tiffin/internal/page"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
@@ -236,26 +237,23 @@ func (m *Module) registerBoxAPI(a huma.API, p *platform.Platform, tag string) {
 		}))
 
 	huma.Register(a, api.Untrusted(api.Op("email-box-messages-list", http.MethodGet, "/v1/email/box/messages", "email box messages", api.RiskRead,
-		"List box mail", "The box's own mail, newest first: invites, sign-in links and new sign-in notices, sent or kept in its dev inbox. "+
+		"List box mail", "The box's own mail, newest first, a page at a time: invites, sign-in links and new sign-in notices, sent or kept in its dev inbox. "+
+			"More follow when nextCursor is set: pass it as cursor. "+
 			"Box admins only: it holds invites. A sign-in link someone asked for by email shows its metadata only (the link is theirs alone).", tag)),
 		api.Wrap(func(ctx context.Context, in *struct {
-			Limit int `query:"limit" minimum:"1" maximum:"200" default:"50"`
-		}) (*struct{ Body []Summary }, error) {
+			page.Params
+		}) (*struct{ Body page.Page[Summary] }, error) {
 			if err := boxOnly(p); err != nil {
 				return nil, err
 			}
 			if err := adminOnly(ctx, "box mail holds sign-in links: only owners and admins can read it"); err != nil {
 				return nil, err
 			}
-			recs, err := listRecords(ctx, p.DB.SQL(), ListFilter{Project: boxProject, All: true, Limit: in.Limit})
+			pg, err := listPage(ctx, p.DB.SQL(), ListFilter{Project: boxProject, All: true}, in.Params)
 			if err != nil {
 				return nil, err
 			}
-			out := make([]Summary, 0, len(recs))
-			for _, r := range recs {
-				out = append(out, r.Summary)
-			}
-			return &struct{ Body []Summary }{out}, nil
+			return &struct{ Body page.Page[Summary] }{pg}, nil
 		}))
 
 	get := api.Op("email-box-message-get", http.MethodGet, "/v1/email/box/messages/{id}", "email box message", api.RiskRead, "Read box mail",

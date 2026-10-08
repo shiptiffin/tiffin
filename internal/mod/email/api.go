@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btahir/tiffin/internal/api"
+	"github.com/btahir/tiffin/internal/page"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
@@ -137,15 +138,16 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	m.registerBoxAPI(a, p, tag)
 
 	huma.Register(a, api.Untrusted(api.Op("email-messages-list", http.MethodGet, base+"/messages", "email messages list", api.RiskRead, "List the dev inbox",
-		"Messages captured in the project's dev inbox, newest first. With all=true: every message, including ones sent through the relay or suppressed, with delivery status. "+
+		"Messages captured in the project's dev inbox, newest first, a page at a time. With all=true: every message, including ones sent through the relay or suppressed, with delivery status. "+
+			"More follow when nextCursor is set: pass it as cursor (with the same q, all and status). "+
 			"With read-only access, subjects and text are left out (hidden: true) and q searches sender and recipients only.", tag)),
 		api.Wrap(func(ctx context.Context, in *struct {
-			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
-			Q       string `query:"q" maxLength:"200" doc:"Search subject, from, to and text"`
-			All     bool   `query:"all" doc:"Include relayed and suppressed messages"`
-			Before  string `query:"before" pattern:"^msg_[0-9A-Z]{26}$" doc:"Page: messages older than this ID"`
-			Limit   int    `query:"limit" minimum:"1" maximum:"200" default:"50"`
-		}) (*struct{ Body []Summary }, error) {
+			Project string   `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
+			Q       string   `query:"q" maxLength:"200" doc:"Search subject, from, to and text"`
+			All     bool     `query:"all" doc:"Include relayed and suppressed messages"`
+			Status  []string `query:"status" enum:"captured,queued,sent,delivered,bounced,complained,failed,suppressed" doc:"Only messages in these statuses (comma-separated)"`
+			page.Params
+		}) (*struct{ Body page.Page[Summary] }, error) {
 			if err := boxOnly(p); err != nil {
 				return nil, err
 			}
@@ -153,19 +155,16 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 				return nil, err
 			}
 			full := fullAccess(ctx, in.Project)
-			recs, err := listRecords(ctx, p.DB.SQL(), ListFilter{Project: in.Project, All: in.All, Query: in.Q, Before: in.Before, Limit: in.Limit, EnvelopeOnly: !full})
+			pg, err := listPage(ctx, p.DB.SQL(), ListFilter{Project: in.Project, All: in.All, Query: in.Q, Statuses: in.Status, EnvelopeOnly: !full}, in.Params)
 			if err != nil {
 				return nil, err
 			}
-			out := make([]Summary, 0, len(recs))
-			for _, r := range recs {
-				if full {
-					out = append(out, r.Summary)
-				} else {
-					out = append(out, r.Summary.envelope())
+			if !full {
+				for i := range pg.Items {
+					pg.Items[i] = pg.Items[i].envelope()
 				}
 			}
-			return &struct{ Body []Summary }{out}, nil
+			return &struct{ Body page.Page[Summary] }{pg}, nil
 		}))
 
 	get := api.Op("email-message-get", http.MethodGet, base+"/messages/{id}", "email messages get", api.RiskRead, "Read a message",

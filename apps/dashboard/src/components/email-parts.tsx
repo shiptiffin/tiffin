@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
-import { int } from "@/lib/format";
 
 // Pieces of the Email pages: what a message's status means, the status
 // filter over the log, and the dialog that sends a test message.
@@ -85,18 +84,14 @@ const ORDER: Status[] = ["delivered", "sent", "queued", "bounced", "complained",
 export const isMailFilter = (v: unknown): v is MailFilter => v === "all" || (ORDER as unknown[]).includes(v);
 
 /**
- * The log's status filter: All, then each status the loaded messages have,
- * with its count. A status with none drops out unless it is the one chosen.
+ * The log's status filter: All, then each status the mail has shown so far
+ * (statuses: what the loaded pages hold). The filter runs on the box, so the
+ * chips carry no counts. A status with none drops out unless it is the one chosen.
  */
-export function MailFilters({ messages, value, onChange }: { messages: EmailSummary[]; value: MailFilter; onChange: (f: MailFilter) => void }) {
-  const counts = new Map<Status, number>();
-  for (const m of messages) counts.set(m.status, (counts.get(m.status) ?? 0) + 1);
-  const shown = ORDER.filter((s) => counts.get(s) || s === value);
+export function MailFilters({ statuses, value, onChange }: { statuses: ReadonlySet<string>; value: MailFilter; onChange: (f: MailFilter) => void }) {
+  const shown = ORDER.filter((s) => statuses.has(s) || s === value);
   if (shown.length < 2 && value === "all") return null;
-  const opts: Array<{ v: MailFilter; label: string; n: number }> = [
-    { v: "all", label: "All", n: messages.length },
-    ...shown.map((s) => ({ v: s, label: MAIL_STATUS[s].word, n: counts.get(s) ?? 0 })),
-  ];
+  const opts: Array<{ v: MailFilter; label: string }> = [{ v: "all", label: "All" }, ...shown.map((s) => ({ v: s, label: MAIL_STATUS[s].word }))];
   return (
     <ToggleGroup.Root
       type="single"
@@ -113,7 +108,6 @@ export function MailFilters({ messages, value, onChange }: { messages: EmailSumm
         >
           {o.v !== "all" && <MailDot status={o.v} />}
           {o.label}
-          <span className="text-xs text-ink-4 tnum group-data-[state=on]:text-ink-2">{int(o.n)}</span>
         </ToggleGroup.Item>
       ))}
     </ToggleGroup.Root>

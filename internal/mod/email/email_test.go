@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -19,7 +20,9 @@ import (
 
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/ids"
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/page"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/state"
 	"github.com/btahir/tiffin/internal/tokens"
@@ -566,4 +569,71 @@ func TestAPIScopes(t *testing.T) {
 		t.Fatalf("validation: %d %v", code, m)
 	}
 	_ = http.MethodGet
+}
+
+// The inbox pages by message ID; a search and all=true hold with the cursor.
+func TestInboxPages(t *testing.T) {
+	r := newRig(t)
+	db := r.p.DB.SQL()
+	var want []string // newest first: by ID, as the inbox orders
+	receipts := map[string]bool{}
+	for i := range 7 {
+		rec := &record{Summary: Summary{ID: ids.New("msg"), Project: "pages", CreatedAt: time.Now(), Source: "api", From: "a@x.dev",
+			Subject: fmt.Sprintf("note %d", i), Delivery: DeliveryInbox, Status: "captured"}}
+		if i%2 == 1 {
+			rec.Subject, rec.Delivery, rec.Status = fmt.Sprintf("receipt %d", i), "relay", "sent"
+		}
+		if err := insertRecord(r.ctx, db, rec); err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, rec.ID)
+		receipts[rec.ID] = rec.Delivery == "relay"
+	}
+	slices.Sort(want)
+	slices.Reverse(want)
+	read := func(f ListFilter, limit int) []string {
+		var got []string
+		pp := page.Params{Limit: limit}
+		for range 10 {
+			pg, err := listPage(r.ctx, db, f, pp)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, s := range pg.Items {
+				got = append(got, s.ID)
+			}
+			if pg.NextCursor == "" {
+				return got
+			}
+			if len(pg.Items) != limit {
+				t.Fatalf("a page before the last has %d of %d", len(pg.Items), limit)
+			}
+			pp.Cursor = pg.NextCursor
+		}
+		t.Fatal("paging never ended")
+		return nil
+	}
+	if got := read(ListFilter{Project: "pages", All: true}, 3); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("all, pages of 3: %v want %v", got, want)
+	}
+	only := func(relay bool) (ids []string) {
+		for _, id := range want {
+			if receipts[id] == relay {
+				ids = append(ids, id)
+			}
+		}
+		return ids
+	}
+	if got := read(ListFilter{Project: "pages"}, 2); !slices.Equal(got, only(false)) {
+		t.Errorf("inbox only: %v want %v", got, only(false))
+	}
+	if got := read(ListFilter{Project: "pages", All: true, Query: "receipt"}, 1); !slices.Equal(got, only(true)) {
+		t.Errorf("search with the cursor: %v want %v", got, only(true))
+	}
+	if got := read(ListFilter{Project: "pages", All: true, Statuses: []string{"sent"}}, 2); !slices.Equal(got, only(true)) {
+		t.Errorf("status with the cursor: %v want %v", got, only(true))
+	}
+	if _, err := listPage(r.ctx, db, ListFilter{Project: "pages"}, page.Params{Cursor: page.Encode("not-an-id")}); !errors.Is(err, page.ErrBadCursor) {
+		t.Errorf("bad cursor: %v", err)
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/btahir/tiffin/internal/page"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +54,8 @@ var schema = []string{
 		sent_at     TEXT NOT NULL DEFAULT ''
 	) STRICT`,
 	`CREATE INDEX IF NOT EXISTS email_messages_project ON email_messages(project, delivery, id)`,
+	// Every message of a project, newest first (the inbox with all=true, box mail).
+	`CREATE INDEX IF NOT EXISTS email_messages_recent ON email_messages(project, id)`,
 	`CREATE INDEX IF NOT EXISTS email_messages_due ON email_messages(status, next_at)`,
 	// What the box sent each relayed message as, so the provider's
 	// delivery events can be matched back to it.
@@ -213,8 +216,35 @@ type ListFilter struct {
 	// EnvelopeOnly searches from and to only (read-only access: the subject
 	// and text aren't theirs to see, nor to probe a letter at a time).
 	EnvelopeOnly bool
-	Before       string // message ID cursor (exclusive)
+	Statuses     []string // only messages in one of these statuses
+	Before       string   // message ID cursor (exclusive)
 	Limit        int
+}
+
+// listPage reads one page of summaries, newest first, by message ID (ULIDs:
+// unique and in the order they were taken in).
+func listPage(ctx context.Context, db *sql.DB, f ListFilter, pp page.Params) (page.Page[Summary], error) {
+	limit := page.Clamp(pp.Limit)
+	key, err := page.Decode(pp.Cursor, 1)
+	if err != nil {
+		return page.Page[Summary]{}, err
+	}
+	if key != nil {
+		if !msgIDRE.MatchString(key[0]) {
+			return page.Page[Summary]{}, page.ErrBadCursor
+		}
+		f.Before = key[0]
+	}
+	f.Limit = limit + 1
+	recs, err := listRecords(ctx, db, f)
+	if err != nil {
+		return page.Page[Summary]{}, err
+	}
+	out := make([]Summary, 0, len(recs))
+	for _, r := range recs {
+		out = append(out, r.Summary)
+	}
+	return page.Make(out, limit, func(s Summary) []string { return []string{s.ID} }), nil
 }
 
 func listRecords(ctx context.Context, db *sql.DB, f ListFilter) ([]*record, error) {
@@ -232,6 +262,12 @@ func listRecords(ctx context.Context, db *sql.DB, f ListFilter) ([]*record, erro
 		} else {
 			q += ` AND (lower(subject) LIKE ? ESCAPE '\' OR lower(from_hdr) LIKE ? ESCAPE '\' OR lower(to_hdr) LIKE ? ESCAPE '\' OR lower(snippet) LIKE ? ESCAPE '\')`
 			args = append(args, like, like, like, like)
+		}
+	}
+	if len(f.Statuses) > 0 {
+		q += ` AND status IN (?` + strings.Repeat(`, ?`, len(f.Statuses)-1) + `)`
+		for _, st := range f.Statuses {
+			args = append(args, st)
 		}
 	}
 	if f.Before != "" {
