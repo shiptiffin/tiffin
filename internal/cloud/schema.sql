@@ -92,6 +92,7 @@ create table if not exists cloud_jobs (
   steps jsonb not null default '[]',
   checkpoint jsonb not null default '{}',
   attempts integer not null default 0,
+  not_before timestamptz,
   lease_gen bigint not null default 0,
   error text,
   created_at timestamptz not null default now(),
@@ -103,7 +104,7 @@ create index if not exists cloud_jobs_queue on cloud_jobs (status, id);
 create index if not exists cloud_jobs_box on cloud_jobs (box_id, created_at desc);
 -- One running job per box: infrastructure work on a box never overlaps.
 create unique index if not exists cloud_jobs_one_running on cloud_jobs (box_id) where status = 'running';
-comment on table cloud_jobs is 'Work for the cloud worker. token_sealed holds a customer''s Hetzner token only while its job waits or runs (and never past token_expires_at); it is cleared when the job ends. lease_gen fences a worker that lost its lease; checkpoint records the phases a retry skips.';
+comment on table cloud_jobs is 'Work for the cloud worker. token_sealed holds a customer''s Hetzner token only while its job waits or runs (and never past token_expires_at); it is cleared when the job ends. lease_gen fences a worker that lost its lease; checkpoint records the phases a retry skips; not_before delays a retry.';
 
 create table if not exists cloud_hetzner_calls (
   id bigint generated always as identity primary key,

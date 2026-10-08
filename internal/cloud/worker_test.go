@@ -565,7 +565,9 @@ func TestDeleteRemovesDNSFirst(t *testing.T) {
 	h.exec(`update cloud_boxes set status = 'deleting' where id = 'box_11'`)
 	id := h.enqueue("box_11", "delete_server", "a-revoked-token", DeleteArgs{})
 	h.runNext()
-	if j := h.job(id); j.Status != "failed" {
+	// It failed after removing the address; it's queued to run again later, with its key and checkpoint.
+	j := h.job(id)
+	if j.Status != "queued" || j.Token == nil || j.Error == nil {
 		t.Fatalf("delete with a dead key: %s", j.text())
 	}
 	if b := h.box("box_11"); b.DNSState != "removed" || h.cf.Count() != 0 || b.Status != "deleting" {
@@ -574,11 +576,32 @@ func TestDeleteRemovesDNSFirst(t *testing.T) {
 	if srv, _, _, _ := h.hz.Count(); srv != 1 {
 		t.Fatal("the server went without a working key?")
 	}
-	id = h.enqueue("box_11", "delete_server", hetznertest.Token, DeleteArgs{})
+	if c, _ := h.store.Claim(context.Background(), time.Minute); c != nil {
+		t.Fatal("a retry ran before its time")
+	}
+	// The retry, with the address already gone (its checkpoint): the customer's key works now.
+	sealed, _ := Seal(h.seal.PublicKey(), []byte(hetznertest.Token), TokenAAD("box_11"))
+	h.exec(`update cloud_jobs set not_before = null, token_sealed = $2 where id = $1`, id, sealed)
+	_ = h.w.DNS.Set(context.Background(), "gone", "203.0.113.77", "") // would be removed again if the checkpoint were ignored
 	h.runNext()
 	if j := h.job(id); j.Status != "done" {
 		t.Fatalf("retry: %s", j.text())
 	}
+	if h.cf.Count() == 0 {
+		t.Fatal("the retry redid a phase its checkpoint says is done")
+	}
+	_ = h.w.DNS.Remove(context.Background(), "gone")
+	// A job that keeps failing gives up after MaxAttempts.
+	h.exec(`update cloud_boxes set status = 'deleting' where id = 'box_11'`)
+	id = h.enqueue("box_11", "delete_server", "a-revoked-token", DeleteArgs{})
+	for i := 0; i < MaxAttempts; i++ {
+		h.exec(`update cloud_jobs set not_before = null where id = $1`, id)
+		h.runNext()
+	}
+	if j := h.job(id); j.Status != "failed" || j.Token != nil {
+		t.Fatalf("after %d tries: %s", MaxAttempts, j.text())
+	}
+	h.exec(`update cloud_boxes set status = 'released' where id = 'box_11'`)
 	if srv, vols, _, _ := h.hz.Count(); srv != 0 || vols != 1 {
 		t.Fatalf("after delete: servers %d volumes %d", srv, vols)
 	}

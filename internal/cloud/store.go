@@ -85,6 +85,9 @@ type Store interface {
 	Checkpoint(ctx context.Context, l Lease, key string, value any) error
 	// Finish ends a job and clears its token, whatever the outcome.
 	Finish(ctx context.Context, l Lease, jobErr error) error
+	// Retry puts a failed job back in the queue, with its token (while it
+	// lasts) and checkpoints, to run again after delay.
+	Retry(ctx context.Context, l Lease, jobErr error, delay time.Duration) error
 	Box(ctx context.Context, id string) (*Box, error)
 	NextGeneration(ctx context.Context, l Lease, boxID string) (int64, error)
 	SetStatus(ctx context.Context, l Lease, boxID, status string) error
@@ -196,7 +199,7 @@ func (s *PG) Claim(ctx context.Context, lease time.Duration) (*Job, error) {
 		update cloud_jobs set status = 'running', started_at = coalesce(started_at, now()), lease_until = now() + $1::interval,
 			lease_gen = lease_gen + 1, attempts = attempts + 1
 		where id = (
-			select j.id from cloud_jobs j where j.status = 'queued'
+			select j.id from cloud_jobs j where j.status = 'queued' and coalesce(j.not_before, '-infinity') <= now()
 			and not exists (select 1 from cloud_jobs r where r.box_id = j.box_id and r.status = 'running')
 			and not exists (select 1 from cloud_jobs o where o.box_id = j.box_id and o.status = 'queued' and o.id < j.id)
 			order by j.id limit 1 for update skip locked)
@@ -256,6 +259,19 @@ func (s *PG) Finish(ctx context.Context, l Lease, jobErr error) error {
 	}
 	tag, err := s.Pool.Exec(ctx, `update cloud_jobs set status = $3, error = $4, token_sealed = null, finished_at = now(), lease_until = null
 		where id = $1 and lease_gen = $2 and status = 'running'`, l.JobID, l.Gen, status, msg)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrLeaseLost
+	}
+	return err
+}
+
+func (s *PG) Retry(ctx context.Context, l Lease, jobErr error, delay time.Duration) error {
+	m := jobErr.Error()
+	if len(m) > 2000 {
+		m = m[:2000]
+	}
+	tag, err := s.Pool.Exec(ctx, `update cloud_jobs set status = 'queued', error = $3, lease_until = null, not_before = now() + $4::interval
+		where id = $1 and lease_gen = $2 and status = 'running'`, l.JobID, l.Gen, m, interval(delay))
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrLeaseLost
 	}

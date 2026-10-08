@@ -220,12 +220,24 @@ func (w *Worker) RunJob(ctx context.Context, job *Job) {
 	}
 	if err != nil {
 		w.Log.Warn("job failed", "id", job.ID, "kind", job.Kind, "box", job.BoxID, "err", err)
+		// Deleting and cleaning up must finish, and an address must follow
+		// its decision: try again later (with the key while it lasts).
+		if retried[job.Kind] && job.Attempts < MaxAttempts {
+			delay := time.Duration(1<<job.Attempts) * time.Minute
+			if rerr := w.Store.Retry(context.WithoutCancel(ctx), job.Lease, err, delay); rerr == nil {
+				return
+			}
+		}
 	}
 	// Finish clears the job's token whatever happened.
 	if ferr := w.Store.Finish(context.WithoutCancel(ctx), job.Lease, err); ferr != nil {
 		w.Log.Error("finish job", "id", job.ID, "err", ferr)
 	}
 }
+
+// retried: job kinds tried again after a failure (setups and resizes are
+// the customer's to try again).
+var retried = map[string]bool{"delete_server": true, "cleanup": true, "dns_set": true, "dns_remove": true}
 
 func (w *Worker) keepLease(ctx context.Context, cancel context.CancelCauseFunc, job *Job) {
 	t := time.NewTicker(w.Lease / 6)

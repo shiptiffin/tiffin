@@ -638,7 +638,10 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
 - **One worker, a few jobs at once.** Jobs run three at a time, one per box, oldest first;
   more wait their turn. A worker that can't renew its lease (5 minutes) stops its job
   within half of it, and the sweep then retries it (resize, delete, DNS) or fails it and
-  cleans up (setup).
+  cleans up (setup). A delete, clean-up or address change that fails is tried again by
+  itself, five times at most, backing off from a minute, with the customer's key while it
+  lasts (two hours); a delete always removes the address first, so what's left after
+  that is only the server, which the customer can delete in the console.
 - **No key rotation tool.** `CLOUD_SEAL_KEY` opens stored Hetzner keys; changing it makes
   the stored ones unreadable (customers paste their key again). The sealed format carries
   a version prefix (`v2.`) for a rotation later. `CLOUD_LICENCE_KEY` signs licences;
