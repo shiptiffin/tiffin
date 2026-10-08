@@ -93,7 +93,15 @@ describe("withOrg", () => {
     expect(log.at(-1)).toBe("ROLLBACK");
   });
 
-  test("Bun.sql / postgres.js style: sql.begin", async () => {
+  test("node-postgres Pool: one client for the whole transaction, then released", async () => {
+    const log: string[] = [];
+    const client = { query: async (t: string) => void log.push(t), release: () => void log.push("release") };
+    const pool = { totalCount: 0, query: async () => { throw new Error("pool.query used"); }, connect: async () => client };
+    expect(await withOrg(pool, "org_c", async (tx) => { await tx.query("select 1"); return 7; })).toBe(7);
+    expect(log).toEqual(["BEGIN", "select set_config('app.org_id', $1, true), set_config('app.user_id', $2, true)", "select 1", "COMMIT", "release"]);
+  });
+
+  test("postgres.js style: sql.begin", async () => {
     const seen: unknown[] = [];
     const tx = (strings: TemplateStringsArray, ...values: unknown[]) => { seen.push(strings.join("?"), values); return Promise.resolve([]); };
     const sql = { begin: async (fn: (t: typeof tx) => Promise<string>) => fn(tx) };

@@ -238,12 +238,24 @@ export async function requireRole(request, role, opts = {}) {
  * app.user_id when given) with SET LOCAL semantics, so tables protected by
  * `select tiffin_auth.enable_org_rls('notes')` only show and accept that org's rows.
  *
- * Works with Bun.sql / postgres.js (anything with sql.begin) and with a
- * dedicated node-postgres client (pool.connect()).
+ * Works with postgres.js (anything with sql.begin) and with node-postgres: a
+ * Pool (one client is checked out for the transaction and handed to fn) or a
+ * client from pool.connect().
  */
 export async function withOrg(db, orgId, fn, userId) {
     if (!orgId)
         throw new Error("withOrg: orgId is required");
+    if ("totalCount" in db && typeof db.connect === "function") {
+        // A node-postgres Pool: every pool.query may take another connection, so
+        // the transaction needs one client of its own.
+        const client = await db.connect();
+        try {
+            return await withOrg(client, orgId, fn, userId);
+        }
+        finally {
+            client.release();
+        }
+    }
     if ("begin" in db && typeof db.begin === "function") {
         return db.begin(async (tx) => {
             await tx `select set_config('app.org_id', ${orgId}, true), set_config('app.user_id', ${userId ?? ""}, true)`;

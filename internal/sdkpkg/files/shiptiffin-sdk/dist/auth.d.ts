@@ -127,15 +127,22 @@ type BeginSQL<T> = {
 type QueryClient = {
     query: (text: string, params?: unknown[]) => Promise<unknown>;
 };
+type PgPool = QueryClient & {
+    totalCount: number;
+    connect: () => Promise<QueryClient & {
+        release: () => void;
+    }>;
+};
 /**
  * Runs fn in a transaction scoped to an organization: sets app.org_id (and
  * app.user_id when given) with SET LOCAL semantics, so tables protected by
  * `select tiffin_auth.enable_org_rls('notes')` only show and accept that org's rows.
  *
- * Works with Bun.sql / postgres.js (anything with sql.begin) and with a
- * dedicated node-postgres client (pool.connect()).
+ * Works with postgres.js (anything with sql.begin) and with node-postgres: a
+ * Pool (one client is checked out for the transaction and handed to fn) or a
+ * client from pool.connect().
  */
-export declare function withOrg<T>(db: BeginSQL<T> | QueryClient, orgId: string, fn: (tx: any) => Promise<T>, userId?: string): Promise<T>;
+export declare function withOrg<T>(db: BeginSQL<T> | QueryClient | PgPool, orgId: string, fn: (tx: any) => Promise<T>, userId?: string): Promise<T>;
 export type TokenClaims = {
     sub: string;
     email: string;

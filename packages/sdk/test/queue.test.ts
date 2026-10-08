@@ -213,7 +213,11 @@ describe("@shiptiffin/sdk/queue", () => {
     await queue.sendTx({ unsafe: async (q: string, p?: unknown[]) => seen.push([q, p]) }, "emails", { n: 1 }, { delay: 2000, key: "k" });
     await queue.sendTx({ query: async (q: string, p?: unknown[]) => seen.push([q, p]) }, "emails", null);
     await queue.sendTx(async (q, p) => seen.push([q, p]), "emails");
-    expect(seen).toHaveLength(3);
+    // A postgres.js handle is a tagged-template function with unsafe(): unsafe is used.
+    const tx = Object.assign(() => { throw new Error("called as a tagged template"); }, { unsafe: async (q: string, p?: unknown[]) => seen.push([q, p]) });
+    await queue.sendTx(tx, "emails");
+    expect(seen).toHaveLength(4);
+    expect(OUTBOX_INSERT).toContain("$2::text::jsonb");
     expect(seen[0]![0]).toBe(OUTBOX_INSERT);
     expect(OUTBOX_INSERT).toStartWith("INSERT INTO tiffin_queue.outbox ");
     const params = seen[0]![1] as string[];

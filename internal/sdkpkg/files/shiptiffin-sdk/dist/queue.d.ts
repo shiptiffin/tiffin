@@ -71,16 +71,21 @@ export declare function currentApp(): string;
 /** Sends a job to a queue, or publishes to a topic (one job per subscriber). */
 export declare function send(name: string, payload?: unknown, opts?: SendOptions): Promise<SendResult>;
 /**
- * A database handle sendTx can write with: Bun.sql / postgres.js (`unsafe`),
- * node-postgres (`query`), or a function `(sql, params) => Promise`.
+ * A database handle sendTx can write with: postgres.js (`unsafe`), node-postgres
+ * (`query`), or a function `(sql, params) => Promise`.
  */
 export type SqlExecutor = {
     unsafe(query: string, params?: unknown[]): unknown;
 } | {
     query(query: string, params?: unknown[]): unknown;
 } | ((query: string, params: unknown[]) => unknown);
-/** The statement sendTx runs (the box creates tiffin_queue.outbox in every project database). */
-export declare const OUTBOX_INSERT = "INSERT INTO tiffin_queue.outbox (name, payload, options, app) VALUES ($1, $2::jsonb, $3::jsonb, $4)";
+/**
+ * The statement sendTx runs (the box creates tiffin_queue.outbox in every
+ * project database). The JSON goes in as text: a driver that types parameters
+ * from the statement (postgres.js) would encode an already-encoded `$2::jsonb`
+ * again and store a JSON string.
+ */
+export declare const OUTBOX_INSERT = "INSERT INTO tiffin_queue.outbox (name, payload, options, app) VALUES ($1, $2::text::jsonb, $3::text::jsonb, $4)";
 /**
  * Enqueues inside your own Postgres transaction: the job exists if and only
  * if the transaction commits. Pass the transaction handle:

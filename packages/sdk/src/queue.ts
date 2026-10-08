@@ -193,16 +193,21 @@ export async function send(name: string, payload?: unknown, opts: SendOptions = 
 }
 
 /**
- * A database handle sendTx can write with: Bun.sql / postgres.js (`unsafe`),
- * node-postgres (`query`), or a function `(sql, params) => Promise`.
+ * A database handle sendTx can write with: postgres.js (`unsafe`), node-postgres
+ * (`query`), or a function `(sql, params) => Promise`.
  */
 export type SqlExecutor =
   | { unsafe(query: string, params?: unknown[]): unknown }
   | { query(query: string, params?: unknown[]): unknown }
   | ((query: string, params: unknown[]) => unknown);
 
-/** The statement sendTx runs (the box creates tiffin_queue.outbox in every project database). */
-export const OUTBOX_INSERT = "INSERT INTO tiffin_queue.outbox (name, payload, options, app) VALUES ($1, $2::jsonb, $3::jsonb, $4)";
+/**
+ * The statement sendTx runs (the box creates tiffin_queue.outbox in every
+ * project database). The JSON goes in as text: a driver that types parameters
+ * from the statement (postgres.js) would encode an already-encoded `$2::jsonb`
+ * again and store a JSON string.
+ */
+export const OUTBOX_INSERT = "INSERT INTO tiffin_queue.outbox (name, payload, options, app) VALUES ($1, $2::text::jsonb, $3::text::jsonb, $4)";
 
 /**
  * Enqueues inside your own Postgres transaction: the job exists if and only
@@ -224,9 +229,11 @@ export async function sendTx(db: SqlExecutor, name: string, payload?: unknown, o
   delete options.name;
   delete options.payload;
   const params = [name, JSON.stringify(b.payload), JSON.stringify(options), currentApp()];
-  if (typeof db === "function") await db(OUTBOX_INSERT, params);
-  else if ("unsafe" in db) await db.unsafe(OUTBOX_INSERT, params);
-  else if ("query" in db) await db.query(OUTBOX_INSERT, params);
+  // postgres.js and Bun.sql handles are functions too (tagged templates), so
+  // look for their methods before calling the handle itself.
+  if ("unsafe" in db && typeof db.unsafe === "function") await db.unsafe(OUTBOX_INSERT, params);
+  else if ("query" in db && typeof db.query === "function") await db.query(OUTBOX_INSERT, params);
+  else if (typeof db === "function") await db(OUTBOX_INSERT, params);
   else throw new TypeError("sendTx needs a SQL handle with unsafe() or query(), or a function");
 }
 
