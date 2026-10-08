@@ -195,6 +195,9 @@ func (r *rt) sleepIdle(ctx context.Context) {
 			continue
 		}
 		idle := r.opt.PreviewIdle
+		if isVersionEnv(s.Preview) {
+			idle = r.opt.VersionIdle
+		}
 		if s.Preview == "" {
 			d, ok := after[s.Project]
 			if !ok {
@@ -356,6 +359,14 @@ func (r *rt) unpark(ctx context.Context, d *Deploy, spec *manifest.App, ins []In
 // wake returns a running instance's port for an app environment, starting
 // it first if it sleeps. woke reports whether this call started it.
 func (r *rt) wake(ctx context.Context, project, app, preview, trigger string) (port int, woke bool, err error) {
+	if isVersionEnv(preview) {
+		// Old versions wake one at a time per project, within the cap.
+		unlockV := r.lock(versionsLock(project))
+		defer unlockV()
+		if err := r.prepareVersion(ctx, project, app, preview); err != nil {
+			return 0, false, err
+		}
+	}
 	unlock := r.lock(envKey(project, app, preview))
 	defer unlock()
 	st, err := r.st.getState(ctx, project, app, preview)
@@ -371,6 +382,9 @@ func (r *rt) wake(ctx context.Context, project, app, preview, trigger string) (p
 	d, err := r.st.getDeploy(ctx, project, app, st.Live)
 	if err != nil {
 		return 0, false, err
+	}
+	if isVersionEnv(preview) {
+		d.Preview = preview // a production build, started in its own environment (never saved so)
 	}
 	spec, err := r.appSpec(ctx, project, app)
 	if err != nil {
@@ -458,7 +472,7 @@ func SleepingApps(ctx context.Context, db *state.DB, project string) map[string]
 	}
 	for _, b := range kv {
 		var st AppState
-		if json.Unmarshal(b, &st) == nil && st.Project == project && st.Sleeping && !st.Stopped {
+		if json.Unmarshal(b, &st) == nil && st.Project == project && st.Sleeping && !st.Stopped && !isVersionEnv(st.Preview) {
 			k := st.App
 			if st.Preview != "" {
 				k += "@" + st.Preview

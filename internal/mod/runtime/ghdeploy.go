@@ -379,7 +379,8 @@ func (r *rt) siteURL(ctx context.Context, d *Deploy) string {
 	if err != nil {
 		return d.URL
 	}
-	return ownDomainURL(r.p.URL, r.p.AppsDomain(), appRoutes(d.Project, d.App, spec), d.URL)
+	// The app's address, not the deploy's own (d-<id>--<name>).
+	return ownDomainURL(r.p.URL, r.p.AppsDomain(), appRoutes(d.Project, d.App, spec), r.deployURL(d, spec))
 }
 
 // ownDomainURL is the URL of the first of routes on a domain of its own

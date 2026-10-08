@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -62,6 +63,11 @@ func (r *rt) table() switchboard.Table {
 	for h, rs := range r.dispatch {
 		hosts[h] = append([]switchboard.Route(nil), rs...)
 	}
+	stubs := make(map[string]switchboard.Env, len(r.addrs.stubs))
+	for k, e := range r.addrs.stubs {
+		stubs[k] = *e
+	}
+	gone := maps.Clone(r.addrs.gone)
 	r.mu.Unlock()
 	r.st.cache.mu.RLock()
 	states := make([]*AppState, 0, len(r.st.cache.m))
@@ -69,7 +75,11 @@ func (r *rt) table() switchboard.Table {
 		states = append(states, st)
 	}
 	r.st.cache.mu.RUnlock()
-	t := switchboard.Table{Hosts: hosts, Envs: make(map[string]*switchboard.Env, len(states)), Files: r.p.URL(r.p.Host("files"))}
+	t := switchboard.Table{Hosts: hosts, Envs: make(map[string]*switchboard.Env, len(states)+len(stubs)), Files: r.p.URL(r.p.Host("files")), Gone: gone}
+	// Old versions nobody woke yet: asleep, so their first request wakes them.
+	for k, e := range stubs {
+		t.Envs[k] = &e
+	}
 	for _, st := range states {
 		e := &switchboard.Env{Project: st.Project, App: st.App, Preview: st.Preview, Live: st.Live, Stopped: st.Stopped, Sleeping: st.Sleeping,
 			Assets: r.assetsDir(st.Project, st.App, st.Preview), Timeout: r.requestTimeout(r.ctx, st.Project, st.App), Cgroup: r.peerDir(st.Project)}

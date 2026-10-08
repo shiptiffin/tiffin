@@ -799,8 +799,9 @@ func TestDeployPromoteAndRoutes(t *testing.T) {
 	if d.Status != StatusLive {
 		t.Fatalf("status %s: %s", d.Status, d.Error)
 	}
-	if d.URL != "https://shop.tiffin.localhost:8443/api" {
-		t.Errorf("url %q", d.URL)
+	// Its own address: d-<short id>--<project>-<app> (api serves a path).
+	if want := "https://d-" + strings.ToLower(d.ID[len(d.ID)-8:]) + "--shop-api.tiffin.localhost:8443"; d.URL != want {
+		t.Errorf("url %q, want %q", d.URL, want)
 	}
 	if d.Digest == "" || d.BuiltAt == nil || d.LiveAt == nil || d.TotalSecs < 0 {
 		t.Errorf("deploy record incomplete: %+v", d)
@@ -925,8 +926,10 @@ func TestZeroDowntimeRedeployAndRollback(t *testing.T) {
 		t.Fatalf("v2 is %s, want rolled_back", cur.Status)
 	}
 	h.edge.mu.Lock()
-	if h.edge.loads != loads {
-		t.Errorf("the edge reloaded %d times for a redeploy and a rollback; instance switches must not reload it", h.edge.loads-loads)
+	// Once, as v2 was queued: its own address. Its switch and the
+	// rollback only change the switchboard's table.
+	if h.edge.loads != loads+1 {
+		t.Errorf("the edge reloaded %d times for a redeploy and a rollback; want once (the new deploy's address); instance switches must not reload it", h.edge.loads-loads)
 	}
 	h.edge.mu.Unlock()
 	if failed.Load() != 0 || ok.Load() < 50 {

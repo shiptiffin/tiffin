@@ -14,7 +14,13 @@ const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 // New returns prefix + "_" + a 26-char ULID.
 func New(prefix string) string {
-	return prefix + "_" + ulid(time.Now())
+	return NewAt(prefix, time.Now())
+}
+
+// NewAt is New for a time the caller also records, so the ID and the
+// record's time agree to the millisecond (and sort the same).
+func NewAt(prefix string, t time.Time) string {
+	return prefix + "_" + ulid(t)
 }
 
 func ulid(t time.Time) string {

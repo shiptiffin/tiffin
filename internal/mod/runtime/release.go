@@ -135,7 +135,7 @@ func (r *rt) release(ctx context.Context, d *Deploy, spec *manifest.App, src Rel
 	if err := r.promote(ctx, d, modeDeploy, log); err != nil {
 		return err
 	}
-	fmt.Fprintf(log, "==> live in %.1fs total%s\n", d.TotalSecs, urlNote(d.URL))
+	fmt.Fprintf(log, "==> live in %.1fs total%s\n", d.TotalSecs, urlNote(r.deployURL(d, spec)))
 	_ = r.syncCrons(ctx, d.Project, d.App, log)
 	return nil
 }

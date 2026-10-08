@@ -24,6 +24,11 @@
       "type": "string",
       "pattern": "^[1-9][0-9]{0,3}[hd]$"
     },
+    "deployAddresses": {
+      "description": "Who may open the address every production deploy of a web app gets (d-<id>--<app>.<apps domain>, which serves that version for as long as the box keeps it): \"signed-in\" (the default), only people signed in to the box's dashboard; \"public\", anyone with the address.",
+      "type": "string",
+      "enum": ["signed-in", "public"]
+    },
     "apps": {
       "description": "Apps keyed by name. App names follow the same slug rules as `project`. An app is one deployable unit.",
       "type": "object",

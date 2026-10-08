@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
+	"text/tabwriter"
+	"time"
 
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/change"
@@ -68,6 +71,13 @@ func (a *app) emit(status int, raw []byte) {
 				if !p.Empty() {
 					fmt.Fprintf(out, "%s apply with %s\n", a.paint("→", amber), a.paint("tiffin apply --confirm "+p.Hash[:12], bold))
 				}
+				return
+			}
+		}
+		if _, ok := probe["deploys"]; ok {
+			var l deployPage
+			if json.Unmarshal(raw, &l) == nil {
+				a.renderDeploys(out, l)
 				return
 			}
 		}
@@ -172,4 +182,52 @@ func riskBadge(t change.Tier, color bool) string {
 		code = red
 	}
 	return paint(color, string(t), code)
+}
+
+// deployPage is a page of deploys (tiffin deploys list, tiffin projects deploys).
+type deployPage struct {
+	Deploys []struct {
+		ID        string    `json:"id"`
+		App       string    `json:"app"`
+		Preview   string    `json:"preview"`
+		Version   int       `json:"version"`
+		Status    string    `json:"status"`
+		Ref       string    `json:"ref"`
+		CreatedAt time.Time `json:"createdAt"`
+		URL       string    `json:"url"`
+		Retention string    `json:"retention"`
+	} `json:"deploys"`
+	NextCursor string `json:"nextCursor"`
+}
+
+// renderDeploys prints deploys as a table, each with its own address.
+func (a *app) renderDeploys(out io.Writer, l deployPage) {
+	if len(l.Deploys) == 0 {
+		fmt.Fprintln(out, "No deploys.")
+		return
+	}
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "DEPLOY\tAPP\tVERSION\tSTATUS\tBRANCH\tCREATED\tADDRESS")
+	for _, d := range l.Deploys {
+		ver := "-"
+		switch {
+		case d.Preview != "":
+			ver = "preview " + d.Preview
+		case d.Version > 0:
+			ver = "v" + strconv.Itoa(d.Version)
+		}
+		addr := strings.TrimPrefix(d.URL, "https://")
+		switch {
+		case d.Retention == "cleaned":
+			addr = "(cleaned up)"
+		case addr == "":
+			addr = "-"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", d.ID, d.App, ver, strings.ReplaceAll(d.Status, "_", " "), orDefault(d.Ref, "-"),
+			d.CreatedAt.Local().Format("2006-01-02 15:04"), addr)
+	}
+	_ = tw.Flush()
+	if l.NextCursor != "" {
+		fmt.Fprintf(out, "%s older deploys: add %s\n", a.paint("→", amber), a.paint("--cursor "+l.NextCursor, bold))
+	}
 }

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"os"
 	"path"
@@ -26,17 +25,18 @@ import (
 	"github.com/btahir/tiffin/internal/mod/auth"
 	"github.com/btahir/tiffin/internal/mod/budget"
 	"github.com/btahir/tiffin/internal/mod/email"
-	"github.com/btahir/tiffin/internal/mod/postgres"
 	"github.com/btahir/tiffin/internal/mod/runtime/srcpack"
-	"github.com/btahir/tiffin/internal/mod/valkey"
 	"github.com/btahir/tiffin/internal/peer"
 )
 
 // newDeploy records a queued deploy. Its source must already be on disk.
 func (r *rt) newDeploy(ctx context.Context, project, app, preview, source, by string, spec *manifest.App) (*Deploy, error) {
-	d := &Deploy{ID: ids.New("dep"), Project: project, App: app, Preview: preview, Status: StatusQueued, Source: source,
-		Framework: string(spec.Framework), CreatedAt: time.Now().UTC(), CreatedBy: by}
-	d.URL = r.deployURL(d, spec)
+	// The ID carries the creation time to the millisecond: lists page by ID
+	// (newest first), which is the order of CreatedAt.
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	d := &Deploy{ID: ids.NewAt("dep", now), Project: project, App: app, Preview: preview, Status: StatusQueued, Source: source,
+		Framework: string(spec.Framework), CreatedAt: now, CreatedBy: by}
+	d.URL = r.ownURL(d, spec)
 	if preview == "" {
 		versionMu.Lock()
 		defer versionMu.Unlock() // until the deploy carrying the version is stored
@@ -49,7 +49,17 @@ func (r *rt) newDeploy(ctx context.Context, project, app, preview, source, by st
 	if err := os.MkdirAll(r.workDir(d), 0o755); err != nil {
 		return nil, err
 	}
-	return d, r.st.putDeploy(ctx, d)
+	if err := r.st.putDeploy(ctx, d); err != nil {
+		return nil, err
+	}
+	if preview == "" && spec.Role != manifest.RoleWorker {
+		// Its own address goes on the edge now, while it builds, so going
+		// live later changes nothing but the switchboard's table.
+		if err := r.refreshIfNeeded(ctx); err != nil {
+			r.p.Log.Warn("runtime: add a new deploy's address to the edge (the next refresh retries)", "deploy", d.ID, "err", err)
+		}
+	}
+	return d, nil
 }
 
 func (r *rt) workDir(d *Deploy) string {
@@ -318,6 +328,11 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 
 	d.Status = StatusStarting
 	_ = r.st.putDeploy(ctx, d)
+	if d.Preview == "" {
+		// Its address as it will stay (its files, its vercel.json rules),
+		// before the switch, which then reloads nothing.
+		_ = r.refreshIfNeeded(ctx)
+	}
 	// From here to the switch, one deploy of an environment at a time: its
 	// release command and switch never overlap another's, and a deploy a
 	// newer one overtook (it went live meanwhile) stops before either.
@@ -342,7 +357,7 @@ func (r *rt) pipeline(ctx context.Context, d *Deploy, src, kind string, log io.W
 	if err := r.promote(ctx, d, modeDeploy, log); err != nil {
 		return err
 	}
-	fmt.Fprintf(log, "==> live in %.1fs total%s\n", d.TotalSecs, urlNote(d.URL))
+	fmt.Fprintf(log, "==> live in %.1fs total%s\n", d.TotalSecs, urlNote(r.deployURL(d, spec)))
 	if d.Preview == "" {
 		_ = r.syncCrons(ctx, d.Project, d.App, log)
 		r.refreshIconLater(d.Project, d.App, d.ID)
@@ -613,7 +628,10 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 		go r.removeInstances(r.ctx, parked)
 	}
 	now := time.Now().UTC()
-	if prev.Live != "" && prev.Live != d.ID {
+	// An old version woken at its own address runs a production build in an
+	// environment of its own: its record (still a rollback target) is left as it is.
+	version := isVersionEnv(d.Preview)
+	if prev.Live != "" && prev.Live != d.ID && !version {
 		if old, err := r.st.getDeploy(ctx, d.Project, d.App, prev.Live); err == nil && (old.Status == StatusLive || old.Status == StatusStopped) {
 			old.Status = StatusSuperseded
 			if mode == modeRollback {
@@ -622,17 +640,19 @@ func (r *rt) promoteLocked(ctx context.Context, d *Deploy, spec *manifest.App, m
 			_ = r.st.putDeploy(ctx, old)
 		}
 	}
-	d.Status, d.Error, d.Hint = StatusLive, "", ""
-	// Went live: when this version took over (a deploy or a rollback to it).
-	// Restarts, rescales and wakes keep the time, so every page quotes one.
-	if d.LiveAt == nil || mode == modeDeploy || mode == modeRollback {
-		d.LiveAt = &now
+	if !version {
+		d.Status, d.Error, d.Hint = StatusLive, "", ""
+		// Went live: when this version took over (a deploy or a rollback to it).
+		// Restarts, rescales and wakes keep the time, so every page quotes one.
+		if d.LiveAt == nil || mode == modeDeploy || mode == modeRollback {
+			d.LiveAt = &now
+		}
+		if d.FinishedAt == nil || mode == modeDeploy {
+			d.FinishedAt = &now
+			d.TotalSecs = round1(now.Sub(d.CreatedAt).Seconds())
+		}
+		_ = r.st.putDeploy(ctx, d)
 	}
-	if d.FinishedAt == nil || mode == modeDeploy {
-		d.FinishedAt = &now
-		d.TotalSecs = round1(now.Sub(d.CreatedAt).Seconds())
-	}
-	_ = r.st.putDeploy(ctx, d)
 	if len(prev.Instances) > 0 {
 		old := prev.Instances
 		// Workflow runs pinned to the old release keep its instances running
@@ -1098,7 +1118,19 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 		// difference to a Next.js app under load (examples/next-showcase/bench).
 		env["NODE_OPTIONS"] = "--max-old-space-size=" + strconv.Itoa(max(64, spec.MemoryMB*3/4))
 	}
-	if preview != "" {
+	version := isVersionEnv(preview)
+	switch {
+	case version:
+		// An old version at its own address: production's data, read-only,
+		// and its mail to the dev inbox.
+		env["TIFFIN_READ_ONLY"] = "1"
+		if u := env["SMTP_URL"]; u != "" {
+			env["SMTP_URL"] = email.PreviewSMTPURL(u, preview)
+		}
+		if err := r.readOnlyServices(ctx, project, "", env); err != nil {
+			return nil, "", err
+		}
+	case preview != "":
 		env["TIFFIN_PREVIEW"] = preview
 		// Previews never send real mail: their SMTP user routes to the dev inbox.
 		if u := env["SMTP_URL"]; u != "" {
@@ -1114,11 +1146,11 @@ func (r *rt) instanceEnv(ctx context.Context, project, app, preview string, spec
 	if spec.Role != manifest.RoleWorker {
 		d := &Deploy{Project: project, App: app, Preview: preview}
 		env["TIFFIN_URL"] = r.deployURL(d, spec)
-		if preview != "" {
+		if preview != "" && !version {
 			auth.PreviewEnv(env, env["TIFFIN_URL"])
 		}
 		if spec.Framework == manifest.FrameworkNext {
-			nextOrigin(env, r.deployURL(&Deploy{Project: project, App: app}, spec), env["TIFFIN_URL"], preview != "")
+			nextOrigin(env, r.deployURL(&Deploy{Project: project, App: app}, spec), env["TIFFIN_URL"], preview != "" && !version)
 		}
 	}
 	addNextAliases(env, spec)
@@ -1183,47 +1215,12 @@ func (r *rt) buildRunEnv(ctx context.Context, d *Deploy, spec *manifest.App, own
 	}
 	// The database (a preview's: its branch) and Valkey through read-only
 	// users, where the env still holds the box's connection: a build reads
-	// data but never writes to it.
-	if r.hasService(ctx, d.Project, "postgres") {
-		branch := r.previewBranch(ctx, d.Project, d.Preview)
-		box, err := postgres.ConnEnv(ctx, r.p, d.Project, branch, false)
-		if err != nil {
-			return nil, err
-		}
-		if env["DATABASE_URL"] == box["DATABASE_URL"] {
-			ro, err := r.opt.ReadAccess.PostgresReadEnv(ctx, r.p, d.Project, branch)
-			if err != nil {
-				return nil, err
-			}
-			for k, v := range ro {
-				if env[k] == box[k] {
-					env[k] = v
-				}
-			}
-		}
-	}
-	if r.hasService(ctx, d.Project, "valkey") {
-		// Each of the box's credentials (the URL, the REST tokens) is swapped
-		// for its read-only twin on its own: an app that set one of them
-		// itself keeps its own, and the others are still read-only.
-		box, err := valkey.ConnEnv(ctx, r.p, d.Project, false)
-		if err != nil {
-			return nil, err
-		}
-		rest, err := valkey.RESTEnv(ctx, r.p, d.Project)
-		if err != nil {
-			return nil, err
-		}
-		maps.Copy(box, rest)
-		ro, err := r.opt.ReadAccess.ValkeyReadEnv(ctx, r.p, d.Project)
-		if err != nil {
-			return nil, err
-		}
-		for k, v := range ro {
-			if env[k] == box[k] {
-				env[k] = v
-			}
-		}
+	// data but never writes to it. Each of the box's credentials (the URL,
+	// the REST tokens) is swapped for its read-only twin on its own: an app
+	// that set one of them itself keeps its own, and the others are still
+	// read-only.
+	if err := r.readOnlyServices(ctx, d.Project, r.previewBranch(ctx, d.Project, d.Preview), env); err != nil {
+		return nil, err
 	}
 	var svc []string
 	for _, k := range []string{"DATABASE_URL", "REDIS_URL", "S3_ENDPOINT", "TIFFIN_FILES_URL", "TIFFIN_URL"} {
@@ -1267,6 +1264,9 @@ func (r *rt) plainEnv(ctx context.Context, project, app string) (map[string]stri
 // converge brings one app environment in line with its spec: restart on a
 // config change, replace instances that disappeared, wake a stopped app.
 func (r *rt) converge(ctx context.Context, project, app, preview string, spec *manifest.App) error {
+	if isVersionEnv(preview) {
+		return r.convergeVersion(ctx, project, app, preview, spec)
+	}
 	unlock := r.lock(envKey(project, app, preview))
 	defer unlock()
 	st, err := r.st.getState(ctx, project, app, preview)
@@ -1334,6 +1334,10 @@ func (r *rt) converge(ctx context.Context, project, app, preview string, spec *m
 // starting the project) starts the same deploy again. A deleted app keeps
 // it for deletedAppKeep (see sweepImages).
 func (r *rt) stopEnv(ctx context.Context, st *AppState) error {
+	if isVersionEnv(st.Preview) {
+		// An old version comes back by itself, on its next request.
+		return r.dropVersionEnv(ctx, st.Project, st.App, st.Preview)
+	}
 	unlock := r.lock(envKey(st.Project, st.App, st.Preview))
 	defer unlock()
 	st, err := r.st.getState(ctx, st.Project, st.App, st.Preview)
@@ -1408,6 +1412,8 @@ func (r *rt) rollback(ctx context.Context, project, app, id string) (*Deploy, er
 	if d.Preview == "" {
 		_ = r.syncCrons(ctx, project, app, w)
 		r.refreshIconLater(project, app, d.ID)
+		// Its address is production's now: an old-version copy of it goes.
+		r.syncVersionEnvs(ctx, project, app)
 	}
 	return d, nil
 }
@@ -1429,10 +1435,15 @@ func (r *rt) gc(ctx context.Context, project, app, preview string) {
 }
 
 // rollbackTargets is how many earlier builds an environment keeps to roll
-// back to: KeepImages for production, none for a preview.
+// back to (each at its own address): KeepImages for production, fewer
+// (pressureKeep) while the data disk is past the disk guard's warning
+// level, none for a preview.
 func (r *rt) rollbackTargets(preview string) int {
 	if preview != "" {
 		return 0
+	}
+	if r.opt.KeepImages > pressureKeep && r.diskPressure() {
+		return pressureKeep
 	}
 	return r.opt.KeepImages
 }
@@ -1454,9 +1465,19 @@ func (r *rt) gcLocked(ctx context.Context, project, app, preview string, rollbac
 		return
 	}
 	keep := r.keptDeploys(ctx, project, app, preview, ds, rollbacks)
+	if preview == "" {
+		defer func() {
+			r.syncVersionEnvs(ctx, project, app)
+			_ = r.refreshIfNeeded(ctx) // cleaned versions' addresses say so
+		}()
+	}
 	for i, d := range ds {
 		if keep[d.ID] {
 			continue
+		}
+		if preview == "" && d.Image != "" {
+			// An old version awake at its address uses the image: it goes first.
+			_ = r.dropVersionEnv(ctx, project, app, versionEnv(d.ID))
 		}
 		r.dropBuild(ctx, d)
 		if i >= 50 { // keep the newest 50 records (and their build logs)

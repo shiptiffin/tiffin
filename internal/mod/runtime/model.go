@@ -36,25 +36,29 @@ const (
 
 // Deploy is one build-and-release of an app (or of one of its previews).
 type Deploy struct {
-	ID          string     `json:"id" example:"dep_01JA2B3C4D5E6F7G8H9J0KMNPQ" doc:"Deploy ID"`
-	Project     string     `json:"project"`
-	App         string     `json:"app"`
-	Preview     string     `json:"preview,omitempty" doc:"Preview name, empty for production"`
-	Version     int        `json:"version,omitempty" doc:"The app's production version: 1 for its first production deploy, then 2, 3… in the order they were made. Previews have none."`
-	Status      string     `json:"status" enum:"queued,building,starting,live,failed,superseded,rolled_back,stopped,skipped" doc:"queued → building → starting → live; failed keeps the previous deploy serving; superseded and rolled_back deploys can be rolled back to; skipped: a newer push arrived before it was built"`
-	Source      string     `json:"source" enum:"upload,files,prebuilt,git,template"`
-	Framework   string     `json:"framework,omitempty"`
-	Commit      string     `json:"commit,omitempty" doc:"Git commit, for git pushes and deploys from a git URL or GitHub"`
-	Repo        string     `json:"repo,omitempty" doc:"Repository URL, for deploys from a git URL or GitHub"`
-	Ref         string     `json:"ref,omitempty" doc:"Branch, tag or commit asked for, for deploys from a git URL or GitHub"`
-	Message     string     `json:"message,omitempty" doc:"The commit's message (first line), for deploys from GitHub"`
-	Author      string     `json:"author,omitempty" doc:"Who made the commit (GitHub login or git author name), for deploys from GitHub"`
-	PullRequest int        `json:"pullRequest,omitempty" doc:"The pull request a preview deploy is for, for deploys from GitHub"`
-	Trigger     string     `json:"trigger,omitempty" enum:"push,pull_request,redeploy,env," doc:"What started a deploy from GitHub (a push to the production branch, a pull request, or a redeploy asked for on the box), or env: the box rebuilt the live version because env it builds into browser code changed"`
-	Template    string     `json:"template,omitempty" doc:"Starter template, for template deploys"`
-	Image       string     `json:"image,omitempty" doc:"Image reference in the box's containerd store"`
-	Digest      string     `json:"digest,omitempty" doc:"Image manifest digest"`
-	URL         string     `json:"url,omitempty" doc:"Where the deploy is served (web apps)"`
+	ID          string `json:"id" example:"dep_01JA2B3C4D5E6F7G8H9J0KMNPQ" doc:"Deploy ID"`
+	Project     string `json:"project"`
+	App         string `json:"app"`
+	Preview     string `json:"preview,omitempty" doc:"Preview name, empty for production"`
+	Version     int    `json:"version,omitempty" doc:"The app's production version: 1 for its first production deploy, then 2, 3… in the order they were made. Previews have none."`
+	Status      string `json:"status" enum:"queued,building,starting,live,failed,superseded,rolled_back,stopped,skipped" doc:"queued → building → starting → live; failed keeps the previous deploy serving; superseded and rolled_back deploys can be rolled back to; skipped: a newer push arrived before it was built"`
+	Source      string `json:"source" enum:"upload,files,prebuilt,git,template"`
+	Framework   string `json:"framework,omitempty"`
+	Commit      string `json:"commit,omitempty" doc:"Git commit, for git pushes and deploys from a git URL or GitHub"`
+	Repo        string `json:"repo,omitempty" doc:"Repository URL, for deploys from a git URL or GitHub"`
+	Ref         string `json:"ref,omitempty" doc:"Branch, tag or commit asked for, for deploys from a git URL or GitHub"`
+	Message     string `json:"message,omitempty" doc:"The commit's message (first line), for deploys from GitHub"`
+	Author      string `json:"author,omitempty" doc:"Who made the commit (GitHub login or git author name), for deploys from GitHub"`
+	PullRequest int    `json:"pullRequest,omitempty" doc:"The pull request a preview deploy is for, for deploys from GitHub"`
+	Trigger     string `json:"trigger,omitempty" enum:"push,pull_request,redeploy,env," doc:"What started a deploy from GitHub (a push to the production branch, a pull request, or a redeploy asked for on the box), or env: the box rebuilt the live version because env it builds into browser code changed"`
+	Template    string `json:"template,omitempty" doc:"Starter template, for template deploys"`
+	Image       string `json:"image,omitempty" doc:"Image reference in the box's containerd store"`
+	Digest      string `json:"digest,omitempty" doc:"Image manifest digest"`
+	URL         string `json:"url,omitempty" doc:"The deploy's own address (web apps): d-<short id>--<app address> for a production deploy, which serves that version for as long as it is kept (an old version wakes on its first request and reads the database read-only); a preview's address for a preview deploy. Absent once the version was cleaned up."`
+	// AppURL is the app's own address (where the live deploy serves).
+	AppURL string `json:"appUrl,omitempty" doc:"The app's address, where whichever deploy is live serves (a preview's address for a preview). Open this for the live site; url opens this exact version."`
+	// Retention says whether a production deploy's build is still kept.
+	Retention   string     `json:"retention,omitempty" enum:"kept,cleaned," doc:"Production deploys of web apps: kept (its address serves it and it can be rolled back to) or cleaned (its image was removed; its address says so and links to the live site). Absent for previews, workers and deploys that never went live."`
 	Error       string     `json:"error,omitempty" doc:"Why the deploy failed"`
 	Hint        string     `json:"hint,omitempty" doc:"What to do about the failure"`
 	Warnings    []string   `json:"warnings,omitempty" doc:"What works, but not as well as it could (a Next.js too old for the box's adapter), and what to do about it"`

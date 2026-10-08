@@ -50,7 +50,14 @@ type Options struct {
 	// SleepAfter replaces the sleepAfter of every project that sets one
 	// (0: each project's own). TIFFIN_SLEEP_AFTER sets it, for tests.
 	SleepAfter time.Duration
-	KeepImages int // rollback targets kept per production environment (previews keep none)
+	KeepImages int // rollback targets kept per production environment (previews keep none); each has its own address
+	// VersionIdle: an old version woken at its own address sleeps after
+	// this long without requests.
+	VersionIdle time.Duration
+	// DiskUsedPercent reads how full the data disk is (nil: statfs of
+	// DataDir). Past the disk guard's warning level gc keeps fewer
+	// rollback targets (pressureKeep).
+	DiskUsedPercent func() float64
 	// ReleaseTimeout is how long an app's release command may run.
 	ReleaseTimeout time.Duration
 	Engine         Engine
@@ -87,7 +94,8 @@ func defaultOptions() Options {
 	// its app's time limit (timeoutSeconds, at most 24 hours). Old instances
 	// with no request in flight stop at once.
 	return Options{DataDir: DataDir, LogDir: LogDir, HealthTimeout: 120 * time.Second, Drain: 24*time.Hour + time.Minute,
-		StopGrace: 10 * time.Second, RetireGrace: 30 * time.Second, PreviewIdle: idle, PreviewExpire: expire, SleepAfter: max(0, sleepAfter), KeepImages: 3, ReleaseTimeout: 10 * time.Minute}
+		StopGrace: 10 * time.Second, RetireGrace: 30 * time.Second, PreviewIdle: idle, PreviewExpire: expire, SleepAfter: max(0, sleepAfter),
+		KeepImages: keepVersions, VersionIdle: versionIdle, ReleaseTimeout: 10 * time.Minute}
 }
 
 // rt is the running runtime.
@@ -118,6 +126,11 @@ type rt struct {
 	// previewFiles: the hosts of static previews (the edge serves their
 	// files, so the switchboard never sees their requests) → environment.
 	previewFiles map[string]string
+	// addrs: what routes found at deploy addresses (see deployaddr.go).
+	addrs deployAddrs
+	// gateKey signs the deploy-address gate's hand-off links and cookies;
+	// the edge holds it too (edge.SetGateSource).
+	gateKey []byte
 	// loadedRoutes is the hash of the routes the edge last loaded from us;
 	// givenRoutes, of those Routes last gave (loaded once RoutesLoaded).
 	loadedRoutes, givenRoutes string
@@ -174,6 +187,9 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 	if opt.ReleaseTimeout <= 0 {
 		opt.ReleaseTimeout = 10 * time.Minute
 	}
+	if opt.VersionIdle <= 0 {
+		opt.VersionIdle = versionIdle
+	}
 	r := &rt{p: p, opt: opt, st: store{db: p.DB, cache: newStateCache()}, eng: opt.Engine, bld: opt.Builder, ctx: ctx,
 		build: make(chan struct{}, 1), locks: map[string]*sync.Mutex{}, ports: map[int]string{}, leftover: map[string]bool{},
 		lastSeen: map[string]time.Time{}, seenDirty: map[string]bool{}, wakeTried: map[string]time.Time{}, hooks: newHookTokens(), timeouts: map[string]time.Duration{}, warm: warmSlot{poll: 10 * time.Second, quiet: time.Minute}}
@@ -197,6 +213,9 @@ func (m *Module) start(ctx context.Context, p *platform.Platform, opt Options) e
 		return err
 	}
 	if err := r.loadActivity(ctx); err != nil {
+		return err
+	}
+	if err := r.loadGateKey(ctx); err != nil {
 		return err
 	}
 	// App containers use host networking, so box services listening on

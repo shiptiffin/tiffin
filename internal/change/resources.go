@@ -85,6 +85,9 @@ type ProjectSpec struct {
 	Resources *manifest.Resources `json:"resources,omitempty"`
 	// SleepAfter is when idle production apps sleep ("": never).
 	SleepAfter string `json:"sleepAfter,omitempty"`
+	// DeployAddresses: who may open its deploys' own addresses ("":
+	// signed-in, see manifest.Manifest.DeployAddresses).
+	DeployAddresses string `json:"deployAddresses,omitempty"`
 }
 
 // Kind returns the kind part of an address ("app/web" → "app").
@@ -111,7 +114,7 @@ func Resources(m *manifest.Manifest) (map[string]Resource, error) {
 		out[addr] = Resource{Address: addr, Spec: b}
 		return nil
 	}
-	if err := add(KindProject, ProjectSpec{Resources: m.Resources, SleepAfter: m.SleepAfter}); err != nil {
+	if err := add(KindProject, ProjectSpec{Resources: m.Resources, SleepAfter: m.SleepAfter, DeployAddresses: m.DeployAddresses}); err != nil {
 		return nil, err
 	}
 	for name, app := range m.Apps {

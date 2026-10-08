@@ -102,6 +102,9 @@ func configNode(m *Manifest) *node {
 	if m.SleepAfter != "" {
 		root.set("sleepAfter", str(m.SleepAfter))
 	}
+	if m.DeployAddresses != "" {
+		root.set("deployAddresses", str(m.DeployAddresses))
+	}
 	if len(m.Apps) > 0 {
 		apps := obj()
 		for _, name := range sortedKeys(m.Apps) {

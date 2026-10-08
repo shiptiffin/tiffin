@@ -14,6 +14,12 @@ import (
 // Version is the manifest format version this build understands.
 const Version = 1
 
+// Who may open a project's deploy addresses (Manifest.DeployAddresses).
+const (
+	DeployAddressesSignedIn = "signed-in"
+	DeployAddressesPublic   = "public"
+)
+
 // Manifest is the canonical, fully-defaulted form of tiffin.config.ts.
 type Manifest struct {
 	// Version of the manifest format. Always 1 for now.
@@ -32,6 +38,10 @@ type Manifest struct {
 	// next request or delivery starts them again. Hours or days, 1h to 30d:
 	// "24h", "7d", "14d". Absent: they never sleep.
 	SleepAfter string `json:"sleepAfter,omitempty"`
+	// DeployAddresses says who may open the address each production deploy
+	// of a web app gets (d-<id>--<app>.<apps domain>): "signed-in" (absent
+	// means this), people signed in to the box's dashboard; "public", anyone.
+	DeployAddresses string `json:"deployAddresses,omitempty"`
 	// Apps keyed by name (same slug rules as Project).
 	Apps map[string]App `json:"apps,omitempty"`
 	// Services are the box-provided backends. Normalize always adds the

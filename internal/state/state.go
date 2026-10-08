@@ -304,6 +304,10 @@ var migrations = []string{
 	`CREATE INDEX tokens_sponsor ON tokens(sponsor) WHERE sponsor IS NOT NULL`,
 	`CREATE INDEX login_links_person ON login_links(person, created_by)`,
 	`CREATE INDEX login_links_created_by ON login_links(created_by)`,
+	// A project's deploy records (kv, ns runtime/deploys/<project>/<app>)
+	// newest first, for its paged list (the runtime's pageDeploys spells the
+	// expression the same way). One app's are in the primary key already.
+	`CREATE INDEX kv_deploys ON kv(substr(ns, 17, instr(substr(ns, 17), '/') - 1), key) WHERE ns GLOB 'runtime/deploys/*'`,
 }
 
 // SchemaVersion is the state schema this build writes (box exports record

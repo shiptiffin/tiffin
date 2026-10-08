@@ -293,6 +293,9 @@ var errNoProject = errors.New("email is not enabled for this project")
 // route decides where a project's mail goes now. preview names the
 // preview deployment the message came from ("" for production).
 func (m *Module) route(ctx context.Context, p *platform.Platform, project, preview string) (string, string, error) {
+	if strings.HasPrefix(preview, "d-") { // an old version at its own address (the runtime's versionEnv)
+		return DeliveryInbox, "sent by an earlier version (" + preview + "): its mail is always captured in the dev inbox", nil
+	}
 	if preview != "" {
 		return DeliveryInbox, "sent by preview " + preview + ": preview mail is always captured in the dev inbox", nil
 	}

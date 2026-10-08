@@ -43,7 +43,8 @@ type deployBody struct {
 
 // DeployList is a page of deploys.
 type DeployList struct {
-	Deploys []*Deploy `json:"deploys"`
+	Deploys    []*Deploy `json:"deploys"`
+	NextCursor string    `json:"nextCursor,omitempty" doc:"More deploys match: pass as cursor to read the next (older) page. Absent on the last page."`
 }
 
 // BuildLog is (part of) a deploy's build log.
@@ -106,6 +107,7 @@ type GitInfo struct {
 func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	appPath := "/v1/projects/{project}/apps/{app}"
 	m.registerProjectDeploys(a)
+	m.registerDeployLink(a)
 	m.registerRedeploy(a, appPath)
 	m.registerIcon(a, p)
 
@@ -162,13 +164,16 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 	}))
 
 	huma.Register(a, api.Untrusted(api.Op("deploys-list", http.MethodGet, appPath+"/deploys", "deploys list", api.RiskRead, "List an app's deploys",
-		"Deploys of an app, newest first, with status, image digest, build time and URL. Production only unless preview or all is set.", "apps")),
+		"Deploys of an app, newest first, with status, image digest, build time, its own address (url) and whether its build is still kept (retention). "+
+			"Production only unless preview or all is set. Returns 50 by default (at most 200); when more match, nextCursor reads the next page.", "apps")),
 		api.Wrap(func(ctx context.Context, in *struct {
 			Project string `path:"project" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"Project slug"`
 			App     string `path:"app" pattern:"^[a-z][a-z0-9-]{0,39}$" doc:"App name"`
 			Preview string `query:"preview" doc:"Only this preview's deploys"`
 			All     bool   `query:"all" doc:"Production and every preview"`
-			Limit   int    `query:"limit" minimum:"1" maximum:"200" default:"20" doc:"Maximum deploys to return"`
+			Status  string `query:"status" doc:"Only these statuses, comma-separated (queued, building, starting, live, failed, superseded, rolled_back, stopped, skipped)"`
+			Cursor  string `query:"cursor" doc:"Where to continue: nextCursor of the previous page (with the same filters). Absent: the newest."`
+			Limit   int    `query:"limit" minimum:"1" maximum:"200" default:"50" doc:"Deploys per page"`
 		}) (*struct{ Body DeployList }, error) {
 			r, err := m.rt()
 			if err != nil {
@@ -177,18 +182,23 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			if err := api.PrincipalFrom(ctx).Require(tokens.ScopeRead, in.Project); err != nil {
 				return nil, err
 			}
-			env := in.Preview
-			if in.All {
-				env = "*"
-			}
-			ds, err := r.st.listDeploys(ctx, in.Project, in.App, env)
+			want, err := statusFilter(in.Status)
 			if err != nil {
 				return nil, err
 			}
-			if len(ds) > in.Limit {
-				ds = ds[:in.Limit]
+			after, err := decodeCursor(in.Cursor)
+			if err != nil {
+				return nil, err
 			}
-			return &struct{ Body DeployList }{DeployList{ds}}, nil
+			keep := func(d *Deploy) bool {
+				return (in.All || d.Preview == in.Preview) && (len(want) == 0 || want[d.Status])
+			}
+			ds, next, err := r.st.pageDeploys(ctx, in.Project, in.App, after, in.Limit, keep)
+			if err != nil {
+				return nil, err
+			}
+			r.presentAll(ctx, in.Project, ds)
+			return &struct{ Body DeployList }{DeployList{Deploys: ds, NextCursor: encodeCursor(next)}}, nil
 		}))
 
 	type deployPath struct {
@@ -227,6 +237,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 				return nil, err
 			}
 		}
+		r.presentAll(ctx, in.Project, []*Deploy{d})
 		return &struct{ Body *Deploy }{d}, nil
 	}))
 
@@ -282,6 +293,7 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 			return nil, r.toProblem(err, "deploy "+in.ID)
 		}
 		_ = r.p.DB.Audit(ctx, pr.TokenID, "deploy.rollback", in.Project+"/"+in.App, map[string]any{"deploy": d.ID, "session": pr.Session})
+		r.presentAll(ctx, in.Project, []*Deploy{d})
 		return &struct{ Body *Deploy }{d}, nil
 	}))
 
@@ -497,6 +509,10 @@ func (m *Module) RegisterAPI(a huma.API, p *platform.Platform) {
 func (r *rt) checkDeployable(ctx context.Context, project, app, preview string, prebuilt bool) (*manifest.App, *api.Problem) {
 	if preview != "" && !previewRe.MatchString(preview) {
 		return nil, problem(422, "validation", "preview names are 1-30 lowercase letters, digits and dashes, starting with a letter or digit", "")
+	}
+	if isVersionEnv(preview) {
+		return nil, problem(422, "validation", "preview names may not start with \""+versionPrefix+"\": the box serves each production deploy at d-<id>--<app>",
+			"Pick another name, e.g. pr-12 or feat-"+strings.TrimPrefix(preview, versionPrefix)+".")
 	}
 	spec, err := r.appSpec(ctx, project, app)
 	if errors.Is(err, errNotFound) {
@@ -876,6 +892,9 @@ func (r *rt) appRuntime(ctx context.Context, project, app string) (*AppRuntime, 
 	}
 	r.pullActivity()
 	for _, s := range states {
+		if isVersionEnv(s.Preview) {
+			continue // an old version woken at its address: the deploy's own record tells of it
+		}
 		es := EnvStatus{Preview: s.Preview, Stopped: s.Stopped, Sleeping: s.Sleeping, SleepingSince: s.SleptAt, LastWake: s.LastWake,
 			Draining: s.Draining, UpdatedAt: s.UpdatedAt, Instances: []InstanceStatus{}}
 		r.mu.Lock()
@@ -887,6 +906,7 @@ func (r *rt) appRuntime(ctx context.Context, project, app string) (*AppRuntime, 
 		if s.Live != "" {
 			if d, err := r.st.getDeploy(ctx, project, app, s.Live); err == nil {
 				// The address now, from the current routes (a route change since the deploy moves it).
+				r.present(d, spec)
 				es.Live, es.URL = d, r.deployURL(d, spec)
 			}
 		}

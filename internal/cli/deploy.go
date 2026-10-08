@@ -45,6 +45,7 @@ type rtDeploy struct {
 	Image      string  `json:"image,omitempty"`
 	Digest     string  `json:"digest,omitempty"`
 	URL        string  `json:"url,omitempty"`
+	AppURL     string  `json:"appUrl,omitempty"`
 	Error      string  `json:"error,omitempty"`
 	Hint       string  `json:"hint,omitempty"`
 	BuildSecs  float64 `json:"buildSeconds,omitempty"`
@@ -243,8 +244,8 @@ func (a *app) deployCmd() *cobra.Command {
 					return err
 				}
 				results[i] = fd
-				if fd.Status == "live" && fd.URL != "" {
-					checks[fd.ID] = a.checkURL(ctx, c, fd.URL)
+				if u := orDefault(fd.AppURL, fd.URL); fd.Status == "live" && u != "" {
+					checks[fd.ID] = a.checkURL(ctx, c, u) // the app's address: its own may need a sign-in
 				}
 			}
 			a.printDeploys(results, checks)
@@ -520,14 +521,17 @@ func (a *app) printDeploys(ds []*rtDeploy, checks map[string]string) {
 		switch d.Status {
 		case "live":
 			line := fmt.Sprintf("%s %s is live", a.paint("✓", green), d.App)
-			if d.URL != "" {
-				line += " at " + d.URL
+			if u := orDefault(d.AppURL, d.URL); u != "" {
+				line += " at " + u
 			}
 			fmt.Fprintf(a.io.Out, "%s (deploy %s, built in %.1fs, %.1fs total", line, d.ID, d.BuildSecs, d.TotalSecs)
 			if c := checks[d.ID]; c != "" {
 				fmt.Fprintf(a.io.Out, ", %s", c)
 			}
 			fmt.Fprintln(a.io.Out, ")")
+			if d.Preview == "" && d.URL != "" && d.URL != d.AppURL {
+				fmt.Fprintf(a.io.Out, "  %s %s\n", a.paint("this version, kept at its own address:", dim), d.URL)
+			}
 		case "queued":
 			fmt.Fprintf(a.io.Out, "%s queued as deploy %s; follow it with: tiffin deploys build-log %s %s %s --follow\n", d.App, d.ID, d.Project, d.App, d.ID)
 		default:

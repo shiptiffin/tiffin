@@ -90,6 +90,8 @@ type guard struct {
 	waived map[string]string // holds the owner lifted while still over: project → reason
 	holds  map[string]Hold
 	view   *Guard
+	// trimmed: when the guard last asked for old versions to be trimmed.
+	trimmed time.Time
 }
 
 func newGuard(p *platform.Platform, mount string) *guard {
@@ -318,8 +320,33 @@ func (g *guard) round(ctx context.Context) error {
 	g.mu.Lock()
 	g.seen, g.waived = held, waived
 	g.view = g.describe(in)
+	trim := d.UsedPercent >= float64(set.DiskWarnPercent) && (g.trimmed.IsZero() || now.Sub(g.trimmed) >= trimEvery)
+	if trim {
+		g.trimmed = now
+	}
 	g.mu.Unlock()
+	if trim {
+		// Past the warning level apps keep fewer earlier versions (the
+		// runtime's pressureKeep instead of its 20): their images go now.
+		go trimVersions(context.WithoutCancel(ctx))
+	}
 	return firstErr
+}
+
+// trimEvery is how often the guard asks for old versions to be trimmed
+// while the disk stays past its warning level.
+const trimEvery = 10 * time.Minute
+
+type versionTrimmer interface {
+	TrimVersions(ctx context.Context)
+}
+
+func trimVersions(ctx context.Context) {
+	for _, m := range platform.Modules() {
+		if t, ok := m.(versionTrimmer); ok {
+			t.TrimVersions(ctx)
+		}
+	}
 }
 
 func (g *guard) dbBytes(project string) int64 {

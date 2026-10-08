@@ -161,13 +161,18 @@ func (r *rt) sweepImages(ctx context.Context, dryRun bool) (*SweepResult, error)
 		res.Removed = append(res.Removed, s)
 	}
 	// Records of apps that are still here forget the images they lost.
+	forgot := false
 	for _, d := range inv.deploys {
 		if d.Image != "" && removed[imageKey(d.Image)] && inv.projects[d.Project] {
 			if cur, err := r.st.getDeploy(ctx, d.Project, d.App, d.ID); err == nil && cur.Image == d.Image {
 				cur.Image = ""
 				_ = r.st.putDeploy(ctx, cur)
+				forgot = true
 			}
 		}
+	}
+	if forgot {
+		_ = r.refreshIfNeeded(ctx) // those versions' addresses now say they were cleaned up
 	}
 	if !dryRun {
 		// The build cache, to its cap (the same one buildkitd.toml sets).

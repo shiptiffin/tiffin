@@ -121,7 +121,7 @@ func TestHetzner(t *testing.T) {
 			b.apply("shop", string(raw))
 			b.waitReady("service/postgres")
 			d := b.ok("deploys", "template", "shop", tp.App, "--template", tp.ID)
-			app = fmt.Sprint(waitDeploy(t, b, "shop", tp.App, fmt.Sprint(d["id"]), 15*time.Minute)["url"])
+			app = fmt.Sprint(waitDeploy(t, b, "shop", tp.App, fmt.Sprint(d["id"]), 15*time.Minute)["appUrl"]) // the app, not the deploy's own address
 		}
 	}
 	waitGet(t, c, app, 2*time.Minute)

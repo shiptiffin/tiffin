@@ -6,6 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -109,10 +112,116 @@ func TestDeployVersionsAndProjectList(t *testing.T) {
 		t.Fatalf("branch: %d", len(l.Deploys))
 	}
 	page := list("?limit=2")
-	if len(page.Deploys) != 2 || page.Next != page.Deploys[1].ID {
-		t.Fatalf("page: %d next %q", len(page.Deploys), page.Next)
+	if len(page.Deploys) != 2 || page.NextCursor != encodeCursor(page.Deploys[1].ID) {
+		t.Fatalf("page: %d next %q", len(page.Deploys), page.NextCursor)
 	}
-	if rest := list("?limit=10&before=" + page.Next); len(rest.Deploys) != 7 || rest.Next != "" {
-		t.Fatalf("rest: %d next %q", len(rest.Deploys), rest.Next)
+	if rest := list("?limit=10&cursor=" + page.NextCursor); len(rest.Deploys) != 7 || rest.NextCursor != "" {
+		t.Fatalf("rest: %d next %q", len(rest.Deploys), rest.NextCursor)
+	}
+}
+
+// Pages walk deploys newest first by (created, ID) with no gaps or repeats,
+// also across deploys made in the same millisecond and with filters, and a
+// project's page reads its index in order.
+func TestDeployPagesAndTies(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	st := h.r.st
+	at := time.Now().UTC().Truncate(time.Millisecond)
+	var all []*Deploy
+	put := func(app, preview, status string, t0 time.Time) {
+		d := &Deploy{ID: ids.NewAt("dep", t0), Project: "shop", App: app, Preview: preview, Status: status, Source: SourceUpload, CreatedAt: t0}
+		if err := st.putDeploy(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+		all = append(all, d)
+	}
+	for i := range 9 { // nine at the same millisecond: ties broken by ID
+		put("api", "", []string{StatusLive, StatusSuperseded, StatusFailed}[i%3], at)
+	}
+	for i := range 4 {
+		put("web", "", StatusSuperseded, at.Add(time.Duration(i-2)*time.Millisecond))
+	}
+	put("web", "pr-1", StatusLive, at.Add(time.Millisecond))
+	// newest first: created, then ID
+	sort.Slice(all, func(i, j int) bool {
+		if !all[i].CreatedAt.Equal(all[j].CreatedAt) {
+			return all[i].CreatedAt.After(all[j].CreatedAt)
+		}
+		return all[i].ID > all[j].ID
+	})
+	walk := func(app string, limit int, keep func(*Deploy) bool) []string {
+		t.Helper()
+		var got []string
+		after := ""
+		for pages := 0; ; pages++ {
+			ds, next, err := st.pageDeploys(ctx, "shop", app, after, limit, keep)
+			if err != nil || pages > 20 {
+				t.Fatalf("page %d: %v", pages, err)
+			}
+			if len(ds) > limit || (next != "" && len(ds) != limit) {
+				t.Fatalf("page of %d (limit %d), next %q", len(ds), limit, next)
+			}
+			for _, d := range ds {
+				got = append(got, d.ID)
+			}
+			if next == "" {
+				return got
+			}
+			after = next
+		}
+	}
+	want := func(keep func(*Deploy) bool) []string {
+		var out []string
+		for _, d := range all {
+			if keep == nil || keep(d) {
+				out = append(out, d.ID)
+			}
+		}
+		return out
+	}
+	for _, limit := range []int{1, 2, 3, 9, 14, 50} {
+		if got, w := walk("", limit, nil), want(nil); !slices.Equal(got, w) {
+			t.Fatalf("project, %d a page:\n got %v\nwant %v", limit, got, w)
+		}
+		api := func(d *Deploy) bool { return d.App == "api" }
+		if got, w := walk("api", limit, nil), want(api); !slices.Equal(got, w) {
+			t.Fatalf("api, %d a page:\n got %v\nwant %v", limit, got, w)
+		}
+		live := func(d *Deploy) bool { return d.Status == StatusLive }
+		if got, w := walk("", limit, live), want(live); !slices.Equal(got, w) {
+			t.Fatalf("live, %d a page:\n got %v\nwant %v", limit, got, w)
+		}
+	}
+	// The last page says so: a page exactly full of the last deploys has no next.
+	if ds, next, _ := st.pageDeploys(ctx, "shop", "", "", len(all), nil); len(ds) != len(all) || next != "" {
+		t.Fatalf("full last page: %d, next %q", len(ds), next)
+	}
+	// Cursors are opaque and checked.
+	if c := encodeCursor(all[3].ID); c == all[3].ID {
+		t.Fatal("cursor is the bare ID")
+	} else if id, err := decodeCursor(c); err != nil || id != all[3].ID {
+		t.Fatalf("cursor round trip: %q %v", id, err)
+	}
+	if _, err := decodeCursor("bm90LWEtY3Vyc29y"); err == nil {
+		t.Fatal("a made-up cursor was taken")
+	}
+	// The project's page reads the kv_deploys index in order (no sort).
+	rows, err := h.p.DB.SQL().QueryContext(ctx, `EXPLAIN QUERY PLAN SELECT value FROM kv WHERE ns GLOB 'runtime/deploys/*' AND `+deployProjectExpr+` = ? AND key < ? ORDER BY key DESC`, "shop", "~")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan []string
+	for rows.Next() {
+		var id, parent, notused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan = append(plan, detail)
+	}
+	if p := strings.Join(plan, "; "); !strings.Contains(p, "kv_deploys") || strings.Contains(p, "TEMP B-TREE") {
+		t.Fatalf("query plan: %s", p)
 	}
 }

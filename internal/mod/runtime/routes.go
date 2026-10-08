@@ -62,8 +62,8 @@ func (m *Module) PreviewHosts(ctx context.Context, p *platform.Platform, project
 	}
 	out := map[string]string{}
 	for _, st := range states {
-		if st.Project != project || st.Preview == "" || st.Live == "" || st.Stopped {
-			continue
+		if st.Project != project || st.Preview == "" || isVersionEnv(st.Preview) || st.Live == "" || st.Stopped {
+			continue // old versions get no sign-in: their database is read-only
 		}
 		spec, err := r.appSpec(ctx, project, st.App)
 		if errors.Is(err, errNotFound) {
@@ -95,6 +95,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) 
 		return nil, nil, fmt.Errorf("runtime routes: %w", err)
 	}
 	specs := map[string]map[string]*manifest.App{} // project → app → spec
+	public := map[string]bool{}                    // projects whose deploy addresses anyone may open
 	var loadErr error
 	specOf := func(project, app string) *manifest.App {
 		if _, ok := specs[project]; !ok {
@@ -102,6 +103,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) 
 			if _, res, err := r.p.DB.Load(ctx, project); err != nil {
 				loadErr = err
 			} else {
+				public[project] = deployAddressesPublic(res)
 				for addr, rs := range res {
 					if change.Kind(addr) == change.KindApp {
 						var a manifest.App
@@ -120,6 +122,7 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) 
 	owner := map[string]string{}
 	table := map[string][]switchboard.Route{}
 	files := map[string]string{} // static previews' hosts → environment
+	addrs := deployAddrs{hosts: map[string]deployRef{}, stubs: map[string]*switchboard.Env{}, gone: map[string]string{}}
 	add := func(rt edge.Route, who, env string) {
 		key := rt.Host + rt.PathPrefix
 		if w, taken := owner[key]; taken {
@@ -128,13 +131,13 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) 
 		}
 		owner[key] = who
 		out = append(out, rt)
-		if rt.FileRoot == "" {
+		if rt.FileRoot == "" && env != "" {
 			table[rt.Host] = append(table[rt.Host], switchboard.Route{Prefix: rt.PathPrefix, Env: env})
 		}
 	}
 	for _, st := range states {
-		if st.Live == "" || st.Stopped {
-			continue
+		if st.Live == "" || st.Stopped || isVersionEnv(st.Preview) {
+			continue // old versions' addresses come from their app's deploys
 		}
 		spec := specOf(st.Project, st.App)
 		if loadErr != nil {
@@ -181,12 +184,16 @@ func (r *rt) routes(ctx context.Context) ([]edge.Route, []routeConflict, error) 
 			}
 			add(rt, who, env)
 		}
+		if err := r.versionRoutes(ctx, st, spec, d, public[st.Project], sb, &addrs, add); err != nil {
+			return nil, nil, fmt.Errorf("runtime routes: %w", err)
+		}
 	}
 	out = append(out, liveRoutes(out, owner, sb)...)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Host+out[i].PathPrefix < out[j].Host+out[j].PathPrefix })
 	r.setDispatch(table)
 	r.mu.Lock()
 	r.previewFiles = files
+	r.addrs = addrs
 	r.mu.Unlock()
 	for _, c := range conflicts {
 		r.p.Log.Warn("route conflict", "route", c.Key, "served_by", c.Winner, "ignored", c.Loser)
@@ -213,7 +220,7 @@ func liveRoutes(routes []edge.Route, owner map[string]string, act string) []edge
 			continue
 		}
 		seen[rt.Host] = true
-		out = append(out, edge.Route{Host: rt.Host, PathPrefix: livePrefix, Upstream: act})
+		out = append(out, edge.Route{Host: rt.Host, PathPrefix: livePrefix, Upstream: act, Gate: rt.Gate, NoIndex: rt.NoIndex})
 	}
 	return out
 }
@@ -389,7 +396,7 @@ func (r *rt) expirePreviews(ctx context.Context) {
 		return
 	}
 	for _, s := range states {
-		if s.Preview == "" || s.Stopped || s.Live == "" || time.Since(s.UpdatedAt) < r.opt.PreviewExpire {
+		if s.Preview == "" || isVersionEnv(s.Preview) || s.Stopped || s.Live == "" || time.Since(s.UpdatedAt) < r.opt.PreviewExpire {
 			continue
 		}
 		if !s.Sleeping {
