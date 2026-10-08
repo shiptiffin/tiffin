@@ -22,12 +22,22 @@ export const mails = {
   ready: (b: Box): Mail => ({
     to: b.email,
     subject: `Your box ${b.name} is ready`,
-    text: `Your box is up at ${b.name ? dashboardUrl(b.name) : ""}, with a valid HTTPS certificate.\n\nOpen it from your account: ${ACCOUNT}\nThe first "Open your dashboard" signs you in with a one-time link the box made at setup (it works once, within 24 hours). Add a passkey in the dashboard then, so you can sign in on your own: after that we can't sign you in.\n\nWe removed our setup key from your server and closed SSH. The server is in your Hetzner project and yours to keep.${sign}`,
+    text: `Your box is up at ${b.name ? dashboardUrl(b.name) : ""}, with a valid HTTPS certificate.\n\nOpen it from your account: ${ACCOUNT}\n"Open your dashboard" signs you in with a one-time link the box made (it works once, within 24 hours; if it expires, ask for a new one in your account until you first sign in). Add a passkey in the dashboard then, so you can sign in on your own: once you have signed in, your box makes no more links for us.\n\nWe removed our setup key from your server and closed SSH. The server is in your Hetzner project and yours to keep.${sign}`,
   }),
   setup_failed: (b: Box, error: string): Mail => ({
     to: b.email,
     subject: `Setting up ${b.name ?? "your box"} didn't work`,
     text: `Setting up ${named(b)} stopped${error ? `: ${error}` : ""}.\n\nWe removed its address and deleted what this attempt made in your Hetzner project (only what carries this box's shiptiffin-box label). Your Hetzner key was forgotten.\n\nTo try again, paste your key at ${SITE}/start. If it keeps failing, reply to this email.${sign}`,
+  }),
+  attention: (b: Box, why: string): Mail => ({
+    to: b.email,
+    subject: `${b.name ?? "Your box"} needs a look`,
+    text: `${why || `Something went wrong with ${named(b)} after Tiffin was installed.`}\n\nNothing was deleted: your server, its data and its address stay as they are. We've been told and will look at it; you can see where it stands in your account: ${ACCOUNT}\n\nReply to this email with any questions.${sign}`,
+  }),
+  server_off: (b: Box): Mail => ({
+    to: b.email,
+    subject: `${b.name ?? "Your box"}: your server may be off`,
+    text: `A resize of ${named(b)} stopped half way, and we couldn't start the server again ourselves: we no longer hold a Hetzner key for it.\n\nIf it is off, start it in the Hetzner console (Servers, your server, Power on). Or paste your Hetzner key in your account and resize again, and we finish it: ${ACCOUNT}\n\nYour data is untouched.${sign}`,
   }),
   duplicate_refunded: (b: Box): Mail => ({
     to: b.email,
@@ -126,6 +136,10 @@ export function render(kind: string, box: Box & { last_heartbeat_at?: Date | nul
       return mails.payment_failed(box);
     case "duplicate_refunded":
       return mails.duplicate_refunded(box);
+    case "attention":
+      return mails.attention(box, String(params.why ?? ""));
+    case "server_off":
+      return mails.server_off(box);
     case "refunded":
       return mails.refunded(box);
     case "dns_soon":

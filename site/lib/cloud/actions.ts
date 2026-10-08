@@ -178,19 +178,61 @@ export async function createBox(acct: Account, boxId: string, input: CreateInput
   }
 }
 
+/** A request for a new sign-in link that the box hasn't answered within this is given up on (the box's own sign-in page instead). */
+const SIGNIN_WAIT_MS = 15 * 60_000;
+
 /**
- * "Open your dashboard". The first time, the one-time sign-in link the box
- * made at setup (it works once, and the box refuses it after 24 hours); we
- * forget it as we hand it out. After that, the box's own sign-in page.
+ * "Open your dashboard". While the hand-off lasts (until the box tells us
+ * its owner signed in), the one-time sign-in link the box made: it works
+ * once and the box refuses it after 24 hours; we keep it until the box
+ * confirms it was used, so a first click that didn't get through can be
+ * tried again. Without a valid link we ask the box for a new one (it makes
+ * it at its next check-in, within minutes) and say so on the account page.
+ * After the hand-off, the box's own sign-in page.
  */
-export async function openDashboard(acct: Account, boxId: string): Promise<string> {
+export async function openDashboard(acct: Account, boxId: string, now = new Date()): Promise<string> {
   const box = await ownBox(acct, boxId);
   if (!box.name || box.status !== "active") throw new ActionError("The box isn't ready yet.");
   const url = dashboardUrl(box.name);
-  const [r] = await q.db()`with old as (select id, signin_code from cloud_boxes where id = ${box.id} and signin_code is not null and signin_expires_at > now() for update)
-    update cloud_boxes b set signin_code = null, signin_expires_at = null from old where b.id = old.id returning old.signin_code`;
-  const code = r?.signin_code as string | undefined;
-  return code && /^tfl_[a-z0-9]+$/.test(code) ? `${url}/login#${code}` : `${url}/login`;
+  const code = box.signin_code && box.signin_expires_at && box.signin_expires_at > now && /^tfl_[a-z0-9]+$/.test(box.signin_code) ? box.signin_code : null;
+  if (code && !box.handoff_closed_at) return `${url}/login#${code}`;
+  if (!box.handoff_closed_at && (!box.signin_requested_at || now.getTime() - box.signin_requested_at.getTime() < SIGNIN_WAIT_MS)) {
+    if (!box.signin_requested_at) await q.db()`update cloud_boxes set signin_requested_at = now() where id = ${box.id} and handoff_closed_at is null`;
+    return `/account?signin=asked#${box.id}`;
+  }
+  return `${url}/login`;
+}
+
+/** Check-ins this often while the hand-off waits on the box (a link to make, a certificate to come). */
+export const HANDOFF_SOON_SECONDS = 120;
+/** And this often while it waits on the customer (to learn soon that they signed in). */
+export const HANDOFF_PENDING_SECONDS = 600;
+
+/**
+ * What a counted check-in asks of the box for its hand-off (pure). A fresh
+ * sign-in link when the box is ready and the customer asked for one, or we
+ * never got one, or the one made at setup was made long before the
+ * dashboard was ready (so its 24 hours count from readiness, not from the
+ * install). Only while the box says its owner hasn't signed in.
+ */
+export function handoffAsk(
+  box: Pick<q.BoxRow, "status" | "handoff_closed_at" | "signin_requested_at" | "signin_expires_at" | "ready_at">,
+  handoff: unknown,
+): { signin: boolean; checkInSeconds?: number } {
+  if (handoff !== "pending" || box.handoff_closed_at || (box.status !== "active" && box.status !== "cert_pending")) return { signin: false };
+  const stale = box.ready_at != null && box.signin_expires_at != null && box.signin_expires_at.getTime() < box.ready_at.getTime() + 23 * 3_600_000;
+  const signin = box.status === "active" && (box.signin_requested_at != null || box.signin_expires_at == null || stale);
+  return { signin, checkInSeconds: signin || box.status === "cert_pending" || box.signin_requested_at ? HANDOFF_SOON_SECONDS : HANDOFF_PENDING_SECONDS };
+}
+
+/** A sign-in link a box sent: its shape, and an expiry within the box's 24 hours. */
+export function parseSignin(v: unknown, now = new Date()): { code: string; expires: Date } | null {
+  if (!v || typeof v !== "object") return null;
+  const { code, expiresAt } = v as Record<string, unknown>;
+  const expires = typeof expiresAt === "string" ? new Date(expiresAt) : null;
+  if (typeof code !== "string" || !/^tfl_[a-z0-9]{16,64}$/.test(code) || !expires || Number.isNaN(expires.getTime())) return null;
+  if (expires <= now || expires.getTime() > now.getTime() + 24 * 3_600_000 + 5 * 60_000) return null;
+  return { code, expires };
 }
 
 // ---- account actions ----
@@ -199,6 +241,7 @@ export type BoxAction =
   | { action: "forget-key" }
   | { action: "keep-key"; token: string }
   | { action: "forget-signin" }
+  | { action: "new-signin" }
   | { action: "resize"; serverType: string; token?: string; keepKey?: boolean }
   | { action: "cancel" }
   | { action: "resume" }
@@ -220,8 +263,15 @@ export async function boxAction(acct: Account, boxId: string, a: BoxAction): Pro
       return "Your Hetzner key is kept, sealed. Remove it any time.";
     }
     case "forget-signin":
-      await s`update cloud_boxes set signin_code = null, signin_expires_at = null where id = ${box.id}`;
-      return "Done. We no longer hold a sign-in link for your box; sign in on the box itself.";
+      // Ends the hand-off: no link is kept, and none is asked for again.
+      await s`update cloud_boxes set signin_code = null, signin_expires_at = null, signin_requested_at = null,
+        handoff_closed_at = coalesce(handoff_closed_at, now()) where id = ${box.id}`;
+      return "Done. We no longer hold a sign-in link for your box and won't ask it for another; sign in on the box itself.";
+    case "new-signin":
+      if (box.status !== "active") throw new ActionError("The box isn't ready yet.");
+      if (box.handoff_closed_at) throw new ActionError("Your box says you signed in already, so it makes no more links for us: sign in on the box itself (your passkey, or tiffin login on the server).");
+      await s`update cloud_boxes set signin_requested_at = now() where id = ${box.id} and handoff_closed_at is null`;
+      return "Asked your box for a new one-time sign-in link. It makes it at its next check-in (within about ten minutes); then click Open dashboard.";
     case "resize": {
       if (box.status !== "active") throw new ActionError("Only a running box can be resized.");
       if (!onFor(box)) throw new ActionError("One-click resize is part of the subscription. Resize in the Hetzner console instead.");
@@ -271,7 +321,7 @@ export async function boxAction(acct: Account, boxId: string, a: BoxAction): Pro
       await s.begin(async (tx) => {
         await tx`update cloud_boxes set status = 'released', released_at = now(), token_sealed = null, token_kept_at = null,
           signin_code = null, signin_expires_at = null, updated_at = now() where id = ${box.id}`;
-        if (box.dns_state === "live") await q.enqueue(box.id, "dns_remove", { reason: "released", gen: Number(box.generation) }, null, tx);
+        if (box.dns_state === "live" || box.dns_state === "pending") await q.enqueue(box.id, "dns_remove", { reason: "released", gen: Number(box.generation) }, null, tx);
       });
       return "Released. The server is untouched and yours; it no longer gets updates from us.";
     }
@@ -280,7 +330,7 @@ export async function boxAction(acct: Account, boxId: string, a: BoxAction): Pro
 
 // ---- box check-in ----
 
-export type HeartbeatAnswer = { managed: boolean; active: boolean; updates: boolean; message?: string };
+export type HeartbeatAnswer = { managed: boolean; active: boolean; updates: boolean; message?: string; signin?: boolean; checkInSeconds?: number };
 
 /**
  * What a check-in means (pure). A check-in counts only with the licence of
@@ -311,10 +361,15 @@ export function heartbeatDecision(
     message: on ? undefined : "Automatic updates are paused: this box's ShipTiffin subscription is not active. Your apps keep running. Renew at shiptiffin.com/account.",
   };
   if (!fromBox(ip, box.ipv4, box.ipv6)) return { answer, counts: false, refused: `sent from ${ip ?? "an unknown address"}, not the box's own`, restore: false };
-  return { answer, counts: true, restore: on && !box.killed_at && (box.dns_state === "removed" || box.dns_state === "parked") };
+  return { answer, counts: true, restore: on && !box.killed_at && (box.dns_state === "removed" || box.dns_state === "parked" || box.dns_state === "pending") };
 }
 
-export async function heartbeat(l: Licence, ip: string | null | undefined, report: { version?: unknown; failing?: unknown }): Promise<HeartbeatAnswer> {
+export async function heartbeat(
+  l: Licence,
+  ip: string | null | undefined,
+  report: { version?: unknown; failing?: unknown; handoff?: unknown; signin?: unknown },
+  now = new Date(),
+): Promise<HeartbeatAnswer> {
   const box = await q.boxById(l.box);
   const d = heartbeatDecision(box, l, ip);
   if (!box) return d.answer;
@@ -327,20 +382,35 @@ export async function heartbeat(l: Licence, ip: string | null | undefined, repor
   await q.db()`update cloud_boxes set last_heartbeat_at = now(), last_heartbeat_ip = ${ip ?? null}, last_version = ${version}, failing = ${failing},
     heartbeat_alerted_at = null where id = ${box.id}`;
   if (d.restore && !(await q.jobsBusy(box.id))) await q.enqueue(box.id, "dns_set", { reason: "heartbeat", gen: Number(box.generation) }, null);
-  return d.answer;
+  if (!d.answer.managed) return d.answer;
+
+  // The hand-off: the box says whether its owner signed in, and sends a link we asked for.
+  if (report.handoff === "done" && !box.handoff_closed_at) {
+    await q.db()`update cloud_boxes set handoff_closed_at = now(), signin_code = null, signin_requested_at = null where id = ${box.id}`;
+    box.handoff_closed_at = now;
+  }
+  const link = report.handoff === "pending" && !box.handoff_closed_at && box.status === "active" ? parseSignin(report.signin, now) : null;
+  if (link) {
+    await q.db()`update cloud_boxes set signin_code = ${link.code}, signin_expires_at = ${link.expires}, signin_requested_at = null
+      where id = ${box.id} and handoff_closed_at is null`;
+    Object.assign(box, { signin_code: link.code, signin_expires_at: link.expires, signin_requested_at: null });
+  }
+  const ask = handoffAsk(box, report.handoff);
+  return { ...d.answer, ...(ask.signin ? { signin: true } : {}), ...(ask.checkInSeconds ? { checkInSeconds: ask.checkInSeconds } : {}) };
 }
 
 // ---- monitor ----
 
 export async function runMonitor(now = new Date()): Promise<{ checked: number; queued: number }> {
-  const boxes = await q.db()<Omit<MonitorBox, "warned">[]>`select id, name, email, status, plan_status, first_paid_at, extras_paused_at, dns_state, generation::int as generation,
+  const boxes = await q.db()<Omit<MonitorBox, "warning">[]>`select id, name, email, status, plan_status, first_paid_at, extras_paused_at, dns_state, generation::int as generation,
     last_heartbeat_at, ready_at, health_failures, down_alerted_at, heartbeat_alerted_at, created_at from cloud_boxes where status in ('active', 'cert_pending')`;
   let queued = 0;
   await Promise.all(
     boxes.map(async (row) => {
-      // The grace period's warning, keyed by when the extras paused: settled once sent (or given up on).
-      const b: MonitorBox = { ...row, warned: row.extras_paused_at ? await q.outboxSettled(row.id, "dns_soon", row.extras_paused_at.toISOString()) : null };
+      // The grace period's warning, keyed by when the extras paused: it counts once the mail server accepted it.
+      const b: MonitorBox = { ...row, warning: row.extras_paused_at ? await q.outboxState(row.id, "dns_soon", row.extras_paused_at.toISOString()) : null };
       let d = decide(b, now);
+      if (d.retryWarning && b.extras_paused_at) await q.retryOutbox(b.id, "dns_soon", b.extras_paused_at.toISOString());
       if (d.probe && b.name) d = decide(b, now, await probe(`${dashboardUrl(b.name)}/v1/health`));
       const p = d.patch;
       if (Object.keys(p).length) await q.db()`update cloud_boxes set ${q.db()(p as any)} where id = ${b.id}`;
@@ -369,7 +439,7 @@ export async function reportAbuse(target: string, email: string | null, details:
   if (notify) await deliver({ to: notify, subject: `Abuse report: ${t}`, text: `Target: ${t}\nBox: ${box?.id ?? "unknown"}\nFrom: ${email ?? "anonymous"}\n\n${details}\n\nAct on it: ${SITE}/admin` });
 }
 
-export type AdminInput = { action: "kill" | "restore" | "report" | "refund"; boxId?: string; reason?: string; reportId?: number; status?: string };
+export type AdminInput = { action: "kill" | "restore" | "report" | "refund" | "resolve"; boxId?: string; reason?: string; reportId?: number; status?: string };
 
 export async function adminAction(a: AdminInput) {
   const s = q.db();
@@ -396,6 +466,10 @@ export async function adminAction(a: AdminInput) {
       if (box.status === "active" || box.status === "cert_pending") await q.enqueue(box.id, "dns_set", { reason: "admin_restore", gen: Number(box.generation) }, null, tx);
     });
     return "Restoring: the address comes back once the box checks in from its own address (within about six hours).";
+  }
+  if (a.action === "resolve") {
+    await s`update cloud_boxes set attention = null, attention_at = null, updated_at = now() where id = ${box.id}`;
+    return "Marked as seen to.";
   }
   if (a.action === "refund") {
     // The 14-day money-back guarantee: refund the first payment in full and end the subscription. Once per box.

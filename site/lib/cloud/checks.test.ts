@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { buildOptions, checkToken, suggest, type Call } from "./hetzner";
-import { decide, fromBox, type MonitorBox } from "./monitor";
+import { decide, fromBox, type MonitorBox, type Warning } from "./monitor";
 import { nameProblem, safeNext } from "./names";
 import { isAdmin, missingSecrets } from "./config";
-import { heartbeatDecision, reusableCheckout } from "./actions";
+import { handoffAsk, HANDOFF_PENDING_SECONDS, HANDOFF_SOON_SECONDS, heartbeatDecision, parseSignin, reusableCheckout } from "./actions";
 import { backoff, drain, MAX_ATTEMPTS, type OutboxRow, type OutboxStore } from "./outbox";
 
 const price = (net: number) => ({ net: net.toFixed(4), gross: (net * 1.19).toFixed(4) });
@@ -143,7 +143,7 @@ describe("monitor", () => {
     down_alerted_at: null,
     heartbeat_alerted_at: null,
     created_at: new Date("2026-10-01T00:00:00Z"),
-    warned: null,
+    warning: null,
   };
   test("probes a live, paid box; emails after three failures in a row, once", () => {
     expect(decide(base, now).probe).toBe(true);
@@ -172,17 +172,32 @@ describe("monitor", () => {
     // A box that never checked in counts from when it became ready.
     expect(decide({ ...base, last_heartbeat_at: null, ready_at: new Date(now.getTime() - 80 * 3_600_000) }, now).removeDns?.reason).toBe("parked");
   });
-  test("unpaid: no monitoring; the address goes after 30 days, and never before its warning went out", () => {
-    const paused = (days: number, warned: boolean | null = null) => ({ ...base, plan_status: "unpaid", extras_paused_at: new Date(now.getTime() - days * 86_400_000), warned });
+  test("unpaid: no monitoring; the address goes after 30 days, and never before a warning got through", () => {
+    const day = 86_400_000;
+    const sent = (daysAgo: number): Warning => ({ status: "done", doneAt: new Date(now.getTime() - daysAgo * day) });
+    const paused = (days: number, warning: Warning | null = null) => ({ ...base, plan_status: "unpaid", extras_paused_at: new Date(now.getTime() - days * day), warning });
     expect(decide(paused(1), now)).toMatchObject({ probe: false, emails: [], removeDns: null });
     expect(decide(paused(24), now).emails).toEqual(["dns_soon"]);
-    expect(decide(paused(24, false), now).emails).toEqual([]);
-    expect(decide(paused(31, false), now)).toMatchObject({ removeDns: null, emails: [] }); // warning queued, not sent yet: wait
+    expect(decide(paused(24, { status: "queued", doneAt: null }), now).emails).toEqual([]);
+    expect(decide(paused(31, { status: "queued", doneAt: null }), now)).toMatchObject({ removeDns: null, emails: [] }); // queued, not sent yet: wait
     expect(decide(paused(31), now)).toMatchObject({ removeDns: null, emails: ["dns_soon"] }); // never warned: warn first
-    const gone = decide(paused(31, true), now);
+    const gone = decide(paused(31, sent(8)), now);
     expect(gone).toMatchObject({ removeDns: { reason: "grace", gen: 1 }, emails: ["dns_removed"] });
     expect(gone.removeDns!.pausedAt).toEqual(paused(31).extras_paused_at);
-    expect(decide({ ...paused(31, true), dns_state: "removed" }, now)).toMatchObject({ removeDns: null, emails: [] });
+    expect(decide({ ...paused(31, sent(8)), dns_state: "removed" }, now)).toMatchObject({ removeDns: null, emails: [] });
+    // A half-published address counts as published.
+    expect(decide({ ...paused(31, sent(8)), dns_state: "pending" }, now).removeDns?.reason).toBe("grace");
+  });
+  test("a warning that failed doesn't count: the address stays, and the warning is sent again a day later", () => {
+    const day = 86_400_000;
+    const paused = (days: number, warning: Warning | null) => ({ ...base, plan_status: "unpaid", extras_paused_at: new Date(now.getTime() - days * day), warning });
+    const failed = (daysAgo: number): Warning => ({ status: "failed", doneAt: new Date(now.getTime() - daysAgo * day) });
+    expect(decide(paused(40, failed(0.5)), now)).toMatchObject({ removeDns: null, emails: [], retryWarning: false });
+    expect(decide(paused(40, failed(2)), now)).toMatchObject({ removeDns: null, emails: [], retryWarning: true });
+    // Sent late (a day before the grace ends): seven days' notice still, not one.
+    const late: Warning = { status: "done", doneAt: new Date(now.getTime() - 1 * day) };
+    expect(decide(paused(31, late), now).removeDns).toBeNull();
+    expect(decide(paused(38, { status: "done", doneAt: new Date(now.getTime() - 7 * day) }), now).removeDns?.reason).toBe("grace");
   });
   test("released, unnamed or unpaid-from-the-start boxes are left alone", () => {
     expect(decide({ ...base, status: "released" }, now)).toMatchObject({ probe: false, emails: [] });
@@ -216,6 +231,39 @@ describe("check-ins", () => {
     expect(heartbeatDecision({ ...box, dns_state: "parked", killed_at: new Date() } as any, { gen: 2 }, "203.0.113.5").restore).toBe(false);
     expect(heartbeatDecision({ ...box, dns_state: "parked", plan_status: "canceled" } as any, { gen: 2 }, "203.0.113.5")).toMatchObject({ restore: false, answer: { active: false, updates: false } });
     expect(heartbeatDecision({ ...box, dns_state: "parked" } as any, { gen: 2 }, "198.51.100.66").restore).toBe(false);
+  });
+  test("a half-published address comes back at a counted check-in too", () => {
+    expect(heartbeatDecision({ ...box, dns_state: "pending" } as any, { gen: 2 }, "203.0.113.5").restore).toBe(true);
+  });
+  test("the hand-off: a fresh sign-in link when it counts from readiness, or when asked; none after the owner signed in", () => {
+    const h = 3_600_000;
+    const ready = new Date("2026-10-08T12:00:00Z");
+    const b = (over: object = {}) => ({ status: "active", handoff_closed_at: null, signin_requested_at: null, signin_expires_at: new Date(ready.getTime() + 24 * h - 5 * 60_000), ready_at: ready, ...over }) as any;
+    // Made at setup, ready minutes later: that link is good.
+    expect(handoffAsk(b(), "pending")).toEqual({ signin: false, checkInSeconds: HANDOFF_PENDING_SECONDS });
+    // The certificate took two hours: a new link, so its 24 hours start at readiness.
+    expect(handoffAsk(b({ signin_expires_at: new Date(ready.getTime() + 22 * h) }), "pending")).toEqual({ signin: true, checkInSeconds: HANDOFF_SOON_SECONDS });
+    // Setup never got one (its last steps failed): ask.
+    expect(handoffAsk(b({ signin_expires_at: null }), "pending").signin).toBe(true);
+    // Expired unused: only when the customer asks.
+    expect(handoffAsk(b({ signin_expires_at: new Date(ready.getTime() - h), ready_at: new Date(ready.getTime() - 30 * h) }), "pending").signin).toBe(false);
+    expect(handoffAsk(b({ signin_requested_at: new Date() }), "pending").signin).toBe(true);
+    // Waiting for the certificate: check in soon, no link yet.
+    expect(handoffAsk(b({ status: "cert_pending", ready_at: null }), "pending")).toEqual({ signin: false, checkInSeconds: HANDOFF_SOON_SECONDS });
+    // The owner signed in (or the customer said they'd sign in on the box), or an older box: nothing.
+    expect(handoffAsk(b({ signin_requested_at: new Date() }), "done")).toEqual({ signin: false });
+    expect(handoffAsk(b({ signin_requested_at: new Date(), handoff_closed_at: new Date() }), "pending")).toEqual({ signin: false });
+    expect(handoffAsk(b({ signin_requested_at: new Date() }), undefined)).toEqual({ signin: false });
+  });
+  test("a sign-in link from the box: its shape, and the box's 24 hours at most", () => {
+    const now = new Date("2026-10-08T12:00:00Z");
+    const at = (hours: number) => new Date(now.getTime() + hours * 3_600_000).toISOString();
+    expect(parseSignin({ code: "tfl_abcdefghijklmnop2345", expiresAt: at(24) }, now)?.code).toBe("tfl_abcdefghijklmnop2345");
+    expect(parseSignin({ code: "tfl_abcdefghijklmnop2345", expiresAt: at(25) }, now)).toBeNull();
+    expect(parseSignin({ code: "tfl_abcdefghijklmnop2345", expiresAt: at(-1) }, now)).toBeNull();
+    expect(parseSignin({ code: "tfn_ownertoken12345678", expiresAt: at(1) }, now)).toBeNull();
+    expect(parseSignin({ code: "tfl_<script>", expiresAt: at(1) }, now)).toBeNull();
+    expect(parseSignin("tfl_abcdefghijklmnop2345", now)).toBeNull();
   });
   test("address matching", () => {
     expect(fromBox("203.0.113.5", "203.0.113.5", null)).toBe(true);

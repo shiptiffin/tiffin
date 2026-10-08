@@ -21,6 +21,7 @@ const when = (d: Date | null) => (d ? d.toLocaleString("en-GB", { dateStyle: "me
 const day = (d: Date | null) => (d ? d.toLocaleDateString("en-GB", { dateStyle: "medium", timeZone: "UTC" }) : "");
 
 function statusPill(b: BoxRow): [string, "good" | "warn" | "bad" | undefined] {
+  if (b.attention && b.status !== "released") return ["Needs attention", "bad"];
   switch (b.status) {
     case "active":
       if (b.dns_state === "killed") return ["Address turned off", "bad"];
@@ -58,7 +59,8 @@ function planWords(b: BoxRow): string {
   return `Ended (${b.plan_status}). Updates and extras are paused${b.dns_state === "live" && until ? `; the address stays until ${day(until)}` : ""}.`;
 }
 
-export default async function Account() {
+export default async function Account({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const asked = (await searchParams).signin === "asked";
   const acct = await currentAccount();
   if (!acct) redirect("/sign-in?next=/account");
   const ready = await tablesReady();
@@ -84,6 +86,11 @@ export default async function Account() {
           {boxes.some((b) => b.stripe_customer_id) && <BillingButton />}
         </div>
         {boxes.length === 0 && <p className="cp-sub">No boxes yet.</p>}
+        {asked && (
+          <p className="cp-hint" role="status">
+            We asked your box for a new one-time sign-in link. It makes it at its next check-in, usually within a few minutes. Then click Open dashboard again.
+          </p>
+        )}
         {detail.map(({ b, calls, job }) => {
           const [label, tone] = statusPill(b);
           return (
@@ -133,16 +140,24 @@ export default async function Account() {
                   {b.token_sealed ? `Kept, encrypted, since ${day(b.token_kept_at)}` : "Not stored"}
                   {b.token_fingerprint ? ` (fingerprint ${b.token_fingerprint})` : ""}
                 </dd>
-                {b.signin_code && (
+                {b.status === "active" && !b.handoff_closed_at && (
                   <>
                     <dt>Sign-in link</dt>
                     <dd>
-                      We hold the one-time sign-in link your box made at setup, so your first &ldquo;Open dashboard&rdquo; signs you in. It works once, and your box
-                      refuses it after {when(b.signin_expires_at)}. Forget it sooner below.
+                      {b.signin_code && b.signin_expires_at && b.signin_expires_at > new Date()
+                        ? <>We hold the one-time sign-in link your box made, so &ldquo;Open dashboard&rdquo; signs you in. It works once, and your box refuses it after {when(b.signin_expires_at)}. We forget it once your box tells us you signed in.</>
+                        : b.signin_requested_at
+                          ? "We asked your box for a new one-time sign-in link; it arrives at its next check-in."
+                          : "The sign-in link your box made has expired. Ask it for a new one below, or sign in on the box itself."}
                     </dd>
                   </>
                 )}
               </dl>
+              {b.attention && b.status !== "released" && (
+                <p className="cp-err" role="status">
+                  {b.attention} We&rsquo;ve been told too; write to <a href="mailto:hello@shiptiffin.com">hello@shiptiffin.com</a> with questions.
+                </p>
+              )}
               {job && (job.status === "queued" || job.status === "running" || (job.status === "failed" && job.kind !== "provision")) && (
                 <p className={job.status === "failed" ? "cp-err" : "cp-hint"} role="status">
                   {job.kind.replace("_", " ")}: {job.status === "failed" ? job.error : (job.steps.at(-1)?.text ?? job.status)}
@@ -159,6 +174,7 @@ export default async function Account() {
                   hasSubscription: Boolean(b.stripe_subscription_id),
                   keyStored: Boolean(b.token_sealed),
                   signinLink: Boolean(b.signin_code),
+                  handoffOpen: b.status === "active" && !b.handoff_closed_at,
                   serverType: b.server_type,
                   sizes: RESIZE_TYPES.filter((t) => b.server_type && t !== b.server_type && family(t) === family(b.server_type)),
                 }}

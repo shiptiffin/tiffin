@@ -31,9 +31,14 @@ export type MonitorBox = {
   down_alerted_at: Date | null;
   heartbeat_alerted_at: Date | null;
   created_at: Date;
-  /** The "address goes soon" email is settled (sent or given up on); null: never queued. */
-  warned: boolean | null;
+  /** The "address goes soon" email: null when never queued; done means the mail server accepted it. */
+  warning: Warning | null;
 };
+
+export type Warning = { status: "queued" | "done" | "failed"; doneAt: Date | null };
+
+/** After a warning failed for good, we try it again this long after (and keep the address meanwhile). */
+export const WARNING_RETRY_MS = 86_400_000;
 
 export type Email = "down" | "up" | "silent" | "dns_soon" | "dns_removed" | "parked";
 
@@ -42,19 +47,24 @@ export type Decision = {
   patch: Partial<Pick<MonitorBox, "health_failures" | "down_alerted_at" | "heartbeat_alerted_at">> & { health_checked_at?: Date };
   emails: Email[];
   removeDns: null | { reason: "parked" | "grace"; gen: number; pausedAt?: Date };
+  /** Send the failed "address goes soon" warning again. */
+  retryWarning: boolean;
 };
+
+/** The address counts as published while live, or while records are being (or were half) published. */
+const published = (dns: string) => dns === "live" || dns === "pending";
 
 const DAY = 86_400_000;
 
 /** What to do for one box. probeOk is the HTTPS check's result (undefined: not checked). */
 export function decide(b: MonitorBox, now: Date, probeOk?: boolean): Decision {
-  const d: Decision = { probe: false, patch: {}, emails: [], removeDns: null };
+  const d: Decision = { probe: false, patch: {}, emails: [], removeDns: null, retryWarning: false };
   if ((b.status !== "active" && b.status !== "cert_pending") || !b.name) return d;
   const gen = Number(b.generation);
 
   // Parking: by check-ins alone, paid or not.
   const last = (b.last_heartbeat_at ?? b.ready_at ?? b.created_at).getTime();
-  if (b.dns_state === "live" && now.getTime() - last > PARK_AFTER_MS) {
+  if (published(b.dns_state) && now.getTime() - last > PARK_AFTER_MS) {
     d.removeDns = { reason: "parked", gen };
     d.emails.push("parked");
     return d;
@@ -63,11 +73,16 @@ export function decide(b: MonitorBox, now: Date, probeOk?: boolean): Decision {
   const on = extrasOn(b.plan_status, Boolean(b.first_paid_at));
   if (b.extras_paused_at && !on) {
     // Extras paused: no monitoring, and the address goes after the grace
-    // period, never before its warning went out.
+    // period, never before a warning reached the customer: the "goes soon"
+    // email accepted by the mail server at least WARN_BEFORE_DAYS earlier.
+    // A warning that failed doesn't count; it is sent again a day later,
+    // and the address stays until one gets through.
     const end = b.extras_paused_at.getTime() + DNS_GRACE_DAYS * DAY;
-    if (b.dns_state !== "live") return d;
-    if (now.getTime() >= end - WARN_BEFORE_DAYS * DAY && b.warned === null) d.emails.push("dns_soon");
-    if (now.getTime() >= end && b.warned === true) {
+    if (!published(b.dns_state)) return d;
+    const w = b.warning;
+    if (now.getTime() >= end - WARN_BEFORE_DAYS * DAY && w === null) d.emails.push("dns_soon");
+    if (w?.status === "failed" && now.getTime() - (w.doneAt?.getTime() ?? 0) >= WARNING_RETRY_MS) d.retryWarning = true;
+    if (w?.status === "done" && w.doneAt && now.getTime() >= Math.max(end, w.doneAt.getTime() + WARN_BEFORE_DAYS * DAY)) {
       d.removeDns = { reason: "grace", gen, pausedAt: b.extras_paused_at };
       d.emails.push("dns_removed");
     }

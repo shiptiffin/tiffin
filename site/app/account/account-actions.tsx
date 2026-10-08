@@ -61,6 +61,7 @@ type Box = {
   hasSubscription: boolean;
   keyStored: boolean;
   signinLink: boolean;
+  handoffOpen: boolean;
   renewable: boolean;
   serverType: string | null;
   sizes: string[];
@@ -236,14 +237,27 @@ function KeyPanel({ box, busy, act }: { box: Box; busy: boolean; act: Act }) {
           </button>
         </>
       )}
-      {box.signinLink && (
+      {box.handoffOpen && (
         <>
           <p className="cp-hint">
-            We also hold the one-time sign-in link your box made at setup (it works once, for 24 hours), so your first &ldquo;Open dashboard&rdquo; signs you in.
+            {box.signinLink
+              ? "We also hold a one-time sign-in link your box made (it works once, for 24 hours), so \u201cOpen dashboard\u201d signs you in. We forget it once your box tells us you signed in."
+              : "Your box's one-time sign-in link expired. Until you first sign in, your box makes a new one when you ask (no SSH: it sends it at its next check-in)."}
           </p>
-          <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => act({ action: "forget-signin" }, "Forget the sign-in link? You then sign in on the box itself.")}>
-            Forget the sign-in link
-          </button>
+          <div className="cp-row">
+            {!box.signinLink && (
+              <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => act({ action: "new-signin" })}>
+                Get a new sign-in link
+              </button>
+            )}
+            <button
+              className="btn btn-quiet btn-sm"
+              disabled={busy}
+              onClick={() => act({ action: "forget-signin" }, "Forget the sign-in link, and never ask your box for another? You then sign in on the box itself.")}
+            >
+              {box.signinLink ? "Forget the sign-in link" : "I'll sign in on the box"}
+            </button>
+          </div>
         </>
       )}
       <p className="cp-hint">You can also delete the token in Hetzner (Security → API tokens) at any time; the box keeps running.</p>

@@ -18,7 +18,7 @@ export default async function Admin() {
   if (!isAdmin(acct)) notFound();
   if (!(await tablesReady())) return <p className="wrap cp">The cloud worker hasn&rsquo;t made its tables yet.</p>;
   const s = db();
-  const boxes = await s`select id, name, email, status, plan_status, dns_state, founding, server_type, location, ipv4, last_heartbeat_at, last_version, kill_reason,
+  const boxes = await s`select id, name, email, status, plan_status, dns_state, founding, server_type, location, ipv4, last_heartbeat_at, last_version, kill_reason, attention,
     first_paid_at, refunded_at, stripe_subscription_id, heartbeat_refused_at, heartbeat_refused_why, created_at
     from cloud_boxes where status <> 'awaiting_payment' order by created_at desc limit 300`;
   const stuck = await s`select box_id, kind, key, attempts, status, last_error, created_at from cloud_outbox where status = 'failed' or (status = 'queued' and attempts > 2)
@@ -115,6 +115,12 @@ export default async function Admin() {
                   {b.status} · {b.plan_status}
                   {b.founding ? " · founding" : ""} · dns {b.dns_state}
                   {b.kill_reason ? ` (${b.kill_reason})` : ""}
+                  {b.attention && (
+                    <>
+                      <br />
+                      <strong>Needs attention:</strong> {b.attention}
+                    </>
+                  )}
                   <br />
                   <span className="cp-muted">
                     {b.first_paid_at ? `first paid ${Math.floor((Date.now() - new Date(b.first_paid_at).getTime()) / 86_400_000)} days ago` : "not paid"}
@@ -138,9 +144,10 @@ export default async function Admin() {
                 <td>
                   {b.dns_state === "killed" ? (
                     <AdminButton body={{ action: "restore", boxId: b.id }} label="Restore" ask="Point the address at the box again?" />
-                  ) : b.dns_state === "live" ? (
+                  ) : b.dns_state === "live" || b.dns_state === "pending" ? (
                     <AdminButton body={{ action: "kill", boxId: b.id }} label="Kill" ask="Remove this box's shiptiffin.app records? The customer is emailed." reason />
                   ) : null}
+                  {b.attention && <AdminButton body={{ action: "resolve", boxId: b.id }} label="Seen to" ask="Clear this box's attention note?" />}
                   {b.stripe_subscription_id && b.first_paid_at && !b.refunded_at && (
                     <AdminButton
                       body={{ action: "refund", boxId: b.id }}

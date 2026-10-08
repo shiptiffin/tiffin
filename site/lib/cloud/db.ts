@@ -193,10 +193,16 @@ export async function outbox(boxId: string, kind: string, key: string, params: R
   return rows.length > 0;
 }
 
-/** Whether an outbox row is settled (sent, or given up on): the address doesn't go before its warning did. */
-export async function outboxSettled(boxId: string, kind: string, key: string): Promise<boolean | null> {
-  const [r] = await db()`select status from cloud_outbox where box_id = ${boxId} and kind = ${kind} and key = ${key}`;
-  return r ? r.status !== "queued" : null;
+/** An outbox row's state: done means sent (the mail server accepted it), failed means given up on. */
+export async function outboxState(boxId: string, kind: string, key: string): Promise<{ status: "queued" | "done" | "failed"; doneAt: Date | null } | null> {
+  const [r] = await db()`select status, done_at from cloud_outbox where box_id = ${boxId} and kind = ${kind} and key = ${key}`;
+  return r ? { status: r.status, doneAt: r.done_at ?? null } : null;
+}
+
+/** Tries a failed outbox row again from the start. */
+export async function retryOutbox(boxId: string, kind: string, key: string): Promise<void> {
+  await db()`update cloud_outbox set status = 'queued', attempts = 0, next_attempt_at = now(), done_at = null
+    where box_id = ${boxId} and kind = ${kind} and key = ${key} and status = 'failed'`;
 }
 
 export function pgOutbox(): OutboxStore {
