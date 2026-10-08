@@ -13,7 +13,7 @@ import (
 // site/lib/cloud/seal.test.ts): the worker must open what the website seals.
 const (
 	kekVector    = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
-	sealedVector = "SEALED_FROM_TS"
+	sealedVector = "v1.dr7uacXjrv-vq84KX8StUWK2w64X2qnN8YeCQcplZQ_Qd1UyQRK0QPYw_PeXTuBBAjqHiTABZaJMNt9E.J-UYlxU4l6euVV7XZUWFuGY38yArcZTXjcDtZuxI5nXtbcgcr_Z3uL6X79rjwlo"
 )
 
 func TestSealOpen(t *testing.T) {
@@ -58,9 +58,6 @@ func TestSealOpen(t *testing.T) {
 }
 
 func TestOpenWhatTheWebsiteSealed(t *testing.T) {
-	if sealedVector == "SEALED_FROM_TS" {
-		t.Skip("no vector yet")
-	}
 	kek, _ := ParseKEK(kekVector)
 	got, err := Open(kek, sealedVector, TokenAAD("box_vector"))
 	if err != nil || string(got) != "hcloud-vector-token" {

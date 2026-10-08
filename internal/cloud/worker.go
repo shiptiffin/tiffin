@@ -298,6 +298,11 @@ func (w *Worker) hetzner(job *Job, box *Box, purpose, token string, cfg hetzner.
 // DefaultVolumeGB is a managed box's data volume.
 const DefaultVolumeGB = 40
 
+// MaintenanceWindow is when a managed box installs Tiffin and system updates
+// (server time, UTC on Hetzner); the owner can move it in the dashboard.
+// Without one a box never updates by itself.
+const MaintenanceWindow = "03:00"
+
 func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionArgs, progress func(string)) error {
 	if err := ValidName(a.Name); err != nil {
 		return fmt.Errorf("box name %q: %w", a.Name, err)
@@ -414,7 +419,7 @@ func (w *Worker) provision(ctx context.Context, job *Job, box *Box, a ProvisionA
 		return err
 	}
 	opts := install.Options{Domain: domain, HTTPSPort: 443, HTTPPort: 80, PublicIP: ip4, PublicIPv6: ip6,
-		Server: &platform.ServerConfig{Provider: "hetzner", Name: a.Name, PublicIP: ip4, PublicIPv6: ip6, Machine: machine},
+		Server: &platform.ServerConfig{Provider: "hetzner", Name: a.Name, PublicIP: ip4, PublicIPv6: ip6, Machine: machine, RebootWindow: MaintenanceWindow},
 		Managed: &platform.ManagedConfig{ControlPlane: w.ControlURL, BoxID: box.ID, Licence: tok,
 			PublicKey: licence.PublicKeyText(w.Licence.Public().(ed25519.PublicKey))}}
 	res, err := w.Install(ctx, m, bin, opts, progress)

@@ -254,6 +254,9 @@ func TestProvisionEndToEnd(t *testing.T) {
 	if o.Domain != "shop.shiptiffin.app" || o.Managed == nil || o.Managed.ControlPlane != "https://shiptiffin.com" || o.Managed.BoxID != "box_1" {
 		t.Fatalf("install options: %+v %+v", o, o.Managed)
 	}
+	if o.Server.RebootWindow != MaintenanceWindow {
+		t.Fatalf("a managed box needs a maintenance window to update itself: %q", o.Server.RebootWindow)
+	}
 	if len(o.Server.OwnerIPs) != 0 {
 		t.Fatal("the control plane's address must not be allowlisted on the box")
 	}
