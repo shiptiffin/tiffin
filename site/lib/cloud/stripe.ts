@@ -13,6 +13,8 @@ export class StripeError extends Error {
     readonly status: number,
     readonly code?: string,
     readonly param?: string,
+    /** Stripe's error type (idempotency_error, invalid_request_error, …). */
+    readonly type?: string,
   ) {
     super(message);
   }
@@ -48,7 +50,7 @@ export function stripeClient(secretKey: string, base = process.env.STRIPE_API_BA
     const json = (await res.json().catch(() => ({}))) as any;
     if (!res.ok) {
       const e = json?.error ?? {};
-      throw new StripeError(e.message ?? `Stripe answered ${res.status}`, res.status, e.code, e.param);
+      throw new StripeError(e.message ?? `Stripe answered ${res.status}`, res.status, e.code, e.param, e.type);
     }
     return json as T;
   }

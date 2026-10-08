@@ -4,7 +4,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { DNS_GRACE_DAYS, ENDED, extrasOn } from "@/lib/cloud/billing";
+import { renewable } from "@/lib/cloud/actions";
+import { DNS_GRACE_DAYS, extrasOn } from "@/lib/cloud/billing";
 import { isAdmin } from "@/lib/cloud/config";
 import { boxesFor, callsFor, latestJob, tablesReady, type BoxRow } from "@/lib/cloud/db";
 import { family, RESIZE_TYPES } from "@/lib/cloud/hetzner";
@@ -153,7 +154,7 @@ export default async function Account() {
                   name: b.name,
                   status: b.status,
                   active: extrasOn(b.plan_status, Boolean(b.first_paid_at)),
-                  renewable: (b.status === "active" || b.status === "cert_pending") && ENDED.has(b.plan_status) && !b.refunded_at,
+                  renewable: renewable(b),
                   cancelAtPeriodEnd: b.cancel_at_period_end,
                   hasSubscription: Boolean(b.stripe_subscription_id),
                   keyStored: Boolean(b.token_sealed),

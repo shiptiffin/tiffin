@@ -5,6 +5,7 @@ import { randomBytes } from "node:crypto";
 import type postgres from "postgres";
 import { sql } from "../early-access-pg";
 import type { BillingPatch, BillingRepo, BoxBilling } from "./billing";
+import type { CheckoutAttempt, CheckoutRepo } from "./checkout";
 import type { OutboxRow, OutboxStore } from "./outbox";
 import type { Call } from "./hetzner";
 
@@ -24,7 +25,9 @@ export async function tablesReady(): Promise<boolean> {
   const s = sql();
   if (!s) return false;
   try {
-    const [r] = await s`select to_regclass('public.cloud_jobs') is not null and to_regclass('public.cloud_outbox') is not null as ok`;
+    // The worker applies the schema; this build needs its newest columns too.
+    const [r] = await s`select to_regclass('public.cloud_jobs') is not null and to_regclass('public.cloud_outbox') is not null
+      and exists (select 1 from information_schema.columns where table_name = 'cloud_boxes' and column_name = 'checkout_attempt') as ok`;
     tablesSeen = Boolean(r?.ok);
   } catch {
     return false;
@@ -58,6 +61,7 @@ export type BoxRow = {
   checkout_session_id: string | null;
   checkout_url: string | null;
   checkout_expires_at: Date | null;
+  checkout_attempt: CheckoutAttempt | null;
   refunded_at: Date | null;
   founding: boolean;
   server_type: string | null;
@@ -70,7 +74,7 @@ export type BoxRow = {
   token_kept_at: Date | null;
   signin_code: string | null;
   signin_expires_at: Date | null;
-  dns_state: "none" | "live" | "removed" | "parked" | "killed";
+  dns_state: "none" | "pending" | "live" | "removed" | "parked" | "killed";
   last_heartbeat_at: Date | null;
   last_heartbeat_ip: string | null;
   heartbeat_refused_at: Date | null;
@@ -80,6 +84,11 @@ export type BoxRow = {
   health_failures: number;
   health_checked_at: Date | null;
   ready_at: Date | null;
+  installed_at: Date | null;
+  attention: string | null;
+  attention_at: Date | null;
+  handoff_closed_at: Date | null;
+  signin_requested_at: Date | null;
   down_alerted_at: Date | null;
   heartbeat_alerted_at: Date | null;
   killed_at: Date | null;
@@ -207,6 +216,25 @@ export function pgOutbox(): OutboxStore {
     },
     async fail(id, attempts, error) {
       await s`update cloud_outbox set status = 'failed', attempts = ${attempts}, last_error = ${error}, done_at = now() where id = ${id}`;
+    },
+  };
+}
+
+/** Checkout attempts and sessions (checkout.ts). */
+export function pgCheckout(): CheckoutRepo<BoxRow> {
+  const s = db();
+  return {
+    locked: (boxId, fn) =>
+      s.begin(async (tx) => {
+        const [b] = await tx<BoxRow[]>`select * from cloud_boxes where id = ${boxId} for update`;
+        if (!b) throw new Error("no such box");
+        return fn(b, async (a) => {
+          await tx`update cloud_boxes set checkout_attempt = ${tx.json(a as any)}, updated_at = now() where id = ${boxId}`;
+        });
+      }) as any,
+    async saveSession(boxId, attemptId, cs, expires) {
+      await s`update cloud_boxes set checkout_session_id = ${cs.id}, checkout_url = ${cs.url}, checkout_expires_at = ${expires}, updated_at = now()
+        where id = ${boxId} and checkout_attempt->>'id' = ${attemptId}`;
     },
   };
 }

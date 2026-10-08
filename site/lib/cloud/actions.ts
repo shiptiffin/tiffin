@@ -6,6 +6,7 @@ import * as q from "./db";
 import { deliver, SITE } from "./emails";
 import { checkToken, EU_LOCATIONS, EU_TYPES, family, RESIZE_TYPES, US_LOCATIONS, US_TYPES } from "./hetzner";
 import type { Licence } from "./licence";
+import { checkoutUrl } from "./checkout";
 import { boxDomain, dashboardUrl, nameProblem } from "./names";
 import { decide, fromBox, probe, type MonitorBox } from "./monitor";
 import { drain } from "./outbox";
@@ -53,32 +54,39 @@ export async function drainOutbox() {
 
 // ---- pay ----
 
-/** Whether a stored Checkout session can be handed out again (it lives 30 minutes at Stripe). */
-export function reusableCheckout(b: Pick<q.BoxRow, "checkout_url" | "checkout_expires_at">, now = new Date()): boolean {
-  return Boolean(b.checkout_url && b.checkout_expires_at && b.checkout_expires_at.getTime() - now.getTime() > 2 * 60_000);
+export { reusableCheckout } from "./checkout";
+
+/** Box statuses Renew covers: every box we still manage once its subscription ended. */
+const RENEWABLE = new Set<q.BoxStatus>(["paid", "provisioning", "cert_pending", "active", "failed"]);
+
+/** Whether a box's ended subscription can be renewed (pure; the account page shows the button by it). */
+export function renewable(b: Pick<q.BoxRow, "status" | "plan_status" | "first_paid_at" | "refunded_at">): boolean {
+  return RENEWABLE.has(b.status) && ENDED.has(b.plan_status) && Boolean(b.first_paid_at) && !b.refunded_at;
 }
 
 /**
  * The Checkout page for a box: a new box, or (renew) one of the account's
- * boxes whose subscription ended. One session per box: stored, and handed out
- * again until it expires, so two tabs pay for one subscription. Cards only
- * (plus Link when STRIPE_CHECKOUT_LINK=1): no payment method that confirms
- * days later, so a paid box is a box whose first payment went through.
+ * boxes whose subscription ended, whatever stage it reached (paid and
+ * waiting for Hetzner, set up, or a setup that failed). The new
+ * subscription carries the same box id and replaces the ended one. One
+ * session per box: stored, and handed out again until it expires, so two
+ * tabs pay for one subscription; the request is saved before Stripe is
+ * called, so a retry after any failure sends the very same request
+ * (checkout.ts). Cards only (plus Link when STRIPE_CHECKOUT_LINK=1): no
+ * payment method that confirms days later, so a paid box is a box whose
+ * first payment went through.
  */
 export async function startCheckout(acct: Account, base = SITE, renew?: string): Promise<string> {
   let box: q.BoxRow;
   if (renew) {
     const b = await q.boxFor(renew, acct.id);
-    if (!b || (b.status !== "active" && b.status !== "cert_pending") || !ENDED.has(b.plan_status)) {
+    if (!b || !renewable(b)) {
       throw new ActionError(b && !ENDED.has(b.plan_status) && b.plan_status !== "none" ? "This box's subscription hasn't ended: update your card under Billing instead." : "This box can't be renewed.");
     }
     box = b;
   } else box = await q.pendingBox(acct.id, acct.email);
   const s = stripe();
-  return q.db().begin(async (tx) => {
-    const [b] = await tx<q.BoxRow[]>`select * from cloud_boxes where id = ${box.id} for update`;
-    if (!b) throw new ActionError("No such box.", 404);
-    if (reusableCheckout(b)) return b.checkout_url!;
+  return checkoutUrl(q.pgCheckout(), s, box.id, async (b) => {
     const price = await s.monthlyPrice();
     const coupon = renew ? null : foundingCoupon();
     const founding = coupon != null && (await q.foundingCount()) < FOUNDING_LIMIT && (await s.couponOpen(coupon));
@@ -94,20 +102,9 @@ export async function startCheckout(acct: Account, base = SITE, renew?: string):
       metadata: { box_id: b.id },
       subscription_data: { metadata: { box_id: b.id } },
       ...(customer ? { customer } : { customer_email: acct.email }),
+      ...(founding ? { discounts: [{ coupon }] } : {}),
     };
-    // A new key per session: the stored one expired (or there is none).
-    const key = `checkout:${b.id}:${b.checkout_session_id ?? "first"}`;
-    let cs: { id: string; url: string; expires_at?: number };
-    try {
-      cs = await s.createCheckout(founding ? { ...params, discounts: [{ coupon }] } : params, `${key}:${founding}`);
-    } catch (e) {
-      // The coupon ran out between the check and the session: full price.
-      if (!(founding && e instanceof StripeError && (e.param?.startsWith("discounts") || /coupon/i.test(e.message)))) throw e;
-      cs = await s.createCheckout(params, `${key}:false`);
-    }
-    const expires = new Date((cs.expires_at ?? Math.floor(Date.now() / 1000) + 30 * 60) * 1000);
-    await tx`update cloud_boxes set checkout_session_id = ${cs.id}, checkout_url = ${cs.url}, checkout_expires_at = ${expires}, updated_at = now() where id = ${b.id}`;
-    return cs.url;
+    return { params, discounted: founding };
   });
 }
 
@@ -155,6 +152,7 @@ export type CreateInput = { token: string; name: string; serverType: string; loc
 export async function createBox(acct: Account, boxId: string, input: CreateInput): Promise<void> {
   const box = await ownBox(acct, boxId);
   if (box.status !== "paid" && box.status !== "failed") throw new ActionError(box.status === "awaiting_payment" ? "Pay for the box first." : "This box is already set up.");
+  if (box.first_paid_at && ENDED.has(box.plan_status)) throw new ActionError("This box's subscription has ended: renew it in your account first (same box, same name).");
   if (!box.first_paid_at || !onFor(box)) throw new ActionError("The first payment for this box hasn't gone through yet.");
   if (box.dns_state === "killed") throw new ActionError("This box was turned off after an abuse report. Write to hello@shiptiffin.com.");
   const name = String(input.name ?? "").trim().toLowerCase();

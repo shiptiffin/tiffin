@@ -319,6 +319,21 @@ describe("renewing a cancelled box", () => {
     await run(ev("customer.subscription.updated", { id: "sub_1", status: "canceled" }));
     expect(b1().planStatus).toBe("active");
   });
+  for (const status of ["paid", "failed"] as const) {
+    test(`a ${status} box (never set up, or its setup failed) renews the same way, bound to the same box`, async () => {
+      stripe.set("sub_1", "active");
+      await run(completed());
+      b1().status = status;
+      stripe.set("sub_1", "canceled");
+      await run(ev("customer.subscription.deleted", { id: "sub_1" }));
+      expect(b1().extrasPausedAt).not.toBeNull();
+      stripe.set("sub_2", "active");
+      await run(completed({ id: "cs_renew", subscription: "sub_2", total_details: {} }));
+      expect(b1()).toMatchObject({ stripeSubscriptionId: "sub_2", planStatus: "active", extrasPausedAt: null, status });
+      expect(repo.jobs).toEqual([]); // no address to bring back
+      expect(repo.boxes.size).toBe(1);
+    });
+  }
 });
 
 describe("refunds", () => {
