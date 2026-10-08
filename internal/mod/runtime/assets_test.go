@@ -135,6 +135,26 @@ func TestClientAssetsThroughDeploys(t *testing.T) {
 	if exists(gone) || !exists(kept) {
 		t.Fatalf("build caches after the prune: gone %v, kept %v", exists(gone), exists(kept))
 	}
+	// Nor is the gone project's folder left behind empty, in any root.
+	if exists(filepath.Dir(gone)) {
+		t.Fatal("prune left the gone project's empty build-cache folder")
+	}
+	for _, root := range []string{"assets", "next-cache"} {
+		emptyProject := filepath.Join(h.r.opt.DataDir, root, "gone")
+		emptyApp := filepath.Join(h.r.opt.DataDir, root, "half", "web")
+		for _, dir := range []string{emptyProject, emptyApp} {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		h.r.pruneAssets(context.Background())
+		if exists(emptyProject) || exists(filepath.Dir(emptyApp)) {
+			t.Fatalf("%s: prune left empty project or app folders", root)
+		}
+	}
+	if !exists(kept) || !exists(h.r.assetsDir("shop", "api", "")) {
+		t.Fatal("prune removed a live app's folders")
+	}
 	d1dir := filepath.Join(h.r.assetsDir("shop", "api", ""), d1.ID)
 	if !exists(d1dir) {
 		t.Fatal("pruned a retired release's assets within the day")

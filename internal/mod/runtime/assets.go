@@ -315,7 +315,8 @@ var assetDirName = regexp.MustCompile(`^dep_[0-9A-Za-z]+$`)
 // neither live nor retired within assetsKept (left an hour, so a deploy
 // copying its assets right now keeps them), and environments that are gone.
 // The same goes for Next.js image caches of environments that are gone,
-// and static build caches of apps that are gone.
+// and static build caches of apps that are gone; then project and app
+// folders left empty.
 func (r *rt) pruneAssets(ctx context.Context) {
 	states, err := r.st.allStates(ctx)
 	if err != nil {
@@ -367,6 +368,19 @@ func (r *rt) pruneAssets(ctx context.Context) {
 	for _, app := range apps {
 		if !keep[app] && !recent(app) {
 			r.removeDir(app)
+		}
+	}
+	// Project and app folders left empty, by this pass or by forgetFiles.
+	// os.Remove removes only an empty folder.
+	for _, root := range []string{"assets", "next-cache", buildCacheDir} {
+		root = filepath.Join(r.opt.DataDir, root)
+		for _, pattern := range []string{"*/*", "*"} {
+			dirs, _ := filepath.Glob(filepath.Join(root, pattern))
+			for _, dir := range dirs {
+				if entries, err := os.ReadDir(dir); err == nil && len(entries) == 0 && !keep[dir] {
+					_ = os.Remove(dir)
+				}
+			}
 		}
 	}
 }
