@@ -319,6 +319,11 @@ The box adds nothing for LLMs:
   (stop `tiffin`, `tiffin-edge.socket` and `tiffin-edge.service`, copy `/var/lib/tiffin`,
   then run `up` with the option). A data directory that is already mounted is kept as it
   is, even if the option names another disk.
+- **An upgraded edge serves its saved configuration only if the new build can load it.**
+  When a new build drops a module the old configuration names, the edge serves nothing
+  until Tiffin sends it a fresh configuration: about a second when Tiffin is running
+  (it is, during `up` and self-updates), longer if Tiffin itself is down. Builds keep
+  retired modules registered so this does not happen.
 - **`down` on an SSH server stops Tiffin, its edge and its app containers only.** Postgres,
   Valkey and the other system services stay installed and running (reachable only from the
   server), and the firewall and hardening stay on.

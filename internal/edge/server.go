@@ -46,6 +46,7 @@ type Server struct {
 	caddySum [32]byte
 	fallback string
 	events   eventLog
+	started  time.Time
 	done     chan struct{}
 }
 
@@ -55,6 +56,7 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.Log == nil {
 		s.Log = slog.Default()
 	}
+	s.started = time.Now()
 	var err error
 	if s.fds == nil {
 		s.fds, err = activationFDs()
@@ -221,7 +223,7 @@ func (s *Server) api() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/hello", func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
-		h := Hello{Protocol: Protocol, Build: s.Build, PID: os.Getpid(), Version: s.cur.Version, Switchboard: s.sbAddr, Caddy: s.caddyOn, Fallback: s.fallback}
+		h := Hello{Protocol: Protocol, Build: s.Build, PID: os.Getpid(), Started: s.started, Version: s.cur.Version, Switchboard: s.sbAddr, Caddy: s.caddyOn, Fallback: s.fallback}
 		s.mu.Unlock()
 		writeJSON(w, h)
 	})

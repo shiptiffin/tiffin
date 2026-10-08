@@ -38,18 +38,24 @@ type Client struct {
 	hc          *http.Client // snapshots and queries
 	poll        *http.Client // long polls
 
-	mu       sync.Mutex
-	source   func() switchboard.Table
-	sb       string    // the switchboard's address
-	sbMoved  func()    // called when the edge reports another switchboard address
-	caddy    *rendered // the config to serve (the last one the edge did not refuse)
-	version  uint64    // the last snapshot sent
-	acked    uint64    // the last snapshot the edge served
-	dirty    bool      // the last send failed: send again
-	up       bool
-	pushMu   sync.Mutex
-	hello    Hello
-	helloErr error
+	mu      sync.Mutex
+	source  func() switchboard.Table
+	sb      string    // the switchboard's address
+	sbMoved func()    // called when the edge reports another switchboard address
+	caddy   *rendered // the config to serve (the last one the edge did not refuse)
+	// refused is the newest config the edge refused, offered again to the
+	// next run of the edge (one that did not start at refusedBy): an
+	// upgrade starts this process on the new build while the edge still
+	// runs the old one, which refuses a config using modules it predates.
+	refused   *rendered
+	refusedBy time.Time
+	version   uint64 // the last snapshot sent
+	acked     uint64 // the last snapshot the edge served
+	dirty     bool   // the last send failed: send again
+	up        bool
+	pushMu    sync.Mutex
+	hello     Hello
+	helloErr  error
 }
 
 // ClientOptions configure NewClient.
@@ -99,6 +105,9 @@ func (c *Client) Start(ctx context.Context, wait time.Duration) {
 			case <-t.C:
 				if c.check(ctx) != nil {
 					continue
+				}
+				if err := c.retryRefused(ctx); err != nil {
+					c.log.Warn("edge: offer the refused config again", "err", err)
 				}
 				c.mu.Lock()
 				behind := c.dirty || c.hello.Version != c.acked
@@ -201,10 +210,31 @@ type errRefused struct{ msg string }
 func (e *errRefused) Error() string { return e.msg }
 
 // send sends a snapshot of the current config (or r, a new one) and table.
-// A config the edge refuses is dropped: the edge serves the one before.
+// A config the edge refuses is dropped: the edge serves the one before,
+// and only a restarted edge is offered it again (retryRefused).
 func (c *Client) send(ctx context.Context, r *rendered) error {
 	c.pushMu.Lock()
 	defer c.pushMu.Unlock()
+	return c.sendLocked(ctx, r)
+}
+
+// retryRefused sends the config an edge refused once another run of the
+// edge answers, which may be of a build that loads it.
+func (c *Client) retryRefused(ctx context.Context) error {
+	c.pushMu.Lock()
+	defer c.pushMu.Unlock()
+	c.mu.Lock()
+	r := c.refused
+	if r == nil || c.hello.Started.Equal(c.refusedBy) {
+		c.mu.Unlock()
+		return nil
+	}
+	c.log.Info("edge: offering the restarted edge the config the one before refused")
+	c.mu.Unlock()
+	return c.sendLocked(ctx, r)
+}
+
+func (c *Client) sendLocked(ctx context.Context, r *rendered) error {
 	c.mu.Lock()
 	prev, src := c.caddy, c.source
 	if r != nil {
@@ -247,6 +277,10 @@ func (c *Client) send(ctx context.Context, r *rendered) error {
 	var refused *errRefused
 	if errors.As(err, &refused) && r != nil {
 		c.caddy = prev
+		c.refused, c.refusedBy = r, c.hello.Started
+	}
+	if err == nil && r != nil {
+		c.refused = nil
 	}
 	c.dirty = err != nil && !errors.As(err, &refused)
 	if err != nil {

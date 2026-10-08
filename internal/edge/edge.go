@@ -35,6 +35,11 @@ import (
 	_ "github.com/caddyserver/caddy/v2/modules/caddypki"
 	_ "github.com/caddyserver/caddy/v2/modules/caddytls"
 	_ "github.com/caddyserver/caddy/v2/modules/logging"
+
+	// Not in the generated config any more (see storage.go), but the
+	// snapshot an edge of an earlier build saved still names it, and an
+	// upgraded edge loads that snapshot first.
+	_ "github.com/caddyserver/caddy/v2/modules/filestorage"
 )
 
 var (

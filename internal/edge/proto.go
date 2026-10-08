@@ -75,13 +75,16 @@ type Ack struct {
 
 // Hello describes a running edge.
 type Hello struct {
-	Protocol    int    `json:"protocol"`
-	Build       string `json:"build"`
-	PID         int    `json:"pid"`
-	Version     uint64 `json:"version"` // the snapshot it serves (0: none)
-	Switchboard string `json:"switchboard"`
-	Caddy       bool   `json:"caddy"` // whether Caddy runs (it starts with the first config)
-	Fallback    string `json:"fallback,omitempty"`
+	Protocol int    `json:"protocol"`
+	Build    string `json:"build"`
+	PID      int    `json:"pid"`
+	// Started tells one run of the edge from the next (a restart keeps the
+	// PID in tests, where every edge runs in the test's process).
+	Started     time.Time `json:"started"`
+	Version     uint64    `json:"version"` // the snapshot it serves (0: none)
+	Switchboard string    `json:"switchboard"`
+	Caddy       bool      `json:"caddy"` // whether Caddy runs (it starts with the first config)
+	Fallback    string    `json:"fallback,omitempty"`
 }
 
 // ForwardEnv and ForwardPrefix carry a request the switchboard forwards to
