@@ -2,6 +2,7 @@ import Link from "next/link";
 import { DASHBOARD } from "./chrome";
 import { EarlyAccessForm } from "./early-access-form";
 import { EarlyAccessNext } from "./early-access-next";
+import { Compare } from "./compare";
 import { Pricing } from "./pricing";
 
 export const metadata = { alternates: { canonical: "/" } };
@@ -61,7 +62,7 @@ const PARTS = [
   ["Jobs", "Queues, crons and workflows", "The box calls your app with each job and retries until it succeeds."],
   ["Analytics", "No cookies", "Visits, sources and your own events, counted on the box."],
   ["Error tracking", "Sentry-compatible", "Point any Sentry SDK at the box. Logs, traces and alerts sit beside it."],
-  ["Backups", "Hourly", "Every database, file and setting, with restore drills that prove a backup works."],
+  ["Backups", "Restore to a moment", "Databases go back to any moment in the last 7 days. Restore drills prove each backup works."],
   ["Domains", "HTTPS included", "Your own domain, with certificates issued and renewed for you."],
 ] as const;
 
@@ -78,8 +79,9 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     q: "How much will it cost?",
     a: (
       <p>
-        One flat monthly price per box, announced at launch. You won&rsquo;t pay per request or per project, so a
-        busy week doesn&rsquo;t change the bill. People on the early-access list get founding prices.
+        One flat monthly price for the whole box: Starter is $29, Plus $59 and Pro $119, with a month free when
+        you pay yearly. You won&rsquo;t pay per request, per project or per seat, so a busy week doesn&rsquo;t
+        change the bill. People on the early-access list get 25% off their first year.
       </p>
     ),
   },
@@ -107,9 +109,10 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     q: "How are backups done?",
     a: (
       <p>
-        Postgres is backed up in full every day and incrementally every hour, along with KV, files, email and the
-        box&rsquo;s settings. Restore drills prove a backup works without touching anything live. A restore takes a
-        safety backup first, and a deleted database or bucket is kept for 7 days in case you change your mind.
+        Every day in full, and every 6 hours in between: databases, KV, files, email and the box&rsquo;s
+        settings. Databases also keep a log of every change, so they can go back to any moment in the last 7
+        days; KV and files go back to the nearest backup, at most 6 hours earlier. Restore drills prove a backup
+        works without touching anything live, and a restore takes a safety backup first.
       </p>
     ),
   },
@@ -127,7 +130,7 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
     q: "Where is my data?",
     a: (
       <p>
-        On your box: a server of your own in a Hetzner data centre in Germany. What your apps store stays on it
+        On your box: a server of your own in a Hetzner data centre in the EU, in Germany or Finland. What your apps store stays on it
         and isn&rsquo;t copied to a central ShipTiffin database. The <Link href="/privacy">privacy policy</Link> has
         the details.
       </p>
@@ -139,6 +142,15 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
       <p>
         Next.js, Hono, FastAPI, TanStack Start, SvelteKit, Nuxt, React Router, Astro and static sites are
         first-class. Other Bun, Node.js and Python servers run too, and anything else from a Dockerfile.
+      </p>
+    ),
+  },
+  {
+    q: "When is something else cheaper?",
+    a: (
+      <p>
+        One tiny app on Railway or a free tier can cost less. ShipTiffin pays off from the second app, and more
+        with every one after it.
       </p>
     ),
   },
@@ -192,7 +204,7 @@ export default function Home() {
               </a>
             </div>
             <p className="fine">
-              Simple monthly pricing, announced at launch. Early access members get founding prices.
+              From $29 a month for the whole box. Early access members get 25% off their first year.
             </p>
           </div>
           <BoxDrawing />
@@ -389,11 +401,13 @@ export default function Home() {
             </div>
           </div>
           <p className="fit-line">
-            ShipTiffin is young and made by a small team. Your box is backed up every hour, and you can leave any
-            time with standard Postgres, S3 and Redis.
+            ShipTiffin is young and made by a small team. Your databases can go back to any moment in the last 7
+            days, and you can leave any time with standard Postgres, S3 and Redis.
           </p>
         </div>
       </section>
+
+      <Compare />
 
       <Pricing />
 

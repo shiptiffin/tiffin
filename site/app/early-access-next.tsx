@@ -12,7 +12,7 @@ export function EarlyAccessNext() {
       </li>
       <li>
         <h3>You get the founding price.</h3>
-        <p>Founding prices are for early access members. You&rsquo;ll see yours before you pay anything.</p>
+        <p>25% off your first year, and your price locked for 24 months. You&rsquo;ll see it before you pay anything.</p>
       </li>
     </ol>
   );

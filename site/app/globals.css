@@ -1091,56 +1091,32 @@ code {
 }
 
 /* ---------- pricing ---------- */
-.price-soon {
-  display: grid;
-  gap: 32px;
-}
-@media (min-width: 900px) {
-  .price-soon {
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-    gap: 72px;
-    align-items: start;
-  }
-}
-.price-every {
-  list-style: none;
-  padding: 0;
-  border-top: 1px solid var(--rule-2);
-}
-.price-every li {
-  padding-block: 13px;
-  border-bottom: 1px solid var(--rule);
-}
-.price-soon-cta p {
-  color: var(--ink-2);
-  font-size: 1.05rem;
-  max-width: 26em;
-  text-wrap: pretty;
-}
-.price-soon-cta .btn {
-  margin-top: 18px;
-}
 .plans {
   list-style: none;
   padding: 0;
   display: grid;
   gap: 16px;
 }
-@media (min-width: 900px) {
+@media (min-width: 640px) {
   .plans {
-    grid-template-columns: repeat(var(--plans, 3), minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1040px) {
+  .plans {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 .plan {
   display: flex;
   flex-direction: column;
-  padding: 24px;
+  padding: 22px 22px 24px;
   border: 1px solid var(--rule-2);
   border-radius: 14px;
   background: var(--paper-raised);
 }
 .plan-featured {
-  border-color: var(--brass);
+  border-color: color-mix(in oklch, var(--brass) 75%, var(--ink));
   box-shadow: var(--lift);
 }
 .plan-name {
@@ -1149,49 +1125,208 @@ code {
 }
 .plan-price {
   margin-top: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-wrap: wrap;
 }
 .plan-amount {
   font-family: var(--font-display);
-  font-size: 2.4rem;
+  font-size: 2.6rem;
+  line-height: 1;
   letter-spacing: -0.03em;
   font-variant-numeric: lining-nums tabular-nums;
 }
-.plan-per,
-.plan-founding {
+.plan:last-child .plan-amount {
+  font-size: 2.1rem;
+}
+.plan-per {
   color: var(--ink-3);
-  font-size: 0.92rem;
-}
-.plan-founding {
-  color: var(--brass-ink);
-  font-weight: 550;
-}
-.plan-blurb {
-  margin-top: 10px;
-  color: var(--ink-2);
-}
-.plan-features {
-  list-style: none;
-  padding: 0;
-  margin: 18px 0 22px;
-  flex: 1;
-}
-.plan-features li {
-  padding-block: 8px;
-  border-top: 1px solid var(--rule);
   font-size: 0.95rem;
 }
-.price-every-row {
-  margin-top: 28px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 28px;
-  border: none;
+.plan-yearly {
+  margin-top: 6px;
   color: var(--ink-3);
-  font-size: 0.92rem;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
 }
-.price-every-row li {
-  border: none;
+.plan-spec {
+  margin: 18px 0 0;
+  border-top: 1px solid var(--rule);
+}
+.plan-spec > div {
+  padding-block: 10px;
+  border-bottom: 1px solid var(--rule);
+}
+.plan-spec dt {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.plan-spec dd {
+  margin-top: 2px;
+  font-size: 0.95rem;
+  text-wrap: pretty;
+}
+.plan-founding {
+  flex: 1;
+  margin: 14px 0 20px;
+  font-size: 0.9rem;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.plan-founding strong {
+  color: var(--brass-ink);
+  font-weight: 650;
+}
+.plan .btn {
+  width: 100%;
+}
+.price-more {
+  margin-top: 44px;
+  display: grid;
+  gap: 32px;
+}
+@media (min-width: 900px) {
+  .price-more {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 56px;
+  }
+}
+.price-list {
+  list-style: none;
   padding: 0;
+}
+.price-list li {
+  padding-block: 11px;
+  border-bottom: 1px solid var(--rule);
+  break-inside: avoid;
+}
+@media (min-width: 640px) {
+  .price-list-2 {
+    columns: 2;
+    column-gap: 32px;
+  }
+}
+.price-founding {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-left: 3px solid var(--brass);
+  background: var(--paper-sunk);
+  border-radius: 0 10px 10px 0;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.price-founding strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* ---------- what it replaces ---------- */
+.cmp-grid {
+  display: grid;
+  gap: 48px;
+}
+@media (min-width: 1040px) {
+  .cmp-grid {
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: 64px;
+    align-items: start;
+  }
+}
+.cmp {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.cmp th,
+.cmp td {
+  text-align: left;
+  vertical-align: top;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--rule);
+  font-weight: 400;
+}
+.cmp thead th {
+  padding-top: 0;
+  padding-bottom: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink-3);
+  border-bottom-color: var(--rule-2);
+}
+.cmp .num {
+  text-align: right;
+  white-space: nowrap;
+  width: 4.5rem;
+  padding-left: 12px;
+  color: var(--ink-2);
+}
+.cmp tbody th {
+  padding-right: 8px;
+}
+.cmp-what {
+  display: block;
+  font-weight: 600;
+  color: var(--ink);
+}
+.cmp-how {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.9rem;
+  color: var(--ink-3);
+  text-wrap: pretty;
+}
+.cmp-total th,
+.cmp-total td {
+  font-weight: 600;
+  color: var(--ink);
+  border-bottom: 1px solid var(--rule-2);
+}
+.cmp-total .num {
+  color: var(--ink);
+  font-size: 1.05rem;
+}
+.cmp-us th,
+.cmp-us td {
+  border-bottom: none;
+  padding-top: 16px;
+}
+.cmp-us td.num {
+  text-align: center;
+  vertical-align: middle;
+}
+.cmp-us td.num {
+  font-family: var(--font-display);
+  font-size: 1.9rem;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  background: var(--brass-wash);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.cmp-note {
+  margin-top: 18px;
+  font-size: 0.86rem;
+  color: var(--ink-3);
+  text-wrap: pretty;
+}
+.cmp-note a {
+  color: var(--ink-2);
+}
+.juggle-row {
+  padding-block: 13px;
+  border-bottom: 1px solid var(--rule);
+}
+.juggle-row dt {
+  font-size: 0.92rem;
+  color: var(--ink-3);
+}
+.juggle-row dd {
+  margin-top: 2px;
+  color: var(--ink);
+  font-weight: 550;
+  text-wrap: pretty;
 }
 
 /* ---------- early access ---------- */
@@ -1584,4 +1719,7 @@ code {
   .holds {
     margin-top: 20px;
   }
+}
+.nw {
+  white-space: nowrap;
 }
