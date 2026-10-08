@@ -531,26 +531,31 @@ func (s *DB) ListChanges(ctx context.Context, f change.ListFilter) ([]*change.Ch
 	if before <= 0 {
 		before = 1<<62 - 1
 	}
-	// One query per shape, so a project's page seeks its (project, seq)
-	// index instead of scanning the whole box's history.
-	var rows *sql.Rows
-	var err error
+	// A project's page seeks its (project, seq) index, the box's the
+	// primary key, instead of scanning the whole history.
+	q := `SELECT body, undone_by FROM changes WHERE seq < ?`
+	args := []any{before}
 	switch {
 	case f.Project != "":
-		rows, err = s.sql.QueryContext(ctx, `SELECT body, undone_by FROM changes
-			WHERE project = ? AND seq < ? ORDER BY seq DESC LIMIT ?`, f.Project, before, limit)
+		q += ` AND project = ?`
+		args = append(args, f.Project)
 	case len(f.Projects) > 0:
-		args := make([]any, 0, len(f.Projects)+2)
+		q += ` AND project IN (?` + strings.Repeat(`, ?`, len(f.Projects)-1) + `)`
 		for _, p := range f.Projects {
 			args = append(args, p)
 		}
-		args = append(args, before, limit)
-		rows, err = s.sql.QueryContext(ctx, `SELECT body, undone_by FROM changes
-			WHERE project IN (?`+strings.Repeat(`, ?`, len(f.Projects)-1)+`) AND seq < ? ORDER BY seq DESC LIMIT ?`, args...)
-	default:
-		rows, err = s.sql.QueryContext(ctx, `SELECT body, undone_by FROM changes
-			WHERE seq < ? ORDER BY seq DESC LIMIT ?`, before, limit)
 	}
+	if f.Risk != "" {
+		q += ` AND risk = ?`
+		args = append(args, string(f.Risk))
+	}
+	switch f.Actor {
+	case "agent":
+		q += ` AND json_extract(actor, '$.kind') = 'agent'`
+	case "people":
+		q += ` AND json_extract(actor, '$.kind') IS NOT 'agent'`
+	}
+	rows, err := s.sql.QueryContext(ctx, q+` ORDER BY seq DESC LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, err
 	}

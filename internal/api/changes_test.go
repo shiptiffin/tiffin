@@ -49,19 +49,25 @@ func TestChangesPagingFollowsCommitOrder(t *testing.T) {
 	b := commit("beta", t0.Add(time.Second)) // committed first, later clock
 	al := commit("alpha", t0)                // committed second, earlier clock
 	var seen []string
-	before := ""
+	cursor := ""
 	for range 3 {
-		req := httptest.NewRequest("GET", "/v1/changes?limit=1"+before, nil)
+		req := httptest.NewRequest("GET", "/v1/changes?limit=1"+cursor, nil)
 		req.Header.Set("Authorization", "Bearer "+key)
 		rec := httptest.NewRecorder()
 		a.Handler().ServeHTTP(rec, req)
-		var page []change.Change
-		_ = json.Unmarshal(rec.Body.Bytes(), &page)
-		if len(page) == 0 {
+		var pg struct {
+			Items      []change.Change
+			NextCursor string
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &pg)
+		if len(pg.Items) == 0 {
 			break
 		}
-		seen = append(seen, page[0].ID)
-		before = "&before=" + page[0].ID
+		seen = append(seen, pg.Items[0].ID)
+		if pg.NextCursor == "" {
+			break
+		}
+		cursor = "&cursor=" + pg.NextCursor
 	}
 	if len(seen) != 2 || seen[0] != al || seen[1] != b {
 		t.Fatalf("pages %v, want [%s %s]", seen, al, b)

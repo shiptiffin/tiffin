@@ -39,6 +39,8 @@ Database: "sql" runs one read-only statement and needs no confirmation; "sql_wri
 
 App code: @shiptiffin/sdk (/kv, /storage, /auth, /queue, /client for the browser...). Install it with "bun add @shiptiffin/sdk", or, with no npm registry, run "tiffin sdk add" in the app's folder: it vendors the copy inside tiffin into vendor/ with a file: dependency in package.json; commit vendor/ and run bun install. Sign-in forms use Better Auth's own client against the box's /api/auth.
 
+Lists that can grow (changes, jobs, runs, mail, users, issues, traces...) return a page: {"items": [...], "nextCursor": "..."}, newest first, 50 by default (limit up to 200). When nextCursor is there, more follow: pass it as cursor, with the same filters, to read the next page. Narrow with the list's filters rather than reading every page.
+
 Your API key decides what you can reach: some projects or all of them, with full access (apply any change) or read access (read and plan only). Outside its reach you get 403 forbidden with a hint; ask the person to do it, or for a key that reaches it. whoami shows your key. Never guess a confirm hash; always use the one from the plan you reviewed. Tell the person what you changed and why (pass "intent").`
 
 // coreNote explains the default tool set and how to reach the rest.

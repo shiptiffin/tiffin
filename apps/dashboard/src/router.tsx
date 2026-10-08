@@ -297,7 +297,7 @@ const projectHistory = createRoute({
   path: "/projects/$project/history",
   loader: ({ params, context }) => {
     void ProjectHistoryPage.preload();
-    void context.queryClient.query(q.changes(params.project)).catch(noop);
+    void context.queryClient.prefetchInfiniteQuery(q.changePages({ project: params.project })).catch(noop);
   },
   component: function History() {
     const { project: p } = projectHistory.useParams();

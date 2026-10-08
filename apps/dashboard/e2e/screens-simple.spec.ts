@@ -23,7 +23,7 @@ async function shot(page: Page, name: string, fullPage = true) {
 // The empty box, without emptying the shared dev box: the API answers as a fresh box would.
 async function asEmptyBox(p: Page) {
   await p.route("**/v1/projects", (r) => r.fulfill({ json: [] }));
-  await p.route("**/v1/changes?*", (r) => r.fulfill({ json: [] }));
+  await p.route("**/v1/changes?*", (r) => r.fulfill({ json: { items: [] } }));
 }
 
 // The Usage tab with the resources backend (in progress): /usage answers as it will, with a 25% limit.

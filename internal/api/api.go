@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/page"
 	"github.com/btahir/tiffin/internal/passkeys"
 	"github.com/btahir/tiffin/internal/platform"
 	"github.com/btahir/tiffin/internal/state"
@@ -144,11 +146,26 @@ func schemaNamer(t reflect.Type, hint string) string {
 	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Map {
 		t = t.Elem()
 	}
-	if strings.HasSuffix(t.PkgPath(), "/internal/manifest") && !strings.HasPrefix(name, "Manifest") {
+	if open := strings.IndexByte(t.Name(), '['); open > 0 && strings.HasSuffix(t.Name(), "]") {
+		// A generic (page.Page[queue.Job]): named after its type argument's
+		// package, as that type is, so two modules' pages don't collide.
+		arg := strings.TrimLeft(t.Name()[open+1:len(t.Name())-1], "*")
+		if dot := strings.LastIndex(arg, "."); dot > 0 && !strings.Contains(arg, ",") {
+			return t.Name()[:open] + qualify(arg[:dot], name[open:])
+		}
+		return name
+	}
+	return qualify(t.PkgPath(), name)
+}
+
+// qualify prefixes a schema name with its module (or "Manifest"), as the
+// OpenAPI document's names are namespaced.
+func qualify(pkg, name string) string {
+	if strings.HasSuffix(pkg, "/internal/manifest") && !strings.HasPrefix(name, "Manifest") {
 		// Manifest types (App, Queue, Auth...) would collide with module types.
 		return "Manifest" + name
 	}
-	if pkg := t.PkgPath(); strings.Contains(pkg, "/internal/mod/") {
+	if strings.Contains(pkg, "/internal/mod/") {
 		mod := pkg[strings.LastIndex(pkg, "/")+1:]
 		if mod != "" && !strings.HasPrefix(strings.ToLower(name), mod) {
 			name = strings.ToUpper(mod[:1]) + mod[1:] + name
@@ -651,28 +668,35 @@ func (a *API) register() {
 
 	type changesQuery struct {
 		Project string `query:"project" doc:"Only this project"`
-		Limit   int    `query:"limit" minimum:"1" maximum:"200" default:"50" doc:"Maximum changes to return"`
-		Before  string `query:"before" pattern:"^(chg_[0-9A-Z]{26})?$" doc:"Only changes older than this change ID (for paging: pass the last ID you got)"`
+		Risk    string `query:"risk" enum:"read,reversible,outbound,irreversible" doc:"Only changes of this risk"`
+		Actor   string `query:"actor" enum:"people,agent" doc:"Only changes made by agents (agent), or by people and the box itself (people)"`
+		page.Params
 	}
 	huma.Register(api, Untrusted(op("changes-list", http.MethodGet, "/v1/changes", "changes list", RiskRead, "List changes",
-		"The change log, newest first: who changed what, why, the risk and whether it was undone.", "changes")),
-		wrap(func(ctx context.Context, in *changesQuery) (*struct{ Body []*change.Change }, error) {
+		"The change log, newest first, a page at a time: who changed what, why, the risk and whether it was undone. "+
+			"More follow when nextCursor is set: pass it as cursor for the next page.", "changes")),
+		wrap(func(ctx context.Context, in *changesQuery) (*struct{ Body page.Page[*change.Change] }, error) {
 			p := PrincipalFrom(ctx)
 			if err := p.Require(tokens.ScopeRead, in.Project); err != nil {
 				return nil, err
 			}
-			f := change.ListFilter{Project: in.Project, Limit: in.Limit}
+			limit := page.Clamp(in.Limit)
+			f := change.ListFilter{Project: in.Project, Limit: limit + 1, Risk: change.Tier(in.Risk), Actor: in.Actor}
 			if in.Project == "" && !p.CanProject("*") {
 				// A token scoped to some projects lists theirs, so busy
 				// projects it cannot see don't use up the limit.
 				f.Projects = p.Projects
 				if len(f.Projects) == 0 {
-					return &struct{ Body []*change.Change }{[]*change.Change{}}, nil
+					return &struct{ Body page.Page[*change.Change] }{page.Make[*change.Change](nil, limit, nil)}, nil
 				}
 			}
-			if in.Before != "" {
-				seq, err := a.deps.DB.ChangeSeq(ctx, in.Before)
-				if err != nil {
+			if key, err := page.Decode(in.Cursor, 1); err != nil {
+				return nil, err
+			} else if key != nil {
+				seq, err := a.deps.DB.ChangeSeq(ctx, key[0])
+				if errors.Is(err, change.ErrNotFound) {
+					return nil, page.ErrBadCursor
+				} else if err != nil {
 					return nil, err
 				}
 				f.Before = seq
@@ -681,13 +705,9 @@ func (a *API) register() {
 			if err != nil {
 				return nil, err
 			}
-			out := make([]*change.Change, 0, len(cs))
-			for _, c := range cs {
-				if p.CanProject(c.Project) {
-					out = append(out, c)
-				}
-			}
-			return &struct{ Body []*change.Change }{out}, nil
+			pg := page.Make(cs, limit, func(c *change.Change) []string { return []string{c.ID} })
+			pg.Items = slices.DeleteFunc(pg.Items, func(c *change.Change) bool { return !p.CanProject(c.Project) })
+			return &struct{ Body page.Page[*change.Change] }{pg}, nil
 		}))
 
 	type changePath struct {

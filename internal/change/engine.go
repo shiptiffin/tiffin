@@ -41,6 +41,25 @@ type ListFilter struct {
 	Projects []string
 	Limit    int   // 0 means 50
 	Before   int64 // only changes with a sequence number below this; 0 means no bound
+	Risk     Tier  // only changes of this risk; "" means any
+	// Actor narrows by who made the change: "agent" for agents, "people"
+	// for everyone else (people and the box itself); "" means anyone.
+	Actor string
+}
+
+// Matches reports whether c passes the filter's risk and actor (not its
+// project or position).
+func (f ListFilter) Matches(c *Change) bool {
+	if f.Risk != "" && c.Plan.Risk != f.Risk {
+		return false
+	}
+	switch f.Actor {
+	case "agent":
+		return c.Actor.Kind == "agent"
+	case "people":
+		return c.Actor.Kind != "agent"
+	}
+	return true
 }
 
 // Authorizer decides whether a plan may be applied. It returns nil to allow

@@ -56,6 +56,15 @@ type Path = keyof paths;
  * `signal` (TanStack Query's, for reads) cancels a request nobody wants any
  * more, such as a table page for a filter that has since changed.
  */
+/** A query string ("?a=1&b=x") from the values that are set; "" when none are. */
+export function query(o: Record<string, string | number | boolean | undefined>): string {
+  const s = Object.entries(o)
+    .filter(([, v]) => v !== undefined && v !== "" && v !== false)
+    .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
+    .join("&");
+  return s ? `?${s}` : "";
+}
+
 export async function request<T>(method: string, path: Path | string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const blob = body instanceof Blob;
   let res: Response;
@@ -102,8 +111,10 @@ export async function request<T>(method: string, path: Path | string, body?: unk
 export const api = {
   whoami: () => request<Principal>("GET", "/v1/whoami"),
   projects: () => request<ProjectSummary[]>("GET", "/v1/projects"),
-  changes: (project?: string, limit = 200) =>
-    request<Change[]>("GET", `/v1/changes?limit=${limit}${project ? `&project=${encodeURIComponent(project)}` : ""}`),
+  /** The latest changes (one page), for summaries; lists page with changesPage. */
+  changes: (project?: string, limit = 200) => api.changesPage({ project, limit }).then((p) => p.items ?? []),
+  changesPage: (o: { project?: string; risk?: Tier; actor?: "people" | "agent"; cursor?: string; limit?: number }, signal?: AbortSignal) =>
+    request<S["PageChange"]>("GET", `/v1/changes${query({ ...o, limit: o.limit ?? 100 })}`, undefined, signal),
   change: (id: string) => request<Change>("GET", `/v1/changes/${encodeURIComponent(id)}`),
   /** Without confirm the API answers 428 with the undo plan (thrown as ApiError). */
   undo: (id: string, confirm?: string) => request<ApplyResult>("POST", `/v1/changes/${encodeURIComponent(id)}/undo`, confirm ? { confirm } : {}),

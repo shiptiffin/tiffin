@@ -13,6 +13,7 @@ import (
 
 	"github.com/btahir/tiffin/internal/api"
 	"github.com/btahir/tiffin/internal/change"
+	"github.com/btahir/tiffin/internal/page"
 	"github.com/btahir/tiffin/internal/state"
 	"github.com/btahir/tiffin/internal/tokens"
 )
@@ -73,6 +74,18 @@ func (e *env) call(token, method, path string, body any) (int, map[string]any, [
 		}
 	}
 	return res.StatusCode, obj, arr
+}
+
+// page reads one page of a list: its items and the cursor for the next.
+func (e *env) page(token, path string) ([]any, string) {
+	e.t.Helper()
+	code, out, _ := e.call(token, "GET", path, nil)
+	if code != 200 {
+		e.t.Fatalf("GET %s: %d %v", path, code, out)
+	}
+	items, _ := out["items"].([]any)
+	next, _ := out["nextCursor"].(string)
+	return items, next
 }
 
 // key creates an API key: projects is "all" or a list, access full or read.
@@ -187,7 +200,7 @@ func TestPlanApplyConfirmFlow(t *testing.T) {
 	if code != 409 || prob["code"] != "precondition" {
 		t.Fatalf("double undo: %d %v", code, prob)
 	}
-	_, _, list := e.call(e.owner, "GET", "/v1/changes?project=shop", nil)
+	list, _ := e.page(e.owner, "/v1/changes?project=shop")
 	if len(list) != 2 {
 		t.Fatalf("changes: %v", list)
 	}
@@ -244,7 +257,7 @@ func TestAgentScopesEnforced(t *testing.T) {
 	if len(projects) != 1 {
 		t.Fatalf("agent sees projects %v", projects)
 	}
-	_, _, all := e.call(e.owner, "GET", "/v1/changes?project=blog", nil)
+	all, _ := e.page(e.owner, "/v1/changes?project=blog")
 	blogChange := all[0].(map[string]any)["id"].(string)
 	if code, _, _ := e.call(agent, "GET", "/v1/changes/"+blogChange, nil); code != 404 {
 		t.Fatalf("other project's change must look missing: %d", code)
@@ -252,7 +265,7 @@ func TestAgentScopesEnforced(t *testing.T) {
 	if code, prob, _ := e.call(agent, "POST", "/v1/changes/"+blogChange+"/undo", map[string]any{}); code != 404 || strings.Contains(fmt.Sprint(prob), "blog") {
 		t.Fatalf("undo other project's change must look missing too: %d %v", code, prob)
 	}
-	_, _, list := e.call(agent, "GET", "/v1/changes", nil)
+	list, _ := e.page(agent, "/v1/changes")
 	for _, c := range list {
 		if c.(map[string]any)["project"] != "shop" {
 			t.Fatalf("agent sees foreign change %v", c)
@@ -265,7 +278,7 @@ func TestAgentScopesEnforced(t *testing.T) {
 		_, plan, _ := e.call(e.owner, "POST", "/v1/plan", map[string]any{"manifest": bm})
 		e.call(e.owner, "POST", "/v1/apply", map[string]any{"manifest": bm, "confirm": plan["hash"]})
 	}
-	if _, _, list := e.call(agent, "GET", "/v1/changes?limit=2", nil); len(list) != 2 || list[0].(map[string]any)["project"] != "shop" {
+	if list, _ := e.page(agent, "/v1/changes?limit=2"); len(list) != 2 || list[0].(map[string]any)["project"] != "shop" {
 		t.Fatalf("scoped token's change list: %v", list)
 	}
 	// No key management, no escalation.
@@ -454,17 +467,33 @@ func TestChangesPagingAndAgentModel(t *testing.T) {
 	if third["actor"].(map[string]any)["model"] != "claude-opus-5-5" {
 		t.Fatalf("agent model: %v", third["actor"])
 	}
-	_, _, page := e.call(e.owner, "GET", "/v1/changes?limit=2", nil)
-	if len(page) != 2 || page[0].(map[string]any)["id"] != third["id"] {
-		t.Fatalf("first page: %v", page)
+	first2, next := e.page(e.owner, "/v1/changes?limit=2")
+	if len(first2) != 2 || first2[0].(map[string]any)["id"] != third["id"] || next == "" {
+		t.Fatalf("first page: %v %q", first2, next)
 	}
-	last := page[1].(map[string]any)["id"].(string)
-	_, _, page = e.call(e.owner, "GET", "/v1/changes?limit=2&before="+last, nil)
-	if len(page) != 1 || page[0].(map[string]any)["id"] != first["id"] {
-		t.Fatalf("second page: %v", page)
+	second, next := e.page(e.owner, "/v1/changes?limit=2&cursor="+next)
+	if len(second) != 1 || second[0].(map[string]any)["id"] != first["id"] || next != "" {
+		t.Fatalf("second page: %v %q", second, next)
 	}
-	if code, _, _ := e.call(e.owner, "GET", "/v1/changes?before=chg_00000000000000000000000000", nil); code != 404 {
-		t.Fatalf("unknown cursor: %d", code)
+	// Filters keep working with the cursor: the agent's two, a page at a time.
+	ag, next := e.page(e.owner, "/v1/changes?actor=agent&limit=1")
+	if len(ag) != 1 || ag[0].(map[string]any)["id"] != third["id"] || next == "" {
+		t.Fatalf("agent page 1: %v %q", ag, next)
+	}
+	ag, next = e.page(e.owner, "/v1/changes?actor=agent&limit=1&cursor="+next)
+	if len(ag) != 1 || ag[0].(map[string]any)["actor"].(map[string]any)["kind"] != "agent" || next != "" {
+		t.Fatalf("agent page 2: %v %q", ag, next)
+	}
+	if people, _ := e.page(e.owner, "/v1/changes?actor=people"); len(people) != 1 || people[0].(map[string]any)["id"] != first["id"] {
+		t.Fatalf("people: %v", people)
+	}
+	if none, _ := e.page(e.owner, "/v1/changes?risk=irreversible"); len(none) != 0 {
+		t.Fatalf("risk filter: %v", none)
+	}
+	for _, bad := range []string{"cursor=chg_00000000000000000000000000", "cursor=" + page.Encode("chg_00000000000000000000000000"), "limit=201"} {
+		if code, prob, _ := e.call(e.owner, "GET", "/v1/changes?"+bad, nil); code != 422 || prob["code"] != "validation" {
+			t.Fatalf("%s: %d %v", bad, code, prob)
+		}
 	}
 }
 

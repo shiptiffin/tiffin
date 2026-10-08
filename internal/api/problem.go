@@ -8,6 +8,7 @@ import (
 
 	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/manifest"
+	"github.com/btahir/tiffin/internal/page"
 	"github.com/btahir/tiffin/internal/tokens"
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -164,6 +165,10 @@ func toProblem(err error) error {
 		return out
 	case errors.Is(err, tokens.ErrInvalid):
 		return problem(422, "validation", err.Error())
+	case errors.Is(err, page.ErrBadCursor):
+		out := problem(422, "validation", err.Error())
+		out.Errors = []FieldError{{Path: "query.cursor", Message: "not a cursor this list returned"}}
+		return out
 	case errors.As(err, &hse):
 		return hse
 	}

@@ -310,10 +310,10 @@ func TestBudgetsHoldAtCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var list []change.Change
+	var list struct{ Items []change.Change }
 	_ = json.NewDecoder(res.Body).Decode(&list)
 	res.Body.Close()
-	shrink := list[0].ID
+	shrink := list.Items[0].ID
 	h.apply(`{"project":"blog","resources":{"memoryMB":1024}}`) // 256 + 1024 fits
 
 	// Undoing the shrink would give shop 1024 again: 2048 > 1535. The undo

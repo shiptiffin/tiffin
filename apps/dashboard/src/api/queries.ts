@@ -1,5 +1,6 @@
 import { MutationCache, QueryCache, QueryClient, queryOptions } from "@tanstack/react-query";
-import { ApiError, api } from "./client";
+import { ApiError, api, type Tier } from "./client";
+import { pagedQuery } from "@/lib/paged";
 import { forgetHistory } from "@/lib/command-history";
 import { whoMap } from "@/lib/who";
 
@@ -29,6 +30,11 @@ export const q = {
   whoami: queryOptions({ queryKey: ["whoami"], queryFn: api.whoami, staleTime: 60_000 }),
   projects: queryOptions({ queryKey: ["projects"], queryFn: api.projects }),
   changes: (project?: string) => queryOptions({ queryKey: ["changes", project ?? ""], queryFn: () => api.changes(project) }),
+  /** The change log a page at a time (Activity, a project's Activity), filtered on the box. */
+  changePages: (o: { project?: string; risk?: Tier; who?: "people" | "agents" }) =>
+    pagedQuery(["changes", o.project ?? "", "pages", o.risk ?? "", o.who ?? ""], (cursor, signal) =>
+      api.changesPage({ project: o.project, risk: o.risk, actor: o.who === "agents" ? "agent" : o.who, cursor, limit: 100 }, signal),
+    ),
   change: (id: string) => queryOptions({ queryKey: ["change", id], queryFn: () => api.change(id) }),
   status: (refetchInterval = 30_000) =>
     queryOptions({ queryKey: ["status"], queryFn: api.status, refetchInterval, refetchIntervalInBackground: false }),

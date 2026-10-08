@@ -99,6 +99,9 @@ func (m *MemStore) ListChanges(_ context.Context, f ListFilter) ([]*Change, erro
 		if f.Before > 0 && seq >= f.Before {
 			continue
 		}
+		if !f.Matches(c) {
+			continue
+		}
 		out = append(out, clone(c))
 	}
 	return out, nil

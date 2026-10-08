@@ -158,7 +158,7 @@ func TestSecretChangesAreUndoable(t *testing.T) {
 		t.Fatalf("destroy plan should list the secret: %d %v", code, out)
 	}
 	// History shows secret changes like any other.
-	_, _, list := e.call(owner, "GET", "/v1/changes?project=shop", nil)
+	list, _ := e.page(owner, "/v1/changes?project=shop")
 	if len(list) < 5 {
 		t.Fatalf("history has %d changes: %v", len(list), list)
 	}

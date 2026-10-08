@@ -115,10 +115,17 @@ func (b *cliBox) list(args ...string) []map[string]any {
 		b.fatalf("tiffin %s: exit %d\n%s", strings.Join(args, " "), code, out)
 	}
 	var l []map[string]any
-	if err := json.Unmarshal([]byte(out), &l); err != nil {
-		b.fatalf("tiffin %s: not a JSON array: %s", strings.Join(args, " "), out)
+	if err := json.Unmarshal([]byte(out), &l); err == nil {
+		return l
 	}
-	return l
+	// A paged list: its first page.
+	var pg struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(out), &pg); err != nil || pg.Items == nil {
+		b.fatalf("tiffin %s: not a JSON array or page: %s", strings.Join(args, " "), out)
+	}
+	return pg.Items
 }
 
 // inBox runs a shell command inside the VM.

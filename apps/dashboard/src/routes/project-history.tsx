@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -6,6 +6,7 @@ import type { Change } from "@/api/client";
 import { q } from "@/api/queries";
 import { useTitle } from "@/components/favicon";
 import { splitIntent } from "@/components/ledger-parts";
+import { ShowMore } from "@/components/more";
 import { Crumbs, Page, PageHeader, Skeleton } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { actorWords } from "@/lib/actors";
@@ -13,6 +14,7 @@ import { asTier, intentWords } from "@/lib/changes";
 import { cn } from "@/lib/cn";
 import { words } from "@/lib/format";
 import { useMe } from "@/lib/me";
+import { pagedRows } from "@/lib/paged";
 import { rememberProject } from "@/lib/recent";
 import { undoChange } from "@/lib/staged";
 import { dayKey, dayLabel, relative } from "@/lib/time";
@@ -34,7 +36,7 @@ type Entry = { change: Change; at: string } | { event: LimitEvent; at: string } 
 export function ProjectHistoryPage({ project }: { project: string }) {
   useTitle(`${project} · Activity`);
   useEffect(() => rememberProject(project), [project]);
-  const changes = useQuery({ ...q.changes(project), placeholderData: (p) => p });
+  const changes = useInfiniteQuery(q.changePages({ project }));
   const usage = useQuery({ ...usageQuery(project), refetchInterval: false });
   // Row edits from the table editor (each with its own Undo); none when the project has no database.
   const edits = useQuery(dq.edits(project));
@@ -42,13 +44,16 @@ export function ProjectHistoryPage({ project }: { project: string }) {
   const names = useQuery({ ...q.tokenNames, retry: false });
   const { name: me } = useMe();
   const [showUndone, setShowUndone] = useState(false);
-  const all = changes.data ?? [];
-  const events = usage.data?.limitEvents ?? [];
+  const all = pagedRows(changes.data, (c) => c.id);
+  // Limit events and row edits only as far back as the loaded changes reach, so "Show earlier" fills the gap in order.
+  const horizon = changes.hasNextPage && all.length > 0 ? all[all.length - 1].at : "";
+  const events = (usage.data?.limitEvents ?? []).filter((e) => e.at >= horizon);
   const ids = new Set(all.map((c) => c.id));
   const cancelled = (c: Change) => (!!c.undoneBy && ids.has(c.undoneBy)) || (!!c.undoOf && ids.has(c.undoOf));
   const list = showUndone ? all : all.filter((c) => !cancelled(c));
-  const hidden = all.length - all.filter((c) => !cancelled(c)).length + (edits.data ?? []).filter((e) => e.undoneBy || e.undoOf).length;
-  const rowEdits = (edits.data ?? []).filter((e) => showUndone || (!e.undoneBy && !e.undoOf));
+  const editsShown = (edits.data ?? []).filter((e) => e.at >= horizon);
+  const hidden = all.length - all.filter((c) => !cancelled(c)).length + editsShown.filter((e) => e.undoneBy || e.undoOf).length;
+  const rowEdits = editsShown.filter((e) => showUndone || (!e.undoneBy && !e.undoOf));
   const entries: Entry[] = [...list.map((c) => ({ change: c, at: c.at })), ...events.map((e) => ({ event: e, at: e.at })), ...rowEdits.map((e) => ({ edit: e, at: e.at }))];
   entries.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
   const days: Array<{ day: string; items: Entry[] }> = [];
@@ -164,6 +169,7 @@ export function ProjectHistoryPage({ project }: { project: string }) {
           </section>
         ))
       )}
+      {!changes.isPending && <ShowMore query={changes} auto label="Show earlier changes" />}
       {hidden > 0 && (
         <button type="button" className="mt-4 text-[0.8125rem] text-ink-3 underline decoration-rule-3 underline-offset-4 hover:text-ink" onClick={() => setShowUndone((s) => !s)}>
           {showUndone ? "Hide changes that were undone" : `Show ${words(hidden)} ${hidden === 1 ? "change" : "changes"} that were undone`}

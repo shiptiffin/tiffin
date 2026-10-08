@@ -2,86 +2,35 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ApiError, request, type Change, type Tier } from "@/api/client";
+import type { Change, Tier } from "@/api/client";
 import { q } from "@/api/queries";
 import { Command } from "@/components/copy";
 import { useTitle } from "@/components/favicon";
 import { dayWords, splitIntent } from "@/components/ledger-parts";
 import { TiffinMark } from "@/components/logo";
+import { ShowMore, type MoreQuery } from "@/components/more";
 import { Page } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { RiskDots } from "@/components/risk-dots";
 import { SignedEntry } from "@/components/signed-entry";
-import { Button } from "@/components/ui/button";
 import { Menu, MenuContent, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from "@/components/ui/dropdown";
 import { asTier, intentWords, opCounts, tierCopy } from "@/lib/changes";
 import { cn } from "@/lib/cn";
 import { countWords, words } from "@/lib/format";
 import { mcpCommand } from "@/lib/mcp";
+import { pagedRows } from "@/lib/paged";
 import { clock, dayKey, dayLabel } from "@/lib/time";
 import { actorShown, type Names } from "@/lib/who";
 import { ProjectIcon } from "@/components/project-icon";
 
 export type ActivitySearch = { project?: string; risk?: Tier; who?: "people" | "agents" };
 
-/** Entries per request; earlier ones arrive as you scroll (GET /v1/changes?before=<id>). */
-const LIMIT = 100;
-
-type LedgerPage = { items: Change[]; end: boolean; legacy?: boolean };
-
-/**
- * The change log, a page at a time, newest first. A box from before the
- * cursor existed answers 422 to `before` (or ignores it and repeats the first
- * page): then the history simply ends where the first page does.
- */
-function useLedger(project?: string) {
-  return useInfiniteQuery({
-    queryKey: ["changes", project ?? "", "ledger"],
-    initialPageParam: "",
-    queryFn: async ({ pageParam }): Promise<LedgerPage> => {
-      const qs = new URLSearchParams({ limit: String(LIMIT) });
-      if (project) qs.set("project", project);
-      if (pageParam) qs.set("before", pageParam);
-      try {
-        const items = (await request<Change[] | null>("GET", `/v1/changes?${qs}`)) ?? [];
-        return { items, end: items.length < LIMIT };
-      } catch (e) {
-        if (pageParam && e instanceof ApiError && (e.status === 422 || e.status === 400)) return { items: [], end: true, legacy: true };
-        throw e;
-      }
-    },
-    getNextPageParam: (last, pages) => {
-      if (last.end || last.items.length === 0) return undefined;
-      // An old box ignores `before` and sends the first page again.
-      if (pages.length > 1 && pages[0].items[0]?.id === last.items[0]?.id) return undefined;
-      return last.items[last.items.length - 1].id;
-    },
-  });
-}
-
-/** Every loaded entry once, in order. */
-function flatten(pages: LedgerPage[]): { all: Change[]; legacy: boolean } {
-  const seen = new Set<string>();
-  const all: Change[] = [];
-  let legacy = false;
-  pages.forEach((p, n) => {
-    if (p.legacy) legacy = true;
-    if (n > 0 && p.items[0] && p.items[0].id === pages[0].items[0]?.id) legacy = true;
-    for (const c of p.items) {
-      if (seen.has(c.id)) continue;
-      seen.add(c.id);
-      all.push(c);
-    }
-  });
-  return { all, legacy };
-}
-
 const isAgent = (c: Change) => c.actor.kind === "agent";
 
 export function ActivityPage({ search }: { search: ActivitySearch }) {
   const { project, risk, who } = search;
   useTitle(project ? `${project} · Activity` : "Activity");
-  const changes = useLedger(project);
+  const changes = useInfiniteQuery(q.changePages(search));
   const names = useQuery({ ...q.tokenNames, retry: false });
   const projects = useQuery(q.projects);
   const projectNames = useMemo(() => (projects.data ?? []).map((p) => p.name), [projects.data]);
@@ -94,23 +43,20 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
       </Page>
     );
 
-  const { all, legacy } = flatten(changes.data.pages);
-  const first = changes.data.pages[0]?.items ?? [];
-  if (all.length === 0) return project ? <NoChangesIn project={project} /> : <FirstRun />;
-
-  const list = all.filter((c) => (!risk || asTier(c.plan.risk) === risk) && (!who || (who === "agents") === isAgent(c)));
-  const byId = new Map(all.map((c) => [c.id, c]));
+  const list = pagedRows(changes.data, (c) => c.id);
+  if (list.length === 0 && !risk && !who) return project ? <NoChangesIn project={project} /> : <FirstRun />;
+  const byId = new Map(list.map((c) => [c.id, c]));
 
   return (
     <Page>
       <header>
         <p className="label mb-2">Activity{project ? ` · ${project}` : " · every project"}</p>
-        <Headline all={first} project={project} live={projects.data?.map((p) => p.name)} />
+        <Headline all={changes.data.pages[0]?.items ?? []} project={project} live={projects.data?.map((p) => p.name)} />
       </header>
 
-      <Controls search={search} all={all} projects={projectNames} />
+      <Controls search={search} projects={projectNames} />
 
-      {list.length === 0 && !changes.hasNextPage ? (
+      {list.length === 0 ? (
         <p className="mt-10 text-[0.9375rem] text-ink-2">
           {risk ? `No changes here that ${{ read: "only look", reversible: "can be undone", outbound: "reach outside the box", irreversible: "can’t be undone" }[risk]}.` : who === "agents" ? "No agent has changed anything here." : "Nobody has changed anything here."}{" "}
           <Link to="/ledger" search={{ project }} className="text-brass-ink hover:underline hover:underline-offset-4">
@@ -118,14 +64,7 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
           </Link>
         </p>
       ) : (
-        <Entries
-          key={`${project}|${risk}|${who}`}
-          list={list}
-          more={{ next: !!changes.hasNextPage, busy: changes.isFetchingNextPage, fetch: () => void changes.fetchNextPage(), legacy, error: changes.isFetchNextPageError }}
-          showProject={!project}
-          byId={byId}
-          names={names.data}
-        />
+        <Entries key={`${project}|${risk}|${who}`} list={list} more={changes} showProject={!project} byId={byId} names={names.data} />
       )}
     </Page>
   );
@@ -177,10 +116,9 @@ function Headline({ all, project, live }: { all: Change[]; project?: string; liv
 
 // ───────────────────────── controls ─────────────────────────
 
-function Controls({ search, all, projects }: { search: ActivitySearch; all: Change[]; projects: string[] }) {
+function Controls({ search, projects }: { search: ActivitySearch; projects: string[] }) {
   const navigate = useNavigate();
   const set = (patch: Partial<ActivitySearch>) => navigate({ to: "/ledger", search: { ...search, ...patch }, replace: true });
-  const tierCount = (t: Tier) => all.filter((c) => asTier(c.plan.risk) === t).length;
   const toggle = "inline-flex h-7 items-center gap-1.5 rounded-[6px] px-2 text-[0.8125rem] text-ink-3 transition-colors duration-[var(--dur-state)] hover:text-ink aria-pressed:bg-paper-select aria-pressed:text-ink disabled:pointer-events-none disabled:opacity-40";
   return (
     <div className="mt-7 flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-rule py-1.5" role="toolbar" aria-label="Filter Activity">
@@ -200,21 +138,11 @@ function Controls({ search, all, projects }: { search: ActivitySearch; all: Chan
       <span aria-hidden className="h-4 w-px bg-rule-2 max-sm:hidden" />
       <div className="flex items-center" role="group" aria-label="Risk">
         {(["reversible", "outbound", "irreversible"] as const).map((t) => {
-          const n = tierCount(t);
           const on = search.risk === t;
           return (
-            <button
-              key={t}
-              type="button"
-              className={toggle}
-              aria-pressed={on}
-              disabled={n === 0 && !on}
-              title={tierCopy[t].blurb}
-              onClick={() => set({ risk: on ? undefined : t })}
-            >
+            <button key={t} type="button" className={toggle} aria-pressed={on} title={tierCopy[t].blurb} onClick={() => set({ risk: on ? undefined : t })}>
               <RiskDots tier={t} label={false} />
-              <span className={cn(t === "irreversible" && n > 0 && "text-danger")}>{tierCopy[t].label}</span>
-              <span className="text-xs text-ink-3 tnum">{n}</span>
+              <span className={cn(t === "irreversible" && on && "text-danger")}>{tierCopy[t].label}</span>
             </button>
           );
         })}
@@ -263,31 +191,22 @@ function Entries({
   names,
 }: {
   list: Change[];
-  more: { next: boolean; busy: boolean; fetch: () => void; legacy: boolean; error: boolean };
+  more: MoreQuery;
   showProject: boolean;
   byId: Map<string, Change>;
   names: Names | undefined;
 }) {
   const [sel, setSel] = useState(-1);
   const root = useRef<HTMLDivElement>(null);
-  const tail = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
-  const { next, busy, fetch } = more;
-
-  // Earlier history as the end of the list comes near (also when a filter leaves too few rows to scroll).
-  useEffect(() => {
-    const el = tail.current;
-    if (!el || !next || busy || more.error) return;
-    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && fetch(), { rootMargin: "900px 0px" });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [next, busy, fetch, more.error]);
+  const { hasNextPage: next, isFetchingNextPage: busy } = more;
+  const fetch = more.fetchNextPage;
 
   // j / k move through the entries, ↵ opens one; typing elsewhere is left alone.
   const move = useCallback(
     (to: number) => {
       const i = Math.max(0, Math.min(list.length - 1, to));
-      if (i >= list.length - 5 && next && !busy) fetch();
+      if (i >= list.length - 5 && next && !busy) void fetch();
       setSel(i);
       requestAnimationFrame(() => {
         const row = root.current?.querySelector<HTMLElement>(`[data-entry="${i}"]`);
@@ -366,20 +285,20 @@ function Entries({
           </div>
         </section>
       ))}
-      <div ref={tail} className="mt-10 mb-2 flex min-h-8 flex-col items-center gap-3 text-center text-sm text-ink-3">
-        {next ? (
-          <Button variant="ghost" size="sm" onClick={fetch} disabled={busy}>
-            {busy ? "Reading earlier entries…" : more.error ? "Couldn’t read earlier entries. Try again" : "Show earlier entries"}
-          </Button>
-        ) : more.legacy ? (
-          <p>These are the latest {countWords(list.length, "entry", "entries")}. This box can’t page further back yet; pick a project above to see more of one.</p>
-        ) : oldest ? (
-          <p className="flex items-center gap-2">
-            <TiffinMark className="size-4 text-ink-4" />
-            That’s everything. The Ledger starts on {dayWords(oldest.at)}.
-          </p>
-        ) : null}
-      </div>
+      <ShowMore
+        query={more}
+        auto
+        label="Show earlier entries"
+        className="mt-10 mb-2"
+        end={
+          oldest && (
+            <p className="flex items-center gap-2">
+              <TiffinMark className="size-4 text-ink-4" />
+              That’s everything. The Ledger starts on {dayWords(oldest.at)}.
+            </p>
+          )
+        }
+      />
     </div>
   );
 }

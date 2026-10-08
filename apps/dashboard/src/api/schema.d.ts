@@ -769,7 +769,7 @@ export interface paths {
         };
         /**
          * List changes
-         * @description The change log, newest first: who changed what, why, the risk and whether it was undone.
+         * @description The change log, newest first, a page at a time: who changed what, why, the risk and whether it was undone. More follow when nextCursor is set: pass it as cursor for the next page.
          */
         get: operations["changes-list"];
         put?: never;
@@ -9269,6 +9269,12 @@ export interface components {
             reason: string;
             risk: string;
         };
+        PageChange: {
+            /** @description This page, in the list's order */
+            items: components["schemas"]["Change"][];
+            /** @description Set when more follow: pass it as cursor to read the next page. Absent on the last page. */
+            nextCursor?: string;
+        };
         Passkey: {
             /** Format: date-time */
             createdAt: string;
@@ -16325,10 +16331,14 @@ export interface operations {
             query?: {
                 /** @description Only this project */
                 project?: string;
-                /** @description Maximum changes to return */
+                /** @description Only changes of this risk */
+                risk?: "read" | "reversible" | "outbound" | "irreversible";
+                /** @description Only changes made by agents (agent), or by people and the box itself (people) */
+                actor?: "people" | "agent";
+                /** @description How many to return per page (at most 200) */
                 limit?: number;
-                /** @description Only changes older than this change ID (for paging: pass the last ID you got) */
-                before?: string;
+                /** @description The nextCursor of the previous page, to read the next one. Leave empty for the first page. */
+                cursor?: string;
             };
             header?: never;
             path?: never;
@@ -16342,7 +16352,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Change"][] | null;
+                    "application/json": components["schemas"]["PageChange"];
                 };
             };
             /** @description Bad Request */

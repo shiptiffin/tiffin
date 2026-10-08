@@ -94,7 +94,7 @@ func TestAPIKeyReach(t *testing.T) {
 						t.Fatalf("change: %v", ch)
 					}
 					// It is in History and can be undone.
-					_, _, hist := e.call(e.owner, "GET", "/v1/changes?project="+p, nil)
+					hist, _ := e.page(e.owner, "/v1/changes?project="+p)
 					if hist[0].(map[string]any)["id"] != ch["id"] {
 						t.Fatalf("history: %v", hist)
 					}
