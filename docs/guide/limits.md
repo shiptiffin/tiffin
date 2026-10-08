@@ -422,6 +422,21 @@ the box unless you [copy them off it](data.md#copies-off-the-box).
 
 ## Backups
 
+- **Point-in-time restore is for Postgres only.** Valkey (KV), files (buckets, mail,
+  analytics, app disk folders) and the platform state keep no log between backups, so a
+  restore to a moment puts them back to the newest backup set at or before it: up to 6
+  hours earlier with the default schedule (more often: `tiffin backups schedule
+  --incremental-every-hours 1`).
+- **It restores the whole cluster, not one project.** Every project's database shares one
+  Postgres cluster, and WAL replay can't pick out one database, so a time restore takes
+  every project back. There is no per-project point-in-time restore: a project's own
+  database snapshots (`tiffin snapshots`) go back to when each was taken.
+- **From this box's copy only.** A restore from the bucket (`--from offsite`) restores a
+  whole set, not a moment.
+- Moments between a restore and the next backup, and the minute or so while a backup
+  starts, can't be reached; the refusal says which times to pick instead.
+- The moment is to the second in the API and CLI, to the minute on the dashboard.
+
 - Each off-box copy reads every backed-up file again (only changed chunks are sent), so
   on a box with many gigabytes of files each copy spends a while reading the disk.
 - A backup set's file list must fit in 1 GiB (about five million files) to be copied off

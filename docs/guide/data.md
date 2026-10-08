@@ -292,19 +292,40 @@ replaces the earlier delete's saved data. Deleting the project removes everythin
 
 ## Backups
 
-Daily full and hourly incremental backups of Postgres (pgBackRest), Valkey, files,
-email, analytics and the box's own state, kept on the box, and copied off it when you
-set a destination (below).
+A daily full backup and an incremental one every 6 hours of Postgres (pgBackRest),
+Valkey, files, email, analytics and the box's own state; the last 7 fulls are kept, with
+their incrementals. They stay on the box, and are copied off it when you set a destination
+(below). Postgres also archives its log of changes (WAL) continuously, so between backups
+it can go back to any moment, not just to a backup.
 
 ```bash
-tiffin backup                 # now
-tiffin backups list
-tiffin restore <id>           # shows what it will overwrite; repeat with --confirm
-tiffin restore latest         # the newest successful one
+tiffin backup                                 # now
+tiffin backups list                           # the sets, and restorable: the moments you can go back to
+tiffin restore <id>                           # shows what it will overwrite; repeat with --confirm
+tiffin restore latest                         # the newest successful one
+tiffin restore latest --time "2026-10-07 14:32"   # Postgres to that moment (UTC)
+tiffin backups schedule --incremental-every-hours 1 --retain-full 14
 ```
 
 Restore takes a safety backup first. Targets are `postgres` and `valkey` by default;
 add `--targets files` for buckets, mail and app disk folders, or `--targets all`.
+
+**Point-in-time restore.** With `--time` (the API's `time`; RFC 3339, or `2026-10-07 14:32`
+read as UTC), the box restores the newest backup set that finished at or before that moment
+and replays the archived WAL up to it, so Postgres comes back exactly as it was then, to
+the second. Valkey and files keep no log between backups: they come back from that same
+set, the newest at or before the moment. The preview says so, and the confirm value covers
+the moment. You can pick anything from when the oldest set finished until now
+(`restorable.earliest` and `restorable.latest` in `GET /v1/backups`); the safety backup,
+taken first, archives everything up to the restore. Two kinds of moment are refused, with
+the times to pick instead: those between a restore and the next backup (the restore
+started Postgres on a new timeline), and the minute or so while a backup was starting.
+On the dashboard, Backups › Restore… offers Latest, A backup or A moment (your local
+time, with UTC shown).
+
+The schedule's `incrementalEveryHours` decides how many restore points the history lists
+and how far Valkey and files can be from a chosen moment; Postgres can reach any moment
+either way. A box that kept the old default (hourly) moves to the new one.
 
 Backups are restore points of this box. To copy one project (on this box under a new
 name, to a file, or to another box), see [copying and moving](moving.md): Duplicate,
@@ -397,7 +418,7 @@ are not in backups: deploy the apps again (`tiffin deploy`).
 | `POST /v1/backups/offsite/copy` | copies a set (`backup`, default the newest), waits up to `timeoutSeconds` → copy |
 | `GET /v1/backups/offsite/sets` | the sets in the bucket, newest first, with `restorable` |
 | `DELETE /v1/backups/offsite` | stops copying |
-| `POST /v1/backups/{id}/restore` | `from: "offsite"`; `id` may be `latest`; `targets` may be `platform` or `all` |
+| `POST /v1/backups/{id}/restore` | `from: "offsite"`; `id` may be `latest`; `targets` may be `platform` or `all`; `time` (local copy, `id` latest) for a point-in-time restore |
 | `GET /v1/backups` | also has `offsite`; each set has `offsite` (its copy) |
 
 ### Restore drills
@@ -418,7 +439,10 @@ tiffin backups drills cancel <dr_id>
 tiffin backups schedule --drill-every-days 7 --drill-enabled=false
 ```
 
-A drill runs weekly by default (the first a day after the box starts). The
+A drill runs weekly by default (the first a day after the box starts). Every other
+scheduled drill of the local copy is a point-in-time one: it restores the second-newest set
+and replays WAL to halfway between it and the newest (`targetTime` on the drill), checking
+the tables both sets had, which proves the WAL archive replays. The
 `restore-drill` status check reads "restore drill passed 2 days ago (restored in 14 s)"
 and fails when the last drill failed or none passed in 14 days. A drill is refused when
 the data disk has less free space than the backup's size plus 20%. If the box restarts
