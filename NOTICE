@@ -1,9 +1,10 @@
 Tiffin
 Copyright 2026 Bilal Tahir
 
-This product includes software developed by Bilal Tahir (https://github.com/btahir/tiffin).
+This product includes software developed by Bilal Tahir (https://github.com/shiptiffin/tiffin).
 
-Third-party components (each under its own license; see the respective projects):
+Third-party components (each under its own license; THIRD_PARTY_NOTICES has the full
+list with license texts):
 - Caddy, caddy-ratelimit, caddy-crowdsec-bouncer, Coraza and the OWASP CRS (Apache-2.0)
 - containerd, nerdctl, runc, BuildKit (Apache-2.0); Railpack (MIT); Bun (MIT)
 - @workflow/world-postgres (Apache-2.0), added to builds of apps that use the Workflow DevKit
@@ -13,4 +14,4 @@ Third-party components (each under its own license; see the respective projects)
 - VictoriaMetrics and VictoriaLogs (Apache-2.0); CrowdSec (MIT); pgBackRest (MIT)
 - uap-core regexes (Apache-2.0) via uap-go; isbot patterns (Unlicense)
 - IP Geolocation by DB-IP (https://db-ip.com), DB-IP Lite, licensed under CC BY 4.0
-- Geist, Fraunces and Commit Mono fonts (SIL Open Font License 1.1)
+- Instrument Sans, Newsreader and Commit Mono fonts in the dashboard (SIL Open Font License 1.1)
