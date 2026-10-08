@@ -93,8 +93,8 @@
     "./package.json": "./package.json"
   },
   "dependencies": {
-    "altcha-lib": "^2.5.0",
-    "nodemailer": "^10.0.13"
+    "altcha-lib": "^2.6.0",
+    "nodemailer": "^10.0.15"
   },
   "peerDependencies": {
     "@react-email/render": ">=1",
