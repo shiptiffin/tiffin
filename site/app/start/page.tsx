@@ -35,8 +35,8 @@ export default async function Start({ searchParams }: { searchParams: Promise<Se
     return (
       <Shell
         step={0}
-        title="Set up your box"
-        sub="A Tiffin box in your own Hetzner Cloud account, ready in about five minutes. First, an account: no password, just your email, Google or GitHub."
+        title="Create your account"
+        sub="Then you pay, connect Hetzner and pick a name, and your box is ready about five minutes later. No password: sign in with your email, Google or GitHub."
       >
         <SignInForm next="/start" />
       </Shell>
@@ -53,7 +53,7 @@ export default async function Start({ searchParams }: { searchParams: Promise<Se
     return (
       <Shell
         step={current.status === "active" ? 4 : current.status === "provisioning" || current.status === "cert_pending" ? 3 : 2}
-        title={current.status === "active" ? "Your box is ready" : "Set up your box"}
+        title={current.status === "active" ? "Your box is ready" : current.status === "provisioning" || current.status === "cert_pending" ? "Creating your box" : "Connect Hetzner"}
       >
         <StartFlow
           box={{ id: current.id, name: current.name, status: current.status, fingerprint: current.token_fingerprint }}
@@ -78,8 +78,8 @@ export default async function Start({ searchParams }: { searchParams: Promise<Se
   return (
     <Shell
       step={1}
-      title={active ? "Add another box" : "Set up your box"}
-      sub={active ? `You have ${active} box${active > 1 ? "es" : ""} already. Each box is its own subscription.` : undefined}
+      title={active ? "Add another box" : "Start your subscription"}
+      sub={active ? `You have ${active} box${active > 1 ? "es" : ""} already. Each box is its own subscription.` : "One subscription per box. You connect Hetzner next."}
     >
       <div className="cp-card">
         <div>

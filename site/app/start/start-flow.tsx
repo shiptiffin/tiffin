@@ -181,7 +181,7 @@ export function StartFlow({ box, job: initialJob }: { box: Box; job: Job }) {
       )}
       {!checked ? (
         <div className="cp-card">
-          <h2>Connect Hetzner</h2>
+          <h2>Your Hetzner API token</h2>
           <HetznerGuide />
           <KeyField boxId={box.id} onChecked={(token, r) => setChecked({ token, r })} />
           <p className="cp-hint">
