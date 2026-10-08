@@ -64,7 +64,7 @@ export function ActivityPage({ search }: { search: ActivitySearch }) {
           </Link>
         </p>
       ) : (
-        <Entries key={`${project}|${risk}|${who}`} list={list} more={changes} showProject={!project} byId={byId} names={names.data} />
+        <Entries key={`${project}|${risk}|${who}`} list={list} more={changes} filtered={!!(risk || who)} showProject={!project} byId={byId} names={names.data} />
       )}
     </Page>
   );
@@ -186,12 +186,15 @@ function Controls({ search, projects }: { search: ActivitySearch; projects: stri
 function Entries({
   list,
   more,
+  filtered,
   showProject,
   byId,
   names,
 }: {
   list: Change[];
   more: MoreQuery;
+  /** Narrowed by who or risk: the oldest entry shown isn't where the Ledger starts. */
+  filtered: boolean;
   showProject: boolean;
   byId: Map<string, Change>;
   names: Names | undefined;
@@ -294,7 +297,7 @@ function Entries({
           oldest && (
             <p className="flex items-center gap-2">
               <TiffinMark className="size-4 text-ink-4" />
-              That’s everything. The Ledger starts on {dayWords(oldest.at)}.
+              {filtered ? "That’s every entry that matches." : <>That’s everything. The Ledger starts on {dayWords(oldest.at)}.</>}
             </p>
           )
         }
