@@ -42,7 +42,7 @@ export function boxGroups(project: string, man?: Manifest): Group[] {
     },
     {
       id: "health",
-      from: "Every app reports errors and traces to Health on the box. The key in them only sends; it can’t read anything.",
+      from: "Every app reports errors and traces to Health on this box, never to another company. SENTRY_* and OTEL_* are the standard names the open-source Sentry SDKs and OpenTelemetry read, so their code works unchanged. The key only sends; it can’t read anything.",
       label: PARTS.health.name,
       sub: "Errors and traces",
       to: "/projects/$project/observability",
