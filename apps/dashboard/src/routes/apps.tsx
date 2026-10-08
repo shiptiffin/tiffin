@@ -4,7 +4,7 @@ import { ArrowUpRight, Check, Copy, Download, Moon, Pause, Play, RotateCw, Searc
 import { Tabs } from "radix-ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { notOnBox, type ManifestApp } from "@/api/client";
-import { deploysApi, mod3, type Deploy, type LogLine } from "@/api/modules";
+import { deploysApi, mod, mod3, type Deploy, type LogLine } from "@/api/modules";
 import { q as core } from "@/api/queries";
 import { Confirm } from "@/components/confirm";
 import { CopyButton } from "@/components/copy";
@@ -849,7 +849,7 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
             )}
             {startedRun && (
               <Button size="md" onClick={() => openTab("runtime")}>
-                What it printed when it started
+                Show what it printed before it stopped
               </Button>
             )}
           </div>
@@ -923,11 +923,23 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
  * deploy; while it's live, new lines follow over server-sent events (the
  * stream is per app, so lines from other versions are dropped here).
  */
+/** The box's log retention ("30d", "4w", "1y") in words, or undefined when unknown. */
+function keptFor(v?: string) {
+  const m = /^(\d+)([dwy])$/.exec(v ?? "");
+  return m ? count(Number(m[1]), { d: "day", w: "week", y: "year" }[m[2] as "d" | "w" | "y"]) : undefined;
+}
+
 function DeployRuntimeLogs({ project, app, dep, name }: { project: string; app: string; dep: Deploy; name: string }) {
   const isStatic = dep.framework === "static" || !!dep.staticRoot;
   const started = !isStatic && dep.buildSeconds !== undefined && dep.status !== "queued" && dep.status !== "building" && dep.status !== "skipped";
   const follow = dep.status === "live" || dep.status === "starting";
   const preview = dep.preview || undefined;
+  // An earlier version runs (and so logs) only while someone visits it.
+  const earlier = dep.status === "superseded" || dep.status === "rolled_back";
+  const { admin } = useMe();
+  // Box admins can read the log retention; others get the generic wording.
+  const settings = useQuery({ queryKey: ["observe-settings"], queryFn: mod.observeSettings, staleTime: 300_000, enabled: admin && started && !follow, retry: false });
+  const kept = keptFor(settings.data?.logsRetention);
   const page = useQuery({
     queryKey: ["deploy-logs", project, app, dep.id],
     queryFn: () => mod3.appLogs(project, app, { deploy: dep.id, preview }),
@@ -960,12 +972,12 @@ function DeployRuntimeLogs({ project, app, dep, name }: { project: string; app: 
     return (
       <p className="rounded-[10px] border border-rule-2 bg-paper-sunk px-4 py-6 text-sm text-ink-3">
         {isStatic
-          ? "A static site has no runtime: the edge serves its files."
+          ? "This version is a static site. Its files are served as they are, so no app runs and there’s nothing to log. The build log shows how the files were made."
           : inFlight(dep.status)
-            ? "Runtime logs appear here once it starts."
+            ? "It hasn’t started yet. Once it’s built and running, everything your app prints shows up here, live."
             : dep.status === "skipped"
-              ? "It was skipped, so it never ran."
-              : "It never started, so it printed nothing. The build log says why."}
+              ? "Skipped: a newer push to the same branch came in while it waited, so only the newest was built. It never ran."
+              : "It never started, so your app printed nothing. The build log says why."}
       </p>
     );
   const errs = lines.filter((l) => levelOf(l) === "error").length;
@@ -1021,7 +1033,9 @@ function DeployRuntimeLogs({ project, app, dep, name }: { project: string; app: 
             </li>
           );
         })}
-        {page.isSuccess && lines.length === 0 && <li className="px-3 py-8 text-center font-sans text-sm text-ink-3">{follow ? "Nothing printed yet." : "No lines from this version are kept."}</li>}
+        {page.isSuccess && lines.length === 0 && <li className="px-3 py-8 text-center font-sans text-sm text-ink-3">{follow
+              ? "Running, but your app hasn’t printed anything yet. New lines appear here as they come."
+              : `No lines from this version are left. Logs are kept ${kept ? `for ${kept}` : "for the box’s log window"}${earlier ? ", and a version only runs, and so only logs, while someone visits it" : ""}.`}</li>}
       </ol>
       <p className="border-t border-rule px-3.5 py-1.5 text-[0.6875rem] text-ink-3 tnum">{count(lines.length, "line")} · printed by your app, shown as plain text</p>
     </div>
