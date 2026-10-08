@@ -1,9 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
-import { Fingerprint, KeyRound, LogOut, Monitor, MonitorSmartphone, Moon, Sun, Terminal } from "lucide-react";
+import { Fingerprint, KeyRound, LogOut, Monitor, MonitorSmartphone, Moon, Sun } from "lucide-react";
 import { Dialog as D } from "radix-ui";
 import { useState, type ReactNode } from "react";
-import { copyText } from "@/lib/clipboard";
-import { mcpCommand } from "@/lib/mcp";
 import { roleCopy, useMe } from "@/lib/me";
 import { relative } from "@/lib/time";
 import { passkeyWords } from "@/lib/webauthn";
@@ -34,7 +32,6 @@ export function NavSheet({ open, onOpenChange, children }: { open: boolean; onOp
 export function WhoMenu() {
   const { me, name, role, admin } = useMe();
   const navigate = useNavigate();
-  const [copied, setCopied] = useState(false);
   const [early] = useState(() => clickedEarly("who"));
   if (!me) return <div className="size-9" />;
   const label = name ?? "You";
@@ -50,23 +47,10 @@ export function WhoMenu() {
             {role ? roleCopy[role]?.label : me.kind}
             {me.expiresAt ? ` · session ends ${relative(me.expiresAt)}` : ""}
           </p>
-          {role && <p className="mt-1 text-sm text-ink-3">{roleCopy[role]?.blurb}</p>}
         </div>
         <MenuSeparator />
         <ThemeRow />
         <MenuSeparator />
-        <MenuItem
-          onSelect={async (e) => {
-            e.preventDefault();
-            if (await copyText(mcpCommand())) {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1400);
-            }
-          }}
-        >
-          <Terminal />
-          {copied ? "Copied" : "Copy MCP setup command"}
-        </MenuItem>
         {admin && (
           <MenuItem onSelect={() => navigate({ to: "/settings/keys", search: {} })}>
             <KeyRound />
@@ -77,12 +61,9 @@ export function WhoMenu() {
           <MonitorSmartphone />
           Sign-ins
         </MenuItem>
-        <MenuItem onSelect={() => navigate({ to: "/settings/passkeys" })} className="h-auto py-1.5">
+        <MenuItem onSelect={() => navigate({ to: "/settings/passkeys" })}>
           <Fingerprint />
-          <span className="flex flex-col leading-[1.15rem]">
-            <span>Sign in with {passkeyWords().name}</span>
-            <span className="text-xs text-ink-3">{passkeyWords().how.replace(/^./, (c) => c.toUpperCase())} instead of a link</span>
-          </span>
+          Sign in with {passkeyWords().name}
         </MenuItem>
         <MenuSeparator />
         <MenuItem

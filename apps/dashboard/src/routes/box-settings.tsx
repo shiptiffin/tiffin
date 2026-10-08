@@ -18,6 +18,7 @@ import { boxDomainQuery } from "@/lib/domains";
 import { boxName, boxUp, tiffinStarted, versionLabel, whereItRuns } from "@/lib/box";
 import { useMe } from "@/lib/me";
 import { Breaker } from "@/components/breaker";
+import { cn } from "@/lib/cn";
 import { lastUpdate, nextWindow, setUpdateSettings, updateStatusQuery } from "@/lib/updates";
 import { setTheme, useTheme, type ThemePref } from "@/lib/theme";
 
@@ -30,7 +31,7 @@ function readSounds(): boolean {
   }
 }
 
-/** Settings: the box itself (its nameplate and facts), how it looks and sounds, project colours, moving it, updating it. */
+/** Settings › General: the one place for the box's facts (name, where it runs, version, uptime), then how it looks and sounds, moving it, updating it. */
 export function SettingsPage() {
   useTitle("Settings · General");
   const status = useQuery(q.status());
@@ -51,11 +52,11 @@ export function SettingsPage() {
 
   return (
     <Page>
-      <PageHeader title="General" lede="Your box: what it is, how it looks, how to move it and keep it up to date." />
+      <PageHeader title="General" />
 
       <Section title="This box">
         <div className="border-y border-rule py-3">
-          <Nameplate name={name} where={whereItRuns(status.data)} version={versionLabel(status.data)} uptime={boxUp(res.data?.uptimeSeconds)} domain={domain} />
+          <Nameplate name={name} where={whereItRuns(status.data)} uptime={boxUp(res.data?.uptimeSeconds)} domain={domain} />
         </div>
         <dl className="mt-1 grid grid-cols-[8rem_minmax(0,1fr)] text-[0.875rem]">
           {(
@@ -84,7 +85,7 @@ export function SettingsPage() {
       <Section
         id="sign-in"
         title="Sign-in providers"
-        note="A shortcut for side projects: set a provider’s keys once and any project can turn it on. People see this box’s app name on the provider’s screen, so a product with its own name uses its own keys, set on its Auth page. Users and sessions always stay in each project."
+        note="Set a provider’s keys once and any project can turn it on."
       >
         <SignInProviders admin={admin} />
       </Section>
@@ -109,9 +110,10 @@ export function SettingsPage() {
         <ExportBox canExport={admin} />
         <h3 className="label mt-8 mb-3">Import</h3>
         <ImportBox boxName={name} projects={names} isOwner={role === "owner"} />
-        <p className="mt-6 text-[0.8125rem] text-ink-3">From a terminal, the same thing:</p>
-        <Command className="mt-2" cmd={`tiffin box export ${name}.tiffin --key-out ${name}.key`} />
-        <Command cmd={`tiffin box import ${name}.tiffin --key-file ${name}.key`} className="mt-2" />
+        <FromTerminal className="mt-6">
+          <Command cmd={`tiffin box export ${name}.tiffin --key-out ${name}.key`} />
+          <Command cmd={`tiffin box import ${name}.tiffin --key-file ${name}.key`} className="mt-2" />
+        </FromTerminal>
       </Section>
 
       <Updates admin={admin} version={versionLabel(status.data)} build={build} />
@@ -160,17 +162,27 @@ function Updates({ admin, version, build }: { admin: boolean; version?: string; 
       </dl>
       {s && s.release ? (
         <div className="mt-4">
-          <Row label="Install updates by themselves" note={s.nextRun ? undefined : "They wait for a maintenance window: tiffin update settings --window 04:00"}>
+          <Row label="Install updates by themselves" note={s.nextRun ? undefined : "They wait for a maintenance window."}>
             <Breaker label="Install updates by themselves" state={auto ? "on" : "off"} disabled={save.isPending} onFlip={(v) => save.mutate(v === "on")} />
           </Row>
           {save.isError && <ProblemNote className="mt-3" error={save.error} />}
-          <p className="mt-5 text-[0.8125rem] text-ink-3">To install the newest release now:</p>
-          <Command className="mt-2" cmd="tiffin update apply" />
+          <FromTerminal className="mt-5">
+            <p className="text-[0.8125rem] text-ink-3">Install the newest release now:</p>
+            <Command className="mt-1.5" cmd="tiffin update apply" />
+            {!s.nextRun && (
+              <>
+                <p className="mt-3 text-[0.8125rem] text-ink-3">Set a maintenance window:</p>
+                <Command className="mt-1.5" cmd="tiffin update settings --window 04:00" />
+              </>
+            )}
+          </FromTerminal>
         </div>
       ) : (
         <>
-          <p className="mt-4 text-[0.8125rem] text-ink-3">{s ? "This is a development build. Update it from your computer:" : "Update it from your computer:"}</p>
-          <Command className="mt-2" cmd="tiffin up" />
+          {s && <p className="mt-4 text-[0.8125rem] text-ink-3">This is a development build. Update it from your computer.</p>}
+          <FromTerminal className="mt-4">
+            <Command cmd="tiffin up" />
+          </FromTerminal>
         </>
       )}
     </Section>
@@ -230,6 +242,18 @@ export function Section({ id, title, note, children }: { id?: string; title: str
       </div>
       <div className="min-w-0">{children}</div>
     </section>
+  );
+}
+
+/** Terminal commands, one step away: closed, like "Or from your terminal" on the deploy tray. */
+function FromTerminal({ className, children }: { className?: string; children: ReactNode }) {
+  return (
+    <details className={cn("group", className)}>
+      <summary className="cursor-pointer list-none text-[0.8125rem] text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
+        <span className="inline-block transition-transform group-open:rotate-90">›</span> From a terminal
+      </summary>
+      <div className="mt-2">{children}</div>
+    </details>
   );
 }
 

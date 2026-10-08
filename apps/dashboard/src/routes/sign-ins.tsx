@@ -5,7 +5,6 @@ import { methodWords, sessions, sq, type Session } from "@/api/sessions";
 import { Confirm } from "@/components/confirm";
 import { useTitle } from "@/components/favicon";
 import { accessCrumbs, Group } from "@/components/health-kit";
-import { StateSentence } from "@/components/jobs-words";
 import { Page, PageHeader, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
 import { DeviceIcon, Dots, SessionRows, whereWords } from "@/components/sessions-list";
@@ -20,8 +19,8 @@ import { passkeyWords } from "@/lib/webauthn";
 /**
  * Settings › Sign-ins: where you're signed in to this dashboard (each
  * browser, where and how, last active), Sign out on any of them or
- * everywhere else, the last 30 days of sign-ins, and the browsers the box
- * recognises (no new sign-in email from those). The new sign-in email's
+ * everywhere else. Under History (closed): the last 30 days of sign-ins and
+ * the browsers the box recognises (no new sign-in email from those). The new sign-in email's
  * button opens this page. API keys are not sign-ins; they have their own page.
  */
 export function SignInsPage() {
@@ -41,7 +40,7 @@ export function SignInsPage() {
       <PageHeader
         eyebrow={accessCrumbs}
         title="Sign-ins"
-        lede="Where you’re signed in to this dashboard. Each sign-in lasts 12 hours. If you see one you don’t recognise, sign it out."
+        lede="Each sign-in lasts 12 hours."
         actions={
           others.length > 0 && (
             <Button variant="secondary" size="lg" onClick={() => setEndingOthers(true)}>
@@ -53,50 +52,10 @@ export function SignInsPage() {
 
       {all.isError && <ProblemNote className="mt-8" error={all.error} title="Couldn’t load your sign-ins." />}
 
-      {all.isSuccess && (
-        <StateSentence className="mt-6">
-          {others.length === 0
-            ? "Only this browser is signed in."
-            : `You’re signed in on ${countWords(open.length, "browser")}: this one and ${countWords(others.length, "other")}.`}
-        </StateSentence>
-      )}
-
       <Group label="Where you’re signed in" id="open">
         {all.isPending && <Skeleton className="h-36" />}
         {all.isSuccess && open.length > 0 && <SessionRows list={open} />}
         {all.isSuccess && open.length === 0 && <p className="border-y border-rule py-4 text-[0.875rem] text-ink-3">No open sessions.</p>}
-      </Group>
-
-      <Group label="Recent sign-ins" id="recent" aside="Last 30 days">
-        {all.isPending && <Skeleton className="h-28" />}
-        {all.isSuccess && <History list={list} />}
-      </Group>
-
-      <Group label="Browsers this box knows" id="browsers" aside={browsers.data?.length ? countWords(browsers.data.length, "browser") : undefined}>
-        <p className="mb-3 max-w-[40rem] text-[0.875rem] text-ink-2">
-          Signing in from one of these is quiet. From any other browser, the box emails you about it, if it has your email address.
-        </p>
-        {browsers.isError && <ProblemNote error={browsers.error} />}
-        {browsers.isPending && <Skeleton className="h-20" />}
-        {browsers.isSuccess && browsers.data.length === 0 && <p className="border-y border-rule py-4 text-[0.875rem] text-ink-3">None yet.</p>}
-        {browsers.isSuccess && browsers.data.length > 0 && (
-          <ul className="divide-y divide-rule border-y border-rule">
-            {browsers.data.map((b, i) => (
-              <li key={i} className="grid grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-x-3 py-3 sm:grid-cols-[1.5rem_minmax(0,1fr)_auto] sm:items-center">
-                <span className="flex h-5 items-center sm:h-auto">
-                  <DeviceIcon device={b.device} />
-                </span>
-                <p className="min-w-0 text-[0.875rem] text-ink">
-                  {b.device}
-                  {b.current && <span className="ml-2 text-[0.8125rem] font-[550] text-brass-ink">This browser</span>}
-                </p>
-                <p className="col-start-2 text-[0.8125rem] text-ink-3 sm:col-start-3" title={`First seen ${full(b.firstSeen)}`}>
-                  Last sign-in {relative(b.lastSeen)}
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
       </Group>
 
       <Group label="Other ways in" id="other">
@@ -119,6 +78,43 @@ export function SignInsPage() {
           </li>
         </ul>
       </Group>
+
+      <details className="group mt-11">
+        <summary className="cursor-pointer list-none text-[0.8125rem] text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
+          <span className="inline-block transition-transform group-open:rotate-90">›</span> History
+        </summary>
+        <Group label="Recent sign-ins" id="recent" aside="Last 30 days" className="mt-4">
+          {all.isPending && <Skeleton className="h-28" />}
+          {all.isSuccess && <History list={list} />}
+        </Group>
+
+        <Group label="Browsers this box knows" id="browsers" className="mt-9" aside={browsers.data?.length ? countWords(browsers.data.length, "browser") : undefined}>
+          <p className="mb-3 max-w-[40rem] text-[0.875rem] text-ink-2">
+            Signing in from one of these is quiet. From any other browser, the box emails you about it, if it has your email address.
+          </p>
+          {browsers.isError && <ProblemNote error={browsers.error} />}
+          {browsers.isPending && <Skeleton className="h-20" />}
+          {browsers.isSuccess && browsers.data.length === 0 && <p className="border-y border-rule py-4 text-[0.875rem] text-ink-3">None yet.</p>}
+          {browsers.isSuccess && browsers.data.length > 0 && (
+            <ul className="divide-y divide-rule border-y border-rule">
+              {browsers.data.map((b, i) => (
+                <li key={i} className="grid grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-x-3 py-3 sm:grid-cols-[1.5rem_minmax(0,1fr)_auto] sm:items-center">
+                  <span className="flex h-5 items-center sm:h-auto">
+                    <DeviceIcon device={b.device} />
+                  </span>
+                  <p className="min-w-0 text-[0.875rem] text-ink">
+                    {b.device}
+                    {b.current && <span className="ml-2 text-[0.8125rem] font-[550] text-brass-ink">This browser</span>}
+                  </p>
+                  <p className="col-start-2 text-[0.8125rem] text-ink-3 sm:col-start-3" title={`First seen ${full(b.firstSeen)}`}>
+                    Last sign-in {relative(b.lastSeen)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Group>
+      </details>
 
       <Confirm
         open={endingOthers}

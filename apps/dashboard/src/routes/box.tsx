@@ -22,8 +22,9 @@ const MB = 1048576;
 
 /**
  * Settings › Machine: the box itself, for when you want to look inside. The
- * machine drawn as a tiffin carrier: its vitals on the lid, each project's
- * share of memory, the platform that runs every project's databases and
+ * machine drawn as a tiffin carrier: its vitals on the lid (memory split
+ * into projects, platform and Linux; each project's share is on Usage), the
+ * platform that runs every project's databases and
  * files, and the room left. Nothing here needs touching day to day; the
  * projects' own controls live on their pages.
  */
@@ -40,10 +41,7 @@ export function BoxPage() {
 
   return (
     <Page full>
-      <PageHeader
-        title="Machine"
-        lede="The computer your projects run on: how full it is, the parts that run every project’s databases and files, and the room left."
-      />
+      <PageHeader title="Machine" lede="The computer your projects run on." />
       <div className="mt-12 max-w-[64rem]">
         <Carrier>
           <Lid>
@@ -54,7 +52,7 @@ export function BoxPage() {
               uptime={boxUp(res.data?.uptimeSeconds)}
               domain={<BoxDomain />}
             />
-            <Vitals res={res.data} mem={mem} unavailable={!!res.error} names={names} />
+            <Vitals res={res.data} mem={mem} unavailable={!!res.error} />
           </Lid>
           <Rim />
           <PlatformTier res={res.data} mem={mem} status={status.data} unavailable={!!res.error} />
@@ -77,12 +75,10 @@ function Vitals({
   res,
   mem,
   unavailable,
-  names,
 }: {
   res?: BoxResources;
   mem?: MemoryModel;
   unavailable: boolean;
-  names: string[];
 }) {
   if (unavailable) return <p className="mt-4 text-sm text-ink-3">Memory, CPU and disk are measured on a running box. This server runs without one.</p>;
   if (!res || !mem) return <div className="mt-4 h-[88px]" />;
@@ -93,7 +89,8 @@ function Vitals({
   const dTotal = bytesParts(disk.totalBytes, 0);
   const partsMB = mem.platformMB - mem.systemMB;
   const seg = (v: number) => `${Math.max(0, (v / mem.totalMB) * 100)}%`;
-  const withApps = names.filter((n) => (mem.projects[n] ?? 0) > 0);
+  // Projects together, beside the platform: each project's share is on Usage.
+  const projectsMB = Object.values(mem.projects).reduce((t, v) => t + v, 0);
   return (
     <div className="mt-4 grid grid-cols-2 gap-x-7 gap-y-5 sm:grid-cols-[1.9fr_1fr_1fr] max-sm:gap-y-4">
       <div className="min-w-0 max-sm:col-span-full">
@@ -107,20 +104,18 @@ function Vitals({
           role="img"
           aria-label={`Memory: ${int(mem.usedMB)} MB in use of ${int(mem.totalMB)} MB; ${int(mem.freeMB)} MB room left`}
         >
-          {withApps.map((n) => (
-            <span key={n} title={n} className={cn("h-full min-w-[3px] rounded-[2px]", withApps.indexOf(n) % 2 ? "bg-ink-4" : "bg-ink-3")} style={{ width: seg(mem.projects[n]) }} />
-          ))}
+          {projectsMB > 0 && <span className="h-full min-w-[3px] rounded-[2px] bg-ink-3" style={{ width: seg(projectsMB) }} />}
           {partsMB > 0 && <span className="h-full min-w-[3px] rounded-[2px] bg-[var(--part-3)]" style={{ width: seg(partsMB) }} />}
           {mem.systemMB > 0 && <span className="h-full min-w-[3px] rounded-[2px] bg-[var(--part-4)]" style={{ width: seg(mem.systemMB) }} />}
           <span className="h-full flex-1 rounded-[2px] border border-dashed border-rule-3" />
         </div>
         <p className="mt-2 flex flex-wrap gap-x-3.5 gap-y-1 text-xs text-ink-3">
-          {withApps.map((n) => (
-            <span key={n} className="inline-flex items-center gap-1.5">
-              <i className={cn("inline-block size-[7px] rounded-[1.5px]", withApps.indexOf(n) % 2 ? "bg-ink-4" : "bg-ink-3")} />
-              {n}
+          {projectsMB > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              <i className="inline-block size-[7px] rounded-[1.5px] bg-ink-3" />
+              projects
             </span>
-          ))}
+          )}
           <span className="inline-flex items-center gap-1.5">
             <i className="inline-block size-[7px] rounded-[1.5px] bg-[var(--part-3)]" />
             platform
@@ -133,6 +128,9 @@ function Vitals({
             <i className="inline-block size-[7px] rounded-[1.5px] border border-dashed border-rule-3" />
             room left
           </span>
+          <Link to="/usage" className="underline decoration-rule-3 underline-offset-4 hover:text-ink">
+            Each project on Usage
+          </Link>
         </p>
       </div>
       <div className="min-w-0">

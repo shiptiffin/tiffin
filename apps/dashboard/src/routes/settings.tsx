@@ -230,7 +230,7 @@ export function PeoplePage() {
       <PageHeader
         eyebrow={accessCrumbs}
         title="People"
-        lede="Everyone who can open this dashboard, and what they may do. Their changes are signed with their own names."
+        lede="Everyone who can open this dashboard."
         actions={
           admin && (
             <Button variant="primary" size="lg" onClick={() => setInviting(true)}>
@@ -317,9 +317,12 @@ export function PeoplePage() {
         {list.length === 1 && admin && <p className="mt-3 text-[0.8125rem] text-ink-3">Just you so far. Invite someone and they get a one-time sign-in link, good for seven days.</p>}
       </Group>
 
-      <Group label="What each role may do" id="roles">
-        <Facts items={(["owner", ...assignable] as Role[]).map((r) => [roleCopy[r].label, <span className="text-ink-2">{roleCopy[r].blurb}</span>] as [ReactNode, ReactNode])} />
-      </Group>
+      <details className="group mt-11">
+        <summary className="cursor-pointer list-none text-[0.8125rem] text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
+          <span className="inline-block transition-transform group-open:rotate-90">›</span> What can each role do?
+        </summary>
+        <Facts className="mt-3" items={(["owner", ...assignable] as Role[]).map((r) => [roleCopy[r].label, <span className="text-ink-2">{roleCopy[r].blurb}</span>] as [ReactNode, ReactNode])} />
+      </details>
 
       <InviteDialog open={inviting} onOpenChange={setInviting} onDone={refresh} />
       <PersonSessionsDialog person={ending} onClose={() => setEnding(null)} />
