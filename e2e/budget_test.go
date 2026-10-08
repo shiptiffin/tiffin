@@ -120,7 +120,9 @@ func TestBudget(t *testing.T) {
 	}
 
 	// ---- a budget that cannot fit is refused at plan time ----
-	big := filepath.Join(b.dir, "big.json")
+	// A folder of its own: the CLI refuses a manifest beside its settings (dir/config).
+	_ = os.MkdirAll(filepath.Join(b.dir, "project"), 0o755)
+	big := filepath.Join(b.dir, "project", "big.json")
 	_ = os.WriteFile(big, []byte(`{"project":"shop","resources":{"memoryMB":`+strconv.Itoa(int(pool))+`},"apps":{"hog":{"routes":["shop"]}}}`), 0o644)
 	if code, out := b.run("plan", big); code == 0 || !strings.Contains(out, "do not fit this box") || !strings.Contains(out, "Tiffin keeps") {
 		t.Fatalf("over-budget plan: %d %s", code, out)

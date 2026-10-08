@@ -99,7 +99,10 @@ func TestObserve(t *testing.T) {
 	// ---- box + project ----
 	p := time.Now()
 	ok("up", "--binary", bin)
-	cfg := filepath.Join(dir, "tiffin.config.ts")
+	// A folder of its own: the CLI refuses a config beside its settings (dir/config).
+	proj := filepath.Join(dir, "project")
+	_ = os.MkdirAll(proj, 0o755)
+	cfg := filepath.Join(proj, "tiffin.config.ts")
 	if err := os.WriteFile(cfg, []byte(`import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({
   project: "shop",

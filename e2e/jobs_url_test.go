@@ -85,7 +85,9 @@ func TestJobsURL(t *testing.T) {
 
 	base := fmt.Sprintf("http://host.lima.internal:%d", port)
 	// A private address is refused at plan time, in words.
-	bad := filepath.Join(b.dir, "bad.json")
+	// A folder of its own: the CLI refuses a manifest beside its settings (dir/config).
+	_ = os.MkdirAll(filepath.Join(b.dir, "project"), 0o755)
+	bad := filepath.Join(b.dir, "project", "bad.json")
 	if err := os.WriteFile(bad, []byte(`{"project":"hooks","queues":{"inside":{"url":"http://10.0.0.5/admin"}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}

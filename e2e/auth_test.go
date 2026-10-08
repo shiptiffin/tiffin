@@ -104,7 +104,10 @@ func TestAuth(t *testing.T) {
 	}
 	project := fmt.Sprintf("auth%d", time.Now().Unix()%100000)
 	writeConfig := func(services string) string {
-		path := filepath.Join(dir, "tiffin.config.ts")
+		// A folder of its own: the CLI refuses a config beside its settings (dir/config).
+		proj := filepath.Join(dir, "project")
+		_ = os.MkdirAll(proj, 0o755)
+		path := filepath.Join(proj, "tiffin.config.ts")
 		cfg := `import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({ project: "` + project + `", apps: { web: { framework: "static", routes: ["` + project + `"] } }, services: {` + services + `} });
 `

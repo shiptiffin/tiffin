@@ -233,7 +233,10 @@ for i in $(seq 1 100); do curl -sf http://127.0.0.1:7070/v1/health >/dev/null &&
 
 	// ---- an app: its certificate on the first visit ----
 	p = time.Now()
-	manifest := filepath.Join(dir, "shop.json")
+	// A folder of its own: the CLI refuses a config beside its settings (dir/config).
+	proj := filepath.Join(dir, "project")
+	_ = os.MkdirAll(proj, 0o755)
+	manifest := filepath.Join(proj, "shop.json")
 	_ = os.WriteFile(manifest, []byte(`{"project":"shop","apps":{"web":{"framework":"static","routes":["shop"]}}}`), 0o644)
 	var plan map[string]any
 	code, out := run("plan", manifest)

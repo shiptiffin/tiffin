@@ -219,7 +219,7 @@ func TestCreate(t *testing.T) {
 		edited := pm["manifest"].(map[string]any)
 		edited["apps"].(map[string]any)["spoon"] = map[string]any{"framework": "static"}
 		raw2, _ := json.Marshal(edited)
-		plan := b.ok("plan", writeJSON(t, b.dir, "edited.json", raw2))
+		plan := b.ok("plan", writeJSON(t, filepath.Join(b.dir, "project"), "edited.json", raw2))
 		if ops := plan["ops"].([]any); len(ops) != 1 || ops[0].(map[string]any)["address"] != "app/spoon" {
 			t.Fatalf("editing the fetched manifest must plan exactly the new app: %v", plan)
 		}
@@ -316,6 +316,7 @@ func orZero(v any) any {
 
 func writeJSON(t *testing.T, dir, name string, raw []byte) string {
 	t.Helper()
+	_ = os.MkdirAll(dir, 0o755)
 	p := filepath.Join(dir, name)
 	if err := os.WriteFile(p, raw, 0o644); err != nil {
 		t.Fatal(err)
