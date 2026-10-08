@@ -20,7 +20,7 @@ apply() {
   "$BIN" apply "$dir" --confirm "$hash" -m "$intent" --json >/dev/null
 }
 
-last_change() { "$BIN" changes list --json | jq -r '.[0].id'; }
+last_change() { "$BIN" changes list --json | jq -r '.items[0].id'; }
 
 mkdir -p "$WORK/hello" "$WORK/notes"
 H="$WORK/hello/tiffin.config.ts"
@@ -123,4 +123,4 @@ if [ "${SEED_SPREAD:-}" = 1 ]; then
   done
 fi
 
-echo "seeded: $("$BIN" changes list --json | jq length) changes"
+echo "seeded: $("$BIN" changes list --json --limit 200 | jq '.items | length') changes"
