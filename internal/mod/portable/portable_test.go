@@ -170,7 +170,7 @@ func TestPreviewKey(t *testing.T) {
 func TestSets(t *testing.T) {
 	observe, _ := setByName("observe")
 	skip := observe.skip(false, nil)
-	for rel, want := range map[string]bool{"observe.db": false, "retention.env": false, "metrics": true, "metrics/data/x": true, "logs": true, "bin": true} {
+	for rel, want := range map[string]bool{"observe.db": false, "retention.env": false, "metrics": true, "metrics/data/x": true, "logs": true, "bin": true, "auth.env": true} {
 		if got := skip(rel, nil); got != want {
 			t.Errorf("observe skip %q = %v", rel, got)
 		}
@@ -178,7 +178,7 @@ func TestSets(t *testing.T) {
 	if observe.skip(true, nil)("metrics", nil) {
 		t.Error("with history the metrics store travels")
 	}
-	if k := observe.keep(false); strings.Join(k, ",") != "bin,metrics,logs" {
+	if k := observe.keep(false); strings.Join(k, ",") != "bin,auth.env,metrics,logs" {
 		t.Errorf("observe keep: %v", k)
 	}
 	if u := observe.units(true); len(u) != 2 {

@@ -45,7 +45,7 @@ func under(rel string) func(*platform.Platform) string {
 	}
 }
 
-// observeKeep are the Victoria stores and binaries in /var/lib/tiffin/observe.
+// observeStores are the Victoria stores in /var/lib/tiffin/observe.
 var observeStores = []string{"metrics", "logs"}
 
 // sets lists every file tree, in archive order.
@@ -75,7 +75,8 @@ func sets() []fileSet {
 		{Name: "observe", Path: under("observe"), Detail: "error issues, alert rules, retention settings", SQLite: true,
 			Skip: func(rel string, d fs.DirEntry, history bool) bool {
 				top := strings.SplitN(rel, "/", 2)[0]
-				if top == "bin" {
+				// auth.env is this box's password for its running stores: never another box's.
+				if top == "bin" || top == "auth.env" {
 					return true
 				}
 				for _, s := range observeStores {
@@ -87,9 +88,9 @@ func sets() []fileSet {
 			},
 			Keep: func(history bool) []string {
 				if history {
-					return []string{"bin"}
+					return []string{"bin", "auth.env"}
 				}
-				return append([]string{"bin"}, observeStores...)
+				return append([]string{"bin", "auth.env"}, observeStores...)
 			},
 			Units: func(history bool) []string {
 				if history {
