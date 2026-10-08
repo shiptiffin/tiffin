@@ -74,8 +74,12 @@ func TestObserve(t *testing.T) {
 			t.Fatalf("tiffin %s: exit %d\n%s", strings.Join(args, " "), code, out)
 		}
 		var l []any
-		_ = json.Unmarshal([]byte(out), &l)
-		return l
+		if json.Unmarshal([]byte(out), &l) == nil {
+			return l
+		}
+		var pg struct{ Items []any } // a paged list: its first page
+		_ = json.Unmarshal([]byte(out), &pg)
+		return pg.Items
 	}
 	inBox := func(script string) string {
 		t.Helper()

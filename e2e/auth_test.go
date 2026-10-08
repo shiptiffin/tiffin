@@ -230,13 +230,15 @@ export default defineConfig({ project: "` + project + `", apps: { web: { framewo
 		t.Helper()
 		deadline := time.Now().Add(30 * time.Second)
 		for time.Now().Before(deadline) {
-			var msgs []struct {
-				ID      string   `json:"id"`
-				To      []string `json:"to"`
-				Subject string   `json:"subject"`
+			var page struct {
+				Items []struct {
+					ID      string   `json:"id"`
+					To      []string `json:"to"`
+					Subject string   `json:"subject"`
+				} `json:"items"`
 			}
-			ok(&msgs, "email", "messages", "list", project, "--q", to)
-			for _, m := range msgs {
+			ok(&page, "email", "messages", "list", project, "--q", to)
+			for _, m := range page.Items {
 				if strings.Contains(strings.Join(m.To, ","), to) && strings.Contains(m.Subject, subject) {
 					var d struct {
 						Links []string `json:"links"`
