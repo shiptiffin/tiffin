@@ -381,6 +381,9 @@ func TestProvisionRetryCleansUp(t *testing.T) {
 	if j := h.job(id); j.Status != "failed" {
 		t.Fatalf("install failure: %+v", j)
 	}
+	if h.cf.Count() != 0 || h.str(`select dns_state from cloud_boxes where id = 'box_4'`) != "none" {
+		t.Fatalf("a failed setup must leave no address behind (%d records)", h.cf.Count())
+	}
 	h.w.Install = func(_ context.Context, _ provider.Machine, _ string, o install.Options, _ func(string)) (*install.Result, error) {
 		return &install.Result{OwnerToken: "tft_x"}, nil
 	}

@@ -162,6 +162,12 @@ describe("monitor", () => {
     expect(decide(paused(31), now)).toMatchObject({ removeDns: true, emails: ["dns_removed"] });
     expect(decide({ ...paused(31), dns_state: "removed" }, now)).toMatchObject({ removeDns: false, emails: [] });
   });
+  test("a box quiet and down for a week has its address parked, once", () => {
+    const gone = { ...base, health_failures: 2000, last_heartbeat_at: new Date(now.getTime() - 8 * 86_400_000), down_alerted_at: new Date(now.getTime() - 8 * 86_400_000) };
+    expect(decide(gone, now, false)).toMatchObject({ removeDns: true, emails: ["parked"] });
+    expect(decide({ ...gone, dns_state: "removed" }, now)).toMatchObject({ removeDns: false, probe: false });
+    expect(decide({ ...gone, last_heartbeat_at: new Date(now.getTime() - 3_600_000) }, now, false).removeDns).toBe(false);
+  });
   test("released or unnamed boxes are left alone", () => {
     expect(decide({ ...base, status: "released" }, now)).toMatchObject({ probe: false, emails: [] });
   });

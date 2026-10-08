@@ -64,6 +64,11 @@ export const mails = {
     subject: `${b.name ?? "Your box"} hasn't checked in`,
     text: `${named(b)} checks in with us once a day. Its last check-in was ${last ? last.toUTCString() : "never"}.\n\nIf it answers on the web, this is harmless (the check-in may be blocked). If not, look at the server in the Hetzner console.${sign}`,
   }),
+  parked: (b: Box): Mail => ({
+    to: b.email,
+    subject: `We parked ${b.name ? boxDomain(b.name) : "your box's address"}`,
+    text: `${named(b)} hasn't answered or checked in for a week, so we took its shiptiffin.app address off the server's IP (if the server was deleted, Hetzner may give that IP to someone else).\n\nIf the server is still yours, start it in the Hetzner console: the address comes back at its next check-in.${sign}`,
+  }),
   killed: (b: Box, reason: string): Mail => ({
     to: b.email,
     subject: `We turned off ${b.name ? boxDomain(b.name) : "your shiptiffin.app address"}`,

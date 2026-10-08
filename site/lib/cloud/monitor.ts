@@ -9,6 +9,13 @@ import { DNS_GRACE_DAYS, EXTRAS_ON } from "./billing";
 export const DOWN_AFTER = 3; // failed checks in a row (15 minutes) before an email
 export const SILENT_AFTER_MS = 36 * 3_600_000;
 export const WARN_BEFORE_DAYS = 7;
+/**
+ * A box that neither answers nor checks in for this long is probably deleted
+ * (in the Hetzner console, say). Its address is parked: Hetzner may give the
+ * IP to someone else, who must not get a shiptiffin.app name with it. The
+ * next check-in puts it back.
+ */
+export const PARK_AFTER_MS = 7 * 86_400_000;
 
 export type MonitorBox = {
   id: string;
@@ -28,7 +35,7 @@ export type MonitorBox = {
 export type Decision = {
   probe: boolean; // check the dashboard over HTTPS
   patch: Partial<Pick<MonitorBox, "health_failures" | "down_alerted_at" | "heartbeat_alerted_at">> & { health_checked_at?: Date };
-  emails: ("down" | "up" | "silent" | "dns_soon" | "dns_removed")[];
+  emails: ("down" | "up" | "silent" | "dns_soon" | "dns_removed" | "parked")[];
   removeDns: boolean;
 };
 
@@ -71,6 +78,12 @@ export function decide(b: MonitorBox, now: Date, probeOk?: boolean): Decision {
     }
   }
   const last = (b.last_heartbeat_at ?? b.created_at).getTime();
+  const failures = d.patch.health_failures ?? b.health_failures;
+  if (b.dns_state === "live" && failures >= DOWN_AFTER && now.getTime() - last > PARK_AFTER_MS && b.down_alerted_at && now.getTime() - b.down_alerted_at.getTime() > PARK_AFTER_MS) {
+    d.removeDns = true;
+    d.emails.push("parked");
+    return d;
+  }
   if (now.getTime() - last > SILENT_AFTER_MS && !b.heartbeat_alerted_at) {
     d.emails.push("silent");
     d.patch.heartbeat_alerted_at = now;

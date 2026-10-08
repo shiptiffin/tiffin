@@ -245,6 +245,8 @@ export async function heartbeat(boxId: string, report: { version?: unknown; fail
   const version = typeof report.version === "string" ? report.version.slice(0, 40) : null;
   await q.db()`update cloud_boxes set last_heartbeat_at = now(), last_version = ${version}, failing = ${failing}, heartbeat_alerted_at = null where id = ${box.id}`;
   const on = EXTRAS_ON.has(box.plan_status) && box.status === "active";
+  // A parked address (the box went quiet for a week) comes back with the box.
+  if (on && box.dns_state === "removed" && !box.extras_paused_at && !(await q.jobsBusy(box.id))) await q.enqueue(box.id, "dns_set", {}, null);
   return {
     managed: true,
     active: on,
@@ -272,10 +274,20 @@ export async function runMonitor(now = new Date()): Promise<{ checked: number; e
       const paused = b.extras_paused_at ?? now;
       const until = new Date(paused.getTime() + 30 * 86_400_000);
       for (const kind of d.emails) {
-        const key = kind === "down" || kind === "up" ? (b.down_alerted_at ?? now).toISOString() : kind === "silent" ? String(b.last_heartbeat_at?.toISOString() ?? "never") : paused.toISOString();
+        const key = kind === "down" || kind === "up" || kind === "parked" ? (b.down_alerted_at ?? now).toISOString() : kind === "silent" ? String(b.last_heartbeat_at?.toISOString() ?? "never") : paused.toISOString();
         if (!(await q.emailOnce(b.id, kind, key))) continue;
         const m =
-          kind === "down" ? mails.down(box, now) : kind === "up" ? mails.up(box) : kind === "silent" ? mails.silent(box, b.last_heartbeat_at) : kind === "dns_soon" ? mails.dns_soon(box, until) : mails.dns_removed(box);
+          kind === "down"
+            ? mails.down(box, now)
+            : kind === "up"
+              ? mails.up(box)
+              : kind === "silent"
+                ? mails.silent(box, b.last_heartbeat_at)
+                : kind === "dns_soon"
+                  ? mails.dns_soon(box, until)
+                  : kind === "parked"
+                    ? mails.parked(box)
+                    : mails.dns_removed(box);
         if (await deliver(m)) emails++;
       }
     }),

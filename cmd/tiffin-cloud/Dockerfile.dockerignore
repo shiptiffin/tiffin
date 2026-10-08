@@ -1,0 +1,9 @@
+# Only what the worker build needs (the box builds with the repository top as context).
+*
+!go.mod
+!go.sum
+!cmd/tiffin-cloud
+!internal
+internal/dashboard/ui/node_modules
+**/*_test.go
+**/testdata

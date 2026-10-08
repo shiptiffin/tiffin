@@ -194,7 +194,15 @@ func (w *Worker) handle(ctx context.Context, job *Job) error {
 		}
 		err := w.provision(ctx, job, box, a, progress)
 		if err != nil {
-			_ = w.Store.SetStatus(context.WithoutCancel(ctx), box.ID, "failed")
+			bg := context.WithoutCancel(ctx)
+			_ = w.Store.SetStatus(bg, box.ID, "failed")
+			// No address may point at a server that may never be finished (or
+			// whose IP Hetzner hands to someone else once it is deleted).
+			if a.Name != "" && ValidName(a.Name) == nil {
+				if derr := w.DNS.Remove(bg, a.Name); derr == nil {
+					_ = w.Store.SetDNS(bg, box.ID, "none")
+				}
+			}
 			progress("Setup stopped: " + firstLine(err.Error()))
 		}
 		return err

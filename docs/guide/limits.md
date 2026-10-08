@@ -609,6 +609,10 @@ See [managed boxes](managed.md). What is not done yet, or done the simple way:
 - **Monitoring is one place.** The checks run from ShipTiffin's own box every five minutes;
   if that box is down, nobody is told. A box that misses its daily check-in for 36 hours
   gets one email.
+- **A box gone quiet loses its address after a week.** A server deleted in the Hetzner
+  console frees its IP for someone else, and the `shiptiffin.app` name must not follow it.
+  So a box that neither answers nor checks in for 7 days has its address parked (the owner
+  is emailed); its next check-in puts it back. A failed setup removes its address at once.
 - **One worker, a few jobs at once.** Setups run three at a time in the `cloud` app; more
   wait their turn. A deploy of the worker mid-setup fails that setup ("the worker stopped
   while this ran"); the customer pastes the key again and *Clean up and try again* removes
