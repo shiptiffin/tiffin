@@ -40,7 +40,7 @@ import { defineConfig } from "@shiptiffin/sdk";
 export default defineConfig({
   project: "hello",
   apps: { web: { framework: "next" } },
-  services: { postgres: {}, valkey: {}, auth: {}, email: {} },
+  services: { auth: {} },  // Database, KV, Files, Email and Analytics are always there
 });
 ```
 

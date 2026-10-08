@@ -14,6 +14,15 @@ Redis-compatible, also a cache) is `valkey`, Files is `storage`, then `auth`, `e
 `analytics`; Jobs are the top-level `queues` and `crons`. `database`, `cache` and `files` also work in `tiffin.config.ts` and are stored
 under the first name (which is what `tiffin pull` writes back).
 
+Every project always has a Database, KV, Files (with a private bucket `files`), Email,
+Analytics and Jobs. An empty one costs next to nothing (a database and role in the shared
+cluster, a key prefix, a storage account, a password) and runs no process of its own, so
+there is nothing to add: list one in `services` only to set its options. Leaving it out of
+the config never deletes it, and a plan that would remove one is refused. To start over,
+**Delete all data** empties one (see [Deleting all data](data.md#deleting-all-data));
+deleting the project removes everything. Auth is the part you add: it answers `/api/auth`
+on every app address, which an app with its own sign-in uses.
+
 A web app that sets no `routes` is served at a name made from its project (`<domain>` is
 the box's domain, or its separate apps domain: see [Domains](domains.md)):
 

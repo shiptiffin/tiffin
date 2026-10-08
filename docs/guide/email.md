@@ -1,6 +1,7 @@
 # Email
 
-Turn on `services: { email: {} }` and every app of the project can send mail.
+Every app of every project can send mail: email is always there (list it in
+`services` only to set `from`).
 Until the box owner configures an SMTP relay, **nothing leaves the box**: every
 message is captured in the project's dev inbox, where you (and your agents) can
 read it, click its sign-in link and check how it looks. Preview deployments always

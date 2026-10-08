@@ -390,6 +390,24 @@ the box unless you [copy them off it](data.md#copies-off-the-box).
   every project on one shared port (Postgres direct-TLS with SNI), with an optional
   read-only login and allowed-IP list.
 
+## Deleting all data
+
+- Delete all data keeps one delete per part: deleting again within 7 days replaces the
+  earlier delete's saved data (the database's earlier snapshots stay in
+  `tiffin snapshots list` until their 7 days are up).
+- A restore puts back the data in place of what the part holds by then: KV keys written
+  since are deleted for good (a database is snapshotted first, a bucket's files go to the
+  trash).
+- Deleting a database's data drops its preview branches too; a preview gets a new, empty
+  branch on its next deploy. pg_cron jobs (kept in the box's own database) stay.
+- Saving KV keys holds each key's value in memory while it is written to disk; a project
+  with very large keys needs that memory free for a moment.
+- The plan measures what goes within a fifth of a second: a very large KV or bucket can
+  leave the count out, and the confirm then asks for the project's name anyway.
+- Auth isn't always there like Database, KV, Files, Email and Analytics: it answers
+  `/api/auth` on every app address, which would take that path from apps with their own
+  sign-in. Add it with `services: { auth: {} }`.
+
 ## Backups
 
 - Each off-box copy reads every backed-up file again (only changed chunks are sent), so

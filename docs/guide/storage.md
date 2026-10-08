@@ -1,7 +1,8 @@
 # File storage
 
-Every project can have S3-compatible buckets on the box's data disk. Apps use them
-with `Bun.s3` or any AWS SDK, with no setup.
+Every project has S3-compatible buckets on the box's data disk, starting with a private
+bucket `files`. Apps use them with `Bun.s3` or any AWS SDK, with no setup. List
+`storage` in `tiffin.config.ts` only to add buckets or set a bucket's options.
 
 ```ts
 // tiffin.config.ts

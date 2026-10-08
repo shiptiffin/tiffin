@@ -89,7 +89,7 @@ without it passing through you or an agent: `tiffin secrets copy` (see
 
 ## Memory and run history in Postgres
 
-Add `services: { postgres: {} }` and keep the agent's state in plain tables:
+Every project has a Postgres database: keep the agent's state in plain tables:
 
 - **`runs`**: one row per job, with the trigger, start and finish times, status, input and
   output tokens, and the error. This is the run history, and the token cap below reads it.
@@ -294,7 +294,6 @@ import { defineConfig } from "@shiptiffin/sdk";
 
 export default defineConfig({
   project: "digest",
-  services: { postgres: {}, email: {} },
   resources: { memoryMB: 256 }, // the agent can't crowd out the rest of the box
   apps: {
     // A worker has no public address: the box pushes jobs and cron ticks to it.

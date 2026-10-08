@@ -11,7 +11,10 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
 1. Read `tiffin.config.ts` and `tiffin status` before changing anything.
 2. Change the box only through plans: `tiffin plan` → review every op's risk and reason →
    `tiffin apply --confirm <that hash> -m "<why>"`. Exit code 4 means re-plan. Data
-   commands (`sql write`, `branches delete`) run at once, after a snapshot.
+   commands (`sql write`, `branches delete`) run at once, after a snapshot. Every project
+   always has a Database, KV, Files (bucket `files`), Email, Analytics and Jobs: list one in
+   `services` only to set options; leaving it out deletes nothing. To start one over:
+   `tiffin data empty <project> <postgres|valkey|storage>` (kept 7 days; `tiffin data restore`).
 3. Before an irreversible plan (deleting data), say exactly what will be lost; your
    client asks the human before destructive tools. A `403 forbidden` means your API key
    doesn't reach it: ask the human, don't work around it. "Read-only" errors (a database
@@ -41,7 +44,7 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    no box-specific next.config: the box's adapter sets `deploymentId`, the Valkey cache handlers
    (when the project has Valkey) and a stable Server Actions key at build; prerendered pages serve
    from the build, next/image of bucket files and og:image URLs work without `metadataBase` or a loader. Apps on Vercel's Workflow
-   DevKit (`workflow`) run unchanged on its Postgres world: give the project `postgres: {}`. Another
+   DevKit (`workflow`) run unchanged on the project's Postgres world. Another
    server framework whose client files the box does not find (deploy log: "client assets") can name
    them: `assets: { dir: "dist/client" }`. Apps from Vercel need no changes: a Next.js `output: "export"`
    app is served as files (no container), an app in a pnpm/npm/yarn/bun workspace builds from its
@@ -64,7 +67,7 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    Slow or failing requests: `tiffin traces list --project <p>` then `tiffin traces get <id> --project <p>`
    (apps already have the OTLP env; Next.js needs an `instrumentation.ts` calling `registerOTel()` from
    `@vercel/otel`). Real visitors' page speed: `<WebVitals />` from `@shiptiffin/sdk/next/vitals` in the root
-   layout (needs `services.analytics`), read with `tiffin analytics vitals --project <p>`.
+   layout, read with `tiffin analytics vitals --project <p>`.
 5. Secrets go in `tiffin secrets set`, never in the config or the repo. Starting a new project?
    Reuse keys the box already has instead of asking for them again:
    `tiffin secrets list <other>` shows names, `tiffin secrets copy <new> --from <other> [--names A,B]`
@@ -85,7 +88,7 @@ Operate it with the `tiffin` CLI (JSON when piped) or the `tiffin` MCP tools.
    `NEXT_PUBLIC_SENTRY_DSN`.
    App code uses `@shiptiffin/sdk`: `bun add @shiptiffin/sdk`, or `tiffin sdk add` to vendor the copy
    inside tiffin with no registry (`vendor/*.tgz` + a `file:` dependency; commit both), then `bun install`.
-   KV on `services.valkey`: `kv()` from `@shiptiffin/sdk/kv`. It reads `REDIS_URL` and `VALKEY_PREFIX`
+   KV: `kv()` from `@shiptiffin/sdk/kv`. It reads `REDIS_URL` and `VALKEY_PREFIX`
    and prefixes every key; `@upstash/redis` method names, objects stored as JSON, hashes, lists, sets,
    sorted sets, `pipeline()`/`multi()`, `scan()`, `rateLimit(key, { limit, window: "1 m" })` (atomic,
    shared by instances) and `cached(key, ttlSec, fn)`. Don't hand-roll rate limits or caches with

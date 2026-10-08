@@ -6,7 +6,8 @@
 services: { postgres: { extensions: ["vector", "pg_cron"] } }
 ```
 
-Each project gets its own Postgres 18 database and role. Apps get `DATABASE_URL`
+Every project has its own Postgres 18 database and role, whether `tiffin.config.ts`
+lists `postgres` or not (list it to set options, like the extensions above). Apps get `DATABASE_URL`
 (and `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`) through the box's connection
 pooler, `DIRECT_DATABASE_URL` straight to Postgres, and `DATABASE_POOL_MAX`.
 
@@ -23,7 +24,7 @@ pooler, `DIRECT_DATABASE_URL` straight to Postgres, and `DATABASE_POOL_MAX`.
 - **Migrations:** an app's `release` command (`bunx drizzle-kit migrate`) runs once per
   deploy before the new version takes traffic, with `DATABASE_URL` set straight to
   Postgres (migration tools hold session locks); a failure keeps the old version serving.
-- **Snapshots:** deleting the database, deleting a branch by hand or writing through the
+- **Snapshots:** deleting all its data, deleting a branch by hand or writing through the
   console keeps a snapshot for 7 days; `tiffin snapshots restore` brings it back. Those
   data commands run at once (no plan); only a preview's own branch, deleted with the
   preview, keeps none.
@@ -135,7 +136,8 @@ is recorded. It stays open until you press Ctrl-C.
 services: { valkey: { maxMemoryMB: 128 } }
 ```
 
-Each project gets a Valkey user limited to its own key prefix. Apps get `REDIS_URL` and
+Every project has a Valkey user limited to its own key prefix (list `valkey` only to set
+`maxMemoryMB`). Apps get `REDIS_URL` and
 `VALKEY_PREFIX`. `maxMemoryMB` (64 by default) is held while the project has a limit: over
 it, its keys with an expiry are cleared first, then new writes are refused until it is under
 it (reads and deletes keep working).
@@ -232,6 +234,28 @@ db.select().from(events).where(sql`${events.data}->>'plan' = 'pro'`);
 
 Add `CREATE INDEX ON events USING gin (data jsonb_path_ops)` when you filter by fields
 often.
+
+## Deleting all data
+
+Database, KV and Files are never removed from a project, only emptied. **Delete all data**
+(project Settings, or `tiffin data empty <project> <postgres|valkey|storage>`, MCP
+`data_empty`) is a change like any other: the plan says exactly what goes ("18,204 rows in
+12 tables", "3,410 keys", "212 files · 1.3 GB"), asks for a confirm, and shows in History.
+
+- **Database:** every database of the project (preview branches too) is snapshotted, then
+  dropped; the main database is made again, empty, with the same role and password, so
+  apps keep their `DATABASE_URL`. Auth's tables come back empty too.
+- **KV:** every key under the project's prefix is saved (with its expiry) to
+  `/var/lib/tiffin/trash/kv`, then deleted.
+- **Files:** every bucket moves to the storage trash; the buckets in the config are made
+  again, empty.
+
+The data is kept for 7 days. `tiffin data restore <project> <part>` (or undoing the
+change, or Restore in Settings) puts it back in place of what the part holds by then: a
+database is snapshotted first, a bucket's files go to the trash, KV keys written since
+are deleted. `tiffin projects get <project>` lists what is restorable until when
+(`restorable`). After 7 days it is gone for good. Deleting again within the 7 days
+replaces the earlier delete's saved data. Deleting the project removes everything.
 
 ## Backups
 

@@ -201,8 +201,7 @@ A Next.js app built on the Workflow DevKit (`workflow` in package.json, `withWor
 next.config, `"use workflow"` / `"use step"`, `sleep("3d")`, `FatalError`,
 `RetryableError`) deploys unchanged. In production the box runs it on the DevKit's
 Postgres world (`@workflow/world-postgres`, the release that matches your `workflow` major,
-or your own if package.json has it) on the project's database, so the project needs
-`services: { postgres: {} }`; without it the deploy fails and says so. At server start
+or your own if package.json has it) on the project's database (every project has one). At server start
 the box brings the world's tables (schemas `workflow`, `workflow_drizzle`,
 `graphile_worker`, which belong to the DevKit and keep its names) up to date and starts its worker in every instance; all running
 releases share one queue, so a sleep or a retry that comes due during a deploy runs on

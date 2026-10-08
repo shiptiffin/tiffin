@@ -1,7 +1,7 @@
 # Analytics
 
-Turn on `services: { analytics: {} }` and the box counts visits to every app of
-the project. No script is needed for page views, nothing is sent to anyone else,
+The box counts visits to every app of every project: analytics is always there
+(list it in `services` only to set `retentionDays`). No script is needed for page views, nothing is sent to anyone else,
 and no cookie banner is needed for it: there are no cookies.
 
 ```ts
@@ -195,7 +195,7 @@ Events and daily rollups live in one SQLite file on the data disk
 realtime view is kept in memory and rebuilt from the file when the box restarts.
 This comfortably handles side-project traffic (hundreds of thousands of events a
 day). The store sits behind a small interface so a Postgres store (partitioned
-events) can replace it for busier boxes. Removing the service deletes the
-project's analytics data; shortening `retentionDays` deletes older events.
+events) can replace it for busier boxes. Deleting the project deletes its analytics
+data; shortening `retentionDays` deletes older events.
 
 What analytics doesn't do yet: see [What works and what doesn't](limits.md#analytics).

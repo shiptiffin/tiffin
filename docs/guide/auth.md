@@ -127,8 +127,8 @@ providers.filter((p) => p.configured).map((p) => (
 ));
 ```
 
-Mail (verification, links, invites) goes through the project's email service, so add
-`email: {}` next to `auth` (the plan warns when it is missing). Until the box has a relay,
+Mail (verification, links, invites) goes through the project's email, which every
+project has. Until the box has a relay,
 production refuses email sign-up and links (`EMAIL_NOT_SET_UP`, see above); on previews and
 local boxes it lands in the dev inbox. Email + password sign-up needs a confirmed address:
 sign-up answers `{"token": null}` and no session until the user opens the link in the mail.
