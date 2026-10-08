@@ -17,6 +17,7 @@ import { CreateKeyDialog, KeyList, keyProjects, onlyKeys } from "./keys";
 import { ProjectIconSettings } from "@/components/project-icon-settings";
 import { CopyAndMove, StoppedNote } from "@/components/project-copy";
 import { AppsSettings } from "@/components/settings-apps";
+import { DeployAddresses } from "@/components/deploy-addresses";
 import { SettingsNav, useSettingsSection, type SettingsSection } from "@/components/settings-nav";
 
 /**
@@ -67,6 +68,12 @@ export function ProjectSettingsPage({ project }: { project: string }) {
               {apps.length > 0 && (
                 <Section title="When nobody visits" note="Its apps are always awake unless you let them sleep, which frees their memory for your other projects. The next visit, job or schedule wakes them in a few seconds.">
                   <SleepAfter project={project} live={man?.sleepAfter} staged={pendingSet(["sleepAfter"])} />
+                </Section>
+              )}
+
+              {apps.length > 0 && (
+                <Section title="Version addresses" note="Every version you deploy keeps its own address while the box keeps it (the last 20), so you can open it next to the live one. Who can open them:">
+                  <DeployAddresses project={project} live={man?.deployAddresses} staged={pendingSet(["deployAddresses"])} />
                 </Section>
               )}
             </>

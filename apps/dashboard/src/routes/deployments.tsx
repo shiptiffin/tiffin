@@ -5,7 +5,7 @@ import { notOnBox, type ManifestApp } from "@/api/client";
 import type { Deploy } from "@/api/modules";
 import { q as core } from "@/api/queries";
 import { AddAppButton, DeployButton } from "@/components/deploy-actions";
-import { appKind, DeployHead, DeployRow, inFlight, startedBy, Terminal, useMakeCurrent, useNow, useProjectDeploys, useUrlState } from "@/components/deploy-parts";
+import { appKind, canRollBack, DeployHead, DeployRow, inFlight, startedBy, Terminal, useMakeCurrent, useNow, useProjectDeploys, useUrlState } from "@/components/deploy-parts";
 import { useTitle } from "@/components/favicon";
 import { Crumbs, Empty, NotOnBox, Page, PageHeader, Skeleton } from "@/components/page";
 import { PilotLight, type PilotState } from "@/components/pilot";
@@ -30,13 +30,14 @@ const statusOptions: Array<{ value: StatusFilter; label: string }> = [
   { value: "past", label: "Replaced or stopped" },
 ];
 
-function matches(f: StatusFilter, s: Deploy["status"]) {
-  if (f === "any") return true;
-  if (f === "live") return s === "live";
-  if (f === "running") return inFlight(s);
-  if (f === "failed") return s === "failed";
-  return s === "superseded" || s === "rolled_back" || s === "stopped" || s === "skipped";
-}
+/** The statuses each choice asks the box for. */
+const statusParam: Record<StatusFilter, string | undefined> = {
+  any: undefined,
+  live: "live",
+  running: "queued,building,starting",
+  failed: "failed",
+  past: "superseded,rolled_back,stopped,skipped",
+};
 
 const KEYS = ["app", "env", "status", "branch"] as const;
 
@@ -53,28 +54,31 @@ export function DeploymentsPage({ project }: { project: string }) {
   const m = useQuery(core.manifest(project));
   const apps = Object.entries(m.data?.manifest.apps ?? {}) as Array<[string, ManifestApp]>;
   const names = apps.map(([a]) => a);
-  const all = useProjectDeploys(project, names);
-  const starters = useQuery(startersQuery);
-  const makeCurrent = useMakeCurrent(project);
   const [f, setF] = useUrlState(KEYS);
-  const now = useNow(all.rows.some((d) => inFlight(d.status)));
-
-  if (all.error && notOnBox(all.error)) return <NotOnBox what="Deployments" />;
-
+  // The filters apply on the box, so paging goes past what one page holds.
   const app = f.app && names.includes(f.app) ? f.app : "all";
   const env: Env = f.env === "production" || f.env === "preview" ? f.env : "all";
   const status: StatusFilter = statusOptions.some((o) => o.value === f.status) ? (f.status as StatusFilter) : "any";
-  const branches = [...new Set(all.rows.filter((d) => app === "all" || d.app === app).map((d) => d.ref).filter((r): r is string => !!r))].sort();
-  const branch = f.branch && branches.includes(f.branch) ? f.branch : "all";
-  const rows = all.rows.filter(
-    (d) =>
-      (app === "all" || d.app === app) &&
-      (env === "all" || (env === "production" ? !d.preview : !!d.preview)) &&
-      matches(status, d.status) &&
-      (branch === "all" || d.ref === branch),
-  );
+  const branch = f.branch ?? "all";
+  const all = useProjectDeploys(project, names, {
+    app: app === "all" ? undefined : app,
+    env: env === "all" ? undefined : env,
+    status: statusParam[status],
+    branch: branch === "all" ? undefined : branch,
+  });
+  const starters = useQuery(startersQuery);
+  const makeCurrent = useMakeCurrent(project);
+  const recent = names.flatMap((a) => all.of(a));
+  const now = useNow([...all.rows, ...recent].some((d) => inFlight(d.status)));
+
+  if (all.error && notOnBox(all.error)) return <NotOnBox what="Deployments" />;
+
+  const branches = [...new Set([...recent, ...all.rows].filter((d) => app === "all" || d.app === app).map((d) => d.ref).filter((r): r is string => !!r))];
+  if (branch !== "all" && !branches.includes(branch)) branches.push(branch);
+  branches.sort();
+  const rows = all.rows;
   const filtered = app !== "all" || env !== "all" || status !== "any" || branch !== "all";
-  const building = all.rows.filter((d) => inFlight(d.status)).length;
+  const building = recent.filter((d) => inFlight(d.status)).length;
 
   return (
     <Page wide>
@@ -126,7 +130,7 @@ export function DeploymentsPage({ project }: { project: string }) {
                   <Skeleton key={i} className="h-14" />
                 ))}
               </div>
-            ) : all.rows.length === 0 && !all.error ? (
+            ) : all.rows.length === 0 && !filtered && !all.error ? (
               <>
                 <div className="border-y border-rule py-6">
                   <p className="text-md text-ink">Nothing deployed yet.</p>
@@ -177,7 +181,7 @@ export function DeploymentsPage({ project }: { project: string }) {
                     ]}
                   />
                   <span className="text-xs text-ink-3 tnum max-sm:col-span-2 sm:ml-auto">
-                    {count(rows.length, "deployment")}
+                    {all.more ? `${rows.length}+ deployments` : count(rows.length, "deployment")}
                     {filtered && (
                       <button type="button" onClick={() => setF({ app: undefined, env: undefined, status: undefined, branch: undefined })} className="ml-2 font-[550] text-ink-2 underline decoration-rule-3 underline-offset-4 hover:text-ink">
                         Clear filters
@@ -200,7 +204,7 @@ export function DeploymentsPage({ project }: { project: string }) {
                     {rows.map((d) => {
                       const vs = all.byApp.get(d.app);
                       const cur = all.live.get(d.app);
-                      const canSwitch = !d.preview && !!d.digest && (d.status === "superseded" || d.status === "rolled_back");
+                      const canSwitch = canRollBack(d);
                       return (
                         <DeployRow
                           key={d.id}
@@ -222,8 +226,9 @@ export function DeploymentsPage({ project }: { project: string }) {
                 )}
                 {all.more && (
                   <div className="mt-4 flex justify-center">
-                    <Button size="md" onClick={all.loadMore} disabled={all.loadingMore}>
-                      {all.loadingMore ? "Loading…" : "Show older deployments"}
+                    {/* Rows load below the ones on screen: the page doesn't move and focus stays here. */}
+                    <Button size="md" onClick={all.loadMore} disabled={all.loadingMore} aria-busy={all.loadingMore}>
+                      {all.loadingMore ? "Loading…" : "Show more"}
                     </Button>
                   </div>
                 )}

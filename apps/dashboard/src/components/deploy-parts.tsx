@@ -1,8 +1,8 @@
-import { queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { queryOptions, useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { ArrowUpRight, Copy, FileCode2, FileText, GitBranch, GitCommitHorizontal, LayoutTemplate, MoreHorizontal, Package, RotateCw, Undo2, Upload } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { ApiError, request } from "@/api/client";
+import { request } from "@/api/client";
 import { deploysApi, mod3, type Deploy } from "@/api/modules";
 import type { components } from "@/api/schema";
 import { Command } from "@/components/copy";
@@ -109,37 +109,57 @@ export function useAppDeploys(project: string, app: string) {
   return useQuery(allDeploysQuery(project, app));
 }
 
-/**
- * Every deploy of every app, newest first, from the box's project-wide list
- * (paged with "Show older"). A box from before that list asks once per app
- * and merges.
- */
-export function useProjectDeploys(project: string, apps: string[]) {
-  const pq = useInfiniteQuery({
-    queryKey: ["project-deploys", project],
-    queryFn: ({ pageParam }) => deploysApi.projectDeploys(project, { before: pageParam || undefined, limit: 100 }),
+/** What the project's deploy list narrows to on the box (kept in the page's address). */
+export type DeployListFilter = { app?: string; env?: "production" | "preview"; status?: string; branch?: string };
+
+const hasInFlight = (pages?: Array<{ deploys: Deploy[] }>) => (pages ?? []).some((pg) => pg.deploys.some((d) => inFlight(d.status)));
+
+/** One filtered list of a project's deploys, newest first, 50 a page (the box pages it with a cursor). */
+function useDeployPages(project: string, filter: DeployListFilter, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: ["project-deploys", project, "list", filter],
+    queryFn: ({ pageParam }) => deploysApi.projectDeploys(project, { ...filter, cursor: pageParam || undefined, limit: 50 }),
     initialPageParam: "",
     getNextPageParam: (last) => last.next || undefined,
     retry: false,
-    refetchInterval: (qq) => ((qq.state.data?.pages ?? []).some((pg) => pg.deploys.some((d) => inFlight(d.status))) ? 1500 : 10_000),
+    enabled,
+    refetchInterval: (qq) => (hasInFlight(qq.state.data?.pages) ? 1500 : 10_000),
   });
-  const fallback = pq.isError && pq.error instanceof ApiError && (pq.error.status === 404 || pq.error.status === 405);
-  const lists = useQueries({ queries: apps.map((a) => ({ ...allDeploysQuery(project, a), enabled: fallback })) });
-  const rows = (fallback ? lists.flatMap((l) => l.data ?? []) : (pq.data?.pages ?? []).flatMap((pg) => pg.deploys)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const byApp = new Map(apps.map((a) => [a, versions(rows.filter((d) => d.app === a))]));
+}
+
+/**
+ * Every deploy of every app, newest first, from the box's project-wide list:
+ * filtered on the box, paged with "Show more". The apps at a glance (each
+ * one's newest deploys and live version) come from the unfiltered newest
+ * page and the live deploys, whatever the filter.
+ */
+export function useProjectDeploys(project: string, apps: string[], filter: DeployListFilter = {}) {
+  const filtered = Object.values(filter).some(Boolean);
+  const list = useDeployPages(project, filter);
+  const recent = useDeployPages(project, {}, filtered); // the same query as the list when nothing is filtered
+  const liveQ = useQuery({
+    queryKey: ["project-deploys", project, "live"],
+    queryFn: () => deploysApi.projectDeploys(project, { env: "production", status: "live", limit: 200 }),
+    refetchInterval: 10_000,
+  });
+  const rows = (list.data?.pages ?? []).flatMap((pg) => pg.deploys);
+  const newest = filtered ? (recent.data?.pages[0]?.deploys ?? []) : rows;
   const live = new Map<string, Deploy>();
-  for (const d of rows) if (!d.preview && d.status === "live" && !live.has(d.app)) live.set(d.app, d);
+  for (const d of [...(liveQ.data?.deploys ?? []), ...newest]) if (!d.preview && d.status === "live" && !live.has(d.app)) live.set(d.app, d);
+  const byApp = new Map(apps.map((a) => [a, new Map<string, number>()]));
+  for (const d of [...rows, ...newest, ...live.values()]) if (!d.preview && d.version) byApp.get(d.app)?.set(d.id, d.version);
   return {
     rows,
     byApp,
     /** Each app's live production deploy. */
     live,
-    of: (app: string) => rows.filter((d) => d.app === app),
-    pending: apps.length > 0 && (fallback ? lists.some((l) => l.isPending) : pq.isPending),
-    error: fallback ? lists.find((l) => l.isError)?.error : pq.isError ? pq.error : undefined,
-    more: !fallback && !!pq.hasNextPage,
-    loadingMore: pq.isFetchingNextPage,
-    loadMore: () => void pq.fetchNextPage(),
+    /** An app's newest deploys, whatever the filter. */
+    of: (app: string) => newest.filter((d) => d.app === app),
+    pending: apps.length > 0 && list.isPending,
+    error: list.isError ? list.error : undefined,
+    more: !!list.hasNextPage,
+    loadingMore: list.isFetchingNextPage,
+    loadMore: () => void list.fetchNextPage(),
   };
 }
 
@@ -206,12 +226,25 @@ export const canBuildAgain = (d?: Deploy) => !!d && (d.source === "template" || 
 export const buildAgain = (project: string, app: string, d: Deploy) =>
   d.source === "template" ? deployTemplate(project, app, d.template!) : d.trigger ? deployGitHub(project, app, d.commit) : deployGit(project, app, { url: d.repo!, ref: d.ref, path: undefined });
 
+/** Can this production version be made current again (built, replaced, and not cleaned up)? */
+export const canRollBack = (d: Deploy) => !d.preview && !!d.digest && (d.status === "superseded" || d.status === "rolled_back") && d.retention !== "cleaned";
+
 /** The production version a rollback goes to: the newest replaced one older than what's live. */
 export function rollbackTarget(list: Deploy[], current?: Deploy): Deploy | undefined {
   if (!current) return undefined;
   return list
-    .filter((d) => !d.preview && d.digest && (d.status === "superseded" || d.status === "rolled_back") && d.createdAt < current.createdAt)
+    .filter((d) => canRollBack(d) && d.createdAt < current.createdAt)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+}
+
+/**
+ * Where a deploy can be opened: a production version the box still keeps
+ * (each has an address of its own, d-<id>--<app>), or a live preview.
+ */
+export function visitURL(d: Deploy): string | undefined {
+  if (!d.url) return undefined;
+  if (d.preview) return d.status === "live" ? d.url : undefined;
+  return d.retention === "kept" ? d.url : undefined;
 }
 
 // ------------------------------------------------------------------ the row
@@ -309,6 +342,7 @@ export function DeployRow({
   const reason = d.status === "failed" ? (d.hint ?? d.error?.split("\n")[0]) : undefined;
   const when = d.status === "live" ? liveSince(d) : d.createdAt;
   const env = d.preview ? (d.pullRequest ? `Preview · pull request #${d.pullRequest}` : "Preview") : "Production";
+  const visit = visitURL(d);
   return (
     <li className="group relative grid grid-cols-[minmax(0,1fr)_auto_2rem] gap-x-3 gap-y-1.5 py-3 pr-1 pl-2 transition-colors hover:bg-paper-hover md:grid-cols-[8rem_minmax(0,11rem)_minmax(0,1fr)_minmax(0,10rem)_2rem] md:items-start md:gap-x-4 md:gap-y-1">
       <div className="min-w-0 max-md:row-start-1">
@@ -332,7 +366,19 @@ export function DeployRow({
           )}
           {current && <span className="shrink-0 rounded-[4px] border border-rule-2 px-1 text-[0.6875rem] leading-4 font-[550] text-ink-2">Current</span>}
         </Link>
-        <p className="truncate text-xs text-ink-3">{env}</p>
+        <p className="truncate text-xs text-ink-3">
+          {env}
+          {visit ? (
+            <>
+              {" · "}
+              <a href={visit} target="_blank" rel="noopener noreferrer" className="relative z-[1] text-brass-ink hover:text-ink" aria-label={`Visit ${d.app} ${d.preview ? `preview ${d.preview}` : v ? `v${v}` : "this version"}`}>
+                Visit
+              </a>
+            </>
+          ) : d.retention === "cleaned" ? (
+            " · Cleaned up"
+          ) : null}
+        </p>
       </div>
       <div className="min-w-0 max-md:col-span-3 max-md:row-start-3">
         <DeploySource d={d} starters={starters} />
@@ -383,6 +429,11 @@ export function DeployMenu({ project, d, writer, onMakeCurrent, rollback, v }: {
         </Button>
       </MenuTrigger>
       <MenuContent align="end" className="min-w-56">
+        {visitURL(d) && (
+          <MenuItem onSelect={() => window.open(visitURL(d), "_blank", "noopener,noreferrer")}>
+            <ArrowUpRight /> Visit
+          </MenuItem>
+        )}
         <MenuItem onSelect={() => void navigate({ to: "/projects/$project/apps/$app/deploys/$id", params: { project, app: d.app, id: d.id } })}>
           <FileText /> View build log
         </MenuItem>
@@ -397,7 +448,7 @@ export function DeployMenu({ project, d, writer, onMakeCurrent, rollback, v }: {
           </MenuItem>
         )}
         <MenuSeparator />
-        {d.url && (
+        {visitURL(d) && (
           <MenuItem onSelect={() => void copy(d.url!, "Address")}>
             <Copy /> Copy address
           </MenuItem>

@@ -12,6 +12,7 @@ import {
   appKind,
   buildAgain,
   canBuildAgain,
+  canRollBack,
   DeployHead,
   DeployRow,
   DeploySource,
@@ -26,6 +27,7 @@ import {
   useNow,
   useUrlState,
   versions,
+  visitURL,
 } from "@/components/deploy-parts";
 import { useTitle } from "@/components/favicon";
 import { lineLevel } from "@/components/logs-query";
@@ -335,7 +337,7 @@ export function AppPage({ project, app, deploy }: { project: string; app: string
                       writer={writer}
                       rollback={!!current && d.createdAt < current.createdAt}
                       onMakeCurrent={
-                        !d.preview && d.digest && (d.status === "superseded" || d.status === "rolled_back")
+                        canRollBack(d)
                           ? () => makeCurrent.mutate({ app, to: d, from: current, v: vs.get(d.id), fromV: current ? vs.get(current.id) : undefined })
                           : undefined
                       }
@@ -713,14 +715,14 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
         actions={
           dep && (
             <>
-              {dep.status === "live" && dep.url && (
+              {dep.status === "live" && (dep.appUrl ?? dep.url) && (
                 <Button asChild size="lg">
-                  <a href={dep.url} target="_blank" rel="noopener noreferrer">
+                  <a href={dep.appUrl ?? dep.url} target="_blank" rel="noopener noreferrer">
                     Open {app} <ArrowUpRight />
                   </a>
                 </Button>
               )}
-              {can("apply:reversible") && dep.digest && !dep.preview && (dep.status === "superseded" || dep.status === "rolled_back") && (
+              {can("apply:reversible") && canRollBack(dep) && (
                 <Button variant="primary" size="lg" disabled={makeCurrent.isPending} onClick={() => makeCurrent.mutate({ app, to: dep, from: current, v, fromV: current ? vs.get(current.id) : undefined })}>
                   Make {name} current
                 </Button>
@@ -770,14 +772,23 @@ export function DeployPage({ project, app, id }: { project: string; app: string;
             {running ? `${secs(elapsed)} so far` : dep.durationSeconds !== undefined ? secs(dep.durationSeconds) : "–"}
             {dep.buildSeconds !== undefined && <span className="block text-xs text-ink-3">{secs(dep.buildSeconds)} to build</span>}
           </Fact>
-          {dep.url && (
-            <Fact label="Address" className="col-span-2">
-              <a href={dep.url} target="_blank" rel="noopener noreferrer" className="ident inline-flex max-w-full items-center gap-1 text-[0.75rem] text-brass-ink hover:text-ink">
-                <span className="truncate">{dep.url.replace(/^https?:\/\//, "")}</span>
-                <ArrowUpRight className="size-3 shrink-0" />
-              </a>
+          {visitURL(dep) ? (
+            <Fact label={dep.preview ? "Address" : "This version’s address"} className="col-span-2">
+              <span className="inline-flex max-w-full items-center gap-1">
+                <a href={visitURL(dep)} target="_blank" rel="noopener noreferrer" className="ident inline-flex min-w-0 items-center gap-1 text-[0.75rem] text-brass-ink hover:text-ink">
+                  <span className="truncate">{dep.url!.replace(/^https?:\/\//, "")}</span>
+                  <ArrowUpRight className="size-3 shrink-0" aria-hidden />
+                  <span className="sr-only">Visit</span>
+                </a>
+                <CopyButton value={dep.url!} label="Copy this version’s address" className="size-6" />
+              </span>
+              {!dep.preview && dep.status !== "live" && <span className="block text-xs text-ink-3">Read-only: writes to the database fail on old versions.</span>}
             </Fact>
-          )}
+          ) : dep.retention === "cleaned" ? (
+            <Fact label="This version’s address" className="col-span-2">
+              <span className="text-ink-3">Cleaned up</span>
+            </Fact>
+          ) : null}
           <Fact label="Deploy ID" className="col-span-2">
             <span className="inline-flex max-w-full items-center gap-1">
               <span className="ident truncate text-[0.75rem] text-ink-2">{dep.id}</span>

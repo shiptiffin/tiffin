@@ -448,6 +448,13 @@ export interface TiffinConfig {
      * "24h", "7d", "14d". Leave it out and they never sleep.
      */
     sleepAfter?: `${number}h` | `${number}d`;
+    /**
+     * Who may open the address every production deploy of a web app gets
+     * (d-<id>--<app>.<apps domain>, which serves that version while the box
+     * keeps it): "signed-in" (the default), people signed in to the box's
+     * dashboard; "public", anyone with the address.
+     */
+    deployAddresses?: "signed-in" | "public";
     /** Apps keyed by name (same slug rules as `project`). */
     apps?: Record<Slug, AppConfig>;
     /**

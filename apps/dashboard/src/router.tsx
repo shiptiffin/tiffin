@@ -44,6 +44,7 @@ function Loading() {
   );
 }
 const LoginPage = lz<{ reason?: string; next?: string }>(() => import("@/routes/login"), "LoginPage");
+const GatePage = lz<{ host?: string; next?: string }>(() => import("@/routes/gate"), "GatePage");
 const BoxPage = lz(() => import("@/routes/box"), "BoxPage");
 const BoxUsagePage = lz(() => import("@/routes/box-usage"), "BoxUsagePage");
 const ProjectUsagePage = lz<{ project: string }>(() => import("@/routes/project-usage"), "ProjectUsagePage");
@@ -126,6 +127,21 @@ const login = createRoute({
   component: function Login() {
     const { reason, next } = login.useSearch();
     return <LoginPage reason={reason} next={next} />;
+  },
+});
+
+// A deploy's own address sends people here to sign in (the edge's gate):
+// the host it asked for and the path on it.
+const gate = createRoute({
+  getParentRoute: () => root,
+  path: "/gate",
+  validateSearch: (s: Record<string, unknown>): { host?: string; next?: string } => ({
+    ...(typeof s.host === "string" && /^[a-z0-9.-]{1,253}$/.test(s.host) ? { host: s.host } : {}),
+    ...(typeof s.next === "string" && s.next.startsWith("/") && !s.next.startsWith("//") ? { next: s.next } : {}),
+  }),
+  component: function Gate() {
+    const { host, next } = gate.useSearch();
+    return <GatePage host={host} next={next} />;
   },
 });
 
@@ -786,6 +802,7 @@ function RouteError({ error }: ErrorComponentProps) {
 
 const tree = root.addChildren([
   login,
+  gate,
   app.addChildren([
     box,
     boxRoute,

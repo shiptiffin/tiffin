@@ -433,9 +433,14 @@ export type ProjectDeployList = S["RuntimeProjectDeployList"];
 export type DeployFilter = NonNullable<O["project-deploys"]["parameters"]["query"]>;
 
 export const deploysApi = {
-  /** Every app's deploys in one list, newest first; `next` pages back. */
+  /** Every app's deploys in one list, newest first, filtered on the box; `next` is the cursor of the next (older) page. */
   projectDeploys: (p: string, f: DeployFilter = {}) =>
-    request<ProjectDeployList>("GET", `${P(p)}/deploys${qs({ ...f, env: f.env === "all" ? undefined : f.env, limit: f.limit ?? 100 })}`).then((r) => ({ deploys: r.deploys ?? [], next: r.next })),
+    request<ProjectDeployList>("GET", `${P(p)}/deploys${qs({ ...f, env: f.env === "all" ? undefined : f.env, limit: f.limit ?? 50 })}`).then((r) => ({
+      deploys: r.deploys ?? [],
+      next: r.nextCursor,
+    })),
+  /** A one-use link (a minute) that opens a deploy's own address for an hour, for people signed in here. */
+  deployLink: (url: string) => request<S["RuntimeDeployLink"]>("POST", "/v1/deploy-link", { url } satisfies S["Deploy-linkRequest"]),
   /** One deploy's runtime log lines, followed as server-sent events. */
   deployLogStream: (p: string, app: string, deploy: string, o: { preview?: string; since?: string }) => `${P(p)}/apps/${e(app)}/logs${qs({ ...o, deploy, follow: true })}`,
 };

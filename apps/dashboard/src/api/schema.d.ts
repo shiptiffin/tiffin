@@ -820,6 +820,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/deploy-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get a link that opens a deploy's address
+         * @description Every production deploy of a web app has its own address (url in the deploy's record). Unless its project sets deployAddresses: "public", only people signed in to the box's dashboard may open one: the dashboard does this for them. This returns a one-use link, valid for a minute, that opens the address in any browser (an agent's headless browser, say) for an hour. Needs read access to the project.
+         */
+        post: operations["deploy-link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/dns/lookup": {
         parameters: {
             query?: never;
@@ -2073,7 +2093,7 @@ export interface paths {
         };
         /**
          * List an app's deploys
-         * @description Deploys of an app, newest first, with status, image digest, build time and URL. Production only unless preview or all is set.
+         * @description Deploys of an app, newest first, with status, image digest, build time, its own address (url) and whether its build is still kept (retention). Production only unless preview or all is set. Returns 50 by default (at most 200); when more match, nextCursor reads the next page.
          */
         get: operations["deploys-list"];
         put?: never;
@@ -2645,7 +2665,7 @@ export interface paths {
         };
         /**
          * List a project's deploys
-         * @description Deploys of every app in the project, newest first: production and previews, with status, version, source and timings. Filter by app, env (production or preview), status (comma-separated) or branch; page with before.
+         * @description Deploys of every app in the project, newest first: production and previews, with status, version, source, timings and each one's own address (url) and whether its build is still kept (retention). Returns 50 by default (at most 200); when more match, nextCursor reads the next page. Filter by app, env (production or preview), preview, status (comma-separated) or branch; filters apply before paging.
          */
         get: operations["project-deploys"];
         put?: never;
@@ -7495,6 +7515,10 @@ export interface components {
             branch?: string;
             changes: components["schemas"]["PostgresPGRowChange"][] | null;
         };
+        "Deploy-linkRequest": {
+            /** @description The deploy's address, with the path to open: https://d-1a2b3c4d--shop.example.app/pricing */
+            url: string;
+        };
         DestroyBody: {
             /** @description The hash of the plan that deletes the project (or its first 8+ characters), which you reviewed. Without it nothing is deleted and the plan comes back with status 428. */
             confirm?: string;
@@ -8570,6 +8594,7 @@ export interface components {
             crons?: {
                 [key: string]: components["schemas"]["ManifestCron"];
             };
+            deployAddresses?: string;
             domains?: {
                 [key: string]: components["schemas"]["ManifestDomain"];
             };
@@ -11238,6 +11263,8 @@ export interface components {
         };
         RuntimeDeploy: {
             app: string;
+            /** @description The app's address, where whichever deploy is live serves (a preview's address for a preview). Open this for the live site; url opens this exact version. */
+            appUrl?: string;
             /** @description Client-asset directories of the build that the box serves itself (hashed files stay served for pages of earlier releases for a day) */
             assets?: components["schemas"]["AssetDir"][] | null;
             /** @description Who made the commit (GitHub login or git author name), for deploys from GitHub */
@@ -11319,6 +11346,11 @@ export interface components {
             releaseSeconds?: number;
             /** @description Repository URL, for deploys from a git URL or GitHub */
             repo?: string;
+            /**
+             * @description Production deploys of web apps: kept (its address serves it and it can be rolled back to) or cleaned (its image was removed; its address says so and links to the live site). Absent for previews, workers and deploys that never went live.
+             * @enum {string}
+             */
+            retention?: "kept" | "cleaned" | "";
             /** @enum {string} */
             source: "upload" | "files" | "prebuilt" | "git" | "template";
             /** Format: int64 */
@@ -11340,7 +11372,7 @@ export interface components {
              * @enum {string}
              */
             trigger?: "push" | "pull_request" | "redeploy" | "env" | "";
-            /** @description Where the deploy is served (web apps) */
+            /** @description The deploy's own address (web apps): d-<short id>--<app address> for a production deploy, which serves that version for as long as it is kept (an old version wakes on its first request and reads the database read-only); a preview's address for a preview deploy. Absent once the version was cleaned up. */
             url?: string;
             /** @description What the deploy took from the app's vercel.json (build settings, crons, headers, redirects, rewrites) and what it ignored */
             vercel?: components["schemas"]["VercelcfgConfig"];
@@ -11358,8 +11390,19 @@ export interface components {
                 [key: string]: string;
             };
         };
+        RuntimeDeployLink: {
+            app: string;
+            deploy: string;
+            /** Format: date-time */
+            expiresAt: string;
+            project: string;
+            /** @description Open within a minute, once: it sets a cookie for that address (an hour) and goes on to the page */
+            url: string;
+        };
         RuntimeDeployList: {
             deploys: components["schemas"]["RuntimeDeploy"][] | null;
+            /** @description More deploys match: pass as cursor to read the next (older) page. Absent on the last page. */
+            nextCursor?: string;
         };
         RuntimeDiskFolder: {
             app: string;
@@ -11717,8 +11760,8 @@ export interface components {
         };
         RuntimeProjectDeployList: {
             deploys: components["schemas"]["RuntimeDeploy"][] | null;
-            /** @description Pass as before to read the next (older) page */
-            next?: string;
+            /** @description More deploys match: pass as cursor to read the next (older) page. Absent on the last page. */
+            nextCursor?: string;
         };
         RuntimeRepoRoot: {
             /**
@@ -16684,6 +16727,84 @@ export interface operations {
             };
             /** @description Precondition Required */
             428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    "deploy-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Deploy-linkRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeDeployLink"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -22141,7 +22262,11 @@ export interface operations {
                 preview?: string;
                 /** @description Production and every preview */
                 all?: boolean;
-                /** @description Maximum deploys to return */
+                /** @description Only these statuses, comma-separated (queued, building, starting, live, failed, superseded, rolled_back, stopped, skipped) */
+                status?: string;
+                /** @description Where to continue: nextCursor of the previous page (with the same filters). Absent: the newest. */
+                cursor?: string;
+                /** @description Deploys per page */
                 limit?: number;
             };
             header?: never;
@@ -24872,13 +24997,15 @@ export interface operations {
                 app?: string;
                 /** @description production, preview or all */
                 env?: "all" | "production" | "preview";
+                /** @description Only this preview's deploys */
+                preview?: string;
                 /** @description Only these statuses, comma-separated (queued, building, starting, live, failed, superseded, rolled_back, stopped, skipped) */
                 status?: string;
                 /** @description Only deploys of this branch or ref */
                 branch?: string;
-                /** @description Only deploys older than this deploy ID (the next value of a previous page) */
-                before?: string;
-                /** @description Maximum deploys to return */
+                /** @description Where to continue: nextCursor of the previous page (with the same filters). Absent: the newest. */
+                cursor?: string;
+                /** @description Deploys per page */
                 limit?: number;
             };
             header?: never;
