@@ -69,7 +69,7 @@ export function DomainsPage({ project }: { project: string }) {
       <PageHeader
         eyebrow={<Crumbs items={[{ label: project, to: "/projects/$project", params: { project } }, { label: "Domains" }]} />}
         title="Domains"
-        lede={`Where people reach ${project}. Use a domain you own; HTTPS comes with it and renews itself.`}
+        lede={`Point a domain you own at ${project}; HTTPS comes with it.`}
         actions={
           writer && (
             <Button variant="primary" size="lg" onClick={() => setAdding(true)} disabled={!m.data || !!noApps}>

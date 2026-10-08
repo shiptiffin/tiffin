@@ -139,10 +139,6 @@ export function EnvVarsPage({ project }: { project: string }) {
           )
         }
       />
-      <p className="mt-4 max-w-[48rem] text-[0.8125rem] leading-5 text-ink-3">
-        A change applies when you save it: the apps restart with it, one copy at a time, no deploy needed. Values named <span className="ident text-[0.75rem]">NEXT_PUBLIC_*</span>,{" "}
-        <span className="ident text-[0.75rem]">VITE_*</span> or <span className="ident text-[0.75rem]">PUBLIC_*</span> are built into browser code, so changing one rebuilds the web apps.
-      </p>
 
       {m.isError && <ProblemNote className="mt-6" error={m.error} title="The project’s config can’t be read." />}
       {secrets.isError && secretsOn && <ProblemNote className="mt-6" error={secrets.error} title="Secrets can’t be listed right now." />}

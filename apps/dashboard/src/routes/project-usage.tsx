@@ -5,7 +5,6 @@ import { useState, type ReactNode } from "react";
 import { request, type ManifestApp } from "@/api/client";
 import { mq } from "@/api/modules";
 import { q } from "@/api/queries";
-import { BoxBar } from "@/components/box-bar";
 import { StateLine } from "@/components/health-kit";
 import { InfoTip } from "@/components/info-tip";
 import { Skeleton } from "@/components/page";
@@ -22,8 +21,9 @@ import { partName, partSub } from "@/lib/names";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/choice";
 import { UsageCharts, type Range } from "@/components/usage-charts";
-import { ProjectFootprint } from "@/components/usage-disk";
-import { boxSettingsQuery, cpuWords, memWords, missing, shareMeans, shareWords, useBoxShares, usageQuery, type ProjectResources, type ProjectUsage } from "@/lib/usage";
+import { DiskBreakdown } from "@/components/usage-disk";
+import { boxDiskQuery } from "@/lib/footprint";
+import { boxSettingsQuery, cpuWords, memWords, missing, shareMeans, useBoxShares, usageQuery, type ProjectResources, type ProjectUsage } from "@/lib/usage";
 
 const MB = 1048576;
 
@@ -47,8 +47,6 @@ export function ProjectUsagePage({ project }: { project: string }) {
 export function ResourcesView({ project, range, app, tables }: { project: string; range: Range; app?: string; tables: boolean }) {
   const usage = useQuery(usageQuery(project));
   const m = useQuery({ ...q.manifest(project), staleTime: 5_000 });
-  const projects = useQuery(q.projects);
-  const names = (projects.data ?? []).map((p) => p.name);
   const { res, shares, unmeasured } = useBoxShares();
   const pending = usePending(project);
   const hasUsage = !!usage.data;
@@ -71,16 +69,10 @@ export function ResourcesView({ project, range, app, tables }: { project: string
   const cpus = shares?.cpuCount ?? res?.cpu.count ?? 1;
   const storage = usage.data?.storage;
 
+  // The Memory reading below says what it uses; the line says only how far it can grow, when the box knows.
   let sentence: ReactNode = <Skeleton className="mt-3 h-7 w-80" />;
-  if (memMB !== undefined && totalMB) {
-    const grow = headroomMB !== undefined ? memMB + headroomMB : limitMB;
-    sentence = (
-      <StateLine>
-        {project} is using {memWords(memMB)} of memory
-        {grow ? <> and can grow to about {memWords(grow)}.</> : <>, {shareWords(memMB / totalMB)} of the box.</>}
-      </StateLine>
-    );
-  } else if (unmeasured) sentence = <StateLine>Memory and CPU are measured on a running box.</StateLine>;
+  if (memMB !== undefined && totalMB) sentence = headroomMB !== undefined ? <StateLine>{project} can grow to about {memWords(memMB + headroomMB)} of memory.</StateLine> : null;
+  else if (unmeasured) sentence = <StateLine>Memory and CPU are measured on a running box.</StateLine>;
 
   // The limit as the config says it; a box that reports a budget the config doesn't show yet wins.
   const budget = usage.data?.budget;
@@ -98,15 +90,6 @@ export function ResourcesView({ project, range, app, tables }: { project: string
         <p role="status" className="mt-5 max-w-[46rem] rounded-[10px] bg-warn-wash px-4 py-3 text-[0.9375rem] text-ink">
           {usage.data.storage.diskWarning}
         </p>
-      )}
-
-      {shares && (
-        <div className="mt-5 max-w-[46rem]">
-          <BoxBar shares={shares} order={names} focus={project} />
-          <p className="mt-2 text-xs text-ink-3">
-            {project}’s share of the box, beside everything else on it.
-          </p>
-        </div>
       )}
 
       <div className="mt-9 grid max-w-[46rem] gap-3 sm:grid-cols-3">
@@ -131,7 +114,6 @@ export function ResourcesView({ project, range, app, tables }: { project: string
         <OutOfMemory project={project} live={live} source={usage.data.limitSource} />
       )}
       {usage.data && <SharedMeters usage={usage.data} />}
-      <ProjectFootprint project={project} className="mt-8 max-w-[46rem]" />
 
       {hasUsage && totalMB && (
         <Limit project={project} resources={resources} busy={!!staged} live={live} totalMB={totalMB} cpus={cpus} source={usage.data?.limitSource}>
@@ -595,7 +577,7 @@ function Details({
         Details
         <ChevronDown className={cn("size-4 text-ink-3 transition-transform duration-[var(--dur-state)]", open && "rotate-180")} />
       </button>
-      {!open && <p className="mt-1 text-sm text-ink-3">How many copies of each app run, and what each part uses.</p>}
+      {!open && <p className="mt-1 text-sm text-ink-3">How many copies of each app run, what each part uses, and what it keeps on disk.</p>}
       {open && (
         <>
           {list.length > 0 && (
@@ -624,8 +606,25 @@ function Details({
               {status.services.valkey && <Line name={partName("valkey")} sub={partSub("valkey")} value={`${count(status.services.valkey.keys, "key")} · ${bytes(status.services.valkey.memoryBytes)}`} />}
             </Group>
           )}
+          <OnDisk project={project} />
         </>
       )}
+    </section>
+  );
+}
+
+/** What the project keeps on the data disk, part by part. Its total is the Disk reading above. */
+function OnDisk({ project }: { project: string }) {
+  const report = useQuery(boxDiskQuery);
+  const d = report.data?.projects?.find((p) => p.project === project && p.exists);
+  if (!d) return null;
+  return (
+    <section className="mt-8" aria-labelledby="on-disk">
+      <h2 id="on-disk" className="label mb-1.5">
+        On disk
+      </h2>
+      <DiskBreakdown disk={d} className="border-t border-rule" />
+      <p className="mt-2 text-xs text-ink-3">Its storage limit counts its databases and files. Builds older than its rollback targets are cleared by the box each hour.</p>
     </section>
   );
 }

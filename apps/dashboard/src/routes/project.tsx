@@ -145,13 +145,7 @@ export function ProjectPage({ project }: { project: string }) {
         <div className="mt-10 grid items-start gap-x-12 gap-y-12 xl:grid-cols-[minmax(0,1fr)_340px]">
           <div className="min-w-0">
             <section aria-labelledby="prod-h">
-              <SectionHead id="prod-h" title="Production">
-                {apps.length > 0 && (
-                  <Link to="/projects/$project/deployments" params={{ project }} className="text-[0.8125rem] text-ink-3 hover:text-ink">
-                    Deployments
-                  </Link>
-                )}
-              </SectionHead>
+              <SectionHead id="prod-h" title="Production" />
               {apps.length === 0 && addingApps.length === 0 ? (
                 <div className="flex flex-wrap items-center justify-between gap-3 border-y border-rule py-4">
                   <p className="text-sm text-ink-2">No app yet. An app is the code the box builds and runs: a site, an API or a worker.</p>
@@ -160,7 +154,7 @@ export function ProjectPage({ project }: { project: string }) {
               ) : (
                 <ul className="divide-y divide-rule border-y border-rule">
                   {apps.map((a) => (
-                    <AppRow key={a.name} project={project} app={a.name} role={a.spec?.role} framework={a.spec?.framework} />
+                    <AppRow key={a.name} project={project} app={a.name} role={a.spec?.role} framework={a.spec?.framework} headUrl={pulse.url} />
                   ))}
                   {addingApps.map((a) => (
                     <PendingRow key={a} words={`Adding the ${a} app…`} />
@@ -230,7 +224,7 @@ function SectionHead({ id, title, children }: { id: string; title: string; child
  * One app in production: what's live and where, its last deploy, and how
  * it's doing (requests and errors in the last hour). The row opens the app.
  */
-function AppRow({ project, app, role, framework }: { project: string; app: string; role?: string; framework?: string }) {
+function AppRow({ project, app, role, framework, headUrl }: { project: string; app: string; role?: string; framework?: string; headUrl?: string }) {
   const who = useWho();
   const writer = useMe().can("apply:reversible");
   const d = useQuery(allDeploysQuery(project, app));
@@ -242,7 +236,8 @@ function AppRow({ project, app, role, framework }: { project: string; app: strin
   const prod = list.filter((x) => !x.preview);
   const live = prod.find((x) => x.status === "live");
   const latest = prod[0];
-  const url = rt.data?.production?.url;
+  // The header already shows the project's live address; the row shows its own only when it's another one.
+  const url = rt.data?.production?.url === headUrl ? undefined : rt.data?.production?.url;
   const asleep = !!rt.data?.production?.sleeping;
   const mm = (metrics.data ?? []).find((x) => x.app === app);
   const pilot: PilotState = asleep ? "off" : pulse?.tone === "ok" ? "on" : pulse?.tone === "busy" ? "busy" : pulse?.tone === "bad" ? "fault" : "off";

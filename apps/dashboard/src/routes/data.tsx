@@ -201,7 +201,6 @@ function CopyPicker({ project }: { project: string }) {
 /** Every Database page: the head, a note when looking at a copy, and the page; or why there's no database. */
 function DataShell({ project, children, wide }: { project: string; children: ReactNode; wide?: boolean }) {
   const info = useQuery(mq.pg(project));
-  const tables = useQuery(mq.tables(project));
   const s = useServices(project);
   const branch = useBranch();
   const { can } = useMe();
@@ -223,20 +222,12 @@ function DataShell({ project, children, wide }: { project: string; children: Rea
         </Empty>
       </Page>
     );
-  const own = (tables.data ?? []).filter((t) => !t.managed && (t.kind === "table" || t.kind === "partitioned")).length;
   return (
     <Page full={!wide} wide={wide}>
       <DataHeader
         project={project}
         title={PARTS.postgres.name}
-        lede={
-          info.data ? (
-            <span className="tnum">
-              {bytes(info.data.sizeBytes)} · {count(own, "table")}
-              <span className="text-ink-3"> · Postgres {info.data.version.match(/^\d+(\.\d+)?/)?.[0] ?? info.data.version}</span>
-            </span>
-          ) : undefined
-        }
+        lede={info.data ? <span className="tnum">Postgres {info.data.version.match(/^\d+(\.\d+)?/)?.[0] ?? info.data.version}</span> : undefined}
         actions={
           <>
             <CopyPicker project={project} />

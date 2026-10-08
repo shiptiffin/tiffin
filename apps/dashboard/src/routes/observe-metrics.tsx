@@ -39,7 +39,6 @@ export function MetricsPage() {
   const o = useQuery(mq.overview);
   const res = useQuery(q.resources);
   const changes = useQuery(q.changes());
-  const settings = useQuery({ queryKey: ["observe-settings"], queryFn: mod.observeSettings, staleTime: 300_000 });
   if (o.isError && notOnBox(o.error)) return <NotOnBox what="Metrics" />;
   if (o.isPending)
     return (
@@ -155,16 +154,6 @@ export function MetricsPage() {
       <PageHeader
         eyebrow={healthCrumbs}
         title="Metrics"
-        lede={
-          <>
-            A point a minute, kept for {settings.data?.metricsRetention?.replace(/d$/, " days") ?? "30 days"}. The last hour is drawn here;{" "}
-            <span className="whitespace-nowrap">
-              <span aria-hidden className="mr-1 inline-block size-[7px] rotate-45 rounded-[1px] bg-brass align-[1px]" />
-              marks
-            </span>{" "}
-            a change to the box.
-          </>
-        }
         actions={
           <span className="text-[0.8125rem] text-ink-3">
             Box {boxUp(n.uptimeSeconds)} · {countWords(n.cpus, "CPU")}

@@ -1,39 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ArrowUpRight, Copy, Eye, EyeOff, GitBranch, History, Play, Plus, RotateCcw, Table2 } from "lucide-react";
-import { Toggle } from "radix-ui";
+import { ArrowUpRight, GitBranch, History, Play, Plus, RotateCcw, Table2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { mod, mq, type PgInfo, type PgTable } from "@/api/modules";
+import { mq, type PgInfo, type PgTable } from "@/api/modules";
 import { ActorMark } from "@/components/actor";
-import { CopyButton } from "@/components/copy";
 import { Reading, Rows, Section } from "@/components/data-parts";
 import { Empty, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
-import { Segmented } from "@/components/segmented";
-import { toast } from "@/components/toast";
 import { Button } from "@/components/ui/button";
-import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/cn";
 import { bytes, bytesParts, count, int, num } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { relative } from "@/lib/time";
-import { dq, editWords, problemToast, slugOf } from "./api";
+import { dq, editWords, slugOf } from "./api";
 import { useBranch, useSetSearch } from "./view";
 
-type Form = "url" | "psql" | "env";
-const DOTS = "••••••••";
-
-/** The connection as each form writes it: a URL, a psql command, a line for .env. */
-function written(url: string, form: Form) {
-  return form === "psql" ? `psql "${url}"` : form === "env" ? `DATABASE_URL="${url}"` : url;
-}
-
-/** Postgres's major version and minor, as people say it: "17.4". */
-const pgVersion = (v?: string) => (v ?? "").match(/^\d+(\.\d+)?/)?.[0] ?? "";
-
 /**
- * The Database's home: how to connect, what's in it, and what you can do
- * next. Like a project dashboard on a hosted database, sized for one box.
+ * The Database's home: what's in it and what you can do next (Connect is
+ * in the page header). Like a project dashboard on a hosted database, sized for one box.
  */
 export function DataOverview({ project }: { project: string }) {
   const branch = useBranch();
@@ -58,9 +42,7 @@ export function DataOverview({ project }: { project: string }) {
   return (
     <div className="grid gap-x-12 gap-y-10 xl:grid-cols-[minmax(0,1fr)_19rem]">
       <div className="min-w-0">
-        <Connection project={project} info={i} failed={info.isError} writer={writer} branch={branch} />
-
-        <div className="mt-8 grid grid-cols-2 gap-x-8 gap-y-6 border-b border-rule pb-7 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-6 border-b border-rule pb-7 sm:grid-cols-4">
           <Reading label="Size" value={i ? size.value : "–"} unit={i ? size.unit : undefined} sub={i ? "Tables, indexes and history" : undefined} />
           <Reading
             label="Tables"
@@ -109,9 +91,6 @@ export function DataOverview({ project }: { project: string }) {
       <aside className="flex min-w-0 flex-col gap-9">
         <Section id="db-do" label="Quick actions">
           <Rows>
-            {writer && (
-              <Action icon={<Plus />} title="New table" sub="Name it, pick columns, link it to others" onClick={() => setSearch({ new: "table" }, false)} />
-            )}
             <Action
               icon={<Play />}
               title="Run SQL"
@@ -142,94 +121,6 @@ export function DataOverview({ project }: { project: string }) {
         <RecentEdits project={project} />
       </aside>
     </div>
-  );
-}
-
-/** The connection string, its password hidden until asked for, in the form you need. */
-function Connection({ project, info, failed, writer, branch }: { project: string; info?: PgInfo; failed: boolean; writer: boolean; branch: string }) {
-  const [form, setForm] = useState<Form>("url");
-  const [shown, setShown] = useState(false);
-  const real = useQuery({ queryKey: ["pg-connection", project], queryFn: () => mod.pgConnection(project), enabled: shown && writer, staleTime: 5 * 60_000 });
-  const masked = info ? `postgresql://${info.role}:${DOTS}@${info.host || "127.0.0.1:5432"}/${info.database}?sslmode=disable` : "";
-  const url = shown && real.data ? real.data.databaseUrl : masked;
-
-  /** Copies with the password: fetched (and logged on the box) only now. */
-  const copy = async () => {
-    try {
-      const c = real.data ?? (await mod.pgConnection(project));
-      if (await copyText(written(c.databaseUrl, form))) toast({ title: form === "url" ? "Copied the connection string" : form === "psql" ? "Copied the psql command" : "Copied the .env line", detail: "It includes the password." });
-    } catch (e) {
-      problemToast(e, "Couldn't get the connection string.");
-    }
-  };
-
-  return (
-    <section aria-labelledby="db-connect" className="overflow-hidden rounded-[10px] border border-rule-2 bg-paper-raised">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 pt-3.5 pb-3">
-        <h2 id="db-connect" className="text-base font-[550] text-ink">
-          Connection string
-        </h2>
-        <Segmented<Form>
-          label="Form"
-          value={form}
-          onChange={setForm}
-          options={[
-            { value: "url", label: "URL" },
-            { value: "psql", label: "psql" },
-            { value: "env", label: ".env" },
-          ]}
-        />
-      </div>
-      <div className="flex items-start gap-2 border-y border-rule bg-paper-sunk/60 px-4 py-3">
-        {info ? (
-          <code className="min-w-0 flex-1 font-mono text-[0.8125rem] leading-5 break-all text-ink" aria-label="Connection string" data-testid="db-connection">
-            {written(url, form)
-              .split(DOTS)
-              .flatMap((part, k) => (k === 0 ? [part] : [<span key={k} className="tracking-[0.08em] text-ink-3" aria-label="password hidden">{DOTS}</span>, part]))}
-          </code>
-        ) : failed ? (
-          <p className="flex-1 text-sm text-ink-3">The database didn't answer, so its connection string can't be shown.</p>
-        ) : (
-          <Skeleton className="h-5 flex-1" />
-        )}
-        {writer && info && (
-          <span className="-my-1 flex shrink-0 items-center gap-0.5">
-            <Toggle.Root
-              pressed={shown}
-              onPressedChange={setShown}
-              aria-label="Show the password"
-              title={shown ? "Hide the password" : "Show the password"}
-              className="grid size-7 place-items-center rounded-md text-ink-3 transition-colors hover:bg-paper-hover hover:text-ink data-[state=on]:text-ink"
-            >
-              {shown ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-            </Toggle.Root>
-            <button
-              type="button"
-              onClick={() => void copy()}
-              aria-label="Copy with the password"
-              title="Copy with the password"
-              className="grid size-7 place-items-center rounded-md text-ink-3 transition-colors hover:bg-paper-hover hover:text-ink"
-            >
-              <Copy className="size-3.5" />
-            </button>
-          </span>
-        )}
-      </div>
-      {real.isError && <ProblemNote className="mx-4 mt-3" error={real.error} />}
-      <div className="grid gap-x-6 gap-y-1.5 px-4 py-3 text-sm text-ink-3 sm:grid-cols-2">
-        <p>
-          Your apps already have it as <code className="ident text-ink-2">DATABASE_URL</code>
-          {branch ? <>; previews get their copy's own.</> : "."}
-        </p>
-        <p className="flex min-w-0 items-center gap-1 sm:justify-end">
-          <span className="shrink-0">From your computer:</span>
-          <code className="ident truncate text-ink-2">tiffin db tunnel {project}</code>
-          <CopyButton value={`tiffin db tunnel ${project}`} label="Copy the tunnel command" className="-my-1 size-6" />
-        </p>
-        {!writer && <p className="sm:col-span-2">The password needs full access to the project.</p>}
-        {writer && shown && <p className="sm:col-span-2">Seeing or copying the password is written to the box's audit log.</p>}
-      </div>
-    </section>
   );
 }
 
@@ -321,7 +212,7 @@ function Action({
   );
 }
 
-/** What the database is: version, names, where it listens, extensions. */
+/** What the database is (its version is the page's subtitle): names, where it listens, extensions. */
 function Details({ info, failed }: { info?: PgInfo; failed: boolean }) {
   if (!info)
     return (
@@ -331,7 +222,6 @@ function Details({ info, failed }: { info?: PgInfo; failed: boolean }) {
     );
   const ext = (info.extensions ?? []).map((e) => e.split("@")[0]).filter((e) => e !== "plpgsql");
   const rows: Array<[string, ReactNode]> = [
-    ["Postgres", pgVersion(info.version)],
     ["Database", <code className="ident">{info.database}</code>],
     ["Role", <code className="ident">{info.role}</code>],
     ["Listens on", <code className="ident">{info.host || "127.0.0.1:5432"}</code>],

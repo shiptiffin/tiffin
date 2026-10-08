@@ -140,7 +140,7 @@ function Form({
   };
 
   const notes: ReactNode[] = [];
-  if (valid && builtIn(key)) notes.push(secret ? <>Values named like this ship to browsers, so anyone can read them. They can’t really be secret.</> : <>Built into browser code: anyone can read it, and saving rebuilds the web apps.</>);
+  if (valid && builtIn(key)) notes.push(secret ? <>Values named like this ship to browsers, so anyone can read them. They can’t really be secret.</> : <>Built into browser code: anyone can read it.</>);
   if (valid && setByBox(key)) notes.push(<>Tiffin already sets {key}. Yours replaces Tiffin’s value.</>);
   if (already) notes.push(<>{key} is already set for {scope === "all" ? "the whole project" : scopeWords(scope)}. Saving replaces it.</>);
   if (secretExists && secret) notes.push(<>A secret named {key} exists. Saving replaces it.</>);
@@ -255,7 +255,7 @@ function Form({
         {saveSecret.isError && <ProblemNote error={saveSecret.error} />}
       </DialogBody>
       <DialogFooter>
-        <span className="text-xs text-ink-3 sm:mr-auto">{valid && builtIn(key) ? "Saving rebuilds the web apps." : "Saving restarts the apps."}</span>
+        <span className="text-xs text-ink-3 sm:mr-auto">{valid && builtIn(key) ? "Saving rebuilds the web apps; no deploy needed." : "Saving restarts the apps, one copy at a time; no deploy needed."}</span>
         <Button type="button" variant="ghost" onClick={close}>
           Cancel
         </Button>

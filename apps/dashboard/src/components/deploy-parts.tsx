@@ -430,14 +430,14 @@ export function DeployHead() {
 
 // ------------------------------------------------------------------ terminal
 
-/** The CLI and git-push ways in. */
+/** The CLI, git-push and agent ways in, closed until asked for. */
 export function Terminal({ project, className }: { project: string; className?: string }) {
   const git = useQuery({ queryKey: ["git", project], queryFn: () => mod3.git(project), staleTime: Infinity, retry: false });
   return (
-    <section className={cn("max-w-[46rem]", className)} aria-labelledby="terminal">
-      <h2 id="terminal" className="label">
-        From your terminal
-      </h2>
+    <details className={cn("group max-w-[46rem]", className)}>
+      <summary className="cursor-pointer list-none text-[0.8125rem] text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
+        <span className="inline-block transition-transform group-open:rotate-90">›</span> Other ways to deploy
+      </summary>
       <div className="mt-2 divide-y divide-rule border-y border-rule text-[0.8125rem]">
         <TermRow title="From the app’s folder">
           <Command cmd="tiffin deploy" />
@@ -450,7 +450,7 @@ export function Terminal({ project, className }: { project: string; className?: 
           <Command cmd={mcpCommand()} wrap />
         </TermRow>
       </div>
-    </section>
+    </details>
   );
 }
 

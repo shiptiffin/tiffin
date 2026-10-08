@@ -5,6 +5,7 @@ import type { BoxDomain } from "@/lib/domains";
  * The short version of how a domain reaches the box: whole domain or
  * subdomain (and so which record), where certificates come from, and that
  * Tiffin doesn't sell domains. Uses the box's real addresses when it has them.
+ * Closed until asked for: most people only need it once.
  */
 export function DomainsGuide({ box, admin }: { box?: BoxDomain; admin: boolean }) {
   const ips = box?.publicIps ?? [];
@@ -12,11 +13,11 @@ export function DomainsGuide({ box, admin }: { box?: BoxDomain; admin: boolean }
   const target = box && box.certificates === "acme" ? (box.appsDomain !== box.domain ? box.dashboard : box.domain) : "";
   const code = "ident text-[0.75rem] text-ink";
   return (
-    <section className="mt-14" aria-labelledby="domains-how">
-      <h2 id="domains-how" className="label mb-3">
-        How it works
-      </h2>
-      <div className="grid gap-x-8 gap-y-6 border-t border-rule pt-5 text-[0.8125rem] leading-5 text-ink-2 sm:grid-cols-3">
+    <details className="group mt-14">
+      <summary className="cursor-pointer list-none text-[0.8125rem] text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
+        <span className="inline-block transition-transform group-open:rotate-90">›</span> How domains work
+      </summary>
+      <div className="mt-3 grid gap-x-8 gap-y-6 border-t border-rule pt-5 text-[0.8125rem] leading-5 text-ink-2 sm:grid-cols-3">
         <div>
           <h3 className="text-[0.875rem] font-[550] text-ink">A whole domain</h3>
           <p className="mt-1">
@@ -63,6 +64,6 @@ export function DomainsGuide({ box, admin }: { box?: BoxDomain; admin: boolean }
           </>
         )}
       </p>
-    </section>
+    </details>
   );
 }

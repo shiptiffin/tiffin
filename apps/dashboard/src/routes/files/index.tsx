@@ -31,7 +31,7 @@ export { BucketPage } from "./bucket";
 
 const shortDate = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric" });
 const shortDay = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" });
-const LEDE = "S3-compatible buckets · public or private · image resizing built in";
+const LEDE = "S3-compatible buckets.";
 
 /**
  * Files: the project's buckets. Each row says who can read it, how big it

@@ -7,15 +7,13 @@ import { q } from "@/api/queries";
 import { useTitle } from "@/components/favicon";
 import { Crumbs, Page, PageHeader, Skeleton } from "@/components/page";
 import { ProblemNote } from "@/components/problem";
-import { ConfigRow, SERVICES, ServiceRow, Working, type SetEdit } from "@/components/project-rows";
+import { SERVICES, ServiceRow, Working, type SetEdit } from "@/components/project-rows";
 import { Button } from "@/components/ui/button";
-import { count, cronWords } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { DeleteProject } from "@/components/delete-project";
 import { rememberProject } from "@/lib/recent";
 import { change, pendingFor, usePending } from "@/lib/staged";
 import { CreateKeyDialog, KeyList, keyProjects, onlyKeys } from "./keys";
-import { ProjectIcon } from "@/components/project-icon";
 import { ProjectIconSettings } from "@/components/project-icon-settings";
 import { CopyAndMove, StoppedNote } from "@/components/project-copy";
 import { AppsSettings } from "@/components/settings-apps";
@@ -23,8 +21,8 @@ import { SettingsNav, useSettingsSection, type SettingsSection } from "@/compone
 
 /**
  * A project's settings, one section at a time (the sub-navigation keeps the
- * section in the URL's #hash): General (name, sleep), Apps (how each runs and
- * builds), Services (built-in parts on or off, jobs), API keys, Copy & move,
+ * section in the URL's #hash): General (icon, sleep), Apps (how each runs and
+ * builds), Services (built-in parts on or off; jobs live on Jobs), API keys, Copy & move,
  * and the Danger zone. Environment variables and domains have their own pages.
  */
 export function ProjectSettingsPage({ project }: { project: string }) {
@@ -63,14 +61,7 @@ export function ProjectSettingsPage({ project }: { project: string }) {
         <div className="max-w-[52rem] min-w-0">
           {active === "general" && (
             <>
-              <Section title="Name" first>
-                <p className="flex items-center gap-2.5 text-[0.9375rem] font-[550] text-ink">
-                  <ProjectIcon project={project} size={20} />
-                  {project}
-                </p>
-              </Section>
-
-              <Section title="Icon" note="Shown beside the project’s name everywhere: the sidebar, ⌘K, lists, and its emails.">
+              <Section title="Icon" first note="Shown beside the project’s name everywhere: the sidebar, ⌘K, lists, and its emails.">
                 <ProjectIconSettings project={project} />
               </Section>
 
@@ -79,17 +70,6 @@ export function ProjectSettingsPage({ project }: { project: string }) {
                   <SleepAfter project={project} live={man?.sleepAfter} staged={pendingSet(["sleepAfter"])} />
                 </Section>
               )}
-
-              <p className="mt-10 border-t border-rule pt-4 text-[0.8125rem] text-ink-3">
-                <Link to="/projects/$project/env" params={{ project }} className="text-ink-2 underline decoration-rule-3 underline-offset-4 hover:text-ink">
-                  Environment Variables
-                </Link>{" "}
-                and{" "}
-                <Link to="/projects/$project/domains" params={{ project }} className="text-ink-2 underline decoration-rule-3 underline-offset-4 hover:text-ink">
-                  Domains
-                </Link>{" "}
-                have their own pages now.
-              </p>
             </>
           )}
 
@@ -116,16 +96,13 @@ export function ProjectSettingsPage({ project }: { project: string }) {
                 </div>
               </Section>
               {(crons.length > 0 || queues.length > 0) && (
-                <Section title="Jobs" note="Schedules and queues, as the config declares them.">
-                  <div className="divide-y divide-rule border-y border-rule">
-                    {crons.map(([name, c]) => (
-                      <ConfigRow key={name} project={project} path={["crons", name]} name={name} sub="Schedule" status={<>Calls {c.url ? <span className="ident text-[0.75rem]">{c.url}</span> : <>{c.app} at <span className="ident text-[0.75rem]">{c.path}</span></>} {cronWords(c.schedule)}.</>} value={c} staged={pendingSet(["crons", name])} to="/projects/$project/jobs/schedules" />
-                    ))}
-                    {queues.map(([name, qq]) => (
-                      <ConfigRow key={name} project={project} path={["queues", name]} name={name} sub="Queue" status={<>Delivers to {qq.url ? <span className="ident text-[0.75rem]">{qq.url}</span> : <>{qq.app} at <span className="ident text-[0.75rem]">{qq.path}</span></>}, up to {count(qq.maxAttempts || 8, "attempt")}.</>} value={qq} staged={pendingSet(["queues", name])} to="/projects/$project/jobs/queues" />
-                    ))}
-                  </div>
-                </Section>
+                <p className="mt-10 border-t border-rule pt-4 text-[0.8125rem] text-ink-3">
+                  Its {[crons.length > 0 && "schedules", queues.length > 0 && "queues"].filter(Boolean).join(" and ")} are on the{" "}
+                  <Link to={crons.length > 0 ? "/projects/$project/jobs/schedules" : "/projects/$project/jobs/queues"} params={{ project }} className="text-ink-2 underline decoration-rule-3 underline-offset-4 hover:text-ink">
+                    Jobs
+                  </Link>{" "}
+                  page.
+                </p>
               )}
               {!m.data && !m.isError && <Skeleton className="mt-8 h-40" />}
             </>

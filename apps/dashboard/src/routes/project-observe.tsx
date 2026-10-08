@@ -293,8 +293,11 @@ function Vitals({ totals: t, pending, down, range, series }: { totals?: WindowTo
         ))}
       </div>
       {codes.length > 0 && t && t.requests > 0 && (
-        <div className="mt-4">
-          <div className="flex h-1.5 gap-0.5 overflow-hidden rounded-full" role="img" aria-label={`Answers by status: ${codes.map(([c, n]) => `${c} ${int(n)}`).join(", ")}`}>
+        <details className="group mt-4">
+          <summary className="cursor-pointer list-none text-[0.8125rem] text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
+            <span className="inline-block transition-transform group-open:rotate-90">›</span> Requests by status code
+          </summary>
+          <div className="mt-3 flex h-1.5 gap-0.5 overflow-hidden rounded-full" role="img" aria-label={`Answers by status: ${codes.map(([c, n]) => `${c} ${int(n)}`).join(", ")}`}>
             {codes.map(([c, n]) => (
               <span key={c} className={cn("h-full min-w-[3px] first:rounded-l-full last:rounded-r-full", STATUS_TONE[c] ?? "bg-ink-4")} style={{ width: `${(n / t.requests) * 100}%` }} />
             ))}
@@ -309,7 +312,7 @@ function Vitals({ totals: t, pending, down, range, series }: { totals?: WindowTo
               </span>
             ))}
           </p>
-        </div>
+        </details>
       )}
     </section>
   );
@@ -396,13 +399,20 @@ function Errors({ project, hasApps }: { project: string; hasApps?: boolean }) {
       : `${countWords(o.length, "open issue", "open issues", true)}${appsWith.size === 1 ? `, ${o.length > 1 ? "all " : ""}in ${[...appsWith][0]}` : ` across ${countWords(appsWith.size, "app")}`}. ${
           o.length > 1 ? "The worst has" : "It has"
         } happened ${countWords(worst.count, "time")}, last seen ${relative(worst.lastSeen)}.`;
+  // With nothing open, the empty state below carries the setup itself.
+  const calm = list.isSuccess && issues.length === 0 && st === "unresolved";
 
   return (
     <>
       <div className="mt-4">{open.isSuccess && <StateLine>{line}</StateLine>}</div>
-      <p className="mt-2 max-w-[42rem] text-[0.875rem] text-ink-3">
-        Exceptions {project}’s apps report, grouped into issues by where they happen. Any Sentry SDK works: every app already has <code className="ident text-ink-2">SENTRY_DSN</code>.
-      </p>
+      {!calm && (
+        <>
+          <p className="mt-2 max-w-[42rem] text-[0.875rem] text-ink-3">Errors are grouped by where they happen.</p>
+          <SetUp>
+            Any Sentry SDK works: every app already has <code className="ident text-ink-2">SENTRY_DSN</code>.
+          </SetUp>
+        </>
+      )}
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <Segmented label="Which issues" value={st} onChange={setSt} options={states.map((s) => ({ v: s.v, label: s.label }))} />
         <Link to="/errors" search={{ project }} className="text-[0.8125rem] text-ink-3 underline-offset-4 hover:text-ink hover:underline">
@@ -421,7 +431,8 @@ function Errors({ project, hasApps }: { project: string; hasApps?: boolean }) {
           issues.length === 0 &&
           (st === "unresolved" ? (
             <Calm art="errors" title={`No open errors in ${project}.`}>
-              When an app throws, the error lands here, grouped with others like it. Quiet is the goal.
+              When an app throws, the error lands here, grouped with others like it. Any Sentry SDK works: every app already has{" "}
+              <code className="ident text-ink-2">SENTRY_DSN</code>.
             </Calm>
           ) : (
             <p className="border-y border-rule py-8 text-center text-[0.875rem] text-ink-3">{st === "resolved" ? "Nothing resolved yet." : "Nothing ignored."}</p>
@@ -464,10 +475,12 @@ function Requests({ project, hasApps }: { project: string; hasApps?: boolean }) 
   return (
     <>
       <div className="mt-4">{list.isSuccess && <StateLine>{line}</StateLine>}</div>
-      <p className="mt-2 max-w-[42rem] text-[0.875rem] text-ink-3">
-        Each request {project}’s apps trace, step by step. The box keeps every request that failed or took a second or more, and one in ten of the rest, for three days. Next.js needs an{" "}
-        <code className="ident text-ink-2">instrumentation.ts</code> with <code className="ident text-ink-2">registerOTel()</code>; the address and key are already set.
-      </p>
+      {!(list.isSuccess && traces.length === 0) && (
+        <>
+          <p className="mt-2 max-w-[42rem] text-[0.875rem] text-ink-3">Every failed or slow request is kept for three days, and one in ten of the rest.</p>
+          <SetUp>{otelHow}</SetUp>
+        </>
+      )}
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <Segmented label="How far back" value={since} onChange={setSince} options={windows.map((w) => ({ v: w.v, label: w.label }))} />
         <Segmented
@@ -490,10 +503,33 @@ function Requests({ project, hasApps }: { project: string; hasApps?: boolean }) 
             <ProblemNote error={list.error} />
           ))}
         {list.isSuccess && traces.length === 0 && (
-          <p className="border-y border-rule py-8 text-center text-[0.875rem] text-ink-3">{which === "failed" ? "No failed requests in this window." : "Nothing traced in this window."}</p>
+          <div className="border-y border-rule py-8 text-center text-[0.875rem] text-ink-3">
+            <p>{which === "failed" ? "No failed requests in this window." : "Nothing traced in this window."}</p>
+            <p className="mx-auto mt-1 max-w-[36rem]">
+              The box keeps every request that failed or took a second or more, and one in ten of the rest, for three days. {otelHow}
+            </p>
+          </div>
         )}
         {traces.length > 0 && <TraceRows traces={traces} />}
       </div>
     </>
+  );
+}
+
+const otelHow = (
+  <>
+    Next.js needs an <code className="ident text-ink-2">instrumentation.ts</code> with <code className="ident text-ink-2">registerOTel()</code>; the address and key are already set.
+  </>
+);
+
+/** Setup steps, closed: people who already report errors or traces don't need them on every visit. */
+function SetUp({ children }: { children: ReactNode }) {
+  return (
+    <details className="group mt-1.5 max-w-[42rem]">
+      <summary className="cursor-pointer list-none text-[0.8125rem] text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
+        <span className="inline-block transition-transform group-open:rotate-90">›</span> How to set it up
+      </summary>
+      <p className="mt-2 text-[0.875rem] text-ink-2">{children}</p>
+    </details>
   );
 }

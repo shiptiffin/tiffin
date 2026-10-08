@@ -130,11 +130,9 @@ export function DeploymentsPage({ project }: { project: string }) {
               <>
                 <div className="border-y border-rule py-6">
                   <p className="text-md text-ink">Nothing deployed yet.</p>
-                  <p className="mt-1 max-w-[40rem] text-sm text-ink-2">
-                    {writer ? "Use Deploy above to build a starter, a git URL or a GitHub branch, or ship from your terminal." : "Deploys from the dashboard, a terminal or GitHub show up here."} Each one builds on the box and takes traffic once it’s healthy.
-                  </p>
+                  <p className="mt-1 max-w-[40rem] text-sm text-ink-2">{writer ? "Use Deploy above to ship your first version." : "Deploys show up here."}</p>
                 </div>
-                <Terminal project={project} className="mt-10" />
+                <Terminal project={project} className="mt-6" />
               </>
             ) : (
               <>

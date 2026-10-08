@@ -11,7 +11,9 @@ import { ProblemNote } from "@/components/problem";
 import { SegMeter } from "@/components/seg-meter";
 import { Button } from "@/components/ui/button";
 import { bytes, bytesParts, int } from "@/lib/format";
+import { useMe } from "@/lib/me";
 import { PARTS } from "@/lib/names";
+import { change } from "@/lib/staged";
 import { relative } from "@/lib/time";
 import { ConnectButton } from "@/components/connect";
 import { useCommand, useKeyHelp, useShortcut } from "@/lib/shortcuts";
@@ -35,6 +37,7 @@ export function KvPage({ project, match, k, tab = "keys", isNew }: { project: st
   const [filters, setFilters] = useState<Filters>({ search: match ?? "", type: "", expiry: "" });
   const [making, setMaking] = useState(!!isNew);
   const browser = useRef<BrowserHandle>(null);
+  const { can } = useMe();
 
   const go = useCallback(
     (o: { key?: string; match?: string }) =>
@@ -78,8 +81,15 @@ export function KvPage({ project, match, k, tab = "keys", isNew }: { project: st
           }
         />
         {missing ? (
-          <Empty className="mt-10" title="This project has no KV yet">
-            Add <code className="font-mono text-ink">services: {"{ valkey: {} }"}</code> to tiffin.config.ts, then plan and apply.
+          <Empty className="mt-10" title={`${project} doesn’t have ${PARTS.valkey.a} yet.`}>
+            It’s built in: adding it takes a few seconds, and History can undo it.
+            {can("apply:reversible") && (
+              <div className="mt-4 flex justify-center">
+                <Button variant="primary" onClick={() => change(project, { kind: "service", service: "valkey", from: "off", to: "on" }, { immediate: true })}>
+                  Add {name}
+                </Button>
+              </div>
+            )}
           </Empty>
         ) : (
           <>
@@ -130,15 +140,15 @@ export function KvPage({ project, match, k, tab = "keys", isNew }: { project: st
   );
 }
 
-/** Memory against the cap, kept versus cache, and how it's saved to disk. */
+/** Memory against the cap; kept versus cache and how it's saved to disk one click away. */
 function Meters({ s }: { s: KVStats }) {
   const cap = s.enforcedBytes || (s.maxMemoryMB ?? 0) * 1024 * 1024;
   const mem = bytesParts(s.memoryBytes);
   const keys = Math.max(1, s.keys);
   return (
     <>
-      <Readings className="grid-cols-1 sm:grid-cols-3">
-        <Reading label="Memory" value={mem.value} unit={cap > 0 ? `${mem.unit} of ${bytes(cap, 0)}` : mem.unit} sub={cap > 0 ? (s.approximate ? "Estimated from a sample of keys" : undefined) : "No limit set for this project"}>
+      <Readings className="grid-cols-1">
+        <Reading className="sm:max-w-[22rem]" label="Memory" value={mem.value} unit={cap > 0 ? `${mem.unit} of ${bytes(cap, 0)}` : mem.unit} sub={cap > 0 ? (s.approximate ? "Estimated from a sample of keys" : undefined) : "No limit set for this project"}>
           {cap > 0 && (
             <SegMeter
               className="mt-2.5"
@@ -151,21 +161,28 @@ function Meters({ s }: { s: KVStats }) {
             />
           )}
         </Reading>
-        <Reading label="Kept · cache" value={int(s.keptKeys)} unit={`kept · ${int(s.cacheKeys)} cache`}>
-          <div
-            className="mt-2.5 flex h-2 gap-0.5 overflow-hidden rounded-full bg-paper-sunk"
-            role="img"
-            aria-label={`${int(s.keptKeys)} keys kept until deleted, ${int(s.cacheKeys)} with an expiry`}
-          >
-            {s.keptKeys > 0 && <span className="h-full min-w-[3px] rounded-l-full bg-ink-3" style={{ width: `${(s.keptKeys / keys) * 100}%` }} />}
-            {s.cacheKeys > 0 && <span className="h-full min-w-[3px] flex-1 rounded-r-full bg-rule-3" />}
+        <details className="group">
+          <summary className="cursor-pointer list-none text-[0.8125rem] text-ink-3 select-none hover:text-ink [&::-webkit-details-marker]:hidden">
+            <span className="inline-block transition-transform group-open:rotate-90">›</span> Kept keys, cache and disk
+          </summary>
+          <div className="mt-4 grid gap-x-10 gap-y-6 sm:grid-cols-3">
+            <Reading label="Kept · cache" value={int(s.keptKeys)} unit={`kept · ${int(s.cacheKeys)} cache`}>
+              <div
+                className="mt-2.5 flex h-2 gap-0.5 overflow-hidden rounded-full bg-paper-sunk"
+                role="img"
+                aria-label={`${int(s.keptKeys)} keys kept until deleted, ${int(s.cacheKeys)} with an expiry`}
+              >
+                {s.keptKeys > 0 && <span className="h-full min-w-[3px] rounded-l-full bg-ink-3" style={{ width: `${(s.keptKeys / keys) * 100}%` }} />}
+                {s.cacheKeys > 0 && <span className="h-full min-w-[3px] flex-1 rounded-r-full bg-rule-3" />}
+              </div>
+            </Reading>
+            <Reading
+              label="On disk"
+              value={<span className="block pt-1 text-[0.9375rem] leading-[1.375rem] tracking-normal">{s.server.aofEnabled ? "Saved every second" : "Snapshots only"}</span>}
+              sub={s.server.lastSaveAt ? `Last snapshot ${relative(s.server.lastSaveAt)}` : undefined}
+            />
           </div>
-        </Reading>
-        <Reading
-          label="On disk"
-          value={<span className="block pt-1 text-[0.9375rem] leading-[1.375rem] tracking-normal">{s.server.aofEnabled ? "Saved every second" : "Snapshots only"}</span>}
-          sub={s.server.lastSaveAt ? `Last snapshot ${relative(s.server.lastSaveAt)}` : undefined}
-        />
+        </details>
       </Readings>
       {s.writesRefused && (
         <p role="alert" className="mt-4 rounded-[10px] border border-warn bg-warn-wash px-4 py-2.5 text-base text-ink">
