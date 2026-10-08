@@ -3,8 +3,17 @@ package analytics
 import (
 	"context"
 
+	"github.com/btahir/tiffin/internal/change"
 	"github.com/btahir/tiffin/internal/platform"
 )
+
+// Committed drops the host map once a change commits, so pageviews of an
+// app's new routes count from the first request.
+func (m *Module) Committed(context.Context, *platform.Platform, *change.Change) {
+	if m.sites != nil {
+		m.sites.Invalidate()
+	}
+}
 
 // ProjectDeleted forgets everything analytics keeps about a destroyed
 // project: events, daily rollups, vitals and its apps' collector keys.
